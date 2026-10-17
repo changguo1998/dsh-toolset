@@ -1,11 +1,12 @@
 /**
  * memory-base SQLite schema：`sources` + 各分类表（每个分类一张，结构一致）+ 双 FTS5 影子表 + TRIGGER 写直达同步。
  *
- * 设计对照 docs/DESIGN.md §4（分类注册制）与 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §12.1：
- * - sources 为来源记账；分类表为内容主体（普通 SQL 做过滤/排序/淘汰），**按需建**（空表不建）；
- * - 兜底分类的物理表＝v1 布局的 `chunks`（决策 D38：不改名、不迁移、不 bump 版本）；
+ * 口径（2026-10-17 接口重设）：本包**只负责存储**——分层 / 分类 / 读写 / 查询 / 按扩展隔离五件事；
+ * 提升链（`candidates`）、文档索引（`doc_index`）与四语义列（`origin` / `summary` / `category` /
+ * `target`）已取消，旧库不迁移（格式与版本已变，打不开；清空走 `migrate({ from: "v1", mode: "drop" })`）。
+ * - sources 为来源记账；分类表为内容主体（普通 SQL 做过滤/排序），**按需建**（空表不建）；
  * - chunks_fts（porter 语义词干 BM25）与 chunks_trigram_fts（trigram 子串/模糊检索）
- *   以 external content 模式挂靠 chunks（免双份存储），由 TRIGGER 在 insert/update/delete
+ *   以 external content 模式挂靠分类表（免双份存储），由 TRIGGER 在 insert/update/delete
  *   写直达同步（update = delete 旧行 + insert 新行）。
  *
  * open 流程仿 packages/session-query/session-query-sqlite/src/schema.ts：
@@ -17,10 +18,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, open } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { FALLBACK_TABLE, type KindColumn, type Tier } from "./router.ts";
+import type { Tier } from "./router.ts";
 
 /** 当前 schema 版本。不兼容变更时 +1；open 遇不匹配版本一律拒绝（不重置）。 */
-export const KNOWLEDGE_SCHEMA_VERSION = 1;
+export const KNOWLEDGE_SCHEMA_VERSION = 2;
 
 /**
  * 各层库的 SQLite application id（设计 §9「一库一指纹」）。
@@ -72,9 +73,6 @@ function listUserTables(db: DatabaseSync): string[] {
  * FTS 影子表随虚拟表 DROP 自动清理，base 表 DROP 连带其 TRIGGER。
  */
 function resetSchema(db: DatabaseSync): void {
-  db.exec(`DROP TABLE IF EXISTS ${FALLBACK_TABLE}_trigram_fts`);
-  db.exec(`DROP TABLE IF EXISTS ${FALLBACK_TABLE}_fts`);
-  db.exec(`DROP TABLE IF EXISTS ${FALLBACK_TABLE}`);
   db.exec("DROP TABLE IF EXISTS sources");
   db.exec("PRAGMA user_version = 0");
 }
@@ -95,85 +93,31 @@ function ensureSources(db: DatabaseSync): void {
 }
 
 /**
- * 幂等给表补可空列（决策 D53 的「加表式加列」例外，已回写设计 §9）：
- * `pragma_table_info` 探测，缺列才 `ALTER TABLE ADD COLUMN`（可空、无默认值——
- * STRICT 表下 NOT NULL 无默认会被拒，实测见追踪文档）。
- */
-function ensureColumn(
-  db: DatabaseSync,
-  table: string,
-  column: string,
-  ddl: string,
-): void {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
-    name: string;
-  }>;
-  if (columns.some((info) => info.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
-}
-
-/**
- * 审阅留痕与回指列（设计 §4 基类列的落地子集，决策 D53）：
- * `promoted_to`（下层行回指上层行）/ `promoted_from`（上层行回指下层来源）/
- * `origin`（auto | user，来源标记）/ `reviewer` + `reviewed_at`（审阅留痕——
- * 候选转换成功即删行，唯一审阅记录落在这里）/ `projects`（U 层跨项目集合，JSON）。
- * 新库直接建进 CREATE，旧库经 `ensureColumn` 幂等补。
- */
-const PROMOTION_COLUMNS: ReadonlyArray<[string, string]> = [
-  ["promoted_to", "TEXT"],
-  ["promoted_from", "TEXT"],
-  ["origin", "TEXT"],
-  ["reviewer", "TEXT"],
-  ["reviewed_at", "INTEGER"],
-  ["projects", "TEXT"],
-];
-
-/**
- * 按需建一张分类表（设计 §4「按需建表 / 空表不建」）：基类列 + 注册方声明的扩展列，
- * 外加索引、双 FTS5 影子表、写直达 TRIGGER。**幂等**——已存在的表原样保留（改列走版本迁移 §9）。
+ * 按需建一张分类表（设计 §4「按需建表 / 空表不建」）：固定列 + 索引 + 双 FTS5 影子表 +
+ * 写直达 TRIGGER。**幂等**——已存在的表原样保留（改列走版本迁移）。
  *
- * 各分类表**结构一致**（同一套基类列，扩展列只允许可空），SQL 因此不必按表分支。
- * 表名与列名由注册表校验过（标识符白名单），此处直接拼串。
+ * 各分类表**结构一致**，SQL 因此不必按表分支。表名由注册表校验过（标识符白名单），此处直接拼串：
+ * `id` / `source_id` / `project` / `title` / `content` / `content_hash` / `importance` /
+ * `session_id` / `created_at`（2026-10-17 收窄后的列集：语义列归上层插件）。
  *
  * @param table 物理表名（`KindRegistry` 已校验）。
- * @param columns 注册方声明的扩展列（可空）。
  */
-export function ensureKindTable(
-  db: DatabaseSync,
-  table: string,
-  columns: readonly KindColumn[] = [],
-): void {
-  const extra = columns
-    .map((column) => `,\n      ${column.name} ${column.type}`)
-    .join("");
+export function ensureKindTable(db: DatabaseSync, table: string): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS ${table} (
       id              INTEGER PRIMARY KEY,
       source_id       INTEGER NOT NULL REFERENCES sources(id),
       project         TEXT NOT NULL,
-      target          TEXT,
-      category        TEXT,
       title           TEXT,
       content         TEXT NOT NULL,
       content_hash    TEXT NOT NULL,
       importance      INTEGER NOT NULL DEFAULT 3 CHECK (importance BETWEEN 1 AND 5),
       session_id      TEXT,
-      last_referenced INTEGER NOT NULL DEFAULT 0,
-      summary         TEXT,
-      created_at      INTEGER NOT NULL,
-      promoted_to     TEXT,
-      promoted_from   TEXT,
-      origin          TEXT,
-      reviewer        TEXT,
-      reviewed_at     INTEGER,
-      projects        TEXT
+      created_at      INTEGER NOT NULL
     ) STRICT
   `);
-  for (const [column, ddl] of PROMOTION_COLUMNS) {
-    ensureColumn(db, table, column, ddl);
-  }
   db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_${table}_project_lr ON ${table} (project, last_referenced)`,
+    `CREATE INDEX IF NOT EXISTS idx_${table}_project ON ${table} (project, created_at)`,
   );
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_${table}_source ON ${table} (source_id)`,
@@ -207,100 +151,10 @@ export function ensureKindTable(
   `);
 }
 
-/**
- * 文档索引表（设计 §7.2 / §12 #12）：每库至多一张的**固定索引**（不同于分类表的按需语义，
- * P / U 库 open 时即幂等建；S 层不建——会话临时文本按普通记忆条目落分类表）。
- *
- * 行粒度 = 一文档一节一行（去重键 `(doc_ref, line_start)`）；FTS5 只挂 `section_title` 与
- * `summary` 两列（**不索引正文**，正文留在文件里，命中返回路径 + 行范围 + 摘要行）；
- * 无 trigram 影子表（标题 / 摘要行短文本，CJK 走 LIKE 兜底，避免 §13 观察的索引体积问题）。
- * 不 bump 版本（加表 = 向后兼容，同分类表口径）。
- */
-export function ensureDocIndex(db: DatabaseSync): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS doc_index (
-      id              INTEGER PRIMARY KEY,
-      doc_ref         TEXT NOT NULL,
-      section_title   TEXT,
-      line_start      INTEGER NOT NULL,
-      line_end        INTEGER NOT NULL,
-      doc_hash        TEXT NOT NULL,
-      summary         TEXT,
-      status          TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present', 'stale', 'missing')),
-      project         TEXT NOT NULL DEFAULT '',
-      last_referenced INTEGER NOT NULL DEFAULT 0,
-      indexed_at      INTEGER NOT NULL
-    ) STRICT
-  `);
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS idx_doc_index_ref ON doc_index (doc_ref)",
-  );
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS idx_doc_index_project_status ON doc_index (project, status)",
-  );
-  db.exec(
-    "CREATE VIRTUAL TABLE IF NOT EXISTS doc_index_fts USING fts5(section_title, summary, content='doc_index', content_rowid='id', tokenize='porter')",
-  );
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS doc_index_ai AFTER INSERT ON doc_index BEGIN
-      INSERT INTO doc_index_fts(rowid, section_title, summary) VALUES (new.id, new.section_title, new.summary);
-    END
-  `);
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS doc_index_ad AFTER DELETE ON doc_index BEGIN
-      INSERT INTO doc_index_fts(doc_index_fts, rowid, section_title, summary) VALUES ('delete', old.id, old.section_title, old.summary);
-    END
-  `);
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS doc_index_au AFTER UPDATE ON doc_index BEGIN
-      INSERT INTO doc_index_fts(doc_index_fts, rowid, section_title, summary) VALUES ('delete', old.id, old.section_title, old.summary);
-      INSERT INTO doc_index_fts(rowid, section_title, summary) VALUES (new.id, new.section_title, new.summary);
-    END
-  `);
-}
-
-/**
- * 审阅候选表（设计 §6，决策 D49）：S / P / U 三库各一张，与记忆表分离——候选**不是记忆**：
- * 不参与检索（无 FTS）、不计入容量统计，审阅通过才写入正式分类表。
- * `promotion_state` 三态：`pending`（待审）/ `approved`（终态，转换成功即删行）/
- * `rejected`（终态留痕 = fact_key 墓碑，防同源内容反复提审）。唯一索引 `(kind, fact_key)`
- * 撑 promote 幂等键（D50）。幂等建、不 bump 版本（同加表口径）。
- */
-export function ensureCandidatesTable(db: DatabaseSync): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS candidates (
-      id              INTEGER PRIMARY KEY,
-      target_tier     TEXT NOT NULL,
-      kind            TEXT NOT NULL,
-      fact_key        TEXT NOT NULL,
-      content_hash    TEXT NOT NULL,
-      title           TEXT,
-      content         TEXT NOT NULL,
-      sources         TEXT NOT NULL DEFAULT '[]',
-      projects        TEXT NOT NULL DEFAULT '[]',
-      promotion_state TEXT NOT NULL DEFAULT 'pending' CHECK (promotion_state IN ('pending', 'approved', 'rejected')),
-      conflict_with   TEXT,
-      reviewer        TEXT,
-      reject_reason   TEXT,
-      summarized      INTEGER NOT NULL DEFAULT 0,
-      created_at      INTEGER NOT NULL,
-      updated_at      INTEGER NOT NULL
-    ) STRICT
-  `);
-  db.exec(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_fact ON candidates (kind, fact_key)",
-  );
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS idx_candidates_state ON candidates (promotion_state, created_at)",
-  );
-}
-
 /** 建表 + 索引 + 双 FTS5 影子表 + 写直达 TRIGGER。仅应在空库/已重置库上调用。 */
 function ensureSchema(db: DatabaseSync, appId: number): void {
   db.exec(`PRAGMA application_id = ${appId}`);
   ensureSources(db);
-  // 兜底分类的物理表＝v1 布局的 `chunks`（决策 D38）：同名同结构，老库照常打开。
-  ensureKindTable(db, FALLBACK_TABLE);
   db.exec(PRAGMA_VERSION_SQL);
 }
 
@@ -347,17 +201,11 @@ export async function openTierDatabase(
       resetSchema(db);
       ensureSchema(db, expected);
     } else if (version !== KNOWLEDGE_SCHEMA_VERSION) {
-      // 设计 §9：按迁移链升级；无可用迁移则拒绝打开并报错（现状只有 v1 一个版本，无升级链）。
+      // 设计 §9：按迁移链升级；无可用迁移则拒绝打开并报错（现状只有 v2 一个版本，无升级链）。
       throw new Error(
         `memory-base ${tier} 库 "${actual}" 版本 ${version} 与当前 ${KNOWLEDGE_SCHEMA_VERSION} 不符且无可用迁移；需清空重建时显式调用 migrate({ from: "v1", mode: "drop" })`,
       );
     }
-    if (tier !== "session") {
-      // 文档索引（设计 §7.2）：P / U 库的固定索引表，open 时幂等建；S 层不建。
-      ensureDocIndex(db);
-    }
-    // 审阅候选表（设计 §6）：三库都有（I→S 候选也在 S 库），open 时幂等建。
-    ensureCandidatesTable(db);
     db.exec(JOURNAL_MODE_SQL[journalMode]);
     return db;
   } catch (error: unknown) {

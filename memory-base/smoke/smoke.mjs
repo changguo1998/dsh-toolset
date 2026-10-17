@@ -1,31 +1,27 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-memory-base，对齐宿主 dsh 0.2.0-rc.2）。
+ * 本包自检 smoke（新接口口径，2026-10-17 接口重设后重写）。
  *
- * 流程：
- *   0. 检查宿主 dsh 版本（要求 0.2.0-rc.2）
- *   1. profile dsh-toolset-memory-base 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
- *   2. 缺 dist 时先构建
- *   3. 真实 dsh headless 一次性会话（低阈值强制压缩 + fs write 产生真实 meta）
- *   4. 断言 ctx_knowledge 注册（DB schema 指纹）与新字段摄取（[tool/meta]、shadowedRange）
- *   5. 真实载荷缺失时经 dist hooks 注入合成事件兜底（仅当会话本身成功）
- *   6. dist 产物 put/search/touch/evict 往返（对同一文件库）
+ * 覆盖面（确定性、不依赖模型凭据）：
+ *   0. Node 版本与 dist 构建产物
+ *   1. 分层落点：S 层经 `sessionPaths.sessionDirFor(sessionId)` 解析、P / U 层按配置，
+ *      **open 不落盘**（惰性建库）
+ *   2. 经作用域句柄写入（S / P / U 三层各一条）→ 断言三个库文件与 schema 指纹
+ *      （`application_id` 按层、`user_version` 为当前版本）
+ *   3. 全局读面：`search` 跨层加权、`list` 按 kind、`usage` 只报已创建的库
+ *   4. 内容级闸门：隐私形态与 `preWrite` 拒写走 `skipped`；越权层抛错
+ *   5. 真删：句柄 `forget` 返回条数
+ *   6. 模型侧工具：`memory_query` 两种 action 的返回值与渲染
+ *   7. 可选宿主面：`dsh --version` 可得时报告版本（宿主联调留人工确认，不阻塞）
  *
- * 清理：成功删除临时目录；失败保留（打印路径）供排查。
- * 退出码 0 = 全部断言通过。
+ * 清理：成功删除临时目录；失败保留（打印路径）供排查。退出码 0 = 全部断言通过。
+ * 用法：npm run smoke（`-- --keep` 保留临时目录）。
  */
 
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import {
-  mkdtempSync,
-  rmSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { existsSync, mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,372 +29,57 @@ const PKG_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const PROFILE = "dsh-toolset-memory-base";
-const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
-const PKG_NAME = "@dsh-toolset/memory-base";
-const REQUIRED_VERSION = "0.2.0-rc.2";
-const KNOWLEDGE_APP_ID = 0x4b4e4f57; // schema.ts KNOWLEDGE_APPLICATION_ID ('KNOW')
-const KNOWLEDGE_SCHEMA_VERSION = 1;
+const KEEP = process.argv.includes("--keep");
 
-const META_SQL =
-  "SELECT COUNT(*) AS n FROM chunks WHERE category = 'tool/result' AND content LIKE '%[tool/meta]%'";
-const COMP_SQL =
-  "SELECT COUNT(*) AS n FROM chunks WHERE category = 'compaction/summary' AND (content LIKE '%shadowedRange%' OR content LIKE '%shadowedSeqs%')";
-const RANGE_SQL =
-  "SELECT COUNT(*) AS n FROM chunks WHERE category = 'compaction/summary' AND content LIKE '%shadowedRange%'";
-
-const CORDIS_PATCH = `# 本 profile 用户层：memory-base 插件配置（由 smoke 脚本管理，勿手改）。
-# dbPath 优先取 MEMORY_DB_PATH 环境变量（smoke 重定向到临时目录），
-# 缺省落 ~/.dsh/memory-base/memory.db（dshHomePath 由宿主 !!js 提供）。
-- id: memory-base
-  name: '@dsh-toolset/memory-base'
-  config:
-    dbPath: !!js process.env.MEMORY_DB_PATH || dshHomePath('memory-base/memory.db')
-    project: 'dsh-toolset-memory-base'
-`;
-
-const COMPACTION_OVERLAY = `# smoke 专用：强制低压缩阈值，让一次性会话也能触发 compaction/summary
-# （宿主校验：retainRatio 必须 < thresholdRatio）
-- id: compaction-basic
-  config:
-    thresholdRatio: 0.001
-    retainRatio: 0.0004
-`;
-
-const SESSION_TASK =
-  "使用 write 工具在 ./kb-smoke.txt 写入一行内容 kb-smoke-ok，然后简短确认。不要使用其他工具。";
+/** 各层库指纹（与 `src/schema.ts` 的 `TIER_APPLICATION_IDS` 对齐）。 */
+const APP_IDS = { session: 0x53455353, project: 0x50524f4a, user: 0x55534552 };
+/** 当前 schema 版本（与 `src/schema.ts` 的 `KNOWLEDGE_SCHEMA_VERSION` 对齐）。 */
+const SCHEMA_VERSION = 2;
 
 let failed = false;
 let tmp = null;
-
-function run(cmd, args, opts = {}) {
-  return execFileSync(cmd, args, {
-    encoding: "utf8",
-    timeout: 300_000,
-    maxBuffer: 32 * 1024 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    ...opts,
-  });
-}
+const result = { steps: 0, ok: 0 };
 
 function step(label) {
+  result.steps += 1;
   process.stdout.write(`[smoke] ${label} ... `);
 }
 
 function ok(detail = "") {
+  result.ok += 1;
   process.stdout.write(`OK${detail ? ` — ${detail}` : ""}\n`);
 }
 
-function fail(msg) {
+function fail(message) {
   failed = true;
-  process.stdout.write(`FAIL — ${msg}\n`);
+  process.stdout.write(`FAIL — ${message}\n`);
 }
 
-function assert(cond, msg) {
-  if (cond) return true;
-  fail(msg);
+function assert(condition, message) {
+  if (condition) return true;
+  fail(message);
   return false;
 }
 
-function queryCount(db, sql) {
-  return db.prepare(sql).get().n;
-}
-
-// --- 0. 宿主版本 ---
-function checkVersion() {
-  step("dsh 版本");
-  let version;
-  try {
-    version = run("dsh", ["--version"]).trim();
-  } catch (error) {
-    fail(`dsh 不可用：${String(error.message).split("\n")[0]}`);
-    return;
-  }
-  if (
-    assert(
-      version.includes(REQUIRED_VERSION),
-      `dsh 版本 ${version}，要求 ${REQUIRED_VERSION}`,
-    )
-  ) {
-    ok(version);
-  }
-}
-
-// --- 1. profile 引导（幂等） ---
-function ensureProfile() {
-  step(`profile ${PROFILE} 引导`);
-  if (!existsSync(path.join(PROFILE_DIR, "package.json"))) {
-    try {
-      run("dsh", [
-        "--profile",
-        PROFILE,
-        "--from-default-profile",
-        "headless",
-        "--dump-config",
-      ]);
-    } catch (error) {
-      fail(`profile 创建失败：${String(error.message).split("\n")[0]}`);
-      return;
-    }
-  }
-  const pkgPath = path.join(PROFILE_DIR, "package.json");
-  if (!existsSync(pkgPath)) {
-    fail(`profile 创建失败：${pkgPath} 不存在`);
-    return;
-  }
-  let dep, bundles;
-  try {
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-    dep = pkg.dependencies?.[PKG_NAME];
-    bundles = pkg.dsh?.profile?.bundles ?? [];
-  } catch (error) {
-    fail(
-      `profile package.json 解析失败：${String(error.message).split("\n")[0]}`,
-    );
-    return;
-  }
-  if (dep !== `link:${PKG_ROOT}` || !bundles.includes(PKG_NAME)) {
-    try {
-      run("dsh", [
-        "plugin",
-        "--profile",
-        PROFILE,
-        "add",
-        `${PKG_NAME}@link:${PKG_ROOT}`,
-      ]);
-    } catch (error) {
-      fail(`插件挂载失败：${String(error.message).split("\n")[0]}`);
-      return;
-    }
-  }
-  writeFileSync(
-    path.join(PROFILE_DIR, "cordis.patch.yml"),
-    CORDIS_PATCH,
-    "utf8",
-  );
-  ok(PROFILE_DIR);
-}
-
-// --- 2. 构建（幂等） ---
-function ensureBuild() {
-  step("dist 构建");
-  const entry = path.join(PKG_ROOT, "dist", "src", "index.js");
-  if (!existsSync(entry)) {
-    try {
-      run("npm", ["run", "build"], { cwd: PKG_ROOT });
-    } catch (error) {
-      fail(`构建失败：${String(error.message).split("\n")[0]}`);
-      return;
-    }
-  }
-  if (assert(existsSync(entry), `dist 产物缺失：${entry}`)) ok();
-}
-
-// --- 3. 真实会话 ---
-function runSession(dbPath, taskDir, overlayPath) {
-  step("真实 dsh headless 会话");
-  try {
-    run("dsh", ["--profile", PROFILE, "--patch", overlayPath, SESSION_TASK], {
-      cwd: taskDir,
-      env: {
-        ...process.env,
-        MEMORY_DB_PATH: dbPath,
-        DSH_PERMISSION_MODE: "danger-full-access",
-      },
-    });
-  } catch (error) {
-    fail(
-      `会话未成功退出（API 不可达或宿主异常？）：${String(error.message).split("\n")[0]}；stderr 尾部：${String(error.stderr ?? "").slice(-400)}`,
-    );
-    return false;
-  }
-  ok("exit 0");
-  return true;
-}
-
-// --- 4. SQLite 断言（注册指纹 + 0.1.5-rc.2 新字段摄取） ---
-function assertIngestion(dbPath) {
-  step("断言注册与摄取");
-  if (
-    !assert(
-      existsSync(dbPath),
-      `知识库文件未创建（bundle 未 apply）：${dbPath}`,
-    )
-  )
-    return false;
+/** 读库的指纹（只读打开；库不存在返回 undefined）。 */
+function fingerprint(dbPath) {
+  if (!existsSync(dbPath)) return undefined;
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    // 注册证据：库文件由 bundle apply 创建，schema 指纹匹配。
     const { application_id: appId } = db.prepare("PRAGMA application_id").get();
     const { user_version: version } = db.prepare("PRAGMA user_version").get();
-    if (
-      !assert(
-        appId === KNOWLEDGE_APP_ID && version === KNOWLEDGE_SCHEMA_VERSION,
-        `schema 指纹不匹配（application_id=${appId?.toString(16)}, user_version=${version}）`,
-      )
-    ) {
-      return false;
-    }
-    const metaRows = queryCount(db, META_SQL);
-    const compRows = queryCount(db, COMP_SQL);
-    const rangeRows = queryCount(db, RANGE_SQL);
-    if (!assert(metaRows >= 1, "未摄取 tool/result meta（[tool/meta] 段缺失）"))
-      return false;
-    if (!assert(compRows >= 1, "未摄取 compaction/summary 影子范围字段"))
-      return false;
-    ok(
-      `注册指纹 OK；[tool/meta] ${metaRows} 条；shadowedRange ${rangeRows} 条${rangeRows < compRows ? "（含旧载荷回落）" : ""}`,
-    );
-    return true;
+    return { appId, version };
   } finally {
     db.close();
   }
 }
 
-// --- 5. 合成事件兜底（仅会话成功但载荷缺失时；经 dist hooks 注入） ---
-async function syntheticBackstop(dbPath, { needMeta, needCompaction }) {
-  if (!needMeta && !needCompaction) return;
-  step("合成事件兜底注入");
-  const schema = await import(path.join(PKG_ROOT, "dist", "src", "schema.js"));
-  const knowledge = await import(
-    path.join(PKG_ROOT, "dist", "src", "knowledge.js")
-  );
-  const hooks = await import(path.join(PKG_ROOT, "dist", "src", "hooks.js"));
-  const db = await schema.openKnowledgeDatabase(dbPath);
-  try {
-    const sessionHooks = new hooks.SessionHooks(
-      new knowledge.KnowledgeService(db),
-      {
-        project: "dsh-toolset-memory-base",
-      },
-    );
-    if (needMeta) {
-      sessionHooks.handle("smoke-synthetic", {
-        type: "tool/result",
-        data: {
-          message: {
-            content: [
-              {
-                type: "tool-result",
-                content: [{ type: "text", text: "synthetic write result" }],
-                isError: false,
-              },
-            ],
-          },
-          meta: {
-            diffs: [
-              { path: "/tmp/synthetic.txt", oldText: null, newText: "x" },
-            ],
-          },
-        },
-      });
-    }
-    if (needCompaction) {
-      sessionHooks.handle("smoke-synthetic", {
-        type: "compaction/summary",
-        data: {
-          compactionId: "smoke-synthetic",
-          summary: [{ type: "text", text: "synthetic compaction summary" }],
-          shadowedRange: { start: 1, end: 2 },
-          sourceCommandId: "smoke-synthetic-cmd",
-          shadowedTokenCount: 100,
-          provider: "smoke",
-          model: "smoke-model",
-        },
-      });
-    }
-    ok(
-      `注入 ${[needMeta && "meta", needCompaction && "compaction"].filter(Boolean).join(" + ")}`,
-    );
-  } finally {
-    db.close();
-  }
-}
-
-// --- 6. dist 往返 put/search/touch/evict ---
-async function roundtrip(dbPath) {
-  step("dist 往返 put/search/touch/evict");
-  const schema = await import(path.join(PKG_ROOT, "dist", "src", "schema.js"));
-  const knowledge = await import(
-    path.join(PKG_ROOT, "dist", "src", "knowledge.js")
-  );
-  const db = await schema.openKnowledgeDatabase(dbPath);
-  try {
-    const kb = new knowledge.KnowledgeService(db);
-    const project = "dsh-toolset-memory-base";
-    const target = "smoke/roundtrip";
-    const content = "smoke roundtrip marker 烟雾弹 12345";
-    kb.put({ project, target, content, importance: 3, sessionId: "smoke" });
-    const byEn = kb.search({ query: "roundtrip marker", project });
-    const enHit = byEn[0];
-    if (
-      !assert(
-        byEn.length === 1 && enHit?.content.includes("marker"),
-        "porter 词干检索未命中",
-      )
-    )
-      return;
-    const byCjk = kb.search({ query: "烟雾弹", project, fuzzy: true });
-    if (!assert(byCjk.length === 1, "CJK LIKE 兜底检索未命中")) return;
-    const id = byCjk[0].id;
-    const before = db
-      .prepare("SELECT last_referenced AS lr FROM chunks WHERE id = ?")
-      .get(id).lr;
-    kb.touch(id);
-    const after = db
-      .prepare("SELECT last_referenced AS lr FROM chunks WHERE id = ?")
-      .get(id).lr;
-    if (!assert(after >= before, "touch 未刷新 last_referenced")) return;
-    kb.evict([id]);
-    const remaining = db
-      .prepare("SELECT COUNT(*) AS n FROM chunks WHERE target = ?")
-      .get(target).n;
-    if (!assert(remaining === 0, "evict 后仍有残留")) return;
-    ok("put/search(EN+CJK)/touch/evict 全通过");
-  } finally {
-    db.close();
-  }
-}
-
-// --- 主流程 ---
-checkVersion();
-ensureProfile();
-ensureBuild();
-
-if (!failed) {
-  tmp = mkdtempSync(path.join(tmpdir(), "kb-smoke-"));
-  const taskDir = path.join(tmp, "task");
-  mkdirSync(taskDir, { recursive: true });
-  const dbPath = path.join(tmp, "kb.db");
-  const overlayPath = path.join(tmp, "overlay.yml");
-  writeFileSync(overlayPath, COMPACTION_OVERLAY, "utf8");
-
-  const sessionOk = runSession(dbPath, taskDir, overlayPath);
-  if (sessionOk) {
-    // 注册核心证据：真实会话后知识库文件必须存在（由 bundle apply 创建）。
-    if (assert(existsSync(dbPath), "注册失败：会话成功但知识库文件未创建")) {
-      const metaRows = dbCount(dbPath, META_SQL);
-      const compRows = dbCount(dbPath, COMP_SQL);
-      if (metaRows < 1 || compRows < 1) {
-        await syntheticBackstop(dbPath, {
-          needMeta: metaRows < 1,
-          needCompaction: compRows < 1,
-        });
-      }
-      if (!failed) assertIngestion(dbPath);
-    }
-  }
-  if (!failed) {
-    await roundtrip(dbPath);
-  }
-}
-
-// 辅助：只读计数（库不存在/不可读时返回 0）
-function dbCount(dbPath, sql) {
+/** 只读计数（库 / 表不存在返回 0）。 */
+function count(dbPath, sql) {
   if (!existsSync(dbPath)) return 0;
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    return db.prepare(sql).get().n;
+    return Number(db.prepare(sql).get().n);
   } catch {
     return 0;
   } finally {
@@ -406,10 +87,274 @@ function dbCount(dbPath, sql) {
   }
 }
 
+async function main() {
+  // --- 0. 运行时与构建产物 ---
+  step("Node 版本与 dist 产物");
+  const major = Number(process.versions.node.split(".")[0]);
+  if (
+    !assert(
+      major >= 22,
+      `Node ${process.versions.node}，要求 >= 22（node:sqlite）`,
+    )
+  ) {
+    return;
+  }
+  const entry = path.join(PKG_ROOT, "dist", "src", "index.js");
+  if (!existsSync(entry)) {
+    try {
+      execFileSync("npm", ["run", "build"], { cwd: PKG_ROOT, stdio: "ignore" });
+    } catch (error) {
+      fail(`构建失败：${String(error.message).split("\n")[0]}`);
+      return;
+    }
+  }
+  if (!assert(existsSync(entry), `dist 产物缺失：${entry}`)) return;
+  ok(process.versions.node);
+
+  // --- 1. 惰性建库与分层落点 ---
+  step("分层落点（惰性建库）");
+  tmp = mkdtempSync(path.join(tmpdir(), "kb-smoke-"));
+  const dshHome = path.join(tmp, "dsh");
+  const projectRoot = path.join(tmp, "repo");
+  const sessionRoot = path.join(tmp, "sessions");
+  const userPath = path.join(dshHome, "memory-base", "user.db");
+  const projectPath = path.join(projectRoot, ".dsh", "project.db");
+  const sessionPath = path.join(sessionRoot, "s1", "session.db");
+
+  const index = await import(entry);
+  const bundle = index.createMemoryBundle({
+    config: { dshHome, projectRoot, project: "smoke" },
+    sessionPaths: { sessionDirFor: (id) => path.join(sessionRoot, id) },
+  });
+  const memory = index.createGlobalService(bundle, {
+    dshHome,
+    projectRoot,
+    project: "smoke",
+  });
+  try {
+    const summary = bundle.summary();
+    if (
+      !assert(
+        summary.tiers.length === 2 &&
+          summary.tiers.every((tier) => tier.created === false),
+        `摘要落点不符（期望 P / U 两层且均未创建）：${JSON.stringify(summary.tiers)}`,
+      )
+    ) {
+      return;
+    }
+    if (!assert(!existsSync(userPath), "open 阶段不应创建用户库（惰性建库）"))
+      return;
+    if (
+      !assert(!existsSync(projectPath), "open 阶段不应创建项目库（惰性建库）")
+    )
+      return;
+    ok("P / U 落点已解析且未落盘");
+
+    // --- 2. 句柄写入三层 ---
+    step("作用域句柄写入（S / P / U）");
+    const note = memory.registerKind({
+      kind: "note",
+      writableTiers: ["session", "project", "user"],
+    });
+    const pref = memory.registerKind({
+      kind: "pref",
+      writableTiers: ["user"],
+      preWrite: (input) =>
+        input.content.startsWith("deny")
+          ? { accept: false, reason: "smoke 钩子拒写" }
+          : { accept: true, importance: 4 },
+    });
+    const s = await note.put({ content: "smoke 会话层条目", sessionId: "s1" });
+    const p = await note.put({ content: "smoke 项目层条目", tier: "project" });
+    const u = await pref.put({ content: "smoke 用户层条目", tier: "user" });
+    if (
+      !assert(
+        s.created === 1 && p.created === 1 && u.created === 1,
+        `三层写入未全部成功：S=${s.created} P=${p.created} U=${u.created}`,
+      )
+    ) {
+      return;
+    }
+    if (!assert(existsSync(sessionPath), `会话库未创建：${sessionPath}`))
+      return;
+    if (!assert(existsSync(projectPath), `项目库未创建：${projectPath}`))
+      return;
+    if (!assert(existsSync(userPath), `用户库未创建：${userPath}`)) return;
+
+    for (const [tier, dbPath] of [
+      ["session", sessionPath],
+      ["project", projectPath],
+      ["user", userPath],
+    ]) {
+      const fp = fingerprint(dbPath);
+      if (
+        !assert(
+          fp?.appId === APP_IDS[tier] && fp?.version === SCHEMA_VERSION,
+          `${tier} 库指纹不符（application_id=${fp?.appId?.toString(16)} user_version=${fp?.version}）`,
+        )
+      ) {
+        return;
+      }
+    }
+    if (
+      !assert(
+        count(sessionPath, "SELECT COUNT(*) AS n FROM kind_note") === 1,
+        "会话库未落 kind_note 行",
+      )
+    ) {
+      return;
+    }
+    ok("三层库文件与指纹一致");
+
+    // --- 3. 全局读面 ---
+    step("全局读面（search / list / usage）");
+    // 三层行都含 "smoke"：FTS5 命中后按层权重排序（U > P > S），跨层合并结果恒为 3 条。
+    const hits = await memory.search({ query: "smoke" });
+    if (
+      !assert(
+        hits.length === 3 &&
+          hits[0]?.tier === "user" &&
+          hits[1]?.tier === "project" &&
+          hits[2]?.tier === "session",
+        `跨层检索排序不符：${JSON.stringify(hits.map((hit) => hit.tier))}`,
+      )
+    ) {
+      return;
+    }
+    const listed = await memory.list({ kind: "note" });
+    if (
+      !assert(
+        listed.length === 2,
+        `list(note) 期望 2 条，实得 ${listed.length}`,
+      )
+    ) {
+      return;
+    }
+    const usage = await memory.usage();
+    if (
+      !assert(
+        usage.length === 3 && usage.every((item) => item.bytes > 0),
+        `usage 期望 3 个已创建库：${JSON.stringify(usage.map((item) => item.tier))}`,
+      )
+    ) {
+      return;
+    }
+    ok(
+      `命中 ${hits.length} 条；列举 ${listed.length} 条；用量 ${usage.length} 个库`,
+    );
+
+    // --- 4. 闸门 ---
+    step("内容闸门与越权层");
+    const privacy = await pref.put({
+      content: "password: supersecretvalue",
+      tier: "user",
+    });
+    const denied = await pref.put({ content: "deny 这条", tier: "user" });
+    if (
+      !assert(
+        privacy.skipped === "pattern" && denied.skipped === "hook",
+        `闸门原因不符：privacy=${privacy.skipped} hook=${denied.skipped}`,
+      )
+    ) {
+      return;
+    }
+    let threw = false;
+    try {
+      await pref.put({ content: "越权写会话层" });
+    } catch {
+      threw = true;
+    }
+    if (!assert(threw, "越权层写入未抛错（应显式抛错）")) return;
+    ok("隐私闸 / preWrite / 越权层均按约定");
+
+    // --- 5. 真删 ---
+    step("真删（forget 返回条数）");
+    const removed = await pref.forget([{ tier: "user", ids: u.ids }]);
+    if (!assert(removed === 1, `forget 期望删除 1 条，实得 ${removed}`)) return;
+    if (
+      !assert(
+        (await memory.search({ query: "smoke", tier: "user" })).length === 0,
+        "forget 后仍可检索到被删行",
+      )
+    ) {
+      return;
+    }
+    ok("删除计数与可见性一致");
+
+    // --- 6. 模型侧工具 ---
+    step("memory_query 两种 action");
+    const tool = index.memoryQueryTool({
+      list: (opts) => memory.list(opts),
+      search: (opts) => memory.search(opts),
+    });
+    const searchValue = await tool.execute({ query: "smoke" });
+    const listValue = await tool.execute({
+      action: "list",
+      kind: "note",
+      limit: 1,
+    });
+    if (
+      !assert(
+        searchValue.action === "search" && searchValue.count === 2,
+        `search 返回不符：${JSON.stringify({ action: searchValue.action, count: searchValue.count })}`,
+      )
+    ) {
+      return;
+    }
+    if (
+      !assert(
+        listValue.action === "list" &&
+          listValue.count === 1 &&
+          listValue.truncated === true,
+        `list 返回不符：${JSON.stringify(listValue)}`,
+      )
+    ) {
+      return;
+    }
+    const rendered = tool.output.render({}, listValue);
+    if (
+      !assert(
+        typeof rendered[0]?.text === "string" &&
+          rendered[0].text.includes("[note@") &&
+          rendered[0].text.includes("已截断"),
+        `渲染文本不符：${rendered[0]?.text ?? "(空)"}`,
+      )
+    ) {
+      return;
+    }
+    ok("返回值与渲染一致");
+  } finally {
+    bundle.dispose();
+  }
+
+  // --- 7. 可选宿主面 ---
+  step("宿主 dsh 版本（可选）");
+  try {
+    const version = execFileSync("dsh", ["--version"], {
+      encoding: "utf8",
+      timeout: 60_000,
+    }).trim();
+    ok(version);
+  } catch {
+    ok("未安装 dsh，跳过（宿主联调留人工确认）");
+  }
+}
+
+try {
+  await main();
+} catch (error) {
+  fail(`未捕获异常：${String(error?.stack ?? error)}`);
+}
+
 if (failed) {
-  console.error(`\n[smoke] 失败。临时目录保留：${tmp}`);
+  console.error(
+    `\n[smoke] 失败（${result.ok}/${result.steps} 步通过）。临时目录：${tmp ?? "(未创建)"}`,
+  );
+  if (tmp !== null && !KEEP) {
+    console.error("[smoke] 保留临时目录供排查；确认后手动删除。");
+  }
   process.exit(1);
 }
-if (tmp) rmSync(tmp, { recursive: true, force: true });
-console.log("\n[smoke] PASS — 注册/摄取/往返全部通过");
+if (tmp !== null) rmSync(tmp, { recursive: true, force: true });
+console.log(`\n[smoke] PASS — ${result.ok}/${result.steps} 步全部通过`);
 process.exit(0);

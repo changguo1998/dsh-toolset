@@ -1,34 +1,19 @@
 /**
- * 入库过滤规则测试（BACKLOG「会话事件自动入知识库」）：类型闸门、最小长度、隐私拒绝模式、
- * 非法模式降级、编译期口径。
+ * 存储闸门规则测试：最小长度、隐私拒绝模式、自定义模式叠加与非法模式降级、
+ * 隐私查询（`matchDenyPattern`）与内容闸门的口径差异。
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  allowsType,
   checkContent,
   compileRules,
   DEFAULT_DENY_PATTERNS,
+  matchDenyPattern,
 } from "../src/rules.ts";
 
-const TYPES = new Set(["tool/result", "feedback/record"]);
-
-test("类型闸门：白名单命中 / 未命中 / null 表示不过滤", () => {
-  const compiled = compileRules(undefined, TYPES);
-  assert.equal(allowsType(compiled, "tool/result"), true);
-  assert.equal(allowsType(compiled, "assistant/message"), false);
-
-  const open = compileRules({ types: null }, TYPES);
-  assert.equal(allowsType(open, "assistant/message"), true);
-
-  const custom = compileRules({ types: ["goal/change"] }, TYPES);
-  assert.equal(allowsType(custom, "goal/change"), true);
-  assert.equal(allowsType(custom, "tool/result"), false);
-});
-
 test("内容闸门：空 / 过短 / 通过", () => {
-  const compiled = compileRules({ minChars: 10 }, TYPES);
+  const compiled = compileRules({ minChars: 10 });
   assert.deepEqual(checkContent(compiled, "   \n "), {
     accept: false,
     reason: "empty",
@@ -43,7 +28,7 @@ test("内容闸门：空 / 过短 / 通过", () => {
 });
 
 test("隐私边界：内置模式命中即整条拒绝", () => {
-  const compiled = compileRules(undefined, TYPES);
+  const compiled = compileRules();
   const samples = [
     "-----BEGIN RSA PRIVATE KEY-----\nMIIE...",
     "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz0123",
@@ -64,14 +49,21 @@ test("隐私边界：内置模式命中即整条拒绝", () => {
 });
 
 test("自定义拒绝模式 + 非法模式降级（不抛、进 invalid）", () => {
-  const compiled = compileRules(
-    { denyPatterns: ["internal-only", "(["] },
-    TYPES,
-  );
+  const compiled = compileRules({ denyPatterns: ["internal-only", "(["] });
   assert.equal(
     checkContent(compiled, "这是 internal-only 的内容").reason,
     "pattern",
   );
   assert.deepEqual(compiled.invalid, ["(["]);
   assert.equal(checkContent(compiled, "普通内容").accept, true);
+});
+
+test("matchDenyPattern：只查隐私模式（不含空 / 过短闸门），命中返回模式源串", () => {
+  const compiled = compileRules({ minChars: 100 });
+  assert.equal(
+    matchDenyPattern(compiled, "password=hunter2hunter2"),
+    DEFAULT_DENY_PATTERNS[5]!.source,
+  );
+  assert.equal(matchDenyPattern(compiled, "短"), null, "过短不算隐私命中");
+  assert.equal(matchDenyPattern(compiled, "普通内容"), null);
 });
