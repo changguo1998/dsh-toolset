@@ -1,5 +1,5 @@
 /**
- * 入库过滤规则（BACKLOG「会话事件自动入知识库」）：类型 + 最小长度 + 拒绝模式。
+ * 存储层内容闸门：空文本 / 最小长度 / 拒绝模式。
  *
  * 契约：`compileRules` / `checkContent` 是纯函数（可单测）；拒绝模式**命中即整条拒绝**，
  * 不做打码——半脱敏的正文写进库等于没防。内置模式覆盖常见凭据 / 私钥形态，
@@ -10,8 +10,6 @@
  */
 
 export interface PersistRules {
-  /** 允许入库的事件类型；缺省 = 用调用方的类型白名单，`null` = 不按类型过滤。 */
-  types?: readonly string[] | null;
   /** 正文最小字符数（缺省 0 = 不限）；过滤空 meta、单符号输出这类噪声。 */
   minChars?: number;
   /** 追加的拒绝模式（正则源串，大小写不敏感）；与内置隐私模式一并生效。 */
@@ -29,8 +27,8 @@ export const DEFAULT_DENY_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
- * 拒绝原因：空文本 / 过短 / 命中拒绝模式由 `checkContent` 产生；
- * `kind`（未注册分类，或兜底被该层禁止）与 `hook`（注册方写前钩子拒绝）由分类闸门产生（设计 §4 / §5）。
+ * 拒写原因：`empty` / `short` / `pattern` 由 `checkContent` 产生；
+ * `kind`（未注册分类）与 `hook`（注册方写前钩子拒绝）由作用域句柄产生（见 `scope.ts`）。
  */
 export type SkipReason = "empty" | "short" | "pattern" | "kind" | "hook";
 
@@ -40,24 +38,14 @@ export interface RuleVerdict {
 }
 
 export interface CompiledRules {
-  types: ReadonlySet<string> | null;
   minChars: number;
   deny: readonly RegExp[];
   /** 编译失败的模式源串（调用方记 warning 用） */
   invalid: readonly string[];
 }
 
-/** 编译规则；`fallbackTypes` 为既有 `persistTypes` 白名单（未配 `rules.types` 时沿用）。 */
-export function compileRules(
-  rules: PersistRules | undefined,
-  fallbackTypes: ReadonlySet<string> | null,
-): CompiledRules {
-  const types =
-    rules?.types === undefined
-      ? fallbackTypes
-      : rules.types === null
-        ? null
-        : new Set(rules.types);
+/** 编译规则：内置隐私模式 + 调用方追加的 `denyPatterns`。 */
+export function compileRules(rules?: PersistRules): CompiledRules {
   const deny: RegExp[] = [...DEFAULT_DENY_PATTERNS];
   const invalid: string[] = [];
   for (const source of rules?.denyPatterns ?? []) {
@@ -68,17 +56,11 @@ export function compileRules(
     }
   }
   const minChars = Math.max(0, rules?.minChars ?? 0);
-  return { types, minChars, deny, invalid };
-}
-
-/** 类型闸门（与 `persistTypes` 同口径：`null` = 不过滤）。 */
-export function allowsType(compiled: CompiledRules, type: string): boolean {
-  return compiled.types === null || compiled.types.has(type);
+  return { minChars, deny, invalid };
 }
 
 /**
  * 内容闸门：空文本 → `empty`；短于 `minChars` → `short`；命中任一根绝模式 → `pattern`。
- * 类型闸门由 `allowsType` 单独判（保持「类型过滤先于摘要化」的既有顺序）。
  */
 export function checkContent(
   compiled: CompiledRules,
@@ -94,10 +76,7 @@ export function checkContent(
   return { accept: true };
 }
 
-/**
- * 只查隐私拒绝模式（不含空 / 长度闸门），命中返回模式源串，否则 `null`。
- * 供存量回扫 `rescanDenied` 复用同一份编译结果（设计 §5 / §10）。
- */
+/** 只查隐私拒绝模式（不含空 / 长度闸门），命中返回模式源串，否则 `null`。 */
 export function matchDenyPattern(
   compiled: CompiledRules,
   content: string,
