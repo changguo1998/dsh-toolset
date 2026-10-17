@@ -8,13 +8,14 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 21 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 22 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
 | **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
+| **session-paths** | Host session-directory encoding, replicated as one in-repo source of truth: `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` re-implemented character-for-character from `@deepseek-ai/dsh-session-persistence-jsonl`, exposed as the `sessionPaths` service (`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`). Pure functions never touch disk; `sessionDirFor(sessionId)` resolves `header.cwd` through the host `sessions` service (optional read, not in `inject`) |
 | **memory-base** | Cross-session knowledge base and persistent memory: two base tables (`sources`/`chunks`) plus two FTS5 virtual tables, a two-level write policy with eviction and promotion, readable and writable by other plugins through the host's shared surface |
 | **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
 | **metric-loop** | Metric-driven automatic loop: a measure command parses a single number, plateau stop, round/time/token bounds, cadence auto-wake |
@@ -44,6 +45,7 @@ dsh-toolset/
 ├── TUI/                  # 终端 UI 包（src/app 状态层、src/renderer 渲染层、src/app/adapter 适配层、demo/ mock）
 ├── herdr-integration/    # herdr 面板桥
 ├── task-engine/          # 任务树引擎
+├── session-paths/        # 会话目录编码（宿主编码复刻 + sessionPaths 服务）
 ├── memory-base/       # 知识库与持久记忆
 ├── goal-contract/        # Done-when 契约起草
 ├── metric-loop/          # 指标循环
@@ -89,7 +91,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 22 packages: TUI + 21 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 23 packages: TUI + 22 plugins):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
