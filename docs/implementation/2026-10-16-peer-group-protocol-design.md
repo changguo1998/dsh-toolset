@@ -128,7 +128,7 @@
 
 **状态落点（用户 2026-10-17 裁定）**：**管理者负责记录，落管理者自己的会话目录** —— `<管理者会话目录>/agent-group.json`（经 `sessionPaths.sessionDirFor(managerSessionId)` 推导），原子写、权限 0600，内含该管理者创建的组（通常一个）。**可选镜像**：经 memory-base 作用域句柄写 `kind: "agent_group"`、`tier: "session"`（与组同寿命，模型可用 `memory_query` 查）；memory-base 不可用 → **跳过**（只记计数 + 一次 warn，不影响协调）。
 
-**依赖**：`session-channel`（必需，传输）+ `session-paths`（必需，状态落点）+ `memory-base`（可选，镜像）。`session-channel` 缺失 → **不注册工具**（没有传输就没有协调）。
+**依赖**：`session-channel`（必需，传输）+ `session-paths`（必需，状态落点 = `sessionPaths.sessionDirFor(managerSessionId)`，同步）+ `memory-base`（可选，镜像）。`session-channel` 缺失 → **不注册工具**（没有传输就没有协调）；`session-paths` 缺失 / 会话取不到时的语义见「收尾」待定项 7（**尚未裁定**）。
 
 ### 与相邻能力的边界（分工口径，2026-10-17 用户确认）
 
@@ -222,4 +222,5 @@
   4. TUI 命令或面板 —— 二期。
   5. session-channel 侧的**别名修补**（全机唯一 + 恢复后不变）：属该模块待办；是否要在 `session-channel/docs/BACKLOG.md` 落一条条目，尚未得到答复。
   6. ~~与 `/council`、`bestOf+judge`、`task-engine`、`session-channel` 的分工口径~~ **已确认（2026-10-17，用户「基本没有问题」）**：见「规划」的「与相邻能力的边界」。
+  7. **`session-paths` 不可得时的语义（2026-10-17 第二轮新增待裁定）**：状态落点写进管理者自己的会话目录（`sessionPaths.sessionDirFor(managerSessionId)`），但该服务缺失 / 会话取不到时本包怎么办未定 —— 两个候选：① 与 `session-channel` 同款「**不注册工具**」（没有落点就没有协调，工具面直接不出现）；② 注册工具但**写状态的动作报错**（只读 `status` 仍可用）。`session-channel` 缺失时已定为 ①（见「规划」的依赖一行），本项要定的是同一条规则是否照搬到 `session-paths`。
 - 条目回写（把「底床」「各自 pane」「发言权轮转」等措辞改成现行口径）留到收尾提交时一并做。

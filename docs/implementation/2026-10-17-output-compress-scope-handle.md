@@ -108,7 +108,7 @@
 决策项 9　`digest.db` 落点：改回「每会话一个文件」（用户 2026-10-17 裁定，取代决策项 8 的过渡形态）
 
 - **表与指纹不变**：`digests` 表结构与库指纹 `0x44494745` / `user_version 1` 都不动（原决策项 6 唯一有效的一句，随其撤销并入本条）；变的只是文件数量与位置（每会话一个文件）与随之而来的「100 MB 上限是每会话每文件」。
-- **机制**：`hooks` 在 `session/event` 的会话视图里宽容读取 `header.cwd`（已经拿到 `session.id`，`src/hooks.ts:161-162`），经新包 `session-paths` 的服务（`sessionPaths.sessionDir(cwd, sessionId)`）推导落点；取不到 cwd → 沿用 `skipped.session-dir-missing` + 计数，不静默换路径。
+- **机制**（2026-10-17 第二轮订正口径）：`hooks` 在 `session/event` 的会话视图里拿 `session.id`（`src/hooks.ts:161-162`），经新包 `session-paths` 的服务 `sessionPaths.sessionDirFor(sessionId)` 推导落点（同步；取 `header.cwd` 收在 `session-paths` 内部，**本包不再自己读 `header.cwd`** —— 见 memory-base 决策项 11 选 d）；服务缺失或会话取不到 → 沿用 `skipped.session-dir-missing` + 计数，不静默换路径。`cwd` 缺失不再是降级条件：那一刻按宿主的 `_no-cwd` 桶落点。
 - **配置键退为覆盖**：`sessionDir` 配了就优先用它；故 profile 里那行在本改动落地时删掉（现在先留着，否则代码改完前管线会变回全跳过）。
 - **前置**：`session-paths` 尚未落地（条目在项目级 `docs/BACKLOG.md`「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」），本项排在该包之后。
 - **附带后果**：digest 从此只在本会话可见（跨会话检索不再覆盖未推送的 digest；`is_error` 摘要经句柄进 memory-base 那条路不受影响）；`digest.db` 的 100 MB 上限变成每会话每文件。
@@ -134,7 +134,7 @@ await scope.put({
 });
 
 // ③ digest.db 落点（决策项 9）
-const dir = await sessionPaths.sessionDirFor(sessionId);   // <会话目录>
+const dir = sessionPaths.sessionDirFor(sessionId);   // <会话目录>；同步，内部自己取 cwd
 const digestDbPath = join(dir, "digest.db");
 ```
 
@@ -143,7 +143,7 @@ const digestDbPath = join(dir, "digest.db");
 1. `put` 的 `tier` 固定 `session`，`writableTiers` 只声明 `session`；越权层由 memory-base 抛错（属编程错误，不应发生）。
 2. `sessionId` 必给（S 层写入必需）；取不到会话 id → 不写、记 `skipped`。
 3. 内容先过本包既有 `deny-patterns` 闸，再入库（两道闸都要过）。
-4. `digest.db` 落点：配置 `sessionDir` 退为**显式覆盖**（配了优先）；缺省经 `sessionDirFor(sessionId)` 推导；取不到 → `skipped.session-dir-missing` + 计数，**不静默换路径**。
+4. `digest.db` 落点：配置 `sessionDir` 退为**显式覆盖**（配了优先）；缺省经 `sessionDirFor(sessionId)` 推导（同步）；取不到（服务缺失 / 会话取不到 / 抛错）→ `skipped.session-dir-missing` + 计数，**不静默换路径**。
 5. `promotePending()` 保留名字，语义改为「重试未写成功的 digest」，去掉候选容量自查；幂等（同一 digest 不重复写）。
 6. 与 memory-base / `session-paths` 都是**可选依赖**：缺面 → 降级 + 一次性日志，**永不向调用方抛错**。
 7. 不再有任何 `promote` / `candidates.*` 调用（memory-base 已删这些面）。
@@ -160,11 +160,11 @@ const digestDbPath = join(dir, "digest.db");
 
 实现阶段（两包前置落地后执行；决策已审定）改动文件清单：
 
-- `output-compress/src/hooks.ts`：`pushDigest` 改为「句柄可用 → `put({tier: "session", content, title, importance, source})`，不可用 → 记 `skipped` + 未推标记」；`promotePending` 改为重试未推 digest，去掉候选容量自查；删 `PromoteServiceLike` 与 `MemoryPromoteLike.promote`
+- `output-compress/src/hooks.ts`：`pushDigest` 改为「句柄可用 → `put({tier: "session", sessionId, content, title, importance, source})`，不可用 → 记 `skipped` + 未推标记」（`sessionId` 是 S 层的必需参数，不能省，见冻结接口 ②）；`promotePending` 改为重试未推 digest，去掉候选容量自查；删 `PromoteServiceLike` 与 `MemoryPromoteLike.promote`
 - `output-compress/src/index.ts`：`apply` 时 `registerKind({kind: DIGEST_KIND, writableTiers: ["session"]})` 并存下返回的句柄；缺 memory-base 时打一次性明确日志；类型声明随 `MemoryScope` 更新
 - `output-compress/docs/DESIGN.md`：§5「写入」改写为「自持 `digest.db` + 经句柄向 memory-base 推 `is_error` 摘要」；§6 的 `category`/`target` 归属口径改为「按 `kind: digest` 归属」
 - `output-compress/README.md`：能力段与边界段同步（依赖面、句柄、缺面时的行为、`sessionDir` 落点）
-- `output-compress/src/hooks.ts`（决策项 9）：会话视图增读 `header.cwd`、改用 `sessionPaths` 推导 `digest.db` 落点；`src/index.ts` 同步配置语义（`sessionDir` 退为覆盖）
+- `output-compress/src/hooks.ts`（决策项 9）：会话视图改用 `sessionPaths.sessionDirFor(sessionId)` 推导 `digest.db` 落点（**不自己读 `header.cwd`**）；`src/index.ts` 同步配置语义（`sessionDir` 退为覆盖）
 - `~/.dsh/profiles/fff/cordis.patch.yml`（**仓库外**）：决策项 9 落地时删掉本包那行 `sessionDir`（现为过渡覆盖）
 - `output-compress/tests/hooks.test.ts`：围绕 `promote` 的用例改写为「句柄 `put` 成功 / 句柄缺失 → 明确降级 / `promotePending` 重试未推项」；其余文件按需微调
 
@@ -175,7 +175,7 @@ const digestDbPath = join(dir, "digest.db");
 1. **取句柄与降级**（`src/index.ts`）—— `registerKind({kind: DIGEST_KIND, writableTiers: ["session"]})` + 句柄缓存 + 缺面一次性日志；类型声明随 `MemoryScope` 更新。验证：假 memory 服务的单测（有句柄 / 无句柄两态）+ 该包 `check`。
 2. **推送改造**（`src/hooks.ts` 的 `pushDigest`）—— `promote(items)` → `scope.put(...)`，仍仅 `is_error` digest；删 `PromoteServiceLike` 与 `MemoryPromoteLike.promote`。验证：单测断言 `put` 入参形状（tier / sessionId / source.ref / title）。
 3. **`promotePending` 重写** —— 扫「未写成功的 digest」重试，幂等，去掉候选容量自查。验证：重试用例（首次失败 → 第二次成功，计数正确；重复调用不双写）。
-4. **落点改推导**（`src/hooks.ts` + `src/index.ts`）—— 会话视图增读 `header.cwd`（它已有 `session.id`，`src/hooks.ts:161-162`），改调 `sessionDirFor(sessionId)`；`sessionDir` 配置退为覆盖。验证：三例（服务可用 → 落在会话目录 / 服务缺 → `skipped.session-dir-missing` / 配置覆盖优先）。
+4. **落点改推导**（`src/hooks.ts` + `src/index.ts`）—— 会话视图里本就有 `session.id`（`src/hooks.ts:161-162`），改调同步的 `sessionDirFor(sessionId)`，**不再自己读 `header.cwd`**；`sessionDir` 配置退为覆盖。验证：四例（服务可用 → 落在会话目录 / 服务缺 → `skipped.session-dir-missing` / 会话取不到 → 同上降级 / 配置覆盖优先）。
 5. **文档与真机**（`docs/DESIGN.md` §5/§6 + `README.md`）—— 去掉共库直写与 `promote` 记述，写清句柄、落点与新降级口径。验证：该包 `test` 全绿 + 根三件套 + 真机一次。
 
 ### 实现阶段的验证口径（怎么跑）

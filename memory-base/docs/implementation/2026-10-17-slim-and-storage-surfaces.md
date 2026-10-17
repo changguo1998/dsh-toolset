@@ -65,8 +65,8 @@
 
 - **G1 去掉冗余机制**：运行期分类闸（未注册拒写）、兜底分类 `defaultKind` 与「U 层禁落兜底」三条一并去掉（写只能经句柄，而句柄必绑已注册 kind，这三条再无触发路径）；`preWrite` 与隐私闸保留为库核心的存储侧约束。
 - **G2 去掉语义列**：`origin` / `summary` / `category` / `target` 四列一并去掉。保留的列为 `id` / `source_id` / `project` / `title` / `content` / `content_hash` / `importance` / `session_id` / `created_at`。
-- **G3 表去留**：`candidates` 表与 `doc_index` 表直接删；`sources` / `chunks` 作为存储布局保留（`output-compress` 的同库直写依赖它们，见 `README.md:112`）。
-- 连带影响：`ScopePutInput` 不再有 `target`，`list` / `search` 的过滤面也不含它；`output-compress` 直写时不能再靠 `category` / `target` 标记自己的行 —— 已记在项目级 `docs/BACKLOG.md`「`output-compress` 接入 memory-base 作用域句柄（`promote` 取消后的 I→S 推送路径重定）」里。
+- **G3 表去留**：`candidates` 表与 `doc_index` 表直接删；`sources` / `chunks` 作为**本包自己的存储布局**保留（**订正 2026-10-17 第二轮**：原文写的理由是「`output-compress` 的同库直写依赖它们，见 `README.md:112`」，该前提不成立 —— 该包自持 `digest.db`、改经句柄 `put` 入库，不直写本包的表；保留的实际理由是 `src/knowledge.ts:541-560` 与 `:579` 的本包写入路径仍在用）。
+- 连带影响：`ScopePutInput` 不再有 `target`，`list` / `search` 的过滤面也不含它；`output-compress` 原先靠 `category` / `target` 标记行归属的做法随之失去依据 —— 但**已核实它并未真这么写**（自持 `digest.db`，行归属由 `kind: "digest"` 表达），已记在项目级 `docs/BACKLOG.md`「`output-compress` 接入 memory-base 作用域句柄（`promote` 取消后的 I→S 推送路径重定）」里。
 
 **保留不另问**（属「读写」的一部分）：库核心的隐私闸（凭据 / 私钥形态命中整条拒绝）与注册方 `preWrite` 钩子、一库一指纹的守卫。
 
@@ -290,7 +290,7 @@ interface SearchHit extends Omit<StoreRow, "sourceId" | "sessionId"> { score: nu
 - `memory-base/src/tiers.ts`：**层级恒开启 + 库惰性创建**（`TierSet.open` 改为只解析路径、不 `openStore`，首次写到某层时才建 / 打开；`usage()` 只报已创建的库）；**S 层落点经 `sessionPaths.sessionDirFor(sessionId)` 解析（决策项 11），按会话惰性打开并缓存**，首次打开某层库时把解析到的路径写日志；写入路由去掉 `origin` 条件，改为「按 `tier` 直写 + 目标层不可用时抛错」；写入口改为只从句柄进；删逐库容量守卫与跨项目 P 库（`otherProjectRoots` / `crossProjectRoots`，已裁定去掉）
 - `memory-base/src/knowledge.ts`：新增按 kind 列举（`listRows`）；删 `touch` / `setImportance` / 淘汰与压缩族（`staleCandidates` / `budgetCandidates` / `boostCandidates` / `compress` / 相关上限）与 `last_referenced` 的维护写点
 - `memory-base/src/router.ts`：`KindSpec` 收到 `{ kind, table?, writableTiers?, preWrite? }`；删 `eventTypes` 认领、`routes`、兜底分类与 U 层禁落兜底（G1）；检索并集改为「按 `kind` 过滤的全局读」
-- `memory-base/src/schema.ts`：**直接删** `candidates` 表、`doc_index` 表与全部无消费方的列（提升链的 `promoted_to` / `promoted_from` / `reviewer` / `reviewed_at` / `projects`、失去消费方的 `last_referenced`、四语义列 `origin` / `summary` / `category` / `target`），不写数据迁移路径、也不为兼容旧库保列（二次与四次裁定）；保留 `sources` / `chunks` 两表及其 FTS 触发器（`output-compress` 同库直写依赖）；旧库清空走 `migrate({from: "v1", mode: "drop"})`
+- `memory-base/src/schema.ts`：**直接删** `candidates` 表、`doc_index` 表与全部无消费方的列（提升链的 `promoted_to` / `promoted_from` / `reviewer` / `reviewed_at` / `projects`、失去消费方的 `last_referenced`、四语义列 `origin` / `summary` / `category` / `target`），不写数据迁移路径、也不为兼容旧库保列（二次与四次裁定）；保留 `sources` / `chunks` 两表及其 FTS 触发器（**本包自己的来源与分块布局** —— `src/knowledge.ts:541-560` 的写入路径与 `:579` 的分块插入仍在用；**订正 2026-10-17 第二轮**：原文写的保留理由是「`output-compress` 同库直写依赖」，该前提不成立 —— 它自持 `digest.db` 并改经句柄 `put` 入库，不再直写本包的表，见其追踪文档的调研 01/02）；旧库清空走 `migrate({from: "v1", mode: "drop"})`
 - `memory-base/src/tools.ts`（新增）：`memory_query` 的工具定义（`parameters` JSON Schema、`output.schema` 与 `render`）、`description` 里的选择成本与只读边界（决策项 10）；在 `src/index.ts` 经 `ctx.tools.register` 注册
 - 整文件删除：`src/promote.ts`、`src/hooks.ts`、`src/memory.ts`、`src/writepolicy.ts`、`src/consolidate.ts`、`src/doc-index.ts`、`src/budget.ts`
 - `memory-base/tests/`：随各自面下线删 `promote` / `hooks` / `hooks-rules` / `writepolicy` / `memory` / `doc-index` / `consolidate` / `capacity` / `budget` / `rescan` 十个用例文件；改写 `tiers` / `bundle-tiers` / `kinds` / `exposure` / `knowledge`（`kinds.test.ts` 随 G1 删去未注册拒写 / 兜底分类 / U 层禁兜底的断言，保留按需建表与 `preWrite` 两类）；新增用例 —— 写侧：`put` 指定层、`writableTiers` 拒绝越权层、`forget` 真删返回条数、`preWrite` 拒写与建议 `importance`；读侧：`list` 能枚举本 kind 全部行并可按 `kind` / 层 / 项目过滤、`search` 跨 kind 与按 kind 过滤；工具侧：`memory_query` 两种 `action` 各一例 + `limit` clamp 与截断标注 + 无参数缺省行为
@@ -328,7 +328,7 @@ interface SearchHit extends Omit<StoreRow, "sourceId" | "sessionId"> { score: nu
 - 两条下游条目: `output-compress` 那条已按其任务回写（实现归它自己）; TUI 那条按用户指示**暂不做**, 破损窗口（`/memory add` 与 `/memory review` 失效）已在「规划」末条记明。
 - 仓库外: profile 里 memory-base 条目的 `dbPath` 与 `tiers` 行按新配置面清理 —— 属仓库外改动, 实现时取得明确要求后执行。
 - 旧库文件（约 426 MB）不静默删, 交用户择时处理。
-- **待下一轮回写 `session-paths`**（该包文档现仍只有纯函数三件与 `ensureSessionDir`）: 新增 `sessionDirFor(sessionId)`（内部经宿主 `sessions` 取 cwd）, 见本文件决策项 11 —— 归该包的下一轮修订, 不在本轮。
+- ~~**待下一轮回写 `session-paths`**（该包文档现仍只有纯函数三件与 `ensureSessionDir`）: 新增 `sessionDirFor(sessionId)`（内部经宿主 `sessions` 取 cwd）, 见本文件决策项 11 —— 归该包的下一轮修订, 不在本轮。~~ **已于 2026-10-17 第二轮办结**：`session-paths` 的追踪文档已把 `sessionDirFor(sessionId): string` 写进冻结接口（同步、内部经宿主 `sessions` 取 `header.cwd`、缺失或会话取不到即抛、不建目录），并补了边界语义第 5 条、依赖读取方式、任务拆分第 3 步与四态单测；同时把 output-compress 与 auto-approve 文档里「自己读 `header.cwd` 再调 `sessionDir(cwd, id)`」的旧口径改成 `sessionDirFor(sessionId)`。
 
 ## 实现记录
 

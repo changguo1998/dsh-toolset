@@ -346,7 +346,7 @@ deny:
 
 | 落点 | 载体 | 谁管 | 上限 / 寿命 | 不可用时 |
 | --- | --- | --- | --- | --- |
-| 会话 | `<会话目录>/auto-approve-audit.jsonl`（经 `sessionPaths.sessionDir(cwd, sessionId)` 推导） | **本包自管**（同步 append） | 单文件 **16 MiB**; 随会话目录存在与删除 | **退回人工面板 + 一次警告**（已裁定） |
+| 会话 | `<会话目录>/auto-approve-audit.jsonl`（经 `sessionPaths.sessionDirFor(sessionId)` 推导, 同步; 取 `cwd` 收在 `session-paths` 内部） | **本包自管**（同步 append） | 单文件 **16 MiB**; 随会话目录存在与删除 | **退回人工面板 + 一次警告**（已裁定） |
 | 项目 | memory-base 的 **`project` 层**, 专用 kind **`approval_audit`**（经作用域句柄 `put`） | memory-base | 无自管上限（memory-base 的容量强制已取消）; 随项目库 | **跳过**（不写、记计数与一次 warn, **不影响裁定**） |
 
 每行字段（两处同形）: `{t, sessionId, agentId, callId, toolName, outcome, source: "rule"|"fingerprint"|"readonly"|"upgrade"|"llm", ruleId?, risk?, reviewerDecision?, reviewerModel?, fallback?, mode, fingerprintHash}`; **不记录参数原文与命令全文**（避免把凭据 / 敏感路径写进日志）, 也不记录 reviewer 的提示词与原文响应（体量与隐私）.
@@ -355,8 +355,8 @@ deny:
 
 **依赖**（2026-10-17 双落点后）:
 
-1. **`session-paths`（必需）** —— 会话那份要算会话目录; 本包**不自行复刻**宿主编码。该包未挂载时项目那份仍可写, 但会话那份落点不可得 → 见第 4 条待确认。
-2. **`memory-base`（可选）** —— 项目那份经其作用域句柄写入; 取不到句柄即**跳过项目那份**（只记计数 + 一次 warn）, 不阻塞、不降级裁定。
+1. **`session-paths`（必需）** —— 会话那份要算会话目录（`sessionPaths.sessionDirFor(sessionId)`, 同步; **本包不读 `header.cwd`**）; 本包**不自行复刻**宿主编码。该包未挂载 / 会话取不到时项目那份仍可写, 但会话那份落点不可得 → 见第 4 条待确认。
+2. **`memory-base`（可选）** —— 项目那份经其作用域句柄写入: `registerKind({kind: "approval_audit", writableTiers: ["project"]})` 取句柄（注册是幂等的 apply 期一次）, 每行 `await scope.put({content: <JSON 行>, tier: "project", project, title: \`auto-approve ${sessionId.slice(0, 8)} ${t}\`, source: {kind: "approval", ref: callId}})`; `project`用会话`header.cwd\` 或项目名。取不到句柄即**跳过项目那份**（只记计数 + 一次 warn）, 不阻塞、不降级裁定。
 
 **四处口径（2026-10-17 用户裁定「没有问题」, 第 4 条另有补充）**:
 
@@ -381,8 +381,8 @@ deny:
 | 升级白名单 | `escalation.allow[] = {match, to: [...]}`: 命令命中 `match` **且**目标模式在 `to` 内才放行（两维都要过） |
 | LLM 段 | `review: {enabled, provider?, model?, timeoutMs?, maxRiskAllow?, onFailure}`; `provider` / `model` 缺省取当前会话模型; `onFailure` 缺省 `"panel"`; reviewer 输出严格 JSON, 非法即按失败兜底、不猜 |
 | 命令面 | `ctx.commands.register` 注册 `/autoapprove`: `(无参)` = `status` · `status` · `mode <rules\|rules+llm\|all\|off>` · `on` / `off` · `log [n]` · `clear-fingerprints`; 只改当前进程运行态, 重启回落配置 |
-| 审计（双落点） | 会话: `<会话目录>/auto-approve-audit.jsonl`（自管, 16 MiB 上限）; 项目: memory-base `project` 层、kind `approval_audit`（经作用域句柄 `put`）; 两处字段同形, **不记参数原文与命令全文** |
-| 依赖 | `session-paths`（**必需**, 算会话目录）; `memory-base`（**可选**, 项目那份, 取不到即跳过）; 与 `security-guard` **无接口**（R3: 不调用 `ctx.get("guard")`） |
+| 审计（双落点） | 会话: `<会话目录>/auto-approve-audit.jsonl`（经 `sessionDirFor(sessionId)` 推导, 自管, 16 MiB 上限）; 项目: memory-base `project` 层、kind `approval_audit`（经作用域句柄 `put`）; 两处字段同形, **不记参数原文与命令全文** |
+| 依赖 | `session-paths`（**必需**, `sessionDirFor(sessionId)` 给会话目录）; `memory-base`（**可选**, 项目那份, 取不到即跳过）; 与 `security-guard` **无接口**（R3: 不调用 `ctx.get("guard")`） |
 | 不做的接口面 | 不新增 `ApprovalPolicy` 取值、不新增会话事件词汇、不改 TUI、不改 `permission-presets` |
 
 ### 计划改动文件清单（本次: 仅跟踪文档与条目状态）
@@ -393,10 +393,10 @@ deny:
 ### 计划改动文件清单（实现阶段, 供后续接取时参照, 本次不动）
 
 - 新建包 `auto-approve/`: `package.json`（`@dsh-toolset/auto-approve`, `dsh.bundle.patch`）、`cordis.patch.yml`（`insert` 自身, 按 R6 裁定 `enabled: true` + `mode: rules`）、`tsconfig.json`、`README.md`、`docs/BACKLOG.md`（轻量包口径: 无 `DESIGN.md`）
-- `auto-approve/src/`: `index.ts`（bundle 契约: `inject` / `Config` / `apply` / `provide("autoApprove")` / `registerKind("approval_audit")`）、`gate.ts`（`tools/pre-execute` 监听器: 拿参数、驱动同一判定核心、处理灰区与 reviewer 失败）、`answerer.ts`（`approval/request` 应答者与裁定顺序, 覆盖沙箱升级类请求）、`rules.ts`（只读类 / 白名单 / 拒绝名单的纯函数判定）、`fingerprint.ts`（同会话指纹表: 规范化 + 容量 + 批准 / 拒绝分记）、`calls.ts`（`callId → 参数` 重建表: 首选从 `session/event` 的 `tool/call` 反推, 与 TUI 同构; 若该反推在升级类请求上不可靠, 退回在 `tools/pre-execute` 记录参数并按 `callId` 关联, 裁定点仍在审批层）、`review.ts`（LLM 审查段: 固定策略提示词、四段请求构造、严格 JSON 解析、超时与失败归一; 路由取 `request/header` 或配置覆盖）、`audit.ts`（JSONL）、`command.ts`（`/autoapprove` 注册与子命令）
+- `auto-approve/src/`: `index.ts`（bundle 契约: `inject` / `Config` / `apply` / `provide("autoApprove")` / `registerKind({kind: "approval_audit", writableTiers: ["project"]})` 取句柄缓存）、`gate.ts`（`tools/pre-execute` 监听器: 拿参数、驱动同一判定核心、处理灰区与 reviewer 失败）、`answerer.ts`（`approval/request` 应答者与裁定顺序, 覆盖沙箱升级类请求）、`rules.ts`（只读类 / 白名单 / 拒绝名单的纯函数判定）、`fingerprint.ts`（同会话指纹表: 规范化 + 容量 + 批准 / 拒绝分记）、`calls.ts`（`callId → 参数` 重建表: 首选从 `session/event` 的 `tool/call` 反推, 与 TUI 同构; 若该反推在升级类请求上不可靠, 退回在 `tools/pre-execute` 记录参数并按 `callId` 关联, 裁定点仍在审批层）、`review.ts`（LLM 审查段: 固定策略提示词、四段请求构造、严格 JSON 解析、超时与失败归一; 路由取 `request/header` 或配置覆盖）、`audit.ts`（JSONL + 句柄 `put`）、`command.ts`（`/autoapprove` 注册与子命令）
 - `auto-approve/tests/*.test.ts`（裁定矩阵 + 指纹 + **reviewer 决策矩阵与失败兜底** + **升级白名单两维** + **命令面子命令** + 审计）
 - 接线条: 根 `package.json`（`check` / `build` 追加该包）、`scripts/test-parallel.sh`（`default_pkgs` 追加）、`scripts/install.sh`（插件清单追加）
-- 依赖接线: `session-paths`（**必需** —— 经服务推导会话目录, 取不到则审计不可得, 见验收 20）、`memory-base`（**可选** —— 经作用域句柄把审计行写进 `project` 层, 取不到即跳过）
+- 依赖接线: `session-paths`（**必需** —— 经 `sessionDirFor(sessionId)` 推导会话目录, 取不到则审计不可得, 见验收 20）、`memory-base`（**可选** —— 经作用域句柄把审计行写进 `project` 层, 取不到即跳过）
 - 文档回写（关闭后按 `docs/WORKFLOW-STANDARD.md` §4-5 各一次）: `README.md` + `README.zh.md`（插件清单与包数）、`AGENTS.md`（包数与结构段的插件列表）、`docs/ARCHITECTURE-REUSE.md`（`security-guard` 行与 §5 的 auto-review 判定补「已由本仓 auto-approve 承担确定性层」口径）
 - 明确**不**改: `security-guard/**`、`TUI/**`（除非 R4 裁定要 TUI 命令面）、宿主 profile 之外的任何配置、`docs/STATUS.md`（由用户择时更新）。
 

@@ -1,12 +1,12 @@
 # 新增 session-paths 插件：复刻宿主的会话目录编码（接取条目：`docs/BACKLOG.md`「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」）
 
-状态：决策（2026-10-17）　　开启：2026-10-17　　关闭：未关闭
+状态：决策（2026-10-17；同日第二轮按下游回写追加 `sessionDirFor`）　　开启：2026-10-17　　关闭：未关闭
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮范围：调研 + 决策，不写实现代码（用户 2026-10-17 指示：添加条目和追踪文档即可、决策后结束）。工作区：主检出 `main`。
 
 ## 目标
 
-把「宿主把会话目录放在哪」这件事从各插件各自复刻、各自写错，收敛成一个仓内共有的事实源：新增轻量包 `session-paths`，忠实复刻宿主的目录编码并以服务形态供其他插件调用；消费方（memory-base 的 S 层、可选 output-compress）改为经它取路径。
+把「宿主把会话目录放在哪」这件事从各插件各自复刻、各自写错，收敛成一个仓内共有的事实源：新增轻量包 `session-paths`，忠实复刻宿主的目录编码并以服务形态供其他插件调用；消费方（memory-base 的 S 层、output-compress 的 `digest.db`、auto-approve 的审计落点、可选 agent-group 的状态落点）改为经它取路径 —— 手里同时有 `cwd` 与 `sessionId` 的调用走纯函数三件，只有 `sessionId` 的调用走 `sessionDirFor(sessionId)`（取 `cwd` 收在本包内部，2026-10-17 第二轮追加）。
 
 ## 调研
 
@@ -35,11 +35,13 @@
 
 决策项 2　服务面（签名与边界语义见「规划」的「实现前冻结的接口」）
 
-- a) **`root()` / `projectKey(cwd)` / `projectDir(cwd)` / `sessionDir(cwd, sessionId)` 四个纯函数 + `ensureSessionDir(cwd, sessionId)` 一个显式落盘函数**
+- a) **`root()` / `projectKey(cwd)` / `projectDir(cwd)` / `sessionDir(cwd, sessionId)` 四个纯函数 + `ensureSessionDir(cwd, sessionId)` 一个显式落盘函数 + `sessionDirFor(sessionId)` 一个按会话 id 直接给目录的解析函数**
 - b) 只给 `sessionDir`，其余不暴露
 - c) 连 `ensure*` 一并省掉（只算路径）
 
 **选定 a**。理由：`root()` 让消费方能报告与排障（缺省 `dshHomePath('sessions')`，可经配置覆盖）；`projectKey` / `projectDir` 是对拍测试与排障需要的中间量；`ensureSessionDir` 解决的问题是「宿主已建目录，但恢复会话 / 桶被清理时可能不在」，而仓内「不静默建目录」的口径针对的是**静默换路径**，显式调用 `ensureSessionDir` 不属于静默 —— 所以它提供、但只由调用方显式调用，四个纯函数一律不落盘、目录不存在也不报错。
+
+**决策项 2 补充（2026-10-17 第二轮，收口下游回写）**：在 a 的四函数 + `ensureSessionDir` 之上**追加 `sessionDirFor(sessionId)`** —— 下游四个消费方（memory-base 的 S 库、output-compress 的 `digest.db`、auto-approve 的会话审计、agent-group 的状态文件）手里都只有 `sessionId`，若只给纯函数，每家都要自己去宿主 `sessions` 取 `header.cwd`，「宿主布局知识集中在一处」的目标就打了折。代价照实记：本包从「零依赖纯函数包」变成「纯函数 + 一个依赖宿主 `sessions` 的解析方法」；`sessions` 走可选读取（见「依赖读取方式」），缺失时只有该方法是明示例外，纯函数与 `ensureSessionDir` 不受影响。
 
 决策项 3　消费方怎么接
 
@@ -47,7 +49,7 @@
 - b) 消费方各自留一份本地副本
 - c) 只让 memory-base 接
 
-**选定 a**。理由：留下第二份就等于把这次的漂移问题原样保留；`memory-base/src/router.ts:70-79` 那份错的复刻**直接删掉**，`resolveTierPaths` 继续保持纯函数（它本来就以 `sessionDir` 作为入参），改由 `index.ts` 在需要时向服务要目录。跨包依赖方向是「存储包依赖一个零依赖的工具包」，可接受；该包缺失时 memory-base 的 S 层按「不可用即明示例外」处理（不退化、不静默）。
+**选定 a**。理由：留下第二份就等于把这次的漂移问题原样保留；`memory-base/src/router.ts:70-79` 那份错的复刻**直接删掉**，`resolveTierPaths` 继续保持纯函数（它本来就以 `sessionDir` 作为入参），改由 `index.ts` 在需要时向服务要目录。跨包依赖方向是「存储包依赖一个工具包」—— 该工具包只对宿主 `sessions` 一个服务做可选读取（决策项 2 补充），不反向依赖任何插件包；该包缺失时 memory-base 的 S 层按「不可用即明示例外」处理（不退化、不静默）。
 
 决策项 4　会话 id 与 cwd 从哪来（实现时要用到的两个入参）
 
@@ -56,6 +58,8 @@
 - c) 只给 `sessionId`，cwd 用 `process.cwd()`
 
 **选定 a**。理由：b 会把「订阅会话事件」这件与本包职责无关的事塞进来（而且 memory-base 重设后本仓已不再订阅事件）；c 的 `process.cwd()` 与「会话的 cwd」在宿主里不是同一个概念（会话可带 `header.cwd`）。**留给实现阶段的一处开口**：memory-base 的 S 层写入要拿到 cwd 与 sessionId —— 现有句柄 `put` 只有 `sessionId?`，实现时需要补一个 cwd 来源（显式参数或由调用方传入的 `sessionDir`），记进「规划」的开口清单。
+
+**决策项 4 补充（2026-10-17 第二轮）：开口已收口**。memory-base 的决策项 11 最终定为 d —— 句柄只收 `tier` + `sessionId`，由本包提供 `sessionDirFor(sessionId)` 直接给目录，取 `cwd` 这一步收在本包内部；因此不再需要「由调用方补一个 cwd 来源」。a 的纯函数三件保留，供显式带 `cwd` 的调用方与对拍测试。
 
 决策项 5　output-compress 的 `digest.db` 是否回到「每会话一个文件」
 
@@ -66,7 +70,7 @@
 
 落地口径（同时写进 output-compress 的规划与决策项 9）：
 
-- `output-compress/src/hooks.ts`：在 `session/event` 的会话视图里宽容读取 `header.cwd`（它已经拿到 `session.id`，见 `:161-162`），经 `sessionPaths.sessionDir(cwd, sessionId)` 推导落点；取不到 cwd 时按既有口径降级为 `skipped.session-dir-missing` + 计数。
+- `output-compress/src/hooks.ts`：在 `session/event` 的会话视图里拿 `session.id`（`src/hooks.ts:161-162`），经 `sessionPaths.sessionDirFor(sessionId)` 推导落点（**不必自己读 `header.cwd`**）；服务缺失或会话取不到时按既有口径降级为 `skipped.session-dir-missing` + 计数。
 - 配置键 `sessionDir` 退为**显式覆盖**（配了就优先用它）；因此 profile 里那行在本改动落地时要删掉（现在先留着，否则代码改完之前管线又会变回全跳过）。
 - 早前「一行配置的事」的说法作废：这是代码改动，估 1 至 2 小时含用例，且**本包未落地前无法开工**。
 - 附带后果照实记：digest 从此**只在本会话可见**（跨会话检索不再覆盖未推送到 memory-base 的 digest；`is_error` 的摘要仍会经句柄进 memory-base，那条路不受影响）；`digest.db` 的 100 MB 上限变成「每会话每文件」。
@@ -96,27 +100,32 @@ interface SessionPathsService {
   projectDir(cwd: string | undefined): string;
   /** `<projectDir>/<encodeSegment(sessionId)>`。 */
   sessionDir(cwd: string | undefined, sessionId: string): string;
+  /** 按会话 id 直接给目录：内部经宿主 `sessions` 取 `header.cwd`（缺失按 `_no-cwd`），再走 `sessionDir`；`sessions` 不可用或会话取不到 → 抛明示例外。 */
+  sessionDirFor(sessionId: string): string;
   /** 唯一写盘入口：`mkdir -p`（0700）、幂等，返回目录路径。 */
   ensureSessionDir(cwd: string | undefined, sessionId: string): Promise<string>;
 }
 ```
 
-边界语义四条：
+边界语义五条：
 
 1. 四个纯函数**不落盘**、**不因目录不存在报错**；只在入参非法时按宿主同语义抛（空 `cwd` / 空 `sessionId`）。
 2. `ensureSessionDir` 是**唯一写盘入口**，权限 0700、幂等；纯函数永不调用它。
-3. 服务缺失时由调用方自行降级：memory-base → S 层不可用（写该层报错 + 启动日志说一次）；output-compress → `skipped.session-dir-missing`。
+3. 服务缺失（或 `sessionDirFor` 抛错）时由调用方自行降级：memory-base → S 层不可用（写该层报错 + 启动日志说一次）；output-compress → `skipped.session-dir-missing` + 计数；auto-approve → 会话那份审计不可得（**退回人工面板并一次警告**，见其决策 5 第 4 条）；agent-group → 状态落点不可得（语义待其文档裁定，本轮未定）。
 4. 复刻范围与出处写进 `src/encode.ts` 的注释（来源 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js:853-914`），宿主升级后按注释复核。
+5. `sessionDirFor(sessionId)` **同步、不落盘**，也不建目录（宿主在建会话时就建好了该目录，本机实测每会话目录下有 `session.lock` 与 `session.v4.jsonl.zstd`）；它是本包唯一依赖宿主服务的面。
 
 ### 依赖读取方式（定案）
 
 消费方**不硬 `inject`，用可选读取**：`memory-base` 在 apply 时 `ctx.get('sessionPaths')` 取一次、需要 S 层落点时复取（服务可能晚挂载）；取不到 → S 层不可用并在启动日志里说一次。理由：硬 `inject` 会让「本包未挂载」直接拦住 memory-base 的加载，而它的 P / U 层本来不依赖本包。
 
+**本包自己怎么读宿主的 `sessions`（2026-10-17 第二轮）**：同样用**可选读取** —— `sessionDirFor` 内部 `ctx.get('sessions')`，**不写进 `inject`**。理由与消费方那条同构：硬 `inject: ["sessions"]` 会让宿主缺该服务时整个包不加载，连纯函数三件与 `ensureSessionDir` 的消费方一起失去，而它们本来与该服务无关。宿主面依据：`ctx.sessions: SessionStore`（`inject` 键 `'sessions'`）、`get(id): Session | undefined`、`Session.header.cwd?: string`（`docs/host/DSH-CTX-API.md` §1；`cwd` 可缺，故 `sessionDir` 的入参本就允许 `undefined`）。
+
 ### 任务拆分（5 步，每步带中间验证）
 
 1. **起包骨架** —— 照 `md-table-check/` 复制 `package.json` / `cordis.patch.yml` / `tsconfig.json` / `tests/tsconfig.json` / `.gitignore` / `LICENSE`；`package.json` 的 `dsh.bundle` 与 `provide` 声明服务键 `sessionPaths`。验证：`npm --prefix session-paths run check` 通过（空实现）。
 2. **复刻编码 + 对拍** —— `src/encode.ts` 写四个纯函数（含来源注释）；`tests/encode.test.ts` 表驱动对拍：本机七个真实桶名 + 合成向量（非白名单字符的 `~XXXX`、连续分隔符合并、`_no-cwd`、`.` 与 `..`、超长路径 251 截断、空入参抛错）。验证：`npm --prefix session-paths run test` 全绿。
-3. **服务注册与配置归一** —— `src/main.ts`：配置归一（`root` 缺省读 `DSH_HOME`）、`provide('sessionPaths')`、`ensureSessionDir` 的 0700 与幂等、`README.md`（契约与出处）。验证：`check` + `test` + 一例「假 ctx 拿服务并核对返回值」的用例。
+3. **服务注册、配置归一与 `sessionDirFor`** —— `src/main.ts`：配置归一（`root` 缺省读 `DSH_HOME`）、`provide('sessionPaths')`、`ensureSessionDir` 的 0700 与幂等、`sessionDirFor`（可选读 `ctx.get('sessions')` → `header.cwd` → 委托 `sessionDir`；服务缺失或会话取不到即抛明示例外）、`README.md`（契约与出处）。验证：`check` + `test` + 假 ctx 用例（服务面返回值 + `sessionDirFor` 四态：有 `cwd` / 无 `cwd` 落 `_no-cwd` / 会话取不到抛 / `sessions` 缺失抛）。
 4. **接线 7 处** —— 根 `package.json`（check / build 链）、`scripts/install.sh`（`canonical_pkgs`）、`scripts/test-parallel.sh`（`default_pkgs`）、`profiles/example/cordis.patch.yml`（挂载行，**排在 memory-base 之前**，保证服务先注册）、`README.md` + `README.zh.md`（清单与包数）、`AGENTS.md`（插件清单与计数）、`docs/BACKLOG.md` §4 插件规划表。验证：`npm run check` / `npm run build` / `npm run test` 全绿；`scripts/install.sh --dry-run` 的清单含本包。
 5. **消费方接入与联调** —— memory-base 的 S 层改为经服务取目录（删掉 `src/router.ts` 那份错的 `sessionDirFor`）。**归属注明**：这一步的代码落在 memory-base；按用户口径可与本包同批做，若分两批则本包只交付契约与联调用例，接入归 memory-base 的实现。验证：memory-base 的 S 层落点用例 + 真机重启 profile 后确认 S 库落在 `<sessions root>/<projectKey>/<sessionId>/` 下。
 
@@ -129,7 +138,7 @@ interface SessionPathsService {
 
 ### 实现阶段改动文件清单
 
-- 新包 `session-paths/`：`package.json`、`cordis.patch.yml`、`tsconfig.json`、`tests/tsconfig.json`、`.gitignore`、`LICENSE`、`README.md`、`src/main.ts`（服务注册与配置归一）、`src/encode.ts`（复刻的四个纯函数 + 来源注释）、`tests/encode.test.ts`（对拍）、`tests/service.test.ts`（假 ctx 的服务面用例）
+- 新包 `session-paths/`：`package.json`、`cordis.patch.yml`、`tsconfig.json`、`tests/tsconfig.json`、`.gitignore`、`LICENSE`、`README.md`、`src/main.ts`（服务注册、配置归一与 `sessionDirFor`）、`src/encode.ts`（复刻的四个纯函数 + 来源注释）、`tests/encode.test.ts`（对拍）、`tests/service.test.ts`（假 ctx 的服务面用例 + `sessionDirFor` 四态）
 - 接线 7 处（见项目级条目「五个新插件落地时的仓库清单与包计数统一」）：根 `package.json`（check / build 链）、`scripts/install.sh`（`canonical_pkgs`）、`scripts/test-parallel.sh`（`default_pkgs`）、`profiles/example/cordis.patch.yml`（挂载行，排在 memory-base 之前）、`README.md` + `README.zh.md`（清单与包数）、`AGENTS.md`（插件清单与计数）、`docs/BACKLOG.md` §4 插件规划表；**该条目的标数会因本包 +1，需一并同步**
 - 消费方（代码落在 memory-base，归它的实现）：`memory-base/src/router.ts`（删掉那份错的 `sessionDirFor`）、`memory-base/src/index.ts`（向服务要 S 层目录）、`memory-base/tests/`（S 层落点用例）
 - `docs/BACKLOG.md`：条目状态回写（完成时标「完成」并移除）
@@ -141,13 +150,15 @@ interface SessionPathsService {
 - **对拍（单测）**：`tests/encode.test.ts` 表驱动 —— 本机七个真实桶名 + 五类合成向量（`~XXXX` 转义 / 连续分隔符合并 / `_no-cwd` / `.` 与 `..` / 251 截断）；断言用**逐字符相等**，不用「包含」。
 - **接线（机械）**：`npm run check` + `npm run build` + `npm run test` 三件全绿；`scripts/install.sh --dry-run` 的包清单含本包。
 - **真机**：重启一次 `dsh --profile fff`，确认 memory-base 的 S 库落在 `<sessions root>/<projectKey>/<sessionId>/` 下。
+- **`sessionDirFor`（单测）**：假 `sessions` 四态各一例 —— 有 `cwd`（断言与 `sessionDir(cwd, id)` 逐字符相等）· `header.cwd` 缺失（落 `<root>/_no-cwd/<encodeSegment(id)>`）· 会话取不到（抛）· `sessions` 服务缺失（抛）；另断言它**不创建目录**（调用前目录不存在）。
 - **不做**：不核对宿主升级后的编码漂移（留到宿主升级时按 `encode.ts` 注释里的出处复核，属另一次任务）。
 
 ### 收尾动作（实现完成时）
 
 - 条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
 - 回写 `docs/BACKLOG.md` §4 与条目「五个新插件落地时的仓库清单与包计数统一」的标数（因本包 **+1**）。
-- 实现期剩下一处开口：memory-base 的 S 层写入如何拿到 `cwd`（属它的实现，见第 5 步）。
+- 开口已收口（2026-10-17 第二轮）：memory-base 的 S 层写入如何拿到 `cwd` —— 定为「句柄只收 `sessionId`，本包 `sessionDirFor` 直接给目录」（memory-base 决策项 11 选 d）；本文件原「留给实现阶段的一处开口」随之关闭。
+- 回写下游（本轮已办）：memory-base 文档收尾里「待下一轮回写 `session-paths`」一条已标办结；output-compress 与 auto-approve 的追踪文档中「自己读 `header.cwd` 再调 `sessionDir(cwd, id)`」的旧口径已改为 `sessionDirFor(sessionId)`。
 
 ## 实现记录
 
@@ -173,4 +184,4 @@ interface SessionPathsService {
 - **用户审定（2026-10-17）**：决策项 1 至 4「没有问题」，决策项 5 定为「改回去」—— 五项全部落定，可实现。
 - 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `docs/implementation/`，等开工后按「规划」清单执行。
 - 回写文档：本轮无（实现阶段才动 README / AGENTS.md / 包计数）。
-- 遗留项：① memory-base 与本条的实现顺序（本包先，或 memory-base 先按「S 层不可用是明示例外」落地）；② 实现阶段的两处开口（cwd 来源、`ensureSessionDir` 权限口径）；③ 条目「五个新插件落地时的仓库清单与包计数统一」的标数需因本包 +1。
+- 遗留项：① memory-base 与本条的实现顺序（本包先，或 memory-base 先按「S 层不可用是明示例外」落地）；② 实现阶段剩一处开口（`ensureSessionDir` 的权限口径；`cwd` 来源已于 2026-10-17 第二轮由 `sessionDirFor` 收口）；③ 条目「五个新插件落地时的仓库清单与包计数统一」的标数需因本包 +1。
