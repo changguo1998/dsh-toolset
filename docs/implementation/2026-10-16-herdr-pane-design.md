@@ -245,7 +245,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 
 **取屏与回执口径**：缺省 `recent-unwrapped` / 120 行 / `text`（剥 ANSI；TUI 类程序用 `visible`）；`read` 回执带 `revision` 与 `truncated`，`info` 回执带 `foreground_processes` / `shell_pid`；herdr 错误信封归一为 `{code, message}`；输出按 `renderLimit` 截断并提示用 `lines` / `source` 收窄。`output.schema` 的具体字段名以实现时定稿为准。
 
-**安全三闸**：① 执行前 `ctx.get("guard")?.inspectCommand(text, "herdr-pane:<action>")` 复查（guard 缺失或抛错时告警一次后照常）；② `security-guard` 登记 —— `PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`（**2026-10-17 订正**：原写 `commandKeys: ["command", "text", "keys"]`，但 `security-guard` 任务的实测结论是 `commandKeys` 会静默忽略数组值，数组参数必须走 `commandPaths`）；③ 越界动输入走宿主审批（`tools/pre-execute` 返回 `{kind: "ask"}`），不用 `ctx.approval`。
+**安全三闸**（闸①的判定语义 2026-10-17 第二轮写明，与 `security-guard` 的服务面签名 `inspectCommand(command, source?): string | null` 对齐）：① 执行前 `ctx.get("guard")?.inspectCommand(text, "herdr-pane:<action>")` 复查 —— **返回 `null` = 放行；返回字符串 = 命中，按 deny 回执处理（不执行、把该字符串作为回执来源行附上）**；服务缺失 / 无该方法 / 调用抛错 → 告警一次后**照常执行**（fail-open，与 TUI `$` 模式同口径，见 `TUI/src/app/local-shell.ts:8`、`:245-270`）。**这条复查是本包自己的本地加固，不构成对 `security-guard` 的要求**（两侧的共同契约只有闸②的登记表）；② `security-guard` 登记 —— `PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`（**2026-10-17 订正**：原写 `commandKeys: ["command", "text", "keys"]`，但 `security-guard` 任务的实测结论是 `commandKeys` 会静默忽略数组值，数组参数必须走 `commandPaths`）；③ 越界动输入走宿主审批（`tools/pre-execute` 返回 `{kind: "ask"}`），不用 `ctx.approval`。
 
 ### 任务拆分（实现阶段）
 

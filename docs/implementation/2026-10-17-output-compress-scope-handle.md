@@ -144,8 +144,8 @@ const digestDbPath = join(dir, "digest.db");
 2. `sessionId` 必给（S 层写入必需）；取不到会话 id → 不写、记 `skipped`。
 3. 内容先过本包既有 `deny-patterns` 闸，再入库（两道闸都要过）。
 4. `digest.db` 落点：配置 `sessionDir` 退为**显式覆盖**（配了优先）；缺省经 `sessionDirFor(sessionId)` 推导（同步）；取不到（服务缺失 / 会话取不到 / 抛错）→ `skipped.session-dir-missing` + 计数，**不静默换路径**。
-5. `promotePending()` 保留名字，语义改为「重试未写成功的 digest」，去掉候选容量自查；幂等（同一 digest 不重复写）。
-6. 与 memory-base / `session-paths` 都是**可选依赖**：缺面 → 降级 + 一次性日志，**永不向调用方抛错**。
+5. `promotePending()` 保留名字，语义改为「重试**可重试的**未写成功 digest」，去掉候选容量自查；幂等（同一 digest 不重复写）。**三种结果分档（2026-10-17 第二轮接口核对后冻结，对齐 memory-base 的错误形态）**：① `put` 成功 → 记「已推」；② `put` 返回 `PutResult.skipped`（内容级：隐私闸命中 / `preWrite` 拒）→ 记 `skipped.<reason>` + 计数 + 一次明确日志，**标「不重试」**（重试也不会通过，否则是无限重试）；③ `put` 抛错（参数 / 权限级：越权层、未注册 kind、写 S 层拿不到 `sessionDir`）→ 记 `skipped.error` + 计数 + 一次日志，同样**不重试**（属编程错误，不应发生）。只有「句柄缺失 / 当时没挂 memory-base」这类**能力缺失**才进「未推」集合、由 `promotePending` 重试。
+6. 与 memory-base / `session-paths` 都是**可选依赖**：缺面 → 降级 + 一次性日志，**永不向调用方抛错**（`pushDigest` 全程 try/catch 包住 `put`，抛错按第 5 条的 ③ 归档，不让异常冒到 `session/event` 钩子外）。
 7. 不再有任何 `promote` / `candidates.*` 调用（memory-base 已删这些面）。
 
 **前置**：memory-base 重设（提供句柄）与 `session-paths`（提供 `sessionDirFor`）落地之后；未落地时本包按可选依赖缺失降级（决策项 3b）。
@@ -166,7 +166,7 @@ const digestDbPath = join(dir, "digest.db");
 - `output-compress/README.md`：能力段与边界段同步（依赖面、句柄、缺面时的行为、`sessionDir` 落点）
 - `output-compress/src/hooks.ts`（决策项 9）：会话视图改用 `sessionPaths.sessionDirFor(sessionId)` 推导 `digest.db` 落点（**不自己读 `header.cwd`**）；`src/index.ts` 同步配置语义（`sessionDir` 退为覆盖）
 - `~/.dsh/profiles/fff/cordis.patch.yml`（**仓库外**）：决策项 9 落地时删掉本包那行 `sessionDir`（现为过渡覆盖）
-- `output-compress/tests/hooks.test.ts`：围绕 `promote` 的用例改写为「句柄 `put` 成功 / 句柄缺失 → 明确降级 / `promotePending` 重试未推项」；其余文件按需微调
+- `output-compress/tests/hooks.test.ts`：围绕 `promote` 的用例改写为「句柄 `put` 成功 / 句柄缺失 → 明确降级 / `PutResult.skipped` 与 `put` 抛错 → 记 `skipped.<reason>` 或 `skipped.error` 且不重试 / `promotePending` 只重试能力缺失项」；其余文件按需微调
 
 明确不做：不改自持 `digest.db` 的指纹、表结构与 100 MB 上限（决策项 6）；不声明 `preWrite`、不改 kind 名（决策项 4）；不动 memory-base 的文档与代码（决策项 7）；不动 TUI；profile 的那行已改（决策项 8）、其删除属决策项 9 的落地动作；不新增模型侧工具（本包的 digest 召回已由 memory-base 新增的全局只读查询与 `memory_query` 覆盖）。
 
@@ -174,7 +174,7 @@ const digestDbPath = join(dir, "digest.db");
 
 1. **取句柄与降级**（`src/index.ts`）—— `registerKind({kind: DIGEST_KIND, writableTiers: ["session"]})` + 句柄缓存 + 缺面一次性日志；类型声明随 `MemoryScope` 更新。验证：假 memory 服务的单测（有句柄 / 无句柄两态）+ 该包 `check`。
 2. **推送改造**（`src/hooks.ts` 的 `pushDigest`）—— `promote(items)` → `scope.put(...)`，仍仅 `is_error` digest；删 `PromoteServiceLike` 与 `MemoryPromoteLike.promote`。验证：单测断言 `put` 入参形状（tier / sessionId / source.ref / title）。
-3. **`promotePending` 重写** —— 扫「未写成功的 digest」重试，幂等，去掉候选容量自查。验证：重试用例（首次失败 → 第二次成功，计数正确；重复调用不双写）。
+3. **`promotePending` 重写** —— 扫「未写成功的 digest」重试，幂等，去掉候选容量自查。验证：四例 —— 能力缺失（首次无句柄）→ 第二次成功，计数正确；`PutResult.skipped`（内容级）→ 记 `skipped.<reason>` 且**不再重试**；`put` 抛错 → 记 `skipped.error` 且不重试；重复调用不双写。
 4. **落点改推导**（`src/hooks.ts` + `src/index.ts`）—— 会话视图里本就有 `session.id`（`src/hooks.ts:161-162`），改调同步的 `sessionDirFor(sessionId)`，**不再自己读 `header.cwd`**；`sessionDir` 配置退为覆盖。验证：四例（服务可用 → 落在会话目录 / 服务缺 → `skipped.session-dir-missing` / 会话取不到 → 同上降级 / 配置覆盖优先）。
 5. **文档与真机**（`docs/DESIGN.md` §5/§6 + `README.md`）—— 去掉共库直写与 `promote` 记述，写清句柄、落点与新降级口径。验证：该包 `test` 全绿 + 根三件套 + 真机一次。
 

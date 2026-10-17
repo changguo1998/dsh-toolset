@@ -119,7 +119,7 @@ interface ScopePutInput {
   title?: string;
   importance?: number;  // clamp 1..5，可被 preWrite 建议覆盖
   source?: { kind: string; ref?: string; label?: string };
-  sessionId?: string;    // 写 S 层时必需（决策项 11：落点由本插件自算）
+  sessionId?: string;    // 写 S 层时必需（决策项 11：落点由本插件自算）；写 P / U 层时可选，给了就落 session_id 列（留痕用，见 preference-analysis 的 P 层调用）
 }
 ```
 
@@ -198,7 +198,7 @@ search(opts: { query: string; kind?: string; tier?: Tier; project?: string; limi
 
 **为什么身份必须显式给**：同进程内插件实例是**共用**的（组合行每进程挂载一次，会话是运行期 `ctx.sessions.create` / `fork` 产生的对象），同一进程里可以同时存在主会话与它委派的子代理会话（基础组合挂的是 `subagent-spawn-in-process` 与 `subagent-fork-in-process`，见 `dsh-base/cordis.patch.yml:352-358` 与 `dsh-subagent-spawn-in-process/README.md:79`），因此没有「当前会话」这种环境量可以替代 `sessionId`。
 
-**降级链（明示例外，不退化、不静默换路径）**：写 S 层而 `sessionId` 缺失 → 报错；`sessionPaths.sessionDirFor(id)` 解析失败（会话取不到 / 宿主 `sessions` 缺失 / `session-paths` 未挂载）→ 报错。配置 `sessionDir` 随之**删除**（要改 sessions 根就改 `session-paths` 的配置，一处生效）。
+**降级链（明示例外，不退化、不静默换路径）**：写 S 层而 `sessionId` 缺失 → 报错；`sessionPaths.sessionDirFor(id)` 解析失败（会话取不到 / 宿主 `sessions` 缺失 / `session-paths` 未挂载）→ 报错；解析到的**目录不存在或不可写**（打开 / 创建 S 库失败，如目录被清理或权限不足）→ 同样报错（`session-paths` 按较浅口径只算路径、不建目录，见其边界语义第 6 条）。配置 `sessionDir` 随之**删除**（要改 sessions 根就改 `session-paths` 的配置，一处生效）。
 
 **同进程多会话的后果（新增口径）**：memory-base 一个实例服务全部会话，S 层必须**按会话惰性打开并缓存**（同一进程可能同时开着主会话与子代理会话的 `session.db`），首次打开写路径日志；缓存策略与上限在实现时定（建议只缓存最近若干个，其余写后关闭）。
 
@@ -249,6 +249,8 @@ interface KindVerdict { accept: boolean; reason?: string; importance?: number }
 ```
 
 **给消费方的一条提醒（2026-10-17）**：`preWrite` 的入参 `KindWriteInput = {content, title?, project, kind}` **不含 `tier`** —— 需要「按层拦截」的消费方拿不到层，**只能拆 kind**。先例：`preference-analysis` 用 `preference`（`writableTiers: ["project"]`，归纳路径）+ `preference_user`（`writableTiers: ["user"]`，只由用户显式动作调用）两个 kind，让**句柄本身当闸门**；若将来要给 `preWrite` 加 `tier`，仍需另解「同一层里区分归纳还是显式动作」，所以本轮不改 `KindWriteInput`。
+
+**另一条性质（2026-10-17 第二轮接口核对后记明）**：**kind 名由注册方自定，本包不校验、也不维护全量清单**（注册即按 `kind_<slug>` 建表）。因此「消费方之间 kind 名不撞车、且与文档一致」这件事只能由注册方单侧保证；本包文档里出现的 kind 名（`preference` / `preference_user` 等）都只是**引用先例**，不是校验面。消费方注册时的现实约束只有三条：`kind` 非空、`writableTiers` 在 `Tier` 并集内、句柄越权层会抛错。
 
 **全局面** `ctx.get('memory')` 八键（无写无删）:
 

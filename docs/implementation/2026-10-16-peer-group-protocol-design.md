@@ -126,9 +126,9 @@
 
 **传输（接 session-channel）**：投递 = `delegate({from, to, text, timeoutSec})`（指令 id 用其 `task.id`）；收取 = `taskStatus(id)`（读取时懒判定超时）；成员回传 = `taskResult({taskId, text, failed?, error?})`；平等连接 = `send({to, text})`；成员核对 = `peers()` / `aliasList()`。三条硬约束照 session-channel 的 README（从方也要挂本插件 · 目标必须在线 · 离线不排队）。
 
-**状态落点（用户 2026-10-17 裁定）**：**管理者负责记录，落管理者自己的会话目录** —— `<管理者会话目录>/agent-group.json`（经 `sessionPaths.sessionDirFor(managerSessionId)` 推导），原子写、权限 0600，内含该管理者创建的组（通常一个）。**可选镜像**：经 memory-base 作用域句柄写 `kind: "agent_group"`、`tier: "session"`（与组同寿命，模型可用 `memory_query` 查）；memory-base 不可用 → **跳过**（只记计数 + 一次 warn，不影响协调）。
+**状态落点（用户 2026-10-17 裁定）**：**管理者负责记录，落管理者自己的会话目录** —— `<管理者会话目录>/agent-group.json`（经 `sessionPaths.sessionDirFor(managerSessionId)` 推导），原子写、权限 0600，内含该管理者创建的组（通常一个）。**可选镜像**（入参 2026-10-17 第二轮冻结）：`registerKind({kind: "agent_group", writableTiers: ["session"]})` 取句柄（apply 期一次并缓存）；每次组状态变更后 `await scope.put({content: <该组状态的 JSON>, tier: "session", sessionId: managerSessionId, project, title, source: {kind: "agent_group", ref: groupId}})`（`title` 用 `agent-group <组名>` 形态）—— `sessionId` 是 memory-base 的 S 层必需项，`project` 取管理者会话的 `cwd` 或项目名。失效面三档：memory-base 未挂载 / 句柄取不到 → **跳过**（只记计数 + 一次 warn，不影响协调）；`PutResult.skipped`（隐私闸 / `preWrite` 拒）与 `put` 抛错 → 同样只记计数 + 一次日志、**不重试**。
 
-**依赖**：`session-channel`（必需，传输）+ `session-paths`（必需，状态落点 = `sessionPaths.sessionDirFor(managerSessionId)`，同步）+ `memory-base`（可选，镜像）。`session-channel` 缺失 → **不注册工具**（没有传输就没有协调）；`session-paths` 缺失 / 会话取不到时的语义见「收尾」待定项 7（**尚未裁定**）。
+**依赖**：`session-channel`（必需，传输）+ `session-paths`（必需，状态落点 = `sessionPaths.sessionDirFor(managerSessionId)`，同步）+ `memory-base`（可选，镜像）。`session-channel` 缺失 → **不注册工具**（没有传输就没有协调）；`session-paths` 缺失（apply 期取不到服务）→ **同样不注册工具 + 一次警告**（2026-10-17 用户裁定「不注册工具并警告」；运行期解析失败的处置见「收尾」待定项 7 的②）。
 
 ### 与相邻能力的边界（分工口径，2026-10-17 用户确认）
 
@@ -144,7 +144,7 @@
 
 ### 任务拆分（首期）
 
-1. 包骨架 `agent-group/`：`package.json`（`dsh.bundle`）、`cordis.patch.yml`、`tsconfig.json`、`index.ts`、`.gitignore` / `LICENSE`（照既有包复制）。
+1. 包骨架 `agent-group/`：`package.json`（`dsh.bundle`）、`cordis.patch.yml`、`tsconfig.json`、`index.ts`、`.gitignore` / `LICENSE`（照既有包复制）。**apply 期依赖门禁**（2026-10-17 裁定）：`ctx.get("sessionChannel")` 或 `ctx.get("sessionPaths")` 任一取不到（或缺 `sessionDirFor`）→ **不注册工具 + 一次警告**；运行期 `sessionDirFor(managerSessionId)` 抛错 → 写状态的动作报错（只读 `status` 仍可用）。
 2. 数据模型 `src/model/`：组、成员、主从连接（含等级）、未结指令与回报记录；校验规则 = 成对唯一、每 agent 至多一主、等级严格递增、从方必须是自由代理、每连接一条未结指令。
 3. 协议逻辑 `src/core/`：建立连接（显式，校验自由代理）、发指令、检查（懒判定三收场）、移除（逐层下推，非叶子拒绝并带提示）、只读查看。
 4. 传输接入 `src/transport/`：`inject` session-channel 服务面，封装「投递指令」与「收取回报」两个操作；服务面方法名以实现前核对为准（S5 第 1 项）。
@@ -172,6 +172,7 @@
 6. 移除规则：叶子可移除；非叶子被拒，提示里列出剩余从代理的名字（决策项 10、18）。
 7. 等级无环：断言「主等级 ≥ 从等级」的连接一律被拒（决策项 8）。
 8. 拒绝提示：抽样若干拒绝路径，断言都带原因与下一步。
+9. 依赖门禁（2026-10-17 裁定）：假 ctx 缺 `sessionChannel` 或缺 `sessionPaths`（或服务无 `sessionDirFor`）→ 断言**工具未注册**且日志有一条警告；两者都在 → 正常注册。运行期：假 `sessions` 里查不到管理者会话 → 写状态的动作（建组 / 加成员 / `link` / `send` / `check` / `remove`）报错并带原因，`status` 仍可读。
 
 ### 估时细化（补全条目「待细化」的估时）
 
@@ -222,5 +223,5 @@
   4. TUI 命令或面板 —— 二期。
   5. session-channel 侧的**别名修补**（全机唯一 + 恢复后不变）：属该模块待办；是否要在 `session-channel/docs/BACKLOG.md` 落一条条目，尚未得到答复。
   6. ~~与 `/council`、`bestOf+judge`、`task-engine`、`session-channel` 的分工口径~~ **已确认（2026-10-17，用户「基本没有问题」）**：见「规划」的「与相邻能力的边界」。
-  7. **`session-paths` 不可得时的语义（2026-10-17 第二轮新增待裁定）**：状态落点写进管理者自己的会话目录（`sessionPaths.sessionDirFor(managerSessionId)`），但该服务缺失 / 会话取不到时本包怎么办未定 —— 两个候选：① 与 `session-channel` 同款「**不注册工具**」（没有落点就没有协调，工具面直接不出现）；② 注册工具但**写状态的动作报错**（只读 `status` 仍可用）。`session-channel` 缺失时已定为 ①（见「规划」的依赖一行），本项要定的是同一条规则是否照搬到 `session-paths`。
+  7. ~~**`session-paths` 不可得时的语义**~~ **已裁定（2026-10-17，用户「不注册工具并警告」）**：apply 期 `ctx.get("sessionPaths")` 取不到（服务未挂载 / 无 `sessionDirFor`）→ **不注册 `agent_group` 工具 + 一次明确警告日志**（与 `session-channel` 缺失同款：没有落点就没有协调，工具面直接不出现）。三条实现口径由本裁定推出，一并记明：① 判定在 **apply 期一次性**做（本包不追「晚挂载」——服务在之后才挂载时本次进程不补注册，重启才生效）；② 运行期 `sessionDirFor(managerSessionId)` 抛错（会话取不到 / 宿主 `sessions` 缺失）→ **写状态的动作报错**（带原因与下一步），只读的 `status` 仍可用；③ 警告走本包日志（`warn` 一次，含原因），不弹窗、不注入。
 - 条目回写（把「底床」「各自 pane」「发言权轮转」等措辞改成现行口径）留到收尾提交时一并做。

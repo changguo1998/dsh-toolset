@@ -128,6 +128,8 @@
 
 **F. 工具返回体一律 lossless JSON（决策项 7 选 a，本次新增）**：四个模型侧工具（`session_channel` / `channel_delegate` / `channel_task` / `channel_task_result`）的 `execute` 出口先过 `toLosslessJson(value)`（递归去掉值为 `undefined` 的键；数组里的 `undefined` 视同编程错误，按等价语义剔除并在实现时注明）；`output.schema`（`{type:"object", additionalProperties:true}`）与 `output.render` 不动；**服务面返回值、类型声明与工具内部消费方不变**（归一发生在工具边界，不改变 `provide("sessionChannel")` 的任何签名与语义）。两处根因顺手改直：`broker.ts` 的 `sendMessage` 改为按需拼 `delivered`，`index.ts:296` 的清零改用 `delete this.#status.error`。
 
+**G. 与 `security-guard` 的关系（2026-10-17 第二轮接口核对后补，按「较浅口径」定）**：本包四个工具**都不进** `security-guard` 的两张登记表（`PLUGIN_COMMAND_TOOLS` / `PLUGIN_FILE_TOOLS`），也不调它的 `inspectCommand`。唯一交叉面是 `session_channel` 的 `to` 参数：写成 `cwd:<绝对路径>` 形态时，由 guard 的**值面兜底**（非 watched 键下以 `cwd:` / `/` / `~/` / `$HOME` 开头的字符串按路径判定）覆盖 —— 该口径目前只写在 guard 侧（`security-guard/README.md:173`、`src/index.ts:567`），本包 README 补一句说明即可，**不新增任何要求、不改登记表**。四个工具的正文参数（消息正文 / 委托任务正文）不在登记面内：正文由**目标会话自己的工具面**执行并各自过闸（登记表 + 沙箱），本包不代替目标过闸 —— 这条分工也写进 README。
+
 ### 任务拆分（6 步，每步带中间验证）
 
 1. **词表扩容 + 取名规则** —— `src/alias-words.ts`：`AUTO_ALIAS_WORDS` 扩到 ≥ 256 词；新增后缀函数（`sha256(sessionId)` 前 4 位 hex）；`pickAutoAlias` 改为拼 `<前缀><词>-<hex4>`。验证：`npm --prefix session-channel run check` 通过，且 `tests/alias.test.ts` 的词表规模 / 约束 / 取名用例按新格式更新后过。
@@ -148,7 +150,7 @@
 - `session-channel/src/index.ts`：`#autoAlias` 改用新命名规则（传入 sessionId 以算后缀）；重试耗尽时补一行 `console.warn`；新增 `toLosslessJson` 并在四个工具的 `execute` 出口套用；`:296` 的 `#status.error` 清零改 `delete`（决策项 7）
 - `session-channel/src/broker.ts`：`sendMessage` 的返回按需拼 `delivered`（`:444-447`，决策项 7）
 - `session-channel/tests/tools.test.ts`（新增，或并入 `tests/service.test.ts`）：工具返回体的 lossless JSON 判定用例（四工具 · 成功与失败两态 · 不带 `waitMs` 的 `send` · 重试后的 `status()`），判定函数按宿主的四条规则自写
-- `session-channel/README.md`：服务面表 `:65-76` 补「参数 → 返回」；新增「群组编排用法与成员寻址口径」一节（含两条硬约束与三态承载口径）；`边界与限制` 的别名条 `:105` 补自动别名口径；用例数 `:122` 改为实测值；工具返回口径补一句（出口归一保 lossless JSON，决策项 7）
+- `session-channel/README.md`：服务面表 `:65-76` 补「参数 → 返回」；新增「群组编排用法与成员寻址口径」一节（含两条硬约束与三态承载口径）；`边界与限制` 的别名条 `:105` 补自动别名口径；用例数 `:122` 改为实测值；工具返回口径补一句（出口归一保 lossless JSON，决策项 7）；边界段补与 `security-guard` 的分工（不登记 / `to` 的 `cwd:` 形态由 guard 值面兜底 / 正文由目标会话自己过闸）
 - `session-channel/docs/DESIGN.md`：`:40` / `:85` / `:95` 三处口径同步
 - `session-channel/tests/alias.test.ts`、`tests/service.test.ts`：词表与取名用例更新 + 新增四条用例（见任务拆分第 5 步）
 - `session-channel/docs/BACKLOG.md`：三条条目完成时标「完成」并移除
@@ -159,7 +161,7 @@
 
 - **单测**：`npm --prefix session-channel run test` 全绿（`redisTest` 无 `redis-server` 时 skip 要注明）；四条新用例 + 更新的词表 / 取名 / 来源标签用例。
 - **机械**：`npm run check` + `npm run build` + `npm run test` 三件；`README.md:122` 的例数与实跑一致。
-- **人工**：README 的服务面核表逐条对着 `src/index.ts:1514-1541` 与 `src/types.ts` 读一遍；真机看一眼别名变长后的状态列显示。
+- **人工**：README 的服务面核表逐条对着 `src/index.ts:1514-1541` 与 `src/types.ts` 读一遍；README 里与 `security-guard` 的分工那句对着 `security-guard/README.md:173` 与 `src/index.ts:567` 读一遍；真机看一眼别名变长后的状态列显示。
 - **lossless JSON（决策项 7 新增）**：单测里四个工具的返回体（成功 / 失败 / 无 `waitMs` / 重试后 `status`）一律过本包自带的等价判定；实现完成后用宿主校验函数对拍一次真实返回体（本轮已对拍过一次失败样本，实现后复做，并补一个通过样本）。
 - **不做**：不验跨机（本包仅本机）；不验广播（二期）；不去改 `PeerInfo` 加别名字段。
 

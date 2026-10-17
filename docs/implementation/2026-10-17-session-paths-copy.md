@@ -111,9 +111,10 @@ interface SessionPathsService {
 
 1. 四个纯函数**不落盘**、**不因目录不存在报错**；只在入参非法时按宿主同语义抛（空 `cwd` / 空 `sessionId`）。
 2. `ensureSessionDir` 是**唯一写盘入口**，权限 0700、幂等；纯函数永不调用它。
-3. 服务缺失（或 `sessionDirFor` 抛错）时由调用方自行降级：memory-base → S 层不可用（写该层报错 + 启动日志说一次）；output-compress → `skipped.session-dir-missing` + 计数；auto-approve → 会话那份审计不可得（**退回人工面板并一次警告**，见其决策 5 第 4 条）；agent-group → 状态落点不可得（语义待其文档裁定，本轮未定）。
+3. 服务缺失（或 `sessionDirFor` 抛错）时由调用方自行降级：memory-base → S 层不可用（写该层报错 + 启动日志说一次）；output-compress → `skipped.session-dir-missing` + 计数；auto-approve → 会话那份审计不可得（**退回人工面板并一次警告**，见其决策 5 第 4 条）；agent-group → **不注册工具 + 一次警告**（apply 期取不到服务即不注册；2026-10-17 用户裁定「不注册工具并警告」）。
 4. 复刻范围与出处写进 `src/encode.ts` 的注释（来源 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js:853-914`），宿主升级后按注释复核。
 5. `sessionDirFor(sessionId)` **同步、不落盘**，也不建目录（宿主在建会话时就建好了该目录，本机实测每会话目录下有 `session.lock` 与 `session.v4.jsonl.zstd`）；它是本包唯一依赖宿主服务的面。
+6. **目录存在性由宿主负责，本包不保证、也不校验可写**（2026-10-17 第二轮按「较浅口径」定）：`sessionDirFor` 与三个纯函数只算路径，不建目录也不探测可写性；消费方真正写文件 / 开库时若遇到目录不存在或不可写，按各自的失败口径处理（memory-base → 写该层报错；output-compress → `skipped` + 计数），**本包不新增按 id 的 `ensure*`** —— `ensureSessionDir` 仍只按 `(cwd, sessionId)` 调用、只由显式调用方使用。
 
 ### 依赖读取方式（定案）
 

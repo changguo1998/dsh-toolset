@@ -198,6 +198,8 @@ await induction.forget([{ tier: "project", ids: [a, b] }]);   // 撤销 / 退休
 const rows = await memory.list({ kind: "preference" });        // 全局只读（D16 只把库当副本）
 ```
 
+两处说明（2026-10-17 第二轮接口核对后补）：① `sessionId` 只在 memory-base 的 **S 层**是必需项，P 层那次 `put` 也带上它是**有意留痕**（上游保留 `session_id` 列，便于回溯「哪次会话归纳出来的」）；U 层那次不带。② `forget` 的 `ids` 用数字 id，与上游句柄签名 `readonly { tier: Tier; ids: readonly number[] }[]` 对齐（不传字符串 id）。
+
 **D19 四项要求 → 重设后的对应形态**（全部满足）：
 
 | D19 的要求 | 重设后的形态 |
@@ -213,7 +215,20 @@ const rows = await memory.list({ kind: "preference" });        // 全局只读�
 
 **账簿（自持，唯一状态源 D16）**：`<dshHome>/preference-analysis/ledger.json`（**跨会话**账簿，不能用会话目录），目录 0700 / 文件 0600，原子写 + 版本守卫，含 `status`（observe → candidate → active → dormant → retired）与 `suppressed` 键。
 
-**注入（rule-engine 消费者，单个）**：只读账簿的 `active` 条目；每次 ≤ 5 条 / ≤ 600 字符（可配），超限截断并计数。
+**注入（rule-engine 消费者，单个；注册面 2026-10-17 第二轮冻结）**：
+
+```ts
+ruleEngine.registerConsumer({
+  id: "preference-analysis",
+  sources: ["session-start", "compaction", "step-end"],   // 与 symbol-normalizer / ponytail 同款组合
+  delivery: "steer",
+  dedupeInRecord: 1,
+  directWrite: ["session-start", "compaction"],           // 开局与压缩后立即注入，不被记录去重挡掉
+  decide,                                                 // 只读账簿的 active 条目
+});
+```
+
+每次 ≤ 5 条 / ≤ 600 字符（可配），超限截断并计数；`enabled: false` 时不注册（或注册后 `decide` 恒空）。取值来源见本文件调研 2 记的既有成熟组合（同节点同 `delivery` 的命中会被 rule-engine 合并成一条注入，故条数与字符上限必须由本包自己守）。
 
 **模型侧工具三个**：`preference_list`（看账簿与状态）· `preference_add`（模型提议 → 一律落候选待审，不自动应用）· `preference_remove`（撤销 → 记 `suppressed` + 调 `forget`）。
 
@@ -236,14 +251,14 @@ const rows = await memory.list({ kind: "preference" });        // 全局只读�
 - `src/observe.ts` (`session/event` -> S1 / S2 / S3 证据)
 - `src/induce.ts` (约束句抽取, 归一化 key, 3-gram 相似合并, 置信分档)
 - `src/ledger.ts` (状态文件: 版本守卫, 原子写, `0o600`, `suppressed` 键, 老化扫描)
-- `src/apply.ts` (写库适配 (按 D19) + 自动应用 + 注入消费者 `decide`)
+- `src/apply.ts` (写库适配（按 memory-base 重设后的句柄面）+ 自动应用 + 注入消费者 `decide`，注册参数见冻结接口)
 - `src/tools.ts` (`preference_list` / `preference_add` / `preference_remove`)
 - `tests/*.test.ts` (observe / induce / ledger / apply / tools / main / 端到端)
 - `README.md` + `docs/DESIGN.md` (有状态机与跨包契约, 按 `AGENTS.md`"DESIGN.md 口径"应建) + `docs/BACKLOG.md`
 
 跨包 (原按 D15, 现按 D19):
 
-- 偏好分析侧只做"按新面调用"的适配: `remember({tier})` (指定层写入) / `list({kind})` (列举) / `forget` (撤销); memory-base 的瘦身改造本体归属它自己的任务 (用户 2026-10-16 指示: 不新开 BACKLOG 条目, 记录以本文件为准), 本任务不改其代码.
+- 偏好分析侧只做"按新面调用"的适配: 句柄 `put`（`induction` / `explicit` 两个）+ 句柄 `forget`（撤销 / 退休）+ 全局 `list({kind})`（列举）; memory-base 的瘦身改造本体归属它自己的任务 (用户 2026-10-16 指示: 不新开 BACKLOG 条目, 记录以本文件为准), 本任务不改其代码. **订正（2026-10-17 第二轮接口核对）**: 原文这里写的 `remember({tier})` 是旧面键 —— memory-base 重设后全局面不含 `remember`（写入只经句柄），一律以「实现前冻结的接口」那段为准.
 - 若 D19 的三项尚未提供: 按 D20 的 (b) 退化为"正文也自持", **不加临时妥协代码** (不冒充 `origin: "user"`, 不依赖 `candidates`).
 
 接线:
@@ -266,7 +281,7 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 4. **拒绝后不再出现**: 条目被 reject (或 `preference_remove`) -> 账簿记 `suppressed` 键, 同一序列重放不再产出候选, 不再写入.
 5. **老化**: 注入时钟推进 91 天 -> `dormant` 且不注入; 181 天 -> `retired` 并调删除面 (`forget` / `evict`); 若删除面尚未提供, 该断言退化为"账簿退休 + 不再注入".
 6. **敏感信息不入库**: 证据含 `sk-` 形态或 `.ssh/id_rsa` -> 不产出条目, 且账簿文件里不出现该片段.
-7. **注入面**: 存在 `active` 条目 -> 消费者 `decide` 返回含该偏好文案的正文 (条数超上限时截断并计数); `enabled: false` -> 不观测, 不注入, 不写入.
+7. **注入面**: 存在 `active` 条目 -> 消费者 `decide` 返回含该偏好文案的正文 (条数超上限时截断并计数); 假 ruleEngine 断言**注册入参**与冻结值一致（`id` / `sources` / `delivery` / `dedupeInRecord` / `directWrite`）; `enabled: false` -> 不观测, 不注入, 不写入.
 8. **分层门禁**: 归纳产生的写入只落项目层; 用户层写入只在显式动作下发生 (断言 actor 判定).
 9. **机械门禁**: 新包 `npm run check` / `build` / `test` 全绿; 根 `npm run check` / `npm run build` / `npm run test` (TUI + 22 个插件) 全绿.
 
@@ -286,7 +301,7 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 2. **观测**（`src/observe.ts`）—— 订阅 `session/event`，抽 S1 / S2 / S3（S1 排除 `source.kind === 'rule-engine'`）。验证：三信号各一例 + 排除例。
 3. **归纳**（`src/induce.ts`）—— 约束句抽取（≤ 120 字）、归一化 key、3-gram Jaccard ≥ 0.8 合并、置信分档（D5）。验证：验收 1、2。
 4. **存储适配**（`src/apply.ts`）—— 两个句柄 + `put` / `forget` / 全局 `list`；隐私双闸。验证：验收 3、4、6、8。
-5. **注入与工具**（`apply.ts` 的消费者 + `src/tools.ts`）—— 注册一个 rule-engine 消费者；三个工具的参数与返回值。验证：验收 7 + 工具用例。
+5. **注入与工具**（`apply.ts` 的消费者 + `src/tools.ts`）—— 按冻结值注册一个 rule-engine 消费者（`id` / `sources` / `delivery` / `dedupeInRecord` / `directWrite`, 见冻结接口）; 三个工具的参数与返回值。验证：验收 7（含注册入参断言）+ 工具用例。
 6. **文档与真机** —— `README.md` + `docs/DESIGN.md`（有状态机与跨包契约，按 DESIGN 口径需建）+ 七处接线。验证：该包 `test` 全绿 + 根三件套 + 真机一次。
 
 ### 实现阶段的验证口径（怎么跑）

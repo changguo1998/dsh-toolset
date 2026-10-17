@@ -356,7 +356,7 @@ deny:
 **依赖**（2026-10-17 双落点后）:
 
 1. **`session-paths`（必需）** —— 会话那份要算会话目录（`sessionPaths.sessionDirFor(sessionId)`, 同步; **本包不读 `header.cwd`**）; 本包**不自行复刻**宿主编码。该包未挂载 / 会话取不到时项目那份仍可写, 但会话那份落点不可得 → 见第 4 条待确认。
-2. **`memory-base`（可选）** —— 项目那份经其作用域句柄写入: `registerKind({kind: "approval_audit", writableTiers: ["project"]})` 取句柄（注册是幂等的 apply 期一次）, 每行 `await scope.put({content: <JSON 行>, tier: "project", project, title: \`auto-approve ${sessionId.slice(0, 8)} ${t}\`, source: {kind: "approval", ref: callId}})`; `project`用会话`header.cwd\` 或项目名。取不到句柄即**跳过项目那份**（只记计数 + 一次 warn）, 不阻塞、不降级裁定。
+2. **`memory-base`（可选）** —— 项目那份经其作用域句柄写入: `registerKind({kind: "approval_audit", writableTiers: ["project"]})` 取句柄（注册是幂等的 apply 期一次）, 每行 `await scope.put({content: <JSON 行>, tier: "project", project, title, source: {kind: "approval", ref: callId}})`（`title` 用 `auto-approve <sessionId 前 8 位> <时间>` 形态; `project` 取会话的 `header.cwd` 或项目名）。取不到句柄即**跳过项目那份**（只记计数 + 一次 warn）, 不阻塞、不降级裁定。
 
 **四处口径（2026-10-17 用户裁定「没有问题」, 第 4 条另有补充）**:
 
