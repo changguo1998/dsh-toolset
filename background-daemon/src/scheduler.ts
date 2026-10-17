@@ -164,9 +164,13 @@ export class Scheduler {
     this.#disposeTimer?.();
     this.#disposeTimer = null;
     const now = this.#now();
-    const target = nextWakeAt(
-      this.#options.store.list().map((task) => toDueInput(task)),
-    );
+    const tasks = this.#options.store.list();
+    // 清理已删除任务的宽限等待记录（取消 / 删除后不应留在等待表里）
+    const alive = new Set(tasks.map((task) => task.id));
+    for (const id of [...this.#waitingSince.keys()]) {
+      if (!alive.has(id)) this.#waitingSince.delete(id);
+    }
+    const target = nextWakeAt(tasks.map((task) => toDueInput(task)));
     this.#nextAt = target;
     if (target === null) return;
     let delay = this.#delayFor(target, now);
