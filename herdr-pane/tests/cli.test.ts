@@ -115,7 +115,9 @@ test("findOnPath: 跳过空目录段，找不到返回 null", () => {
   const bin = makeExecutable(dir, "herdr");
   assert.equal(findOnPath("herdr", `:${dir}:`), bin);
   assert.equal(findOnPath("herdr", tempDir()), null);
-  assert.equal(findOnPath("herdr", undefined), null);
+  // 空串 = 空 PATH（找不到）；显式 undefined 会走缺省参数（process.env.PATH），不在此断言
+  assert.equal(findOnPath("herdr", ""), null);
+  assert.equal(findOnPath("herdr", ":::"), null);
 });
 
 test("parseEnvelope: stdout 成功信封 / stderr 错误信封 / 纯文本 unparsed", () => {
@@ -218,7 +220,8 @@ test("createDefaultRunner: 非零退出原样带回（exit 码与 stderr）", as
 
 test("createDefaultRunner: 超时 SIGKILL 并返回 timedOut（不抛错）", async () => {
   const dir = tempDir();
-  const bin = makeScript(dir, "hang", "sleep 5");
+  // exec：让 shell 自身被 sleep 取代，SIGKILL 直接落到 sleep 上（否则孙进程仍持管道）
+  const bin = makeScript(dir, "hang", "exec sleep 5");
   const result = await createDefaultRunner(bin).run(["pane", "read"], 60);
   assert.equal(result.timedOut, true);
   assert.equal(result.exitCode, -1);

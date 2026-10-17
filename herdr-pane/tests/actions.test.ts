@@ -74,7 +74,8 @@ test("dispatchAction: 未知 action 返回 unknown-action 且不触达 runner", 
 });
 
 test("dispatchAction: 缺 pane_id / text / keys / command 的动作一律先拒，不触达 runner", async () => {
-  const { deps: d, runner } = deps();
+  // 用**已登记**的 pane：否则写类动作会先撞归属拒绝，测不到参数校验分支
+  const { deps: d, runner } = deps({ registered: ["wT1:p2"] });
   for (const action of [
     "read",
     "wait",

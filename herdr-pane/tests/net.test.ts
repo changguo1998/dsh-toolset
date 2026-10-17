@@ -25,9 +25,14 @@ async function withServer(
 ): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "herdr-pane-net-"));
   const socketPath = join(dir, "herdr.sock");
+  // 服务端侧连接必须自己收好：客户端超时后直接 destroy，若这里从没读过数据，socket 会停在
+  // paused 态，`server.close()` 就会一直等它——这是本轮「测试跑完不退出」的根因。
+  const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
-    // 客户端超时后会直接 destroy，服务端侧会看到 ECONNRESET——忽略即可
+    sockets.add(socket);
     socket.on("error", () => {});
+    socket.on("close", () => sockets.delete(socket));
+    socket.resume();
     onConnection(socket);
   });
   await new Promise<void>((resolve, reject) => {
@@ -37,6 +42,8 @@ async function withServer(
   try {
     await body(socketPath);
   } finally {
+    for (const socket of sockets) socket.destroy();
+    sockets.clear();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
