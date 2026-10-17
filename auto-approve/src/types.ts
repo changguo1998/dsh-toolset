@@ -175,7 +175,6 @@ export interface PluginHost {
   get?(name: string): unknown;
   provide?(name: string, value: unknown): unknown;
   logger?(namespace: string): { info(message: string): void };
-  [key: string]: unknown;
 }
 
 /** 服务读取（优先 `ctx.get`，其次直接成员；与 command-template 的 `readService` 同构）。 */

@@ -24,6 +24,6 @@
     "include": [
         "index.ts",
         "src",
-        "tests/*.test.ts"
+        "tests/*.ts"
     ]
 }

@@ -24,7 +24,6 @@ test("缺省值：enabled true / mode rules / 四张名单全空 / 只读类内�
   assert.equal(config.review.onFailure, "panel");
   assert.equal(config.review.maxRiskAllow, "medium");
   assert.equal(config.review.timeoutMs, 10_000);
-  assert.equal(config.audit.session, true);
   assert.equal(config.audit.project, true);
   assert.equal(config.audit.maxBytes, 16 * 1024 * 1024);
   assert.deepEqual(config.diagnostics, []);

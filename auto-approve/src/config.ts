@@ -93,8 +93,6 @@ export type RiskLevelName = "low" | "medium" | "high";
 
 /** 审计配置。 */
 export interface AuditConfig {
-  /** 会话那份是否启用（缺省 true）。 */
-  session?: boolean;
   /** 项目那份（memory-base）是否启用（缺省 true；有 memory-base 才写）。 */
   project?: boolean;
   /** 会话那份的单文件上限（字节，缺省 16 MiB）。 */
@@ -169,7 +167,7 @@ export interface ResolvedConfig {
     maxRiskAllow: RiskLevelName;
     onFailure: "panel" | "reject";
   };
-  audit: { session: boolean; project: boolean; maxBytes: number };
+  audit: { project: boolean; maxBytes: number };
   /** 归一过程中的诊断（非法值被回落时各一条）。 */
   diagnostics: readonly string[];
 }
@@ -373,7 +371,6 @@ export function resolveConfig(config: Config | undefined): ResolvedConfig {
       onFailure: reviewRaw.onFailure === "reject" ? "reject" : "panel",
     },
     audit: {
-      session: auditRaw.session !== false,
       project: auditRaw.project !== false,
       maxBytes: asPositiveInt(
         auditRaw.maxBytes,
