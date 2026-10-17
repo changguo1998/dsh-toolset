@@ -39,7 +39,9 @@ export class CallTable {
         ...existing.info,
         ...info,
         arguments:
-          info.arguments === undefined ? existing.info.arguments : info.arguments,
+          info.arguments === undefined
+            ? existing.info.arguments
+            : info.arguments,
       };
       return existing.info;
     }

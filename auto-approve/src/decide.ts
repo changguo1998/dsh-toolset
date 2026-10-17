@@ -90,7 +90,10 @@ export function decideDeterministic(
     checkDenyEscalation(config, call.name, target);
   if (denied !== undefined) return { decision: denied };
   // 缺信息不猜：判定要求看参数而参数取不到时一律落人工面板（可配 deny.missingArguments 收紧）
-  if (call.arguments === undefined && needsArguments(config, call.name, target)) {
+  if (
+    call.arguments === undefined &&
+    needsArguments(config, call.name, target)
+  ) {
     if (config.denyMissingArguments) {
       return {
         decision: {
@@ -135,7 +138,8 @@ export async function decide(
   input: DecisionInput,
 ): Promise<DecisionResult> {
   // 会话审计不可用 → 退回人工面板（决策 5 第 4 条）：任何裁定都不得静默放行
-  if (ctx.audit.sessionUsable() === false) return { decision: { outcome: "next" } };
+  if (ctx.audit.sessionUsable() === false)
+    return { decision: { outcome: "next" } };
   const deterministic = decideDeterministic(ctx, input);
   if (deterministic !== undefined) return deterministic;
   if (!reviewActive(ctx.config)) return { decision: { outcome: "next" } };
@@ -147,7 +151,9 @@ export async function decide(
     reviewed = await runReview(
       reviewer,
       {
-        ...(input.call.sessionId === undefined ? {} : { sessionId: input.call.sessionId }),
+        ...(input.call.sessionId === undefined
+          ? {}
+          : { sessionId: input.call.sessionId }),
         toolName: input.call.name,
         arguments: input.call.arguments,
         ...(input.reason === undefined ? {} : { reason: input.reason }),
@@ -178,7 +184,9 @@ export async function decide(
       ruleId: `llm:${reviewed.risk}`,
       risk: applied.risk,
       reviewerDecision: applied.reviewerDecision,
-      ...(reviewed.model === undefined ? {} : { reviewerModel: reviewed.model }),
+      ...(reviewed.model === undefined
+        ? {}
+        : { reviewerModel: reviewed.model }),
       ...(applied.reason === undefined ? {} : { reason: applied.reason }),
     },
     ...(applied.outcome === "allowed-once" ? { fingerprintHash: hash } : {}),
@@ -209,7 +217,10 @@ export function riskAtMost(risk: RiskLevel, max: RiskLevel): boolean {
 }
 
 /** 只允许放行在 `maxRiskAllow` 以内的风险（对外暴露，供测试与文档断言）。 */
-export function allowedByRisk(decision: ReviewDecision, max: RiskLevel): boolean {
+export function allowedByRisk(
+  decision: ReviewDecision,
+  max: RiskLevel,
+): boolean {
   return decision.decision === "allow" && riskAtMost(decision.risk, max);
 }
 
@@ -224,7 +235,11 @@ export function recordApproval(
   if (sessionId === undefined) return;
   const hash =
     result.fingerprintHash ??
-    fingerprintOf(input.call.name, input.call.arguments, escalationTargetOf(input));
+    fingerprintOf(
+      input.call.name,
+      input.call.arguments,
+      escalationTargetOf(input),
+    );
   ctx.fingerprints.approve(sessionId, hash, input.call.name);
 }
 
@@ -239,7 +254,9 @@ export function auditLineOf(
   return {
     t: new Date().toISOString(),
     sessionId: input.call.sessionId ?? "",
-    ...(input.call.agentId === undefined ? {} : { agentId: input.call.agentId }),
+    ...(input.call.agentId === undefined
+      ? {}
+      : { agentId: input.call.agentId }),
     ...(input.call.callId === undefined ? {} : { callId: input.call.callId }),
     toolName: input.call.name,
     outcome,

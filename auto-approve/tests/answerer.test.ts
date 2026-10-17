@@ -8,7 +8,9 @@ import { createTestRuntime } from "./fakes.ts";
 
 const AGENT = { id: "agent-1", session: { id: "s1", header: { cwd: "/w" } } };
 
-function request(overrides: Partial<ApprovalRequestLike> = {}): ApprovalRequestLike {
+function request(
+  overrides: Partial<ApprovalRequestLike> = {},
+): ApprovalRequestLike {
   return {
     toolName: "bash",
     callId: "c1",
@@ -35,7 +37,9 @@ test("recoveredCall：反查不到参数时构造最小快照（arguments 留空
 
 test("应答者：参数表命中 → 直接裁定，不再调下一位", async () => {
   const { runtime, audit } = createTestRuntime({
-    config: resolveConfig({ allow: { commands: { bash: ["^git status\\b"] } } }),
+    config: resolveConfig({
+      allow: { commands: { bash: ["^git status\\b"] } },
+    }),
   });
   runtime.calls.record({
     callId: "c1",
@@ -84,22 +88,30 @@ test("应答者：未命中调 next() 交人工面板；next 抛错归一为 una
 
 test("应答者：mode off / enabled false 直接交下一位", async () => {
   const off = createTestRuntime({ config: resolveConfig({ mode: "off" }) });
-  const offAnswerer = createAnswerer(off.runtime, { instructionsFor: () => [] });
+  const offAnswerer = createAnswerer(off.runtime, {
+    instructionsFor: () => [],
+  });
   let delegated = 0;
   const next = async (): Promise<"rejected"> => {
     delegated += 1;
     return "rejected";
   };
   assert.equal(await offAnswerer(request(), next), "rejected");
-  const disabled = createTestRuntime({ config: resolveConfig({ enabled: false }) });
-  const disabledAnswerer = createAnswerer(disabled.runtime, { instructionsFor: () => [] });
+  const disabled = createTestRuntime({
+    config: resolveConfig({ enabled: false }),
+  });
+  const disabledAnswerer = createAnswerer(disabled.runtime, {
+    instructionsFor: () => [],
+  });
   assert.equal(await disabledAnswerer(request(), next), "rejected");
   assert.equal(delegated, 2);
 });
 
 test("应答者：信号已中断 → cancelled（不自动放行）", async () => {
   const { runtime } = createTestRuntime({
-    config: resolveConfig({ allow: { commands: { bash: ["^git status\\b"] } } }),
+    config: resolveConfig({
+      allow: { commands: { bash: ["^git status\\b"] } },
+    }),
   });
   runtime.calls.record({
     callId: "c1",
@@ -125,7 +137,9 @@ test("应答者：信号已中断 → cancelled（不自动放行）", async () 
 
 test("应答者：参数表未命中时按会话日志反查（恢复会话场景）", async () => {
   const { runtime } = createTestRuntime({
-    config: resolveConfig({ allow: { commands: { bash: ["^git status\\b"] } } }),
+    config: resolveConfig({
+      allow: { commands: { bash: ["^git status\\b"] } },
+    }),
   });
   runtime.sessions.observe("s1", {
     type: "tool/call",
@@ -141,7 +155,9 @@ test("应答者：参数表未命中时按会话日志反查（恢复会话场�
 
 test("应答者：同一 callId 只裁定一次（第二次复用缓存，不重复写审计）", async () => {
   const { runtime, audit } = createTestRuntime({
-    config: resolveConfig({ allow: { commands: { bash: ["^git status\\b"] } } }),
+    config: resolveConfig({
+      allow: { commands: { bash: ["^git status\\b"] } },
+    }),
   });
   runtime.calls.record({
     callId: "c1",
@@ -152,8 +168,14 @@ test("应答者：同一 callId 只裁定一次（第二次复用缓存，不重
   });
   const answerer = createAnswerer(runtime, { instructionsFor: () => [] });
   const next = async (): Promise<"rejected"> => "rejected";
-  assert.equal(await answerer(request({ reason: undefined }), next), "allowed-once");
-  assert.equal(await answerer(request({ reason: undefined }), next), "allowed-once");
+  assert.equal(
+    await answerer(request({ reason: undefined }), next),
+    "allowed-once",
+  );
+  assert.equal(
+    await answerer(request({ reason: undefined }), next),
+    "allowed-once",
+  );
   assert.equal(audit.recent(10).length, 1);
 });
 
@@ -171,7 +193,9 @@ test("应答者：升级白名单命中需要参数表 + 目标模式两维都�
   });
   const answerer = createAnswerer(runtime, { instructionsFor: () => [] });
   const outcome = await answerer(
-    request({ reason: "escalate sandbox to workspace-write: node_modules 只读" }),
+    request({
+      reason: "escalate sandbox to workspace-write: node_modules 只读",
+    }),
     async () => "rejected",
   );
   assert.equal(outcome, "allowed-once");

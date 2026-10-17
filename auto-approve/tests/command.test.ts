@@ -68,7 +68,10 @@ function stubService(): AutoApproveService & { modes: AutoApproveMode[] } {
 test("parseCommandInput：空参按 status；子命令小写、参数切分", () => {
   assert.deepEqual(parseCommandInput(""), { sub: "status", args: [] });
   assert.deepEqual(parseCommandInput("  "), { sub: "status", args: [] });
-  assert.deepEqual(parseCommandInput(" MODE rules "), { sub: "mode", args: ["rules"] });
+  assert.deepEqual(parseCommandInput(" MODE rules "), {
+    sub: "mode",
+    args: ["rules"],
+  });
   assert.deepEqual(parseCommandInput("log 3"), { sub: "log", args: ["3"] });
 });
 
@@ -79,7 +82,10 @@ test("status：反映模式 / 名单 / 指纹 / LLM 路由 / 审计两处", () =
   assert.match(text, /LLM 审查: 关闭/);
   assert.match(text, /只读类 9 · 白名单 2 · 拒绝名单 1 · 升级白名单 3/);
   assert.match(text, /本会话指纹: 4/);
-  assert.match(text, /审计（会话）: \/sessions\/s1\/auto-approve-audit\.jsonl · 7 行/);
+  assert.match(
+    text,
+    /审计（会话）: \/sessions\/s1\/auto-approve-audit\.jsonl · 7 行/,
+  );
   assert.match(text, /审计（项目）: 可用/);
 });
 

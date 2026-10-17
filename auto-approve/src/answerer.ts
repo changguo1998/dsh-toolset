@@ -28,7 +28,8 @@ export function recoveredCall(
   agentId: string | undefined,
   cwd: string | undefined,
 ): CallInfo {
-  const callId = typeof req.callId === "string" ? req.callId : `approval-${req.toolName}`;
+  const callId =
+    typeof req.callId === "string" ? req.callId : `approval-${req.toolName}`;
   return {
     callId,
     name: req.toolName,
@@ -43,7 +44,9 @@ export function recoveredCall(
 }
 
 function escalationTargetOf(req: ApprovalRequestLike): string | undefined {
-  const match = /^escalate sandbox to ([A-Za-z0-9_-]+):/.exec((req.reason ?? "").trim());
+  const match = /^escalate sandbox to ([A-Za-z0-9_-]+):/.exec(
+    (req.reason ?? "").trim(),
+  );
   return match?.[1];
 }
 
@@ -62,10 +65,15 @@ export function createAnswerer(
     const sessionId = identity.sessionId;
     // 信号已中断：直接按宿主词表回 cancelled（不在已作废的请求上做自动裁定）
     if (req.signal?.aborted === true) return "cancelled";
-    if (runtime.mode === "off" || !runtime.context.config.enabled) return next();
+    if (runtime.mode === "off" || !runtime.context.config.enabled)
+      return next();
     // 参数：先查本进程记录的表，再按 callId 反查会话日志（观测到的话）
     let call = runtime.calls.get(req.callId);
-    if (call === undefined && sessionId !== undefined && typeof req.callId === "string") {
+    if (
+      call === undefined &&
+      sessionId !== undefined &&
+      typeof req.callId === "string"
+    ) {
       const observed = runtime.sessions.callOf(sessionId, req.callId);
       if (observed !== undefined) {
         call = {
@@ -73,15 +81,16 @@ export function createAnswerer(
           name: observed.name,
           arguments: parseArguments(observed.arguments),
           sessionId,
-          ...(identity.agentId === undefined ? {} : { agentId: identity.agentId }),
+          ...(identity.agentId === undefined
+            ? {}
+            : { agentId: identity.agentId }),
           ...(identity.cwd === undefined ? {} : { cwd: identity.cwd }),
         };
       }
     }
     // 保留原始 callId 以便与 gate 的缓存对齐
     const effective =
-      call ??
-      recoveredCall(req, sessionId, identity.agentId, identity.cwd);
+      call ?? recoveredCall(req, sessionId, identity.agentId, identity.cwd);
     const cwd = effective.cwd ?? identity.cwd ?? process.cwd();
     const session =
       sessionId === undefined ? undefined : options.sessionOf?.(sessionId);

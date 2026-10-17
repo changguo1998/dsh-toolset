@@ -38,7 +38,11 @@ function stripComments(text: string): string {
 }
 
 test("R3 反向验证：代码里没有 guard 服务调用（不依赖 security-guard）", () => {
-  const forbidden = [/inspectCommand/, /get\(\s*["']guard["']\s*\)/, /provide\(\s*["']guard["']\s*\)/];
+  const forbidden = [
+    /inspectCommand/,
+    /get\(\s*["']guard["']\s*\)/,
+    /provide\(\s*["']guard["']\s*\)/,
+  ];
   for (const file of sourceFiles()) {
     const text = stripComments(readFileSync(file, "utf8"));
     for (const pattern of forbidden) {
@@ -60,11 +64,16 @@ test("cordis.patch.yml：按 R6 缺省 enabled: true + mode: rules", () => {
 });
 
 test("接线三处：根 check/build 链、test-parallel default_pkgs、install canonical_pkgs 都含本包", () => {
-  const root = readJson<{ scripts: Record<string, string> }>(join(repoRoot, "package.json"));
+  const root = readJson<{ scripts: Record<string, string> }>(
+    join(repoRoot, "package.json"),
+  );
   for (const script of ["check", "build"]) {
     assert.match(root.scripts[script] ?? "", /npm --prefix auto-approve run/);
   }
-  const parallel = readFileSync(join(repoRoot, "scripts", "test-parallel.sh"), "utf8");
+  const parallel = readFileSync(
+    join(repoRoot, "scripts", "test-parallel.sh"),
+    "utf8",
+  );
   const defaultPkgs = /default_pkgs="([^"]+)"/.exec(parallel)?.[1] ?? "";
   assert.equal(defaultPkgs.split(/\s+/).includes("auto-approve"), true);
   const install = readFileSync(join(repoRoot, "scripts", "install.sh"), "utf8");

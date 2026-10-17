@@ -132,7 +132,9 @@ export class SessionObserver {
         items.push({
           role: "fact",
           kind: "tool-call",
-          text: clip(`${name}(${typeof args === "string" ? args : JSON.stringify(args ?? {})})`),
+          text: clip(
+            `${name}(${typeof args === "string" ? args : JSON.stringify(args ?? {})})`,
+          ),
         });
       }
     }

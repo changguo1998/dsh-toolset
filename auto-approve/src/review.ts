@@ -38,7 +38,12 @@ export interface ReviewRequest {
 
 /** 一条过滤后的历史（角色沿用官方五类）。 */
 export interface ReviewHistoryItem {
-  role: "human-instruction" | "direct-parent-instruction" | "constraint" | "checkpoint" | "fact";
+  role:
+    | "human-instruction"
+    | "direct-parent-instruction"
+    | "constraint"
+    | "checkpoint"
+    | "fact";
   kind: "user-message" | "tool-call";
   text: string;
 }
@@ -98,7 +103,12 @@ export type StreamChunkLike =
     }
   | { type: "block-start"; index?: number; blockType?: string }
   | { type: "block-end"; index?: number; block?: unknown }
-  | { type: "tool-call-delta"; index?: number; id?: string; argumentsDelta?: string }
+  | {
+      type: "tool-call-delta";
+      index?: number;
+      id?: string;
+      argumentsDelta?: string;
+    }
   | { type: "usage"; usage?: unknown };
 
 /** 审查器：路由解析 + 一次审查（可注入，测试用假实现）。 */
@@ -240,15 +250,17 @@ export async function readReviewText(
     if (chunk.type !== "finish") continue;
     if (chunk.type === "finish") {
       sawFinish = true;
-      const reason = (chunk as { reason?: { kind?: string; failure?: { message?: string } } })
-        .reason;
+      const reason = (
+        chunk as { reason?: { kind?: string; failure?: { message?: string } } }
+      ).reason;
       const kind = reason?.kind;
       if (kind === "error" || kind === "aborted") {
         throw new ReviewFailure(
           `reviewer 以 ${kind} 结束: ${reason?.failure?.message ?? "无详情"}`,
         );
       }
-      if (kind !== "stop") throw new ReviewFailure(`reviewer 以 ${kind ?? "未知"} 结束`);
+      if (kind !== "stop")
+        throw new ReviewFailure(`reviewer 以 ${kind ?? "未知"} 结束`);
       finished = true;
     }
   }
@@ -271,7 +283,10 @@ export async function runReview(
     if (externalSignal.aborted) controller.abort(externalSignal.reason);
     else externalSignal.addEventListener("abort", onAbort, { once: true });
   }
-  const timer = setTimeout(() => controller.abort(new Error("review timeout")), timeoutMs);
+  const timer = setTimeout(
+    () => controller.abort(new Error("review timeout")),
+    timeoutMs,
+  );
   try {
     const decision = await reviewer.review({
       ...request,
@@ -291,7 +306,9 @@ export function createReviewer(options: {
   llm: LlmLike | undefined;
   config: ResolvedConfig;
   /** 取指定会话的模型（`request/header.header.config`）。 */
-  route: (sessionId?: string) => { provider: string; model: string } | undefined;
+  route: (
+    sessionId?: string,
+  ) => { provider: string; model: string } | undefined;
 }): Reviewer {
   const { llm, config, route } = options;
   const overridden =
@@ -306,13 +323,17 @@ export function createReviewer(options: {
     async review(request: ReviewRequest): Promise<ReviewDecision> {
       if (llm === undefined) throw new ReviewFailure("llm 服务不可用");
       const resolved = overridden ?? route(request.sessionId);
-      if (resolved === undefined) throw new ReviewFailure("无法确定审查模型路由");
+      if (resolved === undefined)
+        throw new ReviewFailure("无法确定审查模型路由");
       const stream = llm.stream({
         provider: resolved.provider,
         model: resolved.model,
         system: REVIEW_POLICY,
         messages: [
-          { role: "user", content: [{ type: "text", text: renderReviewText(request) }] },
+          {
+            role: "user",
+            content: [{ type: "text", text: renderReviewText(request) }],
+          },
         ],
         temperature: 0,
         ...(request.signal === undefined ? {} : { signal: request.signal }),

@@ -11,13 +11,21 @@
 
 import type { PreExecuteExecution, PreToolDecision } from "./types.ts";
 import type { Runtime } from "./runtime.ts";
-import { checkDenyEscalation, checkDenyTools, isBypassed, isGatedOut } from "./rules.ts";
+import {
+  checkDenyEscalation,
+  checkDenyTools,
+  isBypassed,
+  isGatedOut,
+} from "./rules.ts";
 import type { CallInfo } from "./types.ts";
 import { parseArguments } from "./patterns.ts";
 
 /** 从参数里取 `sandbox_permissions`（升级目标模式的早期信号）。 */
-export function escalationTargetFromArguments(args: unknown): string | undefined {
-  if (args === null || typeof args !== "object" || Array.isArray(args)) return undefined;
+export function escalationTargetFromArguments(
+  args: unknown,
+): string | undefined {
+  if (args === null || typeof args !== "object" || Array.isArray(args))
+    return undefined;
   const value = (args as Record<string, unknown>)["sandbox_permissions"];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -49,14 +57,19 @@ export function identityOf(agent: unknown): {
 }
 
 /** 记录一次调用（gate 与应答者共用的构造逻辑）。 */
-export function callInfoOf(exec: PreExecuteExecution, fallbackId: string): CallInfo {
+export function callInfoOf(
+  exec: PreExecuteExecution,
+  fallbackId: string,
+): CallInfo {
   const identity = identityOf(exec.agent);
   const args = parseArguments(exec.arguments);
   return {
     callId: typeof exec.callId === "string" ? exec.callId : fallbackId,
     name: exec.name,
     arguments: args,
-    ...(identity.sessionId === undefined ? {} : { sessionId: identity.sessionId }),
+    ...(identity.sessionId === undefined
+      ? {}
+      : { sessionId: identity.sessionId }),
     ...(identity.agentId === undefined ? {} : { agentId: identity.agentId }),
     ...(identity.cwd === undefined ? {} : { cwd: identity.cwd }),
     ...(escalationTargetFromArguments(args) === undefined
@@ -66,7 +79,9 @@ export function callInfoOf(exec: PreExecuteExecution, fallbackId: string): CallI
 }
 
 /** 创建 `tools/pre-execute` 监听器。 */
-export function createGate(runtime: Runtime): (
+export function createGate(
+  runtime: Runtime,
+): (
   exec: PreExecuteExecution,
   next: () => PreToolDecision | Promise<PreToolDecision>,
 ) => Promise<PreToolDecision> {
@@ -80,7 +95,8 @@ export function createGate(runtime: Runtime): (
     }
     const { config } = runtime.context;
     if (!config.enabled || runtime.mode === "off") return next();
-    if (isBypassed(config, info.name) || isGatedOut(config, info.name)) return next();
+    if (isBypassed(config, info.name) || isGatedOut(config, info.name))
+      return next();
     const target = info.escalationTarget;
     const denied =
       checkDenyTools(config, info.name) ??
@@ -100,7 +116,8 @@ export function createGate(runtime: Runtime): (
     if (result.decision.outcome === "rejected") {
       return {
         kind: "deny",
-        reason: result.decision.reason ?? `auto-approve 拒绝了工具 "${info.name}"`,
+        reason:
+          result.decision.reason ?? `auto-approve 拒绝了工具 "${info.name}"`,
       };
     }
     return next();

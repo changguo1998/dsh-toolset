@@ -21,7 +21,10 @@ test("指纹稳定：参数对象键序不影响结果；不同工具 / 参数 /
 });
 
 test("canonicalize：数组保序、对象键排序、不可序列化值降为 null", () => {
-  assert.equal(canonicalize({ b: 1, a: [2, { d: 4, c: 3 }] }), '{"a":[2,{"c":3,"d":4}],"b":1}');
+  assert.equal(
+    canonicalize({ b: 1, a: [2, { d: 4, c: 3 }] }),
+    '{"a":[2,{"c":3,"d":4}],"b":1}',
+  );
   assert.equal(canonicalize({ f: () => 1 }), '{"f":null}');
   assert.equal(canonicalize([3, 1, 2]), "[3,1,2]");
 });

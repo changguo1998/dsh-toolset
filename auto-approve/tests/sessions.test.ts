@@ -12,7 +12,9 @@ test("SessionObserver：折叠 request/header 得到会话路由", () => {
   const observer = new SessionObserver();
   observer.observe("s1", {
     type: "request/header",
-    data: { header: { config: { provider: "deepseek", model: "deepseek-flash" } } },
+    data: {
+      header: { config: { provider: "deepseek", model: "deepseek-flash" } },
+    },
   });
   assert.deepEqual(observer.routeOf("s1"), {
     provider: "deepseek",
@@ -46,7 +48,11 @@ test("SessionObserver：tool/call 反查参数（含容量上限与 cwd 记录�
       data: { callId: `x${index}`, name: "read", arguments: "{}" },
     });
   }
-  assert.equal(observer.callOf("s1", "c1"), undefined, "超出上限后最早的条目被淘汰");
+  assert.equal(
+    observer.callOf("s1", "c1"),
+    undefined,
+    "超出上限后最早的条目被淘汰",
+  );
   assert.equal(observer.callOf("s1", "x259")?.name, "read");
 });
 
@@ -135,7 +141,10 @@ test("projectInstructionsFrom：读盘结果过长时截断，空内容跳过", 
   assert.equal(items.length, 1);
   assert.equal(items[0]?.source, "/w/AGENTS.md");
   assert.equal((items[0]?.text.length ?? 0) <= 4001, true);
-  assert.deepEqual(projectInstructionsFrom(() => "  ", "/w"), []);
+  assert.deepEqual(
+    projectInstructionsFrom(() => "  ", "/w"),
+    [],
+  );
 });
 
 test("createInstructionReader：向上收集项目规则、缓存按 cwd、内层在后", () => {

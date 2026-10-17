@@ -37,7 +37,10 @@ test("parseEscalationTarget：只认宿主的固定理由形态", () => {
     parseEscalationTarget("escalate sandbox to workspace-write: need to write"),
     "workspace-write",
   );
-  assert.equal(parseEscalationTarget("escalate sandbox to danger-full-access: x"), "danger-full-access");
+  assert.equal(
+    parseEscalationTarget("escalate sandbox to danger-full-access: x"),
+    "danger-full-access",
+  );
   assert.equal(parseEscalationTarget("user rejected"), undefined);
   assert.equal(parseEscalationTarget(undefined), undefined);
 });
@@ -50,10 +53,16 @@ test("parseArguments：JSON 解析失败保留原串，空串按空对象", () =
 });
 
 test("pickString / pickStringArray：按候选键顺序取第一个命中", () => {
-  assert.equal(pickString({ path: "/a", file_path: "/b" }, ["file_path", "path"]), "/b");
+  assert.equal(
+    pickString({ path: "/a", file_path: "/b" }, ["file_path", "path"]),
+    "/b",
+  );
   assert.equal(pickString({ path: "" }, ["path"]), undefined);
   assert.equal(pickString("nope", ["path"]), undefined);
-  assert.deepEqual(pickStringArray({ paths: ["/a", 1, "/b"] }, ["paths"]), ["/a", "/b"]);
+  assert.deepEqual(pickStringArray({ paths: ["/a", 1, "/b"] }, ["paths"]), [
+    "/a",
+    "/b",
+  ]);
   assert.deepEqual(pickStringArray({ path: "/c" }, ["paths", "path"]), ["/c"]);
   assert.deepEqual(pickStringArray({}, ["paths"]), []);
 });

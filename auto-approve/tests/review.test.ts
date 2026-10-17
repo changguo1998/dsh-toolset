@@ -20,7 +20,9 @@ test("renderReviewText：四段结构与「ENVIRONMENT 只有 cwd」", () => {
     toolName: "bash",
     arguments: { command: "npm test" },
     cwd: "/w",
-    history: [{ role: "human-instruction", kind: "user-message", text: "跑测试" }],
+    history: [
+      { role: "human-instruction", kind: "user-message", text: "跑测试" },
+    ],
     projectInstructions: [{ source: "/w/AGENTS.md", text: "中文回复" }],
     escalationTarget: "workspace-write",
     reason: "escalate sandbox to workspace-write: x",
@@ -28,7 +30,12 @@ test("renderReviewText：四段结构与「ENVIRONMENT 只有 cwd」", () => {
   const sections = text.split("\n\n").filter((part) => part.length > 0);
   assert.deepEqual(
     sections.filter((part) => /^[A-Z_]+$/.test(part)),
-    ["ENVIRONMENT", "PROJECT_INSTRUCTIONS", "FILTERED_HISTORY", "PENDING_ACTION"],
+    [
+      "ENVIRONMENT",
+      "PROJECT_INSTRUCTIONS",
+      "FILTERED_HISTORY",
+      "PENDING_ACTION",
+    ],
   );
   assert.match(text, /ENVIRONMENT\n\n\{"cwd":"\/w"\}/);
   assert.match(text, /PENDING_ACTION\n\n\{"tool":"bash"/);
@@ -76,14 +83,18 @@ test("readReviewText：正常流拼出文本；缺 finish / finish 后仍有输�
         stream([
           {
             type: "finish",
-            reason: { kind: "error", failure: { code: "AUTH", message: "no key" } },
+            reason: {
+              kind: "error",
+              failure: { code: "AUTH", message: "no key" },
+            },
           },
         ]),
       ),
     /no key/,
   );
   await assert.rejects(
-    () => readReviewText(stream([{ type: "finish", reason: { kind: "length" } }])),
+    () =>
+      readReviewText(stream([{ type: "finish", reason: { kind: "length" } }])),
     ReviewFailure,
   );
 });
@@ -93,7 +104,9 @@ test("runReview：超时中止（不静默放行，抛 ReviewFailure 之前的 a
     route: () => ({ provider: "p", model: "m" }),
     review: (request) =>
       new Promise((_resolve, reject) => {
-        request.signal?.addEventListener("abort", () => reject(new ReviewFailure("aborted")));
+        request.signal?.addEventListener("abort", () =>
+          reject(new ReviewFailure("aborted")),
+        );
       }),
   };
   await assert.rejects(
@@ -114,7 +127,9 @@ test("runReview：超时中止（不静默放行，抛 ReviewFailure 之前的 a
 });
 
 test("createReviewer：缺省跟随会话路由，配置覆盖优先；llm 缺失即失败", async () => {
-  const llm = createFakeLlm(reviewChunks('{"risk":"medium","decision":"allow"}'));
+  const llm = createFakeLlm(
+    reviewChunks('{"risk":"medium","decision":"allow"}'),
+  );
   const config = resolveConfig({ mode: "rules+llm" });
   const reviewer = createReviewer({
     llm,
@@ -155,7 +170,11 @@ test("createReviewer：缺省跟随会话路由，配置覆盖优先；llm 缺�
   });
   assert.equal(llm.calls[1]?.provider, "p2");
 
-  const missing = createReviewer({ llm: undefined, config, route: () => undefined });
+  const missing = createReviewer({
+    llm: undefined,
+    config,
+    route: () => undefined,
+  });
   await assert.rejects(
     () =>
       missing.review({
@@ -202,9 +221,12 @@ test("createReviewer：非法输出按失败处理（不猜）", async () => {
 });
 
 test("parseReviewDecision：拒绝形态可带 reason，成员数与取值封闭", () => {
-  assert.deepEqual(parseReviewDecision('{"risk":"high","decision":"deny","reason":"泄露"}'), {
-    risk: "high",
-    decision: "deny",
-    reason: "泄露",
-  });
+  assert.deepEqual(
+    parseReviewDecision('{"risk":"high","decision":"deny","reason":"泄露"}'),
+    {
+      risk: "high",
+      decision: "deny",
+      reason: "泄露",
+    },
+  );
 });

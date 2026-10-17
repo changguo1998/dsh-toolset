@@ -17,15 +17,32 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CallTable } from "./calls.ts";
-import { resolveConfig, reviewActive, type Config, type ResolvedConfig } from "./config.ts";
-import { createAudit, type MemoryLike, type SessionPathsLike } from "./audit.ts";
+import {
+  resolveConfig,
+  reviewActive,
+  type Config,
+  type ResolvedConfig,
+} from "./config.ts";
+import {
+  createAudit,
+  type MemoryLike,
+  type SessionPathsLike,
+} from "./audit.ts";
 import { createAnswerer } from "./answerer.ts";
 import { createGate, identityOf } from "./gate.ts";
 import { FingerprintStore } from "./fingerprint.ts";
 import { registerCommand } from "./command.ts";
-import { createReviewer, type LlmLike, type ReviewInstructionItem } from "./review.ts";
+import {
+  createReviewer,
+  type LlmLike,
+  type ReviewInstructionItem,
+} from "./review.ts";
 import { createRuntime, type Runtime } from "./runtime.ts";
-import { SessionObserver, type SessionEventLike, type SessionLike } from "./sessions.ts";
+import {
+  SessionObserver,
+  type SessionEventLike,
+  type SessionLike,
+} from "./sessions.ts";
 import {
   readService,
   type ApprovalAnswerer,
@@ -162,25 +179,35 @@ export function createBundle(
   });
 
   const detach: Array<() => void> = [];
-  bind(detach, ctx.on(SESSION_EVENT, (...args: unknown[]) => {
-    const [session, event] = args as [SessionLike | undefined, SessionEventLike | undefined];
-    const sessionId = typeof session?.id === "string" ? session.id : undefined;
-    if (sessionId === undefined || event === undefined) return;
-    sessions.setCwd(sessionId, session?.header?.cwd);
-    sessions.observe(sessionId, event);
-  }));
-  bind(detach, ctx.on(PRE_EXECUTE_EVENT, (...args: unknown[]) => {
-    const [exec, next] = args as [
-      PreExecuteExecution,
-      () => unknown,
-    ];
-    return createGate(runtime)(exec, next as never);
-  }));
+  bind(
+    detach,
+    ctx.on(SESSION_EVENT, (...args: unknown[]) => {
+      const [session, event] = args as [
+        SessionLike | undefined,
+        SessionEventLike | undefined,
+      ];
+      const sessionId =
+        typeof session?.id === "string" ? session.id : undefined;
+      if (sessionId === undefined || event === undefined) return;
+      sessions.setCwd(sessionId, session?.header?.cwd);
+      sessions.observe(sessionId, event);
+    }),
+  );
+  bind(
+    detach,
+    ctx.on(PRE_EXECUTE_EVENT, (...args: unknown[]) => {
+      const [exec, next] = args as [PreExecuteExecution, () => unknown];
+      return createGate(runtime)(exec, next as never);
+    }),
+  );
   // 应答者按注册顺序排在外层：先注册（插件装载顺序）→ 未命中调 next() 落 TUI 面板
-  bind(detach, ctx.on(APPROVAL_EVENT, (...args: unknown[]) => {
-    const [req, next] = args as [ApprovalRequestLike, () => Promise<never>];
-    return answerer(req, next as never);
-  }));
+  bind(
+    detach,
+    ctx.on(APPROVAL_EVENT, (...args: unknown[]) => {
+      const [req, next] = args as [ApprovalRequestLike, () => Promise<never>];
+      return answerer(req, next as never);
+    }),
+  );
   const commandOff = registerCommand(ctx, {
     config: resolved,
     service: () => service,
@@ -282,8 +309,10 @@ export function lastRoute(
   for (let index = live.events.length - 1; index >= 0; index -= 1) {
     const event = live.events[index];
     if (event?.type !== "request/header") continue;
-    const header = (event.data as { header?: { config?: Record<string, unknown> } } | undefined)
-      ?.header?.config;
+    const header = (
+      event.data as
+        { header?: { config?: Record<string, unknown> } } | undefined
+    )?.header?.config;
     const provider = header?.["provider"];
     const model = header?.["model"];
     if (typeof provider === "string" && typeof model === "string") {
@@ -307,7 +336,10 @@ export function activeSessionId(ctx: PluginHost): string | undefined {
 }
 
 /** 取会话对象（历史过滤用）。 */
-function sessionOf(ctx: PluginHost, sessionId: string): SessionLike | undefined {
+function sessionOf(
+  ctx: PluginHost,
+  sessionId: string,
+): SessionLike | undefined {
   const sessions = readService<{ get?(id: string): unknown }>(ctx, "sessions");
   const value = sessions?.get?.(sessionId);
   return value !== null && typeof value === "object"
@@ -340,10 +372,18 @@ export function statusOf(
 
 /** LLM 路由标签（`session` = 跟随当前会话模型）。 */
 function routeLabel(config: ResolvedConfig): string {
-  if (config.review.provider !== undefined && config.review.model !== undefined) {
+  if (
+    config.review.provider !== undefined &&
+    config.review.model !== undefined
+  ) {
     return `${config.review.provider}/${config.review.model}`;
   }
   return "session";
 }
 
-export type { ApprovalAnswerer, AutoApproveMode, AutoApproveService, AutoApproveStatus };
+export type {
+  ApprovalAnswerer,
+  AutoApproveMode,
+  AutoApproveService,
+  AutoApproveStatus,
+};

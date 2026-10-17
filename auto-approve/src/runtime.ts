@@ -56,7 +56,10 @@ export function createRuntime(options: {
   const cache = new Map<string, DecisionResult>();
   let mode = config.mode;
 
-  function commit(input: DecisionInput, result: DecisionResult): DecisionResult {
+  function commit(
+    input: DecisionInput,
+    result: DecisionResult,
+  ): DecisionResult {
     if (result.decision.outcome === "next") return result;
     recordApproval(context, input, result);
     const callId = input.call.callId;

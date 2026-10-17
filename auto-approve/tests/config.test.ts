@@ -61,7 +61,11 @@ test("白名单 / 拒绝名单归一：四张表按工具名分节并编译正�
     },
     escalation: {
       allow: [
-        { id: "git-ro", match: "^git (status|diff)\\b", to: ["workspace-write"] },
+        {
+          id: "git-ro",
+          match: "^git (status|diff)\\b",
+          to: ["workspace-write"],
+        },
         { path: "^/var/log/.*", to: ["read-only"] },
       ],
     },
@@ -118,10 +122,20 @@ test("review 段：覆盖路由、超时与失败兜底；非法值回落缺省"
       maxRiskAllow: overridden.review.maxRiskAllow,
       onFailure: overridden.review.onFailure,
     },
-    { provider: "p", model: "m", timeoutMs: 3000, maxRiskAllow: "low", onFailure: "reject" },
+    {
+      provider: "p",
+      model: "m",
+      timeoutMs: 3000,
+      maxRiskAllow: "low",
+      onFailure: "reject",
+    },
   );
   const invalid = resolveConfig({
-    review: { timeoutMs: -1, maxRiskAllow: "none" as never, onFailure: "nope" as never },
+    review: {
+      timeoutMs: -1,
+      maxRiskAllow: "none" as never,
+      onFailure: "nope" as never,
+    },
   });
   assert.equal(invalid.review.timeoutMs, 10_000);
   assert.equal(invalid.review.maxRiskAllow, "medium");
@@ -133,7 +147,9 @@ test("reviewActive：仅 rules+llm 且 review.enabled 时生效", () => {
   assert.equal(reviewActive(resolveConfig({ mode: "all" })), false);
   assert.equal(reviewActive(resolveConfig({ mode: "rules+llm" })), true);
   assert.equal(
-    reviewActive(resolveConfig({ mode: "rules+llm", review: { enabled: false } })),
+    reviewActive(
+      resolveConfig({ mode: "rules+llm", review: { enabled: false } }),
+    ),
     false,
   );
 });
@@ -147,5 +163,8 @@ test("容量类配置的上下界（非法回落缺省）", () => {
   assert.equal(config.fingerprintCapacity, 256);
   assert.equal(config.callTableCapacity, 256);
   assert.equal(config.audit.maxBytes, 16 * 1024 * 1024);
-  assert.equal(resolveConfig({ fingerprintCapacity: 8 }).fingerprintCapacity, 8);
+  assert.equal(
+    resolveConfig({ fingerprintCapacity: 8 }).fingerprintCapacity,
+    8,
+  );
 });

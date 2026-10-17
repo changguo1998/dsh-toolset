@@ -33,7 +33,10 @@ export interface RuleInput {
 }
 
 /** 判定结果：命中返回裁定，未命中返回 `undefined`。 */
-export type RuleHit = Pick<Decision, "outcome" | "source" | "ruleId" | "reason">;
+export type RuleHit = Pick<
+  Decision,
+  "outcome" | "source" | "ruleId" | "reason"
+>;
 
 /** 拒绝名单：工具类「永不自动批」。 */
 export function checkDenyTools(
@@ -88,7 +91,10 @@ export function commandOf(
 }
 
 /** 路径原文列表（文件工具的路径参数；写工具会有多个）。 */
-export function pathsOf(config: ResolvedConfig, call: CallInfo): readonly string[] {
+export function pathsOf(
+  config: ResolvedConfig,
+  call: CallInfo,
+): readonly string[] {
   const single = pickString(call.arguments, PATH_KEYS);
   const many = pickStringArray(call.arguments, ["paths"]);
   if (single !== undefined && many.length === 0) return [single];
@@ -153,12 +159,18 @@ export function checkEscalationAllow(
 ): RuleHit | undefined {
   if (target === undefined) return undefined;
   if (config.escalationMode === "any") {
-    return { outcome: "allowed-once", source: "upgrade", ruleId: "escalation:any" };
+    return {
+      outcome: "allowed-once",
+      source: "upgrade",
+      ruleId: "escalation:any",
+    };
   }
   const command = commandOf(config, call);
   const normalizedCommand =
     command === undefined ? undefined : normalizeCommand(command);
-  const paths = pathsOf(config, call).map((path) => normalizePath(path, call.cwd));
+  const paths = pathsOf(config, call).map((path) =>
+    normalizePath(path, call.cwd),
+  );
   for (const rule of config.escalationRules) {
     const toolOk =
       rule.tools.length === 0
@@ -175,7 +187,10 @@ export function checkEscalationAllow(
       }
       continue;
     }
-    if (rule.path !== undefined && paths.some((path) => rule.path?.test(path) === true)) {
+    if (
+      rule.path !== undefined &&
+      paths.some((path) => rule.path?.test(path) === true)
+    ) {
       return { outcome: "allowed-once", source: "upgrade", ruleId: rule.id };
     }
   }
@@ -206,7 +221,9 @@ export function isBypassed(config: ResolvedConfig, toolName: string): boolean {
 
 /** 工具是否在 `gateTools` 白名单外（非空时）。 */
 export function isGatedOut(config: ResolvedConfig, toolName: string): boolean {
-  return config.gateTools.length > 0 && !matchesAnyTool(config.gateTools, toolName);
+  return (
+    config.gateTools.length > 0 && !matchesAnyTool(config.gateTools, toolName)
+  );
 }
 
 export { parseEscalationTarget };

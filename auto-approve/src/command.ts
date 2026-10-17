@@ -6,7 +6,11 @@
  * 对话与模型上下文; 结果由 TUI 渲染。命令只改**当前进程**的运行态, 重启回落配置默认值。
  */
 
-import type { AutoApproveMode, AutoApproveService, PluginHost } from "./types.ts";
+import type {
+  AutoApproveMode,
+  AutoApproveService,
+  PluginHost,
+} from "./types.ts";
 import { readService } from "./types.ts";
 import type { ResolvedConfig } from "./config.ts";
 
@@ -36,7 +40,10 @@ export function parseCommandInput(raw: string): {
   sub: string;
   args: readonly string[];
 } {
-  const tokens = raw.trim().split(/\s+/).filter((token) => token.length > 0);
+  const tokens = raw
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
   const sub = tokens[0]?.toLowerCase() ?? "status";
   return { sub, args: tokens.slice(1) };
 }
@@ -82,7 +89,10 @@ export function dispatch(
       return { kind: "success", text: renderStatus(service) };
     case "mode": {
       const value = args[0];
-      if (value === undefined || !(MODES as readonly string[]).includes(value)) {
+      if (
+        value === undefined ||
+        !(MODES as readonly string[]).includes(value)
+      ) {
         return {
           kind: "error",
           text: `用法: /${COMMAND_NAME} mode <${MODES.join("|")}>`,
@@ -90,7 +100,10 @@ export function dispatch(
       }
       service.setMode(value as AutoApproveMode);
       if (value === "off") {
-        return { kind: "success", text: "auto-approve: 已关闭（未命中的请求回到审批面板）" };
+        return {
+          kind: "success",
+          text: "auto-approve: 已关闭（未命中的请求回到审批面板）",
+        };
       }
       return { kind: "success", text: `auto-approve: 模式已切到 ${value}` };
     }
@@ -99,15 +112,24 @@ export function dispatch(
       return { kind: "success", text: "auto-approve: 已开启（模式 rules）" };
     case "off":
       service.setMode("off");
-      return { kind: "success", text: "auto-approve: 已关闭（未命中的请求回到审批面板）" };
+      return {
+        kind: "success",
+        text: "auto-approve: 已关闭（未命中的请求回到审批面板）",
+      };
     case "log": {
       const parsed = Number.parseInt(args[0] ?? "", 10);
-      const n = Number.isFinite(parsed) && parsed > 0 ? parsed : options.defaultLogLines;
+      const n =
+        Number.isFinite(parsed) && parsed > 0
+          ? parsed
+          : options.defaultLogLines;
       return { kind: "success", text: renderLog(service, n) };
     }
     case "clear-fingerprints": {
       const cleared = options.clearFingerprints();
-      return { kind: "success", text: `auto-approve: 已清空 ${cleared} 条会话指纹` };
+      return {
+        kind: "success",
+        text: `auto-approve: 已清空 ${cleared} 条会话指纹`,
+      };
     }
     default:
       return {
@@ -137,7 +159,9 @@ export function registerCommand(
     name: COMMAND_NAME,
     description:
       "自动审批插件：查看状态与放行记录、切换模式（status / mode / on / off / log / clear-fingerprints）",
-    input: { hint: "status | mode <rules|rules+llm|all|off> | on | off | log [n] | clear-fingerprints" },
+    input: {
+      hint: "status | mode <rules|rules+llm|all|off> | on | off | log [n] | clear-fingerprints",
+    },
     handler: (invocation: InvocationLike) =>
       dispatch(options.service(), invocation?.rawInput ?? "", {
         clearFingerprints: options.clearFingerprints,

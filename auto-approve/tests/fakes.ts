@@ -7,11 +7,21 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createAudit, type AuditWriter, type SessionPathsLike, type MemoryLike } from "../src/audit.ts";
+import {
+  createAudit,
+  type AuditWriter,
+  type SessionPathsLike,
+  type MemoryLike,
+} from "../src/audit.ts";
 import { CallTable } from "../src/calls.ts";
 import { resolveConfig, type ResolvedConfig } from "../src/config.ts";
 import { FingerprintStore } from "../src/fingerprint.ts";
-import type { Reviewer, LlmLike, StreamChunkLike, StreamOptions } from "../src/review.ts";
+import type {
+  Reviewer,
+  LlmLike,
+  StreamChunkLike,
+  StreamOptions,
+} from "../src/review.ts";
 import { createRuntime, type Runtime } from "../src/runtime.ts";
 import { SessionObserver } from "../src/sessions.ts";
 
@@ -86,7 +96,10 @@ export function createFakeHost(
         index += 1;
         const listener = chain[index];
         if (listener === undefined) return fallback();
-        return await (listener as (...args: unknown[]) => unknown)(payload, step);
+        return await (listener as (...args: unknown[]) => unknown)(
+          payload,
+          step,
+        );
       };
       return await step();
     },
@@ -119,7 +132,9 @@ export function createFakeSessionPaths(root: string): SessionPathsLike & {
 }
 
 /** 假 memory-base：返回记录 `put` 的句柄；`fail` 可让 registerKind 抛错。 */
-export function createFakeMemory(options: { fail?: boolean } = {}): MemoryLike & {
+export function createFakeMemory(
+  options: { fail?: boolean } = {},
+): MemoryLike & {
   puts: unknown[];
   kinds: unknown[];
 } {
@@ -151,7 +166,9 @@ export interface FakeLlm extends LlmLike {
 }
 
 export function createFakeLlm(
-  chunks: readonly StreamChunkLike[] | ((options: StreamOptions) => readonly StreamChunkLike[]),
+  chunks:
+    | readonly StreamChunkLike[]
+    | ((options: StreamOptions) => readonly StreamChunkLike[]),
 ): FakeLlm {
   const calls: StreamOptions[] = [];
   return {
@@ -175,14 +192,16 @@ export function reviewChunks(text: string): StreamChunkLike[] {
 }
 
 /** 组装一份测试用运行时（真实 audit + 假 sessionPaths / memory / reviewer）。 */
-export function createTestRuntime(options: {
-  config?: ResolvedConfig;
-  reviewer?: Reviewer;
-  sessionPaths?: SessionPathsLike;
-  memory?: MemoryLike;
-  projectEnabled?: boolean;
-  warn?: (message: string) => void;
-} = {}): {
+export function createTestRuntime(
+  options: {
+    config?: ResolvedConfig;
+    reviewer?: Reviewer;
+    sessionPaths?: SessionPathsLike;
+    memory?: MemoryLike;
+    projectEnabled?: boolean;
+    warn?: (message: string) => void;
+  } = {},
+): {
   runtime: Runtime;
   warnings: string[];
   root: string;
@@ -205,7 +224,13 @@ export function createTestRuntime(options: {
   });
   const runtime = createRuntime({
     config,
-    context: { config, fingerprints: new FingerprintStore(config.fingerprintCapacity), audit, warn: (m) => warnings.push(m), ...(options.reviewer === undefined ? {} : { reviewer: options.reviewer }) },
+    context: {
+      config,
+      fingerprints: new FingerprintStore(config.fingerprintCapacity),
+      audit,
+      warn: (m) => warnings.push(m),
+      ...(options.reviewer === undefined ? {} : { reviewer: options.reviewer }),
+    },
     calls: new CallTable(config.callTableCapacity),
     sessions: new SessionObserver(),
     audit,

@@ -7,21 +7,14 @@
 
 /** 审批裁定词表（与宿主 `ApprovalOutcome` 一致）。 */
 export type ApprovalOutcome =
-  | "allowed-once"
-  | "rejected"
-  | "cancelled"
-  | "unavailable";
+  "allowed-once" | "rejected" | "cancelled" | "unavailable";
 
 /** 生效模式（`off` 等价 `enabled: false`）。 */
 export type AutoApproveMode = "off" | "rules" | "rules+llm" | "all";
 
 /** 裁定来源（审计行的 `source`）。 */
 export type DecisionSource =
-  | "rule"
-  | "fingerprint"
-  | "readonly"
-  | "upgrade"
-  | "llm";
+  "rule" | "fingerprint" | "readonly" | "upgrade" | "llm";
 
 /** 一次判定的结果。`next` = 不裁定（交下一位应答者 / 原路径）。 */
 export type GateOutcome = "allowed-once" | "rejected" | "next";
@@ -88,8 +81,7 @@ export interface PreExecuteExecution {
 
 /** 宿主 `PreToolDecision` 的结构化子集（本插件只产出 `allow` / `deny`）。 */
 export type PreToolDecision =
-  | { kind: "allow" }
-  | { kind: "deny"; reason: string };
+  { kind: "allow" } | { kind: "deny"; reason: string };
 
 /** 审计行（会话 JSONL 与 memory-base `project` 层同形）。 */
 export interface AuditLine {

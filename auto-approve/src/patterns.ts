@@ -23,7 +23,11 @@ export function normalizeCommand(raw: string): string {
 }
 
 /** 路径归一（`home` 可注入，测试用）。 */
-export function normalizePath(raw: string, cwd?: string, home = homedir()): string {
+export function normalizePath(
+  raw: string,
+  cwd?: string,
+  home = homedir(),
+): string {
   let text = raw.trim();
   if (text.length >= 2) {
     const first = text[0];
@@ -43,7 +47,9 @@ export function normalizePath(raw: string, cwd?: string, home = homedir()): stri
 }
 
 /** 从升级审批理由里取目标模式（`escalate sandbox to <mode>: <justification>`）。 */
-export function parseEscalationTarget(reason: string | undefined): string | undefined {
+export function parseEscalationTarget(
+  reason: string | undefined,
+): string | undefined {
   if (typeof reason !== "string") return undefined;
   const match = /^escalate sandbox to ([A-Za-z0-9_-]+):/.exec(reason.trim());
   return match?.[1];

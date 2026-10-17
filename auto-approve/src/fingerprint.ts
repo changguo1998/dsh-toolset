@@ -43,7 +43,10 @@ export function fingerprintOf(
     args: canonicalize(args),
     ...(escalationTarget === undefined ? {} : { to: escalationTarget }),
   };
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(JSON.stringify(payload))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 interface Entry {
@@ -70,7 +73,12 @@ export class FingerprintStore {
   }
 
   /** 记一次批准（幂等；超容量淘汰最早的条目）。 */
-  approve(sessionId: string, hash: string, toolName: string, now = new Date()): void {
+  approve(
+    sessionId: string,
+    hash: string,
+    toolName: string,
+    now = new Date(),
+  ): void {
     let table = this.#sessions.get(sessionId);
     if (table === undefined) {
       table = new Map<string, Entry>();
@@ -96,7 +104,8 @@ export class FingerprintStore {
 
   /** 某会话的条目数（未给会话时取全部）。 */
   size(sessionId?: string): number {
-    if (sessionId !== undefined) return this.#sessions.get(sessionId)?.size ?? 0;
+    if (sessionId !== undefined)
+      return this.#sessions.get(sessionId)?.size ?? 0;
     let total = 0;
     for (const table of this.#sessions.values()) total += table.size;
     return total;

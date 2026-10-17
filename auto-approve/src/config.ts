@@ -183,15 +183,11 @@ export const DEFAULT_CALL_TABLE_CAPACITY = 256;
 /** 命令类规则的内置适用工具。 */
 export const SHELL_TOOLS: readonly string[] = ["bash", "pwsh", "shell"];
 
-const MODES: readonly AutoApproveMode[] = [
-  "off",
-  "rules",
-  "rules+llm",
-  "all",
-];
+const MODES: readonly AutoApproveMode[] = ["off", "rules", "rules+llm", "all"];
 
 function asMode(value: unknown): AutoApproveMode | undefined {
-  return typeof value === "string" && (MODES as readonly string[]).includes(value)
+  return typeof value === "string" &&
+    (MODES as readonly string[]).includes(value)
     ? (value as AutoApproveMode)
     : undefined;
 }
@@ -233,7 +229,8 @@ function compileAllowTable(
   layer: "commands" | "paths",
   diagnostics: string[],
 ): readonly AllowRule[] {
-  if (table === undefined || table === null || typeof table !== "object") return [];
+  if (table === undefined || table === null || typeof table !== "object")
+    return [];
   const out: AllowRule[] = [];
   for (const [tool, patterns] of Object.entries(table)) {
     const list = asStringArray(patterns);
@@ -242,9 +239,17 @@ function compileAllowTable(
       continue;
     }
     list.forEach((pattern, index) => {
-      const compiled = compile(pattern, `allow.${layer}.${tool}[${index}]`, diagnostics);
+      const compiled = compile(
+        pattern,
+        `allow.${layer}.${tool}[${index}]`,
+        diagnostics,
+      );
       if (compiled === undefined) return;
-      out.push({ id: `allow.${layer}:${tool}:${index}`, tool, pattern: compiled });
+      out.push({
+        id: `allow.${layer}:${tool}:${index}`,
+        tool,
+        pattern: compiled,
+      });
     });
   }
   return out;
@@ -273,7 +278,11 @@ function compileEscalation(
     const pathSource = record["path"];
     const command =
       typeof commandSource === "string"
-        ? compile(commandSource, `escalation.allow[${index}].match`, diagnostics)
+        ? compile(
+            commandSource,
+            `escalation.allow[${index}].match`,
+            diagnostics,
+          )
         : undefined;
     const path =
       typeof pathSource === "string"
@@ -303,7 +312,11 @@ function compileEscalation(
     );
   });
   const mode = config?.mode === "any" ? "any" : "match";
-  return { escalationMode: mode, escalationTo: globalTo, escalationRules: rules };
+  return {
+    escalationMode: mode,
+    escalationTo: globalTo,
+    escalationRules: rules,
+  };
 }
 
 /** 归一配置（非法值回退缺省并记诊断；永不抛错）。 */
@@ -351,7 +364,11 @@ export function resolveConfig(config: Config | undefined): ResolvedConfig {
       1,
       4096,
     ),
-    allowCommands: compileAllowTable(raw.allow?.commands, "commands", diagnostics),
+    allowCommands: compileAllowTable(
+      raw.allow?.commands,
+      "commands",
+      diagnostics,
+    ),
     allowPaths: compileAllowTable(raw.allow?.paths, "paths", diagnostics),
     denyTools: asStringArray(denyRaw.tools) ?? [],
     denyEscalationTo: asStringArray(denyRaw.escalation?.to) ?? [],

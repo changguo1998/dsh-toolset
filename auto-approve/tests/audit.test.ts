@@ -41,11 +41,17 @@ test("会话那份：写入 <会话目录>/auto-approve-audit.jsonl，字段与�
   audit.write(line());
   audit.write(line({ callId: "c2", outcome: "rejected", source: "rule" }));
   const text = readFileSync(join(root, "s1", AUDIT_FILE_NAME), "utf8");
-  const rows = text.trim().split("\n").map((row) => JSON.parse(row) as AuditLine);
+  const rows = text
+    .trim()
+    .split("\n")
+    .map((row) => JSON.parse(row) as AuditLine);
   assert.equal(rows.length, 2);
   assert.equal(rows[0]?.toolName, "read");
   assert.equal(rows[1]?.outcome, "rejected");
-  assert.deepEqual(audit.recent(1).map((row) => row.callId), ["c2"]);
+  assert.deepEqual(
+    audit.recent(1).map((row) => row.callId),
+    ["c2"],
+  );
   const health = audit.health();
   assert.equal(health.sessionWritable, true);
   assert.equal(health.sessionLines, 2);
@@ -82,12 +88,18 @@ test("达上限：保留最近一半并写 truncated marker，最新记录仍在
   });
   for (let index = 0; index < 6; index += 1) {
     audit.write(
-      line({ callId: `c${index}`, toolName: `tool-${index}-${"x".repeat(60)}` }),
+      line({
+        callId: `c${index}`,
+        toolName: `tool-${index}-${"x".repeat(60)}`,
+      }),
     );
   }
   const text = readFileSync(join(root, "s1", AUDIT_FILE_NAME), "utf8");
   const rows = text.trim().split("\n");
-  const first = JSON.parse(rows[0] ?? "{}") as { truncated?: boolean; keptLines?: number };
+  const first = JSON.parse(rows[0] ?? "{}") as {
+    truncated?: boolean;
+    keptLines?: number;
+  };
   assert.equal(first.truncated, true);
   assert.ok((first.keptLines ?? 0) > 0);
   const last = JSON.parse(rows[rows.length - 1] ?? "{}") as AuditLine;
@@ -132,7 +144,10 @@ test("项目那份：经作用域句柄 put 写入同形一行（kind approval_a
   });
   audit.write(line());
   await flush();
-  assert.deepEqual(memory.kinds[0], { kind: AUDIT_KIND, writableTiers: ["project"] });
+  assert.deepEqual(memory.kinds[0], {
+    kind: AUDIT_KIND,
+    writableTiers: ["project"],
+  });
   assert.equal(memory.puts.length, 1);
   const put = memory.puts[0] as {
     tier: string;

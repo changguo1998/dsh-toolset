@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolveConfig } from "../src/config.ts";
-import { callInfoOf, createGate, escalationTargetFromArguments, identityOf } from "../src/gate.ts";
+import {
+  callInfoOf,
+  createGate,
+  escalationTargetFromArguments,
+  identityOf,
+} from "../src/gate.ts";
 import type { PreToolDecision } from "../src/types.ts";
 import { createTestRuntime } from "./fakes.ts";
 
@@ -93,7 +98,10 @@ test("gate：拒绝名单命中 → deny（工具不执行），并记一条审�
     },
   )) as PreToolDecision;
   assert.equal(decision.kind, "deny");
-  assert.match((decision as { reason: string }).reason, /auto-approve 拒绝了工具/);
+  assert.match(
+    (decision as { reason: string }).reason,
+    /auto-approve 拒绝了工具/,
+  );
   assert.equal(nexted, 0);
   assert.equal(audit.recent(5).length, 1);
   assert.equal(audit.recent(5)[0]?.source, "rule");
@@ -101,7 +109,9 @@ test("gate：拒绝名单命中 → deny（工具不执行），并记一条审�
 
 test("gate：拒绝名单升级例外命中 → deny（不需要参数原文）", async () => {
   const { runtime } = createTestRuntime({
-    config: resolveConfig({ deny: { escalation: { to: ["danger-full-access"] } } }),
+    config: resolveConfig({
+      deny: { escalation: { to: ["danger-full-access"] } },
+    }),
   });
   const gate = createGate(runtime);
   const decision = (await gate(
@@ -127,13 +137,21 @@ test("gate：bypass 工具与 mode off 都不介入", async () => {
   };
   const gate = createGate(bypass.runtime);
   assert.deepEqual(
-    await gate({ name: "run_code", arguments: "{}", callId: "c1", agent: AGENT }, next),
+    await gate(
+      { name: "run_code", arguments: "{}", callId: "c1", agent: AGENT },
+      next,
+    ),
     { kind: "allow" },
   );
-  const off = createTestRuntime({ config: resolveConfig({ mode: "off", deny: { tools: ["bash"] } }) });
+  const off = createTestRuntime({
+    config: resolveConfig({ mode: "off", deny: { tools: ["bash"] } }),
+  });
   const offGate = createGate(off.runtime);
   assert.deepEqual(
-    await offGate({ name: "bash", arguments: "{}", callId: "c2", agent: AGENT }, next),
+    await offGate(
+      { name: "bash", arguments: "{}", callId: "c2", agent: AGENT },
+      next,
+    ),
     { kind: "allow" },
   );
   assert.equal(nexted, 2);

@@ -10,7 +10,14 @@
  * 会话那份单文件上限 16 MiB（可配置）；达上限保留最近一半并写一条 `truncated` marker 行。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { AuditHealth, AuditLine, FingerprintView } from "./types.ts";
 
@@ -174,8 +181,12 @@ export function createAudit(options: {
       return;
     }
     try {
-      if (!existsSync(target.dir)) mkdirSync(target.dir, { recursive: true, mode: 0o700 });
-      if (existsSync(target.path) && statSync(target.path).size >= options.maxBytes) {
+      if (!existsSync(target.dir))
+        mkdirSync(target.dir, { recursive: true, mode: 0o700 });
+      if (
+        existsSync(target.path) &&
+        statSync(target.path).size >= options.maxBytes
+      ) {
         try {
           truncate(target.path, options.maxBytes);
         } catch (error) {
@@ -187,7 +198,8 @@ export function createAudit(options: {
       health.sessionFilePath = target.path;
       health.sessionLines += 1;
       health.sessionWritable = true;
-      if (health.degradedReason !== undefined) health.degradedReason = undefined;
+      if (health.degradedReason !== undefined)
+        health.degradedReason = undefined;
     } catch (error) {
       degrade(`会话审计文件写入失败（${String(error)}）`);
     }
