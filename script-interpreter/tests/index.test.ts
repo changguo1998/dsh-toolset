@@ -18,7 +18,7 @@ import {
   resolveSettings,
 } from "../src/index.ts";
 import { TOOL_NAME } from "../src/tools.ts";
-import { mockHost } from "./helpers.ts";
+import { fakePolicyService, fakeSandbox, mockHost } from "./helpers.ts";
 
 test("bundle 契约：name 与 inject", () => {
   assert.equal(name, "script-interpreter");
@@ -160,6 +160,27 @@ test("apply：解释器路径覆盖不可执行时仍注册，日志给安装指
   assert.ok(
     host.logs.some((line) => line.includes("未探测到解释器")),
     host.logs.join("\n"),
+  );
+});
+
+test("apply：沙箱服务缺失时在装载日志里告警，服务齐全时不告警", () => {
+  const missing = mockHost();
+  apply(missing.ctx);
+  assert.ok(
+    missing.logs.some((line) => line.includes("沙箱服务不完整")),
+    missing.logs.join("\n"),
+  );
+  const complete = mockHost({
+    sandbox: fakeSandbox({ argv: [] }).provider,
+    sandboxPolicy: fakePolicyService({
+      mode: "read-only",
+      workspaceRoot: "/tmp",
+    }).service,
+  });
+  apply(complete.ctx);
+  assert.ok(
+    !complete.logs.some((line) => line.includes("沙箱服务不完整")),
+    complete.logs.join("\n"),
   );
 });
 

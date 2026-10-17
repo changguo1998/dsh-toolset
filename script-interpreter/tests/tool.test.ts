@@ -379,19 +379,24 @@ pyTest("沙箱：confine 抛错时 fail-closed 且脚本未执行", async () => 
   }
 });
 
-pyTest("沙箱：缺服务时如实标注 unconfined，不静默", async () => {
-  const tool = createScriptRunTool(makeRuntime());
-  const value = result(
-    await tool.execute({ script: "print(1)", description: "无沙箱" }),
-  );
-  assert.equal(value.sandbox.confined, false);
-  assert.equal(value.sandbox.denied, false);
-  assert.equal(typeof value.sandbox.unavailable, "string");
-  assert.ok(
-    renderText(tool, value).includes("[sandbox: unavailable"),
-    renderText(tool, value),
-  );
-});
+pyTest(
+  "沙箱：缺服务时在结果值里标注 unconfined，回执正文不加提示行",
+  async () => {
+    const tool = createScriptRunTool(makeRuntime());
+    const value = result(
+      await tool.execute({ script: "print(1)", description: "无沙箱" }),
+    );
+    // 事实进结构化结果（决策 4 的「在结果里标」），不静默。
+    assert.equal(value.sandbox.confined, false);
+    assert.equal(value.sandbox.denied, false);
+    assert.equal(typeof value.sandbox.unavailable, "string");
+    assert.ok(value.sandbox.unavailable?.includes("ctx.sandboxPolicy"));
+    // 回执正文只列决策 6 的标记与围栏拒绝提示，能力缺失不占行。
+    const text = renderText(tool, value);
+    assert.equal(text, "1\n");
+    assert.ok(!text.includes("[sandbox:"), text);
+  },
+);
 
 pyTest("沙箱：danger-full-access 不围栏、不标缺失", async () => {
   const { dir, cleanup } = withTempDir();

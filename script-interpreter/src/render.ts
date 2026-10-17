@@ -1,9 +1,14 @@
 /**
  * 回执渲染（决策 6）：与官方 bash 的回执同构。
  *
- * 顺序：stdout → 独立 `[stderr]` 段 → 各标记各占一行
- * （沙箱 → 超时 → 信号 / 退出码）；超限提示紧跟在**所属流**之后并给全文路径。
- * 无正文时给 `(no output)`；`output.render` 是全函数（畸形值也渲染出文本，不抛）。
+ * 顺序：stdout → 独立 `[stderr]` 段 → 各标记各占一行（沙箱拒绝 → 超时 → 信号 / 退出码）；
+ * 超限提示紧跟在**所属流**之后并给全文路径。无正文时给 `(no output)`；
+ * `output.render` 是全函数（畸形值也渲染出文本，不抛）。
+ *
+ * 口径：回执正文**只列**决策 6 的四种标记 + 围栏拒绝提示。「围栏能力缺失」（极简 profile
+ * 没有 `ctx.sandbox` / `ctx.sandboxPolicy`）**不进回执正文**，只落在结构化结果的
+ * `sandbox.unavailable` 上（决策 4 的「在结果里标 sandboxed: false」）：每次都多一行
+ * 提示会稀释真正的标记（超时 / 退出码），且该事实对宿主展示层与排障已可见。
  */
 
 import { isRunFailure } from "./types.ts";
@@ -24,18 +29,12 @@ function streamText(stream: StreamReceipt): string {
   return `${stream.text}\n[output truncated; full output: ${stream.spillPath ?? "(unavailable)"}]`;
 }
 
-/** 沙箱标记：只有「被拒绝」与「能力缺失」两种需要模型知道。 */
+/** 沙箱标记：只有「围栏拒绝」需要模型知道（能力缺失只记在结果值里）。 */
 function sandboxMarkers(facts: SandboxFacts): string[] {
-  const markers: string[] = [];
   if (facts.denied && facts.mode !== undefined) {
-    markers.push(`[sandbox: file access denied under ${facts.mode} mode]`);
+    return [`[sandbox: file access denied under ${facts.mode} mode]`];
   }
-  if (facts.unavailable !== undefined) {
-    markers.push(
-      `[sandbox: unavailable; the script ran without confinement (${facts.unavailable})]`,
-    );
-  }
-  return markers;
+  return [];
 }
 
 /** 退出状态标记：被信号杀死时只说信号，正常退出时非零码才报。 */

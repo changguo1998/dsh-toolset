@@ -193,6 +193,15 @@ export function apply(
     logger?.warn?.("ctx.tools 不可用（宿主未提供工具面），不注册 script_run");
     return;
   }
+  // 围栏能力缺失时把事实写进**装载日志**（运维通道），不进工具回执正文：
+  // 回执只列脚本自身的输出与决策 6 的标记，能力缺失另有结果值 `sandbox.unavailable` 承载。
+  if (ctx.sandbox === undefined || ctx.sandboxPolicy === undefined) {
+    logger?.warn?.(
+      `沙箱服务不完整（ctx.sandbox=${ctx.sandbox === undefined ? "缺失" : "可用"}, ` +
+        `ctx.sandboxPolicy=${ctx.sandboxPolicy === undefined ? "缺失" : "可用"}）：` +
+        "script_run 将以未围栏方式执行，结果值 sandbox.unavailable 会如实标注",
+    );
+  }
 
   const toolSettings: ToolSettings = {
     languages: settings.languages,
