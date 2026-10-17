@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | `spill-policy`（宿主，已挂载） | 超阈值结果在上下文里留什么：preview + 落盘通知，原文写 spill 文件；内置豁免 `read` 工具 | 是（替换结果内容） | 否 |
 | `compaction-tool-result-pruner`（宿主，已挂载，`ctx.toolResultPruner`） | 压缩时对 tool-result surface 节点做 head/middle/tail 裁剪（免模型、可重放安全） | 是（裁剪历史呈现） | 否 |
-| 本插件 | 读 spill 文件做确定性派生，把摘要 + 切片索引写进共享库 | 否 | 是 |
+| 本插件 | 读 spill 文件做确定性派生，把摘要 + 切片索引写进自持 `digest.db` | 否 | 是 |
 
 唯一重叠的动作是「取数」：本插件从 spill 文件有界读取 ≤ `maxSourceBytes` 字节，只读、不动原文。
 
@@ -35,15 +35,25 @@
 - 首选宿主 `ctx.ptcRuntime`（`ptc-runtime` 缝，`ptc-runtime-node` 实现为沙箱 Node 进程；0.1.7 由 `code-runtime` 改名）；未挂载或运行期不可用时回落 `node:vm`（进程内，默认 30s 超时）执行**同一程序源**——「同一输入 → 同一摘要」不依赖执行环境。
 - `ptcRuntime` 是**可选依赖**，只能经 `ctx.reflect.get('ptcRuntime', false)` 读取：真实宿主 ctx 是 cordis 代理，直接读未 `inject` 的服务属性会抛错，该异常若发生在 `apply` 期间会导致监听未注册（表现为「插件已挂载但零入库」）。无 reflect 层的普通对象宿主（测试替身）才直接读属性，两种语义不混用。
 
-## 5. 写入：共享库文件，零 npm 依赖
+## 5. 写入：自持 `digest.db` + 经句柄推 `is_error` 摘要
 
-- 与 memory-base 的通信面是**同一个 SQLite 文件**（dbPath 解析链见 `README.md` 配置表）。
-- 写前校验指纹（`application_id = 0x4b4e4f57`、`user_version = 1`）+ `sources`/`chunks` 表存在，不符抛 `KbNotMountedError`（拒写，绝不半写或误建表）。
-- 不建表、不写 FTS 表：`chunks` 的 FTS5 同步由 memory-base 的库内触发器完成，本插件只做 `sources`/`chunks` 的普通 INSERT，检索复用同一套 FTS。
-- 去重与 memory-base 同键：source 级 `(content_hash, kind)`、chunk 级 `content_hash`（均 sha256），重复事件不产生重复行；`chunk_count` 只按实际新增块数增量更新。
-- `PRAGMA busy_timeout = 2000` 消化与 memory-base 长连接的短暂写竞争（WAL 模式）。
-- chunk 预算对齐 memory-base：2000 token（≈3 字符/token 估算）/ 6000 字符硬限，段落边界优先、超限硬切。
-- **共库直写的边界（与 memory-base 口径一致）**：本包只做「库指纹校验 + `content_hash` 去重」，memory-base 的入库规则（`persistRules` 隐私拒绝模式 / `minChars`）、容量守卫（`maxTokensPerProject`）与 `hooks.stats` 计数**不覆盖**本包的写入；反向地，memory-base 的淘汰 / 自动巩固 / 容量守卫按 `chunks` 全表作业，会一并作用到本包写入的行（`category`/`target` 均为 `output-compress`、importance 取 4/2，TTL 到期后同样先压缩降级再硬淘汰）。对端口径见 `memory-base/README.md`「边界与限制」与 `memory-base/docs/DESIGN.md` §9。
+### 5.1 本地索引库（I 层，本包自持）
+
+- **落点**：`<会话目录>/digest.db`，每会话一个文件。会话目录经 `sessionPaths.sessionDirFor(sessionId)` 推导（宿主未暴露读取面，由 `session-paths` 插件复刻宿主的编码）；配置键 `sessionDir` 退为**显式覆盖**（配了就优先用它）。
+- **解析失败**（`session-paths` 缺失 / 会话取不到 / 显式覆盖目录不存在）→ `skipped.session-dir-missing` + 计数 + 一次性日志，**不静默换路径、不自建目录**（目录归宿主，或由 `session-paths.ensureSessionDir` 显式创建）。
+- 库指纹 `application_id = 0x44494745`（`'DIGE'`）/ `user_version = 1`；`digests` 单表 + FTS5（本地召回）；`content_hash` 幂等；100 MB 自管上限（**每会话每文件**）。
+- 写前过本包 `deny-patterns.ts` 六类形态闸（与 memory-base 同源复制 + 指纹封印对拍）。
+
+### 5.2 写入 memory-base（仅 `is_error` 摘要）
+
+- `apply` 时 `memory.registerKind({ kind: "digest", writableTiers: ["session"] })` 取**写入作用域句柄**并缓存；memory-base 是**可选依赖**（缺失只告警一次，不影响本地库）。
+- 推送只发生在 `is_error` 的 digest，按 `put({ content, tier: "session", sessionId, title, importance: 4, source: { kind: "tool_result", ref: "digest:<sessionId>:<id>", label: tool } })` 写入；行归属由 `kind: "digest"` 表达，不依赖任何语义列。
+- **三档结果**（对齐 memory-base 的错误形态）：
+  - `put` 成功 → `push_state = 'queued'`；
+  - `PutResult.skipped`（隐私闸 / `preWrite` 拒，内容级）→ `'rejected'` + 日志，**不重试**；
+  - `put` 抛错（越权层 / 未注册 kind 等参数与权限级）→ `'rejected'` + 日志，**不重试**；
+  - 能力缺失（无句柄 / 无会话 id）→ 保持 `'none'`，进「未推」集合等 `promotePending` 重试。
+- 本包不参与 memory-base 侧的入库规则、容量守卫与淘汰；两库互不共享文件、互不写对方行。
 
 ## 6. 记录形状（可检索性）
 
@@ -59,20 +69,22 @@
 ## slices (<n>)     #<序号> L<起>-<止> C<起>-<止> fnv=<指纹> "<预览>"
 ```
 
-- 知识库行的 `title` 另带工具名与 `sessionId8#seq`，便于直接 grep；`category`/`target` 固定为 `output-compress`，检索时按此过滤。
-- **FTS 召回主要靠 key lines 的原文片段**（错误文本留在记录里）；slices 给出行号/字符区间，模型或人拿到召回结果后可用 `read offset/limit` 精确定位回 spill 文件中的原始区间。
+- 本包行的 `title` 带工具名与 `sessionId8#seq`，便于直接 grep；`kind` 固定为 `digest`、`tier` 固定为 `session`，`source.ref` 为 `digest:<sessionId>:<digestId>`，检索时按 `kind` / `source` 过滤（memory-base 的 `search` / `list` 带 `kind` 参数）。
+- **召回分两处**：本地 `digest.db` 的 `digests_fts`（属主自有入口，命中刷新 `referenced_at`，只覆盖本会话）；写入 memory-base 的 `is_error` 摘要走 memory-base 的全局检索（FTS 由库内触发器建立，跨会话可见）。
+- **召回质量主要靠 key lines 的原文片段**（错误文本留在记录里）；slices 给出行号/字符区间，模型或人拿到召回结果后可用 `read offset/limit` 精确定位回 spill 文件中的原始区间。
 
 ## 7. 失败与重试语义
 
 事件管线**永不向宿主抛错**：除下述降级路径外，任何一步（触发、取 spill、沙箱、写库）失败都收敛为 `skipped` + 日志。
 
 - **spill 文件暂不可读**：不 skipped，而是降级为「用事件内文本继续入库」；该 locator 进入 10s 冷却窗口，窗口内不再尝试读取（本次不重试读）。
-- **库未挂载**：按 `kbRetryDelays`（默认 1s / 2.5s / 5s / 10s）主动定时重试写入，最多 4 次；重试绕过事件 seq 去重（内容 hash 去重仍生效，故重试幂等），`dispose` 时清理定时器。
+- **memory-base 未挂载 / 句柄不可用**：digest 照常入本地 `digest.db`；`is_error` 行的 `push_state` 保持 `none`（进「未推」集合），句柄出现后由 `promotePending` 重试；缺面只记一次日志（不逐事件刷屏）。
+- **`session-paths` 未挂载**（且没配 `sessionDir` 覆盖）：落点不可推导 → 该会话整条管线 `skipped.session-dir-missing` + 一次性日志；不静默换路径，也不建目录。
 - 无触发条件或文本为空时返回 `none`，不做任何写入。
 
 ## 8. 明确不做
 
 - 不把原文全文写入知识库（原始字节归宿主 retention / spill 管）；
 - 不引入 LLM 摘要（非确定性、延迟、成本都与「可重算的索引」定位冲突）；
-- 不依赖 memory-base 的 npm 包或服务接口（跨 bundle 只走宿主共享面）；
+- 不依赖 memory-base 的 npm 包（跨 bundle 只走服务面：`registerKind` 返回的写入句柄、可选的 `checkPrivacy`）；
 - 不改宿主 spill-policy / compaction-tool-result-pruner 的行为，也不改写会话上下文（呈现层职责归它们；分工见 §1 表）。
