@@ -37,7 +37,7 @@ dsh:session-channel:meta                String  schema 版本（不兼容 → �
 ```
 
 - **在线 = 在线键存在（TTL 内）且 `process.kill(pid, 0)` 不抛 ESRCH**；形状不符或 pid 已死的残留键由 `listPeers` 懒清理（无额外守护进程）。
-- **寻址解析**（`resolveTarget`）：`cwd:<绝对路径>` 前缀 → 按路径匹配；否则**会话 id 精确匹配 → 别名（`alias:<alias>`）**；都不命中返回空，由发送侧报 `target_offline`。别名由 `setAlias` 写入（校验字符集与保留字 → 冲突需 `force` → 顶掉同会话旧别名 → 写入）。
+- **寻址解析**（`resolveTarget`）：`cwd:<绝对路径>` 前缀 → 按路径匹配；否则**会话 id 精确匹配 → 别名（`alias:<alias>`）**；都不命中返回空，由发送侧报 `target_offline`。别名由 `setAlias` 写入（校验字符集与保留字 → 冲突需 `force` → 顶掉同会话旧别名 → 写入）。**自动别名**（`#autoAlias`）在会话首次被跟踪时生成，规则 `<ui-|sub-><词>-<4 位 hex>`（`hex4 = sha256(sessionId)` 前 4 位小写 hex，词表 ≥ 256 词，总长 ≤ 16）；键与 sessionId 绑定且**无 TTL**，宿主 resume 复用同一 sessionId，故**恢复后名字不变**（已有别名即跳过重命名）；占用重试 `AUTO_ALIAS_TRIES = 8`，耗尽后记一行日志并放弃（别名是增强项，不保证分配成功）。
 - **游标语义**：投递位置记在**无 TTL** 的 `cursor:<sessionId>`（值 `{id, ts}`）里——接收方跟踪会话或重启时读该键作为读取起点（**读不到才退化为 `0`**：发送方可能先入队、接收方后启动），且**只在注入成功后推进**（失败不推进 → 重启补投）。读取完成前该会话不进 reader 读取集合（`cursorReady` 门），避免「先用 `0` 读一次」的重复窗口面。`start()` 时按 `ts` 懒清理超过 7 天（`CURSOR_TTL_MS`）的游标键。
 - **回执**：接收方注入成功才写回执（`ack:<messageId>`，TTL 60s），**只服务发送方 `send` 的 `waitMs` 等待窗口**（100ms 轮询）——**不作为去重依据**（去重靠游标，回执过期不影响去重）。注入失败（会话不在本进程）不写回执，消息留在流里（`inbox` 可查）。
 - **共享 KV**（#55）：`kv:<key>` 存 last-value（JSON 可序列化，UTF-8 上限取 `maxTextBytes`），`kvver:<key>` 用 `INCR` 提供**单调版本号**；写入在单条 Lua 脚本内完成「读旧版本 → CAS 校验 → 版本 +1 → SET」，`expectedVersion` 不匹配返回 `kv_conflict` + 当前值（供合并重试）；`ttlSec > 0` 时带过期；`kvDelete` 同时删两个键（版本归零）。键名 `[A-Za-z0-9_.-]{1,64}`。语义：last-value + 版本号，供插件跨会话 / 跨进程同步状态；不做订阅 / 通知（拉取式）。
@@ -82,7 +82,7 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标；游�
 
 `export { name, inject, provide, apply }`：`name = "session-channel"`、`inject = ["tools", "agents", "sessions"]`、`provide = ["sessionChannel"]`。`apply` 内 `createSessionChannelService` + `service.start()`（异步、不阻塞）+ `tools.register` + `provide("sessionChannel", …)`。
 
-服务面方法（键集合由 `SERVICE_FACE_METHODS` 声明，`tests/apply.test.ts` 守卫：新增公开方法漏暴露即测试失败）：`peers` / `send` / `inbox` / `aliasSet` / `aliasList` / `aliasClear` / `kvSet` / `kvGet` / `kvList` / `kvDelete` / `delegate` / `taskStatus` / `taskList` / `taskCancel` / `taskResult` / `status`；`start` / `stop` / `noteSession` 为宿主生命周期 / 内部面，不暴露。
+服务面方法（键集合由 `SERVICE_FACE_METHODS` 声明，`tests/apply.test.ts` 守卫：新增公开方法漏暴露即测试失败）：`peers` / `send` / `inbox` / `aliasSet` / `aliasList` / `aliasClear` / `kvSet` / `kvGet` / `kvList` / `kvDelete` / `delegate` / `taskStatus` / `taskList` / `taskCancel` / `taskResult` / `status`；`start` / `stop` / `noteSession` 为宿主生命周期 / 内部面，不暴露。逐方法的**参数 → 返回**核对表在 `README.md` 的「服务面」一表（对着 `src/index.ts` 与 `src/types.ts` 核过），消费方按那张表写。
 
 工具 `session_channel` 动作：`peers` / `send` / `inbox` / `alias`（`op=set|list|clear`，`name`=别名，`to` 缺省为调用方会话，`force` 覆盖占用）/ `status`。`execute(args, exec)` 从宿主 `exec.agent.session.id` 取调用方会话（非 agent 调用方 → 须显式传 `to`）。
 
@@ -92,7 +92,7 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标；游�
 
 - 仅本机；Redis 必须 ≥ 5.0（Streams）。
 - 邮箱流按 `MAXLEN ~ 1000` 近似裁剪：极端量下早期消息会被裁掉（无持久归档）。
-- 会话跟踪上限 32（TUI 单活跃场景远超需求）；`session/event` 未覆盖的会话（如从未产生事件）不会被跟踪。
+- 会话跟踪上限 32（TUI 单活跃场景远超需求）；`session/event` 未覆盖的会话（如从未产生事件）不会被跟踪 → **自动别名的生成时机因此就是「本进程首次观察到该会话的 `session/event`」**（既非启动即分配，也非「首次用到才生成」）；名字一旦写入就不漂移（键随 sessionId、无 TTL），但**不保证分配成功**（见 §3 的别名条）。
 - 本进程内多会话同时在线时，各会话独立邮箱流与游标；一个进程只有一个 reader 连接（多流单次读）。
 - 游标键随会话累计且无 TTL：由 `start()` 懒清理（`ts` 超 7 天）；被清理后该会话若再来，会从邮箱流起点重读，历史消息可能重投（可接受：宁可重投不漏投）。
 - 依赖 `redis` 包（首个带外部运行时依赖的包）：`node_modules` 不入库，新机器需 `npm install --prefix session-channel`（`scripts/install.sh` 已含该步）。

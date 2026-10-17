@@ -62,18 +62,42 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | `tasks:<sessionId>` | 每会话任务索引（`LPUSH` + `LTRIM 0..49`，新→旧；委托方与目标两侧都记） |
 | `meta` | 命名空间 schema 版本（不兼容时拒绝写入） |
 
-服务面（`ctx.get("sessionChannel")`，供 TUI / 其他插件调用）：
+服务面（`ctx.get("sessionChannel")`，供 TUI / 其他插件调用）——下表是**对着 `src/index.ts` / `src/types.ts` 核过的核对表**（参数 → 返回；签名一律以此为准）：
 
-| 方法 | 说明 |
-| --- | --- |
-| `peers()` / `status()` | 在线对端 / 连接状态（只读） |
-| `send(req)` / `inbox(sessionId, count?)` | 发消息 / 查收件箱（同工具语义） |
-| `aliasSet(alias, sessionId, opts?)` / `aliasList()` / `aliasClear(opts)` | 别名管理 |
-| `kvSet(key, value, opts?)` | 共享 KV 写入（last-value + 版本号；`{expectedVersion, ttlSec}` 可选，CAS 冲突 → `kv_conflict` + `current`） |
-| `kvGet(key)` / `kvList()` / `kvDelete(key)` | 共享 KV 读单键 / 列全量（按键名排序）/ 删除（payload + 版本键） |
-| `delegate(req)` | 委托任务（`{from?, to, text, timeoutSec?, ttlSec?, waitMs?}`）；目标唯一命中后建任务表记录并把任务注入 worker |
-| `taskStatus(taskId)` / `taskList(opts?)` / `taskCancel(taskId)` | 查单个任务（懒判定超时）/ 列任务（`{sessionId?, status?, limit?}`，缺省按会话索引）/ 取消 |
-| `taskResult(input)` | 显式回传结果（`{taskId, text, failed?, error?}`；`resultSource:"tool"` 优先于自动回收） |
+| 方法 | 参数 | 返回 | 说明 |
+| --- | --- | --- | --- |
+| `peers()` | — | `{ok, peers?: PeerInfo[], error?}` | 在线对端（只读）；`PeerInfo` **不含别名**，要别名用 `aliasList()` 关联 |
+| `status()` | — | `SessionChannelStatus` = `{enabled, connected, address, version, sessions, error?}` | 连接状态 / 已跟踪会话 / 最后一次错误（只读排障） |
+| `send(req)` | `{from?, to, text, waitMs?}` | `SendResult` = `{ok, messageId?, delivered?, target?, error?, candidates?}` | 发消息（同工具语义）；**不传 `waitMs` 时返回体没有 `delivered` 键** |
+| `inbox(sessionId, count?)` | 会话 id、条数（缺省 20） | `{ok, messages?: InboxMessage[], error?}` | 查收件箱（拉取式只读，新→旧） |
+| `aliasSet(alias, sessionId, opts?)` | `opts = {force?}` | `{ok:true, alias, sessionId, replaced?}`；失败 `{ok:false, error: "alias_invalid" / "alias_reserved" / "alias_taken", message, holder?}` | 设别名（一会话一别名；被占用需 `force`） |
+| `aliasList()` | — | `{ok, aliases?: {alias, sessionId, online}[], error?}` | 列别名（按键名排序，带在线标记） |
+| `aliasClear(opts)` | `{alias?, sessionId?}` | `{ok, cleared?: string[], error?}` | 清别名（按别名或按会话） |
+| `kvSet(key, value, opts?)` | `opts = {expectedVersion?, ttlSec?}` | `{ok, entry?}` / 冲突时 `{ok:false, error:"kv_conflict", current}` | 共享 KV 写入（last-value + 版本号，CAS） |
+| `kvGet(key)` | 键名 | `{ok, entry?, error?}` | 共享 KV 读单键 |
+| `kvList()` | — | `{ok, entries?, error?}` | 共享 KV 列全量（按键名排序） |
+| `kvDelete(key)` | 键名 | `{ok, deleted?, error?, message?}` | 共享 KV 删除（payload + 版本键） |
+| `delegate(req)` | `{from?, to, text, timeoutSec?, ttlSec?, waitMs?}` | `DelegateResult` = `{ok, task?, messageId?, delivered?, target?, error?, message?, candidates?}` | 投递指令：目标唯一命中后建任务表记录（`task.id` 即指令 id）并把任务注入 worker |
+| `taskStatus(taskId)` | 任务 id | `{ok, task?, error?}`；`task` 含 `status` / `result` / `resultSource` / `error` | 收取回报（主方）；**读取时懒判定超时**并回报给委托方 |
+| `taskList(opts?)` | `{sessionId?, status?, limit?}`（缺省按会话索引，limit 上限 100） | `{ok, tasks?, error?}` | 收取回报（批量，新→旧） |
+| `taskCancel(taskId)` | 任务 id | `{ok, task?, error?}` | 取消任务（终态不可回退） |
+| `taskResult(input)` | `{taskId, text, failed?, error?}` | `{ok, task?, error?, message?}` | 从方回报（`resultSource:"tool"` 优先于轮末 `auto`） |
+
+## 群组编排用法与成员寻址口径
+
+群组编排插件（`agent-group`）只经服务面做两个操作，各自对应的现有方法（无缺口，均为既有签名）：
+
+| 操作 | 方法 | 要点 |
+| --- | --- | --- |
+| 投递指令 | `delegate({from?, to, text, timeoutSec?, ttlSec?, waitMs?})` | 返回的 `task.id` 即指令 id；worker 下一回合被注入 `TASK <id>: <正文>`（完成后可结束本轮自动回传，或调 `channel_task_result` 显式回传） |
+| 收取回报 | `taskStatus(taskId)` / `taskList({sessionId?, status?, limit?})` | 主方按指令 id 读；`taskStatus` 读取时懒判定超时；批量按会话索引（新→旧） |
+
+口径（下游按此实现）：
+
+- **「成功 / 失败 / 受阻」三态不进 `TaskStatus`**：通道只搬运，不规定语义。`failed` 位只表达「是否算失败」，成因走 `error`；三态判别由 `agent-group` 在**结果正文**里自描述（通道不解析正文）。
+- **两条硬约束**：① 从方（worker）会话必须**也挂着本插件**——注入由目标进程自己的 reader 循环完成；② 目标必须**在线**，离线直接 `target_offline`、**不排队**（无 spool）。
+- **成员登记用 sessionId 或显式 `alias set`**：自动别名不保证分配成功（生成时机见下方「边界与限制」的别名条），登记不要依赖它。
+- **寻址须唯一命中**：`to` 取会话 id 精确匹配 → 别名 → `cwd:<绝对路径>`；0 命中 `target_offline`、多命中 `target_ambiguous`（回带 `candidates`）。同 cwd 有多个会话时 `cwd:` 形态必然歧义，改用会话 id 或别名。
 
 ## 使用示例
 
@@ -103,6 +127,7 @@ profile 挂载（与其他插件同法）：
 - **离线直接报错**：目标心跳过期或 pid 已死 → `target_offline`（不做 spool / 离线队列）。
 - **不重复注入**：投递位置记在无 TTL 的 `cursor:<sessionId>` 里——接收方启动/重启从游标续读，**且只在该条注入成功后推进**；已投递过的消息（即便回执键早已过期）不会重复注入，注入失败的消息仍会补投。游标按 `ts` 懒清理（7 天），过期后该会话重来会从流起点重读（历史消息可能重投）。消息本身留在邮箱流里（`inbox` 可查）。
 - **别名**：`[A-Za-z0-9_-]{1,32}`，保留字（`inbox/alive/ack/cursor/alias/meta/peers/send/status`）不可用；一会话一别名（设新的顶掉旧的）；被别的会话占用需 `force`；别名键无 TTL，`alias clear` 手工清理。
+- **自动别名**：会话**首次被本进程观察到 `session/event`** 且尚无别名时生成，规则 `<前缀><词>-<4 位 hex>`（`ui-` / `sub-` + 内置词表（≥ 256 词）+ `sha256(sessionId)` 前 4 位小写 hex，总长 ≤ 16）；键与 sessionId 绑定且**无 TTL**，同一 sessionId 恢复后名字不变（再次见到即跳过重命名），已结束会话的名字不回收；占用重试 8 次仍冲突时记一行日志后放弃——**不保证一定拿到别名**，成员登记勿依赖（用 sessionId 或显式 `alias set`）。
 - **共享 KV**（#55）：`kvSet` / `kvGet` / `kvList` / `kvDelete`，last-value + 单调版本号（CAS 用 `expectedVersion`），键 `[A-Za-z0-9_.-]{1,64}`、值 JSON 可序列化且 ≤ `maxTextBytes`；**拉取式**（无订阅 / 通知）、仅本机共享。
 - **不做限流**：本地单用户场景；单条正文上限 8 KB。
 - **委托任务**（#54，planner-worker 语义）：`delegate` 建任务表记录（`task:<id>`，TTL 7 天）并把任务以
@@ -112,6 +137,8 @@ profile 挂载（与其他插件同法）：
   `pending → running → done / failed / canceled / timeout`（超时按**读取时懒判定**，缺省 1800 秒）；
   终态不可回退；委托方 / 目标离线时通知留在流里（任务表仍可查）。
 - **范围外**（后续条目）：消息历史检索。
+- **工具返回体**：四个工具（`session_channel` / `channel_delegate` / `channel_task` / `channel_task_result`）的返回体在出口统一归一为 **lossless JSON**（递归去掉值为 `undefined` 的键）——宿主在序列化**之前**校验返回体，值为 `undefined` 的键会被判 `INVALID_TOOL_OUTPUT`；`output.render` 的文本形态不变，服务面返回值也不经这层归一。
+- **与 `security-guard` 的分工**：本包四个工具**不登记**进 guard 的命令 / 文件两张表，也不替目标会话过闸——`to` 写成 `cwd:<绝对路径>` 时由 guard 的**值面兜底**按路径判定（见 `security-guard/README.md:173`、`security-guard/src/index.ts:567`）；消息 / 任务**正文**由目标会话自己的工具面各自过闸（登记表 + 沙箱）。
 - 注入即「用户消息」：会开新回合、模型可能据此调用工具——发消息方须是可信会话（本机同用户）。
 
 ## 测试
@@ -119,7 +146,7 @@ profile 挂载（与其他插件同法）：
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（47 例；无 redis-server 的机器上集成用例自动 skip）
+npm run test    # node --test（56 例；无 redis-server 的机器上集成用例自动 skip）
 ```
 
 设计决策见 `docs/DESIGN.md`；缺陷与待办见 `docs/BACKLOG.md`。
