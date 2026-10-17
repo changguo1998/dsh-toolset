@@ -9,9 +9,10 @@
  */
 
 import { isPeriodic, nextAfter, type Selector } from "./selectors.ts";
+import type { TaskStatus } from "./types.ts";
 
-/** 任务状态（`active` = 参与调度; 其余为暂停 / 终态）。 */
-export type TaskStatus = "active" | "paused" | "done" | "missed";
+/** 任务状态（`active` = 参与调度; 其余为暂停 / 终态）。见 `types.ts`。 */
+export type { TaskStatus };
 
 /** 一次性任务过期的补发窗口缺省值（缺省 24 h, 可经 config 覆盖）。 */
 export const DEFAULT_CATCH_UP_WINDOW_MS = 24 * 60 * 60 * 1000;
