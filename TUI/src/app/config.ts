@@ -8,7 +8,8 @@
 //   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，历史区仍保底 10 列）
 //   - activityPlacement:     活动区排列方式（缺省 "vertical" 恒上下）：
 //                             "auto" = 按黄金分割比自动在上下/左右间选择，使分割后各 pane
-//                             的宽高比尽量接近 φ；"horizontal" = 固定左右并排。
+//                             的**视觉**宽高比尽量接近 φ（列数先按字符格高宽比 2 折成等效
+//                             高度再比，见 layout.ts 的 CELL_ASPECT）；"horizontal" = 固定左右并排。
 //                             左右排列时活动区宽 = floor(左列正文宽 / activityHeightDivisor)，
 //                             两侧各保底 20 列（不足则回落上下），activityTopRow 不再生效。
 // 会话维护段：
@@ -30,7 +31,7 @@ export interface TuiLayoutConfig {
   activityHeightDivisor?: number;
   /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例，缺省走 divisor） */
   activityTopRow?: "half" | number;
-  /** 活动区排列方式（缺省 "vertical"）："auto" 按黄金分割比自动选上下/左右，"horizontal" 固定左右 */
+  /** 活动区排列方式（缺省 "vertical"）："auto" 按视觉宽高比与黄金分割比自动选上下/左右，"horizontal" 固定左右 */
   activityPlacement?: ActivityPlacement;
   /** 状态列宽分母（cols / divisor；1/3 → 3） */
   statusColumnDivisor?: number;
