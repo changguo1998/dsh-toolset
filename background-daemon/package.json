@@ -1,0 +1,30 @@
+{
+    "name": "@dsh-toolset/background-daemon",
+    "version": "0.1.0",
+    "description": "DSH (DeepSeek Harness) 进程内插件：后台常驻守护（定时执行 + 过程结果记录）——选择器时刻表、单 timer 调度、文本 / 命令两条投递渠道、/daemon 可见性面",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
