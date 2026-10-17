@@ -259,7 +259,7 @@ tableBox(table: TableSpec, width: number): Box | null
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
 2. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-3. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane 宽高比距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
+3. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane **视觉**宽高比（列数 / 字符格高宽比 2）距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -779,10 +779,10 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **实现**：`build-box.ts` 思考分支——非紧凑路径建 `Paragraph`（前缀 `┃` + `minWidth`）→ `fillParagraph` → `wrapAssistantLine`；围栏开关行隐藏并逐行前瞻收取围栏内代码行（遇闭栅或非 thinking 行停止，闭栅行被收录消费）。**紧凑路径（`/collapse`）保持单行压缩**（`StyledText` + `actText`，不解析 markdown）；空思考行跳过、`/verbose` 档位过滤、思考 ↔ 正文类型间隔（1 行空行）、正文分片连排的穿透记账均不变。
 - **回归**：`tests/thinking-markdown.test.ts`（块级逐行 / 行内 / 列表折行缩进 / 围栏代码块与未闭栅 / 档位与紧凑与类型间隔）+ `tests/layout4.test.ts`（原「thinking 不渲染」断言改为同口径渲染）+ `tests/content-mapping.test.ts`（纯文本思考行与冻结基线逐行等价）。
 
-#### 活动区排列：黄金分割比自动选上下 / 左右
+#### 活动区排列：按视觉宽高比与黄金分割比自动选上下 / 左右
 
 - **位置**：`layout.ts` 的 `topPaneSplit`（纯函数），唯一调用点是 `frameGeometry`（几何唯一来源）。
-- **判定**：pane 宽高比与 φ≈1.618 的对数偏差（`|ln(w/h/φ)|`，取两 pane 较差者）小者胜；等分（divisor=2、纵向两 pane 等高）时等价于「区域正文宽 / 可用行数 > φ → 左右排列」。判据只吃区域正文宽 + 顶部内容高，不含状态列宽。
+- **判定**：pane **视觉**宽高比（列数 / 字符格高宽比 `CELL_ASPECT = 2`）与 φ≈1.618 的对数偏差（`|ln(w/h/2/φ)|`，取两 pane 较差者）小者胜；等分（divisor=2、纵向两 pane 等高）时等价于「区域正文宽 / 可用行数 > 2φ → 左右排列」（2026-10-17 加字符格校正前为 φ）。判据只吃区域正文宽 + 顶部内容高，不含状态列宽。
 - **为什么不放在 state**：判定是尺寸的纯函数，启动与 resize 各自重算即可；不做滞回（阈值处反复拖动终端时最多一次翻转，且翻转点本身就是重排点）。缺省 `"vertical"` 保持既有上下语义（含 `activityTopRow` 锚定与 `activityHeightDivisor` 比例）。
 - **两 pane 独立宽度**：横向时历史 pane 在左、活动 pane 在右；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）；**文字**排版另扣右缘留白（见「文字右缘留白」）。`BuildBoxOptions.activityWidth` 让 `buildContentRows(buffer, opts, w, aw)` 两 pane 各自 measure / fill；**不做两次 buildBox**（流式下 markdown / 表格构建会翻倍），只在构建期给活动 pane 的表格用 `activityWidth` 算预算。
 - **拼行**：横向行 = 状态列 + D 列 `│` + 历史行（补空格到 `dialogueW`）+ 内部分隔 `│` + 活动行（补到 `activityW`）+ 区域右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态区分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。活动 pane 恒底部对齐（与纵向一致），面板仍顶部对齐且按 `activityW` 排版。**会话 pane 同样恒底部对齐**（2026-10-10，BACKLOG「会话区内容不足时贴顶」）：内容不足视口时补白加在**上方**（`dialoguePadTop = max(0, viewportH − (vp.end − vp.start))`，与活动区 `topPad` 同口径），只影响行放置——视口 / 段表 / 报告字段不变（补白行不属分隔行：`dialogueRowAt` 返回空 → 按空格填充）；滚动中（`vp.start > 0`）补白恒为 0。回归：`tests/layout-horizontal.test.ts`、`tests/pipeline-frame.test.ts`。

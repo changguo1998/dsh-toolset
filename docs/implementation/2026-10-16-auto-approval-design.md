@@ -45,7 +45,7 @@
 ### 2. 人面应答现状（TUI）
 
 - TUI 在 `approval/request` 上注册应答者: `TUI/src/app/adapter/dsh.ts:4375` 经 `runtime.on` 注册, 实现 `:2910` `approvalAnswerer` —— **不调 `next()`**（即命中即独占裁定）、无 scope（接收所有 agent 的请求）、`signal` 中断 → `cancelled`、缺省 `approvalTimeoutMs` 60 s 超时 → `rejected`（`:2923`）.
-- 参数草稿靠本地 `callId → 参数` 表重建: `:2854` `toolCallsByCallId`（上限 64, 来自 `tool/call` 事件）、`:2858` `approvalDetailOf`（取 `command` 字段, 非 JSON 原样）. **这正是「审批层想看参数就必须自己重建」的现成先例. **
+- 参数草稿靠本地 `callId → 参数` 表重建: `:2854` `toolCallsByCallId`（上限 64, 来自 `tool/call` 事件）、`:2858` `approvalDetailOf`（取 `command` 字段, 非 JSON 原样）. \*\*这正是「审批层想看参数就必须自己重建」的现成先例. \*\*
 - 审批面板与语义: `TUI/docs/SPEC.md:457-461`（`y` / `n` / 数字键 / `Esc` = `cancelled` / 超时默认拒绝 / 超时值优先级链）.
 - TUI 只消费 `approval/policy` 做状态栏显示（`TUI/src/app/adapter/dsh.ts:2563`）, **不渲染** `approval/asked` / `approval/decided` 文案（二者是 log-only 审计）.
 
@@ -89,7 +89,7 @@
 
 **选定: c**（确定性名单为**前置刀口**, LLM 逐次审查为**兜底判断** —— 2026-10-16 用户指令「本项目也要考虑使用大模型判断, 但是可以配合白名单和黑名单」）.
 
-**被取代的选定（保留历史）**: ~~选定 b（首期只做确定性判据, LLM 审查留二期单独立项）~~, 原理由为「可解释、可测试、零 token 成本」; 该理由仍成立, 但不足以覆盖黑名单 / 白名单之外的**灰区**（真实场景里多数调用落在灰区: 一次性地写工作区外的文件、跑一条没见过的命令、访问生产库的只读查询）, 灰区交给 LLM 判断比直接弹人工面板更符合条目「免去逐次人工应答」的初衷.
+**被取代的选定**: 先选 b（只做确定性判据、LLM 留二期）, 因黑名单 / 白名单之外的**灰区**占多数调用（写工作区外的文件、没见过的命令、生产库只读查询）, 交给 LLM 比直接弹面板更符合「免去逐次人工应答」的初衷, 遂改选 c.
 
 **三层结构（谁的权重更高）**:
 
@@ -209,19 +209,7 @@ deny:
 - **选 b（复检）的收益与成本**: 少一次无谓的自动放行记录; 但要复用 `security-guard` 的 `inspectCommand`, 会引入跨包硬依赖（`security-guard` 未挂载时需 fail-open 或 fail-closed 抉择）, 并且守卫的服务面是 `provide('guard')` 的可选缝（`security-guard/README.md:23`）, 契约更松.
 - **不可协商的一条**: 守卫 deny 时**绝不**由本插件「翻回放行」; 本插件的返回值只影响「是否弹面板」, 不影响守卫判定. 若用户希望「守卫命中即不出现在审批面」, 取 b.
 
-**与 `security-guard` 的重合度（逐面核对, 结论: 判据面基本不重合, 只有「允许意图的配置面」语义相邻）**
-
-| 面 | `security-guard`（已实现） | 本插件 | 是否重合 |
-| --- | --- | --- | --- |
-| 机制位置 | `ctx.tools.guard` 单调守卫（D4, 只能 deny）; 旧宿主退回 `tools/pre-execute` 监听器 | `tools/pre-execute` 监听器 + `approval/request` 应答者 | 不重合（挂载点与语义相反: 一个只能拒, 一个能批） |
-| 命令 / 路径覆盖 | 15 条命令黑名单 + 26 条敏感文件规则; 插件工具按登记表（`PLUGIN_FILE_TOOLS` / `PLUGIN_COMMAND_TOOLS`） | 不判定命令危险与否, 只判定「要不要问人」 | 不重合 |
-| 允许面语义 | `commandBlacklist.allowPatterns` = 「不做硬拒」; `sensitiveFiles.allowedPaths` = 「不按敏感文件拦」 | 白名单 / 升级白名单 = 「**免人工审批**」 | **语义相邻, 但层级不同**（能不能下发 vs 要不要问人）; 同一条命令可同时命中两者 |
-| 未登记工具 | `unknownToolPolicy: allow / check / deny` + `unknownToolAllowlist` | 配置面是 `allow` / `deny` 表 + 只读类 + 升级白名单; **无**按未登记工具的三态策略 | 目的不同（守卫防漏拦, 本插件防误放） |
-| 服务面 | `provide('guard')`（`recent()` / `policy()` / `inspectCommand`） | `provide("autoApprove")`（`status()` / `recent(n)` / `fingerprints()`） | 形态同构, 但按 R3 裁定本插件**不消费** `guard`（不调 `inspectCommand`）, 两边互不依赖 |
-| 保守姿态 | 非法黑名单正则按命中; 非法放行正则按不放行 | 参数取不到 / reviewer 失败 → 不裁定（落面板） | 一致（都宁可交给人） |
-| 唯一真实重合 | 「命中守卫黑名单的命令同时命中我们的白名单」→ 先自动放行、后被守卫拒 | 同左 | 已知噪音, 由决策 3-a 知情接受; 取 3-b 可消 |
-
-**结论**: 覆盖范围**零重合**（命令 / 路径拦截是守卫的职责, 本插件不做）; 唯一相邻处是**「允许类配置」的语义** —— 守卫的行放行模式与本插件的白名单都在表达「这条命令我信任」, 但一个决定「不被硬拒」, 一个决定「免人工审批」。**不合并**的理由: 两者挂载点、默认值、失败语义都不同（守卫表缺省非空且非法按命中, 我们的表缺省全空且缺信息不裁定）; 合并会让「应急关掉自动审批」连带影响硬拒层。**一致性由文档承担**: 两个包各自 README 互写分工与交叉指路, 不引入共享配置。
+**与 `security-guard` 的分工（逐面核对后的一句话）**：覆盖范围**零重合** —— 命令 / 路径拦截（15 条黑名单 + 26 条敏感文件 + 两张插件登记表）是守卫的职责，本插件不做；唯一相邻处是\*\*「允许类配置」的语义\*\*（守卫的 `allowPatterns` / `allowedPaths` = 不做硬拒，本插件的白名单 = 免人工审批），层级不同、同一条命令可同时命中。**不合并**的理由：挂载点（只能 deny 的单调守卫 vs 能批的应答者）、默认值（守卫表缺省非空且非法按命中，本插件表缺省全空且缺信息不裁定）与失败语义都不同，合并会让「应急关掉自动审批」牵连硬拒层；**一致性由文档承担**（两边 README 互写分工，不引入共享配置）。
 
 **判断点对照（四个位置, 覆盖互补而非包含）**:
 
@@ -238,48 +226,28 @@ deny:
 - **独占面**: 只有 ② 看得到沙箱升级与插件直连审批请求（**守卫对这条路径没有任何否决机会**）; 只有 ④ 看得到 `metric_loop` 的 `measureCmd`、`task-engine` 的 executor / 验收命令、TUI `$` 模式手输命令（**本插件一次都不会被触发**）。
 - **同一调用被两个包各判一次**（① 一次 + ③ 一次）是纵深防御的正常形态; 顺序上守卫在后, 因为它是唯一不可翻盘的裁决者。
 
-**放行之后的实际时序（2026-10-16 补, 用户问「本插件放行后是不是还会经过守卫」）**:
-
-路径 A（常规调用）:
+**放行之后的实际时序**（2026-10-16 补）：
 
 ```
-① pre-execute（我们返回 allow）
-        ↓
-③ guardReason(exec)（守卫, 同步）
-        ↓ 无否决
-④ dispatch 执行工具 body
+路径 A（常规）: ① pre-execute（我们 allow）→ ③ guardReason(exec)（守卫, 同步）→ 无否决 → ④ dispatch
+路径 B（升级）: ① pre-execute（带 sandbox_permissions, 我们 allow）→ ③ 守卫判定（不知后面会请求升级）→ 无否决
+              → ④ dispatch → bash body 内 approveEscalation → ② ctx.approval.request（我们批准 / 拒绝升级）
 ```
 
-- 我们放行 → 守卫照常判一次, **我们无法替它跳过**（`prepareExecution` 只在 `allow` 分支调 `guardReason`, `dsh-tools/lib/index.js:3241`）。
-- 我们拒绝 → 守卫**根本不会被调用**（`deny` / `cancel` 直接物化 `Error: …` 结果）。
-- 守卫拒绝 → 最终结果是 `isError: true` + `[security-guard]` 回执, 即使我们刚放行过 —— 这就是「守卫不可翻盘」的具体形态。
-
-路径 B（沙箱升级）:
-
-```
-① pre-execute（这次调用带 sandbox_permissions, 我们返回 allow）
-        ↓
-③ 守卫判定（此时它并不知道后面还会请求升级）
-        ↓ 无否决
-④ dispatch → bash body 内 approveEscalation
-        ↓
-② ctx.approval.request（我们作应答者, 在这里批准 / 拒绝升级）
-```
-
-- **守卫对升级动作没有专属判据**: 它看到的是调用参数（`command` / `file_path` / `sandbox_permissions`）, 但只按命令 / 路径规则匹配 —— 既不检查 `sandbox_permissions`, 也没有「批准升级」这种结果。它既不能专门拒一次升级, 也不能专门批; 能做的只有「把整个调用拒掉」。
-- **批准的升级不再过第二遍守卫**: 授权是工具 body 内的局部状态, 拿到后即以更宽模式执行, 之后没有检查点。要在这条路上再拦一层, 只有 `deny.escalation.to` 或审批层的拒绝。
-
-三者关系:
+- 我们**放行** → 守卫照常判一次，无法替它跳过（`prepareExecution` 只在 `allow` 分支调 `guardReason`，`dsh-tools/lib/index.js:3241`）；守卫拒绝 → 最终是 `isError: true` + `[security-guard]` 回执，即使我们刚放行过。
+- 我们**拒绝** → 守卫根本不会被调用（`deny` / `cancel` 直接物化 `Error: …`）。
+- **守卫对升级本身没有专属判据**（只看命令 / 路径，不检查 `sandbox_permissions`，也没有「批准升级」这种结果）；批准的升级**不再过第二遍守卫**（授权是工具 body 内的局部状态）→ 要在这条路上再拦一层，只有 `deny.escalation.to` 或审批层的拒绝。
 
 | 谁 | 判什么 | 生效顺序 | 可否被翻盘 |
 | --- | --- | --- | --- |
-| 本插件（①②） | 要不要问人 / 这次升级批不批 | 最先 | 其放行可被守卫否决; 其拒绝直接终结 |
+| 本插件（①②） | 要不要问人 / 这次升级批不批 | 最先 | 放行可被守卫否决; 拒绝直接终结 |
 | `security-guard`（③④） | 这条命令 / 路径能不能下发 | A 路径最后; B 路径在批准**前** | **不可翻盘** |
 | 升级授权 | 这次调用能否以更宽模式跑 | B 路径最后 | 由工具 body 消费, 之后无检查点 |
 
-一句话: **我们决定「问不问人」, 守卫决定「发不发」, 升级授权是第三个旋钮; 守卫在我们之后、且对升级本身没有专属判据 —— 所以「允许跑这条命令但永不升级」这类策略只能写在我们这边。**
-- **单次判定纪律（本插件内部）**: 一次调用**只判一次** —— ① 判完把 `{callId, 裁定, 参数}` 记进本地表, ② 到来时先查表命中即复用裁定, 不再跑判据（否则同一次调用审计记两条、指纹翻倍、还可能两次发起 LLM 审查）。这与 `security-guard` 2026-10-07 把拦截从 `pre-execute` 迁到单调守卫的理由同源（`security-guard/README.md:32`）。
-- **为何不合包 / 不共享规则表**: 守卫零运行时依赖、纯同步、非法规则按命中, 是「安全兜底」; 本插件含 LLM、文件写入、超时与异步, 合成一个包会让一次加载失败或未捕获异常连带硬拒层消失; 共享规则表还会让「应急关掉自动审批」与「关掉硬拒」互相牵连。要复用同一组模式, 用 profile 的 YAML 锚点, 不共享包。
+一句话: **我们决定「问不问人」, 守卫决定「发不发」, 升级授权是第三个旋钮** —— 「允许跑这条命令但永不升级」这类策略只能写在我们这边。
+
+- **单次判定纪律**: 一次调用**只判一次**（判完把 `{callId, 裁定, 参数}` 记进本地表，审批请求到来时命中即复用），否则同一次调用审计记两条、指纹翻倍、可能两次发起 LLM 审查。
+- **为何不合包 / 不共享规则表**: 守卫零依赖、纯同步、非法规则按命中，是「安全兜底」；本插件含 LLM、文件写入、超时与异步，合成一包会让一次加载失败连带硬拒层消失，共享规则表还会让「关掉自动审批」牵连「关掉硬拒」。要复用同一组模式用 profile 的 YAML 锚点。
 
 ### 决策 4: 落点、配置面与开关粒度
 
@@ -301,7 +269,7 @@ deny:
 | 模式 | `mode: "off" / "rules" / "rules+llm" / "all"`, **缺省 `rules`**（`enabled` 缺省为 true 时, 缺省档必须选零 token / 零误放行面的那一档 —— 见 R6 说明）; `off` 等价 `enabled: false`; `rules` = 只走名单 / 只读 / 指纹（灰区落人工面板, 零 token）; `rules+llm` = 灰区交给 LLM 审查（**推荐档, 需显式开启**）; `all` = 未命中拒绝名单就放行（保守场景不建议） |
 | LLM 审查段 | `review: { enabled, provider?, model?, timeoutMs?, maxRiskAllow?, onFailure }`; 按 R7 裁定: `provider` / `model` **缺省取当前会话模型**（`request/header`; 配置覆盖仅作可选项）; `onFailure` **缺省 `"panel"`**（失败交人工 / 原路径, `"reject"` 仅作可选项）; 名称与字段在实现阶段定稿 |
 | 粒度 | **全局** + **按工具**（`allow` / `deny` 表按工具名分节）. **不做按会话配置**（会话级旋钮由宿主的 `/policy` 与 `/permission` 承担, 本插件跟随生效） |
-| 命令面 | 本插件经 `ctx.commands.register` 注册 `/autoapprove`, 口径见下方「决策 4 补充」; **不改 TUI 代码**; 运行态状态只影响当前进程, 重启回落配置默认（见「决策 4」的配置表与「决策 5」的回滚表）. 是否同时要 TUI 本地命令 / 面板 → 待用户裁定 R4 |
+| 命令面 | 本插件经 `ctx.commands.register` 注册 `/autoapprove`, 口径见下方「决策 4 补充」; **不改 TUI 代码**（R4 已裁定只用插件命令）; 运行态状态只影响当前进程, 重启回落配置默认（见「决策 4」的配置表与「决策 5」的回滚表） |
 | 只读查询面 | `provide("autoApprove")`（`status()` / `recent(n)` / `fingerprints()`）, 供 TUI 或其它插件消费（与 `security-guard` 的 `provide('guard')` 同构） |
 | 不做的配置面 | 不做「记住该命令」的跨会话持久授权、不做 GUI 面板、不改 `permission-presets` 的预设表 |
 
@@ -341,25 +309,67 @@ deny:
 | 策略（宿主级） | `/policy never`（全拒）或 `/permission read-only` 等预设 | 由宿主保证, 本插件无从绕过 |
 | 统计复位 | `/autoapprove clear-fingerprints` | 清空会话内已批准指纹 |
 
-审计日志（选定形态）: 落 `<dshHome>/auto-approve/audit-<YYYY-MM-DD>.jsonl`, 每行 `{t, sessionId, agentId, callId, toolName, outcome, source: "rule"|"fingerprint"|"readonly"|"upgrade"|"llm", ruleId?, risk?, reviewerDecision?, reviewerModel?, fallback?, mode, fingerprintHash}`; **不记录参数原文与命令全文**（避免把凭据 / 敏感路径写进日志）, 也不记录 reviewer 的提示词与原文响应（体量与隐私）; 保留期与容量上限在实现阶段定（初判: 单文件 8 MiB 滚动、保留 7 天）.
+审计日志（选定形态；2026-10-17 按用户裁定定为**双落点**）: **会话 + 项目两处输出, 一份记录两种寿命**.
+
+| 落点 | 载体 | 谁管 | 上限 / 寿命 | 不可用时 |
+| --- | --- | --- | --- | --- |
+| 会话 | `<会话目录>/auto-approve-audit.jsonl`（经 `sessionPaths.sessionDirFor(sessionId)` 推导, 同步; 取 `cwd` 收在 `session-paths` 内部） | **本包自管**（同步 append） | 单文件 **16 MiB**; 随会话目录存在与删除 | **退回人工面板 + 一次警告**（已裁定） |
+| 项目 | memory-base 的 **`project` 层**, 专用 kind **`approval_audit`**（经作用域句柄 `put`） | memory-base | 无自管上限（memory-base 的容量强制已取消）; 随项目库 | **跳过**（不写、记计数与一次 warn, **不影响裁定**） |
+
+每行字段（两处同形）: `{t, sessionId, agentId, callId, toolName, outcome, source: "rule"|"fingerprint"|"readonly"|"upgrade"|"llm", ruleId?, risk?, reviewerDecision?, reviewerModel?, fallback?, mode, fingerprintHash}`; **不记录参数原文与命令全文**（避免把凭据 / 敏感路径写进日志）, 也不记录 reviewer 的提示词与原文响应（体量与隐私）.
+
+为什么两处: 会话那份是**权威运行记录**（同步、自持、不受任何库的写入闸门影响, 崩溃前也尽量落账）; 项目那份给**跨会话检索与模型可见**（`memory_query` 按 `kind: "approval_audit"` 可查）, 但它是**可跳过的附加输出** —— memory-base 未挂载、句柄拿不到、或某行被库核心隐私闸拒写, 都只记计数, 绝不因此改变裁定结果.
+
+**依赖**（2026-10-17 双落点后）:
+
+1. **`session-paths`（必需）** —— 会话那份要算会话目录（`sessionPaths.sessionDirFor(sessionId)`, 同步; **本包不读 `header.cwd`**）; 本包**不自行复刻**宿主编码。该包未挂载 / 会话取不到时项目那份仍可写, 但会话那份落点不可得 → **退回人工面板并警告**（见「四处口径」第 4 条）。
+2. **`memory-base`（可选）** —— 项目那份经其作用域句柄写入: `registerKind({kind: "approval_audit", writableTiers: ["project"]})` 取句柄（注册是幂等的 apply 期一次）, 每行 `await scope.put({content: <JSON 行>, tier: "project", project, title, source: {kind: "approval", ref: callId}})`（`title` 用 `auto-approve <sessionId 前 8 位> <时间>` 形态; `project` 取会话的 `header.cwd` 或项目名）。取不到句柄即**跳过项目那份**（只记计数 + 一次 warn）, 不阻塞、不降级裁定。
+
+**四处口径（2026-10-17 用户裁定「没有问题」, 第 4 条另有补充）**:
+
+1. **达 16 MiB（仅会话那份）的行为**: 保留最近一半（截断重写）并写一条 `truncated` marker 行, 保证最新记录始终在。
+2. **项目那份的配置开关**: 给 `audit.project`（缺省 `true`: 有 memory-base 就写）; 置 `false` 关掉跨会话留痕。
+3. **project 那份的写入闸门**: 库核心隐私闸命中时该行被拒 —— 记计数、跳过, 不重试、不改写内容以绕过。
+4. **会话那份写不进去时**: **退回人工面板并警告**（用户 2026-10-17 补充「可以退回人工并警告」）—— 与 `onFailure: "panel"` 同一条原则「绝不静默放行」。**警告的落点**（实现口径）: ① 进程日志 `warn` 一次（含原因: 服务缺 / 目录不可写 / 达上限且截断失败）; ② `status()` 暴露降级标记（如 `auditDegraded: true` 与原因）, 使 `/autoapprove status` 与 `recent()` 都能看到; ③ 该会话内每次因此退回面板都计入计数, 由 `log` 可见 —— 不做弹窗、不做注入（避免自动放行机制本身打扰对话）。
 
 另一条必须写进 README 的口径: **自动放行不等于沙箱放行**. 本插件只回答「是否免去人工应答」; 沙箱围栏由 `sandboxPolicy` 承担, 自动放行后的命令仍在既有沙箱模式下执行. 无人值守场景下, 未命中判据的工具调用会以 `unavailable` fail-closed（无应答者时）, 这是宿主既有语义, 不需要本插件额外处理.
 
 ## 规划
 
-### 计划改动文件清单（本次: 仅跟踪文档与条目状态）
+### 实现前冻结的接口（消费方按此写）
 
-- `docs/implementation/2026-10-16-auto-approval-design.md`（本文件, 本次新增）
-- `docs/BACKLOG.md`（本次: 条目状态不变——登记时已标〔进行中: 2026-10-16〕; 仅在注记需要时追加一行. **不清理条目**: 任务未关闭）
+| 面 | 冻结值 |
+| --- | --- |
+| 挂载点 | 宿主 `approval/request` 的**应答者**（可 `allow` / `reject` / `next()`）, 排在 TUI 应答者之前; 另挂 `tools/pre-execute` 监听器做拒答与留痕准备 |
+| 包与服务 | 独立包 `auto-approve`; `provide("autoApprove")` = `{status(), recent(n), fingerprints()}`, 只读 |
+| 配置载体 | profile `cordis.patch.yml` 该条目下的 `config`; **不新增**仓库根级配置文件 |
+| 开关与模式 | `enabled`（缺省 `true`）; `mode: "off" \| "rules" \| "rules+llm" \| "all"`（缺省 `"rules"`） |
+| 名单 | 白名单 / 路径 / 升级 / 拒绝四张表**缺省全空**; 粒度 = 全局 + 按工具名分节; **不做**按会话配置 |
+| 升级白名单 | `escalation.allow[] = {match, to: [...]}`: 命令命中 `match` **且**目标模式在 `to` 内才放行（两维都要过） |
+| LLM 段 | `review: {enabled, provider?, model?, timeoutMs?, maxRiskAllow?, onFailure}`; `provider` / `model` 缺省取当前会话模型; `onFailure` 缺省 `"panel"`; reviewer 输出严格 JSON, 非法即按失败兜底、不猜 |
+| 命令面 | `ctx.commands.register` 注册 `/autoapprove`: `(无参)` = `status` · `status` · `mode <rules\|rules+llm\|all\|off>` · `on` / `off` · `log [n]` · `clear-fingerprints`; 只改当前进程运行态, 重启回落配置 |
+| 审计（双落点） | 会话: `<会话目录>/auto-approve-audit.jsonl`（经 `sessionDirFor(sessionId)` 推导, 自管, 16 MiB 上限）; 项目: memory-base `project` 层、kind `approval_audit`（经作用域句柄 `put`）; 两处字段同形, **不记参数原文与命令全文** |
+| 依赖 | `session-paths`（**必需**, `sessionDirFor(sessionId)` 给会话目录）; `memory-base`（**可选**, 项目那份, 取不到即跳过）; 与 `security-guard` **无接口**（R3: 不调用 `ctx.get("guard")`） |
+| 不做的接口面 | 不新增 `ApprovalPolicy` 取值、不新增会话事件词汇、不改 TUI、不改 `permission-presets` |
 
-### 计划改动文件清单（实现阶段, 供后续接取时参照, 本次不动）
+### 计划改动文件清单（实现阶段, 供后续接取时参照）
 
 - 新建包 `auto-approve/`: `package.json`（`@dsh-toolset/auto-approve`, `dsh.bundle.patch`）、`cordis.patch.yml`（`insert` 自身, 按 R6 裁定 `enabled: true` + `mode: rules`）、`tsconfig.json`、`README.md`、`docs/BACKLOG.md`（轻量包口径: 无 `DESIGN.md`）
-- `auto-approve/src/`: `index.ts`（bundle 契约: `inject` / `Config` / `apply` / `provide("autoApprove")`）、`gate.ts`（`tools/pre-execute` 监听器: 拿参数、驱动同一判定核心、处理灰区与 reviewer 失败）、`answerer.ts`（`approval/request` 应答者与裁定顺序, 覆盖沙箱升级类请求）、`rules.ts`（只读类 / 白名单 / 拒绝名单的纯函数判定）、`fingerprint.ts`（同会话指纹表: 规范化 + 容量 + 批准 / 拒绝分记）、`calls.ts`（`callId → 参数` 重建表: 首选从 `session/event` 的 `tool/call` 反推, 与 TUI 同构; 若该反推在升级类请求上不可靠, 退回在 `tools/pre-execute` 记录参数并按 `callId` 关联, 裁定点仍在审批层）、`review.ts`（LLM 审查段: 固定策略提示词、四段请求构造、严格 JSON 解析、超时与失败归一; 路由取 `request/header` 或配置覆盖）、`audit.ts`（JSONL）、`command.ts`（`/autoapprove` 注册与子命令）
+- `auto-approve/src/`: `index.ts`（bundle 契约: `inject` / `Config` / `apply` / `provide("autoApprove")` / `registerKind({kind: "approval_audit", writableTiers: ["project"]})` 取句柄缓存）、`gate.ts`（`tools/pre-execute` 监听器: 拿参数、驱动同一判定核心、处理灰区与 reviewer 失败）、`answerer.ts`（`approval/request` 应答者与裁定顺序, 覆盖沙箱升级类请求）、`rules.ts`（只读类 / 白名单 / 拒绝名单的纯函数判定）、`fingerprint.ts`（同会话指纹表: 规范化 + 容量 + 批准 / 拒绝分记）、`calls.ts`（`callId → 参数` 重建表: 首选从 `session/event` 的 `tool/call` 反推, 与 TUI 同构; 若该反推在升级类请求上不可靠, 退回在 `tools/pre-execute` 记录参数并按 `callId` 关联, 裁定点仍在审批层）、`review.ts`（LLM 审查段: 固定策略提示词、四段请求构造、严格 JSON 解析、超时与失败归一; 路由取 `request/header` 或配置覆盖）、`audit.ts`（JSONL + 句柄 `put`）、`command.ts`（`/autoapprove` 注册与子命令）
 - `auto-approve/tests/*.test.ts`（裁定矩阵 + 指纹 + **reviewer 决策矩阵与失败兜底** + **升级白名单两维** + **命令面子命令** + 审计）
 - 接线条: 根 `package.json`（`check` / `build` 追加该包）、`scripts/test-parallel.sh`（`default_pkgs` 追加）、`scripts/install.sh`（插件清单追加）
+- 依赖接线: `session-paths`（**必需** —— 经 `sessionDirFor(sessionId)` 推导会话目录, 取不到则审计不可得, 见验收 20）、`memory-base`（**可选** —— 经作用域句柄把审计行写进 `project` 层, 取不到即跳过）
 - 文档回写（关闭后按 `docs/WORKFLOW-STANDARD.md` §4-5 各一次）: `README.md` + `README.zh.md`（插件清单与包数）、`AGENTS.md`（包数与结构段的插件列表）、`docs/ARCHITECTURE-REUSE.md`（`security-guard` 行与 §5 的 auto-review 判定补「已由本仓 auto-approve 承担确定性层」口径）
 - 明确**不**改: `security-guard/**`、`TUI/**`（除非 R4 裁定要 TUI 命令面）、宿主 profile 之外的任何配置、`docs/STATUS.md`（由用户择时更新）。
+
+### 任务拆分（6 步, 每步带中间验证）
+
+1. **起包骨架 + 接线条** —— `package.json` / `cordis.patch.yml`（`enabled: true` + `mode: rules`）/ `tsconfig.json` / `README.md` + 根三处接线。验证: 根 `check` / `build` 通过, 且空实现时裁定面与未挂载逐项一致（验收 05）。
+2. **判定核心（纯函数）** —— `rules.ts`（只读类 / 白名单 / 拒绝名单）+ `fingerprint.ts`（规范化 + 容量 + 批准与拒绝分记）。验证: 裁定矩阵与指纹用例（验收 01 / 07 / 08）。
+3. **应答者与参数表** —— `answerer.ts` + `calls.ts` + `gate.ts`: 注册顺序、`callId → 参数` 重建、参数表未命中即 fail-closed。验证: 验收 03 / 04 / 09 / 14 / 15 / 16 / 17。
+4. **LLM 灰区段** —— `review.ts`: 固定策略提示词、四段请求、严格 JSON 解析、超时与失败归一。验证: 验收 10 / 11 / 12 / 13（含假 llm 断言名单命中时调用 0 次）。
+5. **审计双落点** —— `audit.ts`: 会话 JSONL（16 MiB 上限 + `truncated` marker）+ 项目那份经句柄 `put`（不可用即跳过）。验证: 验收 02 / 20。
+6. **命令面与收尾** —— `command.ts` + README（含「自动放行不等于沙箱放行」口径）+ 真机一次。验证: 验收 18 + 真机观察。
 
 ### 明确不做的部分（本期范围外）
 
@@ -371,43 +381,80 @@ deny:
 
 ### 验收（细化, 供实现阶段直接照抄）
 
-1. **命中 / 未命中各一例**: 白名单命中 → 无面板、`approval/decided.outcome === "allowed-once"`; 未命中 → 照常出现审批请求（面板弹出 / 由后续应答者接管）.
-2. **留痕**: 每次裁定后会话日志里 `approval/asked` 与 `approval/decided` 成对（宿主保证）, 且插件 JSONL 有对应一行（`source` / `ruleId` / `callId` 匹配）.
-3. **守卫边界**: 构造一条命中 `security-guard` 黑名单的命令 → 无论本插件是否放行, 最终工具结果是 `isError: true` 且含 `[security-guard]` 回执（守卫不可翻盘）.
-4. **顺序**: 本插件应答者排在 TUI 应答者之前（未命中必落到 TUI 面板）; 用真实装配或等价假 ctx 断言注册顺序（若实现期发现顺序不可控, 按决策 2 的退路处理并在「偏差」记录）.
-5. **关闭开关**: `/autoapprove off` 后下一次请求回到面板; `enabled: false` 时插件不注册应答者（或注册后立即 `next()`）, 行为与未挂载一致; **默认挂载**（`enabled: true` + `mode: rules` + 空名单）下的裁定面与未挂载逐项一致（只有结构兜底与 `next()`）.
-6. **策略联动**: `/policy never` 时不产生任何自动放行（宿主短路, 可直接断言本插件应答者未被调用）.
-7. **拒绝名单**: 命中拒绝名单 → `outcome === "rejected"`, 模型侧理由与人类拒绝同款文案.
-8. **指纹**: 同会话内第二次等价调用免面板; 被**拒绝**过的等价调用不得进入放行集; 指纹表达到容量上限后按近似 LRU 淘汰.
-9. **降级**: `callId → 参数` 表未命中时, 路径 / 命令类判据不生效（落回面板）, 不抛错、不误放行.
+01. **命中 / 未命中各一例**: 白名单命中 → 无面板、`approval/decided.outcome === "allowed-once"`; 未命中 → 照常出现审批请求（面板弹出 / 由后续应答者接管）.
+
+02. **留痕（双落点）**: 每次裁定后会话日志里 `approval/asked` 与 `approval/decided` 成对（宿主保证）; **会话那份**审计文件有对应一行（`source` / `ruleId` / `callId` 匹配）; memory-base 可用时**项目那份**有同形一行（`kind: "approval_audit"`）, 不可用时跳过而不影响裁定.
+
+03. **守卫边界**: 构造一条命中 `security-guard` 黑名单的命令 → 无论本插件是否放行, 最终工具结果是 `isError: true` 且含 `[security-guard]` 回执（守卫不可翻盘）.
+
+04. **顺序**: 本插件应答者排在 TUI 应答者之前（未命中必落到 TUI 面板）; 用真实装配或等价假 ctx 断言注册顺序（若实现期发现顺序不可控, 按决策 2 的退路处理并在「偏差」记录）.
+
+05. **关闭开关**: `/autoapprove off` 后下一次请求回到面板; `enabled: false` 时插件不注册应答者（或注册后立即 `next()`）, 行为与未挂载一致; **默认挂载**（`enabled: true` + `mode: rules` + 空名单）下的裁定面与未挂载逐项一致（只有结构兜底与 `next()`）.
+
+06. **策略联动**: `/policy never` 时不产生任何自动放行（宿主短路, 可直接断言本插件应答者未被调用）.
+
+07. **拒绝名单**: 命中拒绝名单 → `outcome === "rejected"`, 模型侧理由与人类拒绝同款文案.
+
+08. **指纹**: 同会话内第二次等价调用免面板; 被**拒绝**过的等价调用不得进入放行集; 指纹表达到容量上限后按近似 LRU 淘汰.
+
+09. **降级**: `callId → 参数` 表未命中时, 路径 / 命令类判据不生效（落回面板）, 不抛错、不误放行.
+
 10. **LLM 决策矩阵**: reviewer 返回 `low+allow` / `medium+allow` → 放行; `medium+deny` / `high+deny` → 拒绝; `low+deny` / `high+allow` / 带 reason 的 allow / 多成员 / 非 JSON → 按**非法输出**处理（走 R7 的兜底）, 不猜.
+
 11. **名单优先于模型**: 白名单 / 只读类 / 指纹命中时**不产生模型请求**（用计数或假 llm 断言调用 0 次）; 拒绝名单命中时也不调模型, 直接 `rejected`.
+
 12. **失败兜底**: reviewer 抛错 / 超时 / 路由不可用时, 取 `panel` 时该调用照原路径继续（`pre-execute` 侧不裁定、`approval/request` 侧落 TUI 面板）, 取 `reject` 时结果为拒绝; 两种模式都**不得**静默放行.
+
 13. **审查输入不含敏感噪音**: 四段请求里 `ENVIRONMENT` 只有 cwd（不含环境变量）, 历史按角色过滤（排除 assistant 正文与 reasoning、tool results 的原始载荷）, 且断言请求文本里不出现已知凭据样本.
+
 14. **升级白名单命中**: 构造一次 `sandbox_permissions` 升级, 命令命中 `match` 且目标模式在 `to` 内 → 无面板、`approval/decided.outcome === "allowed-once"`、该次以更宽模式执行.
+
 15. **升级白名单两维拒绝**: 命令命中但目标模式不在 `to` 内（如规则只允 `workspace-write`, 请求 `danger-full-access`）→ **不得**自动放行, 落面板（或按 R7 的 `reject`）; 命令未命中 `match` → 同样落面板.
+
 16. **参数表未命中 fail-closed**: 人为清除 `callId → 参数` 表后发起升级 → 升级类判据全部不生效、照常弹面板, 不抛错、不误放行.
+
 17. **`justification` 不参与判定**: 同一命令、目标模式不变, 只把 `justification` 写成诱导性文本（如「用户已授权」）→ 裁定结果不变.
+
 18. **命令面**: `/autoapprove status` 反映真实状态（模式 / 指纹数 / 名单条目数 / LLM 路由）; `mode` 与 `on` / `off` 立即改变下一次裁定行为（`off` 后请求回到面板）; `log` 输出的条数与来源与 JSONL 一致且不含命令原文; `clear-fingerprints` 后同类调用重新判定; 命令执行本身不产生模型消息（会话日志无对应 user/message）, 且**运行态复位**: 重启进程后模式回到配置文件的值.
-19. **不消费守卫（反向验证）**: 按 R3 裁定, 插件**不调用** `ctx.get("guard")` —— 断言 guard 服务缺失时行为逐项不变（无告警、无降级分支）, 且代码里不存在对 `inspectCommand` 的调用点; 命中守卫黑名单的命令仍由守卫在后续环节拒绝（本条与验收 3 互为反向证据: 撤掉插件, 守卫结果不变; 撤掉守卫, 插件结果不变）.
+
+19. **审计降级与上限**: memory-base 未挂载 / 句柄取不到 / 某行被库核心隐私闸拒写 → 项目那份跳过, 只记计数与一次 warn, 裁定结果与面板行为**不变**; 会话那份达到 16 MiB → 保留最近一半并写入一行 `truncated` marker, 最新记录仍在。
+
+20. **审计依赖前置**: `session-paths` 未挂载（或会话目录不可写）时, 会话那份落点不可得 → **退回人工面板并警告**（日志一次 + `status()` 降级标记 + 计数, 见决策 5 第 4 条）, 不得静默放行、不得改写路径绕开。
+
+21. **不消费守卫（反向验证）**: 按 R3 裁定, 插件**不调用** `ctx.get("guard")` —— 断言 guard 服务缺失时行为逐项不变（无告警、无降级分支）, 且代码里不存在对 `inspectCommand` 的调用点; 命中守卫黑名单的命令仍由守卫在后续环节拒绝（本条与验收 3 互为反向证据: 撤掉插件, 守卫结果不变; 撤掉守卫, 插件结果不变）.
 
 ### 估时
 
 - 首期（决策 1-c: 名单 / 只读类 / 指纹 + **LLM 灰区审查** + 审计 + 命令面 + 测试 + 接线 + 文档）: **2 至 3 天**（比只做确定性判据多约 1 至 1.5 天, 增量在提示词与协议解析、失败兜底、假 llm 测试面; 条目初判 1-2 天需按此上修）。
 - 可选增量: 巡检工具（从会话日志还原自动放行）**0.5 天**; 专用小模型路由与多模态审查另议。
-- 待 R2-R7 裁定后再冻结实现条目与最终估时（R7 的兜底选择会改变验收 12 的断言方向）。
+- 首期估时 **2.5 至 3.5 天**（R1–R7 全部裁定后冻结；比只做确定性判据多约 1 至 1.5 天，增量在 LLM 段与双落点审计、两个依赖的接法与「跳过」路径用例）。
+- **前置**: 条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」先落地（会话那份要用它算目录）; `memory-base` 那份不构成阻塞（取不到即跳过）。据此本包在依赖顺序里位于深度 1。
 
-## 仍需用户裁定
+### 实现阶段的验证口径（怎么跑）
 
-| 编号 | 待裁定项 | 推荐 | 影响面 |
-| --- | --- | --- | --- |
-| R1 | ~~是否接受「首期只做确定性判据（选定 1-b）, LLM 逐次风险审查留二期单独立项」~~ **已裁定（2026-10-16, 用户指令）: 否** —— LLM 判断纳入首期（决策 1 改选 c, 名单在前、模型兜底）。原因见决策 1 的取代记录 | — | 已生效 |
-| R2 | ~~是否确认**不挂载**官方 `experimental-auto-review`~~ **已裁定（2026-10-16, 用户指令）: 确认不挂**（与官方件的关系取「并存但不挂」, 决策 2-b; 2026-10-16 起本插件也含 LLM 段, 重叠更大） | — | 已生效; 不在 profile 侧新增官方行 |
-| R3 | ~~守卫边界取 3-a（不复检, 允许「先自动放行、后被守卫拒」的噪音）还是 3-b（放行前复检 `ctx.get("guard").inspectCommand`, 命中即拒且不弹面板）~~ **已裁定（2026-10-16, 用户指令）: 取 3-a** —— 不调用守卫服务、只做自己的判断; 因此**不引入**对 `security-guard` 的跨包依赖, 也不需要 fail-open / fail-closed 抉择。代价（实测口径）: 命中守卫黑名单的命令同时命中我们白名单时, 我们记一条 `allowed-once`、守卫随后拒并记一条判定（`guard.recent()`）→ 审计里前后两条需对照看; **不会**因此多弹审批面板（该命令在 `workspace-write` 下通常不产生 `ask`） | — | 已生效 |
-| R4 | ~~命令面是否**只**用插件注册的 `/autoapprove`（不改 TUI 代码）, 还是要 TUI 本地命令 / 状态列展示 / 面板~~ **已裁定（2026-10-16, 用户指令）: 只用插件注册的 `/autoapprove`**, 不改 TUI | — | 已生效; 实现阶段不触及 `TUI/src/**` 与 `TUI/docs/**` |
-| R5 | 审计记录是否按本文件形态落 `<dshHome>/auto-approve/audit-*.jsonl`（含保留期与容量上限口径） | 采用（推荐） | 决定文件位置与留存策略; 不落参数原文 |
-| R6 | ~~缺省开关: `enabled` 缺省 `false`（显式开启）还是缺省 `true`（挂载即生效, 规则表为空时等价不裁定）~~ **已裁定（2026-10-16, 用户指令）: 缺省 `true`**。配套约束: 缺省 `mode` 取 `rules`（只走名单 / 只读 / 指纹, 灰区落面板、零 token）, 以免挂载即对每次灰区调用发起模型请求; `rules+llm` 需在配置里显式开启。**语义边界**: 白名单 / 路径 / 升级 / 拒绝名单四张表**缺省全空**, 故挂载后的默认行为只在「只读类工具 + 指纹记忆」这两项上可能生效（其余一律 `next()`）, 不是「默认就自动放行升级」—— 要自动批准升级必须在 `escalation.allow` 里写规则 | — | 已生效 |
-| R7 | LLM 段的形态问题: ~~① 灰区之外是否也允许强制审查~~ **已裁定: 否**（名单优先, 保持权威, 2026-10-16）; ~~② reviewer 失败 / 超时 / 输出非法时的兜底取 `panel` 还是 `reject`~~ **已裁定: 取 `panel`**（2026-10-16, 用户指令「默认交给人工」——失败即不裁定, 该调用照原路径走 / 升级侧落 TUI 面板, 绝不静默放行）; ~~③ 审查用的模型路由取当前会话还是配置专用小模型~~ **已裁定: 取当前会话模型**（2026-10-16）, 配置覆盖仅作可选项保留 | 已全部裁定 | 已生效 |
+「验收」列的是**验什么**, 这里列**怎么跑**:
+
+- **单测**: `npm --prefix auto-approve run test` —— 假 ctx / 假 llm / 假审批链, 断言口径照验收 01 至 21 逐条落用例。
+- **机械**: 根 `npm run check` + `npm run build` + `npm run test` 三件全绿; `scripts/install.sh --dry-run` 的清单含本包。
+- **真机**: 重启 `dsh --profile fff`, 用一条白名单命令与一条未命中命令各跑一次（看面板是否只在后者出现）, 核对会话目录里的 `auto-approve-audit.jsonl` 与项目库里的 `approval_audit` 行; 再 `/autoapprove off` 复跑一次确认回落面板。
+- **不做**: 不做无人值守长跑压测; 不验 fail-open 路径（按裁定不允许存在）。
+
+### 收尾动作（实现完成时）
+
+- 条目「自动审批插件（工具调用的审批链自动裁定）」标「完成」并从 `docs/BACKLOG.md` 移除; 本文件移入 `docs/archived/`。
+- 文档回写: 根 `README.md` + `README.zh.md`（插件清单与包数）、`AGENTS.md`（包数与结构段）、`docs/ARCHITECTURE-REUSE.md`（按实现清单那条执行）; 包计数与 §4 表的统一归条目「五个新插件落地时的仓库清单与包计数统一」。
+- 仓库外: profile 里该包的挂载行（`enabled: true` + `mode: rules`）需一次 profile 更新 —— 由 `scripts/install.sh` 生成或手工确认。
+- 遗留: 巡检工具（从会话日志还原自动放行）属可选增量, 未做则另立条目; 项目那份的 `approval_audit` 行随项目库存在, 归档口径（是否随项目库清理）留待实际使用后另议。
+
+## 已裁定的边界项（R1–R7，均已生效）
+
+- **R1** 首期即含 LLM 段（决策 1 改选 c：名单在前、模型兜底）。
+- **R2** 不挂官方 `experimental-auto-review`（决策 2-b：并存但不挂）。
+- **R3** **不调 `ctx.get("guard")`**（取 3-a）—— 不引入对 `security-guard` 的跨包依赖，也无 fail-open / fail-closed 抉择；代价：命中守卫黑名单的命令会「我们先记一条 `allowed-once`、守卫随后拒并记一条」，审计里前后对照看（不会因此多弹面板）。
+- **R4** 命令面只用插件注册的 `/autoapprove`，不改 TUI。
+- **R5** 审计双落点：会话自管 + memory-base 的 `project` 层 kind `approval_audit`，不可用即跳过。
+- **R6** `enabled` 缺省 `true`、`mode` 缺省 `rules`（灰区落面板、零 token），四张名单缺省全空 → 默认只在只读类与指纹上生效。
+- **R7** 灰区之外不许强制审查；reviewer 失败 / 超时 / 输出非法 → 兜底取 `panel`；路由取当前会话模型（配置覆盖可选）。
 
 ## 实现记录
 
@@ -422,8 +469,8 @@ deny:
 - 命令与结果: `grep` / `sed` 实读官方包与宿主装配（证据行号已逐条写在「调研」各表内）.
 - 链语义探针: 临时脚本（`tmp/wfcheck.mjs`, 用后删除）输出 `A-first-nonnext -> from-A | A` 与 `A-next-first -> from-B | A,B`, 证明「第一个不调 `next()` 者胜出、其后监听器不被调用」.
 - 本 profile 挂载实况: `grep -n "auto-review\|user-approval\|permission" ~/.dsh/profiles/fff/cordis.patch.yml`（无 auto-review 行）与 `dsh-base/cordis.patch.yml:229-260`（`sandbox-policy` / `approval` / `permission` 三行）.
-- 本回合未跑构建 / 测试（无代码改动）; 未格式化（按任务要求）.
+- 本回合未跑构建 / 测试（无代码改动）; 文档按仓库约定用 `format` 格式化.
 
 ## 收尾
 
-本回合不关闭任务: 条目保持〔进行中: 2026-10-16〕, 追踪文档留在 `docs/implementation/`, 未归档. R1-R6 由用户裁定后, 按裁定结果细化实现条目并另起实现回合; 本文件届时补齐「实现记录」与「测试与证据」两节, 再按流程归档.
+本回合不关闭任务: 条目保持〔进行中: 2026-10-16〕, 追踪文档留在 `docs/implementation/`, 未归档. **R1–R7 已全部裁定**（见「已裁定的边界项」）, 接口按 2026-10-17 的两轮回写（`sessionDirFor`、跨包接口对齐）定稿; 等用户放行后另起实现回合, 届时补齐「实现记录」与「测试与证据」两节, 再按流程归档.
