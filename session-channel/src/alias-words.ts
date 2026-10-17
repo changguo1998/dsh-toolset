@@ -1,12 +1,20 @@
 /**
- * 自动别名词表与取词（F1「会话别名自动生成」）：内置 ≤8 字符 ASCII 名词 / 名字 +
- * 类型前缀（ui- / sub-）+ 4 位哈希后缀。与插件实现（index.ts）分开，便于换风格 / 扩表。
+ * 自动别名词表与取名（F1「会话别名自动生成」）：内置 ≤8 字符 ASCII 名词 / 名字 +
+ * 类型前缀（ui- / sub-）+ 随机取词 + 4 位 sessionId 哈希后缀。与插件实现（index.ts）
+ * 分开，便于换风格 / 扩表。
+ *
+ * 命名规则（2026-10-17 裁定）：`<前缀><词>-<hex4>`，`hex4 = sha256(sessionId)` 前 4 位
+ * 小写 hex（确定性、可复现）。总长 ≤ 16，仍在 `[A-Za-z0-9_-]{1,32}` 校验内。
  * 测试强制：词长 ≤8、`[A-Za-z]`、非保留字、无重复。
  */
 
 import { createHash } from "node:crypto";
 
-/** 词表（2026-10-01 扩表）：动物 / 植物 / 矿物与岩石 / 天体 / 天气 / 自然地貌；全部名词、≤8 字符。 */
+/**
+ * 词表：动物 / 植物 / 矿物与岩石 / 天体 / 天气 / 自然地貌；全部名词、≤8 字符。
+ * 2026-10-01 首次扩表；2026-10-17 二次扩表到 ≥ 256 词（`sub-` 命名空间曾 100% 占满，
+ * 见 `docs/BACKLOG.md` 缺陷「自动别名分配在词表耗尽后静默失效」）；只增不减。
+ */
 export const AUTO_ALIAS_WORDS = [
   // 动物
   "otter",
@@ -68,6 +76,66 @@ export const AUTO_ALIAS_WORDS = [
   "xerus",
   "yak",
   "zebra",
+  "alpaca",
+  "bongo",
+  "camel",
+  "caribou",
+  "cattle",
+  "cheetah",
+  "chimp",
+  "coyote",
+  "crane",
+  "deer",
+  "dingo",
+  "dove",
+  "duck",
+  "emu",
+  "fawn",
+  "fox",
+  "frog",
+  "gibbon",
+  "goat",
+  "goose",
+  "gull",
+  "hawk",
+  "hippo",
+  "horse",
+  "hound",
+  "husky",
+  "hyena",
+  "kiwi",
+  "lark",
+  "lion",
+  "lizard",
+  "llama",
+  "loon",
+  "mink",
+  "mole",
+  "moth",
+  "mule",
+  "owl",
+  "ox",
+  "puma",
+  "python",
+  "sheep",
+  "shrew",
+  "skunk",
+  "sloth",
+  "snail",
+  "snake",
+  "squid",
+  "swan",
+  "toad",
+  "trout",
+  "tuna",
+  "turkey",
+  "turtle",
+  "wasp",
+  "whale",
+  "wolf",
+  "worm",
+  "wren",
+  "zebu",
   // 植物
   "alder",
   "basil",
@@ -85,6 +153,61 @@ export const AUTO_ALIAS_WORDS = [
   "sage",
   "thistle",
   "willow",
+  "acacia",
+  "aster",
+  "azalea",
+  "bamboo",
+  "beech",
+  "bloom",
+  "bramble",
+  "cactus",
+  "cherry",
+  "chive",
+  "crocus",
+  "cypress",
+  "daisy",
+  "elm",
+  "fir",
+  "flax",
+  "foxglove",
+  "ginkgo",
+  "gourd",
+  "heath",
+  "holly",
+  "hyssop",
+  "ivy",
+  "juniper",
+  "kudzu",
+  "larch",
+  "laurel",
+  "lilac",
+  "lily",
+  "magnolia",
+  "mango",
+  "mint",
+  "myrtle",
+  "nettle",
+  "oak",
+  "olive",
+  "palm",
+  "pansy",
+  "peony",
+  "petal",
+  "pine",
+  "poplar",
+  "poppy",
+  "rowan",
+  "sorrel",
+  "spruce",
+  "sumac",
+  "sycamore",
+  "teak",
+  "thyme",
+  "tulip",
+  "vine",
+  "violet",
+  "yarrow",
+  "yucca",
   // 矿物 / 岩石
   "agate",
   "amber",
@@ -105,6 +228,44 @@ export const AUTO_ALIAS_WORDS = [
   "slate",
   "topaz",
   "zircon",
+  "albite",
+  "amethyst",
+  "apatite",
+  "azurite",
+  "barite",
+  "biotite",
+  "calcite",
+  "chert",
+  "cobalt",
+  "copper",
+  "crystal",
+  "dolomite",
+  "emerald",
+  "fossil",
+  "gneiss",
+  "gypsum",
+  "halite",
+  "hematite",
+  "ilmenite",
+  "iron",
+  "kaolin",
+  "kyanite",
+  "lapis",
+  "lead",
+  "nickel",
+  "olivine",
+  "perlite",
+  "pyrite",
+  "salt",
+  "schist",
+  "shale",
+  "silica",
+  "silver",
+  "spinel",
+  "sulfur",
+  "talc",
+  "tin",
+  "zinc",
   // 天体
   "atlas",
   "aurora",
@@ -128,6 +289,58 @@ export const AUTO_ALIAS_WORDS = [
   "vega",
   "virgo",
   "zenith",
+  "altair",
+  "aquila",
+  "arcturus",
+  "aries",
+  "asteroid",
+  "callisto",
+  "carina",
+  "castor",
+  "cepheus",
+  "corona",
+  "cygnus",
+  "deneb",
+  "draco",
+  "electra",
+  "eris",
+  "galaxy",
+  "gemini",
+  "gravity",
+  "halo",
+  "hydra",
+  "janus",
+  "larissa",
+  "libra",
+  "makemake",
+  "mars",
+  "mercury",
+  "mimas",
+  "miranda",
+  "moon",
+  "nereid",
+  "orbit",
+  "pavo",
+  "phoebe",
+  "pisces",
+  "polaris",
+  "proteus",
+  "regulus",
+  "rigel",
+  "saturn",
+  "scorpio",
+  "sedna",
+  "solstice",
+  "star",
+  "sun",
+  "taurus",
+  "thule",
+  "triton",
+  "umbriel",
+  "uranus",
+  "venus",
+  "vesta",
+  "zodiac",
   // 天气
   "blizzard",
   "breeze",
@@ -146,6 +359,28 @@ export const AUTO_ALIAS_WORDS = [
   "tempest",
   "thunder",
   "wind",
+  "blast",
+  "bolt",
+  "chill",
+  "cirrus",
+  "cyclone",
+  "dew",
+  "downpour",
+  "flurry",
+  "gust",
+  "haze",
+  "humidity",
+  "ice",
+  "monsoon",
+  "nimbus",
+  "overcast",
+  "puddle",
+  "squall",
+  "sunbeam",
+  "thaw",
+  "typhoon",
+  "vapor",
+  "zephyr",
   // 自然地貌
   "brook",
   "creek",
@@ -162,6 +397,64 @@ export const AUTO_ALIAS_WORDS = [
   "ridge",
   "tide",
   "valley",
+  "abyss",
+  "atoll",
+  "basin",
+  "bay",
+  "beach",
+  "bluff",
+  "bog",
+  "boulder",
+  "canyon",
+  "cape",
+  "cave",
+  "cliff",
+  "coast",
+  "crater",
+  "dell",
+  "desert",
+  "estuary",
+  "fen",
+  "geyser",
+  "glade",
+  "gorge",
+  "gulf",
+  "hill",
+  "inlet",
+  "island",
+  "knoll",
+  "lake",
+  "ledge",
+  "marsh",
+  "mesa",
+  "moraine",
+  "mound",
+  "oasis",
+  "peak",
+  "plateau",
+  "pond",
+  "pool",
+  "prairie",
+  "quarry",
+  "rapids",
+  "ravine",
+  "river",
+  "sandbar",
+  "savanna",
+  "shore",
+  "slope",
+  "spring",
+  "strait",
+  "strand",
+  "stream",
+  "summit",
+  "swamp",
+  "tarn",
+  "tundra",
+  "vale",
+  "volcano",
+  "wetland",
+  "woodland",
 ] as const;
 
 /**
@@ -515,10 +808,9 @@ export const AUTO_ALIAS_WORDS_EXTRA = [
  * 自动别名词表全集（原表 + 扩容表）：仍须满足「名词、`[A-Za-z]{2,8}`、非保留字、无重复」，
  * 由 `tests/alias.test.ts` 守卫。
  */
-export const AUTO_ALIAS_POOL = [
-  ...AUTO_ALIAS_WORDS,
-  ...AUTO_ALIAS_WORDS_EXTRA,
-] as const;
+export const AUTO_ALIAS_POOL: readonly string[] = [
+  ...new Set([...AUTO_ALIAS_WORDS, ...AUTO_ALIAS_WORDS_EXTRA]),
+];
 
 /** 自动别名重试上限（仅 `alias_taken` 重试）。 */
 export const AUTO_ALIAS_TRIES = 8;
@@ -541,16 +833,29 @@ export function aliasPrefixFor(session: unknown): "ui-" | "sub-" {
   return "ui-";
 }
 
-/** 取一个自动别名（前缀 + 随机词；随机源可注入，便于测试；全集见 `AUTO_ALIAS_POOL`）。 */
+/**
+ * 自动别名后缀：`sha256(sessionId)` 前 4 位小写 hex。
+ * 用确定性哈希而非随机串 —— 同一 sessionId 每次算出同一个后缀（排障可复现、为「别名可重建」
+ * 留门），同时把命名空间容量由「词表大小」扩到「词表大小 × 65536」。
+ */
+export function autoAliasSuffix(sessionId: string): string {
+  return createHash("sha256")
+    .update(sessionId, "utf8")
+    .digest("hex")
+    .slice(0, 4);
+}
+
+/** 取一个自动别名（`<前缀><词>-<4 位 hex>`；随机源可注入，便于测试）。 */
 export function pickAutoAlias(
   prefix: "ui-" | "sub-",
+  sessionId: string,
   random: () => number = Math.random,
 ): string {
   const idx = Math.min(
     AUTO_ALIAS_POOL.length - 1,
     Math.max(0, Math.floor(random() * AUTO_ALIAS_POOL.length)),
   );
-  return `${prefix}${AUTO_ALIAS_POOL.at(idx)}`;
+  return `${prefix}${AUTO_ALIAS_POOL.at(idx)}-${autoAliasSuffix(sessionId)}`;
 }
 
 /**
@@ -572,12 +877,9 @@ export function autoAliasCandidate(
   const step = Math.max(0, Math.floor(attempt));
   const digest = createHash("sha256").update(sessionId, "utf8").digest();
   const word = AUTO_ALIAS_POOL.at((digest.readUInt16BE(0) + step) % size);
-  const suffix = createHash("sha256")
-    .update(`${sessionId}:${step}`, "utf8")
-    .digest()
-    .subarray(0, 2)
-    .toString("hex");
-  return `${prefix}${word}-${suffix}`;
+  // 后缀统一取 `autoAliasSuffix(sessionId)`（= sha256(sessionId) 前 4 位 hex）：
+  // 同一会话的候选只换词不换后缀，命名规则与文档口径保持一致。
+  return `${prefix}${word}-${autoAliasSuffix(sessionId)}`;
 }
 
 /** 该会话的确定性自动别名（= `autoAliasCandidate(prefix, sessionId, 0)`）。 */

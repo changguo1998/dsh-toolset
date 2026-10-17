@@ -442,9 +442,10 @@ export async function sendMessage(
     ),
   );
   const waitMs = req.waitMs ?? 0;
-  const delivered = waitMs > 0 ? await waitForAck(client, messageId, waitMs) : undefined;
-  // `delivered` 仅在真等过回执时出现：值为 `undefined` 的键不是 lossless JSON，
-  // 工具面缺省不传 `waitMs`（2026-10-17 宿主 `INVALID_TOOL_OUTPUT` 的根因之一）。
+  const delivered =
+    waitMs > 0 ? await waitForAck(client, messageId, waitMs) : undefined;
+  // 不等待回执时**不带** `delivered` 键（不是 `delivered: undefined`）：宿主对工具返回体做
+  // lossless JSON 校验，值为 `undefined` 的键会被判非法（`INVALID_TOOL_OUTPUT`）。
   return {
     ok: true,
     messageId,

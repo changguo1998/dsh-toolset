@@ -72,10 +72,10 @@ redisTest("端到端：A 发送 → B 注入并回执 → A 收到 delivered", a
       source?: { kind?: string };
     };
     assert.equal(injected.role, "user");
-    // F1 起：会话首见自动生成别名（ui- 前缀）→ 来源标签用别名而非会话 id
+    // F1 起：会话首见自动生成别名（ui- 前缀 + 4 位哈希后缀）→ 来源标签用别名而非会话 id
     assert.match(
       injected.content?.[0]?.text ?? "",
-      /^\[CHANNEL\]\(ui-[a-z]+-[0-9a-f]{4}\) hello B$/,
+      /^\[CHANNEL\]\(ui-[a-z]{2,8}-[0-9a-f]{4}\) hello B$/,
     );
     assert.equal(injected.source?.kind, "session-channel");
 
@@ -422,3 +422,98 @@ redisTest("#55 共享 KV：A 写 B 读（跨实例/跨会话）、CAS 与删除"
     await redis.stop();
   }
 });
+
+redisTest(
+  "委托往返：delegate → taskStatus 懒判定超时与显式回传优先",
+  async () => {
+    const redis = await startTempRedis();
+    const hostA = makeFakeHost();
+    const hostB = makeFakeHost();
+    const atA = registerAgent(hostA, "sess-a");
+    registerAgent(hostB, "sess-b");
+    // 可控时钟：把「读取时才结算超时」压进毫秒级，无需真等 60 秒
+    let clock = Date.now();
+    const a = new SessionChannelService(
+      {
+        url: redis.socketPath,
+        instanceId: "A",
+        heartbeatMs: 200,
+        presenceTtlSec: 4,
+        readBlockMs: 200,
+      },
+      hostA.host,
+      { now: () => clock },
+    );
+    const b = new SessionChannelService(
+      {
+        url: redis.socketPath,
+        instanceId: "B",
+        heartbeatMs: 200,
+        presenceTtlSec: 4,
+        readBlockMs: 200,
+      },
+      hostB.host,
+    );
+    try {
+      await a.start();
+      await b.start();
+      hostA.emitSession(session("sess-a", "/tmp/proj"));
+      hostB.emitSession(session("sess-b", "/tmp/proj"));
+      await waitUntil(async () => (await a.peers()).peers?.length === 2);
+
+      // 投递指令 → 收取回报：未到 deadline 时往返仍是 pending
+      const res = await a.delegate({
+        from: "sess-a",
+        to: "sess-b",
+        text: "统计行数",
+        timeoutSec: 60,
+      });
+      assert.equal(res.ok, true, JSON.stringify(res));
+      const taskId = res.task!.id;
+      assert.equal(res.task?.status, "pending");
+      const pending = await a.taskStatus(taskId);
+      assert.equal(pending.ok, true);
+      assert.equal(pending.task?.status, "pending");
+      assert.equal(pending.task?.resultSource, undefined, "尚无结果来源");
+
+      // 时钟推过 deadline：读取时才结算为 timeout（懒判定，不依赖定时器）
+      clock += 61_000;
+      const late = await a.taskStatus(taskId);
+      assert.equal(late.task?.status, "timeout");
+      assert.match(late.task?.error ?? "", /超时/);
+      assert.equal(late.task?.resultSource, undefined);
+      // 结算落回任务表：再读一次仍为终态（不可回退）
+      clock += 61_000;
+      assert.equal((await a.taskStatus(taskId)).task?.status, "timeout");
+      // 委托方收到超时通知（注入正文形如 TIMEOUT <id>: 原因）
+      await waitUntil(() => atA.length > 0);
+      assert.match(
+        String((atA[0] as { content?: { text: string }[] }).content?.[0]?.text),
+        new RegExp(`TIMEOUT ${taskId}:`),
+      );
+
+      // 显式回传优先：终态后时钟再越界也不翻回 timeout
+      const second = await a.delegate({
+        from: "sess-a",
+        to: "sess-b",
+        text: "第二件",
+        timeoutSec: 60,
+      });
+      const returned = await a.taskResult({
+        taskId: second.task!.id,
+        text: "显式结果",
+      });
+      assert.equal(returned.task?.status, "done");
+      assert.equal(returned.task?.resultSource, "tool");
+      clock += 61_000;
+      const kept = await a.taskStatus(second.task!.id);
+      assert.equal(kept.task?.status, "done", "终态不被懒超时覆盖");
+      assert.equal(kept.task?.result, "显式结果");
+      assert.equal(kept.task?.resultSource, "tool");
+    } finally {
+      await a.stop();
+      await b.stop();
+      await redis.stop();
+    }
+  },
+);

@@ -307,8 +307,8 @@ export class SessionChannelService {
         this.#status.error = describe(err);
         continue;
       }
-      // 删键而非写 `undefined`：`#status` 会被 `status()` 展开成工具返回体，
-      // 值为 `undefined` 的键不是 lossless JSON（宿主 `INVALID_TOOL_OUTPUT`，2026-10-17）。
+      // 清空用 delete 而非写 undefined：`status()` 直接展开该对象，值为 undefined 的键
+      // 会让工具返回体过不了宿主的 lossless JSON 校验（决策项 7 的根因之二）
       delete this.#status.error;
       this.#log(`重试 ${attempts} 次后连接成功`);
       this.#afterConnect();
@@ -1230,46 +1230,67 @@ function jsonText(value: unknown): string {
 }
 
 /**
- * 递归去掉 `undefined`（对象键删除、数组项删除；其它值原样返回）：工具返回体须是
- * lossless JSON。宿主对返回体做 `snapshotToolValue` → `walkJsonValue`，**值为 `undefined`
- * 的键即判非法**（抛 `ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify`
- * 会丢键但校验在其之前，2026-10-17 用户报错实测）。归一在工具出口统一做一次，
- * 服务面返回值不动（插件内消费方不受影响）。
+/**
+ * 是否平凡对象（`Object.prototype` 或 null 原型）：宿主对工具返回体做 lossless JSON 校验，
+ * 带自定义原型的对象同样被判非法，故归一只重建平凡对象，其余原样返回（不改语义）。
  */
-export function pruneUndefined(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (seen.has(value)) return value;
-  if (Array.isArray(value)) {
-    seen.add(value);
-    return value
-      .filter((item) => item !== undefined)
-      .map((item) => pruneUndefined(item, seen));
-  }
-  const proto = Object.getPrototypeOf(value) as unknown;
-  if (proto !== Object.prototype && proto !== null) return value;
-  seen.add(value);
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (item === undefined) continue;
-    out[key] = pruneUndefined(item, seen);
-  }
-  return out;
+function isPlainObject(value: object): boolean {
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
 }
 
-/** 给工具的 `execute` 出口套一层归一（返回体 → lossless JSON）。 */
-export function withLosslessOutput<T extends { execute: (...args: never[]) => unknown }>(
-  def: T,
-): T {
-  const execute = def.execute;
+/**
+ * 工具返回体归一为 lossless JSON（决策项 7 选 a，缺陷「工具返回体含 `undefined` 字段」）：
+ * 宿主在序列化**之前**用 `walkJsonValue` 校验工具返回体，嵌套 `undefined`（以及 `NaN` /
+ * `Infinity` / `-0` / 非平凡原型）一律抛 `INVALID_TOOL_OUTPUT`——`JSON.stringify` 会丢掉
+ * 值为 `undefined` 的键，救不了这条校验。
+ *
+ * 递归去掉值为 `undefined` 的键；数组里的 `undefined` 视同编程错误，按等价语义**剔除该元素**
+ * （本包返回体不产这种元素，剔除只为保证出口恒合法）。`null` / `false` / `0` / `""` 保留；
+ * 其余非法值不在归一范围（返回体全部来自 Redis 里的 JSON，不会出现）。
+ */
+export function toLosslessJson<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item: unknown) => item !== undefined)
+      .map((item: unknown) => toLosslessJson(item)) as T;
+  }
+  if (value === null || typeof value !== "object" || !isPlainObject(value)) {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === undefined) continue;
+    out[key] = toLosslessJson(item);
+  }
+  return out as T;
+}
+
+interface ToolDefShape {
+  execute: (...args: never[]) => unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * `toLosslessJson` 的别名（合并 `feat/peer-group` 与 `feat/session-channel` 时统一出口）：
+ * 两个分支各自实现过一份归一，保留此名以兼容既有调用点与测试。
+ */
+export const pruneUndefined = toLosslessJson;
+
+/**
+ * 给工具定义的 `execute` 出口包一层 `toLosslessJson`（决策项 7 选 a）：可选字段散在
+ * `broker.ts` / `index.ts` / `types.ts` 多处（`delivered` / `candidates` / `holder` /
+ * `replaced` / `TaskRecord` 的六个可选字段），逐处拼装是「每次新增可选字段都要记得拼一次」
+ * 的长期负担；出口收口一处，漏一处也不会再报 `INVALID_TOOL_OUTPUT`。
+ */
+export function withLosslessOutput<T extends ToolDefShape>(def: T): T {
+  const run = def.execute;
   return {
     ...def,
-    execute: function (this: unknown, ...args: unknown[]) {
-      const result = execute.apply(this, args as never[]);
-      return result instanceof Promise
-        ? result.then((value) => pruneUndefined(value))
-        : pruneUndefined(result);
+    async execute(...args: never[]): Promise<unknown> {
+      return toLosslessJson(await run.apply(def, args));
     },
-  } as T;
+  };
 }
 
 /** `session-channel` 工具定义（action 分派）。 */
@@ -1586,6 +1607,7 @@ export function apply(
       toTaskResultTool,
     ]) {
       try {
+        // 出口统一归一（决策项 7）：四个工具的返回体都先过 toLosslessJson 再交给宿主
         tools.register(withLosslessOutput(build(service)));
       } catch (err) {
         warn(`${build.name} 工具注册失败：${describe(err)}`);

@@ -96,6 +96,22 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 `SessionChannelStatus` 的三个可选键（`aliasesLastError` / `error`）**按需拼装**：
 无值时不出现（不是 `undefined`）。
 
+## 群组编排用法与成员寻址口径
+
+群组编排插件（`agent-group`）只经服务面做两个操作，各自对应的现有方法（无缺口，均为既有签名）：
+
+| 操作 | 方法 | 要点 |
+| --- | --- | --- |
+| 投递指令 | `delegate({from?, to, text, timeoutSec?, ttlSec?, waitMs?})` | 返回的 `task.id` 即指令 id；worker 下一回合被注入 `TASK <id>: <正文>`（完成后可结束本轮自动回传，或调 `channel_task_result` 显式回传） |
+| 收取回报 | `taskStatus(taskId)` / `taskList({sessionId?, status?, limit?})` | 主方按指令 id 读；`taskStatus` 读取时懒判定超时；批量按会话索引（新→旧） |
+
+口径（下游按此实现）：
+
+- **「成功 / 失败 / 受阻」三态不进 `TaskStatus`**：通道只搬运，不规定语义。`failed` 位只表达「是否算失败」，成因走 `error`；三态判别由 `agent-group` 在**结果正文**里自描述（通道不解析正文）。
+- **两条硬约束**：① 从方（worker）会话必须**也挂着本插件**——注入由目标进程自己的 reader 循环完成；② 目标必须**在线**，离线直接 `target_offline`、**不排队**（无 spool）。
+- **成员登记用 sessionId 或显式 `alias set`**：自动别名不保证分配成功（生成时机见下方「边界与限制」的别名条），登记不要依赖它。
+- **寻址须唯一命中**：`to` 取会话 id 精确匹配 → 别名 → `cwd:<绝对路径>`；0 命中 `target_offline`、多命中 `target_ambiguous`（回带 `candidates`）。同 cwd 有多个会话时 `cwd:` 形态必然歧义，改用会话 id 或别名。
+
 ## 使用示例
 
 ```jsonc
@@ -124,7 +140,7 @@ profile 挂载（与其他插件同法）：
 - **离线直接报错**：目标心跳过期或 pid 已死 → `target_offline`（不做 spool / 离线队列）。
 - **不重复注入**：投递位置记在无 TTL 的 `cursor:<sessionId>` 里——接收方启动/重启从游标续读，**且只在该条注入成功后推进**；已投递过的消息（即便回执键早已过期）不会重复注入，注入失败的消息仍会补投。游标按 `ts` 懒清理（7 天），过期后该会话重来会从流起点重读（历史消息可能重投）。消息本身留在邮箱流里（`inbox` 可查）。
 - **别名**：`[A-Za-z0-9_-]{1,32}`，保留字（`inbox/alive/ack/cursor/alias/meta/peers/send/status`）不可用；一会话一别名（设新的顶掉旧的）；被别的会话占用需 `force`；别名键无 TTL，`alias clear` 手工清理。
-- **自动别名**（2026-10-17 起）：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动会话）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）；词与后缀同出自 `sha256(sessionId)`，**同一会话恒得同名**（宿主 resume 复用 sessionId，故恢复后不漂移），词表 479 词、命名空间约 3100 万。**生成时机** = 本进程首次观察到该会话的 `session/event`（`noteSession` 首见分支），已显式设过别名的会话跳过。碰撞按词表顺序换下一个候选重试 ≤ 8 次；**分配失败不再静默** —— 写日志并计入 `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计入 `aliasesAuto`）。既有旧格式别名（如 `ui-clover`）不受影响。
+- **自动别名**（2026-10-17 起）：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动会话）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）；词与后缀同出自 `sha256(sessionId)`，**同一会话恒得同名**（宿主 resume 复用 sessionId，故恢复后不漂移），词表 479 词、命名空间约 3100 万。**生成时机** = 本进程首次观察到该会话的 `session/event`（`noteSession` 首见分支），已显式设过别名的会话跳过。碰撞按词表顺序换下一个候选重试 ≤ 8 次；**分配失败不再静默** —— 写日志并计入 `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计入 `aliasesAuto`）。既有旧格式别名（如 `ui-clover`）不受影响；占用冲突耗尽后不保证一定拿到别名，成员登记勿依赖（用 sessionId 或显式 `alias set`）。
 - **共享 KV**（#55）：`kvSet` / `kvGet` / `kvList` / `kvDelete`，last-value + 单调版本号（CAS 用 `expectedVersion`），键 `[A-Za-z0-9_.-]{1,64}`、值 JSON 可序列化且 ≤ `maxTextBytes`；**拉取式**（无订阅 / 通知）、仅本机共享。
 - **工具返回体必须是 lossless JSON**：值为 `undefined` 的键会被宿主判为非法（`ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify` 会丢键但校验在序列化之前）。四个工具在注册时统一套 `pruneUndefined`（递归去对象键 / 数组项），服务面返回值同样不留 `undefined` 键。
 - **不做限流**：本地单用户场景；单条正文上限 8 KB。
@@ -142,7 +158,7 @@ profile 挂载（与其他插件同法）：
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（55 例；无 redis-server 的机器上集成用例自动 skip）
+npm run test    # node --test（无 redis-server 的机器上集成用例自动 skip）
 ```
 
 设计决策见 `docs/DESIGN.md`；缺陷与待办见 `docs/BACKLOG.md`。
