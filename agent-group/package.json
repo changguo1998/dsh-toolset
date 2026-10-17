@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-toolset/agent-group",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）群组编排插件：组 / 成员 / 主从连接（含等级）/ 指令与回报，懒判定结算",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
