@@ -68,6 +68,16 @@ test("apply：极简 ctx 无 provide 时退回直接属性挂载", () => {
   assert.equal(service.root(), "/tmp/sessions-y");
 });
 
+test("apply：provide 抛错（重复挂载）时只告警、不抛", () => {
+  const ctx = {
+    get: () => undefined,
+    provide: () => {
+      throw new Error('service "sessionPaths" has been registered');
+    },
+  };
+  assert.doesNotThrow(() => apply(ctx, { root: "/tmp/sessions-x" }));
+});
+
 test("root 缺省：DSH_HOME/sessions；无 DSH_HOME 时 ~/.dsh/sessions", () => {
   const saved = process.env["DSH_HOME"];
   try {

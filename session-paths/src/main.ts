@@ -191,7 +191,14 @@ export function apply(ctx: unknown, config?: SessionPathsConfig): void {
     provideFn = undefined;
   }
   if (provideFn !== undefined) {
-    provideFn.call(ctx, "sessionPaths", service);
+    // 重复挂载（同 id 两个条目）时 cordis 会抛「already registered」；不让它掀翻宿主启动。
+    try {
+      provideFn.call(ctx, "sessionPaths", service);
+    } catch (error) {
+      process.stderr.write(
+        `[session-paths] warn: 服务面 sessionPaths 注册失败：${String(error)}\n`,
+      );
+    }
     return;
   }
   if (ctx === null || typeof ctx !== "object") {
