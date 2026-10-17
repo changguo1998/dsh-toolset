@@ -507,18 +507,15 @@ export function createPlugin(deps: PluginDeps = {}): PreferencePlugin {
   };
 }
 
-/** 宿主 context 的结构面（只声明本包用到的成员）。 */
+/**
+ * 宿主 context 的结构面：只声明**核心方法** `on`。服务一律经 `getService` 读取
+ * （未在 inject 里声明的服务直接读属性会被 cordis 抛错）。
+ */
 interface HostContext {
   on?: (
     event: string,
     listener: (session: unknown, event: unknown) => void,
   ) => unknown;
-  get?: (name: string) => unknown;
-  tools?: { register: (def: unknown) => void };
-  ruleEngine?: {
-    registerConsumer: (input: ConsumerInput) => () => void;
-  };
-  memory?: unknown;
 }
 
 /** rule-engine 消费者注册项（结构面访问，不 import 对方代码）。 */
@@ -594,7 +591,9 @@ export function apply(ctx: unknown, config?: Config): () => void {
 
   // 模型侧工具（三项；没有新句柄面时不注册，避免承诺做不到的写入）
   if (plugin.memoryAvailable) {
-    const tools = c.tools;
+    // tools 同为宿主服务：未 inject 时直接读属性同样会抛错，一律走 getService
+    const tools = getService(c, "tools") as
+      { register?: (def: unknown) => void } | undefined;
     if (tools !== undefined && typeof tools.register === "function") {
       for (const def of createTools(plugin.api)) {
         try {
@@ -621,15 +620,27 @@ export function apply(ctx: unknown, config?: Config): () => void {
   };
 }
 
+/**
+ * 读取宿主服务：cordis 对**未在 inject 里声明**的服务，直接读属性会抛
+ * `cannot get property "x" without inject`（真实加载时报过 ruleEngine）。故优先走受保护的
+ * `ctx.get(key)`，再 try/catch 直取属性作为兜底（兼容没有 `get` 的测试宿主）。
+ */
 function getService(ctx: unknown, key: string): unknown {
-  if (!isRecord(ctx)) return undefined;
-  const direct = ctx[key];
-  if (direct !== undefined) return direct;
-  const get = ctx["get"];
-  if (typeof get === "function") {
-    return (get as (name: string) => unknown).call(ctx, key);
+  if (ctx === null || typeof ctx !== "object") return undefined;
+  try {
+    const get = (ctx as { get?: unknown }).get;
+    if (typeof get === "function") {
+      const value = (get as (name: string) => unknown).call(ctx, key);
+      if (value !== undefined) return value;
+    }
+  } catch {
+    // 受保护读取也不可用（宿主未就绪 / 非 cordis 宿主）：继续尝试属性读
   }
-  return undefined;
+  try {
+    return (ctx as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
 }
 
 function sessionIdOf(session: unknown): string {
