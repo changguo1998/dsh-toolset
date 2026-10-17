@@ -1,0 +1,12 @@
+# auto-approve 插件的 dsh bundle 声明。
+# dsh 宿主按 package.json 的 dsh.bundle.patch 加载本文件，把自动审批应答者挂进进程内。
+#
+# 缺省按 R6 裁定：enabled: true + mode: rules（灰区落人工面板、零 token），四张名单缺省全空
+# —— 默认只在只读类与指纹上生效。要启用 LLM 灰区审查须显式改 mode: rules+llm。
+# pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
+- insert:
+    - id: auto-approve
+      name: '@dsh-toolset/auto-approve'
+      config:
+        enabled: true
+        mode: rules
