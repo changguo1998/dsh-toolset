@@ -4,7 +4,8 @@
  * 官方文件工具（read / write / edit / patch / grep / glob 与读面 read_image）、
  * 插件文件工具登记表（写面 hash_edit / md_logic / ast_replace；读面 ast_query /
  * hash_read / fs_digest / code_map / md_map）、插件命令工具登记表
- * （metric_loop.measureCmd / task_decompose 的嵌套命令）与未登记工具边界
+ * （metric_loop.measureCmd / task_decompose 的嵌套命令 / script_run.script /
+ * herdr_pane 的 run.command、send_text.text 与 send_keys.keys[]）与未登记工具边界
  * （`unknownToolPolicy` 三态 allow / check / deny + `unknownToolAllowlist`）；
  * 以及外部命令复查 `inspectCommand`（命令不在工具入参里的场景，如 metric-loop 的 tick
  * 执行状态文件里的 measureCmd）与服务面暴露。
@@ -823,6 +824,231 @@ test("插件命令工具：普通命令 / 无命令声明 / model 后端 → 放
     ["task_stop", { task_id: "c2" }],
   ] as const) {
     assert.equal(guard.inspect(tool, args), null, `expected allow for ${tool}`);
+  }
+});
+
+// ------------------------------------- script_run（脚本正文 = 命令面，同 run_code 的 code）
+
+test("插件命令工具：script_run 的 script 命中黑名单 → deny（来源标注到参数键）", async () => {
+  const { host, listeners } = makeHost();
+  createSecurityGuard(host, { homeDir: HOME });
+  const result = await listeners[0]!(
+    execOf("script_run", {
+      language: "python",
+      script: CHECK_BLACKLIST_COMMAND,
+    }),
+    nextAllow,
+  );
+  assert.equal(result.kind, "deny");
+  const reason = (result as { reason: string }).reason;
+  // 来源标注要精确到参数键：模型据此知道被拦的是 script 正文而不是别的参数
+  assert.match(reason, /插件命令工具「script_run」/);
+  assert.match(reason, /命令参数（script）/);
+  assert.match(reason, /命令命中黑名单规则「sudo」/);
+  // 其余参数（language / description / workdir）不是命令面，不参与本次判定
+  assert.doesNotMatch(reason, /命令参数（language）/);
+  const guard = new GuardEngine({ homeDir: HOME });
+  assert.match(
+    guard.inspect("script_run", { script: "rm -rf /" }) ?? "",
+    /rm-recursive-root/,
+  );
+});
+
+test("插件命令工具：script_run 的 script 含敏感文件名路径 → deny（敏感层，读写口径）", async () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const { host, listeners } = makeHost();
+    createSecurityGuard(host, { homeDir: HOME });
+    const result = await listeners[0]!(
+      execOf("script_run", { script: `open("${fx.envPath}").read()` }),
+      nextAllow,
+    );
+    assert.equal(result.kind, "deny");
+    const reason = (result as { reason: string }).reason;
+    assert.match(reason, /已拦截：读写敏感文件/);
+    assert.match(reason, /env-file/);
+    assert.match(reason, /工具：script_run/);
+    // allowPatterns 只放开命令层，不放开敏感层（与 shell 工具同口径）
+    const allowed = new GuardEngine({
+      homeDir: HOME,
+      commandBlacklist: { allowPatterns: ["^open\\("] },
+    });
+    assert.notEqual(
+      allowed.inspect("script_run", { script: `open("${fx.envPath}")` }),
+      null,
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("插件命令工具：script_run 普通脚本 → 放行（不误伤）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const args of [
+    // 首期唯一语言对应的普通脚本
+    { language: "python", script: "print(sum(range(10)))" },
+    // 多行正文（解释器按单个脚本文件执行）
+    { script: "import os\nprint(os.getcwd())\n" },
+    // 只给语言、无正文（工具自身会报参数错，guard 不猜语义）
+    { language: "python" },
+  ]) {
+    assert.equal(guard.inspect("script_run", args), null);
+  }
+});
+
+test("插件命令工具：script_run 的 script 缺失 / 非 string / 空串 / 数组 → 放行（不猜测语义）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const args of [
+    {},
+    { script: 42 },
+    { script: "" },
+    { script: null },
+    { script: undefined },
+    // commandKeys 只收顶层非空 string：数组值静默失效（真实参数面里 script 是 string，
+    // 这里锁住「万一按数组传也不会被误读成多条命令」的既有口径）
+    { script: ["sudo ls /"] },
+  ] as const) {
+    assert.equal(guard.inspect("script_run", args), null);
+  }
+});
+
+test("插件命令工具：script_run 的 script 命中黑名单但 allowPatterns 放行 → 放行", () => {
+  const guard = new GuardEngine({
+    homeDir: HOME,
+    commandBlacklist: { allowPatterns: ["^echo "] },
+  });
+  assert.equal(
+    guard.inspect("script_run", { script: CHECK_BLACKLIST_COMMAND }),
+    null,
+  );
+  // 放行正则是**整段命令**匹配：换一个不以 echo 开头的同类命令仍被拦
+  assert.match(
+    guard.inspect("script_run", { script: "rm -rf /" }) ?? "",
+    /rm-recursive-root/,
+  );
+});
+
+// ------------------------------------- herdr_pane（run.command / send_text.text / send_keys.keys[]）
+
+test("插件命令工具：herdr_pane 的 run.command 命中黑名单 → deny", async () => {
+  const { host, listeners } = makeHost();
+  createSecurityGuard(host, { homeDir: HOME });
+  const result = await listeners[0]!(
+    execOf("herdr_pane", {
+      action: "run",
+      pane_id: "p1",
+      command: CHECK_BLACKLIST_COMMAND,
+    }),
+    nextAllow,
+  );
+  assert.equal(result.kind, "deny");
+  const reason = (result as { reason: string }).reason;
+  assert.match(reason, /插件命令工具「herdr_pane」/);
+  assert.match(reason, /命令参数（command）/);
+  assert.match(reason, /命令命中黑名单规则「sudo」/);
+  // pane_id 是非命令参数，不得出现在来源标注里
+  assert.doesNotMatch(reason, /命令参数（pane_id）/);
+});
+
+test("插件命令工具：herdr_pane 的 send_text.text 命中黑名单 → deny（与 run 同口径）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  // text 与 run 的 command 差别只在是否补回车（herdr-pane 设计 :34），故同纳命令面
+  const hit = guard.inspect("herdr_pane", {
+    action: "send_text",
+    pane_id: "p1",
+    text: CHECK_BLACKLIST_COMMAND,
+  });
+  assert.match(hit ?? "", /命令参数（text）/);
+  assert.match(hit ?? "", /「sudo」/);
+});
+
+test("插件命令工具：herdr_pane 的 send_keys.keys[] 逐元素过命令层 → deny（数组走 commandPaths）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  // commandKeys 对数组值静默失效，keys 必须靠 commandPaths 的 [] 展开才真正被检查
+  const hit = guard.inspect("herdr_pane", {
+    action: "send_keys",
+    pane_id: "p1",
+    keys: ["ctrl+c", CHECK_BLACKLIST_COMMAND],
+  });
+  assert.match(hit ?? "", /命令参数（keys\[\]）/);
+  assert.match(hit ?? "", /「sudo」/);
+  // 首元素无害、末元素是黑名单命令：证明是逐元素展开（不是只看第一个）
+  const tail = guard.inspect("herdr_pane", {
+    action: "send_keys",
+    pane_id: "p1",
+    keys: ["esc", "up", `echo ${["rm", "-rf", "/"].join(" ")}`],
+  });
+  assert.match(tail ?? "", /rm-recursive-root/);
+});
+
+test("插件命令工具：herdr_pane 的按键名 / 非命令参数 → 放行（不误伤）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const args of [
+    // 真实按键名不会命中命令黑名单规则
+    { action: "send_keys", pane_id: "p1", keys: ["ctrl+c"] },
+    { action: "send_keys", pane_id: "p1", keys: ["esc", "up", "enter"] },
+    // create / label / read 等动作不带命令面参数
+    { action: "create", direction: "right" },
+    { action: "label", pane_id: "p1", label: "sudo" },
+    { action: "read", pane_id: "p1", lines: 50 },
+    // 参数缺失 / 非 string / 空串
+    { action: "send_text", pane_id: "p1" },
+    { action: "run", pane_id: "p1", command: 42 },
+    { action: "send_text", pane_id: "p1", text: "" },
+    // keys 非数组（工具自身会报参数错）：[] 展开取不到值，按缺失处理
+    { action: "send_keys", pane_id: "p1", keys: "ctrl+c" },
+    { action: "send_keys", pane_id: "p1", keys: [] },
+    { action: "send_keys", pane_id: "p1", keys: [42, null] },
+  ] as const) {
+    assert.equal(guard.inspect("herdr_pane", args), null, JSON.stringify(args));
+  }
+});
+
+test("插件命令工具：herdr_pane 读类动作与健康入参 → 放行（三闸之一不误拦）", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  for (const args of [
+    { action: "list" },
+    { action: "list", workspace: "w1" },
+    { action: "read", pane_id: "p1", source: "recent-unwrapped", lines: 120 },
+    { action: "wait", pane_id: "p1", match: "done", settle_ms: 400 },
+    { action: "wait", pane_id: "p1", stable: true },
+    { action: "info", pane_id: "p1" },
+    { action: "close", pane_id: "p1" },
+    // 普通命令（非黑名单）同样放行
+    { action: "run", pane_id: "p1", command: "npm run test" },
+    { action: "send_text", pane_id: "p1", text: "hello\n" },
+  ] as const) {
+    assert.equal(guard.inspect("herdr_pane", args), null, JSON.stringify(args));
+  }
+});
+
+test("插件命令工具：herdr_pane 命令文本含敏感路径 → deny（敏感层与命令层独立）", () => {
+  const fx = makeSensitiveFixture();
+  try {
+    const guard = new GuardEngine({ homeDir: HOME });
+    const hit = guard.inspect("herdr_pane", {
+      action: "run",
+      pane_id: "p1",
+      command: `cat "${fx.envPath}"`,
+    });
+    assert.match(hit ?? "", /已拦截：读写敏感文件/);
+    assert.match(hit ?? "", /env-file/);
+    assert.match(hit ?? "", /工具：herdr_pane/);
+    // allowPatterns 只放开命令层，敏感层仍拦
+    const allowed = new GuardEngine({
+      homeDir: HOME,
+      commandBlacklist: { allowPatterns: ["^cat "] },
+    });
+    assert.notEqual(
+      allowed.inspect("herdr_pane", {
+        action: "run",
+        pane_id: "p1",
+        command: `cat "${fx.envPath}"`,
+      }),
+      null,
+    );
+  } finally {
+    fx.cleanup();
   }
 });
 
@@ -2269,6 +2495,9 @@ test("TOOL_SURFACE —— 脚本与引擎同源快照：登记名去重 + 三类
     "read_image",
     "hash_edit",
     "metric_loop",
+    // 两个新插件工具：名字在册是「登记生效」的前提，漏登记会退回未知工具策略
+    "script_run",
+    "herdr_pane",
   ]) {
     assert.ok(TOOL_SURFACE.registered.includes(name), `${name} 应在登记集内`);
   }

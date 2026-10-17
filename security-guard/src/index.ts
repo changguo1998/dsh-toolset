@@ -243,7 +243,21 @@ interface PluginCommandTool {
  * - `task_decompose`：`children[].executor.command`（command 后端的执行命令）与
  *   `children[].acceptance[].command`（mechanical 验收命令）——两者都由模型在本工具写进
  *   帧契约，执行发生在 `task_execute` / `task_stop`（那两个工具的入参只有 task_id，
- *   不含命令文本），故检查点落在声明处（残留边界见 README「边界与限制」）。
+ *   不含命令文本），故检查点落在声明处（残留边界见 README「边界与限制」）；
+ * - `script_run`：`script`（脚本正文，由解释器执行，见 script-interpreter——与官方
+ *   `run_code` 的 `code` 同口径，命中即 deny）；
+ * - `herdr_pane`：`command`（`run` 动作注入 pane 的命令，文本 + 回车一次提交）、`text`
+ *   （`send_text` 动作注入的文本，与 `run` 只差是否补回车，故同纳）与 `keys[]`（`send_keys`
+ *   动作的按键串数组，**逐元素**过命令层；`keys` 是数组，走 `commandPaths` —— 见下）——
+ *   herdr-pane 三闸并用，本表是其一。
+ *
+ * **登记写法的三条口径**（写错即假覆盖：名字在册但运行时不检查）：
+ * 1. `commandKeys` 只收**顶层非空 string**，数组值**静默失效** —— 数组参数必须走
+ *    `commandPaths`（如 `herdr_pane` 的 `keys`）。
+ * 2. `commandPaths` 走点号路径，段名带 `[]` 表示该值是数组、逐元素展开（如 `keys[]`）。
+ * 3. **登记即脱离未登记工具策略**：门禁分支是 `plugin === undefined && commandTool === undefined`，
+ *    工具名一旦在册，`unknownToolPolicy` 对它不再生效 —— 登记等于承诺「这套参数面是真的」。
+ *
  * 未登记的工具仍走「未知工具不拦」的既有边界（见 README「边界与限制」）。
  */
 const PLUGIN_COMMAND_TOOLS: Record<string, PluginCommandTool> = {
@@ -254,6 +268,9 @@ const PLUGIN_COMMAND_TOOLS: Record<string, PluginCommandTool> = {
       "children[].acceptance[].command",
     ],
   },
+  script_run: { commandKeys: ["script"] },
+  // keys 是字符串数组：commandKeys 对数组值静默失效，必须走 commandPaths 才真正生效。
+  herdr_pane: { commandKeys: ["command", "text"], commandPaths: ["keys[]"] },
 };
 
 /**
