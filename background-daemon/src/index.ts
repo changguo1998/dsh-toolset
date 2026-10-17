@@ -130,6 +130,7 @@ export {
 export { readService } from "./services.ts";
 export {
   apply,
+  bootDaemon,
   createDaemonRuntime,
   defaultStateDir,
   name,

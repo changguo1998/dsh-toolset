@@ -273,8 +273,13 @@ export async function createDaemonRuntime(
   };
 }
 
-/** DSH 宿主按 bundle 契约调用：装载、注册、启动（memory-base 记录底座是异步读的, 故 apply 异步）。 */
-export async function apply(
+/**
+ * 装配并启动守护（返回运行期句柄, 供测试与内部使用）。
+ *
+ * **不要把它直接当宿主入口**：cordis 会把 `apply` 的返回值当 effect 收集, 普通对象
+ * 会报 `Invalid effect`。宿主入口是下面的 `apply`。
+ */
+export async function bootDaemon(
   ctx: unknown,
   config: DaemonConfig = {},
 ): Promise<DaemonRuntime> {
@@ -358,6 +363,19 @@ export async function apply(
     }
   }
   return runtime;
+}
+
+/**
+ * DSH 宿主按 bundle 契约调用：装载、注册、启动。
+ *
+ * 返回值必须是 `undefined`（cordis 把 apply 的返回值当 effect 收集）；运行期句柄由
+ * `bootDaemon` 返回、卸载经 `host.on("dispose")` 已注册的回调完成。
+ */
+export async function apply(
+  ctx: unknown,
+  config: DaemonConfig = {},
+): Promise<void> {
+  await bootDaemon(ctx, config);
 }
 
 /** 流水缺省上限（配置与 README 共用）。 */

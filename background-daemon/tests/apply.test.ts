@@ -10,6 +10,7 @@ import { after, test } from "node:test";
 
 import {
   apply,
+  bootDaemon,
   createDaemonRuntime,
   resolveJournalPath,
   resolveStorePath,
@@ -86,7 +87,7 @@ function fakeContext(
 test("apply：注册服务面 / 命令 / 工具并启动调度", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
     defaultSessionId: "sess-1",
@@ -105,7 +106,7 @@ test("apply：任务表损坏 → 面不启用但命令面仍注册（错误可�
   const storePath = path.join(dir, "tasks.json");
   writeFileSync(storePath, "{ 半截", "utf8");
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath,
     journalPath: path.join(dir, "journal.jsonl"),
   });
@@ -125,7 +126,7 @@ test("apply：commands / tools 缺失 → 降级告警, 不抛", async () => {
     return true;
   };
   try {
-    const runtime = await apply(fake.ctx, {
+    const runtime = await bootDaemon(fake.ctx, {
       storePath: path.join(dir, "tasks.json"),
       journalPath: path.join(dir, "journal.jsonl"),
     });
@@ -214,7 +215,7 @@ test("路径解析：config 优先, 环境变量兜底, 缺省落 DSH_HOME", () 
 test("工具注册：缺省 defaultSessionId 时 create 报 missing_session", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
   });
@@ -309,12 +310,14 @@ class FakeMemory {
     };
   }
 
-  async list(opts: {
-    kind?: string;
-    tier?: "session" | "project" | "user";
-    limit?: number;
-    offset?: number;
-  } = {}) {
+  async list(
+    opts: {
+      kind?: string;
+      tier?: "session" | "project" | "user";
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) {
     const filtered = this.rows
       .filter((row) => opts.kind === undefined || row.kind === opts.kind)
       .filter((row) => opts.tier === undefined || row.tier === opts.tier)
@@ -359,18 +362,20 @@ test("apply：memory-base 可用 → 记录底座为 memory, 任务从库里读�
   const withMemory: Record<string, unknown> = {
     ...(fake.ctx as Record<string, unknown>),
     get: (serviceName: string) =>
-      serviceName === "memory" ? memory : (fake.ctx["get"] as (name: string) => unknown)(serviceName),
+      serviceName === "memory"
+        ? memory
+        : (fake.ctx["get"] as (name: string) => unknown)(serviceName),
   };
-  const runtime = await apply(withMemory, {
+  const runtime = await bootDaemon(withMemory, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
     defaultSessionId: "sess-1",
   });
   assert.equal(runtime.backend, "memory");
-  assert.deepEqual(memory.specs.map((spec) => spec.kind), [
-    "daemon_task",
-    "daemon_run",
-  ]);
+  assert.deepEqual(
+    memory.specs.map((spec) => spec.kind),
+    ["daemon_task", "daemon_run"],
+  );
   assert.equal(runtime.store.list().length, 1);
   assert.equal(runtime.store.list()[0]?.id, seededTask.id);
   // 新任务写透：多一行 daemon_task 修订
@@ -381,18 +386,35 @@ test("apply：memory-base 可用 → 记录底座为 memory, 任务从库里读�
     selector: { kind: "every_seconds", seconds: 120 },
   });
   await runtime.mirror?.settle();
-  assert.ok(memory.rows.some((row) => row.kind === "daemon_task" && row.title === created.id));
+  assert.ok(
+    memory.rows.some(
+      (row) => row.kind === "daemon_task" && row.title === created.id,
+    ),
+  );
   await runtime.dispose();
 });
 
 test("apply：memory-base 不可用 → 降级 json, 不注册 kind", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
   });
   assert.equal(runtime.backend, "json");
   assert.equal(runtime.mirror, null);
   await runtime.dispose();
+});
+
+test("apply：宿主入口返回 undefined（cordis 不当 effect 收集）", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const result = await apply(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+  });
+  assert.equal(result, undefined);
+  // 命令面与工具面照常注册
+  assert.equal(fake.commands.definitions.length, 1);
+  assert.equal(fake.tools.registered.length, 1);
 });
