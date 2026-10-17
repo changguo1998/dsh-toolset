@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -404,6 +404,17 @@ function hostGray(host: FakeHost): void {
   );
 }
 
+test("memory-base 未挂载：项目那份跳过并警告一次，裁定不受影响", async () => {
+  const { host, service } = setup({ withMemory: false });
+  assert.match(host.logs.join("\n"), /项目那份审计行将被跳过/);
+  assert.equal(
+    await approve(host, request({ toolName: "read", callId: "r1" })),
+    "allowed-once",
+  );
+  assert.equal(service.status().audit.projectWritable, false);
+  assert.equal(service.status().audit.projectSkipped, 1);
+});
+
 test("审计双落点：会话 JSONL + memory-base project 层（不可用即跳过、不影响裁定）", async () => {
   const { host, memory } = setup();
   await approve(host, request({ toolName: "read", callId: "r1" }));
@@ -444,6 +455,21 @@ test("会话审计不可用：退回人工面板 + 一次警告 + status 降级�
     "rejected",
   );
   assert.equal(panel.calls, 1);
+  assert.equal(service.recent(5).length, 0);
+});
+
+test("会话审计首次写入失败：本次不自动裁定（退回面板 + 一次警告）", async () => {
+  const root = tempDir();
+  // 用同名文件占住会话目录，令首次 append 之前的 mkdir -p 失败
+  writeFileSync(join(root, "s1"), "占位", "utf8");
+  const { host, panel, service } = setup({ auditDir: root });
+  assert.equal(
+    await approve(host, request({ toolName: "read", callId: "r1" })),
+    "rejected",
+  );
+  assert.equal(panel.calls, 1, "退回人工面板");
+  assert.equal(service.status().audit.sessionWritable, false);
+  assert.match(host.logs.join("\n"), /自动放行已停用/);
   assert.equal(service.recent(5).length, 0);
 });
 

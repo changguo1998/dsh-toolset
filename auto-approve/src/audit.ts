@@ -99,6 +99,9 @@ export function createAudit(options: {
   }
   if (options.projectEnabled && options.memory === undefined) {
     health.projectWritable = false;
+    options.warn(
+      "memory-base 未挂载或不可用：项目那份审计行将被跳过（不影响裁定）",
+    );
   }
   let scope: MemoryScopeLike | undefined;
   let scopeState: "idle" | "pending" | "failed" = "idle";
@@ -238,9 +241,12 @@ export function createAudit(options: {
       return health.sessionWritable;
     },
     write(line: AuditLine): void {
-      recent.unshift(line);
-      if (recent.length > RECENT_LIMIT) recent.length = RECENT_LIMIT;
       if (health.sessionWritable) writeSession(line);
+      // 会话那份没写成功时**不**认这条记录（判定层会退回人工面板，`log` 不虚报）
+      if (health.sessionWritable) {
+        recent.unshift(line);
+        if (recent.length > RECENT_LIMIT) recent.length = RECENT_LIMIT;
+      }
       if (options.projectEnabled) void writeProject(line);
     },
     health(): AuditHealth {

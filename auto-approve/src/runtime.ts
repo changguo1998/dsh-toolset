@@ -61,12 +61,15 @@ export function createRuntime(options: {
     result: DecisionResult,
   ): DecisionResult {
     if (result.decision.outcome === "next") return result;
-    recordApproval(context, input, result);
     const callId = input.call.callId;
     if (callId === undefined || !audited.has(callId)) {
-      if (callId !== undefined) audited.add(callId);
       audit.write(auditLineOf(context, input, result, result.decision.outcome));
+      // 会话审计落点在这一刻失效（目录不可写 / 不可得）：本次不自动裁定，
+      // 退回人工面板（决策 5 第 4 条：绝不静默放行）；降级警告由审计写入器发过一次
+      if (!audit.sessionUsable()) return { decision: { outcome: "next" } };
+      if (callId !== undefined) audited.add(callId);
     }
+    recordApproval(context, input, result);
     if (callId !== undefined) cache.set(callId, result);
     return result;
   }

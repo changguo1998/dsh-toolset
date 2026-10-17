@@ -303,6 +303,17 @@ test("mode all：名单外的调用也放行；bypass 工具与 gateTools 白名
   );
 });
 
+test("取不到会话 id：不裁定（无法落审计 / 记指纹）", async () => {
+  const ctx = context();
+  const result = await decide(ctx, {
+    call: { callId: "c1", name: "read", arguments: {}, cwd: "/w" },
+    cwd: "/w",
+    history: [],
+    projectInstructions: [],
+  });
+  assert.equal(result.decision.outcome, "next");
+});
+
 test("mode off / enabled false：不裁定", async () => {
   const off = await decide(
     context(resolveConfig({ mode: "off" })),

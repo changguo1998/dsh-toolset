@@ -83,6 +83,10 @@ export function decideDeterministic(
   if (isBypassed(config, call.name) || isGatedOut(config, call.name)) {
     return { decision: { outcome: "next" } };
   }
+  // 取不到会话 id 就无法落审计（也无法记指纹）→ 不裁定（结构面兜底）
+  if (call.sessionId === undefined || call.sessionId.length === 0) {
+    return { decision: { outcome: "next" } };
+  }
   const target = escalationTargetOf(input);
   // 拒绝名单优先于一切放行，也优先于 LLM（这两层都不需要参数原文）
   const denied =
