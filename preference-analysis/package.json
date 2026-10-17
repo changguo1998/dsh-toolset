@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-toolset/preference-analysis",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）preference-analysis 插件：从会话行为归纳用户偏好，账簿为唯一状态源，经 rule-engine 消费者注入（模型提议一律落候选待审）",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

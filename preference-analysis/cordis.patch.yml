@@ -1,0 +1,8 @@
+# 本包插入自身（bundle 层）：缺省**开启**（观察 + 归纳 + 注入）；显式 `enabled: false` 全关
+# （零观测、零写入、零注入）。其余配置项缺省见 src/main.ts 的 resolveConfig：
+# autoApply = confident、markers / thresholds / aging / similarity / inject 各有内置缺省。
+- insert:
+    - id: preference-analysis
+      name: '@dsh-toolset/preference-analysis'
+      config:
+        enabled: true
