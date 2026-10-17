@@ -79,7 +79,14 @@ export type ChannelErrorCode =
   | "error";
 
 export type ChannelResult =
-  | { ok: true; detail?: string }
+  | {
+      ok: true;
+      detail?: string;
+      /** false = 消息已进内存收件箱, 但落盘未确认（D13：记 delivered + 告警）。 */
+      durable?: boolean;
+      /** true = 命令类任务的引擎侧安全复查被跳过（fail-open, 对齐 metric-loop）。 */
+      guardSkipped?: boolean;
+    }
   | {
       ok: false;
       code: ChannelErrorCode;
