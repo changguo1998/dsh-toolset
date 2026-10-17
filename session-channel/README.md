@@ -12,7 +12,7 @@ DSH 进程内插件：**本机跨会话消息通道**——把消息从一个 ds
 | `session_channel` `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id、别名或 `cwd:<绝对路径>`；正文注入目标会话（形如 `[CHANNEL](来源) 正文`，来源 = 发送方别名，无别名时用会话 id） |
 | `session_channel` `inbox` | `sessionId`, `count?` | 查某会话最近收到的消息（只读，新→旧，缺省 20 条） |
 | `session_channel` `alias` | `op` = `set`/`list`/`clear`, `name?`, `to?`, `force?` | 别名管理：`set` 设别名（`to` 缺省 = 调用方会话，`force` 覆盖他人占用）、`list` 列别名（带在线标记）、`clear` 清别名（传 `name` 按别名、传 `to` 按会话） |
-| `session_channel` `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息 |
+| `session_channel` `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息、自动别名计数（`aliasesAuto` / `aliasesFailed`） |
 | `channel_delegate` | `to`, `task`, `timeoutSec?`, `waitMs?` | 把任务委托给另一个会话执行（planner-worker）；返回任务记录（`task.id`），结果自动 / 显式回传 |
 | `channel_task` | `action` = `status`/`list`/`cancel`, `taskId?`, `sessionId?`, `status?`, `limit?` | 任务管理：查状态 / 列任务（`sessionId` 缺省 = 调用方会话）/ 取消 |
 | `channel_task_result` | `taskId`, `text`, `failed?`, `error?` | worker 侧显式回传结果（优先于轮末自动回收） |
@@ -62,18 +62,39 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | `tasks:<sessionId>` | 每会话任务索引（`LPUSH` + `LTRIM 0..49`，新→旧；委托方与目标两侧都记） |
 | `meta` | 命名空间 schema 版本（不兼容时拒绝写入） |
 
-服务面（`ctx.get("sessionChannel")`，供 TUI / 其他插件调用）：
+服务面（`ctx.get("sessionChannel")`，供 TUI / 其他插件调用）：方法与语义见下一节。
 
-| 方法 | 说明 |
-| --- | --- |
-| `peers()` / `status()` | 在线对端 / 连接状态（只读） |
-| `send(req)` / `inbox(sessionId, count?)` | 发消息 / 查收件箱（同工具语义） |
-| `aliasSet(alias, sessionId, opts?)` / `aliasList()` / `aliasClear(opts)` | 别名管理 |
-| `kvSet(key, value, opts?)` | 共享 KV 写入（last-value + 版本号；`{expectedVersion, ttlSec}` 可选，CAS 冲突 → `kv_conflict` + `current`） |
-| `kvGet(key)` / `kvList()` / `kvDelete(key)` | 共享 KV 读单键 / 列全量（按键名排序）/ 删除（payload + 版本键） |
-| `delegate(req)` | 委托任务（`{from?, to, text, timeoutSec?, ttlSec?, waitMs?}`）；目标唯一命中后建任务表记录并把任务注入 worker |
-| `taskStatus(taskId)` / `taskList(opts?)` / `taskCancel(taskId)` | 查单个任务（懒判定超时）/ 列任务（`{sessionId?, status?, limit?}`，缺省按会话索引）/ 取消 |
-| `taskResult(input)` | 显式回传结果（`{taskId, text, failed?, error?}`；`resultSource:"tool"` 优先于自动回收） |
+### 服务面契约（逐方法签名与返回）
+
+**返回约定**：所有方法返回**普通对象**，`ok` 表示成败；可选字段**缺失即不存在**，
+不会出现值为 `undefined` 的键（工具出口另有同口径归一 `pruneUndefined`，见
+「边界与限制」的 `INVALID_TOOL_OUTPUT` 一条）。
+
+| 方法 | 参数 | 返回 |
+| --- | --- | --- |
+| `peers()` | — | `{ok, peers?: PeerInfo[], error?}`；`PeerInfo` = `{sessionId, pid, instanceId, cwd, profile, startedAt}` |
+| `status()` | — | `SessionChannelStatus` = `{enabled, connected, address, version, sessions, aliasesAuto, aliasesFailed, aliasesLastError?, error?}` |
+| `send(req)` | `{to, text, from?, waitMs?}` | `{ok, messageId?, delivered?, target?, error?, candidates?}`；`delivered` **只在 `waitMs > 0` 时出现** |
+| `inbox(sessionId, count?)` | — | `{ok, messages?: InboxMessage[], error?}`；`InboxMessage` = `{id, from, fromCwd, text, ts}`，新→旧，缺省 20 条 |
+| `aliasSet(alias, sessionId, opts?)` | `opts = {force?}` | `{ok, alias?, sessionId?, holder?, error?}`；冲突 → `error:"alias_taken"` + `holder` |
+| `aliasList()` | — | `{ok, aliases?: Array<{alias, sessionId, online}>, error?}` |
+| `aliasClear(opts)` | `{alias?, sessionId?}` | `{ok, cleared?: string[], error?}` |
+| `kvSet(key, value, opts?)` | `opts = {expectedVersion?, ttlSec?}` | `{ok, entry?, version?, current?, error?}`；CAS 冲突 → `error:"kv_conflict"` + `current` |
+| `kvGet(key)` | — | `{ok, entry?: KvEntry, error?, message?}`；`KvEntry` = `{key, value, version, updatedAt}`；不存在时只有 `ok:true` |
+| `kvList()` | — | `{ok, entries?: KvEntry[], error?}`（按键名排序） |
+| `kvDelete(key)` | — | `{ok, deleted?: boolean, error?}` |
+| `delegate(req)` | `{from?, to, text, timeoutSec?, ttlSec?, waitMs?}` | `{ok, task?, messageId?, delivered?, target?, error?, message?, candidates?}`；`task.id` 即指令 id |
+| `taskStatus(taskId)` | — | `{ok, task?: TaskRecord, error?}`；**读取时懒判定超时**并通知委托方 |
+| `taskList(opts?)` | `{sessionId?, status?, limit?}` | `{ok, tasks?: TaskRecord[], error?}`（新→旧，缺省按会话索引、20 条） |
+| `taskCancel(taskId)` | — | `{ok, task?: TaskRecord, error?}` |
+| `taskResult(input)` | `{taskId, text, failed?, error?}` | `{ok, task?, error?, message?}`；`resultSource:"tool"` 优先于轮末自动回收 |
+
+`TaskRecord`（`src/types.ts`）字段：`id` / `from` / `to` / `text` / `createdAt` / `updatedAt` /
+`status`（`pending` / `running` / `done` / `failed` / `canceled` / `timeout`）/ `deadline` /
+`messageId?` / `result?` / `resultSource?`（`tool` / `auto`）/ `resultTruncated?` / `error?`。
+
+`SessionChannelStatus` 的三个可选键（`aliasesLastError` / `error`）**按需拼装**：
+无值时不出现（不是 `undefined`）。
 
 ## 使用示例
 
@@ -103,7 +124,9 @@ profile 挂载（与其他插件同法）：
 - **离线直接报错**：目标心跳过期或 pid 已死 → `target_offline`（不做 spool / 离线队列）。
 - **不重复注入**：投递位置记在无 TTL 的 `cursor:<sessionId>` 里——接收方启动/重启从游标续读，**且只在该条注入成功后推进**；已投递过的消息（即便回执键早已过期）不会重复注入，注入失败的消息仍会补投。游标按 `ts` 懒清理（7 天），过期后该会话重来会从流起点重读（历史消息可能重投）。消息本身留在邮箱流里（`inbox` 可查）。
 - **别名**：`[A-Za-z0-9_-]{1,32}`，保留字（`inbox/alive/ack/cursor/alias/meta/peers/send/status`）不可用；一会话一别名（设新的顶掉旧的）；被别的会话占用需 `force`；别名键无 TTL，`alias clear` 手工清理。
+- **自动别名**（2026-10-17 起）：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动会话）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）；词与后缀同出自 `sha256(sessionId)`，**同一会话恒得同名**（宿主 resume 复用 sessionId，故恢复后不漂移），词表 479 词、命名空间约 3100 万。**生成时机** = 本进程首次观察到该会话的 `session/event`（`noteSession` 首见分支），已显式设过别名的会话跳过。碰撞按词表顺序换下一个候选重试 ≤ 8 次；**分配失败不再静默** —— 写日志并计入 `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计入 `aliasesAuto`）。既有旧格式别名（如 `ui-clover`）不受影响。
 - **共享 KV**（#55）：`kvSet` / `kvGet` / `kvList` / `kvDelete`，last-value + 单调版本号（CAS 用 `expectedVersion`），键 `[A-Za-z0-9_.-]{1,64}`、值 JSON 可序列化且 ≤ `maxTextBytes`；**拉取式**（无订阅 / 通知）、仅本机共享。
+- **工具返回体必须是 lossless JSON**：值为 `undefined` 的键会被宿主判为非法（`ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify` 会丢键但校验在序列化之前）。四个工具在注册时统一套 `pruneUndefined`（递归去对象键 / 数组项），服务面返回值同样不留 `undefined` 键。
 - **不做限流**：本地单用户场景；单条正文上限 8 KB。
 - **委托任务**（#54，planner-worker 语义）：`delegate` 建任务表记录（`task:<id>`，TTL 7 天）并把任务以
   `TASK <id>: <正文>` 注入 worker 会话的下一回合；worker 本轮结束（`turn/end`）时**自动回收**最终回答
@@ -119,7 +142,7 @@ profile 挂载（与其他插件同法）：
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # tsc → dist/
-npm run test    # node --test（47 例；无 redis-server 的机器上集成用例自动 skip）
+npm run test    # node --test（55 例；无 redis-server 的机器上集成用例自动 skip）
 ```
 
 设计决策见 `docs/DESIGN.md`；缺陷与待办见 `docs/BACKLOG.md`。

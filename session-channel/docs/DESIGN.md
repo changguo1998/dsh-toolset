@@ -38,6 +38,14 @@ dsh:session-channel:meta                String  schema 版本（不兼容 → �
 
 - **在线 = 在线键存在（TTL 内）且 `process.kill(pid, 0)` 不抛 ESRCH**；形状不符或 pid 已死的残留键由 `listPeers` 懒清理（无额外守护进程）。
 - **寻址解析**（`resolveTarget`）：`cwd:<绝对路径>` 前缀 → 按路径匹配；否则**会话 id 精确匹配 → 别名（`alias:<alias>`）**；都不命中返回空，由发送侧报 `target_offline`。别名由 `setAlias` 写入（校验字符集与保留字 → 冲突需 `force` → 顶掉同会话旧别名 → 写入）。
+
+### 3.1 自动别名（2026-10-17 改版）
+
+- **命名**：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）。词与后缀同出自 `sha256(sessionId)`：词 = 前 2 字节对词表规模取模，后缀 = 第 2-4 字节 hex（`alias-words.ts` 的 `autoAliasCandidate`）。词表 479 词 → 命名空间 ≈ 3100 万。
+- **生成时机**：`noteSession` 的**首见分支**（`session/event` 驱动），本进程首次观察到该会话时尝试一次；已有别名（含显式设置）直接跳过。故「启动即分配」与「首次用到才分配」都不对，准确表述是「本进程首次见到该会话」。
+- **持久性**：别名键**无 TTL**（Redis `appendonly yes`）；宿主 resume 复用同一 `sessionId`（`agents.resume({resumeSessionId})`），同 id 再出现时因已有别名跳过重命名 → **恢复后不漂移**（有代码依据，非设计推断）。
+- **碰撞与失败**：候选按 `(base + attempt) % 词表规模` 顺序推进（`AUTO_ALIAS_TRIES = 8`），候选间必不重复；重试耗尽或抛错**不再静默** —— 一条日志 + `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计 `aliasesAuto`）。原实现（随机词、静默失败）在 148 词耗尽后使自动别名事实上不可用（本机实测 `sub-` 已满），见 `docs/BACKLOG.md` 的缺陷条目。
+- 既有旧格式别名（`ui-clover` 等 295 条）保持原样，不做迁移。
 - **游标语义**：投递位置记在**无 TTL** 的 `cursor:<sessionId>`（值 `{id, ts}`）里——接收方跟踪会话或重启时读该键作为读取起点（**读不到才退化为 `0`**：发送方可能先入队、接收方后启动），且**只在注入成功后推进**（失败不推进 → 重启补投）。读取完成前该会话不进 reader 读取集合（`cursorReady` 门），避免「先用 `0` 读一次」的重复窗口面。`start()` 时按 `ts` 懒清理超过 7 天（`CURSOR_TTL_MS`）的游标键。
 - **回执**：接收方注入成功才写回执（`ack:<messageId>`，TTL 60s），**只服务发送方 `send` 的 `waitMs` 等待窗口**（100ms 轮询）——**不作为去重依据**（去重靠游标，回执过期不影响去重）。注入失败（会话不在本进程）不写回执，消息留在流里（`inbox` 可查）。
 - **共享 KV**（#55）：`kv:<key>` 存 last-value（JSON 可序列化，UTF-8 上限取 `maxTextBytes`），`kvver:<key>` 用 `INCR` 提供**单调版本号**；写入在单条 Lua 脚本内完成「读旧版本 → CAS 校验 → 版本 +1 → SET」，`expectedVersion` 不匹配返回 `kv_conflict` + 当前值（供合并重试）；`ttlSec > 0` 时带过期；`kvDelete` 同时删两个键（版本归零）。键名 `[A-Za-z0-9_.-]{1,64}`。语义：last-value + 版本号，供插件跨会话 / 跨进程同步状态；不做订阅 / 通知（拉取式）。
@@ -86,6 +94,8 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标；游�
 
 工具 `session_channel` 动作：`peers` / `send` / `inbox` / `alias`（`op=set|list|clear`，`name`=别名，`to` 缺省为调用方会话，`force` 覆盖占用）/ `status`。`execute(args, exec)` 从宿主 `exec.agent.session.id` 取调用方会话（非 agent 调用方 → 须显式传 `to`）。
 
+**工具返回体 = lossless JSON**（2026-10-17）：宿主对工具返回值做 `snapshotToolValue` → `walkJsonValue`，**值为 `undefined` 的键即判非法**（`ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify` 会丢键但校验发生在序列化之前）。`apply()` 注册时给四个工具的 `execute` 逐个套 `withLosslessOutput`（内部 `pruneUndefined`：递归删对象键 / 数组项，循环安全）；服务面返回值同时不留 `undefined` 键（`sendMessage` 的 `delivered` 条件展开、`status()` 的可选键按需拼装、重连成功用 `delete` 清 `error`）。
+
 任务三工具（planner-worker）：`channel_delegate`（`to` / `task` / `timeoutSec?` / `waitMs?`）、`channel_task`（`action=status|list|cancel`；`list` 的 `sessionId` 缺省 = 调用方会话，`limit` 上限 100）、`channel_task_result`（`taskId` / `text` / `failed?` / `error?`）。
 
 ## 8. 约束与已知边界
@@ -95,6 +105,7 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标；游�
 - 会话跟踪上限 32（TUI 单活跃场景远超需求）；`session/event` 未覆盖的会话（如从未产生事件）不会被跟踪。
 - 本进程内多会话同时在线时，各会话独立邮箱流与游标；一个进程只有一个 reader 连接（多流单次读）。
 - 游标键随会话累计且无 TTL：由 `start()` 懒清理（`ts` 超 7 天）；被清理后该会话若再来，会从邮箱流起点重读，历史消息可能重投（可接受：宁可重投不漏投）。
+- 自动别名的确定性后缀以 `sessionId` 为唯一输入：同一 sessionId 在不同机器 / Redis 实例上会得到同一个名字（跨机部署时理论上可能与别人的会话撞名，撞了按候选序列重试）。
 - 依赖 `redis` 包（首个带外部运行时依赖的包）：`node_modules` 不入库，新机器需 `npm install --prefix session-channel`（`scripts/install.sh` 已含该步）。
 
 ## 9. 明确不做

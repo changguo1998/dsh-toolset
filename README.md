@@ -16,6 +16,7 @@ The repository contains the `TUI/` terminal UI package and 22 in-process plugins
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
 | **herdr-pane** | herdr pane read/write: treats a pane as a controllable pseudo-terminal layer (create pane / inject text and keys / read screen / wait for output / inspect processes / close) to drive interactive commands that need screen state and key timing; one model-facing tool `herdr_pane` plus a reusable library surface; write actions are limited to panes this plugin created, and pass through guard re-check, security-guard registration and out-of-scope approval |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
+| **session-paths** | Host session-directory encoding, replicated as one in-repo source of truth: `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` re-implemented character-for-character from `@deepseek-ai/dsh-session-persistence-jsonl`, exposed as the `sessionPaths` service (`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`). Pure functions never touch disk; `sessionDirFor(sessionId)` resolves `header.cwd` through the host `sessions` service (optional read, not in `inject`) |
 | **memory-base** | Cross-session knowledge base and persistent memory: two base tables (`sources`/`chunks`) plus two FTS5 virtual tables, a two-level write policy with eviction and promotion, readable and writable by other plugins through the host's shared surface |
 | **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
 | **metric-loop** | Metric-driven automatic loop: a measure command parses a single number, plateau stop, round/time/token bounds, cadence auto-wake |
@@ -47,6 +48,7 @@ dsh-toolset/
 ├── herdr-integration/    # herdr 面板桥
 ├── herdr-pane/           # herdr pane 读写（交互式命令驱动）
 ├── task-engine/          # 任务树引擎
+├── session-paths/        # 会话目录编码（宿主编码复刻 + sessionPaths 服务）
 ├── memory-base/       # 知识库与持久记忆
 ├── goal-contract/        # Done-when 契约起草
 ├── metric-loop/          # 指标循环

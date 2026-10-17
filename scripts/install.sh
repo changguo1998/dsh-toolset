@@ -27,7 +27,7 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 profile_asset_dir="$repo_root/profiles/example"
 # 插件清单（canonical_pkgs）：集合与根 package.json 的 check/build 链一致，顺序与
 # scripts/test-parallel.sh 的 default_pkgs 同序（scripts/test-install.sh 有校验）。
-canonical_pkgs="TUI herdr-integration herdr-pane memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis"
+canonical_pkgs="TUI herdr-integration herdr-pane memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths"
 usage() {
     cat << 'EOF'
 用法：scripts/install.sh [选项]

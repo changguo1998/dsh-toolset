@@ -1,0 +1,11 @@
+# agent-group 插件的 dsh bundle 声明。
+# 本包默认开启；依赖两个**已挂载**的服务（可选读取，缺失时不注册工具并警告一次）：
+# - sessionChannel（session-channel 插件）：投递指令 / 读取回报；
+# - sessionPaths（session-paths 插件）：把组状态落管理者会话目录。
+# 依赖未就位时本包照常加载，只是不注册 agent_group 工具（见 README「依赖与降级」）。
+# 要覆盖配置时在 profile 用户 patch 里按 id 追加同名字段（见 README「配置」）。
+- insert:
+    - id: agent-group
+      name: '@dsh-toolset/agent-group'
+      config:
+        enabled: true

@@ -16,6 +16,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
 | **herdr-pane** | herdr pane 读写：把 pane 当可控伪终端层（建 pane / 注入文本与按键 / 取屏 / 等输出 / 进程探活 / 关闭），驱动需要屏幕状态与按键时序的交互式命令；单个模型侧工具 `herdr_pane` + 可复用的库面；写类动作只作用于自建 pane，过 guard 复查、security-guard 登记与越界审批 |
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
+| **session-paths** | 宿主会话目录编码的仓内唯一事实源：逐字符复刻 `@deepseek-ai/dsh-session-persistence-jsonl` 的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用（`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`）。纯函数不落盘；`sessionDirFor(sessionId)` 经宿主 `sessions` 服务取 `header.cwd`（可选读取，不写进 `inject`） |
 | **memory-base** | 跨会话知识库与持久记忆：`sources`/`chunks` 两张基表 + 两张 FTS5 虚表，两级写策略与淘汰提升，供其他插件经宿主共享面读写 |
 | **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
 | **metric-loop** | 指标驱动自动循环：测量命令解析单个数字、plateau 平稳停止、轮数/时间/token 边界、cadence 自动唤醒 |
@@ -47,6 +48,7 @@ dsh-toolset/
 ├── herdr-integration/    # herdr 面板桥
 ├── herdr-pane/           # herdr pane 读写（交互式命令驱动）
 ├── task-engine/          # 任务树引擎
+├── session-paths/        # 会话目录编码（宿主编码复刻 + sessionPaths 服务）
 ├── memory-base/       # 知识库与持久记忆
 ├── goal-contract/        # Done-when 契约起草
 ├── metric-loop/          # 指标循环

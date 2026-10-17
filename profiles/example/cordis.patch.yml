@@ -49,6 +49,14 @@
   config:
     theme: dark
 
+# 会话目录编码服务（session-paths）：由 bundles 挂载，且排在 memory-base 之前，
+# 保证服务先注册（memory-base 的 S 库、output-compress 的 digest.db 都经它取会话目录）。
+# 本条目无需用户层配置（sessions 根缺省 $DSH_HOME/sessions）；要改根时按 id 覆盖：
+# - id: session-paths
+#   name: '@dsh-toolset/session-paths'
+#   config:
+#     root: /path/to/sessions
+
 # 知识库：dbPath 接受 `!!js` 表达式——环境变量优先，否则落到 dshHomePath 下，
 # 避免把绝对家目录路径写进随仓库分发的配置。
 - id: memory-base
