@@ -1,0 +1,8 @@
+# session-paths 插件的 dsh bundle 声明。
+# dsh 宿主按 package.json 的 dsh.bundle.patch 加载本文件，把会话目录编码服务挂进进程内。
+# 本包没有开关：纯函数服务，配置只有 `root`（sessions 根）；缺省读 `DSH_HOME` →
+# `<DSH_HOME>/sessions`，无该变量回落 `~/.dsh/sessions`。要覆盖时在 profile 用户 patch 里
+# 按 id 追加 config（见 README「配置」）。
+- insert:
+    - id: session-paths
+      name: '@dsh-toolset/session-paths'
