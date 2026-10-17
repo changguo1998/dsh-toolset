@@ -442,9 +442,15 @@ export async function sendMessage(
     ),
   );
   const waitMs = req.waitMs ?? 0;
-  const delivered =
-    waitMs > 0 ? await waitForAck(client, messageId, waitMs) : undefined;
-  return { ok: true, messageId, delivered, target };
+  const delivered = waitMs > 0 ? await waitForAck(client, messageId, waitMs) : undefined;
+  // `delivered` 仅在真等过回执时出现：值为 `undefined` 的键不是 lossless JSON，
+  // 工具面缺省不传 `waitMs`（2026-10-17 宿主 `INVALID_TOOL_OUTPUT` 的根因之一）。
+  return {
+    ok: true,
+    messageId,
+    ...(delivered === undefined ? {} : { delivered }),
+    target,
+  };
 }
 
 /** 收件箱只读视图（新→旧，最多 count 条）。 */

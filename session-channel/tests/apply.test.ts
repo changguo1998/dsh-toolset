@@ -7,8 +7,11 @@ import { test } from "node:test";
 import {
   apply,
   getSessionChannelService,
+  pruneUndefined,
   SERVICE_FACE_METHODS,
   SessionChannelService,
+  toToolDef,
+  withLosslessOutput,
 } from "../src/index.ts";
 import {
   makeFakeHost,
@@ -147,7 +150,7 @@ redisTest(
       // F1 起：会话首见自动生成别名（ui- 前缀）→ 来源标签用别名而非会话 id
       assert.match(
         injected.content?.[0]?.text ?? "",
-        /^\[CHANNEL\]\(ui-[a-z]+\) 自测$/,
+        /^\[CHANNEL\]\(ui-[a-z]+-[0-9a-f]{4}\) 自测$/,
       );
       assert.equal(injected.source?.kind, "session-channel");
 
@@ -172,7 +175,7 @@ redisTest(
       const injected2 = received[1] as { source?: { summary?: string } };
       assert.match(
         String(injected2.source?.summary ?? ""),
-        /来自 ui-[a-z]+$/,
+        /来自 ui-[a-z]+-[0-9a-f]{4}$/,
         "接收侧注入应带发送方别名（F1 起为自动别名）",
       );
       const inboxD4 = (await channelTool.execute({
@@ -330,4 +333,71 @@ test("render 形参顺序哨兵：4 个注册点逐个覆盖（变异回单形�
       `${tool.name}：第一参（args）不该被当成 value 渲染`,
     );
   }
+});
+
+/**
+ * 宿主的 lossless JSON 判定同口径（`dsh-util-values` 的 `walkJsonValue` 语义）：
+ * `undefined`（含对象键 / 数组项）、`NaN` / `Infinity` / `-0`、非平凡原型一律非法。
+ */
+function isLosslessJson(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value === "boolean" || typeof value === "string") return true;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && !Object.is(value, -0);
+  }
+  if (typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.every(isLosslessJson);
+  const proto = Object.getPrototypeOf(value) as unknown;
+  if (proto !== Object.prototype && proto !== null) return false;
+  return Object.values(value as Record<string, unknown>).every(isLosslessJson);
+}
+
+test("工具出口归一（2026-10-17）：返回体带 undefined 时置空为 lossless JSON", async () => {
+  const sent: unknown[] = [];
+  // 假服务：故意返回各种带 `undefined` 的形状（嵌套对象 / 数组 / 直接字段）
+  const fakeService = {
+    peers: async () => ({
+      ok: true,
+      peers: [{ sessionId: "s-1", alias: undefined }],
+      error: undefined,
+    }),
+    send: async () => {
+      const sentValue = { ok: true, messageId: "1-0", delivered: undefined, target: undefined };
+      sent.push(sentValue);
+      return sentValue;
+    },
+    inbox: async () => ({ ok: true, messages: [] }),
+    aliasSet: async () => ({ ok: true }),
+    aliasList: async () => ({ ok: true, aliases: [] }),
+    aliasClear: async () => ({ ok: true, cleared: [] }),
+    status: () => ({ enabled: true, connected: true, sessions: [], error: undefined }),
+  };
+  const tool = withLosslessOutput(toToolDef(fakeService as never));
+  for (const args of [{ action: "status" }, { action: "peers" }]) {
+    const out = await tool.execute(args as never);
+    assert.ok(isLosslessJson(out), `返回体应 lossless：${JSON.stringify(out)}`);
+  }
+  const sentOut = (await tool.execute({
+    action: "send",
+    to: "s-1",
+    text: "x",
+  } as never)) as { ok: boolean; delivered?: unknown; target?: unknown };
+  assert.ok(isLosslessJson(sentOut), "send 返回体应 lossless");
+  assert.equal("delivered" in sentOut, false, "无回执时不带 delivered 键");
+  assert.equal("target" in sentOut, false, "无目标时不带 target 键");
+});
+
+test("send 根因：不带 waitMs 时服务面返回体就没有 delivered 键（不是 undefined）", async () => {
+  // 与服务面实现同构的最小断言：broker 侧构造（走真 sendMessage 需 Redis，见 service 用例；
+  // 此处锁「返回体形状」这一条不变量）
+  const shape = (delivered: boolean | undefined) => ({
+    ok: true,
+    messageId: "1-0",
+    ...(delivered === undefined ? {} : { delivered }),
+    target: { sessionId: "s-1" },
+  });
+  const out = shape(undefined);
+  assert.equal("delivered" in out, false);
+  assert.ok(isLosslessJson(out));
+  assert.equal(shape(false)["delivered"], false);
 });

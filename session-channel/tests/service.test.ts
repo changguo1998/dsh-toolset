@@ -75,9 +75,19 @@ redisTest("端到端：A 发送 → B 注入并回执 → A 收到 delivered", a
     // F1 起：会话首见自动生成别名（ui- 前缀）→ 来源标签用别名而非会话 id
     assert.match(
       injected.content?.[0]?.text ?? "",
-      /^\[CHANNEL\]\(ui-[a-z]+\) hello B$/,
+      /^\[CHANNEL\]\(ui-[a-z]+-[0-9a-f]{4}\) hello B$/,
     );
     assert.equal(injected.source?.kind, "session-channel");
+
+    // 缺陷回归（2026-10-17）：不带 waitMs 的 send 返回体须 lossless JSON
+    // （原实现带 `delivered: undefined` → 宿主 INVALID_TOOL_OUTPUT）
+    const noWait = await a.send({ to: "sess-b", text: "不等回执", from: "sess-a" });
+    assert.equal(noWait.ok, true, JSON.stringify(noWait));
+    assert.equal(
+      Object.hasOwn(noWait, "delivered"),
+      false,
+      "未等回执时不该有 delivered 键",
+    );
 
     // cwd 寻址同样可达（两个会话同目录 → 歧义，故用精确 id 之外的路径单独验证）
     const peers = await a.peers();
