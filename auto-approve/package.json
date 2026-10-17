@@ -1,0 +1,30 @@
+{
+    "name": "@dsh-toolset/auto-approve",
+    "version": "0.1.0",
+    "description": "DSH（DeepSeek Harness）自动审批插件：在审批请求链上按名单 / 只读类 / 指纹 / 沙箱升级规则 / LLM 灰区审查自动裁定，免去逐次人工应答（未命中照常交人工面板）",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
