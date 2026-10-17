@@ -1,43 +1,55 @@
 /**
- * 分层三库测试（设计 §2 / §7 / §8）：
- * 一库一指纹、写入路由（auto → S / user 直达）、跨层检索加权、字节容量、旧 v1 库不被自动读取。
+ * 分层库测试：一库一指纹、惰性建库（只解析落点不落盘）、S 层按会话解析与缓存、
+ * 写入直落目标层、跨层检索加权、用量只报已创建的库。
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { TierSet, TIER_LIMIT_BYTES, tierUsageBytes } from "../src/tiers.ts";
+import { TierSet, TIER_WEIGHT, type SessionPathsLike } from "../src/tiers.ts";
 import { LEGACY_V1_APPLICATION_ID, openTierDatabase } from "../src/schema.ts";
-import { resolveTierPaths } from "../src/router.ts";
+import { KindRegistry } from "../src/router.ts";
 
-/** 建一个临时工作区：会话目录 + 项目根 + dshHome。 */
+/** 临时工作区：会话目录按 sessionId 分桶（假 sessionPaths 只做这一件事）。 */
 async function workspace(): Promise<{
   dir: string;
-  sessionDir: string;
-  projectRoot: string;
   dshHome: string;
+  projectRoot: string;
+  sessionPaths: SessionPathsLike;
+  sessionDir: string;
 }> {
   const dir = await mkdtemp(join(tmpdir(), "kb-tiers-"));
+  const sessionDir = join(dir, "sessions", "proj", "s1");
   return {
     dir,
-    sessionDir: join(dir, "sessions", "proj", "s1"),
-    projectRoot: join(dir, "repo"),
     dshHome: join(dir, "dsh"),
+    projectRoot: join(dir, "repo"),
+    sessionPaths: {
+      sessionDirFor: (id: string) => join(dir, "sessions", "proj", id),
+    },
+    sessionDir,
   };
+}
+
+/** 注册表：三个 kind，其中 `note` 缺省（只可写会话层）、`proj` 可写项目层、`usr` 可写用户层。 */
+function registry(): KindRegistry {
+  const r = new KindRegistry();
+  r.register({ kind: "note" });
+  r.register({ kind: "proj", writableTiers: ["project"] });
+  r.register({ kind: "usr", writableTiers: ["user"] });
+  return r;
 }
 
 test("三库各自独立指纹：拿 session 库当 project 库打开被拒", async () => {
   const ws = await workspace();
   try {
-    const paths = resolveTierPaths(ws);
-    const sessionPath = paths.session;
-    assert.ok(sessionPath);
+    const sessionPath = join(ws.sessionDir, "session.db");
     const session = await openTierDatabase(sessionPath, "session");
     session.close();
-
     await assert.rejects(
       () => openTierDatabase(sessionPath, "project"),
       /指纹 .* 与该层（.*）不符，拒绝打开/,
@@ -54,7 +66,6 @@ test("旧 v1 库（'KNOW' 指纹）不会被任一层自动读取", async () => 
     const db = new DatabaseSync(legacy);
     db.exec(`PRAGMA application_id = ${LEGACY_V1_APPLICATION_ID}`);
     db.close();
-
     for (const tier of ["session", "project", "user"] as const) {
       await assert.rejects(
         () => openTierDatabase(legacy, tier),
@@ -66,49 +77,146 @@ test("旧 v1 库（'KNOW' 指纹）不会被任一层自动读取", async () => 
   }
 });
 
-test("写入路由：自动路径落 S，origin=user 直达 U", async () => {
+test("惰性建库：open 只解析落点，首次写入才创建文件", async () => {
+  const ws = await workspace();
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    projectRoot: ws.projectRoot,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
+  try {
+    assert.equal(
+      tiers.pathFor("user"),
+      join(ws.dshHome, "memory-base", "user.db"),
+    );
+    assert.equal(
+      tiers.pathFor("project"),
+      join(ws.projectRoot, ".dsh", "project.db"),
+    );
+    assert.equal(
+      tiers.pathFor("session", "s1"),
+      join(ws.sessionDir, "session.db"),
+    );
+    assert.equal(
+      tiers.pathFor("session"),
+      undefined,
+      "S 层缺 sessionId 无落点",
+    );
+    assert.equal(tiers.all().length, 0, "open 不打开任何库");
+    assert.equal(existsSync(join(ws.dshHome, "memory-base", "user.db")), false);
+
+    await tiers.write("user", {
+      kind: "usr",
+      project: "p",
+      content: "用户偏好 A",
+    });
+    assert.ok(existsSync(join(ws.dshHome, "memory-base", "user.db")));
+    assert.equal(tiers.all().length, 1);
+    assert.equal(
+      existsSync(join(ws.projectRoot, ".dsh", "project.db")),
+      false,
+      "没写的层不建库",
+    );
+  } finally {
+    tiers.close();
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
+test("S 层按会话解析：不同会话各落各库", async () => {
+  const ws = await workspace();
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
+  try {
+    await tiers.write(
+      "session",
+      { kind: "note", project: "p", content: "会话一的要点" },
+      "s1",
+    );
+    await tiers.write(
+      "session",
+      { kind: "note", project: "p", content: "会话二的要点" },
+      "s2",
+    );
+    const s1 = join(ws.dir, "sessions", "proj", "s1", "session.db");
+    const s2 = join(ws.dir, "sessions", "proj", "s2", "session.db");
+    assert.ok(existsSync(s1));
+    assert.ok(existsSync(s2));
+    assert.equal(
+      tiers.opened("session", "s1")?.kb.search({ query: "会话一" }).length,
+      1,
+    );
+    assert.equal(
+      tiers.opened("session", "s2")?.kb.search({ query: "会话一" }).length,
+      0,
+    );
+    // 缓存：同一会话第二次写入复用同一连接。
+    await tiers.write(
+      "session",
+      { kind: "note", project: "p", content: "会话一第二条" },
+      "s1",
+    );
+    assert.equal(tiers.all().length, 2);
+  } finally {
+    tiers.close();
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
+test("S 层降级：缺 sessionPaths / 缺 sessionId / 目录解析失败均抛明示例外", async () => {
   const ws = await workspace();
   try {
-    const tiers = await TierSet.open({
-      paths: resolveTierPaths(ws),
-      projectKey: "proj-a",
-    });
-    try {
-      const auto = tiers.remember({
-        content: "自动写入的会话要点",
-        project: "proj-a",
-        source: { kind: "manual" },
-      });
-      assert.equal(auto.ids.length, 1);
-      assert.equal(
-        tiers.get("user")?.kb.search({ query: "自动写入" }).length,
-        0,
-      );
-      assert.equal(
-        tiers.get("session")?.kb.search({ query: "自动写入" }).length,
-        1,
-      );
+    const noPaths = TierSet.open({ dshHome: ws.dshHome, registry: registry() });
+    await assert.rejects(
+      () =>
+        noPaths.write(
+          "session",
+          { kind: "note", project: "p", content: "x" },
+          "s1",
+        ),
+      /需要 session-paths 服务/,
+    );
+    noPaths.close();
 
-      tiers.remember({
-        content: "用户偏好：提交信息用中文",
-        project: "proj-a",
-        source: { kind: "manual" },
-        origin: "user",
-        tier: "user",
-        // U 层禁止落兜底（设计 §5）：显式给已注册 kind。
-        kind: "default",
-      });
-      assert.equal(
-        tiers.get("user")?.kb.search({ query: "提交信息" }).length,
-        1,
-      );
-      assert.equal(
-        tiers.get("session")?.kb.search({ query: "提交信息" }).length,
-        0,
-      );
-    } finally {
-      tiers.close();
-    }
+    const withPaths = TierSet.open({
+      dshHome: ws.dshHome,
+      sessionPaths: ws.sessionPaths,
+      registry: registry(),
+    });
+    await assert.rejects(
+      () =>
+        withPaths.write("session", {
+          kind: "note",
+          project: "p",
+          content: "x",
+        }),
+      /需要 sessionId/,
+    );
+    withPaths.close();
+
+    const failing = TierSet.open({
+      dshHome: ws.dshHome,
+      sessionPaths: {
+        sessionDirFor: () => {
+          throw new Error("sessions 服务缺失");
+        },
+      },
+      registry: registry(),
+    });
+    await assert.rejects(
+      () =>
+        failing.write(
+          "session",
+          { kind: "note", project: "p", content: "x" },
+          "s1",
+        ),
+      /sessions 服务缺失/,
+    );
+    failing.close();
   } finally {
     await rm(ws.dir, { recursive: true, force: true });
   }
@@ -116,96 +224,145 @@ test("写入路由：自动路径落 S，origin=user 直达 U", async () => {
 
 test("跨层检索：命中三层并按 U > P > S 加权排序", async () => {
   const ws = await workspace();
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    projectRoot: ws.projectRoot,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
   try {
-    const tiers = await TierSet.open({
-      paths: resolveTierPaths(ws),
-      projectKey: "proj-a",
+    await tiers.write(
+      "session",
+      { kind: "note", project: "p", content: "检索排序验证 payload" },
+      "s1",
+    );
+    await tiers.write("project", {
+      kind: "proj",
+      project: "p",
+      content: "检索排序验证 payload（项目级结论）",
     });
-    try {
-      const base = {
-        content: "检索排序验证 payload",
-        project: "proj-a",
-        source: { kind: "manual" as const },
-      };
-      tiers.remember({ ...base });
-      tiers.remember({
-        ...base,
-        content: "检索排序验证 payload（项目级结论）",
-        origin: "user",
-        tier: "project",
-      });
-      tiers.remember({
-        ...base,
-        content: "检索排序验证 payload（用户偏好）",
-        origin: "user",
-        tier: "user",
-        kind: "default",
-      });
+    await tiers.write("user", {
+      kind: "usr",
+      project: "p",
+      content: "检索排序验证 payload（用户偏好）",
+    });
 
-      const hits = tiers.search({ query: "payload" });
-      assert.equal(hits.length, 3);
-      assert.deepEqual(
-        hits.map((hit) => hit.tier),
-        ["user", "project", "session"],
-      );
-
-      const scoped = tiers.search({ query: "payload", tier: "session" });
-      assert.equal(scoped.length, 1);
-      assert.equal(scoped[0]?.tier, "session");
-
-      const limited = tiers.search({ query: "payload", limit: 2 });
-      assert.equal(limited.length, 2);
-    } finally {
-      tiers.close();
-    }
+    const hits = tiers.search({ query: "payload" });
+    assert.equal(hits.length, 3);
+    assert.deepEqual(
+      hits.map((hit) => hit.tier),
+      ["user", "project", "session"],
+    );
+    assert.deepEqual(
+      hits.map((hit) => TIER_WEIGHT[hit.tier]),
+      [TIER_WEIGHT.user, TIER_WEIGHT.project, TIER_WEIGHT.session],
+    );
+    assert.equal(tiers.search({ query: "payload", tier: "session" }).length, 1);
+    assert.equal(tiers.search({ query: "payload", limit: 2 }).length, 2);
   } finally {
+    tiers.close();
     await rm(ws.dir, { recursive: true, force: true });
   }
 });
 
-test("容量：逐库字节口径与上限（U 为软上限）", async () => {
+test("跨层列举：按 kind 合并各层，按创建时间倒序并支持分页", async () => {
   const ws = await workspace();
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    projectRoot: ws.projectRoot,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
   try {
-    const tiers = await TierSet.open({ paths: resolveTierPaths(ws) });
-    try {
-      const usage = tiers.usage();
-      assert.equal(usage.length, 3);
-      for (const entry of usage) {
-        assert.equal(entry.limitBytes, TIER_LIMIT_BYTES[entry.tier]);
-        assert.equal(entry.over, false);
-        assert.ok(entry.bytes > 0, "空库也有页");
-        assert.equal(entry.soft, entry.tier === "user");
-      }
-      const user = tiers.get("user");
-      assert.ok(user);
-      assert.equal(tierUsageBytes(user.db), usage[2]?.bytes);
-    } finally {
-      tiers.close();
-    }
+    await tiers.write(
+      "session",
+      { kind: "note", project: "p", content: "会话条目" },
+      "s1",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 3));
+    await tiers.write("project", {
+      kind: "note",
+      project: "p",
+      content: "项目条目",
+    });
+    const all = tiers.list({ kind: "note" });
+    assert.deepEqual(
+      all.map((row) => row.content),
+      ["项目条目", "会话条目"],
+    );
+    assert.equal(
+      tiers.list({ kind: "note", limit: 1 })[0]?.content,
+      "项目条目",
+    );
+    assert.equal(
+      tiers.list({ kind: "note", limit: 1, offset: 1 })[0]?.content,
+      "会话条目",
+    );
+    assert.deepEqual(
+      tiers.list({ kind: "note", tier: "session" }).map((r) => r.tier),
+      ["session"],
+    );
   } finally {
+    tiers.close();
     await rm(ws.dir, { recursive: true, force: true });
   }
 });
 
-test("跨项目 P：只有显式给出项目根才打开，且标记为非当前", async () => {
+test("删除：真删并返回条数；未创建的层视为无行", async () => {
   const ws = await workspace();
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    projectRoot: ws.projectRoot,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
   try {
-    const otherRoot = join(ws.dir, "other-repo");
-    const tiers = await TierSet.open({
-      paths: resolveTierPaths(ws),
-      projectKey: "proj-a",
-      otherProjectRoots: [otherRoot],
+    const put = await tiers.write("project", {
+      kind: "proj",
+      project: "p",
+      content: "待删除的项目条目",
     });
-    try {
-      const projects = tiers.all().filter((store) => store.tier === "project");
-      assert.equal(projects.length, 2);
-      assert.equal(projects.filter((store) => store.current).length, 1);
-      const other = projects.find((store) => !store.current);
-      assert.equal(other?.project, otherRoot);
-    } finally {
-      tiers.close();
-    }
+    assert.equal(
+      await tiers.forget([
+        { tier: "project", ids: put.ids.map((id) => ({ kind: "proj", id })) },
+      ]),
+      1,
+    );
+    assert.equal(tiers.search({ query: "待删除" }).length, 0);
+    assert.equal(
+      await tiers.forget([
+        { tier: "user", ids: [{ kind: "usr", id: 1 }], sessionId: undefined },
+      ]),
+      0,
+      "未创建的层不算删除",
+    );
   } finally {
+    tiers.close();
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
+test("用量：只报已创建的库，未创建的层不出现", async () => {
+  const ws = await workspace();
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    projectRoot: ws.projectRoot,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
+  try {
+    assert.deepEqual(await tiers.usage(), []);
+    await tiers.write("user", {
+      kind: "usr",
+      project: "p",
+      content: "用户层条目",
+    });
+    const usage = await tiers.usage();
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0]?.tier, "user");
+    assert.ok((usage[0]?.bytes ?? 0) > 0);
+  } finally {
+    tiers.close();
     await rm(ws.dir, { recursive: true, force: true });
   }
 });
