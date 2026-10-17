@@ -19,10 +19,7 @@ function service(built: Harness) {
     journal: built.journal,
     scheduler: built.scheduler,
     channels: {
-      list: () => [
-        { mode: "deliver" as const },
-        { mode: "command" as const },
-      ],
+      list: () => [{ mode: "deliver" as const }, { mode: "command" as const }],
     },
   });
 }
@@ -51,8 +48,14 @@ test("list：返回任务快照（改动不影响服务面内部数据）", asyn
   assert.equal(listed.length, 1);
   assert.equal(listed[0]?.id, task.id);
   // 只读面没有写方法
-  assert.equal((face as unknown as Record<string, unknown>)["create"], undefined);
-  assert.equal((face as unknown as Record<string, unknown>)["pause"], undefined);
+  assert.equal(
+    (face as unknown as Record<string, unknown>)["create"],
+    undefined,
+  );
+  assert.equal(
+    (face as unknown as Record<string, unknown>)["pause"],
+    undefined,
+  );
 });
 
 test("status：调度状态 + 路径 + 渠道 + 计数", async () => {

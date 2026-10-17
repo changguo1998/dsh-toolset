@@ -5,7 +5,7 @@
  * 工具只做参数校验 + 委派, 业务语义与命令面共用同一套 store / scheduler。
  */
 
-import { normalizeSelector } from "./selectors.ts";
+import { isPeriodic, nextAfter, normalizeSelector } from "./selectors.ts";
 import type { Scheduler } from "./scheduler.ts";
 import type { TaskStore } from "./store.ts";
 import type { DaemonTask, RunRecord, TaskMode, TaskTier } from "./types.ts";
@@ -49,9 +49,22 @@ export function createDaemonTaskTool(deps: DaemonToolDeps): object {
       properties: {
         action: {
           type: "string",
-          enum: ["create", "list", "show", "pause", "resume", "run", "cancel", "log"],
+          enum: [
+            "create",
+            "list",
+            "show",
+            "pause",
+            "resume",
+            "run",
+            "cancel",
+            "log",
+          ],
         },
-        id: { type: "string", description: "任务 id（show / pause / resume / run / cancel / log 用）" },
+        id: {
+          type: "string",
+          description:
+            "任务 id（show / pause / resume / run / cancel / log 用）",
+        },
         selector: {
           type: "object",
           description:
@@ -61,14 +74,25 @@ export function createDaemonTaskTool(deps: DaemonToolDeps): object {
           additionalProperties: true,
           properties: {},
         },
-        payload: { type: "string", description: "投递正文；command 类型时为完整 slash 命令行" },
+        payload: {
+          type: "string",
+          description: "投递正文；command 类型时为完整 slash 命令行",
+        },
         mode: {
           type: "string",
           enum: ["deliver", "command"],
-          description: "deliver = 投递提示文本（缺省）；command = 执行 slash 命令",
+          description:
+            "deliver = 投递提示文本（缺省）；command = 执行 slash 命令",
         },
-        sessionId: { type: "string", description: "目标会话 id（缺省取当前会话）" },
-        tier: { type: "string", enum: ["S", "P", "U"], description: "分档（缺省 S）" },
+        sessionId: {
+          type: "string",
+          description: "目标会话 id（缺省取当前会话）",
+        },
+        tier: {
+          type: "string",
+          enum: ["S", "P", "U"],
+          description: "分档（缺省 S）",
+        },
         limit: { type: "number", description: "log 用，条数上限（缺省 20）" },
       },
       required: ["action"],
@@ -96,7 +120,11 @@ export async function executeDaemonTool(
     case "create":
       return createTask(args, deps, now);
     case "list":
-      return { ok: true, text: renderList(deps.store.list()), tasks: deps.store.list() };
+      return {
+        ok: true,
+        text: renderList(deps.store.list()),
+        tasks: deps.store.list(),
+      };
     case "show": {
       const task = findTask(args, deps);
       if (task === null) return missing(args);
@@ -113,9 +141,17 @@ export async function executeDaemonTool(
       const task = findTask(args, deps);
       if (task === null) return missing(args);
       if (task.status !== "paused") {
-        return { ok: false, error: "not_paused", text: `任务未处于暂停状态：${task.id}` };
+        return {
+          ok: false,
+          error: "not_paused",
+          text: `任务未处于暂停状态：${task.id}`,
+        };
       }
-      const updated = deps.store.update(task.id, { status: "active" });
+      // 与 `/daemon resume` 同口径：周期任务按当前时钟重算下次（暂停期间的到点不补做）
+      const next = isPeriodic(task.selector)
+        ? nextAfter(task.selector, now(), task.createdAt)
+        : task.next;
+      const updated = deps.store.update(task.id, { status: "active", next });
       deps.scheduler.arm();
       return { ok: true, task: updated, text: `已恢复 ${task.id}` };
     }
@@ -142,7 +178,10 @@ export async function executeDaemonTool(
       return {
         ok: true,
         records,
-        text: renderJournal(records, taskId === undefined ? "运行流水" : `任务 ${taskId} 的流水`),
+        text: renderJournal(
+          records,
+          taskId === undefined ? "运行流水" : `任务 ${taskId} 的流水`,
+        ),
       };
     }
     default:

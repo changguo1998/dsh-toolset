@@ -314,7 +314,8 @@ export class Scheduler {
         continue;
       }
       const bucket = deliverBySession.get(item.task.sessionId);
-      if (bucket === undefined) deliverBySession.set(item.task.sessionId, [item]);
+      if (bucket === undefined)
+        deliverBySession.set(item.task.sessionId, [item]);
       else bucket.push(item);
     }
     const jobs: Promise<void>[] = [];
@@ -443,9 +444,12 @@ export class Scheduler {
     // `lastError` / 流水的 error 存**原因码**（机器可判）, 人类可读文案进 detail
     const error = result.ok ? null : result.code;
     const detailParts: string[] = [];
-    if (!result.ok && result.message !== undefined) detailParts.push(result.message);
-    if (result.ok && result.detail !== undefined) detailParts.push(result.detail);
-    if (result.ok && result.guardSkipped === true) detailParts.push("guardSkipped");
+    if (!result.ok && result.message !== undefined)
+      detailParts.push(result.message);
+    if (result.ok && result.detail !== undefined)
+      detailParts.push(result.detail);
+    if (result.ok && result.guardSkipped === true)
+      detailParts.push("guardSkipped");
     if (!result.ok && result.code === "flush_failed") {
       detailParts.push("durable:false");
       this.#warn(

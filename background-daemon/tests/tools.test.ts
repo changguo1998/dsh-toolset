@@ -5,7 +5,11 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 
-import { createDaemonTaskTool, executeDaemonTool, TOOL_NAME } from "../src/tools.ts";
+import {
+  createDaemonTaskTool,
+  executeDaemonTool,
+  TOOL_NAME,
+} from "../src/tools.ts";
 import { harness, type Harness } from "./harness.ts";
 
 const built: Harness[] = [];
@@ -27,7 +31,10 @@ async function setup(options: Parameters<typeof harness>[0] = {}): Promise<{
     now: () => h.clock.value,
     defaultSessionId: () => "sess-1",
   };
-  return { h, run: (args) => executeDaemonTool(args, deps, () => h.clock.value) };
+  return {
+    h,
+    run: (args) => executeDaemonTool(args, deps, () => h.clock.value),
+  };
 }
 
 test("工具定义：名称 / 参数 / render", async () => {
@@ -40,7 +47,12 @@ test("工具定义：名称 / 参数 / render", async () => {
   }) as {
     name: string;
     parameters: { required: string[]; properties: Record<string, unknown> };
-    output: { render: (args: unknown, value: unknown) => { type: string; text: string }[] };
+    output: {
+      render: (
+        args: unknown,
+        value: unknown,
+      ) => { type: string; text: string }[];
+    };
   };
   assert.equal(tool.name, TOOL_NAME);
   assert.deepEqual(tool.parameters.required, ["action"]);
@@ -75,12 +87,21 @@ test("create：拒绝用例（缺时区 / 间隔过小 / 非未来 / 未知种�
   const { h, run } = await setup();
   const cases: { selector: unknown; code: string }[] = [
     { selector: { kind: "daily", time: "09:00" }, code: "invalid_time_zone" },
-    { selector: { kind: "every_seconds", seconds: 59 }, code: "frequency_too_high" },
     {
-      selector: { kind: "at", at: new Date(h.clock.value - 1000).toISOString() },
+      selector: { kind: "every_seconds", seconds: 59 },
+      code: "frequency_too_high",
+    },
+    {
+      selector: {
+        kind: "at",
+        at: new Date(h.clock.value - 1000).toISOString(),
+      },
       code: "at_not_future",
     },
-    { selector: { kind: "cron", expression: "* * * * *" }, code: "invalid_kind" },
+    {
+      selector: { kind: "cron", expression: "* * * * *" },
+      code: "invalid_kind",
+    },
   ];
   for (const item of cases) {
     const result = await run({

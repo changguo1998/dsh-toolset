@@ -54,7 +54,10 @@ test("一次性过期超过补发窗口 → missed(expired)", () => {
 
 test("补发窗口可配为 0（不补发过期的一次性任务）", () => {
   const now = ANCHOR + 600_000 + 1;
-  assert.deepEqual(decide(task(), now, 0), { kind: "missed", reason: "expired" });
+  assert.deepEqual(decide(task(), now, 0), {
+    kind: "missed",
+    reason: "expired",
+  });
 });
 
 test("周期任务错过 3 个间隔 → 只触发一次, 下次按现在重算", () => {

@@ -138,12 +138,16 @@ test("JSON 损坏 → 拒绝启用, 文案含路径, 且不静默清空", () => 
     assert.equal(store.available, false);
     assert.match(store.error ?? "", /任务表损坏/);
     assert.ok((store.error ?? "").includes(file));
-    assert.throws(() => store.create({
-      mode: "deliver",
-      selector: DELIVER_ONCE,
-      payload: "x",
-      sessionId: "s",
-    }), /任务表损坏/);
+    assert.throws(
+      () =>
+        store.create({
+          mode: "deliver",
+          selector: DELIVER_ONCE,
+          payload: "x",
+          sessionId: "s",
+        }),
+      /任务表损坏/,
+    );
     // 原文件仍在（没有被清空）
     assert.equal(readFileSync(file, "utf8"), "{ 半截");
   });

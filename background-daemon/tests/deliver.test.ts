@@ -202,7 +202,10 @@ test("buildDeliverMessage：单条无列表, 多条带编号列表", () => {
   );
   const text = (batch["content"] as { text: string }[])[0]?.text ?? "";
   assert.match(text, /2 条守护任务到点：\n- A\n- B/);
-  assert.match(String((batch["source"] as { summary: string }).summary), /d-test01/);
+  assert.match(
+    String((batch["source"] as { summary: string }).summary),
+    /d-test01/,
+  );
 });
 
 test("parseCommandLine：补斜杠 / 保留参数 / 拒绝非法名", () => {
@@ -251,7 +254,10 @@ test("命令：引擎侧复查拦截 → guard_denied, 不执行", async () => {
     guard: () => ({ receipt: "拒绝：命中硬拒模式", skipped: false }),
   });
   const result = await channel.deliver(
-    request([task({ mode: "command", payload: "/memory search x" })], fakeAgent().agent),
+    request(
+      [task({ mode: "command", payload: "/memory search x" })],
+      fakeAgent().agent,
+    ),
   );
   assert.equal(result.ok, false);
   if (!result.ok) {
@@ -262,7 +268,11 @@ test("命令：引擎侧复查拦截 → guard_denied, 不执行", async () => {
 });
 
 test("命令：命中即执行（规范化 slash 行 + 空附件 + signal）", async () => {
-  const seen: { line: string; attachments: readonly unknown[]; signal: AbortSignal }[] = [];
+  const seen: {
+    line: string;
+    attachments: readonly unknown[];
+    signal: AbortSignal;
+  }[] = [];
   const signal = new AbortController().signal;
   const commands: CommandRuntimeLike = {
     find: (agent, name) => (name === "memory" ? { name } : undefined),
@@ -273,10 +283,16 @@ test("命令：命中即执行（规范化 slash 行 + 空附件 + signal）", a
   };
   const channel = new CommandChannel({ commands });
   const result = await channel.deliver(
-    request([task({ mode: "command", payload: "memory search 巡检" })], fakeAgent().agent, signal),
+    request(
+      [task({ mode: "command", payload: "memory search 巡检" })],
+      fakeAgent().agent,
+      signal,
+    ),
   );
   assert.deepEqual(result, { ok: true, detail: "检索完成" });
-  assert.deepEqual(seen, [{ line: "/memory search 巡检", attachments: [], signal }]);
+  assert.deepEqual(seen, [
+    { line: "/memory search 巡检", attachments: [], signal },
+  ]);
 });
 
 test("命令：execute 返回 undefined / error 结果 → failed", async () => {

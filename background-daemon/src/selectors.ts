@@ -84,8 +84,7 @@ export interface SelectorError {
 }
 
 export type NormalizeResult =
-  | { ok: true; selector: Selector }
-  | ({ ok: false } & SelectorError);
+  { ok: true; selector: Selector } | ({ ok: false } & SelectorError);
 
 /** `every_seconds` 的下限（低于即 `frequency_too_high`）。 */
 export const MIN_EVERY_SECONDS = 60;
@@ -182,7 +181,10 @@ export function normalizeSelector(
       if (instant <= now) {
         return fail("at_not_future", `目标时间必须严格未来：${at}`);
       }
-      return { ok: true, selector: { kind, at: new Date(instant).toISOString() } };
+      return {
+        ok: true,
+        selector: { kind, at: new Date(instant).toISOString() },
+      };
     }
     case "every_seconds": {
       const seconds = raw["seconds"];

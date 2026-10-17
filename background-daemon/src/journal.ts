@@ -8,7 +8,13 @@
  * - 流水是账本、不是权威记录：坏行（手改 / 半截写）**跳过并告警**, 不像任务表那样拒启。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+} from "node:fs";
 import path from "node:path";
 
 import type { RunRecord } from "./types.ts";
@@ -137,7 +143,8 @@ function parseRecord(line: string): RunRecord | null {
   return {
     taskId: record["taskId"],
     at: record["at"],
-    sessionId: typeof record["sessionId"] === "string" ? record["sessionId"] : "",
+    sessionId:
+      typeof record["sessionId"] === "string" ? record["sessionId"] : "",
     mode: record["mode"] === "command" ? "command" : "deliver",
     outcome: record["outcome"] as RunRecord["outcome"],
     error: typeof record["error"] === "string" ? record["error"] : null,

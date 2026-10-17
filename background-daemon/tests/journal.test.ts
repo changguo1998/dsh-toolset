@@ -3,7 +3,13 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -50,7 +56,13 @@ test("append/tail：时间正序、默认取最近 20 条", () => {
     assert.equal(tail.length, 20);
     assert.equal(tail[0]?.at, 1_005);
     assert.equal(tail[19]?.at, 1_024);
-    assert.equal(journal.tail(3).map((item) => item.at).join(","), "1022,1023,1024");
+    assert.equal(
+      journal
+        .tail(3)
+        .map((item) => item.at)
+        .join(","),
+      "1022,1023,1024",
+    );
   });
 });
 
@@ -144,7 +156,10 @@ test("load：文件缺失返回 0 条", () => {
 
 test("limit 非法（0 / NaN）回落缺省", () => {
   withTmpDir((dir) => {
-    assert.equal(new Journal(path.join(dir, "a.jsonl"), { limit: 0 }).limit, 200);
+    assert.equal(
+      new Journal(path.join(dir, "a.jsonl"), { limit: 0 }).limit,
+      200,
+    );
     assert.equal(
       new Journal(path.join(dir, "b.jsonl"), { limit: Number.NaN }).limit,
       200,

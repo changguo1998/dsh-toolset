@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { Journal } from "../src/journal.ts";
-import { ChannelRegistry, Scheduler, type AgentsLike, type TimerLike } from "../src/scheduler.ts";
+import {
+  ChannelRegistry,
+  Scheduler,
+  type AgentsLike,
+  type TimerLike,
+} from "../src/scheduler.ts";
 import { TaskStore } from "../src/store.ts";
 import type {
   AgentLike,
@@ -24,8 +29,11 @@ export const NOW = Date.UTC(2026, 9, 20, 8, 0, 0);
 
 /** 假 timer：记录每次排期, 支持统计存活段与手动触发。 */
 export class FakeTimer implements TimerLike {
-  readonly entries: { delay: number; callback: () => void; disposed: boolean }[] =
-    [];
+  readonly entries: {
+    delay: number;
+    callback: () => void;
+    disposed: boolean;
+  }[] = [];
 
   schedule(delay: number, callback: () => void): () => void {
     const entry = { delay, callback, disposed: false };

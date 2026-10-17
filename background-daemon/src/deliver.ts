@@ -92,7 +92,11 @@ export class TextChannel implements DaemonChannel {
   async deliver(request: DeliveryRequest): Promise<ChannelResult> {
     const agent = request.agent;
     if (typeof agent.followup !== "function") {
-      return { ok: false, code: "no-active-agent", message: "agent 无 followup 面" };
+      return {
+        ok: false,
+        code: "no-active-agent",
+        message: "agent 无 followup 面",
+      };
     }
     const message = buildDeliverMessage(request.tasks, this.#options.idFactory);
     const deferred = await new Promise<{ ok: boolean; error?: string }>(
@@ -128,7 +132,10 @@ export class TextChannel implements DaemonChannel {
     }
     let confirmed: unknown;
     try {
-      confirmed = await flush.call(this.#options.sessions, request.agent.session);
+      confirmed = await flush.call(
+        this.#options.sessions,
+        request.agent.session,
+      );
     } catch (err) {
       return {
         ok: false,
@@ -260,7 +267,11 @@ export class CommandChannel implements DaemonChannel {
         request.signal,
       );
     } catch (err) {
-      return { ok: false, code: "error", message: `命令执行抛错：${String(err)}` };
+      return {
+        ok: false,
+        code: "error",
+        message: `命令执行抛错：${String(err)}`,
+      };
     }
     if (execution === undefined || execution === null) {
       return {

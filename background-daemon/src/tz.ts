@@ -203,7 +203,10 @@ export function calendarDayMs(date: CalendarDate): number {
 }
 
 /** 两天之间的天数差（`later - earlier`, 按日历日）。 */
-export function daysBetween(earlier: CalendarDate, later: CalendarDate): number {
+export function daysBetween(
+  earlier: CalendarDate,
+  later: CalendarDate,
+): number {
   return Math.round(
     (calendarDayMs(later) - calendarDayMs(earlier)) / MS_PER_DAY,
   );

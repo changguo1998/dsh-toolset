@@ -45,7 +45,7 @@ export interface DaemonCommandResult {
 }
 
 /** 宿主命令面最小结构子集。 */
-export interface CommandRuntimeLike {
+export interface CommandRegistrarLike {
   register?(definition: unknown): () => void;
 }
 
@@ -110,7 +110,10 @@ export function renderDetail(task: DaemonTask): string {
 }
 
 /** 流水渲染（`/daemon log [<id>] [n]`）。 */
-export function renderJournal(records: readonly RunRecord[], label: string): string {
+export function renderJournal(
+  records: readonly RunRecord[],
+  label: string,
+): string {
   if (records.length === 0) return `${label}：暂无流水`;
   const lines = records.map(
     (record) =>
@@ -204,9 +207,7 @@ export async function runDaemonCommand(
       }
       const result = await deps.scheduler.runNow(first);
       const outcome = result.ok ? "✓ 已投递" : `✗ ${result.code}`;
-      const detail = result.ok
-        ? (result.detail ?? "")
-        : (result.message ?? "");
+      const detail = result.ok ? (result.detail ?? "") : (result.message ?? "");
       return {
         kind: result.ok ? "success" : "error",
         text: `${first}：${outcome}${detail === "" ? "" : ` — ${detail}`}`,
@@ -225,13 +226,18 @@ export async function runDaemonCommand(
       const taskId = first;
       const parsedLimit = second === undefined ? undefined : Number(second);
       const limit =
-        parsedLimit !== undefined && Number.isFinite(parsedLimit) && parsedLimit > 0
+        parsedLimit !== undefined &&
+        Number.isFinite(parsedLimit) &&
+        parsedLimit > 0
           ? Math.floor(parsedLimit)
           : 20;
       const records = deps.journal.tail(limit, taskId);
       return {
         kind: "success",
-        text: renderJournal(records, taskId === undefined ? "运行流水" : `任务 ${taskId} 的流水`),
+        text: renderJournal(
+          records,
+          taskId === undefined ? "运行流水" : `任务 ${taskId} 的流水`,
+        ),
       };
     }
     default:
@@ -241,7 +247,7 @@ export async function runDaemonCommand(
 
 /** 注册 `/daemon`（commands 服务缺失时返回 null, 由调用方告警）。 */
 export function registerDaemonCommand(
-  commands: CommandRuntimeLike | undefined,
+  commands: CommandRegistrarLike | undefined,
   deps: DaemonCommandDeps,
 ): (() => void) | null {
   if (commands === undefined || typeof commands.register !== "function") {

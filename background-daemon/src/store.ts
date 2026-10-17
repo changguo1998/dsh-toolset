@@ -15,7 +15,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import { firstNext, isCanonicalSelector } from "./selectors.ts";
@@ -42,8 +48,7 @@ const OUTCOMES: readonly RunOutcome[] = [
 ];
 
 export type TaskStoreLoadResult =
-  | { ok: true; tasks: DaemonTask[] }
-  | { ok: false; error: string };
+  { ok: true; tasks: DaemonTask[] } | { ok: false; error: string };
 
 /** 已存记录的逐条校验（非法即整表拒绝启用）。 */
 function validateRecord(raw: unknown): DaemonTask {
@@ -211,7 +216,7 @@ export class TaskStore {
         if (leftNext !== rightNext) return leftNext - rightNext;
         return left.createdAt - right.createdAt;
       });
-    }
+  }
 
   get(id: string): DaemonTask | undefined {
     const task = this.#tasks.get(id);

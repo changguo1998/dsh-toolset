@@ -32,8 +32,11 @@ const NOW = Date.UTC(2026, 9, 20, 8, 0, 0);
 
 /** 假 timer：记录每次排期, 支持手动触发与统计存活段。 */
 class FakeTimer implements TimerLike {
-  readonly entries: { delay: number; callback: () => void; disposed: boolean }[] =
-    [];
+  readonly entries: {
+    delay: number;
+    callback: () => void;
+    disposed: boolean;
+  }[] = [];
 
   schedule(delay: number, callback: () => void): () => void {
     const entry = { delay, callback, disposed: false };
@@ -67,7 +70,9 @@ interface FakeChannel extends DaemonChannel {
 
 function makeChannel(
   mode: "deliver" | "command",
-  respond: (request: DeliveryRequest) => Promise<ChannelResult> | ChannelResult = () => ({
+  respond: (
+    request: DeliveryRequest,
+  ) => Promise<ChannelResult> | ChannelResult = () => ({
     ok: true,
     durable: true,
   }),
@@ -93,7 +98,9 @@ interface Harness {
   command: FakeChannel;
   scheduler: Scheduler;
   warnings: string[];
-  create(input: Partial<NewTaskInput> & { selector: NewTaskInput["selector"] }): DaemonTask;
+  create(
+    input: Partial<NewTaskInput> & { selector: NewTaskInput["selector"] },
+  ): DaemonTask;
   cleanup(): void;
 }
 
@@ -102,8 +109,12 @@ function harness(
     awaitAgentMs?: number;
     catchUpWindowMs?: number;
     maxDelayMs?: number;
-    respondText?: (request: DeliveryRequest) => Promise<ChannelResult> | ChannelResult;
-    respondCommand?: (request: DeliveryRequest) => Promise<ChannelResult> | ChannelResult;
+    respondText?: (
+      request: DeliveryRequest,
+    ) => Promise<ChannelResult> | ChannelResult;
+    respondCommand?: (
+      request: DeliveryRequest,
+    ) => Promise<ChannelResult> | ChannelResult;
     agents?: Map<string, AgentLike>;
   } = {},
 ): Harness {
@@ -337,7 +348,9 @@ test("flush_failed → 记 delivered + durable:false + 告警, 不重投（D13�
   const record = built.journal.tail(1, task.id)[0];
   assert.equal(record?.outcome, "delivered");
   assert.match(record?.detail ?? "", /durable:false/);
-  assert.ok(built.warnings.some((message) => message.includes("durable:false")));
+  assert.ok(
+    built.warnings.some((message) => message.includes("durable:false")),
+  );
   // 不重投：再跑一轮没有新请求
   built.clock.value = NOW + 90_000;
   await built.scheduler.runDue();

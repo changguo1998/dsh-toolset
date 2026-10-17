@@ -203,7 +203,9 @@ test("registerDaemonCommand：注册形态与 handler 转发；commands 缺失�
   assert.equal(typeof dispose, "function");
   const definition = definitions[0] as {
     name: string;
-    handler: (invocation: { rawInput?: string }) => Promise<{ kind: string; text: string }>;
+    handler: (invocation: {
+      rawInput?: string;
+    }) => Promise<{ kind: string; text: string }>;
     definitionId?: string;
   };
   assert.equal(definition.name, COMMAND_NAME);
@@ -211,9 +213,12 @@ test("registerDaemonCommand：注册形态与 handler 转发；commands 缺失�
   const result = await definition.handler({ rawInput: " list " });
   assert.equal(result.kind, "success");
   assert.equal(result.text, "暂无守护任务");
-  assert.equal(registerDaemonCommand(undefined, {
-    store: h.store,
-    journal: h.journal,
-    scheduler: h.scheduler,
-  }), null);
+  assert.equal(
+    registerDaemonCommand(undefined, {
+      store: h.store,
+      journal: h.journal,
+      scheduler: h.scheduler,
+    }),
+    null,
+  );
 });

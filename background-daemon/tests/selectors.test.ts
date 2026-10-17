@@ -19,7 +19,11 @@ import {
   parseTimeOfDay,
   type Selector,
 } from "../src/selectors.ts";
-import { instantForWallClock, isValidTimeZone, wallClockAt } from "../src/tz.ts";
+import {
+  instantForWallClock,
+  isValidTimeZone,
+  wallClockAt,
+} from "../src/tz.ts";
 
 const ISO = (instant: number | null): string | null =>
   instant === null ? null : new Date(instant).toISOString();
@@ -45,10 +49,22 @@ test("after_seconds：正整数秒通过, 其余拒绝", () => {
     kind: "after_seconds",
     seconds: 90,
   });
-  assert.equal(failCode({ kind: "after_seconds", seconds: 0 }), "invalid_seconds");
-  assert.equal(failCode({ kind: "after_seconds", seconds: -5 }), "invalid_seconds");
-  assert.equal(failCode({ kind: "after_seconds", seconds: 1.5 }), "invalid_seconds");
-  assert.equal(failCode({ kind: "after_seconds", seconds: "60" }), "invalid_seconds");
+  assert.equal(
+    failCode({ kind: "after_seconds", seconds: 0 }),
+    "invalid_seconds",
+  );
+  assert.equal(
+    failCode({ kind: "after_seconds", seconds: -5 }),
+    "invalid_seconds",
+  );
+  assert.equal(
+    failCode({ kind: "after_seconds", seconds: 1.5 }),
+    "invalid_seconds",
+  );
+  assert.equal(
+    failCode({ kind: "after_seconds", seconds: "60" }),
+    "invalid_seconds",
+  );
   assert.equal(
     failCode({ kind: "after_seconds", seconds: Number.MAX_SAFE_INTEGER }),
     "time_out_of_range",
@@ -89,10 +105,7 @@ test("daily：时区必填且合法, 时间补零规范化", () => {
     time: "09:05",
     timeZone: "Asia/Shanghai",
   });
-  assert.equal(
-    failCode({ kind: "daily", time: "09:05" }),
-    "invalid_time_zone",
-  );
+  assert.equal(failCode({ kind: "daily", time: "09:05" }), "invalid_time_zone");
   assert.equal(
     failCode({ kind: "daily", time: "25:00", timeZone: "UTC" }),
     "invalid_time",
@@ -192,7 +205,10 @@ test("every_seconds：相位以 anchor 为基准推进", () => {
   assert.equal(ISO(nextAfter(selector, 0, 0)), "1970-01-01T00:01:00.000Z");
   assert.equal(ISO(nextAfter(selector, 60_000, 0)), "1970-01-01T00:02:00.000Z");
   // 错过 3 个间隔后, 下一跳仍落在网格上（不是 now + 60 s）
-  assert.equal(ISO(nextAfter(selector, 185_000, 0)), "1970-01-01T00:04:00.000Z");
+  assert.equal(
+    ISO(nextAfter(selector, 185_000, 0)),
+    "1970-01-01T00:04:00.000Z",
+  );
 });
 
 test("daily（Asia/Shanghai, 无 DST）：跨日推进", () => {
@@ -203,10 +219,16 @@ test("daily（Asia/Shanghai, 无 DST）：跨日推进", () => {
   });
   // 当地 10:00, 下一次是次日 09:00（= 01:00Z）
   const after = Date.UTC(2026, 9, 20, 2, 0, 0);
-  assert.equal(ISO(nextAfter(selector, after, after)), "2026-10-21T01:00:00.000Z");
+  assert.equal(
+    ISO(nextAfter(selector, after, after)),
+    "2026-10-21T01:00:00.000Z",
+  );
   // 当地正好 09:00:00 → 严格未来, 跳到次日
   const exact = Date.UTC(2026, 9, 20, 1, 0, 0);
-  assert.equal(ISO(nextAfter(selector, exact, exact)), "2026-10-21T01:00:00.000Z");
+  assert.equal(
+    ISO(nextAfter(selector, exact, exact)),
+    "2026-10-21T01:00:00.000Z",
+  );
 });
 
 test("daily（America/New_York）：DST 缺口跳过该日", () => {
@@ -217,7 +239,10 @@ test("daily（America/New_York）：DST 缺口跳过该日", () => {
   });
   // 2026-03-08 当地 02:30 不存在（02:00 → 03:00）, 应跳到 03-09 的 02:30 EDT
   const after = Date.UTC(2026, 2, 7, 12, 0, 0);
-  assert.equal(ISO(nextAfter(selector, after, after)), "2026-03-09T06:30:00.000Z");
+  assert.equal(
+    ISO(nextAfter(selector, after, after)),
+    "2026-03-09T06:30:00.000Z",
+  );
 });
 
 test("daily（America/New_York）：DST 重叠取较早, 同一日只触发一次", () => {
@@ -262,7 +287,10 @@ test("weekly：周日 = 7 与 1..7 边界", () => {
   });
   // 2026-10-21 周三 → 下一个周日 2026-10-25 00:00Z
   const after = Date.UTC(2026, 9, 21, 0, 0, 0);
-  assert.equal(ISO(nextAfter(selector, after, after)), "2026-10-25T00:00:00.000Z");
+  assert.equal(
+    ISO(nextAfter(selector, after, after)),
+    "2026-10-25T00:00:00.000Z",
+  );
 });
 
 test("时区工具：wallClockAt / instantForWallClock / 校验", () => {
@@ -300,18 +328,26 @@ test("时区工具：wallClockAt / instantForWallClock / 校验", () => {
 
 test("isPeriodic / describeSelector", () => {
   const now = Date.UTC(2026, 9, 20);
-  assert.equal(isPeriodic(ok({ kind: "at", at: "2026-10-21T00:00:00Z" }, now)), false);
+  assert.equal(
+    isPeriodic(ok({ kind: "at", at: "2026-10-21T00:00:00Z" }, now)),
+    false,
+  );
   assert.equal(
     isPeriodic(ok({ kind: "every_seconds", seconds: 60 }, now)),
     true,
   );
   assert.equal(
-    describeSelector(ok({ kind: "daily", time: "09:00", timeZone: "UTC" }, now)),
+    describeSelector(
+      ok({ kind: "daily", time: "09:00", timeZone: "UTC" }, now),
+    ),
     "每日 09:00（UTC）",
   );
   assert.equal(
     describeSelector(
-      ok({ kind: "weekly", weekdays: [1, 4], time: "08:00", timeZone: "UTC" }, now),
+      ok(
+        { kind: "weekly", weekdays: [1, 4], time: "08:00", timeZone: "UTC" },
+        now,
+      ),
     ),
     "每周 1,4 的 08:00（UTC）",
   );
