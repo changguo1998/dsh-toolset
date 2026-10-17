@@ -159,6 +159,11 @@ function resolveMemoryScope(host: BundleHost): {
     if (scope === undefined || scope === null || typeof scope !== "object") {
       return { error: "registerKind 未返回写入句柄" };
     }
+    // 约定为同步返回句柄（memory-base 决策项：按需建表，故 registerKind 同步）；
+    // 返回 Promise 等不可写入形态一律按「句柄不可用」降级，不冒险调用。
+    if (typeof (scope as { put?: unknown }).put !== "function") {
+      return { error: "registerKind 未返回可写入句柄（约定为同步返回）" };
+    }
     return { scope: scope as MemoryScopeLike };
   } catch (error: unknown) {
     return { error: String(error) };

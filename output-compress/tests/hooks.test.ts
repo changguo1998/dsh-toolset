@@ -47,6 +47,8 @@ function makeHost(
 ): {
   host: BundleHost;
   emit: (event: SessionEventLike) => void;
+  /** 指定会话 id 发事件（多会话落点用例）。 */
+  emitFor: (sessionId: string, event: SessionEventLike) => void;
   logs: string[];
 } {
   let callback:
@@ -72,6 +74,10 @@ function makeHost(
     emit: (event) => {
       assert.ok(callback !== null, "host 未挂载");
       callback({ id: SESSION_ID }, event);
+    },
+    emitFor: (sessionId, event) => {
+      assert.ok(callback !== null, "host 未挂载");
+      callback({ id: sessionId }, event);
     },
     logs,
   };
@@ -238,7 +244,7 @@ async function mount(
     config?: OutputCompressConfig;
   } = {},
 ) {
-  const { host, emit, logs } = makeHost(
+  const { host, emit, emitFor, logs } = makeHost(
     opts.ptcRuntime,
     opts.memory,
     opts.reflect,
@@ -252,6 +258,7 @@ async function mount(
     digestPath: path.join(dir, "digest.db"),
     host,
     emit,
+    emitFor,
     bundle,
     logs,
   };
@@ -614,6 +621,67 @@ test("落点缺失（sessionDir 覆盖指向不存在目录）→ skipped.sessio
     assert.ok(!existsSync(path.join(absent, "digest.db")));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("每会话一个 digest.db：两个会话各落各的文件、互不可见", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oc-multi-"));
+  try {
+    const second = "sess-second-9999";
+    const dirs = new Map<string, string>([
+      [SESSION_ID, path.join(root, "sessions", "--proj--", SESSION_ID)],
+      [second, path.join(root, "sessions", "--proj--", second)],
+    ]);
+    for (const dir of dirs.values()) mkdirSync(dir, { recursive: true });
+    const sessionPaths: SessionPathsLike = {
+      sessionDirFor(id: string) {
+        const dir = dirs.get(id);
+        assert.ok(dir !== undefined, `未预期的会话 id: ${id}`);
+        return dir;
+      },
+    };
+    const { emitFor } = await mount(root, {
+      sessionPaths,
+      config: { sessionDir: undefined, minBytes: 100, maxSourceBytes: 1024 },
+    });
+    emitFor(SESSION_ID, toolResultEvent(1, longText(200), "call-a"));
+    emitFor(second, toolResultEvent(1, longText(240), "call-b"));
+    const firstDb = path.join(dirs.get(SESSION_ID)!, "digest.db");
+    const secondDb = path.join(dirs.get(second)!, "digest.db");
+    await settle(() => existsSync(firstDb) && existsSync(secondDb));
+    await settle(
+      () => countDigests(firstDb) === 1 && countDigests(secondDb) === 1,
+    );
+    assert.equal(countDigests(firstDb), 1, "会话一只有自己的行");
+    assert.equal(countDigests(secondDb), 1, "会话二只有自己的行");
+    const firstRows = digestRows(firstDb);
+    assert.equal(firstRows[0]?.session_id, SESSION_ID);
+    assert.ok(!existsSync(path.join(root, "digest.db")), "不落公共文件");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("registerKind 返回 Promise（非约定形态）→ 按句柄不可用降级，行停在 none", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-async-scope-"));
+  try {
+    const memory = {
+      registerKind: () => Promise.resolve({ put: async () => ({ ids: [1] }) }),
+    };
+    const { digestPath, emit, logs, bundle } = await mount(dir, {
+      memory: memory as unknown as Record<string, unknown>,
+      config: { minBytes: 100, maxSourceBytes: 1024 },
+    });
+    emit(errorEvent(5, longText(200)));
+    await settle(() => countDigests(digestPath) === 1);
+    assert.equal(digestRows(digestPath)[0]?.push_state, "none");
+    assert.equal(bundle.pendingPushCount(), 1);
+    assert.ok(
+      logs.some((line) => line.includes("约定为同步返回")),
+      "日志点明约定的同步形态",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
