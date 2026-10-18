@@ -1,8 +1,8 @@
 # 新增 session-paths 插件：复刻宿主的会话目录编码（接取条目：`docs/BACKLOG.md`「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」）
 
-状态：决策（2026-10-17；同日第二轮按下游回写追加 `sessionDirFor`）　　开启：2026-10-17　　关闭：未关闭
-本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
-本轮范围：调研 + 决策，不写实现代码（用户 2026-10-17 指示：添加条目和追踪文档即可、决策后结束）。工作区：主检出 `main`。
+状态：完成（2026-10-18 关闭；实现 2026-10-17/18，已合入 `main` 并经用户真机验证）　　开启：2026-10-17　　关闭：2026-10-18
+本文件是本任务唯一的过程记录；关闭后由 `docs/implementation/` 移入 `docs/archived/`。
+首轮范围：调研 + 决策，不写实现代码（用户 2026-10-17 指示：添加条目和追踪文档即可、决策后结束）；实现与验证见「实现记录」「测试与证据」。
 
 ## 目标
 
@@ -156,15 +156,41 @@ interface SessionPathsService {
 
 ## 实现记录
 
-（本轮为决策轮，未进入实现；待用户审定后按「规划」清单执行。）
+实现批次（2026-10-17/18，分支 `feat/session-paths`，已合入 `main`；3 个提交）：
+
+1. `467a326` feat(session-paths): 新增会话目录编码插件与服务面 —— 包骨架（`package.json` / `cordis.patch.yml` / `tsconfig.json` / `tests/tsconfig.json` / `.gitignore` / `LICENSE` / `README.md` / `docs/BACKLOG.md`）、`src/encode.ts`（四个纯函数逐字符复刻 + 出处注释）、`src/main.ts`（配置归一、`provide("sessionPaths")`、`sessionDirFor`、`ensureSessionDir`）、`tests/encode.test.ts`（11 例）、`tests/service.test.ts`（13 例）。
+2. `0745037` chore(session-paths): 接线到根清单、安装脚本与文档 —— 根 `package.json` 的 check / build 链、`scripts/test-parallel.sh` 的 `default_pkgs`、`scripts/install.sh` 的 `canonical_pkgs`、`profiles/example/package.json`（依赖 + bundles，排在 `memory-base` 之前）与 `cordis.patch.yml`（说明 + 按 id 覆盖 `root` 的注释行）、`README.md` / `README.zh.md`、`AGENTS.md`。
+3. `0d91989` fix(session-paths): provide 抛错时不掀翻宿主启动 —— 重复挂载时 cordis `provide` 抛「already registered」，改为 warn 并返回；补一例。
+
+实现要点：
+
+- 编码复刻与宿主一致：白名单 `[A-Za-z0-9._-]`、`~XXXX` 转义、`.` / `..` 特判、`/` `\` `:` 归一为 `-` 且合并连续分隔符、前导 `-` 去掉（空则 `root`）、正文 251 截断、`cwd` 缺失走 `_no-cwd`。
+- 服务面六个方法见「实现前冻结的接口」；纯函数不落盘，`ensureSessionDir` 是唯一写盘入口（`mkdir -p` + `chmod 0700`，幂等）。
+- `sessionDirFor` 对宿主 `sessions` 做**可选读取**（不写进 `inject`），每次调用复取（服务可晚挂载）；服务缺失 / 会话取不到 / 空 id 均抛明示例外，且不建目录。
+- 消费方接入（第 5 步）未在本包实现：按「若分两批则本包只交付契约」的条款归 memory-base 的实现（`memory-base/src/router.ts` 删错的复刻、`src/index.ts` 取 S 层目录、`src/tiers.ts` 按会话惰性开库）。
 
 ## 偏差
 
-无（本轮只做调研与决策，未承诺实现动作）。
+1. `profiles/example/cordis.patch.yml` 的「挂载行」：示例 profile 的挂载由 `profiles/example/package.json` 的 `dependencies` + `dsh.profile.bundles` 决定，故挂载落在该文件（`session-paths` 排在 `memory-base` 之前）；patch 里只写说明与按 id 覆盖 `root` 的注释行 —— 该包无必填配置，加活动条目会与 bundle 自身 `insert` 重复。
+2. 第 5 步（消费方接入）未做：`TierSet.open` 在 apply 期拿不到 `sessionId`，必须先有 memory-base 重设的「按会话惰性开库」；计划已留「若分两批则本包只交付契约」的条款，接入归 memory-base 的实现。
+3. `docs/BACKLOG.md` §4 未增行：该表只收「未建包」，本包创建即在表外。
+4. 条目「五个新插件落地时的仓库清单与包计数统一」的标数未由本任务回写：主检出已因并行合入变为 28 插件 / 29 包，统一核对归该条目自身收尾。
 
 ## 测试与证据
 
-本轮为决策轮，未改代码，故未跑 `check` / `build` / `test`；调研阶段的事实证据：
+实现阶段（2026-10-17/18）：
+
+- `npm --prefix session-paths run check`：退出码 0（主 program + tests program）。
+- `npm --prefix session-paths test`：24 例全绿（`tests 24 / pass 24 / fail 0`）。
+- `npm run check`：23 个包（TUI + 22 插件）全绿；`npm run build` 同。
+- `npm run test`：23 个包全绿（本包 `pass 24 fail 0`）。
+- `sh scripts/test-install.sh`：全部 84 项通过（含 `canonical_pkgs` 与 `test-parallel.sh` 同序、与根 check/build 链集合一致）。
+- `scripts/install.sh --dry-run`：选中插件清单含 `session-paths`。
+- 真机对拍（编译产物 + 本机 `~/.dsh/sessions/`）：本工作区 cwd 算出的桶 `--home-guochang-Projects-dsh-toolset-.worktree-session-paths--` 实际存在；真实会话目录 `--home-guochang-Projects-dsh-toolset--/tui-d5fa83aa-…` 与 `sessionDir()` 输出逐字符相等；54 个真实桶全部为 `--…--` 形态。
+- 对拍期望值来源：本机真实桶名（七个）+ 从宿主已安装包截出的四个函数（本地 eval），断言逐字符相等、不用「包含」。
+- 用户 2026-10-18 确认：本插件已合入 `main` 并在真机验证正常工作。
+
+决策轮调研证据（2026-10-17）：
 
 - `sed -n '853,914p' ~/.local/share/fnm/.../@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js`（只读）：`encodeSegment` / `projectKey` / `projectDir` / `sessionDir` 的完整实现与注释。
 - `grep -n "^export" 同文件`：只导出 `JsonlCompressionSchema` 与默认类 → 四个函数不对外。
@@ -176,6 +202,7 @@ interface SessionPathsService {
 ## 收尾
 
 - **用户审定（2026-10-17）**：决策项 1 至 4「没有问题」，决策项 5 定为「改回去」—— 五项全部落定，可实现。
-- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `docs/implementation/`，等开工后按「规划」清单执行。
-- 回写文档：本轮已完成三轮下游回写（`memory-base` 的 S 层落点、`output-compress` 的 `digest.db` 落点、`auto-approve` 的审计落点、`agent-group` 的状态落点与依赖门禁）；`README` / `AGENTS.md` / 包计数留到实现阶段。
-- 遗留项：① memory-base 与本条的实现顺序（本包先，或 memory-base 先按「S 层不可用是明示例外」落地）；② 实现阶段剩一处开口（`ensureSessionDir` 的权限口径；`cwd` 来源已于 2026-10-17 第二轮由 `sessionDirFor` 收口）；③ 条目「五个新插件落地时的仓库清单与包计数统一」的标数需因本包 +1。
+- **实现与合入（2026-10-17/18）**：三个提交见「实现记录」，已合入 `main`；用户 2026-10-18 确认真机验证正常。
+- **条目关闭（2026-10-18）**：条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」标「完成」并从 `docs/BACKLOG.md` §2 移除；§2 实现顺序表删去该行并重排顺位；本文件归档至 `docs/archived/2026-10-17-session-paths.md`。
+- **文档回写**：`README.md` / `README.zh.md`（插件表、目录树、包计数）与 `AGENTS.md`（插件清单、命令清单、模块数、轻量包口径）已在接线提交中同步；`STATUS.md` 按规范由用户择时更新，本任务未改。
+- **遗留项**：① 消费方接入（memory-base 的 S 库）与其真机落点验证归 memory-base 任务；② 条目「五个新插件落地时的仓库清单与包计数统一」的标数归其自身收尾；③ 宿主升级后按 `src/encode.ts` 注释里的行号复核编码是否漂移。
