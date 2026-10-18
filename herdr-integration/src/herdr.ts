@@ -38,7 +38,7 @@ export interface HerdrClientOptions {
   paneId: string;
   /** socket 路径（HERDR_SOCKET_PATH；Windows 下为管道名） */
   socketPath: string;
-  /** 面板来源标识（默认 "herdr:dsh"） */
+  /** 面板来源标识（默认 "dsh"；不得以 `herdr:` 开头，该前缀为 Herdr 自有集成保留） */
   source: string;
   /** agent 标识（默认 "dsh"） */
   agent: string;
@@ -80,7 +80,7 @@ export function readHerdrEnv(
   return {
     paneId,
     socketPath,
-    source: "herdr:dsh",
+    source: "dsh",
     agent: "dsh",
   };
 }

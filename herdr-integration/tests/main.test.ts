@@ -23,7 +23,7 @@ import { COMPACTING_MESSAGE } from "../src/state.ts";
 const ENV_OPTS: HerdrClientOptions = {
   paneId: "p1",
   socketPath: "/tmp/herdr-test.sock",
-  source: "herdr:dsh",
+  source: "dsh",
   agent: "dsh",
 };
 

@@ -86,7 +86,7 @@ function clientFor(socketPath: string): HerdrClient {
   return new HerdrClient({
     paneId: "p1",
     socketPath,
-    source: "herdr:dsh",
+    source: "dsh",
     agent: "dsh",
     attemptTimeoutMs: 200,
   });
@@ -102,7 +102,11 @@ describe("readHerdrEnv 握手判定", () => {
     assert.ok(opts);
     assert.equal(opts!.paneId, "p1");
     assert.equal(opts!.socketPath, "/tmp/herdr.sock");
-    assert.equal(opts!.source, "herdr:dsh");
+    assert.equal(opts!.source, "dsh");
+    assert.ok(
+      !opts!.source.startsWith("herdr:"),
+      "source 不得占用 herdr: 保留前缀",
+    );
     assert.equal(opts!.agent, "dsh");
   });
 
@@ -144,7 +148,7 @@ describe("HerdrClient unix socket 协议", () => {
     };
     assert.equal(msg.method, "pane.report_agent_session");
     assert.equal(msg.params.pane_id, "p1");
-    assert.equal(msg.params.source, "herdr:dsh");
+    assert.equal(msg.params.source, "dsh");
     assert.equal(msg.params.agent, "dsh");
     assert.equal(msg.params.agent_session_id, "sess-1");
     assert.equal(msg.params.session_start_source, "startup");
@@ -191,7 +195,7 @@ describe("HerdrClient unix socket 协议", () => {
     };
     assert.equal(msg.method, "pane.release_agent");
     assert.equal(msg.params.pane_id, "p1");
-    assert.equal(msg.params.source, "herdr:dsh");
+    assert.equal(msg.params.source, "dsh");
     assert.equal(msg.params.agent, "dsh");
     assert.ok(typeof msg.params.seq === "number");
     assert.equal(msg.params.agent_session_id, undefined);

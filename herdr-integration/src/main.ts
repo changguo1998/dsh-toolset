@@ -52,7 +52,7 @@ export interface PluginCtxLike {
 
 /** 插件配置（可选覆盖，缺省对齐 pi 原生行为）。 */
 export interface HerdrIntegrationConfig {
-  /** 面板来源标识（默认 "herdr:dsh"） */
+  /** 面板来源标识（默认 "dsh"；不得以 `herdr:` 开头，该前缀为 Herdr 自有集成保留） */
   source?: string;
   /** agent 标识（默认 "dsh"） */
   agent?: string;

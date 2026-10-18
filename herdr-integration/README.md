@@ -34,7 +34,7 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 - id: herdr-integration
   name: '@dsh-toolset/herdr-integration'
   config:
-    source: herdr:dsh      # 面板来源标识（默认 herdr:dsh）
+    source: dsh            # 面板来源标识（默认 dsh；不得以 herdr: 开头，该前缀为 Herdr 保留）
     agent: dsh             # agent 标识（默认 dsh）
     attemptTimeoutMs: 500  # 首档发送等待响应超时 ms（默认 500）
 ```
