@@ -100,11 +100,23 @@ test("bundle 契约面: name / inject 与 Config 形态", () => {
 });
 
 test("apply: 未在 herdr 内（握手缺一）不注册工具、只记一行日志", () => {
-  const ctx = fakeCtx();
-  assert.equal(apply(ctx, {}), undefined);
-  assert.deepEqual(ctx.defs, []);
-  assert.equal(ctx.listeners.size, 0);
-  assert.deepEqual(ctx.disposers, []);
+  // 测试进程可能就跑在 herdr 管理的 pane 里（本仓 CI 与真机都是），先摘掉握手变量再验降级
+  const keys = ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID"] as const;
+  const saved = keys.map((key) => process.env[key]);
+  for (const key of keys) delete process.env[key];
+  try {
+    const ctx = fakeCtx();
+    assert.equal(apply(ctx, {}), undefined);
+    assert.deepEqual(ctx.defs, []);
+    assert.equal(ctx.listeners.size, 0);
+    assert.deepEqual(ctx.disposers, []);
+  } finally {
+    keys.forEach((key, index) => {
+      const value = saved[index];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    });
+  }
 });
 
 test("createHerdrPlugin: 握手成立时注册 herdr_pane 并挂 tools/pre-execute", () => {

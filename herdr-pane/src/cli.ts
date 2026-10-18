@@ -122,6 +122,12 @@ export function createDefaultRunner(binPath: string): HerdrRunner {
           if (settled) return;
           settled = true;
           if (timer !== undefined) clearTimeout(timer);
+          // 释放句柄：超时只杀掉直接子进程，孙进程可能仍持有 stdout / stderr 写端；
+          // 不主动 destroy 会让**宿主进程**一直等到它们退出（实测 `sh -c 'sleep 5'`
+          // 会把测试挂 5 秒），unref 则让子进程句柄不再阻碍事件循环退出。
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          child.unref();
           resolve({
             stdout,
             stderr: note === undefined ? stderr : `${stderr}${note}`,
@@ -207,7 +213,10 @@ function obj(value: unknown): Record<string, unknown> | undefined {
  * 时按 `unparsed` 处理，由调用方按退出码决定文案（如 CLI 语法错误只有一行纯文本）。
  */
 export function parseEnvelope(stdout: string, stderr: string): ParsedEnvelope {
-  for (const text of [stdout, stderr]) {
+  const texts = [stdout, stderr];
+  // **错误信封优先**：两侧任一携带 error 即判失败。实测 herdr 把错误写 stderr（exit 1），
+  // 但不同子命令的写侧并不统一；只要出现错误信封就不该被另一侧的 result 掩盖（宁可报错）。
+  for (const text of texts) {
     const root = obj(extractJsonObject(text));
     if (root === undefined) continue;
     const error = obj(root.error);
@@ -221,6 +230,10 @@ export function parseEnvelope(stdout: string, stderr: string): ParsedEnvelope {
         },
       };
     }
+  }
+  for (const text of texts) {
+    const root = obj(extractJsonObject(text));
+    if (root === undefined) continue;
     const result = obj(root.result);
     if (result !== undefined) return { kind: "ok", result };
   }
