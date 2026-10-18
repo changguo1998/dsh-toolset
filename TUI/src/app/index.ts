@@ -2917,6 +2917,14 @@ export class App {
         break;
       }
       case "home": {
+        // 无面板焦点（输入区）时：Home = 光标跳到输入开头；面板焦点下仍走历史区滚动
+        if (this.state.focusedPanel === null) {
+          this.apply((s) =>
+            reduceState(s, { type: "move-cursor", delta: -s.inputCursor }),
+          );
+          this.paint();
+          break;
+        }
         // Home = 往回翻到最旧「已加载」内容（2026-10-06 用户裁定；不一次性全量物化）；
         // 已在最旧已加载处再按 → 再物化一批更早回合，锚点段键不变（内容从上方长出）
         const r = this.paneMaxes();
@@ -2981,6 +2989,17 @@ export class App {
         break;
       }
       case "end":
+        // 无面板焦点（输入区）时：End = 光标跳到输入末尾；面板焦点下仍翻到最新
+        if (this.state.focusedPanel === null) {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "move-cursor",
+              delta: s.inputText.length - s.inputCursor,
+            }),
+          );
+          this.paint();
+          break;
+        }
         // End = 翻到最新（2026-10-06 用户裁定，接管原 Home 行为）：跟随底部 + 渐进窗口复位
         this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
         break;

@@ -4504,6 +4504,8 @@ test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收�
   );
   assert.notEqual(view(), topView, "↓ 画面立即变化（修复前纹丝不动）");
 
+  // 无面板焦点时 Home 改跳输入光标；先聚焦历史区再验历史滚动
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
   // Home（翻到最旧已加载）：偏移取真实上限，不是 MAX_SAFE_INTEGER
   renderer.press(key("home"));
   const endOffset = scrollOffset();
@@ -4514,6 +4516,30 @@ test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收�
   );
   renderer.press(key("down"));
   assert.notEqual(view(), endView, "Home 之后 ↓ 立即响应");
+  app.dispose();
+});
+
+test("Home / End：无面板焦点时跳输入区开头 / 末尾（不滚动历史）", () => {
+  const { app, renderer } = makeApp();
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+  const st = (): { inputText: string; inputCursor: number } =>
+    (app as unknown as { state: { inputText: string; inputCursor: number } })
+      .state;
+  for (const ch of Array.from("abc")) renderer.press(key(ch));
+  renderer.press(key("home"));
+  assert.equal(st().inputCursor, 0, "Home 跳到输入开头");
+  renderer.press(key("end"));
+  assert.equal(st().inputCursor, st().inputText.length, "End 跳到输入末尾");
+  // 面板焦点下不改光标
+  const before = st().inputCursor;
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
+  renderer.press(key("home"));
+  assert.equal(st().inputCursor, before, "面板焦点下 Home 不动输入光标");
   app.dispose();
 });
 
@@ -4622,6 +4648,8 @@ test("Home / End 语义（2026-10-06 裁定）：End 回最新并复位窗口；
   // Home = 往回翻到最旧「已加载」内容：不扩窗（不一次性全量物化），离开跟随底部
   const groups0 = st().windowGroups;
   assert.equal(groups0, defaultGroups, "初始为默认渐进窗口");
+  // 无面板焦点时 Home 改跳输入光标；先聚焦历史区再验历史滚动
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
   renderer.press(key("home"));
   assert.equal(st().windowGroups, groups0, "Home 只翻到已加载的最旧处，不扩窗");
   assert.equal(st().followBottom, false, "Home 后停止跟随底部");
