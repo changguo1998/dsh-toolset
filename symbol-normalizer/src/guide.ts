@@ -39,6 +39,6 @@ export function buildSymbolGuide(rules: ResolvedSymbolRules): string {
     `6. 下列变体必须改用推荐符：${aliasText}`,
     "7. 行内代码与围栏代码块内的符号不参与审查；其余正文仍须写推荐符号。",
     "",
-    "继续做正在进行的任务, 没有任务则停下等待指令.",
+    "若本会话有正在进行的工作, 了解后继续原任务; 否则停下等待指令, 不要自行去工作区找任务.",
   ].join("\n");
 }

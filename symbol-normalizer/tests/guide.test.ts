@@ -53,7 +53,10 @@ test("buildSymbolGuide：只有命令与要求（无标题、无解释性括注�
   assert.match(lines[7] ?? "", /^7\. 行内代码与围栏代码块内的符号不参与审查/);
   // 尾行：空行分隔的工作流指令（不是符号规则，故不编号）
   assert.equal(lines[8], "");
-  assert.equal(lines[9], "继续做正在进行的任务, 没有任务则停下等待指令.");
+  assert.equal(
+    lines[9],
+    "若本会话有正在进行的工作, 了解后继续原任务; 否则停下等待指令, 不要自行去工作区找任务.",
+  );
 });
 
 test("buildSymbolGuide：别名映射取自 config 且用行内代码包裹（自身不被审查命中）", () => {
