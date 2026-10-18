@@ -33,6 +33,17 @@ export interface TimerLike {
   schedule(delayMs: number, callback: () => void): () => void;
 }
 
+/** 进程内定时器（不依赖宿主 timer 服务；unref 避免拖住进程退出）。 */
+export function systemTimer(): TimerLike {
+  return {
+    schedule(delayMs, callback) {
+      const handle = setTimeout(callback, delayMs);
+      handle.unref?.();
+      return () => clearTimeout(handle);
+    },
+  };
+}
+
 /** 活跃 agent 解析面（`ctx.agents.get`）。 */
 export interface AgentsLike {
   get(sessionId: string): AgentLike | undefined | null;

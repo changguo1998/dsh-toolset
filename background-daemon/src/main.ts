@@ -35,6 +35,7 @@ import {
 import {
   ChannelRegistry,
   Scheduler,
+  systemTimer,
   type AgentsLike,
   type TimerLike,
 } from "./scheduler.ts";
@@ -84,7 +85,7 @@ export const provide = ["backgroundDaemon"];
  * 可选依赖**不进** inject：`memory`（记录底座, 缺失降级 JSON 快照）与 `guard`
  * （命令复查, 缺失 fail-open）走受保护读取 / 惰性解析。
  */
-export const inject = ["agents", "sessions", "timer", "commands", "tools"];
+export const inject = ["agents", "sessions", "commands", "tools"];
 
 /** 宿主 ctx 的结构子集。 */
 interface BundleHost {
@@ -212,7 +213,9 @@ export async function createDaemonRuntime(
 
   const agents = readService<AgentsLike>(ctx, "agents");
   const sessions = readService<SessionsLike>(ctx, "sessions");
-  const timer = readService<TimerLike>(ctx, "timer");
+  // 定时器不依赖宿主：宿主 `timer` 存在则用作可注入覆盖（测试/宿主可换实现），
+  // 否则用进程内 `setTimeout`（与调度器「单 timer + 墙钟重算」设计一致）。
+  const timer = readService<TimerLike>(ctx, "timer") ?? systemTimer();
   const commands = readService<CommandExecLike & CommandRegistrarLike>(
     ctx,
     "commands",
@@ -224,10 +227,6 @@ export async function createDaemonRuntime(
   if (sessions === undefined || typeof sessions.flush !== "function") {
     warn("ctx.sessions.flush 不可用：文本投递只能到 L1（记 durable:false）");
   }
-  if (timer === undefined || typeof timer.schedule !== "function") {
-    warn("ctx.timer 不可用：调度器无法排期（命令面仍可手动 run）");
-  }
-
   const channels = new ChannelRegistry();
   channels.register(new TextChannel({ sessions, warn }));
   channels.register(
@@ -239,7 +238,7 @@ export async function createDaemonRuntime(
     journal,
     channels,
     agents: agents ?? { get: () => undefined },
-    timer: timer ?? { schedule: () => () => {} },
+    timer,
     now: clock,
     warn,
     ...(config.awaitAgentMs === undefined

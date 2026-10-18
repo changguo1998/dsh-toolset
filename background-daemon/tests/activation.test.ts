@@ -29,16 +29,10 @@ function tempDir(): string {
 }
 
 /** `apply` 期必须读到的服务（与 main.ts 的 inject 一一对应）。 */
-const REQUIRED_SERVICES = [
-  "agents",
-  "sessions",
-  "timer",
-  "commands",
-  "tools",
-] as const;
+const REQUIRED_SERVICES = ["agents", "sessions", "commands", "tools"] as const;
 
 /** 可选依赖：缺失时降级而不是拒绝激活。 */
-const OPTIONAL_SERVICES = ["memory", "guard"] as const;
+const OPTIONAL_SERVICES = ["memory", "guard", "timer"] as const;
 
 /** 严格模式假 ctx：未就绪时 `get` 与 cordis 一样抛错。 */
 class StrictContext {
