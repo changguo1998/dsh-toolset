@@ -52,8 +52,6 @@ test("写→读往返：全部字段（含可选 reasoningEffort / modes）", ()
         model: "deepseek-test-b",
         reasoningEffort: "high",
       },
-      collapse: true,
-      verbose: "tool",
       symbolUnify: false,
       modes: {
         plan: "on",
@@ -80,21 +78,15 @@ test("写→读往返：全部字段（含可选 reasoningEffort / modes）", ()
   }
 });
 
-test("#8 快照迁移：旧布尔 `verbose`（详略）取反写入 `collapse`；新档位字符串原样读回", () => {
+test("旧快照的 collapse / verbose 字段读到即丢（2026-10-18 六开关重置）", () => {
   const { root, dir, cleanup } = makeRoot("tui-mig");
   try {
     const file = join(dir, SESSION_UI_STATE_FILE);
     writeFileSync(file, JSON.stringify({ version: 1, verbose: false }), "utf8");
     assert.deepEqual(
       readSessionUiState("tui-mig", [root]),
-      { version: 1, collapse: true },
-      "旧 verbose:false（紧凑）→ collapse:true",
-    );
-    writeFileSync(file, JSON.stringify({ version: 1, verbose: true }), "utf8");
-    assert.deepEqual(
-      readSessionUiState("tui-mig", [root]),
-      { version: 1, collapse: false },
-      "旧 verbose:true（完整）→ collapse:false",
+      { version: 1 },
+      "旧 verbose 布尔丢弃",
     );
     writeFileSync(
       file,
@@ -103,8 +95,8 @@ test("#8 快照迁移：旧布尔 `verbose`（详略）取反写入 `collapse`�
     );
     assert.deepEqual(
       readSessionUiState("tui-mig", [root]),
-      { version: 1, collapse: true, verbose: "step" },
-      "新结构（collapse + 档位）原样读回",
+      { version: 1 },
+      "旧 collapse + 档位字符串丢弃",
     );
   } finally {
     cleanup();
@@ -114,11 +106,7 @@ test("#8 快照迁移：旧布尔 `verbose`（详略）取反写入 `collapse`�
 test("会话目录不存在（仅内存会话）：写失败、读 undefined，且不创建目录", () => {
   const { root, cleanup } = makeRoot("tui-exists");
   try {
-    const res = writeSessionUiState(
-      "tui-missing",
-      { version: 1, collapse: false },
-      [root],
-    );
+    const res = writeSessionUiState("tui-missing", { version: 1 }, [root]);
     assert.equal(res.ok, false, "无目录 → 写失败");
     assert.equal(
       readSessionUiState("tui-missing", [root]),

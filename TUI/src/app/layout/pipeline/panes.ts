@@ -11,7 +11,7 @@
 // notice → 回合区。宽度相关（折行、紧凑截断、竖线连通）一律留给第 4 步；边界项的**文案**
 // （`hh:mm:ss ⇆N #M` / `╌╌ hh:mm:ss ⇆N ╌╌`）也在第 4 步渲染，本层只给位置与元数据。
 
-import type { ActivityLevel } from "../../state.ts";
+import type { ActivitySwitches } from "../../state.ts";
 import { applyShadowed, buildBoxes, type Box } from "./boxes.ts";
 import { stepKey, type Section } from "./types.ts";
 
@@ -97,8 +97,8 @@ export interface PaneCache {
 }
 
 export interface PaneOptions {
-  /** 活动区档位（`/verbose think|tool|step`）：think = 全量；tool = 去思考；step = 只留工具调用 */
-  level: ActivityLevel;
+  /** 活动区显示开关（`/verbose [think|tool|reply] [on|off]`）：按类别决定该类内容是否进 pane */
+  activityShow: Partial<ActivitySwitches>;
   /** 符号替换（`symbol-normalizer` 服务；缺省原文透传）。只作用于文本，代码 / 表格不替换 */
   normalize?: (text: string) => string;
   /** 压缩剪枝遮蔽的宿主事件号（box 层按交集打灰） */
@@ -127,13 +127,15 @@ export interface PaneOptions {
 }
 
 /**
- * 档位过滤：该 box 在活动区是否可见（会话区不受档位影响）。
- * 口径与旧渲染器一致：`tool` / `step` 去思考；工具批内部的**结果行**由第 4 步沿用
- * 旧渲染器按档位裁掉（调用行只取首行），故此处不拆工具批。
+ * 显示过滤：该 box 在活动区是否可见（会话区不受影响）。
+ * 按来源分流：reasoning → think、tool → tool、assistant → reply；
+ * notice / shell 与 step 分隔头**恒显**（不归三类）。
  */
-function visibleAtLevel(box: Box, level: ActivityLevel): boolean {
-  if (level === "think") return true;
-  return box.source !== "reasoning";
+function visibleAtLevel(box: Box, show: Partial<ActivitySwitches>): boolean {
+  if (box.source === "reasoning") return show.think !== false;
+  if (box.source === "tool") return show.tool !== false;
+  if (box.source === "assistant") return show.reply !== false;
+  return true;
 }
 
 /**
@@ -368,7 +370,7 @@ export function buildPanes(
             section.final === true || section.history === true,
           )
             ? dialogue
-            : visibleAtLevel(line, options.level)
+            : visibleAtLevel(line, options.activityShow)
               ? activity
               : undefined;
           if (target === undefined) continue;

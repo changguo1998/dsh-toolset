@@ -1094,10 +1094,9 @@ function buildTopRegion(
     windowGroups: state.windowGroups,
     render: {
       gutter: state.messageGutter,
-      // 活动区详略两态（SPEC §6.8）：activityCompact=true → 紧凑（每条目 1 行 + 省略号，/collapse on）
+      // 活动区六开关（SPEC §6.8）：/collapse 管压缩（按类压 1 行）、/verbose 管显示（按类显隐）
       activityCompact: state.activityCompact,
-      // BACKLOG #8：活动区输出内容档位（think / tool / step；缺省 think）
-      activityLevel: state.activityVerbose,
+      activityShow: state.activityShow,
       width: dialogueTextW,
       activityWidth,
       // P1：用户块首行左侧状态符号（✓/✗/■/? 与活跃块 ●/○/△）
@@ -1323,7 +1322,7 @@ function buildTopRegion(
             state,
             { mode, policy, preset },
             {
-              verbose: !state.activityCompact,
+              verbose: !Object.values(state.activityCompact).some(Boolean),
               symbolUnify: state.symbolUnify,
               notifyEnabled: state.notifyEnabled,
             },

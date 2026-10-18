@@ -16,7 +16,7 @@ import { join } from "node:path";
 import type {
   AppState,
   InputMode,
-  ActivityLevel,
+  ActivityCategory,
   QuestionPanelState,
   StateAction,
   StatusPanelState,
@@ -212,6 +212,44 @@ export const SMALL_TERMINAL_ROWS = 9;
 export const SMALL_TERMINAL_NOTICE =
   "终端尺寸过小（宽 ≤ 16 或高 ≤ 9），显示可能不可用，请调大窗口";
 
+/** 活动区三类开关的解析（`/verbose` 与 `/collapse` 共用）。 */
+const ACTIVITY_CATEGORIES: readonly ActivityCategory[] = [
+  "think",
+  "tool",
+  "reply",
+];
+
+/**
+ * 解析 `[think|tool|reply|all] [on|off]`；`all` = 三类同时设置。
+ * 缺参 / 非法值返回空对象（调用方回用法）。
+ */
+function parseActivitySwitch(
+  line: string,
+  command: string,
+): { categories?: ActivityCategory[]; on?: boolean } {
+  const parts = line.slice(command.length).trim().toLowerCase().split(/\s+/);
+  const category = parts[0];
+  const value = parts[1];
+  if (category === undefined) return {};
+  if (value !== "on" && value !== "off") return {};
+  if (category === "all") {
+    return { categories: [...ACTIVITY_CATEGORIES], on: value === "on" };
+  }
+  if (!ACTIVITY_CATEGORIES.includes(category as ActivityCategory)) return {};
+  return { categories: [category as ActivityCategory], on: value === "on" };
+}
+
+/** 三类开关的当前值（usage 提示用）。 */
+function formatActivitySwitches(switches: {
+  think: boolean;
+  tool: boolean;
+  reply: boolean;
+}): string {
+  return ACTIVITY_CATEGORIES.map(
+    (c) => `${c} ${switches[c] ? "on" : "off"}`,
+  ).join(" / ");
+}
+
 /** 终端尺寸是否过小（启动与 resize 共用判据；纯函数便于测试） */
 export function smallTerminal(size: { cols: number; rows: number }): boolean {
   // 尺寸未知（0）按正常处理、不误报：renderer 侧另有 80×24 回落（见 renderer/terminal.ts）
@@ -219,8 +257,6 @@ export function smallTerminal(size: { cols: number; rows: number }): boolean {
   return size.cols <= SMALL_TERMINAL_COLS || size.rows <= SMALL_TERMINAL_ROWS;
 }
 
-/** 已下线命令的统一提示（`/collapse`、`/verbose`）：工具块改版决策 8 第 11 条——两个命令
- *  从命令目录 / 补全 / 帮助面移除，但仍保留路由，输入时只回这一条且**不改状态**。 */
 const RETIRED_COMMAND_NOTICE = "该命令已下线（待重新设计）";
 
 /**
@@ -1430,8 +1466,6 @@ export class App {
             },
           }
         : {}),
-      collapse: this.state.activityCompact,
-      verbose: this.state.activityVerbose,
       symbolUnify: this.state.symbolUnify,
       // P7：垂直状态列显隐（TUI 本地开关，随会话持久化）
       statusColumn: this.state.statusColumnVisible,
@@ -2068,16 +2102,6 @@ export class App {
           e.sessionId !== this.state.activeSessionId
         ) {
           break;
-        }
-        if (e.collapse !== undefined) {
-          this.apply((s) =>
-            reduceState(s, { type: "activity-compact", on: e.collapse! }),
-          );
-        }
-        if (e.verbose !== undefined) {
-          this.apply((s) =>
-            reduceState(s, { type: "activity-verbose", level: e.verbose! }),
-          );
         }
         if (e.symbolUnify !== undefined) {
           this.apply((s) =>
@@ -3937,8 +3961,32 @@ export class App {
    * on = 紧凑（状态 2：每条目 1 行 + 行尾省略号）；off = 每条目完整折行（状态 1，缺省）。
    * 无参数/非法参数 → 只提示用法与当前状态，不切换。
    */
-  private handleCollapseCommand(_line: string): void {
-    this.notice(RETIRED_COMMAND_NOTICE, "info");
+  /**
+   * `/collapse [think|tool|reply] [on|off]`：活动区**压缩开关**（按类别）。
+   * on = 该类条目压 1 行 + 行尾省略号；off = 完整折行。无参 / 非法参数只提示用法与当前值。
+   */
+  private handleCollapseCommand(line: string): void {
+    const { categories, on } = parseActivitySwitch(line, "/collapse");
+    if (categories === undefined || on === undefined) {
+      this.notice(
+        `usage: /collapse [think|tool|reply|all] [on|off]（当前：${formatActivitySwitches(this.state.activityCompact)}）`,
+        "info",
+      );
+      return;
+    }
+    this.apply((s) =>
+      reduceState(s, { type: "activity-compact", categories, on }),
+    );
+    this.paint();
+    this.scheduleSessionStateSave();
+    const label =
+      categories.length === ACTIVITY_CATEGORIES.length
+        ? "all"
+        : categories.join(",");
+    this.notice(
+      `活动区压缩：${label} → ${on ? "on（压 1 行）" : "off（完整折行）"}`,
+      "success",
+    );
   }
 
   /**
@@ -3947,8 +3995,32 @@ export class App {
    * step = 正文 + 工具调用的**调用行**（去结果行 / 辅助行；step 头与 notice 保留）。
    * 无参数 / 非法参数 → 只提示用法与当前档位，不切换（沿用既有口径）。
    */
-  private handleVerboseLevelCommand(_line: string): void {
-    this.notice(RETIRED_COMMAND_NOTICE, "info");
+  /**
+   * `/verbose [think|tool|reply] [on|off]`：活动区**显示开关**（按类别）。
+   * on = 显示该类内容；off = 不显示（notice 与 step 头恒显）。无参 / 非法参数只提示用法与当前值。
+   */
+  private handleVerboseLevelCommand(line: string): void {
+    const { categories, on } = parseActivitySwitch(line, "/verbose");
+    if (categories === undefined || on === undefined) {
+      this.notice(
+        `usage: /verbose [think|tool|reply|all] [on|off]（当前：${formatActivitySwitches(this.state.activityShow)}）`,
+        "info",
+      );
+      return;
+    }
+    this.apply((s) =>
+      reduceState(s, { type: "activity-show", categories, on }),
+    );
+    this.paint();
+    this.scheduleSessionStateSave();
+    const label =
+      categories.length === ACTIVITY_CATEGORIES.length
+        ? "all"
+        : categories.join(",");
+    this.notice(
+      `活动区显示：${label} → ${on ? "on（显示）" : "off（不显示）"}`,
+      "success",
+    );
   }
 
   /** `/symbol-unify on|off`：模型输出符号统一开关（变体替换为推荐 + 未推荐提醒）。 */

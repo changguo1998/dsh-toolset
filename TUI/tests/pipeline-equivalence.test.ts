@@ -254,7 +254,10 @@ for (const width of [40, 80, 120]) {
         turnTimes.set(String(delivery.turn), delivery.time ?? 0);
       }
     }
-    const panes = buildPanes(sections, { level: "think", turnTimes });
+    const panes = buildPanes(sections, {
+      activityShow: { think: true },
+      turnTimes,
+    });
     const next = {
       dialogue: renderPane(panes.dialogue, "dialogue", {
         width,
@@ -283,7 +286,7 @@ for (const width of [40, 80, 120]) {
 
 test("box → 旧口径缓冲行：代码块 / 表格 / 工具批的还原形态", () => {
   const sections = allSections(applyAll(createSections(), script));
-  const panes = buildPanes(sections, { level: "think" });
+  const panes = buildPanes(sections, { activityShow: { think: true } });
   const lines = panes.activity
     .filter((item) => item.kind === "line")
     .flatMap((item) => (item.kind === "line" ? boxToLines(item.box) : []));
@@ -314,7 +317,7 @@ test("多行文本按物理行展开，且不拆成多个块", () => {
     { kind: "user", turn: 1, step: 1, text: "第一行\n第二行" },
   ];
   const panes = buildPanes(allSections(applyAll(createSections(), streamed)), {
-    level: "think",
+    activityShow: { think: true },
   });
   const activity = renderPane(panes.activity, "activity", {
     width: 40,
@@ -352,7 +355,7 @@ test("多行文本按物理行展开，且不拆成多个块", () => {
 
 test("c4 计数断言：宽度不变时同段不重复排版；宽度变化才重排", () => {
   const sections = allSections(applyAll(createSections(), script));
-  const panes = buildPanes(sections, { level: "think" });
+  const panes = buildPanes(sections, { activityShow: { think: true } });
   // 首次：全部未命中（节 / box / 拆行 / 行 都按身份缓存）
   resetRowRenderStats();
   renderPane(panes.dialogue, "dialogue", { width: 80 });
@@ -372,41 +375,38 @@ test("c4 计数断言：宽度不变时同段不重复排版；宽度变化才�
   assert.ok(rowRenderMisses() > 0, "宽度变化 → 全量重排");
 });
 
-test("c4 计数断言：档位切换只重排回合区（会话区不受档位影响）", () => {
+test("c4 计数断言：显示开关切换只重排回合区（会话区不受影响）", () => {
   const sections = allSections(applyAll(createSections(), script));
-  const think = buildPanes(sections, { level: "think" });
-  const render = (
-    panes: ReturnType<typeof buildPanes>,
-    level: "think" | "step",
-  ) =>
+  const think = buildPanes(sections, { activityShow: { think: true } });
+  const render = (panes: ReturnType<typeof buildPanes>, reply: boolean) =>
     renderPane(panes.activity, "activity", {
       width: 80,
-      activityLevel: level,
+      activityShow: { reply },
     });
-  render(think, "think");
+  render(think, true);
   resetRowRenderStats();
-  render(think, "think");
-  assert.equal(rowRenderMisses(), 0, "同档位重复出帧零重排");
+  render(think, true);
+  assert.equal(rowRenderMisses(), 0, "同开关重复出帧零重排");
   resetRowRenderStats();
-  render(think, "step");
-  assert.ok(rowRenderMisses() > 0, "档位变化重放回合区");
+  render(think, false);
+  assert.ok(rowRenderMisses() > 0, "开关变化重放回合区");
 });
 
-test("等价性扩展：档位 tool / step 下新旧逐行一致", () => {
-  for (const level of ["tool", "step"] as const) {
-    const oldRows = buildContentRows(oldBuffer(), { activityLevel: level }, 80);
+test("等价性扩展：显示开关关类后新旧逐行一致", () => {
+  for (const show of [{ think: false }, { think: false, tool: false }]) {
+    const oldRows = buildContentRows(oldBuffer(), { activityShow: show }, 80);
     const sections = allSections(applyAll(createSections(), script));
-    // 档位过滤在 pane 层（新）与旧渲染器（旧）各做一次：新路径先过滤再渲染，
-    // 旧路径把同一份 buffer 交给旧渲染器按档位过滤——两侧结果必须一致。
-    const panes = buildPanes(sections, { level });
+    // 关类过滤在 pane 层（新）与旧渲染器（旧）各做一次：新路径先过滤再渲染，
+    // 旧路径把同一份 buffer 交给旧渲染器按开关过滤——两侧结果必须一致。
+    const panes = buildPanes(sections, { activityShow: show });
     const next = renderPane(panes.activity, "activity", {
       width: 80,
-      activityLevel: level,
+      activityShow: show,
     });
     assertActivityEquivalent(
       rowText(next.rows),
       rowText(oldRows.activity),
-      level,
+      JSON.stringify(show),
     );
   }
 });

@@ -72,7 +72,10 @@ test("① 归属：用户块与 final 正文进会话区，思考 / 工具 / 非
       }),
     ],
     // 回合分隔线判据：turn-start 交付过的回合才画线（生产由 frame 层传 turnTimes）
-    { level: "think", turnTimes: new Map([["1", 1_700_000_000_000]]) },
+    {
+      activityShow: { think: true },
+      turnTimes: new Map([["1", 1_700_000_000_000]]),
+    },
   );
   // 会话区：首 pane 内容前有回合分隔线（旧口径 turn-begin 即画线），用户块与 final
   // 正文之间按分类变化留白（旧路径 spaceUserAssistant 口径）
@@ -105,20 +108,16 @@ test("② 档位过滤：tool 去思考、step 只留工具调用（notice 保�
       { turn: 1, step: 2 },
     ),
   ];
-  assert.deepEqual(shape(buildPanes(sections, { level: "tool" }).activity), [
-    "#step 2",
-    "assistant:过程",
-    "tool:1",
-    "notice:提示",
-  ]);
-  // step 档：去思考；工具批内部的**结果行**由第 4 步沿用旧渲染器裁掉（调用行只取首行），
+  assert.deepEqual(
+    shape(buildPanes(sections, { activityShow: { think: false } }).activity),
+    ["#step 2", "assistant:过程", "tool:1", "notice:提示"],
+  );
+  // step 关（think off）：去思考；工具批内部的**结果行**由第 4 步沿用旧渲染器裁掉（调用行只取首行），
   // 正文与 notice 保留——与旧渲染器同口径
-  assert.deepEqual(shape(buildPanes(sections, { level: "step" }).activity), [
-    "#step 2",
-    "assistant:过程",
-    "tool:1",
-    "notice:提示",
-  ]);
+  assert.deepEqual(
+    shape(buildPanes(sections, { activityShow: { think: false } }).activity),
+    ["#step 2", "assistant:过程", "tool:1", "notice:提示"],
+  );
 });
 
 test("③ 替换符号只作用于文本，代码与表格不替换", () => {
@@ -136,7 +135,10 @@ test("③ 替换符号只作用于文本，代码与表格不替换", () => {
         { turn: 1, step: 2 },
       ),
     ],
-    { level: "think", normalize: (text) => text.replace(/->/g, "→") },
+    {
+      activityShow: { think: true },
+      normalize: (text) => text.replace(/->/g, "→"),
+    },
   );
   // 正文 / 代码 / 表格同属 assistant：同块内不插空行（旧口径），只断言内容不被替换
   assert.deepEqual(shape(panes.activity), [
@@ -155,7 +157,7 @@ test("④ 拆行：文本叶子整段保留（第 4 步按物理行展开）；�
         step: 2,
       }),
     ],
-    { level: "think" },
+    { activityShow: { think: true } },
   );
   assert.deepEqual(shape(panes.activity), [
     "#step 2",
@@ -173,7 +175,7 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
         step: 1,
       }),
     ],
-    { level: "think" },
+    { activityShow: { think: true } },
   );
   assert.deepEqual(shape(panes.activity), [
     "#step 1",
@@ -195,7 +197,7 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
       }),
       section([{ source: "user", text: "第二问" }], { turn: 2, step: 1 }),
     ],
-    { level: "think", turnTimes: new Map([["2", STEP_TIME]]) },
+    { activityShow: { think: true }, turnTimes: new Map([["2", STEP_TIME]]) },
   );
   assert.ok(
     shape(dialogue.dialogue).includes("-- turn 2"),
@@ -205,7 +207,7 @@ test("⑤ 边界：step 头随 scope 变化；turn 分隔线随回合变化；�
   const trailing = buildPanes(
     [section([{ source: "assistant", text: "旧内容" }], { turn: 1, step: 1 })],
     {
-      level: "think",
+      activityShow: { think: true },
       turnTimes: new Map([
         ["1", STEP_TIME],
         ["2", STEP_TIME],
@@ -230,7 +232,7 @@ test("⑥ 空行：段内空行随文本进第 4 步（第 4 步合并 + 竖线�
         { turn: 1, step: 2 },
       ),
     ],
-    { level: "think" },
+    { activityShow: { think: true } },
   );
   assert.deepEqual(shape(panes.activity), [
     "#step 2",
@@ -246,7 +248,7 @@ test("⑥ 空行：段内空行随文本进第 4 步（第 4 步合并 + 竖线�
         step: 2,
       }),
     ],
-    { level: "think" },
+    { activityShow: { think: true } },
   );
   assert.deepEqual(shape(code.activity), ["#step 2", "code:a|||b"]);
 });
@@ -259,7 +261,7 @@ test("⑦ 遮蔽标记透传到 pane 项（第 4 步据此着色）", () => {
         step: 2,
       }),
     ],
-    { level: "think", shadowedSeqs: new Set([5]) },
+    { activityShow: { think: true }, shadowedSeqs: new Set([5]) },
   );
   const line = panes.activity.find((item) => item.kind === "line");
   assert.equal(
@@ -282,7 +284,7 @@ test("⑦ 全空正文段不产出回合区行（中间 / 尾部各一例）", (
         { turn: 1, step: 1 },
       ),
     ],
-    { level: "think" },
+    { activityShow: { think: true } },
   );
   const blankItems = panes.activity.filter(
     (it) =>
@@ -301,7 +303,7 @@ test("⑧ 孤儿头：声明多个无回合区内容的 step 不出分隔线（�
   // 三个 step 只有声明、回合区没有内容（内容归会话区 / 被档位过滤 / 还没到）→ 0 行头；
   // 有内容的那一步照常出（含时间戳与步号）
   const empty = buildPanes([], {
-    level: "think",
+    activityShow: { think: true },
     declaredSteps: ["1:1", "1:2", "1:3"],
     stepTimes: new Map([
       ["1:1", { time: 1 }],
@@ -312,7 +314,7 @@ test("⑧ 孤儿头：声明多个无回合区内容的 step 不出分隔线（�
   assert.deepEqual(shape(empty.activity), []);
   const withContent = buildPanes(
     [section([{ source: "reasoning", text: "（想）" }], { turn: 1, step: 2 })],
-    { level: "think", declaredSteps: ["1:1", "1:2", "1:3"] },
+    { activityShow: { think: true }, declaredSteps: ["1:1", "1:2", "1:3"] },
   );
   assert.deepEqual(shape(withContent.activity), [
     "#step 2",
@@ -331,7 +333,7 @@ test("⑨ 抑制首头：窗口顶切在节中间时，该 step 一条头都不�
     ),
   ];
   const panes = buildPanes(sections, {
-    level: "think",
+    activityShow: { think: true },
     declaredSteps: ["1:1"],
     suppressFirstHead: true,
   });
@@ -353,7 +355,7 @@ test("⑩ 辅助行各自成段：与工具批不同段、都可见（含批前�
         { turn: 1, step: 1 },
       ),
     ],
-    { level: "think", declaredSteps: ["1:1"] },
+    { activityShow: { think: true }, declaredSteps: ["1:1"] },
   );
   // 三段各自成 box（辅助行文本走文本分支、批走批分支），顺序按到达序
   assert.deepEqual(shape(panes.activity), [
@@ -393,7 +395,7 @@ test("⑪ 到达顺序：同 step 内 notice 排在正文之前（不被回写�
     },
   ]);
   const panes = buildPanes(allSections(state), {
-    level: "think",
+    activityShow: { think: true },
     declaredSteps: ["1:1"],
   });
   // 与旧路径逐行同款（探针 `tmp/probe-notice.ts`：`#1`、`┃（先想）`、`（提示）`、空行、`┃中间正文`）
@@ -419,11 +421,11 @@ test("条目 26：历史节里的工具批进会话区（恢复的工具结果�
     current: undefined,
   });
   const plain = buildPanes(allSections(withSections([section([toolItem])])), {
-    level: "think",
+    activityShow: { think: true },
   });
   const history = buildPanes(
     allSections(withSections([section([toolItem], { history: true })])),
-    { level: "think" },
+    { activityShow: { think: true } },
   );
   const hasTool = (items: readonly PaneItem[]): boolean =>
     items.some(

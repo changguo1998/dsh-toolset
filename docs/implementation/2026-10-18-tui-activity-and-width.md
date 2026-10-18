@@ -57,16 +57,31 @@
 
 ## 实现记录
 
-（见下）
+- `state.ts`：`ActivityLevel` 换为 `ActivityCategory` + `ActivitySwitches`；`activityCompact` / `activityShow` 两张表与缺省常量；action 改 `activity-compact{category,on}` / `activity-show{category,on}`。
+- `commands.ts`：`/collapse` 与 `/verbose` 恢复进 `LOCAL_COMMANDS`（desc 写按类别，支持 `all`），删除 `RETIRED_ROUTES`。
+- `index.ts`：两 handler 解析 `[think|tool|reply] [on|off]`（`parseActivitySwitch` / `formatActivitySwitches`；`all` = 三类同时），非法参数回 usage；删除下线提示常量；`ui-flags` 不再保存 / 回填活动区开关。
+- `layout.ts`：传 `activityShow` / `activityCompact`；标题栏 `verbose` 指示改为「压缩未全开」。
+- `build-box.ts`：按类显示过滤（思考 / 工具 / 非 final 正文；notice 与 step 头恒显）与按类压缩：think / reply 先按 markdown 块级元素排版（记号渲染掉）再拼成一行，超宽时省略号在前、保留末尾（随流刷新）；tool 把整节所有调用的名字与参数拼到一行（名字保持黄色）填满后加省略号。三开关全开时每节固定三行（think / tool / reply 各一行，step 头另计）。
+- `pipeline/panes.ts`：`visibleAtLevel` 按来源分流（reasoning / tool / assistant）；`frame.ts` / `rows.ts` 传参与缓存键改为六开关。
+- `adapter/session-ui-state.ts` / `adapter/types.ts` / `adapter/dsh.ts`：删 `collapse` / `verbose` 字段与迁移，旧快照值读到即丢。
+- 测试：`activity-level.test.ts` 重写为显示矩阵 + 命令面；`activity-verbose.test.ts` 改为压缩矩阵 + 工具组压 1 行 + `/collapse` 命令；`pipeline-*`、`thinking-markdown`、`title-bar`、`app`、`adapter.dsh`、`session-ui-state`、`completion` 同步改形参与断言。
+- 文档：`SPEC.md` §6.8 / §15.5 重写为六开关；`COMMANDS.md` 计数 41→43；`README.md` 命令表与活动区说明更新。
 
 ## 偏差
 
-（待填）
+- `notice` / shell 行不再支持「压缩」：按用户裁定归恒显类，`noCompact` 字段不再决定压缩（保留字段供其它用途）。
+- 标题栏 `verbose` 指示语义改为「压缩未全开」，不再等价于单一 `activityCompact`。
+- 旧快照的 `activityCompact` / `activityVerbose` 不迁移（用户裁定重置）。
 
 ## 测试与证据
 
-（待填）
+- `npm --prefix TUI run check`：0 error。
+- `npm --prefix TUI run test`：1625 例全绿（fail 0）。
+- `npm --prefix TUI run build`：通过；`npm run demo -- --smoke`：`SMOKE_PASS jobs-kill` / `SMOKE_OK`。
+- 断言覆盖：显示三类矩阵与 `/verbose` 命令、压缩三类矩阵与 `/collapse` 命令、工具组压 1 行、notice 恒显不压、旧快照字段丢弃、pipeline 与旧渲染等价、标题栏指示随压缩状态。
 
 ## 收尾
 
-（待填）
+- 待办：条目 1 标完成并移出 `TUI/docs/BACKLOG.md`；本文件移入 `docs/archived/`；条目 2（输入宽度）另起追踪文档。
+- 回写：`SPEC.md` / `COMMANDS.md` / `README.md` 已改。
+- 未做：宿主面板、条目 2、新依赖。

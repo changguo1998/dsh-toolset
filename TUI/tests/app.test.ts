@@ -2256,28 +2256,27 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
   );
 });
 
-test("/collapse 已下线（2026-10-13 决策 8 第 11 条）：只提示、不改状态", () => {
+test("/collapse：按类别切换压缩开关，非法参数不改状态", () => {
   const { app, renderer } = makeApp();
-  const compact = (): boolean =>
-    (app as unknown as { state: { activityCompact: boolean } }).state
+  const compact = (): { think: boolean; tool: boolean; reply: boolean } =>
+    (app as unknown as { state: { activityCompact: never } }).state
       .activityCompact;
-  assert.equal(compact(), false, "缺省完整折行（collapse off）");
-  for (const line of [
-    "/collapse on",
-    "/collapse off",
-    "/collapse",
-    "/collapse 也许",
-  ]) {
-    typeAndEnter(renderer, line);
-    assert.equal(compact(), false, `${line} 不改状态`);
-    assert.ok(
-      renderer.lastRender.join("\n").includes("该命令已下线（待重新设计）"),
-      `${line} 给统一下线提示`,
-    );
-  }
+  assert.deepEqual(compact(), { think: false, tool: false, reply: false });
+  typeAndEnter(renderer, "/collapse reply on");
+  assert.equal(compact().reply, true);
+  assert.equal(compact().tool, false, "只改指定类别");
+  typeAndEnter(renderer, "/collapse reply off");
+  assert.equal(compact().reply, false, "/collapse off 恢复完整折行");
+  typeAndEnter(renderer, "/collapse 也许 on");
+  assert.deepEqual(
+    compact(),
+    { think: false, tool: false, reply: false },
+    "非法参数不改状态",
+  );
+  assert.ok(renderer.lastRender.join("\n").includes("usage: /collapse"));
 });
 
-test("/help 内容完整折行（紧凑开关已下线，不受其影响）", () => {
+test("/help 内容完整折行（notice 不归压缩开关）", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/help");
   const compactText = renderer.lastRender.join("\n");
@@ -3571,8 +3570,6 @@ test("会话状态回填：ui-flags 恢复 collapse / verbose 档位 / symbol-un
     {
       type: "ui-flags",
       sessionId: "s1",
-      collapse: true,
-      verbose: "tool",
       symbolUnify: false,
     },
     { type: "model-selection", sessionId: "s1", provider: "p2", model: "m2" },
@@ -3581,20 +3578,20 @@ test("会话状态回填：ui-flags 恢复 collapse / verbose 档位 / symbol-un
   app.start();
   await flush();
   const st = (): {
-    activityCompact: boolean;
-    activityVerbose: string;
+    activityCompact: { think: boolean; tool: boolean; reply: boolean };
+    activityShow: { think: boolean; tool: boolean; reply: boolean };
     symbolUnify: boolean;
     modelBySession: Record<string, { provider?: string; model?: string }>;
   } => (app as unknown as { state: never }).state;
-  assert.equal(
+  assert.deepEqual(
     st().activityCompact,
-    true,
-    "详略由 ui-flags 回填（宿主日志不记录）",
+    { think: false, tool: false, reply: false },
+    "活动区压缩开关不再回填（重启回缺省）",
   );
-  assert.equal(
-    st().activityVerbose,
-    "tool",
-    "输出内容档位由 ui-flags 回填（BACKLOG #8）",
+  assert.deepEqual(
+    st().activityShow,
+    { think: true, tool: true, reply: true },
+    "活动区显示开关不再回填（重启回缺省）",
   );
   assert.equal(st().symbolUnify, false, "symbol-unify 由 ui-flags 回填");
   const got = st().modelBySession["s1"];

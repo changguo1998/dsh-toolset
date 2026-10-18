@@ -160,25 +160,58 @@ test("思考内未闭栅（流式）：围栏内行仍按代码块出行、fence
 test("回归：档位过滤 / 紧凑压单行 / 思考 ↔ 正文 1 行间隔", () => {
   // tool 档：思考整类不显示（markdown 化不影响档位语义）
   const tool = act([L("思考", "thinking"), L("正文", "assistant")], {
-    activityLevel: "tool",
+    activityShow: { think: false },
   });
   assert.ok(
     !tool.text.join("\n").includes("思考"),
     `tool 档去思考: ${tool.text.join("\n")}`,
   );
-  // 紧凑（/collapse）：含 markdown 记号的思考仍压 1 行、不解析（原样 + 截断）
+  // 紧凑（/collapse think）：markdown 先排版成渲染形态（记号消失），再压 1 行
   const compact = act([L("# 标题一", "thinking"), L("- 列表一", "thinking")], {
-    activityCompact: true,
+    activityCompact: { think: true },
   });
   assert.equal(
     compact.rows.length,
-    2,
-    `紧凑每条目 1 行（实际 ${compact.rows.length}）`,
+    1,
+    `整节 think 合成 1 行（实际 ${compact.rows.length}）`,
+  );
+  const line = compact.text[0]!;
+  assert.ok(
+    line.includes("标题一") && !line.includes("#"),
+    `标题按渲染形态（记号消失）: ${JSON.stringify(line)}`,
   );
   assert.ok(
-    compact.text[0]!.includes("# 标题一"),
-    `紧凑不解析 markdown: ${JSON.stringify(compact.text[0])}`,
+    line.includes("• 列表一") && !line.includes("- 列表一"),
+    `列表记号渲染为圆点: ${JSON.stringify(line)}`,
   );
+  // 省略号在前：保留末尾内容，随流增长刷新尾部
+  const narrow = 16;
+  const narrowAct = (rows: HistoryRow[]): string[] =>
+    buildContentRows(
+      rows,
+      { activityCompact: { think: true } },
+      narrow,
+      narrow,
+    ).activity.map(rowText);
+  const long = narrowAct([
+    L("很早的思考内容。", "thinking"),
+    L("最新的思考内容。", "thinking"),
+  ]);
+  assert.equal(long.length, 1);
+  assert.ok(
+    long[0]!.startsWith("┃…"),
+    `省略号在前: ${JSON.stringify(long[0])}`,
+  );
+  const grown = narrowAct([
+    L("很早的思考内容。", "thinking"),
+    L("最新的思考内容。", "thinking"),
+    L("流式新增尾部。", "thinking"),
+  ]);
+  assert.ok(
+    grown[0]!.endsWith("流式新增尾部。"),
+    `随流刷新为最新尾部: ${JSON.stringify(grown[0])}`,
+  );
+
   // 类型间隔：思考 → 非 final 正文 之间恰插 1 行空行（隐藏 fence 行也算思考类）
   const gap = act([L("思考", "thinking"), L("正文", "assistant")]);
   assert.deepEqual(

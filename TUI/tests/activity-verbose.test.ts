@@ -1,7 +1,7 @@
-// tests/activity-compact.test.ts — 活动区详略两态（SPEC §6.8；/collapse on|off）
+// tests/activity-verbose.test.ts —— 活动区压缩开关（SPEC §6.8；/collapse [think|tool|reply] on|off）
 //
-// 状态 1（verbose on，缺省）：每条目完整折行显示
-// 状态 2（verbose off，紧凑）：每条目压成 1 行 + 行尾省略号
+// 缺省三项全关（完整折行）；某类开启后该类条目压 1 行 + 行尾省略号。
+// notice 与 step 头不归三类，恒按完整形态显示。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -18,6 +18,29 @@ import {
   type HistoryRow,
 } from "../src/app/state.ts";
 import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
+import { App } from "../src/app/index.ts";
+import type { KeyEvent } from "../src/renderer/index.ts";
+import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { registerApp } from "./helpers/paintFlush.ts";
+
+class TrackedApp extends App {
+  constructor(deps: ConstructorParameters<typeof App>[0]) {
+    super({ ...deps, pipelineSink: deps.pipelineSink ?? {} });
+    registerApp(this);
+  }
+}
+
+const key = (name: string): KeyEvent => ({
+  name,
+  ctrl: false,
+  meta: false,
+  shift: false,
+});
+
+function typeAndEnter(renderer: FakeRenderer, text: string): void {
+  for (const ch of Array.from(text)) renderer.press(key(ch));
+  renderer.press(key("enter"));
+}
 
 /** 覆盖各活动区条目类型的长文本（思考/工具调用/工具结果/非 final 中间输出） */
 const LONG = "很长的活动区文本内容".repeat(6); // 显示宽 10×6 = 60，超 40 列窗
@@ -42,49 +65,62 @@ test("活动区完整模式（缺省）：长条目折行成多行", () => {
   }
 });
 
-test("活动区紧凑模式：非工具条目压 1 行 + 行尾省略号；工具块不受影响（决策 6）", () => {
-  const panes = buildContentRows(buf, { activityCompact: true }, W, W);
-  const texts = panes.activity.map(rowText).filter((t) => t.trim() !== "");
-  const compacted = texts.filter((t) => t.endsWith("…"));
-  assert.equal(
-    compacted.length,
-    2,
-    `思考与正文各压 1 行，工具块保持完整：${JSON.stringify(texts)}`,
+test("压缩开关 reply：正文条目压 1 行 + 行尾省略号，思考与工具不受影响", () => {
+  const panes = buildContentRows(
+    buf,
+    { activityCompact: { reply: true } },
+    W,
+    W,
   );
-  assert.ok(compacted[0]!.startsWith("┃"), "思考保留前缀");
+  const texts = panes.activity.map(rowText).filter((t) => t.trim() !== "");
+  const compacted = texts.filter((t) => t.includes("…"));
+  assert.equal(compacted.length, 1, `只有正文被压缩：${JSON.stringify(texts)}`);
+  assert.ok(compacted[0]!.startsWith("┃…"), "省略号在前、正文保留前缀");
   for (const t of texts) {
     assert.ok(
       displayWidth(t) <= W,
       `行宽 ≤ ${W}（实际 ${displayWidth(t)}）: ${t}`,
     );
   }
-  // 工具行（调用 + 结果）不被压成 1 行：完整折行后行数明显多于「每条目一行」
-  const joined = texts.join("\n");
-  assert.ok(joined.includes("bash"), `工具调用行保留：${joined}`);
-  assert.ok(joined.includes("✓"), `工具结果行保留：${joined}`);
-  assert.ok(
-    texts.length > buf.length,
-    `工具块完整折行（不止条目数行）：${texts.length}`,
-  );
 });
 
-test("活动区紧凑模式：工具块逐行与完整模式一致（不折叠换行）", () => {
+test("压缩开关 tool：工具组压 1 行（名字行 + 行尾省略号）", () => {
   const multi: HistoryRow[] = [
-    { text: "○ bash 参数甲\n参数乙\n参数丙", kind: "tool" },
+    { text: "○ bash", kind: "tool" },
+    {
+      text: "echo " + "参数很长的命令行内容".repeat(6),
+      kind: "tool",
+      toolRole: "param",
+      toolParam: {
+        name: "command",
+        value: "echo " + "参数很长的命令行内容".repeat(6),
+      },
+    },
+    { text: "✓ 结果首行\n结果第二行", kind: "tool", toolRole: "result" },
   ];
   const full = buildContentRows(multi, {}, W, W);
-  const compact = buildContentRows(multi, { activityCompact: true }, W, W);
+  const compact = buildContentRows(
+    multi,
+    { activityCompact: { tool: true } },
+    W,
+    W,
+  );
   assert.ok(full.activity.length > 1, "完整模式保留换行（多行）");
-  assert.deepEqual(
-    compact.activity.map(rowText),
-    full.activity.map(rowText),
-    "紧凑模式对工具行不生效（决策 6：工具块恒完整形态）",
+  assert.equal(compact.activity.length, 1, "工具组压成 1 行");
+  assert.ok(
+    rowText(compact.activity[0]!).endsWith("…"),
+    "压 1 行且带行尾省略号",
   );
 });
 
 test("活动区紧凑模式：短条目不加省略号（原样）", () => {
   const short: HistoryRow[] = [{ text: "短", kind: "thinking" }];
-  const panes = buildContentRows(short, { activityCompact: true }, W, W);
+  const panes = buildContentRows(
+    short,
+    { activityCompact: { think: true } },
+    W,
+    W,
+  );
   assert.equal(rowText(panes.activity[0]!), "┃短");
 });
 
@@ -145,48 +181,60 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
     return rows.filter((r) => /[┃○✓]/.test(r)).length;
   };
   const verboseRows = countAct(s);
-  const compactState = reduceState(s, { type: "activity-compact", on: true });
+  const compactState = reduceState(s, {
+    type: "activity-compact",
+    categories: ["tool"],
+    on: true,
+  });
   const compactRows = countAct(compactState);
   assert.ok(
     verboseRows > compactRows,
     `紧凑后活动区行数应减少（${verboseRows} → ${compactRows}）`,
   );
-  assert.equal(compactState.activityCompact, true);
+  assert.equal(compactState.activityCompact.tool, true);
   assert.ok(g.activityH > 0);
 });
 
-test("紧凑模式豁免 noCompact 行（/help）：保持完整折行 + 悬垂缩进，不压单行截断", () => {
+test("notice 与 step 头不归三类：压缩开关全开也不压", () => {
   const buf: HistoryRow[] = [
-    { text: "长条目正文".repeat(8) + "（末尾可见）", kind: "thinking" },
+    { text: "长条目正文".repeat(8), kind: "thinking" },
     {
-      text: "  /help 命令辅助行 这是一个很长很长很长的描述文本文本文本文本文本文本文本文本",
-      kind: "notice",
-      hanging: 14,
-      noCompact: true,
-    },
-  ];
-  const compact = buildContentRows(buf, { activityCompact: true }, W, W);
-  const texts = compact.activity.map(rowText);
-  // noCompact notice 完整可见（跨行保留），且整块不带省略号（对照的 thinking 条目被压行）
-  const helpTexts = texts.slice(1);
-  const all = helpTexts.join("\n");
-  assert.ok(
-    all.includes("这是") && all.includes("描述文本") && all.includes("文本"),
-    "noCompact 行内容完整可见（未被截断隐藏）",
-  );
-  assert.ok(
-    !helpTexts.some((t) => t.includes("…")),
-    "noCompact 行不被省略号截断",
-  );
-  assert.ok(helpTexts.length > 1, "noCompact 行长描述折成多行（非压成 1 行）");
-  // 对照：普通 notice（无 noCompact）在紧凑下确被压 1 行 + 省略号
-  const plain: HistoryRow[] = [
-    {
-      text: "  一条很长很长很长的普通 notice 描述文本文本文本文本文本文本文本",
+      text: "  一条很长很长很长的 notice 描述文本文本文本文本文本文本文本",
       kind: "notice",
     },
   ];
-  const cp = buildContentRows(plain, { activityCompact: true }, W, W);
-  assert.equal(cp.activity.length, 1, "普通 notice 紧凑下压成 1 行");
-  assert.ok(rowText(cp.activity[0]!).endsWith("…"), "普通 notice 行尾省略号");
+  const all = { think: true, tool: true, reply: true };
+  const panes = buildContentRows(buf, { activityCompact: all }, W, W);
+  const texts = panes.activity.map(rowText);
+  const noticeTexts = texts.slice(1);
+  assert.ok(noticeTexts.length > 1, "notice 保持完整折行（不压 1 行）");
+  assert.ok(!noticeTexts.some((t) => t.endsWith("…")), "notice 不带行尾省略号");
+  assert.ok(texts[0]!.includes("…"), "thinking 按开关压 1 行（省略号在前）");
+});
+
+test("命令面：/collapse tool on|off 切换对应类别并提示", () => {
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
+  app.start();
+  const compact = (): { think: boolean; tool: boolean; reply: boolean } =>
+    (app as unknown as { state: { activityCompact: never } }).state
+      .activityCompact;
+  try {
+    typeAndEnter(renderer, "/collapse tool on");
+    assert.equal(compact().tool, true);
+    assert.equal(compact().think, false, "只改指定类别");
+    assert.ok(renderer.lastRender.join("\n").includes("tool → on"));
+    typeAndEnter(renderer, "/collapse tool off");
+    assert.equal(compact().tool, false);
+    typeAndEnter(renderer, "/collapse all on");
+    assert.deepEqual(compact(), { think: true, tool: true, reply: true });
+    typeAndEnter(renderer, "/collapse all off");
+    assert.deepEqual(compact(), { think: false, tool: false, reply: false });
+    typeAndEnter(renderer, "/collapse maybe on");
+    assert.equal(compact().tool, false, "非法类别不改状态");
+    assert.ok(renderer.lastRender.join("\n").includes("usage: /collapse"));
+  } finally {
+    app.dispose();
+  }
 });

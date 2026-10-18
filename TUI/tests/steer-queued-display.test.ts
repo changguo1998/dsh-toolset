@@ -218,9 +218,9 @@ test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + st
       .filter((item) => item.source === "user");
   /** 会话区 pane 项类型序列（`blank` = 留白） */
   const paneKinds = (s: AppState): string[] =>
-    buildPanes(allSections(s.pipeline!), { level: "think" }).dialogue.map(
-      (item) => item.kind,
-    );
+    buildPanes(allSections(s.pipeline!), {
+      activityShow: { think: true },
+    }).dialogue.map((item) => item.kind);
 
   // steer 认领：上一条输入 steerContinued + 认领块上方留白
   let s = withUser(initialState(), "第一条");

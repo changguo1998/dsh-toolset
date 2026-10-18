@@ -184,7 +184,11 @@ export function pipelineContent(
     options.windowGroups,
   );
   let panes = buildPanes(kept, {
-    level: options.render.activityLevel ?? "think",
+    activityShow: options.render.activityShow ?? {
+      think: true,
+      tool: true,
+      reply: true,
+    },
     declaredSteps: [...state.stepMeta.keys()],
     stepTimes: state.stepMeta,
     turnTimes: state.turnMeta,

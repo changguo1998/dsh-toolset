@@ -214,7 +214,7 @@ export function indexOfTop(
 // 都在新流水线里，而字形与装饰与旧路径逐行一致（等价性由 `pipeline-equivalence`
 // 用例把关）。
 
-import type { ActivityLevel, HistoryRow } from "../../state.ts";
+import type { ActivitySwitches, HistoryRow } from "../../state.ts";
 import { TURN_SEPARATOR } from "../../state.ts";
 import { buildContentRows, type BuildBoxOptions } from "../build-box.ts";
 import { stepHeaderLine, toolDiffSummary } from "../tool-line.ts";
@@ -228,8 +228,8 @@ export interface RenderOptions extends BuildBoxOptions {
   width: number;
   /** 回合区可用宽（缺省 = width） */
   activityWidth?: number;
-  /** 活动区档位（透传给旧口径的 buildContentRows，保证逐行一致） */
-  activityLevel?: ActivityLevel;
+  /** 活动区显示开关（透传给旧口径的 buildContentRows，保证逐行一致） */
+  activityShow?: Partial<ActivitySwitches>;
 }
 
 export interface RenderedPane {
@@ -503,8 +503,8 @@ function cacheKey(
   return [
     pane,
     width,
-    options.activityLevel ?? "think",
-    options.activityCompact === true ? "compact" : "full",
+    JSON.stringify(options.activityShow ?? {}),
+    JSON.stringify(options.activityCompact ?? {}),
   ].join("|");
 }
 

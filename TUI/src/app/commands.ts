@@ -339,25 +339,26 @@ export const LOCAL_COMMANDS: readonly {
     desc: "二次意见（并行 N 个评审子代理对当前目标给独立意见；notice 展示）",
   },
   {
+    name: "collapse",
+    route: "collapse",
+    desc: "活动区压缩：/collapse [think|tool|reply|all] on|off（on = 该类条目压 1 行，all = 三类同时）",
+  },
+  {
+    name: "verbose",
+    route: "verbose",
+    desc: "活动区显示：/verbose [think|tool|reply|all] on|off（on = 显示该类内容，all = 三类同时）",
+  },
+  {
     name: "search",
     route: "search",
     desc: "网页搜索（dsh-web 多 provider 聚合；列表展示，Enter 看来源）",
   },
 ];
 
-/** 已下线命令的路由（2026-10-13 工具块改版决策 8 第 11 条）：`/collapse` 与 `/verbose`
- *  从**命令目录**（补全候选与帮助面）移除，但仍要能路由到「该命令已下线（待重新设计）」
- *  提示——否则会落到宿主 registry 被当成未知命令转发。 */
-const RETIRED_ROUTES: ReadonlyArray<[string, SlashRoute]> = [
-  ["collapse", "collapse"],
-  ["verbose", "verbose"],
-];
-
 /** 命令名 → 路由（模块加载时构建一次；不在目录中的名字落 registry 转发） */
-const LOCAL_ROUTES = new Map<string, SlashRoute>([
-  ...LOCAL_COMMANDS.map((c): [string, SlashRoute] => [c.name, c.route]),
-  ...RETIRED_ROUTES,
-]);
+const LOCAL_ROUTES = new Map<string, SlashRoute>(
+  LOCAL_COMMANDS.map((c): [string, SlashRoute] => [c.name, c.route]),
+);
 
 export function routeSlashCommand(name: string): SlashRoute {
   return LOCAL_ROUTES.get(name) ?? "registry";

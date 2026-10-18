@@ -10,7 +10,12 @@
 import type { Box, Node } from "./box.ts";
 import { v, h, text, styled, spacer } from "./box.ts";
 import { hasCellPipe, isTableStart, parseTableAt, tableBox } from "./table.ts";
-import type { ActivityLevel, HistoryRow } from "../state.ts";
+import type {
+  ActivityCategory,
+  ActivitySwitches,
+  HistoryRow,
+} from "../state.ts";
+import { ACTIVITY_COMPACT_DEFAULT, ACTIVITY_SHOW_DEFAULT } from "../state.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import type { FrameStyle, FrameSegment } from "../../renderer/index.ts";
 import {
@@ -32,7 +37,12 @@ import {
 } from "./content-rules.ts";
 import { measure, allocate } from "./measure.ts";
 import { fillToList, type ContentRow, type RowMeta } from "./fill.ts";
-import { FENCE_RE, charWidth, displayWidth } from "./markdown.ts";
+import {
+  FENCE_RE,
+  charWidth,
+  displayWidth,
+  wrapAssistantLine,
+} from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
 import { turnHeaderLine } from "./tool-line.ts";
 
@@ -73,10 +83,10 @@ export interface BuildBoxOptions {
   lineOffset?: number;
   /** 活动区紧凑模式（SPEC §6.8 状态 2，`/collapse off`）：每条目压成 1 行 + 行尾省略号
    *  （内部换行折叠为空格；宽度按活动 pane 宽，扣该条目前缀占列）。缺省 false=完整折行 */
-  activityCompact?: boolean;
+  activityCompact?: Partial<ActivitySwitches>;
   /** BACKLOG #8：活动区**输出内容档位**（`/verbose think|tool|step`；缺省 `think`=全量）：
    *  `tool` 去思考行；`step` 只留工具调用的调用行（step 头与 notice 保留） */
-  activityLevel?: ActivityLevel;
+  activityShow?: Partial<ActivitySwitches>;
   /** P1：用户块**首行**左侧状态符号（2 列前缀 = 符号 + 1 空格；由 layout 依会话状态算定）。
    *  返回 undefined = 该行不显示符号（非用户块 / 排队块 / 无状态）。 */
   userStatus?: (
@@ -97,6 +107,66 @@ function compactActivityLine(
   const w = Math.max(1, paneWidth - prefixCols);
   if (displayWidth(one) <= w) return one;
   return truncateToWidth(one, Math.max(1, w - 1)) + "…";
+}
+
+/**
+ * 压缩模式下的 markdown 条目：先按块级元素排版（标题 / 列表 / 引用 / 分隔线 / 任务列表
+ * 的记号被渲染掉），再把渲染出的各行拼成一行，按宽截断 + 行尾省略号。
+ * 与 `compactActivityLine` 的区别：后者直接压原始文本（markdown 记号原样保留）。
+ */
+function compactRenderedLine(
+  text: string,
+  paneWidth: number,
+  prefixCols = 0,
+): string {
+  // 逐物理行做块级解析（wrapAssistantLine 按整串单段处理），再拼成一行
+  const rendered = text
+    .split("\n")
+    .flatMap((line) => wrapAssistantLine(line, Math.max(8, paneWidth * 4)))
+    .map((segments) => segments.map((seg) => seg.text).join(""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const budget = Math.max(1, paneWidth - prefixCols);
+  if (displayWidth(rendered) <= budget) return rendered;
+  // think / reply：省略号在前，保留**最后**一段（随流增长持续显示最新内容）
+  return `…${tailToWidth(rendered, budget - 1)}`;
+}
+
+/** 取文本末尾、显示宽不超过 `width` 的部分（从尾部按码点累计）。 */
+function tailToWidth(text: string, width: number): string {
+  const chars = Array.from(text);
+  let used = 0;
+  let start = chars.length;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const w = charWidth(chars[i]!);
+    if (used + w > width) break;
+    used += w;
+    start = i;
+  }
+  return chars.slice(start).join("");
+}
+
+/** 按显示宽截断样式段列表（超宽时截断处加 `…`）。 */
+function fitSegments(segments: FrameSegment[], width: number): FrameSegment[] {
+  const limit = Math.max(1, width);
+  const out: FrameSegment[] = [];
+  let used = 0;
+  for (const segment of segments) {
+    let kept = "";
+    for (const ch of Array.from(segment.text)) {
+      const w = charWidth(ch);
+      if (used + w > limit - 1) {
+        if (kept !== "") out.push({ ...segment, text: kept });
+        out.push({ text: "…" });
+        return out;
+      }
+      kept += ch;
+      used += w;
+    }
+    if (kept !== "") out.push({ ...segment, text: kept });
+  }
+  return out;
 }
 
 /** 工具调用行样式段（首词黄 + 其余原色；折行由 fill 做） */
@@ -256,6 +326,44 @@ function codeBlockRows(
   return out;
 }
 
+/**
+ * 压缩模式下的整节合并：同一节里所有 think 行合成一行、所有非 final 正文行合成一行
+ * （`/collapse think|reply on`）。占位行保留首次出现的位置，其余同类行丢弃。
+ */
+function mergeCompactRows(
+  rows: HistoryRow[],
+  sw: ActivitySwitches,
+): HistoryRow[] {
+  const merged: HistoryRow[] = [];
+  const groups: {
+    cat: "think" | "reply";
+    row: HistoryRow;
+    texts: string[];
+  }[] = [];
+  for (const row of rows) {
+    const cat =
+      row.kind === "thinking" && sw.think
+        ? ("think" as const)
+        : row.kind === "assistant" && row.final !== true && sw.reply
+          ? ("reply" as const)
+          : null;
+    if (cat === null || row.text === "") {
+      merged.push(row);
+      continue;
+    }
+    let group = groups.find((g) => g.cat === cat);
+    if (group === undefined) {
+      const placeholder: HistoryRow = { ...row, text: "" };
+      merged.push(placeholder);
+      group = { cat, row: placeholder, texts: [] };
+      groups.push(group);
+    }
+    group.texts.push(row.text);
+  }
+  for (const group of groups) group.row.text = group.texts.join("\n");
+  return merged;
+}
+
 export function buildBox(
   local: HistoryRow[],
   opts: BuildBoxOptions,
@@ -271,15 +379,28 @@ export function buildBox(
   const activityLeaves: Node[] = [];
   const gutter = opts.gutter ?? USER_MIN_LEFT_GUTTER;
   const width = opts.width;
-  // 紧凑模式（/collapse off）：活动 pane 条目压单行——宽度取活动 pane 可用宽
-  // （横向两 pane 不同宽；纵向 activityWidth 缺省 = width），前缀占列由各分支自扣
-  const compact = opts.activityCompact === true;
-  /** BACKLOG #8：活动区输出内容档位（think=全量 / tool=去思考 / step=只留工具调用行） */
-  const actLevel: ActivityLevel = opts.activityLevel ?? "think";
+  // 活动区六开关（`/verbose` 管显示、`/collapse` 管压缩，各按 think / tool / reply 三类）
+  const show: ActivitySwitches = {
+    ...ACTIVITY_SHOW_DEFAULT,
+    ...opts.activityShow,
+  };
+  const compactSw: ActivitySwitches = {
+    ...ACTIVITY_COMPACT_DEFAULT,
+    ...opts.activityCompact,
+  };
+  // 压缩模式：整节同类内容先合并（一行承载整节的 think / 正文）
+  local = mergeCompactRows(local, compactSw);
   const actPaneW = opts.activityWidth ?? width ?? 0;
-  /** 活动区条目文本：紧凑模式压单行 + 行尾省略号（prefixCols = 该条目前缀占列） */
-  const actText = (s: string, prefixCols = 0): string =>
-    compact ? compactActivityLine(s, actPaneW, prefixCols) : s;
+  /** 活动区条目文本：该类开启压缩时压单行 + 行尾省略号（prefixCols = 该条目前缀占列） */
+  const actText = (
+    s: string,
+    prefixCols = 0,
+    category: ActivityCategory = "reply",
+  ): string =>
+    compactSw[category] ? compactActivityLine(s, actPaneW, prefixCols) : s;
+  /** 正文条目：压缩时先按 markdown 排版再压 1 行（记号渲染掉），否则原样。 */
+  const bodyText = (s: string): string =>
+    compactSw.reply ? compactRenderedLine(s, actPaneW, 1) : s;
   /** 思考行左缘竖线（紫；与正文蓝竖线同形制 / 同窄窗降级阈值） */
   const thinkingBar: CodeBar = {
     text: "┃",
@@ -486,6 +607,51 @@ export function buildBox(
       if (starts && groups[groups.length - 1]!.length > 0) groups.push([]);
       groups[groups.length - 1]!.push(item);
     }
+    if (compactSw.tool) {
+      // 压缩（tool 类）：整节所有工具调用合成 1 行（step 头单独整行保留）
+      const bid = freshBlockId();
+      for (const item of toolRun.filter((i) => isStepHeader(i.text))) {
+        const node = styled([{ text: `╌╌ ${item.text} ` }], {
+          tail: { char: "╌" },
+        });
+        meta.set(node, { kind: "tool", blockId: bid });
+        toolTarget.push(node);
+      }
+      const calls: (typeof toolRun)[] = [];
+      for (const item of toolRun) {
+        if (isStepHeader(item.text) || item.role === "result") continue;
+        const starts =
+          item.role === "name" ||
+          (item.role === undefined && isToolCall(item.text));
+        if (starts || calls.length === 0) calls.push([]);
+        calls[calls.length - 1]!.push(item);
+      }
+      const segments: FrameSegment[] = [];
+      for (const call of calls) {
+        const head = call[0]!;
+        const params = call
+          .filter((i) => i.role === "param")
+          .map((i) => i.text.replace(/\s+/g, " ").trim())
+          .filter((t) => t !== "")
+          .join(" ");
+        const m = /^(\S+\s+)(\S+)(.*)$/s.exec(head.text);
+        const lead = m === null ? "" : m[1]!;
+        const name = m === null ? head.text : m[2]!;
+        const tail = m === null ? "" : m[3]!;
+        if (segments.length > 0) segments.push(seg("  "));
+        if (lead !== "") segments.push(seg(lead));
+        segments.push(seg(name, { fg: "yellow" }));
+        const rest = `${tail}${params === "" ? "" : ` ${params}`}`;
+        if (rest !== "") segments.push(seg(rest));
+      }
+      if (segments.length > 0) {
+        const node = styled(fitSegments(segments, actPaneW));
+        meta.set(node, { kind: "tool", blockId: bid });
+        toolTarget.push(node);
+      }
+      toolRun.length = 0;
+      return;
+    }
     for (const group of groups) {
       const bid = freshBlockId();
       for (const item of group) {
@@ -528,9 +694,10 @@ export function buildBox(
       ...(line.queued ? { queued: line.queued } : {}),
     };
     if (line.kind === "tool") {
-      // 工具块三类行（名字 / 参数 / 结果）**恒按完整形态**渲染（决策 6：`/collapse` 与
-      // `/verbose` 两个开关暂时失效，工具块不受 activityCompact / activityLevel 影响）；
+      // 工具块三类行（名字 / 参数 / 结果）按 `show.tool` / `compactSw.tool` 分派：
+      // 显示开关关闭时不显示（step 分隔头恒显）；压缩开关开启时在 flushToolRun 里压 1 行。
       // 旧口径行（辅助行 / 恢复产物）同样直通——着色与悬挂缩进在 toolRowNodes 里分派。
+      if (!show.tool && !isStepHeader(line.text)) continue;
       // #5：工具类不做类型间隔（2026-10-02 收窄），仅在 noteActKind 上报类型供后续判定
       noteActKind("tool", rowMeta);
       // 本批落点 = 首行的分流目标（条目 26）
@@ -551,13 +718,16 @@ export function buildBox(
       if (bodyRun !== undefined) bodyRun.transparent += 1;
       // 空思考行跳过（流式增量换行锚点）
       if (line.text === "") continue;
-      // #8：tool / step 档不显示思考过程
-      if (actLevel !== "think") continue;
-      // 紧凑模式：单行（扣 ┃ 前缀 1 列）——markdown 不参与（每条目恒 1 行）
-      if (compact) {
-        const node = styled([{ text: actText(line.text, 1) }], {
-          prefix: thinkingBar,
-        });
+      // 显示开关：think 类关闭时不显示思考过程
+      if (!show.think) continue;
+      // 压缩开关（think 类）：单行（扣 ┃ 前缀 1 列）——markdown 不参与
+      if (compactSw.think) {
+        const node = styled(
+          [{ text: compactRenderedLine(line.text, actPaneW, 1) }],
+          {
+            prefix: thinkingBar,
+          },
+        );
         // #5：本行属「思考」类 → 与「正文」互切时插 1 行空行（与工具相邻不插）
         noteActKind("thinking", rowMeta);
         meta.set(node, rowMeta);
@@ -664,6 +834,8 @@ export function buildBox(
       continue;
     }
     if (line.kind === "assistant") {
+      // 显示开关（reply 类）：关闭时不显示活动区的非 final 正文；final 正文进会话区不受影响
+      if (!line.final && !show.reply) continue;
       const target = line.final ? dialogueLeaves : activityLeaves;
       // 正文合并（BACKLOG）：final 正文进历史 pane，是硬边界
       if (line.final) bodyRun = undefined;
@@ -673,13 +845,16 @@ export function buildBox(
       // 整段交 wrapAssistantLine 解析；fill 的 Paragraph 按 \n 拆物理行。直接产单节点。
       if (line.text.includes("\n")) {
         bodyRun = undefined; // 含内部换行 = 结构分片（列表 / 代码块），硬边界
-        const body = text(line.final ? line.text : actText(line.text, 1), {
-          prefix: {
-            text: "┃",
-            style: { fg: "brightBlue" },
-            minWidth: USER_MIN_LEFT_GUTTER + 2,
+        const body = text(
+          line.final ? line.text : compactRenderedLine(line.text, actPaneW, 1),
+          {
+            prefix: {
+              text: "┃",
+              style: { fg: "brightBlue" },
+              minWidth: USER_MIN_LEFT_GUTTER + 2,
+            },
           },
-        });
+        );
         meta.set(body, rowMeta);
         target.push(line.final ? finalSpace(body, opts, meta, rowMeta) : body);
         continue;
@@ -703,8 +878,8 @@ export function buildBox(
           inFence = false;
           continue;
         }
-        // 紧凑模式（活动区 /collapse off）：保持旧形态（语言标记单独成行、不加行号）
-        if (compact) {
+        // 压缩开关（reply 类）：保持旧形态（语言标记单独成行、不加行号）
+        if (compactSw.reply) {
           inFence = true;
           const lang = fence[2] ?? "";
           if (lang) {
@@ -758,7 +933,11 @@ export function buildBox(
       // markdown 表格（fence 外）：表头行 + 分隔行成对时（O(1) 预筛）收集连续表格行，
       // 构建期降级为固定宽 Box 子树（列宽是跨行约束，SPEC §3.2）。可用宽未知时不识别。
       // 紧凑模式（活动 pane 条目压单行）不建表——表格天然多行，与「每条目 1 行」冲突
-      if (!inFence && width !== undefined && !(compact && !line.final)) {
+      if (
+        !inFence &&
+        width !== undefined &&
+        !(compactSw.reply && !line.final)
+      ) {
         const next = local[li + 1];
         if (
           next !== undefined &&
@@ -802,7 +981,7 @@ export function buildBox(
           if (gi >= 0) activityLeaves.splice(gi, 1);
         }
         const merged = run.raw + line.text;
-        (run.leaf as { text: string }).text = actText(merged, 1);
+        (run.leaf as { text: string }).text = bodyText(merged);
         const pi = activityLeaves.indexOf(run.leaf);
         if (pi >= 0) activityLeaves.splice(pi, 1);
         const kept = run.gaps[0];
@@ -818,7 +997,7 @@ export function buildBox(
         continue;
       }
       if (inFence) bodyRun = undefined; // fence 内行不参与合并，且是硬边界
-      const body = text(line.final ? line.text : actText(line.text, 1), {
+      const body = text(line.final ? line.text : bodyText(line.text), {
         ...(inFence ? { fillBg: true, width: { mode: "fill" } } : {}),
         prefix: {
           text: "┃",
@@ -838,16 +1017,12 @@ export function buildBox(
       // 穿透行（BACKLOG）：notice 不打断正文 run（条目原文「只被 thinking / notice 行隔开」）
       if (bodyRun !== undefined) bodyRun.transparent += 1;
       // 呈现参数（tone 色 + hanging）与底部 notice 视图共用，见 noticeLinePresentation；
-      // 紧凑模式把条目压单行（noCompact 行如 /help 豁免，保持完整折行与悬挂缩进）
-      const keepFull = compact && line.noCompact === true;
-      const pres = noticeLinePresentation(line, compact);
-      const node = styled(
-        [{ text: compact && !keepFull ? actText(line.text) : line.text }],
-        {
-          ...(pres.fg !== undefined ? { style: { fg: pres.fg } } : {}),
-          ...(pres.hanging !== undefined ? { hanging: pres.hanging } : {}),
-        },
-      );
+      // notice 归「恒显」类：不参与显示 / 压缩开关（保持完整折行与悬挂缩进）
+      const pres = noticeLinePresentation(line, false);
+      const node = styled([{ text: line.text }], {
+        ...(pres.fg !== undefined ? { style: { fg: pres.fg } } : {}),
+        ...(pres.hanging !== undefined ? { hanging: pres.hanging } : {}),
+      });
       // 空文本不舍弃（notice 空行可能保留语义）
       meta.set(node, rowMeta);
       activityLeaves.push(node);
@@ -867,14 +1042,11 @@ export function buildBox(
       // `$` 模式本地 shell 输出（BACKLOG TUI#37）：活动区本地行（不走对话区/模型历史）。
       // 配色复用 notice 的 tone 语义（命令回显 info / 成功绿 / 非零与 stderr 红 / 超时黄）；
       // 紧凑模式（/collapse off）压单行，与 notice 同口径。
-      const pres = noticeLinePresentation(line, compact);
-      const node = styled(
-        [{ text: compact ? actText(line.text) : line.text }],
-        {
-          ...(pres.fg !== undefined ? { style: { fg: pres.fg } } : {}),
-          ...(pres.hanging !== undefined ? { hanging: pres.hanging } : {}),
-        },
-      );
+      const pres = noticeLinePresentation(line, false);
+      const node = styled([{ text: line.text }], {
+        ...(pres.fg !== undefined ? { style: { fg: pres.fg } } : {}),
+        ...(pres.hanging !== undefined ? { hanging: pres.hanging } : {}),
+      });
       meta.set(node, rowMeta);
       activityLeaves.push(node);
       continue;

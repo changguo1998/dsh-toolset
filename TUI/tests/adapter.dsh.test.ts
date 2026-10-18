@@ -4122,11 +4122,7 @@ test("restoreSessionState：模型按 model/selection → 快照 → 最近 requ
 test("restoreSessionState：goal 按序回放全部事件（历史）+ todo 折叠末条 + TUI 本地开关来自快照", async () => {
   const { root, cleanup } = makeSessionRoot("s1");
   try {
-    writeSessionUiState(
-      "s1",
-      { version: 1, collapse: true, verbose: "tool", symbolUnify: false },
-      [root],
-    );
+    writeSessionUiState("s1", { version: 1, symbolUnify: false }, [root]);
     const sq = new FakeSessionQuery();
     sq.events = [
       {
@@ -4225,8 +4221,6 @@ test("restoreSessionState：goal 按序回放全部事件（历史）+ todo 折�
       {
         type: "ui-flags",
         sessionId: "s1",
-        collapse: true,
-        verbose: "tool" as const,
         symbolUnify: false,
       },
       "TUI 本地开关来自快照",
@@ -4278,8 +4272,6 @@ test("saveSessionUiState/readSessionUiState：会话目录旁挂 tui-state.json�
     const state = {
       version: 1 as const,
       model: { provider: "p", model: "m", reasoningEffort: "high" },
-      collapse: true,
-      verbose: "tool" as const,
       symbolUnify: true,
       modes: { plan: "on" as const, sandbox: "ro", policy: "ask" as const },
     };

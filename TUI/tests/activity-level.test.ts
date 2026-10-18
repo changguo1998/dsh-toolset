@@ -1,6 +1,7 @@
-// tests/activity-level.test.ts — 活动区输出内容档位（BACKLOG #8：/verbose think|tool|step）
-//   think（缺省）= 思考 + 正文 + 工具调用（全量）；tool = 正文 + 工具调用（去思考）；
-//   step = 正文 + 工具调用的**调用行**（step 头与 notice 保留，结果行 / 辅助行去掉）。
+// tests/activity-level.test.ts —— 活动区显示开关（SPEC §6.8；/verbose [think|tool|reply] on|off）
+//
+// 三项全开（缺省）：思考 / 正文 / 工具块都显示；关某项即隐藏该类内容。
+// notice 与 step 分隔头恒显，不归三类。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -19,13 +20,14 @@ const L = (text: string, kind: HistoryRow["kind"]): HistoryRow => ({
   kind,
 });
 
-/** 活动区渲染文本行（level 缺省 = think） */
-const act = (buf: HistoryRow[], level?: "think" | "tool" | "step"): string[] =>
+/** 活动区渲染文本行（show 缺省 = 三项全开） */
+const act = (
+  buf: HistoryRow[],
+  show?: { think?: boolean; tool?: boolean; reply?: boolean },
+): string[] =>
   buildContentRows(
     buf,
-    {
-      ...(level === undefined ? {} : { activityLevel: level }),
-    },
+    show === undefined ? {} : { activityShow: show },
     W,
     W,
   ).activity.map(rowText);
@@ -39,44 +41,40 @@ const MIXED: HistoryRow[] = [
   L("提示行", "notice"),
 ];
 
-test("#8 think（缺省）：思考 / 正文 / 工具 / notice 全显示", () => {
+test("缺省（三项全开）：思考 / 正文 / 工具块 / notice 全显示", () => {
   const joined = act(MIXED).join("\n");
   for (const t of ["思考一段", "正文一段", "○ bash ls", "✓ ok", "提示行"])
-    assert.ok(joined.includes(t), `think 档应含「${t}」：${joined}`);
+    assert.ok(joined.includes(t), `缺省应含「${t}」：${joined}`);
 });
 
-test("#8 tool：去思考行，正文 / 工具调用 / 结果 / notice 保留", () => {
-  const joined = act(MIXED, "tool").join("\n");
-  assert.ok(!joined.includes("思考一段"), "思考被过滤");
+test("显示开关 think off：只隐藏思考行", () => {
+  const joined = act(MIXED, { think: false }).join("\n");
+  assert.ok(!joined.includes("思考一段"), "思考行隐藏");
   for (const t of ["正文一段", "○ bash ls", "✓ ok", "提示行"])
-    assert.ok(joined.includes(t), `tool 档应含「${t}」：${joined}`);
+    assert.ok(joined.includes(t), `think off 仍应含「${t}」：${joined}`);
 });
 
-test("#8 step：工具块恒完整形态（2026-10-13 决策 6：档位对工具块失效）", () => {
-  const joined = act(MIXED, "step").join("\n");
-  assert.ok(!joined.includes("思考一段"), "思考行仍被档位过滤（该分支未退休）");
-  for (const t of ["正文一段", "22:31:05 #1", "○ bash ls", "✓ ok", "提示行"])
-    assert.ok(
-      joined.includes(t),
-      `step 档下工具块应完整：缺「${t}」：${joined}`,
-    );
+test("显示开关 tool off：隐藏工具块，step 分隔头恒显", () => {
+  const joined = act(MIXED, { tool: false }).join("\n");
+  assert.ok(!joined.includes("○ bash ls"), "工具名字行隐藏");
+  assert.ok(!joined.includes("✓ ok"), "工具结果行隐藏");
+  assert.ok(joined.includes("22:31:05 #1"), "step 分隔头恒显");
+  for (const t of ["思考一段", "正文一段", "提示行"])
+    assert.ok(joined.includes(t), `tool off 仍应含「${t}」：${joined}`);
 });
 
-test("#8 step：调用行不再截断（参数续行与结果行都保留）", () => {
+test("显示开关 reply off：隐藏活动区非 final 正文，final 正文与 notice 不受影响", () => {
   const buf: HistoryRow[] = [
-    L("bash run cmd\n  参数甲", "tool"),
-    L("✓ done", "tool"),
+    L("中间正文", "assistant"),
+    { ...L("最终正文", "assistant"), final: true },
+    L("提示行", "notice"),
   ];
-  const joined = act(buf, "step")
-    .map((t) => t.trim())
-    .filter((t) => t !== "")
-    .join("\n");
-  assert.ok(joined.includes("bash run cmd"), `调用行保留：${joined}`);
-  assert.ok(joined.includes("参数甲"), `参数续行不再被截掉：${joined}`);
-  assert.ok(joined.includes("✓ done"), `结果行不再被去掉：${joined}`);
+  const joined = act(buf, { reply: false }).join("\n");
+  assert.ok(!joined.includes("中间正文"), "非 final 正文隐藏");
+  assert.ok(joined.includes("提示行"), "notice 恒显");
 });
 
-// —— 命令面：/verbose think|tool|step ——
+// —— 命令面：/verbose [think|tool|reply] [on|off] ——
 
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
@@ -97,50 +95,36 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
   renderer.press(key("enter"));
 }
 
-test("#8 命令：/verbose 已下线（2026-10-13 决策 8 第 11 条）——提示且不改状态", () => {
+test("命令面：/verbose 按类别切换显示，非法参数不改状态", () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
   app.start();
-  const level = (): string =>
-    (app as unknown as { state: { activityVerbose: string } }).state
-      .activityVerbose;
+  const show = (): { think: boolean; tool: boolean; reply: boolean } =>
+    (app as unknown as { state: { activityShow: never } }).state.activityShow;
   try {
-    assert.equal(level(), "think", "缺省 think");
-    for (const line of [
-      "/verbose tool",
-      "/verbose step",
-      "/verbose",
-      "/verbose 也许",
-    ]) {
-      typeAndEnter(renderer, line);
-      assert.equal(level(), "think", `${line} 不改状态`);
-      assert.ok(
-        renderer.lastRender.join("\n").includes("该命令已下线（待重新设计）"),
-        `${line} 给统一下线提示`,
-      );
-    }
-  } finally {
-    app.dispose();
-  }
-});
-
-test("#8 命令：/collapse 与 /verbose 均已下线——两个开关都不再被命令改动", () => {
-  const renderer = new FakeRenderer();
-  const adapter = new FakeAdapter();
-  const app = new TrackedApp({ renderer, adapter, notify: { enabled: false } });
-  app.start();
-  const st = (): { activityCompact: boolean; activityVerbose: string } =>
-    (app as unknown as { state: never }).state;
-  try {
-    typeAndEnter(renderer, "/collapse on");
-    assert.equal(st().activityCompact, false, "/collapse 不改紧凑开关");
-    typeAndEnter(renderer, "/verbose tool");
-    assert.equal(st().activityVerbose, "think", "/verbose 不改内容档位");
-    assert.ok(
-      renderer.lastRender.join("\n").includes("该命令已下线（待重新设计）"),
-      "两条命令都给下线提示",
+    assert.deepEqual(show(), { think: true, tool: true, reply: true });
+    typeAndEnter(renderer, "/verbose think off");
+    assert.equal(show().think, false);
+    assert.equal(show().tool, true, "只改指定类别");
+    assert.ok(renderer.lastRender.join("\n").includes("think → off"));
+    typeAndEnter(renderer, "/verbose tool off");
+    assert.equal(show().tool, false);
+    typeAndEnter(renderer, "/verbose reply on");
+    assert.equal(show().reply, true, "缺省已是 on，重复设置不报错");
+    typeAndEnter(renderer, "/verbose all off");
+    assert.deepEqual(show(), { think: false, tool: false, reply: false });
+    typeAndEnter(renderer, "/verbose all on");
+    assert.deepEqual(show(), { think: true, tool: true, reply: true });
+    typeAndEnter(renderer, "/verbose think maybe");
+    assert.deepEqual(
+      show(),
+      { think: true, tool: true, reply: true },
+      "非法取值不改状态",
     );
+    assert.ok(renderer.lastRender.join("\n").includes("usage: /verbose"));
+    typeAndEnter(renderer, "/verbose");
+    assert.ok(renderer.lastRender.join("\n").includes("usage: /verbose"));
   } finally {
     app.dispose();
   }

@@ -93,8 +93,12 @@ function stateWith(opts: {
       sessionId: "s1",
       preset: opts.preset,
     });
-  // 标题栏 `verbose` 开关 = 「完整折行」（on 绿）；状态字段是 activityCompact（true = 紧凑）
-  s = reduceState(s, { type: "activity-compact", on: !(opts.verbose ?? true) });
+  // 标题栏 `verbose` 指示 = 「压缩未全开」（on 绿）；状态字段是三类压缩开关
+  s = reduceState(s, {
+    type: "activity-compact",
+    categories: ["reply"],
+    on: !(opts.verbose ?? true),
+  });
   s = reduceState(s, { type: "symbol-unify", on: opts.symbolUnify ?? true });
   s = stateWithSw(s, opts);
   return s;
@@ -355,7 +359,12 @@ test("P7 快照：statusColumn 写入/读回（缺字段 = 显示，版本不变
     const back = readSessionUiState("s-title", [root]);
     assert.equal(back?.statusColumn, false, "读回隐藏态");
     // 老快照（无该字段）→ undefined（调用方按默认「显示」处理）
-    writeSessionUiState("s-old", { version: 1, collapse: true }, [root]);
+    // 旧字段（collapse / verbose）丢弃后不报错
+    writeSessionUiState(
+      "s-old",
+      { version: 1 } as Parameters<typeof writeSessionUiState>[1],
+      [root],
+    );
     assert.equal(
       readSessionUiState("s-old", [root])?.statusColumn,
       undefined,
