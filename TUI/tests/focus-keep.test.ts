@@ -379,16 +379,18 @@ test("App 端到端：运行中聚焦回合区后方向键可滚该区域，流�
   assert.ok(scroll() > 0, "↑ 已滚动回合区");
   assert.ok(actLines().includes("turn1 行 0"), "上滚越过可视上限后钳到最早行");
 
-  // 期间继续到达的流式 chunk：焦点与滚动位置都不被打断
+  // 期间继续到达的流式 chunk：焦点与视口位置都不被打断。
+  // 2026-10-18 起活动区按「距底偏移 + 增长补偿」保持视口（见 App.syncActivityPos）：
+  // 内容增长时偏移会等量增大，故断言从「偏移不变」改为「偏移只增不减 + 视口仍在最早行」。
   const held = scroll();
   for (let i = 0; i < 3; i++)
     adapter.push({ type: "stream", sessionId: "s1", text: `后续内容 ${i}\n` });
   assert.equal(focused(), "activity", "流式 chunk 后焦点仍保持");
-  assert.equal(scroll(), held, "流式 chunk 后滚动位置未被重置");
+  assert.ok(scroll() >= held, "流式 chunk 后滚动位置未被重置回底部");
   assert.ok(actLines().includes("turn1 行 0"), "仍在最早行（未弹回底部）");
 
   // ↓ 连续按回底部 → 恢复跟随最新（后续新内容才可见）
-  for (let i = 0; i < 25; i++) down();
+  for (let i = 0; i < 60; i++) down();
   assert.equal(scroll(), 0, "↓ 回到底部跟随最新");
   // 注：正文行经六步流水线归入会话区（历史 pane），回合区只承载思考/工具/notice 等
   // 活动行——故这里不断言正文可见，只验证「回到底部」这一滚动语义本身

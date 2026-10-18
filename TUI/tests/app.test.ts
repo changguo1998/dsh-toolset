@@ -4425,6 +4425,47 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   );
 });
 
+test("活动区滚动：上滚后新增内容不把视口推回最新", () => {
+  // 回归：活动区只记「距底行数」（activityScroll），布局按 length-offset 切片；
+  // 新内容追加抬高可滚上限 → 视口被一起带向最新。修复：出帧后按增长量等量补偿
+  // activityScroll，使视口顶停在同一绝对行（贴底时仍继续跟随最新）。
+  const { renderer, adapter } = makeApp();
+  const size = { cols: 120, rows: 24 } as const;
+  renderer.size = size;
+  const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
+  const actFirst = (): string => {
+    const lines = renderer.lastRender.map(strip);
+    const sep = lines.findIndex(
+      (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
+    );
+    const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
+    assert.ok(sep >= 0 && statusSep > sep, "活动区窗口存在");
+    return (
+      lines
+        .slice(sep + 1, statusSep)
+        .map((l) => histBody(l, size.cols).trim())
+        .filter((l) => l !== "")[0] ?? "(空)"
+    );
+  };
+  const key = (name: string): KeyEvent => ({
+    name,
+    ctrl: false,
+    meta: false,
+    shift: false,
+  });
+
+  renderer.press({ name: "t", ctrl: true, meta: false, shift: false }); // Ctrl+T → 回合区焦点
+  for (let i = 0; i < 30; i++)
+    adapter.push({ type: "notice", text: `行 ${i}` } as DshEvent);
+  for (let i = 0; i < 5; i++) renderer.press(key("up"));
+  const before = actFirst();
+  assert.ok(before.startsWith("行 "), `上滚后首行: ${before}`);
+  // 追加新内容（同一回合内增长）：视口顶应停在原来那一行
+  for (let i = 30; i < 35; i++)
+    adapter.push({ type: "notice", text: `行 ${i}` } as DshEvent);
+  assert.equal(actFirst(), before, "上滚后新增内容不应移动视口顶");
+});
+
 test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收敛到真实上限）", () => {
   // 回归：scrollOffset 无上限时，连续上滚越顶或按 Home（旧实现置 MAX_SAFE_INTEGER）
   // 会把偏移顶到远超可滚范围；渲染层只做显示侧 clamp，于是每次 ↓ 都只是"还债"，

@@ -8,6 +8,8 @@ import type {
   KeyEvent,
   ProbeReject,
   ProbeVoid,
+  FrameRow,
+  Size,
 } from "../renderer/index.ts";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -479,6 +481,8 @@ export class App {
   private sessionStatePendingSid: string | null = null;
   /** paneScrollMax 对应的 state 引用（同一 state 不重复补算） */
   private paneScrollMaxState: AppState | null = null;
+  /** 上一帧活动区可滚动上限（新内容增长时据此补偿 activityScroll；null = 尚无基准） */
+  private activityMax: number | null = null;
   /** 上一帧 buffer 的回合组数（用户停在历史里时按新增组数撑住窗口起点） */
   private groupCount: number | null = null;
   /** 六步流水线节缓存（开关开启时持有；会话切换即重建） */
@@ -731,6 +735,45 @@ export class App {
       scrollOffset: offset,
       windowGroups: keepWindow,
     };
+  }
+
+  /**
+   * 出帧后同步活动区滚动锚点：内容增长时按增量抬高 `activityScroll`，使视口顶停在
+   * 同一绝对行。返回 `true` 表示 state 被调整过，调用方需按新 state 重排一帧。
+   *
+   * 与对话区不同：活动区没有段键，只有距底偏移（`activityScroll`），布局按
+   * `activity.length - activityH - offset` 切片，内容追加会直接推高上限把视口带向最新。
+   * 故用户上滚（offset > 0）时必须等量补偿；贴底（offset = 0）继续跟随最新。
+   */
+  private syncActivityPos(): boolean {
+    const max = Math.max(0, this.paneScrollMax.activityMaxScroll);
+    const prev = this.activityMax;
+    this.activityMax = max;
+    if (prev === null || max <= prev) return false;
+    const offset = this.state.activityScroll;
+    if (offset <= 0) return false;
+    const next = Math.min(max, offset + (max - prev));
+    if (next === offset) return false;
+    this.state = { ...this.state, activityScroll: next };
+    this.paneScrollMaxState = null;
+    return true;
+  }
+
+  /**
+   * 排版一帧并把滚动派生状态收敛到「画面上那一行」：先按当前 state 出帧回填
+   * `paneScrollMax`，再同步对话区段键锚点与活动区距底偏移；后者调整了 state 时
+   * 重排一次（仅「用户上滚 + 新内容增长」才会走到，正常跟随路径零额外排版）。
+   */
+  private layoutFrame(size: Size, out: FrameBuildOutput): FrameRow[] {
+    let frame = buildFrame(this.state, size, this.paneScrollMax, out);
+    this.paneScrollMaxState = this.state;
+    this.syncDialoguePos();
+    if (this.syncActivityPos()) {
+      frame = buildFrame(this.state, size, this.paneScrollMax, out);
+      this.paneScrollMaxState = this.state;
+      this.syncDialoguePos();
+    }
+    return frame;
   }
 
   /**
@@ -1245,9 +1288,7 @@ export class App {
     });
     const size = this.deps.renderer.getSize();
     const out: FrameBuildOutput = {};
-    const frame = buildFrame(this.state, size, this.paneScrollMax, out);
-    this.paneScrollMaxState = this.state;
-    this.syncDialoguePos();
+    const frame = this.layoutFrame(size, out);
     this.deps.renderer.render(frame, out.sections, out.focus);
   }
 
@@ -5843,9 +5884,7 @@ export class App {
     if (this.disposed) return;
     const size = this.deps.renderer.getSize();
     const out: FrameBuildOutput = {};
-    const frame = buildFrame(this.state, size, this.paneScrollMax, out);
-    this.paneScrollMaxState = this.state;
-    this.syncDialoguePos();
+    const frame = this.layoutFrame(size, out);
     this.deps.renderer.refresh(frame, out.sections, out.focus);
   }
 
@@ -5919,9 +5958,7 @@ export class App {
     const size = this.deps.renderer.getSize();
     // 出帧顺带回填两 pane 的可滚动上限与帧段表（零额外排版开销）
     const out: FrameBuildOutput = {};
-    const frame = buildFrame(this.state, size, this.paneScrollMax, out);
-    this.paneScrollMaxState = this.state;
-    this.syncDialoguePos();
+    const frame = this.layoutFrame(size, out);
     // 帧前按需实测：本次排版登记了「呈现不确定」字符 → 先实测再出帧（探测字节写在原点，
     // 由随后的整帧重绘覆盖），见 probeThenRender；首帧不在此列（见 probingSuspended）
     if (this.probePendingWidths()) return; // 本帧由 probeThenRender 的整帧重绘产出（已按实测宽度排版）
