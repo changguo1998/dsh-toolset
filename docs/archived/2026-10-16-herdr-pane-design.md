@@ -1,6 +1,6 @@
 # herdr pane 交互式命令扩展（接取条目：docs/BACKLOG.md「基于 herdr 的交互式命令扩展（herdr pane 读写）」）
 
-状态：规划　　开启：2026-10-16　　关闭：—
+状态：完成　　开启：2026-10-16　　关闭：2026-10-17
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 接取范围（按条目标题列出，不写 BACKLOG 编号）：docs/BACKLOG.md「基于 herdr 的交互式命令扩展（herdr pane 读写）」。
 本轮范围：先只做**调研与决策**（不写实现代码、不改包代码）；2026-10-16 已获用户放行（含可选动作），实现待本轮文档检查通过后开始。
@@ -308,7 +308,7 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 
 本任务（文档）：
 
-- 本文件 `docs/implementation/2026-10-16-herdr-pane-design.md`；`docs/BACKLOG.md`（条目注记）
+- 本文件（归档后位于 `docs/archived/2026-10-16-herdr-pane-design.md`）；`docs/BACKLOG.md`（条目注记）
 
 ### 明确不做的部分
 
@@ -348,7 +348,14 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 - **真机**：在 herdr 管理的 pane 内启动 `dsh --profile fff`，执行 `node herdr-pane/scripts/verify-herdr-pane.mjs`（`import dist/`、人工跑、不进 CI）—— 只用自己创建的 pane，逐动作验证（`create` → `read` → `send_text` → `wait` 的 `match` 与 `stable` → `run` → `info` → `label` → `close`），并确认退出时自建 pane 被关闭；在 herdr 之外启动时确认工具不出现。
 - **不做**：不依赖别的客户端焦点、不动非自建 pane；不把真机脚本接进 CI（herdr 不保证存在）；不验 `format=ansi` 的颜色语义（留实现时复核）。
 
-### 收尾动作（实现完成时）
+#### 实现阶段与修复轮的机械证据（2026-10-17）
+
+- `npm --prefix herdr-pane run test`：109 通过 / 0 失败，约 0.2 秒**自然退出**（未加 `--test-force-exit`）。
+- `npm --prefix herdr-pane run check` / `run build`：均 exit 0。
+- 根 `npm test`：`OK herdr-pane 109 pass / 0 fail`；同轮其余包的失败均与本包无关（本 worktree 缺 `node_modules` 导致 `marked` / `redis` / 跨包链接缺失，另有 `script-interpreter` 自身一条断言）。
+- 根 `npm run check`：本 worktree 无法执行（TUI 等包未装依赖，`tsc: not found`），属环境限制；包级 `check` 已通过。
+
+## 收尾动作（实现完成时）
 
 - 条目「基于 herdr 的交互式命令扩展（herdr pane 读写）」标「完成」并从 `docs/BACKLOG.md` 移除；本文件移入 `docs/archived/`。
 - 文档回写：根 `README.md` + `README.zh.md`（插件清单与包数）、`AGENTS.md`（包数与结构段的插件列表）、`docs/BACKLOG.md` §4 插件规划表补一行；**包计数与 §4 表的统一**归条目「五个新插件落地时的仓库清单与包计数统一」。
@@ -378,6 +385,10 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 - 2026-10-16：调研用命令（全部只读）——`herdr --version` / `herdr --help` / `herdr pane --help` / `herdr pane <sub> --help`（split / close / read / send-text / send-keys / wait-output / run / get / list / process-info）/ `herdr api --help` / `herdr api schema --json` / `herdr status` / `herdr --skill` / `herdr pane list` / `herdr pane current` / `herdr pane get wT1:p1`（含不存在 id 的错误形态）/ `herdr pane layout --pane wT1:p1` / `herdr pane process-info --pane wSP:p1` / `herdr pane read wT1:p1 --source visible --lines 5` / `herdr pane read wSP:p1 --source recent-unwrapped --lines 4` / `herdr pane wait-output wSP:p1 --match "zz-absent-zz" --timeout 400`。
 - 2026-10-16：用户放行实现（「可以，先按照这个实现，可选的也做」）。据此把决策项 1 的汇总表换成**逐动作 7 列划分表**（动作 / 通道 / 落地形态 / 额外信息 / 依据 / 实现落点 / 首期），并把两个可选动作纳入首期：`label`（`pane rename` 标归属，`create` 后自动打一次）、`info`（`pane process-info` 进程探活）——动作集由八个变十个。同步更新：决策项 4 理由、任务拆分第 2 条、工具面动作表与参数、验收单测项（argv / 报文拼装与可选动作断言）、估时（2.25 → 2.5 天）、待裁定项 1（已裁定）。本轮仍**只改文档，未开始写代码**（等文档检查）。
 
+- 2026-10-17：实现落地（用户放行 `npm run check` / `npm test` 与提交后）。包 `herdr-pane` 按冻结接口实现：`src/types.ts` / `cli.ts`（握手 + 二进制定位 + spawn 封装 + 信封解析）/ `socket.ts`（`pane.read` 单请求通道 + `stable` 判稳）/ `registry.ts`（归属登记 / label / `closeOnExit` / 同 pane 串行化）/ `policy.ts`（归属 + 审批三档 + guard fail-open）/ `actions.ts`（十动作 argv 与解析）/ `tools.ts`（`herdr_pane` 定义与渲染）/ `main.ts`（握手判定 / 注册 / `tools/pre-execute` 审批门 / 退出清理）/ `index.ts`（库面）。分四个提交：`9914572`（骨架、库面与工具面）、`d95e7c2`（九个单测 + 真机脚本）、`f1dbedd`（根仓 check/build/test 与安装清单接线）、`e2ab59f`（包 README、模块 BACKLOG、仓库清单）。
+- 2026-10-17：修复轮 `56de4b1`。三处断言与实现口径不一致：① 参数校验用例用了未登记 pane，写类动作先撞归属拒绝（改用例）；② `findOnPath` 显式传 `undefined` 会触发缺省参数回落到 `process.env.PATH`（改用空串断言）；③ `parseEnvelope` 原按 stdout→stderr 顺序返回，stdout 的 `result` 会掩盖 stderr 的 `error`（**改实现**为错误信封优先）。另修两处「测试跑完不退出」：`tests/net.test.ts` 的假服务端不读数据导致 socket 停在 paused 态、`server.close()` 永等（resume + 跟踪并在 finally destroy）；`createDefaultRunner` 超时只杀直接子进程、孙进程仍持管道（finish 时 destroy 两侧管道并 `unref`，用例改 `exec sleep 5`）。
+- 2026-10-17：修复已合入 main，主会话在真机上验证正常工作（工作流 create → run → send_text / send_keys → wait → read → close 及退出后无残留）；本文件随之关闭。
+
 ## 偏差
 
 - 计划「尽量在本机核实 herdr 的实际命令面」：**只核到只读命令**。写类动作（`split` / `send-text` / `send-keys` / `run` / `close` / `rename`）一律未执行——避免改动用户当前的 pane 布局与其它 agent 的 pane。这些动作的语法来自 `--help` 输出与官方技能文档，实测留到实现阶段的真机验证（见「验收」第 3 条）。
@@ -385,6 +396,10 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 - 计划「alternate-screen 程序取屏」：**未核实**（需要真起 `vim` / `htop`，属写类操作）。
 - 文档已按仓库约定用 `format` 格式化（首轮按当次任务要求未跑，后随提交前格式化补上）。
 - `HERDR_BIN_PATH` 的语义**未核实**（herdr 官方技能未提及；本机观测到该变量指向二进制绝对路径，方案中仅作 PATH 兜底使用）。
+
+- 计划外新增：`tests/net.test.ts`（真实 unix socket 的分片 framing / 超时 / 连接失败）与 `cli.test.ts` 的子进程执行面四例——原计划七个测试文件只覆盖注入面，CLI 封装与 socket 连接器本身没有用例。
+- `allowForeignPanes` 的语义在实现时明确为**写类动作归属限制的总开关**（打开后写类动作可作用于他人 pane，`close` 另需 `force`）：设计文档只写了「缺省 false」，未写放宽后的行为；不这样解释，`requireApproval: "foreign"` 对输入类动作就没有可触发的场景。
+- 真机验证由主会话执行并反馈「正常工作」，本文件只记录结论，不复制其操作细节。
 
 ## 测试与证据
 
@@ -400,7 +415,10 @@ CLI 仍为**缺省通道**：新增动作若两侧皆可，一律先走 CLI，�
 
 ## 收尾
 
-- 回写：无（本轮不改 `DESIGN.md` / `README.md` / `ROADMAP.md`；新增包文档留待实现阶段）。
-- 遗留项：实现未开始（已放行，等接取）；与 tmux 条目的共包问题已裁定维持独立；优先级 P2→P1 延后未定；「途中发现」两项已登记为条目。
-- 归档：**未归档**（追踪文档留在 `docs/implementation/`，任务未关闭）。
-- BACKLOG 清理：不适用（条目仍为进行中，未标完成、未移除）。
+- 回写：包文档 `herdr-pane/README.md`（能力 / 参数 / 配置 / 三闸 / 降级 / 归属与残留 / 测试与真机验证）与 `herdr-pane/docs/BACKLOG.md`（「沙箱模式联动」待办 + 不解决边界）随实现提交；根 `README.md` / `README.zh.md` 的插件清单与结构树、`AGENTS.md` 的插件清单与结构段已加 `herdr-pane`。**包计数与清单统一的最终核对**归条目「五个新插件落地时的仓库清单与包计数统一」（本任务只加自己那一份）。
+- DESIGN：本包按**轻量包**口径不写 `DESIGN.md`（能力面与边界已在 README 讲清，无跨组件协议 / 状态机 / 时序契约；机制变厚再补）。
+- ROADMAP：无本条目相关行，不改。
+- 跨包遗留：`security-guard` 的 `PLUGIN_COMMAND_TOOLS.herdr_pane` 登记由条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」在 security-guard 侧落地；本包只保证参数面一致（`commandKeys: ["command", "text"]` + `commandPaths: ["keys[]"]`），已在包 README 写明。
+- 残留口径：正常退出按 `closeOnExit` 关闭自建 pane；崩溃残留靠 label（缺省 `dsh-pane`）识别 + `list` 查看 + 显式 `close`（README 已记）。
+- 归档：本文件移入 `docs/archived/`。
+- BACKLOG 清理：条目「基于 herdr 的交互式命令扩展（herdr pane 读写）」标**完成**并从 `docs/BACKLOG.md` 移除，后续条目按当前顺序重编号；§4 实现顺序表移除本行并同步前置引用。

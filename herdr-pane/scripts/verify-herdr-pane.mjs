@@ -8,7 +8,7 @@
 //   node scripts/verify-herdr-pane.mjs --keep                       # 跑完保留 pane 供人工看
 //   node scripts/verify-herdr-pane.mjs --with-python                # 新 pane 里先起 python3 -i
 //
-// 验收对应关系（docs/implementation/2026-10-16-herdr-pane-design.md「验收」第 3 / 4 条）：
+// 验收对应关系（docs/archived/2026-10-16-herdr-pane-design.md「验收」第 3 / 4 条）：
 //   create → read → send_text → send_keys → wait(match) → wait(stable) → run → info → label → close，
 //   期间不应抢走调用者 pane 的焦点（`--no-focus`），正常退出后 `herdr pane list` 无本次创建的 pane。
 import { createHerdrPlugin, dispatchAction } from "../dist/src/index.js";
