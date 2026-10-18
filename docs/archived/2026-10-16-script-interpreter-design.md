@@ -1,6 +1,6 @@
 # 脚本语言解释器插件(bash / python 等): 调研与决策
 
-状态: 调研 / 决策　　开启: 2026-10-16　　关闭: -
+状态: 调研 / 决策 / 实现　　开启: 2026-10-16　　关闭: 2026-10-17
 本文件是本任务唯一的过程记录与文档变更落点; 计划外的文件不改.
 
 ## 接取范围
@@ -218,12 +218,16 @@
 - 2026-10-16 用户澄清"`$` 模式是给用户用的, 本插件是给 LLM 用的": 决策 1 / 8 的定位理由按此改写; 决策 4 与决策 6 里"与 `$` 模式同口径 / 同档"的类比去掉(两者是各自独立的实现, 不共享代码与配置, 不做常量收敛); "后续候选条目"删掉对齐那条.
 - 2026-10-16 用户要求完整复述要点并确认("可以"): 复述与文档一致, 仅补记本条并修正决策 6 关于 spill 的事实(缝包 `spill` 未挂, 但 `spill-local` + `spill-policy` 已挂).
 - 2026-10-17 用户裁定逐次审批缺省「与 bash 一致」(`approval: never`): 决策 7、冻结接口的配置面与「待用户裁定」三处已同步, 该节不再有待裁定项。
-- 本任务不写实现代码.
+- 2026-10-17 实现落地(commit `3c2f7a6`): 新包 `script-interpreter` —— `src/index.ts`(装配 + 语言表 + 日志)、`probe.ts`(四级探测)、`sandbox.ts`(策略解析 / confine / fail-closed / 拒绝与运行器失败判定)、`run.ts`(spawn / 超时与进程组清理 / 尾部截断 / 溢出落盘)、`render.ts`(回执)、`tools.ts`(工具面与执行顺序)、`types.ts`、`langs/{python,bash}.ts`; 用例 6 个文件。三处包清单(根 `package.json`、`scripts/test-parallel.sh`、`scripts/install.sh`)与 §4 规划表同期接线。原「本任务不写实现代码」的范围已被用户 2026-10-17 的实现指令扩展。
+- 2026-10-17 修复 1(commit `89b98f8`): 沙箱能力缺失不再写进回执正文 —— 回执只留脚本自身输出(stdout + `[stderr]` 段)与决策 6 的四种标记 + 围栏拒绝提示; 能力缺失改走装配期 `ctx.logger.warn` 与结果值 `sandbox.unavailable`。原实现每次调用多一行 `[sandbox: unavailable; ...]`, 与「各标记各一行」的口径不符, 也让 `(no output)` 判定失真。
+- 2026-10-17 修复 2(commit `53adf65`): 三个可选服务改经 `ctx.get(name)` 受保护读取 —— cordis 对**未 inject** 的服务属性直读会抛 `cannot get property "<name>" without inject`, 而 `inject` 只有 `["tools"]`, 直读会在加载期炸宿主; 极简宿主没有 `ctx.get` 时退回 `try { ctx[name] } catch`; 补 Proxy 桩钉住该契约。
 
 ## 偏差
 
 - 计划中"核实宿主是否挂 `terminal-bash`"已完成(未挂载, 详见 S2); 此外**未改任何**包代码与 TUI, 与计划一致.
 - 条目原估"第 22 或第 23 个插件"更正为第 22 个(计数依据见 S4), 属调研结论而非偏差.
+- 实现期新增两个计划外模块(同包内, 不改协议与对外接口): `src/langs/bash.ts`(决策 2 要求「bash 后端随首期实现」, 必须有后端实现文件)与 `src/tools.ts`(工具面独立成文件, 与 `ast-tools` / `md-logic` 同构; `index.ts` 只留装配)。
+- 实现期一处实现细节偏离字面: 溢出落盘用异步 `mkdtemp` 而非 `mkdtempSync`(落盘只在首次越限时惰性发生, 不阻塞事件循环), 权限与分桶口径不变。
 
 ## 测试与证据
 
@@ -232,10 +236,12 @@
 - 围栏契约: `dsh-sandbox/lib/types/index.d.ts:141` 的 `abstract confine(argv, policy, signal?) => Promise<ConfinedArgv>`; `dsh-sandbox-policy/lib/types/index.d.ts:88` 的 `resolve(request?) => SandboxExecutionPolicy`.
 - PTC 未暴露: `dsh-tools/README.md:64`(mode 默认 `native`), `:233`(非 native 模式需已注册 SDK 渲染器的运行时), `:235`(持久 kernel 在 MVP 被拒).
 - 本机依赖: `python3` = `/usr/bin/python3`(Python 3.12.3), `python` = `~/.local/bin/python`, `node` v24.16.0, `bash` 5.2.21, 均在 PATH.
-- 本任务未跑构建与测试(无代码改动); 无临时文件残留(`/tmp/dumpfff.*` 已删).
+- 实现落地验证(2026-10-17): 本包 `npm run check` 通过、`npm test` 73 例全绿(探测 / 围栏 / 执行核 / 溢出落盘 / 回执 / 审批 / 装配各域); 根 `npm run check` 通过; 根 `npm test` 覆盖的 28 个包全绿(`herdr-pane` 测试挂住未纳入, 属该包自身问题)。
+- 真机验证(主会话, 2026-10-17): 修复 `53adf65` 合入 main 后重启 `dsh --profile fff`, 插件正常加载、`script_run` 可执行。
+- 调研期未跑构建与测试(当时无代码改动); 无临时文件残留(`/tmp/dumpfff.*` 已删).
 
 ## 收尾
 
-- 回写文档: 本追踪文档(新建); 项目级 `docs/BACKLOG.md` 的条目状态本任务**不写**(接取时已由上一任务标"进行中: 2026-10-16"), 关闭时随实现任务一并处理.
-- 遗留项: 「已裁定的开口项」4 项全部落定（末项 2026-10-17）; 「后续候选条目」1 项待用户决定是否登记.
-- 本文件**不移入** `archived/`(任务未关闭, 等实现条目完成后随关闭一起归档).
+- 回写文档: 本追踪文档; 本包 `README.md`(模块契约)与 `docs/BACKLOG.md`(模块待办)随实现落地(commit `3c2f7a6` / `89b98f8` / `53adf65`); 根 `README.md` / `README.zh.md` 补本包插件行。
+- 遗留项: 「已裁定的开口项」4 项全部落定(末项 2026-10-17); 「后续候选条目」1 项待用户决定是否登记; `security-guard` 侧的命令参数面登记按跨包条目另行处理; 根 README 的包计数与四处清单统一归条目「五个新插件落地时的仓库清单与包计数统一」。
+- 2026-10-17 关闭: 项目级 `docs/BACKLOG.md` 的条目「脚本语言解释器插件（bash / python 等）」标完成并从 §2 移除(关闭记录写在该节变更记录), §4 规划表与实现顺序表同步清理; 本文件移入 `docs/archived/`。

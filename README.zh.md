@@ -37,6 +37,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **session-title-cutoff** | 会话标题 provider：触发保持 all-prompts，参考窗口改为「最近一次 `git commit` 之后」的人类消息（无提交/窗口为空回退全量）；接管 `ctx.sessionTitle` 唯一 provider，需在 profile 禁用官方 all-prompts 实现 |
 | **preference-analysis** | 偏好分析：订阅 `session/event` 抽三条结构化信号（重复约束 / 纠正加权 / 审批拒绝），按 3-gram 相似度并入跨会话账簿（唯一状态源），达高置信自动写入 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律落候选待审，撤销 / 退休 / 老化都记抑制键。首期零 TUI 改动 |
 | **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`，另有 `list` / `show` / `reload` 子命令）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判 |
+| **script-interpreter** | 模型侧脚本解释器：`script_run` 执行一段**已启用语言**的脚本（首期 Python；bash 后端随包实现但缺省不启用）。脚本正文经 stdin 交给解释器（不落临时脚本文件），每次调用都是新进程；非零退出码回执 `[exit code: N]`、不是工具错误；输出过长保留尾部并把全文落到 `0600` 文件；执行前经 `ctx.sandboxPolicy` + `ctx.sandbox` 围栏，拿不到可强制后端即 fail-closed `SANDBOX_UNAVAILABLE`；三个可选服务经 `ctx.get` 受保护读取（cordis 对未 inject 的服务直读会抛） |
 
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
@@ -68,6 +69,7 @@ dsh-toolset/
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
 ├── command-template/     # 模板体系（slash 命令模板 + 模板级模型选择，双源模板目录）
+├── script-interpreter/   # 模型侧脚本解释器（script_run：单次执行 Python；围栏 + 溢出落盘 + 审批开关）
 ├── preference-analysis/  # 偏好分析（行为归纳 + 账簿 + 自动应用；rule-engine 消费者）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本

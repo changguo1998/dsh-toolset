@@ -37,6 +37,7 @@ The repository contains the `TUI/` terminal UI package and 22 in-process plugins
 | **session-title-cutoff** | Session title provider: keeps the all-prompts trigger but narrows the reference window to human messages after the most recent `git commit` (falls back to the full set when there are no commits or the window is empty); takes over as the sole provider of `ctx.sessionTitle`, so the official all-prompts implementation must be disabled in the profile |
 | **preference-analysis** | Preference analysis: observes session events for three structured signals (repeated constraints, correction-weighted restatements, rejected approvals), merges near-identical wordings into a cross-session ledger (the only state source), auto-writes high-confidence preferences into memory-base's project tier and injects them through a single rule-engine consumer; model proposals always land as pending candidates, and every exit (reject / undo / aging at 90 or 180 days) records a suppression key |
 | **command-template** | Template system: prompt flows declared as `.md` files (YAML-subset front-matter) and invoked through one slash command (`/playbook <template> [args]`, with `list` / `show` / `reload` subcommands) — dual-source directories (bundled `templates/` + user `~/.dsh/command-templates`, user wins), step types `prompt` (inject into the current session) and `agent` (one-shot subagent with per-run model override), chaining via `{{stepId}}`, `bestOf` + `judge` |
+| **script-interpreter** | Model-side script interpreter: `script_run` runs one script in an enabled language (Python first; the bash backend ships but stays off by default). The script text goes to the interpreter through stdin (no temporary script file), every call is a fresh process, non-zero exits are reported as `[exit code: N]` instead of tool errors, long output keeps its tail with the full text spilled to a `0600` file, runs go through `ctx.sandboxPolicy` + `ctx.sandbox` with fail-closed `SANDBOX_UNAVAILABLE` when no enforcing backend exists, and the optional services are read through `ctx.get` (a direct read of an un-injected cordis service throws) |
 
 Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
@@ -68,6 +69,7 @@ dsh-toolset/
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
 ├── command-template/     # 模板体系（slash 命令模板 + 模板级模型选择，双源模板目录）
+├── script-interpreter/   # 模型侧脚本解释器（script_run：单次执行 Python；围栏 + 溢出落盘 + 审批开关）
 ├── preference-analysis/  # 偏好分析（行为归纳 + 账簿 + 自动应用；rule-engine 消费者）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
