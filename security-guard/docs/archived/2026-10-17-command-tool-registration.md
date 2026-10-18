@@ -1,8 +1,8 @@
 # 登记两个新插件工具的命令参数面（接取条目：`security-guard/docs/BACKLOG.md`「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」）
 
-状态：决策（2026-10-17）　　开启：2026-10-17　　关闭：未关闭
+状态：完成（2026-10-17）　　开启：2026-10-17　　关闭：2026-10-17
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
-本轮范围：调研 + 决策，不写实现代码（用户 2026-10-17 指示：在本会话内开工三个模块条目、不开新 worktree、做完决策后停下等审阅）。工作区：主检出 `main`。
+工作区：调研与决策轮在主检出 `main`；实现轮在 `.worktree/security-guard`（分支 `feat/security-guard`），随两包落地后执行。
 
 ## 目标
 
@@ -117,22 +117,51 @@ PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPat
 
 ## 实现记录
 
-（本轮为决策轮，未进入实现；决策项 4 已裁定 b —— 两包落地后按「规划」清单执行。）
+实现轮（worktree `feat/security-guard`，2026-10-17）：
+
+1. **前置核对（当时不满足，后补做）** —— 开工时两包仅有早期骨架（`script-interpreter/src` 只有 `index.ts` + `types.ts`、`herdr-pane/src` 只有 `cli.ts` + `types.ts`），无工具 schema，无法逐字核对。用户主会话指示「其他模块并行开发，先按约定接口完成本模块」，故先按冻结接口落地（决策项 1 至 3 的形态不变）。合并 main 后两包已落地真实 `tools.ts`，**补做逐字核对，结论一致**（见下表）。
+
+2. **登记两条**（`src/index.ts:271-273`，与冻结接口逐字一致）：
+
+   - `script_run: { commandKeys: ["script"] }`
+   - `herdr_pane: { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`
+
+   `TOOL_SURFACE.registered` 由 `...Object.keys(PLUGIN_COMMAND_TOOLS)` 自动随动，未手改。
+
+3. **登记表注释**（`src/index.ts:239-270`）：补上三条写法口径 —— `commandKeys` 只收顶层非空 string（数组值静默失效，数组参数必须走 `commandPaths`）、`commandPaths` 的点号路径与 `[]` 逐元素语义、登记即脱离 `unknownToolPolicy`。
+
+4. **用例**（`tests/guard.test.ts`）：新增 11 例 —— `script_run` 五例（`:832` `:857` `:885` `:899` `:915`）、`herdr_pane` 六例（`:933` `:953` `:965` `:984` `:1007` `:1025`），另在 `TOOL_SURFACE` 名单用例加两个工具名（`:2497-2500`）；文件头注释同步。
+
+5. **README** 同步：拦截面表格行（`:13`）、插件命令面段（`:21`）、新增「登记表的三条写法口径」段（`:22`）、例数（`:138` `:224` `:229`，124 → 135、guard 86 → 97）。
+
+**上游逐字核对（合并 main 后补做）**：
+
+| 工具 | 真实 schema 落点 | 真实参数名与类型 | 与登记面 |
+| --- | --- | --- | --- |
+| `script_run` | `script-interpreter/src/tools.ts:43`（`TOOL_NAME = "script_run"`） | `script`(string) / `description` / `language` / `timeoutMs` / `workdir` | 一致 |
+| `herdr_pane` | `herdr-pane/src/tools.ts:219`（`TOOL_NAME = "herdr_pane"`） | `command`(string) / `text`(string) / `keys`(array of string) / `pane_id`(string) 等 | 一致 |
+
+`keys` 实测为 `{ type: "array", items: { type: "string" } }`，印证决策项 1 选定 b：数组必须走 `commandPaths: ["keys[]"]`，写 `commandKeys: ["keys"]` 会静默失效。
 
 ## 偏差
 
-无（本轮只做调研与决策，未承诺实现动作）。
+1. **前置未满足即开工**：规划第 1 步要求「两包落地后对着真实工具 schema 逐字复核」，开工时两包无工具 schema。经用户主会话明确指示先按约定接口完成，故先落地、后补核对；补核对结论为**一致**，参数面无需改动。
+2. **README 实为四处偏多**：规划只列 `:13` / `:21` / `:228` 三处，实际还有 `:138` 文件表例数、`:224` 命令注释例数、`:229` 用例面汇总，共六行随例数变化。
+3. **真机验证未做**：规划的真机步骤需重启 `dsh --profile fff` 且依赖两包工具装载，本会话内未执行；判定面由引擎直调用例与反证实验覆盖（见下节）。
 
 ## 测试与证据
 
-本轮为决策轮，未改代码，故未跑 `check` / `build` / `test`；调研阶段的实测证据：
-
-- `security-guard` 内 `npm test`：124 例全绿（`tests 124 / pass 124 / fail 0`）—— 作为「新增登记不会打破既有用例」的基线（用例面见调研 8）。
-- `git worktree list`：`.worktree/script-interpreter`（`4e8f812`）与 `.worktree/herdr-pane`（`12df60e`）存在；两处根下 `ls -d script-interpreter herdr-pane` 均报「没有那个文件或目录」，两侧 `security-guard/src/index.ts:249-257` 与主树逐字相同（调研 7）。
-- `commandKeys` 数组值失效、`commandPaths` 单层 `[]` 展开生效：由子代理在本包内直接跑 `GuardEngine` 实测（构造 `metric_loop.measureCmd` 字符串 / 数组两种入参与 `task_decompose.children[].acceptance[].command`）。
+- `npm --prefix security-guard run check` → exit 0
+- `npm --prefix security-guard run test` → `tests 135 / pass 135 / fail 0 / skipped 0`（基线 124 例，新增 11 例）
+- 根 `npm run check` / `npm run build` / `npm run test` → 均 exit 0（实现当时 22 包全绿）
+- 合并 main 后复跑本包：check exit 0、`tests 135 / pass 135 / fail 0 / skipped 0`
+- **反证实验（锁 `keys[]` 用例有效）**：把登记临时改回设计原文 `herdr_pane: { commandKeys: ["command", "text", "keys"] }` → `send_keys.keys[]` 用例失败（数组值静默失效），恢复后全绿。证明该用例确实拦得住「名字在册、运行时不检查」的假覆盖。
+- **引擎直调抽查**（`GuardEngine.inspect`）：`script_run.script` 含黑名单命令 → deny，回执来源标注为「命令参数（script）」；`herdr_pane` 的 `command` / `text` / `keys[]` 各自命中并标注对应键路径；`pane_id` / `lines` / `label` 与按键名 `ctrl+c` 不误拦。
 
 ## 收尾
 
-- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `security-guard/docs/implementation/`；决策项 4 已裁定 b（两包落地后随批次登记），本条就此等前置。
-- 回写文档：本轮无（登记行与 `README.md` 的那行口径留到实现阶段；两包的设计文档已各自记明本次登记形态）。
-- 遗留项：`script_run` 与 `herdr_pane` 落地时按真实参数面复核两处登记写法（见冻结接口的「上游核对点」）；`scripts/tool-surface-check.mjs` 的覆盖边界属另条条目。
+- 条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」标完成并从 `security-guard/docs/BACKLOG.md` 移除（该文件已无未完成项）；本文件移入 `security-guard/docs/archived/`。
+- 回写文档：`security-guard/README.md`（拦截面表格、插件命令面段、登记表三条口径、例数四处）。`security-guard` 为轻量包，无 `DESIGN.md` 需回写；`ROADMAP.md` 属项目级，本任务不改。
+- 跨包对齐：两包 `src/tools.ts` 的真实参数名与本登记逐字一致，两侧无需回写。
+- 遗留（不属本任务、未改，均在项目级 `docs/BACKLOG.md`）：`:97` 第 12 条把本文件的旧路径写作来源、`:120` 的「实现顺序」表第 8 行仍列本条目为本模块待做项 —— 归档与本条目关闭后两处均失效，归各自整理时订正；`scripts/tool-surface-check.mjs` 的覆盖边界同属另条条目。
+- 真机验证（重启 `dsh --profile fff` 后调一次含黑名单命令的 `script_run` 与一次 `herdr_pane send_keys`）未执行，留待人工。
