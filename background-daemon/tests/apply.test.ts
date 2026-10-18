@@ -10,6 +10,7 @@ import { after, test } from "node:test";
 
 import {
   apply,
+  bootDaemon,
   createDaemonRuntime,
   resolveJournalPath,
   resolveStorePath,
@@ -39,6 +40,8 @@ interface FakeContext {
   provided: Map<string, unknown>;
   commands: { definitions: unknown[] };
   tools: { registered: unknown[] };
+  /** 宿主 `on("dispose")` 注册的回调（apply 不再返回 runtime, 卸载全靠它）。 */
+  disposeListeners: (() => void)[];
   warns: string[];
 }
 
@@ -46,6 +49,7 @@ function fakeContext(
   options: { withCommands?: boolean; withTools?: boolean } = {},
 ): FakeContext {
   const provided = new Map<string, unknown>();
+  const disposeListeners: (() => void)[] = [];
   const commands = { definitions: [] as unknown[] };
   const tools = { registered: [] as unknown[] };
   const agent: AgentLike = {
@@ -78,15 +82,18 @@ function fakeContext(
     get: (serviceName: string) => services[serviceName],
     provide: (serviceName: string, value: unknown) =>
       provided.set(serviceName, value),
-    on: () => () => {},
+    on: (event: string, listener: () => void) => {
+      if (event === "dispose") disposeListeners.push(listener);
+      return () => {};
+    },
   };
-  return { ctx, provided, commands, tools, warns: [] };
+  return { ctx, provided, commands, tools, disposeListeners, warns: [] };
 }
 
 test("apply：注册服务面 / 命令 / 工具并启动调度", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
     defaultSessionId: "sess-1",
@@ -105,7 +112,7 @@ test("apply：任务表损坏 → 面不启用但命令面仍注册（错误可�
   const storePath = path.join(dir, "tasks.json");
   writeFileSync(storePath, "{ 半截", "utf8");
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath,
     journalPath: path.join(dir, "journal.jsonl"),
   });
@@ -125,7 +132,7 @@ test("apply：commands / tools 缺失 → 降级告警, 不抛", async () => {
     return true;
   };
   try {
-    const runtime = await apply(fake.ctx, {
+    const runtime = await bootDaemon(fake.ctx, {
       storePath: path.join(dir, "tasks.json"),
       journalPath: path.join(dir, "journal.jsonl"),
     });
@@ -214,7 +221,7 @@ test("路径解析：config 优先, 环境变量兜底, 缺省落 DSH_HOME", () 
 test("工具注册：缺省 defaultSessionId 时 create 报 missing_session", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
   });
@@ -309,12 +316,14 @@ class FakeMemory {
     };
   }
 
-  async list(opts: {
-    kind?: string;
-    tier?: "session" | "project" | "user";
-    limit?: number;
-    offset?: number;
-  } = {}) {
+  async list(
+    opts: {
+      kind?: string;
+      tier?: "session" | "project" | "user";
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) {
     const filtered = this.rows
       .filter((row) => opts.kind === undefined || row.kind === opts.kind)
       .filter((row) => opts.tier === undefined || row.tier === opts.tier)
@@ -359,18 +368,20 @@ test("apply：memory-base 可用 → 记录底座为 memory, 任务从库里读�
   const withMemory: Record<string, unknown> = {
     ...(fake.ctx as Record<string, unknown>),
     get: (serviceName: string) =>
-      serviceName === "memory" ? memory : (fake.ctx["get"] as (name: string) => unknown)(serviceName),
+      serviceName === "memory"
+        ? memory
+        : (fake.ctx["get"] as (name: string) => unknown)(serviceName),
   };
-  const runtime = await apply(withMemory, {
+  const runtime = await bootDaemon(withMemory, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
     defaultSessionId: "sess-1",
   });
   assert.equal(runtime.backend, "memory");
-  assert.deepEqual(memory.specs.map((spec) => spec.kind), [
-    "daemon_task",
-    "daemon_run",
-  ]);
+  assert.deepEqual(
+    memory.specs.map((spec) => spec.kind),
+    ["daemon_task", "daemon_run"],
+  );
   assert.equal(runtime.store.list().length, 1);
   assert.equal(runtime.store.list()[0]?.id, seededTask.id);
   // 新任务写透：多一行 daemon_task 修订
@@ -381,18 +392,53 @@ test("apply：memory-base 可用 → 记录底座为 memory, 任务从库里读�
     selector: { kind: "every_seconds", seconds: 120 },
   });
   await runtime.mirror?.settle();
-  assert.ok(memory.rows.some((row) => row.kind === "daemon_task" && row.title === created.id));
+  assert.ok(
+    memory.rows.some(
+      (row) => row.kind === "daemon_task" && row.title === created.id,
+    ),
+  );
   await runtime.dispose();
 });
 
 test("apply：memory-base 不可用 → 降级 json, 不注册 kind", async () => {
   const dir = tempDir();
   const fake = fakeContext();
-  const runtime = await apply(fake.ctx, {
+  const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
   });
   assert.equal(runtime.backend, "json");
   assert.equal(runtime.mirror, null);
+  await runtime.dispose();
+});
+
+test("apply：宿主加载路径返回 void（undefined）, 不当 effect 收集", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const result = await apply(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+  });
+  // 回归守卫：cordis 把 apply 的返回值当 effect, 返回 runtime 普通对象即 Invalid effect
+  assert.equal(result, undefined);
+  assert.equal(typeof result, "undefined");
+  // 命令面与工具面照常注册
+  assert.equal(fake.commands.definitions.length, 1);
+  assert.equal(fake.tools.registered.length, 1);
+  // 卸载没有返回值可用, 必须靠宿主 dispose 回调：已注册且可调用
+  assert.equal(fake.disposeListeners.length, 1);
+  assert.doesNotThrow(() => fake.disposeListeners[0]?.());
+});
+
+test("bootDaemon：同一路径下仍返回运行期句柄（与 apply 的分工）", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const runtime = await bootDaemon(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+  });
+  assert.equal(typeof runtime, "object");
+  assert.equal(runtime.backend, "json");
+  assert.equal(typeof runtime.dispose, "function");
   await runtime.dispose();
 });
