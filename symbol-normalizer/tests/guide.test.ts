@@ -20,9 +20,9 @@ test("buildSymbolGuide：含全部推荐符号与使用标准，且文本由 con
     assert.ok(guide.includes(ch), `白名单应含：${ch}`);
   }
   assert.ok(guide.includes("§"), "config 追加的推荐字符应出现在白名单里");
-  // 首行恰为标签（防标题 / 解释回潮）；正文恰 8 行（标签 + 7 条要求，无额外标题 / 段落）
+  // 首行恰为标签（防标题 / 解释回潮）；正文恰 10 行（标签 + 7 条要求 + 空行 + 尾行工作流指令）
   assert.equal(guide.split("\n")[0], "[符号规范]");
-  assert.equal(guide.split("\n").length, 8);
+  assert.equal(guide.split("\n").length, 10);
   assert.match(guide, /禁止 emoji/);
   assert.match(guide, /行内代码与围栏代码块内的符号不参与审查/);
   assert.equal(GUIDE_SUMMARY, "符号规范（会话开局指南）");
@@ -51,6 +51,9 @@ test("buildSymbolGuide：只有命令与要求（无标题、无解释性括注�
   assert.match(lines[5] ?? "", /^5\. 推荐符号白名单：/);
   assert.match(lines[6] ?? "", /^6\. 下列变体必须改用推荐符：/);
   assert.match(lines[7] ?? "", /^7\. 行内代码与围栏代码块内的符号不参与审查/);
+  // 尾行：空行分隔的工作流指令（不是符号规则，故不编号）
+  assert.equal(lines[8], "");
+  assert.equal(lines[9], "继续做正在进行的任务, 没有任务则停下等待指令.");
 });
 
 test("buildSymbolGuide：别名映射取自 config 且用行内代码包裹（自身不被审查命中）", () => {

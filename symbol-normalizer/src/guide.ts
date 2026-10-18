@@ -38,5 +38,7 @@ export function buildSymbolGuide(rules: ResolvedSymbolRules): string {
     `5. 推荐符号白名单：${recommended}`,
     `6. 下列变体必须改用推荐符：${aliasText}`,
     "7. 行内代码与围栏代码块内的符号不参与审查；其余正文仍须写推荐符号。",
+    "",
+    "继续做正在进行的任务, 没有任务则停下等待指令.",
   ].join("\n");
 }
