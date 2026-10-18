@@ -118,4 +118,4 @@ npm --prefix preference-analysis run build
 
 - `docs/DESIGN.md`：状态机、跨包契约、幂等与并发的机制沉淀。
 - `docs/BACKLOG.md`：模块待办与「已裁定不做」（首期不做 TUI 面板、LLM 归纳、写 `AGENTS.md` 等）。
-- 追踪文档：`docs/implementation/2026-10-16-preference-analysis-design.md`（项目级，决策 D1-D20 与验收口径）。
+- 归档追踪文档：`docs/archived/2026-10-16-preference-analysis-design.md`（项目级，决策 D1-D20、实现记录与验收口径）。
