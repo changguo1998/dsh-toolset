@@ -296,9 +296,13 @@ test("apply：注册消费者（冻结入参）、三个工具、会话事件订
   const deadline = Date.now() + 2_000;
   let raw = "{}";
   while (Date.now() < deadline) {
-    raw = await readFile(ledgerPath, "utf8");
-    if ((JSON.parse(raw) as { entries?: unknown[] }).entries?.length === 1)
-      break;
+    try {
+      raw = await readFile(ledgerPath, "utf8");
+      if ((JSON.parse(raw) as { entries?: unknown[] }).entries?.length === 1)
+        break;
+    } catch {
+      // 首次归纳尚未落盘：继续等
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   const ledger = JSON.parse(raw) as {
@@ -340,4 +344,200 @@ test("apply：memory 为旧形态时不注册消费者与工具（只观察）",
   assert.equal(registered, 0);
   dispose();
   assert.deepEqual(warnings, []);
+});
+
+test("getService：未 inject 的服务直接读属性抛错时走 ctx.get（真实加载路径）", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const consumers: Array<Record<string, unknown>> = [];
+  const tools: Array<{ name?: unknown }> = [];
+  const forbidden = (service: string): never => {
+    throw new Error(`cannot get property "${service}" without inject`);
+  };
+  const ctx = {
+    // cordis 的受保护读取面：未 inject 的服务只能经 get 取
+    get(name: string): unknown {
+      if (name === "memory") return memory.face;
+      if (name === "ruleEngine") {
+        return {
+          registerConsumer(input: Record<string, unknown>) {
+            consumers.push(input);
+            return () => {};
+          },
+        };
+      }
+      if (name === "tools") {
+        return {
+          register(def: { name?: unknown }) {
+            tools.push(def);
+          },
+        };
+      }
+      return undefined;
+    },
+    // 直接读属性即抛错（与真实 cordis 一致）
+    get memory() {
+      return forbidden("memory");
+    },
+    get ruleEngine() {
+      return forbidden("ruleEngine");
+    },
+    get tools() {
+      return forbidden("tools");
+    },
+    on() {
+      return () => {};
+    },
+  };
+  const dispose = apply(ctx, { ledgerPath });
+  assert.equal(consumers.length, 1);
+  assert.deepEqual(
+    tools.map((tool) => tool.name),
+    ["preference_list", "preference_add", "preference_remove"],
+  );
+  dispose();
+});
+
+test("getService：ctx.get 抛错时回落直接读属性（无 get 的测试宿主）", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  let registered = 0;
+  const ctx = {
+    get() {
+      throw new Error("get unavailable");
+    },
+    memory: memory.face,
+    ruleEngine: {
+      registerConsumer() {
+        registered += 1;
+        return () => {};
+      },
+    },
+    tools: {
+      register() {
+        registered += 1;
+      },
+    },
+    on() {
+      return () => {};
+    },
+  };
+  const dispose = apply(ctx, { ledgerPath });
+  assert.equal(registered, 4, "1 个消费者 + 3 个工具");
+  dispose();
+});
+
+interface CordisLike {
+  proxy: Record<string, unknown>;
+  listeners: Array<(session: unknown, event: unknown) => void>;
+}
+
+/** 按 cordis 语义造 ctx：未在 inject 里声明的服务，读属性直接抛错，只能经 `ctx.get` 取。 */
+function cordisLikeContext(services: Record<string, unknown>): CordisLike {
+  const listeners: Array<(session: unknown, event: unknown) => void> = [];
+  const target: Record<string, unknown> = {
+    get(name: string): unknown {
+      return services[name];
+    },
+    on(_name: string, listener: (session: unknown, event: unknown) => void) {
+      listeners.push(listener);
+      return () => {};
+    },
+  };
+  const proxy = new Proxy(target, {
+    get(obj, prop, receiver) {
+      if (typeof prop === "string" && !(prop in obj)) {
+        throw new Error(`cannot get property "${prop}" without inject`);
+      }
+      return Reflect.get(obj, prop, receiver);
+    },
+  });
+  return { proxy, listeners };
+}
+
+test("Proxy 模拟 cordis：未 inject 的服务读属性抛错，ruleEngine 经 ctx.get 取到", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const consumers: Array<Record<string, unknown>> = [];
+  const tools: Array<{ name?: unknown }> = [];
+  const { proxy, listeners } = cordisLikeContext({
+    memory: memory.face,
+    ruleEngine: {
+      registerConsumer(input: Record<string, unknown>) {
+        consumers.push(input);
+        return () => {};
+      },
+    },
+    tools: {
+      register(def: { name?: unknown }) {
+        tools.push(def);
+      },
+    },
+  });
+  // 先自证模拟成立：直接读未声明服务确实抛错
+  assert.throws(
+    () => (proxy as Record<string, unknown>)["ruleEngine"],
+    /without inject/u,
+  );
+  const dispose = apply(proxy, { ledgerPath });
+  assert.equal(
+    consumers.length,
+    1,
+    "消费者应经 ctx.get 取到 ruleEngine 后注册",
+  );
+  assert.deepEqual(
+    tools.map((tool) => tool.name),
+    ["preference_list", "preference_add", "preference_remove"],
+  );
+  assert.equal(listeners.length, 1);
+  dispose();
+});
+
+test("Proxy 模拟 cordis：ruleEngine 缺失 -> 不注册消费者（只记录不注入），观测照常落账", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const tools: Array<{ name?: unknown }> = [];
+  const { proxy, listeners } = cordisLikeContext({
+    memory: memory.face,
+    // 不提供 ruleEngine：ctx.get 返回 undefined，属性读抛错被 getService 吞掉
+    tools: {
+      register(def: { name?: unknown }) {
+        tools.push(def);
+      },
+    },
+  });
+  const dispose = apply(proxy, { ledgerPath, minIntervalMs: 1 });
+  // 没有 ruleEngine 注册面 -> 消费者无从注册（不注入）；观测与存储不受影响
+  assert.equal(listeners.length, 1, "观测订阅不受影响");
+  assert.equal(tools.length, 3, "存储面仍在，工具照常注册");
+
+  // 记录照常：三会话重放后账簿落一条（自动应用与注入通道无关）
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  for (const sessionId of ["s1", "s2", "s3"]) {
+    listeners[0]!(
+      { id: sessionId, header: { cwd: "/p" } },
+      userEvent("不要用 emoji"),
+    );
+  }
+  listeners[0]!(
+    { id: "s3", header: { cwd: "/p" } },
+    { type: "compaction/end" },
+  );
+  const deadline = Date.now() + 2_000;
+  let entries: Array<{ status: string }> = [];
+  while (Date.now() < deadline) {
+    try {
+      const raw = await readFile(ledgerPath, "utf8");
+      entries =
+        (JSON.parse(raw) as { entries?: Array<{ status: string }> }).entries ??
+        [];
+      if (entries.length > 0) break;
+    } catch {
+      // 首次归纳尚未落盘：继续等
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(entries.length, 1, "证据仍应落账簿（只记录）");
+  assert.ok(["active", "candidate"].includes(entries[0]!.status));
+  dispose();
 });
