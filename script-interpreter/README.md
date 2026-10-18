@@ -149,4 +149,4 @@ npm --prefix script-interpreter run test    # 单包测试（无 Python 时相�
 `security-guard` 的 `PLUGIN_COMMAND_TOOLS.script_run = { commandKeys: ["script"] }` 归
 `security-guard` 自己的条目（本包只保证参数名就是 `script`，`tests/index.test.ts` 与
 `tests/tool.test.ts` 钉住该键名）。实现计划与裁定见项目级
-`docs/implementation/2026-10-16-script-interpreter-design.md`。
+`docs/archived/2026-10-16-script-interpreter-design.md`（已归档的调研与决策记录）。
