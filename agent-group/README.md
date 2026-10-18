@@ -49,15 +49,17 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 
 ## 依赖与降级
 
-`apply` 期做**可选读取**（不写进 `inject`，缺依赖时本包照常加载）：
+**注册与解析分开**（2026-10-17 真机裁定）：工具在 `apply` 期**同步注册**（工具表在 agent 创建时定稿，晚注册进不了表），依赖服务在**每次 `execute` 时惰性解析**。本包不写 `inject`（`sessionChannel` / `sessionPaths` 在本宿主上无法经 `inject` 解析，加 `inject` 会让整包不激活），也不在注册期读它们。
 
 | 依赖 | 用途 | 不可用时 |
 | --- | --- | --- |
-| `sessionChannel`（session-channel） | 传输 | **不注册 `agent_group` 工具** + 一次警告 |
-| `sessionPaths`（session-paths） | 组状态落点 | **不注册 `agent_group` 工具** + 一次警告 |
+| `sessionChannel`（session-channel） | 传输 | 工具**仍已注册**；调用返回 `session_channel_unavailable`（原因 + 下一步） |
+| `sessionPaths`（session-paths） | 组状态落点 | 调用返回 `session_paths_unavailable`（原因 + 下一步） |
 | `memory`（memory-base） | 可选镜像 | 跳过并计数，不影响动作 |
 | `sessions`（宿主） | 镜像的 `project`（管理者会话 `cwd`） | 回落 `agent-group:<组名>` |
-| `tools`（宿主） | 注册工具 | 一次警告（服务仍可用） |
+| `tools`（宿主） | 注册工具 | 一次警告（连注册面都没有，无从提供工具） |
+
+解析结果**只缓存成功**：服务晚到（宿主稍后 `provide`）时下一次调用会重新解析并自愈；失败不缓存，故不会把「当时没挂」固化成永久不可用。`memory` / `sessions` 在服务实例创建时取一次（镜像属可选增强）。
 
 运行期 `sessionDirFor(managerSessionId)` 抛错（会话不在宿主 `sessions` 里等）→ **写状态的动作报错**（`state_unavailable`，带原因与下一步）；**只读 `status` 命中缓存仍可用**。
 

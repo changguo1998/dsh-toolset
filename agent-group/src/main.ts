@@ -16,14 +16,18 @@
 
 import { GroupService, describe, resolveConfig } from "./core.ts";
 import { pruneUndefined } from "./json.ts";
-import { failure } from "./model.ts";
+import { failure, isFailure } from "./model.ts";
 import { MemoryBaseMirror, isMemoryFace } from "./mirror.ts";
 import { FileBookStore } from "./store.ts";
 import {
   createSessionChannelTransport,
   isSessionChannelFace,
 } from "./transport.ts";
-import type { AgentGroupConfig } from "./types.ts";
+import type {
+  AgentGroupConfig,
+  GroupFailure,
+  ResolvedConfig,
+} from "./types.ts";
 
 export { MANAGER_NAME } from "./model.ts";
 export { GroupService, resolveConfig, verdictOf } from "./core.ts";
@@ -117,8 +121,16 @@ function jsonText(value: unknown): string {
   }
 }
 
-/** `agent_group` 工具定义（`action` 分派；返回体过一遍 lossless JSON 归一）。 */
-export function toToolDef(service: GroupService): ToolDef {
+/**
+ * `agent_group` 工具定义（`action` 分派；返回体过一遍 lossless JSON 归一）。
+ *
+ * 入参是**服务解析器**而不是服务实例：注册在 apply 期同步完成（工具表在 agent 创建时
+ * 定稿），`sessionChannel` / `sessionPaths` 在 execute 时才解析；服务缺失返回
+ * `session_channel_unavailable` / `session_paths_unavailable`（带原因 + 下一步）。
+ */
+export function toToolDef(
+  resolveService: () => Promise<GroupService | GroupFailure>,
+): ToolDef {
   return {
     name: "agent_group",
     description:
@@ -128,7 +140,8 @@ export function toToolDef(service: GroupService): ToolDef {
       "send 发指令（group / to / text / timeoutMs；每条主从连接同时只允许一条未结）；" +
       "check 懒判定结算（group / to?；成功 / 失败 / 受阻 / 超时）；" +
       "remove 移除成员（group / name；非叶子被拒并列出剩余从代理）；" +
-      "status 只读查看（group）。所有拒绝都带原因与下一步。",
+      "status 只读查看（group）。所有拒绝都带原因与下一步；" +
+      "依赖（session-channel / session-paths）在调用时解析，服务缺失会返回带原因的错误。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -178,6 +191,13 @@ export function toToolDef(service: GroupService): ToolDef {
         );
       }
       const action = typeof args.action === "string" ? args.action : "";
+      const service = await resolveService();
+      if (isFailure(service)) {
+        return pruneUndefined({ ...service, action }) as Record<
+          string,
+          unknown
+        >;
+      }
       const result = await service.run(action, args, caller);
       return pruneUndefined(result) as Record<string, unknown>;
     },
@@ -191,8 +211,78 @@ export function toToolDef(service: GroupService): ToolDef {
 }
 
 /**
- * 挂载（宿主按 bundle 契约调用；惰性、防御，不抛）：依赖门禁 → 组装服务 → 注册工具。
- * 依赖不可用时不注册工具并警告一次（其余插件照常跑）。
+ * 惰性服务解析：**注册期不碰** `sessionChannel` / `sessionPaths`。
+ *
+ * 真机实测（2026-10-17）：这两个服务都晚于本包激活，注册期读不到；而工具表在 agent
+ * 创建时就已定稿 —— 注册若被推到「服务就绪之后」，工具**永远进不了工具表**（新进程里
+ * `/tools agent_group` 为 0）。故注册在 apply 期同步做，服务改在每次 execute 时解析；
+ * 失败不缓存（服务晚到也能自愈），成功才缓存。
+ */
+export function createLazyGroupService(
+  ctx: BundleHost,
+  config: ResolvedConfig,
+  log: (message: string) => void,
+): () => Promise<GroupService | GroupFailure> {
+  let cached: GroupService | undefined;
+  return async () => {
+    if (cached !== undefined) return cached;
+    const channel = readService(ctx, "sessionChannel");
+    if (!isSessionChannelFace(channel)) {
+      return failure(
+        "session_channel_unavailable",
+        "session-channel 服务不可用（缺 delegate / taskStatus）",
+        "在 profile 里挂上 session-channel 后重启 dsh（群组编排靠它投递指令与收取回报）",
+      );
+    }
+    const paths = readService(ctx, "sessionPaths");
+    const pathsFace =
+      typeof paths === "object" && paths !== null
+        ? (paths as { sessionDirFor?: unknown })
+        : undefined;
+    if (typeof pathsFace?.sessionDirFor !== "function") {
+      return failure(
+        "session_paths_unavailable",
+        "session-paths 服务不可用（缺 sessionDirFor）",
+        "在 profile 里挂上 session-paths 后重启 dsh（组状态落管理者会话目录）",
+      );
+    }
+    const sessionDirFor = pathsFace.sessionDirFor.bind(paths);
+    const sessions = readService(ctx, "sessions") as
+      | { get?(id: string): { header?: { cwd?: string } } | undefined }
+      | undefined;
+    const memory = readService(ctx, "memory");
+    const mirror =
+      config.mirror && isMemoryFace(memory)
+        ? new MemoryBaseMirror(memory, (sessionId) => {
+            try {
+              const session = sessions?.get?.(sessionId);
+              const cwd = session?.header?.cwd;
+              return typeof cwd === "string" && cwd !== "" ? cwd : undefined;
+            } catch {
+              return undefined;
+            }
+          })
+        : undefined;
+    cached = new GroupService({
+      store: new FileBookStore(
+        (managerSessionId) => sessionDirFor(managerSessionId),
+        config.stateFileName,
+      ),
+      transport: createSessionChannelTransport(channel),
+      ...(mirror === undefined ? {} : { mirror }),
+      config,
+      log,
+    });
+    return cached;
+  };
+}
+
+/**
+ * 挂载（宿主按 bundle 契约调用；不抛）：**apply 期同步注册工具**，依赖在 execute 时解析。
+ *
+ * 为什么不在注册期做依赖门禁：`sessionChannel` / `sessionPaths` 晚于本包激活，注册期
+ * 读不到；把它们当注册前置会把注册推到 agent 创建之后，工具表不收录（真机实测）。
+ * 依赖缺失改为调用期错误（带原因 + 下一步），仍守「缺依赖不静默」的口径。
  */
 export function apply(
   ctx: BundleHost = {},
@@ -214,53 +304,6 @@ export function apply(
   const resolved = resolveConfig(config);
   if (!resolved.enabled) return;
 
-  const channel = readService(ctx, "sessionChannel");
-  if (!isSessionChannelFace(channel)) {
-    warn(
-      "session-channel 服务不可用（缺 delegate / taskStatus）：不注册 agent_group 工具（群组编排需要传输层）",
-    );
-    return;
-  }
-  const paths = readService(ctx, "sessionPaths");
-  const pathsFace =
-    typeof paths === "object" && paths !== null
-      ? (paths as { sessionDirFor?: unknown })
-      : undefined;
-  if (typeof pathsFace?.sessionDirFor !== "function") {
-    warn(
-      "session-paths 服务不可用（缺 sessionDirFor）：不注册 agent_group 工具（组状态无处落盘）",
-    );
-    return;
-  }
-  const sessionDirFor = pathsFace.sessionDirFor.bind(paths);
-
-  const sessions = readService(ctx, "sessions") as
-    { get?(id: string): { header?: { cwd?: string } } | undefined } | undefined;
-  const memory = readService(ctx, "memory");
-  const mirror =
-    resolved.mirror && isMemoryFace(memory)
-      ? new MemoryBaseMirror(memory, (sessionId) => {
-          try {
-            const session = sessions?.get?.(sessionId);
-            const cwd = session?.header?.cwd;
-            return typeof cwd === "string" && cwd !== "" ? cwd : undefined;
-          } catch {
-            return undefined;
-          }
-        })
-      : undefined;
-
-  const service = new GroupService({
-    store: new FileBookStore(
-      (managerSessionId) => sessionDirFor(managerSessionId),
-      resolved.stateFileName,
-    ),
-    transport: createSessionChannelTransport(channel),
-    ...(mirror === undefined ? {} : { mirror }),
-    config: resolved,
-    log: warn,
-  });
-
   // 走 `readService` 而不是 `ctx.tools`：未 inject 的属性读取在 cordis 下会抛错。
   const tools = readService(ctx, "tools") as
     { register?(def: unknown): unknown } | undefined;
@@ -268,8 +311,9 @@ export function apply(
     warn("tools 未挂载：agent_group 工具不可用");
     return;
   }
+  const resolveService = createLazyGroupService(ctx, resolved, warn);
   try {
-    tools.register(toToolDef(service));
+    tools.register(toToolDef(resolveService));
   } catch (error) {
     warn(`agent_group 工具注册失败：${describe(error)}`);
   }

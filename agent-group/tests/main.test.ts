@@ -1,5 +1,5 @@
 /**
- * 接入面测试（假宿主）：依赖门禁、`agent_group` 工具的 7 个动作、状态落盘（0600）、
+ * 接入面测试（假宿主）：apply 期注册（不依赖服务）、服务惰性解析、`agent_group` 的 7 个动作、状态落盘（0600）、
  * 跨实例读回、运行期目录解析失败时的降级、可选镜像进 memory-base。
  *
  * 只碰本包与临时目录，不依赖 Redis / 真 session-channel（传输用假服务面）。
@@ -230,12 +230,18 @@ test("未 inject 的宿主：服务齐全时正常注册（属性回退读取不
   assert.equal(box.registered[0]?.name, "agent_group");
 });
 
-test("未 inject 的宿主：服务缺失时不抛、不注册、只警告一条", () => {
+test("未 inject 的宿主：服务缺失时仍注册（apply 不抛、无服务读取）", async () => {
   const box = cordisLikeHost({ services: {} });
   assert.doesNotThrow(() => apply(box.host as never, {}));
-  assert.equal(box.registered.length, 0);
-  assert.equal(box.logs.length, 1);
-  assert.match(box.logs[0] ?? "", /不注册 agent_group 工具/);
+  assert.equal(box.registered.length, 1, "工具必须注册");
+  assert.deepEqual(box.logs, [], "注册期不为依赖发警告（改为调用期错误）");
+  const result = await box.registered[0]!.execute(
+    { action: "status", group: "team" },
+    { agent: { session: { id: MANAGER } } },
+  );
+  assert.equal(result["ok"], false);
+  assert.equal(result["error"], "session_channel_unavailable");
+  assert.match(String(result["next"]), /session-channel/);
 });
 
 test("未 inject 的宿主：tools 属性也抛错时按「未挂载」降级（不冒泡）", async () => {
@@ -267,16 +273,26 @@ test("极端宿主：连 ctx.get 与 logger 都抛错时 apply 仍不抛", () =>
   assert.doesNotThrow(() => apply(host as never, {}));
 });
 
-test("依赖门禁：缺 sessionChannel / sessionPaths / sessionDirFor 时不注册工具并警告", () => {
-  const cases: Array<{ label: string; services: Record<string, unknown> }> = [
-    { label: "缺 sessionChannel", services: {} },
+test("注册期不依赖服务：服务缺失也照常注册工具，调用时返回可用性错误", async () => {
+  const cases: Array<{
+    label: string;
+    services: Record<string, unknown>;
+    error: string;
+  }> = [
+    {
+      label: "缺 sessionChannel",
+      services: {},
+      error: "session_channel_unavailable",
+    },
     {
       label: "sessionChannel 缺 delegate",
       services: { sessionChannel: { peers: async () => ({ ok: true }) } },
+      error: "session_channel_unavailable",
     },
     {
       label: "缺 sessionPaths",
       services: { sessionChannel: fakeChannel().face },
+      error: "session_paths_unavailable",
     },
     {
       label: "sessionPaths 缺 sessionDirFor",
@@ -284,15 +300,74 @@ test("依赖门禁：缺 sessionChannel / sessionPaths / sessionDirFor 时不注
         sessionChannel: fakeChannel().face,
         sessionPaths: { root: () => "/tmp" },
       },
+      error: "session_paths_unavailable",
     },
   ];
   for (const item of cases) {
     const box = makeHost(item.services);
     apply(box.host, {});
-    assert.equal(box.tools.length, 0, `${item.label}：不该注册工具`);
-    assert.equal(box.logs.length, 1, `${item.label}：应有一条警告`);
-    assert.match(box.logs[0] ?? "", /不注册 agent_group 工具/);
+    assert.equal(
+      box.tools.length,
+      1,
+      `${item.label}：工具必须在 apply 期注册（晚注册会进不了工具表）`,
+    );
+    const result = await box.tools[0]!.execute(
+      { action: "status", group: "team" },
+      { agent: { session: { id: MANAGER } } },
+    );
+    assert.equal(result["ok"], false, item.label);
+    assert.equal(result["error"], item.error, item.label);
+    assert.match(String(result["reason"]), /不可用/, item.label);
+    assert.match(String(result["next"]), /profile/, item.label);
   }
+});
+
+test("apply 期完全不读 sessionChannel / sessionPaths（只注册，解析留到调用）", () => {
+  let reads = 0;
+  const services = new Proxy(
+    {},
+    {
+      get() {
+        reads += 1;
+        throw new Error("注册期不该读服务");
+      },
+    },
+  ) as Record<string, unknown>;
+  const registered: ToolDef[] = [];
+  const tools = {
+    register: (def: unknown) => void registered.push(def as ToolDef),
+  };
+  const host = {
+    logger: () => ({ info: () => {} }),
+    // `tools` 是注册面本身，不算「依赖服务」；其余键落到会抛错的 proxy 上
+    get: (key: string) => (key === "tools" ? tools : services[key]),
+    tools,
+  };
+  assert.doesNotThrow(() => apply(host, {}));
+  assert.equal(registered.length, 1, "工具照常注册");
+  assert.equal(reads, 0, "注册期读取依赖服务次数应为 0");
+});
+
+test("惰性解析会自愈：先缺服务报错，服务到位后同一工具即可用", async () => {
+  const root = await tempDir();
+  const services: Record<string, unknown> = {};
+  const box = makeHost(services);
+  apply(box.host, { mirror: false });
+  const tool = box.tools[0]!;
+  const exec = { agent: { session: { id: MANAGER } } };
+
+  const missing = await tool.execute({ action: "status", group: "team" }, exec);
+  assert.equal(missing["error"], "session_channel_unavailable");
+
+  // 服务晚到（宿主稍后 provide）：下一次调用应重新解析成功
+  services["sessionChannel"] = fakeChannel().face;
+  services["sessionPaths"] = fakePaths(root).service;
+  const created = await tool.execute(
+    { action: "create_group", name: "team" },
+    exec,
+  );
+  assert.equal(created["ok"], true, JSON.stringify(created));
+  assert.equal(created["group"], "team");
 });
 
 test("enabled: false 时不注册也不警告", () => {
