@@ -79,8 +79,12 @@ session/event ──observe.ts──> Observation[]（证据 / 未成形观察�
 | 句柄 `forget([{tier, ids}])` | 撤销 / 退休真删，返回删条数 |
 | 全局 `list({kind, tier, project, limit})` | 重试幂等：同内容副本复用其 id，不重复写行 |
 
-**rule-engine（软依赖）**——注册值见 `README.md` 的注入一节，代码里是
-`CONSUMER_REGISTRATION`（常量导出，测试直接比对，防漂移）。
+**rule-engine（硬依赖，靠 `inject` 排序）**——注册值见 `README.md` 的注入一节，代码里是
+`CONSUMER_REGISTRATION`（常量导出，测试直接比对，防漂移）。`inject` 里必须显式声明 `ruleEngine`
+（与 `memory`、`tools` 一起）：cordis 只会把「依赖已就绪」的插件激活，否则会出现本插件先激活、
+rule-engine 尚未 `provide`，`ctx.get("ruleEngine")` 取不到 → 消费者永久漏注册的时序问题（真实重启
+实测）。激活期只读一次服务是有意为之：`inject` 已保证就绪，读不到只可能是非 cordis 宿主，按兜底
+告警处理。
 
 **门禁落在能力上而不是自律上**：`preWrite` 的入参不含 `tier`，同一 kind 声明多层无法按层拦，
 故拆两个 kind，让**句柄本身当闸门**；越权层由 memory-base 抛错。
@@ -101,7 +105,8 @@ session/event ──observe.ts──> Observation[]（证据 / 未成形观察�
 - **版本不符**：`version != 1` → 拒载拒写（只告警），避免旧代码覆盖新格式。
 - **库侧幂等**：应用前用 `list` 找同内容副本，命中则复用 id（重试不产生重复行）。
 - **降级**：memory 没有句柄面 → 只观察（不产候选、不写库、不注入），记一次明确告警；
-  ruleEngine 缺席 → 只记录不注入；`enabled: false` → 连实例都不建。
+  非 cordis 宿主忽略 `inject` 提前激活且 `ruleEngine` / `tools` 缺失 → 只记录不注入 / 不注册工具
+  并告警一次；`enabled: false` → 连实例都不建。
 
 ## 7. 关键取舍与已知边界
 
