@@ -69,6 +69,12 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 路径解析顺序：`config.storePath` → 环境变量 `BACKGROUND_DAEMON_STORE` → `$DSH_HOME/background-daemon/tasks.json`（`DSH_HOME` 缺省 `~/.dsh`）。流水缺省与任务表同目录的 `journal.jsonl`。
 
+## 依赖声明
+
+`export const inject = ["agents", "sessions", "timer", "commands", "tools"]`：这五项在 `apply` 期就要读到（目标解析 / flush 确认 / timer 原语 / 命令注册与命令类任务 / 模型侧工具注册），声明 inject 让 cordis 把激活顺序排在它们就绪之后——否则插件会先激活、`ctx.get(...)` 在严格模式下全部拿不到，表现为 `/daemon` 与 `daemon_task` 都未注册。
+
+`memory`（记录底座）与 `guard`（命令复查）是可选依赖，不进 inject：前者缺失降级 JSON 快照，后者缺失 fail-open 并标 `guardSkipped`。
+
 ## 边界（行为口径）
 
 - **目标 = 本进程内已注册的活跃 agent**：`agents.get(sessionId)` 未命中 → `skipped`（原因 `no-active-agent`）并写流水；`awaitAgentMs > 0` 时在窗口内按固定间隔复查（不是失败重试链）。**不**冷恢复会话、**不**跨进程唤醒。

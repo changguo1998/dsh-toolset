@@ -74,6 +74,18 @@ export const name = "background-daemon";
 /** 提供给其它插件读取的只读服务名。 */
 export const provide = ["backgroundDaemon"];
 
+/**
+ * 依赖声明：`apply` 期就要读到的宿主服务。
+ *
+ * 声明 inject 后 cordis 会把本插件的激活排在这些服务就绪之后；不声明时插件先激活,
+ * 此刻 `ctx.get(...)` 在严格模式下拿不到服务, 表现为「agents / sessions / timer /
+ * commands / tools 全部不可用」, `/daemon` 与 `daemon_task` 都注册不上。
+ *
+ * 可选依赖**不进** inject：`memory`（记录底座, 缺失降级 JSON 快照）与 `guard`
+ * （命令复查, 缺失 fail-open）走受保护读取 / 惰性解析。
+ */
+export const inject = ["agents", "sessions", "timer", "commands", "tools"];
+
 /** 宿主 ctx 的结构子集。 */
 interface BundleHost {
   get?: (serviceName: string) => unknown;
