@@ -166,7 +166,10 @@ export interface SandboxFacts {
   readonly enforcement?: SandboxEnforcement;
   /** 失败运行是否命中该后端的拒绝方言（围栏生效并拦下），而非运行器失败。 */
   readonly denied: boolean;
-  /** 围栏能力缺失的原因（`ctx.sandbox` / `ctx.sandboxPolicy` 缺失或策略解析失败）。 */
+  /**
+   * 围栏能力缺失的原因（`ctx.sandbox` / `ctx.sandboxPolicy` 缺失或策略解析失败）。
+   * 只落在结果值上：回执正文不加提示行（理由见 `render.ts` 的口径说明）。
+   */
   readonly unavailable?: string;
 }
 
