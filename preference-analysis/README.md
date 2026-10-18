@@ -85,11 +85,18 @@ observe --证据≥3 且 跨≥2 会话--> candidate --最近证据≤30 天且 
 - 门禁：归纳只持 `writableTiers: ["project"]` 的句柄（写 U 层会被 memory-base 抛错）；
   用户层是独立 kind `preference_user`，只由显式动作调用。
 
+## 依赖
+
+`inject: ["memory", "ruleEngine", "tools"]`：三个都是宿主服务，交给 cordis 按依赖排序，**服务就绪后
+才激活本插件**。这一点是必须的——只在 `apply` 里读一次 `ctx.get("ruleEngine")` 会在「本插件先于
+rule-engine 激活」时取不到消费者面，消费者就永久漏注册（真实重启踩过）。
+
 ## 降级
 
 - `memory` 没有分层句柄面（`registerKind` 未返回 `put` / `forget`）：记一次明确告警，停在
   **只观察不写入 / 不注入**（不冒充 `origin: "user"`，不依赖候选队列）。
-- `ruleEngine` 缺席：观察与存储仍可用，只是不注入（软依赖）。
+- 非 cordis 宿主忽略 `inject` 提前激活、且 `ruleEngine` / `tools` 尚未就绪：按「只记录不注入 /
+  不注册工具」处理并告警一次，不抛错、不影响宿主启动。
 - 账簿文件损坏：改名留档 `ledger.json.corrupt-<时间戳>` 后从空账簿开始；版本不受支持则**拒载拒写**。
 
 ## 与相邻件的分工

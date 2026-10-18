@@ -8,6 +8,7 @@ import {
   DEFAULT_MIN_INTERVAL_MS,
   apply,
   createPlugin,
+  inject,
   name,
   resolveConfig,
 } from "../src/main.ts";
@@ -427,6 +428,33 @@ test("getService：ctx.get 抛错时回落直接读属性（无 get 的测试宿
   dispose();
 });
 
+test("inject：声明 memory / ruleEngine / tools，交给 cordis 排序（防消费者漏注册）", () => {
+  // 只声明 memory 时，本插件会先于 rule-engine 激活 -> ctx.get("ruleEngine") 取不到，
+  // 消费者永久漏注册（真实重启告警）。三个服务都必须进 inject。
+  assert.deepEqual(inject, ["memory", "ruleEngine", "tools"]);
+});
+
+test("顺序：激活完成时消费者已同步注册，decide 立即可用（无需等会话事件补注册）", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const consumers: Array<Record<string, unknown>> = [];
+  const { proxy } = cordisLikeContext({
+    memory: memory.face,
+    ruleEngine: {
+      registerConsumer(input: Record<string, unknown>) {
+        consumers.push(input);
+        return () => {};
+      },
+    },
+    tools: { register() {} },
+  });
+  const dispose = apply(proxy, { ledgerPath });
+  assert.equal(consumers.length, 1, "激活同步注册，不留「等下一次事件」的窗口");
+  const decide = consumers[0]!["decide"] as () => unknown;
+  assert.equal(decide(), null, "无 active 条目时返回 null，且调用不抛错");
+  dispose();
+});
+
 interface CordisLike {
   proxy: Record<string, unknown>;
   listeners: Array<(session: unknown, event: unknown) => void>;
@@ -493,20 +521,37 @@ test("Proxy 模拟 cordis：未 inject 的服务读属性抛错，ruleEngine 经
   dispose();
 });
 
-test("Proxy 模拟 cordis：ruleEngine 缺失 -> 不注册消费者（只记录不注入），观测照常落账", async () => {
+test("顺序兜底：宿主忽略 inject 提前激活且 ruleEngine 未就绪 -> 告警一次、不注册消费者", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
   const tools: Array<{ name?: unknown }> = [];
   const { proxy, listeners } = cordisLikeContext({
     memory: memory.face,
-    // 不提供 ruleEngine：ctx.get 返回 undefined，属性读抛错被 getService 吞掉
+    // 不提供 ruleEngine：模拟宿主未按 inject 排序、激活时消费者面还没 provide
     tools: {
       register(def: { name?: unknown }) {
         tools.push(def);
       },
     },
   });
-  const dispose = apply(proxy, { ledgerPath, minIntervalMs: 1 });
+  const captured: string[] = [];
+  const originalWrite = process.stderr.write;
+  let dispose: (() => void) | undefined;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    captured.push(
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+    );
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    dispose = apply(proxy, { ledgerPath, minIntervalMs: 1 });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  assert.ok(
+    captured.join("").includes("ctx.ruleEngine 不可用"),
+    `应告警一次，实际：${captured.join("")}`,
+  );
   // 没有 ruleEngine 注册面 -> 消费者无从注册（不注入）；观测与存储不受影响
   assert.equal(listeners.length, 1, "观测订阅不受影响");
   assert.equal(tools.length, 3, "存储面仍在，工具照常注册");

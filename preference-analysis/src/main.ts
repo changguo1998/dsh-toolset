@@ -7,7 +7,10 @@
  * - 存储：达高置信且 `autoApply` 允许时写入 memory-base 项目层（apply.ts），撤销 / 退休真删；
  * - 注入：注册一个 rule-engine 消费者，`decide` 只读账簿快照，守条数与字符上限。
  *
+ * 依赖：`inject: ["memory", "ruleEngine", "tools"]` —— 交给 cordis 排序，保证激活期内三个服务
+ * 都已就绪（否则会出现「本插件先激活、消费者面还没 provide，消费者永久漏注册」的时序问题）。
  * 降级：memory 服务没有新句柄面 -> 只观察（不产出候选、不写库、不注入），并记一次明确日志；
+ * 非 cordis 宿主提前激活且服务缺失 -> 按「只记录不注入 / 不注册工具」处理并告警一次；
  * `enabled: false` -> 零观测、零写入、零注入（连消费者与工具都不注册）。
  */
 import { homedir } from "node:os";
@@ -51,8 +54,14 @@ import {
 
 export const name = "preference-analysis";
 
-/** 硬依赖：分层存储与作用域句柄面（memory-base provide `memory`）。 */
-export const inject = ["memory"];
+/**
+ * 硬依赖（cordis 按 inject 排序，服务就绪后才激活本插件）：
+ * - `memory`：分层存储与作用域句柄面（memory-base provide）；
+ * - `ruleEngine`：消费者注册面（rule-engine provide）；不声明时本插件会先于它就绪，
+ *   激活期取不到消费者面 -> 偏好消费者永久漏注册（真实重启实测）；
+ * - `tools`：模型侧工具注册面（注册 `preference_list` / `add` / `remove`）。
+ */
+export const inject = ["memory", "ruleEngine", "tools"];
 
 /** 插件配置（类型声明，宿主不校验；缺省见 resolveConfig）。 */
 export interface Config {
@@ -570,7 +579,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
     warn("ctx.on 不可用：不观测会话事件");
   }
 
-  // 注入：rule-engine 消费者（软依赖；没有新句柄面时不注册，避免注入空转）
+  // 注入：rule-engine 消费者（inject 已保证服务就绪；取不到时按非 cordis 宿主兜底告警）
   if (plugin.memoryAvailable) {
     const engine = getService(c, "ruleEngine") as
       { registerConsumer?: (input: ConsumerInput) => () => void } | undefined;
