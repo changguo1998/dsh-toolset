@@ -103,6 +103,7 @@ type Height =
 - **`suffix` 测量**：后缀占列并入总宽（`w = max(首行 overhead, 续行 overhead) + suffix.width`，挂在最右）；正文可用宽 = 分配宽 − `indent` − `prefix.width` − `suffix.width`（保证正文折行不溢出越过后缀列）。
 - **`tail` 测量**：不占测量宽（flex 填充，fill 阶段补到分配宽；measure 不因 tail 增加行数与宽度）。
 - **`wrap: false`**：不换行、单行截断加省略号；截断按显示宽度不切半个 CJK。
+- **`balance`（平衡折行，用户块用）**：行数不变的前提下收窄列宽——总显示宽 L、最大列宽 Cmax → R = ceil(L / Cmax)，C = ceil(L / R)；宽字符取整可能多折一行时右移列宽直到行数回到 R。含显式换行时不启用。
 
 ## 3. 内容元素映射（Box 组合示例） [spec]
 

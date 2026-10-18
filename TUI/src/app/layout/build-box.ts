@@ -790,6 +790,7 @@ export function buildBox(
       const sym = opts.userStatus?.(line);
       const symW = 2; // 符号 + 1 空格
       const body = styled([{ text: line.text }], {
+        balance: true,
         suffix: {
           text: "┃",
           style: {

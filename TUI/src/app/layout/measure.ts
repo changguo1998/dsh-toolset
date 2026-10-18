@@ -95,11 +95,28 @@ function paragraphRows(
   return rows;
 }
 
+/** 平衡折行宽度（与 fill 同公式）：R = ceil(L / Cmax)，C = ceil(L / R)，宽字符修正。 */
+function balancedWidthFor(text: string, maxWidth: number): number {
+  if (text.includes("\n") || maxWidth <= 0) return maxWidth;
+  const rowsAt = (w: number): number =>
+    wrapParagraph(text, Math.max(1, w), true).length;
+  const rows = rowsAt(maxWidth);
+  if (rows <= 1) return maxWidth;
+  const total = displayWidth(text);
+  let width = Math.max(1, Math.ceil(total / rows));
+  while (width < maxWidth && rowsAt(width) > rows) width += 1;
+  return width;
+}
+
 /** 测量单个预样式叶子：按拼接文本折行（StyledText） */
 function measureStyledText(node: StyledText, maxW: number): MeasuredSize {
   const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
-  const firstW = maxW - indent - prefixW - suffixW; // 首行可用正文宽
-  const contW = maxW - hanging - suffixW;
+  const text0 = styledText(node);
+  const firstBase = maxW - indent - prefixW - suffixW; // 首行可用正文宽
+  // `balance`：测量与 fill 用同一收窄列宽，块宽随之变小 → 外层 spacer 仍能把它推到右侧
+  const firstW =
+    node.balance === true ? balancedWidthFor(text0, firstBase) : firstBase;
+  const contW = node.balance === true ? firstW : maxW - hanging - suffixW;
   const wrap = node.wrap !== false;
   const text = styledText(node);
   const rows = paragraphRows(text, firstW, contW, wrap);

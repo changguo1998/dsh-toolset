@@ -47,6 +47,8 @@ export interface NodeBase {
   fillBg?: boolean;
   /** 默认 true；false = 单行截断不换行 */
   wrap?: boolean;
+  /** 平衡折行：保持行数不变，收窄列宽让各行尽量等宽（用户块用） */
+  balance?: boolean;
 }
 
 /** 兄弟项之间的分隔线（结构性，随子项增删；首尾不画）：

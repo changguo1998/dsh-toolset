@@ -1641,39 +1641,39 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历
   );
 });
 
-test("交错布局：输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）", () => {
+test("交错布局：用户块平衡折行后各行等宽且右缘对齐（gutter=4）", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
-  const cols = 60;
-  // 输入/回复均为超长英文（无自然断点）→ 各自折到宽度上限，左缘停在最左可占据列
-  let s = initialState();
-  s = withUser(s, "U".repeat(120));
-  s = withText(s, "R".repeat(120));
-  s = withTurnEnd(s); // 正文标 final → 历史区
-  const frame = buildFrame(s, { rows: 24, cols }).map((l) => strip(rowAnsi(l)));
-  const colOf = (line: string, ch: string): number => {
+  // 静态用户行（120 个无断点字符）：窄窗下按平衡折行收窄列宽
+  const rows = [{ text: "U".repeat(120), kind: "user", turn: 1 }] as never;
+  const s = {
+    ...initialState(),
+    pipeline: sectionsFromBuffer(rows, { history: true }),
+  };
+  const frame = buildFrame(s, { rows: 24, cols: 60 }).map((l) =>
+    strip(rowAnsi(l)),
+  );
+  const uRows = frame.filter((l) => l.includes("U"));
+  assert.ok(uRows.length >= 2, "窄窗下用户块折成多行");
+  const counts = uRows.map(
+    (line) => Array.from(line).filter((c) => c === "U").length,
+  );
+  assert.equal(
+    new Set(counts).size,
+    1,
+    `各行字符数一致: ${JSON.stringify(counts)}`,
+  );
+  // 右缘对齐：每行最后一个 U 的屏幕列相同
+  const endCol = (line: string): number => {
     let col = 0;
+    let last = -1;
     for (const c of [...line]) {
-      if (c === ch) return col;
+      if (c === "U") last = col;
       col += displayWidth(c);
     }
-    return -1;
+    return last;
   };
-  const uRow = frame.find((l) => l.includes("U"));
-  const rRow = frame.find((l) => l.includes("R"));
-  assert.ok(uRow !== undefined && rRow !== undefined, "输入/回复行都可见");
-  // 屏幕列口径：区域正文起始列（状态列之后）= 0 基参照；正文首列放 ┃、
-  // 自次列起为回复内容 → 回复正文起 start+1；用户块留白 gutter-1 →
-  // 输入正文起 start+gutter-1，恰与回复第 3 个字符同列
-  const start = metricsFor({ rows: 24, cols }).statusColWidth;
-  const uCol = colOf(uRow, "U");
-  const rCol = colOf(rRow, "R");
-  assert.equal(
-    uCol,
-    start + DEFAULT_MESSAGE_GUTTER - 1,
-    "输入最长左缘 = 正文首列 + gutter−1",
-  );
-  assert.equal(uCol, rCol + 2, "输入左缘与回复第 3 字符同列");
-  assert.equal(rCol, start + 1, "回复正文自区域正文次列起（┃ 占首列）");
+  const ends = uRows.map(endCol);
+  assert.equal(new Set(ends).size, 1, `右缘对齐: ${JSON.stringify(ends)}`);
 });
 
 test("交错布局：多行输入为一块——块内行首左对齐、块宽 = 最长行、右缘竖线同列", () => {

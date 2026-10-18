@@ -433,10 +433,15 @@ function fillStyled(
   // 显式换行先在段内切分（每段独立折行；空行保留）
   const indent = p.indent ?? 0;
   const hanging = p.hanging ?? indent;
+  // 平衡折行（用户块）：行数不变的前提下收窄列宽，避免末行只剩几个字
+  const balanced =
+    p.balance === true && !segs.some((s) => s.text.includes("\n"))
+      ? balancedWidth(segs, bodyW, hanging)
+      : bodyW;
   const rows: FrameSegment[][] =
     p.wrap === false
       ? splitPhysical(segs)
-      : splitAndWrapSegments(segs, bodyW, hanging);
+      : splitAndWrapSegments(segs, balanced, hanging);
   const content = decorateRows(
     p,
     rows,
@@ -446,6 +451,26 @@ function fillStyled(
     hasHeightDecl(p),
   );
   for (const row of content) append(row);
+}
+
+/**
+ * 平衡折行宽度：总宽 L、最大列宽 Cmax → 行数 R = ceil(L / Cmax)，再取
+ * C = ceil(L / R) 作为实际列宽（行数不变，各行尽量等宽）。
+ * 宽字符按整格取整可能多出一行，故在 `countAt(C) > R` 时右移少量列直到行数回到 R。
+ */
+export function balancedWidth(
+  segs: FrameSegment[],
+  maxWidth: number,
+  hanging: number,
+): number {
+  const countAt = (w: number): number =>
+    wrapFrameSegments(segs, w, hanging).length;
+  const rows = countAt(maxWidth);
+  if (rows <= 1) return maxWidth;
+  const total = segs.reduce((sum, s) => sum + displayWidth(s.text), 0);
+  let width = Math.max(1, Math.ceil(total / rows));
+  while (width < maxWidth && countAt(width) > rows) width += 1;
+  return width;
 }
 
 /** wrap:false：段按 \n 切物理行，不按列宽软折行（面板行精确行长场景） */
