@@ -10,12 +10,14 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { apply } from "../src/index.ts";
 import { pythonBackend } from "../src/langs/python.ts";
 import { NO_OUTPUT, renderFailure, renderScriptValue } from "../src/render.ts";
 import { createScriptRunTool, TOOL_NAME } from "../src/tools.ts";
 import type { ToolDef } from "../src/tools.ts";
 import type { ScriptRunResult } from "../src/types.ts";
 import {
+  cordisHost,
   explodingApproval,
   fakeApproval,
   fakePolicyService,
@@ -422,6 +424,32 @@ pyTest("沙箱：danger-full-access 不围栏、不标缺失", async () => {
     cleanup();
   }
 });
+
+pyTest(
+  "装配：cordis 直读会抛的宿主下也能执行，且围栏事实经 ctx.get 传入",
+  async () => {
+    const { dir, cleanup } = withTempDir();
+    try {
+      const host = cordisHost({
+        sandbox: fakeSandbox({ argv: [] }).provider,
+        sandboxPolicy: fakePolicyService({
+          mode: "danger-full-access",
+          workspaceRoot: dir,
+        }).service,
+      });
+      apply(host.ctx);
+      const value = result(
+        await host
+          .tool()
+          .execute({ script: "print(1)", description: "守卫下的装配" }),
+      );
+      assert.equal(value.sandbox.mode, "danger-full-access");
+      assert.equal(value.sandbox.unavailable, undefined);
+    } finally {
+      cleanup();
+    }
+  },
+);
 
 pyTest("审批：缺省 never 不请求审批", async () => {
   const approval = explodingApproval();

@@ -39,13 +39,41 @@ export const name = "script-interpreter";
 /** 注入面：tools（注册 `script_run`；沙箱与审批是可选服务，不进 inject）。 */
 export const inject = ["tools"];
 
-/** 结构化宿主 ctx（最小 DSH cordis 形态）：日志 + 工具面 + 三个可选服务。 */
+/** 结构化宿主 ctx（最小 DSH cordis 形态）：日志 + 工具面 + 服务读取口 + 三个可选服务。 */
 export interface BundleHost {
   logger?(ns: string): LoggerLike;
   tools?: ToolRegistryLike;
+  /**
+   * 宿主服务读取口（cordis `ctx.get(name)`）。
+   * cordis 对**未 inject** 的服务属性直读会抛 `cannot get property "<name>" without inject`，
+   * 所以三个可选服务只能经它读取；极简宿主没有该口时退回「try 读属性」。
+   */
+  get?(name: string): unknown;
   sandbox?: SandboxProviderLike;
   sandboxPolicy?: SandboxPolicyServiceLike;
   approval?: ApprovalServiceLike;
+}
+
+/**
+ * 读一个**可选服务**：优先 `ctx.get(name)`（cordis 的受保护读取口），
+ * 取不到或宿主没有 `get` 时退回属性读取，直读抛错（未 inject 的服务）则视为不可用。
+ * 目的：保持 `inject = ["tools"]` 的可选依赖语义，同时不在加载期把宿主炸掉。
+ */
+function optionalService<T>(ctx: BundleHost, name: string): T | undefined {
+  if (typeof ctx.get === "function") {
+    try {
+      const value = ctx.get(name);
+      if (value !== undefined && value !== null) return value as T;
+    } catch {
+      // 极简宿主的 get 可能抛错：落到属性读取再试一次。
+    }
+  }
+  try {
+    return (ctx as unknown as Record<string, unknown>)[name] as T | undefined;
+  } catch {
+    // cordis 守卫：未 inject 的服务直读即抛 —— 按「该服务不可用」处理。
+    return undefined;
+  }
 }
 
 /** Config 契约别名（仅类型级导出：无 `'~standard'` 校验接口，宿主原样透传）。 */
@@ -193,12 +221,20 @@ export function apply(
     logger?.warn?.("ctx.tools 不可用（宿主未提供工具面），不注册 script_run");
     return;
   }
+  // 三个可选服务一律经受保护读取：cordis 对未 inject 的服务直读会抛错（加载期炸宿主）。
+  const sandbox = optionalService<SandboxProviderLike>(ctx, "sandbox");
+  const sandboxPolicy = optionalService<SandboxPolicyServiceLike>(
+    ctx,
+    "sandboxPolicy",
+  );
+  const approvalService = optionalService<ApprovalServiceLike>(ctx, "approval");
+
   // 围栏能力缺失时把事实写进**装载日志**（运维通道），不进工具回执正文：
   // 回执只列脚本自身的输出与决策 6 的标记，能力缺失另有结果值 `sandbox.unavailable` 承载。
-  if (ctx.sandbox === undefined || ctx.sandboxPolicy === undefined) {
+  if (sandbox === undefined || sandboxPolicy === undefined) {
     logger?.warn?.(
-      `沙箱服务不完整（ctx.sandbox=${ctx.sandbox === undefined ? "缺失" : "可用"}, ` +
-        `ctx.sandboxPolicy=${ctx.sandboxPolicy === undefined ? "缺失" : "可用"}）：` +
+      `沙箱服务不完整（sandbox=${sandbox === undefined ? "缺失" : "可用"}, ` +
+        `sandboxPolicy=${sandboxPolicy === undefined ? "缺失" : "可用"}）：` +
         "script_run 将以未围栏方式执行，结果值 sandbox.unavailable 会如实标注",
     );
   }
@@ -211,11 +247,9 @@ export function apply(
     maxOutputChars: settings.maxOutputChars,
   };
   const host: ToolHost = {
-    ...(ctx.sandbox === undefined ? {} : { sandbox: ctx.sandbox }),
-    ...(ctx.sandboxPolicy === undefined
-      ? {}
-      : { sandboxPolicy: ctx.sandboxPolicy }),
-    ...(ctx.approval === undefined ? {} : { approval: ctx.approval }),
+    ...(sandbox === undefined ? {} : { sandbox }),
+    ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
+    ...(approvalService === undefined ? {} : { approval: approvalService }),
   };
   ctx.tools.register(
     createScriptRunTool({

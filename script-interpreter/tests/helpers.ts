@@ -103,6 +103,63 @@ export function mockHost(
   };
 }
 
+/**
+ * cordis 风格宿主替身：**未 inject 的服务属性直读即抛**
+ * （`cannot get property "<name>" without inject`，与真实宿主守卫一致），
+ * 只能经 `ctx.get(name)` 取。用于钉住「可选服务必须受保护读取」这条契约。
+ */
+export function cordisHost(
+  services: {
+    sandbox?: SandboxProviderLike;
+    sandboxPolicy?: SandboxPolicyServiceLike;
+    approval?: ApprovalServiceLike;
+  } = {},
+): MockHost {
+  const defs: ToolDefLike[] = [];
+  const logs: string[] = [];
+  const table: Record<string, unknown> = {
+    ...(services.sandbox === undefined ? {} : { sandbox: services.sandbox }),
+    ...(services.sandboxPolicy === undefined
+      ? {}
+      : { sandboxPolicy: services.sandboxPolicy }),
+    ...(services.approval === undefined ? {} : { approval: services.approval }),
+  };
+  const guarded = new Set(["sandbox", "sandboxPolicy", "approval"]);
+  const base = {
+    logger: (ns: string): LoggerLike => ({
+      info: (message: string) => logs.push(`${ns}: ${message}`),
+      warn: (message: string) => logs.push(`${ns}: 警告：${message}`),
+    }),
+    tools: { register: (def: unknown) => defs.push(def as ToolDefLike) },
+    get(name: string): unknown {
+      return table[name];
+    },
+  };
+  const ctx = new Proxy(base, {
+    get(target, prop, receiver) {
+      // 与 cordis 的 handler 同形：own / 原型上的成员直通，其余服务属性直读即抛。
+      if (
+        typeof prop === "string" &&
+        guarded.has(prop) &&
+        !Reflect.has(target, prop)
+      ) {
+        throw new Error(`cannot get property "${prop}" without inject`);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  }) as unknown as BundleHost;
+  return {
+    defs,
+    logs,
+    ctx,
+    tool(): ToolDefLike {
+      const last = defs.at(-1);
+      if (last === undefined) throw new Error("没有注册任何工具");
+      return last;
+    },
+  };
+}
+
 /** 创建临时目录，返回路径与清理函数。 */
 export function withTempDir(): { dir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), "script-interpreter-test-"));
