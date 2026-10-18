@@ -1,6 +1,6 @@
 # herdr 面板丢失代理归属：seq 闸门与周期补发（接取条目：herdr-integration/docs/BACKLOG.md「herdr 面板丢失代理归属（seq 闸门 + 无周期补发）」）
 
-状态：决策　　开启：2026-10-18　　关闭：-
+状态：关闭　　开启：2026-10-18　　关闭：2026-10-18
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -143,4 +143,17 @@ npm run test    → 29 个包全 OK、0 fail（TUI pass 1628 / herdr-integration
 
 ## 收尾
 
-（待填）
+回写文档：
+
+- `herdr-integration/README.md`：改「协议」（`seq` 逐条取 `max(上一条 + 1, Date.now() * 1000)`）、新增「seq 闸门与自愈」条目、在「发送策略」补定时器 `unref()`、配置示例增 `refreshIntervalMs`。`DESIGN.md` 未建（本包按 `AGENTS.md` 为轻量包，能力面写在 README）。
+- `herdr-integration/docs/BACKLOG.md`：条目先标「完成」再按规范清理移除（BACKLOG 只留未完成项），清理后仅剩文件头与「## 待办」。
+
+归档：本文件移入 `herdr-integration/docs/archived/`。
+
+接取条目全部完成（一条）。
+
+遗留项（不在本任务范围，未建 BACKLOG 条目）：
+
+- `resume_argv`（herdr 0.9.2+ 的会话恢复命令）：上报后 herdr server 重启可在原 pane 直接恢复会话。属新增能力，另开任务。
+- `~/.dsh/profiles/fff/package.json` 的 bundle 顺序把 `@dsh-toolset/herdr-integration` 排在 `@dsh-toolset/tui` 之后，与 README「加载顺序」相反；影响 blocked 桥的观察者注册顺序。属用户环境配置，由用户按需调整。
+- 本机正在运行的 dsh 实例仍是旧代码（插件在进程内已加载），需重启 `dsh --profile fff` 才生效；重启后可用 `herdr pane get <pane>` 核对 `agent=dsh` 与状态流转。

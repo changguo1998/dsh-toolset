@@ -22,21 +22,24 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 
 - **退出释放**：`dispose` 与进程 `exit` 时发 `pane.release_agent`（退出路径用同步子进程尽力送达），避免 dsh 退出后面板残留本 agent。
 
-- **协议**：unix socket（Windows 为 `\\.\pipe\<path>`），换行分隔 JSON 行；`pane.report_agent_session` / `pane.report_agent` / `pane.release_agent` 三个 method，`seq` 单调递增（起点 `Date.now()*1000`），会话引用参数 id 优先、path 兜底。
+- **协议**：unix socket（Windows 为 `\\.\pipe\<path>`），换行分隔 JSON 行；`pane.report_agent_session` / `pane.report_agent` / `pane.release_agent` 三个 method，`seq` 逐条取 `max(上一条 + 1, Date.now() * 1000)`（严格递增且不低于当前墙钟量级），会话引用参数 id 优先、path 兜底。
 
-- **发送策略**：每次请求独立连接、写一行 JSON 后等响应（收到响应数据即视为送达，对端关闭/超时/出错视为失败）；首档等待上限 `attemptTimeoutMs`（默认 500ms），失败**立即**补发一次（该次等待上限固定 1500ms），两次都失败即静默丢弃。状态发送串行 drain（同刻在途 ≤1 条），发送期间到达的新状态覆盖待发项（同刻多条只保留最新一条；优先级由状态推导保证：`blocked > working > idle`）。
+- **seq 闸门与自愈**：herdr 对每个 `(pane, source)` 记录已接受的最高 `seq`，**不高于它的上报静默忽略**（请求返回成功、面板状态不变）。故 `seq` 必须逐条按墙钟抬升——若固定成「进程启动时间 + 条数」，任何更晚启动的进程或任何墙钟量级的上报都会把闸门抬到本进程永远够不到的高度，面板此后停在旧状态（真机复现过）。同时 herdr 会在不通知上报方的情况下清掉 pane 归属（自重报代理的「pane 回到空闲 shell」兜底、server 重启 / handoff），故插件按 `refreshIntervalMs`（默认 20 秒）周期原样重发当前推导状态：`seq` 已是当前墙钟，重发即可夺回归属，最坏恢复延迟 = 一个周期。
+
+- **发送策略**：每次请求独立连接、写一行 JSON 后等响应（收到响应数据即视为送达，对端关闭/超时/出错视为失败）；首档等待上限 `attemptTimeoutMs`（默认 500ms），失败**立即**补发一次（该次等待上限固定 1500ms），两次都失败即静默丢弃。状态发送串行 drain（同刻在途 ≤1 条），发送期间到达的新状态覆盖待发项（同刻多条只保留最新一条；优先级由状态推导保证：`blocked > working > idle`）。补发定时器带 `unref()`，不拖住进程退出。
 
 ## 配置
 
-在 profile 的 `cordis.patch.yml` 中给 `herdr-integration` 节点加 `config`（三项均可选，只有 `null`/`undefined` 回退默认，不做合法性校验）：
+在 profile 的 `cordis.patch.yml` 中给 `herdr-integration` 节点加 `config`（四项均可选，只有 `null`/`undefined` 回退默认，不做合法性校验）：
 
 ```yaml
 - id: herdr-integration
   name: '@dsh-toolset/herdr-integration'
   config:
-    source: dsh            # 面板来源标识（默认 dsh；不得以 herdr: 开头，该前缀为 Herdr 保留）
-    agent: dsh             # agent 标识（默认 dsh）
-    attemptTimeoutMs: 500  # 首档发送等待响应超时 ms（默认 500）
+    source: dsh              # 面板来源标识（默认 dsh；不得以 herdr: 开头，该前缀为 Herdr 保留）
+    agent: dsh               # agent 标识（默认 dsh）
+    attemptTimeoutMs: 500    # 首档发送等待响应超时 ms（默认 500）
+    refreshIntervalMs: 20000 # 周期补发间隔 ms（默认 20000；0 关闭）
 ```
 
 环境变量握手（由 herdr 提供）：`HERDR_ENV=1`、`HERDR_SOCKET_PATH`、`HERDR_PANE_ID` 缺一即禁用。
