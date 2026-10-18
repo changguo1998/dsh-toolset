@@ -8,8 +8,9 @@
 
 ## 待办
 
-（无。首期实现随项目级条目「自动审批插件（工具调用的审批链自动裁定）」推进，过程记录见
-`docs/implementation/2026-10-16-auto-approval-design.md`。）
+**#1 项目层审计行的 `source.kind` 与 memory-base `SourceKind` 闭集对齐**（2026-10-18 登记，来源：关闭收尾时核对 memory-base 作用域句柄接口）：**现象 / 现状** —— `src/audit.ts` 写项目那份时传 `source: {kind: "approval", ref: callId}`，而 memory-base 现行 `SourceKind = "session" | "file" | "url" | "tool_result" | "manual"`（`memory-base/src/knowledge.ts:29`）不含 `approval`；运行时按字符串入库、不影响裁定（本包用自己的结构化类型声明，编译不受影响），但项目层的来源标签落在闭集外，`search` 按来源过滤时对不上。**期望** —— 二选一：① 本包改用闭集内的值（建议 `manual` + `label: "auto-approve"`，保留 `ref: callId`）；② 与 memory-base 协商把 `approval` 增入 `SourceKind`（跨包改动，需对方接取）。**落点** —— `auto-approve/src/audit.ts` 的 `handle.put(...)`（或 `memory-base/src/knowledge.ts` 的 `SourceKind`）。**验收** —— 项目层审计行的来源标签在闭集内，且能按该来源检索到行；裁定行为与既有测试不变。**估时** —— 15 分钟（含一例断言）。**优先级** —— P3。**状态** —— 〔待办: 2026-10-18 登记〕
+
+**#2 巡检工具：从会话日志还原「哪些调用被自动放行」**（2026-10-18 登记，来源：设计「收尾动作」遗留项，可选增量）：**现象 / 现状** —— 自动裁定有会话 JSONL 与 memory-base `approval_audit` 两处留痕，但没有从会话日志（`approval/asked` + `approval/decided` 对 + 本包审计行）还原「某次会话里哪些调用被自动放行、命中了哪条规则」的巡检入口；排查误放行时只能手工比对文件。**期望** —— 做一个只读巡检：按会话 id / 时间窗汇总自动裁定（工具、结果、来源、规则 id），并与宿主审批审计对逐条对照；不写会话、不改裁定。**落点** —— 本包新增命令或独立脚本（形态待接取时裁定；若做成模型侧工具需按 `security-guard` 的登记口径补登记）。**验收** —— 一次真实会话能列出全部自动放行并逐条对上宿主的 `approval/asked` + `approval/decided`；无关会话与人工裁定不混入。**估时** —— 0.5 天。**优先级** —— P3。**状态** —— 〔待办: 2026-10-18 登记〕
 
 ## 已裁定不做（备查）
 
@@ -18,4 +19,4 @@
 - **新增 `ApprovalPolicy` 取值、新增会话事件词汇、改 TUI 审批面板**：不动宿主词表与 TUI（R4）。
 - **命令 / 路径类拒绝规则**：危险命令与敏感路径归 `security-guard`（唯一最终否决者，R3）；本包拒绝名单只表达「不自动批」。
 - **按会话配置**：会话级旋钮由宿主 `/policy` 与 `/permission` 承担，本包跟随生效。
-- **巡检工具（从会话日志还原自动放行）**：可选增量，首期不做（设计「收尾动作」遗留项）。
+- **巡检工具（从会话日志还原自动放行）**：首期不做，已转为待办 #2（可选增量）。

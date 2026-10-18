@@ -27,6 +27,7 @@
 | `goal-contract` | `goal` / `tool-goal`、`userQuestions` | 中 | **保留** | 官方 goal 只有状态与生命周期；「Done-when 契约起草 + 可验证条款」是扩展，且已复用官方 goals / userQuestions |
 | `metric-loop` | **`tool-ralph`**、**`goal-round-driver`**、`schedule`（未挂）、`workflow` | 中 | **保留（已裁定 A，2026-10-06）** | 官方两条循环面中**只有 `goal-round-driver` 在位**（`dsh-base` 装配，需已建且 armed 的 goal）；`tool-ralph` 是 base 默认 `disabled: true`（`dsh-base/cordis.patch.yml:447-449`，一行 overlay 可恢复），本项目不启用。`metric-loop` 不可替代的是**测量命令驱动的指标循环 + plateau / 边界停止 + 状态文件跨进程**——分工口径见 `metric-loop/README.md`「与官方循环机制的分工」 |
 | `security-guard` | `sandbox-policy`、`permission-presets`、`experimental-auto-review` | 中 | **并存** | 官方管「沙箱等级 + 审批预设（+ 实验性逐工具 LLM 审查，未挂）」；我们在 `tools/pre-execute` 做**命令 / 路径模式拦截**（该点官方无竞争监听，deny 可达；「先于官方策略」是当前实现事实，无显式顺序契约） |
+| `auto-approve`（2026-10-18 新增包） | `user-approval`（`approval/request` 链）、`experimental-auto-review`（未挂）、`permission-presets` | 高 | **并存（自研）** | 官方只给一次性授权与全拒策略；我们在审批链上做名单 / 指纹 / 只读类 / 沙箱升级 / LLM 灰区审查的逐次裁定（未命中仍交 TUI 面板）。不挂官方 auto-review；官方 `/policy never` 仍在链分发前短路，`security-guard` 仍是最终否决者 |
 | `md-logic`（2026-10-02 新增包） | `tool-fs`（`read`）、`tool-fs-search`、官方无「文件结构视图」类包 | 低 | **保留** | Markdown 逻辑结构（节树 / 块 / 链接清单，带行范围），官方无等价物；与 `fs-digest` 的分工是「轻量快览 vs 真实解析深查」 |
 | `md-map`（2026-10-02 新增包） | `tool-fs-search`、官方无「文档引用图 / 影响面」类包 | 低 | **保留** | 项目级 Markdown 引用图（锚点 / 跨文档链接 / wiki / 断链 / 影响面），官方无等价物；复用 `md-logic` 做单文件解析 |
 | `herdr-integration` | 无 | 无 | **保留** | 本机 herdr 面板桥，官方无对应物 |
@@ -49,6 +50,7 @@
 | `output-compress` ⇄ `spill-policy` / `compaction-tool-result-pruner` | 官方：**模型可见面**的超预算处理（preview + locator）与 surface 裁剪；我们：以 spill 为上游输入做**有损摘要入库 + 分片**（知识库可检索），不回写事件 | 官方两行已挂载；要做的是**阈值语义的文档口径**（§4 B），不是修冲突 |
 | `command-template` ⇄ `commands` / `workflow` / `tool-workflow` | 官方：命令注册表 + 模型侧 JS 编排；我们：**人面** `/playbook` 模板目录、模板级模型选择、步骤编排 | 模型面 `workflow` 官方独占；我们不注册同名工具，只注册 slash 命令 |
 | `security-guard` ⇄ `sandbox-policy` / `permission-presets` | 官方：沙箱等级与审批预设；我们：危险命令 / 敏感文件的模式拦截（`tools/pre-execute`，命中即 deny） | 若将来启用 `experimental-auto-review`，需先划界（谁拥有最终否决权，见 §5） |
+| `auto-approve` ⇄ `user-approval` / `permission-presets` / `experimental-auto-review` | 官方：审批服务（`ask` / `never` 策略 + 链分发 fail-closed）、沙箱与审批预设；我们：审批链上的逐次自动裁定（名单 / 指纹 / 只读类 / 升级白名单 / LLM 灰区）。`never` > 本插件 > TUI 面板 > fail-closed；`security-guard` 在更晚的单调守卫层仍可否决任何已放行调用 | 人工面保留：未命中判据的请求调 `next()` 交 TUI 面板；官方 auto-review 不挂（职责已由本包承担，见 §5） |
 | `session-title-cutoff` ⇄ `session-title-*` | 官方 provider：全量 / 首条消息；我们：裁剪窗口后的 provider | `ctx.sessionTitle` 只允许一个 provider → fff 显式 `disabled: true` 关掉官方 all-prompts（设计结果，不是冲突） |
 
 **内部边界补充（三）**：`md-map` ⇄ `md-logic` ——前者复用后者的单文件解析做**项目级**引用图（`md-map` 依赖 `md-logic`，`link:../md-logic`）；两者与 `code_map` 的分工写进三个工具描述：代码结构 → `code_map`，单文件 Markdown 结构 → `md_logic`，项目级文档关系 / 影响面 / 断链 → `md_map`。
@@ -97,7 +99,7 @@
 | 官方面 | 为什么不挂 |
 |---|---|
 | `tool-str-replace-editor` | 与官方 `read` / `edit` 功能重叠，再挂等于给模型两套文本编辑器；若将来要挂，应先决定是否用它取代 `read` / `edit` 的一部分 |
-| `experimental-auto-review` | 逐工具 LLM 授权审查，与 `security-guard` 拦截层诉求重叠；experimental 且默认关闭，启用前需先划界 |
+| `experimental-auto-review` | 逐工具 LLM 授权审查。**已由本仓 `auto-approve` 承担**（确定性名单 / 指纹 / 只读类 / 升级白名单在前，LLM 灰区审查兜底，2026-10-18 落地）；再挂官方包会在同一条 `tools/pre-execute` 链上做两次模型审查，experimental 且默认关闭，故不挂 |
 | `schedule` / `time-context` / `client-ui-schedule` | 与 `metric-loop` 唤醒链相关（§4 C）；是否挂需用户裁定，且会改模型工具面 |
 | `hooks-claude-code` / `hooks-codex` | 面向外部 agent 的 hook 协议接入，本项目不用这些外部 agent |
 | LSP 三件套（`lsp` / `lsp-stdio` / `tool-lsp`） | **不随包分发**（`HOST-PACKAGES.md` §4）：fff 下 `ctx.get('lsp')` 恒 undefined → `code-map` 的 `precision: "lsp"` 与 `fs-digest` 的 LSP 定位路径当前**不可达**（缺省走 structural 回落）。要用需自行从源码仓库安装 |
