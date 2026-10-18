@@ -1,65 +1,83 @@
 # memory-base 实现
 
-本文件记实现落点、关键机制与踩坑；设计取舍见 `DESIGN.md`，接口与配置见 `README.md`。
+本文件记实现落点、关键机制与踩坑；设计取舍见 `docs/DESIGN.md`，接口与配置见 `README.md`。
 
-## 1. 文件落点
+## 1 文件落点
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/schema.ts` | 建表/索引/TRIGGER、schema 版本与应用指纹守护、文件权限 |
-| `src/knowledge.ts` | `KnowledgeService`：put/search/touch/evict + 分块/去重/source 联动 + staleCandidates/compress/tokenBudgetUsage/promote |
-| `src/hooks.ts` | `session/event` 写直达：白名单过滤、事件摘要化（`[tool/meta]`、`[compaction]`）、attach/detach |
-| `src/writepolicy.ts` | `WritePolicy` + `ConsolidationLock`：批量写回、pending 与 backfill、evictStale 编排 |
-| `src/memory.ts` | `MemoryService`：记忆 CRUD + 过滤检索 + token-aware 截断 |
-| `src/index.ts` | bundle 接入面：`createKnowledgeBundle` 工厂、`apply`、服务暴露与就绪查询 |
+| `src/schema.ts` | 建表 / 索引 / 双 FTS5 + TRIGGER、schema 版本与应用指纹守护、文件权限 |
+| `src/router.ts` | `Tier` 与全量层顺序、`KindSpec` / `KindRegistry`（注册校验与 `writableTiers` 归一）、`kindTableName` |
+| `src/scope.ts` | `MemoryScope` 句柄：`put` / `forget`，越权层与参数级抛错、内容级走 `skipped` |
+| `src/tiers.ts` | `TierSet`：落点解析、惰性打开、按会话缓存、跨层检索 / 列举、用量 |
+| `src/knowledge.ts` | `KnowledgeService`：put / search / listRows / evict + 分块 / 去重 / source 联动 |
+| `src/rules.ts` | 内容闸门：内置隐私模式 + 追加拒绝模式 + 最小长度；`checkContent` / `matchDenyPattern` |
+| `src/tools.ts` | 模型侧只读工具 `memory_query`（参数解析、clamp、截断、渲染） |
+| `src/index.ts` | bundle 接入面：`createMemoryBundle` / `createGlobalService` / `apply`、`provide` 与 `inject` |
+| `src/migrate.ts` | 旧库显式清理（`from: "v1"` / `mode: "drop"`） |
 | `demo/main.ts` | mock demo（无 DSH 依赖，人工确认用） |
-| `smoke/smoke.mjs` | 宿主联调：profile 引导 + 真实会话摄取断言 + dist 往返 |
-| `tests/*.test.ts` | node:test 单测 |
+| `smoke/smoke.mjs` | 确定性自检（构建产物 → 三层写入 → 指纹 → 读面 → 闸门 → 真删 → 工具面） |
+| `tests/*.test.ts` | node:test 单测（9 个文件 61 例） |
 | `cordis.patch.yml` | dsh bundle 插入声明 |
 
-## 2. 装配与生命周期（`src/index.ts`）
+## 2 装配与生命周期（`src/index.ts`）
 
-- `createKnowledgeBundle(host, config)`：开库 → 建 `KnowledgeService`/`MemoryService`/`WritePolicy` → `SessionHooks.attach(host)` → 返回 `{kb, memory, policy, hooks, dbPath, summary(), dispose()}`；`dispose` 解绑事件订阅并关库。
-- `apply(ctx, config)` 保持宿主调用语义：**void、fire-and-forget**，创建 Promise 存入模块级 `readyPromise`，成功后才赋给 `activeBundle`；失败只写日志（`ctx.logger("memory-base").info`）。
-- 命令侧通过 `getKnowledgeBundle()`（同步，未就绪返回 `undefined`）、`getKnowledgeBundleSummary()`、`whenKnowledgeReady()`（未 apply 时 reject）访问，避免「apply 尚未完成就读」的竞态。
-- 只读服务经 `ctx.provide('knowledge', { getSummary, whenReady })` 暴露，`ctx.provide` 不是函数时静默跳过（防御式，不因宿主形态差异而失败）。
+- `apply(ctx, config)` **同步完成**：`readSessionPaths(ctx)`（`ctx.get("sessionPaths")` 探测）→ `createMemoryBundle({config, sessionPaths})` → `createGlobalService(bundle, config)` → `ctx.provide("memory", 八键)` → 注册 `memory_query`。没有异步就绪窗口，故 `whenReady()` 恒 resolve。
+- `createMemoryBundle` **不打开任何库**：只建 `KindRegistry` 与 `TierSet`（后者只存落点参数）。库在首次写入时惰性创建。
+- `ctx.get("sessionPaths")` 只认 `sessionDirFor` 一个方法；形状不符视为未挂载。包装层把解析异常统一改写成带 `sessionId` 的文案，便于定位「会话取不到」还是「服务缺失」。
+- `ctx.tools` 缺失时只记日志、不注册工具（写入面不受影响）；`ctx.provide` 缺失时同样静默跳过。
+- `inject = ["tools"]`；`sessionPaths` **不写进 inject**（可选读取，未挂载时只影响 S 层写入）。
 
-## 3. 事件接入与摘要化（`src/hooks.ts`）
+## 3 分层库（`src/tiers.ts`）
 
-- 挂接点只有一处：`ctx.on('session/event', (session, event) => hooks.handle(sessionId, event))`，`attach` 返回解绑函数。
-- 过滤先于写入：非白名单类型直接返回 `null`，不产生半写；`persistTypes` 传 `null` 时不过滤。
-- `summarizeEvent` 的事件形态差异由 `extractText` 吸收：递归处理 `string` / `{text}` / `{content}` / `{message.content}` / 数组；`isError` 同样递归探测。
-- **`[tool/meta]`**：`serializeToolMeta` 对 `tool/result.meta` 做紧凑 JSON 序列化，`null`/`undefined`/`{}`/`[]`/循环引用（`JSON.stringify` 抛错）一律视为无载荷返回 `null`，非空时才在正文后追加 `\n\n[tool/meta]\n<compact JSON>`。
-- **`[compaction]`**：`summarizeCompaction` 输出固定字段序列 `compactionId` → `shadowedRange`（缺失时回落 `shadowedSeqs`）→ `sourceCommandId` → `shadowedTokenCount` → `provider` → `model`，只输出存在且非 null 的字段；summary 文本缺失时回落整体 JSON（且不带 `[compaction]` 头），保证不丢数据。
-- importance 约定：`tool/result` 失败 4、成功 2，其余白名单类型 3（compaction 走专用分支，同样 3）。
-- `SessionEvent.ignorable` 的处理是**保守**的：白名单类型带该标记仍照常摄取（宁多勿漏），非白名单类型本来就会被过滤；本层不消费事件 `seq` / 日志偏移，去重完全依赖 `content_hash`。
+- 落点：`pathFor(tier, sessionId?)` 纯解析——U 固定 `<dshHome>/memory-base/user.db`；P 为 `<projectRoot>/.dsh/project.db`；S 经 `sessionPaths.sessionDirFor(sessionId)` 取目录后拼 `session.db`。S 层缺 `sessionId`、P 层无 `projectRoot` 时返回 `undefined`。
+- 打开：`openWritable`（写，缺库即建）与 `openExisting`（读 / 删，**文件不存在返回 `undefined`，绝不建库**）两条路径；后者保证一次删除不会在磁盘上留新文件。
+- 缓存键是 `(tier, sessionId)`，不是路径——同一进程两个会话各有一个 `session.db`，按路径做键会让两库互相顶掉（实现期踩过）。P / U 各一份。
+- S 层降级顺序：缺 `sessionPaths` → 抛「需要 session-paths 服务」；缺 `sessionId` → 抛「需要 sessionId」；解析抛错 → 原样上抛并补文案。三者都在建库之前判定。
+- 检索 `search` 遍历**已打开**的库（未打开 = 空库，没有行可查），按 `TIER_WEIGHT`（U 3 / P 2 / S 1）再按分数排序截断；`list` 按 kind 逐库列举后合并、`created_at` 倒序分页。
+- `usage()` 只报已创建的库：已打开的 + 落点文件已存在的 P / U；字节数直接 `stat` 文件，不再用 `page_count × page_size`（没有逐库上限了，不需要扣除 freelist）。
 
-## 4. 写入与去重（`src/knowledge.ts`）
+## 4 写入与去重（`src/knowledge.ts`）
 
-- `put` 先按全文 `content_hash` 查既有 chunk：命中即复用 id（`created` 不增）；`sources` 按 `(content_hash, kind)` 复用，`chunk_count` 只按**实际新增**的块数累加，因此重复写入不会让记账漂移。
+- `put` 是 **async**：注册方 `preWrite` 允许返回 Promise，故钩子 `await` 后再决定 `skipped` / `importance`。
+- 闸门顺序固定：隐私闸（`checkContent`）→ 分类解析（未注册 → `skipped: "kind"`）→ `preWrite`（拒绝 → `skipped: "hook"`）→ 建表（首次）→ 去重 / 插入。
+- 去重键是**全局** `content_hash`（不按 project 隔离）；`sources` 按 `(content_hash, kind)` 复用，`chunk_count` 只按**实际新增**块数累加，重复写入不会让记账漂移。
 - 分块只在超预算时触发（`estimateTokens` 上限 2000）；段落超限用 `splitBlock` 按最后一个换行硬切，找不到合适换行（换行位置早于半程）则按 `maxChars` 字符切。
-- `evict` 删除后重算受影响 source 的 `chunk_count`，归零则删 source——保证 `sources` 不会留下无 chunk 的孤儿记录。
-- `search` 的三个 `MATCH` 分支（porter / trigram）各自 try/catch：FTS5 语法错误不能让检索整体失败。
+- `evict` 删除后按**全部已建分类表**重算 `sources.chunk_count`，归零则删 source——只算本表会把别表的行误判为孤儿并连带删掉来源。
+- `search` 的每个 `MATCH` 分支（porter / trigram）各自 try/catch：FTS5 语法错误不能让检索整体失败。
+- `listRows` 按 `(kind → 物理表)` 直查，`created_at DESC, id DESC` + `LIMIT/OFFSET`；未注册或未建表返回空数组（读侧宽松，不抛）。
 
-## 5. 踩坑与不变量
+## 5 句柄与失败语义（`src/scope.ts`）
 
-- **FTS5 自由输入**：`MATCH` 对查询串按 FTS 语法解释，`-`（NOT）、引号不闭合等都会抛错；必须逐条 try/catch 降级，不能假设查询串是安全的。
-- **CJK 召回**：porter（unicode61）按连续串分词，`构建通过` 不等于查询 `构建`；trigram 需要 ≥3 字符子串。因此「结果不足且查询含 CJK」时走 `LIKE` 兜底——这是分词器能力边界，不是可调参数。
-- **LIKE 转义**：`memory.findByText` 与 `replace`/`remove` 定位都要转义 `\`、`%`、`_`，否则用户内容里的 `%` 会变成通配符、误伤其他记忆条目。
-- **`MemoryService.replace`**：签名收 `project` 但实现未用它做定位；未传 `category` 时会把该条 category 置为 `null`。调用方需知晓这两点。
-- **去重是全局的**：`content_hash` 不按 project 隔离，跨 project 写入相同内容会复用同一 chunk。
-- **STRICT 表**：所有列都要显式类型，插入时必须提供 `not null` 无默认值的列（如 `created_at`、`content_hash`）。
-- **权限与守护**：建库时设置 0o600 文件权限与 0o700 父目录；打开既有库先校验 `application_id` 与 `user_version`，不匹配即整库重置（DROP 重建），因此**不要**把别的东西写进这个库文件。
+- `put`：`tier` 缺省 `session`；先判「合法层 → 在 `writableTiers` 内 → S 层有 `sessionId`」，三者任一不满足抛错，**不落库**。会话层写入时记下 `sessionId`，供同一句柄后续 `forget` 定位同一库。
+- `forget`：同样校验层与 `writableTiers`；只对**已打开**的库执行，返回实际删除条数。S 层用最近一次写入的 `sessionId` 定位（删除与会话库是同一个键）。
+- 内容级拒写一律 `skipped`：隐私闸命中给 `pattern` / `empty` / `short`，钩子拒绝给 `hook`，未注册 kind（直接调 `KnowledgeService.put` 时）给 `kind`。
 
-## 6. 测试与联调
+## 6 模型侧工具（`src/tools.ts`）
+
+- 参数解析对畸形输入宽容：`limit` 非数字回落缺省、非法 `tier` 当没给、`action` 非 `list` 一律按 `search`；`search` 缺 `query` 返回 `error` 值而不是抛错。
+- `truncated` 的判据是「返回行数达到 `limit`」（可能还有更多），不是「查到了总数」——工具不额外计数。
+- `output.render` 必须对任意值都能出文本（`null` / 数字 / 字符串都退化为默认值），否则宿主渲染层会拿到异常。
+
+## 7 踩坑与不变量
+
+- **FTS5 自由输入**：`MATCH` 按 FTS 语法解释查询串，`-`（NOT）、引号不闭合等都会抛错；必须逐条 try/catch 降级，不能假设查询串安全。
+- **CJK 召回**：porter（unicode61）按连续串分词，`构建通过` 不等于查询 `构建`；trigram 需要 ≥3 字符子串。因此「结果不足且查询含 CJK」时走 `LIKE` 兜底——分词器能力边界，不是可调参数。
+- **LIKE 转义**：查询串进 `LIKE` 前必须转义 `\`、`%`、`_`，否则用户内容里的 `%` 会变成通配符。
+- **STRICT 表**：所有列都要显式类型，插入时必须提供 `not null` 无默认值的列（`source_id` / `project` / `content` / `content_hash` / `created_at`）。
+- **权限与守护**：建库时 0o600 文件、0o700 父目录；打开既有库先校验 `application_id` 与 `user_version`，不符**拒绝打开**（不 DROP 重建）。
+- **会话层多库**：S 层的缓存键必须带 `sessionId`；`getSummary()` 在拿不到会话 id 时不列 S 层落点（那一条没有确定路径）。
+- **重算 `chunk_count` 不能只看本表**：跨分类共享 source 时，只算本表会把别的表的行当成孤儿（决策 D40 的回归点，`tests/kinds.test.ts` 有对应用例）。
+
+## 8 测试与联调
 
 ```sh
-npm run check
-npm run test    # 39 例
-npm run build
-npm run demo    # 末行 demo OK
-npm run smoke   # 需本机 dsh 0.2.0-rc.2 与模型凭据
+npm run check   # tsc -p tsconfig.json --noEmit
+npm run build   # tsc -p tsconfig.json → dist/
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
+npm run demo    # node --experimental-transform-types demo/main.ts（末行 demo OK）
+npm run smoke   # node smoke/smoke.mjs（自包含自检，不依赖模型凭据）
 ```
 
-- 单测分布：`schema` 3（TRIGGER 双索引一致、索引建立、文件库幂等 reopen）、`knowledge` 8、`hooks` 12、`writepolicy` 8、`memory` 6、`exposure` 2（apply 前暴露面未就绪 / apply 后 bundle 可写入与检索）。
-- `npm run smoke` 的判定口径是**确定性证据**：引导 profile `dsh-toolset-memory-base`（`link:` 挂载、缺 `dist/` 自动构建）→ `dsh --version` 必须等于 0.2.0-rc.2 → 低压缩阈值 overlay 强制触发 compaction + 任务强制 fs write 产生真实 meta → 断言库文件存在且 schema 指纹匹配（`application_id = 0x4b4e4f57`、`user_version = 1`）与 `[tool/meta]`/`shadowedRange` 摄取行（不依赖宿主 logger 输出）→ dist 产物 put / search（EN 词干 + CJK LIKE）/ touch / evict 往返。真实载荷缺失时经 dist hooks 注入合成事件兜底；失败保留临时目录并打印路径。
+- 单测分布（61 例）：`schema` 5（双索引 TRIGGER、列集与已删表、索引、文件库幂等 reopen、版本拒绝打开）、`knowledge` 12（检索 / 只读性 / 去重 / 未注册 / 隐私闸 / 删除联动 / 分块 / 过滤 / fuzzy / CJK / 列举 / kinds）、`kinds` 8（按需建表 / 未注册 / 钩子同步与异步 / 并集 / 跨表删除 / 注册约束 / 无具体分类名）、`tiers` 9（指纹 / 旧库 / 惰性 / 按会话 / 三条降级 / 跨层检索 / 列举 / 删除 / 用量）、`bundle-tiers` 9（摘要 / 句柄三层 / S 层 / 内容级拒写 / 真删 / 八键 / 列举检索 / apply）、`exposure` 3、`tools` 8、`rules` 4、`migrate` 3。
+- `smoke` 判定口径是确定性证据：构建产物 → `createMemoryBundle` 落点断言（未落盘）→ 三层各写一条 → 三个库文件存在且 `application_id` / `user_version` 匹配 → `search` 跨层排序与 `list` / `usage` → 隐私闸 / `preWrite` / 越权层 → `forget` 计数 → `memory_query` 两种 action 与渲染 → 可选报告宿主机版本。失败保留临时目录并打印路径。
