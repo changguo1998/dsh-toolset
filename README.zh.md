@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 22 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 28 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -38,6 +38,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **preference-analysis** | 偏好分析：订阅 `session/event` 抽三条结构化信号（重复约束 / 纠正加权 / 审批拒绝），按 3-gram 相似度并入跨会话账簿（唯一状态源），达高置信自动写入 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律落候选待审，撤销 / 退休 / 老化都记抑制键。首期零 TUI 改动 |
 | **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`，另有 `list` / `show` / `reload` 子命令）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判 |
 
+| **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
 ## 目录结构
@@ -95,7 +96,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 23 个包：TUI + 22 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 29 个包：TUI + 28 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

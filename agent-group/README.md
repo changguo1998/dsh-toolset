@@ -2,7 +2,7 @@
 
 DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—— 组、成员、主从连接（含等级）、指令与回报。不采样、不聚合，也不建也不销毁会话。
 
-设计决策见项目级追踪文档 `docs/implementation/2026-10-16-peer-group-protocol-design.md`（决策项 1-20）；本包的机制说明见 `docs/DESIGN.md`。
+设计决策见项目级追踪文档 `docs/archived/2026-10-16-peer-group-protocol-design.md`（决策项 1-20）；本包的机制说明见 `docs/DESIGN.md`。
 
 ## 能力
 
