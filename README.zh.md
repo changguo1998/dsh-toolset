@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 22 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 28 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -40,6 +40,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`，另有 `list` / `show` / `reload` 子命令）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判 |
 | **script-interpreter** | 模型侧脚本解释器：`script_run` 执行一段**已启用语言**的脚本（首期 Python；bash 后端随包实现但缺省不启用）。脚本正文经 stdin 交给解释器（不落临时脚本文件），每次调用都是新进程；非零退出码回执 `[exit code: N]`、不是工具错误；输出过长保留尾部并把全文落到 `0600` 文件；执行前经 `ctx.sandboxPolicy` + `ctx.sandbox` 围栏，拿不到可强制后端即 fail-closed `SANDBOX_UNAVAILABLE`；三个可选服务经 `ctx.get` 受保护读取（cordis 对未 inject 的服务直读会抛） |
 
+| **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
 ## 目录结构
@@ -98,7 +99,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 23 个包：TUI + 22 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 29 个包：TUI + 28 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

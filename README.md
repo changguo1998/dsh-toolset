@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 22 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 28 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -40,6 +40,7 @@ The repository contains the `TUI/` terminal UI package and 22 in-process plugins
 | **command-template** | Template system: prompt flows declared as `.md` files (YAML-subset front-matter) and invoked through one slash command (`/playbook <template> [args]`, with `list` / `show` / `reload` subcommands) — dual-source directories (bundled `templates/` + user `~/.dsh/command-templates`, user wins), step types `prompt` (inject into the current session) and `agent` (one-shot subagent with per-run model override), chaining via `{{stepId}}`, `bestOf` + `judge` |
 | **script-interpreter** | Model-side script interpreter: `script_run` runs one script in an enabled language (Python first; the bash backend ships but stays off by default). The script text goes to the interpreter through stdin (no temporary script file), every call is a fresh process, non-zero exits are reported as `[exit code: N]` instead of tool errors, long output keeps its tail with the full text spilled to a `0600` file, runs go through `ctx.sandboxPolicy` + `ctx.sandbox` with fail-closed `SANDBOX_UNAVAILABLE` when no enforcing backend exists, and the optional services are read through `ctx.get` (a direct read of an un-injected cordis service throws) |
 
+| **agent-group** | Cross-session group orchestration: groups, members, leader→follower links with levels, instructions and reports; lazy settlement on `check` (success / failure / blocked / timeout), removal pushed down layer by layer, every refusal carries a reason + next step; depends on session-channel (transport) and session-paths (state location) |
 Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
 ## Directory layout
@@ -98,7 +99,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 23 packages: TUI + 22 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 29 packages: TUI + 28 plugins):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

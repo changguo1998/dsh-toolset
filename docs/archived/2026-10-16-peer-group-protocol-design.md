@@ -1,6 +1,6 @@
 # 同事模型群组的编排协议（接取条目：`docs/BACKLOG.md`「同事模型群组的编排协议」）
 
-状态：决策　　开启：2026-10-16　　关闭：
+状态：完成（2026-10-17）　　开启：2026-10-16　　关闭：2026-10-17
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -182,6 +182,8 @@
 - 别名口径：寻址用「别名**或** sessionId」均可；session-channel 的确定性后缀落地后两者都稳，本包不依赖自动别名的具体形态。
 
 ## 实现记录
+
+- 2026-10-17：按本文件的实现前冻结接口落地新包 `agent-group`（新包提交 `4259b57`），随后两轮真机反馈修复：测试断言口径（`89e03d2`）、接线登记（`3beb893`）、`readService` 未 inject 回退抛错（`e74ec37`）、工具改为 apply 期同步注册 + 依赖调用期惰性解析（`615629f`）。根 `npm run check` / `npm test` 全绿（29 包、3407 例）。收尾：本文件移入 `docs/archived/`，项目级条目「同事模型群组的编排协议」与 session-channel 的三条传输面条目一并关闭。
 
 - 2026-10-16：只读调研与逐条决策，无代码。手段＝读本仓文档与源码、读宿主安装树（`dsh-experimental-agent-team`、`dsh-terminal` 的 README 与类型声明）、读 herdr 官方 skill 文档（`herdr --skill`）、本机只读探测（`herdr --help` / `pane --help` / `agent --help` / `agent list` / `api schema --json`、隔离 socket 下的 `tmux list-commands` 与格式字段、`session_channel peers` / `alias list`）。未创建 pane、未改动任何会话状态。
 
