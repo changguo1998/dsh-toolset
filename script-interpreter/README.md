@@ -57,6 +57,14 @@ apply 日志；**缺失时不隐藏工具**：调用返回含安装指引的错�
 命中后端 `denialSignatures` → 标 `denied`（`[sandbox: file access denied under <mode> mode]`）；
 命中 `runnerFailureRules` → 判为运行器自身失败（`SANDBOX_UNAVAILABLE`，命令没跑）。
 
+## 宿主接入
+
+`inject` 只声明 `["tools"]`（工具面是硬依赖）；`sandbox` / `sandboxPolicy` / `approval` 是
+**可选服务**，一律经 `ctx.get(name)` 受保护读取 —— cordis 对**未 inject** 的服务属性直读会抛
+`cannot get property "<name>" without inject`，直读会在加载期把宿主炸掉；极简宿主没有 `ctx.get`
+时退回 `try { ctx[name] } catch`（抛错即视为该服务不可用）。`tests/index.test.ts` 与
+`tests/tool.test.ts` 用 Proxy 桩模拟该守卫钉住这条契约。
+
 ## 回执
 
 顺序与官方 bash 同构：stdout → 独立 `[stderr]` 段 → 各标记各占一行：

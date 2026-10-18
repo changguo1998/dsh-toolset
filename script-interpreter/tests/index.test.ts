@@ -18,7 +18,13 @@ import {
   resolveSettings,
 } from "../src/index.ts";
 import { TOOL_NAME } from "../src/tools.ts";
-import { fakePolicyService, fakeSandbox, mockHost } from "./helpers.ts";
+import {
+  cordisHost,
+  fakeApproval,
+  fakePolicyService,
+  fakeSandbox,
+  mockHost,
+} from "./helpers.ts";
 
 test("bundle 契约：name 与 inject", () => {
   assert.equal(name, "script-interpreter");
@@ -181,6 +187,42 @@ test("apply：沙箱服务缺失时在装载日志里告警，服务齐全时不
   assert.ok(
     !complete.logs.some((line) => line.includes("沙箱服务不完整")),
     complete.logs.join("\n"),
+  );
+});
+
+test("apply：未 inject 的服务直读会抛，装配改走 ctx.get（不崩、不误判）", () => {
+  const host = cordisHost();
+  // 替身自身行为先钉住：与真实宿主一致，直读未 inject 的服务即抛。
+  assert.throws(
+    () => (host.ctx as unknown as Record<string, unknown>).sandbox,
+    /without inject/,
+  );
+  assert.doesNotThrow(() => {
+    apply(host.ctx);
+  });
+  assert.equal(host.defs.length, 1);
+  assert.ok(
+    host.logs.some((line) => line.includes("沙箱服务不完整")),
+    host.logs.join("\n"),
+  );
+});
+
+test("apply：经 ctx.get 取到沙箱与审批服务时按可用处理、不告警", () => {
+  const host = cordisHost({
+    sandbox: fakeSandbox({ argv: [] }).provider,
+    sandboxPolicy: fakePolicyService({
+      mode: "read-only",
+      workspaceRoot: "/tmp",
+    }).service,
+    approval: fakeApproval("allowed-once").service,
+  });
+  assert.doesNotThrow(() => {
+    apply(host.ctx);
+  });
+  assert.equal(host.defs.length, 1);
+  assert.ok(
+    !host.logs.some((line) => line.includes("沙箱服务不完整")),
+    host.logs.join("\n"),
   );
 });
 
