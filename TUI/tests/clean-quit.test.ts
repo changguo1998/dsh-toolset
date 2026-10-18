@@ -100,6 +100,16 @@ test("/cleanquit → 弹合成确认面板（默认「取消」）；Esc 取消�
   );
 });
 
+test("/clean 是 /cleanquit 的别名：同样弹确认面板，取消不删", () => {
+  const { renderer, adapter } = makeApp();
+  submit(renderer, "/clean");
+  assert.ok(frameText(renderer).includes("清理并退出？"), "别名弹同一确认面板");
+  assert.deepEqual(adapter.deletedForExit, [], "弹面板不删任何会话");
+  renderer.press(key("escape"));
+  assert.equal(renderer.closed, 0, "Esc 取消后留在 TUI");
+  assert.ok(!frameText(renderer).includes("清理并退出？"), "取消后面板关闭");
+});
+
 test("/cleanquit 确认后删除当前会话并退出；默认项 Enter 只关面板", () => {
   const { renderer, adapter } = makeApp();
   submit(renderer, "/cleanquit");

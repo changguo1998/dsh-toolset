@@ -214,6 +214,11 @@ export const LOCAL_COMMANDS: readonly {
     desc: "清理本会话（删除记录与历史）并退出（需确认）",
   },
   {
+    name: "clean",
+    route: "cleanquit",
+    desc: "清理本会话并退出（同 /cleanquit，需确认）",
+  },
+  {
     name: "restart",
     route: "restart",
     desc: "重启 dsh（保留会话；需由启动器启动）",
