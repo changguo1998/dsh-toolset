@@ -133,6 +133,7 @@ export {
   bootDaemon,
   createDaemonRuntime,
   defaultStateDir,
+  inject,
   name,
   provide,
   resolveJournalPath,
