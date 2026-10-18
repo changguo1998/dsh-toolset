@@ -1,7 +1,7 @@
 {
   "name": "@dsh-toolset/memory-base",
   "version": "0.1.0",
-  "description": "DSH (DeepSeek Harness) 进程内集成跨会话知识库与持久记忆",
+  "description": "DSH (DeepSeek Harness) 进程内集成分层记忆存储：S / P / U 三层库、按扩展隔离的写入句柄与全局只读查询",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -28,8 +28,5 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  },
-  "dependencies": {
-    "@dsh-toolset/md-logic": "link:../md-logic"
   }
 }

@@ -1,8 +1,9 @@
 # memory-base 接口重设：分层 / 分类 / 读写 / 查询 / 按扩展隔离（接取条目：`memory-base/docs/BACKLOG.md`「按「只提供分层记忆内容」的新定位瘦身，并补四项纯存储面（指定层写入 / 按 kind 列举 / 真删 / `registerKind` 去留）」）
 
-状态：决策（2026-10-17）　　开启：2026-10-17　　关闭：未关闭
+状态：关闭　　开启：2026-10-17　　关闭：2026-10-18
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮范围：调研 + 决策，不写实现代码（用户 2026-10-17 指示：在本会话内开工三个模块条目、不开新 worktree、做完决策后停下等审阅）。工作区：主检出 `main`。
+实现轮（2026-10-17 至 2026-10-18）：按「规划」清单落地并收尾，工作区 `.worktree/memory-base`（分支 `feat/memory-base`）；实现、偏差与收尾记录见文末三节。
 
 ## 目标
 
@@ -325,24 +326,47 @@ interface SearchHit extends Omit<StoreRow, "sourceId" | "sessionId"> { score: nu
 
 ## 实现记录
 
-（本轮为决策轮，未进入实现；待用户审定决策后按「规划」的清单执行。）
+按「规划」的 7 步落地，分 5 个提交（`feat/memory-base` 分支）：
+
+1. **schema 与闸门**（`src/schema.ts` / `src/rules.ts`）：分类表收窄到 9 列，删 `candidates` / `doc_index` 两表与提升链 / 四语义列；`KNOWLEDGE_SCHEMA_VERSION` 升 2；`PersistRules` 去掉事件类型白名单。
+2. **知识层**（`src/knowledge.ts`）：`put` 改 async（`preWrite` 可异步）、kind 必填；`search` 变纯只读；新增 `listRows` / `kinds` / `tableFor`；删 `touch` / `setImportance` / 淘汰压缩族 / `rescanDenied` / `targetRows`；`evict` 收 `RowRef`。
+3. **注册表 + 句柄 + 全局面 + 工具**（`src/router.ts` / 新增 `src/scope.ts` / `src/index.ts` / 新增 `src/tools.ts`）：`KindSpec` 收窄四项并归一 `writableTiers`；句柄 `put` / `forget` 落地（参数级抛错、内容级 `skipped`、真删返条数）；全局面收敛到八键；`memory_query` 注册与渲染。
+4. **分层库**（`src/tiers.ts`）：`TierSet.open` 只解析落点；按 `(tier, sessionId)` 惰性打开并缓存；S 层经 `sessionPaths.sessionDirFor(sessionId)`；删跨项目 P 库与容量守卫；`usage` 只报已建库。
+5. **删除与自检**（整文件删 7 个、用例删 11 个、`demo` 与 `smoke` 重写）：`promote` / `hooks` / `memory` / `writepolicy` / `consolidate` / `doc-index` / `budget` 与相应用例一并删除；`smoke` 改为自包含确定性自检（不再依赖模型凭据）。
+
+实现期确定的三处细节（决策轮未冻结）：`put` 必须 async（异步钩子）、S 层缓存键必须是 `(tier, sessionId)`（不能按路径，两个会话会互相顶掉）、`openExisting` 在落点文件不存在时返回 `undefined`（删除不该把库建出来）。
 
 ## 偏差
 
-无（本轮只做调研与决策，未承诺实现动作）。
+- **`KnowledgeService.put` 改 async**：决策轮冻结的是 `MemoryScope.put(): Promise<PutResult>`，库层未明说；`preWrite` 允许返回 Promise，故库层一并改 async。对外签名与冻结接口一致。
+- **schema 版本升 2**（计划只说「删表删列、不写迁移」）：版本号是拒绝打开旧库的机械开关，不升则旧库会被当成同版本打开、随后因缺列在运行期炸。
+- **`smoke` 口径改写**（计划只写「真机观察」）：事件沉淀与提升链移出本包后，旧 smoke 断言的 `[tool/meta]` / `shadowedRange` 摄取行与 `touch` 往返已无对应实现，故改为自包含自检。
+- **删除 `@dsh-toolset/md-logic` 依赖**：唯一消费方 `doc-index.ts` 已删，依赖成为无用引用。
+- **未做**（按计划本就不做）：不写数据迁移路径、不动 TUI 与 `output-compress` 的代码、不改 `docs/STATUS.md`；仓库外 profile 的 `dbPath` / `tiers` 行未动（需另行明确要求）。
 
 ## 测试与证据
 
-本轮为决策轮，未改代码，故未跑 `check` / `build` / `test`；调研阶段的事实证据：
+**实现轮**：
+
+- `npm --prefix memory-base run check`：通过（无输出）。
+- `npm --prefix memory-base run build`：通过（退出码 0）。
+- `npm --prefix memory-base run test`：**61 例全绿**（9 个文件：`schema` 5、`knowledge` 12、`kinds` 8、`tiers` 9、`bundle-tiers` 9、`exposure` 3、`tools` 8、`rules` 4、`migrate` 3）。
+- `npm --prefix memory-base run demo`：末行 `demo OK`（句柄三层写入 / 闸门 / 越权层 / 跨层检索 / 真删 / 工具渲染）。
+- `smoke`：只做了语法检查（`node --check`），**未执行**；合入后由主会话跑全量 29 包 `check` / `build` / `test` 通过。
+- 用户 2026-10-17 指示「编写好测试但不要运行」后，本工作区未再执行 `test` / `demo` / `smoke`。
+
+**决策轮**（保留原记录）：
 
 - 子代理只读核查（本包内运行 + 实读），关键实测：`commandKeys` 类结论不适用本包；本包相关的实测为 `forget` 恒返 0 的代码路径、`promote.ts` 仅一处 import、全仓 `setLlmCaller` 只有定义与透传、`output-compress` 两处可选依赖调用点。
-- 测试文件与例数：`ls memory-base/tests | wc -l` = 19；`grep -c "^test(" tests/*.ts` 合计 103（对照 `README.md:133` 的「80 例」）。
+- 测试文件与例数（决策轮基线）：`ls memory-base/tests | wc -l` = 19；`grep -c "^test(" tests/*.ts` 合计 103（当时 `README.md:133` 写「80 例」已过期）。
 - `git grep -n conclusion -- ':!.worktree'`：只在偏好分析设计文档命中（调研 7）。
 - 未复读仓库外文件：`~/.dsh/profiles/fff/cordis.patch.yml` 的 `tiers` 配置现状沿用偏好分析设计 `:28` 的记录，未二次确认。
 
 ## 收尾
 
-- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `memory-base/docs/implementation/`，等用户放行后进入实现。
-- 回写文档：本轮无（`README.md` / `DESIGN.md` 留到实现阶段按新定位重写）；仓库外（profile 的 `dbPath` / `tiers` 行）待实现时取得明确要求后清理。
-- 遗留项：**接口设计（决策项 1 至 11）已全部裁定**（含同日二 / 三 / 四次裁定与三轮下游回写），旧选项（「瘦身范围 a/b/c/d」「D19 四项」）不再在案；两条途中发现的条目（`output-compress` 那条按其任务回写、TUI 那条按指示**暂不做**，破损窗口见「规划」末条）；原「偏好分析落地前需在 profile 打开 `tiers`」这条前置随层级恒开启而消失；旧库文件（约 426 MB）交用户择时处理，不静默删。**S 层落点的最终口径**：经 `sessionPaths.sessionDirFor(sessionId)` 解析（决策项 11 选 d；取 cwd 收在 `session-paths` 内部，见其边界语义第 5、6 条）。
-- 依赖与顺序：本条**依赖 `session-paths`**（条目「新增 `session-paths` 插件：复刻宿主的会话目录编码，供其他插件共用」），实现顺序排在它之后；该包未落地时 S 层按「不可用即明示例外」处理（不退化、不静默）。
+- **条目**：「按『只提供分层记忆内容』的新定位瘦身，并补四项纯存储面」标「完成」并从 `memory-base/docs/BACKLOG.md` 移除（清单已清空，留一条带日期的关闭记录）。
+- **本文档**：迁入 `memory-base/docs/archived/`，状态改「关闭」。
+- **文档回写**：`memory-base/README.md`、`docs/DESIGN.md`、`IMPLEMENTATION.md` 按新定位重写；根 `README.md` + `README.zh.md` 的 memory-base 功能段同步改写（两侧逐节同构）。
+- **未动**：`docs/STATUS.md`（由用户择时更新）；TUI 的 `/memory review` 适配（用户 2026-10-17 定「暂时先不做」，破损窗口见「规划」末条）；`output-compress` 的实现（归其自身条目）。
+- **仓库外**：profile 里 memory-base 的旧 `dbPath` / `tiers` 配置行未清（属仓库外改动，需另行明确要求）；旧库文件（约 426 MB）不静默删，交用户择时处理（需要时先备份再 `migrate({from: "v1", mode: "drop"})`）。
+- **遗留**：`smoke` 只做语法检查、未实跑；`sessionPaths` 的服务名与方法名按 `session-paths` 的冻结签名对接，该包落地后已在 main 的组合里，实际接入验证留到重启宿主时人工确认。

@@ -17,10 +17,10 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **herdr-pane** | herdr pane 读写：把 pane 当可控伪终端层（建 pane / 注入文本与按键 / 取屏 / 等输出 / 进程探活 / 关闭），驱动需要屏幕状态与按键时序的交互式命令；单个模型侧工具 `herdr_pane` + 可复用的库面；写类动作只作用于自建 pane，过 guard 复查、security-guard 登记与越界审批 |
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
 | **session-paths** | 宿主会话目录编码的仓内唯一事实源：逐字符复刻 `@deepseek-ai/dsh-session-persistence-jsonl` 的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用（`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`）。纯函数不落盘；`sessionDirFor(sessionId)` 经宿主 `sessions` 服务取 `header.cwd`（可选读取，不写进 `inject`） |
-| **memory-base** | 跨会话知识库与持久记忆：`sources`/`chunks` 两张基表 + 两张 FTS5 虚表，两级写策略与淘汰提升，供其他插件经宿主共享面读写 |
+| **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层落点经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
 | **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
 | **metric-loop** | 指标驱动自动循环：测量命令解析单个数字、plateau 平稳停止、轮数/时间/token 边界、cadence 自动唤醒 |
-| **output-compress** | 大输出压缩入库：超阈值命令/工具输出的确定性摘要 + 切片索引写入 memory-base 共享库，原始大输出不进模型上下文 |
+| **output-compress** | 大输出压缩入自持的每会话 `digest.db`：超阈值命令/工具输出的确定性摘要 + 切片索引，`is_error` 摘要经 memory-base 的写入作用域句柄入库，原始大输出不进模型上下文 |
 | **fs-digest** | 上下文感知文件读取：`outline`/`signatures`/`pruned` 三模式返回最小充分上下文，替代整文件 `read` |
 | **hash-edit** | LINE:HASH 锚定编辑：读取得到每行内容哈希锚点，编辑按锚点定位，内容过期（stale）整批拒绝、防脏写 |
 | **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖）；注册模型侧工具 `ast_query`（AST 搜索 / 大纲 / 规则）与 `ast_replace`（默认 dry-run） |
