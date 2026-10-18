@@ -62,7 +62,7 @@
 
 ## 2. 未完成项
 
-> 顺序依据：**依赖深度升序 → 工作量升序**（2026-10-17 用户裁定，取代 2026-10-08 的「纯工作量升序」）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
+> 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 2026-10-08：**§2 已清空**——全部条目（分类注册、闸门下沉、派生链、文档索引、提升链 I → S → P → U、TUI 侧改造、output-compress 自持 `digest.db`）完成并关闭；过程记录见 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md`（完成后归档 `docs/archived/`）。后续可选项见下方「后续补条目候选 / 未立项观察项 / 复用审计产出」。
 >
 > 2026-10-14：新增条目 1（检查回复正文表格列数一致性的新插件，条目正文见下）。
@@ -79,24 +79,27 @@
 > 2026-10-18：**§2 整理**（清理重复与逻辑矛盾）：关闭并移出 10 条 —— 自动审批插件 / 脚本语言解释器插件 / 偏好分析 / 同事模型群组的编排协议 / 五个新插件落地时的清单与计数统一 / 修正 §5 取证指向 / 核正 Docker 条目标记 / 修正脚本解释器设计文档表述 / 新增 `session-paths` 插件 / 重复的 Docker 条目（关闭记录见各自追踪文档与 git 历史）；编号按当前顺序从 1 重排。
 > 2026-10-18：条目「插件文档事实校正、去重与精简（29 个模块的文档一致性）」**完成并关闭** —— 追踪文档归档 `docs/archived/2026-10-18-plugin-docs-refresh.md`；遗留项见本节「后续补条目候选」。
 
-**1. Docker 交互插件（容器状态 / 日志 / 进入 / 生命周期）**（〔待办: 2026-10-16 登记〕 2026-10-16 登记，用户意向；**待细化**：能力范围与形态待开工前与用户讨论后补）：**现象 / 现状** —— 本仓没有 Docker 交互面：无容器 / 镜像 / 网络 / 卷的服务面、工具面或命令面；只能在 TUI `$` 模式或宿主命令工具里手敲 `docker` 命令 —— 拿不到结构化的容器列表与状态，也无法在审批面板的草稿里看到「是否正在动生产容器」这类上下文（审批草稿现在只拼命令与参数，见 `TUI/docs/SPEC.md:457`）。环境前提同样待核：本机 / 部署机是否有 docker（或 podman 兼容层）、当前用户在 `docker` 组与否、daemon 是否可用。**期望** —— 新增 Docker 交互插件，把只读查看与受控操作分开：前者（列表 / 状态 / 日志）默认可用，后者（启停 / 删除 / exec / 构建）过审批与硬拒层，能力面与形态待定。**接取时裁定** —— ① 能力矩阵与首期范围：容器列表 / 状态 / 日志 / enter（`exec -it`）/ 启停重启删除 / 镜像与卷 / compose；② 形态：模型侧工具（结构化结果，如 `docker_ps` / `docker_logs` / `docker_exec`）、TUI 侧命令与面板、或两者；③ 实现方式：调 `docker` CLI（无新依赖，需自己拼参数与解析输出）还是用 SDK（`dockerode`，引入运行时依赖）；④ 读写分档与安全：只读（`ps` / `logs` / `inspect`）与写操作（`stop` / `rm` / `exec`）是否分开授权，是否复用 `security-guard` 的命令硬拒层、写操作是否强制过审批链，生产容器标记 / 拒绝名单；⑤ 交互式场景：`exec -it` 需 PTY 与按键注入，与「基于 tmux 的交互式命令扩展」/ `herdr-pane` / `script-interpreter` 如何分工或复用；⑥ 输出口径：日志截断与超时、容器列表字段与宽度、错误（daemon 不可用 / 权限不足 / 容器不存在）归一；⑦ 无 Docker 环境（daemon / CLI 缺失、无权限）下的降级：静默空转（只不注册）还是注册后调用报错，与 `herdr-integration` 的空转口径是否一致。**落点（预估）** —— 新包（按当前 29 包口径追加）；模型侧工具需 `ctx.tools` 注册（`docs/host/DSH-CTX-API.md`）；TUI 侧命令与面板改动落 `TUI/src/app/**`；mock 验证参考 `TUI/demo/` 的 mock adapter 做法；文档与测试随包。**验收** —— 待细化（能力范围确定后补：容器列表 / 日志 / exec 各一例断言、写操作过审批的断言、daemon 不可用与权限不足的降级断言、日志截断与超时断言）。**估时** —— 待细化（初判 2-3 天，视能力矩阵与是否引入 SDK 而定）。**优先级** —— P2（用户裁定时可上调）。**来源** —— 2026-10-16 用户要求（「docker 交互插件」；登记时裁定：先记意向、不调研，接条目时再做调研）。〔待办: 2026-10-16 登记〕
+**1. background-daemon 真机验证（已挂载，发现 timer 适配缺陷）**（2026-10-18 登记，2026-10-18 进展）：**现象 / 现状** —— 新包 `background-daemon` 已实现并合入 main（设计见 `docs/archived/2026-10-15-background-daemon-design.md`），单包 136 例测试通过；2026-10-18 已挂载进 `~/.dsh/profiles/fff`（dependencies + bundles + node_modules 软链），组合树可见该条目；真机 headless 跑 `daemon_task create` 报 `this[#options].timer.schedule is not a function` —— 实现读宿主 `timer` 当 `schedule(delay, cb)`，宿主 `cordis-plugin-timer` 只有 `timeout(cb, delay)`，与设计 D16「用 `ctx.timer` 的 `timeout()`」不符。四条端到端（文本投递 / 命令执行 / 重启恢复 / 无活跃 agent 的 `skipped`）与 `backend=memory` 路径因此仍未跑通。**期望** —— 在 `~/.dsh/profiles/fff` 挂载 `@dsh-toolset/background-daemon`，按设计 §C 跑四条端到端，确认 `/daemon` 与 `daemon_task` 注册成功、启动日志无「不可用」告警。**落点** —— profile 的 `package.json` dependencies 与 `bundles` 各一行（仓库外），必要时补 `profiles/example`。**验收** —— 四条端到端各一次通过；memory-base 可用时 `/daemon` 状态面报 `records: memory`。**估时** —— 0.5-1 天。**优先级** —— P2。**来源** —— 2026-10-18 收尾时记录（主会话：暂未挂载，真机验证缺失）。〔待办: 2026-10-18 登记〕
+
+**2. Docker 交互插件（容器状态 / 日志 / 进入 / 生命周期）**（〔待办: 2026-10-16 登记〕 2026-10-16 登记，用户意向；**待细化**：能力范围与形态待开工前与用户讨论后补）：**现象 / 现状** —— 本仓没有 Docker 交互面：无容器 / 镜像 / 网络 / 卷的服务面、工具面或命令面；只能在 TUI `$` 模式或宿主命令工具里手敲 `docker` 命令 —— 拿不到结构化的容器列表与状态，也无法在审批面板的草稿里看到「是否正在动生产容器」这类上下文（审批草稿现在只拼命令与参数，见 `TUI/docs/SPEC.md:457`）。环境前提同样待核：本机 / 部署机是否有 docker（或 podman 兼容层）、当前用户在 `docker` 组与否、daemon 是否可用。**期望** —— 新增 Docker 交互插件，把只读查看与受控操作分开：前者（列表 / 状态 / 日志）默认可用，后者（启停 / 删除 / exec / 构建）过审批与硬拒层，能力面与形态待定。**接取时裁定** —— ① 能力矩阵与首期范围：容器列表 / 状态 / 日志 / enter（`exec -it`）/ 启停重启删除 / 镜像与卷 / compose；② 形态：模型侧工具（结构化结果，如 `docker_ps` / `docker_logs` / `docker_exec`）、TUI 侧命令与面板、或两者；③ 实现方式：调 `docker` CLI（无新依赖，需自己拼参数与解析输出）还是用 SDK（`dockerode`，引入运行时依赖）；④ 读写分档与安全：只读（`ps` / `logs` / `inspect`）与写操作（`stop` / `rm` / `exec`）是否分开授权，是否复用 `security-guard` 的命令硬拒层、写操作是否强制过审批链，生产容器标记 / 拒绝名单；⑤ 交互式场景：`exec -it` 需 PTY 与按键注入，与「基于 tmux 的交互式命令扩展」/ `herdr-pane` / `script-interpreter` 如何分工或复用；⑥ 输出口径：日志截断与超时、容器列表字段与宽度、错误（daemon 不可用 / 权限不足 / 容器不存在）归一；⑦ 无 Docker 环境（daemon / CLI 缺失、无权限）下的降级：静默空转（只不注册）还是注册后调用报错，与 `herdr-integration` 的空转口径是否一致。**落点（预估）** —— 新包（按当前 29 包口径追加）；模型侧工具需 `ctx.tools` 注册（`docs/host/DSH-CTX-API.md`）；TUI 侧命令与面板改动落 `TUI/src/app/**`；mock 验证参考 `TUI/demo/` 的 mock adapter 做法；文档与测试随包。**验收** —— 待细化（能力范围确定后补：容器列表 / 日志 / exec 各一例断言、写操作过审批的断言、daemon 不可用与权限不足的降级断言、日志截断与超时断言）。**估时** —— 待细化（初判 2-3 天，视能力矩阵与是否引入 SDK 而定）。**优先级** —— P2（用户裁定时可上调）。**来源** —— 2026-10-16 用户要求（「docker 交互插件」；登记时裁定：先记意向、不调研，接条目时再做调研）。〔待办: 2026-10-16 登记〕
+
+**3. 新增定时插件（统一 timer 原语）**（〔待办: 2026-10-18 登记〕 2026-10-18 登记, 来源: 用户在检查 `background-daemon` 真机挂载时要求登记）：**现象 / 现状** —— 本仓多处各自管定时器或按不同假设读宿主 `ctx.timer`：TUI 的 `StatusTicker`（1 s）、`session-channel` 的心跳 TTL 刷新、`background-daemon` 的 `TimerLike` 适配（`src/scheduler.ts:32` 假设 `schedule(delay, cb)`）、`metric-loop` 的测量节奏；宿主 `cordis-plugin-timer` 只提供 `timeout(cb, delay)` / `interval(...)`（fiber 绑定, 无 `schedule`）, 已导致 `background-daemon` 真机报 `timer.schedule is not a function`。**期望** —— 新增一个本仓定时插件, 用统一接口封装宿主原语与进程内回退（至少含 `schedule(delay, cb) → dispose`、`now()`、可注入假时钟）, 供各包按需注入, 卸载不泄漏。**接取时裁定** —— ① 形态：独立新包 vs 放进既有工具包；② 接口形状（是否对齐宿主 `timeout` 语义、是否带假时钟注入）；③ 与宿主 `cordis-plugin-timer` 的关系（包装 / 并存 / 替代托管）。**落点（预估）** —— 新包或用既有公共层；消费方改用统一面（`TUI` / `session-channel` / `background-daemon` / `metric-loop`）。**验收** —— 待细化（各消费方走统一接口、卸载无残留 timer、假时钟可测）。**估时** —— 待细化。**优先级** —— P2。
 
 **后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 29 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 7 个包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。
 
 **复用审计产出（`docs/ARCHITECTURE-REUSE.md` §4，未立项）**：B `output-compress` 写清与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工与阈值语义（实测**不存在**双重截断）；D `hash-edit` / `fs-digest` 可选改用 `ctx.fs`（含行为变更：hash-edit 写侧将受 workspace-write 围栏；原「宜与 render 缺陷同批」的前置已随该缺陷关闭归档而失效）；E 「可挂但不该挂」清单一律落非生成型文档（本文件 / `profiles/example` 注释），勿写入会重生成的 `HOST-PACKAGES.md`。观察项：① 是否开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库分工。（A / C 与观察项「共库直写的隐私边界」已于 2026-10-05 升为 §2 条目；观察项「与 `repeat-tool-reminder` 的注入重复度」已于同日评估关闭——非同点竞争、通道不同，见 `rule-engine/README.md`。）
 
-### 实现顺序（2026-10-18 重排：依赖深度 > 工作量）
+### 实现顺序（2026-10-18 重排：修复类 > 依赖深度 > 工作量）
 
-排序：**先按依赖深度升序，同深度按工作量升序**；条目一律按标题引用。
+排序：**先修复类，再按依赖深度升序，同深度按工作量升序**；条目一律按标题引用。
 
 | 顺位 | 条目 | 深度 | 工作量 | 前置（顺位） |
 | --- | --- | --- | --- | --- |
-| 1 | Docker 交互插件 | 0 | 2 至 3 天 | 无 |
-| 2 | background-daemon 真机验证 | 0 | 0.5 至 1 天 | 无 |
+| 1 | background-daemon 真机验证（修复：验证缺口） | 0 | 0.5 至 1 天 | 无 |
+| 2 | Docker 交互插件（新功能） | 0 | 2 至 3 天 | 无 |
+| 3 | 新增定时插件（新功能，待细化） | 0 | 待细化 | 无 |
 
 单线程合计约 **2.5 至 4 天**。
-
-**2. background-daemon 真机验证（插件未挂载，四条端到端缺失）**（2026-10-18 登记）：**现象 / 现状** —— 新包 `background-daemon` 已实现并合入 main（设计见 `docs/archived/2026-10-15-background-daemon-design.md`），单包 136 例测试通过；但本机 profile 未挂载该插件，设计 §C 的四条真机验收（文本投递 / 命令执行 / 重启恢复 / 无活跃 agent 的 `skipped`）与 `backend=memory`（memory-base 注册 kind 记录底座）路径都未在真实 dsh 进程里跑过。**期望** —— 在 `~/.dsh/profiles/fff` 挂载 `@dsh-toolset/background-daemon`，按设计 §C 跑四条端到端，确认 `/daemon` 与 `daemon_task` 注册成功、启动日志无「不可用」告警。**落点** —— profile 的 `package.json` dependencies 与 `bundles` 各一行（仓库外），必要时补 `profiles/example`。**验收** —— 四条端到端各一次通过；memory-base 可用时 `/daemon` 状态面报 `records: memory`。**估时** —— 0.5-1 天。**优先级** —— P2。**来源** —— 2026-10-18 收尾时记录（主会话：暂未挂载，真机验证缺失）。〔待办: 2026-10-18 登记〕
 
 ## 3. 里程碑
 
