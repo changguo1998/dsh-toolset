@@ -2,7 +2,7 @@
 
 DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的调度面**。调度是手段，投递才是目的——它调度的是「往某个活跃 agent 会话投一句话 / 执行一条 slash 命令」，不是「跑一个作业」。
 
-设计正文与决策见 `docs/implementation/2026-10-15-background-daemon-design.md`（项目级追踪文档）。
+设计正文与决策见 `docs/archived/2026-10-15-background-daemon-design.md`（项目级追踪文档）。
 
 ## 定位：三条非目标（防止范围膨胀）
 
@@ -71,7 +71,9 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 ## 依赖声明
 
-`export const inject = ["agents", "sessions", "timer", "commands", "tools"]`：这五项在 `apply` 期就要读到（目标解析 / flush 确认 / timer 原语 / 命令注册与命令类任务 / 模型侧工具注册），声明 inject 让 cordis 把激活顺序排在它们就绪之后——否则插件会先激活、`ctx.get(...)` 在严格模式下全部拿不到，表现为 `/daemon` 与 `daemon_task` 都未注册。
+`export const inject = ["agents", "sessions", "commands", "tools"]`：这四项在 `apply` 期就要读到（目标解析 / flush 确认 / 命令注册与命令类任务 / 模型侧工具注册），声明 inject 让 cordis 把激活顺序排在它们就绪之后——否则插件会先激活、`ctx.get(...)` 在严格模式下全部拿不到，表现为 `/daemon` 与 `daemon_task` 都未注册。
+
+`timer` **不在 inject 里**：定时器不依赖宿主——宿主 `timer` 存在则经 `readService` 作为可注入覆盖（测试 / 宿主可换实现），否则用进程内 `setTimeout`（`src/main.ts:218`，与调度器「单 timer + 墙钟重算」设计一致）。
 
 `memory`（记录底座）与 `guard`（命令复查）是可选依赖，不进 inject：前者缺失降级 JSON 快照，后者缺失 fail-open 并标 `guardSkipped`。
 
@@ -84,7 +86,7 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 ## 记录底座（memory-base 冻结接口）
 
-记录底座按设计 D19 落 `memory-base`，接口按 2026-10-17 冻结版实现（`memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`）：
+记录底座按设计 D19 落 `memory-base`，接口按 2026-10-17 冻结版实现（`memory-base/docs/archived/2026-10-17-slim-and-storage-surfaces.md`）：
 
 - 注册两个 kind：`daemon_task`（任务）与 `daemon_run`（运行流水），可写层声明为 `session` / `project` / `user` 三层全集；任务分档 `S / P / U` 映射到这三层。
 - 任务：memory-base 没有 update 面，因此每次状态变更写一条**追加式修订行**（content 是任务快照 JSON，带 `syncedAt` 避免 `content_hash` 去重吃掉重复快照）；启动时 `list({kind})` 读出全部行，按 `(createdAt, id)` 取最新一条为当前状态；删除走 `scope.forget({tier, ids})`。
@@ -101,6 +103,6 @@ npm --prefix background-daemon run check   # tsc --noEmit
 npm --prefix background-daemon test        # node --test（假时钟 / 假 timer / 假渠道）
 ```
 
-单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop）、`/daemon` 六个子命令、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
+单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop）、`/daemon` 七个子命令（`pause` 与 `resume` 分立，上表并列一行）、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
 
 真机验证（`dsh --profile fff`）属实现条目的独立一步，尚未在本包完成。

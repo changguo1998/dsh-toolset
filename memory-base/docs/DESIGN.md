@@ -1,6 +1,6 @@
 # memory-base 设计
 
-> 阅读顺序：§0 定位（先读）→ §1 分层与落点 → §2 分类与句柄 → §3 写面与闸门 → §4 查询面 → §5 删除与用量 → §6 模型侧工具 → §7 Schema 与版本 → §8 失败语义 → §9 与相邻组件的边界 → §10 已知边界。
+> 阅读顺序：§0 定位（先读）→ §1 分层与落点 → §2 分类与句柄 → §3 写面与闸门 → §4 查询面 → §5 删除与用量 → §6 模型侧工具 → §7 Schema 与版本 → §8 失败语义 → §9 与相邻组件的边界 → §10 已知边界 → §11 实现落点与踩坑。
 
 ## 0 定位（先读这一节）
 
@@ -47,7 +47,7 @@ interface KindSpec {
 - `preWrite` 是注册方的**内容级硬闸**：在隐私闸之后、INSERT 之前执行，可拒绝（`skipped: "hook"`）或建议 `importance`（clamp 1..5），允许返回 Promise。
 - **`preWrite` 的入参不含 `tier`**（口径冻结于 2026-10-17）。需要「按层分别拦截」的消费方**拆 kind**，让 `writableTiers` 与句柄本身当闸门；先例：`preference-analysis` 用 `preference`（`["project"]`，归纳路径）+ `preference_user`（`["user"]`，只由用户显式动作调用）。
 - **按需建表**：注册不建表，首次写入该分类时才建（空表不建）；新增分类 = 加表，不需要数据迁移。
-- **kind 名由注册方自定，本包不校验、也不维护全量清单**。注册方的现实约束只有三条：`kind` 非空、`writableTiers` 在 `Tier` 并集内、表名不撞保留名。消费方之间 kind 名不撞车只能由注册方单侧保证，文档里出现的 kind 名都只是引用先例。
+- **kind 名由注册方自定，本包不校验、也不维护全量清单**。注册方的现实约束：`kind` 非空、`writableTiers` 在 `Tier` 并集内**且不能为空数组**、表名不撞保留名且不同 kind 不共表、**同 kind / 同表不得重复注册**（不满足即抛错，见 `../src/router.ts` 的 `register` / `normalizeTiers`）。消费方之间 kind 名不撞车只能由注册方单侧保证，文档里出现的 kind 名都只是引用先例。
 
 ## 3 写面与闸门
 
@@ -74,7 +74,7 @@ interface KindSpec {
 
 查询是**全局只读**，不分扩展（用户 2026-10-17 裁定「读可以全局」）。两个入口：
 
-- `search({query, kind?, tier?, project?, limit?, fuzzy?})`：对已注册分类取并集，`porter` 词干 BM25 为主，`fuzzy: true` 叠加 `trigram` 子串召回；查询含 CJK 或 FTS 语法错误（如 `-`）时走 `LIKE` 子串兜底。**跨层合并排序 = 层权重 U > P > S，同层按分数**。
+- `search({query, kind?, tier?, project?, limit?, fuzzy?})`：对已注册分类取并集，`porter` 词干 BM25 为主，`fuzzy: true` 叠加 `trigram` 子串召回；\*\*结果不足 `limit` 且（查询含 CJK 或 FTS 语法错误（如 `-`））\*\*时走 `LIKE` 子串兜底。**跨层合并排序 = 层权重 U > P > S，同层按分数**。
 - `list({kind?, tier?, project?, limit?, offset?})`：按 kind 结构化列举（未给 kind = 跨 kind），`created_at` 倒序 + 分页。这是修掉旧「按 kind 列举缺口」的面——旧 `targetRows` 只返回 `target IS NOT NULL` 的行。
 
 `search` **没有任何写副作用**：旧口径的 `last_referenced` 刷新已随列删除一并下线（命中即写会让只读查询变成写操作，也让「存储」与「生命周期」纠缠）。
@@ -98,12 +98,7 @@ interface SearchHit extends StoreRow { score: number }   // 分数越小越相�
 
 ## 6 模型侧工具
 
-**只有一个只读工具 `memory_query`**（决策项 10 选 a：单工具 + `action` 分派；这也推翻了旧定位「本插件不注册模型侧工具」）：
-
-- `action`：`search`（缺省）/ `list`；
-- 参数：`query`（search 必填）、`kind?`、`tier?`、`project?`、`limit?`（缺省 10，clamp 1..100）、`fuzzy?`（仅 search）、`offset?`（仅 list）；
-- 输出：带 `kind` / `tier` 标签的行 + 渲染文本（单行正文超过 300 字符截断并标注；命中数达到 `limit` 标「已截断」）；空结果给 `(无命中)` / `(无条目)`；
-- 安全面：参数里没有文件路径与命令文本，故**不进** `security-guard` 的登记表；**写侧不对模型开放**——写权限留在各扩展的句柄上。
+**只有一个只读工具 `memory_query`**（决策项 10 选 a：单工具 + `action` 分派；这也推翻了旧定位「本插件不注册模型侧工具」）：`action`、全部参数、输出渲染与安全面见 `README.md`「模型侧工具 `memory_query`」。
 
 ## 7 Schema 与版本
 
@@ -140,7 +135,7 @@ interface SearchHit extends StoreRow { score: number }   // 分数越小越相�
 
 ## 10 已知边界
 
-- **CJK 召回**：`porter` 按连续串分词（`构建通过` 匹配不到 `构建`），trigram 需 ≥3 字符子串。故「结果不足 `limit` 且查询含 CJK」时走 `LIKE` 兜底——这是分词器能力边界，不是可调参数。
+- **CJK 召回**：`porter` 按连续串分词（`构建通过` 匹配不到 `构建`），trigram 需 ≥3 字符子串。故「结果不足 `limit` 且（查询含 CJK 或 FTS 语法错误）」时走 `LIKE` 兜底——这是分词器能力边界，不是可调参数。
 - **`LIKE` 必须转义** `\` / `%` / `_`，否则用户内容里的 `%` 会变成通配符。
 - **去重是全局的**：`content_hash` 不按 project 隔离，跨 project 写入相同内容会复用同一行。
 - **token 预算按 1 token ≈ 3 字符估算**（分块上限 2000 token ≈ 6000 字符），非精确分词。
@@ -149,3 +144,36 @@ interface SearchHit extends StoreRow { score: number }   // 分数越小越相�
 - **删除不传播**：删掉一行不影响其他层或来源记账以外的任何东西（回指链允许悬空，本包也不维护回指）。
 - **同进程共享**：一个 bundle 服务全部会话；S 层多库缓存不设上限（按会话数增长，进程退出即释放）。
 - 项目根 `.dsh/` 里的 P 库是项目内文件，需要提示用户加进 `.gitignore`（本包不自动改仓库文件）。
+
+## 11 实现落点与踩坑
+
+> 原包根 `IMPLEMENTATION.md` 的有效内容并入本节（2026-10-18），该文件已删除。
+
+| 路径 | 职责 |
+| --- | --- |
+| `src/schema.ts` | 建表 / 索引 / 双 FTS5 + TRIGGER、schema 版本与应用指纹守护、文件权限 |
+| `src/router.ts` | `Tier` 与全量层顺序、`KindSpec` / `KindRegistry`（注册校验与 `writableTiers` 归一）、`kindTableName` |
+| `src/scope.ts` | `MemoryScope` 句柄：`put` / `forget`，越权层与参数级抛错、内容级走 `skipped` |
+| `src/tiers.ts` | `TierSet`：落点解析、惰性打开、按会话缓存、跨层检索 / 列举、用量 |
+| `src/knowledge.ts` | `KnowledgeService`：put / search / listRows / evict + 分块 / 去重 / source 联动 |
+| `src/rules.ts` | 内容闸门：内置隐私模式 + 追加拒绝模式 + 最小长度；`checkContent` / `matchDenyPattern` |
+| `src/tools.ts` | 模型侧只读工具 `memory_query`（参数解析、clamp、截断、渲染） |
+| `src/index.ts` | bundle 接入面：`createMemoryBundle` / `createGlobalService` / `apply`、`provide` 与 `inject` |
+| `src/migrate.ts` | 旧库显式清理（`from: "v1"` / `mode: "drop"`） |
+
+**装配与生命周期**（`src/index.ts`）：
+
+- `apply(ctx, config)` **同步完成**：`readSessionPaths(ctx)`（`ctx.get("sessionPaths")` 探测）→ `createMemoryBundle({config, sessionPaths})` → `createGlobalService(bundle, config)` → `ctx.provide("memory", 八键)` → 注册 `memory_query`；没有异步就绪窗口，故 `whenReady()` 恒 resolve。
+- `createMemoryBundle` **不打开任何库**，只建 `KindRegistry` 与 `TierSet`（后者只存落点参数）；`ctx.get("sessionPaths")` 只认 `sessionDirFor` 一个方法，形状不符视为未挂载，解析异常统一改写成带 `sessionId` 的文案。
+- `inject = ["tools"]`；`ctx.tools` / `ctx.provide` 缺失时只记日志并跳过（写入面不受影响），`sessionPaths` 不写进 `inject`。
+
+**实现期踩坑**（每条都有对应用例或代码依据）：
+
+- **S 层缓存键是 `(tier, sessionId)` 而不是路径**：同一进程两个会话各有一个 `session.db`，按路径做键会让两库互相顶掉；`getSummary()` 在拿不到会话 id 时不列 S 层落点（那一条没有确定路径）。
+- **读 / 删走 `openExisting`**（文件不存在返回 `undefined`，绝不建库），写走 `openWritable`（缺库即建）；S 层三步降级（缺 `sessionPaths` → 缺 `sessionId` → 解析抛错）都在建库之前判定。
+- **闸门顺序固定**：隐私闸 → 分类解析（未注册 → `skipped: "kind"`）→ `preWrite` → 首次建表 → 去重 / 插入；`put` 是 **async**（`preWrite` 允许 Promise，`await` 后决定 `skipped` / `importance`）。
+- **层权重**：`TIER_WEIGHT` = U 3 / P 2 / S 1；`search` 只遍历**已打开**的库（未打开 = 空库，没有行可查），`list` 按 kind 逐库列举后合并、`created_at` 倒序分页；`usage()` 的范围是「已打开的库 + 落点文件已存在的 P / U」，字节数直接 `stat` 文件。
+- **分块只对超预算块生效**：段落超限按最后一个换行硬切，换行位置早于半程则按 `maxChars` 字符切。
+- **STRICT 表**：所有列显式类型，插入必须提供 `not null` 且无默认值的列（`source_id` / `project` / `content` / `content_hash` / `created_at`）。
+- **`forget` 用最近一次写入的 `sessionId` 定位**同一会话库；只对**已打开**的库执行，返回实际删除条数。
+- **工具面宽容**：`limit` 非数字回落缺省、非法 `tier` 当没给、`action` 非 `list` 一律按 `search`，`search` 缺 `query` 返回 `error` 值而不抛错；`truncated` 判据是「返回行数达到 `limit`」；`output.render` 对任意值都能出文本（`null` / 数字 / 字符串退化为默认值）。

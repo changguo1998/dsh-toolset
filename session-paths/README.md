@@ -4,13 +4,7 @@ DSH（DeepSeek Harness）会话目录编码插件：**复刻宿主的目录编�
 
 ## 为什么有这个包
 
-宿主把每个会话的目录建成：
-
-```
-<sessionsRoot>/<projectKey(cwd)>/<encodeSegment(sessionId)>/
-```
-
-本机 `<sessionsRoot>` = `~/.dsh/sessions`，桶名形如 `--home-guochang-Projects-dsh-toolset--`。这三个编码函数在宿主包里**不导出**（`@deepseek-ai/dsh-session-persistence-jsonl` 只导出 `JsonlCompressionSchema` 与默认类），`dsh-session` / `dsh-session-persistence` 也没有面向插件的目录读取面 —— 插件拿不到该路径。
+宿主把每个会话的目录建成 `<sessionsRoot>/<projectKey(cwd)>/<encodeSegment(sessionId)>/`（本机 `<sessionsRoot>` = `~/.dsh/sessions`，桶名形如 `--home-guochang-Projects-dsh-toolset--`）。这三个编码函数在宿主包里**不导出**（`@deepseek-ai/dsh-session-persistence-jsonl` 只导出 `JsonlCompressionSchema` 与默认类），`dsh-session` / `dsh-session-persistence` 也没有面向插件的目录读取面 —— 插件拿不到该路径。
 
 仓内先前的做法是各写一份，其中 `memory-base` 那份（只做「去前导斜杠 + 分隔符换 `-`」）算出来的目录**并不存在**。故按仓内既有的「约定自足小函数复制 + 注释标注出处」口径复制一份，收敛为单一服务。
 
@@ -43,11 +37,10 @@ DSH（DeepSeek Harness）会话目录编码插件：**复刻宿主的目录编�
 ## 边界语义
 
 1. 四个纯函数**不落盘**、**不因目录不存在报错**，只在入参非法时按宿主同语义抛（空 `cwd` / 空 `sessionId`）。
-2. `ensureSessionDir` 是**唯一写盘入口**，权限 0700、幂等；纯函数永不调用它。
-3. `sessionDirFor` 同步、不落盘、**不建目录** —— 宿主建会话时就建好了会话目录（内含 `session.lock` 与 `session.v4.jsonl.zstd`）。它是本包唯一依赖宿主服务的面。
-4. 目录存在性由宿主负责，本包不保证、也不校验可写性：消费方真正写文件 / 开库时遇到目录不存在或不可写，按各自的失败口径处理（不静默换路径）。
-5. **不写进 `inject`**：宿主 `sessions` 只在 `sessionDirFor` 里可选读取。宿主缺该服务时本包照常加载，纯函数与 `ensureSessionDir` 的消费方不受影响；只有 `sessionDirFor` 抛明示例外。
-6. 服务缺失或 `sessionDirFor` 抛错时由调用方自行降级（如 memory-base 的 S 层不可用、output-compress 的 `skipped.session-dir-missing`）。
+2. 写盘与同步语义见上「服务面」表：`ensureSessionDir` 是**唯一写盘入口**（0700、幂等，纯函数永不调用它），`sessionDirFor` 同步、不落盘、**不建目录** —— 宿主建会话时就建好了会话目录（内含 `session.lock` 与 `session.v4.jsonl.zstd`），它也是本包唯一依赖宿主服务的面。
+3. 目录存在性由宿主负责，本包不保证、也不校验可写性：消费方真正写文件 / 开库时遇到目录不存在或不可写，按各自的失败口径处理（不静默换路径）。
+4. **不写进 `inject`**：宿主 `sessions` 只在 `sessionDirFor` 里可选读取。宿主缺该服务时本包照常加载，纯函数与 `ensureSessionDir` 的消费方不受影响；只有 `sessionDirFor` 抛明示例外。
+5. 服务缺失或 `sessionDirFor` 抛错时由调用方自行降级（如 memory-base 的 S 层不可用、output-compress 的 `skipped.session-dir-missing`）。
 
 ## 出处与复核
 
@@ -80,7 +73,7 @@ await ctx.get("sessionPaths").ensureSessionDir("/home/u/proj", sessionId);
 
 ```sh
 npm --prefix session-paths run check   # 两个 program 的类型检查
-npm --prefix session-paths run test    # 23 例：编码对拍 + 服务面（假 ctx / 假 sessions）
+npm --prefix session-paths run test    # 24 例：编码对拍 + 服务面（假 ctx / 假 sessions）
 ```
 
 编码对拍的期望值来源：本机 `~/.dsh/sessions/` 的真实桶名（七个），以及从宿主已安装包里截出四个函数、在本地 eval 出的真实实现（合成向量覆盖 `~XXXX` 转义、连续分隔符合并、`_no-cwd`、`.` 与 `..`、251 截断），断言一律逐字符相等。

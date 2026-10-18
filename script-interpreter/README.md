@@ -42,20 +42,13 @@ apply 日志；**缺失时不隐藏工具**：调用返回含安装指引的错�
 
 ## 执行与围栏
 
-每次执行前：`ctx.sandboxPolicy.resolve()` 取模式与工作区根 → `ctx.sandbox.confine()`
-包一层 argv → spawn。三条口径：
+每次执行前：`ctx.sandboxPolicy.resolve()` 取模式与工作区根 → `ctx.sandbox.confine()` 包一层 argv → spawn。三条口径：
 
-- 围栏模式下拿不到可强制后端（`confine` 抛错）→ **fail-closed**：返回
-  `SANDBOX_UNAVAILABLE`，脚本**未执行**，绝不退回无围栏路径；
-- `ctx.sandbox` / `ctx.sandboxPolicy` 缺失（极简 profile）→ 不围栏执行，但**结构化结果值**
-  的 `sandbox.unavailable` 如实标注「未围栏」与原因（不静默）；装配时另在装载日志
-  （`ctx.logger`）里告警一次，回执正文不加提示行（见下节口径）；
-- `danger-full-access` → 按策略不围栏（这是解析出的策略，不是能力缺失），结果值带 `mode`，
-  回执不加行、也不标 `unavailable`。
+- 围栏模式下拿不到可强制后端（`confine` 抛错）→ **fail-closed**：返回 `SANDBOX_UNAVAILABLE`，脚本**未执行**，绝不退回无围栏路径；
+- `ctx.sandbox` / `ctx.sandboxPolicy` 缺失（极简 profile）→ 不围栏执行，但**结构化结果值**的 `sandbox.unavailable` 如实标注「未围栏」与原因（不静默）；装配时另在装载日志（`ctx.logger`）里告警一次，回执正文不加提示行（见下节口径）；
+- `danger-full-access` → 按策略不围栏（这是解析出的策略，不是能力缺失），结果值带 `mode`，回执不加行、也不标 `unavailable`。
 
-围栏事实判定按宿主 `dsh-sandbox` 的语义复刻（本包不 import 宿主包）：失败运行的 stderr
-命中后端 `denialSignatures` → 标 `denied`（`[sandbox: file access denied under <mode> mode]`）；
-命中 `runnerFailureRules` → 判为运行器自身失败（`SANDBOX_UNAVAILABLE`，命令没跑）。
+围栏事实判定按宿主 `dsh-sandbox` 的语义复刻（本包不 import 宿主包）：失败运行的 stderr 命中后端 `denialSignatures` → 标 `denied`（`[sandbox: file access denied under <mode> mode]`）；命中 `runnerFailureRules` → 判为运行器自身失败（`SANDBOX_UNAVAILABLE`，命令没跑）。
 
 ## 宿主接入
 
@@ -79,15 +72,9 @@ apply 日志；**缺失时不隐藏工具**：调用返回含安装指引的错�
 [exit code: 1]                                         # 正常退出且非零时
 ```
 
-- 非零退出码是**脚本的结果**，不是工具错误；
-- 超限时保留**尾部**（`maxOutputChars`），该流正文后紧跟
-  `[output truncated; full output: <路径>]`；
-- `[sandbox: ...]` 只用于**围栏拒绝**；「围栏能力缺失」（没有 `ctx.sandbox` /
-  `ctx.sandboxPolicy`）只落在结果值 `sandbox.unavailable`，不在回执里占行 —— 每次都多一行
-  会稀释真正的标记（超时 / 退出码）；
-- 无正文时回执 `(no output)`；
-- 逐次失败（参数非法 / 解释器缺失 / 审批未过 / 围栏不可用）是**预期失败值**
-  （`{ error, code }`），回执渲染成 `script_run 失败（<code>）：<error>`。
+- 非零退出码是**脚本的结果**，不是工具错误；超限时保留**尾部**（`maxOutputChars`），该流正文后紧跟 `[output truncated; full output: <路径>]`；无正文时回执 `(no output)`；
+- `[sandbox: ...]` 只用于**围栏拒绝**；「围栏能力缺失」（没有 `ctx.sandbox` / `ctx.sandboxPolicy`）只落在结果值 `sandbox.unavailable`，不在回执里占行 —— 每次都多一行会稀释真正的标记（超时 / 退出码）；
+- 逐次失败（参数非法 / 解释器缺失 / 审批未过 / 围栏不可用）是**预期失败值**（`{ error, code }`），回执渲染成 `script_run 失败（<code>）：<error>`。
 
 ## 超时与取消
 

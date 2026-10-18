@@ -12,7 +12,7 @@ DSH（DeepSeek Harness）进程内插件：上下文感知文件读取。注册�
 
 工具参数：`path` 与 `mode` 必填；`depth`、`maxLines`、`maxTokens` 为整数（范围见上表）；`language` 为语言提示（`markdown` / `typescript` / `python`，缺省按扩展名推断）；`requireLsp` 为 true 时 LSP 不可用直接报 `lsp_unavailable`，不降级。
 
-结果 `source` 标注实际来源：`lsp` / `heuristic` / `markdown`。渲染上限：outline 标题树 45 行 + 块清单 15 行（**两个预算独立**，大文档不会因树满而丢掉块清单）、signatures 60 条、pruned 展示 80 行，超出各自以省略行收尾。
+结果 `source` 标注实际来源：`lsp` / `heuristic` / `markdown`。渲染上限：outline 标题树 45 行 + 块清单 15 行（**两个预算独立**，大文档不会因树满而丢掉块清单）、signatures 60 条、pruned 展示 80 行；outline 与 pruned 超出时补省略行，signatures 超出直接截断（无省略行）。
 
 ## 配置
 
@@ -37,7 +37,6 @@ Markdown 的 `outline` 输出形如（标题带节行范围，块清单带所属
 L1-20 heading 标题一
   L5-11 heading 小节 1.1
   L16-20 heading 小节 1.2
-L22 heading 标题二
 块结构（2 个）：
 §L5 L7 list·1项
 §L5 L11-14 code·ts
@@ -71,5 +70,5 @@ npm run demo    # 三模式本地示例（无 DSH 依赖）
 
 - 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
 - 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`（cwd 注入、render 全函数化）。
-- Markdown 深能力与口径差异：`md-logic/README.md`「与 `fs_digest` 的口径差异」。
+- Markdown 深能力与口径差异：见上文「边界与限制」的 `md_logic` 条目。
 - 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（会话 `header.cwd` / `ctx.tools`）。

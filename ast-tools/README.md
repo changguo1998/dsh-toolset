@@ -1,6 +1,6 @@
 # @dsh-toolset/ast-tools
 
-DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行。零运行时依赖，全部操作经系统 `ast-grep` CLI 子进程完成。
+DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行。零运行时依赖，二进制与实现选型见下文「二进制选型」。
 
 ## 能力
 
@@ -21,7 +21,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 
 渲染口径（`output.render` 输出紧凑文本，不是 JSON dump）：坐标**转 1 基**（`path:行:列`，而库 API 与 ast-grep 输出均为 **0 基**）；`search` 附元变量摘要 `{$ARG=…, $$ARGS=n节点}`；`outline` 缩进到成员；`rules` 形如 `path:行:列 severity ruleId: message`；每类渲染上限 **80 行**，超出以「…（其余 N 条略）」收尾。
 
-选择成本（口径与工具描述一致）：**文本 / 正则检索用宿主 `grep` / `glob`**（更快，但会匹配字符串与注释里的同名文本）；**「某文件里有哪些符号 / 结构快览」用 `fs_digest`**（`outline` 带行范围）；**「谁引用了某符号 / 改动影响面」用 `code_map`**；要「所有 `foo(` 调用点」「某语法形态」「按结构批量定位」时才用 `ast_query`。改代码：单点精确改写用 `hash_edit`（LINE:HASH 行级锚点 + 漂移检测 + 整批原子拒绝），按语法形态批量改同一写法用 `ast_replace`。
+选择成本（检索 / 大纲 / 影响面与 `ast_query` 工具描述同口径；改写分工——含 `hash_edit` 分支——见 `ast_replace` 工具描述）：**文本 / 正则检索用宿主 `grep` / `glob`**（更快，但会匹配字符串与注释里的同名文本）；**「某文件里有哪些符号 / 结构快览」用 `fs_digest`**（`outline` 带行范围）；**「谁引用了某符号 / 改动影响面」用 `code_map`**；要「所有 `foo(` 调用点」「某语法形态」「按结构批量定位」时才用 `ast_query`。改代码：单点精确改写用 `hash_edit`（LINE:HASH 行级锚点 + 漂移检测 + 整批原子拒绝），按语法形态批量改同一写法用 `ast_replace`。
 
 **库 / 服务面**（供宿主与其他插件调用）：
 
@@ -62,21 +62,9 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 ## 使用示例
 
 ```ts
-import {
-  outlineFile,
-  replaceAst,
-  runRules,
-  searchAst,
-} from "@dsh-toolset/ast-tools";
+import { outlineFile, replaceAst, runRules, searchAst } from "@dsh-toolset/ast-tools";
 
-// 搜索（$VAR 单节点元变量，$$$VAR 节点序列元变量）
-const hits = await searchAst({
-  pattern: "console.log($ARG)",
-  language: "ts",
-  path: "src/",
-});
-
-// 结构化替换（缺省仅返回内存结果，write: true 写回磁盘）
+const hits = await searchAst({ pattern: "console.log($ARG)", language: "ts", path: "src/" });
 const result = await replaceAst({
   pattern: "console.log($MSG)",
   replacement: "console.info($MSG)",
@@ -84,26 +72,15 @@ const result = await replaceAst({
   path: "src/app.ts",
   write: true,
 });
-
-// 文件大纲
 const outline = await outlineFile({ path: "src/app.ts", items: "all" });
-
-// YAML 规则（文件或内联文本）
 const ruleHits = await runRules({
-  rule: {
-    kind: "inline",
-    rules: [
-      "id: no-console-log",
-      "language: typescript",
-      "message: 禁止 console.log",
-      "severity: warning",
-      "rule:",
-      "  pattern: console.log($MSG)",
-      "fix: console.info($MSG)",
-    ].join("\n"),
-  },
-  paths: ["src/"],
-});
+  rule: { kind: "inline", rules: `id: no-console-log
+language: typescript
+message: 禁止 console.log
+severity: warning
+rule:
+  pattern: console.log($MSG)
+fix: console.info($MSG)` }, paths: ["src/"] });
 ```
 
 包内可运行样例（临时文件全流程断言）：
@@ -115,7 +92,7 @@ npm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 
 ## 边界与限制
 
-- 依赖系统 ast-grep CLI（不内置二进制、无 NAPI 绑定）：每次操作为一次性子进程，语言覆盖与规则能力随本机 ast-grep 版本；无法安装二进制的环境按上文降级。
+- 依赖系统 ast-grep CLI（选型见上文「二进制选型」）：每次操作为一次性子进程，语言覆盖与规则能力随本机 ast-grep 版本；无法安装二进制的环境按上文降级。
 - 元变量语法：`$VAR` 捕获单个 AST 节点，`$$$VAR` / `$$$` 捕获节点序列（0 个或多个兄弟节点）。`$$VAR` / `$$` / `$(name)` 不产生序列捕获（`$(name)` 匹配不到），不要使用。
 - 替换文本中 `$VAR` 引用单节点捕获，`$$$VAR` 按原文展开整个序列。
 - CLI 退出码不作为判据：`run` 无命中与 `scan` 的 error 级命中都可能非零退出而 stdout 为纯 JSON；仅在「无 JSON 且非零退出」时抛 `AstGrepProcessError`，无命中返回空数组。

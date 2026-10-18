@@ -4,22 +4,22 @@ DSH（DeepSeek Harness）进程内集成插件：把 **herdr 的 pane 当作可�
 
 模型侧工具：**`herdr_pane`**（单工具 + `action` 分派十个动作）；同时导出库面，供编排类插件与真机验证脚本直接调用，不必经模型工具链。
 
-设计依据与取舍见 `docs/archived/2026-10-16-herdr-pane-design.md`（项目级追踪文档，已归档；本包按**轻量包**口径只留 `README.md` + `docs/BACKLOG.md`）。
+设计依据与取舍见仓库根目录的 `docs/archived/2026-10-16-herdr-pane-design.md`（项目级追踪文档，已归档；本包按**轻量包**口径只留 `README.md` + `docs/BACKLOG.md`）。
 
 ## 能力
 
-| 动作 | 作用 | 通道 | 必填参数 |
-| --- | --- | --- | --- |
-| `create` | 建兄弟 pane（缺省按调用者 pane 宽高选 `right` / `down`，`--no-focus` 不抢焦点，成功自动打 label） | CLI `pane split` | 无 |
-| `list` | 列 pane 摘要 + 本插件登记标记 | CLI `pane list` | 无 |
-| `read` | 取屏，回执带 `revision` / `truncated` | **socket** `pane.read` | `pane_id` |
-| `wait` | 等输出：`match` 字面量 / `regex` 正则 / `stable` 静默判稳（三选一） | CLI `wait-output`（前两者）/ **socket**（`stable`） | `pane_id` + 三者之一 |
-| `send_text` | 注入字面量文本（**不回车**） | CLI `pane send-text` | `pane_id`、`text` |
-| `send_keys` | 发按键（如 `["ctrl+c"]` / `["esc"]` / `["up"]`） | CLI `pane send-keys` | `pane_id`、`keys` |
-| `run` | 文本 + 回车一次提交 | CLI `pane run` | `pane_id`、`command` |
-| `label` | 打 / 清归属标记（显式空串 = 清除） | CLI `pane rename` | `pane_id` |
-| `info` | 进程探活（`foreground_processes` / `shell_pid` / `running`） | CLI `pane process-info` | `pane_id` |
-| `close` | 关闭 pane（`force` 需配置 `allowForeignPanes: true`） | CLI `pane close` | `pane_id` |
+| 动作 | 作用 | 通道 | 必填 | 参数 |
+| --- | --- | --- | --- | --- |
+| `create` | 建兄弟 pane（缺省按调用者 pane 宽高选 `right` / `down`，`--no-focus` 不抢焦点，成功自动打 label） | CLI `pane split` | 无 | `direction?`（`right` / `down`；缺省按 `pane layout` 宽高自动选）· `cwd?`（缺省继承 dsh 进程 cwd）· `label?`（缺省配置 `label`） |
+| `list` | 列 pane 摘要 + 本插件登记标记 | CLI `pane list` | 无 | `workspace?` |
+| `read` | 取屏，回执带 `revision` / `truncated` | **socket** `pane.read` | `pane_id` | `source?`（缺省 `recent-unwrapped`）· `lines?`（缺省 120）· `format?`（缺省 `text`） |
+| `wait` | 等输出：`match` 字面量 / `regex` 正则 / `stable` 静默判稳（三选一） | CLI `wait-output`（前两者）/ **socket**（`stable`） | `pane_id` + 三者之一 | `match?` / `regex?` / `stable?`（三选一，互斥）· `settle_ms?`（缺省 400）· `source?` / `lines?` · `timeout_ms?`（缺省 30000） |
+| `send_text` | 注入字面量文本（**不回车**） | CLI `pane send-text` | `pane_id`、`text` | — |
+| `send_keys` | 发按键（如 `["ctrl+c"]` / `["esc"]` / `["up"]`） | CLI `pane send-keys` | `pane_id`、`keys`（非空字符串数组） | — |
+| `run` | 文本 + 回车一次提交 | CLI `pane run` | `pane_id`、`command` | — |
+| `label` | 打 / 清归属标记（显式空串 = 清除） | CLI `pane rename` | `pane_id` | `label?`（缺省写配置值；显式空串清除） |
+| `info` | 进程探活（`foreground_processes` / `shell_pid` / `running`） | CLI `pane process-info` | `pane_id` | — |
+| `close` | 关闭 pane（`force` 需配置 `allowForeignPanes: true`） | CLI `pane close` | `pane_id` | `force?` |
 
 ### 通道划分（为什么只有读走 socket）
 
@@ -32,19 +32,6 @@ CLI 与 socket 两面都可用；socket 相对 CLI 的**硬优势只有一处** 
 CLI 调用一律 `spawn(bin, args)` **参数数组、不过 shell**：模型给的文本是 argv 元素，不做字符串拼接，避免二次解释。
 
 ## 参数
-
-| 动作 | 参数 |
-| --- | --- |
-| `create` | `direction?`（`right` / `down`；缺省按 `pane layout` 宽高自动选）· `cwd?`（缺省继承 dsh 进程 cwd）· `label?`（缺省配置 `label`） |
-| `list` | `workspace?` |
-| `read` | `pane_id` · `source?`（缺省 `recent-unwrapped`）· `lines?`（缺省 120）· `format?`（缺省 `text`） |
-| `wait` | `pane_id` · `match?` / `regex?` / `stable?`（三选一，互斥）· `settle_ms?`（缺省 400）· `source?` / `lines?` · `timeout_ms?`（缺省 30000） |
-| `send_text` | `pane_id` · `text` |
-| `send_keys` | `pane_id` · `keys`（非空字符串数组） |
-| `run` | `pane_id` · `command` |
-| `label` | `pane_id` · `label?`（缺省写配置值；显式空串清除） |
-| `info` | `pane_id` |
-| `close` | `pane_id` · `force?` |
 
 取屏口径：缺省 `recent-unwrapped`（官方技能给日志与转录的首选，软换行已拼接）、120 行、剥 ANSI；**TUI / alternate-screen 程序改用 `visible`**（alternate-screen 的行不进普通 scrollback）；`format=ansi` 仅在需要颜色证据时用。
 
@@ -67,7 +54,7 @@ CLI 调用一律 `spawn(bin, args)` **参数数组、不过 shell**：模型给�
 
 ## 归属与生命周期
 
-- **写类动作**（`send_text` / `send_keys` / `run` / `label` / `close`，以及 `stable` 模式的 `wait`）缺省只作用于**本插件创建并登记**的 pane；配置 `allowForeignPanes: true` 可放宽这条限制（此时审批门按 `requireApproval` 档先打断一次，`close` 另需 `force: true`）；**读类**（`read` / `info`）可读任意 pane；**永不使用「当前聚焦 pane」**（官方技能：不依赖别的客户端的焦点）。
+- **写类动作**（`send_text` / `send_keys` / `run` / `label` / `close`，以及 `stable` 模式的 `wait`）缺省只作用于**本插件创建并登记**的 pane；配置 `allowForeignPanes: true` 可放宽这条限制（`close` 另需 `force: true`）。审批门只覆盖 `send_text` / `send_keys` / `run` / `close`（按 `requireApproval` 档判断），`label` 与 `stable` 模式的 `wait` 不触发审批；**读类**（`read` / `info`）可读任意 pane；**永不使用「当前聚焦 pane」**（官方技能：不依赖别的客户端的焦点）。
 - `create` 成功后自动 `pane rename` 打一次 label；打标失败只记 `注：`，不回滚创建。
 - 关非自建 pane 需**同时**满足配置 `allowForeignPanes: true` 与 `close` 的 `force: true`，且仍受审批档约束（破坏性动作多一道显式信号）。
 - 正常退出（含 TUI 的 `/quit` → `process.exit`）按 `closeOnExit` 用 `spawnSync` 同步尽力关闭**登记过的** pane；崩溃 / `kill -9` 残留靠 label 识别（`herdr pane list` 与本工具 `list` 都能看到），再显式 `close`。
@@ -117,18 +104,13 @@ if (plugin) {
   npm --prefix herdr-pane run test
   ```
 
-  八个用例文件：`cli`（握手 / 二进制定位 / 信封解析 / 退出码 / 子进程执行面的参数直通与超时）、`socket`（报文拼装 / 响应解析 / 判稳三例）、`net`（真实 unix socket：分片 framing / 超时 / 连接失败）、`actions`（十动作 argv 与结果解析 / 归属与 `allowForeignPanes` / 串行化 / guard 拒绝）、`registry`（登记 / label / 退出清理 / 串行队列）、`policy`（归属 / 审批三档 / fail-open）、`main`（握手不注册 / 工具注册 / 审批门 / 通道注入）、`tool`（定义契约 / 渲染 / 截断）。
+- 八个用例文件：`cli`（握手 / 二进制定位 / 信封解析 / 退出码 / 子进程执行面的参数直通与超时）、`socket`（报文拼装 / 响应解析 / 判稳三例）、`net`（真实 unix socket：分片 framing / 超时 / 连接失败）、
+  `actions`（十动作 argv 与结果解析 / 归属与 `allowForeignPanes` / 串行化 / guard 拒绝）、`registry`（登记 / label / 退出清理 / 串行队列）、
+  `policy`（归属 / 审批三档 / fail-open）、`main`（握手不注册 / 工具注册 / 审批门 / 通道注入）、`tool`（定义契约 / 渲染 / 截断）。
 
-- 真机端到端（**人工跑、不进 CI**，必须在 herdr 管理的 pane 内）：
+- 真机端到端（**人工跑、不进 CI**，必须在 herdr 管理的 pane 内）：先 `npm --prefix herdr-pane run build`，再跑 `node herdr-pane/scripts/verify-herdr-pane.mjs`（全自动，跑完即关 pane）；三个开关：`--keep`（保留 pane 供人工看）、`--with-python`（额外验 `python3 -i` 的 REPL 场景）、无参（缺省全自动）。
 
-  ```sh
-  npm --prefix herdr-pane run build
-  node herdr-pane/scripts/verify-herdr-pane.mjs            # 全自动，跑完即关 pane
-  node herdr-pane/scripts/verify-herdr-pane.mjs --keep     # 保留 pane 供人工看
-  node herdr-pane/scripts/verify-herdr-pane.mjs --with-python  # 额外验 python3 -i 的 REPL 场景
-  ```
-
-  覆盖 `create → read → send_text → send_keys → wait(match) → run → wait(stable) → info → label → list → close`，并核对「调用者焦点未被抢走」与「正常退出后无本次创建的 pane」。
+- 覆盖链：`create → read → send_text → send_keys → wait(match) → run → wait(stable) → info → label → list → close`，并核对「调用者焦点未被抢走」与「正常退出后无本次创建的 pane」。
 
 ## 与相邻能力的分工
 

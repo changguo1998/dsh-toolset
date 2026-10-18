@@ -105,17 +105,7 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 
 ## 7. 降级矩阵
 
-**注册与解析分开**：`apply` 只做「注册工具」这一件同步的事；`sessionChannel` / `sessionPaths` 在每次 `execute` 时解析（成功才缓存，失败不缓存 → 服务晚到可自愈）。这样注册必然发生在插件激活期，工具表收录；依赖缺失表现为调用期错误而不是「工具不存在」。
-
-| 情形 | 行为 |
-| --- | --- |
-| 缺 `sessionChannel`（或无 `delegate` / `taskStatus`） | 工具已注册；调用 → `session_channel_unavailable`（原因 + 下一步） |
-| 缺 `sessionPaths`（或无 `sessionDirFor`） | 工具已注册；调用 → `session_paths_unavailable`（原因 + 下一步） |
-| 缺 `tools` | 一次警告（连注册面都没有，无从提供工具） |
-| 运行期 `sessionDirFor` 抛错 | 写动作 → `state_unavailable`（原因 + 下一步）；`status` 命中缓存仍可读 |
-| 状态文件损坏 | 读写动作 → `state_unavailable`；不静默重置 |
-| 目标离线 / 歧义 | `add_member` → `target_offline` / `target_ambiguous`；`send` 投递失败 → 结算为 failure |
-| memory-base 缺失 / 拒收 / 抛错 | 跳过 / 计数 + 首次一条日志；协调不受影响 |
+注册与解析分开（`apply` 只同步注册工具，`sessionChannel` / `sessionPaths` 每次 `execute` 才解析、成功才缓存 → 服务晚到可自愈）的机制与各依赖缺失时的行为 / 错误码见 `README.md` 的「依赖与降级」；README 未列的补充：`add_member` 目标离线 / 歧义 → `target_offline` / `target_ambiguous`，`send` 投递失败结算为 `failure`，状态文件损坏 → `state_unavailable`（不静默重置，见 §6）。
 
 ## 8. 与设计文档的偏差（实现阶段记录）
 

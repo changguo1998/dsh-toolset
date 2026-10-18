@@ -2,7 +2,7 @@
 
 > 职责：本包的架构与机制沉淀（状态机、跨包契约、幂等与并发口径）
 > 不负责：能力清单与配置表（见 `README.md`）、待办（见本目录 `BACKLOG.md`）、决策过程（见项目级
-> `docs/implementation/2026-10-16-preference-analysis-design.md` 与本仓 git 历史）
+> `docs/archived/2026-10-16-preference-analysis-design.md` 与本仓 git 历史）
 > 过期条件：无（机制变化即更新）
 
 ## 1. 定位
@@ -104,7 +104,8 @@ rule-engine 尚未 `provide`，`ctx.get("ruleEngine")` 取不到 → 消费者�
 - **坏文件**：解析失败 → 改名 `ledger.json.corrupt-<时间戳>` 后从空账簿开始（保留原始数据）。
 - **版本不符**：`version != 1` → 拒载拒写（只告警），避免旧代码覆盖新格式。
 - **库侧幂等**：应用前用 `list` 找同内容副本，命中则复用 id（重试不产生重复行）。
-- **降级**：memory 没有句柄面 → 只观察（不产候选、不写库、不注入），记一次明确告警；
+- **降级**：memory 没有句柄面（`registerKind` 未返回 `put` / `forget`）→ 只观察（不产候选、不写库、
+  不注入；不冒充 `origin: "user"`、不依赖候选队列），记一次明确告警；
   非 cordis 宿主忽略 `inject` 提前激活且 `ruleEngine` / `tools` 缺失 → 只记录不注入 / 不注册工具
   并告警一次；`enabled: false` → 连实例都不建。
 

@@ -147,8 +147,8 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 
 ## 依赖
 
-- `session-paths`（**必需**，仅用于会话审计落点）：经 `ctx.get("sessionPaths").sessionDirFor(sessionId)`
-  推导目录；未挂载或会话目录不可得 → 会话那份审计不可得 → **退回人工面板并警告**（见上表）。
+- `session-paths`（**可选面**，仅用于会话审计落点）：经 `ctx.get("sessionPaths").sessionDirFor(sessionId)`
+  推导目录（不在 `inject` 里，经 `readService` 受保护读取）；未挂载、会话目录不可得或 `sessionDirFor` 抛错 → 会话那份审计不可得 → **退回人工面板并警告**（见上表）。
 - `memory-base`（**可选**）：项目那份经 `registerKind({kind: "approval_audit", writableTiers: ["project"]})`
   取句柄写入；取不到即跳过（只计数）。
 - 与 `security-guard` **无接口**；`llm` / `commands` / `sessions` / `agents` 均为可选读取。
@@ -160,6 +160,7 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 - 会话那份审计不可用时**整条自动裁定停用**（决策 5 第 4 条：绝不静默放行）——这是有意的降级。
 - 不做 TUI 审批面板改造、不新增 `ApprovalPolicy` 取值、不新增会话事件词汇。
 - 不搬「记住该命令」的跨会话授权存储（宿主亦无），不做 GUI 面板。
+- 不做按会话配置：会话级旋钮由宿主 `/policy` 与 `/permission` 承担，本包跟随生效。
 
 ## 验证
 
@@ -175,5 +176,5 @@ npm --prefix auto-approve run build
 
 ## 文档
 
-- 设计与决策（优先级表、审计口径、R1–R7 裁定）：项目级 `docs/implementation/2026-10-16-auto-approval-design.md`。
+- 设计与决策（优先级表、审计口径、R1–R7 裁定）：项目级 `docs/archived/2026-10-16-auto-approval-design.md`。
 - 包内待办：`docs/BACKLOG.md`。

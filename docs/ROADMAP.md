@@ -7,8 +7,8 @@
 ## 1. 定位与边界
 
 - 本仓是 DSH 的**进程内集成插件工具集**加一套自带终端界面（TUI）：能力在本机单用户、进程内生效，经 cordis 服务面与宿主交互。
-- 现有基座：TUI + 20 个插件包（任务引擎、知识库、规则注入、代码地图、文件摘要、符号规范、会话通道、Markdown 结构 / 文档地图、模板体系、ponytail 等）；集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准，包与能力清单见根 `README.md`「组成」。
-- 边界（沿用既有裁定）：不做跨机传输、不复用系统 Redis、不做离线消息队列、不引入常驻守护进程；需要时先在 `docs/BACKLOG.md` 立项讨论。
+- 现有基座：TUI + 28 个插件包（任务引擎、知识库、规则注入、代码地图、文件摘要、符号规范、会话通道、Markdown 结构 / 文档地图、模板体系、ponytail 等）；集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准，包与能力清单见根 `README.md`「组成」。
+- 边界（沿用既有裁定）：不做跨机传输、不复用系统 Redis、不做离线消息队列、不引入**进程外**常驻守护（进程内定时投递由 `background-daemon` 承担）；需要时先在 `docs/BACKLOG.md` 立项讨论。
 
 ## 2. 方向
 

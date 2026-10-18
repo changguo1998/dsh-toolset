@@ -5,7 +5,7 @@ DSH（DeepSeek Harness）进程内插件：会话级上下文与 token 报告（
 承载两件事：
 
 1. **投影单元 `sessionContext`**（host-only）：折叠会话日志，产出**官方没有的** token 分桶（未缓存输入 / 缓存读 / 缓存写 / 输出，reasoning 为子集）。注册在宿主 `ctx.sessionProjections` 上，由宿主按会话 eager 驱动与持久化缓存（`stateVersion` 变更即丢弃旧行）。回合 / 步 / 墙钟 / 首 token / 解码**不自折叠**，直接读官方 `sessionStats` 投影（2026-10-06 去重）。
-1. **工具 `context_report`** + **服务 `contextReport`**：把上述累计值与宿主 `ctx.tokenMeter` 的即时压力读数合成一份可读报告。
+2. **工具 `context_report`** + **服务 `contextReport`**：把上述累计值与宿主 `ctx.tokenMeter` 的即时压力读数合成一份可读报告。
 
 ## 能力
 
@@ -47,7 +47,7 @@ DSH（DeepSeek Harness）进程内插件：会话级上下文与 token 报告（
 
 bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` / `provide: ["contextReport"]` / `Config` / `apply`。
 
-`inject` 必须显式声明这三个服务：cordis 的 ctx 代理对**未 inject 的服务属性**访问即抛错（`cannot get property "x" without inject`），不能靠「读到 undefined 再降级」；可选服务 `tokenMeter` 经内部 `optionalService` 做存在性探测后访问（未挂载时报告只缺即时读数，会话累计不受影响）。
+`inject` 必须显式声明这三个服务（皆为硬依赖：未装配时 cordis 让本插件保持 pending，工具与 provide 面都不注册，不会出现「工具在但无数据」）：cordis 的 ctx 代理对**未 inject 的服务属性**访问即抛错（`cannot get property "x" without inject`），不能靠「读到 undefined 再降级」；可选服务 `tokenMeter` 经内部 `optionalService` 做存在性探测后访问（未挂载时报告只缺即时读数，会话累计不受影响）。
 
 ## 口径（与宿主对齐）
 
@@ -60,7 +60,7 @@ bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` /
 | 上下文占用（压力 / 容量 / 百分比） | 宿主 `ctx.tokenMeter.measure(session)` | 即时读数 |
 | 最近路由 | 宿主 `Session.requestHeader()` | 即时读数 |
 
-- **官方 `sessionStats` 不在位时**：回合 / 步 / 墙钟整组缺省（报告标注「官方 sessionStats 投影未在位」+「数据缺失不等于 0」），**不回退自折叠**——留一份并行实现正是本次去重要去掉的病灶。
+- **官方 `sessionStats` 不在位时**：回合 / 步 / 墙钟整组缺省（报告标注「官方 sessionStats 投影未在位」+「数据缺失不等于 0」），**不回退自折叠**（来源见上文「口径（与宿主对齐）」的来源表）。
 - **token 分桶**只累计 provider 实际上报的步（`assistant/message.usage`），只在 `step/end` 提交（未闭合的步不计）；`reasoning` 是 `output` 的子集，单独给出且不重复计入总量；全零 usage 视为未上报（不计样本）。
 - **上下文占用**：`projectedTokens` 优先、其次 `pressureTokens`；容量取自宿主 token-meter 的 `contextWindow`（模型路由容量）——容量未知时**不给百分比**，不猜分母。
 - 首 token 均值分母用官方 `ttftSteps`，解码速率用官方 `decodeTokens / decodeMs`（同源，不跨源混算）。
@@ -72,19 +72,12 @@ bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` /
 - 即时读数复用宿主 `ctx.tokenMeter.measure(session)`：宿主未公开 `ContextPressureProjection` 的读面时，退化为 `TokenMeasurement.totalTokens`（请求 + 回复压力）作为压力近似值。
 - `full` 级别的「下次请求构成」（system/tools/messages 三档）需外部提供 `breakdown` 字段（宿主 token-meter 的 `contextBreakdown` 目前无公开读面），缺省时报告明确写「未接入」而不是补零。
 - 不推进 TUI `/stats`：`/stats` 展示的是宿主侧最近一次模型调用；本插件补的是**会话累计**形态，二者口径不同、互不替代。
-- 会话累计依赖宿主装配 `session-projection`（dsh-base 默认装配，fff 已挂，见 `docs/host/HOST-PACKAGES.md`）。该服务在 `inject` 里是**硬依赖**：未装配时 cordis 让本插件保持 pending（工具与 provide 面都不注册），不会出现「工具在但无数据」；报告里的「会话累计：不可用」分支对应另外两种情形——（a）官方 `sessionStats` 单元未挂载（回合 / 步 / 墙钟缺省，token 仍可用），（b）`projection: false` 或该会话读不到本包状态（token 缺省，会话统计仍可用）。
+- 会话累计依赖宿主装配 `session-projection`（dsh-base 默认装配，fff 已挂，见 `docs/host/HOST-PACKAGES.md`；硬依赖与未装配时的 pending 行为见「配置」）。报告里的「会话累计：不可用」分支对应另外两种情形——（a）官方 `sessionStats` 单元未挂载（回合 / 步 / 墙钟缺省，token 仍可用），（b）`projection: false` 或该会话读不到本包状态（token 缺省，会话统计仍可用）。
 
-## 与宿主投影的分工（2026-10-06 已定案并落地）
+## 与宿主投影的分工（2026-10-06）
 
-官方 `session-stats`（投影 `sessionStats`：对话轮次与墙钟）与 `session-turn-outline`（投影 `turnOutline`：回合大纲）两行已挂载（`docs/host/HOST-PACKAGES.md`）。**去重已完成**：本包不再自折叠回合 / 步 / 墙钟，只读官方 `sessionStats`；token 分桶与上下文占用仍是本包独占（`context_report` 是唯一模型工具面）。
-
-| 口径 | 官方投影 | 本包 |
-| --- | --- | --- |
-| 轮次 / 步数 / 墙钟 / 首 token / 解码 | `sessionStats`（服务面读，无模型工具） | **读取方**（不再折叠） |
-| 回合大纲 | `turnOutline` | 不做（新增能力，未立项） |
-| token 分桶 / 上下文占用 / 三档报告 | 无 | 本包独占 |
-
-依据与过程记录见 `docs/archived/2026-10-05-context-report-official-projections.md`（原评估 `docs/ARCHITECTURE-REUSE.md` §4 A 的「并存（需收窄）」已据此收窄完成）。
+官方 `session-stats`（投影 `sessionStats`：对话轮次与墙钟；服务面读、无模型工具）与 `session-turn-outline`（投影 `turnOutline`：回合大纲）两行已挂载（`docs/host/HOST-PACKAGES.md`）。本包只读官方 `sessionStats`（回合 / 步 / 墙钟 / 首 token / 解码），`turnOutline` 未接（新增能力，未立项），token 分桶、上下文占用与三档报告仍本包独占，`context_report` 是唯一模型工具面。
+依据与过程记录见 `docs/archived/2026-10-05-context-report-official-projections.md`。
 
 ## 目录结构
 

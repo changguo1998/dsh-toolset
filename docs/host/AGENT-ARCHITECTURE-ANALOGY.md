@@ -220,7 +220,7 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 ## 12. 存储层次设计：L4 知识库
 
 > 依据：本地实证（context-mode 双 FTS5 + sources 表；hermes-memory 元数据分层 + last_referenced + TRIGGER 写直达 + backfill 兜底）＋外部范式（MemGPT 分页、Cline/Claude Code 文件型记忆库）。
-> 落地：已实现为 `knowledge-base` 插件；表结构与接口细节以 `knowledge-base/docs/DESIGN.md` 与源码为准。
+> 落地：已实现为 `memory-base` 插件（原名 `knowledge-base`）；表结构与接口细节以 `memory-base/docs/DESIGN.md` 与源码为准。
 
 ### 12.1 结构（4 张表 + 双 FTS5 影子表）
 
@@ -296,10 +296,10 @@ run（一次运行/执行实例）      ← 最外层：跑一个任务/程序
 ### 13.3 关键设计决策
 
 1. **帧不背全史**：每帧只携「续体所需最小上下文」；父帧上下文在子帧运行时换出（存储层次 L0→L2），返回时按需恢复——调用栈就是存储层次的热区；
-1. **验证在帧的出入口**：入栈前校验参数，出栈时验收——「每帧边界 + 每步」双层（门禁分布见 §18.3）；
-1. **验收失败不弹栈**：留在帧内修正，或带失败标记返回父帧；
-1. **续体是事件驱动**：子帧完成事件激活父帧，不轮询；
-1. **返回即沉淀**：RET 时把子帧经验写回知识库（§12.2 写回路径）。
+2. **验证在帧的出入口**：入栈前校验参数，出栈时验收——「每帧边界 + 每步」双层（门禁分布见 §18.3）；
+3. **验收失败不弹栈**：留在帧内修正，或带失败标记返回父帧；
+4. **续体是事件驱动**：子帧完成事件激活父帧，不轮询；
+5. **返回即沉淀**：RET 时把子帧经验写回知识库（§12.2 写回路径）。
 
 ## 14. 任务树：树、栈、todo 的一面三体
 
@@ -357,9 +357,9 @@ root                             [ ] root
 核心洞察：**树在分支处天然不相交——不加锁，而是不共享**。
 
 1. **Fork-Join + 工作窃取**（Cilk/TBB/ForkJoinPool）：每执行器一 deque，自己底部 pop（LIFO 局部性），空闲者顶部 steal（偷大子树）；Blumofe-Leisler 定理：T_P ≤ T₁/P + O(T\_∞)；
-1. **所有权原则**（Actor/Erlang）：任一时刻一个帧只属一个执行器，树无锁，协调走消息，steal = 所有权转移；
-1. **join = future/Promise.all**（Kahn 过程网络）：父帧续体在全部子 future 完成时激活；打回重做 = bounded retry（Erlang supervisor 模式），已入 Frame；
-1. 同点并发才需 MVCC/STM/CRDT（Yjs/Automerge 树形 CRDT）——本场景有宿主、所有权清晰，**用不上，省一大块复杂度**；事件日志并发写用单写者 sequencer 或 per-branch 流 + 逻辑时钟合并（`branch_id` = 追踪 span id）。
+2. **所有权原则**（Actor/Erlang）：任一时刻一个帧只属一个执行器，树无锁，协调走消息，steal = 所有权转移；
+3. **join = future/Promise.all**（Kahn 过程网络）：父帧续体在全部子 future 完成时激活；打回重做 = bounded retry（Erlang supervisor 模式），已入 Frame；
+4. 同点并发才需 MVCC/STM/CRDT（Yjs/Automerge 树形 CRDT）——本场景有宿主、所有权清晰，**用不上，省一大块复杂度**；事件日志并发写用单写者 sequencer 或 per-branch 流 + 逻辑时钟合并（`branch_id` = 追踪 span id）。
 
 最简落地：日志记帧事件 + 内存树 + 周期快照；一个就绪池 + N 执行器认领；不加锁、不上 CRDT。
 
@@ -464,8 +464,8 @@ root                             [ ] root
 ### 18.2 三个精确对应
 
 1. **Lisp 同像性（homoiconicity）**：任务树既是**数据**（模型在 decompose 参数里读写 children）又是**代码**（引擎遍历执行）——整套系统等价于一台 Lisp 机：模型是运行时的程序员，引擎是 eval；
-1. **self-writing program**：传统程序的控制流在写码时固定（stored program）；agent 的控制流**运行时生长**——元任务就是"程序写程序"的那半边，比存储程序再高一层；
-1. **ISA 的指令二分**：控制指令 vs 计算指令。agent 的控制指令是数据形态（JSON 子树），**由引擎代为生效**——模型提议控制流，引擎执行控制流。
+2. **self-writing program**：传统程序的控制流在写码时固定（stored program）；agent 的控制流**运行时生长**——元任务就是"程序写程序"的那半边，比存储程序再高一层；
+3. **ISA 的指令二分**：控制指令 vs 计算指令。agent 的控制指令是数据形态（JSON 子树），**由引擎代为生效**——模型提议控制流，引擎执行控制流。
 
 ### 18.3 统一生命周期：两类任务都强制经过
 
@@ -485,6 +485,6 @@ root                             [ ] root
 ## 19. 总结
 
 1. **agent = 一台软件实现的计算机**：CPU（LLM）、存储层次（上下文/记忆）、I/O（工具/互连）、OS（dsh 宿主）、语言（workflow）、进程（会话）、作业系统（glla）。
-1. **分层决定实现边界**：硬件/内核由 dsh 宿主提供；服务层（goal/list/jobs/schedule/audit）用 workflow 语言实现；应用层是具体任务。
-1. **确定性来自结构约束 + 验证裁决**：把"下一步类型"和"细化一层"都变成受 schema 与 validator 双重约束的离散动作；自顶向下靠机械强制（plan 门禁 + 逐层 decompose + 叶子判定 + audit 验收）成为默认路径。
-1. **任务 = 契约（Hoare 三元组）**：what 固定、how 生成；分解双重校验（粒度 + 语义蕴含，coverage 映射），验收按 mechanical/semantic/human 三级路由；两类任务（元/对象）都强制经「推理→裁决→执行→复验→写回」。
+2. **分层决定实现边界**：硬件/内核由 dsh 宿主提供；服务层（goal/list/jobs/schedule/audit）用 workflow 语言实现；应用层是具体任务。
+3. **确定性来自结构约束 + 验证裁决**：把"下一步类型"和"细化一层"都变成受 schema 与 validator 双重约束的离散动作；自顶向下靠机械强制（plan 门禁 + 逐层 decompose + 叶子判定 + audit 验收）成为默认路径。
+4. **任务 = 契约（Hoare 三元组）**：what 固定、how 生成；分解双重校验（粒度 + 语义蕴含，coverage 映射），验收按 mechanical/semantic/human 三级路由；两类任务（元/对象）都强制经「推理→裁决→执行→复验→写回」。

@@ -41,11 +41,11 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 | `sources` | `["assistant-text"]` | 唤醒节点（整回合助手正文） |
 | `delivery` | `"followup"` | 注入路径：作为新回合投递给模型 |
 | `dedupeInRecord` | `0` | 按记录去重上限；0 = 不限次（每次出现不一致都注入） |
-| `maxTables` | `5` | 每条反馈最多列出几个表格；`0` = 不设上限（全部列出） |
-| `maxRowsPerTable` | `3` | 每张表最多列出几行不一致；`0` = 不设上限（全部列出） |
+| `maxTables` | `5` | 每条反馈最多列出几个表格（`0` 口径见下「上限为 0 的口径」） |
+| `maxRowsPerTable` | `3` | 每张表最多列出几行不一致（同上） |
 
 `src/checker.ts` 另外导出纯函数 `checkTables` / `renderFeedback` / `splitCells` / `hasCellPipe` 与
-`CheckOptions.headerExcerptLimit`（缺省 60，`0` = 不截断）；判定核心无依赖、无 IO，可被展示层单独复用。
+`CheckOptions.headerExcerptLimit`（缺省 60，`0` 口径见下「上限为 0 的口径」）；判定核心无依赖、无 IO，可被展示层单独复用。
 
 ## 边界（明确不做）
 
@@ -55,41 +55,27 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 
 ## 已核查形态（2026-10-16）
 
-逐形态实跑并落断言（`tests/checker.test.ts` 的「漏检形态筛查」用例组 + `tests/tuiParity.test.ts` 互证 ⑤
-
-- `tests/formMatrixSnapshot.test.ts` 的 20 形态快照）:
+逐形态实跑并落断言（`tests/checker.test.ts` 的「漏检形态筛查」用例组 + `tests/tuiParity.test.ts` 互证 ⑤ + `tests/formMatrixSnapshot.test.ts` 的 20 形态快照）:
 
 | 形态 | 结论 |
 | --- | --- |
-| 仅数据行列数不符（表头与分隔行一致） | 报 |
+| 仅数据行列数不符（表头与分隔行一致）/ 表头与分隔行一致但**少于**数据行 | 报（TUI 会忽略多格 / 补空缺格） |
 | 分隔行与数据行**同时**不符 | 报两处, 按行号排序（分隔行在前） |
-| 同一回复多张表（隔行 / 隔多行） | 逐张报, 受 `maxTables` 上限约束 |
-| 相邻两表（无间隔） | 与 TUI 同判为**一张表**并报出（连续带竖线的行收进同一张表） |
-| 表格在回复末尾（无尾随空行） | 报 |
-| 单元格含转义竖线 `\|` | 不切分; 列数一致即不报 |
-| 数据行 / 分隔行含转义竖线 `\|` | 按实际格数判（`1 \| 2` 是 1 格）; 分隔行的格子不是 `:?-+:?` 形状时整块不算表 → 不误报 |
+| 同一回复多张表（隔行 / 隔多行）/ 相邻两表（无间隔） | 逐张报, 受 `maxTables` 上限约束；相邻两表与 TUI 同判为**一张表**（连续带竖线的行收进同一张表） |
+| 表格在回复末尾（无尾随空行）/ 位于回复首行（前面无空行） | 报；首行时照常检查（表头行号 = 1） |
+| 单元格含转义竖线 `\|` / 数据行、分隔行含转义竖线 `\|` | 不切分, 列数一致即不报；按实际格数判（`1 \| 2` 是 1 格）；分隔行的格子不是 `:?-+:?` 形状时整块不算表 → 不误报 |
 | 表头含**行内代码里的竖线** | 按字面切分 → 多报一处（**已裁定不修**: 保持与 TUI 同口径, 不做代码跨度感知; **代价** = 代码跨度内的 `|` 会多报） |
-| 表格位于围栏代码块内 | 不报（闭栅后的真表格照常检查） |
-| 围栏变体（```` ```js ```` info string / 1-3 空格缩进围栏 / 四反引号 / `~~~`） | 围栏内不报; 闭栅后照常检查（围栏判定用与 TUI 同源的 `FENCE_RE`; 4 空格缩进不算围栏 —— 只认 0-3 空格） |
-| 围栏**混用标记**（```` ``` ```` 开 / `~~~` 闭） | 栅栏行**无条件翻转**（与 TUI `build-box.ts:702-708` 同口径, 2026-10-16 裁定对齐）→ 混用标记也能闭合, 闭栅后的内容照常检查 |
+| 表格位于围栏代码块内 / 围栏变体（```` ```js ```` info string / 1-3 空格缩进围栏 / 四反引号 / `~~~`）/ 围栏**混用标记**（```` ``` ```` 开 / `~~~` 闭） | 围栏内不报, 闭栅后照常检查（`FENCE_RE` 与 TUI 同源; 4 空格缩进不算围栏 —— 只认 0-3 空格; 混用标记也能闭合: 栅栏行**无条件翻转**, 与 TUI `build-box.ts:702-708` 同口径） |
 | 分隔行带对齐标记（`:--` / `:-:` / `--:`） | 对齐标记本身不触发; 只看列数 |
-| 表头与分隔行一致但**少于**数据行 | 报（TUI 会忽略多格 / 补空缺格） |
 | 分隔行不足 2 单元格（极短表） | 报; 单列表且列数一致时不报 |
 | 表头与分隔行之间**有空行** | **不检出**（不算表; TUI 亦不认表）—— 2026-10-16 已裁定不检出, 条目转「已裁定不做」备查 |
 | 行尾裸 `\`（转义吞字符到行尾） | 不抛; 切分与 TUI 同形（`splitCells("a\\") === null`、`hasCellPipe("a\\") === false`） |
-| 引用块内的表格 | 不报（TUI 引用分支走行内解析, 口径一致） |
-| 列表项内缩进表格 | 报 |
-| 表格位于回复首行（前面无空行） | 照常检查（表头行号 = 1） |
+| 引用块内的表格 / 列表项内缩进表格 | 不报（TUI 引用分支走行内解析, 口径一致）/ 报 |
 
 ### 上限为 0 的口径（2026-10-16 起：0 = 不设上限）
 
-- 三个上限参数（`maxTables` / `maxRowsPerTable` / `headerExcerptLimit`）**统一**：`0` = **不设上限**
-  ——`maxTables: 0` 列出全部问题表格、`maxRowsPerTable: 0` 列出每张表的全部不一致行、
-  `headerExcerptLimit: 0` 表头摘录不截断；未设 / 负数 / `NaN` 等非法值回退缺省 `5` / `3` / `60`。
+- 三个上限参数（`maxTables` / `maxRowsPerTable` / `headerExcerptLimit`）**统一**：`0` = **不设上限** —— `maxTables: 0` 列出全部问题表格、`maxRowsPerTable: 0` 列出每张表的全部不一致行、`headerExcerptLimit: 0` 表头摘录不截断；未设 / 负数 / `NaN` 等非法值回退缺省 `5` / `3` / `60`。
 - 实现 = `src/checker.ts` 的 `limitOrInfinity()`（有限非负数按值、`0` 取 `Infinity`、非法值回退缺省）。
-- 沿革：2026-10-16 之前 `0` 被当作合法上限 0 —— `maxTables: 0` 使 `tables` 列表恒空 →
-  `renderFeedback` 返回 `null`（而 `tableTotal` / `lineTotal` 仍全量计数）→ 产品面静默且语义分裂；
-  当日用户裁定统一为「不设上限」。
 
 ## 开发
 
@@ -130,5 +116,5 @@ TUI 源码不在时（独立分发场景）其用例自动跳过。`integration.
 该文件会变红，属有意的漂移提醒（需重新复刻并对拍）。
 
 接线：根 `package.json` 的 check/build 链、`scripts/test-parallel.sh`、`scripts/install.sh`
-（`canonical_pkgs`）与根 `README.md` / `AGENTS.md` 的包清单；条目与追踪文档见项目级
-`docs/BACKLOG.md` 与 `docs/implementation/`。
+（`canonical_pkgs`）与根 `README.md` / `AGENTS.md` 的包清单；条目见 `md-table-check/docs/BACKLOG.md`，追踪文档见
+`md-table-check/docs/archived/`。

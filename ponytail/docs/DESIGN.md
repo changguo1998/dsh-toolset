@@ -1,6 +1,6 @@
 # ponytail 设计（@dsh-toolset/ponytail）
 
-契约与用法见 `../README.md`；上游调研与方案取舍见 `docs/ponytail-investigation.md`（项目级，仓库根）。
+契约与用法见 `../README.md`；上游调研与方案取舍见 `docs/ponytail-investigation.md`（项目级，本仓 `docs/` 下）。
 
 ## 目标与边界
 
@@ -19,8 +19,8 @@
 ## 关键设计取舍
 
 1. **注册为 rule-engine 消费者**（对齐 `symbol-normalizer` 先例）：注入交给 rule-engine 统一调度（去重 / 冷却 / 投递），本包不自造注入面。
-1. **默认开启**（2026-10-05 起）：`karpathy-guidelines` 已从默认注入取消，编码行为由本插件承担；`config.enabled: false` 可关闭。
-1. **`delivery: "steer"`**（缺省）：挂到最近 pre-step 并唤醒（`inject` 不唤醒，真机 agent 非 live 时会被丢弃）。
-1. **缺省 `sources: ["session-start", "step-end"]`**：会话起始注入一次；`step-end` 作兜底（session-start 时 agent 非 live 会跳过投递），`dedupeInRecord: 1` 防重复（记录 = 可见投影 + 未消费 inbox）。
-1. **rule-engine 缺席 fail-soft**：告警一次 + 不注册，绝不抛到宿主（对齐本仓既有姿态）。
-1. **文本自带副本**（不运行时读上游仓）：避免外部路径依赖；上游更新需人工同步并改 `tests` 关键词断言。
+2. **默认开启**（2026-10-05 起，见 `../README.md` 开头）：编码行为由本插件承担；`config.enabled: false` 可关闭。
+3. **`delivery: "steer"`**（缺省）：挂到最近 pre-step 并唤醒（`inject` 不唤醒，真机 agent 非 live 时会被丢弃）。
+4. **缺省 `sources: ["session-start", "step-end"]`**：会话起始注入一次；`step-end` 作兜底（session-start 时 agent 非 live 会跳过投递），`dedupeInRecord: 1` 防重复（记录 = 可见投影 + 未消费 inbox）。
+5. **服务面守卫 fail-soft**：`ctx.ruleEngine` / `ctx.get("ruleEngine")` 取不到或没有 `registerConsumer` → 告警一次 + 不注册，绝不抛到宿主（cordis 下 `inject` 已保证规则引擎就绪，该守卫只覆盖非 cordis 宿主与半装配的服务面）。
+6. **文本自带副本**（不运行时读上游仓）：避免外部路径依赖；上游更新需人工同步并改 `tests` 关键词断言。

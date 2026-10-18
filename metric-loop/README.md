@@ -60,17 +60,12 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 | 驱动源 | 模型调 `metric_loop`，每轮显式 `tick`（可经 schedule 提示唤醒） | 宿主事件：agent idle 时排 goal-round | 模型调 `ralph`，**前台阻塞**至结算 |
 | 前置条件 | 无（新建循环即可） | **需已建 goal 且 `activation === "armed"`**（resume / fork 后 disarmed） | 无 |
 | 测量与收敛 | **有**：测量命令 + best / streak / plateau | 无（模型自判） | 无（worker 自报） |
-| 停止边界 | plateau / maxRounds / time / tokens / manual | complete / paused / blocked / 轮上限 | complete / blocked / 轮上限 |
+| 停止边界 | 见上 | complete / paused / blocked / 轮上限 | complete / blocked / 轮上限 |
 | 跨进程状态 | **有**（JSON 状态文件，原子写 + schema 版本） | 无（activation 仅进程内） | 无（工作区即长期记忆） |
 | 轮间共享 | 同一会话 + 状态文件 | 同一会话 | 仅一份有界结构化报告（每轮全新子 agent） |
 | 本项目当前是否在位 | 是（本仓插件） | 是（`dsh-base` 装配） | **否** —— base 默认 `disabled: true`（`dsh-base/cordis.patch.yml:447-449`），一行 overlay（`- id: tool-ralph` + `disabled: false`）可恢复 |
 
-**本项目口径（裁定 A）**：
-
-- 要**按指标收敛**的长跑（有可测目标数字、按方向比较、plateau 自动收手、跨进程续跑）→ 用本包；这三项官方两条都没有。
-- 要**同一个 goal 的自主多轮推进**（目标是完成一件事，而不是优化一个数字）→ 用官方 goal + `goal-round-driver`；本包不参与。
-- `tool-ralph` **本项目不启用**：每轮全新子 agent、跨轮只传一份结构化报告，且完成 / 受阻是 worker 自报而非独立评估；即使用也需人明确要求，且与本包的指标循环不是同类能力。
-- 建议**不把两条循环叠在同一个目标上**：同一目标同时挂本包与 goal 续轮会形成两条互不知情的推进链，各有独立停止条件，收敛语义无法归因。
+**本项目口径（裁定 A）**：要**按指标收敛**的长跑（有可测目标数字、按方向比较、plateau 自动收手、跨进程续跑）→ 用本包（这三项官方两条都没有）；要**同一个 goal 的自主多轮推进**（目标是完成一件事，而不是优化一个数字）→ 用官方 goal + `goal-round-driver`，本包不参与；`tool-ralph` **本项目不启用**（每轮全新子 agent、跨轮只传一份结构化报告，完成 / 受阻是 worker 自报而非独立评估，即使用也需人明确要求，与本包的指标循环不是同类能力）；建议**不把两条循环叠在同一个目标上**（同一目标同时挂本包与 goal 续轮会形成两条互不知情的推进链，各有独立停止条件，收敛语义无法归因）。
 
 ## 边界与限制
 
@@ -78,18 +73,10 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
-- **命令执行前的安全复查**（2026-10-02；分工与留痕口径同日硬化）：复查按**命令来源**分工，结果里的
-  `guardScope` 标明本轮走的是哪一侧 ——
-  - `measureCmd` 来自**工具入参**（`action=start`）：已由 security-guard 的 `tools/pre-execute` 覆盖 →
-    工具层显式声明 `guardScope: "tool-args"`，引擎内**不重复判定**（同一命令不会在 guard 的 `recent()` 里
-    落两条记录）；
-  - 命令来自**状态文件**（`tick` 执行 `spec.measureCmd`）：pre-execute 看不到它 → 引擎内复查
-    （`guardScope: "engine-side"`；与 `bash` 同一套命令黑名单 / 敏感层，`allowPatterns` 生效），命中即不测量、不落盘。
-    直连 `MetricLoopController.start()` / `createController()`（不经工具面）时 `guardScope` 缺省仍是
-    `engine-side` —— 有复查器就复查，不给 D2 留空洞（`createController()` 默认不接线复查器）。
-    **复查不可用时可见（D1）**：guard 未挂载 / 复查抛错 → **fail-open 照常测量**（每种失效模式只告警一次，
-    原先抛错是每轮都告警），但结果会标 `guardSkipped: true` 且 `summary` 写明「本轮命令未复查即执行」；
-    未接线（无复查器）的路径不标 `guardSkipped`（那属于「没接线」，不是「复查失败」）。
+- **命令执行前的安全复查**（2026-10-02；分工与留痕口径同日硬化）：复查按**命令来源**分工，结果里的 `guardScope` 标明本轮走的是哪一侧 ——
+  - `measureCmd` 来自**工具入参**（`action=start`）：已由 security-guard 的 `tools/pre-execute` 覆盖 → 工具层显式声明 `guardScope: "tool-args"`，引擎内**不重复判定**（同一命令不会在 guard 的 `recent()` 里落两条记录）；
+  - 命令来自**状态文件**（`tick` 执行 `spec.measureCmd`）：pre-execute 看不到它 → 引擎内复查（`guardScope: "engine-side"`；与 `bash` 同一套命令黑名单 / 敏感层，`allowPatterns` 生效），命中即不测量、不落盘；直连 `MetricLoopController.start()` / `createController()`（不经工具面）时 `guardScope` 缺省仍是 `engine-side` —— 有复查器就复查，不给 D2 留空洞（`createController()` 默认不接线复查器）；
+  - **复查不可用时可见（D1）**：guard 未挂载 / 复查抛错 → **fail-open 照常测量**（每种失效模式只告警一次，原先抛错是每轮都告警），但结果会标 `guardSkipped: true` 且 `summary` 写明「本轮命令未复查即执行」；未接线（无复查器）的路径不标 `guardSkipped`（那属于「没接线」，不是「复查失败」）。
 - metricless 循环不判 plateau，只按轮数/时间/token 边界或手动停止。
 
 ## 相关文档

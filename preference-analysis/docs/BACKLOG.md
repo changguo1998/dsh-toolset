@@ -10,7 +10,7 @@
 ## 已裁定不做（备查，首期）
 
 - **TUI 面板 / `/prefer` 命令**：首期零 TUI 改动，审阅靠 `preference_list`、撤销靠 `preference_remove`
-  （详见 `docs/implementation/2026-10-16-preference-analysis-design.md` D17）。
+  （详见 `docs/archived/2026-10-16-preference-analysis-design.md` D17）。
 - **写 `AGENTS.md`**：改仓内文件需用户批准、留 diff 噪声；首期只做注入，追加路径二期另议。
 - **LLM 归纳与冲突自动检测**：宿主无公开 `ctx.llm`，接 LLM 等于新建契约；统计判定先落地，
   文案润色留注入口（D4）。

@@ -27,7 +27,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 | `wiki` | `[[Target]]` / `[[Target\|文本]]` / `[[Target#anchor]]`（先按 root 相对、再按源文件目录相对解析） |
 | `file` | 目标存在但不是 `.md`（对代码 / 文件的引用、目录引用） |
 | `external` | 站外目标（任意 `scheme:` 前缀，如 `http(s)` / `mailto:` / `tel:`；含协议相对 `//`） |
-| `ref` | **行内代码里的路径引用**（如 `` `docs/BACKLOG.md` ``）：按候选序解析（候选序：root 相对 → 源目录相对；多解优先源目录形态，与 wiki 同解），只认能解析到索引内文档的 token（root 相对 / 源目录相对 / 目录形态），无解再试目录形态的磁盘兜底；**未命中不产边、不计断链**（示例路径不该变噪声），仅计入 `refUnresolved`（report 露出的漂移探针——文档改名 / 写错路径时升高）。默认计入内部边 / backlinks / impact；需要「文档链接」语义时用 `kind` 过滤（如 `["internal","wiki"]`）。**三处补口（2026-10-04）**：① `` `x.md#sec` `` 先拆锚点（`#sec` 是锚点不是路径），边落 `x.md` 并带上锚点（锚点参与校验，缺失计 `missing-anchor`）；② 目录形态 token（`` `docs/archived` ``，尾斜杠由扫描器剥掉）在索引内无 md 命中时按**磁盘存在**落 `file` 边，不再一律计入未解析（md 文件形态**不做**磁盘兜底，避免绕过 `exclude`）；③ 跨模块**裸名**（`` `SPEC.md` ``）在候选序（root / 源目录）全不中时，按「索引里**唯一**同名文档」兜底——多个同名不猜，仍计未解析 |
+| `ref` | **行内代码里的路径引用**（如 `` `docs/BACKLOG.md` ``）：按候选序解析（root 相对 → 源目录相对；多解优先源目录形态，与 wiki 同解），只认能解析到索引内文档的 token（目录形态按磁盘存在落 `file` 边）；**未命中不产边、不计断链**（示例路径不该变噪声），仅计入 `refUnresolved`（report 露出的漂移探针——文档改名 / 写错路径时升高）。默认计入内部边 / backlinks / impact；需要「文档链接」语义时用 `kind` 过滤（如 `["internal","wiki"]`）。**三处补口**（锚点拆分 / 目录形态落 `file` / 唯一同名兜底）见 `docs/DESIGN.md` §4 |
 | `broken` | 目标不存在（`missing-file`）/ 锚点不存在（`missing-anchor`）/ 指向仓库外（`outside-root`） |
 
 不计为关系边：**图片**（`image`，资产引用）与**引用式定义声明**（`definition`，`[tag]: url` 是目标声明而不是引用）。
@@ -68,9 +68,11 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 输出形如：
 
 ```
-已索引：204 个文档 / 1841 个锚点 / 1404 条内部边 / 1 条断链（约 250 ms）   ← 对本仓自身的快照（2026-10-02 接入 ref 后重测；同日接入前为 197 文档 / 1778 锚点 / 2 条内部边 / 1 条断链）
+已索引：N 个文档 / N 个锚点 / N 条内部边 / N 条断链（另附耗时）
 root：/path/to/repo
 ```
+
+具体数字随仓库增长必然漂移，故此处只给字段形态；以实际 `index` 输出为准。
 
 ```
 引用 docs/a.md 共 3 处：
@@ -81,14 +83,10 @@ README.md:4 → internal#小节 “A 的锚点”
 
 ## 边界与限制
 
-- **只读**：不写任何文件；每次 `index` 全量扫描（不做增量 / 文件监视）。
-- **跨类型引用不做**：代码 / 配置反向引用到文档（「哪些源码引用了这份文档」）未实现（见 `docs/DESIGN.md` §8「明确不做」；原 BACKLOG 条目已关闭，本模块 `docs/BACKLOG.md` 现无未完成项）。
-- **自引用口径**：自引用出现在 `callers` 里，但**不计入 backlinks**（避免「自己引用自己 → 不是孤儿」的假阴性）。
-- **示例性链接会被计为引用**：行内代码里的语法（`` `[[Target]]` ``）已剥离，但写在正文里的示例（如「形如 `[CHANNEL](来源) 正文`」）仍算一条真实引用——真实仓库实测有 1 例。
-- **代码区识别**：用「围栏状态机（带**容器缩进栈**：列表 / 引用内围栏按相对容器 ≤3 空格判定，空行不结束容器）+ **跨行 code span** 剥离（等长反引号闭合，闭合后同行内容继续参与扫描）+ `md-logic` 的 code / frontmatter / html 块」四者并集；围栏行先掩码再剥行内代码，避免围栏反引号污染 span 状态。
-- **覆盖「行内代码里的路径」**（2026-10-02 接入）：本仓文档习惯用 `` `docs/BACKLOG.md` `` 这类写法而非 Markdown 链接；现解析为 `kind:"ref"` 边（源目录优先；未命中不产边、不计断链，仅计入 report 的未解析计数），故内部边 / 孤儿 / 被引最多的数字有实质信息量（本仓：内部边 2 → 1404，孤儿 180 → 96）。ref 会稀释「文档链接」语义，用 `callers` / `impact` 的 `kind` 过滤分离。
-- **锚点**：GitHub 风格 slug（小写、去标点、空格转 `-`、重名加 `-1`）；不支持 `{#custom}` 与 HTML 锚点。
-- **依赖与安装**：`@dsh-toolset/md-logic` 以 `link:../md-logic` 引入（与 `code-map` 依赖 `ast-tools` 同款）。**`npm install` 不支持 `link:` 协议**，故本包用 **pnpm**：`pnpm install`（`scripts/install.sh` 对声明 `link:` 的包自动改走 pnpm；无 pnpm 时脚本会明确报错而不是静默失败）。lockfile 为 `pnpm-lock.yaml`（与 `code-map` 同款）。手工兜底：`mkdir -p node_modules/@dsh-toolset && ln -sfn ../../../md-logic node_modules/@dsh-toolset/md-logic` + 自备 `typescript` / `@types/node`。
+- **只读、全量重建**：不写任何文件；每次 `index` 全量扫描（不做增量 / 文件监视）；代码区识别 = 围栏状态机（带容器缩进栈）+ 跨行 code span 剥离 + `md-logic` 的 code / frontmatter / html 块四者并集。
+- **自引用与示例链接**：自引用出现在 `callers` 里但**不计入 backlinks**（避免「自己引用自己 → 不是孤儿」的假阴性）；行内代码里的语法（`` `[[Target]]` ``）已剥离，但正文里的示例仍算真实引用（真实仓库实测有 1 例），需要「文档链接」语义时用 `kind` 过滤分离。
+- **ref 边与跨类型**：本仓文档习惯用 `` `docs/BACKLOG.md` `` 这类写法，现解析为 `kind:"ref"` 边（源目录优先；未命中不产边、不计断链，仅计入 report 的未解析计数），内部边 / 孤儿 / 被引最多的数字因此才有实质信息量；代码 / 配置反向引用到文档（「哪些源码引用了这份文档」）未实现（见 `docs/DESIGN.md` §8）。
+- **锚点与安装**：锚点用 GitHub 风格 slug（小写、去标点、空格转 `-`、重名加 `-1`），不支持 `{#custom}` 与 HTML 锚点；`@dsh-toolset/md-logic` 以 `link:../md-logic` 引入（与 `code-map` 依赖 `ast-tools` 同款），`npm install` 不支持 `link:` 故用 pnpm：`pnpm install`（`scripts/install.sh` 自动改走 pnpm，无 pnpm 时明确报错），lockfile 为 `pnpm-lock.yaml`，手工兜底 `mkdir -p node_modules/@dsh-toolset && ln -sfn ../../../md-logic node_modules/@dsh-toolset/md-logic` + 自备 `typescript` / `@types/node`。
 
 ## 测试
 
@@ -110,6 +108,6 @@ npm run test    # node --test（49 例：锚点 / wiki / 目标解析 / 索引�
 | `src/service.ts` | 服务面：持有最近一次索引（`createMdMapService`） |
 | `src/tools.ts` | 模型侧工具 `md_map`（action 分派 + 参数校验 + 渲染接线） |
 | `src/types.ts` | 数据模型（文档 / 锚点 / 边 / 断链 / 索引 / 选项） |
-| `tests/*.test.ts` | 单测（49 例） |
+| `tests/*.test.ts` | 单测（见「测试」） |
 
 模块文档：架构与机制见 `docs/DESIGN.md`；未完成项见 `docs/BACKLOG.md`；变更过程与已关闭条目见 `docs/archived/`。

@@ -46,7 +46,7 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 # 2026-10-02 挂载面扩张 +10：file-reference-local invariants message-feedback session-reference session-stats session-turn-outline terminal terminal-bash workspace workspace-changes
 ```
 
-其中 **99 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 18 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现，故 2026-10-02 扩张后实测名字项为 103 = 102 + 1 → 按 §0 判定细则修正为 101 = 100 + 1；口径见 §6）。
+其中 **99 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（会话标题 provider，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 29 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现，故 2026-10-02 扩张后实测名字项为 103 = 102 + 1 → 按 §0 判定细则修正为 101 = 100 + 1；口径见 §6）。
 
 > 2026-10-02 已升级到 `0.2.0-rc.2` 并实测：比 0.1.7 多出的正是 `otel`（`dsh-base` 新增 `- id: otel`，服务 `ctx.otel`），其余 91 个逐项不变。
 > 同日挂载面扩张（`~/.dsh/profiles/fff/cordis.patch.yml` 追加一个 `- insert:` 块）再 +10 个：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`（全部为投影 / 服务 / 事件面扩展，不改模型工具面；健康检查：dump 124 行、0 条 `patch: entry` 告警）。**注（2026-10-04 更正）**：当时「PTY 真机启动无激活告警」是**假通过**——`message-feedback` 的 `Config.maxNoteBytes` 自 0.1.7-rc.2 起即 `.required()`，缺 `config` 必报 `1 entry did not activate`；该行现补 `config: maxNoteBytes: 8192`（对齐上游 `dsh-web-app` 同款行），隔离 `DSH_HOME` 克隆真机 A/B 已复现并确认修复（A：告警 1 条；B：0 条）。该服务当前无消费者（Web bundle 的浏览器对话框才用它），本仓 TUI-only 下按「尽量挂」保留。
@@ -481,10 +481,10 @@ typert-registry user-approval user-questions web web-fetch-http web-search-deeps
 
 ## 5. 对本项目的落点
 
-- **本项目 20 个包不在这 287 个里**：`@dsh-toolset/*`（TUI + 19 个进程内插件）以 `link:` 依赖 + bundle 行挂进 profile（`package.json` 的 `dsh.profile.bundles` + 各自的 `cordis.patch.yml`），与官方包「已装但未挂载」的形态不同。
+- **本项目 29 个包不在这 287 个里**：`@dsh-toolset/*`（TUI + 28 个进程内插件）以 `link:` 依赖 + bundle 行挂进 profile（`package.json` 的 `dsh.profile.bundles` + 各自的 `cordis.patch.yml`），与官方包「已装但未挂载」的形态不同。
 - **我们 inject / 读取的宿主服务**：`inject` 里显式声明 6 个——`tools`（全部工具注册）、`agents`、`sessions`、`sessionProjections`（context-report 的 `sessionContext` 投影）、`userQuestions`、`goals`；其余经 `ctx.get()` 读取——`jobs`、`commands`、`sessionQuery`、`sessionTitle`、`skills`、`subagents`、`llm`（含 `agentDefaultModel`）、`agentPresets`、`settings`、`permissionPresets`、`web`、`workflowEngine`、`lsp`；另有事件面消费（TUI 订 `approval/policy`、`skill/*` 等）。`slots` 零引用（客户端面）。接口怎么用见 `docs/host/DSH-CTX-API.md`；0.1.7 的逐项兼容判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §3.2。
 - **启用未挂载的官方包不需要安装**：包已随 dsh 装在共享 `node_modules`，在 profile 的 `cordis.patch.yml` 加一行（或 `dsh plugin --profile <p> add <包名>`）即可。例外是 §4 的「源码有、不分发」包与树外加装包——那些要自己装。
-- **升级注意（0.2.0 的事实，2026-10-02 核对）**：服务面 +2（`ctx.otel`、`ctx.productAnalytics`）、无删除改名；模型可见工具零增删（默认组合下 `ask_user_question` 的 schema 未变——timed 是官方行 config，不是模型参数；`bash` / `pwsh` / `cordis_inspect_query` 仅描述变化）；事件面零增删；会话格式仍为 V4；`dsh-base` 新增 `otel` 行。本仓 17 个插件**不需要改代码**（消费的服务面实现零 diff），只需部署面动作。逐条对照见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`。
+- **升级注意（0.2.0 的事实，2026-10-02 核对）**：服务面 +2（`ctx.otel`、`ctx.productAnalytics`）、无删除改名；模型可见工具零增删（默认组合下 `ask_user_question` 的 schema 未变——timed 是官方行 config，不是模型参数；`bash` / `pwsh` / `cordis_inspect_query` 仅描述变化）；事件面零增删；会话格式仍为 V4；`dsh-base` 新增 `otel` 行。本仓 28 个插件**不需要改代码**（消费的服务面实现零 diff），只需部署面动作。逐条对照见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`。
 - **升级注意（0.1.7 的事实）**：
   - `codeRuntime` → `ptcRuntime`：服务改名，且 `run(request)` 拆成 `resolve(request) → spec` + `run(spec)`（Node 提供方要求 spec 带 `cwd` / `sandboxPolicy`）。output-compress 已改为反射 `ptcRuntime` 并保留 `codeRuntime` 回退（双栈过渡）。
   - `dsh-settings-file` 删除：settings 命名空间改为 **profile 插件条目 id**，写入落 profile 的 `cordis.patch.yml`；旧 `~/.dsh/settings.yaml` 退化为一次性导入源（启动时改名 `.imported` 逐段导入，无对应条目的段 warning 后丢弃）。fff 首次启动已把 `agent-default-model` / `llm-pi-ai` 段落进 profile patch。

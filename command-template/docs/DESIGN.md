@@ -39,7 +39,7 @@
 - `runTemplate` 顺序执行步骤，每步产出文本进入 `results`（供 `{{stepId}}` 引用）与 `RunOutcome.steps`（失败时带**已完成部分**）。
 - `prompt` 步 = `deps.injectPrompt(text)`（注入当前会话，零耗时）；`agent` 步 = `deps.runAgent(text, {model, timeoutMs})`（一次性子代理，模型取步级 → 模板级 → 会话默认）。
 - `bestOf > 1`：`Promise.all` 并行跑 N 个候选（上限 `maxBestOf`）；有 `judge` → 裁判步（也走 `runAgent`）从候选中选最佳并标记 `judged`；无 `judge` → 取首个成功；**全灭 → `step_failed` 并带首个候选的错误**（错误面收口成一条可读原因）。
-- **总预算是「启动闸门」不是 deadline**：`budgetOrInfinity(options)`（`effectiveBudget` = `totalTimeoutMs ?? maxSteps × stepTimeoutMs`，非正 / 非有限 → 不设）决定剩余预算；预算不足**不再启动新 agent 步**，每步有效超时 = `min(stepTimeoutMs, 剩余)`；超限 → `run_timeout`，文案带已用 / 预算 ms 与已完成步。`/playbook show` **复用 `budgetOrInfinity`**（显示生效值与来源；`effectiveBudget` 是它内部的一步），避免「显示的预算」与「实际生效的预算」两套算法漂移。
+- **总预算的实现收口**（公式与「启动闸门」语义见 `README.md` 配置表的 `totalTimeoutMs`）：`budgetOrInfinity(options)` 内部先算 `effectiveBudget()`、再做「非正 / 非有限 → 不设预算」归一；运行侧与 `/playbook show` **共用这一处**（显示生效值与来源），避免「显示的预算」与「实际生效的预算」两套算法漂移。
 
 ## 6. 宿主面（`src/subagent.ts` / `src/host.ts`）
 

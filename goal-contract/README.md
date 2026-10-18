@@ -10,7 +10,7 @@ DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-a
 | --- | --- |
 | `objective` | 目标描述（预填；缺省时访谈提问）。**首行必须是一句话概括**且 **≤40 显示列**（约 20 个汉字 / 40 个英文字符）——状态列只显示首个逻辑行（行数由列宽决定，不截断），全文经宿主 `/goal` 命令输出读；超限在起草阶段报错（访谈路径重问、预填路径直接失败）。不得包含独占一行的 `Done-when:` |
 | `clauses` | 结构化条款预填：`[{ id, check, level, command?, outputSchema? }]`（输入 `output_schema` 亦可，归一为 `outputSchema`） |
-| `clauses_text` | 自由文本条款（每行一条：`描述`、`描述 → 命令` 或 `[<level>] 描述`）；与 `clauses` 二选一 |
+| `clauses_text` | 自由文本条款（每行一条；行格式与解析口径见下文「`clauses_text` 与访谈自由文本的解析口径」）；与 `clauses` 同给时 `clauses` 优先、`clauses_text` 被静默忽略（不报错） |
 | `max_goal_rounds` | goal 回合上限（正整数；缺省不传、由宿主决定，自动化场景建议给小值） |
 
 行为：`objective` 与条款齐备时直接创建（非交互路径）；缺任一则逐题访谈（目标 → 条款 → 确认），同阶段校验失败最多重问 3 次（含「首行概括 > 40 显示列」），确认题选「取消」即中止。创建成功后回读 `ctx.goals.get(agent)`，解析 Done-when 段并与起草条款比对，返回：
@@ -72,7 +72,7 @@ dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/task-engine@lin
 
 ## 边界与限制
 
-- 只负责「起草 → 落 goal → 条款回读」；条款的判定执行（mechanical 跑命令 / semantic 审计 / human 审批）由 task-engine 的验收阶段承担。
+- 只负责「起草 → 落 goal → 条款回读」；条款的判定执行由 task-engine 的验收阶段承担（三级语义与分工见上文「条款 schema 对齐 task-engine」段）。
 - 只经模型工具 `goal_contract_draft` 暴露能力：不注册 slash 命令、不 provide ctx 服务（`goalContract` 取不到，TUI `/contract` 走内置同构回读）、无 CLI / 面板面。
 - 不写 task-engine 的服务面，包间无 `link:` 依赖；运行期零依赖（`dependencies` 为空）。
 - 一个会话同时只有一个 goal：`create` 撞上既有 goal 时把宿主错误码（如 `GOAL_ALREADY_EXISTS`）包进 `ok: false` 返回，不自动覆盖 / 追加。
@@ -108,6 +108,6 @@ goal-contract/
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm run test    # node --test（37 例：clauses 8 / contract 9 / interview 7 / tool 13——访谈状态机 / 条款校验 / 落 goal 与回读）
+npm run test    # node --test（41 例：clauses 8 / contract 11 / interview 8 / tool 14——访谈状态机 / 条款校验 / 落 goal 与回读）
 npm run smoke   # 真实 dsh 会话联调（需 dsh 0.2.0-rc.2 与模型凭据）
 ```

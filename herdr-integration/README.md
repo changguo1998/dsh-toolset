@@ -4,7 +4,7 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 
 ## 能力
 
-- **状态上报**：订阅 `agent/status`，按根 agent（`ctx.get('agents').roots()`）的实时状态推导并上报 `working` / `blocked` / `idle`；启动时同步既有根 agent 并强制上报一次。同状态 + 同 message 不重复发送（去抖）。
+- **状态上报**：订阅 `agent/status`，按根 agent（`ctx.get('agents').roots()`）的实时状态推导并上报 `working` / `blocked` / `idle`；启动时同步既有根 agent 并强制上报一次。同状态 + 同 message 不重复发送（去抖）；周期强制重发会跳过同态判断。
 
 - **blocked 事件桥**：三类来源各自计数，任一 pending 即上报 `blocked`，全部解除才回落：
 
@@ -22,11 +22,9 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 
 - **退出释放**：`dispose` 与进程 `exit` 时发 `pane.release_agent`（退出路径用同步子进程尽力送达），避免 dsh 退出后面板残留本 agent。
 
-- **协议**：unix socket（Windows 为 `\\.\pipe\<path>`），换行分隔 JSON 行；`pane.report_agent_session` / `pane.report_agent` / `pane.release_agent` 三个 method，`seq` 逐条取 `max(上一条 + 1, Date.now() * 1000)`（严格递增且不低于当前墙钟量级），会话引用参数 id 优先、path 兜底。
+- **协议与 seq 闸门**：unix socket（Windows 为 `\\.\pipe\<path>`），换行分隔 JSON 行；`pane.report_agent_session` / `pane.report_agent` / `pane.release_agent` 三个 method，`seq` 逐条取 `max(上一条 + 1, Date.now() * 1000)`（严格递增且不低于当前墙钟量级），会话引用参数 id 优先、path 兜底。herdr 对每个 `(pane, source)` 只接受更高的 `seq`（不高于它的上报返回成功、面板不变），故固定「进程启动时间 + 条数」会被更晚启动的进程或墙钟量级的上级永久压住、面板停在旧状态。
 
-- **seq 闸门与自愈**：herdr 对每个 `(pane, source)` 记录已接受的最高 `seq`，**不高于它的上报静默忽略**（请求返回成功、面板状态不变）。故 `seq` 必须逐条按墙钟抬升——若固定成「进程启动时间 + 条数」，任何更晚启动的进程或任何墙钟量级的上报都会把闸门抬到本进程永远够不到的高度，面板此后停在旧状态（真机复现过）。同时 herdr 会在不通知上报方的情况下清掉 pane 归属（自重报代理的「pane 回到空闲 shell」兜底、server 重启 / handoff），故插件按 `refreshIntervalMs`（默认 20 秒）周期原样重发当前推导状态：`seq` 已是当前墙钟，重发即可夺回归属，最坏恢复延迟 = 一个周期。
-
-- **发送策略**：每次请求独立连接、写一行 JSON 后等响应（收到响应数据即视为送达，对端关闭/超时/出错视为失败）；首档等待上限 `attemptTimeoutMs`（默认 500ms），失败**立即**补发一次（该次等待上限固定 1500ms），两次都失败即静默丢弃。状态发送串行 drain（同刻在途 ≤1 条），发送期间到达的新状态覆盖待发项（同刻多条只保留最新一条；优先级由状态推导保证：`blocked > working > idle`）。补发定时器带 `unref()`，不拖住进程退出。
+- **发送与自愈**：每次请求独立短连接、写一行 JSON 后等响应（收到响应数据即送达，对端关闭/超时/出错视为失败）；首档等待上限 `attemptTimeoutMs`（默认 500ms），失败**立即**补发一次（上限固定 1500ms），两次都失败即静默丢弃；状态串行 drain（同刻在途 ≤1 条，同刻多条只保留最新一条，优先级 `blocked > working > idle`）。herdr 会在不通知上报方的情况下清掉 pane 归属（自重报代理的「pane 回到空闲 shell」兜底、server 重启 / handoff），故按 `refreshIntervalMs`（默认 20 秒）周期原样重发当前状态夺回归属，最坏恢复延迟 = 一个周期；定时器带 `unref()`，不拖住进程退出。
 
 ## 配置
 
@@ -84,8 +82,8 @@ blocked 桥必须在真实答案者（如 `@dsh-toolset/tui` 的问答应答者�
 - 只跟踪**根 agent**：子 agent（subagent / jobs）的状态不翻转面板展示。
 - 会话引用只上报 `agent_session_id`（DSH `Session.id`）；`agent_session_path` 需要宿主暴露会话文件路径，当前不配置。
 - 不在 herdr 环境内（握手变量不全）时插件静默空转，不注册任何监听、无副作用。
-- 发送失败静默丢弃（最多两次尝试），不影响会话；状态为内存态，进程退出即丢；`exit` 路径的 `release` 走同步子进程尽力送达（3s 超时）。
-- **无长连接 / 无重连退避 / 无心跳**：每次上报都是一次短连接，失败只补发一次；面板若漏收某条状态，本插件不会补齐——要等下一次状态变化才再发。
+- 单条发送失败不影响会话（重试与丢弃口径见上文「发送与自愈」）；状态为内存态，进程退出即丢；`exit` 路径的 `release` 走同步子进程尽力送达（3s 超时）。
+- **无长连接 / 无重连退避**：每次上报都是一次短连接，失败只补发一次；但有周期重发自愈——面板漏收的状态由下一次周期重发补上（最坏恢复延迟 = 一个周期，默认 20 秒）。
 - **单 pane、无跨进程同步**：状态只报给握手得到的 `HERDR_PANE_ID` 这一个 pane；多个 dsh 进程 / 多个 pane 各自独立上报，插件不做合并或协调。
 - **是观察者，不是应答者**：不认领 `approval/request` / `user-questions/request`，也不改变判定结果（真实答案者是 TUI 等上游）；本插件只据此翻转 `blocked` 展示。
 - 宿主面锚点：事件名与作用域语义对齐基线为 dsh 0.1.2-rc.1，0.1.7 / 0.2.0-rc.2 复核未变（`docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §3.3、`docs/host/HOST-UPGRADE-0.2.0-rc.2.md` §3.3）；升宿主时复核这三类事件与 `agents.roots()`。
@@ -110,8 +108,8 @@ package.json              # dsh.bundle 契约 + build / check / test / watch
 ```sh
 npm run build   # tsc -p tsconfig.json → dist/
 npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（43 例）
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（49 例）
 npm run watch   # tsc -p tsconfig.json --watch
 ```
 
-43 例单测（state 12 + herdr 10 + main 21），覆盖握手判定、协议报文与状态队列合并、状态推导（并发阻塞计数、`blocked` 优先级、压缩期 `working`）、插件行为（会话切换、子 agent 忽略、观察者 waterfall 的阻塞与解除、压缩 start/end 配对与子会话压缩过滤、dispose 释放）。
+49 例单测（state 12 + herdr 12 + main 25），覆盖握手判定、协议报文与状态队列合并、状态推导（并发阻塞计数、`blocked` 优先级、压缩期 `working`）、插件行为（会话切换、子 agent 忽略、观察者 waterfall 的阻塞与解除、压缩 start/end 配对与子会话压缩过滤、dispose 释放）。

@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 An in-process plugin toolset for DSH (DeepSeek Harness): a set of TypeScript plugins mounted into the DSH session process as cordis bundles, filling in capabilities such as task trees, a knowledge base with persistent memory, goal contracts, and metric loops. It also ships a homegrown terminal UI (TUI) — a third way to interact with DSH alongside the Web UI and the CLI.
 
-For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference, re-checked clause by clause against `dsh-v0.1.7-rc.2`; the 0.2.0 comparison found no change on the surfaces this project consumes, and the differences are recorded in the upgrade comparison doc).
+For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference; last clause-by-clause review against `dsh-v0.1.7-rc.2`, and the `0.2.0-rc.2` comparison found no change on the surfaces this project consumes — see `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`).
 
 ## Composition
 
@@ -15,7 +15,7 @@ The repository contains the `TUI/` terminal UI package and 28 in-process plugins
 | **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
 | **herdr-pane** | herdr pane read/write: treats a pane as a controllable pseudo-terminal layer (create pane / inject text and keys / read screen / wait for output / inspect processes / close) to drive interactive commands that need screen state and key timing; one model-facing tool `herdr_pane` plus a reusable library surface; write actions are limited to panes this plugin created, and pass through guard re-check, security-guard registration and out-of-scope approval |
-| **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
+| **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`execute`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
 | **session-paths** | Host session-directory encoding, replicated as one in-repo source of truth: `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` re-implemented character-for-character from `@deepseek-ai/dsh-session-persistence-jsonl`, exposed as the `sessionPaths` service (`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`). Pure functions never touch disk; `sessionDirFor(sessionId)` resolves `header.cwd` through the host `sessions` service (optional read, not in `inject`) |
 | **memory-base** | Tiered memory store — one SQLite database per tier (S/P/U, created lazily; the S location comes from `sessionPaths.sessionDirFor`) with two FTS5 indexes per kind table. Storage only: a kind is registered as a table and written/deleted through the returned scope handle (`writableTiers` + `preWrite`), while reads are global across kinds and tiers (`search` / `list`); the model gets one read-only tool, `memory_query` |
 | **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
@@ -26,7 +26,7 @@ The repository contains the `TUI/` terminal UI package and 28 in-process plugins
 | **ast-tools** | AST structural search, structured replacement, file outlines and YAML rule execution on top of ast-grep (through the system CLI as a subprocess, zero runtime dependencies); registers the model-facing `ast_query` (AST search / outline / rules) and `ast_replace` (dry-run by default) |
 | **md-logic** | Markdown logical structure (single file, read + section-level rewrite): a section tree with per-section line ranges, a block inventory (list / table / code / quote / frontmatter / html / hr, with nesting depth and table dimensions) and a link / image / reference-definition inventory; registers the model-facing `md_logic` tool (`structure` / `blocks` / `links` for reading, and `replace` for section-level rewrite / deletion), built on `marked` |
 | **md-map** | Markdown project-level structure and reference analysis (the docs counterpart of `code-map`): indexes `**/*.md` for heading anchors, document links (`internal`), wiki links, inline-code path refs (`kind:ref`), code/file/directory references and external links, plus backlink counts, with `callers` / `impact` / `orphans` / `report` queries (broken links and broken anchors included); registers the model-facing `md_map` tool and reuses `md-logic` for single-file parsing |
-| **security-guard** | Security guard: a dangerous-command blacklist plus a sensitive-file protection policy layer, hooked into the host's `tools/pre-execute` watermark to intercept commands before they are dispatched |
+| **security-guard** | Security guard: a dangerous-command blacklist plus a sensitive-file protection policy layer, mounted on the host's monotonic `ctx.tools.guard` (a denial cannot be overturned by later listeners), falling back to the `tools/pre-execute` waterfall on hosts without that surface |
 | **code-map** | Code structure map: file nodes plus an import graph index, with `callers`/`callees`/`cycles`/`impact` queries and project/module reports (references are candidates: semantic `callers` precision needs the official LSP trio, which the profile does not distribute, so it falls back to `structural`); depends on `@dsh-toolset/ast-tools` via `link:`, so install both when mounting |
 | **context-report** | Session context and usage report: the host-only `sessionContext` projection folds what the official projections lack (token buckets), turns/steps and wall clock are read from the official `sessionStats` projection, and the `context_report` tool combines token-meter live pressure with model capacity readings |
 | **rule-engine** | Rule-triggered automatic injection: matches model text, tool calls and turn boundaries by keyword/regex/built-in predicate, then injects a user-role message as a new turn (`followup`), onto the nearest pre-step with a wake (`steer`), or without one (`inject`); exposes a per-node consumer registration surface (`registerConsumer`, `sources` defaulting to `turn-end`, asked synchronously, injected centrally) and a read-only `evaluate` |
@@ -39,8 +39,8 @@ The repository contains the `TUI/` terminal UI package and 28 in-process plugins
 | **preference-analysis** | Preference analysis: observes session events for three structured signals (repeated constraints, correction-weighted restatements, rejected approvals), merges near-identical wordings into a cross-session ledger (the only state source), auto-writes high-confidence preferences into memory-base's project tier and injects them through a single rule-engine consumer; model proposals always land as pending candidates, and every exit (reject / undo / aging at 90 or 180 days) records a suppression key |
 | **command-template** | Template system: prompt flows declared as `.md` files (YAML-subset front-matter) and invoked through one slash command (`/playbook <template> [args]`, with `list` / `show` / `reload` subcommands) — dual-source directories (bundled `templates/` + user `~/.dsh/command-templates`, user wins), step types `prompt` (inject into the current session) and `agent` (one-shot subagent with per-run model override), chaining via `{{stepId}}`, `bestOf` + `judge` |
 | **script-interpreter** | Model-side script interpreter: `script_run` runs one script in an enabled language (Python first; the bash backend ships but stays off by default). The script text goes to the interpreter through stdin (no temporary script file), every call is a fresh process, non-zero exits are reported as `[exit code: N]` instead of tool errors, long output keeps its tail with the full text spilled to a `0600` file, runs go through `ctx.sandboxPolicy` + `ctx.sandbox` with fail-closed `SANDBOX_UNAVAILABLE` when no enforcing backend exists, and the optional services are read through `ctx.get` (a direct read of an un-injected cordis service throws) |
-
-| **agent-group** | Cross-session group orchestration: groups, members, leader→follower links with levels, instructions and reports; lazy settlement on `check` (success / failure / blocked / timeout), removal pushed down layer by layer, every refusal carries a reason + next step; depends on session-channel (transport) and session-paths (state location) |
+| **background-daemon** | In-process scheduler whose target is agent-session delivery: selectors `after_seconds` / `at` / `every_seconds` / `daily` / `weekly` (no `cron` yet); two channels — `deliver` (user message via `agent.followup`, then `sessions.flush` as L2 confirmation) and `command` (slash command, re-checked engine-side by `security-guard`); restart catch-up (periodic tasks pick up the latest missed slot, one-off tasks trigger within a 24 h window), a single timer, no retries; `/daemon` subcommands plus the `daemon_task` model tool; records go to memory-base (`daemon_task` / `daemon_run` kinds) with a local JSON fallback |
+| **agent-group** | Cross-session group orchestration: groups, members, leader→follower links with levels, instructions and reports; lazy settlement on `check` (success / failure / blocked / timeout / removed), removal pushed down layer by layer, every refusal carries a reason + next step; depends on session-channel (transport) and session-paths (state location) |
 Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
 ## Directory layout
@@ -68,11 +68,14 @@ dsh-toolset/
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
 ├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
 ├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
+├── auto-approve/         # 审批链自动裁定（approval/request 应答者；审计双落点）
+├── background-daemon/    # 面向会话投递的进程内调度（/daemon + daemon_task；记录落 memory-base）
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
 ├── command-template/     # 模板体系（slash 命令模板 + 模板级模型选择，双源模板目录）
 ├── script-interpreter/   # 模型侧脚本解释器（script_run：单次执行 Python；围栏 + 溢出落盘 + 审批开关）
 ├── preference-analysis/  # 偏好分析（行为归纳 + 账簿 + 自动应用；rule-engine 消费者）
+├── agent-group/          # 群组编排（组 / 成员 / 主从连接 / 指令与回报）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
@@ -107,7 +110,7 @@ scripts/install.sh                 # profile 名默认 fff
 scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
 ```
 
-The script is idempotent: existing profile config files are kept by default, and only `--force` overwrites them. Writes and backups (`.bak.<timestamp>`) happen only when the new content actually differs, so repeated `--sync` runs do not pile up backup files. `--sync` refreshes the repository plugins **to the current selection**: repository entries (dependencies and bundles) that are no longer selected are removed, while everything not coming from this repository (user-added dependencies / extra bundles) is kept; removals are logged. It writes only to `$DSH_HOME` (default `~/.dsh`) and this repository. `--sync` never rewrites the title-provider part of `cordis.patch.yml`: disabling the official all-prompts title provider is an explicit choice (`--sync --take-over-title`); without the flag it only warns on a detected conflict. `--sync --force` is rejected (the combination would overwrite the patch and drop the generated takeover region). The generated region is rebuilt from the patch content, so it is idempotent: re-running with the flag completes missing pieces (and retries once the provider/model values are readable), while deleting the region (the lines starting with `# install.sh generated: title-takeover-`) opts out of the takeover.
+The script is idempotent: existing config files are kept unless `--force` is given, and it writes (plus a `.bak.<timestamp>` backup) only when the content actually differs, so repeated `--sync` runs do not pile up files. It touches only `$DSH_HOME` (default `~/.dsh`) and this repository. `--sync` refreshes the repository plugins to the current selection (unselected repository entries are removed, user-added ones kept) and never rewrites the title-provider part of `cordis.patch.yml`: disabling the official all-prompts provider is an explicit choice (`--sync --take-over-title`), otherwise a detected conflict is only warned. `--sync --force` is rejected (it would overwrite the patch and drop the generated takeover region). The generated region is rebuilt from the patch, so re-running with the flag only fills missing pieces; deleting the lines starting with `# install.sh generated: title-takeover-` opts out of the takeover.
 
 For manual setup, mount each plugin into a DSH profile as a cordis bundle. Example (`~/.dsh/profiles/fff`, see `TUI/README.md` for details):
 
@@ -129,16 +132,16 @@ This project uses the TUI only, and the agent side comes from the profile's glob
 
 ## Documentation
 
-This is the only index (`AGENTS.md` does not repeat the list); every document opens with three lines stating "what it owns / what it does not own / when it expires".
+This is the only index (`AGENTS.md` does not repeat the list); each maintained document opens with three lines stating "what it owns / what it does not own / when it expires".
 
-There are two change flows: the standard flow in `docs/WORKFLOW-STANDARD.md` (full version) and the fast flow for small changes in `docs/WORKFLOW-FAST.md`, with the short version in `AGENTS.md` under "Content change policy": items live in `BACKLOG.md`, process records go into a tracking document, and closed ones move into `archived/` (the fast flow skips items and tracking documents).
+Two change flows: `docs/WORKFLOW-STANDARD.md` (standard) and `docs/WORKFLOW-FAST.md` (small changes), with the short form in `AGENTS.md`.
 
 **Project-level (`docs/`)**
 
 - `docs/ROADMAP.md` — future development directions and completion criteria (progress, schedule and items live in `docs/BACKLOG.md` §3 milestones).
 - `docs/BACKLOG.md` — actionable items: cross-package features and defects (P0/P1/P2) + milestones + plugin roadmap.
 - `docs/STATUS.md` — reference document recording what has been implemented (updated by maintainers as needed).
-- `docs/ARCHITECTURE-REUSE.md` — reuse audit: for each package (audit baseline: TUI + 17 packages; `md-logic` / `md-map` / `ponytail` were added afterwards and the tables were extended), whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
+- `docs/ARCHITECTURE-REUSE.md` — reuse audit for 22 of the 29 modules (the 7 newest are not in the table yet): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
 - `docs/WORKFLOW-STANDARD.md` — content change policy · standard flow (full version).
 - `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
 - `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).
@@ -156,10 +159,10 @@ The home for official interface study notes and upgrade documents — **not limi
 **Module-level (`TUI/docs/`, `<package>/docs/`)**
 
 - `TUI/README.md`, `<package>/README.md` — module entry points: usage, configuration, contracts, boundaries.
-- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
+- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`, `preference-analysis`, `agent-group`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
 - `TUI/docs/SPEC.md` — rendering pipeline spec; `TUI/docs/COMMANDS.md`, `TUI/docs/COMMANDS-SPEC.md` — command inventory and extension spec.
 - `TUI/docs/design/` — TUI-internal conventions: `NOTICE-LEVELS.md` (notice levels), `AUDIT-colors.md` (color semantics), `REFACTOR.md` (module split conventions).
-- `<module>/docs/BACKLOG.md` — module backlog (`TUI`, `task-engine`, `rule-engine`, `symbol-normalizer`, `session-channel`, `md-logic`, `md-map`, `command-template`, `ast-tools`, `fs-digest`, `hash-edit`, `code-map` have one; the rest as needed); `<module>/docs/STATUS.md` — module-level reference document (TUI has one).
+- `<module>/docs/BACKLOG.md` — module backlog (one per module where work is pending); `<module>/docs/STATUS.md` — module-level reference document (TUI has one).
 
 **Collaboration and history**
 

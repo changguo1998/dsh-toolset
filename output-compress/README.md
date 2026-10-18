@@ -28,7 +28,7 @@ DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成
 | `minBytes` | `16384` | 无 spill 通知时触发摘要的最小文本 UTF-8 字节数 |
 | `maxSourceBytes` | `524288` | 读取 spill 文件的字节上限 |
 
-自持 `digest.db`（`application_id = 0x44494745`（`'DIGE'`）、`user_version = 1`）：digests 单表（结构化列 + FTS5）+ 底线闸 + `content_hash` 幂等 + 100 MB 自管容量；落点不可推导（`session-paths` 缺失且无覆盖）或指纹不符即跳过（告警），不向宿主抛错。
+库指纹固定 `application_id = 0x44494745`（`'DIGE'`）、`user_version = 1`；容量自管 **100 MB**（每会话每文件），过期亦由本包自管；落点不可推导（`session-paths` 缺失且无覆盖）或指纹不符即跳过（告警），不向宿主抛错。
 
 ## 使用示例
 
@@ -50,17 +50,14 @@ searchDigests(db, "ENOENT", { limit: 10 }); // db 即 <会话目录>/digest.db
 
 ## 边界与限制
 
-- **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引，不让原文进模型上下文。
-- **与官方 `spill-policy` / `compaction-tool-result-pruner` 的分工（不构成双重截断）**：`spill-policy` 决定「超 `maxInlineTokens` 的结果在上下文里留什么」（preview + 落盘通知，原文写 spill 文件；`read` 工具被它内置豁免，故本插件才有阈值兜底这一路）；`compaction-tool-result-pruner` 在压缩时对 tool-result surface 节点做 head/middle/tail 裁剪（免模型、可重放安全）。两者都只改**上下文呈现**，不产摘要、不入库；本插件只在事件流之外有界读取 spill 文件（≤ `maxSourceBytes`）派生摘要并写库，也不改写会话上下文——三方各管一层，唯一重叠的「取数」动作也只是一次有上限的只读。
-- **不与 memory-base 建立 npm 依赖**：跨 bundle 只经服务面（`ctx.get('memory')` 的 `registerKind`（拿写入句柄）/ `checkPrivacy`）与一份必须一致的隐私常量（`deny-patterns.ts` 同源复制 + 指纹封印对拍测试）通信。
-- **底线闸自足（设计 §5）**：写入前过本包 `deny-patterns.ts` 六类形态模式（与 memory-base 同源复制，跨包指纹封印对拍）；能取到 `ctx.get('memory').checkPrivacy(text)` 则叠加 profile denyPatterns。
-- `slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少。
+- **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引（`slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少），不让原文进模型上下文；与官方 `spill-policy` / `compaction-tool-result-pruner` 的三方分工（不构成双重截断）见 `docs/DESIGN.md` 第 1 节的表。
+- **只经服务面通信、不建 npm 依赖**：跨 bundle 只经 `ctx.get('memory')` 的 `registerKind`（拿写入句柄）/ `checkPrivacy` 与一份必须一致的隐私常量（`deny-patterns.ts` 同源复制 + 指纹封印对拍测试）；写入前过本包 `deny-patterns.ts` 六类形态模式（底线闸自足，设计 §5），能取到 `checkPrivacy(text)` 则叠加 profile denyPatterns。
 - 触发依赖宿主文案：严格正则锚定 spill 通知字面量，宽松正则兜底宿主文案演进；空 locator 的通知回落阈值判定。宿主在同时省略整张图片时会在省略句与定位句之间插入 ` Omitted N images.`，该形态两个正则都不命中 → 回落阈值判定（不会误写，只是少了 spill 权威信号）。
 - 失败一律降级：管线内任何抛错都收敛为 `skipped` + 日志；spill 文件暂不可读时降级为「用事件内文本入库」（并在 10s 冷却窗口内不再尝试读该文件）；落点不可推导（`session-paths` 缺失且无覆盖）时该会话整条管线 `skipped.session-dir-missing`；memory-base 缺面时 `is_error` 行停在「未推」（`push_state = 'none'`），句柄就绪后由 `promotePending` 重试——三种情况各只记一次日志。
 - 去重表（已处理事件、`callId → toolName`）有容量上限（1024 / 256），超出后**整体清空**（不是淘汰最旧项）；同时保持打开的会话库连接上限 32（超出按最早打开淘汰）。
 - 本包 `cordis.patch.yml` 用 dsh 的 `insert` 方言（非 RFC6902 JSON Patch），故刻意不写注释——仓库统一的 `format` 对 YAML 走 python `yq -y -i .`，会丢注释、导致格式化永不收敛；同目录 `.pi-lens.json` 把该文件排除出 `yaml-schema: JSONPatch` 误报。
 
-> **架构（2026-10-17 重定）**：本包**自持 `digest.db`**（I 索引层，属主为本包，**每会话一个文件**、落在宿主会话目录内）；不再共库直写（`kb-write.ts` 已拆除）。`is_error` 行经 memory-base 的**作用域句柄** `put` 写入（`registerKind({kind: "digest", writableTiers: ["session"]})`，提升链 `promote` 已随 memory-base 重设取消）；`searchDigests` / `readDigest` 为属主自有回读入口（命中刷新 `referenced_at`）。I 层容量 100 MB（每会话每文件）与过期由本包自管。
+> **架构（2026-10-17 重定）**：库归本包自持（落点与容量见上）；不再共库直写（`kb-write.ts` 已拆除）；提升链 `promote` 已随 memory-base 重设取消；`searchDigests` / `readDigest` 为属主自有回读入口（命中刷新 `referenced_at`）。
 
 ## 测试
 

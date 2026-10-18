@@ -44,8 +44,7 @@ interface PutResult { ids: number[]; sourceId: number; created: number; skipped?
 
 **拒写的两种形态**（唯一两种失败风格）：
 
-- **抛错**（参数级 / 权限级）：`tier` 非法、`tier` 不在 `writableTiers`、写 S 层缺 `sessionId`、S 层会话目录解析失败（`session-paths` 未挂载 / 会话取不到）、层库打不开。
-- **`skipped`**（内容级）：隐私闸命中（`pattern` / `empty` / `short`）、`preWrite` 拒绝（`hook`）——`ids` 为空、不落库、不抛错。
+**抛错**（参数级 / 权限级）与 **`skipped`**（内容级，`ids` 为空、不落库、不抛错）——逐条触发与表现见 `docs/DESIGN.md` §3 的「拒写的两种形态」表与 §8 失败语义汇总。
 
 ## 分类注册
 
@@ -67,11 +66,7 @@ const scope = memory.registerKind({
 
 ## 分层与落点
 
-| 层 | 库文件 | 落点 | 指纹 |
-| --- | --- | --- | --- |
-| S 会话 | `session.db` | `<sessionPaths.sessionDirFor(sessionId)>/session.db` | `SESS` |
-| P 项目 | `project.db` | `<projectRoot>/.dsh/project.db` | `PROJ` |
-| U 用户 | `user.db` | `<dshHome>/memory-base/user.db` | `USER` |
+三层库文件 / 落点 / 指纹（`SESS` / `PROJ` / `USER`）与不变量见 `docs/DESIGN.md` §1。
 
 - **层级恒开启**，没有开关也没有单库形态；**库惰性创建**——`apply` 只解析落点，首次写到某层才建 / 打开该库。
 - **S 层落点经 `session-paths` 的 `sessionDirFor(sessionId)` 解析**：本包不自己拼路径、不读宿主会话服务。该服务未挂载时 S 层写入按明示例外报错，P / U 层不受影响。
@@ -130,14 +125,9 @@ S 层写入需要 `session-paths` 插件同在组合里（它 `provide: ["sessio
 
 ## 边界与限制
 
-- **CJK 召回**：porter 按连续串分词（`构建通过` 匹配不到 `构建`），trigram 需 ≥3 字符子串；故「结果不足 `limit` 且查询含 CJK」或 FTS 语法错误（如 `-`）时改用 `LIKE` 子串兜底。
-- **去重是全局的**：`content_hash` 不按 project 隔离，跨 project 写入相同内容复用同一行。
+- **已知边界**（CJK 召回与 `LIKE` 兜底及转义、去重全局、隐私形态匹配、不做价值判断、token 估算、层权重、删除不传播、同进程共享）见 `docs/DESIGN.md` §10。
 - **`search` 无写副作用**：命中不刷新任何列（`last_referenced` 已随列删除下线）。
-- **隐私边界是形态匹配**：内置六类凭据 / 私钥形态，命中即**整条拒绝**（不打码）；无熵检测、无规则语言，`denyPatterns` 只能追加。
-- **不做价值判断**：`importance` 只是排序提示；淘汰、冲突裁定、近似替换、提升都归上层。
-- token 预算按「1 token ≈ 3 字符」估算（分块上限 2000 token ≈ 6000 字符），非精确分词。
-- 库文件 `0o600`、父目录 `0o700`；**一库一指纹**，指纹或版本不符一律拒绝打开（不整库重置）。旧库清空走显式 `migrate({from: "v1", mode: "drop"})`。
-- 项目根 `.dsh/` 里的 P 库是项目内文件，建议加进 `.gitignore`（本包不自动改仓库文件）。
+- 库文件 `0o600`、父目录 `0o700`；**一库一指纹**，指纹或版本不符一律拒绝打开（不整库重置）；旧库清空走显式 `migrate({from: "v1", mode: "drop"})`。
 - **已知窗口**：TUI `/memory add` 与 `/memory review` 依赖已删除的 `remember` / `candidates.*`，属 TUI 侧待适配；`/memory search` 走全局只读面不受影响。
 
 ## 测试
@@ -156,6 +146,5 @@ npm run smoke   # node smoke/smoke.mjs（自包含自检，不依赖模型凭据
 
 ## 文档
 
-- 设计取舍与机制：`docs/DESIGN.md`（定位 / 分层 / 句柄 / 闸门 / 查询 / Schema / 失败语义 / 边界）。
-- 实现落点与踩坑：`IMPLEMENTATION.md`。
+- 设计取舍、机制与实现落点：`docs/DESIGN.md`（定位 / 分层 / 句柄 / 闸门 / 查询 / Schema / 失败语义 / 边界 / 实现落点与踩坑）。
 - 待办：`docs/BACKLOG.md`。

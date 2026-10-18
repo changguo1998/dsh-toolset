@@ -4,7 +4,7 @@
 
 DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考，按 `dsh-v0.1.7-rc.2` 基线逐条复核；0.2.0 对照确认本项目消费面无变化，差异与判定见升级对照文档）。
+面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考；最近一次逐条复核基于 `dsh-v0.1.7-rc.2`，`0.2.0-rc.2` 对照确认本项目消费面无变化，见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）。
 
 ## 组成
 
@@ -15,7 +15,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；**零运行时依赖**（源码零第三方 import，颜色走 manual ANSI） |
 | **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
 | **herdr-pane** | herdr pane 读写：把 pane 当可控伪终端层（建 pane / 注入文本与按键 / 取屏 / 等输出 / 进程探活 / 关闭），驱动需要屏幕状态与按键时序的交互式命令；单个模型侧工具 `herdr_pane` + 可复用的库面；写类动作只作用于自建 pane，过 guard 复查、security-guard 登记与越界审批 |
-| **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
+| **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`execute`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
 | **session-paths** | 宿主会话目录编码的仓内唯一事实源：逐字符复刻 `@deepseek-ai/dsh-session-persistence-jsonl` 的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用（`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`）。纯函数不落盘；`sessionDirFor(sessionId)` 经宿主 `sessions` 服务取 `header.cwd`（可选读取，不写进 `inject`） |
 | **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层落点经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
 | **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
@@ -26,7 +26,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖）；注册模型侧工具 `ast_query`（AST 搜索 / 大纲 / 规则）与 `ast_replace`（默认 dry-run） |
 | **md-logic** | Markdown 逻辑结构（单文件，读 + 按节改写）：节树（每节带 `L{起}-{止}` 行范围）、块清单（列表 / 表格 / 代码块 / 引用 / frontmatter / html / hr，带嵌套层数与表格行列数）与链接 / 图片 / 引用式定义清单；注册模型侧工具 `md_logic`（读面 `structure` / `blocks` / `links`，写面 `replace` 按节整节替换 / 删除），解析基于 `marked` |
 | **md-map** | Markdown 项目级结构与引用分析（文档版的 `code-map`）：索引 `**/*.md` 的标题锚点、文档间链接（`internal`）、wiki 链接、行内代码路径引用（`kind:ref`）、代码 / 文件 / 目录引用与站外链接，以及被引计数，查询面 `callers` / `impact` / `orphans` / `report`（含断链与断锚点）；注册模型侧工具 `md_map`，单文件解析复用 `md-logic` |
-| **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主 `tools/pre-execute` 水位线，命令下发前拦截 |
+| **security-guard** | 安全守卫：危险命令黑名单 + 敏感文件保护策略层，挂在宿主**单调守卫** `ctx.tools.guard`（已拒的调用不能被后续监听器翻回放行），宿主无该面时回退 `tools/pre-execute` waterfall |
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选：`callers` 的语义精度需官方 LSP 三件套，而 profile 不分发它，故回落 `structural`）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 只折官方空缺的部分（token 分桶），回合/步与墙钟读官方 `sessionStats` 投影；工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 | **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后作为独立新回合（`followup`）、挂到最近 pre-step 并唤醒（`steer`）或不唤醒（`inject`）注入 user-role 消息；提供按节点的消费者注册面（`registerConsumer`，`sources` 缺省 `turn-end`，同步询问、统一注入）与只读 `evaluate` |
@@ -39,8 +39,8 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **preference-analysis** | 偏好分析：订阅 `session/event` 抽三条结构化信号（重复约束 / 纠正加权 / 审批拒绝），按 3-gram 相似度并入跨会话账簿（唯一状态源），达高置信自动写入 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律落候选待审，撤销 / 退休 / 老化都记抑制键。首期零 TUI 改动 |
 | **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`，另有 `list` / `show` / `reload` 子命令）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判 |
 | **script-interpreter** | 模型侧脚本解释器：`script_run` 执行一段**已启用语言**的脚本（首期 Python；bash 后端随包实现但缺省不启用）。脚本正文经 stdin 交给解释器（不落临时脚本文件），每次调用都是新进程；非零退出码回执 `[exit code: N]`、不是工具错误；输出过长保留尾部并把全文落到 `0600` 文件；执行前经 `ctx.sandboxPolicy` + `ctx.sandbox` 围栏，拿不到可强制后端即 fail-closed `SANDBOX_UNAVAILABLE`；三个可选服务经 `ctx.get` 受保护读取（cordis 对未 inject 的服务直读会抛） |
-
-| **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
+| **background-daemon** | 面向「agent 会话投递」的进程内调度：选择器 `after_seconds` / `at` / `every_seconds` / `daily` / `weekly`（首期无 `cron`）；两条渠道 —— `deliver`（user 消息经 `agent.followup`，再以 `sessions.flush` 作 L2 确认）与 `command`（slash 命令，执行前过引擎侧 `security-guard` 复查）；重启补算（周期任务只补最近一次错过的时点，一次性任务 24 h 窗口内仍触发）、单 timer、不重试；`/daemon` 子命令 + `daemon_task` 模型工具；记录落 memory-base（`daemon_task` / `daemon_run`）并带本地 JSON 降级 |
+| **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时 / 已移除），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
 ## 目录结构
@@ -68,11 +68,14 @@ dsh-toolset/
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
 ├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
 ├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
+├── auto-approve/         # 审批链自动裁定（approval/request 应答者；审计双落点）
+├── background-daemon/    # 面向会话投递的进程内调度（/daemon + daemon_task；记录落 memory-base）
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
 ├── command-template/     # 模板体系（slash 命令模板 + 模板级模型选择，双源模板目录）
 ├── script-interpreter/   # 模型侧脚本解释器（script_run：单次执行 Python；围栏 + 溢出落盘 + 审批开关）
 ├── preference-analysis/  # 偏好分析（行为归纳 + 账簿 + 自动应用；rule-engine 消费者）
+├── agent-group/          # 群组编排（组 / 成员 / 主从连接 / 指令与回报）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
@@ -107,7 +110,7 @@ scripts/install.sh                 # profile 名默认 fff
 scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
 ```
 
-脚本幂等：已存在的 profile 配置文件默认保留，`--force` 才覆盖；仅当内容确有变化时才写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份文件。`--sync` 按**当前选择集**刷新本仓库插件：已不在选择集的本仓库条目（依赖与 bundle）会被**移除**，而非本仓库条目（用户自加依赖 / 额外 bundle）一律保留；移除项会打日志。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` **不改写** `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts 标题 provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。`--sync --force` 组合被拒（会覆盖 patch、丢掉生成的接管片段）。生成片段按 patch 内容重建，故幂等：带开关重跑只补缺（provider/model 可读后自动重试），**删除**以 `# install.sh generated: title-takeover-` 开头的生成片段即放弃接管。
+脚本幂等：配置文件默认保留（`--force` 才覆盖），且仅在内容确有变化时写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` 按当前选择集刷新本仓库插件（已不在选择集的本仓库条目移除，用户自加条目保留），且不改写 `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。`--sync --force` 组合被拒（会覆盖 patch 并丢掉生成的接管片段）。生成片段按 patch 内容重建，带开关重跑只补缺；删除以 `# install.sh generated: title-takeover-` 开头的行即放弃接管。
 
 手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
 
@@ -129,16 +132,16 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 
 ## 文档
 
-索引只此一处（`AGENTS.md` 不重复列清单）；每份文档开头三行写明「职责 / 不负责 / 过期条件」。
+索引只此一处（`AGENTS.md` 不重复列清单）；维护中的文档开头三行写明「职责 / 不负责 / 过期条件」。
 
-变更流程分两条：标准流程见 `docs/WORKFLOW-STANDARD.md`（详版）、小改动快速流程见 `docs/WORKFLOW-FAST.md`，简版见 `AGENTS.md`「内容变更规范」：条目在 `BACKLOG.md`，过程记录写进追踪文档，关闭后移入 `archived/`（快速流程免条目与追踪文档）。
+变更流程分两条：标准流程见 `docs/WORKFLOW-STANDARD.md`、小改动快速流程见 `docs/WORKFLOW-FAST.md`，简版见 `AGENTS.md`「内容变更规范」。
 
 **项目级（`docs/`）**
 
 - `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/ARCHITECTURE-REUSE.md` — 复用审计：逐包（审计基线为 TUI + 17 包；`md-logic` / `md-map` / `ponytail` 为后加，总表已补行）「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
+- `docs/ARCHITECTURE-REUSE.md` — 复用审计（覆盖 29 个模块中的 22 个，最新的 7 个尚未入表）：「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
@@ -156,10 +159,10 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 **模块级（`TUI/docs/`、`<包>/docs/`）**
 
 - `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
-- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`memory-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`ponytail`、`command-template`、`md-logic`、`md-map` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
+- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`memory-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`ponytail`、`command-template`、`md-logic`、`md-map`、`preference-analysis`、`agent-group` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
-- `<模块>/docs/BACKLOG.md` — 模块待办（`TUI`、`task-engine`、`rule-engine`、`symbol-normalizer`、`session-channel`、`md-logic`、`md-map`、`command-template`、`ast-tools`、`fs-digest`、`hash-edit`、`code-map` 已建，其余按需）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
+- `<模块>/docs/BACKLOG.md` — 模块待办（有未完成项的模块各一份）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
 
 **协作与历史**
 

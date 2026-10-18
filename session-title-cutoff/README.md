@@ -18,7 +18,7 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 | `maxInputBytes` | `32768` | 入模提示体积上限（UTF-8 字节；超出即失败并保留旧标题） |
 | `maxOutputTokens` | `512` | 标题生成输出 token 上限 |
 | `timeoutMs` | `60000` | 标题请求超时 |
-| `provider` / `model` | 空 | **留空 = 复用会话当前记录的路由**（推荐）；成对提供时显式指定 |
+| `provider` / `model` | 空 | 成对提供时显式指定路由；留空 = 复用会话当前记录的路由，但 `all-prompts` 在会话首条消息时可能尚无已记录路由，故**建议显式配置** |
 
 ## 宿主依赖姿态（零依赖）
 
@@ -40,11 +40,7 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 **不改写**用户 patch 的标题配置，只在检测到冲突时提示）；手工接入见
 `session-title-cutoff/docs/archived/2026-09-29-title-cutoff-provider.md` 的收尾记录。
 
-profile 挂载（bundle 层已自带 insert 与缺省配置）：
-
-```yaml
-# 通常无需手写：本包 package.json 的 dsh.bundle.patch 已插入自身
-```
+profile 挂载（bundle 层已自带 insert 与缺省配置，通常无需手写：本包 `package.json` 的 `dsh.bundle.patch` 已插入自身）。
 
 ## 测试
 

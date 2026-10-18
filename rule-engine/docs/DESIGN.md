@@ -11,7 +11,6 @@
 - 动作只做 `inject`；`tag` / `abort` / `memory` 不做。
 - 注入路径三条（与宿主 `Agent` 方法同名）：`followup`（新回合，`agent.followup`）、`steer`（最近 pre-step + 唤醒，`agent.steer`）、`inject`（最近 pre-step 不唤醒，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
 - 节点表（规则与消费者共用）共十项：`assistant-text` / `user-message` / `tool-call` / `tool-result` / `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`；逐 delta 实时匹配不做（正文在回合结束判定）。
-- 不改 TUI：符号纠正迁移与 `form:'notice'` 渲染分别是独立条目。
 
 ## 分层
 
@@ -58,7 +57,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 `keywords`（大小写不敏感包含）/ `regex` / `predicates` 三档任一命中即命中，`predicates` 内部与关系。空条件时边界类节点（`turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`，无文本）= 无条件命中，其余节点 = 永不命中——「文本类空条件」若也算无条件，会把每条正文都变成命中，属误配置。
 
-内置谓词只做无参数的纯性质判定（`always` / `has-non-ascii` / `has-cjk` / `has-code-block`），不做 JS 表达式求值（避免任意代码执行面）。
+内置谓词只做无参数的纯性质判定（`always` / `has-non-ascii` / `has-cjk` / `has-code-block`），另有按**会话级**上下文判定的 `session-fresh` / `session-resumed`（`ctx.resumed`，判据与判定时机见 `README.md`「会话谓词」）；不做 JS 表达式求值（避免任意代码执行面）。
 
 **多节点（2026-10-02）**：匹配面 `source` 可给单节点或**节点数组**（一条规则挂多时机，不拆两条规则；归一化后字段为 `sources`）。空条件语义随之从「编译期按 source 定死」改为**判定期按触发节点**裁决（`match(text, source)`）——同一条规则在边界节点无条件命中、在文本节点永不命中，互不影响。
 
@@ -94,7 +93,7 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 
 ### 10. 消费者面：声明式注册（节点 + 闸门）+ 同步调度（2026-10-01 扩展）
 
-- 只做简单注册：`registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })`；`decide(ctx)` 同步返回要注入的内容 `{ text, summary? }`（null = 跳过）。
+- 只做简单注册：注册字段与 `decide(ctx)` 的返回 `{ text, summary?, reset? }`（null = 跳过）见 `README.md`「消费者面」一表；反馈由本引擎统一注入。
 - 注册时声明 `sources`（唤醒节点，缺省 `["turn-end"]`）、`dedupeInRecord`（与规则同口径）与 `directWrite`（这些节点跳过去重判断，2026-10-02）；在对应节点按注册顺序**同步**询问 `decide`，与规则命中**合并**后交同一注入器（共用逐段上限 / 同文本去重；消费者冷却可选、按注入记账）。
 - **对齐点合并（尺度双 flag）**：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，每消费者 × 每会话 × 每尺度一对 `startFired` / `endFired`；`*-start` 清本尺度及更细的 `endFired` 与更细的 `startFired`（注册才置位/唤醒，`session-start` 无幂等）；`*-end` 查本尺度及更细 `endFired` 的或（注册且全假才唤醒并置位），无论是否唤醒都清本尺度 `startFired`。`reset: true` 清空本消费者 flag。`compaction` 不参与合并。
 - 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。
