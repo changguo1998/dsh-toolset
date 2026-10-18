@@ -162,6 +162,22 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 - 不搬「记住该命令」的跨会话授权存储（宿主亦无），不做 GUI 面板。
 - 不做按会话配置：会话级旋钮由宿主 `/policy` 与 `/permission` 承担，本包跟随生效。
 
+## 巡检（只读）
+
+从会话日志 + 本包会话审计还原「哪些调用被自动放行、命中哪条规则」，不写任何文件、不改裁定：
+
+```sh
+node scripts/inspect-session.mjs --session <会话 id>      # 在 $DSH_HOME/sessions 下按 id 定位
+node scripts/inspect-session.mjs --dir <会话目录>          # 直接给会话目录
+node scripts/inspect-session.mjs --file <session.v4.jsonl[.zstd]>
+# 追加 --json 出机器可读摘要（approvals / auto / manual / unmatchedAuditRows + rows）
+```
+
+口径：宿主 `approval/asked` 与 `approval/decided` 按事件 id 配对；本包审计行按 `callId` 关联，
+命中即标「自动」并给 `source` / `ruleId`，未命中标「人工面板」。多帧 zstd 用 `zstd -dc` 解
+（Node 内置 zstd 只解首帧，缺 CLI 时会提示）。审计行比审批对多 = 该次裁定没走到宿主审批链
+（如 `never` 策略短路）。
+
 ## 验证
 
 ```sh
