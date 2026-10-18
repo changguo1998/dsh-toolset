@@ -154,11 +154,12 @@ test("项目那份：经作用域句柄 put 写入同形一行（kind approval_a
     project: string;
     content: string;
     title: string;
-    source: { kind: string; ref?: string };
+    source: { kind: string; label?: string; ref?: string };
   };
   assert.equal(put.tier, "project");
   assert.equal(put.project, "/w");
-  assert.equal(put.source.kind, "approval");
+  assert.equal(put.source.kind, "manual");
+  assert.equal(put.source.label, "auto-approve");
   assert.equal(put.source.ref, "c1");
   assert.match(put.title, /^auto-approve s1 /);
   assert.equal((JSON.parse(put.content) as AuditLine).callId, "c1");

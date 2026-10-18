@@ -40,7 +40,7 @@ export interface MemoryScopeLike {
     tier: string;
     project?: string;
     title?: string;
-    source?: { kind: string; ref?: string };
+    source?: { kind: string; label?: string; ref?: string };
     [key: string]: unknown;
   }): Promise<unknown> | unknown;
 }
@@ -222,7 +222,8 @@ export function createAudit(options: {
         ...(project === undefined ? {} : { project }),
         title: `auto-approve ${line.sessionId.slice(0, 8)} ${line.t}`,
         source: {
-          kind: "approval",
+          kind: "manual",
+          label: "auto-approve",
           ...(line.callId === undefined ? {} : { ref: line.callId }),
         },
       });
