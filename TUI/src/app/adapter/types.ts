@@ -494,31 +494,6 @@ export interface DshAdapter {
   /** 读取知识库概要（就绪/路径/chunk·source 计数）；服务缺失 → reject，
    *  未就绪 → resolve 说明文本（调用方 info） */
   memorySummary?(): Promise<string>;
-  /** 提升审阅（设计 §6）：pending 候选清单（tier 缺省三库全拉）；服务缺失 → 空数组 */
-  memoryCandidates?(tier?: string): Promise<CandidateRowLike[]>;
-  /** 审阅动作（`reviewer` 由 adapter 写死 `"user"`——凭据约束，不参数化）；
-   *  服务缺失 / 权限不足 → `{ ok: false }` */
-  memoryApprove?(args: {
-    tier: string;
-    id: number;
-    project?: string;
-  }): Promise<MemoryReviewVerdictLike>;
-  memoryReject?(args: {
-    tier: string;
-    id: number;
-    reason: string;
-  }): Promise<MemoryReviewVerdictLike>;
-  memoryEdit?(args: {
-    tier: string;
-    id: number;
-    content: string;
-  }): Promise<MemoryReviewVerdictLike>;
-  memoryResolveConflict?(args: {
-    tier: string;
-    id: number;
-    decision: string;
-    content?: string;
-  }): Promise<MemoryReviewVerdictLike>;
   /** `/memory search`：跨全域检索（未挂载 → undefined，调用方提示） */
   memorySearch?(args: {
     query: string;
@@ -1405,66 +1380,6 @@ export interface KnowledgeServiceLike {
     tier?: "session" | "project" | "user";
     origin?: "auto" | "user";
   }): Promise<{ ids?: number[]; skipped?: string }>;
-  /** 提升审阅队列（设计 §6；`/memory review` 面板消费）。 */
-  candidates?: MemoryCandidatesLike;
-}
-
-/** 审阅候选项（memory-base `CandidateRow` 的 TUI 侧宽松子集）。 */
-export interface CandidateRowLike {
-  id: number;
-  targetTier: "session" | "project" | "user";
-  kind: string;
-  title: string | null;
-  content: string;
-  sources: string[];
-  projects: string[];
-  state: string;
-  conflictWith: { kind: string; id: number } | null;
-  summarized?: boolean;
-  createdAt: number;
-}
-
-/** 审阅动作回执（memory-base `ReviewVerdict` 宽松形态）。 */
-export interface MemoryReviewVerdictLike {
-  ok: boolean;
-  reason?: string;
-  id?: number;
-  kind?: string;
-  sources?: string[];
-}
-
-/** 提升审阅动作面（memory-base `candidates.*` 服务面的宽松子集）。 */
-export interface MemoryCandidatesLike {
-  list?(opts?: { tier?: string; state?: string }): Promise<CandidateRowLike[]>;
-  approve?(args: {
-    tier: string;
-    id: number;
-    reviewer: string;
-    project?: string;
-  }): Promise<MemoryReviewVerdictLike>;
-  reject?(args: {
-    tier: string;
-    id: number;
-    reviewer: string;
-    reason: string;
-  }): Promise<MemoryReviewVerdictLike>;
-  edit?(args: {
-    tier: string;
-    id: number;
-    content: string;
-  }): Promise<MemoryReviewVerdictLike>;
-  markConflict?(args: {
-    tier: string;
-    id: number;
-    conflictWith: { kind: string; id: number };
-  }): Promise<MemoryReviewVerdictLike>;
-  resolveConflict?(args: {
-    tier: string;
-    id: number;
-    decision: string;
-    reviewer: string;
-    content?: string;
-  }): Promise<MemoryReviewVerdictLike>;
 }
 
 /** metric-loop 循环概要素（C5 前置；`LoopSummary` 的 TUI 侧宽松子集） */

@@ -61,8 +61,6 @@ import type {
   TaskEngineTaskLike,
   CommandPanelRow,
   KnowledgeBundleSummaryLike,
-  CandidateRowLike,
-  MemoryReviewVerdictLike,
   LoopSummaryLike,
   ContractParseResult,
   ContractClauseLike,
@@ -164,9 +162,6 @@ export type {
   PolicySnapshotLike,
   KnowledgeServiceLike,
   KnowledgeBundleSummaryLike,
-  CandidateRowLike,
-  MemoryReviewVerdictLike,
-  MemoryCandidatesLike,
   MetricLoopLike,
   LoopSummaryLike,
   SessionChannelLike,
@@ -4017,57 +4012,6 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       } catch {
         return "知识库尚未就绪（读取失败）";
       }
-    },
-    /** 提升审阅：拉 pending 候选（tier 缺省三库全拉——服务面按层分库）。 */
-    async memoryCandidates(tier?: string): Promise<CandidateRowLike[]> {
-      const list = opts.knowledge?.candidates?.list;
-      if (typeof list !== "function") return [];
-      return list({
-        ...(tier === undefined ? {} : { tier }),
-        state: "pending",
-      });
-    },
-    /** 审阅动作（reviewer 由 App 结算函数写死 "user"——凭据约束，不参数化）。 */
-    async memoryApprove(args: {
-      tier: string;
-      id: number;
-      project?: string;
-    }): Promise<MemoryReviewVerdictLike> {
-      const approve = opts.knowledge?.candidates?.approve;
-      if (typeof approve !== "function")
-        return { ok: false, reason: "forbidden" };
-      return approve({ ...args, reviewer: "user" });
-    },
-    async memoryReject(args: {
-      tier: string;
-      id: number;
-      reason: string;
-    }): Promise<MemoryReviewVerdictLike> {
-      const reject = opts.knowledge?.candidates?.reject;
-      if (typeof reject !== "function")
-        return { ok: false, reason: "forbidden" };
-      return reject({ ...args, reviewer: "user" });
-    },
-    async memoryResolveConflict(args: {
-      tier: string;
-      id: number;
-      decision: string;
-      content?: string;
-    }): Promise<MemoryReviewVerdictLike> {
-      const resolveConflict = opts.knowledge?.candidates?.resolveConflict;
-      if (typeof resolveConflict !== "function") {
-        return { ok: false, reason: "forbidden" };
-      }
-      return resolveConflict({ ...args, reviewer: "user" });
-    },
-    async memoryEdit(args: {
-      tier: string;
-      id: number;
-      content: string;
-    }): Promise<MemoryReviewVerdictLike> {
-      const edit = opts.knowledge?.candidates?.edit;
-      if (typeof edit !== "function") return { ok: false, reason: "forbidden" };
-      return edit(args);
     },
     /** `/memory search`：跨全域检索（LayeredHit 宽松形态透传）。 */
     async memorySearch(args: {
