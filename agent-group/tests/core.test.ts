@@ -165,7 +165,11 @@ test("全流程：建组 → 加成员 → 建连接 → 发指令 → check 收
     },
     { from: MANAGER, to: "sess-alice", timeoutSec: 60 },
   );
-  assert.equal(env.mirror.puts.length, 5, "每次变更（建组 / 加两次 / 连接 / 发指令）后镜像一次");
+  assert.equal(
+    env.mirror.puts.length,
+    5,
+    "每次变更（建组 / 加两次 / 连接 / 发指令）后镜像一次",
+  );
 
   env.transport.tasks.set("task-1", { status: "done", result: "设计在这" });
   const checked = await env.service.check({ group: "team" }, MANAGER);
@@ -520,11 +524,19 @@ test("拒绝路径统一带原因 + 下一步；未知 action 与缺组名都有
   assert.equal(unknown.error, "unknown_action");
   assert.match(unknown.next, /create_group/);
 
+  // 本会话已有组：提示指向现有组名（而不是盲目建议新建）
   const noGroup = expectFailure(
     await env.service.status({ group: "ghost" }, MANAGER),
   );
   assert.equal(noGroup.error, "group_not_found");
-  assert.match(noGroup.next, /create_group/);
+  assert.match(noGroup.next, /team/);
+
+  // 本会话还没有任何组：提示才指向 create_group
+  const empty = expectFailure(
+    await env.service.status({ group: "ghost" }, "sess-fresh"),
+  );
+  assert.equal(empty.error, "group_not_found");
+  assert.match(empty.next, /create_group/);
 
   const noMember = expectFailure(
     await env.service.link(
@@ -533,7 +545,7 @@ test("拒绝路径统一带原因 + 下一步；未知 action 与缺组名都有
     ),
   );
   assert.equal(noMember.error, "member_not_found");
-  assert.match(noMember.reason, /alice/);
+  assert.match(noMember.next, /alice/, "下一步应列出可用成员");
 });
 
 test("verdictOf：纯函数口径（回报已到 / 超时 / 仍算未结 / 传输错误）", () => {
