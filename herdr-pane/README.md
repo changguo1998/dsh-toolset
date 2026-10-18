@@ -4,7 +4,7 @@ DSH（DeepSeek Harness）进程内集成插件：把 **herdr 的 pane 当作可�
 
 模型侧工具：**`herdr_pane`**（单工具 + `action` 分派十个动作）；同时导出库面，供编排类插件与真机验证脚本直接调用，不必经模型工具链。
 
-设计依据与取舍见 `docs/implementation/2026-10-16-herdr-pane-design.md`（项目级追踪文档；本包按**轻量包**口径只留 `README.md` + `docs/BACKLOG.md`）。
+设计依据与取舍见 `docs/archived/2026-10-16-herdr-pane-design.md`（项目级追踪文档，已归档；本包按**轻量包**口径只留 `README.md` + `docs/BACKLOG.md`）。
 
 ## 能力
 

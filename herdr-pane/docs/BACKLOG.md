@@ -4,7 +4,7 @@
 
 ## 条目详情（待办）
 
-**1. 沙箱模式联动：会话处于 `read-only` 时拒绝写类动作**（P2，二期候选）：**现状** —— 首期用「归属 + guard 复查 + 越界审批」三闸覆盖，不看会话沙箱模式；三个闸都放行时，写类动作照常执行。**期望** —— 订阅 `session/event` 的 `sandbox/mode` 折叠当前模式，`read-only` 下对 `send_text` / `send_keys` / `run` / `close`（及 stable 模式的 `wait`）直接拒绝并给「切换沙箱模式」提示。**开口** —— 会话初始模式在无事件时无从判定（`sandbox/mode` 是会话事件、不是可查询服务），需先确认真实时序与重启 / resume 后的补偿路径，否则会把闸门做成误拦或空设（设计文档决策项 12）。**落点** —— `src/main.ts`（订阅 + 折叠）、`src/policy.ts`（纯函数判定）、`tests/`。**验收** —— read-only 会话里写类动作被拒且回执点明原因；切到 `workspace-write` 后同一动作放行；无事件时按「不拦」处理并有单测钉住。**来源** —— `docs/implementation/2026-10-16-herdr-pane-design.md` 决策项 12。
+**1. 沙箱模式联动：会话处于 `read-only` 时拒绝写类动作**（P2，二期候选）：**现状** —— 首期用「归属 + guard 复查 + 越界审批」三闸覆盖，不看会话沙箱模式；三个闸都放行时，写类动作照常执行。**期望** —— 订阅 `session/event` 的 `sandbox/mode` 折叠当前模式，`read-only` 下对 `send_text` / `send_keys` / `run` / `close`（及 stable 模式的 `wait`）直接拒绝并给「切换沙箱模式」提示。**开口** —— 会话初始模式在无事件时无从判定（`sandbox/mode` 是会话事件、不是可查询服务），需先确认真实时序与重启 / resume 后的补偿路径，否则会把闸门做成误拦或空设（设计文档决策项 12）。**落点** —— `src/main.ts`（订阅 + 折叠）、`src/policy.ts`（纯函数判定）、`tests/`。**验收** —— read-only 会话里写类动作被拒且回执点明原因；切到 `workspace-write` 后同一动作放行；无事件时按「不拦」处理并有单测钉住。**来源** —— `docs/archived/2026-10-16-herdr-pane-design.md` 决策项 12。
 
 ## 已知边界（不打算在本模块解决）
 
