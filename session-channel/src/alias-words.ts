@@ -866,7 +866,7 @@ export function pickAutoAlias(
  *
  * `attempt = 0` 即该会话的确定性名字：同一 sessionId 永远得到同一个别名
  * （宿主 resume 复用 id → 恢复后不漂移），不同会话落在 `词表规模 × 65536`
- * 的组合里（479 词 → 三千一百万），跨机也不易撞。
+ * 的组合里（578 词 → 三千八百万），跨机也不易撞。
  */
 export function autoAliasCandidate(
   prefix: "ui-" | "sub-",

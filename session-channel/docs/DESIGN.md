@@ -41,10 +41,10 @@ dsh:session-channel:meta                String  schema 版本（不兼容 → �
 
 ### 3.1 自动别名（2026-10-17 改版）
 
-- **命名**：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）。词与后缀同出自 `sha256(sessionId)`：词 = 前 2 字节对词表规模取模，后缀 = 第 2-4 字节 hex（`alias-words.ts` 的 `autoAliasCandidate`）。词表 479 词 → 命名空间 ≈ 3100 万。
+- **命名**：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）。词与后缀同出自 `sha256(sessionId)`：词 = 前 2 字节对词表规模取模，后缀 = 第 2-4 字节 hex（`alias-words.ts` 的 `autoAliasCandidate`）。词表 578 词 → 命名空间 ≈ 3800 万。
 - **生成时机**：`noteSession` 的**首见分支**（`session/event` 驱动），本进程首次观察到该会话时尝试一次；已有别名（含显式设置）直接跳过。故「启动即分配」与「首次用到才分配」都不对，准确表述是「本进程首次见到该会话」。
 - **持久性**：别名键**无 TTL**（Redis `appendonly yes`）；宿主 resume 复用同一 `sessionId`（`agents.resume({resumeSessionId})`），同 id 再出现时因已有别名跳过重命名 → **恢复后不漂移**（有代码依据，非设计推断）。
-- **碰撞与失败**：候选按 `(base + attempt) % 词表规模` 顺序推进（`AUTO_ALIAS_TRIES = 8`），候选间必不重复；重试耗尽或抛错**不再静默** —— 一条日志 + `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计 `aliasesAuto`）。原实现（随机词、静默失败）在 148 词耗尽后使自动别名事实上不可用（本机实测 `sub-` 已满），见 `docs/BACKLOG.md` 的缺陷条目。
+- **碰撞与失败**：候选按 `(base + attempt) % 词表规模` 顺序推进（`AUTO_ALIAS_TRIES = 8`），候选间必不重复；重试耗尽或抛错**不再静默** —— 一条日志 + `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计 `aliasesAuto`）。原实现（随机词、静默失败）在 148 词耗尽后使自动别名事实上不可用（本机实测 `sub-` 已满），见 `docs/archived/2026-10-17-group-transport-surface.md` 调研 9（原缺陷条目已随该项修复从 BACKLOG 移除）。
 - 既有旧格式别名（`ui-clover` 等 295 条）保持原样，不做迁移；占用冲突耗尽后不保证一定拿到别名，成员登记勿依赖它（用 sessionId 或显式 `alias set`）。
 - **游标语义**：投递位置记在**无 TTL** 的 `cursor:<sessionId>`（值 `{id, ts}`）里——接收方跟踪会话或重启时读该键作为读取起点（**读不到才退化为 `0`**：发送方可能先入队、接收方后启动），且**只在注入成功后推进**（失败不推进 → 重启补投）。读取完成前该会话不进 reader 读取集合（`cursorReady` 门），避免「先用 `0` 读一次」的重复窗口面。`start()` 时按 `ts` 懒清理超过 7 天（`CURSOR_TTL_MS`）的游标键。
 - **回执**：接收方注入成功才写回执（`ack:<messageId>`，TTL 60s），**只服务发送方 `send` 的 `waitMs` 等待窗口**（100ms 轮询）——**不作为去重依据**（去重靠游标，回执过期不影响去重）。注入失败（会话不在本进程）不写回执，消息留在流里（`inbox` 可查）。
