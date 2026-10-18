@@ -65,11 +65,11 @@ searchDigests(db, "ENOENT", { limit: 10 }); // db 即 <会话目录>/digest.db
 npm run check   # tsc -p tsconfig.json --noEmit
 npm run build   # tsc -p tsconfig.json → dist/
 npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
-npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话：临时 DSH_HOME + 三包 link 挂载；需 dsh CLI 与 DEEPSEEK_API_KEY）
+npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话：临时 DSH_HOME + 三包 link 挂载；走本机 tollgate 网关，缺省 key 用占位值）
 ```
 
 57 例单测（trigger 9 + summary 9 + digest-db 7 + deny-parity 2 + hooks 30），含真实临时 SQLite 库的写入与去重用例。
 
-smoke 断言（2026-10-18 对齐每会话 `digest.db` 口径）：`<会话目录>/digest.db` 指纹与 `digests` 行、spill locator + 切片定位、`digests_fts` 召回，以及 memory-base S 层 `<会话目录>/session.db` 的 `kind_digest` 行；不配 `dbPath` / `sessionDir`，两处落点都由 `sessionPaths.sessionDirFor` 推导。
+smoke 断言（2026-10-18 对齐每会话 `digest.db` 口径）：`<会话目录>/digest.db` 指纹与 `digests` 行、spill locator + 切片定位、`digests_fts` 召回、stderr 不出现 `session-dir-missing`；memory-base S 层 `<会话目录>/session.db` 的 `kind_digest` 行只在会话产出 `is_error` 摘要时断言（宿主 bash 把非零退出记为文本而非 `isError`，故通常跳过）。不配 `dbPath` / `sessionDir`，两处落点都由 `sessionPaths.sessionDirFor` 推导。
 
 设计决策见 `DESIGN.md`。

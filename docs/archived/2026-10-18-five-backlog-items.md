@@ -41,26 +41,26 @@
 1. **auto-approve 审计来源对齐**（`e8faf41`）：`src/audit.ts` 的项目层写入改 `source: {kind: "manual", label: "auto-approve", ref: callId}`，`MemoryScopeLike.put` 的 source 类型补 `label?`；`tests/audit.test.ts` 断言同步并新增 label 断言。`npm --prefix auto-approve run check` 通过、单测 115 例全绿。
 2. **TUI `/clean` 别名**（`92ac6a4`）：`LOCAL_COMMANDS` 增 `clean → cleanquit`（同路由同确认面板），`tests/clean-quit.test.ts` 增别名用例，`tests/completion.test.ts` 的 `/cl` 补全期望补入 `clean`，`TUI/docs/COMMANDS.md` 计数改 41 条 / 6 别名。TUI 单测 1629 例全绿。
 3. **移除 `/memory review` 面板**（`4eff49a`）：删 `index.ts` 的 `openMemoryReview` / `finishMemoryReview` / 面板 id / 三个状态字段 / 宿主提问覆盖时的草稿暂存分支，`adapter/dsh.ts` 五个候选方法，`adapter/types.ts` 五个可选方法与三个候选类型，删 `tests/memory-review.test.ts`；`review` 子命令改为一句指引（指向 `search` / `add`），usage 串与 `TUI/README.md` 的 `/memory` 行同步。TUI 单测 1625 例全绿。
-4. **output-compress smoke 改口径**（`e680588`）：`smoke/smoke.mjs` 去掉两包 `dbPath` / `sessionDir`，改临时 `DSH_HOME` + 三包 `link:` 符号链接挂载（不经 pnpm store），断言改为 `<会话目录>/digest.db`（指纹 / `digests` 行 / spill locator + 切片 / `digests_fts`）与 `<会话目录>/session.db` 的 `kind_digest` 行；缺 `DEEPSEEK_API_KEY` 时以明确提示失败。真机跑通待有模型凭据的环境（见偏差）。
+4. **output-compress smoke 改口径**（`e680588`）：`smoke/smoke.mjs` 去掉两包 `dbPath` / `sessionDir`，改临时 `DSH_HOME` + 三包 `link:` 符号链接挂载（不经 pnpm store），断言改为 `<会话目录>/digest.db`（指纹 / `digests` 行 / spill locator + 切片 / `digests_fts`）与 `<会话目录>/session.db` 的 `kind_digest` 行；缺模型凭据时以明确提示失败。**真机跑通**：改用本机 tollgate 网关（`TOLLGATE_API_KEY` 缺省占位值 `local`，`TOLLGATE_BASE_URL` 缺省 `http://127.0.0.1:8787/v1`）后跑 `npm --prefix output-compress run smoke` → PASS（digest.db 指纹 / `digests` / 切片定位 / FTS / 无 `session-dir-missing`）。
 5. **auto-approve 巡检脚本**（`7afb5e5`）：新增 `scripts/inspect-session.mjs`（只读；`--session` / `--dir` / `--file` 三入口，`--json`），按事件 id 配对 `approval/asked` + `approval/decided`、按 `callId` 关联本包审计行，输出自动 / 人工与命中的 `source` / `ruleId`；多帧 zstd 走 `zstd -dc`（缺 CLI 时提示只解首帧）。`package.json` 增 `inspect`；README 增「巡检（只读）」一节。
 
 ## 偏差
 
-- **output-compress 真机验证未闭合**：本环境没有模型凭据（`DEEPSEEK_API_KEY` / `USTC_API_KEY` 均未导出，宿主的 key 不外泄到子进程），headless 会话在凭据检查处即失败，无法跑出真实 `tool/result`。已完成的替代证据：临时 `DSH_HOME` 下 profile 三包全部解析并挂载、`--dump-config` 通过、`dsh` 启动会话并在 `sessions/<projectKey>/` 建出会话目录。该条目保留在 `docs/BACKLOG.md` §2（进行中），剩余一步「导出 `DEEPSEEK_API_KEY` 后跑 `npm --prefix output-compress run smoke`」。
-- **用户 profile 的过渡 `sessionDir` 行未删**：`~/.dsh/profiles/fff` 在工作区外只读（EROFS），属条目里的第 ③ 步，保留待用户在可写环境执行。
+- **`is_error` 推送路径未能在 smoke 里触发**：宿主 `dsh-tool-bash` 把非零退出记为结果文本（`[exit code: N]`），只有 spawn 失败 / 中止才置 `isError`，故真实会话产出的是 `is_error=0` 摘要，memory-base S 层 `kind_digest` 行未生成；smoke 在该情形下打印「跳过」并继续，推送逻辑由单测（hooks / scope 用例）覆盖。
+- **用户 profile 的过渡 `sessionDir` 行未删**：`~/.dsh/profiles/fff` 在工作区外只读（EROFS）。已并入 `docs/BACKLOG.md` 的「后续补条目候选」⑤。
 - 巡检脚本的列对齐按字符数而非显示宽度（CJK 工具名会让列宽略有参差），未引入宽度表。
 
 ## 测试与证据
 
 - `npm --prefix auto-approve run check` / `test`：115 例全绿（改动后）。
 - `npm --prefix TUI run check` / `test`：1629 例（加别名后）→ 1625 例（移除审阅面板后）全绿。
-- `node --check output-compress/smoke/smoke.mjs`：通过；实跑在「模型凭据」步明确失败（见偏差），前两步（`dsh 版本` / 凭据）输出符合预期。
+- `node --check output-compress/smoke/smoke.mjs`：通过；`npm --prefix output-compress run smoke`（tollgate 网关）→ PASS：`digest.db 指纹 OK；digests 1 条（is_error=0）；切片 L1181-1298 定位 marker 成功；FTS 命中 1`、`落点解析正常`、`kind_digest 跳过（无 is_error 摘要）`。
 - 巡检脚本：真实会话 `tui-ac4bde29-…` → 「审批对 0 条 / 审计行 0 条」正常退出；`tmp/inspect-fixture` 合成夹具 → 3 条审批对（自动 1 / 人工 2）+ 1 条未配对审计行，`--json` 摘要字段一致。
 - 全仓 `npm run test`：29 包全绿（exit 0，无 FAIL 行）；`npm run check`：exit 0。
 
 ## 收尾
 
 - 回写：`auto-approve/README.md`（巡检节、`inspect` 脚本）、`output-compress/README.md`（smoke 口径与凭据要求）、`TUI/README.md`（`/memory` 行）、`TUI/docs/COMMANDS.md`（别名计数）。
-- BACKLOG：`auto-approve` #1 / #2 与 `TUI` #3 / #4 标完成并移除；`docs/BACKLOG.md` 的 output-compress 条目保留（进行中，剩真机一步）。
+- BACKLOG：`auto-approve` #1 / #2 与 `TUI` #3 / #4 标完成并移除；`docs/BACKLOG.md` 的 output-compress 条目真机跑通后也标完成并移除（仅剩 profile 过渡行，已并入候选）。
 - 临时产物：`tmp/dshhome`、`tmp/big-output.txt`、`tmp/inspect-fixture` 已删。
 - 本文件移入 `docs/archived/`。

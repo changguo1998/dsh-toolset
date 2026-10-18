@@ -3,7 +3,8 @@
  * output-compress 宿主联调 smoke（profile: dsh-toolset-output-compress，对齐 DSH 0.2.0-rc.2）。
  *
  * 流程：
- *   0. 环境自检：宿主 dsh 版本、`DEEPSEEK_API_KEY`（headless 会话需要模型凭据）
+ *   0. 环境自检：宿主 dsh 版本、模型网关（tollgate，缺省本机 `http://127.0.0.1:8787/v1`；
+ *      key 缺省用占位值 `local`，外部网关导出 `TOLLGATE_API_KEY` / `TOLLGATE_BASE_URL`）
  *   1. 临时 `DSH_HOME` 引导 profile：session-paths / memory-base / output-compress 三包
  *      `link:` 挂载（node_modules 直连仓库符号链接，不经 pnpm store）
  *   2. 缺 dist 时先构建（output-compress + memory-base 双包）
@@ -12,7 +13,9 @@
  *      - `<会话目录>/digest.db` 存在、指纹对、`digests` 有 bash 记录；
  *      - 记录带真实 spill locator，切片索引定位回原始字节（marker 行）；
  *      - `digests_fts` 能召回 marker 词；
- *      - `<会话目录>/session.db`（memory-base S 层）有 `kind_digest` 行（`is_error` 推送路径）。
+ *      - stderr 不出现 `session-dir-missing`；
+ *      - `<会话目录>/session.db`（memory-base S 层）有 `kind_digest` 行——仅在会话产出
+ *        `is_error` 摘要时断言（宿主 bash 把非零退出记为文本而非 `isError`，通常跳过）。
  *   5. 模型偶发未调用工具时（会话内无 tool/result 事件）有限重试一次；断言只针对真实会话载荷。
  *
  * 清理：成功删除临时目录；失败保留（打印路径）供排查。
@@ -54,6 +57,27 @@ const MARKER_LINE = 1402;
 // `sessionPaths.sessionDirFor(sessionId)` 推导（2026-10-17 口径）。
 const CORDIS_PATCH = `# 本 profile 用户层：session-paths + memory-base + output-compress（由 smoke 脚本管理，勿手改）。
 # 不配 dbPath / sessionDir：两包都从 session-paths 服务推导会话目录。
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: tollgate
+    model: deepseek-v4.1-flash
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      tollgate:
+        api: openai-completions
+        apiKeyEnv: TOLLGATE_API_KEY
+        baseURL: !!js process.env.TOLLGATE_BASE_URL || 'http://127.0.0.1:8787/v1'
+        compat:
+          supportsDeveloperRole: false
+        models:
+          - id: deepseek-v4.1-flash
+            contextWindow: 1000000
+            maxTokens: 393216
+
 - id: session-paths
   name: '@dsh-toolset/session-paths'
 
@@ -68,7 +92,7 @@ const CORDIS_PATCH = `# 本 profile 用户层：session-paths + memory-base + ou
 
 // 大文件任务提示词：强制模型用 bash cat 完整输出预置大文件（确定性 >50KB → 宿主 spill）
 const SESSION_TASK =
-  "使用 bash 工具执行命令：cat big-output.txt（必须完整输出该文件内容，不要截断、不要摘要、不要换用其他命令），完成后简短回复 done。不要使用其他工具。";
+  "使用 bash 工具执行这一条命令：cat big-output.txt; exit 1（必须完整输出该文件内容，不要截断、不要摘要；命令以退出码 1 结束，这是预期结果），完成后简短回复 done。不要使用其他工具。";
 
 // 预置大文件：2000 行 × ~33 字符 ≈ 66KB（超宿主 50KB spill 阈值，留裕量）；
 // 第 1 行为 markdown 标题（供 headings 断言），第 MARKER_LINE 行为错误标记（供 keyLines/FTS 断言）
@@ -93,6 +117,7 @@ function makeBigFileText() {
 let failed = false;
 let tmp = null;
 let home = null;
+let sessionStderr = "";
 
 function run(cmd, args, opts = {}) {
   return execFileSync(cmd, args, {
@@ -163,15 +188,14 @@ function checkVersion() {
 
 function checkCredentials() {
   step("模型凭据");
-  if (
-    assert(
-      typeof process.env.DEEPSEEK_API_KEY === "string" &&
-        process.env.DEEPSEEK_API_KEY !== "",
-      "缺 DEEPSEEK_API_KEY（headless 会话需要模型凭据；在启动环境导出后重跑）",
-    )
-  ) {
-    ok("DEEPSEEK_API_KEY 已设置");
+  // tollgate 是本机网关（缺省 http://127.0.0.1:8787/v1）；未显式给 key 时用占位值，
+  // 网关不校验 key。外部网关需导出 TOLLGATE_API_KEY（必要时 TOLLGATE_BASE_URL）。
+  if (process.env.TOLLGATE_API_KEY === undefined) {
+    process.env.TOLLGATE_API_KEY = "local";
   }
+  ok(
+    `TOLLGATE_API_KEY ${process.env.TOLLGATE_API_KEY === "local" ? "未设置（用占位值 local）" : "已设置"}；baseURL ${process.env.TOLLGATE_BASE_URL ?? "http://127.0.0.1:8787/v1"}`,
+  );
 }
 
 // --- 1. 临时 DSH_HOME + profile 引导（幂等） ---
@@ -225,7 +249,11 @@ function ensureProfile() {
     profile: { ...(pkg.dsh?.profile ?? {}), bundles: [...bundles] },
   };
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
-  writeFileSync(path.join(profileDir, "cordis.patch.yml"), CORDIS_PATCH, "utf8");
+  writeFileSync(
+    path.join(profileDir, "cordis.patch.yml"),
+    CORDIS_PATCH,
+    "utf8",
+  );
   // link: 依赖直连仓库（不经 pnpm store：沙箱 / CI 里 store 可能不可写）
   const scopeDir = path.join(profileDir, "node_modules", "@dsh-toolset");
   mkdirSync(scopeDir, { recursive: true });
@@ -269,17 +297,27 @@ function runSession(taskDir) {
     "utf8",
   );
   try {
-    run("dsh", ["--profile", PROFILE, SESSION_TASK], {
+    const out = execFileSync("dsh", ["--profile", PROFILE, SESSION_TASK], {
       cwd: taskDir,
+      encoding: "utf8",
+      timeout: 300_000,
+      maxBuffer: 32 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         DSH_HOME: home,
         DSH_PERMISSION_MODE: "danger-full-access",
+        TOLLGATE_API_KEY: process.env.TOLLGATE_API_KEY,
+        ...(process.env.TOLLGATE_BASE_URL === undefined
+          ? {}
+          : { TOLLGATE_BASE_URL: process.env.TOLLGATE_BASE_URL }),
       },
     });
+    sessionStderr = String(out.stderr ?? "");
   } catch (error) {
+    sessionStderr = String(error.stderr ?? "");
     fail(
-      `会话未成功退出（API 不可达或宿主异常？）：${String(error.message).split("\n")[0]}；stderr 尾部：${String(error.stderr ?? "").slice(-400)}`,
+      `会话未成功退出（API 不可达或宿主异常？）：${String(error.message).split("\n")[0]}；stderr 尾部：${sessionStderr.slice(-400)}`,
     );
     return false;
   }
@@ -331,26 +369,26 @@ function assertStorage(sessionDir) {
     if (!assert(rows >= 1, "digests 表为空（未入库）")) return false;
     const records = db
       .prepare(
-        "SELECT id, tool, locator, slices FROM digests ORDER BY id",
+        "SELECT id, tool, locator, key_lines, slices, is_error FROM digests ORDER BY id",
       )
       .all();
-    const sliceRe =
-      /- #\d+ L(\d+)-(\d+) C(\d+)-(\d+) fnv=[0-9a-f]+ "[^"]*"/g;
+    // `key_lines` / `slices` 是结构化 JSON（不是渲染文本）：marker 行号取 key_lines，
+    // 切片覆盖判定按 startLine / endLine。
     let picked = null;
     for (const rec of records) {
       if (String(rec.tool) !== "bash") continue;
       const locator = rec.locator === null ? "" : String(rec.locator);
       if (locator === "" || !existsSync(locator)) continue;
       const spillLines = readFileSync(locator, "utf8").split("\n");
-      const markerLine = spillLines.findIndex((l) => l.trim() === MARKER) + 1;
-      if (markerLine === 0) continue;
-      let slice = null;
-      for (const m of String(rec.slices).matchAll(sliceRe)) {
-        const start = Number(m[1]);
-        const end = Number(m[2]);
-        if (start <= markerLine && markerLine <= end) slice = { start, end };
-      }
-      if (slice !== null) {
+      const keyLines = JSON.parse(String(rec.key_lines));
+      const hit = keyLines.find((k) => String(k.text).trim() === MARKER);
+      if (hit === undefined) continue;
+      const markerLine = Number(hit.line);
+      const slices = JSON.parse(String(rec.slices));
+      const slice = slices.find(
+        (sl) => sl.startLine <= markerLine && markerLine <= sl.endLine,
+      );
+      if (slice !== undefined) {
         picked = { rec, slice, markerLine, spillLines };
         break;
       }
@@ -366,7 +404,7 @@ function assertStorage(sessionDir) {
     const { rec, slice, markerLine, spillLines } = picked;
     const ftsHits = queryCount(
       db,
-      `SELECT COUNT(*) AS n FROM digests_fts WHERE digests_fts MATCH '"unique-token-42"'`,
+      "SELECT COUNT(*) AS n FROM digests_fts WHERE digests_fts MATCH '\"unique-token-42\"'",
     );
     if (!assert(ftsHits >= 1, "FTS 召回失败：marker 词未命中 digests_fts"))
       return false;
@@ -374,21 +412,52 @@ function assertStorage(sessionDir) {
     if (
       !assert(
         rawLine === MARKER,
-        `切片 L${slice.start}-${slice.end} 定位的 spill 第 ${markerLine} 行与 marker 不符：${JSON.stringify(rawLine)}`,
+        `切片 L${slice.startLine}-${slice.endLine} 定位的 spill 第 ${markerLine} 行与 marker 不符：${JSON.stringify(rawLine)}`,
       )
     ) {
       return false;
     }
     ok(
-      `digest.db 指纹 OK；digests ${rows} 条（id=${rec.id}）；切片 L${slice.start}-${slice.end} 定位 marker 成功；FTS 命中 ${ftsHits}`,
+      `digest.db 指纹 OK；digests ${rows} 条（id=${rec.id}，is_error=${rec.is_error}）；切片 L${slice.startLine}-${slice.endLine} 定位 marker 成功；FTS 命中 ${ftsHits}`,
     );
   } finally {
     db.close();
   }
 
-  // memory-base S 层：is_error 摘要经作用域句柄推送（kind: digest）
+  // ② 落点口径：真实会话里不得出现 skipped.session-dir-missing（会话目录由 session-paths 解析）
+  step("断言未出现 skipped.session-dir-missing");
+  if (
+    !assert(
+      !sessionStderr.includes("session-dir-missing"),
+      `会话 stderr 出现 session-dir-missing：${sessionStderr.slice(-300)}`,
+    )
+  ) {
+    return false;
+  }
+  ok("落点解析正常");
+
+  // ③ memory-base S 层：只有 `is_error` 摘要会经作用域句柄推送（kind: digest）。
+  // 宿主 bash 把非零退出记为文本（`[exit code: N]`）而不是 isError，故本 smoke 的
+  // 会话通常产出 is_error=0；此时跳过并在摘要里注明，is_error 推送由单测覆盖。
   step("断言 memory-base S 层 kind_digest 行");
   const sessionDb = path.join(sessionDir, "session.db");
+  const hasErrorDigest = (() => {
+    const db2 = new DatabaseSync(digestPath, { readOnly: true });
+    try {
+      return (
+        queryCount(
+          db2,
+          "SELECT COUNT(*) AS n FROM digests WHERE is_error = 1",
+        ) > 0
+      );
+    } finally {
+      db2.close();
+    }
+  })();
+  if (!hasErrorDigest) {
+    ok("跳过（本会话无 is_error 摘要；宿主 bash 把非零退出记为文本）");
+    return true;
+  }
   if (
     !assert(
       existsSync(sessionDb),
