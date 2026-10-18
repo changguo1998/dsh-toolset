@@ -1,8 +1,8 @@
 # output-compress 接入 memory-base 作用域句柄（接取条目：`docs/BACKLOG.md`「`output-compress` 接入 memory-base 作用域句柄（`promote` 取消后的 I→S 推送路径重定）」）
 
-状态：决策（2026-10-17）　　开启：2026-10-17　　关闭：未关闭
+状态：完成（2026-10-18）　　开启：2026-10-17　　关闭：2026-10-18
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
-本轮范围：调研 + 决策，不写实现代码（用户 2026-10-17 指示：开工本条、建追踪文档、停在决策后）。工作区：主检出 `main`。
+轮次：调研 + 决策（2026-10-17，主检出 `main`）→ 实现 + 文档（`feat/output-compress` worktree）→ 收尾（2026-10-18）。
 
 ## 目标
 
@@ -184,13 +184,35 @@ const digestDbPath = join(dir, "digest.db");
 
 ## 实现记录
 
-（本轮为决策轮，未进入实现；决策已审定（含决策项 9），两包前置落地后按「规划」清单执行。）
+实现轮（2026-10-18，`feat/output-compress` worktree，三次提交）：
+
+1. `2aca3ec` **feat(output-compress): 推送改走 memory-base 作用域句柄并按会话落 digest.db**
+   - `src/hooks.ts`：新增句柄接口 `MemoryScopeLike` / `ScopePutInputLike` / `PutResultLike` / `SessionPathsLike`（`:57`、`:65`）与三档结果 `DigestPushResult`（`:71`）；配置项改 `digestDbPath?: string | null`（显式覆盖 / 不可用 / 未配置三态）+ `scope` / `getScope` / `sessionPaths`（`:101-105`）；每会话连接表 + `closeDatabases()`（`:230`、`:234`，上限 32）；`resolveDigestPath(sessionId)`（`:387`）；`ensureDigestDb(path)`（`:419`）；`putDigestRow`（`:470`，成功 / 内容级 `skipped` / 抛错 / 能力缺失四路归一为三档）；`recordPushState`（`:522`）；`pushDigest`（`:542`）；`promotePending`（`:565`，只重试 `push_state='none'`、每库 ≤20、去掉候选容量自查）；`pendingPushCount`（`:605`）；`databasesForSweep`（`:620`）；`logOnce`（`:637`）。
+   - `src/index.ts`：`MemoryServiceLike`（`:69`）、`resolveSessionPaths`（`:129`）、`resolveMemoryScope`（`:145`，校验返回值带 `put`，非同步形态降级，`:162-165`）；落点覆盖解析（`:188`）、惰性句柄 + 一次性告警（`:205`）、hooks 组装（`:222`）、bundle 增 `pendingPushCount`（`:252`）。
+   - `tests/hooks.test.ts`：句柄 `put` 入参形状 `:418`、缺面 `:464`、内容级拒写 `:492`、抛错 `:520`、重推幂等 `:550`、回查补推 `:579`、覆盖缺失 `:611`、每会话一文件 `:627`、非同步句柄 `:665`、推导落点 `:688`、推导失败 `:714`、覆盖优先 `:751`；假 memory 改记 `registerKind` / `put`（去掉 `promote`）。
+2. `9d2967b` **docs(output-compress): 订正写入面与落点口径（句柄 / 每会话 digest.db）** —— `docs/DESIGN.md` §1 表行、§5 拆为 5.1 本地索引库 / 5.2 经句柄写 memory-base、§6 归属口径改 `kind` / `tier` / `source.ref` 并补「召回分两处」、§7 两种缺面降级、§8 依赖面表述；`README.md` 能力段、配置表（删 `kbRetryDelays` / `project` 两行陈旧字段）、示例、架构注、测试计数。
+3. `e331073` **test(output-compress): 补每会话落点与同步句柄形态用例** —— 两例新用例 + `index.ts` 的同步句柄校验 + README 计数（55 → 57）。
+
+与「规划」清单的差异：连接由「单连接」改为「每会话连接表」（决策项 9 的必然结果）；`promotePending` 的扫描范围限定为**本进程已打开的会话库**（+ 显式覆盖路径），因为每会话落点无法在启动时枚举。
 
 ## 偏差
 
-无（本轮只做调研与决策，未承诺实现动作）。
+1. **`put` 未传 `project`**：冻结片段（「规划」的 ②）列了 `project`，实现未传 —— `session-paths` 只给目录、取 `cwd` 在其内部，本包手里没有可靠的项目键；S 层不需要它（memory-base 决策项 11 选 d：句柄只收 `tier` + `sessionId`）。
+2. **`put` 多传 `importance`**：按 DESIGN 旧语义取 `isError ? 4 : 2`；`importance` 属 `ScopePutInput` 合法字段（clamp 1..5），冻结片段未列但未越界。
+3. **`sessionDir` 键名与语义仍有偏差**：实际含义是「digest.db 显式覆盖目录」，未改名（改名要同改 README / DESIGN / 代码三处，留作可选清理）。
+4. **归档位置**：本条条目在项目级 `docs/BACKLOG.md`，按 AGENTS.md 分层（跨模块条目归项目级）归档到 `docs/archived/`，与同批 `session-paths` / `auto-approve` 一致；未落 `output-compress/docs/archived/`（该模块此前无此目录，且与条目所在层割裂）。
+5. **收尾指令的「本模块 docs/archived/」**：按第 4 条执行并在此记明；如确需放模块目录，移动文件 + 改 BACKLOG 注记一行即可。
 
 ## 测试与证据
+
+### 实现轮（2026-10-18）
+
+- `npm --prefix output-compress run check`（`tsc --noEmit`）：通过（格式化后复跑，exit 0）。
+- `npm --prefix output-compress test`：实现轮跑到 55 例全绿（句柄改造后的全部用例）。新增的 2 例（每会话一文件 / 非同步句柄）**只写了未在本地跑** —— 随后主会话的全量 `npm run test`（29 包）连同这两例一起通过，结论以该次为准。
+- 静态计数：57 例（trigger 9 / summary 9 / digest-db 7 / deny-parity 2 / hooks 30）。
+- 未跑：`smoke/smoke.mjs`（需 dsh CLI 与模型凭据，且脚本仍按旧口径配 `dbPath`）；真机未验证。
+
+### 决策轮证据（2026-10-17，历史留存）
 
 本轮为决策轮，未改代码，故未跑 `check` / `build` / `test`；调研阶段的事实证据：
 
@@ -204,9 +226,7 @@ const digestDbPath = join(dir, "digest.db");
 ## 收尾
 
 - **用户审定（2026-10-17）**：决策项 1 · 2 · 3 · 4 · 5 · 7「这些都没有问题」，决策项 9 随之视作通过；决策项 6 已撤销；决策项 8 已裁定并执行 —— 全部落定。
-
-- 本轮不归档：条目保持〔进行中: 2026-10-17〕，本文件留在 `docs/implementation/`，等开工后按「规划」清单执行。
-
-- 回写文档：跨包接口已按三轮下游回写对齐（`sessionDirFor` 落点、`PutResult.skipped` 分档）；`DESIGN.md` / `README.md` 留到实现阶段。
-
-- 遗留项：① 本机 profile 的 `dbPath` 废键**已修**（改 `sessionDir` + 建 `~/.dsh/output-compress/`），待重启 profile 后看真机是否真的落库；**决策项 9 落地时记得删 profile 里那行 `sessionDir`**；② memory-base 的两处文档漂移（`README.md:112` / `:141-142`）归 memory-base 任务的 README / DESIGN 重写；③ 跨任务发现（宿主未暴露会话目录读取面）已由 `session-paths` 插件与 memory-base 决策项 11 收口。
+- **条目关闭（2026-10-18）**：项目级条目「`output-compress` 接入 memory-base 作用域句柄」标完成、从 §2 正文与「实现顺序」表清理（编号未重排，留待下次整理）；本文件移入 `docs/archived/`。
+- **回写**：`output-compress/docs/DESIGN.md` §1 / §5 / §6 / §7 / §8 与 `README.md` 已按新写入面改写；根 `README.md` / `README.zh.md` 的 output-compress 行同步为「自持每会话 `digest.db` + `is_error` 经句柄入 memory-base」；`docs/ROADMAP.md` 不含本包相关表述，未改。
+- **遗留（已登记为项目级条目 15）**：① 真机验证（`<会话目录>/digest.db` 生成、`skipped.session-dir-missing` 消失、memory-base 的 `kind: "digest"` 行可检索）；② `smoke/smoke.mjs` 按新口径重写（删 `dbPath`、改断言）；③ 删本机 profile 里过渡的 `sessionDir` 行（仓库外）。
+- **其他遗留**：`~/.dsh/output-compress/digest.db`（全机一个文件时期的残留）成孤儿，按「不迁移直接删」由用户择时清理；memory-base 侧两处文档漂移归其自身任务的重写。

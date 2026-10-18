@@ -20,7 +20,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层落点经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
 | **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
 | **metric-loop** | 指标驱动自动循环：测量命令解析单个数字、plateau 平稳停止、轮数/时间/token 边界、cadence 自动唤醒 |
-| **output-compress** | 大输出压缩入自持的每会话 `digest.db`：超阈值命令/工具输出的确定性摘要 + 切片索引，`is_error` 摘要经 memory-base 的写入作用域句柄入库，原始大输出不进模型上下文 |
+| **output-compress** | 大输出压缩：超阈值命令/工具输出的确定性摘要 + 切片索引写入自持的每会话 `digest.db`（每会话一个文件，经 `sessionPaths.sessionDirFor` 推导）；`is_error` 摘要另经写入作用域句柄进 memory-base（`kind: "digest"`、`tier: "session"`），原始大输出不进模型上下文 |
 | **fs-digest** | 上下文感知文件读取：`outline`/`signatures`/`pruned` 三模式返回最小充分上下文，替代整文件 `read` |
 | **hash-edit** | LINE:HASH 锚定编辑：读取得到每行内容哈希锚点，编辑按锚点定位，内容过期（stale）整批拒绝、防脏写 |
 | **ast-tools** | 基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行（经系统 CLI 子进程，零运行时依赖）；注册模型侧工具 `ast_query`（AST 搜索 / 大纲 / 规则）与 `ast_replace`（默认 dry-run） |
