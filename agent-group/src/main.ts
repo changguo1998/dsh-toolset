@@ -71,7 +71,14 @@ export interface BundleHost {
   [key: string]: unknown;
 }
 
-/** 读服务面（`ctx.get` 优先，退化到直接属性；读取抛错按缺失处理）。 */
+/**
+ * 读服务面（`ctx.get` 优先，退化到直接属性；任何读取失败都按「服务缺失」处理）。
+ *
+ * 两条读取路径都要防护：cordis 对**未 inject** 的服务做**属性读取**会直接抛
+ * `cannot get property "<name>" without inject`（实测：重启后加载即栈顶落在这里）。
+ * 本包故意不写 `inject`（可选读取口径），所以回退路径必须自吞异常，否则「没挂
+ * session-channel」的进程会整包加载失败，而不是按设计「不注册工具 + 一次警告」。
+ */
 function readService(ctx: BundleHost, key: string): unknown {
   try {
     if (typeof ctx.get === "function") {
@@ -79,9 +86,14 @@ function readService(ctx: BundleHost, key: string): unknown {
       if (value !== undefined && value !== null) return value;
     }
   } catch {
-    /* 读取失败按「服务缺失」处理（与可选读取口径一致） */
+    /* ctx.get 不可用：继续走属性读取 */
   }
-  return ctx[key];
+  try {
+    return ctx[key];
+  } catch {
+    /* 未声明的服务（cordis 抛错）→ 按缺失处理 */
+    return undefined;
+  }
 }
 
 /** 调用方会话 id（宿主在 `exec.agent.session` 传入）。 */
@@ -187,8 +199,17 @@ export function apply(
   config: AgentGroupConfig = {},
 ): void {
   const warn = (message: string): void => {
-    ctx.logger?.(name).info(message) ??
-      process.stderr.write(`[${name}] ${message}\n`);
+    // `logger` 同样是宿主属性：未声明时读取会抛，故一并兜住，失败退回 stderr。
+    try {
+      const logger = ctx.logger?.(name);
+      if (logger !== undefined && typeof logger.info === "function") {
+        logger.info(message);
+        return;
+      }
+    } catch {
+      /* 退回 stderr */
+    }
+    process.stderr.write(`[${name}] ${message}\n`);
   };
   const resolved = resolveConfig(config);
   if (!resolved.enabled) return;
@@ -240,7 +261,9 @@ export function apply(
     log: warn,
   });
 
-  const tools = ctx.tools;
+  // 走 `readService` 而不是 `ctx.tools`：未 inject 的属性读取在 cordis 下会抛错。
+  const tools = readService(ctx, "tools") as
+    { register?(def: unknown): unknown } | undefined;
   if (tools === undefined || typeof tools.register !== "function") {
     warn("tools 未挂载：agent_group 工具不可用");
     return;

@@ -183,6 +183,90 @@ function isLosslessJson(value: unknown): boolean {
   return Object.values(value as Record<string, unknown>).every(isLosslessJson);
 }
 
+/**
+ * 模拟 cordis ctx：**未 inject 的服务做属性读取会直接抛错**
+ * （真实文案 `cannot get property "<name>" without inject`）。本包故意不写 `inject`，
+ * 因此 apply 里任何一次裸属性读取都会让整包加载失败 —— 用 Proxy 把这条钉住。
+ */
+function cordisLikeHost(options: {
+  services?: Record<string, unknown>;
+  omitTools?: boolean;
+}) {
+  const logs: string[] = [];
+  const registered: ToolDef[] = [];
+  const base: Record<string, unknown> = {
+    get: (key: string) => options.services?.[key],
+    logger: () => ({ info: (message: string) => void logs.push(message) }),
+  };
+  if (options.omitTools !== true) {
+    base["tools"] = {
+      register: (def: unknown) => void registered.push(def as ToolDef),
+    };
+  }
+  const host = new Proxy(base, {
+    get(target, prop, receiver) {
+      if (typeof prop === "string" && !(prop in target)) {
+        throw new Error(`cannot get property "${prop}" without inject`);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  return { host, logs, registered };
+}
+
+test("未 inject 的宿主：服务齐全时正常注册（属性回退读取不冒泡）", async () => {
+  const root = await tempDir();
+  const box = cordisLikeHost({
+    services: {
+      sessionChannel: fakeChannel().face,
+      sessionPaths: fakePaths(root).service,
+    },
+  });
+  assert.doesNotThrow(
+    () => apply(box.host as never, {}),
+    "未声明服务（sessions / memory）的属性读取抛错必须被吞掉",
+  );
+  assert.equal(box.registered.length, 1);
+  assert.equal(box.registered[0]?.name, "agent_group");
+});
+
+test("未 inject 的宿主：服务缺失时不抛、不注册、只警告一条", () => {
+  const box = cordisLikeHost({ services: {} });
+  assert.doesNotThrow(() => apply(box.host as never, {}));
+  assert.equal(box.registered.length, 0);
+  assert.equal(box.logs.length, 1);
+  assert.match(box.logs[0] ?? "", /不注册 agent_group 工具/);
+});
+
+test("未 inject 的宿主：tools 属性也抛错时按「未挂载」降级（不冒泡）", async () => {
+  const root = await tempDir();
+  const box = cordisLikeHost({
+    services: {
+      sessionChannel: fakeChannel().face,
+      sessionPaths: fakePaths(root).service,
+    },
+    omitTools: true,
+  });
+  assert.doesNotThrow(() => apply(box.host as never, {}));
+  assert.equal(box.registered.length, 0);
+  assert.ok(
+    box.logs.some((line) => line.includes("tools 未挂载")),
+    `应有一条 tools 未挂载的警告：${box.logs.join(" | ")}`,
+  );
+});
+
+test("极端宿主：连 ctx.get 与 logger 都抛错时 apply 仍不抛", () => {
+  const host = new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        throw new Error(`cannot get property "${String(prop)}" without inject`);
+      },
+    },
+  );
+  assert.doesNotThrow(() => apply(host as never, {}));
+});
+
 test("依赖门禁：缺 sessionChannel / sessionPaths / sessionDirFor 时不注册工具并警告", () => {
   const cases: Array<{ label: string; services: Record<string, unknown> }> = [
     { label: "缺 sessionChannel", services: {} },
