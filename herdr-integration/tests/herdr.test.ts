@@ -236,6 +236,51 @@ describe("HerdrClient unix socket 协议", () => {
     await close();
   });
 
+  test("seq 取墙钟下界：进程运行一段时间后的上报仍高于窗口内的墙钟量级", async () => {
+    const socketPath = tmpSocketPath();
+    const { lines, listen, close } = createSocketServer(socketPath);
+    await listen();
+    const startedAt = Date.now();
+    const client = clientFor(socketPath);
+    // 旧实现此时 seq = startedAt*1000 + 1，被任何墙钟量级的上报永久压制
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await client.reportState("working");
+    await waitLines(lines, 1);
+
+    const { params } = JSON.parse(lines[0]!) as { params: { seq: number } };
+    assert.ok(
+      params.seq >= (startedAt + 20) * 1000,
+      `seq 应不低于墙钟下界：${params.seq} < ${(startedAt + 20) * 1000}`,
+    );
+    await close();
+  });
+
+  test("seq 不倒退：墙钟回拨时仍严格递增", async () => {
+    const socketPath = tmpSocketPath();
+    const { lines, listen, close } = createSocketServer(socketPath);
+    await listen();
+    const client = clientFor(socketPath);
+    await client.reportState("working");
+    await waitLines(lines, 1);
+
+    // 模拟墙钟回拨（NTP 校正）：port 侧仍须靠「上一条 +1」保持严格递增
+    const originalNow = Date.now;
+    const backdated = originalNow() - 60_000;
+    Date.now = () => backdated;
+    try {
+      await client.reportState("idle");
+    } finally {
+      Date.now = originalNow;
+    }
+    await waitLines(lines, 2);
+
+    const seqs = lines.map(
+      (line) => (JSON.parse(line) as { params: { seq: number } }).params.seq,
+    );
+    assert.ok(seqs[1]! > seqs[0]!, `seq 不应倒退：${seqs[1]} <= ${seqs[0]}`);
+    await close();
+  });
+
   test("状态队列：同刻多条只发最新（合并去抖，丢弃中间态）", async () => {
     const socketPath = tmpSocketPath();
     const { lines, listen, close } = createSocketServer(socketPath);

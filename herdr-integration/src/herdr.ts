@@ -6,6 +6,10 @@
 //   - 传输：unix socket（Windows 下为命名管道 `\\.\pipe\<path>`），换行分隔 JSON 行。
 //   - pane.report_agent_session：上报当前会话引用（agent_session_id / agent_session_path）。
 //   - pane.report_agent：上报 agent 状态（working | blocked | idle），附单调 seq 与 message。
+//   - seq 语义：herdr 按 (pane, source) 记录已接受的最高 seq，**不高于它的上报静默忽略**
+//     （请求成功、状态不变）。故每条上报取「上一条 + 1」与「当前墙钟下限」的较大者——
+//     只按进程启动时间取初值 + 逐条 +1 时，任何更晚启动的进程或任何墙钟量级的上报都会
+//     把闸门抬到本进程永远够不到的高度（真机复现：面板停在旧状态不再更新）。
 //   - 发送：每次请求独立连接，写一行后等响应；首档等响应超时后立即补一次（重试档上限固定 1500ms）。
 //   - 状态队列：sendInFlight 串行 drain，发送期间到达的新状态覆盖待发项（合并去抖）。
 
@@ -118,9 +122,9 @@ export class HerdrClient implements HerdrSender {
         : options.socketPath;
   }
 
-  /** 单调递增的协议序号（初始 Date.now()*1000，与 pi 原生一致）。 */
+  /** 单调递增的协议序号：取下界「上一条 + 1」，保证晚于此前任何墙钟量级的上报。 */
   private nextSeq(): number {
-    this.reportSeq += 1;
+    this.reportSeq = Math.max(this.reportSeq + 1, Date.now() * 1000);
     return this.reportSeq;
   }
 

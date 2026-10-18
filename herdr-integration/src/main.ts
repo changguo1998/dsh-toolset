@@ -58,6 +58,8 @@ export interface HerdrIntegrationConfig {
   agent?: string;
   /** 首档发送尝试的等待响应超时 ms（默认 500，与 pi 原生一致） */
   attemptTimeoutMs?: number;
+  /** 周期补发当前状态的间隔 ms（默认 20000；0 关闭），用于 herdr 侧丢归属后自愈 */
+  refreshIntervalMs?: number;
 }
 
 /**
@@ -314,6 +316,21 @@ export function createHerdrPlugin(
   agentActive = startupRoots.some((agent) => agent.status === "running");
   publish(true);
 
+  // 周期补发当前推导状态。herdr 侧会在不通知上报方的情况下丢掉 pane 归属（自重报代理的
+  // 「pane 回到空闲 shell」兜底、server 重启 / handoff），且 seq 闸门对更低序号的上报静默
+  // 忽略；只靠「状态变化才发」时一旦丢失就永不恢复，故按固定周期原样重发（force 跳过
+  // 同态判断，payload 与会话引用随当前 state 走）。
+  // 补发只用一条两行 JSON 的独立连接，周期内开销可忽略；refreshIntervalMs: 0 关闭。
+  const refreshIntervalMs = config.refreshIntervalMs ?? 20_000;
+  const refreshTimer =
+    refreshIntervalMs > 0
+      ? setInterval(() => {
+          publish(true);
+        }, refreshIntervalMs)
+      : undefined;
+  // 定时器不拖住进程退出（TUI 的 /quit 走 process.exit，兜底 release 由 exit 回调负责）
+  refreshTimer?.unref?.();
+
   // 进程退出兜底：dsh 的 TUI 退出路径（/quit → process.exit）不会触发 cordis
   // 插件 dispose，且 exit 回调内异步 socket 无法送达——用同步子进程写 release，
   // 保证 dsh 退出后 herdr 面板不留本 agent 残留。
@@ -330,6 +347,9 @@ export function createHerdrPlugin(
         }
       }
       process.removeListener("exit", onExit);
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
       // 退出/卸载时释放 herdr pane 的 agent authority，避免 dsh 退出后
       // herdr 面板仍显示本 agent（release 带递增 seq，覆盖宿主 seq 门控）
       void sender.release();

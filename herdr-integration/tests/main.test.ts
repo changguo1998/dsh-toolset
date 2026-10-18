@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 
 import {
   createHerdrPlugin,
+  type HerdrIntegrationConfig,
   type HerdrPluginHandle,
   type PluginCtxLike,
   type RootAgentLike,
@@ -99,20 +100,31 @@ function fakeCtx(): FakeCtx {
 
 let handle: HerdrPluginHandle | undefined;
 
+/** 轮询谓词直到成立或超时（定时器有抖动，避免定长 sleep 造成偶发失败）。 */
+async function waitUntil(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  return true;
+}
+
 function startPlugin(
   ctx: FakeCtx,
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean; config?: HerdrIntegrationConfig } = {},
 ): { plugin: HerdrPluginHandle | undefined; sender: RecordingSender } {
   const sender = new RecordingSender();
-  handle = createHerdrPlugin(
-    ctx,
-    {},
-    {
-      sender,
-      readHerdrEnv: () => (opts.enabled === false ? undefined : ENV_OPTS),
-      readRoots: () => ctx.roots,
-    },
-  );
+  handle = createHerdrPlugin(ctx, opts.config ?? {}, {
+    sender,
+    readHerdrEnv: () => (opts.enabled === false ? undefined : ENV_OPTS),
+    readRoots: () => ctx.roots,
+  });
   return { plugin: handle, sender };
 }
 
@@ -637,5 +649,62 @@ describe("createHerdrPlugin", () => {
     assert.equal(sender.releases, 0);
     plugin!.dispose();
     assert.equal(sender.releases, 1);
+  });
+
+  test("周期补发：按当前推导状态原样重发（同态也发，用于自愈）", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx, {
+      config: { refreshIntervalMs: 10 },
+    });
+    assert.equal(sender.states.length, 1);
+    // 计时有抖动（并行跑测时更明显），按谓词轮询而不是定长等待
+    assert.ok(
+      await waitUntil(() => sender.states.length >= 3),
+      `补发次数不足：${sender.states.length}`,
+    );
+    assert.deepEqual(sender.states.at(-1), { state: "idle" });
+    plugin!.dispose();
+  });
+
+  test("补发跟随当前状态（working 期间补发 working）", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx, {
+      config: { refreshIntervalMs: 10 },
+    });
+    ctx.setRoots([{ session: { id: "s1" }, status: "running" }]);
+    ctx.fire("agent/status", {
+      agent: { session: { id: "s1" } },
+      status: "running",
+    });
+    const afterChange = sender.states.length;
+    // 变化后至少要再补发一次，且补发的是新状态
+    assert.ok(await waitUntil(() => sender.states.length > afterChange));
+    assert.deepEqual(sender.states.at(-1), { state: "working" });
+    plugin!.dispose();
+  });
+
+  test("refreshIntervalMs: 0 关闭补发", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx, {
+      config: { refreshIntervalMs: 0 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(sender.states.length, 1);
+    plugin!.dispose();
+  });
+
+  test("dispose 后不再补发", async () => {
+    const ctx = fakeCtx();
+    ctx.setRoots([{ session: { id: "s1" }, status: "idle" }]);
+    const { plugin, sender } = startPlugin(ctx, {
+      config: { refreshIntervalMs: 10 },
+    });
+    plugin!.dispose();
+    const before = sender.states.length;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(sender.states.length, before);
   });
 });
