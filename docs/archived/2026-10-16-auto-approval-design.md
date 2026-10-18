@@ -1,8 +1,8 @@
 # 自动审批插件（工具调用的审批链自动裁定）（接取条目: `docs/BACKLOG.md`「自动审批插件（工具调用的审批链自动裁定）」）
 
-状态: 决策（2026-10-16）　　开启: 2026-10-16　　关闭: 未关闭
+状态: 关闭（2026-10-18）　　开启: 2026-10-16　　关闭: 2026-10-18
 本文件是本任务唯一的过程记录与文档变更落点; 计划外的文件不改.
-本回合范围: 调研 + 决策（不写实现代码）. 工作区 `feat/auto-approve`（基线 `ef73477`）.
+首回合范围（2026-10-16）: 调研 + 决策（不写实现代码）. 实现与关闭见「实现记录」/「偏差」/「测试与证据」/「收尾」；工作区 `feat/auto-approve`.
 术语（2026-10-16 用户裁定）: cordis 的 waterfall 事件在中文叙述里统一叫「**链**」（如「审批链」「链分发无人应答」）, 与官方 pipeline 的「流水线」（工具执行流水线）区分开; 代码标识符、字段名与 `waterfall(...)` 调用一律保持英文原文。
 
 ## 目标
@@ -458,19 +458,53 @@ deny:
 
 ## 实现记录
 
-（待实现阶段追加。）
+**2026-10-17 实现回合**（工作区 `feat/auto-approve`，4 个提交）：
+
+1. `f57f945` 起包骨架与接线：`auto-approve/`（`package.json` 的 `dsh.bundle` + `cordis.patch.yml`，按 R6 缺省 `enabled: true` + `mode: rules`）、`tsconfig.json`、`LICENSE`、`docs/BACKLOG.md`；根 `package.json` 的 check / build 链、`scripts/test-parallel.sh` 的 `default_pkgs`、`scripts/install.sh` 的 `canonical_pkgs` 三处追加（`scripts/test-install.sh` 84 项通过）。同提交含配置归一（`src/config.ts`）与纯函数判定层（`patterns.ts` / `fingerprint.ts` / `calls.ts` / `rules.ts`）及其用例。
+2. `1605e79` 宿主面与编排：`answerer.ts`（`approval/request` 应答者）、`gate.ts`（`tools/pre-execute` 记录参数 + 拒绝名单，不提前放行）、`decide.ts`（优先级阶梯与单次判定缓存）、`runtime.ts`（裁定记账 / 指纹 / 审计去重）、`review.ts`（LLM 灰区审查：固定策略段 + 四段请求 + 严格 JSON + 超时与失败兜底）、`audit.ts`（会话 JSONL + memory-base `approval_audit` 双落点）、`sessions.ts`（历史过滤、路由折叠、`callId` 反查）、`command.ts`（`/autoapprove` 六个子命令）、`main.ts`（契约符号、服务面、监听器注册）与 13 个测试文件。
+3. `34a17b1` 包 `README.md`（判定阶梯、配置面、LLM 口径、审计双落点、与既有件的分工、「自动放行不等于沙箱放行」）。
+4. `4ea2ca5` 收口修补：会话审计写入失败时本次裁定返回「不裁定」（退回人工面板）；`recent()` 只认真正落盘的行；memory-base 缺席时一次警告；取不到会话 id 不裁定（无法落审计与记指纹）。
+
+**关键实现决定（实现期定稿）**：
+
+- 判定优先级按决策 1 的表：拒绝名单 → 指纹 → 只读类 → 路径白名单 → 命令白名单 → 沙箱升级白名单 → LLM 灰区 → 人工面板；「第一个命中者胜出」。
+- `gate` 只做两件事：记录 `callId → {name, arguments, agent, cwd, 升级目标}`、执行**不需要参数**的拒绝名单；其余层留到审批应答时判（理由见「偏差」第 1 条）。
+- 参数取不到时路径 / 命令 / 升级类判据不生效（落面板，不猜）；`deny.missingArguments` 可收紧为拒绝。
+- 指纹 = `toolName` + 规范化参数 + 升级目标模式；单会话、有界近似 LRU；只有 `allowed-once` 进放行集。
+- 会话审计不可用（服务缺失 / 目录不可写 / 达上限且截断失败）→ **整条自动裁定停用**，退回人工面板并警告一次（决策 5 第 4 条）。
+- LLM 审查路由缺省取会话日志最近一条 `request/header.header.config`，配置 `review.provider` + `review.model` 同时给出时覆盖；`temperature: 0`；非法输出 / 超时 / 路由不可用一律按失败兜底（`onFailure: panel | reject`），绝不静默放行。
+- memory-base 与 session-paths 均按**结构化接口**读取（不 import 对方代码）：`sessionPaths.sessionDirFor(sessionId)`；`memory.registerKind({kind: "approval_audit", writableTiers: ["project"]})` → `scope.put({content, tier: "project", project, title, source})`（兼容同步 / 异步返回句柄）。
 
 ## 偏差
 
-无（本回合为调研 + 决策, 未做实现; 调研中未发现与计划不一致项）.
+1. **LLM 审查段的挂载时机**：计划的「LLM 段设计口径」写挂载点 `tools/pre-execute`；实现改为在**审批应答时**执行（`answerer.ts` → `decide.ts`），`gate` 只记录参数与拒绝名单。原因：`gate` 无法预知工具是否会产生审批请求，提前审查会给「根本不会弹面板」的调用白跑一次模型请求；名单命中的零请求、严格 JSON、失败兜底与「名单优先于模型」口径均未变（单测断言名单命中时 reviewer 调用 0 次）。若要按文档字面在 `gate` 预审，需新增开关，本回合未做。
+2. **根仓全量机械验证未在本 worktree 执行**：其余子包在本 worktree 无 `node_modules`，且多模块并行开发。以包级 `check` / `build` / `test` 与 `scripts/test-install.sh`（84 项）为机械证据；合入 `main` 后由用户做真机验证。
+3. **最后一次测试之后只做格式化与提交**：最后一次 `npm --prefix auto-approve test`（115 例全绿）之后运行过 `format` 并提交（`4ea2ca5`），未在格式化后重跑测试；格式化对象为 TS / JSON / MD，未改逻辑。
+4. **memory-base 的 `source.kind` 闭集**：审计行写 `source: {kind: "approval", ref: callId}`，而 memory-base 现行 `SourceKind` 为 `session | file | url | tool_result | manual`。运行时按字符串入库、不影响裁定；类型面靠本包的结构化声明隔离。对齐项已登记 `auto-approve/docs/BACKLOG.md`。
+5. **依赖落地时序**：实现期间 `session-paths` 与 memory-base 作用域句柄仍在并行分支；本包按冻结接口结构化读取，未直接依赖对方源码。合入 `main` 后两包均已在位，接口形状核对一致（`registerKind` 同步返回 `MemoryScope`，`put(tier: "project")` 可用）。
 
 ## 测试与证据
 
-- 命令与结果: `grep` / `sed` 实读官方包与宿主装配（证据行号已逐条写在「调研」各表内）.
-- 链语义探针: 临时脚本（`tmp/wfcheck.mjs`, 用后删除）输出 `A-first-nonnext -> from-A | A` 与 `A-next-first -> from-B | A,B`, 证明「第一个不调 `next()` 者胜出、其后监听器不被调用」.
-- 本 profile 挂载实况: `grep -n "auto-review\|user-approval\|permission" ~/.dsh/profiles/fff/cordis.patch.yml`（无 auto-review 行）与 `dsh-base/cordis.patch.yml:229-260`（`sandbox-policy` / `approval` / `permission` 三行）.
-- 本回合未跑构建 / 测试（无代码改动）; 文档按仓库约定用 `format` 格式化.
+**决策回合（2026-10-16 / 2026-10-17）的调研证据**（保留备查）：
+
+- `grep` / `sed` 实读官方包与宿主装配（证据行号已逐条写在「调研」各表内）。
+- 链语义探针：临时脚本（`tmp/wfcheck.mjs`，用后删除）输出 `A-first-nonnext -> from-A | A` 与 `A-next-first -> from-B | A,B`，证明「第一个不调 `next()` 者胜出、其后监听器不被调用」。
+- 本 profile 挂载实况：`grep -n "auto-review\|user-approval\|permission" ~/.dsh/profiles/fff/cordis.patch.yml`（无 auto-review 行）与 `dsh-base/cordis.patch.yml:229-260`（`sandbox-policy` / `approval` / `permission` 三行）。
+
+**实现回合（2026-10-17）的机械证据**（工作区 `feat/auto-approve`）：
+
+- `npm --prefix auto-approve run check` → 退出码 0（`tsc -p tsconfig.json --noEmit`）。
+- `npm --prefix auto-approve run build` → 退出码 0。
+- `npm --prefix auto-approve test` → **pass 115 / fail 0**（13 个测试文件；对应用验收 01–21：裁定矩阵与优先级、指纹容量与拒绝不入集、升级白名单两维、`justification` 不参与、LLM 决策矩阵与失败兜底、名单优先于模型、审计双落点与 16 MiB 截断、命令面全部子命令、契约与三处接线、R3 反向验证）。
+- `sh scripts/test-install.sh` → **84 项通过**（含「canonical_pkgs 与 test-parallel.sh default_pkgs 同序」「canonical_pkgs 与根 check/build 链一致」）。
+- 未做：根仓全量 `npm run check` / `build` / `test`（原因见「偏差」第 2 条）；无人值守长跑压测（设计「不做」）；格式化后未重跑测试（见「偏差」第 3 条）。
+
+**真机验证**（用户 2026-10-18 告知）：修复已合入 `main` 并在真机验证正常工作。具体命令与输出不在本会话，未记录。
 
 ## 收尾
 
-本回合不关闭任务: 条目保持〔进行中: 2026-10-16〕, 追踪文档留在 `docs/implementation/`, 未归档. **R1–R7 已全部裁定**（见「已裁定的边界项」）, 接口按 2026-10-17 的两轮回写（`sessionDirFor`、跨包接口对齐）定稿; 等用户放行后另起实现回合, 届时补齐「实现记录」与「测试与证据」两节, 再按流程归档.
+- 条目「自动审批插件（工具调用的审批链自动裁定）」：**完成并关闭**（2026-10-18），已从 `docs/BACKLOG.md` §2 清理；「实现顺序」表中对应行一并移除。其余条目编号未重排（编号仅供阅读，留待下次整理统一）。
+- 本文件移入 `docs/archived/2026-10-16-auto-approval-design.md`（文件名保持开启日期）。
+- 文档回写：根 `README.md` / `README.zh.md` 的插件表各增一行 `auto-approve`（**包计数归条目「五个新插件落地时的仓库清单与包计数统一」**，本回合未改计数）；`docs/ARCHITECTURE-REUSE.md` 的 §0 总表增行、§2 增并存对、§5 的 `experimental-auto-review` 判定补「已由本仓 `auto-approve` 承担」；`AGENTS.md` 已含本包（合入时由清单统一任务更新，本回合未改）；`ROADMAP.md` 无需改（无方向变化）；`docs/STATUS.md` 按约定由用户择时更新，未改。
+- 遗留项已登记 `auto-approve/docs/BACKLOG.md`：① 项目层审计 `source.kind` 与 memory-base `SourceKind` 闭集对齐；② 巡检工具（从会话日志还原自动放行，可选增量）。
+- 本回合为关闭收尾提交：之后无与本次变更相关的提交。
