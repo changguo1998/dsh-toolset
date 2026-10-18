@@ -1,7 +1,7 @@
 # 偏好分析（接取条目：`docs/BACKLOG.md`「偏好分析（从行为与编辑中归纳用户偏好并自动应用）」）
 
-状态: 决策 | 开启: 2026-10-16 | 关闭: 未关闭
-本文件是本任务唯一的过程记录与文档变更落点; 计划外的文件不改.
+状态: 关闭　　开启: 2026-10-16　　关闭: 2026-10-17
+本文件（已归档）是本任务唯一的过程记录与文档变更落点; 计划外的文件不改.
 
 ## 目标
 
@@ -325,6 +325,8 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 
 - 2026-10-16: 完成 R1-R7 调研与 D1-D15 决策, 写本文件. 无代码改动; 按用户当次指示**未跑 formatter, 未 commit**.
 - 2026-10-16 (同日, 用户裁定后): 用户裁定 memory-base 计划只保留分级结构, 管理逻辑下沉到各插件 (**不新开 BACKLOG 条目**), 据此新增「修订」一节与 D16-D20, 并在 D7 / D8 / D9 / D15 原处注明取代关系; 补 R1 的服务面写入面与运行时现状核证, 同步更新规划 / 验收 / 估时 / 待裁定项. 仍未跑 formatter, 未 commit.
+- 2026-10-17: **实现阶段完成**（按「任务拆分」六步，分支 `feat/preference-analysis`，合入 main 的合并提交 `24217b2`）。新包 `preference-analysis/`：账簿（目录 0700 / 文件 0600、临时文件 + rename、`revision` 守卫、坏文件改名留档、版本不符只读）；观测三信号（S1 重复约束 / S2 纠正加权 x1.5 / S3 审批拒绝，排除 `rule-engine` 注入）；归纳（12 标记词取最短约束句 ≤ 120 字、3-gram Jaccard 0.8、证据 ≥ 3 且跨 ≥ 2 会话、最近证据 ≤ 30 天）；存储适配（`preference` / `preference_user` 两个 kind + `preWrite` 纵深 + 库侧副本去重）；注入消费者（冻结注册值、5 条 / 600 字符上限）；三个模型工具；README / DESIGN / 模块 BACKLOG 与七处接线。实现提交：`f815a86` / `b068685` / `e5b8caf` / `9992fe7` / `d56a66c` / `f5bb24b` / `46a6a4f`。
+- 2026-10-17（真机回归两次）: 首次重启报 `cannot get property "ruleEngine" without inject` -> `f793f4e`（`getService` 优先 `ctx.get`，属性直取 try/catch 兜底；`tools` 同样收口）；二次重启仍告警「偏好消费者未注册」-> `ed7142b`（`inject` 补 `ruleEngine` / `tools`，交 cordis 排序；补顺序与兜底用例）。合并后主会话真机验证：消费者注册与偏好注入正常。
 
 ## 偏差
 
@@ -340,10 +342,12 @@ TUI 面板 / `/prefer` 命令, `AGENTS.md` 写入, LLM 归纳与概括, 冲突�
 - 复核命令 (供后续复用): `grep -rn "registerKind" memory-base/src/`, `grep -rn "summarized" memory-base/src/promote.ts`, `grep -rn "candidates" TUI/src/app/adapter/dsh.ts`, `grep -rn "setLlmCaller" .`.
 - 2026-10-16 追加核证 (只读): `sqlite3 "file:$HOME/.dsh/memory-base/memory.db?mode=ro" ".tables"` -> 只有 `candidates` / `chunks` / `chunks_fts*` / `chunks_trigram_fts*` / `sources`, 无 `kind_*` 表; `select promotion_state, summarized, count(*) from candidates group by 1,2;` -> 零行 (候选队列从未被写入).
 - 服务面能力核证: 逐键比对 `memory-base/src/index.ts:770-950`, 确认无 `targetRows` / `setImportance` / `evict` / `touch` / 按 kind 列举; `forget` 为 `tiers?.forget ?? 0` (`:846-851`); 分层写入路由见 `memory-base/src/tiers.ts:320-336`.
+- 实现阶段（2026-10-17）: 包 `npm run check` exit 0、`npm test` 68 例全绿（`tests/` 七个文件）；根 `npm run check` / `npm run build` / `npm run test`（29 包）全绿；`scripts/test-install.sh` 84 项通过、`scripts/install.sh --dry-run` 识别新包。
+- 真机（主会话，2026-10-17）: 合入 main 后重启 `dsh --profile fff`，消费者注册与偏好注入正常（两次回归修复见「实现记录」）。
 
 ## 收尾
 
-- 未关闭: 条目仍是〔进行中〕, 本文件留在 `docs/implementation/`; 开口项已全部落定（见「已裁定的开口项」与冻结接口）, 等放行后进入实现.
-- 未改 `docs/BACKLOG.md` (按用户当次指示: 只更新追踪文档, 等检查后再定).
-- 未回写任何包 `README.md` / `DESIGN.md` / `docs/ROADMAP.md` (本任务不产生仓内实现).
-- 归档: 待实现完成, 条目关闭后随收尾提交移入 `docs/archived/`.
+- 已关闭（2026-10-17）: 条目「偏好分析（从行为与编辑中归纳用户偏好并自动应用）」完成并从 `docs/BACKLOG.md` §2 清理（原条目 7；后续条目编号按当前顺序重排），本文件移入 `docs/archived/`。
+- 文档回写: 包 `README.md` / `docs/DESIGN.md` / `docs/BACKLOG.md` 随实现提交；根 `README.md` / `README.zh.md` 的插件清单与包计数、`AGENTS.md` 三处清单随接线提交（`46a6a4f`）；`docs/STATUS.md` 由用户择时更新，本任务不改。
+- 依赖顺序: memory-base 重设（D20 选 (a)）已落地（`writableTiers` / `MemoryScope` / 全局 `list` 均可用），本包按其冻结句柄面编码；上游未落地时按设计降级为「只观察不写入 / 不注入」。
+- 遗留（首期不做，见模块 `docs/BACKLOG.md`「已裁定不做」）: TUI 面（`/prefer` 面板）、LLM 归纳与冲突检测、`AGENTS.md` 追加路径、快捷键 / 提交信息 / 工具选择采集、跨机共享。
