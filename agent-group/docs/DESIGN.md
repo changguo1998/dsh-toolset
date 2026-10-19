@@ -105,7 +105,7 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 
 ## 7. 降级矩阵
 
-注册与解析分开（`apply` 只同步注册工具，`sessionChannel` / `sessionPaths` 每次 `execute` 才解析、成功才缓存 → 服务晚到可自愈）的机制与各依赖缺失时的行为 / 错误码见 `README.md` 的「依赖与降级」；README 未列的补充：`add_member` 目标离线 / 歧义 → `target_offline` / `target_ambiguous`，`send` 投递失败结算为 `failure`，状态文件损坏 → `state_unavailable`（不静默重置，见 §6）。
+注册与解析分开（`apply` 期用**静态 `inject: ["tools"]`** 保证注册时机；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 走 `ctx.inject([...], cb)` **子分叉**绑定、每次 `execute` 再解析、成功才缓存 → 服务晚到可自愈；2026-10-19 真机修正，取代 2026-10-17「不写 inject」的裁定）的机制与各依赖缺失时的行为 / 错误码见 `README.md` 的「依赖与降级」；README 未列的补充：`add_member` 目标离线 / 歧义 → `target_offline` / `target_ambiguous`，`send` 投递失败结算为 `failure`，状态文件损坏 → `state_unavailable`（不静默重置，见 §6）。
 
 ## 8. 与设计文档的偏差（实现阶段记录）
 
@@ -115,7 +115,8 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 | 指令「由主方发」 | 物理投递的 `delegate.from` = 主方成员的会话 id（未知时回落管理者会话 id） | 结果通知归主方语义；管理者仍可用 `taskStatus` 读到结果（任务表全局） |
 | 回报三态「成功 / 失败 / 受阻」 | 通道只有 `failed: boolean`；本包约定 `failed: true` + `error: "blocked: …"` 表示受阻并剥掉前缀 | session-channel 的追踪文档已定「通道不规定语义，三态由 agent-group 自描述」 |
 | `status` 只读 | 只读且不落盘、不镜像；命中缓存时不碰存储 | 让「目录解析运行期失败」时只读面仍可用（验收细化第 9 条） |
-| 缺依赖 → 不注册工具 + 一次警告（apply 期门禁） | **工具照常注册**，缺依赖改为调用期错误（原因 + 下一步） | 真机实测（2026-10-17）：`sessionChannel` / `sessionPaths` 晚于本包激活且无法经 `inject` 解析，注册被推到 agent 创建之后 → 工具表不收录（`/tools agent_group` 为 0）。工具定义改为不依赖服务，`execute` 时才组装 `GroupService` |
+| 缺依赖 → 不注册工具 + 一次警告（apply 期门禁） | ~~**工具照常注册**，缺依赖改为调用期错误（原因 + 下一步）~~ | ~~真机实测（2026-10-17）：`sessionChannel` / `sessionPaths` 晚于本包激活且无法经 `inject` 解析，注册被推到 agent 创建之后 → 工具表不收录（`/tools agent_group` 为 0）。工具定义改为不依赖服务，`execute` 时才组装 `GroupService`~~ —— **2026-10-19 被下一行取代** |
+| 注册面一并去掉 `inject`（2026-10-17 裁定） | 静态 `inject: ["tools"]` 恢复声明；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 改走 `ctx.inject([...], cb)` 子分叉绑定，工具仍在 `apply` 期注册 | 真机实测（2026-10-19）：不写 `inject` 时 `ctx.get("tools")` 读到 `undefined`（cordis 4.0.5），工具**从未注册**；兄弟 bundle 提供的服务未注入也读不到。回归用例见 `tests/main.test.ts`「真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用」 |
 
 ## 9. 明确不做（首期）
 

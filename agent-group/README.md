@@ -48,15 +48,15 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 
 ## 依赖与降级
 
-**注册与解析分开**（2026-10-17 真机裁定）：工具在 `apply` 期**同步注册**（工具表在 agent 创建时定稿，晚注册进不了表），依赖服务在**每次 `execute` 时惰性解析**。本包不写 `inject`（`sessionChannel` / `sessionPaths` 在本宿主上无法经 `inject` 解析，加 `inject` 会让整包不激活），也不在注册期读它们。
+**注册与解析分开**（2026-10-19 真机修正，取代 2026-10-17 裁定）：工具在 `apply` 期**同步注册**（工具表在 agent 创建时定稿，晚注册进不了表）。注册面 `tools` 写进**静态 `inject`** —— 宿主 base 在 agent 创建前就提供它，声明后 cordis 会把本插件的激活排到它之后，`apply` 里才拿得到工具表；其余服务**不**写进 `inject`（它们由兄弟 bundle 在各自 fiber 提供，声明会让整包推迟到它们就绪，工具反而进不了表）。可选服务在**每次 `execute` 时惰性解析**，解析路径：`ctx.inject([...], cb)` **子分叉**绑定优先（服务由兄弟 bundle 提供时，未注入的 `ctx.get` 直读拿不到），其次 `ctx.get` 直读兜底。
 
 | 依赖 | 用途 | 不可用时 |
 | --- | --- | --- |
+| `tools`（宿主） | 注册工具 | `apply` 期一次警告（连注册面都没有，无从提供工具） |
 | `sessionChannel`（session-channel） | 传输 | 工具**仍已注册**；调用返回 `session_channel_unavailable`（原因 + 下一步） |
 | `sessionPaths`（session-paths） | 组状态落点 | 调用返回 `session_paths_unavailable`（原因 + 下一步） |
 | `memory`（memory-base） | 可选镜像 | 跳过并计数，不影响动作 |
 | `sessions`（宿主） | 镜像的 `project`（管理者会话 `cwd`） | 回落 `agent-group:<组名>` |
-| `tools`（宿主） | 注册工具 | 一次警告（连注册面都没有，无从提供工具） |
 
 解析结果**只缓存成功**：服务晚到（宿主稍后 `provide`）时下一次调用会重新解析并自愈；失败不缓存，故不会把「当时没挂」固化成永久不可用。`memory` / `sessions` 在服务实例创建时取一次（镜像属可选增强）。
 

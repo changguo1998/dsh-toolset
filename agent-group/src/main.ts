@@ -2,10 +2,17 @@
  * agent-group 插件入口（DSH bundle 接入面）：**跨会话协调层** —— 组、成员、主从连接（含等级）、
  * 指令与回报；不采样、不聚合，也不建也不销毁会话（决策项 16 / 19）。
  *
- * 契约对齐 docs/host/DSH-CTX-API.md §0（`export { name, Config, apply }`）：
- * - 依赖走**可选读取**（不写进 `inject`）：`sessionChannel`（传输）与 `sessionPaths`
- *   （组状态落管理者会话目录）；任一不可用 → **不注册工具 + 一次警告**（2026-10-17 裁定）。
- *   理由：硬 `inject` 会让「依赖没挂」直接拦住本包加载，而本包的降级语义正是「没传输就不提供工具」。
+ * 契约对齐 docs/host/DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：
+ *
+ * **依赖分两层**（2026-10-19 真机修正，推翻 2026-10-17「不写 inject」的裁定）：
+ * - `inject = ["tools"]`：注册面是**必需**依赖 —— 宿主 base 在 agent 创建前就 provide `tools`，
+ *   声明后 cordis 会把本插件的激活排到它就绪之后；不声明则 apply 期读不到工具表，工具**永远
+ *   进不了表**（真机实测：新起会话里根本没有 `agent_group`）。
+ * - `sessionChannel` / `sessionPaths` / `memory` / `sessions`：**可选**依赖，由兄弟 bundle 在
+ *   各自 fiber `provide`，未 inject 时 `ctx.get` 读不到（cordis 4.0.5 实测）。故用
+ *   `ctx.inject([...], cb)` 开**子分叉**按需绑定：工具仍在 apply 期同步注册，服务晚到也能自愈。
+ * - 任一必需服务不可用 → 调用期错误（`session_channel_unavailable` /
+ *   `session_paths_unavailable`，带原因 + 下一步），工具本身照常已注册。
  * - `memory-base`（`memory` 服务）可选：每次组状态变更后把只读视图镜像进去（`kind: "agent_group"`），
  *   失败只计数 + 一次日志、不重试。
  * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派 7 个动作）。
@@ -42,6 +49,16 @@ export type * from "./types.ts";
 
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "agent-group";
+
+/**
+ * 静态依赖：只有注册面 `tools`。
+ *
+ * 宿主 base 在 agent 创建前就 provide 它 —— 声明后本插件的激活会排在它之后，`apply` 里才能
+ * 读到工具表；不声明时 cordis 4.0.5 下 `ctx.get("tools")` 读到 `undefined`，工具**永远注册
+ * 不上**（2026-10-19 真机实测：新起会话的工具表里没有 `agent_group`）。其余四个服务由兄弟
+ * bundle 提供，走 `ctx.inject` 动态分叉（见 `bindOptionalServices`）。
+ */
+export const inject = ["tools"];
 
 /** 插件配置（`Config` 为宿主透传形态，字段见 `AgentGroupConfig`）。 */
 export type Config = AgentGroupConfig;
@@ -210,23 +227,124 @@ export function toToolDef(
   };
 }
 
+/** 可选依赖的绑定槽：由 `ctx.inject` 分叉写入，服务被卸载时清空。 */
+export interface GroupServiceBindings {
+  channel?: unknown;
+  paths?: unknown;
+  sessions?: unknown;
+  memory?: unknown;
+}
+
+/** `ctx.inject` 的结构面（cordis 把 registry 方法混到 ctx 上；服务面 / 测试宿主没有）。 */
+interface InjectFace {
+  inject?(
+    deps: string[],
+    callback: (child: BundleHost) => (() => void) | void,
+  ): unknown;
+}
+
+/** 读 `ctx.inject`：属性读取在 cordis 下对未声明的键会抛（同 `readService` 的理由）。 */
+function readInject(ctx: BundleHost): InjectFace["inject"] {
+  try {
+    const value = (ctx as InjectFace).inject;
+    return typeof value === "function" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * 惰性服务解析：**注册期不碰** `sessionChannel` / `sessionPaths`。
+ * 绑定**可选**依赖（`sessionChannel` / `sessionPaths` / `sessions` / `memory`）。
  *
- * 真机实测（2026-10-17）：这两个服务都晚于本包激活，注册期读不到；而工具表在 agent
- * 创建时就已定稿 —— 注册若被推到「服务就绪之后」，工具**永远进不了工具表**（新进程里
- * `/tools agent_group` 为 0）。故注册在 apply 期同步做，服务改在每次 execute 时解析；
- * 失败不缓存（服务晚到也能自愈），成功才缓存。
+ * 为什么不写进静态 `inject`：这四个服务都由兄弟 bundle 在各自 fiber 里 `provide`，声明进
+ * 静态 `inject` 会把本插件的激活推到它们就绪之后 —— 而工具表在 agent 创建时定稿，工具就会
+ * 进不了表（2026-10-17 真机结论的这一半仍然成立）。改用 `ctx.inject([...], cb)` 开**子分叉**：
+ * 父插件照常激活并注册工具，子分叉在依赖到位时把服务写进 `bindings`，服务卸载时清空。
+ *
+ * 宿主没有 `ctx.inject`（纯服务面 / 单测假宿主）时直接返回，解析退回 `readService` 直读。
+ */
+export function bindOptionalServices(
+  ctx: BundleHost,
+  bindings: GroupServiceBindings,
+  log: (message: string) => void,
+): void {
+  const inject = readInject(ctx);
+  if (inject === undefined) return;
+
+  const watch = (
+    deps: string[],
+    assign: (child: BundleHost) => void,
+    clear: () => void,
+  ): void => {
+    try {
+      inject.call(ctx, deps, (child) => {
+        assign(child);
+        return clear;
+      });
+    } catch (error) {
+      log(`服务注入失败（${deps.join(" / ")}）：${describe(error)}`);
+    }
+  };
+
+  watch(
+    ["sessionChannel", "sessionPaths"],
+    (child) => {
+      bindings.channel = readService(child, "sessionChannel");
+      bindings.paths = readService(child, "sessionPaths");
+    },
+    () => {
+      bindings.channel = undefined;
+      bindings.paths = undefined;
+    },
+  );
+  watch(
+    ["sessions"],
+    (child) => {
+      bindings.sessions = readService(child, "sessions");
+    },
+    () => {
+      bindings.sessions = undefined;
+    },
+  );
+  watch(
+    ["memory"],
+    (child) => {
+      bindings.memory = readService(child, "memory");
+    },
+    () => {
+      bindings.memory = undefined;
+    },
+  );
+}
+
+/** 读一个可选依赖：**注入分叉优先**，没有再退回直读（服务面宿主 / 假宿主可用）。 */
+function boundOrDirect(
+  bindings: GroupServiceBindings,
+  key: keyof GroupServiceBindings,
+  ctx: BundleHost,
+  service: string,
+): unknown {
+  const bound = bindings[key];
+  return bound === undefined ? readService(ctx, service) : bound;
+}
+
+/**
+ * 惰性服务解析：**注册期不碰**任何可选服务，第一次 execute 才解析。
+ *
+ * 两条读取路径：`bindOptionalServices` 的注入分叉优先（真机主路径），其次 `readService` 直读
+ * （宿主没有 `ctx.inject`，或分叉还没就绪）。解析成功才缓存 —— `GroupService` 里带着状态缓存
+ * 与串行锁，必须是**单实例**；失败不缓存，服务晚到下一次调用自愈。
  */
 export function createLazyGroupService(
   ctx: BundleHost,
   config: ResolvedConfig,
   log: (message: string) => void,
+  bindings: GroupServiceBindings = {},
 ): () => Promise<GroupService | GroupFailure> {
   let cached: GroupService | undefined;
   return async () => {
     if (cached !== undefined) return cached;
-    const channel = readService(ctx, "sessionChannel");
+    const channel = boundOrDirect(bindings, "channel", ctx, "sessionChannel");
     if (!isSessionChannelFace(channel)) {
       return failure(
         "session_channel_unavailable",
@@ -234,7 +352,7 @@ export function createLazyGroupService(
         "在 profile 里挂上 session-channel 后重启 dsh（群组编排靠它投递指令与收取回报）",
       );
     }
-    const paths = readService(ctx, "sessionPaths");
+    const paths = boundOrDirect(bindings, "paths", ctx, "sessionPaths");
     const pathsFace =
       typeof paths === "object" && paths !== null
         ? (paths as { sessionDirFor?: unknown })
@@ -247,10 +365,10 @@ export function createLazyGroupService(
       );
     }
     const sessionDirFor = pathsFace.sessionDirFor.bind(paths);
-    const sessions = readService(ctx, "sessions") as
+    const sessions = boundOrDirect(bindings, "sessions", ctx, "sessions") as
       | { get?(id: string): { header?: { cwd?: string } } | undefined }
       | undefined;
-    const memory = readService(ctx, "memory");
+    const memory = boundOrDirect(bindings, "memory", ctx, "memory");
     const mirror =
       config.mirror && isMemoryFace(memory)
         ? new MemoryBaseMirror(memory, (sessionId) => {
@@ -278,10 +396,10 @@ export function createLazyGroupService(
 }
 
 /**
- * 挂载（宿主按 bundle 契约调用；不抛）：**apply 期同步注册工具**，依赖在 execute 时解析。
+ * 挂载（宿主按 bundle 契约调用；不抛）：**apply 期同步注册工具**，可选依赖在 execute 时解析。
  *
- * 为什么不在注册期做依赖门禁：`sessionChannel` / `sessionPaths` 晚于本包激活，注册期
- * 读不到；把它们当注册前置会把注册推到 agent 创建之后，工具表不收录（真机实测）。
+ * 注册面 `tools` 写进静态 `inject`（必需依赖，宿主 base 在 agent 创建前提供）；其余四个服务
+ * 走 `ctx.inject` 分叉绑定，避免把激活推到它们就绪之后（工具会进不了表）。
  * 依赖缺失改为调用期错误（带原因 + 下一步），仍守「缺依赖不静默」的口径。
  */
 export function apply(
@@ -304,14 +422,16 @@ export function apply(
   const resolved = resolveConfig(config);
   if (!resolved.enabled) return;
 
-  // 走 `readService` 而不是 `ctx.tools`：未 inject 的属性读取在 cordis 下会抛错。
+  // 走 `readService` 而不是 `ctx.tools`：属性读取在 cordis 下对未 inject 的服务会抛错。
   const tools = readService(ctx, "tools") as
     { register?(def: unknown): unknown } | undefined;
   if (tools === undefined || typeof tools.register !== "function") {
     warn("tools 未挂载：agent_group 工具不可用");
     return;
   }
-  const resolveService = createLazyGroupService(ctx, resolved, warn);
+  const bindings: GroupServiceBindings = {};
+  bindOptionalServices(ctx, bindings, warn);
+  const resolveService = createLazyGroupService(ctx, resolved, warn, bindings);
   try {
     tools.register(toToolDef(resolveService));
   } catch (error) {
