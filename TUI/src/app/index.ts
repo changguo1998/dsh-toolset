@@ -314,6 +314,9 @@ export interface AppDeps {
   status?: {
     queries: StatusQueries;
     intervalMs?: number;
+    /** 调度器（可注入；缺省 setInterval）。定时器统一面（`clock` 服务）经 main.ts 接成
+     *  `(fn, ms) => timers.interval(ms, fn)`，未挂载时回落进程内 setInterval。 */
+    schedule?: (fn: () => void, ms: number) => () => void;
   };
   /** 初始主题（默认 dark=fffdark；/theme 切换仅当前会话） */
   initialTheme?: ThemeId;
@@ -1141,6 +1144,9 @@ export class App {
       this.statusTicker = new StatusTicker({
         queries: this.deps.status.queries,
         intervalMs: this.deps.status.intervalMs ?? 1000,
+        ...(this.deps.status.schedule === undefined
+          ? {}
+          : { schedule: this.deps.status.schedule }),
         apply: (status) => {
           this.apply((s) => reduceState(s, { type: "status", status }));
           this.paint();

@@ -1,0 +1,9 @@
+# timer 插件的 dsh bundle 声明。
+# dsh 宿主按 package.json 的 dsh.bundle.patch 加载本文件，把服务 `clock` 挂进进程内。
+# 服务名刻意与宿主 `cordis-plugin-timer` 的 `timer` 区分：本包不包装、不替代宿主 timer，
+# 只提供「读钟 + 随调用方 fiber 释放的排期」；无配置项。
+# 挂载顺序：请排在使用方（background-daemon / session-channel / metric-loop / TUI）之前，
+# 使 `ctx.get("clock")` 在它们激活时可用（scripts/install.sh 的 canonical_pkgs 已置首）。
+- insert:
+    - id: timer
+      name: '@dsh-toolset/timer'

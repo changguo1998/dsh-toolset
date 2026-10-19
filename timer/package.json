@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-toolset/timer",
+  "version": "0.1.0",
+  "description": "DSH (DeepSeek Harness) 进程内集成插件：定时器统一面（服务 clock：now + 随调用方 fiber 释放的 schedule / interval，带可手控假时钟）",
+  "type": "module",
+  "main": "dist/src/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

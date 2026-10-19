@@ -210,6 +210,65 @@ export interface SessionChannelDeps {
   retryDelayMs?: number;
 }
 
+/** 定时器统一面（`timer` 插件的 `clock` 服务）的结构面：不 import 该包。 */
+export interface TimersLike {
+  now(): number;
+  schedule(delayMs: number, callback: () => void): () => void;
+  interval(delayMs: number, callback: () => void): () => void;
+}
+
+/** `clock` 服务面：`scope(ctx)` 返回的排期器把撤销动作登记在调用方 fiber 上。 */
+export interface ClockLike {
+  now(): number;
+  scope(ctx: unknown): TimersLike;
+}
+
+/** 统一面缺席时的进程内回退（unref，与既有心跳实现同口径）。 */
+export function systemTimers(): TimersLike {
+  return {
+    now: () => Date.now(),
+    schedule(delayMs, callback) {
+      const handle = setTimeout(callback, delayMs);
+      handle.unref?.();
+      return () => clearTimeout(handle);
+    },
+    interval(delayMs, callback) {
+      const handle = setInterval(callback, delayMs);
+      handle.unref?.();
+      return () => clearInterval(handle);
+    },
+  };
+}
+
+/**
+ * 解析定时器统一面：`clock` 服务可用时用 `scope(host)` 造一组（心跳随本插件 fiber 卸载
+ * 撤销），缺失 / 形状不符 / `scope` 抛错一律回退 `systemTimers()` —— 可选服务不影响加载。
+ */
+export function resolveTimers(host: unknown): TimersLike {
+  const clock = readService<ClockLike>(host, "clock");
+  if (
+    clock === undefined ||
+    typeof clock.now !== "function" ||
+    typeof clock.scope !== "function"
+  ) {
+    return systemTimers();
+  }
+  try {
+    const timers = clock.scope(host) as Partial<TimersLike> | undefined;
+    if (
+      timers === undefined ||
+      typeof timers.now !== "function" ||
+      typeof timers.interval !== "function" ||
+      typeof timers.schedule !== "function"
+    ) {
+      return systemTimers();
+    }
+    return timers as TimersLike;
+  } catch {
+    return systemTimers();
+  }
+}
+
 /** session-channel 服务（bundle 内部实现）。 */
 export class SessionChannelService {
   readonly #config: Required<
@@ -227,7 +286,9 @@ export class SessionChannelService {
   #running = false;
   /** `stop()` 置位：终止后台重试（见 `#retryConnect`）。 */
   #stopped = false;
-  #heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  #heartbeatTimer: (() => void) | undefined;
+  /** 定时器统一面（惰性解析：装载顺序不影响；缺失回落进程内定时器）。 */
+  #timers: TimersLike | undefined;
   #status: SessionChannelStatus;
   #sessions = new Map<string, SessionState>();
   /** 委托任务：worker 会话 id → 待回收任务 id 列表（FIFO；`turn/end` 自动回收用）。 */
@@ -335,11 +396,10 @@ export class SessionChannelService {
       this.noteSession(session);
       this.#onTaskEvent(session, event);
     });
-    this.#heartbeatTimer = setInterval(
-      () => void this.#heartbeat(),
+    this.#heartbeatTimer = this.#resolveTimers().interval(
       this.#config.heartbeatMs,
+      () => void this.#heartbeat(),
     );
-    this.#heartbeatTimer.unref?.();
     this.#running = true;
     void this.#readerLoop();
   }
@@ -349,7 +409,7 @@ export class SessionChannelService {
     this.#stopped = true;
     this.#running = false;
     if (this.#heartbeatTimer !== undefined) {
-      clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer();
       this.#heartbeatTimer = undefined;
     }
     const conn = this.#conn;
@@ -1018,6 +1078,12 @@ export class SessionChannelService {
   /** 当前时刻（依赖注入，测试可控）。 */
   #now(): number {
     return (this.#deps.now ?? Date.now)();
+  }
+
+  /** 惰性解析定时器统一面（首次用到时才读服务；结果缓存）。 */
+  #resolveTimers(): TimersLike {
+    this.#timers ??= resolveTimers(this.#host);
+    return this.#timers;
   }
 
   /** 心跳：刷新本进程所有已知会话的在线键。 */

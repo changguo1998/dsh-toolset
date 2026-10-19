@@ -8,11 +8,12 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 28 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 29 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
 | **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
+| **timer** | Timer unification surface: the `clock` service (`now()` plus `scope(ctx)` returning `schedule(delayMs, cb)` / `interval(delayMs, cb)`, whose disposal is registered on the caller's `ctx.effect` so a plugin unload leaves no live timer; handles are `unref`ed by default). Also exports a hand-driven `ManualClock` (advance the clock, fire due callbacks in order) for tests. Coexists with, and does not wrap, the host's `cordis-plugin-timer`: no `schedule`, no `unref`, and a required `inject` make wrapping a worse deal |
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
 | **herdr-pane** | herdr pane read/write: treats a pane as a controllable pseudo-terminal layer (create pane / inject text and keys / read screen / wait for output / inspect processes / close) to drive interactive commands that need screen state and key timing; one model-facing tool `herdr_pane` plus a reusable library surface; write actions are limited to panes this plugin created, and pass through guard re-check, security-guard registration and out-of-scope approval |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`execute`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
@@ -48,6 +49,7 @@ Every package's `package.json` carries the `dsh.bundle` integration contract alo
 ```
 dsh-toolset/
 ├── TUI/                  # 终端 UI 包（src/app 状态层、src/renderer 渲染层、src/app/adapter 适配层、demo/ mock）
+├── timer/                # 定时器统一面（服务 clock：now + schedule / interval，随调用方 fiber 释放，带手控假时钟）
 ├── herdr-integration/    # herdr 面板桥
 ├── herdr-pane/           # herdr pane 读写（交互式命令驱动）
 ├── task-engine/          # 任务树引擎
@@ -102,7 +104,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 29 packages: TUI + 28 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 30 packages: TUI + 29 plugins):
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
