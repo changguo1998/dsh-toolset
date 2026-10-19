@@ -18,6 +18,12 @@ import { App } from "./app/index.ts";
 import { installStderrBridge } from "./app/stderr-bridge.ts";
 import { loadTuiConfig } from "./app/config.ts";
 import {
+  LOCAL_LOG_MAX_BYTES,
+  LOCAL_LOG_MAX_TEXT_CHARS,
+  type LocalLogWriteOptions,
+} from "./app/adapter/local-log.ts";
+import { createTuiLocalLogTool } from "./app/adapter/local-log-tool.ts";
+import {
   createProcessStatusQueries,
   type StatusQueries,
 } from "./app/status.ts";
@@ -107,6 +113,12 @@ export function main(opts: {
 }): () => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
   const tuiConfig = loadTuiConfig();
+  // 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源）：缺省开启，可配置关闭与上限
+  const localLog: LocalLogWriteOptions = {
+    enabled: tuiConfig.localLog?.enabled ?? true,
+    maxBytes: tuiConfig.localLog?.maxBytes ?? LOCAL_LOG_MAX_BYTES,
+    maxTextChars: tuiConfig.localLog?.maxTextChars ?? LOCAL_LOG_MAX_TEXT_CHARS,
+  };
   const resolvedThemes = resolveThemes(tuiConfig.theme);
   const configLogger = opts.logger ?? ((msg: string) => void msg);
   for (const warning of resolvedThemes.warnings) configLogger(warning);
@@ -128,6 +140,8 @@ export function main(opts: {
     notify: tuiConfig.notify,
     // 自动清理空会话：缺省开启（未配置 session.autoCleanEmpty → true）；显式 false 关闭
     autoCleanEmpty: tuiConfig.session?.autoCleanEmpty ?? true,
+    // 本地输出旁路日志（`$` 结果与命令 notice → <会话目录>/tui-local.jsonl；模型侧工具读取）
+    localLog,
     getSymbols: opts.getSymbols,
     getSessionChannel: opts.getSessionChannel,
     getRuleEngine: opts.getRuleEngine,
@@ -713,8 +727,10 @@ export async function apply(
       "subagents",
     ) as SubagentsLike | undefined,
     // 工具服务（ctx.get('tools')，dsh-tools；缺失时 /tools 提示不可用）
-    tools: (ctx as { get?: (name: string) => unknown }).get?.("tools") as
-      ToolsLike | undefined,
+    // **惰读**（getter，与 guard/knowledge 同口径）：tools 服务可能晚于 TUI 装载
+    get tools(): ToolsLike | undefined {
+      return getTools();
+    },
     // 设置服务（ctx.get('settings')，dsh-settings；缺失时 /settings 提示不可用）
     settings: (ctx as { get?: (name: string) => unknown }).get?.("settings") as
       SettingsLike | undefined,
@@ -783,6 +799,12 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("guard") as
       SecurityGuardLike | undefined;
 
+  // 工具服务（ctx.get('tools')，dsh-tools）：/tools 面板只读列表用它，模型侧工具
+  // `tui_local_log` 的注册也走它（见 apply 尾部的 register 调用）；缺失时两者都跳过。
+  const getTools = (): ToolsLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("tools") as
+      ToolsLike | undefined;
+
   // 展示类配置在配置边界一次性归一化（非法值告警并回退默认）
   const display = normalizeTuiDisplayConfig(config);
   // 启动自检门控（BACKLOG TUI「启动后自动触发首轮工具调用」）：开关未关 + 模型命中
@@ -841,6 +863,24 @@ export async function apply(
   ctxAny.effect?.(() => () => {
     disposeApp();
   });
+  // 模型侧工具 `tui_local_log`：读 TUI 本地输出旁路日志（`$` 结果与命令 notice）。
+  // 数据面见 app/adapter/local-log.ts；工具在插件作用域注册 = 全局可用（会话由
+  // exec.agent.session 判定）。tools 服务缺失 / 无 register（旧宿主）→ 不注册，仅告警一次。
+  {
+    const toolsSvc = getTools();
+    if (typeof toolsSvc?.register === "function") {
+      try {
+        const disposeTool = toolsSvc.register(createTuiLocalLogTool());
+        ctxAny.effect?.(() => () => {
+          disposeTool();
+        });
+      } catch (err) {
+        process.stderr.write(
+          "[tui] warn: tui_local_log 注册失败：" + String(err) + "\n",
+        );
+      }
+    }
+  }
   // 配置热更新：宿主 profile patch 被改写时，cordis 默认重启本行 fiber，而重启 = 卸载 →
   // disposeApp() → renderer.close() → process.exit()，整个 dsh 进程随之退出。此钩子对**任何**
   // 配置变更都否决重启：可热应用的键（theme）就地生效，其余键提示需重启、会话保留

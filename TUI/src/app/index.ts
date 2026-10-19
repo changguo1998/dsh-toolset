@@ -98,6 +98,10 @@ import {
 } from "./adapter/dsh.ts";
 import { activeGoalSnapshot, currentProjectCwd } from "./state.ts";
 import {
+  appendLocalLog,
+  type LocalLogWriteOptions,
+} from "./adapter/local-log.ts";
+import {
   makeShellGuardChecker,
   resolveShellCwd,
   runShellCommand,
@@ -388,12 +392,18 @@ export interface AppDeps {
    *  落盘位置（`<profile 目录>/tui-width-symbols.json`）。缺省 / 空串 = 不落盘
    *  （仍按需实测，只是不跨会话复用）；见 layout/width-symbols.ts。 */
   profileDir?: string;
+  /** 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源；见 adapter/local-log.ts）：
+   *  main.ts 从 tui.config.json 的 localLog 段归一化后传入（缺省开启）。
+   *  缺省不传 = 不落盘（测试与嵌入方保持原行为）。 */
+  localLog?: LocalLogWriteOptions;
 }
 
 export class App {
   private state: AppState;
   /** `$` 模式本地执行器（BACKLOG TUI#37；缺省真实 spawn，测试经 deps.runShell 注入假实现） */
   private readonly shellRunner: ShellRunner;
+  /** 本地输出旁路日志写入参数（undefined = 未接线，不落盘） */
+  private readonly localLog: LocalLogWriteOptions | undefined;
   /** `$` 模式执行前复查器（BACKLOG「TUI `$` 模式执行面不经 guard」）：缺省 = 未接线（不复查、
    *  不告警）；main.ts 传 getGuard（惰性 `ctx.get("guard")`）时由复查器兜 fail-open 与告警去重 */
   private readonly shellGuard: ShellGuardChecker | undefined;
@@ -863,6 +873,8 @@ export class App {
 
   constructor(private deps: AppDeps) {
     this.shellRunner = deps.runShell ?? runShellCommand;
+    // 本地输出旁路日志（模型侧工具的数据源）：未接线 = 不落盘
+    this.localLog = deps.localLog;
     // `$` 模式执行前 security-guard 复查（BACKLOG「TUI `$` 模式执行面不经 guard」）：
     // 未接线 getGuard → undefined（不复查、不告警）；告警出口走 deps.logger（真实接线 = stderr 桥），
     // 带 `warn: ` 前缀才会被判成 warn 色（见 stderr-bridge.ts externalLogTone / 既有别名告警同款）
@@ -1966,6 +1978,8 @@ export class App {
             tone: e.tone,
           }),
         );
+        // 旁路：adapter 事件态 notice 同样只给用户看 → 落本地日志供模型侧工具读
+        this.recordLocalLog("notice", e.text);
         break;
       case "turn-start":
         // #3：把宿主回合号回填到本回合的分隔线（分隔线已在本地 turn-begin 落行、暂时无号）
@@ -3668,6 +3682,12 @@ export class App {
         kind: "shell",
         text: blocked.map((l) => l.text).join("\n"),
       });
+      // 旁路：拦截事实与回执同样只给用户看 → 落本地日志（未执行，无 exitCode）
+      this.recordLocalLog(
+        "shell",
+        [`$ ${command}`, ...blocked.map((l) => l.text)].join("\n"),
+        { command, blocked: true },
+      );
       this.paint();
       return;
     }
@@ -3704,6 +3724,19 @@ export class App {
       kind: "shell",
       text: resultLines.map((l) => l.text).join("\n"),
     });
+    // 旁路：`$` 模式的命令与结果不进模型上下文 → 整条（回显 + 输出 + 退出摘要）落本地日志
+    this.recordLocalLog(
+      "shell",
+      [`$ ${command}`, ...resultLines.map((l) => l.text)].join("\n"),
+      {
+        command,
+        ...(result.code === null ? {} : { exitCode: result.code }),
+        ...(result.signal === null ? {} : { signal: result.signal }),
+        ms: Date.now() - started,
+        ...(result.timedOut ? { timedOut: true } : {}),
+        ...(result.truncated ? { truncated: true } : {}),
+      },
+    );
     this.paint();
   }
 
@@ -5376,7 +5409,29 @@ export class App {
       text,
       ...(tone === undefined ? {} : { tone }),
     });
+    // 旁路：notice 只给用户看（不进模型上下文）→ 落本地日志供模型侧工具按需读
+    this.recordLocalLog("notice", text, {
+      ...(tone === undefined ? {} : { tone }),
+    });
     this.paint();
+  }
+
+  /**
+   * 写一条本地输出旁路日志（fire-and-forget；未接线 / 关闭 / 空正文时静默丢弃）。
+   * 会话归属取 `state.activeSessionId`（未持久化的新会话写不进去，属预期）。
+   */
+  private recordLocalLog(
+    kind: "shell" | "notice",
+    text: string,
+    meta?: Record<string, unknown>,
+  ): void {
+    const opts = this.localLog;
+    if (opts === undefined) return;
+    appendLocalLog(
+      this.state.activeSessionId ?? undefined,
+      { ts: Date.now(), kind, text, ...(meta === undefined ? {} : { meta }) },
+      opts,
+    );
   }
 
   /**

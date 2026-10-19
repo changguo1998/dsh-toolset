@@ -527,6 +527,7 @@ state --buildBox--> Box 树 --measure/allocate--> rects --fill(ctx, rect)--> Fra
 - **本地 notice 的排版元数据随交付走**：`notice` 交付可带 `hanging`（折行续行停靠列）与 `noCompact`（紧凑模式豁免），经节条目 → box → 行透传到 `buildContentRows`（旧路径这两项长在缓冲行上，行不再是内容来源后必须随交付）。**UI 本地提示必须投块**：`/help` 是唯一不经 `App.notice()` 的本地提示，只写缓冲时生产路径什么都看不到（2026-10-10 真机验收缺陷，已补 `deliverLocal`）。
 - 设计与分批见 `docs/archived/2026-10-09-layout-segment-cache.md`；第二阶段的迁移与退役记录同文件「第二阶段」一节
 - **留白空行不带竖线**（2026-10-16，条目「取消 pane 边界留白空行的竖线（会话区与回合区）」）：第 3 步插入的 pane 边界空行（会话区「用户块 → 正文」、回合区「思考 ↔ 正文」、steer 留白）在第 4 步直接出为**裸空行**（`segments` 为空、缩进 0、`kind: "plain"`，见 `pipeline/rows.ts` 的 `renderPane` 空行分支）——不继承相邻正文行的前导竖线段，会话区与回合区同口径。**块内**空行（同 kind 块内段落之间）的竖线连排仍归 `build-box.ts` 的 `lineUpBlockBars()`；pane 末尾空行裁剪照旧（`renderPane` 收尾）。沿革：2026-10-10 曾按「两侧都有竖线 → 取下一行前导竖线」补段（`fillBoundaryBars`），2026-10-16 取消该行为并删除该函数。回归：`tests/pipeline-frame.test.ts`（边界空行不带竖线）、`tests/layout4.test.ts`（会话流留白行）、`tests/pipeline-equivalence.test.ts`（会话区与旧路径逐行严格一致，不再有「已裁定差异」归一）
+- **本地输出旁路日志（模型侧工具 `tui_local_log`）**：TUI 里「只给用户看」的输出（`$` 模式命令与结果、命令 notice）**除渲染外还按会话落一份旁路日志** `<会话目录>/tui-local.jsonl`（每行一条 JSON：`ts / kind("shell"|"notice") / text / meta`；条目上限、截断、轮转见 `app/adapter/local-log.ts`）。展示口径**不变**（仍只进活动区、不进模型上下文）；旁路是额外数据面，供模型侧工具 `tui_local_log`（`app/adapter/local-log-tool.ts`，main.ts 经 `ctx.get("tools").register` 注册）按需读最近 N 条。开关与上限走 `tui.config.json` 的 `localLog` 段（缺省开启；`enabled:false` 关闭）。回归见 `tests/local-log.test.ts`（含 App 端到端：`$` 结果与 adapter notice 事件落盘后可读回）（2026-10-19）。
 
 ______________________________________________________________________
 

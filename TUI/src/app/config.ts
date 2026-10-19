@@ -85,6 +85,21 @@ export interface TuiConfig {
   session?: TuiSessionConfig;
   /** 审批交互段（BACKLOG 3.3.7）：超时等参数；缺省见 main.ts 的回落值 */
   approval?: TuiApprovalConfig;
+  /** 本地输出旁路日志段（模型侧工具 `tui_local_log` 的数据源；见 adapter/local-log.ts） */
+  localLog?: TuiLocalLogConfig;
+}
+
+/**
+ * 本地输出旁路日志段：把 TUI 里「只给用户看」的输出（`$` 命令与结果、命令提示 notice）
+ * 按会话落 `<会话目录>/tui-local.jsonl`，供模型侧工具按需读取。
+ *  - `enabled`：缺省 **true**（main.ts 应用；显式 false 关闭，关闭后不再写也不再累积）；
+ *  - `maxBytes`：单文件上限（字节，最小 4 KB；缺省 256 KB，写满轮转为 `tui-local.jsonl.1`）；
+ *  - `maxTextChars`：单条正文上限（字符，最小 256；缺省 8 KB）。
+ */
+export interface TuiLocalLogConfig {
+  enabled?: boolean;
+  maxBytes?: number;
+  maxTextChars?: number;
 }
 
 /** 审批交互段：`timeoutMs` = 无操作超时（ms，≥ 1000）；缺省 1 min（取用链见 main.ts 的
@@ -186,6 +201,7 @@ export function normalizeConfig(raw: unknown): TuiConfig {
     session?: Record<string, unknown>;
     symbols?: Record<string, unknown>;
     approval?: unknown;
+    localLog?: unknown;
   };
   const l = r.layout ?? {};
   const n = r.notify ?? {};
@@ -226,6 +242,7 @@ export function normalizeConfig(raw: unknown): TuiConfig {
         : { autoCleanEmpty: boolOr(s.autoCleanEmpty) }),
     },
     approval: normalizeApprovalSection(r.approval),
+    localLog: normalizeLocalLogSection(r.localLog),
   };
 }
 
@@ -240,6 +257,22 @@ function normalizeApprovalSection(v: unknown): TuiApprovalConfig | undefined {
     return undefined;
   }
   return { timeoutMs: Math.floor(raw) };
+}
+
+/**
+ * 本地输出旁路日志段归一：`enabled` 只认布尔；`maxBytes` 取整且不小于 4 KB；
+ * `maxTextChars` 取整且不小于 256；非法字段忽略（回落 adapter/local-log.ts 的缺省）。
+ */
+function normalizeLocalLogSection(v: unknown): TuiLocalLogConfig | undefined {
+  if (typeof v !== "object" || v === null) return undefined;
+  const raw = v as Record<string, unknown>;
+  const out: TuiLocalLogConfig = {};
+  if (boolOr(raw.enabled) !== undefined) out.enabled = boolOr(raw.enabled);
+  if (intGe(raw.maxBytes, 4 * 1024) !== undefined)
+    out.maxBytes = intGe(raw.maxBytes, 4 * 1024);
+  if (intGe(raw.maxTextChars, 256) !== undefined)
+    out.maxTextChars = intGe(raw.maxTextChars, 256);
+  return Object.keys(out).length === 0 ? undefined : out;
 }
 
 /** 载入配置文件：缺失/读取失败/JSON 非法 → 默认（空配置） */

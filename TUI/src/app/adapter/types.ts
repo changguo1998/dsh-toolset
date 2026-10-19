@@ -1263,10 +1263,13 @@ export interface ToolSchemaLike {
 export type ScopeKeyLike = Record<string, unknown>;
 
 /** 宿主 tools 服务结构面（ctx.get('tools')，@deepseek-ai/dsh-tools）；
- *  `schemas()` 省略 scope = 全局视图（已核实：peek/chainLayers 对 undefined 返回空叠加）。 */
+ *  `schemas()` 省略 scope = 全局视图（已核实：peek/chainLayers 对 undefined 返回空叠加）。
+ *  `register()` 在调用方作用域注册工具（返回注销器）——TUI 用它注册模型侧工具
+ *  `tui_local_log`（见 app/adapter/local-log-tool.ts）。 */
 export interface ToolsLike {
   schemas?(scope?: ScopeKeyLike): readonly ToolSchemaLike[];
   get?(name: string, scope?: ScopeKeyLike): Record<string, unknown> | undefined;
+  register?(definition: unknown): () => void;
 }
 
 /** 宿主设置描述符结构面（dsh-settings SettingsDescriptor 子集：:50-73，含 ns/value/revision） */
