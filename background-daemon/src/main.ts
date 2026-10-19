@@ -35,8 +35,10 @@ import {
 import {
   ChannelRegistry,
   Scheduler,
+  hostTimer,
   systemTimer,
   type AgentsLike,
+  type HostTimerLike,
   type TimerLike,
 } from "./scheduler.ts";
 import {
@@ -213,9 +215,19 @@ export async function createDaemonRuntime(
 
   const agents = readService<AgentsLike>(ctx, "agents");
   const sessions = readService<SessionsLike>(ctx, "sessions");
-  // 定时器不依赖宿主：宿主 `timer` 存在则用作可注入覆盖（测试/宿主可换实现），
-  // 否则用进程内 `setTimeout`（与调度器「单 timer + 墙钟重算」设计一致）。
-  const timer = readService<TimerLike>(ctx, "timer") ?? systemTimer();
+  // 定时器：优先复用宿主 `ctx.timer`（cordis-plugin-timer 只有 `timeout(cb, delay)`,
+  // 经 hostTimer 适配成内部 `schedule(delay, cb)`, 设计 D16）；缺失或形状不符则回落
+  // 进程内 `setTimeout`（与调度器「单 timer + 墙钟重算」设计一致, 不依赖宿主）。
+  const hostTimerService = readService<HostTimerLike>(ctx, "timer");
+  let timer: TimerLike = systemTimer();
+  if (
+    hostTimerService !== undefined &&
+    typeof hostTimerService.timeout === "function"
+  ) {
+    timer = hostTimer(hostTimerService);
+  } else if (hostTimerService !== undefined) {
+    warn("ctx.timer 形状不符（缺 timeout）：改用进程内定时器");
+  }
   const commands = readService<CommandExecLike & CommandRegistrarLike>(
     ctx,
     "commands",
