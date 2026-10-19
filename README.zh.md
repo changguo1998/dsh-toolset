@@ -8,11 +8,12 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 28 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 29 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
 | **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；**零运行时依赖**（源码零第三方 import，颜色走 manual ANSI） |
+| **timer** | 定时器统一面：服务 `clock`（`now()` + `scope(ctx)` 返回的 `schedule(delayMs, cb)` / `interval(delayMs, cb)`；撤销动作登记在调用方 `ctx.effect` 上，插件卸载不留活定时器，句柄默认 `unref`），另导出可手控的 `ManualClock`（推进时间、按到期顺序触发）供测试用。与宿主 `cordis-plugin-timer` 并存、不包装：宿主无 `schedule`、不支持 `unref`、mixin 需硬 `inject`，包装代价更大 |
 | **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
 | **herdr-pane** | herdr pane 读写：把 pane 当可控伪终端层（建 pane / 注入文本与按键 / 取屏 / 等输出 / 进程探活 / 关闭），驱动需要屏幕状态与按键时序的交互式命令；单个模型侧工具 `herdr_pane` + 可复用的库面；写类动作只作用于自建 pane，过 guard 复查、security-guard 登记与越界审批 |
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`execute`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
@@ -48,6 +49,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 ```
 dsh-toolset/
 ├── TUI/                  # 终端 UI 包（src/app 状态层、src/renderer 渲染层、src/app/adapter 适配层、demo/ mock）
+├── timer/                # 定时器统一面（服务 clock：now + schedule / interval，随调用方 fiber 释放，带手控假时钟）
 ├── herdr-integration/    # herdr 面板桥
 ├── herdr-pane/           # herdr pane 读写（交互式命令驱动）
 ├── task-engine/          # 任务树引擎
@@ -102,7 +104,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 29 个包：TUI + 28 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 30 个包：TUI + 29 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

@@ -147,6 +147,21 @@ interface GuardServiceLike {
   inspectCommand?: (command: string, source?: string) => string | null;
 }
 
+/** 定时器统一面（`timer` 插件的 `clock` 服务）的最小结构面：本包只消费 `now()`。 */
+interface ClockLike {
+  now(): number;
+}
+
+/**
+ * 读定时器统一面时钟（可选服务）：`clock` 未挂载 / 形状不符 → `undefined`（引擎回落
+ * `Date.now`）。惰性解析：引擎只在用到时钟那一刻读取，不依赖插件装载顺序。
+ */
+function makeClock(ctx: unknown): (() => number) | undefined {
+  const clock = readService<ClockLike>(ctx, "clock");
+  if (clock === undefined || typeof clock.now !== "function") return undefined;
+  return () => clock.now();
+}
+
 /** 宿主服务惰性解析（与 task-engine 同款：apply 期服务 fiber 常未激活，执行期才可读）。 */
 function readService<T>(ctx: unknown, name: string): T | undefined {
   try {
@@ -611,9 +626,12 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   };
   let controller: MetricLoopController;
   try {
+    const clockNow = makeClock(ctx);
     controller = new MetricLoopController({
       stateDir: config?.stateDir ?? defaultStateDir(),
       timeoutMs: config?.commandTimeoutMs,
+      // 读钟来源（可选服务）：timer 插件的 `clock` 在就随它走（假时钟可测），否则 Date.now
+      ...(clockNow === undefined ? {} : { now: clockNow }),
       // 状态文件命令复查（可选服务）：惰性解析，guard 未挂载时不复查（fail-open）
       commandGuard: makeCommandGuard(ctx, warn),
     });

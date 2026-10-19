@@ -81,7 +81,11 @@ redisTest("端到端：A 发送 → B 注入并回执 → A 收到 delivered", a
 
     // 缺陷回归（2026-10-17）：不带 waitMs 的 send 返回体须 lossless JSON
     // （原实现带 `delivered: undefined` → 宿主 INVALID_TOOL_OUTPUT）
-    const noWait = await a.send({ to: "sess-b", text: "不等回执", from: "sess-a" });
+    const noWait = await a.send({
+      to: "sess-b",
+      text: "不等回执",
+      from: "sess-a",
+    });
     assert.equal(noWait.ok, true, JSON.stringify(noWait));
     assert.equal(
       Object.hasOwn(noWait, "delivered"),
@@ -517,3 +521,44 @@ redisTest(
     }
   },
 );
+
+redisTest("心跳：clock 服务可用时经统一面排期，stop() 撤销", async () => {
+  const redis = await startTempRedis();
+  const host = makeFakeHost();
+  const scoped: unknown[] = [];
+  const intervals: { delay: number; disposed: boolean }[] = [];
+  const nowMs = Date.now();
+  host.host["clock"] = {
+    now: () => nowMs,
+    scope: (ctx: unknown) => {
+      scoped.push(ctx);
+      return {
+        now: () => nowMs,
+        schedule: () => () => {},
+        interval: (delay: number, _callback: () => void) => {
+          const entry = { delay, disposed: false };
+          intervals.push(entry);
+          return () => {
+            entry.disposed = true;
+          };
+        },
+      };
+    },
+  };
+  const svc = new SessionChannelService(
+    { url: redis.socketPath, heartbeatMs: 250, presenceTtlSec: 4 },
+    host.host,
+  );
+  try {
+    await svc.start();
+    assert.equal(scoped.length, 1, "按宿主 ctx 造统一面排期器");
+    assert.equal(scoped[0], host.host);
+    assert.equal(intervals.length, 1, "心跳经统一面排期");
+    assert.equal(intervals[0]?.delay, 250);
+    await svc.stop();
+    assert.equal(intervals[0]?.disposed, true, "stop() 经统一面撤销心跳");
+  } finally {
+    await svc.stop();
+    await redis.stop();
+  }
+});

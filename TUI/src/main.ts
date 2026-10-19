@@ -68,7 +68,15 @@ import {
   type RuleEngineLike,
 } from "./app/adapter/dsh.ts";
 
-/** 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
+/** 定时器统一面（`timer` 插件的 `clock` 服务 `scope` 返回）的最小结构面：不 import 该包。 */
+interface TimersLike {
+  schedule(delayMs: number, callback: () => void): () => void;
+  interval(delayMs: number, callback: () => void): () => void;
+}
+
+/**
+ * 组装 renderer + app + adapter(纯组装，不设全局副作用)。 */
+
 export function main(opts: {
   adapter: DshAdapter;
   logger?: (m: string) => void;
@@ -80,6 +88,9 @@ export function main(opts: {
   renderer?: Renderer;
   /** 测试注入：替代真实状态查询（缺省 createProcessStatusQueries()） */
   statusQueries?: StatusQueries;
+  /** 定时器统一面读取器（懒读；timer 插件的 `clock` 服务未挂载 / 未就绪返回 undefined →
+   *  StatusTicker 回落 setInterval，行为不变） */
+  getTimers?: () => TimersLike | undefined;
   /** 符号服务读取器（懒读，容忍插件装载顺序；symbol-normalizer 未挂载时返回 undefined） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
   /** 会话通道读取器（懒读；session-channel 未挂载时返回 undefined → 状态栏不显示别名段，TUI#48） */
@@ -135,6 +146,16 @@ export function main(opts: {
     status: {
       queries: opts.statusQueries ?? createProcessStatusQueries(),
       intervalMs: 1000,
+      ...(opts.getTimers === undefined
+        ? {}
+        : {
+            schedule: (fn: () => void, ms: number) => {
+              const timers = opts.getTimers?.();
+              if (timers !== undefined) return timers.interval(ms, fn);
+              const id = setInterval(fn, ms);
+              return () => clearInterval(id);
+            },
+          }),
     },
     ...tuiConfig.layout,
     notify: tuiConfig.notify,
@@ -792,6 +813,21 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("ruleEngine") as
       RuleEngineLike | undefined;
 
+  // 定时器统一面（ctx.get('clock')，timer 插件 provide）：同上懒读；StatusTicker 启动时
+  // 经 scope(ctx) 取排期器，排期随本插件 fiber 卸载撤销；未挂载时回落 setInterval。
+  const getTimers = (): TimersLike | undefined => {
+    const clock = (ctx as { get?: (name: string) => unknown }).get?.(
+      "clock",
+    ) as { scope?: (ctx: unknown) => TimersLike } | undefined;
+    if (clock === undefined || typeof clock.scope !== "function")
+      return undefined;
+    try {
+      return clock.scope(ctx);
+    } catch {
+      return undefined;
+    }
+  };
+
   // security-guard 服务（ctx.get('guard')，security-guard 插件 provide）：同上懒读；
   // `$` 模式执行前复查一次（命中不执行、回执进输出区；未挂载 fail-open + 告警一次，
   // 见 local-shell.ts 的 makeShellGuardChecker 与 BACKLOG「TUI `$` 模式执行面不经 guard」）
@@ -856,6 +892,7 @@ export async function apply(
     getSessionChannel,
     getRuleEngine,
     getGuard,
+    getTimers,
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
   // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。

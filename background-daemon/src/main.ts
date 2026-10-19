@@ -2,8 +2,9 @@
  * 插件装配（DSH bundle 入口）：把 store / journal / 渠道 / 调度器 / 命令面 / 工具面接起来。
  *
  * 组合口径（设计 §H / §G）：
- * - 只复用**已挂载**服务：`agents`（目标解析）、`sessions`（flush 确认）、`timer`（timer 原语）、
- *   `commands`（命令注册 + 命令类任务执行）；`tools` 与 `guard` 可选（缺失即降级并告警）。
+ * - 只复用**已挂载**服务：`agents`（目标解析）、`sessions`（flush 确认）、`clock`（定时器
+ *   统一面，缺省回落进程内定时器）、`commands`（命令注册 + 命令类任务执行）；`tools` 与
+ *   `guard` 可选（缺失即降级并告警）。
  * - 不用 `inject` 声明（与 `metric-loop` / `session-channel` 同款）：结构面读取服务,
  *   缺失时降级告警而不是加载失败——命令面 / 工具面因此可独立缺席。
  * - 非目标（写死在 README）：不跑 shell / 作业、不做进程外触发、不做通用调度器的高级面。
@@ -35,10 +36,8 @@ import {
 import {
   ChannelRegistry,
   Scheduler,
-  hostTimer,
   systemTimer,
   type AgentsLike,
-  type HostTimerLike,
   type TimerLike,
 } from "./scheduler.ts";
 import {
@@ -81,11 +80,12 @@ export const provide = ["backgroundDaemon"];
  * 依赖声明：`apply` 期就要读到的宿主服务。
  *
  * 声明 inject 后 cordis 会把本插件的激活排在这些服务就绪之后；不声明时插件先激活,
- * 此刻 `ctx.get(...)` 在严格模式下拿不到服务, 表现为「agents / sessions / timer /
- * commands / tools 全部不可用」, `/daemon` 与 `daemon_task` 都注册不上。
+ * 此刻 `ctx.get(...)` 在严格模式下拿不到服务, 表现为「agents / sessions / commands /
+ * tools 全部不可用」, `/daemon` 与 `daemon_task` 都注册不上。
  *
- * 可选依赖**不进** inject：`memory`（记录底座, 缺失降级 JSON 快照）与 `guard`
- * （命令复查, 缺失 fail-open）走受保护读取 / 惰性解析。
+ * 可选依赖**不进** inject：`clock`（定时器统一面, 缺失回落进程内定时器）、`memory`
+ * （记录底座, 缺失降级 JSON 快照）与 `guard`（命令复查, 缺失 fail-open）走受保护读取 /
+ * 惰性解析。
  */
 export const inject = ["agents", "sessions", "commands", "tools"];
 
@@ -142,6 +142,45 @@ export function resolveJournalPath(config: DaemonConfig = {}): string {
   return path.join(path.dirname(resolveStorePath(config)), "journal.jsonl");
 }
 
+/** 定时器统一面（`timer` 插件的 `clock` 服务）的结构面：不 import 该包。 */
+interface TimersLike extends TimerLike {
+  now(): number;
+}
+
+/** `clock` 服务面：`scope(ctx)` 返回的排期器把撤销动作登记在调用方 fiber 上。 */
+interface ClockLike {
+  now(): number;
+  scope(ctx: unknown): TimersLike;
+}
+
+/**
+ * 读取 `clock` 服务并按本插件 ctx 造一组排期器；缺失 / 形状不符 / `scope` 抛错一律
+ * 返回 `undefined`（调用方回退 `systemTimer()`），不让可选服务影响插件加载。
+ */
+function resolveTimers(ctx: unknown): TimersLike | undefined {
+  const clock = readService<ClockLike>(ctx, "clock");
+  if (
+    clock === undefined ||
+    typeof clock.now !== "function" ||
+    typeof clock.scope !== "function"
+  ) {
+    return undefined;
+  }
+  try {
+    const timers = clock.scope(ctx) as Partial<TimersLike> | undefined;
+    if (
+      timers === undefined ||
+      typeof timers.schedule !== "function" ||
+      typeof timers.now !== "function"
+    ) {
+      return undefined;
+    }
+    return timers as TimersLike;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * 组装一条完整的守护链路（不注册命令 / 工具 / 服务；`apply` 与测试共用）。
  *
@@ -150,7 +189,7 @@ export function resolveJournalPath(config: DaemonConfig = {}): string {
  * 否则降级到本地 JSON 快照与 JSONL（`backend: "json"`）。
  *
  * @param ctx 宿主 ctx（结构面读取服务；可为 fake）
- * @param clock 时钟注入（测试用；缺省 `Date.now`）
+ * @param clock 时钟注入（测试用；缺省 `Date.now`；`clock` 服务可用时以服务时钟为准）
  * @param warn 告警输出
  */
 export async function createDaemonRuntime(
@@ -215,19 +254,11 @@ export async function createDaemonRuntime(
 
   const agents = readService<AgentsLike>(ctx, "agents");
   const sessions = readService<SessionsLike>(ctx, "sessions");
-  // 定时器：优先复用宿主 `ctx.timer`（cordis-plugin-timer 只有 `timeout(cb, delay)`,
-  // 经 hostTimer 适配成内部 `schedule(delay, cb)`, 设计 D16）；缺失或形状不符则回落
-  // 进程内 `setTimeout`（与调度器「单 timer + 墙钟重算」设计一致, 不依赖宿主）。
-  const hostTimerService = readService<HostTimerLike>(ctx, "timer");
-  let timer: TimerLike = systemTimer();
-  if (
-    hostTimerService !== undefined &&
-    typeof hostTimerService.timeout === "function"
-  ) {
-    timer = hostTimer(hostTimerService);
-  } else if (hostTimerService !== undefined) {
-    warn("ctx.timer 形状不符（缺 timeout）：改用进程内定时器");
-  }
+  // 定时器走统一面（`timer` 插件的 `clock` 服务）：排期随本插件 fiber 卸载撤销；
+  // 服务缺失（未挂载 / 尚未激活）时退回进程内定时器（unref）。
+  // 不读宿主 `ctx.timer` —— 它只有 timeout / interval，没有 `schedule`（真机崩溃根因）。
+  const timers = resolveTimers(ctx);
+  const timer = timers ?? systemTimer();
   const commands = readService<CommandExecLike & CommandRegistrarLike>(
     ctx,
     "commands",
@@ -251,7 +282,7 @@ export async function createDaemonRuntime(
     channels,
     agents: agents ?? { get: () => undefined },
     timer,
-    now: clock,
+    now: timers === undefined ? clock : () => timers.now(),
     warn,
     ...(config.awaitAgentMs === undefined
       ? {}

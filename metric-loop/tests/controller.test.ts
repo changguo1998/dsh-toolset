@@ -240,6 +240,40 @@ test("apply(带 tools 的假 ctx)：注册 metric_loop，start/status 分发正�
   }
 });
 
+test("apply：clock 服务可用时读钟走统一面（假时钟可测）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-clock-"));
+  const registered: Array<Record<string, unknown>> = [];
+  const fakeNow = 1_234_567_890;
+  const ctx = {
+    tools: {
+      register: (def: unknown) =>
+        registered.push(def as Record<string, unknown>),
+    },
+    get: (name: string): unknown =>
+      name === "clock" ? { now: () => fakeNow } : undefined,
+  };
+  try {
+    await apply(ctx, { stateDir: dir });
+    const def = registered[0];
+    assert.ok(def !== undefined);
+    const execute = def["execute"] as (
+      args: Record<string, unknown>,
+    ) => Promise<Record<string, unknown>>;
+    const startOut = await execute({
+      action: "start",
+      id: "ap",
+      measureCmd: "echo 3",
+    });
+    assert.equal(startOut.ok, true);
+    const state = loadState(dir, "ap");
+    assert.ok(state !== null);
+    assert.equal(state.startedAt, fakeNow, "clock.now() 是 start 的时间来源");
+    assert.equal(state.lastSuccessAt, fakeNow);
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("apply(无 tools 的 ctx)：不抛错、静默降级", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-apply2-"));
   try {
