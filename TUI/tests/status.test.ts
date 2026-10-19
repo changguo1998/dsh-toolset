@@ -78,6 +78,42 @@ test("StatusTicker: schedule 可注入，手动触发可数 tickCount", async ()
   assert.equal(cancelCalled, 1, "stop 取消调度");
 });
 
+test("StatusTicker: clock 面可用时由 interval(ms, fn) 驱动，参数序正确", async () => {
+  const { q } = countingQueries();
+  const intervals: Array<[number, () => void]> = [];
+  const timers = {
+    schedule: () => () => {},
+    interval: (ms: number, fn: () => void) => {
+      intervals.push([ms, fn]);
+      return () => {};
+    },
+  };
+  // 与 main.ts 的接线同一形态：schedule(fn, ms) → timers.interval(ms, fn)
+  const t = new StatusTicker({
+    queries: q,
+    intervalMs: 250,
+    apply: () => {},
+    schedule: (fn, ms) => timers.interval(ms, fn),
+  });
+  t.start();
+  assert.equal(intervals.length, 1, "启动注册一次 interval");
+  assert.equal(intervals[0]?.[0], 250, "统一面参数序 = (delayMs, callback)");
+  t.stop();
+});
+
+test("StatusTicker: clock 面缺席时回落默认定时器（start/stop 正常）", async () => {
+  const { q } = countingQueries();
+  const t = new StatusTicker({
+    queries: q,
+    intervalMs: 40,
+    apply: () => {},
+  });
+  t.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.ok(t.tickCount >= 1, "start 立即 tick 一次");
+  t.stop();
+});
+
 test("shortenHome: 家目录外路径简写为 ~，非家目录路径原样", () => {
   const home = process.env.HOME ?? "/home/me";
   const sub = home + "/Projects/x";

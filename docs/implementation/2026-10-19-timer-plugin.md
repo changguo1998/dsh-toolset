@@ -131,11 +131,27 @@
 
 ## 偏差
 
-（待写。）
+- 计划文件清单漏列 `timer/.gitignore`（`node_modules` / `dist` 等，与其他包一致）——实现时补建，已在「实现记录」补记；属包骨架应有文件，非遗漏的产物性改动。
+- TUI 接入是「尽力而为」口径（决策项 4 = b）：装载顺序晚于 Ticker 启动时回落 `setInterval`，行为仍正确；这在决策与 README 已写明，属于既定口径而非未做。
+- `session-channel` 心跳新用例用 `redisTest` 注册（需本机 `redis-server`，无则 skip）——与包内既有端到端用例同口径，非缺口。
+- 提交点 2 已按用户裁定单独提交代码（commit `630e0f9`，不含测试用例与「测试与证据」）；测试用例在提交点 3 提交。
+- 其余规划项全部落地；`scripts/test-install.sh` 全量未跑（需 30 次 npm install + 网络），改为抽取其内部一致性校验执行，结果见「测试与证据」。
 
 ## 测试与证据
 
-（待写。）
+命令 + 结果（2026-10-19，worktree `dsh/timer`）：
+
+- `npm run check`：30 包全部通过（含 `timer` 的 `tsc -p tsconfig.json` + `tsc -p tests/tsconfig.json`），退出码 0。
+- `npm run build`：30 包全部通过，退出码 0。
+- `npm test`：30 包全绿 `fail 0`。关键包：`timer 24` / `TUI 1635` / `session-channel 63`（含新增 redisTest「心跳经统一面排期、stop 撤销」，本机 redis-server 7.0.15 实测通过）/ `background-daemon 137`（含新增「clock 服务可用时排期与读钟都走统一面」）/ `metric-loop 46`（含新增「clock 服务可用时读钟走统一面」）。
+- `npm run demo -- --smoke`：`SMOKE_PASS`（preset-badge / jobs-panel / jobs-kill 等）与 `SMOKE_OK sent=[...]`，退出码 0 —— TUI 无宿主路径不回归。
+- 清单一致性（`scripts/test-install.sh` 内部校验逻辑）：`canonical_pkgs == default_pkgs`；根 `check` 与 `build` 链同序；集合与 canonical 一致（30 项）。
+- 卸载无残留：`timer` 单测断言 dispose / 调用方 `ctx.effect` 卸载后回调不再触发（`timers.test.ts`、`main.test.ts`）；`background-daemon` / `session-channel` 用例断言 stop / 卸载后无排队回调。
+- 假时钟可测：三个消费方新用例均注入 fake clock，无真实等待；`ManualClock` 另有 13 例直接单测。
+
+人工确认部分：smoke demo 已由本会话执行通过；真实 profile 挂载（`clock` 服务在 `dsh --profile fff` 下的装载顺序与 `background-daemon` 端到端）留用户执行（BACKLOG 条目「background-daemon 真机验证」覆盖）。
+
+（待填：真机挂载结论由用户补充后再完成本节。）
 
 ## 收尾
 

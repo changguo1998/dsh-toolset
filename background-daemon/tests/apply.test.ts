@@ -188,6 +188,74 @@ test("createDaemonRuntime：注入时钟, 到期即投递", async () => {
   await runtime.dispose();
 });
 
+test("createDaemonRuntime：clock 服务可用时排期与读钟都走统一面", async () => {
+  const dir = tempDir();
+  let nowMs = Date.UTC(2026, 9, 20, 8, 0, 0);
+  let nowReads = 0;
+  const delays: number[] = [];
+  const scoped: unknown[] = [];
+  const timers = {
+    now: () => {
+      nowReads += 1;
+      return nowMs;
+    },
+    schedule: (delayMs: number, _callback: () => void) => {
+      delays.push(delayMs);
+      return () => {};
+    },
+    interval: () => () => {},
+  };
+  const clock = {
+    now: () => nowMs,
+    scope: (ctx: unknown) => {
+      scoped.push(ctx);
+      return timers;
+    },
+  };
+  const agent: AgentLike = { session: { id: "sess-1" }, followup: () => {} };
+  const ctx = {
+    get: (serviceName: string) =>
+      serviceName === "agents"
+        ? { get: (id: string) => (id === "sess-1" ? agent : undefined) }
+        : serviceName === "sessions"
+          ? { flush: async () => true }
+          : serviceName === "clock"
+            ? clock
+            : undefined,
+  };
+  const runtime = await createDaemonRuntime(
+    ctx,
+    {
+      storePath: path.join(dir, "tasks.json"),
+      journalPath: path.join(dir, "journal.jsonl"),
+    },
+    () => nowMs,
+    () => {},
+  );
+  assert.equal(scoped.length, 1, "按本插件 ctx 造一次排期器");
+  assert.equal(scoped[0], ctx);
+
+  runtime.scheduler.start();
+  await runtime.scheduler.settle();
+  const task = runtime.store.create({
+    mode: "deliver",
+    sessionId: "sess-1",
+    payload: "到点",
+    selector: { kind: "after_seconds", seconds: 60 },
+  });
+  runtime.scheduler.arm();
+  assert.ok(
+    delays.length > 0,
+    "排期走统一面（不再用宿主 timer / 进程内 setInterval）",
+  );
+  assert.ok(nowReads > 0, "读钟走统一面");
+
+  nowMs += 60_000;
+  await runtime.scheduler.runDue();
+  assert.equal(runtime.store.get(task.id)?.lastOutcome, "delivered");
+  await runtime.dispose();
+});
+
 test("路径解析：config 优先, 环境变量兜底, 缺省落 DSH_HOME", () => {
   const dir = tempDir();
   const previousStore = process.env["BACKGROUND_DAEMON_STORE"];

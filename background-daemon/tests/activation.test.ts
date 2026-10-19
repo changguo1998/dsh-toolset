@@ -15,7 +15,6 @@ import path from "node:path";
 import { after, test } from "node:test";
 
 import { apply, inject, provide } from "../src/main.ts";
-import { FakeTimer } from "./harness.ts";
 
 const dirs: string[] = [];
 after(() => {
@@ -32,7 +31,7 @@ function tempDir(): string {
 const REQUIRED_SERVICES = ["agents", "sessions", "commands", "tools"] as const;
 
 /** 可选依赖：缺失时降级而不是拒绝激活。 */
-const OPTIONAL_SERVICES = ["memory", "guard", "timer"] as const;
+const OPTIONAL_SERVICES = ["memory", "guard", "clock"] as const;
 
 /** 严格模式假 ctx：未就绪时 `get` 与 cordis 一样抛错。 */
 class StrictContext {
@@ -49,7 +48,14 @@ class StrictContext {
         get: () => ({ session: { id: "sess-1" }, followup: () => {} }),
       },
       sessions: { flush: async () => true },
-      timer: new FakeTimer(),
+      clock: {
+        now: () => Date.now(),
+        scope: () => ({
+          now: () => Date.now(),
+          schedule: () => () => {},
+          interval: () => () => {},
+        }),
+      },
       commands: {
         register: (definition: unknown) => {
           this.commands.defs.push(definition);
