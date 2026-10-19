@@ -8,6 +8,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  AUTO_LANGUAGES,
+  BACKENDS,
   DEFAULT_MAX_OUTPUT_CHARS,
   DEFAULT_SPILL_PREFIX,
   DEFAULT_TIMEOUT_MS,
@@ -24,6 +26,9 @@ import {
   fakePolicyService,
   fakeSandbox,
   mockHost,
+  nodeInfo,
+  pythonInfo,
+  shInfo,
 } from "./helpers.ts";
 
 test("bundle 契约：name 与 inject", () => {
@@ -31,23 +36,27 @@ test("bundle 契约：name 与 inject", () => {
   assert.deepEqual(inject, ["tools"]);
 });
 
-test("resolveSettings：缺省值（只 Python / 不审批 / 30s / 10 万 / dsh-script-）", () => {
+test("resolveSettings：缺省值（languages 缺省 = 自动探测 / 不审批 / 30s / 10 万 / dsh-script-）", () => {
   const settings = resolveSettings();
-  assert.deepEqual(settings.languages, ["python"]);
+  // 未配置语言 = 自动探测（不是固定 ["python"]）。
+  assert.equal(settings.languages, undefined);
   assert.equal(settings.approval, "never");
   assert.equal(settings.timeoutMs, DEFAULT_TIMEOUT_MS);
   assert.equal(settings.maxOutputChars, DEFAULT_MAX_OUTPUT_CHARS);
   assert.equal(settings.spillPrefix, DEFAULT_SPILL_PREFIX);
   assert.equal(settings.pythonPath, undefined);
   assert.equal(settings.bashPath, undefined);
+  assert.equal(settings.nodePath, undefined);
+  assert.equal(settings.shPath, undefined);
 });
 
-test("resolveSettings：语言去重去空，空表保留为空", () => {
+test("resolveSettings：语言去重去空；空数组保留为空；未配置为 undefined", () => {
   assert.deepEqual(
     resolveSettings({ languages: ["python", "python", " "] }).languages,
     ["python"],
   );
   assert.deepEqual(resolveSettings({ languages: [] }).languages, []);
+  assert.equal(resolveSettings({}).languages, undefined);
 });
 
 test("resolveSettings：超时与输出上限钳位，非法值回退缺省", () => {
@@ -105,9 +114,16 @@ test("resolveSettings：解释器路径覆盖去空白，空串按未配置", ()
     "/opt/py/bin/python",
   );
   assert.equal(resolveSettings({ pythonPath: "   " }).pythonPath, undefined);
+  assert.equal(
+    resolveSettings({ nodePath: " /opt/node/bin/node " }).nodePath,
+    "/opt/node/bin/node",
+  );
+  assert.equal(resolveSettings({ shPath: " /bin/sh " }).shPath, "/bin/sh");
+  assert.equal(resolveSettings({ nodePath: "  " }).nodePath, undefined);
+  assert.equal(resolveSettings({ shPath: "" }).shPath, undefined);
 });
 
-test("apply：缺省注册唯一工具 script_run，语言枚举只含 python", () => {
+test("apply：缺省 = 自动探测，探到解释器的语言都进 enum，bash 不参与", () => {
   const host = mockHost();
   apply(host.ctx);
   assert.equal(host.defs.length, 1);
@@ -128,9 +144,21 @@ test("apply：缺省注册唯一工具 script_run，语言枚举只含 python", 
   assert.ok(!("code" in properties));
   assert.deepEqual(tool.parameters.required, ["script", "description"]);
   assert.equal(tool.parameters.additionalProperties, false);
-  assert.deepEqual((properties.language as { enum?: readonly string[] }).enum, [
-    "python",
-  ]);
+  // 探测驱动：enum = 自动集合里真正探到解释器的语言（顺序即 AUTO_LANGUAGES）。
+  const probed: Record<string, boolean> = {
+    python: pythonInfo() !== null,
+    node: nodeInfo() !== null,
+    sh: shInfo() !== null,
+  };
+  const expected = AUTO_LANGUAGES.filter((id) => probed[id] === true);
+  const enumIds = (properties.language as { enum?: readonly string[] }).enum;
+  assert.deepEqual(enumIds, expected);
+  // bash 不参与自动探测：官方 bash 工具已覆盖命令执行面。
+  assert.ok(!(enumIds ?? []).includes("bash"));
+  assert.ok(
+    Object.keys(BACKENDS).includes("bash"),
+    "bash 后端仍须保留（显式配置可启用）",
+  );
   // 与官方面不重叠：不注册 bash / run_code 等官方工具名。
   const names = host.defs.map((def) => def.name);
   for (const official of ["bash", "run_code", "run_script", "python_exec"]) {
@@ -139,6 +167,18 @@ test("apply：缺省注册唯一工具 script_run，语言枚举只含 python", 
   assert.ok(
     host.logs.some((line) => line.includes("script-interpreter ready")),
   );
+});
+
+test("apply：显式 languages 严格按配置（含不参与自动探测的 bash），顺序即缺省语言", () => {
+  const host = mockHost();
+  apply(host.ctx, { languages: ["python", "bash"] });
+  const tool = host.tool();
+  assert.deepEqual(
+    (tool.parameters.properties.language as { enum?: readonly string[] }).enum,
+    ["python", "bash"],
+  );
+  // 解释器缺失也照常进表（缺失不隐藏工具），故与本机是否装了 bash 无关。
+  assert.ok(tool.description.includes("缺省语言 = python"), tool.description);
 });
 
 test("apply：语言表为空时不注册任何工具并告警", () => {

@@ -50,6 +50,12 @@ export const INSTALL_GUIDANCE: Readonly<Record<string, string>> = {
   bash:
     "未探测到 Bash 解释器：请安装 bash 并确保在 PATH 上；" +
     "或用插件配置 bashPath（等价环境变量 SCRIPT_BASH_INTERPRETER）指定解释器路径。",
+  node:
+    "未探测到 Node 解释器：请安装 Node.js（如 apt install nodejs / brew install node / fnm install --lts）" +
+    "并确保在 PATH 上；或用插件配置 nodePath（等价环境变量 SCRIPT_NODE_INTERPRETER）指定解释器路径。",
+  sh:
+    "未探测到 POSIX sh 解释器：请安装 sh（多数系统由 dash / busybox 提供）并确保在 PATH 上；" +
+    "或用插件配置 shPath（等价环境变量 SCRIPT_SH_INTERPRETER）指定解释器路径。",
 };
 
 /** 未知语言的通用指引。 */
@@ -436,7 +442,7 @@ async function executeScript(
 /** 工具描述（模型可见；说明与官方 bash 的分工、回执口径与围栏语义）。 */
 function toolDescription(defaultLanguage: LanguageId | undefined): string {
   return (
-    "执行一段脚本并返回 stdout / stderr（首期 Python；脚本正文经 stdin 交给解释器，" +
+    "执行一段脚本并返回 stdout / stderr（按 language 选择已启用的解释器；脚本正文经 stdin 交给解释器，" +
     "每次调用都是全新进程；换目录用 workdir，不要在脚本里 cd）。" +
     "非零退出码回执为 [exit code: N]，那是脚本自己的结果、不是工具错误；" +
     "超时回执为 [timed out after Nms]；输出过长时保留尾部，全文落盘并在回执里给出路径。" +

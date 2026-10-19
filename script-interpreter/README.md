@@ -1,12 +1,14 @@
 # script-interpreter（模型侧脚本解释器）
 
 DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_run`）：把脚本正文经 stdin
-交给本机解释器，收 stdout / stderr / 退出码并回填上下文。首期只启用 **Python**。
+交给本机解释器，收 stdout / stderr / 退出码并回填上下文。主功能是**按语言自动探测并切换
+执行环境**：`languages` 不配置时逐语言探测解释器，探到即进可切换列表（缺省 python / node / sh）。
 
 - **服务对象**：LLM。TUI 的 `$` 模式是给人用的本地 shell 模式，两者各自独立实现，
   不共享代码与配置（2026-10-16 用户裁定）。
-- **与官方 `tool-bash` 的分工**：shell 命令归官方 bash（含沙箱围栏 / 提权审批 / 后台作业 /
-  spill 输出），本包不注册 bash 工具、不重复该面；只补官方没有的 Python 执行面。
+- **与官方 `tool-bash` 的分工**：只是执行命令的话官方 bash 就够了（含沙箱围栏 / 提权审批 /
+  后台作业 / spill 输出），本包的差异化在「按语言探测并切换解释器」，故 `bash` 后端
+  **不参与自动探测**，要启用需显式写进 `languages`。
 - **不做**：REPL / 跨调用状态保持 / 持久 PTY / 交互式驱动 / `sandbox_permissions` 提权参数。
 
 ## 工具面
@@ -17,28 +19,32 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 | --- | --- | --- |
 | `script` | 是 | 脚本正文；空串报错。经 stdin 交给解释器，不落临时脚本文件 |
 | `description` | 是 | 5 至 10 词，界面展示用；空串报错 |
-| `language` | 否 | 取值限于配置里已启用的语言（schema 的 `enum` 即该表）；缺省 = 启用的首个 |
+| `language` | 否 | 取值限于已启用的语言（schema 的 `enum` 即该表：缺省为自动探测到的语言）；缺省 = 启用的首个 |
 | `workdir` | 否 | 缺省 = 沙箱策略解析出的工作区根（普通会话即会话 cwd）；相对路径按该根解析 |
 | `timeoutMs` | 否 | 缺省 30s，上限 10min（超过上限按上限执行，非正数报错） |
 
-传未启用的语言（如首期传 `bash`）→ 明确报错并列出可用语言，**不静默回落**。
+传未启用的语言（如 `bash`，它不参与自动探测）→ 明确报错并列出可用语言，**不静默回落**。
 参数校验先于能力检查（先报「参数不合法」，再报「解释器缺失」）。
 
 ## 配置
 
 | 配置项 | 缺省 | 说明 |
 | --- | --- | --- |
-| `languages` | `["python"]` | 启用的语言；bash 后端随包实现但缺省不在表内 |
+| `languages` | 未配置 = 自动探测 | 显式给出时严格按此表（可收窄，或启用不参与自动探测的 `bash`）；空数组 = 不启用任何语言 |
 | `pythonPath` | 未配置 | Python 解释器路径覆盖；等价环境变量 `SCRIPT_PY_INTERPRETER` |
-| `bashPath` | 未配置 | Bash 解释器路径覆盖（bash 未启用时不生效） |
+| `bashPath` | 未配置 | Bash 解释器路径覆盖（`bash` 需显式写进 `languages` 才启用） |
+| `nodePath` | 未配置 | Node 解释器路径覆盖；等价环境变量 `SCRIPT_NODE_INTERPRETER` |
+| `shPath` | 未配置 | POSIX sh 解释器路径覆盖；等价环境变量 `SCRIPT_SH_INTERPRETER` |
 | `approval` | `"never"` | 逐次审批：`never`（与官方 bash 一致）或 `ask` |
 | `timeoutMs` | `30000` | 缺省超时（毫秒），上限 600000 |
 | `maxOutputChars` | `100000` | 单条流保留的输出上限（字符） |
 | `spillPrefix` | `"dsh-script-"` | 溢出落盘的根目录前缀（路径分隔符会被净化成 `-`） |
 
-解释器探测顺序：显式配置 → 环境变量 → `PATH`（`python3` → `python`）→ 常见绝对路径。
-显式配置或环境变量**配了却不可执行时不再回落**（避免静默跑错解释器）。探测结果写进
-apply 日志；**缺失时不隐藏工具**：调用返回含安装指引的错误，插件照常挂载。
+解释器探测顺序（逐语言）：显式配置 → 环境变量 → `PATH` 候选（`python3` → `python` / `node` /
+`sh`）→ 常见绝对路径。显式配置或环境变量**配了却不可执行时不再回落**（避免静默跑错解释器）。
+探测结果写进 apply 日志；**缺失时不隐藏工具**：显式配置的语言即使探测失败也照常注册，
+调用时返回含安装指引的错误。自动探测模式下未命中的语言不进 `enum`（装好解释器后下次装配出现），
+命中一个都没有时才不注册工具并告警。`sh` 没有统一的版本开关，故不做版本探测。
 
 ## 执行与围栏
 
@@ -105,11 +111,13 @@ apply 日志；**缺失时不隐藏工具**：调用返回含安装指引的错�
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/index.ts` | `apply` 装配：配置解析与钳位、逐语言探测、注册 `script_run`、装载日志 |
+| `src/index.ts` | `apply` 装配：配置解析与钳位、自动探测集合、逐语言探测、注册 `script_run`、装载日志 |
 | `src/types.ts` | 公共类型 + 宿主面结构替身（沙箱 / 策略 / 审批 / 工具面） |
-| `src/probe.ts` | 解释器探测（四级顺序、不回落、版本读取） |
+| `src/probe.ts` | 解释器探测（四级顺序、不回落、版本读取；`versionArgs` 为空则跳过版本） |
 | `src/langs/python.ts` | Python 后端（`python3 -u -`） |
-| `src/langs/bash.ts` | Bash 后端（`bash -s`；随包实现但缺省不启用） |
+| `src/langs/node.ts` | Node 后端（`node -`；参与自动探测） |
+| `src/langs/sh.ts` | POSIX sh 后端（`sh -s`；参与自动探测） |
+| `src/langs/bash.ts` | Bash 后端（`bash -s`；不参与自动探测，需显式配置） |
 | `src/sandbox.ts` | 策略解析、`confine`、fail-closed、拒绝 / 运行器失败判定 |
 | `src/run.ts` | spawn、stdin 送脚本、超时与进程组清理、尾部截断、溢出落盘 |
 | `src/render.ts` | 回执渲染（全函数，畸形值不抛） |
@@ -119,15 +127,15 @@ apply 日志；**缺失时不隐藏工具**：调用返回含安装指引的错�
 
 | 文件 | 覆盖 |
 | --- | --- |
-| `tests/index.test.ts` | bundle 契约、配置回退与钳位、注册与降级、不注册官方工具名 |
-| `tests/probe.test.ts` | 四级探测顺序、不回落、版本读取、可执行判定 |
+| `tests/index.test.ts` | bundle 契约、配置回退与钳位、`languages` 三态（自动 / 显式 / 空）、注册与降级、不注册官方工具名 |
+| `tests/probe.test.ts` | 四级探测顺序、不回落、版本读取、可执行判定、node / sh 后端候选与覆盖键 |
 | `tests/sandbox.test.ts` | 策略解析四态、`confine` 三态、`SANDBOX_UNAVAILABLE`、拒绝 / 运行器失败判定 |
 | `tests/run.test.ts` | 真实 Python 执行、stderr / 退出码、cwd、超时、取消、进程组清理、截断与落盘（0600 / 分桶） |
-| `tests/tool.test.ts` | schema 与 `script` 键对拍、参数校验顺序、语言 / 解释器降级、审批三态、沙箱四态、回执渲染 |
+| `tests/tool.test.ts` | schema 与 `script` 键对拍、参数校验顺序、语言 / 解释器降级（含 node / sh 指引）、按 `language` 切换、node / sh 真实执行、审批三态、沙箱四态、回执渲染 |
 
 ```sh
 npm --prefix script-interpreter run check   # 类型检查
-npm --prefix script-interpreter run test    # 单包测试（无 Python 时相关用例 skip）
+npm --prefix script-interpreter run test    # 单包测试（缺对应解释器时相关用例 skip）
 ```
 
 ## 状态

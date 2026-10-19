@@ -88,7 +88,10 @@ export function probeInterpreter(
   const trail: string[] = [];
 
   const hit = (path: string, source: InterpreterSource): ProbeOutcome => {
-    const version = readVersion(path, backend.versionArgs);
+    const version =
+      backend.versionArgs.length === 0
+        ? undefined
+        : readVersion(path, backend.versionArgs);
     const suffix = version === undefined ? "" : `, ${version}`;
     trail.push(`${source}:${path}（命中${suffix}）`);
     return {

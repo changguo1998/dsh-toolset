@@ -10,7 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { BundleHost } from "../src/index.ts";
+import { nodeBackend } from "../src/langs/node.ts";
 import { pythonBackend } from "../src/langs/python.ts";
+import { shBackend } from "../src/langs/sh.ts";
 import { probeInterpreter } from "../src/probe.ts";
 import { SpillStore } from "../src/run.ts";
 import type { ToolHost, ToolRuntime, ToolSettings } from "../src/tools.ts";
@@ -204,6 +206,16 @@ export function pythonInfo(): InterpreterInfo | null {
 /** 机器上有 Python 解释器时为 true（缺解释器的用例走 skip）。 */
 export function hasPython(): boolean {
   return pythonInfo() !== null;
+}
+
+/** 当前机器上的 Node 解释器（缺失时 `null`）。 */
+export function nodeInfo(): InterpreterInfo | null {
+  return probeInterpreter(nodeBackend).info;
+}
+
+/** 当前机器上的 POSIX sh 解释器（缺失时 `null`）。 */
+export function shInfo(): InterpreterInfo | null {
+  return probeInterpreter(shBackend).info;
 }
 
 /** 构造工具 runtime 的输入。 */

@@ -7,16 +7,18 @@
  *
  * 形态与范围（用户 2026-10-16 / 10-17 裁定，见
  * docs/implementation/2026-10-16-script-interpreter-design.md）：
- * **模型侧工具**（给 LLM 用，不是 TUI 的 `$` 模式）、首期只 Python、
- * 单包多语言（`langs/<语言>.ts` + 统一 LangBackend）、逐次审批缺省关闭、
+ * **模型侧工具**（给 LLM 用，不是 TUI 的 `$` 模式）、主功能是**按语言自动探测并
+ * 切换执行环境**、单包多语言（`langs/<语言>.ts` + 统一 LangBackend）、逐次审批缺省关闭、
  * 不做 REPL / 状态保持 / TUI 入口。
  *
- * 装配：解析配置 → 逐语言探测解释器（缺失也照常注册，调用时给安装指引）→
- * 注册 `script_run`（唯一工具）→ 写装载日志。
+ * 装配：解析配置 → 逐语言探测解释器（未显式配置 `languages` 时探到即启用；
+ * 缺失也照常注册，调用时给安装指引）→ 注册 `script_run`（唯一工具）→ 写装载日志。
  */
 
 import { bashBackend } from "./langs/bash.ts";
+import { nodeBackend } from "./langs/node.ts";
 import { pythonBackend } from "./langs/python.ts";
+import { shBackend } from "./langs/sh.ts";
 import { probeInterpreter } from "./probe.ts";
 import { SpillStore } from "./run.ts";
 import { createScriptRunTool } from "./tools.ts";
@@ -91,19 +93,27 @@ export const DEFAULT_MAX_OUTPUT_CHARS = 100_000;
 /** 溢出落盘根前缀缺省值。 */
 export const DEFAULT_SPILL_PREFIX = "dsh-script-";
 
-/** 缺省启用语言：首期只 Python（bash 后端随首期实现但缺省不在表内，决策 2）。 */
-export const DEFAULT_LANGUAGES: readonly LanguageId[] = ["python"];
+/**
+ * 自动探测集合：`languages` 未显式配置时生效 —— 逐语言探测解释器，探到即启用。
+ * bash 不在集合内（官方 `tool-bash` 已覆盖命令执行面，决策 1），要启用需显式配置。
+ */
+export const AUTO_LANGUAGES: readonly LanguageId[] = ["python", "node", "sh"];
 
-/** 语言后端表（新增语言在这里登记；bash 已实现但缺省不在 `languages` 里）。 */
+/** 语言后端表（新增语言在这里登记，并把 id 加进 `AUTO_LANGUAGES` 或靠显式配置启用）。 */
 export const BACKENDS: Readonly<Record<string, LangBackend>> = {
   python: pythonBackend,
   bash: bashBackend,
+  node: nodeBackend,
+  sh: shBackend,
 };
 
 /** 已解析并经钳位的运行配置（apply 之后全程只读）。 */
 export interface ResolvedSettings {
-  /** 启用的语言（已去重、去空；可能为空 = 装配时判定为配置错误）。 */
-  readonly languages: readonly LanguageId[];
+  /**
+   * 显式配置的语言（已去重、去空）；缺省 = 自动探测（`undefined`）。
+   * 空数组 = 不启用任何语言（装配时告警）。
+   */
+  readonly languages?: readonly LanguageId[];
   readonly approval: "never" | "ask";
   readonly timeoutMs: number;
   readonly maxOutputChars: number;
@@ -112,6 +122,10 @@ export interface ResolvedSettings {
   readonly pythonPath?: string;
   /** Bash 解释器路径覆盖（空串按未配置处理）。 */
   readonly bashPath?: string;
+  /** Node 解释器路径覆盖（空串按未配置处理）。 */
+  readonly nodePath?: string;
+  /** POSIX sh 解释器路径覆盖（空串按未配置处理）。 */
+  readonly shPath?: string;
 }
 
 /** 非空字符串，否则 undefined（配置项统一按「空串 = 未配置」处理）。 */
@@ -140,18 +154,25 @@ function safePrefix(value: unknown): string {
 export function resolveSettings(
   config: ScriptInterpreterConfig = {},
 ): ResolvedSettings {
+  // 未配置 = 自动探测（`undefined`）；显式配置（含空数组）严格按表。
   const rawLanguages = Array.isArray(config.languages)
     ? config.languages
-    : DEFAULT_LANGUAGES;
-  const languages: LanguageId[] = [];
-  for (const entry of rawLanguages) {
-    const id = nonEmpty(entry);
-    if (id !== undefined && !languages.includes(id)) languages.push(id);
+    : undefined;
+  let languages: LanguageId[] | undefined;
+  if (rawLanguages !== undefined) {
+    const list: LanguageId[] = [];
+    for (const entry of rawLanguages) {
+      const id = nonEmpty(entry);
+      if (id !== undefined && !list.includes(id)) list.push(id);
+    }
+    languages = list;
   }
   const pythonPath = nonEmpty(config.pythonPath);
   const bashPath = nonEmpty(config.bashPath);
+  const nodePath = nonEmpty(config.nodePath);
+  const shPath = nonEmpty(config.shPath);
   return {
-    languages,
+    ...(languages === undefined ? {} : { languages }),
     approval: config.approval === "ask" ? "ask" : "never",
     timeoutMs: clampPositive(
       config.timeoutMs,
@@ -166,6 +187,8 @@ export function resolveSettings(
     spillPrefix: safePrefix(config.spillPrefix),
     ...(pythonPath === undefined ? {} : { pythonPath }),
     ...(bashPath === undefined ? {} : { bashPath }),
+    ...(nodePath === undefined ? {} : { nodePath }),
+    ...(shPath === undefined ? {} : { shPath }),
   };
 }
 
@@ -192,7 +215,12 @@ export function apply(
   const logger = ctx.logger?.(name);
   const enabled: EnabledLanguage[] = [];
 
-  for (const id of settings.languages) {
+  // 未显式配置 `languages` = 自动探测：顺序按 AUTO_LANGUAGES，探到即启用。
+  // 显式配置 = 严格按配置顺序（含 bash；未知 id 告警跳过；空表不注册工具）。
+  const auto = settings.languages === undefined;
+  const requested = settings.languages ?? AUTO_LANGUAGES;
+
+  for (const id of requested) {
     const backend = BACKENDS[id];
     if (backend === undefined) {
       logger?.warn?.(
@@ -203,6 +231,14 @@ export function apply(
     const probe = probeInterpreter(backend, {
       config: settings[backend.configKey],
     });
+    if (auto && probe.info === null) {
+      // 自动模式下没探到解释器就不进可切换列表（装好解释器后下次装配自动出现）。
+      logger?.info(`${backend.label}: 未探测到解释器，自动探测模式下跳过`);
+      if (probe.trail.length > 0) {
+        logger?.info(`${backend.label} 探测痕迹：${probe.trail.join("；")}`);
+      }
+      continue;
+    }
     const entry: EnabledLanguage = { backend, interpreter: probe.info };
     enabled.push(entry);
     logger?.info(describeLanguage(entry));
@@ -213,7 +249,7 @@ export function apply(
 
   if (enabled.length === 0) {
     logger?.warn?.(
-      "没有可用的语言（languages 为空或全部未识别），不注册 script_run",
+      "没有可用的语言（自动探测未命中，或 languages 为空 / 全部未识别），不注册 script_run",
     );
     return;
   }
@@ -240,7 +276,7 @@ export function apply(
   }
 
   const toolSettings: ToolSettings = {
-    languages: settings.languages,
+    languages: enabled.map((entry) => entry.backend.id),
     approval: settings.approval,
     timeoutMs: settings.timeoutMs,
     maxTimeoutMs: MAX_TIMEOUT_MS,
@@ -268,7 +304,9 @@ export function apply(
 }
 
 export { bashBackend } from "./langs/bash.ts";
+export { nodeBackend } from "./langs/node.ts";
 export { pythonBackend } from "./langs/python.ts";
+export { shBackend } from "./langs/sh.ts";
 export {
   VERSION_TIMEOUT_MS,
   isExecutableFile,

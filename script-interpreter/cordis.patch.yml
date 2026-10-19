@@ -1,5 +1,6 @@
-# 本包插入自身（bundle 层）：缺省**开启**（模型侧工具，首期只启用 python 语言）。
-# 其余配置项缺省见 src/index.ts 的 resolveSettings（languages = ["python"]、approval = never、
+# 本包插入自身（bundle 层）：缺省**开启**（模型侧工具；未给 languages 时自动探测 python / node / sh，
+# bash 不参与自动探测，需显式写进 languages）。
+# 其余配置项缺省见 src/index.ts 的 resolveSettings（languages 缺省 = 自动探测、approval = never、
 # timeoutMs = 30000、maxOutputChars = 100000、spillPrefix = dsh-script-）；
 # 要覆盖时在 profile 用户 patch 里按 id 追加同名字段。
 - insert:
