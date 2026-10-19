@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 
 import type { ToolDef } from "../src/main.ts";
-import { apply, callerSessionIdOf, name } from "../src/main.ts";
+import { apply, callerSessionIdOf, inject, name } from "../src/main.ts";
 
 const MANAGER = "sess-manager";
 const tempDirs: string[] = [];
@@ -185,8 +185,9 @@ function isLosslessJson(value: unknown): boolean {
 
 /**
  * 模拟 cordis ctx：**未 inject 的服务做属性读取会直接抛错**
- * （真实文案 `cannot get property "<name>" without inject`）。本包故意不写 `inject`，
- * 因此 apply 里任何一次裸属性读取都会让整包加载失败 —— 用 Proxy 把这条钉住。
+ * （真实文案 `cannot get property "<name>" without inject`）。本包只把 `tools` 写进静态
+ * `inject`，其余服务走 `ctx.inject` 动态分叉；假宿主没有 `inject` 时解析退回直读 —— 用
+ * Proxy 把「直读未注入服务会抛」这条钉住，确保 apply 期不会裸读可选服务。
  */
 function cordisLikeHost(options: {
   services?: Record<string, unknown>;
@@ -213,6 +214,101 @@ function cordisLikeHost(options: {
   });
   return { host, logs, registered };
 }
+
+/**
+ * 假 cordis `ctx.inject`：还原真机形态 —— 兄弟 bundle 提供的服务**直读不到**（`get` 返回
+ * `undefined`），只能经注入分叉的子 ctx 拿到。这是「工具注册不上」回归用例的基础设施。
+ */
+function injectedHost(services: Record<string, unknown>) {
+  const logs: string[] = [];
+  const registered: ToolDef[] = [];
+  const host: Record<string, unknown> = {
+    logger: () => ({ info: (message: string) => void logs.push(message) }),
+    // 兄弟 fiber 提供的服务：直读一律拿不到（cordis 4.0.5 实测）
+    get: (key: string) => (key === "tools" ? host["tools"] : undefined),
+    tools: {
+      register: (def: unknown) => void registered.push(def as ToolDef),
+    },
+    // 只有声明在 deps 里的服务，子分叉才看得到
+    inject: (
+      deps: string[],
+      callback: (child: Record<string, unknown>) => unknown,
+    ) => {
+      const child: Record<string, unknown> = {
+        get: (key: string) => (deps.includes(key) ? services[key] : undefined),
+      };
+      callback(child);
+    },
+  };
+  return { host, logs, registered };
+}
+
+test("静态 inject 声明 tools（不声明时真机工具永远进不了工具表）", () => {
+  assert.deepEqual(inject, ["tools"]);
+});
+
+test("真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用", async () => {
+  const root = await tempDir();
+  const channel = fakeChannel();
+  channel.online.add("sess-alice");
+  const memory = fakeMemory();
+  const box = injectedHost({
+    sessionChannel: channel.face,
+    sessionPaths: fakePaths(root).service,
+    sessions: { get: () => ({ header: { cwd: root } }) },
+    memory: memory.face,
+  });
+  apply(box.host as never, {});
+  assert.equal(
+    box.registered.length,
+    1,
+    `工具应注册；日志：${box.logs.join(" | ")}`,
+  );
+
+  const tool = box.registered[0]!;
+  const exec = { agent: { session: { id: MANAGER } } };
+  const created = await tool.execute(
+    { action: "create_group", name: "team" },
+    exec,
+  );
+  assert.equal(created["ok"], true, JSON.stringify(created));
+  const added = await tool.execute(
+    {
+      action: "add_member",
+      group: "team",
+      name: "alice",
+      target: "sess-alice",
+    },
+    exec,
+  );
+  assert.equal(added["ok"], true, JSON.stringify(added));
+  assert.equal(
+    memory.calls.at(-1)?.["kind"],
+    "agent_group",
+    "镜像应经分叉拿到 memory 服务",
+  );
+  const file = join(root, `session-${MANAGER}`, "agent-group.json");
+  assert.equal((await stat(file)).mode & 0o777, 0o600);
+});
+
+test("宿主 ctx.inject 抛错：apply 不冒泡，工具照常注册", () => {
+  const registered: ToolDef[] = [];
+  const logs: string[] = [];
+  const host: Record<string, unknown> = {
+    logger: () => ({ info: (message: string) => void logs.push(message) }),
+    get: (key: string) => (key === "tools" ? host["tools"] : undefined),
+    tools: { register: (def: unknown) => void registered.push(def as ToolDef) },
+    inject: () => {
+      throw new Error("注入面坏了（测试注入）");
+    },
+  };
+  assert.doesNotThrow(() => apply(host as never, {}));
+  assert.equal(registered.length, 1);
+  assert.ok(
+    logs.some((line) => line.includes("服务注入失败")),
+    `应记录注入失败：${logs.join(" | ")}`,
+  );
+});
 
 test("未 inject 的宿主：服务齐全时正常注册（属性回退读取不冒泡）", async () => {
   const root = await tempDir();
