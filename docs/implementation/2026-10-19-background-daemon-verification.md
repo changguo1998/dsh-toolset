@@ -1,6 +1,6 @@
 # background-daemon 真机验证（接取条目：docs/BACKLOG.md「background-daemon 真机验证（已挂载，发现 timer 适配缺陷）」）
 
-状态：调研　　开启：2026-10-19　　关闭：
+状态：实现　　开启：2026-10-19　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -119,7 +119,17 @@
 
 ## 实现记录
 
-（待写。）
+（按时间追加）
+
+- 2026-10-19 T1 代码：
+  - `src/scheduler.ts`：`TimerLike` 注释改为「内部统一面」；新增 `HostTimerLike { timeout(callback, delayMs): () => void }` 与适配器 `hostTimer(service): TimerLike`（`schedule(delay, cb)` 转调 `service.timeout(cb, delay)`）。
+  - `src/main.ts`：`readService<HostTimerLike>(ctx, "timer")` → 有 `timeout` 则 `hostTimer(...)`，否则回落 `systemTimer()`；宿主对象在场但缺 `timeout` 时告警 `ctx.timer 形状不符（缺 timeout）：改用进程内定时器`；`inject` 保持不含 `timer`。
+  - `src/index.ts`：导出 `hostTimer` / `HostTimerLike`。
+- 2026-10-19 T2 测试：
+  - `tests/timer.test.ts` 新增 3 例：适配器映射与 disposer 透传；宿主形状 timer 建任务 + `arm()` 不抛 + 到点投递成功；形状不符回落 + 告警。
+  - `tests/harness.ts` 新增宿主形状假件 `HostTimer`（只实现 `timeout`）；`tests/activation.test.ts` / `tests/apply.test.ts` 的假 ctx timer 从 `FakeTimer`（`schedule` 形状）换成 `HostTimer`（宿主形状），使其与真机一致。
+- 2026-10-19 门禁：`npm run check` 通过；`npm test` 139 例全通过（136 + 3）；`npm run build` 通过。
+- 2026-10-19 复现重验：`tmp/repro.ts`（宿主形状 timer）改跑修复后代码输出 `arm ok`（修复前同脚本抛 `TypeError: this[#options].timer.schedule is not a function`）。
 
 ## 偏差
 

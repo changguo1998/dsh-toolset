@@ -28,9 +28,26 @@ import type {
   TaskMode,
 } from "./types.ts";
 
-/** timer 原语（宿主 `ctx.timer.timeout(cb, delay)` 的适配; 返回 disposer）。 */
+/** timer 原语（内部统一面：`schedule(delayMs, cb) → disposer`）。 */
 export interface TimerLike {
   schedule(delayMs: number, callback: () => void): () => void;
+}
+
+/** 宿主 `cordis-plugin-timer` 的形状：只有 `timeout(cb, delay)`, 没有 `schedule`。 */
+export interface HostTimerLike {
+  timeout(callback: () => void, delayMs: number): () => void;
+}
+
+/**
+ * 把宿主 timer 适配成内部统一面（设计 D16：复用 `ctx.timer` 的 `timeout()`）。
+ * 宿主服务缺失或形状不符时由装配层决定回落, 这里不做判断。
+ */
+export function hostTimer(service: HostTimerLike): TimerLike {
+  return {
+    schedule(delayMs, callback) {
+      return service.timeout(callback, delayMs);
+    },
+  };
 }
 
 /** 进程内定时器（不依赖宿主 timer 服务；unref 避免拖住进程退出）。 */
