@@ -66,15 +66,16 @@ CLI 调用一律 `spawn(bin, args)` **参数数组、不过 shell**：模型给�
 
 理由：不在 herdr 内是**运行位置决定的**、本机不可修，注册一个必然失败的工具只会诱使模型反复试错并污染工具面（对照 `ast-tools`：二进制缺失是本机可修的，故它注册降级工具给安装指引）。
 
-## 安全边界（三闸）
+## 安全边界（四道判定）
 
 命令跑在 herdr 服务端的 pane 里、**在 dsh 进程之外，不受 dsh 文件沙箱约束**，因此不能指望沙箱兜底：
 
 1. **guard 复查**（本包本地加固）：执行前 `ctx.get("guard")?.inspectCommand(text, "herdr-pane:<action>")` —— 返回 `null` 放行，非空字符串即命中（按 deny 回执、不执行）；服务缺失 / 调用抛错 → 告警一次后**照常执行**（fail-open，与 TUI `$` 模式同口径）。待检文本 = `run` 的 `command` / `send_text` 的 `text` / `send_keys` 的 `keys`。
-2. **`security-guard` 登记**（跨包，闸②）：`PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`。命令跑在沙箱之外，这一层是硬拒的落点；**该登记由条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」在 `security-guard` 侧落地**，本包只保证参数面与登记形态一致（数组参数必须走 `commandPaths`，`commandKeys` 会静默忽略数组值）。
-3. **越界审批**（闸③）：`tools/pre-execute` 监听器对「对非自建 pane 动输入 / 关闭」返回 `{kind: "ask", reason}`，由宿主路由到审批 UI；无审批服务时自动 fail-closed。缺省档 `foreign` —— 自有 pane 上的动作与官方 bash 工具同级（命令执行不逐次审批），一旦要动用户的 pane 则打断一次。
+2. **`security-guard` 登记**（跨包）：`PLUGIN_COMMAND_TOOLS.herdr_pane = { commandKeys: ["command", "text"], commandPaths: ["keys[]"] }`。命令跑在沙箱之外，这一层是硬拒的落点；**该登记由条目「登记两个新插件工具的命令参数面（`script_run` / `herdr_pane`）」在 `security-guard` 侧落地**，本包只保证参数面与登记形态一致（数组参数必须走 `commandPaths`，`commandKeys` 会静默忽略数组值）。
+3. **沙箱模式联动**（闸④，先于审批）：`tools/pre-execute` 里问宿主 `ctx.sandboxPolicy.resolve({ session })` —— 会话处于 `read-only` 时对 `send_text` / `send_keys` / `run` / `close` 与 stable 模式的 `wait` 返回 `{kind: "deny", reason}`（不弹面板，文案含模式、动作、pane 与 `/permission` 切换方式）；`label`（只改归属标记）、`create`（只切 pane、不提交命令）与读类动作放行。模式是宿主按会话从 `sandbox/mode` 事件回放出来的，重启 / resume 后仍正确；服务缺失 / 解析抛错 → 告警一次后**放行**（fail-open）。
+4. **越界审批**（闸③，在沙箱门之后）：`tools/pre-execute` 监听器对「对非自建 pane 动输入 / 关闭」返回 `{kind: "ask", reason}`，由宿主路由到审批 UI；无审批服务时自动 fail-closed。缺省档 `foreign` —— 自有 pane 上的动作与官方 bash 工具同级（命令执行不逐次审批），一旦要动用户的 pane 则打断一次。
 
-归属拒绝与 guard 拒绝都给**结构化回执 + 放行方式**（怎么建自建 pane、怎么开 `allowForeignPanes`、回执里的 security-guard 说明）。
+归属拒绝与 guard 拒绝都给**结构化回执 + 放行方式**（怎么建自建 pane、怎么开 `allowForeignPanes`、回执里的 security-guard 说明）；沙箱拒绝给当前模式与切换方式。
 
 ## 库面
 
@@ -93,7 +94,7 @@ if (plugin) {
 
 - `createHerdrPlugin(ctx, config, deps?)` → `{ registry, config, deps, cleanup, dispose }`（非 herdr 环境返回 `undefined`）。
 - `dispatchAction(action, args, deps)` 是**唯一执行入口**（工具面、真机脚本、库面消费者都走它）。
-- `deps` 全部可注入（`runner` / `reader` / `connector` / `clock` / `guardCheck` / `env`），单测不需要真机 herdr。
+- `deps` 全部可注入（`runner` / `reader` / `connector` / `clock` / `guardCheck` / `sandboxMode` / `env`），单测不需要真机 herdr。
 
 ## 测试与验证
 
@@ -106,7 +107,7 @@ if (plugin) {
 
 - 八个用例文件：`cli`（握手 / 二进制定位 / 信封解析 / 退出码 / 子进程执行面的参数直通与超时）、`socket`（报文拼装 / 响应解析 / 判稳三例）、`net`（真实 unix socket：分片 framing / 超时 / 连接失败）、
   `actions`（十动作 argv 与结果解析 / 归属与 `allowForeignPanes` / 串行化 / guard 拒绝）、`registry`（登记 / label / 退出清理 / 串行队列）、
-  `policy`（归属 / 审批三档 / fail-open）、`main`（握手不注册 / 工具注册 / 审批门 / 通道注入）、`tool`（定义契约 / 渲染 / 截断）。
+  `policy`（归属 / 审批三档 / 沙箱门 / fail-open）、`main`（握手不注册 / 工具注册 / 沙箱门与审批门 / 通道注入）、`tool`（定义契约 / 渲染 / 截断）。
 
 - 真机端到端（**人工跑、不进 CI**，必须在 herdr 管理的 pane 内）：先 `npm --prefix herdr-pane run build`，再跑 `node herdr-pane/scripts/verify-herdr-pane.mjs`（全自动，跑完即关 pane）；三个开关：`--keep`（保留 pane 供人工看）、`--with-python`（额外验 `python3 -i` 的 REPL 场景）、无参（缺省全自动）。
 
@@ -122,6 +123,7 @@ if (plugin) {
 ## 已知边界
 
 - 不支持 `--machine` / `--session`（跨服务器 / 命名会话目标）；不碰布局类动作（`focus` / `resize` / `zoom` / `swap` / `move` / `scroll` / `input`）；不驱动「被 herdr 识别的 agent」面（`herdr agent prompt|wait|start`）；不订阅 socket 事件。
-- 不做沙箱模式联动（会话 `read-only` 时自动拒写类动作）：会话初始模式在无事件时无从判定，猜错就是把闸门做成误拦或空设 —— 首期用「归属 + guard + 审批」覆盖，二期另立条目。
+- **库面直调不受沙箱门约束**：`dispatchAction` 不经 `tools/pre-execute`，库面消费者（真机脚本 / 编排插件）需自行按会话模式决定是否调用；四道判定只盖模型工具面。
+- `read-only` 会话里 `close` 也被拒，自建 pane 会留到退出清理（`closeOnExit`）或切回可写模式后手动关闭。
 - 不做残留 pane 的后台清理守护（属「后台常驻守护机制」条目范围）。
 - `format=ansi` 的颜色语义首期不验。

@@ -6,8 +6,9 @@
  *      否则**不注册工具**、只记一行日志（决策项 5：不在 herdr 内是运行位置决定的、本机不可修，
  *      注册必然失败的工具只会诱使模型反复试错）。
  *   2. **工具注册**：单个模型侧工具 `herdr_pane`（`src/tools.ts`；action 分派十动作）。
- *   3. **审批门（闸③）**：注册 `tools/pre-execute` 监听器，对「对非本插件创建的 pane
- *      动输入 / 关闭」返回 `{kind:"ask", reason}`；缺省档 `foreign`。
+ *   3. **沙箱门（闸④）与审批门（闸③）**：注册 `tools/pre-execute` 监听器 —— 会话处于
+ *      `read-only` 时对写类动作直接返回 `{kind:"deny", reason}`（先于审批，不弹面板）；
+ *      对「对非本插件创建的 pane 动输入 / 关闭」返回 `{kind:"ask", reason}`（缺省档 `foreign`）。
  *      用宿主既有 ask 门而不是自己调 `ctx.approval`——审计对由宿主写入、无审批服务时自动 fail-closed。
  *   4. **退出清理**：`closeOnExit` 时用 `spawnSync` 同步尽力关闭登记过的 pane
  *      （dsh 的 TUI 退出路径不触发 cordis dispose，故同时挂 `process.once("exit")`）。
@@ -24,8 +25,13 @@ import {
 } from "./cli.ts";
 import type { HerdrRunner } from "./cli.ts";
 import type { DispatchDeps } from "./actions.ts";
-import { makeGuardChecker, needsApproval } from "./policy.ts";
-import type { GuardChecker } from "./policy.ts";
+import {
+  makeGuardChecker,
+  makeSandboxModeReader,
+  needsApproval,
+  sandboxDenialReason,
+} from "./policy.ts";
+import type { GuardChecker, SandboxModeReader } from "./policy.ts";
 import { PaneRegistry, createExitCleanup } from "./registry.ts";
 import type { ExitCleanup } from "./registry.ts";
 import { createPaneReader, realClock } from "./socket.ts";
@@ -79,6 +85,8 @@ export interface HerdrPaneDeps {
   clock?: Clock;
   /** 替代 guard 复查器（单测断言 deny / fail-open）。 */
   guardCheck?: GuardChecker;
+  /** 替代沙箱模式读取器（单测断言只读拒绝 / fail-open）。 */
+  sandboxMode?: SandboxModeReader;
   /** 环境变量（缺省 `process.env`）。 */
   env?: NodeJS.ProcessEnv;
 }
@@ -97,29 +105,51 @@ export interface HerdrPaneHandle {
   dispose(): void;
 }
 
-/** 审批门返回形态（宿主 `tools/pre-execute` 的 waterfall 载荷）。 */
+/** pre-execute 门返回形态（宿主 `PreToolDecision` 的子集：放行 / 转审批 / 拒绝）。 */
 export type PreExecuteVerdict =
-  { kind: "allow" } | { kind: "ask"; reason: string };
+  | { kind: "allow" }
+  | { kind: "ask"; reason: string }
+  | { kind: "deny"; reason: string };
 
-/** `tools/pre-execute` 的入参结构面（只读工具名与参数）。 */
-interface PreExecuteExecution {
-  toolName?: string;
-  args?: Record<string, unknown>;
+/**
+ * `tools/pre-execute` 的载荷结构面（宿主 `ToolExecution` 的子集）。
+ * 字段名以宿主为准：`name` / `arguments` / `agent`（`dsh-tools` 的 `createExecution`）。
+ */
+export interface PreExecuteExecution {
+  name?: string;
+  arguments?: unknown;
+  agent?: { session?: unknown };
+}
+
+/** pre-execute 门需要的上下文。 */
+export interface PreExecuteOptions {
+  registry: PaneRegistry;
+  config: ResolvedConfig;
+  /** 沙箱模式读取器（缺省接宿主的 `ctx.sandboxPolicy`）。 */
+  sandboxMode: SandboxModeReader;
+}
+
+/** 参数面读取：宿主给的是已解析对象，非对象按空参数处理。 */
+function argumentsOf(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 /**
- * 审批门判定（纯函数，便于单测）：只在「目标是 pane、且该动作按归属档需要审批」时问。
+ * pre-execute 门判定（纯函数，便于单测），两道：
+ *   1. **沙箱门（闸④）**：只读会话里的写类动作直接拒绝（先于审批，不弹面板）；
+ *   2. **审批门（闸③）**：对非本插件创建的 pane 动输入 / 关闭时转人工。
  *
  * 注意这里**不**拒绝未登记 pane——归属拒绝由动作层给结构化回执（含放行方式），
  * 审批门只负责「要不要打断人」；两层判定目的不同，不重复拦。
  */
 export function preExecuteVerdict(
   execution: PreExecuteExecution,
-  registry: PaneRegistry,
-  config: ResolvedConfig,
+  options: PreExecuteOptions,
 ): PreExecuteVerdict {
-  if (execution.toolName !== TOOL_NAME) return { kind: "allow" };
-  const args = execution.args ?? {};
+  if (execution.name !== TOOL_NAME) return { kind: "allow" };
+  const args = argumentsOf(execution.arguments);
   const action = args.action;
   if (
     typeof action !== "string" ||
@@ -132,18 +162,31 @@ export function preExecuteVerdict(
   const typedAction = action as HerdrPaneAction;
   // wait 只有 stable 模式算写侧；其余按 policy.ts 的输入 / 关闭集合
   const stabilized = typedAction === "wait" && args.stable === true;
-  const ownership: PaneOwnership = registry.has(paneId)
+
+  // 闸④：只读会话里写类动作直接拒绝（决策项 7：不弹审批）
+  const sandboxMode = options.sandboxMode(execution.agent?.session);
+  if (sandboxMode !== undefined) {
+    const denial = sandboxDenialReason(
+      sandboxMode,
+      typedAction,
+      paneId,
+      stabilized,
+    );
+    if (denial !== undefined) return { kind: "deny", reason: denial };
+  }
+
+  const ownership: PaneOwnership = options.registry.has(paneId)
     ? "registered"
     : "foreign";
   const effective: HerdrPaneAction = stabilized ? "send_text" : typedAction;
-  if (!needsApproval(effective, ownership, config.requireApproval)) {
+  if (!needsApproval(effective, ownership, options.config.requireApproval)) {
     return { kind: "allow" };
   }
   return {
     kind: "ask",
     reason:
       `herdr_pane ${typedAction} 作用于非本插件创建的 pane ${paneId}` +
-      `（requireApproval="${config.requireApproval}"）。` +
+      `（requireApproval="${options.config.requireApproval}"）。` +
       "该命令会在 herdr 服务端的 pane 里执行，跑在 dsh 进程之外、不受文件沙箱约束。",
   };
 }
@@ -189,6 +232,8 @@ export function createHerdrPlugin(
     );
   const guardCheck: GuardChecker =
     deps.guardCheck ?? makeGuardChecker(ctx, warn);
+  const sandboxMode: SandboxModeReader =
+    deps.sandboxMode ?? makeSandboxModeReader(ctx, warn);
   const dispatchDeps: DispatchDeps = {
     config: resolved,
     runner,
@@ -214,19 +259,18 @@ export function createHerdrPlugin(
     return undefined;
   }
 
-  // 闸③：越界动输入 / 关闭走宿主 ask 门（缺省档 foreign 下只对非自有 pane 打断）
+  // 闸④ / 闸③：只读会话直接拒绝写类动作；越界动输入 / 关闭走宿主 ask 门
   const unlisten = ctx.on("tools/pre-execute", ((
     execution: unknown,
     next: () => Promise<unknown>,
   ) => {
     const verdict: PreExecuteVerdict = preExecuteVerdict(
       (execution ?? {}) as PreExecuteExecution,
-      registry,
-      resolved,
+      { registry, config: resolved, sandboxMode },
     );
-    if (verdict.kind === "ask") {
-      // 返回 ask 即由宿主路由到审批 UI；不调 next()（waterfall 语义：不调即截断）
-      return { kind: "ask", reason: verdict.reason };
+    if (verdict.kind !== "allow") {
+      // 不调 next()（waterfall 语义：不调即截断）：ask 由宿主路由到审批 UI，deny 渲染成失败结果
+      return verdict;
     }
     return next();
   }) as (...args: unknown[]) => unknown);

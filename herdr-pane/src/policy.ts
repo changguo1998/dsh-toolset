@@ -1,7 +1,7 @@
 /**
- * src/policy.ts — 安全闸门的三层判定（纯函数 + 一个可注入的复查接线）
+ * src/policy.ts — 安全闸门的四层判定（纯函数 + 两个可注入的接线）
  *
- * 三闸（设计文档决策项 10 / 11）：
+ * 四道判定（设计文档决策项 10 / 11 + 沙箱模式联动）：
  *   ① **guard 复查**（本包本地加固）：执行前 `ctx.get("guard")?.inspectCommand(text,
  *      "herdr-pane:<action>")` —— 返回 `null` 放行；返回字符串即命中，按 deny 处理并把该
  *      字符串作为回执来源行附上；服务缺失 / 无该方法 / 调用抛错 → 告警一次后**照常执行**
@@ -12,6 +12,10 @@
  *   ③ **越界审批**（来源在 `main.ts` 的 `tools/pre-execute` 监听器）：只对非本插件创建
  *      的 pane 动输入 / 关闭时打断人；缺省档 `foreign`。
  *
+ *   ④ **沙箱模式联动**（来源同在 `main.ts` 的 `tools/pre-execute` 监听器，先于 ③ 生效）：会话处于
+ *      `read-only` 时直接拒绝写类动作；模式向宿主 `ctx.sandboxPolicy.resolve()` 查，
+ *      服务缺失 / 解析失败 → 告警一次后放行（fail-open，决策项 4）。
+ *
  * 本模块只放**判定**（可单测的纯函数）与 guard 服务的惰性接线；不含任何执行代码。
  */
 
@@ -19,6 +23,8 @@ import type {
   HerdrPaneAction,
   PaneOwnership,
   ResolvedConfig,
+  SandboxMode,
+  SandboxPolicyServiceLike,
 } from "./types.ts";
 
 /** 写类动作：必须作用于本插件登记过的 pane。 */
@@ -90,6 +96,54 @@ export function needsApproval(
   }
   if (mode === "always") return true;
   return ownership === "foreign";
+}
+
+/** 只读沙箱下被拒的动作（`label` 只改归属标记、`create` 只切 pane，均不在内）。 */
+export const SANDBOX_WRITE_ACTIONS: readonly HerdrPaneAction[] = [
+  "send_text",
+  "send_keys",
+  "run",
+  "close",
+];
+
+/**
+ * 该动作是否算「向 pane 写入」（只读会话里一律拒绝）。
+ * `wait` 只有 stable 模式算写侧（与归属 / 审批口径一致）。
+ */
+export function isSandboxWrite(action: string, waitStable = false): boolean {
+  if (action === "wait") return waitStable;
+  return (SANDBOX_WRITE_ACTIONS as readonly string[]).includes(action);
+}
+
+/**
+ * 只读会话下的拒绝文案（含切换方式）；非只读或非写类动作返回 undefined。
+ * 不写「沙箱会兜住」之类误导语：pane 里的命令跑在 dsh 进程之外。
+ */
+export function sandboxDenialReason(
+  mode: SandboxMode,
+  action: HerdrPaneAction,
+  paneId: string,
+  waitStable = false,
+): string | undefined {
+  if (mode !== "read-only") return undefined;
+  if (!isSandboxWrite(action, waitStable)) return undefined;
+  return (
+    `会话的沙箱模式是 read-only（sandbox mode = "read-only"），` +
+    `写类动作 ${action} 在只读会话里不执行；目标 pane ${paneId}。` +
+    `放行方式：把会话切到可写模式（如宿主 /permission 选含 workspace-write 的预设）后重试。`
+  );
+}
+
+/** 沙箱模式读取器（`main.ts` 注入 ctx；测试注入替身）。 */
+export type SandboxModeReader = (session: unknown) => SandboxMode | undefined;
+
+/** 在宿主的封闭词汇里认出模式；其余值按「无法判定」处理。 */
+function asSandboxMode(value: unknown): SandboxMode | undefined {
+  return value === "read-only" ||
+    value === "workspace-write" ||
+    value === "danger-full-access"
+    ? value
+    : undefined;
 }
 
 /** 审批门拒绝后的回执文案（含放行方式）。 */
@@ -188,5 +242,45 @@ export function makeGuardChecker(
       return { outcome: "deny", receipt: verdict };
     }
     return { outcome: "pass" };
+  };
+}
+
+/**
+ * 构造沙箱模式读取器：按名惰性解析宿主 `ctx.sandboxPolicy`，每次调用问 `resolve()`。
+ *
+ * fail-open 口径（决策项 4）：服务缺失 / 形状不符 / 解析抛错 → 返回 undefined（调用方放行），
+ * **每种失效模式只告警一次**。宿主按会话回放 `sandbox/mode` 事件，故重启 / resume 后仍正确。
+ */
+export function makeSandboxModeReader(
+  ctx: unknown,
+  warn: (message: string) => void,
+): SandboxModeReader {
+  let warnedMissing = false;
+  let warnedThrow = false;
+  return (session) => {
+    const service = readService<SandboxPolicyServiceLike>(ctx, "sandboxPolicy");
+    const resolve = service?.resolve;
+    if (typeof resolve !== "function") {
+      if (!warnedMissing) {
+        warnedMissing = true;
+        warn(
+          "沙箱策略服务不可用（ctx.sandboxPolicy 未挂载？），只读会话的写类动作不拦（fail-open）",
+        );
+      }
+      return undefined;
+    }
+    let policy: unknown;
+    try {
+      policy = resolve(session === undefined ? {} : { session });
+    } catch (error) {
+      if (!warnedThrow) {
+        warnedThrow = true;
+        warn(
+          `沙箱策略解析抛错，只读会话的写类动作不拦（fail-open）：${String(error)}`,
+        );
+      }
+      return undefined;
+    }
+    return asSandboxMode((policy as { mode?: unknown } | undefined)?.mode);
   };
 }

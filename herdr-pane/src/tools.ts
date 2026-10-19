@@ -243,6 +243,8 @@ export function createHerdrPaneTool(deps: DispatchDeps): HerdrPaneToolDef {
       "读类（read / info）可读任意 pane；永不使用「当前聚焦 pane」；" +
       "命令跑在 dsh 进程之外、**不受 dsh 文件沙箱约束**，故过 security-guard 复查与归属审批；" +
       "对非本插件 pane 动输入 / 关闭会弹审批（requireApproval 缺省 foreign）；" +
+      "会话处于 read-only 沙箱模式时，写类动作（send_text / send_keys / run / close 与 stable 的 wait）" +
+      "直接拒绝（不弹审批），需先把会话切到可写模式；" +
       "不要读调用者自己所在的 pane（那是 dsh 自己的界面，会读到本次调用自身的回显）。",
     parameters: {
       type: "object",

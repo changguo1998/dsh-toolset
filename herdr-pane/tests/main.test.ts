@@ -18,9 +18,14 @@ import {
   name,
   preExecuteVerdict,
 } from "../src/main.ts";
+import type { PreExecuteOptions } from "../src/main.ts";
 import { PaneRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
-import type { ActionResult } from "../src/types.ts";
+import type {
+  ActionResult,
+  ResolvedConfig,
+  SandboxMode,
+} from "../src/types.ts";
 import {
   errorEnvelope,
   fakeConnector,
@@ -175,46 +180,94 @@ test("createHerdrPlugin: ctx.tools 缺失时告警并返回 undefined", () => {
   assert.equal(plugin, undefined);
 });
 
+/** 固定模式的读取器（`undefined` = 无法判定）。 */
+function modeOf(
+  mode: SandboxMode | undefined,
+): (session: unknown) => SandboxMode | undefined {
+  return () => mode;
+}
+
+/** pre-execute 门的上下文（缺省按 workspace-write，避免无关用例被只读拒绝干扰）。 */
+function gateOptions(
+  registry: PaneRegistry,
+  config: ResolvedConfig = resolveConfig({}),
+  mode: SandboxMode | undefined = "workspace-write",
+): PreExecuteOptions {
+  return { registry, config, sandboxMode: modeOf(mode) };
+}
+
 test("preExecuteVerdict: 非本工具 / 无 pane / 读类动作一律放行", () => {
   const registry = new PaneRegistry("dsh-pane");
-  const config = resolveConfig({});
   assert.deepEqual(
     preExecuteVerdict(
-      { toolName: "bash", args: { pane_id: "wT1:p9" } },
-      registry,
-      config,
+      { name: "bash", arguments: { pane_id: "wT1:p9" } },
+      gateOptions(registry),
     ),
     { kind: "allow" },
   );
   assert.deepEqual(
     preExecuteVerdict(
-      { toolName: TOOL_NAME, args: { action: "list" } },
-      registry,
-      config,
+      { name: TOOL_NAME, arguments: { action: "list" } },
+      gateOptions(registry),
     ),
     { kind: "allow" },
   );
   assert.deepEqual(
     preExecuteVerdict(
-      { toolName: TOOL_NAME, args: { action: "read", pane_id: "wT1:p9" } },
-      registry,
-      config,
+      { name: TOOL_NAME, arguments: { action: "read", pane_id: "wT1:p9" } },
+      gateOptions(registry),
     ),
     { kind: "allow" },
   );
 });
 
+test("preExecuteVerdict: 读宿主字段名 name / arguments / agent（旧字段名不得误拦）", () => {
+  const registry = new PaneRegistry("dsh-pane");
+  // 旧字段名（toolName / args）在宿主载荷里不存在：即使形状抄错也不会命中本工具
+  assert.deepEqual(
+    preExecuteVerdict(
+      {
+        toolName: TOOL_NAME,
+        args: { action: "run", pane_id: "wT1:p9" },
+      } as never,
+      gateOptions(registry, resolveConfig({}), "read-only"),
+    ),
+    { kind: "allow" },
+  );
+  // 宿主形状：name + arguments + agent.session —— 只读会话下必被拒
+  assert.equal(
+    preExecuteVerdict(
+      {
+        name: TOOL_NAME,
+        arguments: { action: "run", pane_id: "wT1:p2" },
+        agent: { session: { id: "s1" } },
+      },
+      gateOptions(registry, resolveConfig({}), "read-only"),
+    ).kind,
+    "deny",
+  );
+  // arguments 非对象（null / 数组 / 标量）按空参数处理，不抛错
+  for (const value of [null, [], "x", 3]) {
+    assert.deepEqual(
+      preExecuteVerdict(
+        { name: TOOL_NAME, arguments: value },
+        gateOptions(registry),
+      ),
+      { kind: "allow" },
+      String(value),
+    );
+  }
+});
+
 test("preExecuteVerdict: foreign 档对非自有 pane 的输入产出 ask；自有 pane 放行", () => {
   const registry = new PaneRegistry("dsh-pane");
   registry.register({ paneId: "wT1:p2" });
-  const config = resolveConfig({});
   const foreign = preExecuteVerdict(
     {
-      toolName: TOOL_NAME,
-      args: { action: "run", pane_id: "wT1:p9", command: "ls" },
+      name: TOOL_NAME,
+      arguments: { action: "run", pane_id: "wT1:p9", command: "ls" },
     },
-    registry,
-    config,
+    gateOptions(registry),
   );
   assert.equal(foreign.kind, "ask");
   assert.match(foreign.kind === "ask" ? foreign.reason : "", /wT1:p9/);
@@ -222,11 +275,10 @@ test("preExecuteVerdict: foreign 档对非自有 pane 的输入产出 ask；自�
 
   const own = preExecuteVerdict(
     {
-      toolName: TOOL_NAME,
-      args: { action: "run", pane_id: "wT1:p2", command: "ls" },
+      name: TOOL_NAME,
+      arguments: { action: "run", pane_id: "wT1:p2", command: "ls" },
     },
-    registry,
-    config,
+    gateOptions(registry),
   );
   assert.deepEqual(own, { kind: "allow" });
 });
@@ -234,21 +286,20 @@ test("preExecuteVerdict: foreign 档对非自有 pane 的输入产出 ask；自�
 test("preExecuteVerdict: always 档对自有 pane 也 ask；never 档从不 ask", () => {
   const registry = new PaneRegistry("dsh-pane");
   registry.register({ paneId: "wT1:p2" });
-  const always = resolveConfig({ requireApproval: "always" });
   assert.equal(
     preExecuteVerdict(
-      { toolName: TOOL_NAME, args: { action: "send_keys", pane_id: "wT1:p2" } },
-      registry,
-      always,
+      {
+        name: TOOL_NAME,
+        arguments: { action: "send_keys", pane_id: "wT1:p2" },
+      },
+      gateOptions(registry, resolveConfig({ requireApproval: "always" })),
     ).kind,
     "ask",
   );
-  const never = resolveConfig({ requireApproval: "never" });
   assert.deepEqual(
     preExecuteVerdict(
-      { toolName: TOOL_NAME, args: { action: "close", pane_id: "wT1:p9" } },
-      registry,
-      never,
+      { name: TOOL_NAME, arguments: { action: "close", pane_id: "wT1:p9" } },
+      gateOptions(registry, resolveConfig({ requireApproval: "never" })),
     ),
     { kind: "allow" },
   );
@@ -256,28 +307,106 @@ test("preExecuteVerdict: always 档对自有 pane 也 ask；never 档从不 ask"
 
 test("preExecuteVerdict: wait 只有 stable 模式算写侧（match 不打断人）", () => {
   const registry = new PaneRegistry("dsh-pane");
-  const config = resolveConfig({});
   const match = preExecuteVerdict(
     {
-      toolName: TOOL_NAME,
-      args: { action: "wait", pane_id: "wT1:p9", match: "x" },
+      name: TOOL_NAME,
+      arguments: { action: "wait", pane_id: "wT1:p9", match: "x" },
     },
-    registry,
-    config,
+    gateOptions(registry),
   );
   assert.deepEqual(match, { kind: "allow" });
   const stable = preExecuteVerdict(
     {
-      toolName: TOOL_NAME,
-      args: { action: "wait", pane_id: "wT1:p9", stable: true },
+      name: TOOL_NAME,
+      arguments: { action: "wait", pane_id: "wT1:p9", stable: true },
     },
-    registry,
-    config,
+    gateOptions(registry),
   );
   assert.equal(stable.kind, "ask");
 });
 
-test("tools/pre-execute 监听器: 命中 ask 直接返回、否则 next() 放行", async () => {
+test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait），读类与标记类放行", () => {
+  const registry = new PaneRegistry("dsh-pane");
+  registry.register({ paneId: "wT1:p2" });
+  const readOnly = gateOptions(registry, resolveConfig({}), "read-only");
+  const session = { id: "s1" };
+
+  const denied = [
+    { action: "send_text", pane_id: "wT1:p2", text: "ls" },
+    { action: "send_keys", pane_id: "wT1:p2", keys: ["enter"] },
+    { action: "run", pane_id: "wT1:p2", command: "rm -rf build" },
+    { action: "close", pane_id: "wT1:p2" },
+    { action: "wait", pane_id: "wT1:p2", stable: true },
+  ];
+  for (const args of denied) {
+    const verdict = preExecuteVerdict(
+      { name: TOOL_NAME, arguments: args, agent: { session } },
+      readOnly,
+    );
+    assert.equal(verdict.kind, "deny", args.action);
+    const reason = verdict.kind === "deny" ? verdict.reason : "";
+    assert.match(reason, /read-only/, args.action);
+    assert.match(reason, /\/permission/, args.action);
+    assert.match(reason, /wT1:p2/, args.action);
+  }
+
+  const allowed = [
+    { action: "read", pane_id: "wT1:p2" },
+    { action: "info", pane_id: "wT1:p2" },
+    { action: "list" },
+    { action: "label", pane_id: "wT1:p2", label: "x" },
+    { action: "create", direction: "right" },
+    { action: "wait", pane_id: "wT1:p2", match: "done" },
+  ];
+  for (const args of allowed) {
+    assert.deepEqual(
+      preExecuteVerdict(
+        { name: TOOL_NAME, arguments: args, agent: { session } },
+        readOnly,
+      ),
+      { kind: "allow" },
+      args.action,
+    );
+  }
+});
+
+test("preExecuteVerdict: 可写模式不拒；模式无法判定时 fail-open", () => {
+  const registry = new PaneRegistry("dsh-pane");
+  registry.register({ paneId: "wT1:p2" });
+  const payload = {
+    name: TOOL_NAME,
+    arguments: { action: "run", pane_id: "wT1:p2", command: "ls" },
+  };
+  const modes = ["workspace-write", "danger-full-access", undefined] as const;
+  for (const mode of modes) {
+    assert.deepEqual(
+      preExecuteVerdict(
+        payload,
+        gateOptions(registry, resolveConfig({}), mode),
+      ),
+      { kind: "allow" },
+      String(mode),
+    );
+  }
+});
+
+test("preExecuteVerdict: 拒绝先于审批（只读会话里非自有 pane 不弹面板）", () => {
+  const registry = new PaneRegistry("dsh-pane");
+  const verdict = preExecuteVerdict(
+    {
+      name: TOOL_NAME,
+      arguments: { action: "run", pane_id: "wT1:p9", command: "ls" },
+    },
+    gateOptions(
+      registry,
+      resolveConfig({ requireApproval: "always" }),
+      "read-only",
+    ),
+  );
+  assert.equal(verdict.kind, "deny");
+});
+
+test("tools/pre-execute 监听器: 只读会话拒写类、读类继续链路", async () => {
   const ctx = fakeCtx();
   const plugin = createHerdrPlugin(
     ctx,
@@ -286,6 +415,7 @@ test("tools/pre-execute 监听器: 命中 ask 直接返回、否则 next() 放�
       readHandshake: () => goodHandshake,
       runner: fakeRunner(),
       reader: fakeReader([readOk("x")]),
+      sandboxMode: () => "read-only",
       env: {},
     },
   );
@@ -299,8 +429,50 @@ test("tools/pre-execute 监听器: 命中 ask 直接返回、否则 next() 放�
     return { kind: "allow" };
   };
 
+  const denied = await listener?.(
+    {
+      name: TOOL_NAME,
+      arguments: { action: "run", pane_id: "wT1:p2" },
+      agent: { session: { id: "s1" } },
+    },
+    next,
+  );
+  assert.equal((denied as { kind?: string }).kind, "deny");
+  assert.equal(nextCalls, 0, "deny 分支不应继续链路");
+
+  const read = await listener?.(
+    { name: TOOL_NAME, arguments: { action: "read", pane_id: "wT1:p9" } },
+    next,
+  );
+  assert.equal(nextCalls, 1, "读类动作继续链路");
+  assert.deepEqual(read as unknown, { kind: "allow" });
+  plugin?.dispose();
+});
+
+test("tools/pre-execute 监听器: 非只读时仍按审批档产出 ask", async () => {
+  const ctx = fakeCtx();
+  const plugin = createHerdrPlugin(
+    ctx,
+    {},
+    {
+      readHandshake: () => goodHandshake,
+      runner: fakeRunner(),
+      reader: fakeReader([readOk("x")]),
+      sandboxMode: () => "workspace-write",
+      env: {},
+    },
+  );
+  const listener = ctx.listeners.get("tools/pre-execute")?.[0];
+  plugin?.registry.register({ paneId: "wT1:p2" });
+
+  let nextCalls = 0;
+  const next = async (): Promise<unknown> => {
+    nextCalls += 1;
+    return { kind: "allow" };
+  };
+
   const blocked = await listener?.(
-    { toolName: TOOL_NAME, args: { action: "run", pane_id: "wT1:p9" } },
+    { name: TOOL_NAME, arguments: { action: "run", pane_id: "wT1:p9" } },
     next,
   );
   assert.equal(
@@ -311,7 +483,7 @@ test("tools/pre-execute 监听器: 命中 ask 直接返回、否则 next() 放�
   assert.equal(nextCalls, 0, "ask 分支不应继续链路");
 
   const allowed = await listener?.(
-    { toolName: TOOL_NAME, args: { action: "run", pane_id: "wT1:p2" } },
+    { name: TOOL_NAME, arguments: { action: "run", pane_id: "wT1:p2" } },
     next,
   );
   assert.equal(nextCalls, 1);

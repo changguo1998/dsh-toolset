@@ -52,6 +52,19 @@ export const READ_SOURCES: readonly ReadSource[] = [
 /** 审批档：`foreign` 只对非本插件创建的 pane 动输入 / 关闭时审批，`always` / `never` 为全局档。 */
 export type ApprovalMode = "foreign" | "always" | "never";
 
+/** 会话的沙箱模式（宿主 `SandboxMode` 的封闭词汇；本包只读，不改写）。 */
+export type SandboxMode =
+  "read-only" | "workspace-write" | "danger-full-access";
+
+/**
+ * 宿主 `ctx.sandboxPolicy` 的结构替身（只取本包用到的 `resolve`）。
+ * 不 import 宿主包：宿主对象原样传入即可，测试可直接注入假策略。
+ */
+export interface SandboxPolicyServiceLike {
+  /** 解析某会话当前生效的策略；缺会话时按部署缺省（宿主口径）。 */
+  resolve?: (request?: { session?: unknown }) => unknown;
+}
+
 /** 渲染上限（超出截断并提示用 `lines` / `source` 收窄）。 */
 export interface RenderLimit {
   /** 行数上限（缺省 200）。 */

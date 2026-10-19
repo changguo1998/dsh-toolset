@@ -1,10 +1,8 @@
 /**
  * tests/policy.test.ts — 归属判定、审批三档与 guard 复查的 fail-open 口径
  *
- * 三闸的语义（设计文档决策项 10 / 11）：
- *   ① guard 复查：`null` 放行 / 非空字符串拦截 / 服务缺失或抛错 fail-open（**每种失效模式只告警一次**）；
- *   ② 登记表：跨包，本包只验证入口参数面（`recommendedRegistration`）；
- *   ③ 审批：`foreign` 缺省只对非自有 pane 的输入 / 关闭打断，`always` / `never` 为全局档。
+ *   ③ 审批：`foreign` 缺省只对非自有 pane 的输入 / 关闭打断，`always` / `never` 为全局档；
+ *   ④ 沙箱：只读会话的写类动作拒绝（文案含模式与切换方式），模式不可判时 fail-open。
  */
 
 import assert from "node:assert/strict";
@@ -13,13 +11,17 @@ import { test } from "node:test";
 import {
   OWNED_ACTIONS,
   READONLY_ACTIONS,
+  SANDBOX_WRITE_ACTIONS,
   checkOwnership,
   isOwnedAction,
   isReadonlyAction,
+  isSandboxWrite,
   makeGuardChecker,
+  makeSandboxModeReader,
   needsApproval,
   ownershipDeniedHint,
   readService,
+  sandboxDenialReason,
 } from "../src/policy.ts";
 
 test("动作分类: 写类 = send_text / send_keys / run / label / close；读类 = read / info", () => {
@@ -191,4 +193,119 @@ test("makeGuardChecker: 惰性解析（每次调用重新读服务，挂载顺�
   assert.equal(check("x", "run").outcome, "skipped");
   service = { inspectCommand: () => "[security-guard] deny" };
   assert.equal(check("x", "run").outcome, "deny");
+});
+
+test("沙箱写类集合: 输入 / 关闭 + stable 模式的 wait；label 与 create 不在内", () => {
+  assert.deepEqual(
+    [...SANDBOX_WRITE_ACTIONS].sort(),
+    ["close", "run", "send_keys", "send_text"].sort(),
+  );
+  for (const action of ["send_text", "send_keys", "run", "close"] as const) {
+    assert.equal(isSandboxWrite(action), true, action);
+  }
+  for (const action of ["create", "list", "read", "label", "info"] as const) {
+    assert.equal(isSandboxWrite(action), false, action);
+  }
+  assert.equal(isSandboxWrite("wait", false), false);
+  assert.equal(isSandboxWrite("wait", true), true);
+});
+
+test("sandboxDenialReason: 只在只读会话的写类动作上产出文案", () => {
+  const denied = sandboxDenialReason("read-only", "run", "wT1:p9");
+  assert.notEqual(denied, undefined);
+  assert.match(denied ?? "", /read-only/);
+  assert.match(denied ?? "", /run/);
+  assert.match(denied ?? "", /wT1:p9/);
+  assert.match(denied ?? "", /\/permission/, "文案给切换方式");
+
+  // 只读但读类 / 标记类：不拦
+  assert.equal(sandboxDenialReason("read-only", "read", "wT1:p9"), undefined);
+  assert.equal(sandboxDenialReason("read-only", "info", "wT1:p9"), undefined);
+  assert.equal(sandboxDenialReason("read-only", "label", "wT1:p9"), undefined);
+  assert.equal(sandboxDenialReason("read-only", "create", "wT1:p9"), undefined);
+  // wait：stable 拦，match 不拦
+  assert.notEqual(
+    sandboxDenialReason("read-only", "wait", "wT1:p9", true),
+    undefined,
+  );
+  assert.equal(
+    sandboxDenialReason("read-only", "wait", "wT1:p9", false),
+    undefined,
+  );
+  // 可写模式一律不拦
+  for (const mode of ["workspace-write", "danger-full-access"] as const) {
+    assert.equal(sandboxDenialReason(mode, "run", "wT1:p9"), undefined, mode);
+    assert.equal(sandboxDenialReason(mode, "close", "wT1:p9"), undefined, mode);
+  }
+});
+
+test("makeSandboxModeReader: 读宿主 resolve 的 mode；无会话时传空请求", () => {
+  const requests: unknown[] = [];
+  const reader = makeSandboxModeReader(
+    {
+      get: () => ({
+        resolve: (request?: unknown) => {
+          requests.push(request);
+          return { mode: "read-only", workspaceRoot: "/w" };
+        },
+      }),
+    },
+    () => {},
+  );
+  const session = { id: "s1" };
+  assert.equal(reader(session), "read-only");
+  assert.deepEqual(requests[0], { session });
+  assert.equal(reader(undefined), "read-only");
+  assert.deepEqual(requests[1], {}, "无会话时按部署缺省解析（宿主口径）");
+});
+
+test("makeSandboxModeReader: 封闭词汇之外的值 / 形状不符按无法判定", () => {
+  const modes: unknown[] = [{ mode: "weird" }, { mode: undefined }, null, {}];
+  for (const value of modes) {
+    const reader = makeSandboxModeReader(
+      { get: () => ({ resolve: () => value }) },
+      () => {},
+    );
+    assert.equal(reader({}), undefined, String(value));
+  }
+  // resolve 不是函数（服务形状不符）
+  assert.equal(
+    makeSandboxModeReader({ get: () => ({}) }, () => {})({}),
+    undefined,
+  );
+});
+
+test("makeSandboxModeReader: 服务缺失 fail-open 且只告警一次", () => {
+  const warnings: string[] = [];
+  const reader = makeSandboxModeReader({}, (message) => warnings.push(message));
+  assert.equal(reader({}), undefined);
+  assert.equal(reader({}), undefined);
+  assert.equal(warnings.length, 1, "同一失效模式只告警一次");
+  assert.match(warnings[0] ?? "", /fail-open/);
+});
+
+test("makeSandboxModeReader: 解析抛错 fail-open 且只告警一次", () => {
+  const warnings: string[] = [];
+  const reader = makeSandboxModeReader(
+    {
+      get: () => ({
+        resolve: () => {
+          throw new Error("resolve boom");
+        },
+      }),
+    },
+    (message) => warnings.push(message),
+  );
+  assert.equal(reader({}), undefined);
+  assert.equal(reader({}), undefined);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /resolve boom/);
+});
+
+test("makeSandboxModeReader: 惰性解析（先挂载后生效）", () => {
+  let service: { resolve?: () => unknown } | undefined;
+  const reader = makeSandboxModeReader({ get: () => service }, () => {});
+  assert.equal(reader({}), undefined);
+  service = { resolve: () => ({ mode: "workspace-write" }) };
+  assert.equal(reader({}), "workspace-write");
 });
