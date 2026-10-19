@@ -11,7 +11,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { apply } from "../src/index.ts";
+import { nodeBackend } from "../src/langs/node.ts";
 import { pythonBackend } from "../src/langs/python.ts";
+import { shBackend } from "../src/langs/sh.ts";
 import { NO_OUTPUT, renderFailure, renderScriptValue } from "../src/render.ts";
 import { createScriptRunTool, TOOL_NAME } from "../src/tools.ts";
 import type { ToolDef } from "../src/tools.ts";
@@ -23,13 +25,19 @@ import {
   fakePolicyService,
   fakeSandbox,
   makeRuntime,
+  nodeInfo,
   pythonInfo,
+  shInfo,
   withTempDir,
 } from "./helpers.ts";
 
 const PY = pythonInfo();
+const NODE = nodeInfo();
+const SH = shInfo();
 type SimpleTest = (name: string, fn: () => void | Promise<void>) => void;
 const pyTest = (PY === null ? test.skip : test) as SimpleTest;
+const nodeTest = (NODE === null ? test.skip : test) as SimpleTest;
+const shTest = (SH === null ? test.skip : test) as SimpleTest;
 
 /** 本机 Python 路径（无解释器时直接失败，用于 skip 不该触达的分支）。 */
 function pythonPath(): string {
@@ -176,6 +184,80 @@ test("解释器缺失：返回含安装指引的错误（工具仍可用）", as
   assert.equal(value.code, "INTERPRETER_MISSING");
   assert.ok(value.error.includes("python3"), value.error);
   assert.ok(value.error.includes("SCRIPT_PY_INTERPRETER"), value.error);
+});
+
+test("解释器缺失：node / sh 按语言给各自的安装指引", async () => {
+  const tool = createScriptRunTool(
+    makeRuntime({
+      languages: [
+        { backend: nodeBackend, interpreter: null },
+        { backend: shBackend, interpreter: null },
+      ],
+    }),
+  );
+  const nodeFailure = failure(
+    await tool.execute({
+      script: "console.log(1)",
+      description: "缺 node",
+      language: "node",
+    }),
+  );
+  assert.equal(nodeFailure.code, "INTERPRETER_MISSING");
+  assert.ok(nodeFailure.error.includes("nodePath"), nodeFailure.error);
+  assert.ok(
+    nodeFailure.error.includes("SCRIPT_NODE_INTERPRETER"),
+    nodeFailure.error,
+  );
+  const shFailure = failure(
+    await tool.execute({
+      script: "echo hi",
+      description: "缺 sh",
+      language: "sh",
+    }),
+  );
+  assert.equal(shFailure.code, "INTERPRETER_MISSING");
+  assert.ok(shFailure.error.includes("shPath"), shFailure.error);
+});
+
+nodeTest(
+  "执行：node 后端真实执行（脚本经 stdin），回执带 language 与解释器",
+  async () => {
+    const tool = createScriptRunTool(
+      makeRuntime({ languages: [{ backend: nodeBackend, interpreter: NODE }] }),
+    );
+    const value = result(
+      await tool.execute({
+        script: 'console.log("node-ok", process.version.startsWith("v"));',
+        description: "跑 node 脚本",
+      }),
+    );
+    assert.equal(value.language, "node");
+    assert.equal(value.interpreter, NODE?.path);
+    assert.equal(value.exitCode, 0);
+    assert.equal(value.stdout.text, "node-ok true\n");
+  },
+);
+
+shTest("执行：按 language 切换到 sh，脚本经 stdin 执行", async () => {
+  const tool = createScriptRunTool(
+    makeRuntime({
+      languages: [
+        { backend: pythonBackend, interpreter: null },
+        { backend: shBackend, interpreter: SH },
+      ],
+    }),
+  );
+  const value = result(
+    await tool.execute({
+      script: 'printf "%s\\n" sh-ok',
+      description: "跑 sh 脚本",
+      language: "sh",
+    }),
+  );
+  assert.equal(value.language, "sh");
+  assert.equal(value.interpreter, SH?.path);
+  assert.equal(value.exitCode, 0);
+  assert.equal(value.stdout.text, "sh-ok\n");
 });
 
 pyTest(

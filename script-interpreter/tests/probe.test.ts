@@ -10,7 +10,9 @@ import { chmodSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { test } from "node:test";
 
+import { nodeBackend } from "../src/langs/node.ts";
 import { pythonBackend } from "../src/langs/python.ts";
+import { shBackend } from "../src/langs/sh.ts";
 import {
   isExecutableFile,
   probeInterpreter,
@@ -183,6 +185,56 @@ test("probeInterpreter：最后尝试常见绝对路径，来源为 absolute", (
     const outcome = probeInterpreter(backend, { env: { PATH: "" } });
     assert.equal(outcome.info?.source, "absolute");
     assert.equal(outcome.info?.path, exe);
+  } finally {
+    cleanup();
+  }
+});
+
+test("后端表：node 走 PATH 候选与 SCRIPT_NODE_INTERPRETER 覆盖键", () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const exe = writeExecutable(dir, "node", fakeInterpreter("v9.9.9"));
+    const fromPath = probeInterpreter(nodeBackend, { env: { PATH: dir } });
+    assert.equal(fromPath.info?.path, exe);
+    assert.equal(fromPath.info?.source, "path");
+    assert.equal(fromPath.info?.version, "v9.9.9");
+
+    const fromEnv = probeInterpreter(nodeBackend, {
+      env: { PATH: "", SCRIPT_NODE_INTERPRETER: exe },
+    });
+    assert.equal(fromEnv.info?.source, "env");
+    assert.equal(
+      nodeBackend.absolutePaths.every((candidate) =>
+        candidate.includes("node"),
+      ),
+      true,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("后端表：sh 的 versionArgs 为空 = 不做版本探测（避免把 --version 报错当版本）", () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    // 假 sh：带参数就报错，无参数则回显 stdin（模拟 dash 对 --version 的态度）。
+    const exe = writeExecutable(
+      dir,
+      "sh",
+      `#!/bin/sh
+if [ "$#" -ne 0 ]; then
+  echo "sh: 0: Illegal option $1" >&2
+  exit 2
+fi
+cat
+exit 0
+`,
+    );
+    const outcome = probeInterpreter(shBackend, { env: { PATH: dir } });
+    assert.equal(outcome.info?.path, exe);
+    assert.equal(outcome.info?.version, undefined);
+    assert.deepEqual(shBackend.args, ["-s"]);
+    assert.deepEqual(shBackend.versionArgs, []);
   } finally {
     cleanup();
   }

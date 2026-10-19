@@ -28,8 +28,8 @@ export interface LangBackend {
   readonly id: LanguageId;
   /** 回执与日志里的显示名。 */
   readonly label: string;
-  /** 解释器路径覆盖所用的配置键名。 */
-  readonly configKey: "pythonPath" | "bashPath";
+  /** 解释器路径覆盖所用的配置键名（每个语言一个，见 `ScriptInterpreterConfig`）。 */
+  readonly configKey: "pythonPath" | "bashPath" | "nodePath" | "shPath";
   /** 覆盖用环境变量名（探测顺序第二顺位，见决策 5）。 */
   readonly envVar: string;
   /** PATH 上的候选命令名，按序命中（如 `python3` → `python`）。 */
@@ -38,7 +38,7 @@ export interface LangBackend {
   readonly absolutePaths: readonly string[];
   /** 解释器固定参数：脚本正文经 stdin 传入，故不含脚本体或临时文件路径。 */
   readonly args: readonly string[];
-  /** 版本探测参数（apply 日志用）。 */
+  /** 版本探测参数（apply 日志用）；空数组表示不做版本探测（如 `sh` 无统一版本开关）。 */
   readonly versionArgs: readonly string[];
 }
 
@@ -68,12 +68,20 @@ export interface EnabledLanguage {
 
 /** 插件配置（`Config` 契约名；宿主原样透传，本包在 `resolveSettings` 里回退与钳位）。 */
 export interface ScriptInterpreterConfig {
-  /** 启用的语言（缺省 `["python"]`；bash 后端随首期实现但缺省不在表内）。 */
+  /**
+   * 启用的语言：**不给 = 自动探测**（python / node / sh，探到解释器即启用）；
+   * 显式给出时严格按此表（可用于收窄，或启用不参与自动探测的 `bash`）；
+   * 空数组 = 不启用任何语言（装配时告警且不注册工具）。
+   */
   readonly languages?: readonly LanguageId[];
   /** Python 解释器路径覆盖（等价环境变量 `SCRIPT_PY_INTERPRETER`）。 */
   readonly pythonPath?: string;
-  /** Bash 解释器路径覆盖（bash 语言未启用时不生效）。 */
+  /** Bash 解释器路径覆盖（bash 需显式写进 `languages` 才启用）。 */
   readonly bashPath?: string;
+  /** Node 解释器路径覆盖（等价环境变量 `SCRIPT_NODE_INTERPRETER`）。 */
+  readonly nodePath?: string;
+  /** POSIX sh 解释器路径覆盖（等价环境变量 `SCRIPT_SH_INTERPRETER`）。 */
+  readonly shPath?: string;
   /** 逐次审批：`never`（缺省，与官方 bash 一致）或 `ask`。 */
   readonly approval?: "never" | "ask";
   /** 缺省超时（毫秒）：缺省 30s，上限 10min（逐次 `timeoutMs` 可覆盖）。 */
