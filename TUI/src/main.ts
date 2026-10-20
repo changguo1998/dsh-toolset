@@ -30,6 +30,7 @@ import {
 import type {
   DshAdapter,
   AgentDefaultModelLike,
+  AgentGroupLike,
   LlmLike,
 } from "./app/adapter/dsh.ts";
 import type { BlockDelivery } from "./app/layout/pipeline/types.ts";
@@ -781,6 +782,14 @@ export async function apply(
     metricLoop: (ctx as { get?: (name: string) => unknown }).get?.(
       "metricLoop",
     ) as MetricLoopLike | undefined,
+    // 群组只读查询面（ctx.get('agentGroup')，agent-group provide；缺失时 /group 提示不可用）
+    // **惰读**（getter，与 guard/knowledge/sessionChannel 同口径）：agent-group 晚于 TUI 装载时
+    // apply 期快照会是 undefined（插件树并发装载，见上方 guard 注释）。
+    get agentGroup(): AgentGroupLike | undefined {
+      return (ctx as { get?: (name: string) => unknown }).get?.(
+        "agentGroup",
+      ) as AgentGroupLike | undefined;
+    },
     // 契约只读查询面（ctx.get('goalContract')；goal-contract 当前不 expose，
     // 缺失时 /contract 以内置同构回读兜底）
     goalContract: (ctx as { get?: (name: string) => unknown }).get?.(

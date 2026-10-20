@@ -42,6 +42,7 @@ import type {
   GroupInstruction,
   GroupMirror,
   GroupTransport,
+  GroupView,
   InstructionOutcome,
   ResolvedConfig,
 } from "./types.ts";
@@ -103,6 +104,50 @@ export interface GroupServiceOptions {
   now?: () => number;
   newId?: () => string;
   log?: (message: string) => void;
+}
+
+/**
+ * 只读组清单（TUI `/group` 服务面）：按管理者会话 id 读落盘书，返回每组的只读视图。
+ * 只读、不落盘、不镜像；文件缺失（ENOENT）由 `store.load` 按空组集处理。
+ */
+export async function readGroupStatus(
+  store: BookStore,
+  managerSessionId: string,
+  groupName?: string,
+): Promise<
+  { ok: true; groups: Array<{ name: string; view: GroupView }> } | GroupFailure
+> {
+  let book: AgentGroupBook;
+  try {
+    book = await store.load(managerSessionId);
+  } catch (error) {
+    return failure(
+      "state_unavailable",
+      `读取组状态失败：${describe(error)}`,
+      "确认该会话目录存在且 agent-group.json 可读",
+    );
+  }
+  const requested = (groupName ?? "").trim();
+  if (requested !== "") {
+    const group = book.groups[requested];
+    if (group === undefined) {
+      return failure(
+        "group_not_found",
+        `组「${requested}」不存在`,
+        `现有组：${Object.keys(book.groups).join(", ") || "（无）"}`,
+      );
+    }
+    return {
+      ok: true,
+      groups: [{ name: group.name, view: groupView(group) }],
+    };
+  }
+  return {
+    ok: true,
+    groups: Object.keys(book.groups)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ name, view: groupView(book.groups[name]!) })),
+  };
 }
 
 /** `check` 的单条结算结论。 */

@@ -191,6 +191,7 @@ export type SlashRoute =
   | "guard"
   | "memory"
   | "loop"
+  | "group"
   | "contract"
   | "workflows"
   | "council"
@@ -322,6 +323,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "loop",
     route: "loop",
     desc: "循环面板（metric-loop：活动/历史循环，Enter 详情）",
+  },
+  {
+    name: "group",
+    route: "group",
+    desc: "群组状态（agent-group 只读：当前会话群组/单组详情，notice 型）",
   },
   {
     name: "contract",

@@ -37,6 +37,7 @@ import type {
   DshEvent,
   DshAdapter,
   AgentRowInfo,
+  AgentGroupViewLike,
   ModelInfo,
   ModelSelection,
   SessionModelSelectionRef,
@@ -138,6 +139,7 @@ export type {
   DshCommandLike,
   LlmLike,
   AgentDefaultModelLike,
+  AgentGroupLike,
   RealAdapterOptions,
   SessionInfo,
   SessionDeleteResult,
@@ -1165,6 +1167,40 @@ export function contractSummaryText(
     const tag = c.level ? `[${c.level}]` : "";
     const check = c.check.length > 48 ? c.check.slice(0, 48) + "…" : c.check;
     lines.push(`  ${tag}${check}`);
+  }
+  return lines.join("\n");
+}
+
+/** 群组状态文本（notice 展示）：带组名 → 单组详情（≤4 行：组头/成员/连接/指令计数）；
+ *  无组名 → 首行计数 + 每组一行紧凑摘要（成员 + 指令 进行中/成功/失败/阻塞/超时）。
+ *  行数受 notice 多行视口前 4 行约束；空白组集返回「无群组」单行。 */
+export function groupStatusText(
+  groups: readonly { name: string; view: AgentGroupViewLike }[],
+  groupName?: string,
+): string {
+  if (groups.length === 0) {
+    return "当前会话无群组";
+  }
+  if (groupName !== undefined) {
+    const view = groups[0]!.view;
+    const s = view.summary;
+    const date = new Date(view.createdAt).toISOString().slice(0, 10);
+    const members = view.members
+      .map((m) => (m.role === "manager" ? `${m.name}(管理)` : m.name))
+      .join(" ");
+    return [
+      `群组 ${view.name} · 建组 ${date}`,
+      `成员 ${view.members.length}：${members}`,
+      `连接 主从 ${view.links.length} · 平等 ${view.peerLinks.length}`,
+      `指令 进行中 ${s.open} · 成功 ${s.success} · 失败 ${s.failure} · 阻塞 ${s.blocked} · 超时 ${s.timeout}`,
+    ].join("\n");
+  }
+  const lines = [`群组状态（当前会话）：${groups.length} 个群组`];
+  for (const g of groups) {
+    const s = g.view.summary;
+    lines.push(
+      `  ${g.name}：成员 ${s.members} · 指令 进行中 ${s.open} · 成功 ${s.success} · 失败 ${s.failure} · 阻塞 ${s.blocked} · 超时 ${s.timeout}`,
+    );
   }
   return lines.join("\n");
 }
@@ -3801,6 +3837,25 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    },
+    /** /group：经 agentGroup 只读服务 `status()` 拉取当前会话群组清单/单组详情，
+     *  归一化返回值供 notice 渲染（不 emit 面板数据）；失败面（state_unavailable /
+     *  session_paths_unavailable / group_not_found）原样透传；未挂载 reject */
+    async readGroupStatus(
+      sessionId: string,
+      groupName?: string,
+    ): Promise<
+      | {
+          ok: true;
+          groups: readonly { name: string; view: AgentGroupViewLike }[];
+        }
+      | { ok: false; error: string; reason?: string; next?: string }
+    > {
+      const svc = opts.agentGroup;
+      if (!svc || typeof svc.status !== "function") {
+        throw new Error("agentGroup 未挂载（宿主无群组查询面）");
+      }
+      return svc.status(sessionId, groupName);
     },
     /** /search：经 ctx.web.search（统一多 provider 搜索 seam）拉取并归一化行推
      *  command-panel-data(kind=search)。title 缺省回落 URL host（与 dsh-tool-web 一致）；

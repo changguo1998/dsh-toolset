@@ -505,6 +505,18 @@ export interface DshAdapter {
   refreshLoops?(): Promise<void>;
   /** 读取单个循环详情（Enter 详情；list() 中定位）；服务缺失或未找到 → undefined */
   loopDetail?(id: string): Promise<string | undefined>;
+  /** `/group`：经 agentGroup 只读服务 `status()` 拉取当前会话群组清单/单组视图
+   *  （未挂载 → reject；失败面 error/reason/next 原样透传） */
+  readGroupStatus?(
+    sessionId: string,
+    groupName?: string,
+  ): Promise<
+    | {
+        ok: true;
+        groups: readonly { name: string; view: AgentGroupViewLike }[];
+      }
+    | { ok: false; error: string; reason?: string; next?: string }
+  >;
   /** 契约回读：解析 objective 文本中的 Done-when 段为条款并归一行摘要文本
    *  （健康/缺失判定在调用方）。目标文本来自 state.goalBySession 的
    *  GoalSnapshot.objective；内置回读实现，不依赖跨包 import。 */
@@ -1352,6 +1364,47 @@ export interface SecurityGuardLike {
   inspectCommand?(command: string, source?: string): string | null;
 }
 
+/** agent-group 只读组视图（`AgentGroupReadService.status` 返回 `view` 的 TUI 侧宽松子集；
+ *  `/group` 行内摘要只消费 summary 与成员 / 连接计数）。 */
+export interface AgentGroupViewLike {
+  name: string;
+  createdAt: number;
+  members: readonly {
+    name: string;
+    level: number;
+    role: string;
+  }[];
+  links: readonly unknown[];
+  peerLinks: readonly { from: string; to: string }[];
+  instructions: readonly unknown[];
+  summary: {
+    members: number;
+    links: number;
+    peerLinks: number;
+    open: number;
+    success: number;
+    failure: number;
+    blocked: number;
+    timeout: number;
+    removed: number;
+  };
+}
+
+/** ctx.get('agentGroup') 只读服务面（agent-group cordis provide（2026-10-20 起）；
+ *  缺失时 /group 提示不可用）。按管理者会话 id 读组状态，失败走 `{ok:false}` 信封。 */
+export interface AgentGroupLike {
+  status(
+    managerSessionId: string,
+    groupName?: string,
+  ): Promise<
+    | {
+        ok: true;
+        groups: readonly { name: string; view: AgentGroupViewLike }[];
+      }
+    | { ok: false; error: string; reason?: string; next?: string }
+  >;
+}
+
 /** memory-base 概要（C4 前置；`KnowledgeBundleSummary` 的 TUI 侧宽松子集） */
 export interface KnowledgeBundleSummaryLike {
   ready: boolean;
@@ -1656,4 +1709,6 @@ export interface RealAdapterOptions {
   /** ctx.get('fileReferences') 服务（dsh-file-reference，本 profile 由 file-reference-local
    *  提供实现）；缺失时 `@` 提及补全整体关闭——`@` 按普通字符输入，无面板也无报错 */
   fileReferences?: FileReferenceLike;
+  /** ctx.get('agentGroup') 只读服务面（agent-group cordis provide）；缺失时 /group 提示不可用 */
+  agentGroup?: AgentGroupLike;
 }

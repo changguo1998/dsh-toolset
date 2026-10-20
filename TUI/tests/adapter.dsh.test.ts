@@ -27,6 +27,7 @@ import {
   type KnowledgeServiceLike,
   type MetricLoopLike,
   type GoalContractServiceLike,
+  type AgentGroupLike,
   type WebSearchLike,
   type SearchProviderLike,
   type DshEvent,
@@ -144,6 +145,7 @@ interface AdapterServices {
   guard?: SecurityGuardLike;
   knowledge?: KnowledgeServiceLike;
   metricLoop?: MetricLoopLike;
+  agentGroup?: AgentGroupLike;
   goalContract?: GoalContractServiceLike;
   workflowEngine?: { present?: true };
   web?: WebSearchLike;
@@ -5445,6 +5447,81 @@ test("真实 adapter /loop：metricLoop 缺失 → refreshLoops reject", async (
   const { adapter, unbind } = makeAdapter();
   const call = adapter.refreshLoops!();
   await assert.rejects(call, /metricLoop 未挂载/);
+  unbind();
+});
+
+// ---------- A6：/group 的真实 adapter 接线契约 ----------
+// 断言：readGroupStatus 原样透传 agentGroup.status（sessionId/groupName 透传、成功
+// 清单与失败面信封原样返回）；agentGroup 缺失（未 provide）→ reject「agentGroup 未挂载」。
+
+test("真实 adapter /group：readGroupStatus 透传 status（清单/失败面/入参）", async () => {
+  const calls: { sessionId: string; groupName?: string }[] = [];
+  const svc = {
+    status: async (sessionId: string, groupName?: string) => {
+      calls.push({ sessionId, groupName });
+      if (groupName === "ghost") {
+        return {
+          ok: false as const,
+          error: "组「ghost」不存在",
+          reason: "现有组：dev",
+        };
+      }
+      return {
+        ok: true as const,
+        groups: [
+          {
+            name: "dev",
+            view: {
+              name: "dev",
+              createdAt: 1,
+              members: [
+                { name: "dev-a", level: 1, role: "member" },
+                { name: "dev-m", level: 2, role: "manager" },
+              ],
+              links: [],
+              peerLinks: [],
+              instructions: [],
+              summary: {
+                members: 2,
+                links: 0,
+                peerLinks: 0,
+                open: 0,
+                success: 1,
+                failure: 0,
+                blocked: 0,
+                timeout: 0,
+                removed: 0,
+              },
+            },
+          },
+        ],
+      };
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { agentGroup: svc },
+  );
+  const ok = await adapter.readGroupStatus?.("mgr-1");
+  assert.equal(ok?.ok, true);
+  assert.equal((ok as { ok: true; groups: unknown[] }).groups.length, 1);
+  const fail = await adapter.readGroupStatus?.("mgr-1", "ghost");
+  assert.equal(fail?.ok, false);
+  assert.equal((fail as { ok: false; reason?: string }).reason, "现有组：dev");
+  // 入参原样透传（sessionId 必填 + groupName 可选）
+  assert.deepEqual(calls[0], { sessionId: "mgr-1", groupName: undefined });
+  assert.deepEqual(calls[1], { sessionId: "mgr-1", groupName: "ghost" });
+  unbind();
+});
+
+test("真实 adapter /group：agentGroup 缺失 → readGroupStatus reject", async () => {
+  const { adapter, unbind } = makeAdapter();
+  const call = adapter.readGroupStatus!("mgr-1");
+  await assert.rejects(call, /agentGroup 未挂载/);
   unbind();
 });
 

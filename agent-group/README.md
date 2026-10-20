@@ -23,6 +23,10 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 
 所有拒绝都带 **原因 + 下一步**（`{ok:false, error, reason, next}`，`error` 是稳定错误码）。
 
+## 只读服务面（TUI `/group` 等）
+
+除工具外，`apply` 还 `ctx.provide("agentGroup", { status })` 注册**只读**服务面：`status(managerSessionId, groupName?)` 按管理者会话读组状态——成功 `{ok:true, groups:[{name, view}]}`（`view` 为只读视图）；失败 `{ok:false, error, reason?, next?}`（`group_not_found` 的 `reason` 带现有组清单；`session_paths_unavailable` / `state_unavailable` 见「依赖与降级」）。它**不写盘、不镜像**，与动作 `status` 同源（`readGroupStatus`）。消费方（如 TUI `/group` 命令）经 `ctx.get("agentGroup")` 读取；未挂载时由调用方降级提示，不阻塞插件自身。
+
 ## 规则（由代码保证，不靠提示词约定）
 
 - **每 agent 至多一个主**（`links` 以从方为主键）；主方可有多个从。
