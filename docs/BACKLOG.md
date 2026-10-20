@@ -93,8 +93,8 @@
 > 2026-10-20：条目 3「检查官方 deepseek-harness 更新」**完成并关闭** —— 调研产出 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`（官方最新 `0.2.1-rc.2`, 2026-10-17；26 消费包类型名只增无删，`ToolExecution` / `sessions` / `sandboxPolicy.resolve` / `llm` 定点零 diff；1925 提交）；升级裁定与复用审计续作并入条目 2（绑同任务）。条目从本节移除。
 
 > 2026-10-20：条目 5「background-daemon E5：memory 底座取不到（严格模式 readService 需可选注入 / 惰性解析）」与条目 6「background-daemon tasks.json 多实例共享整文件覆盖（明确单实例边界或加锁合并）」**完成并关闭** —— 追踪文档归档 `docs/archived/2026-10-20-bgdaemon-memory-backend.md`：memory 底座经 `ctx.inject` 子分叉晚挂挂载, 任务表迁入 memory(SQLite), tasks.json 停写, 覆盖竞态消除；真实挂载确认通过。条目从本节移除。
+> 2026-10-20：条目「模型按需检索 notice 历史原文（compaction 后取回）」**完成并关闭** —— 承载 TUI 包内, 模型侧工具 `notice_history` 读宿主持久日志（多帧 zstd 解压）按需取回被折叠的 notice 原文（最近 N + `source.kind` 过滤, 会话非法 / 目录未定位 / 日志缺失三态报错, 纯只读不落库）; 追踪文档归档 `docs/archived/2026-10-20-notice-history-query.md`; 真实 fff profile 注册面待主分支合并后复验。条目从本节移除。
 
-**4. 模型按需检索 notice 历史原文（compaction 后取回）**（〔进行中: 2026-10-20〕 2026-10-19 登记, 来源: TUI 任务「允许模型查看 notice 信息」调研结论; 2026-10-20 接取归 TUI 分支 dsh/tui）：**现象 / 现状** —— 宿主把 `source.form:'notice'` 消息以 user-role 消息送进模型上下文, `content` 原文透传（`dsh-llm` 的 `adapterStream` 只做文件 / 图片投影, 全宿主无 summary 替换点）, 且原文全量落持久日志（实测 content 179 至 3605 字符）—— 故**实时与近期**模型已能读到 notice 原文。缺口只在 `dsh-compaction-basic` 按 `retainTokens` / `retainRatio` 保留近期尾段后: **被压出保留尾段的 notice 原文从上下文消失**, 只剩摘要块转述（摘要未覆盖则上下文彻底不可见）, 而模型没有任何工具可按需取回（日志里原文仍在）。**期望** —— 给模型一个可调用的查询通道, 按需读取 notice 历史原文（至少支持取最近 N 条, 可按 `kind` 过滤）。**接取时裁定** —— ① 承载形态: 新插件 vs 挂进既有包（`session-paths` 已有目录编码、`memory-base` / `context-report` 已有会话读取先例）; ② 数据面: 读持久日志（需处理 zstd 解压）vs 走宿主会话服务面; ③ 覆盖范围: 仅当前会话 vs 可按会话 id 取; ④ 与 `output-compress` / `spill` 的分工（避免二次落库）。**落点（预估）** —— 插件面模型侧工具（notice 历史查询）+ 单测; 不改宿主代码。**验收** —— 待细化（compaction 后能取回被折叠的 notice 原文; 缺失 / 无权限会话的报错语义明确; 不越权读其它目录）。**估时** —— 待细化（初判 1 天, 视数据面选型）。**优先级** —— P2。
 
 **后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 29 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 7 个包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。 另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-pane` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
 
@@ -106,9 +106,8 @@
 | --- | --- | --- | --- | --- |
 | 1 | 重新审计：本仓与官方包的复用关系（维护） | 0 | 待估 | 无 |
 | 2 | 检查官方 deepseek-harness 更新（维护） | 0 | 待估 | 无 |
-| 3 | 模型按需检索 notice 历史原文（新功能，待细化） | 0 | 待细化 | 无 |
 
-单线程约 **0.5 至 1 天**（重新审计 / 官方更新检查 / notice 检索通道待估）。
+单线程约 **0.5 至 1 天**（重新审计 / 官方更新检查待估）。
 
 ## 3. 里程碑
 
