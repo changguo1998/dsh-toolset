@@ -670,6 +670,49 @@ test("状态落盘：0600、原子写、跨实例读回；镜像内容带 kind �
   assert.equal(content.members.length, 2);
 });
 
+test("向后兼容：旧落盘文件缺 peerLinks 时按空补齐（status 可读、link_peer 可用）", async () => {
+  const env = await environment();
+  await env.call({ action: "create_group", name: "team" });
+  await env.call({
+    action: "add_member",
+    group: "team",
+    name: "alice",
+    target: "alice-alias",
+  });
+  // 手工改写成旧版落盘形状（无 peerLinks 字段）
+  const file = join(env.root, `session-${MANAGER}`, "agent-group.json");
+  const legacy = JSON.parse(await readFile(file, "utf8")) as {
+    groups: Record<string, Record<string, unknown>>;
+  };
+  delete legacy.groups["team"]?.["peerLinks"];
+  await writeFile(file, JSON.stringify(legacy), "utf8");
+
+  // 新实例读回（模拟旧文件 + 新代码）：status 正常、link_peer 可建
+  const services = {
+    sessionChannel: env.channel.face,
+    sessionPaths: env.paths.service,
+    sessions: { get: () => ({ header: { cwd: env.root } }) },
+  };
+  const box = makeHost(services);
+  apply(box.host, { mirror: false });
+  const tool = box.tools[0];
+  assert.ok(tool);
+  const status = await tool.execute(
+    { action: "status", group: "team" },
+    { agent: { session: { id: MANAGER } } },
+  );
+  assert.equal(status["ok"], true, JSON.stringify(status));
+  const linked = await tool.execute(
+    { action: "link_peer", group: "team", from: "manager", to: "alice" },
+    { agent: { session: { id: MANAGER } } },
+  );
+  assert.equal(linked["ok"], true, JSON.stringify(linked));
+  assert.equal(
+    (linked["view"] as { summary: { peerLinks: number } }).summary.peerLinks,
+    1,
+  );
+});
+
 test("运行期目录解析失败：写动作报 state_unavailable（带原因 + 下一步），status 仍可读", async () => {
   const env = await environment();
   await env.call({ action: "create_group", name: "team" });
