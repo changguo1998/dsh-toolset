@@ -46,6 +46,13 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 调用时返回含安装指引的错误。自动探测模式下未命中的语言不进 `enum`（装好解释器后下次装配出现），
 命中一个都没有时才不注册工具并告警。`sh` 没有统一的版本开关，故不做版本探测。
 
+**python 另按工作区探测（execute 期）**：每次调用在拿到工作目录之后，python 的探测链在
+「环境变量」与「`PATH`」之间插入两项 —— ① 工作区 `.venv/bin/python`（含 `python3` 候选）；
+② 无 `.venv` 但工作区是 uv 项目（有 `pyproject.toml` / `uv.lock`）且 `PATH` 有 `uv` 时，
+经 `uv run -- python -c "import sys; print(sys.executable)"` **解析真实解释器路径**后执行
+（单次上限 20s，超时就回落；`uv` 首次运行可能自动创建 `.venv` / 拉取解释器，属 uv 自身行为，
+本包不创建虚拟环境、不改 `sys.path`）。装配期探测结果始终作为回落：工作区探测未命中就用它。
+
 ## 执行与围栏
 
 每次执行前：`ctx.sandboxPolicy.resolve()` 取模式与工作区根 → `ctx.sandbox.confine()` 包一层 argv → spawn。三条口径：
@@ -73,6 +80,7 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 [stderr]
 <stderr>
 [sandbox: file access denied under read-only mode]     # 仅围栏拒绝时
+[interpreter: /path/to/.venv/bin/python]              # 仅解释器被工作区环境切换时
 [timed out after 30000ms]                              # 仅超时时
 [killed by signal: SIGTERM]                            # 被信号杀死时
 [exit code: 1]                                         # 正常退出且非零时
@@ -80,6 +88,7 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 
 - 非零退出码是**脚本的结果**，不是工具错误；超限时保留**尾部**（`maxOutputChars`），该流正文后紧跟 `[output truncated; full output: <路径>]`；无正文时回执 `(no output)`；
 - `[sandbox: ...]` 只用于**围栏拒绝**；「围栏能力缺失」（没有 `ctx.sandbox` / `ctx.sandboxPolicy`）只落在结果值 `sandbox.unavailable`，不在回执里占行 —— 每次都多一行会稀释真正的标记（超时 / 退出码）；
+- `[interpreter: <path>]` 只在**解释器被工作区环境切换**（进了项目 `.venv` / `uv`，或解释器路径与装配期默认不同）时占一行，提示模型这轮跑在哪个解释器上；未切换时结构化结果值的 `interpreter` 字段恒在；
 - 逐次失败（参数非法 / 解释器缺失 / 审批未过 / 围栏不可用）是**预期失败值**（`{ error, code }`），回执渲染成 `script_run 失败（<code>）：<error>`。
 
 ## 超时与取消
@@ -113,7 +122,7 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 | --- | --- |
 | `src/index.ts` | `apply` 装配：配置解析与钳位、自动探测集合、逐语言探测、注册 `script_run`、装载日志 |
 | `src/types.ts` | 公共类型 + 宿主面结构替身（沙箱 / 策略 / 审批 / 工具面） |
-| `src/probe.ts` | 解释器探测（四级顺序、不回落、版本读取；`versionArgs` 为空则跳过版本） |
+| `src/probe.ts` | 解释器探测（显式配置 → 环境变量 → python 工作区 `.venv` / `uv` → PATH → 绝对路径；不回落；`versionArgs` 为空则跳过版本） |
 | `src/langs/python.ts` | Python 后端（`python3 -u -`） |
 | `src/langs/node.ts` | Node 后端（`node -`；参与自动探测） |
 | `src/langs/sh.ts` | POSIX sh 后端（`sh -s`；参与自动探测） |
@@ -121,17 +130,17 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 | `src/sandbox.ts` | 策略解析、`confine`、fail-closed、拒绝 / 运行器失败判定 |
 | `src/run.ts` | spawn、stdin 送脚本、超时与进程组清理、尾部截断、溢出落盘 |
 | `src/render.ts` | 回执渲染（全函数，畸形值不抛） |
-| `src/tools.ts` | `script_run` 定义与执行顺序（校验 → 语言 → 超时 → workdir → 解释器 → 审批 → 围栏 → 执行 → 事实） |
+| `src/tools.ts` | `script_run` 定义与执行顺序（校验 → 语言 → 超时 → workdir → 解释器（python 按工作区重探测）→ 审批 → 围栏 → 执行 → 事实） |
 
 ## 测试
 
 | 文件 | 覆盖 |
 | --- | --- |
 | `tests/index.test.ts` | bundle 契约、配置回退与钳位、`languages` 三态（自动 / 显式 / 空）、注册与降级、不注册官方工具名 |
-| `tests/probe.test.ts` | 四级探测顺序、不回落、版本读取、可执行判定、node / sh 后端候选与覆盖键 |
+| `tests/probe.test.ts` | 探测顺序、不回落、版本读取、可执行判定、node / sh 后端候选、python `.venv` / `uv` 工作区探测（两态 + 优先级） |
 | `tests/sandbox.test.ts` | 策略解析四态、`confine` 三态、`SANDBOX_UNAVAILABLE`、拒绝 / 运行器失败判定 |
 | `tests/run.test.ts` | 真实 Python 执行、stderr / 退出码、cwd、超时、取消、进程组清理、截断与落盘（0600 / 分桶） |
-| `tests/tool.test.ts` | schema 与 `script` 键对拍、参数校验顺序、语言 / 解释器降级（含 node / sh 指引）、按 `language` 切换、node / sh 真实执行、审批三态、沙箱四态、回执渲染 |
+| `tests/tool.test.ts` | schema 与 `script` 键对拍、参数校验顺序、语言 / 解释器降级（含 node / sh 指引）、按 `language` 切换、node / sh 真实执行、python 有 / 无 `.venv` 两态真实执行与回执标记、审批三态、沙箱四态、回执渲染 |
 
 ```sh
 npm --prefix script-interpreter run check   # 类型检查

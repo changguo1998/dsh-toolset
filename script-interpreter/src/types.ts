@@ -16,8 +16,9 @@ export type SandboxMode =
 /** 围栏强制完整度（宿主 `SandboxEnforcement`）。 */
 export type SandboxEnforcement = "full" | "partial";
 
-/** 解释器探测命中来源。 */
-export type InterpreterSource = "config" | "env" | "path" | "absolute";
+/** 解释器探测命中来源（`venv` / `uv` 为 execute 期按工作区探测的 python 环境）。 */
+export type InterpreterSource =
+  "config" | "env" | "venv" | "uv" | "path" | "absolute";
 
 /**
  * 一种语言的后端契约（决策 3）：新增语言 = 新增一个 `langs/<语言>.ts` 实现，
@@ -188,6 +189,8 @@ export interface ScriptRunResult {
   readonly interpreter: string;
   /** 退出码；被信号杀死时为 `null`。 */
   readonly exitCode: number | null;
+  /** 本次实际解释器与装配期默认不同（如进了项目 `.venv` / `uv`）时为 `true`。 */
+  readonly interpreterChanged?: boolean;
   /** 终止信号名；正常退出为 `null`。 */
   readonly signal: string | null;
   readonly timedOut: boolean;

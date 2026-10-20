@@ -29,6 +29,12 @@ function streamText(stream: StreamReceipt): string {
   return `${stream.text}\n[output truncated; full output: ${stream.spillPath ?? "(unavailable)"}]`;
 }
 
+/** 解释器切换标记：装配期默认解释器被工作区环境（`.venv` / `uv`）替换时给一行。 */
+function interpreterMarkers(result: ScriptRunResult): string[] {
+  if (result.interpreterChanged !== true) return [];
+  return [`[interpreter: ${result.interpreter}]`];
+}
+
 /** 沙箱标记：只有「围栏拒绝」需要模型知道（能力缺失只记在结果值里）。 */
 function sandboxMarkers(facts: SandboxFacts): string[] {
   if (facts.denied && facts.mode !== undefined) {
@@ -59,6 +65,7 @@ export function renderReceipt(result: ScriptRunResult): string {
 
   const markers = [
     ...sandboxMarkers(result.sandbox),
+    ...interpreterMarkers(result),
     ...(result.timedOut ? [`[timed out after ${result.timeoutMs}ms]`] : []),
     ...statusMarkers(result),
   ];

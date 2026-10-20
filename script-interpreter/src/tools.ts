@@ -14,6 +14,7 @@
 import { statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
+import { probeInterpreter } from "./probe.ts";
 import { renderScriptValue } from "./render.ts";
 import { runScript } from "./run.ts";
 import type { SpillSink } from "./run.ts";
@@ -74,6 +75,8 @@ export interface ToolSettings {
   readonly maxTimeoutMs: number;
   /** 单条流保留输出上限（字符）。 */
   readonly maxOutputChars: number;
+  /** Python 解释器路径覆盖（execute 期按工作区重探测时的第一顺位）。 */
+  readonly pythonPath?: string;
 }
 
 /** 本工具消费的宿主面（三项都是可选服务）。 */
@@ -329,7 +332,9 @@ async function executeScript(
         "缺省取已启用的首个。要启用其它后端，请改插件配置 languages。",
     );
   }
-  const interpreter = selected.interpreter;
+  // python 的解释器在执行时按工作区重探测（见 ④ 之后的 ④.5）；这里先声明。
+  let interpreter = selected.interpreter;
+  let interpreterChanged = false;
 
   // ③ 超时：非正数报错，超过上限按上限执行。
   const requestedTimeout = argumentInteger(args, "timeoutMs");
@@ -353,6 +358,25 @@ async function executeScript(
     policy?.workspaceRoot ?? sessionCwdOf(session),
   );
   if (workdir.error !== undefined) return fail("BAD_ARGUMENT", workdir.error);
+
+  // ④.5 python 后端按工作区重探测（`.venv` / `uv`，显式覆盖仍第一顺位）：
+  // 命中且不同于装配期默认 → 切换并记 `interpreterChanged`（回执渲染用）；
+  // 未命中 → 回落装配期解释器（即「探测不到回落当前解释器」）。
+  if (selected.backend.id === "python" && workdir.dir !== undefined) {
+    const workplace = probeInterpreter(selected.backend, {
+      config: runtime.settings.pythonPath,
+      version: false,
+      workspace: { dir: workdir.dir },
+    });
+    const before = selected.interpreter;
+    if (
+      workplace.info !== null &&
+      (before === null || workplace.info.path !== before.path)
+    ) {
+      interpreter = workplace.info;
+      interpreterChanged = true;
+    }
+  }
 
   // ⑤ 解释器缺失：注册了工具但机器上没装（决策 5：不隐藏工具，返回安装指引）。
   if (interpreter === null) {
@@ -428,6 +452,7 @@ async function executeScript(
   const result: ScriptRunResult = {
     language: selected.backend.id,
     interpreter: interpreter.path,
+    ...(interpreterChanged ? { interpreterChanged: true } : {}),
     exitCode: outcome.exitCode,
     signal: outcome.signal,
     timedOut: outcome.timedOut,

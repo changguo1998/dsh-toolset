@@ -281,6 +281,9 @@ export function apply(
     timeoutMs: settings.timeoutMs,
     maxTimeoutMs: MAX_TIMEOUT_MS,
     maxOutputChars: settings.maxOutputChars,
+    ...(settings.pythonPath === undefined
+      ? {}
+      : { pythonPath: settings.pythonPath }),
   };
   const host: ToolHost = {
     ...(sandbox === undefined ? {} : { sandbox }),
