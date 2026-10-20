@@ -85,6 +85,20 @@ export function sessionIdFromAliveKey(key: string): string | undefined {
   return key.startsWith(prefix) ? key.slice(prefix.length) : undefined;
 }
 
+/** agent 状态牌键：值 = `AgentState` JSON（`{status, at}`），带 TTL（事件写值、心跳只续期）。 */
+export function stateKey(sessionId: string): string {
+  return `${KEY_PREFIX}state:${sessionId}`;
+}
+
+/** 状态牌键扫描模式（清理论）。 */
+export const STATE_PATTERN = `${KEY_PREFIX}state:*`;
+
+/** 从状态牌键还原会话 id（非本前缀 → undefined）。 */
+export function sessionIdFromStateKey(key: string): string | undefined {
+  const prefix = `${KEY_PREFIX}state:`;
+  return key.startsWith(prefix) ? key.slice(prefix.length) : undefined;
+}
+
 /** 委托任务记录键（值 = `TaskRecord` JSON；带 TTL）。 */
 export function taskKey(id: string): string {
   return `${KEY_PREFIX}task:${id}`;

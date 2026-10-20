@@ -30,6 +30,7 @@ import {
   kvKeyFromRedisKey,
   kvVersionKey,
   sessionIdFromAliveKey,
+  stateKey,
   TASK_ID_RE,
   TASK_PATTERN,
   taskIndexKey,
@@ -38,6 +39,7 @@ import {
 } from "./keys.ts";
 import {
   SessionChannelError,
+  type AgentState,
   type InboxMessage,
   type KvDeleteResult,
   type KvEntry,
@@ -73,6 +75,62 @@ export async function clearPresence(
   sessionId: string,
 ): Promise<void> {
   await client.del(aliveKey(sessionId));
+}
+
+// ---------------------------------------------------------------------------
+// agent 状态牌（`state:<sessionId>`；跨进程只读状态牌，供「待机 / 工作 / 疑似卡死」判定）
+// ---------------------------------------------------------------------------
+
+/** 写 agent 状态牌（**状态转换时**调用：带新 `at` 写值；心跳请用 `touchAgentState`）。 */
+export async function announceAgentState(
+  client: RedisClientType,
+  sessionId: string,
+  state: AgentState,
+  ttlSec: number,
+): Promise<void> {
+  await client.set(stateKey(sessionId), JSON.stringify(state), { EX: ttlSec });
+}
+
+/** 心跳续期：只刷新 TTL，**不写值、不更新 `at`**（否则 running 卡死判不了）。 */
+export async function touchAgentState(
+  client: RedisClientType,
+  sessionId: string,
+  ttlSec: number,
+): Promise<void> {
+  await client.expire(stateKey(sessionId), ttlSec);
+}
+
+/** 关闭清理：删除本进程会话的状态牌（崩溃残留靠 TTL 过期）。 */
+export async function clearAgentState(
+  client: RedisClientType,
+  sessionId: string,
+): Promise<void> {
+  await client.del(stateKey(sessionId));
+}
+
+/** 读某会话的 agent 状态牌（无牌 / 形状不符 → undefined）。 */
+export async function readAgentState(
+  client: RedisClientType,
+  sessionId: string,
+): Promise<AgentState | undefined> {
+  return parseAgentState(await client.get(stateKey(sessionId)));
+}
+
+/** 状态牌值解析（形状不符 → undefined）。 */
+export function parseAgentState(raw: string | null): AgentState | undefined {
+  if (raw === null) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed["status"] !== "idle" && parsed["status"] !== "running") {
+      return undefined;
+    }
+    if (typeof parsed["at"] !== "number" || !Number.isFinite(parsed["at"])) {
+      return undefined;
+    }
+    return { status: parsed["status"], at: parsed["at"] };
+  } catch {
+    return undefined;
+  }
 }
 
 /** 列出在线对端；顺带懒清理「pid 已死」的残留键。 */

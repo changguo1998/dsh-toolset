@@ -11,13 +11,14 @@ DSH 进程内插件：**本机跨会话消息通道**——把消息从一个 ds
 | `session_channel` `peers` | — | 列在线会话（sessionId / pid / cwd / profile / 启动时刻） |
 | `session_channel` `send` | `to`, `text`, `waitMs?` | 发消息：`to` = 会话 id、别名或 `cwd:<绝对路径>`；正文注入目标会话（形如 `[CHANNEL](来源) 正文`，来源 = 发送方别名，无别名时用会话 id） |
 | `session_channel` `inbox` | `sessionId`, `count?` | 查某会话最近收到的消息（只读，新→旧，缺省 20 条） |
+| `session_channel` `state` | `sessionId` | 查某会话的 agent 忙闲状态（`state` = `{status: idle\|running, at}`，`at` 为最近转换时刻；无牌时 `state` 缺省） |
 | `session_channel` `alias` | `op` = `set`/`list`/`clear`, `name?`, `to?`, `force?` | 别名管理：`set` 设别名（`to` 缺省 = 调用方会话，`force` 覆盖他人占用）、`list` 列别名（带在线标记）、`clear` 清别名（传 `name` 按别名、传 `to` 按会话） |
 | `session_channel` `status` | — | 连接状态、服务端版本、已跟踪会话、错误信息、自动别名计数（`aliasesAuto` / `aliasesFailed`） |
 | `channel_delegate` | `to`, `task`, `timeoutSec?`, `waitMs?` | 把任务委托给另一个会话执行（planner-worker）；返回任务记录（`task.id`），结果自动 / 显式回传 |
 | `channel_task` | `action` = `status`/`list`/`cancel`, `taskId?`, `sessionId?`, `status?`, `limit?` | 任务管理：查状态 / 列任务（`sessionId` 缺省 = 调用方会话）/ 取消 |
 | `channel_task_result` | `taskId`, `text`, `failed?`, `error?` | worker 侧显式回传结果（优先于轮末自动回收） |
 
-服务面：`ctx.get("sessionChannel")`，16 个方法，逐方法签名与返回见下「服务面契约」。
+服务面：`ctx.get("sessionChannel")`，17 个方法，逐方法签名与返回见下「服务面契约」。
 
 接收侧：注入消息带 `source.kind:"session-channel"`，TUI 按**用户输入块**显示（与 `[RULE]` / `[AUTO]` 同通道）；历史恢复后仍在。
 
@@ -39,15 +40,17 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `url` | `$DSH_SESSION_CHANNEL_REDIS_URL` → `$XDG_RUNTIME_DIR/dsh-session-channel.sock` | `redis://…` URL 或 unix socket 路径 |
-| `heartbeatMs` | `5000` | 心跳间隔（刷新在线键） |
-| `presenceTtlSec` | `15` | 在线键 TTL（应大于心跳间隔） |
+| `heartbeatMs` | `5000` | 心跳间隔（刷新在线键 + 给 agent 状态牌续期 TTL） |
+| `presenceTtlSec` | `15` | 在线键 TTL（应大于心跳间隔）；也是 agent 状态牌 TTL 的缺省 |
+| `agentStatus` | `true` | 是否发布 agent 状态牌（`state:<sessionId>`；`false` = 关发布） |
+| `agentStateTtlSec` | 同 `presenceTtlSec` | agent 状态牌 TTL（心跳只续 TTL、绝不刷新 `at`） |
 | `maxTextBytes` | `8192` | 单条正文上限（UTF-8 字节） |
 | `prefix` | `"[CHANNEL]"` | 注入正文前缀（正文 = `<prefix>(<来源>) <正文>`） |
 | `readBlockMs` | `15000` | 阻塞读单次等待上限 |
 | `instanceId` / `profile` | 随机 / `$DSH_PROFILE` | 在线元数据（排障用） |
 | `disabled` | `false` | `true` = 只加载不连接 |
 
-键位（全部 `dsh:session-channel:` 前缀）共 10 个：`inbox:<sessionId>` / `alive:<sessionId>` / `cursor:<sessionId>` / `alias:<alias>` / `ack:<messageId>` / `kv:<key>` / `kvver:<key>` / `task:<id>` / `tasks:<sessionId>` / `meta`——逐键类型（Stream / String / List）、TTL 与语义见 `docs/DESIGN.md` §3。
+键位（全部 `dsh:session-channel:` 前缀）共 11 个：`inbox:<sessionId>` / `alive:<sessionId>` / `state:<sessionId>` / `cursor:<sessionId>` / `alias:<alias>` / `ack:<messageId>` / `kv:<key>` / `kvver:<key>` / `task:<id>` / `tasks:<sessionId>` / `meta`——逐键类型（Stream / String / List）、TTL 与语义见 `docs/DESIGN.md` §3。
 
 ### 服务面契约（逐方法签名与返回）
 
@@ -58,6 +61,7 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
 | `peers()` | — | `{ok, peers?: PeerInfo[], error?}`；`PeerInfo` = `{sessionId, pid, instanceId, cwd, profile, startedAt}` |
+| `statusOf(sessionId)` | — | `{ok, state?: AgentState, error?}`；`AgentState` = `{status: idle\|running, at}`；无牌 / 形状不符 → 只有 `ok:true` |
 | `status()` | — | `SessionChannelStatus` = `{enabled, connected, address, version, sessions, aliasesAuto, aliasesFailed, aliasesLastError?, error?}` |
 | `send(req)` | `{to, text, from?, waitMs?}` | `{ok, messageId?, delivered?, target?, error?, candidates?}`；`delivered` **只在 `waitMs > 0` 时出现** |
 | `inbox(sessionId, count?)` | — | `{ok, messages?: InboxMessage[], error?}`；`InboxMessage` = `{id, from, fromCwd, text, ts}`，新→旧，缺省 20 条 |
@@ -89,6 +93,7 @@ cd <repo> && sh session-channel/scripts/setup-redis.sh --linger
 | --- | --- | --- |
 | 投递指令 | `delegate({from?, to, text, timeoutSec?, ttlSec?, waitMs?})` | 返回的 `task.id` 即指令 id；worker 下一回合被注入 `TASK <id>: <正文>`（完成后可结束本轮自动回传，或调 `channel_task_result` 显式回传） |
 | 收取回报 | `taskStatus(taskId)` / `taskList({sessionId?, status?, limit?})` | 主方按指令 id 读；`taskStatus` 读取时懒判定超时；批量按会话索引（新→旧） |
+| 读成员忙闲 | `statusOf(sessionId)` | agent 状态牌（跨进程只读）；成员忙闲四态判定（离线 / 待机 / 工作 / 疑似卡死）由消费方按 `alive` + `state` 现算 |
 
 口径（下游按此实现）：
 
@@ -128,6 +133,7 @@ profile 挂载（与其他插件同法）：
 - **共享 KV**（#55）：`kvSet` / `kvGet` / `kvList` / `kvDelete`，last-value + 单调版本号（CAS 用 `expectedVersion`），键 `[A-Za-z0-9_.-]{1,64}`、值 JSON 可序列化且 ≤ `maxTextBytes`；**拉取式**（无订阅 / 通知）、仅本机共享；写入脚本与 TTL 语义见 `docs/DESIGN.md` §3。
 - **工具返回体必须是 lossless JSON**：值为 `undefined` 的键会被宿主判为非法（`ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify` 会丢键但校验在序列化之前）——四个工具与服务面返回值都经 `pruneUndefined`，细节见 `docs/DESIGN.md` §7。
 - **委托任务**（#54，planner-worker 语义）：`delegate` 建任务表记录（`task:<id>`，TTL 7 天）并把任务以 `TASK <id>: <正文>` 注入 worker 会话的下一回合；worker 本轮结束（`turn/end`）时**自动回收**最终回答，也可调 `channel_task_result` **显式回传**（`resultSource:"tool"` 优先于 `auto`）；结果全文 ≤ 64 KB（超出截断并标注）、回传给委托方的通知正文截断到 8 KB；状态机 `pending → running → done / failed / canceled / timeout`（超时按**读取时懒判定**，缺省 1800 秒），终态不可回退；委托方 / 目标离线时通知留在流里（任务表仍可查）。细节见 `docs/DESIGN.md` §4.1。
+- **agent 状态牌**（BACKLOG #1）：发布端订阅根 `ctx.on('agent/status')`（宿主 `AgentStatus` 仅 `idle` / `running`）与 `agent/created`（读 `agent.status` 作初始态），按 `agent.session.id` 写 `state:<sessionId>` = `{status, at}`；**`at` 只由状态转换事件写，心跳（5 s）只续 TTL、绝不刷新 `at`**（否则「running 且 `at` 超阈值 = 疑似卡死」判不了）；`agent/disposed`（代理离开注册表）/ `stop()` 删牌，崩溃靠 TTL 兜底；牌 TTL 缺省同 `presenceTtlSec`（15 s，`agentStateTtlSec` 可覆盖）。读数面 = `statusOf(sessionId)` 服务方法 + `session_channel` 工具 `action=state`；**卡死判定不依赖目标应答、无模型推理**：跨进程旁观者按「alive 过期 = 离线、`idle` = 待机、`running` 且 `at` 新 = 工作、`running` 且 `at` 超阈值 = 疑似卡死」只读判定（阈值由消费方配）。细节见 `docs/DESIGN.md` §3.2。
 - 注入即「用户消息」：会开新回合、模型可能据此调用工具——发消息方须是可信会话（本机同用户）。
 
 ## 测试

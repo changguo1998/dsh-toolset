@@ -37,12 +37,14 @@ import {
 } from "./constants.ts";
 import {
   ackMessage,
+  announceAgentState,
   announcePresence,
   type AliasSetResult,
   aliasOfSession,
   clearAlias,
   clearAliasesOf,
   cleanupCursors,
+  clearAgentState,
   clearPresence,
   deleteKv,
   getKv,
@@ -52,6 +54,7 @@ import {
   listAliases,
   putKv,
   readCursor,
+  readAgentState,
   readInbox,
   readNew,
   resolveTarget,
@@ -62,6 +65,7 @@ import {
   putTask,
   setAlias,
   sendMessage,
+  touchAgentState,
   taskIdError,
   truncateTaskResult,
   writeCursor,
@@ -87,6 +91,7 @@ import {
 } from "./tasks.ts";
 import { SessionChannelError } from "./types.ts";
 import type {
+  AgentState,
   DelegateRequest,
   DelegateResult,
   InboxMessage,
@@ -105,6 +110,7 @@ import type {
 } from "./types.ts";
 
 export type {
+  AgentState,
   InboxMessage,
   SessionChannelConfig,
   SessionChannelErrorCode,
@@ -139,6 +145,24 @@ function textOfContent(content: unknown): string {
     if (b?.type === "text" && typeof b.text === "string") parts.push(b.text);
   }
   return parts.join("");
+}
+
+/** `agent/...` 载荷里的会话 id（`agent.session.id`；结构面容错，取不到 → undefined）。 */
+function agentSessionIdOf(payload: unknown): string | undefined {
+  const agent = (payload as { agent?: { session?: { id?: unknown } } })?.agent;
+  const id = agent?.session?.id;
+  return typeof id === "string" && id !== "" ? id : undefined;
+}
+
+/** `agent/...` 载荷里的忙闲两态：顶层 `status`（`agent/status` 事件）优先，
+ *  其次 `agent.status`（`agent/created` 事件只有 agent 内嵌态）。 */
+function agentStatusOf(payload: unknown): "idle" | "running" | undefined {
+  const top = (payload as { status?: unknown })?.status;
+  const status =
+    typeof top === "string"
+      ? top
+      : (payload as { agent?: { status?: unknown } })?.agent?.status;
+  return status === "idle" || status === "running" ? status : undefined;
 }
 
 /** 提供的服务名（宿主命令/插件经 `ctx.get("sessionChannel")` 使用）。 */
@@ -293,15 +317,21 @@ export class SessionChannelService {
   #sessions = new Map<string, SessionState>();
   /** 委托任务：worker 会话 id → 待回收任务 id 列表（FIFO；`turn/end` 自动回收用）。 */
   #workerTasks = new Map<string, string[]>();
+  /** agent 状态牌（本进程已发布的会话）：`agent/status` 转换驱动更新（`at` = 转换时刻）。 */
+  #agentStates = new Map<string, AgentState>();
 
   constructor(
     config: SessionChannelConfig = {},
     host: BundleHost = {},
     deps: SessionChannelDeps = {},
   ) {
+    const presenceTtlSec = config.presenceTtlSec ?? DEFAULT_PRESENCE_TTL_SEC;
     this.#config = {
       heartbeatMs: config.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
-      presenceTtlSec: config.presenceTtlSec ?? DEFAULT_PRESENCE_TTL_SEC,
+      presenceTtlSec,
+      // 状态牌（BACKLOG #1）：默认发布；`at` 只由转换事件决定（见 #onAgentStatus）。
+      agentStatus: config.agentStatus !== false,
+      agentStateTtlSec: config.agentStateTtlSec ?? presenceTtlSec,
       ...config,
     };
     this.#host = host;
@@ -396,6 +426,20 @@ export class SessionChannelService {
       this.noteSession(session);
       this.#onTaskEvent(session, event);
     });
+    if (this.#config.agentStatus !== false) {
+      // 状态牌发布（BACKLOG #1）：宿主 agent 事件驱动更新；`at` 只在转换时刷新。
+      this.#host.on?.("agent/status", (payload: unknown) => {
+        this.#onAgentStatus(payload);
+      });
+      this.#host.on?.("agent/created", (payload: unknown) => {
+        this.#onAgentCreated(payload);
+      });
+      // 代理离开注册表（子代理收尾 / 会话销毁）→ 删状态牌，避免「已死代理挂 running 牌」
+      // 被旁观者误判卡死；进程崩溃路径仍由 TTL 兜底。
+      this.#host.on?.("agent/disposed", (payload: unknown) => {
+        this.#onAgentDisposed(payload);
+      });
+    }
     this.#heartbeatTimer = this.#resolveTimers().interval(
       this.#config.heartbeatMs,
       () => void this.#heartbeat(),
@@ -424,9 +468,19 @@ export class SessionChannelService {
           /* 断开在即，忽略 */
         }
       }
+      if (this.#config.agentStatus !== false) {
+        for (const sessionId of this.#agentStates.keys()) {
+          try {
+            await clearAgentState(conn.main, sessionId);
+          } catch {
+            /* 断开在即，忽略 */
+          }
+        }
+      }
       await closeConnection(conn);
     }
     this.#sessions.clear();
+    this.#agentStates.clear();
   }
 
   /**
@@ -518,6 +572,21 @@ export class SessionChannelService {
     if (typeof conn === "string") return { ok: false, error: conn };
     try {
       return { ok: true, peers: await listPeers(conn.main) };
+    } catch (err) {
+      return { ok: false, error: describe(err) };
+    }
+  }
+
+  /** 读某会话的 agent 状态牌（BACKLOG #1）；无牌或形状不符 → `{ok:true}` 且 `state` 缺省。 */
+  async statusOf(sessionId: string): Promise<{
+    ok: boolean;
+    state?: AgentState;
+    error?: string;
+  }> {
+    const conn = this.#requireConnection();
+    if (typeof conn === "string") return { ok: false, error: conn };
+    try {
+      return { ok: true, state: await readAgentState(conn.main, sessionId) };
     } catch (err) {
       return { ok: false, error: describe(err) };
     }
@@ -1086,10 +1155,78 @@ export class SessionChannelService {
     return this.#timers;
   }
 
-  /** 心跳：刷新本进程所有已知会话的在线键。 */
+  /** 心跳：刷新本进程所有已知会话的在线键 + 给状态牌续期（**只刷 TTL，不写值、不更新 at**）。 */
   async #heartbeat(): Promise<void> {
+    const conn = this.#conn;
+    if (conn === undefined) return;
     for (const sessionId of this.#sessions.keys())
       await this.#announce(sessionId);
+    if (this.#config.agentStatus === false) return;
+    const ttlSec = this.#config.agentStateTtlSec ?? this.#config.presenceTtlSec;
+    for (const sessionId of this.#agentStates.keys()) {
+      try {
+        await touchAgentState(conn.main, sessionId, ttlSec);
+      } catch (err) {
+        this.#log(`状态牌续期失败：${describe(err)}`);
+      }
+    }
+  }
+
+  /**
+   * `agent/status` 事件（载荷 `{agent, status}`）→ 按 `agent.session.id` 把状态贴到会话：
+   * 状态**转换**（与内存上次不同 / 首次）才更新 `at = now` 并写状态牌；同态事件不刷 at。
+   */
+  #onAgentStatus(payload: unknown): void {
+    if (this.#config.agentStatus === false) return;
+    const sessionId = agentSessionIdOf(payload);
+    const status = agentStatusOf(payload);
+    if (sessionId === undefined || status === undefined) return;
+    const previous = this.#agentStates.get(sessionId);
+    if (previous !== undefined && previous.status === status) return; // 同态：非转换
+    const state: AgentState = { status, at: this.#now() };
+    this.#agentStates.set(sessionId, state);
+    const conn = this.#conn;
+    if (conn === undefined) return;
+    const ttlSec = this.#config.agentStateTtlSec ?? this.#config.presenceTtlSec;
+    void announceAgentState(conn.main, sessionId, state, ttlSec).catch((err) =>
+      this.#log(`状态牌写入失败：${describe(err)}`),
+    );
+  }
+
+  /**
+   * `agent/created` 事件（载荷 `{agent, source, signal}`）→ 读 `agent.status` 作**初始态**：
+   * 订阅无回放，缺它则首个转换前的状态永远缺席；已有转换态则不覆盖。
+   */
+  #onAgentCreated(payload: unknown): void {
+    if (this.#config.agentStatus === false) return;
+    const sessionId = agentSessionIdOf(payload);
+    const status = agentStatusOf(payload);
+    if (sessionId === undefined || status === undefined) return;
+    if (this.#agentStates.has(sessionId)) return;
+    const state: AgentState = { status, at: this.#now() };
+    this.#agentStates.set(sessionId, state);
+    const conn = this.#conn;
+    if (conn === undefined) return;
+    const ttlSec = this.#config.agentStateTtlSec ?? this.#config.presenceTtlSec;
+    void announceAgentState(conn.main, sessionId, state, ttlSec).catch((err) =>
+      this.#log(`状态牌写入失败：${describe(err)}`),
+    );
+  }
+
+  /**
+   * `agent/disposed` 事件（载荷 `{agent}`）→ 删状态牌：代理已离开注册表，其牌不再有
+   * 发布者。删除与清理（`stop()` / TTL）完善了「关闭时清理」；已死代理不会被心跳续期，
+   * 不会留下恒为 running 的卡死假象。
+   */
+  #onAgentDisposed(payload: unknown): void {
+    const sessionId = agentSessionIdOf(payload);
+    if (sessionId === undefined) return;
+    this.#agentStates.delete(sessionId);
+    const conn = this.#conn;
+    if (conn === undefined) return;
+    void clearAgentState(conn.main, sessionId).catch((err) =>
+      this.#log(`状态牌清理失败：${describe(err)}`),
+    );
   }
 
   /** 写在线键（带 TTL）。 */
@@ -1366,14 +1503,15 @@ export function toToolDef(service: SessionChannelService) {
     description:
       "跨会话消息通道（本机专用 Redis）：peers 列在线会话；" +
       "send 发消息到目标会话（to = 会话 id、别名或 cwd:<绝对路径>，正文注入目标会话的下一回合，形如 [CHANNEL](来源) 正文）；" +
-      "inbox 查某会话最近收到的消息（只读）；alias 管理会话别名（op=set/list/clear，name=别名，" +
+      "inbox 查某会话最近收到的消息（只读）；state 查某会话的 agent 忙闲状态（idle/running + 转换时刻 at）；" +
+      "alias 管理会话别名（op=set/list/clear，name=别名，" +
       "to 缺省为调用方所在会话）；status 查连接与已跟踪会话。",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["peers", "send", "inbox", "alias", "status"],
+          enum: ["peers", "send", "inbox", "state", "alias", "status"],
         },
         to: {
           type: "string",
@@ -1384,7 +1522,10 @@ export function toToolDef(service: SessionChannelService) {
           type: "number",
           description: "send 用：等待「已注入」回执的毫秒数（缺省不等）",
         },
-        sessionId: { type: "string", description: "inbox 用：目标会话 id" },
+        sessionId: {
+          type: "string",
+          description: "inbox / state 用：目标会话 id",
+        },
         op: {
           type: "string",
           enum: ["set", "list", "clear"],
@@ -1429,6 +1570,12 @@ export function toToolDef(service: SessionChannelService) {
             return { ok: false, error: "inbox 需要 sessionId" };
           const count = typeof args.count === "number" ? args.count : 20;
           return service.inbox(sessionId, count);
+        }
+        case "state": {
+          const sessionId = String(args.sessionId ?? "");
+          if (sessionId === "")
+            return { ok: false, error: "state 需要 sessionId" };
+          return service.statusOf(sessionId);
         }
         case "alias": {
           const op = String(args.op ?? "list");
@@ -1632,6 +1779,7 @@ function toTaskResultTool(service: SessionChannelService) {
  */
 export const SERVICE_FACE_METHODS = [
   "peers",
+  "statusOf",
   "send",
   "inbox",
   "aliasSet",
@@ -1688,6 +1836,8 @@ export function apply(
   if (typeof provideSvc === "function") {
     provideSvc("sessionChannel", {
       peers: () => service.peers(),
+      // agent 状态牌（BACKLOG #1）：只读单查；组管理器等按它做「待机/工作/疑似卡死」判定
+      statusOf: (sessionId: string) => service.statusOf(sessionId),
       send: (req: SendRequest) => service.send(req),
       inbox: (sessionId: string, count?: number) =>
         service.inbox(sessionId, count),
