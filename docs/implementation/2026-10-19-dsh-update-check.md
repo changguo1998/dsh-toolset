@@ -1,6 +1,6 @@
 # 检查官方 deepseek-harness 更新（接取条目：docs/BACKLOG.md「检查官方 deepseek-harness 更新（新 rc 版本与接口约定变动）」）
 
-状态：规划　　开启：2026-10-19　　关闭：
+状态：调研　　开启：2026-10-19　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -9,7 +9,7 @@
 
 ## 调研
 
-（待写 —— 用户指示：新建追踪文档后、调研前先停下。已预置的查证渠道：npm `@deepseek-ai/dsh` 等发布版本 / GitHub `deepseek-ai` 仓库 releases / 已装宿主包 `@deepseek-ai/dsh` 与 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` 既定对照口径。）
+（2026-10-20 主会话承接后开工；已预置的查证渠道：npm `@deepseek-ai/dsh` 等发布版本 / GitHub `deepseek-ai` 仓库 releases / 已装宿主包 `@deepseek-ai/dsh` 与 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` 既定对照口径。查证过程按时间追加到「实现记录」。）
 
 ## 决策
 
@@ -34,7 +34,15 @@
 
 ## 实现记录
 
-（待写。）
+- 2026-10-20（主会话）：查证渠道三线并查。
+  - npm：`@deepseek-ai/dsh` registry 直查 → `dist-tags.latest = 0.2.1-rc.2`（`alpha` 0.2.1-alpha.5, `next` 0.2.1-rc.2）；已装基线 `0.2.0-rc.2`。
+  - GitHub：`deepseek-ai/deepseek-harness` releases → `dsh-v0.2.1-rc.2`（2026-10-17 发布, prerelease）、`dsh-v0.2.1-rc.1`（同 2026-10-17, 汇总自 v0.2.0-rc.2 的变更）、`dsh-v0.2.0-rc.2`（2026-09-29）。
+  - 结论：官方最新 `0.2.1-rc.2`，比基线 `0.2.0-rc.2` 新一个 rc 系列，接口面有变动（含破坏项）。
+  - 对照产出：`docs/host/HOST-UPGRADE-0.2.1-rc.2.md`（14 项变更清单 + 本仓影响初判）。本仓 29 模块对 `./invariant` / stats 扩展位 / both 展示模式等破坏面无直接消费（grep 实测），升级直接冲击面小；装载面（engines.dsh / script-interpreter PTC 组合 / 自动化内置叠加）待升级时复核。
+- 2026-10-20（主会话，二次补充，按用户指示改为「详细调研接口变动并更新参考文档」）：
+  - git 级核对：GitHub compare `dsh-v0.2.0-rc.2`(639ed01) → `dsh-v0.2.1-rc.2`(687f282) 共 **1925 提交**。
+  - 源码/类型级调研：上游 shallow 克隆 + 26 个消费包 `lib/types` 两版本比对 —— **导出类型名集合全部只增无删**；定点核对 `ToolExecution` 载荷（仅注释口径变）、`sessions` 服务签名集、`sandboxPolicy.resolve` 面、`llm`/`model-selection` 事件面 **均零 diff**。
+  - 详细结果并入 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`「详细接口调研（源码级）」节；残余与升级裁定留待用户。
 
 ## 偏差
 
