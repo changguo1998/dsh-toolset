@@ -94,6 +94,7 @@ import {
   type CommandPanelKind,
   type SessionUiState,
   contractSummaryText,
+  groupStatusText,
   type SecurityGuardLike,
 } from "./adapter/dsh.ts";
 import { activeGoalSnapshot, currentProjectCwd } from "./state.ts";
@@ -3925,6 +3926,9 @@ export class App {
       case "loop":
         this.handleLoopCommand();
         return;
+      case "group":
+        this.handleGroupCommand(line);
+        return;
       case "contract":
         this.handleContractCommand();
         return;
@@ -5051,6 +5055,40 @@ export class App {
       refresh: this.deps.adapter.refreshLoops,
       filter: "",
     });
+  }
+
+  /** /group [组名]：群组状态（notice 型）——当前会话作为管理者会话，经
+   *  adapter.readGroupStatus（agent-group 只读服务面）拉取清单/单组视图；
+   *  未挂载或查询失败 → warn（失败面 error+reason 原样带出，组不存在时 reason
+   *  含现有组清单），成功 → info。 */
+  private handleGroupCommand(line?: string): void {
+    const readGroupStatus = this.deps.adapter.readGroupStatus;
+    if (!readGroupStatus) {
+      this.notice("agentGroup 服务不可用（未挂载 agent-group）", "warn");
+      return;
+    }
+    const raw = (line ?? "").replace(/^\/group/, "").trim();
+    const groupName = raw === "" ? undefined : raw;
+    const sessionId = this.state.activeSessionId ?? undefined;
+    if (!sessionId) {
+      this.notice("当前无活动会话，无法读取群组状态", "warn");
+      return;
+    }
+    void readGroupStatus(sessionId, groupName).then(
+      (result) => {
+        if (!result.ok) {
+          this.notice(
+            result.reason
+              ? `${result.error}（${result.reason}）`
+              : result.error,
+            "warn",
+          );
+          return;
+        }
+        this.notice(groupStatusText(result.groups, groupName), "info");
+      },
+      () => this.notice("agentGroup 服务不可用（未挂载 agent-group）", "warn"),
+    );
   }
 
   /** /memory：子命令分发——缺省概要；`review [tier]` 审阅面板；`search <query>

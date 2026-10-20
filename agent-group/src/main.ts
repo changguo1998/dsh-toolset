@@ -15,13 +15,18 @@
  *   `session_paths_unavailable`，带原因 + 下一步），工具本身照常已注册。
  * - `memory-base`（`memory` 服务）可选：每次组状态变更后把只读视图镜像进去（`kind: "agent_group"`），
  *   失败只计数 + 一次日志、不重试。
- * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派 7 个动作）。
+ * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派 10 个动作）与只读服务面 `agentGroup`。
  *
  * 状态落点：`<管理者会话目录>/agent-group.json`（原子写、0600），经
  * `sessionPaths.sessionDirFor(managerSessionId)` 推导。
  */
 
-import { GroupService, describe, resolveConfig } from "./core.ts";
+import {
+  GroupService,
+  describe,
+  readGroupStatus,
+  resolveConfig,
+} from "./core.ts";
 import { pruneUndefined } from "./json.ts";
 import { failure, isFailure } from "./model.ts";
 import { MemoryBaseMirror, isMemoryFace } from "./mirror.ts";
@@ -33,6 +38,7 @@ import {
 import type {
   AgentGroupConfig,
   GroupFailure,
+  GroupView,
   ResolvedConfig,
 } from "./types.ts";
 
@@ -266,6 +272,20 @@ function readInject(ctx: BundleHost): InjectFace["inject"] {
   }
 }
 
+/** 读 `ctx.provide`：未声明时属性读取会抛，静默按「无提供面」处理（宿主无 provide 属正常）。 */
+function readProvide(
+  ctx: BundleHost,
+): ((name: string, value: unknown) => unknown) | undefined {
+  try {
+    const value = (ctx as { provide?: unknown }).provide;
+    return typeof value === "function"
+      ? (value as (name: string, value: unknown) => unknown)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * 绑定**可选**依赖（`sessionChannel` / `sessionPaths` / `sessions` / `memory`）。
  *
@@ -408,6 +428,51 @@ export function createLazyGroupService(
   };
 }
 
+/** `provide: ["agentGroup"]`：只读服务面（`status(sessionId, group?)`）供 TUI 等展示层
+ *  读组状态（`ctx.get("agentGroup")`）；只读、不落盘、不镜像，缺 `sessionPaths` → 信封错误。 */
+export const provide = ["agentGroup"];
+
+/** 只读服务面（TUI `/group` 消费的结构面；方法风格对齐 `GroupFailure` 信封）。 */
+export interface AgentGroupReadService {
+  status(
+    managerSessionId: string,
+    groupName?: string,
+  ): Promise<
+    | { ok: true; groups: Array<{ name: string; view: GroupView }> }
+    | GroupFailure
+  >;
+}
+
+/** 按绑定槽构造只读服务：`sessionPaths` 惰解析缺失 → `session_paths_unavailable` 信封。 */
+function createReadService(
+  ctx: BundleHost,
+  bindings: GroupServiceBindings,
+  config: ResolvedConfig,
+): AgentGroupReadService {
+  return {
+    async status(managerSessionId, groupName) {
+      const paths = boundOrDirect(bindings, "paths", ctx, "sessionPaths");
+      const pathsFace =
+        typeof paths === "object" && paths !== null
+          ? (paths as { sessionDirFor?: unknown })
+          : undefined;
+      if (typeof pathsFace?.sessionDirFor !== "function") {
+        return failure(
+          "session_paths_unavailable",
+          "session-paths 服务不可用（缺 sessionDirFor）",
+          "在 profile 里挂上 session-paths 后重启 dsh（组状态落管理者会话目录）",
+        );
+      }
+      const sessionDirFor = pathsFace.sessionDirFor.bind(paths);
+      const store = new FileBookStore(
+        (managerSessionId_: string) => sessionDirFor(managerSessionId_),
+        config.stateFileName,
+      );
+      return readGroupStatus(store, managerSessionId, groupName);
+    },
+  };
+}
+
 /**
  * 挂载（宿主按 bundle 契约调用；不抛）：**apply 期同步注册工具**，可选依赖在 execute 时解析。
  *
@@ -449,5 +514,18 @@ export function apply(
     tools.register(toToolDef(resolveService));
   } catch (error) {
     warn(`agent_group 工具注册失败：${describe(error)}`);
+  }
+  // 只读服务面：provide 是宿主属性，未声明时读取会抛 → 经 readProvide 静默跳过（无提供面属正常）。
+  const provideFn = readProvide(ctx);
+  if (provideFn !== undefined) {
+    try {
+      provideFn.call(
+        ctx,
+        "agentGroup",
+        createReadService(ctx, bindings, resolved),
+      );
+    } catch (error) {
+      warn(`agentGroup 只读服务注册失败：${describe(error)}`);
+    }
   }
 }

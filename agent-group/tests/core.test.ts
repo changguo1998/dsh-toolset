@@ -6,8 +6,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { GroupService, resolveConfig, verdictOf } from "../src/core.ts";
-import { failure } from "../src/model.ts";
+import {
+  GroupService,
+  readGroupStatus,
+  resolveConfig,
+  verdictOf,
+} from "../src/core.ts";
+import { failure, isFailure } from "../src/model.ts";
 import { MemoryBookStore } from "../src/store.ts";
 import type {
   ActionResult,
@@ -731,4 +736,31 @@ test("broadcast：显式 to 子集校验成员存在；空正文被拒", async (
   );
   assert.equal(empty.ok, false);
   assert.equal(empty["error"], "invalid_argument");
+});
+
+test("readGroupStatus：按会话 id 读只读组清单（全组 / 指定组 / 缺组 / 读失败）", async () => {
+  const env = await ready();
+  await env.service.linkPeer(
+    { group: "team", from: "manager", to: "alice" },
+    MANAGER,
+  );
+  const all = await readGroupStatus(env.store, MANAGER);
+  assert.ok(!isFailure(all), JSON.stringify(all));
+  assert.equal(all.groups.length, 1);
+  assert.equal(all.groups[0]?.name, "team");
+  assert.equal(all.groups[0]?.view.summary.peerLinks, 1);
+
+  const one = await readGroupStatus(env.store, MANAGER, "team");
+  assert.ok(!isFailure(one));
+  assert.equal(one.groups.length, 1);
+
+  const missing = await readGroupStatus(env.store, MANAGER, "nope");
+  assert.ok(isFailure(missing));
+  assert.equal(missing.error, "group_not_found");
+
+  // 读失败（load 抛错）→ state_unavailable
+  env.store.failLoad = new Error("库打不开（测试注入）");
+  const failed = await readGroupStatus(env.store, MANAGER);
+  assert.ok(isFailure(failed));
+  assert.equal(failed.error, "state_unavailable");
 });

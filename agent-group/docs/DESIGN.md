@@ -120,9 +120,10 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 | 指令「由主方发」 | 物理投递的 `delegate.from` = 主方成员的会话 id（未知时回落管理者会话 id） | 结果通知归主方语义；管理者仍可用 `taskStatus` 读到结果（任务表全局） |
 | 回报三态「成功 / 失败 / 受阻」 | 通道只有 `failed: boolean`；本包约定 `failed: true` + `error: "blocked: …"` 表示受阻并剥掉前缀 | session-channel 的追踪文档已定「通道不规定语义，三态由 agent-group 自描述」 |
 | `status` 只读 | 只读且不落盘、不镜像；命中缓存时不碰存储 | 让「目录解析运行期失败」时只读面仍可用（验收细化第 9 条） |
+| 无 TUI 消费面（§9 曾列「TUI 命令或面板」为不做） | `apply` 额外 `ctx.provide("agentGroup", { status })` **只读服务面**（与动作 `status` 同源 `readGroupStatus`），TUI `/group` 命令经 `ctx.get("agentGroup")` 消费（BACKLOG #3 落地；未挂载时调用方降级提示） | 需求演进：TUI 需免问模型直读组状态；插件侧只提供只读查询面，命令在 TUI 侧实现（COMMANDS-SPEC 落点决策）；**状态列二期仍不做** |
 | 缺依赖 → 不注册工具 + 一次警告（apply 期门禁） | ~~**工具照常注册**，缺依赖改为调用期错误（原因 + 下一步）~~ | ~~真机实测（2026-10-17）：`sessionChannel` / `sessionPaths` 晚于本包激活且无法经 `inject` 解析，注册被推到 agent 创建之后 → 工具表不收录（`/tools agent_group` 为 0）。工具定义改为不依赖服务，`execute` 时才组装 `GroupService`~~ —— **2026-10-19 被下一行取代** |
 | 注册面一并去掉 `inject`（2026-10-17 裁定） | 静态 `inject: ["tools"]` 恢复声明；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 改走 `ctx.inject([...], cb)` 子分叉绑定，工具仍在 `apply` 期注册 | 真机实测（2026-10-19）：不写 `inject` 时 `ctx.get("tools")` 读到 `undefined`（cordis 4.0.5），工具**从未注册**；兄弟 bundle 提供的服务未注入也读不到。回归用例见 `tests/main.test.ts`「真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用」 |
 
 ## 9. 明确不做（当前）
 
-TUI 命令或面板；轮次建模与终止细节；结论聚合与投票；启动 / 销毁成员会话；跨机；`experimental-agent-team` 的挂载。均见 `docs/BACKLOG.md`。广播与平等连接（含「每对至多一条」校验）已随二期落地（见 §3 / §4.2，追踪文档 `docs/archived/2026-10-19-agent-group-broadcast.md`）。
+TUI 状态列（二期）；轮次建模与终止细节；结论聚合与投票；启动 / 销毁成员会话；跨机；`experimental-agent-team` 的挂载。均见 `docs/BACKLOG.md`。广播与平等连接（含「每对至多一条」校验）已随二期落地（见 §3 / §4.2，追踪文档 `docs/archived/2026-10-19-agent-group-broadcast.md`）；**只读 TUI 命令 `/group` 已落地**（BACKLOG #3，2026-10-20，追踪文档 `docs/implementation/2026-10-19-agent-group-tui.md`）。
