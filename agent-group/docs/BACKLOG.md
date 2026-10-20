@@ -5,11 +5,9 @@
 > 编号口径：扁平连续 `#n`，**仅供阅读**，不用于跨引用；每次整理时从 1 起重新编号
 > 本文件只列**未完成**项。设计依据：`docs/archived/2026-10-16-peer-group-protocol-design.md`（决策项 20 的首期 / 二期划分）。
 
-> 2026-10-19 接取：`#1` 至 `#4` 标〔进行中: 2026-10-19〕，每条各一份追踪文档：`agent-group/docs/implementation/2026-10-19-agent-group-e2e.md` / `2026-10-19-agent-group-broadcast.md` / `2026-10-19-agent-group-tui.md` / `2026-10-19-agent-group-rounds.md`。
+> 2026-10-19 接取：`#1` 至 `#4` 标〔进行中: 2026-10-19〕，每条各一份追踪文档；`#1 真机联调未做` 已于 2026-10-20 验收通过（追踪文档 `2026-10-19-agent-group-e2e.md` 归档至 `docs/archived/`）并从本文件移除。
 
 ## 1. 缺陷与联调
-
-**#1 真机联调未做（两个会话各挂本插件跑通全流程）**（〔进行中: 2026-10-19〕 2026-10-17 登记）：**现象 / 现状** —— 本批只做了单测（纯模型 / 动作层假传输 / 接入面假宿主），没有在真机两个会话间跑过 `create_group → add_member → link → send → check → remove`；`<会话目录>/agent-group.json` 的真实落点、镜像行能否用 memory 的 `search({kind: "agent_group"})` 查到，都只有单测依据。**期望** —— 起两个会话（各挂 session-channel / session-paths / agent-group），一个建组并把另一个加为成员，跑完整流程；确认状态文件生成且为 0600，memory-base 已挂时能按 `kind` 检索到镜像行。**落点** —— 无代码改动（除非联调暴露问题；2026-10-19 已暴露并修复「工具从未注册」，见 `docs/implementation/2026-10-19-agent-group-e2e.md`）。**验收** —— 上述流程在真机上走通，回报正文与成因在 `check` 结果里正确出现。**优先级** —— P1（首次上真机前的必做项）。
 
 ## 2. 二期能力（设计决策项 20 的「二期」）
 
