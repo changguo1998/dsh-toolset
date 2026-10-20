@@ -1,6 +1,6 @@
 # background-daemon memory 底座与任务表迁移（接取条目：docs/BACKLOG.md「background-daemon E5：memory 底座取不到（严格模式 readService 需可选注入 / 惰性解析）」；「background-daemon tasks.json 多实例共享整文件覆盖（明确单实例边界或加锁合并）」）
 
-状态：测试　　开启：2026-10-20　　关闭：
+状态：关闭　　开启：2026-10-20　　关闭：2026-10-20
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -85,8 +85,14 @@
 - **真机写透 ✓**：本 pane 会话 `tui-e0a91de6-…` 内创建任务 `d-b9a9ac7c`（deliver / after_seconds:40）：journal 记 `delivered`；`tasks.json` **不包含**该任务（memory 停写, 文件仍只有外部任务的 `d-d932d07d`）；目标会话 `session.db` 出现 `kind_daemon_task` 2 行（create + done 修订, title=d-b9a9ac7c）+ `kind_daemon_run` 1 行（delivered 流水）。
 - **记录底座在值**：memory 挂载后 `service.status().records` 经函数求值读为 `"memory"`（service 面无 `/daemon status` 子命令, 以写透行为 + 晚挂日志为证据）。
 - **条目 6（多实例竞态）✓ 由 memory 路径承担**：memory 挂载后任务表写透进 SQLite（session 层 `kind_daemon_task`），本实例不再整文件改写 `tasks.json` → 覆盖竞态不复现（本实例视角）。JSON 降级路径仍为单实例边界, README 已明示。
-- 遗留物：验证 pane `wWR:p4`（运行中）；`tmp/verify/overlay.yml`、`tmp/bg-err-fix2.log`（收尾清理）。
+- **真实挂载启动确认 ✓（2026-10-20, 主分支合入 `1fd6396` + dist 重建后, 纯 `dsh --profile fff` 无覆盖层, pane `wWR:p5`）**：启动日志出现 `已把 1 条 JSON 任务导入 memory-base`（memory 底座晚挂触发）；新建任务 `d-f9c58a1f`（deliver / after_seconds:40）→ journal 记 `delivered`；`tasks.json` 不含该任务（memory 停写, 文件仍只有外部任务 `d-d932d07d`）；目标会话 `tui-ef62512c-…` 的 `session.db` 出现 `kind_daemon_task` 2 行（create + done 修订）+ `kind_daemon_run` 1 行（delivered 流水）→ 真实挂载下 memory 写透闭环成立, 条目 5+6 验收达成。
+- 遗留物：验证 pane `wWR:p5`（收尾关闭）；`tmp/verify/overlay.yml`、`tmp/bg-err-mount.log`（收尾清理）。
 
 ## 收尾
 
-（待写。）
+（2026-10-20）
+
+- 验收判定：条目 5 达成 —— 真实挂载 `backend=memory`（晚挂日志 + 写透行为 + `session.db` 行）；条目 6 达成 —— memory 路径下任务表写透 SQLite、`tasks.json` 停写, 整文件覆盖竞态消除（真实挂载确认通过）；JSON 降级路径的单实例边界已 README 明示。
+- BACKLOG：条目 5 / 6 标记完成并从项目级 `docs/BACKLOG.md` 移除（变更记录附注）。
+- 追踪文档移入 `docs/archived/2026-10-20-bgdaemon-memory-backend.md`。
+- 收尾提交为本任务最后一次提交。
