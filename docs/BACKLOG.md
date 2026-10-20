@@ -99,7 +99,7 @@
 **现象 / 现状** —— 跨会话**在线**已有（session-channel `alive:<sessionId>` 心跳 5 s / TTL 15 s, 独立于 agent 循环）, 但**没有跨进程的忙闲信号**: 宿主的 `agent/status`（`idle`/`running`）与 `workspace/session-activity`（`turn`/`job`/`subagent`/`schedule` 活跃原因）都只在进程内; `sessions` / `jobs` 查询无跨进程忙闲 API。agent-group 目前只有组内指令簿（未结指令 = 工作）与 `/group` 状态（连接 / 指令计数）, 无法得知成员 agent 的真实待机 / 工作 / 卡死。
 **期望** —— 跨进程状态牌: 每个会话把自身 agent 忙闲发布到 session-channel 的 Redis, 旁观者（组管理器等）只读判定 **离线 / 待机 / 工作 / 疑似卡死**; 判定不依赖目标 agent 工作循环、不涉及模型推理, **目标卡死时依然可判**。并入 agent-group 成员状态（`/group` 状态面 / 工具）。
 **已定裁定（2026-10-20 用户）** —— ① 承载: 不新插件 —— session-channel 增**发布**（订阅 `agent/status` → 由现有非 agent 心跳循环刷 `state:<sessionId>` = `{status, at}` + 关闭清理）与**读数面**（`peers()` 增量带 `{status, at}` 或新增 `statusOf(sessionId)`）; agent-group **消费**判定。② 检查间隔: 组长侧自动定时巡查, **缺省 20 s** 可配。③ 卡死阈值 `stuckAfterMs` **缺省 5 min** 可配; 判据: alive 过期 = 离线; running 且 `at` 新 = 工作; running 且 `at` 超阈值 = 疑似卡死; idle = 待机。④ 发布端实现前需核实官方 `agent/status` 事件名 / 载荷 / 触发时机（dsh-agent 源码口径）。
-**落点（预估）** —— `session-channel/src/**`（发布 + 读数面 + 工具扩展）; `agent-group/src/**`（判定 + 巡查 + 状态视图）; 各自 README / DESIGN; 追踪文档一份（同任务、同分支 **dsh/agent-group** 一并处理: session-channel 发布 / 读数面 + agent-group 消费判定）。
+**落点（预估）** —— `session-channel/src/**`（发布 + 读数面 + 工具扩展）; `agent-group/src/**`（判定 + 巡查 + 状态视图）; 各自 README / DESIGN; 追踪文档一份（发布 / 读数面归 **dsh/session-channel** 分支, 消费判定与「轮次与终止的三个细节」归 **dsh/agent-group** 分支, 串行: session-channel 先合后 agent-group 消费）。
 **验收** —— 两台以上真实 fff 会话（herdr pane 驱动）: 待机 / 工作（对端在跑回合）/ 疑似卡死（对端回合挂起超阈值）/ 离线（对端关闭）四态在组管理器侧读出正确; **心跳不得刷新 `at`（卡死可判）**; 卡死判定不依赖对端应答、全程无模型推理; 单测覆盖判据与边界; 全量 check / build / test 通过。
 **估时** —— 待细化（初判 0.5-1 天, 含 `agent/status` 事件核实）。**优先级** —— P2。
 
