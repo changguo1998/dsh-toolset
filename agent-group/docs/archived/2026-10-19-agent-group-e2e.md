@@ -105,19 +105,20 @@
 - 15:40 至 16:30（尝试真机复验，均未成功）：① `--patch` + `NODE_PATH` 挂 worktree 构建（`agent-group-wt` 别名）→ composed config 含该行，但 `apply` 未执行（dsh 的 bundle 解析走 ESM，不认 `NODE_PATH`）；② 临时 `DSH_HOME`（`tmp/home`）profile：node_modules 用符号链接重建、`agent-group` 指向 worktree 后 `--dump-config` 零 skip，但新起 idle 会话（manager / member）在启动后进程退出、pane 自动关闭，未落原因。两项均已撤。
 - 16:40 至 16:50（用户裁定）：用户明确 —— 当前只做代码修改，新起的代理会话加载的是**主分支**构建，修复未合并前真机验证无意义；完成修改后提交，由用户合并到主分支后再复验。故真机联调调整到合主之后。
 - 2026-10-20（合主后复验 · 全流程通过）：主分支已合并修复并重建 dist（`agent-group/dist/src/main.js` 含 `bindOptionalServices`）。本会话起两个真机会话（manager `tui-6936b86a` / member `tui-dbd4ce64`，均 `dsh --profile fff`），经 `channel_delegate` 委托 manager 依次执行 create_group → add_member(目标=member) → link → send → check → status → remove → status。结果：工具已注册（manager 自述「工具有 agent_group」）；真实成员回话「agent-group 联调收到, 验证通过」经 `check` 以 `status=success` 结算并落盘；两次 `status` 的成员与连接变化正确；状态文件 `<sessionDir>/agent-group.json` 落点且 `0600`（`-rw-------`）。详见「测试与证据」真机侧摘录。
-- 2026-10-20（镜像缺陷发现与修复）：同一轮 manager 的 `status` 显示 `mirror.enabled=false`；`~/.dsh/memory-base/memory.db` 的 `sources` 表无 `agent_group` 记录（且全表只有 `session` 一种 kind）。查证 `memory-base`（`src/index.ts` / `src/scope.ts`）：全局 `memory` 服务的**唯一写入口是 `registerKind(spec)` 返回的 `MemoryScope` 句柄**，`remember` 并不在服务上；agent-group 的 `isMemoryFace` 要求服务上有 `registerKind + remember` → 判定恒 false，镜像从未启用（上一版实现读错了服务面，DESIGN §8 已有此行，一并划线修正）。修复 `src/mirror.ts`：`isMemoryFace` 只判 `registerKind`，写入改走 `scope.put({tier: "session", sessionId, project, content, title, source})`；单测 `fakeMemory` 同步改 shape，43/43 全绿。
+- 2026-10-20（镜像缺陷发现与修复）：同一轮 manager 的 `status` 显示 `mirror.enabled=false`；`~/.dsh/memory-base/memory.db` 的 `sources` 表无 `agent_group` 记录（且全表只有 `session` 一种 kind）。查证 `memory-base`（`src/index.ts` / `src/scope.ts`）：全局 `memory` 服务的**唯一写入口是 `registerKind(spec)` 返回的 `MemoryScope` 句柄**，`remember` 并不在服务上；agent-group 的 `isMemoryFace` 要求服务上有 `registerKind + remember` → 判定恒 false，镜像从未启用（上一版实现读错了服务面，DESIGN §8 已有此行，一并划线修正）。修复 `src/mirror.ts`：`isMemoryFace` 只判 `registerKind`，写入改走 `scope.put({tier: "session", sessionId, project, content, title, source})`；单测 `fakeMemory` 同步改 shape，43/43 全绿。修复提交 `7276b69`，已由用户合入 main（`a135851`，dist 已重建）。
+- 2026-10-20（镜像真机复验 · 通过）：新起 manager 会话（`tui-08a5a888`，fff profile，加载含修复的主仓 dist）执行 create_group mirror-check → add_member bob → status：`mirror = {enabled: true, ok: 2, failed: 0}`。直查 manager 会话 session 层库（`<会话目录>/session.db`，memory-base 的 session tier 落点）：`sources` 2 条（label=agent_group，ref=组 id），物理表 `kind_agent_group` 2 条内容行（title=agent-group mirror-check，正文=GroupView JSON）。并由 manager 自身 `memory_query {action:"search", query:"mirror-check", kind:"agent_group"}` 命中 2 条（`[agent_group@session]`）—— 验收口径「按 `search({kind: "agent_group"})` 检索到镜像行」达成。测试组状态与镜像行已清理。
 
 ## 偏差
 
 - 联调**未开始**（本期）：阻塞于「`agent_group` 工具从未注册」。与追踪文档「预期无代码改动、按流程跑通」的差异由此产生；处置按决策项 4 选定 **a**（本任务内修复）。
-- 真机复验（决策项 1 至 3 的完整流程）**已复验通过**（2026-10-20 合主后），除镜像项：主流程全绿；**镜像第二次暴露问题并修复**（见实现记录末条），镜像的真机复验待本修复再次合主后确认。
+- 真机复验（决策项 1 至 3 的完整流程）**已复验通过**（2026-10-20）：主流程与镜像双双走通（过程与证据见实现记录与「测试与证据」），期间镜像暴露第二个缺陷并已修复（`7276b69`，合主 `a135851`）。
 - 临时 `DSH_HOME` 复验方案的两个会话启动后自动退出、pane 关闭，未定位原因即按用户裁定放弃，未再投入（不影响最终复验，正式复验走正常 fff profile 一次通过）。
 - 调研 §4 的成因已由修复坐实一半：未声明 `inject` 段（库级探针 + 真机工具缺失 + 修复后回归用例）。「修复生效」已由 2026-10-20 真机复验确认（工具注册成功，全流程走通）。
 - 文档口径更新：`README.md` / `docs/DESIGN.md` 中「2026-10-17 真机裁定：不写 inject」已改写为 2026-10-19 修正口径；DESIGN §8 另补「镜像写入口」修正行（2026-10-20）。
 
 ## 测试与证据
 
-（已复验主流程；镜像项待二次合主后补。）
+（真机主流程与镜像均已复验通过，2026-10-20。）
 
 代码侧（`agent-group/`，2026-10-19 修复 + 2026-10-20 镜像修复）：
 
@@ -133,13 +134,13 @@
 - `check` 结算：`settled[0] = {to:"alice", instructionId:"100221f3…", status:"success", result:"agent-group 联调收到, 验证通过"}`（无 cause，成功路径不产生）；指令同帧标记 success + `settledAt`。
 - `remove` 后：`status` 显示 `members=1（仅 manager）`、`links=0`，success 历史计数保留。
 - 状态落点：`~/.dsh/sessions/--home-guochang-Projects-dsh-toolset-.worktree-agent-group--/tui-6936b86a…/agent-group.json`，`stat` 权限 `-rw-------`（0600）；JSON 含 version=1 / managerSessionId / members(alice,manager) / links(manager→alice level 1) / instructions。
-- 镜像：`mirror.enabled=false`、库中无 `agent_group` 记录 → **失败项**，根因与修复见实现记录（2026-10-20 镜像缺陷条目）；修复后待再次合主复验。
-- 复验安排：镜像修复合主并重建 dist 后，重复一轮 manager 建组写状态，用 `memory_query {action:"search", kind:"agent_group"}`（或直查 `sources` 表）确认镜像行。
+- 镜像（2026-10-20 二次复验通过）：新 manager 会话（`tui-08a5a888`）`status` 的 `mirror = {enabled: true, ok: 2, failed: 0}`；直查其 session 层库 `<会话目录>/session.db`（memory-base session tier）：`sources` 2 条（label=agent_group，ref=组 id）+ 物理表 `kind_agent_group` 2 条内容行（title=`agent-group mirror-check`，正文=GroupView JSON）；manager 自身 `memory_query {action:"search", query:"mirror-check", kind:"agent_group"}` 命中 2 条。验收口径「按 `search({kind: "agent_group"})` 检索到镜像行」达成。
+- 复验清理：测试组状态文件（`agent-group.json`，两个联调会话目录）与镜像 session.db 已删除。
 
 ## 收尾
 
-- BACKLOG：「工具从未注册（不写 inject，兄弟 bundle 的服务读不到）」已随本任务修复完成，**已从 `agent-group/docs/BACKLOG.md` 移除**；「真机联调未做（两个会话各挂本插件跑通全流程）」仍〔进行中〕，主流程已复验通过、镜像二次复验后即可关闭。
+- BACKLOG：「工具从未注册（不写 inject，兄弟 bundle 的服务读不到）」已随本任务修复完成并移除；「真机联调未做（两个会话各挂本插件跑通全流程）」验收已达成（主流程 + 镜像双双复验通过），待本任务收尾提交时标记完成并清理移除。
 - 文档回写：`README.md`「依赖与降级」「状态落点与镜像」与 `docs/DESIGN.md` §7 / §8 已同步 2026-10-19（inject 修正）与 2026-10-20（镜像写入口修正）口径。
-- 清理：`tmp/` 诊断产物已删；联调测试 pane（`wWQ:p2` / `wWQ:p3`）与临时会话已关闭；`agent-group/node_modules` 符号链接保留（gitignored）。
-- 提交：2026-10-19 修复 commit `3665649`（已被用户合入 main）；2026-10-20 镜像修复另行提交（见 git 记录），合入后复验即收尾。
-- 遗留：镜像修复合主 + 真机镜像复验；临时 DSH_HOME 会话退出原因未深究（不影响交付）。
+- 清理：`tmp/` 诊断产物已删；联调测试 pane（初始两轮 + 复验轮）与临时会话已关闭；测试组状态与镜像数据已删；`agent-group/node_modules` 符号链接保留（gitignored）。
+- 提交历史：2026-10-19 修复 `3665649`（已合 main）、2026-10-20 镜像修复 `7276b69`（已合 main `a135851`）；本任务收尾（BACKLOG 清理 + 追踪文档归档）待关闭提交。
+- 遗留：无（临时 DSH_HOME 会话退出原因已不影响交付，不再深究）。
