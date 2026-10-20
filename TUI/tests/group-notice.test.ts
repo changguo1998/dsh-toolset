@@ -290,13 +290,14 @@ test("/group 带组名：命中 → 单组详情（建组/成员/连接/指令�
   app.dispose();
 });
 
-test("/group 带组名：未命中 → warn（error + 现有组清单）", async () => {
+test("/group 带组名：未命中 → warn（reason + 现有组清单）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeGroupAdapter();
   adapter.readGroupStatus = async () => ({
     ok: false,
-    error: "组「beta」不存在",
-    reason: "现有组：dev, release",
+    error: "group_not_found",
+    reason: "组「beta」不存在",
+    next: "现有组：dev, release",
   });
   const app = new App({ renderer, adapter, pipelineSink: {} });
   app.start();
@@ -306,8 +307,9 @@ test("/group 带组名：未命中 → warn（error + 现有组清单）", async
   await tick();
   await tick();
   const f = frames(renderer);
-  assert.ok(f.includes("组「beta」不存在"), "error 文案: " + f);
-  assert.ok(f.includes("现有组：dev, release"), "reason 带清单: " + f);
+  assert.ok(f.includes("组「beta」不存在"), "reason 文案: " + f);
+  assert.ok(f.includes("现有组：dev, release"), "next 带清单: " + f);
+  assert.ok(!f.includes("group_not_found"), "不展示错误码: " + f);
   app.dispose();
 });
 

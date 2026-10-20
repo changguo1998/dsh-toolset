@@ -5077,12 +5077,11 @@ export class App {
     void readGroupStatus(sessionId, groupName).then(
       (result) => {
         if (!result.ok) {
-          this.notice(
-            result.reason
-              ? `${result.error}（${result.reason}）`
-              : result.error,
-            "warn",
-          );
+          // 失败信封：error 是稳定错误码、reason 是可读描述、next 是下一步 / 现有组清单
+          // （决策项 5：组不存在 → 提示现有组名）。notice 面向人，拼可读字段。
+          const parts = [result.reason ?? result.error];
+          if (result.next) parts.push(result.next);
+          this.notice(parts.join("；"), "warn");
           return;
         }
         this.notice(groupStatusText(result.groups, groupName), "info");
