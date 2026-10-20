@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -258,6 +258,58 @@ shTest("执行：按 language 切换到 sh，脚本经 stdin 执行", async () =
   assert.equal(value.interpreter, SH?.path);
   assert.equal(value.exitCode, 0);
   assert.equal(value.stdout.text, "sh-ok\n");
+});
+
+pyTest(
+  "执行：工作区有 .venv 时用 .venv/bin/python，回执带 [interpreter: ...]",
+  async () => {
+    const { dir, cleanup } = withTempDir();
+    try {
+      const ws = join(dir, "venv-ws");
+      mkdirSync(join(ws, ".venv", "bin"), { recursive: true });
+      const venvPy = join(ws, ".venv", "bin", "python");
+      // 指向真实 python 的软链：探测与实际执行都走项目环境路径。
+      symlinkSync(pythonPath(), venvPy);
+      const tool = createScriptRunTool(makeRuntime());
+      const value = result(
+        await tool.execute({
+          script: "import sys; print(sys.prefix)",
+          description: "有 venv 态",
+          workdir: ws,
+        }),
+      );
+      assert.equal(value.language, "python");
+      assert.equal(value.interpreter, venvPy);
+      assert.equal(value.interpreterChanged, true);
+      assert.equal(value.exitCode, 0);
+      const text = renderText(tool, value);
+      assert.ok(text.includes(`[interpreter: ${venvPy}]`), text);
+    } finally {
+      cleanup();
+    }
+  },
+);
+
+pyTest("执行：工作区无 .venv 时回落装配期解释器，回执无切换行", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const ws = join(dir, "plain-ws");
+    mkdirSync(ws, { recursive: true });
+    const tool = createScriptRunTool(makeRuntime());
+    const value = result(
+      await tool.execute({
+        script: "print('plain')",
+        description: "无 venv 态",
+        workdir: ws,
+      }),
+    );
+    assert.equal(value.interpreter, pythonPath());
+    assert.equal(value.interpreterChanged, undefined);
+    const text = renderText(tool, value);
+    assert.ok(!text.includes("[interpreter: "), text);
+  } finally {
+    cleanup();
+  }
 });
 
 pyTest(
