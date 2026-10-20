@@ -297,7 +297,10 @@ test("adopt：接管 memory-base 读出的任务, 并清掉 JSON 侧错误", () 
     };
     store.adopt([adopted]);
     assert.equal(store.available, true);
-    assert.deepEqual(store.list().map((task) => task.id), ["d-adopt"]);
+    assert.deepEqual(
+      store.list().map((task) => task.id),
+      ["d-adopt"],
+    );
   });
 });
 
@@ -313,5 +316,36 @@ test("disableSnapshot：关掉快照后不再写盘", () => {
       sessionId: "s",
     });
     assert.equal(existsSync(fileIn(dir)), false);
+  });
+});
+
+test("update/remove：mirror:false 只改内存与快照, 不写透镜像", () => {
+  withTmpDir((dir) => {
+    const saved: string[] = [];
+    const removed: string[] = [];
+    const mirror: TaskMirror = {
+      save: (task) => saved.push(`${task.id}:${task.status}`),
+      remove: (task) => removed.push(task.id),
+    };
+    const store = newStore(dir);
+    store.load();
+    store.attachMirror(mirror);
+    const created = store.create({
+      mode: "deliver",
+      selector: DELIVER_ONCE,
+      payload: "外部收敛",
+      sessionId: "s",
+    });
+    store.update(created.id, { status: "paused" }, { mirror: false });
+    assert.equal(saved.length, 1, "create 的写透保留, update 跳过");
+    assert.equal(store.get(created.id)?.status, "paused");
+    store.remove(created.id, { mirror: false });
+    assert.deepEqual(removed, [], "remove 跳过写透");
+    assert.equal(store.get(created.id), undefined);
+    // 落盘仍是原子写：文件里已没有该任务
+    const parsed = JSON.parse(readFileSync(fileIn(dir), "utf8")) as {
+      tasks: unknown[];
+    };
+    assert.deepEqual(parsed.tasks, []);
   });
 });

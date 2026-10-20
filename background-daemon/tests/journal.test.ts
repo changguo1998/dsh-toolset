@@ -188,3 +188,18 @@ test("sink：每条流水外送一次；外送抛错不影响本地账本", () =
     assert.equal(failing.tail(5).length, 1);
   });
 });
+
+test("append：sink:false 只写本地账本（skipped 结局不导出）", () => {
+  withTmpDir((dir) => {
+    const delivered: number[] = [];
+    const journal = new Journal(path.join(dir, "journal.jsonl"), {
+      sink: (record) => delivered.push(record.at),
+    });
+    journal.load();
+    journal.append(record(0));
+    journal.append(record(1), { sink: false });
+    journal.append(record(2));
+    assert.deepEqual(delivered, [1_000, 1_002]);
+    assert.equal(journal.tail(5).length, 3);
+  });
+});

@@ -33,6 +33,7 @@ async function setup(options: Parameters<typeof harness>[0] = {}): Promise<{
         store: h.store,
         journal: h.journal,
         scheduler: h.scheduler,
+        control: h.control,
         now: () => h.clock.value,
       }),
   };
@@ -221,4 +222,26 @@ test("registerDaemonCommand：注册形态与 handler 转发；commands 缺失�
     }),
     null,
   );
+});
+
+test("控制帐：pause / resume / cancel 各写一条事件（跨实例传播）", async () => {
+  const { h, run } = await setup();
+  const task = h.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+  });
+  assert.equal((await run(`pause ${task.id}`)).kind, "success");
+  assert.equal((await run(`resume ${task.id}`)).kind, "success");
+  assert.equal((await run(`cancel ${task.id}`)).kind, "success");
+  const actions = h.control
+    .load()
+    .map((entry) => `${entry.taskId}:${entry.action}`);
+  assert.deepEqual(actions, [
+    `${task.id}:pause`,
+    `${task.id}:resume`,
+    `${task.id}:cancel`,
+  ]);
+  // 未成功的操作不写事件
+  assert.equal((await run(`cancel ${task.id}`)).kind, "error");
+  assert.equal(h.control.load().length, 3);
 });

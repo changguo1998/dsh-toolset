@@ -28,6 +28,7 @@ async function setup(options: Parameters<typeof harness>[0] = {}): Promise<{
     store: h.store,
     journal: h.journal,
     scheduler: h.scheduler,
+    control: h.control,
     now: () => h.clock.value,
     defaultSessionId: () => "sess-1",
   };
@@ -201,4 +202,21 @@ test("run / log 与未知 id / 未知 action", async () => {
 
   const unknown = await run({ action: "nope" });
   assert.equal(unknown["error"], "unknown_action");
+});
+
+test("控制帐：工具的 pause / resume / cancel 同样写事件", async () => {
+  const { h, run } = await setup();
+  const created = (await run({
+    action: "create",
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+  })) as { task: { id: string } };
+  const id = created.task.id;
+  await run({ action: "pause", id });
+  await run({ action: "resume", id });
+  await run({ action: "cancel", id });
+  assert.deepEqual(
+    h.control.load().map((entry) => `${entry.taskId}:${entry.action}`),
+    [`${id}:pause`, `${id}:resume`, `${id}:cancel`],
+  );
 });

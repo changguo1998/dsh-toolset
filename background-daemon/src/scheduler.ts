@@ -52,6 +52,15 @@ export interface AgentsLike {
   get(sessionId: string): AgentLike | undefined | null;
 }
 
+/**
+ * 跨实例控制面（`ControlLog` 的结构子集, 避免调度器依赖具体实现）。
+ *
+ * `apply` 把共享控制帐（取消 / 暂停 / 恢复）收敛到本地任务表并返回改动条数；必须幂等。
+ */
+export interface ControlApplier {
+  apply(store: TaskStore, now: number): number;
+}
+
 /** 渠道注册表（首期两条; 将来 herdr / headless 渠道实现同一缝）。 */
 export class ChannelRegistry {
   readonly #channels = new Map<TaskMode, DaemonChannel>();
@@ -97,6 +106,8 @@ export interface SchedulerOptions {
    * memory-base 作权威底座时由装配层先读出并 `adopt`, 这里置 false 以免覆盖。
    */
   loadStore?: boolean;
+  /** 跨实例控制面（取消 / 暂停 / 恢复在到点前收敛；缺省不接 = 单实例语义）。 */
+  control?: ControlApplier;
 }
 
 export interface SchedulerStatus {
@@ -210,6 +221,8 @@ export class Scheduler {
     if (!this.#running) return;
     const now = this.#now();
     this.#detectRollback(now);
+    // 其它实例的取消 / 暂停 / 恢复先收敛到本地副本, 再算出到期集合
+    this.#applyControl(now);
     this.#lastNow = now;
     const fires: FireItem[] = [];
     for (const task of this.#options.store.list()) {
@@ -326,6 +339,20 @@ export class Scheduler {
           this.#warn(`任务表写回失败（${task.id}）：${String(err)}`);
         }
       }
+    }
+  }
+
+  /**
+   * 跨实例控制面收敛：其它实例写入控制帐的取消 / 暂停 / 恢复, 在每次到期结算前应用。
+   * 失败只告警（控制帐不可用不应拖垮调度）。
+   */
+  #applyControl(now: number): void {
+    const control = this.#options.control;
+    if (control === undefined) return;
+    try {
+      control.apply(this.#options.store, now);
+    } catch (err) {
+      this.#warn(`控制帐应用失败（已隔离）：${String(err)}`);
     }
   }
 
@@ -481,25 +508,35 @@ export class Scheduler {
         `投递落盘未确认（durable:false, 不重投）：任务 ${task.id} — ${result.message ?? ""}`,
       );
     }
-    this.#options.journal.append({
-      taskId: task.id,
-      tier: task.tier,
-      at: now,
-      sessionId: task.sessionId,
-      mode: task.mode,
-      outcome,
-      error,
-      durationMs,
-      detail: detailParts.length === 0 ? null : detailParts.join("；"),
-    });
+    // `skipped`（no-active-agent）不改变任务语义, 目标会话还可能已删：只写本地账本与
+    // 本地副本, 不写透 memory-base（写透必然失败并每周期刷告警——见追踪文档决策 D4）
+    const exported = outcome !== "skipped";
+    this.#options.journal.append(
+      {
+        taskId: task.id,
+        tier: task.tier,
+        at: now,
+        sessionId: task.sessionId,
+        mode: task.mode,
+        outcome,
+        error,
+        durationMs,
+        detail: detailParts.length === 0 ? null : detailParts.join("；"),
+      },
+      { sink: exported },
+    );
     if (manual) {
       // 手动触发：保持 next / status 不变, 只更新上次结果
       try {
-        this.#options.store.update(task.id, {
-          lastFireAt: now,
-          lastOutcome: outcome,
-          lastError: error,
-        });
+        this.#options.store.update(
+          task.id,
+          {
+            lastFireAt: now,
+            lastOutcome: outcome,
+            lastError: error,
+          },
+          { mirror: exported },
+        );
       } catch (err) {
         this.#warn(`任务表写回失败（${task.id}）：${String(err)}`);
       }
@@ -509,13 +546,17 @@ export class Scheduler {
       ? task.status
       : "done";
     try {
-      this.#options.store.update(task.id, {
-        next,
-        lastFireAt: now,
-        lastOutcome: outcome,
-        lastError: error,
-        status,
-      });
+      this.#options.store.update(
+        task.id,
+        {
+          next,
+          lastFireAt: now,
+          lastOutcome: outcome,
+          lastError: error,
+          status,
+        },
+        { mirror: exported },
+      );
     } catch (err) {
       this.#warn(`任务表写回失败（${task.id}）：${String(err)}`);
     }

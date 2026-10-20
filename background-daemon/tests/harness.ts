@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { ControlLog } from "../src/control.ts";
 import { Journal } from "../src/journal.ts";
 import {
   ChannelRegistry,
@@ -81,6 +82,7 @@ export interface Harness {
   clock: { value: number };
   store: TaskStore;
   journal: Journal;
+  control: ControlLog;
   timer: FakeTimer;
   agents: Map<string, AgentLike>;
   text: FakeChannel;
@@ -113,6 +115,9 @@ export function harness(
   const store = new TaskStore(path.join(dir, "tasks.json"), () => clock.value);
   const journal = new Journal(path.join(dir, "journal.jsonl"), { limit: 50 });
   journal.load();
+  const control = new ControlLog(path.join(dir, "control.jsonl"), {
+    now: () => clock.value,
+  });
   const warnings: string[] = [];
   const agentMap = options.agents ?? new Map<string, AgentLike>();
   if (options.agents === undefined) {
@@ -135,6 +140,7 @@ export function harness(
     channels,
     agents,
     timer,
+    control,
     now: () => clock.value,
     warn: (message) => warnings.push(message),
     ...(options.awaitAgentMs === undefined
@@ -153,6 +159,7 @@ export function harness(
     clock,
     store,
     journal,
+    control,
     timer,
     agents: agentMap,
     text,

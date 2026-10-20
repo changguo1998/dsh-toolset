@@ -67,7 +67,7 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
     defaultSessionId: ''       # 模型侧工具的缺省目标会话（缺省无）
 ```
 
-路径解析顺序：`config.storePath` → 环境变量 `BACKGROUND_DAEMON_STORE` → `$DSH_HOME/background-daemon/tasks.json`（`DSH_HOME` 缺省 `~/.dsh`）。流水缺省与任务表同目录的 `journal.jsonl`。
+路径解析顺序：`config.storePath` → 环境变量 `BACKGROUND_DAEMON_STORE` → `$DSH_HOME/background-daemon/tasks.json`（`DSH_HOME` 缺省 `~/.dsh`）。流水与控制帐缺省与任务表同目录（`journal.jsonl` / `control.jsonl`，控制帐可用 `config.controlPath` 覆盖）。
 
 ## 依赖声明
 
@@ -83,6 +83,8 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 - **投递语义 = at-least-once**：`flush` 成功（L2）才记持久投递；`flush` 返回 false 记 `delivered` + `durable:false`（原因码 `volatile`）+ 告警，**不**自动重投（D13）。崩溃窗口可能造成重复投递。
 - **安全边界**：投递是 user 消息，后续工具调用照常受 `security-guard` 与 approval / sandbox 策略约束；本插件**不降级**任何策略、不自动批准、不绕过审批。命令类任务属「命令来自状态文件」一侧 → 引擎侧复查（`guardScope: engine-side`）；复查不可用时 fail-open 但结果标 `guardSkipped`。
 - **单 timer**：任何时刻至多一个待触发定时器；长延迟分段（缺省 24 h）；检测到墙钟回拨按当前时钟重算周期任务的 `next`。
+- **取消 / 暂停 / 恢复跨实例生效**：三个动作成功后往**共享控制帐**（`control.jsonl`，与任务表同目录）追加一条事件；每个实例在每次到期结算前先收敛控制帐（取消即删本地副本、暂停 / 恢复改状态），幂等。控制帐是 append-only、不轮转（只有人工操作写入），进程重启后同样收敛，兼作墓碑。不依赖 `session-channel` 等可选服务。
+- **`skipped` 不写透 memory-base**：`no-active-agent` 不改变任务语义（状态与 `next` 由本进程本地推进），且目标会话可能已删——该结局只写本地 JSONL 与内存副本，跳过 `daemon_task` / `daemon_run` 写透，避免每周期刷「解析会话目录失败」告警；本地 `/daemon log` 仍可查。
 - **记录底座边界**：memory 可用时任务表落 memory-base SQLite（库级锁 + 原子写），tasks.json 停写，多实例共享安全；memory 不可用（JSON 降级）时任务表是**进程内镜像 + `tasks.json` 整文件写回**，设计面向**单 dsh 进程**——多个 `dsh --profile fff` 实例共享同一 DSH_HOME 且都处于 JSON 降级时会互相覆盖任务表，属预期边界（请勿在 JSON 降级下多开实例）。
 
 ## 记录底座（memory-base 冻结接口）
@@ -104,6 +106,6 @@ npm --prefix background-daemon run check   # tsc --noEmit
 npm --prefix background-daemon test        # node --test（假时钟 / 假 timer / 假渠道）
 ```
 
-单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop）、`/daemon` 七个子命令（`pause` 与 `resume` 分立，上表并列一行）、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
+单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop / 控制帐收敛）、共享控制帐（读写、坏行跳过、取消 / 暂停 / 恢复、幂等）、`/daemon` 七个子命令（`pause` 与 `resume` 分立，上表并列一行）、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
 
 真机验证（`dsh --profile fff`）属实现条目的独立一步，尚未在本包完成。

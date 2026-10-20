@@ -41,10 +41,18 @@ export {
   TASK_STORE_VERSION,
   TaskStore,
   type TaskStoreLoadResult,
+  type TaskWriteOptions,
 } from "./store.ts";
+export {
+  ControlLog,
+  type ControlAction,
+  type ControlEntry,
+  type ControlLogOptions,
+} from "./control.ts";
 export {
   DEFAULT_JOURNAL_LIMIT,
   Journal,
+  type JournalAppendOptions,
   type JournalOptions,
 } from "./journal.ts";
 export {
@@ -63,6 +71,7 @@ export {
   DEFAULT_MAX_DELAY_MS,
   Scheduler,
   type AgentsLike,
+  type ControlApplier,
   type SchedulerOptions,
   type SchedulerStatus,
   type TimerLike,
@@ -136,6 +145,7 @@ export {
   inject,
   name,
   provide,
+  resolveControlPath,
   resolveJournalPath,
   resolveStorePath,
   type Config,

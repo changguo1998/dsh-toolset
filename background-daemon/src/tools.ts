@@ -10,6 +10,7 @@ import type { Scheduler } from "./scheduler.ts";
 import type { TaskStore } from "./store.ts";
 import type { DaemonTask, RunRecord, TaskMode, TaskTier } from "./types.ts";
 import { renderDetail, renderJournal, renderList } from "./commands.ts";
+import type { ControlLog } from "./control.ts";
 import type { Journal } from "./journal.ts";
 
 export const TOOL_NAME = "daemon_task";
@@ -24,6 +25,8 @@ export interface DaemonToolDeps {
   /** 缺省目标会话（模型侧调用时通常是当前会话）。 */
   defaultSessionId?: () => string | undefined;
   now?: () => number;
+  /** 共享控制帐（取消 / 暂停 / 恢复写入后其它实例到点前收敛；缺省不接）。 */
+  control?: ControlLog;
 }
 
 function jsonText(value: unknown): string {
@@ -134,6 +137,7 @@ export async function executeDaemonTool(
       const task = findTask(args, deps);
       if (task === null) return missing(args);
       const updated = deps.store.update(task.id, { status: "paused" });
+      deps.control?.append(task.id, "pause", now());
       deps.scheduler.arm();
       return { ok: true, task: updated, text: `已暂停 ${task.id}` };
     }
@@ -152,6 +156,7 @@ export async function executeDaemonTool(
         ? nextAfter(task.selector, now(), task.createdAt)
         : task.next;
       const updated = deps.store.update(task.id, { status: "active", next });
+      deps.control?.append(task.id, "resume", now());
       deps.scheduler.arm();
       return { ok: true, task: updated, text: `已恢复 ${task.id}` };
     }
@@ -165,6 +170,7 @@ export async function executeDaemonTool(
       const task = findTask(args, deps);
       if (task === null) return missing(args);
       deps.store.remove(task.id);
+      deps.control?.append(task.id, "cancel", now());
       deps.scheduler.arm();
       return { ok: true, text: `已删除 ${task.id}` };
     }

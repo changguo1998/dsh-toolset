@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
+import { ControlLog } from "../src/control.ts";
 import { Journal } from "../src/journal.ts";
 import {
   DEFAULT_MAX_DELAY_MS,
@@ -92,6 +93,7 @@ interface Harness {
   clock: { value: number };
   store: TaskStore;
   journal: Journal;
+  control: ControlLog;
   timer: FakeTimer;
   agents: Map<string, AgentLike>;
   text: FakeChannel;
@@ -123,6 +125,9 @@ function harness(
   const store = new TaskStore(path.join(dir, "tasks.json"), () => clock.value);
   const journal = new Journal(path.join(dir, "journal.jsonl"), { limit: 50 });
   journal.load();
+  const control = new ControlLog(path.join(dir, "control.jsonl"), {
+    now: () => clock.value,
+  });
   const warnings: string[] = [];
   const agentMap = options.agents ?? new Map<string, AgentLike>();
   if (!options.agents) {
@@ -147,6 +152,7 @@ function harness(
     channels,
     agents,
     timer,
+    control,
     now: () => clock.value,
     warn: (message) => warnings.push(message),
     ...(options.awaitAgentMs === undefined
@@ -163,6 +169,7 @@ function harness(
     clock,
     store,
     journal,
+    control,
     timer,
     agents: agentMap,
     text,
@@ -529,4 +536,97 @@ test("timer 到点：fire 后重新排下一次", async () => {
   await built.scheduler.settle();
   assert.equal(built.text.requests.length, 1);
   assert.equal(built.timer.live.length, 1);
+});
+
+test("控制帐：其它实例的取消在到点前收敛（不投递、副本清掉、不告警）", async () => {
+  const built = track(harness());
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+  });
+  // 另一个实例写入取消事件（本实例内存副本仍是 active）
+  built.control.append(task.id, "cancel");
+  built.clock.value = NOW + 60_000;
+  await built.scheduler.runDue();
+  await built.scheduler.settle();
+  assert.equal(built.text.requests.length, 0, "取消后不再投递");
+  assert.equal(built.store.get(task.id), undefined, "本地副本已清掉");
+  assert.deepEqual(built.warnings, [], "收敛过程不产生告警");
+});
+
+test("控制帐：其它实例的暂停同样生效（不投递）", async () => {
+  const built = track(harness());
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+  });
+  built.control.append(task.id, "pause");
+  await built.scheduler.runDue();
+  assert.equal(
+    built.store.get(task.id)?.status,
+    "paused",
+    "未到点先收敛为暂停",
+  );
+  built.clock.value = NOW + 60_000;
+  await built.scheduler.runDue();
+  await built.scheduler.settle();
+  assert.equal(built.text.requests.length, 0, "暂停期间到点不投递");
+  // 既有口径（due.ts）：暂停期间到点记 missed, 解除暂停时重算下次
+  assert.equal(built.store.get(task.id)?.status, "missed");
+});
+
+test("skipped：不写透 memory（流水不外送、任务镜像不写）, 本地账本仍留痕", async () => {
+  const built = track(harness({ agents: new Map() }));
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const sinks: string[] = [];
+  const saves: string[] = [];
+  built.journal.attachSink((record) => sinks.push(record.taskId));
+  built.store.attachMirror({
+    save: (task) => saves.push(task.id),
+    remove: () => {},
+  });
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+  });
+  saves.length = 0;
+  built.clock.value = NOW + 60_000;
+  await built.scheduler.runDue();
+  await built.scheduler.settle();
+  assert.equal(built.text.requests.length, 0);
+  assert.deepEqual(sinks, [], "skipped 不导出流水到 memory-base");
+  assert.deepEqual(saves, [], "skipped 不写任务镜像到 memory-base");
+  const record = built.journal.tail(1, task.id)[0];
+  assert.equal(record?.outcome, "skipped");
+  assert.equal(record?.error, "no-active-agent");
+  assert.equal(built.store.get(task.id)?.lastOutcome, "skipped");
+});
+
+test("delivered：照常写透 memory（skipped 抑制只作用于 skipped）", async () => {
+  const built = track(harness());
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const sinks: string[] = [];
+  const saves: string[] = [];
+  built.journal.attachSink((record) => sinks.push(record.taskId));
+  built.store.attachMirror({
+    save: (task) => saves.push(task.id),
+    remove: () => {},
+  });
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+  });
+  saves.length = 0;
+  built.clock.value = NOW + 60_000;
+  await built.scheduler.runDue();
+  await built.scheduler.settle();
+  assert.equal(built.text.requests.length, 1);
+  assert.deepEqual(sinks, [task.id]);
+  assert.deepEqual(saves, [task.id]);
 });

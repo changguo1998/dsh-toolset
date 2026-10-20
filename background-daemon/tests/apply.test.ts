@@ -12,6 +12,7 @@ import {
   apply,
   bootDaemon,
   createDaemonRuntime,
+  resolveControlPath,
   resolveJournalPath,
   resolveStorePath,
 } from "../src/main.ts";
@@ -103,6 +104,7 @@ test("apply：注册服务面 / 命令 / 工具并启动调度", async () => {
   assert.equal(fake.tools.registered.length, 1);
   assert.equal(runtime.scheduler.status().running, true);
   assert.equal(runtime.storePath, path.join(dir, "tasks.json"));
+  assert.equal(runtime.controlPath, path.join(dir, "control.jsonl"));
   await runtime.dispose();
   assert.equal(runtime.scheduler.status().running, false);
 });
@@ -276,6 +278,14 @@ test("路径解析：config 优先, 环境变量兜底, 缺省落 DSH_HOME", () 
     assert.equal(
       resolveJournalPath(),
       path.join(dir, "background-daemon", "journal.jsonl"),
+    );
+    assert.equal(
+      resolveControlPath(),
+      path.join(dir, "background-daemon", "control.jsonl"),
+    );
+    assert.equal(
+      resolveControlPath({ controlPath: path.join(dir, "from-config.jsonl") }),
+      path.join(dir, "from-config.jsonl"),
     );
   } finally {
     if (previousStore === undefined)
@@ -568,5 +578,33 @@ test("apply：真机严格面 memory 读不到时, ctx.inject 晚挂 memory 底�
   });
   await new Promise<void>((resolve) => setTimeout(resolve, 10));
   assert.equal(memory.specs.length, specCount);
+  await runtime.dispose();
+});
+
+test("控制帐：装配后取消经由工具写入共享控制帐（其它实例可收敛）", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const runtime = await bootDaemon(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+    controlPath: path.join(dir, "control.jsonl"),
+    defaultSessionId: "sess-1",
+  });
+  const task = runtime.store.create({
+    mode: "deliver",
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "巡检",
+    sessionId: "sess-1",
+  });
+  // 工具面：从注册表取出工具定义, 直接驱动 execute
+  const tool = fake.tools.registered[0] as {
+    execute(args: Record<string, unknown>): Promise<unknown>;
+  };
+  await tool.execute({ action: "cancel", id: task.id });
+  const entries = runtime.control.load();
+  assert.deepEqual(
+    entries.map((entry) => `${entry.taskId}:${entry.action}`),
+    [`${task.id}:cancel`],
+  );
   await runtime.dispose();
 });

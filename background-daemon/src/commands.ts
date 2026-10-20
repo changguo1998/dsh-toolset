@@ -8,6 +8,7 @@
  * 不用宿主命令面就能测全部子命令。
  */
 
+import type { ControlLog } from "./control.ts";
 import type { Journal } from "./journal.ts";
 import { describeSelector, isPeriodic, nextAfter } from "./selectors.ts";
 import type { Scheduler } from "./scheduler.ts";
@@ -30,12 +31,14 @@ export const SUBCOMMANDS = [
 
 export type Subcommand = (typeof SUBCOMMANDS)[number];
 
-/** 命令面依赖（store / journal / scheduler）。 */
+/** 命令面依赖（store / journal / scheduler；control 可选 = 跨实例传播）。 */
 export interface DaemonCommandDeps {
   store: TaskStore;
   journal: Journal;
   scheduler: Scheduler;
   now?: () => number;
+  /** 共享控制帐（取消 / 暂停 / 恢复写入后其它实例到点前收敛；缺省不接）。 */
+  control?: ControlLog;
 }
 
 /** 命令结果（宿主 `CommandResult` 的结构子集）。 */
@@ -173,6 +176,7 @@ export async function runDaemonCommand(
         return { kind: "success", text: `任务已是暂停：${first}` };
       }
       deps.store.update(first, { status: "paused" });
+      deps.control?.append(first, "pause", now());
       deps.scheduler.arm();
       return {
         kind: "success",
@@ -195,6 +199,7 @@ export async function runDaemonCommand(
         ? nextAfter(task.selector, now(), task.createdAt)
         : task.next;
       deps.store.update(first, { status: "active", next });
+      deps.control?.append(first, "resume", now());
       deps.scheduler.arm();
       return {
         kind: "success",
@@ -219,6 +224,7 @@ export async function runDaemonCommand(
       }
       const removed = deps.store.remove(first);
       if (!removed) return { kind: "error", text: `任务不存在：${first}` };
+      deps.control?.append(first, "cancel", now());
       deps.scheduler.arm();
       return { kind: "success", text: `已删除 ${first}` };
     }

@@ -34,6 +34,11 @@ export interface JournalOptions {
   sink?: RunSink;
 }
 
+/** 追加选项。`sink: false` = 只写本地账本、不写透 memory-base（`skipped` 结局用）。 */
+export interface JournalAppendOptions {
+  sink?: boolean;
+}
+
 /** 运行流水（内存镜像 + JSONL 落盘）。 */
 export class Journal {
   readonly #file: string;
@@ -96,14 +101,15 @@ export class Journal {
     return this.#records.length;
   }
 
-  /** 追加一条流水（写满即轮转）。 */
-  append(record: RunRecord): void {
+  /** 追加一条流水（写满即轮转）；`options.sink: false` 跳过 memory-base 外送。 */
+  append(record: RunRecord, options: JournalAppendOptions = {}): void {
     if (this.#currentLines >= this.#limit) this.#rotate();
     mkdirSync(path.dirname(this.#file), { recursive: true });
     appendFileSync(this.#file, `${JSON.stringify(record)}\n`, "utf8");
     this.#currentLines += 1;
     this.#records.push(record);
     this.#trim();
+    if (options.sink === false) return;
     // 外送口自己保证不抛；这里再兜一层, 不让流水入库失败影响本地账本
     try {
       this.#sink?.(record);

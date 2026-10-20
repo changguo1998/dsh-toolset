@@ -17,6 +17,7 @@ import {
   registerDaemonCommand,
   type CommandRegistrarLike,
 } from "./commands.ts";
+import { ControlLog } from "./control.ts";
 import {
   CommandChannel,
   TextChannel,
@@ -54,6 +55,8 @@ export interface DaemonConfig {
   storePath?: string;
   /** 流水路径（缺省与任务表同目录的 `journal.jsonl`）。 */
   journalPath?: string;
+  /** 共享控制帐路径（缺省与任务表同目录的 `control.jsonl`）。 */
+  controlPath?: string;
   /** 流水条数上限（缺省 200）。 */
   journalLimit?: number;
   /** 目标未活跃时等多久再判 skipped（缺省 0 = 立即）。 */
@@ -104,8 +107,11 @@ export interface DaemonRuntime {
   scheduler: Scheduler;
   channels: ChannelRegistry;
   service: BackgroundDaemonService;
+  /** 共享控制帐（取消 / 暂停 / 恢复的跨实例传播）。 */
+  control: ControlLog;
   storePath: string;
   journalPath: string;
+  controlPath: string;
   /** 记录底座：`memory` = memory-base 注册 kind；`json` = 本地快照降级。 */
   backend: RecordsBackend;
   /** 任务写透镜像（`backend: "json"` 时为 null）。 */
@@ -140,6 +146,18 @@ export function resolveJournalPath(config: DaemonConfig = {}): string {
     return config.journalPath;
   }
   return path.join(path.dirname(resolveStorePath(config)), "journal.jsonl");
+}
+
+/**
+ * 解析共享控制帐路径（缺省与任务表同目录）。
+ *
+ * 控制帐与任务表同作用域：同一 DSH_HOME 的实例共享同一份取消 / 暂停 / 恢复意图。
+ */
+export function resolveControlPath(config: DaemonConfig = {}): string {
+  if (config.controlPath !== undefined && config.controlPath.trim() !== "") {
+    return config.controlPath;
+  }
+  return path.join(path.dirname(resolveStorePath(config)), "control.jsonl");
 }
 
 /** 定时器统一面（`timer` 插件的 `clock` 服务）的结构面：不 import 该包。 */
@@ -296,6 +314,9 @@ export async function createDaemonRuntime(
     }
   }
 
+  const controlPath = resolveControlPath(config);
+  const control = new ControlLog(controlPath, { warn, now: clock });
+
   const journal = new Journal(journalPath, {
     ...(config.journalLimit === undefined
       ? {}
@@ -347,6 +368,7 @@ export async function createDaemonRuntime(
     ...(config.maxDelayMs === undefined
       ? {}
       : { maxDelayMs: config.maxDelayMs }),
+    control,
     // memory 底座已在上面读出并接管, 不让调度器再覆盖一遍
     //（mountMemory 在闭包里赋值, TS 不展宽窄化, 用显式展宽变量做判定）
     ...(("memory" as RecordsBackend) === backend ? { loadStore: false } : {}),
@@ -369,8 +391,10 @@ export async function createDaemonRuntime(
     scheduler,
     channels,
     service,
+    control,
     storePath,
     journalPath,
+    controlPath,
     // getter：memory 底座可能晚挂, 返回面实时读最新值
     get backend() {
       return backend;
@@ -427,6 +451,7 @@ export async function bootDaemon(
       store: runtime.store,
       journal: runtime.journal,
       scheduler: runtime.scheduler,
+      control: runtime.control,
     });
     if (dispose === null) {
       warn("ctx.commands 不可用：/daemon 未注册（服务面与调度仍可用）");
@@ -448,6 +473,7 @@ export async function bootDaemon(
             store: runtime.store,
             journal: runtime.journal,
             scheduler: runtime.scheduler,
+            control: runtime.control,
             ...(config.defaultSessionId === undefined
               ? {}
               : { defaultSessionId: () => config.defaultSessionId }),

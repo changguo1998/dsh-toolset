@@ -141,6 +141,17 @@ export interface TaskMirror {
   remove(task: DaemonTask): void;
 }
 
+/**
+ * 写操作选项。
+ *
+ * `mirror: false` = 只改内存镜像与 JSON 快照、**不**写透镜像：用于「权威写入方已写过自己的
+ * 修订行」的两类场景——跨实例控制事件收敛（`control.ts` 的 `apply`）与 `skipped` 结局
+ * （目标会话可能已删, 写透必然失败并刷告警）。
+ */
+export interface TaskWriteOptions {
+  mirror?: boolean;
+}
+
 /** 任务表（内存镜像 + 落盘）。 */
 export class TaskStore {
   readonly #file: string;
@@ -303,26 +314,30 @@ export class TaskStore {
     return { ...task };
   }
 
-  /** 局部更新（未给的字段不动）。 */
-  update(id: string, patch: Partial<Omit<DaemonTask, "id">>): DaemonTask {
+  /** 局部更新（未给的字段不动）；`options.mirror: false` 跳过写透镜像。 */
+  update(
+    id: string,
+    patch: Partial<Omit<DaemonTask, "id">>,
+    options: TaskWriteOptions = {},
+  ): DaemonTask {
     this.#assertAvailable();
     const current = this.#tasks.get(id);
     if (current === undefined) throw new Error(`任务不存在：${id}`);
     const next: DaemonTask = { ...current, ...patch, id };
     this.#tasks.set(id, next);
     this.#persist();
-    this.#mirror?.save({ ...next });
+    if (options.mirror !== false) this.#mirror?.save({ ...next });
     return { ...next };
   }
 
-  /** 删除一条任务；返回是否真的删掉了。 */
-  remove(id: string): boolean {
+  /** 删除一条任务；返回是否真的删掉了。`options.mirror: false` 跳过写透镜像。 */
+  remove(id: string, options: TaskWriteOptions = {}): boolean {
     this.#assertAvailable();
     const existing = this.#tasks.get(id);
     if (existing === undefined) return false;
     this.#tasks.delete(id);
     this.#persist();
-    this.#mirror?.remove(existing);
+    if (options.mirror !== false) this.#mirror?.remove(existing);
     return true;
   }
 
