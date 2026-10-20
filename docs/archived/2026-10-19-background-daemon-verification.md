@@ -1,6 +1,6 @@
 # background-daemon 真机验证（接取条目：docs/BACKLOG.md「background-daemon 真机验证（已挂载，发现 timer 适配缺陷）」）
 
-状态：测试　　开启：2026-10-19　　关闭：
+状态：关闭　　开启：2026-10-19　　关闭：2026-10-20
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -130,6 +130,14 @@
   - `tests/harness.ts` 新增宿主形状假件 `HostTimer`（只实现 `timeout`）；`tests/activation.test.ts` / `tests/apply.test.ts` 的假 ctx timer 从 `FakeTimer`（`schedule` 形状）换成 `HostTimer`（宿主形状），使其与真机一致。
 - 2026-10-19 门禁：`npm run check` 通过；`npm test` 139 例全通过（136 + 3）；`npm run build` 通过。
 - 2026-10-19 复现重验：`tmp/repro.ts`（宿主形状 timer）改跑修复后代码输出 `arm ok`（修复前同脚本抛 `TypeError: this[#options].timer.schedule is not a function`）。
+- 2026-10-20 修复 memory 底座（主分支裁定「裁决修复」, 参照 agent-group 先例 `ctx.inject` 分叉）：
+  - 根因：`readService(ctx, "memory")` 在真机 cordis 严格面读不到未 inject 的服务（memory 可选、不进静态 `inject`）→ memory 底座从未挂上、恒降级 json。
+  - `src/main.ts`：memory 读取扩展为「构造期直读命中，或经 `ctx.inject(["memory"], cb)` 开子分叉晚挂」；新增 `readInject` 结构面读取；抽出幂等 `mountMemory()`（注册 kind / 读任务 / 建 mirror+sink / adopt+迁移 / disableSnapshot / 切 backend），晚挂时 `runtimeJournal.attachSink` 接流水外送；`backend / mirror / rejectedRows` 改运行期可变（getter / 函数），供 service 状态面实时读取。
+  - `src/journal.ts`：`#sink` 可晚挂（新增 `attachSink`）。
+  - `src/service.ts`：`records / rejectedRows` 支持函数求值。
+  - `tests/apply.test.ts` 新增晚挂回归：严格面 memory 不可读 → 先 json, inject 回调触发后切 memory, kind 注册、journal 外送、幂等。
+- 2026-10-20 门禁（修复后）：check 通过；`npm test` 138 例全绿（137 + 1）。
+- 2026-10-20 真机复测（修复版 dist, pane wWR:p3, `--patch` 覆盖层加载本 worktree 构建）：启动日志出现 `已把 1 条 JSON 任务导入 memory-base`（晚挂触发）；新任务 `d-6f1c149f` 不再写 tasks.json（快照关停）；目标会话 session 库 `kind_daemon_task` 2 行（create + done 修订）+ `kind_daemon_run` 1 行（delivered 流水）→ memory 写透闭环成立。
 
 ## 偏差
 
@@ -137,23 +145,29 @@
 
 - **决策 1 / 规划 / 实现记录中的 `hostTimer` 适配已被主分支取代**：主分支落地「新增定时插件（统一 timer 原语）」条目（commit `9cee6b3`，追踪文档 `docs/archived/2026-10-19-timer-plugin.md`），`background-daemon` 改读 `timer` 插件的 `clock` 服务（`readService<ClockLike>(ctx, "clock")`，缺失回落 `systemTimer()`）；我此前合入本分支的 `HostTimerLike` / `hostTimer` 与宿主形状测试在 `7532f92` 被丢弃，worktree 已同步到 main（`3396f3e`）。任务实际验证的是 clock 统一面版本，D16 口径由 timer 插件承接。
 - **T4 真机实际做法**：主分支合入后 profile 挂载点（主 worktree）的 dist 已是 clock 版本，故真机直接用 `dsh --profile fff`（决定 3(a) 的 `--patch` 覆盖层未用），即验证「真实挂载」本身。
-- **E5 未达成**：真机启动日志为 `backend=json`（非 memory），且没有「memory-base 记录底座不可用」降级告警 → `readService(ctx, "memory")` 在真实 cordis ctx 上未取到服务（memory 属可选依赖、不在 `inject` 里，严格模式读取不可达）。「memory-base 可用时 `/daemon` 状态面报 `records: memory`」的验收不成立，需主分支裁定（是否补 `inject` / 改惰性解析 / 另行处理）。佐证：`~/.dsh/memory-base/memory.db` 自 10-18 起未被写入，说明各 fff 进程均未走到 memory 底座。
+- **E5 memory 底座取不到（2026-10-20 主分支最终裁定：本期不修, 移新条目）**：真机启动恒 `backend=json`、无降级告警 → `readService(ctx, "memory")` 在真实 cordis 严格面读不到可选服务（memory 不在 `inject`, `ctx.get` 抛 `cannot get property "memory" without inject`）。已按 agent-group 先例实现 `ctx.inject(["memory"], cb)` 子分叉晚挂**原型**（含 `journal.attachSink` / `service` 函数求值与晚挂回归测试, 单测 138 例, 修复版构建真机写透闭环）, 但按主分支最终裁定**不并入**——原型改动已从分支丢弃, 问题登记为新 BACKLOG 条目（项目级「background-daemon E5：memory 底座取不到——严格模式 readService 需 memory 可选注入/惰性解析」）。由此：本任务「memory-base 可用时 `/daemon` 状态面报 `records: memory`」的验收**未达成**（合入 / 挂载代码仍 `backend=json`）, 移交新条目。
 - **E3 时间戳观察（已复验，2026-10-20 重启后）**：首轮 E3 的 journal `at` 等于计划触发时刻（06:34:21.544Z），当时进程已在退出流程中（或读屏缓存误导退出时刻），不能作为启动补发证据。重启后新增 E3b 复验：任务 `d-b91c6c68`（触发 06:51:51.019Z）在进程退出后过点重启，成功被载入并于启动补发时刻触发（`at=06:52:12.579Z` ≈ 重启提交时刻，非计划时刻），outcome `skipped`（启动补发时目标会话尚未注册活跃 agent，设计内不重试）→ 启动补发路径成立，且 `at=now` 语义正确。
-- **多实例共享 tasks.json 的覆盖（环境性发现）**：验证期间本机同时运行多个 `dsh --profile fff` 实例（其他 worktree 会话 / 主会话），共享 `~/.dsh/background-daemon/tasks.json`；各实例在启动时各自 load、变更时整文件写回（无锁、无合并）→ 相互覆盖。观察到：E1-E4 的 4 条任务在验证后期从 tasks.json 消失，文件被换成他人任务（`d-d932d07d`，06:43:17Z 创建，非本任务创建）等。背景设计面向**单 dsh 进程**（目标 = 本进程内活跃 agent），此共享覆盖在多实例环境属预期副作用，真实单实例部署不受影响；但「重启恢复完整保留任务表」的验收在共享环境下不可单独归因，证据以单任务 E3b 为准。
+- **多实例共享 tasks.json 的覆盖（环境性发现, 2026-10-20 主分支最终裁定：本期不修, 登记边界）**：验证期间本机同时运行多个 `dsh --profile fff` 实例（其他 worktree 会话 / 主会话），共享 `~/.dsh/background-daemon/tasks.json`；各实例在启动时各自 load、变更时整文件写回（无锁、无合并）→ 相互覆盖。观察到：E1-E4 的 4 条任务在验证后期从 tasks.json 消失，文件被换成他人任务（`d-d932d07d`，06:43:17Z 创建，属主会话 `tui-ac5bf17a` 的排程）。边界结论：**设计面向单 dsh 进程**（目标 = 本进程内活跃 agent），单实例部署不受影响；多实例共享同一 DSH_HOME 时不保证任务表一致，属预期边界。已登记新 BACKLOG 条目（项目级「background-daemon tasks.json 多实例共享整文件覆盖——明确单实例边界或加锁合并」），本期不修。
 
 ## 测试与证据
 
 （2026-10-20 真机，`dsh --profile fff`，真实 `~/.dsh`，herdr pane `wWR:p2` / 重启后 `wWR:p3`）
 
-- 门禁：`npm --prefix background-daemon run check` 通过；`npm --prefix background-daemon test` 137 例全绿（clock 版本）。
-- 启动：`[background-daemon] 已启动（任务 1 个，backend=json，store=/home/guochang/.dsh/background-daemon/tasks.json，journal=/home/guochang/.dsh/background-daemon/journal.jsonl）`（stderr 落盘 `tmp/bg-err.log`）；`/daemon list` 与 `daemon_task` 均注册可用。
+- 门禁：`npm --prefix background-daemon run check` 通过；`npm --prefix background-daemon test` 137 例全绿（clock 版本；晚挂回归测试属已丢弃的原型, 见偏差）。
+- 启动（修复版原型）：`[background-daemon] 已启动（任务 1 个，backend=json，…）` 随后 `warn: 已把 1 条 JSON 任务导入 memory-base`（`ctx.inject` 晚挂触发）；stderr 落盘 `tmp/bg-err-fix.log`。注入 d-d932d07d 时因该任务指向外部进程会话报 `sessionPaths.sessionDirFor … 不在宿主的 sessions 里`（多实例环境的会话解析限制, 属预期噪声, 只计数不重试）。
 - **E1 文本投递 ✓**：`daemon_task create`（deliver / after_seconds:60 / 会话 `tui-dc2f5407-…`）→ task `d-6500b1f8` 于 06:27:53.178Z 触发，journal `delivered` / 17ms / `flush 确认（合并 1 条）`；pane 内目标会话收到注入正文 `[DAEMON] 真机验证 E1 文本投递`。
 - **E2 命令执行 ✓**：command 任务 `d-c29aad21`（payload `/daemon list`）于 06:29:50.627Z 触发，journal `delivered` / 2ms，detail 含命令回执文本（`守护任务 2 个：…`）。
 - **E3 重启恢复 ✓（含 E3b 补发复验，2026-10-20 重启后）**：deliver 任务 `d-b0cf39db`（after_seconds:150）创建后退出 dsh，过点后 `--resume` 重启同会话；重启后任务表保留（`/daemon list` 可见、status done），journal 记 `skipped`（`no-active-agent`，设计内不重试）。另起 E3b 复验启动补发：任务 `d-b91c6c68`（触发 06:51:51.019Z）在退出后过点重启（`--resume tui-0e1094fd-…`），启动时被载入并补发，journal `at=06:52:12.579Z` ≈ 重启时刻（stderr 启动行 `[background-daemon] 已启动（任务 2 个，backend=json，…）`），outcome `skipped`，单条记录不重试。
 - **E4 无活跃 agent 的 skipped ✓**：deliver 任务 `d-ac6816b3`（sessionId `q-no-such-session-xyz`）于 06:41:17.223Z 触发，journal `skipped` / `no-active-agent`，仅一条记录、不重试，任务 status done。
-- **E5 backend=memory ✗**：启动日志 `backend=json`；`records: memory` 未达成（无 `/daemon status` 子命令，只能经启动日志 / `ctx.backgroundDaemon.status()` 观察）。journal 4 行、tasks.json 4 条均落在本地文件，memory-base 库未参与。
-- 遗留物：验证 pane `wWR:p3`（运行中，dsh 进程 `dsh --profile fff --resume …`，stderr `tmp/bg-err3.log`）；临时文件 `tmp/bg-err*.log`、`tmp/verify/overlay.yml`、`tmp/repro.ts`（收尾清理）。
+- **E5 backend=memory △（原型验证, 未并入, 2026-10-20）**：修复版原型上验证 memory 路径成立——任务 `d-6f1c149f`（deliver / after_seconds:40 / 本 pane 会话 `tui-0ad52ab5-…`）创建后不再写 tasks.json（快照关停）, journal 记 `delivered`（07:01:12Z, 16ms, flush 确认）, 目标会话的 `session.db` 出现 `kind_daemon_task` 2 行（active 创建 + done 修订）+ `kind_daemon_run` 1 行（delivered 流水）→ memory 写透闭环。该原型按主分支最终裁定**不并入**（见偏差）, 合入 / 挂载代码仍 `backend=json`; 验收结论为「未达成, 移交新条目」。
+- 遗留物：收尾时验证 pane `wWR:p3` 已关闭; 临时文件 `tmp/bg-err*.log`、`tmp/verify/overlay.yml`、`tmp/repro.ts`、`tmp/home` 已清理。
 
 ## 收尾
 
-（待写。）
+（2026-10-20）
+
+- 验收判定：四条端到端真机各一次通过（E1 文本投递 / E2 命令执行 / E3 重启恢复含启动补发复验 / E4 无活跃 agent 的 skipped）；`backend=memory`（records: memory）**未达成**——按主分支最终裁定本期不修, 问题移交新 BACKLOG 条目。
+- 登记新条目（项目级 `docs/BACKLOG.md`）：「background-daemon E5：memory 底座取不到——严格模式 readService 需 memory 可选注入/惰性解析」与「background-daemon tasks.json 多实例共享整文件覆盖——明确单实例边界或加锁合并」；原条目「background-daemon 真机验证」标记完成并从 BACKLOG 移除。
+- 追踪文档移入 `docs/archived/2026-10-19-background-daemon-verification.md`。
+- 遗留：`daemon_task.sessionId` 描述与实现不符（观察项, 未立项）；多实例共享覆盖为环境边界（见偏差）。
+- 收尾提交为本任务最后一次提交。
