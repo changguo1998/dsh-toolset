@@ -97,6 +97,14 @@
 
 > 2026-10-20：条目「agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）」**完成并关闭** —— session-channel 发布 / 读数面（dsh/session-channel 分支）+ agent-group 消费端（判据③ + 2b 组长轮询 + close_group, dsh/agent-group 分支）全部落地并随主分支合并; 追踪文档归档 `docs/archived/2026-10-20-agent-status-board.md`; 真机 ≥2 会话四态（待机 / 工作 / 疑似卡死 / 离线）+ 心跳不刷 at + 离线不依赖对端全部通过; 同任务「轮次与终止的三个细节（#4）」按裁定落地组关闭语义, rounds 追踪文档归档 `agent-group/docs/archived/2026-10-19-agent-group-rounds.md`。条目从本节移除。
 
+> 2026-10-20：新增条目 1「工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）」—— 用户提出的新插件构想, 设计讨论中未定稿, 等用户指令继续设计。
+
+**1. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 未接取, 等用户指令继续设计。
+
+> 2026-10-20：新增条目 2「升级适配 0.2.1-rc.2 接口」—— 用户要求; 前置调研已落 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`, 升级裁定此前随复用审计一并后置。
+
+**2. 升级适配 0.2.1-rc.2 接口**（2026-10-20 登记, 来源: 用户要求; 前置调研已落 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）：**现象 / 现状** —— 运行基线仍为 `dsh 0.2.0-rc.2`; 官方最新 `0.2.1-rc.2`（2026-10-17, 1925 提交）已完成源级调研（26 消费包类型名只增无删, `ToolExecution` / `sessions` / `sandboxPolicy.resolve` / `llm` 定点零 diff, 14 项变更清单）; 升级裁定与复用审计回查门此前一并后置, 尚未执行。**期望** —— 升级运行基线到 0.2.1-rc.2 并按 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` 变更清单逐项适配复核: 全局安装 + profile 树官方包同步 + `scripts/install.sh` 默认版本与各处版本引用更新; 新增面（working_directory / session-title adapters / python-ptc-sandbox / job-id-identity / model-discovery-empty-catalog）与自动化注记（无 preset 时显式挂 tool-schedule）核对; security-guard 逐升版跑工具面差异检查（`tool-surface-check`）; 升级后回查 `ARCHITECTURE-REUSE.md` §0 总表。**优先级** —— P1。**状态注记** —— 未接取; 调研与变更清单见 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`, 执行参照历次升版追踪（如 `docs/archived/2026-10-02-host-upgrade-execution.md`）。
+
 **后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 29 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 7 个包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。 另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-pane` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
 
 ### 实现顺序（2026-10-18 重排：修复类 > 依赖深度 > 工作量）
