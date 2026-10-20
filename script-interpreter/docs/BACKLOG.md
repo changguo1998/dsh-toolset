@@ -2,19 +2,11 @@
 
 跨模块条目见项目级 `docs/BACKLOG.md`；本文件只收本模块条目。
 
-> 2026-10-19 接取：`#1` / `#2` 标〔进行中: 2026-10-19〕，每条各一份追踪文档：`script-interpreter/docs/implementation/2026-10-19-script-interpreter-langs.md` / `2026-10-19-script-interpreter-venv.md`。
+> 2026-10-19 接取：venv 条目标〔进行中: 2026-10-19〕，追踪文档 `script-interpreter/docs/implementation/2026-10-19-script-interpreter-venv.md`。（语言后端条目已同日关闭并归档，见 `docs/archived/2026-10-19-script-interpreter-langs.md`。）
 
 ## 条目详情（待办）
 
-**#1 打开 bash 语言后端与二期语言（node / sh）**（〔进行中: 2026-10-19〕）：**现象 / 现状** ——
-首期只启用 Python，bash 后端（`src/langs/bash.ts`）已随包实现但不在 `languages` 缺省表内；
-node / sh 未实现。**期望** —— 若实测确有需要，按 `LangBackend` 契约新增 `langs/<语言>.ts` 并在
-配置里追加，不改工具名与协议；bash 只需把 `bash` 加进 `languages`（官方 `tool-bash` 已覆盖 shell
-命令，打开前先确认不与官方工具面重复）。**落点** —— `src/langs/*.ts`、`src/index.ts` 的语言表、
-`tests/` 的语言相关用例、`README.md` 参数表。**验收** —— 新语言一例真实执行断言；未启用语言
-仍明确报错。**估时** —— 0.5 天 / 语言。**优先级** —— P3。
-
-**#2 Python venv / uv 自动探测**（〔进行中: 2026-10-19〕）：**现象 / 现状** —— 首期只提供解释器
+**#1 Python venv / uv 自动探测**（〔进行中: 2026-10-19〕）：**现象 / 现状** —— 首期只提供解释器
 路径覆盖（`pythonPath` / `SCRIPT_PY_INTERPRETER`），不探测项目内 `.venv`、不调 `uv run`。
 **期望** —— 按工作区探测 `.venv/bin/python`，或支持 `uv` 前缀，且**不**自作主张改 `sys.path`；
 探测不到时仍回落到当前解释器。**落点** —— `src/probe.ts` 的探测顺序与 `README.md` 的探测表。
