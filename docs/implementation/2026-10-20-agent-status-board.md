@@ -30,8 +30,12 @@
 
 ## 规划
 
-- 派单：归 **dsh/agent-group** 分支（agent-group worktree 会话承接, 与 agent-group「轮次与终止的三个细节」同任务）。
-- 步骤：核实 `agent/status` 事件 → session-channel 发布 + 读数面 + 工具 → agent-group 判定 + 巡查 + 状态视图 → 测试 → 真机（≥2 会话: 待机 / 工作 / 疑似卡死 / 离线 四态）→ 收尾。
+- 派单（2026-10-20 拆分, 按「每分支只改对应模块」原则）：
+  - **dsh/session-channel**（新分支）: session-channel 发布端 + 读数面 + 工具扩展 + README/DESIGN。
+  - **dsh/agent-group**（已有分支, 会话已开工）: 仅 `agent-group/` 消费判定 + 巡查（20 s）+ 状态视图; 不碰 `session-channel/`。
+  - 协作顺序（串行）: session-channel 先实现合 main + 重建 → agent-group 基于已合并读数面实现消费 → 真机四态（需 session-channel 已在 profile 生效）。
+  - 接口契约: 读数面签名由 session-channel 定（`peers()` 增量带 `{status, at}` 或新增 `statusOf(sessionId)`）, agent-group 按契约消费。
+- 步骤：session-channel 发布 + 读数面 → agent-group 判定 + 巡查 + 状态视图 → 测试 → 真机（≥2 会话: 待机 / 工作 / 疑似卡死 / 离线 四态）→ 收尾。
 - 计划改动文件清单（预估）：
   - `session-channel/src/**`（发布 `state:<sessionId>`、读数面、工具扩展）
   - `agent-group/src/**`（判定 + 巡查 + 状态视图）
