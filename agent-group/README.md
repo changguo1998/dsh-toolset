@@ -44,7 +44,7 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 ## 状态落点与镜像
 
 - 组状态落**管理者自己的会话目录**：`<管理者会话目录>/agent-group.json`（`stateFileName` 可改，经 `sessionPaths.sessionDirFor(managerSessionId)` 推导）；原子写与 0600、串行与先落盘再更新缓存、只读 `status` 不碰存储的机制见 `docs/DESIGN.md` 第 5、6 节。
-- **可选镜像**（`mirror`，缺省开）：每次组状态变更后把只读视图写进 memory-base（`kind: "agent_group"`，`source: {kind: "manual", label: "agent_group", ref: <组 id>}`，`project` 取管理者会话的 `cwd`）；memory-base 未挂载 → 跳过，`remember` 拒收 / 抛错 → 只计数 + 首次一条日志、**不重试**，计数见 `status` 的 `mirror` 字段。
+- **可选镜像**（`mirror`，缺省开）：每次组状态变更后把只读视图写进 memory-base（`kind: "agent_group"`，写目标层 `session`，`source: {kind: "manual", label: "agent_group", ref: <组 id>}`，`project` 取管理者会话的 `cwd`）；memory-base 未挂载 → 跳过，写入被 `MemoryScope.put` 拒收（`skipped`）或抛错 → 只计数 + 首次一条日志、**不重试**，计数见 `status` 的 `mirror` 字段。
 
 ## 依赖与降级
 
