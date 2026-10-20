@@ -32,7 +32,7 @@
 | 9 | Azure 提供方名称统一为 `azure`，旧 `azure-openai-responses` 需迁移 | 提供方命名 | profile 未用 | 低 |
 | 10 | 新增 `working_directory` 工具；TS/Python SDK 提供会话工作目录读写接口 | 工具面新增 | 与 `session-paths` 的目录语义存在概念重叠（互不依赖） | 低-中（观察） |
 | 11 | 新增实验性 Session 状态记录接口（插件写/读自己的会话记录） | 服务面新增 | `memory-base` / `context-report` 的会话读取可评估是否采纳 | 低（可选采纳） |
-| 12 | 自动化任务改为 Web 内置能力；提醒工具按模式提供（标准/创造/PTC 可用，极简/子代理不可用） | 自动化面内置化 | 与本仓 `background-daemon` 的进程内调度/投递定位叠加，需确认模式范围与注册不冲突 | **中（重点复核）** |
+| 12 | 自动化任务改为 Web 内置能力；提醒工具按模式提供（标准/创造/PTC 可用，极简/子代理不可用） | 自动化面内置化：`schedule` 服务投递与会话内 follow-up 不依赖 Web；模型四工具（`schedule_create` 等）为 preset-owned，**无 preset 的 TUI 组合不自动出现**，需显式挂 `tool-schedule` 进全局组合；Automation tasks 管理页为 Web 客户端专属 | 与本仓 `background-daemon` 的进程内调度/投递定位叠加；本仓 TUI-only + 无 preset + 未挂 `tool-schedule` → 官方 automation 非开箱即用，background-daemon 自建链路无此门槛。升级时按需求裁决（官方四工具+订阅 vs 本仓 command 投递 + memory 底座 + 重试语义） | **中（重点复核）** |
 | 13 | pi-ai 更新 1.0.2，模型目录更新；适配 DeepSeek-V4.1-Flash-1017；DeepSeek Search / Fetch API（网页搜索设置开启） | 模型面 | 与 fff profile 的 tollgate 别名（`ds4f` / `ds41f` 等）及 `UNKNOWN_MODEL` 排查语境相关；model-discover 复用 profile headers | 中（profile 侧核对） |
 | 14 | 全局指令支持共享 agents 目录 `AGENTS.md`（`DSH_AGENTS_HOME`） | 指令装载面 | 与本仓 AGENTS.md 规范无冲突（本仓为项目级 AGENTS.md） | 低 |
 
@@ -71,6 +71,32 @@
 - 上述结论基于「类型名级」比对与定点载荷 diff，未做 26 包全量「逐类型体」diff；升级前如需极致保险可再全量 diff 类型体（当前判断价值低，因零删除名 + 定点点位相同）。
 - `tools` 模型可见工具集合（默认组合）是否增删：涉及官方 client 装配，未逐枚举；工具名新增项（如 `working_directory`）见 §变更清单 #10。
 - 升级裁定仍待用户决定（升级则按「复核/升级路径」执行）。
+
+## 0.2.1 新增面明细（2026-10-20 补充，以官方升级指南口径为准）
+
+依据：本地克隆 `~/GithubRepos/deepseek-harness`（`dsh-v0.2.1-rc.2`）`docs/upgrade-guide/v0.2.1-alpha.*/` 各指南。
+
+### 高相关（会影响本仓既有面）
+
+- **会话工作目录 + `working_directory` 工具**（`tool-working-directory`，`working-directory` 指南）：会话当前执行目录成为独立状态（与 `Session.header.cwd` 分离、持久化）；工具读/改目录、返回绝对路径可传给其它工具；**新子代理开始请求新增 `cwd`**（提供则用、否则捕获父会话当前目录）；同时移除 `{{cwd}}` 内置提示变量与 `dsh-subagent-acp` / `dsh-subagent-dsh-sdk` 的 cwd 配置键。本仓影响：`session-paths`（目录语义重叠观察）、**`task-engine`**（此前 `SubagentStartRequest` 无 cwd 字段 → 现可能解除，worktree 隔离或可对 subagent 后端落地）。
+- **session-title adapters 注册**（`session-title-adapters` 指南）：模型标题路由改经 `ctx.llm.prepareCall()` 生成，组合须注册 adapter；自定义 adapter 须按**推理努力递增序**列可选档；标题策略经配置函数选首项。本仓影响：`session-title-cutoff`（经 llm 生成标题，升级需补 adapter 注册）。
+- **Python PTC 共享文件沙箱**（`python-ptc-sandbox` 指南）：`ptc-runtime-python` 需 `sandbox` + `sandboxPolicy`，每程序按共享策略约束，受限失败报 `sandbox-unavailable`。本仓影响：`script-interpreter` 若涉及 ptc 组合契约须复核（官方 Node 运行时不受影响）。
+- **JobId 身份变化**（`job-id-identity` 指南）：后台任务 id 从 `<kind>-N` 改 `<kind>-<16 位短 uuid>`，`job/registered` + `job/settled` 同一 id，移除 `executionId`。本仓影响：消费 `jobs` 服务的面（`task-engine` 等按 id 关联逻辑）。
+
+### 模型 / 目录 / profile 面
+
+- **模型发现空目录规则**（`deepseek-model-discovery` / `pi-ai-model-discovery` 指南）：凭证缺失 / malformed 时返回**空目录**（不再列配置模型）。本仓影响：fff tollgate 别名不受影响，`model-discover` 类复用 profile headers 的面须保证凭证在位。
+- **`engines.dsh` 兼容性判定**（`plugin-engines-dsh` 指南，变更清单 #3）。
+- **agent-instructions 目录改 `DSH_HOME`**（`instruction-home-override` 指南，变更清单 #7）。
+- **Agent Team 直投 Inbox**（`team-direct-inbox` 指南，变更清单 #5）：`send_message` 只回 `{sent:true}`、无 message id / queued / 重试保留，`maxPendingMessagesPerMember` 移除。本仓不消费官方 team（`agent-group` 自建），低。
+
+### 中低 / 装卸面
+
+`tool-presentation-mode`（both 移除，变更清单 #6）、`subagent-activations` / `subagent-preset-composition` / `native-subagent-bundle-tools`、`experimental-package-composition`、`plugin-option-placement` / `plugin-install-over-installed`、`jsonl-persistence-plugin`、`new-session-generations` / `mock-messages-events`、`stored-credentials-precedence` / `deepseek-account-identity-watch` / `pi-ai-azure-provider`（azure 统一，变更清单 #9）、`web-listener-trust-config`、`terminal-command-labels`、`ssh-helper-launch`、`from-default-profile-replaces-target`、`sdk-minimal-image-compaction`。
+
+### 新增观察点（可采纳）
+
+- experimental Session 状态记录接口（release notes 提及，具体面待细查；与 `memory-base` / `context-report` 的会话读取为候选采纳对象）。
 
 ## 复核/升级路径（若有需）
 
