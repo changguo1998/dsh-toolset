@@ -73,9 +73,9 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 `export const inject = ["agents", "sessions", "commands", "tools"]`：这四项在 `apply` 期就要读到（目标解析 / flush 确认 / 命令注册与命令类任务 / 模型侧工具注册），声明 inject 让 cordis 把激活顺序排在它们就绪之后——否则插件会先激活、`ctx.get(...)` 在严格模式下全部拿不到，表现为 `/daemon` 与 `daemon_task` 都未注册。
 
-`timer` **不在 inject 里**：定时器不依赖宿主——宿主 `timer` 存在则经 `readService` 作为可注入覆盖（测试 / 宿主可换实现），否则用进程内 `setTimeout`（`src/main.ts:218`，与调度器「单 timer + 墙钟重算」设计一致）。
+`timer` **不在 inject 里**：定时器走 `timer` 插件的 `clock` 统一面（`clock.now()` / `clock.scope(ctx)`；`src/main.ts` 的 `resolveTimers`），缺失时退回进程内 `setTimeout`（`systemTimer()`，unref）。
 
-`memory`（记录底座）与 `guard`（命令复查）是可选依赖，不进 inject：前者缺失降级 JSON 快照，后者缺失 fail-open 并标 `guardSkipped`。
+`memory`（记录底座）与 `guard`（命令复查）是可选依赖，不进 inject：memory 在 apply 期直读命中即挂载为底座，未命中且宿主提供 `ctx.inject` 时经 `ctx.inject(["memory"], cb)` 子分叉晚挂（参照 `agent-group` 先例）；两者缺失分别降级 JSON 快照 / fail-open 并标 `guardSkipped`。
 
 ## 边界（行为口径）
 
@@ -83,6 +83,7 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 - **投递语义 = at-least-once**：`flush` 成功（L2）才记持久投递；`flush` 返回 false 记 `delivered` + `durable:false`（原因码 `volatile`）+ 告警，**不**自动重投（D13）。崩溃窗口可能造成重复投递。
 - **安全边界**：投递是 user 消息，后续工具调用照常受 `security-guard` 与 approval / sandbox 策略约束；本插件**不降级**任何策略、不自动批准、不绕过审批。命令类任务属「命令来自状态文件」一侧 → 引擎侧复查（`guardScope: engine-side`）；复查不可用时 fail-open 但结果标 `guardSkipped`。
 - **单 timer**：任何时刻至多一个待触发定时器；长延迟分段（缺省 24 h）；检测到墙钟回拨按当前时钟重算周期任务的 `next`。
+- **记录底座边界**：memory 可用时任务表落 memory-base SQLite（库级锁 + 原子写），tasks.json 停写，多实例共享安全；memory 不可用（JSON 降级）时任务表是**进程内镜像 + `tasks.json` 整文件写回**，设计面向**单 dsh 进程**——多个 `dsh --profile fff` 实例共享同一 DSH_HOME 且都处于 JSON 降级时会互相覆盖任务表，属预期边界（请勿在 JSON 降级下多开实例）。
 
 ## 记录底座（memory-base 冻结接口）
 
@@ -94,7 +95,7 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 - 写侧隔离：`scope.put` 的越权层会抛错、内容级闸门（隐私 / `preWrite`）走 `PutResult.skipped`；两者都只记入镜像的 `failures` 并告警，**不重试**。
 - 坏行（解码失败 / 行层与任务分档不符）在启动时被**隔离**（不加载、逐条告警），行仍留在库里，由用户决定是否清理。
 
-**降级链**：`ctx.get("memory")` 缺失或注册 / 读取失败 → 退回本地 JSON 快照（`tasks.json`）与 JSONL 流水，`ctx.get("backgroundDaemon").status().records` 报 `"json"`；memory 可用时报 `"memory"` 并关闭 JSON 快照写入。首次启用 memory 底座时，若库里没有任务行而已有 JSON 快照，会把快照一次性导入（导入条数写日志）。
+**记录底座 = memory 优先，JSON 仅降级**：memory 可用时在 apply 期直读命中即挂载，未命中则经 `ctx.inject(["memory"], cb)` 晚挂（agent-group 先例），挂载后注册 kind、任务表迁入 memory-base（SQLite，库级锁 + 原子写）、`tasks.json` 停写，`ctx.get("backgroundDaemon").status().records` 报 `"memory"`。`ctx.get("memory")` 缺失或注册 / 读取失败 → 退回本地 JSON 快照（`tasks.json`）与 JSONL 流水，`records` 报 `"json"`（此路径为单实例边界，见「边界」节）。首次启用 memory 底座时，若库里没有任务行而已有 JSON 快照，会把快照一次性导入（导入条数写日志）。
 
 ## 测试
 

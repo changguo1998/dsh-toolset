@@ -510,3 +510,63 @@ test("bootDaemon：同一路径下仍返回运行期句柄（与 apply 的分工
   assert.equal(typeof runtime.dispose, "function");
   await runtime.dispose();
 });
+
+test("apply：真机严格面 memory 读不到时, ctx.inject 晚挂 memory 底座", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const memory = new FakeMemory();
+  // 模拟真机 cordis：`get("memory")` 因未 inject 读不到, 但宿主提供 `ctx.inject`
+  let trigger: ((child: unknown) => void) | undefined;
+  const ctxWithInject: Record<string, unknown> = {
+    ...(fake.ctx as Record<string, unknown>),
+    inject: (_deps: string[], callback: (child: unknown) => void) => {
+      trigger = callback;
+      return () => {};
+    },
+  };
+  const runtime = await bootDaemon(ctxWithInject, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+  });
+  // memory 尚不可读: 先以 json 底座启动（事故现场, 之前永远停在这里）
+  assert.equal(runtime.backend, "json");
+  assert.equal(runtime.service.status().records, "json");
+  // memory 服务就绪: inject 子分叉回调触发, 晚挂 memory 底座
+  trigger?.({
+    get: (serviceName: string) =>
+      serviceName === "memory" ? memory : undefined,
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  assert.equal(runtime.backend, "memory");
+  assert.equal(runtime.service.status().records, "memory");
+  assert.deepEqual(
+    memory.specs.map((spec) => spec.kind),
+    ["daemon_task", "daemon_run"],
+  );
+  // 晚挂后流水外送口已接到 journal: 追加一条运行记录应写透 memory
+  runtime.journal.append({
+    taskId: "d-late",
+    tier: "S",
+    at: NOW,
+    sessionId: "sess-1",
+    mode: "deliver",
+    outcome: "delivered",
+    error: null,
+    durationMs: 5,
+    detail: null,
+  });
+  await runtime.mirror?.settle();
+  assert.ok(
+    memory.rows.some((row) => row.kind === "daemon_run"),
+    "晚挂后 journal 外送应落 memory daemon_run",
+  );
+  // 晚挂幂等: 再次触发回调不重复注册
+  const specCount = memory.specs.length;
+  trigger?.({
+    get: (serviceName: string) =>
+      serviceName === "memory" ? memory : undefined,
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  assert.equal(memory.specs.length, specCount);
+  await runtime.dispose();
+});
