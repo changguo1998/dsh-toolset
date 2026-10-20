@@ -1,6 +1,6 @@
 # agent-group TUI 命令或面板（接取条目：agent-group/docs/BACKLOG.md「TUI 命令或面板」）
 
-状态：实现（代码 + 测试完成，待提交）　　开启：2026-10-19　　关闭：
+状态：关闭　　开启：2026-10-19　　关闭：2026-10-20
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -102,8 +102,16 @@
 - `npm --prefix TUI run check` 通过（无 TS 错误）。
 - `npm --prefix TUI run test` 全量 1661/1661 绿（含新增 group-notice 7 + adapter.dsh 2）。
 - `npm --prefix TUI run build`、`npm --prefix agent-group run build` 通过。
+- **真机验证（2026-10-20，主仓合并 da2cd36 + 168f63d 并重建 dist 后，`dsh --profile fff` 新会话，herdr pane 驱动真实 TUI）**：
+  - `/group`（空会话）→ notice「当前会话无群组」（info）。
+  - `/group ghost`（组不存在）→ warn「组「ghost」不存在；现有组：（无）」——修正后可读文案、含现有组清单、不外显错误码。
+  - 经 `agent_group` 工具建组 `group-1`（create_group + add_member 成员 member-a）后 `/group` →「群组状态（当前会话）：1 个群组」+ `group-1：成员 2 · 指令 进行中 0 · 成功 0 · 失败 0 · 阻塞 0 · 超时 0」；`/group group-1` → 单组详情（建组 2026-10-20 / 成员 2：manager(管理) member-a / 连接 主从 0 · 平等 0 / 指令计数）。
+  - 读盘失败降级：把 `agent-group.json` 写坏后 `/group` → warn「读取组状态失败：组状态不是合法 JSON（<路径>）：…；如需重建，删掉该文件后重新 create_group；确认该会话目录存在且 agent-group.json 可读」（state_unavailable 信封 reason+next 可读文案）；恢复文件后 `/group` 恢复清单。
+  - 未挂载降级（`ctx.get("agentGroup")` 缺失 →「agentGroup 服务不可用（未挂载 agent-group）」）由单测 `group-notice`「服务未挂载」用例覆盖；真机未单独造（需移除 agent-group 的 profile，成本高于收益，代码路径与「查询 reject」同分支）。
+  - 验证后已清理：验证组状态文件、备份删除，验证 pane 关闭。
 
 ## 收尾
 
-- 待办：格式化改动文件 → 提交询问点（§5：实现后 check+build 已过 → 问一次是否提交代码与测试）→ 用户同意后提交 → 向协调会话 `ui-ravine-5e31` 汇报（含 check/test 结果、是否需合并主分支）→ 真机验证 `/group` 对 agent-group 持久化（依赖合并主分支后重启 profile）。
-- 归属说明（决策项 4）：TUI 侧改动本次由 agent-group worktree（本任务）实现；若 tui 模块会话并发改 TUI 代码，主分支合并时仲裁。
+- 已完成：提交 `da2cd36`（feat，首次实现）与 `168f63d`（fix，真机发现的可读文案修正，均经用户/协调批准）；主仓合并 `09ab790` + `6fb10fe` 并重建 dist；真机验证全部通过（见上）；BACKLOG #3 标记完成并从 `agent-group/docs/BACKLOG.md` 移除；本追踪文档归档 `docs/archived/`；收尾提交为本次任务最后一次提交。
+- 归属说明（决策项 4）：TUI 侧改动本次由 agent-group worktree（本任务）实现；主仓已合并，无并发冲突。
+- 二期：状态列（决策项 1 的 c 选项）未做，留 `agent-group/docs/BACKLOG.md` 待登记。
