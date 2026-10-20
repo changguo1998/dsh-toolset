@@ -231,3 +231,113 @@ test("回归：档位过滤 / 紧凑压单行 / 思考 ↔ 正文 1 行间隔", 
     `代码块（开关行隐藏、闭栅行被收录消费）后仍有 1 行间隔: ${JSON.stringify(fenceGap.text)}`,
   );
 });
+
+test("思考行列表编号风格：`1)` / `a.` / `a)` / `(1)` 原样保留", () => {
+  const { text } = act([
+    L("1) 括号编号一", "thinking"),
+    L("a. 字母编号一", "thinking"),
+    L("a) 字母括号一", "thinking"),
+    L("(1) 圆括号一", "thinking"),
+  ]);
+  const joined = text.join("\n");
+  assert.ok(joined.includes("1) 括号编号一"), `1) 保留: ${joined}`);
+  assert.ok(joined.includes("a. 字母编号一"), `a. 保留: ${joined}`);
+  assert.ok(joined.includes("a) 字母括号一"), `a) 保留: ${joined}`);
+  assert.ok(joined.includes("(1) 圆括号一"), `(1) 保留: ${joined}`);
+  // 前缀仍为单空格分隔、正文与编号同行
+  for (const line of text) {
+    assert.ok(line.startsWith("┃"), `行首 ┃: ${JSON.stringify(line)}`);
+  }
+});
+
+test("思考行列表嵌套：前导缩进每 2 列一层（两级）", () => {
+  const { text } = act([
+    L("- 父项", "thinking"),
+    L("  - 子项", "thinking"),
+    L("    - 孙项", "thinking"),
+  ]);
+  assert.ok(
+    text[0]!.startsWith("┃• 父项"),
+    `顶层无缩进: ${JSON.stringify(text[0])}`,
+  );
+  assert.ok(
+    text[1]!.startsWith("┃  • 子项"),
+    `子层缩进 2 列: ${JSON.stringify(text[1])}`,
+  );
+  assert.ok(
+    text[2]!.startsWith("┃    • 孙项"),
+    `孙层缩进 4 列: ${JSON.stringify(text[2])}`,
+  );
+});
+
+test("思考行有序嵌套：编号与缩进同存（`  -` 子层 bullet, `  1)` 子层编号）", () => {
+  const { text } = act([
+    L("1) 父编号", "thinking"),
+    L("  1) 子编号", "thinking"),
+    L("    (1) 孙编号", "thinking"),
+  ]);
+  assert.ok(
+    text[0]!.startsWith("┃1) 父编号"),
+    `顶层编号: ${JSON.stringify(text[0])}`,
+  );
+  assert.ok(
+    text[1]!.startsWith("┃  1) 子编号"),
+    `子层缩进 2 + 编号: ${JSON.stringify(text[1])}`,
+  );
+  assert.ok(
+    text[2]!.startsWith("┃    (1) 孙编号"),
+    `孙层缩进 4 + 圆括号编号: ${JSON.stringify(text[2])}`,
+  );
+});
+
+test("思考行嵌套任务：子任务随层级缩进（`  - [x]`）", () => {
+  const { text } = act([
+    L("- 父任务", "thinking"),
+    L("  - [x] 子任务完成", "thinking"),
+    L("    - [ ] 孙任务未完成", "thinking"),
+  ]);
+  assert.ok(
+    text[0]!.startsWith("┃• 父任务"),
+    `父层: ${JSON.stringify(text[0])}`,
+  );
+  assert.ok(
+    text[1]!.startsWith("┃  [x] 子任务完成"),
+    `子层缩进 + [x]: ${JSON.stringify(text[1])}`,
+  );
+  assert.ok(
+    text[2]!.startsWith("┃    [ ] 孙任务未完成"),
+    `孙层缩进 + [ ]: ${JSON.stringify(text[2])}`,
+  );
+});
+
+test("思考行嵌套内长项折行：续行悬挂对齐该层正文起列", () => {
+  const { rows, text } = act([
+    L("- 父项", "thinking"),
+    L("  - 子项" + "字".repeat(50), "thinking"),
+  ]);
+  assert.ok(rows.length >= 4, `嵌套列表折出多行（实际 ${rows.length}）`);
+  // 子项首行（第 1 行）前缀：2 空格缩进 + bullet + 空格
+  assert.ok(
+    text[1]!.startsWith("┃  • 子项"),
+    `子项首行缩进: ${JSON.stringify(text[1])}`,
+  );
+  // 子项续行（第 2+ 行）：悬挂缩进 4 列（深度 1*2 + bullet 2），不重复子弹
+  for (const line of text.slice(2)) {
+    assert.ok(
+      /^┃ {4}/.test(line) && !line.includes("•"),
+      `续行悬挂缩进 4 列且不重复子弹: ${JSON.stringify(line)}`,
+    );
+  }
+});
+
+test("正文与思考同口径：同一输入两侧渲染一致（列表编号 / 嵌套）", () => {
+  const think = act([L("1) 甲", "thinking"), L("  - 乙", "thinking")]);
+  const body = act([L("1) 甲", "assistant"), L("  - 乙", "assistant")]);
+  // 前缀符号不同（思考紫 ┃ vs 正文蓝 ┃），但正文部分一致
+  const stripBar = (s: string): string => s.replace(/^┃/, "");
+  assert.deepEqual(
+    think.text.map(stripBar),
+    body.text.map(stripBar),
+    `编号与嵌套两侧一致: ${JSON.stringify(think.text)} vs ${JSON.stringify(body.text)}`,
+  );
+});
