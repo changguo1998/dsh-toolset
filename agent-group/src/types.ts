@@ -64,6 +64,15 @@ export interface GroupLink {
   createdAt: number;
 }
 
+/** 平等连接（双向、无等级、发完即走，决策项 6）：存成对记录，键 = `a.b`（a<b 字典序）。 */
+export interface GroupPeerLink {
+  /** 组内名（字典序较小的一端）。 */
+  from: string;
+  /** 组内名（字典序较大的一端）。 */
+  to: string;
+  createdAt: number;
+}
+
 /** 指令记录（未结 + 已结算；每连接同时至多一条 `open`，决策项 14）。 */
 export interface GroupInstruction {
   /** 本地指令 id（回报按它归属）。 */
@@ -104,6 +113,8 @@ export interface AgentGroupState {
   members: Record<string, GroupMember>;
   /** 从方组内名 → 主从连接。 */
   links: Record<string, GroupLink>;
+  /** 平等连接：对键 `a.b`（a<b 字典序）→ 连接。缺省空（旧落盘文件无此字段按空处理）。 */
+  peerLinks: Record<string, GroupPeerLink>;
   /** 指令记录（按 `sentAt` 升序追加；超出上限从最旧裁）。 */
   instructions: GroupInstruction[];
 }
@@ -149,6 +160,11 @@ export interface GroupTransport {
     text: string;
     timeoutSec: number;
   }): Promise<{ ok: true; taskId: string } | GroupFailure>;
+  /** 发一条「发完即走」的消息（= session-channel 的 `send`），返回是否送达回执。 */
+  sendMessage(input: {
+    to: string;
+    text: string;
+  }): Promise<{ ok: true; delivered: boolean } | GroupFailure>;
   /** 读取任务（= session-channel 的 `taskStatus`；**读取时懒判定超时**）。 */
   taskStatus(
     taskId: string,
@@ -196,6 +212,8 @@ export interface GroupView {
     subordinates: string[];
   }>;
   links: Array<{ from: string; to: string; level: number; createdAt: number }>;
+  /** 平等连接（对键 `a.b`，a<b 字典序；每对至多一条）。 */
+  peerLinks: Array<{ from: string; to: string; createdAt: number }>;
   /** 指令记录（最新在前，最多 `instructionLimit` 条）。 */
   instructions: Array<{
     id: string;
@@ -213,6 +231,7 @@ export interface GroupView {
   summary: {
     members: number;
     links: number;
+    peerLinks: number;
     open: number;
     success: number;
     failure: number;

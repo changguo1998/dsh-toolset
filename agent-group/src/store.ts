@@ -108,7 +108,12 @@ export class FileBookStore implements BookStore {
       );
     }
     // 以当前会话为准（文件被复制到别的会话目录时不自作主张）。
-    return { ...parsed, managerSessionId };
+    const book = { ...parsed, managerSessionId };
+    // 向后兼容：旧版落盘没有 `peerLinks` 字段，补成空（决策项 4 的平等连接二期新增）。
+    for (const group of Object.values(book.groups)) {
+      (group as { peerLinks?: unknown }).peerLinks ??= {};
+    }
+    return book;
   }
 
   async save(book: AgentGroupBook): Promise<void> {

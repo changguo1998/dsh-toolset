@@ -64,6 +64,7 @@ function fakeChannel() {
     text: string;
     timeoutSec?: number;
   }> = [];
+  const sent: Array<{ to: string; text: string; waitMs?: number }> = [];
   const face = {
     async peers() {
       return {
@@ -92,6 +93,10 @@ function fakeChannel() {
       tasks.set(taskId, { status: "running" });
       return { ok: true, task: { id: taskId } };
     },
+    async send(request: { to: string; text: string; waitMs?: number }) {
+      sent.push(request);
+      return { ok: true, delivered: true };
+    },
     async taskStatus(taskId: string) {
       const task = tasks.get(taskId);
       return task === undefined
@@ -99,7 +104,7 @@ function fakeChannel() {
         : { ok: true, task: { ...task } };
     },
   };
-  return { face, online, aliases, tasks, delegated };
+  return { face, online, aliases, tasks, delegated, sent };
 }
 
 /** 假 memory-base 服务面（`registerKind` 返回写句柄 `put`；写入记录进 `calls`）。 */
@@ -477,7 +482,7 @@ test("enabled: false 时不注册也不警告", () => {
   assert.deepEqual(box.logs, []);
 });
 
-test("工具定义：7 个动作、参数与描述齐备，render 输出字符串", async () => {
+test("工具定义：动作、参数与描述齐备，render 输出字符串", async () => {
   const env = await environment();
   assert.equal(name, "agent-group");
   assert.equal(env.tool.name, "agent_group");
@@ -489,13 +494,17 @@ test("工具定义：7 个动作、参数与描述齐备，render 输出字符�
     "create_group",
     "add_member",
     "link",
+    "link_peer",
     "send",
+    "send_peer",
+    "broadcast",
     "check",
     "remove",
     "status",
   ]);
   assert.deepEqual(parameters.required, ["action"]);
   assert.match(env.tool.description, /每.*主从连接.*未结/);
+  assert.match(env.tool.description, /link_peer/);
   const rendered = env.tool.output.render({}, { ok: true, value: 1 });
   assert.equal(rendered[0]?.type, "text");
   assert.match(String(rendered[0]?.text), /"value": 1/);
@@ -794,4 +803,71 @@ test("状态文件损坏：报 state_unavailable（不静默重置），提示�
   assert.equal(status["error"], "state_unavailable");
   assert.match(String(status["reason"]), /JSON/);
   assert.match(String(status["next"]), /删掉/);
+});
+
+test("端到端（假服务面）：link_peer → send_peer → broadcast 全绿、不产生未结", async () => {
+  const env = await environment();
+  await env.call({ action: "create_group", name: "team" });
+  await env.call({
+    action: "add_member",
+    group: "team",
+    name: "alice",
+    target: "alice-alias",
+  });
+  await env.call({
+    action: "add_member",
+    group: "team",
+    name: "bob",
+    target: "sess-bob",
+  });
+
+  const linked = await env.call({
+    action: "link_peer",
+    group: "team",
+    from: "manager",
+    to: "bob",
+  });
+  assert.equal(linked["ok"], true, JSON.stringify(linked));
+  assert.equal(
+    (linked["view"] as { summary: { peerLinks: number } }).summary.peerLinks,
+    1,
+  );
+
+  const sentPeer = await env.call({
+    action: "send_peer",
+    group: "team",
+    to: "bob",
+    text: "平等连接你好",
+  });
+  assert.equal(sentPeer["ok"], true, JSON.stringify(sentPeer));
+  assert.equal(sentPeer["delivered"], true);
+  assert.deepEqual(
+    env.channel.sent.map((s) => ({ to: s.to, text: s.text })),
+    [{ to: "sess-bob", text: "平等连接你好" }],
+  );
+
+  const cast = await env.call({
+    action: "broadcast",
+    group: "team",
+    text: "全体集合",
+  });
+  assert.equal(cast["ok"], true, JSON.stringify(cast));
+  assert.deepEqual(cast["targets"], ["alice", "bob"]);
+  assert.equal((cast["delivery"] as { delivered: number }).delivered, 2);
+  assert.deepEqual(
+    env.channel.sent
+      .slice(-2)
+      .map((s) => s.to)
+      .sort(),
+    ["sess-alice", "sess-bob"],
+  );
+
+  const status = await env.call({ action: "status", group: "team" });
+  const view = status["view"] as {
+    summary: { open: number; peerLinks: number };
+    instructions: unknown[];
+  };
+  assert.equal(view.summary.open, 0, "平等 / 广播不产生未结指令");
+  assert.equal(view.summary.peerLinks, 1);
+  assert.equal(view.instructions.length, 0);
 });

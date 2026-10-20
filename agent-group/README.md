@@ -1,22 +1,25 @@
 # @dsh-toolset/agent-group
 
-DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—— 组、成员、主从连接（含等级）、指令与回报。不采样、不聚合，也不建也不销毁会话。
+DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—— 组、成员、主从连接（含等级）、平等连接、指令与回报、广播。不采样、不聚合，也不建也不销毁会话。
 
 设计决策见项目级追踪文档 `docs/archived/2026-10-16-peer-group-protocol-design.md`（决策项 1-20）；本包的机制说明见 `docs/DESIGN.md`。
 
 ## 能力
 
-注册单个工具 `agent_group`，按 `action` 分派 7 个动作：
+注册单个工具 `agent_group`，按 `action` 分派 10 个动作：
 
 | 动作 | 参数 | 语义 |
 | --- | --- | --- |
 | `create_group` | `name?` | 建组（只带组级参数；**管理者 = 调用方所在会话**，组内固定名 `manager`、等级 0） |
 | `add_member` | `group` · `name` · `target` | 加成员，一次一个；`target` = 会话 id 或别名（须**在线且唯一命中**）；组内名本包自管 |
 | `link` | `group` · `from` · `to` | 建立主从连接（主 → 从）：从方须是**自由代理**（无主、无从、等级 0），从方等级 = 主方等级 + 1 |
+| `link_peer` | `group` · `from` · `to` | 建立**平等连接**（双向、无等级、发完即走；任意两个 agent 之间**每种**连接各至多一条，决策项 4 / 6） |
 | `send` | `group` · `to` · `text` · `timeoutMs?` | 发指令（每条主从连接**同时只允许一条未结**；`timeoutMs` 缺省 30 分钟） |
+| `send_peer` | `group` · `to` · `text` | 经平等连接发一条消息（**发完即走**：不等回复、不重试、不留未结指令） |
+| `broadcast` | `group` · `text` · `to?` | 广播：按当前成员集合逐条发送并**汇总送达 / 失败**（`to` 缺省 = 全部非管理者成员；逗号或空格分隔子集） |
 | `check` | `group` · `to?` | 懒判定结算：成功 / 失败 / 受阻 / 超时（缺 `to` 则检查全组已建立连接的成员） |
-| `remove` | `group` · `name` | 移除成员（**逐层下推**：非叶子被拒并列出剩余从代理） |
-| `status` | `group` | 只读查看：成员、等级与主从关系、未结指令、最近回报、镜像计数 |
+| `remove` | `group` · `name` | 移除成员（**逐层下推**：非叶子被拒并列出剩余从代理；其平等连接一并删除） |
+| `status` | `group` | 只读查看：成员、等级与主从关系、平等连接、未结指令、最近回报、镜像计数 |
 
 所有拒绝都带 **原因 + 下一步**（`{ok:false, error, reason, next}`，`error` 是稳定错误码）。
 
@@ -30,6 +33,7 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 - **懒判定结算**：`check` 才向通道读任务，收场五种 —— 成功 / 失败 / 受阻（`blocked:` 前缀）/ 超时 / 成员被移除（`removed`）。超时同时接受通道判定与本地判定（`now ≥ deadline`）。
 - **回报信封**（决策项 16）：`成功 / 失败 / 受阻 + 正文 + 成因`，本包**不解析正文**、不做聚合。成员要表达「受阻」时用 `failed: true` + `error: "blocked: <原因>"`（本包识别该前缀并把前缀剥掉后作为成因）。
 - **拒绝不级联**：非叶子移除被拒，提示里列出它名下的从代理与逐层移除的顺序。
+- **平等连接**（决策项 4 / 6）：双向、无等级、发完即走（不等回复、不重试、不留未结指令）；每对这种连接各至多一条；与主从连接相互独立（同一对「主从 + 平等」可并存）；移除成员时其平等连接一并删除。
 
 ## 传输接入
 
@@ -37,6 +41,7 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 
 - 投递指令 = `delegate({from, to, text, timeoutSec})`，指令 id 用其 `task.id`；`from` = 主方成员的会话 id（未知时回落管理者会话 id），`to` = 从方成员解析出的会话 id。
 - 收取回报 = `taskStatus(taskId)`（**读取时懒判定超时**）。
+- 发完即走消息（平等连接 `send_peer` / 广播 `broadcast`）= `send({to, text, waitMs})`，回执 `delivered` 表示已注入目标下一回合；**不产生任务记录、不留未结指令**。
 - 成员寻址 = `peers()`（会话 id 精确）+ `aliasList()`（别名）——离线或歧义直接拒绝，**不排队**。
 
 三条硬约束照 `session-channel` 的 README：从方也要挂本插件（注入由目标进程的 reader 完成）· 目标必须在线 · 离线不排队。
@@ -81,16 +86,21 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 ```jsonc
 { "action": "create_group", "name": "review" }
 { "action": "add_member", "group": "review", "name": "alice", "target": "alice-alias" }
+{ "action": "add_member", "group": "review", "name": "bob", "target": "bob-session-id" }
 { "action": "link", "group": "review", "from": "manager", "to": "alice" }
 { "action": "send", "group": "review", "to": "alice", "text": "评审 design.md 的并发一节", "timeoutMs": 600000 }
 { "action": "check", "group": "review", "to": "alice" }
+{ "action": "link_peer", "group": "review", "from": "manager", "to": "bob" }
+{ "action": "send_peer", "group": "review", "to": "bob", "text": "下午同步一下进度" }
+{ "action": "broadcast", "group": "review", "text": "全员：周五 18:00 前给结论" }
 ```
 
 ## 边界与不做
 
 - 不做结论聚合、不建模「轮次」（管理者自己合成结论）。
 - 不启动 / 不销毁成员会话（成员是「已存在且可被寻址的会话」）。
-- 仅本机（经 session-channel），无跨机；无广播（二期）；无 TUI 命令或面板（二期）。
+- 仅本机（经 session-channel），无跨机；无 TUI 命令或面板（二期）。
+- 广播与平等连接**不产生未结指令**：需要带回报的任务仍走主从 `send` / `check`。
 - 不占用全机别名空间：组内名字由本包自管。
 - 与相邻能力的边界：链路归 `session-channel`；任务骨架与验收归 `task-engine`；单会话 prompt 级采样裁决归 `command-template` 的 `bestOf + judge`；人面并行评审归 TUI `/council`；**成员与连接**归本包。
 
@@ -106,9 +116,9 @@ npm run test    # node --test（3 个文件：model / core / main；不依赖 Re
 
 - `src/types.ts`：配置、组状态（落盘形状）、端口与结果信封
 - `src/model.ts`：纯状态迁移与不变量（组 / 成员 / 连接 / 指令 / 视图 / 自检）
-- `src/core.ts`：7 个动作的编排（读状态 → 纯迁移 → 落盘 → 镜像）
+- `src/core.ts`：10 个动作的编排（读状态 → 纯迁移 → 落盘 → 镜像）
 - `src/store.ts`：文件存储（原子写 / 0600）与内存存储
-- `src/transport.ts`：session-channel 服务面适配（`delegate` / `taskStatus` / 寻址）
+- `src/transport.ts`：session-channel 服务面适配（`delegate` / `taskStatus` / `send` / 寻址）
 - `src/mirror.ts`：可选 memory-base 镜像
 - `src/main.ts`：bundle 入口（依赖门禁 + 工具注册）
 - `docs/DESIGN.md`：机制与决策落地；`docs/BACKLOG.md`：未完成项

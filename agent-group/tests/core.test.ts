@@ -34,6 +34,10 @@ class FakeTransport implements GroupTransport {
   }> = [];
   delegateFailure: GroupFailure | undefined;
   statusFailure: GroupFailure | undefined;
+  /** 发完即走消息记录（`send` 面）。 */
+  readonly sent: Array<{ to: string; text: string }> = [];
+  sendFailure: GroupFailure | undefined;
+  sendDelivered = true;
 
   async resolve(
     target: string,
@@ -60,6 +64,15 @@ class FakeTransport implements GroupTransport {
     this.delegated.push({ ...input, taskId });
     this.tasks.set(taskId, { status: "running" });
     return { ok: true, taskId };
+  }
+
+  async sendMessage(input: {
+    to: string;
+    text: string;
+  }): Promise<{ ok: true; delivered: boolean } | GroupFailure> {
+    if (this.sendFailure !== undefined) return this.sendFailure;
+    this.sent.push(input);
+    return { ok: true, delivered: this.sendDelivered };
   }
 
   async taskStatus(
@@ -433,6 +446,9 @@ test("传输端口抛异常：统一转成 transport_error（不把异常抛给�
     async delegate() {
       throw new Error("EPIPE");
     },
+    async sendMessage() {
+      throw new Error("EPIPE");
+    },
     async taskStatus() {
       throw new Error("超时");
     },
@@ -593,4 +609,126 @@ test("verdictOf：纯函数口径（回报已到 / 超时 / 仍算未结 / 传�
       cause: "任务记录不存在（可能已过期）",
     },
   );
+});
+
+test("link_peer：建立平等连接、每对至多一条、不产生未结指令", async () => {
+  const env = await ready();
+  const linked = await env.service.linkPeer(
+    { group: "team", from: "manager", to: "bob" },
+    MANAGER,
+  );
+  assert.equal(linked.ok, true, JSON.stringify(linked));
+  const link = linked["link"] as { from: string; to: string };
+  assert.deepEqual([link.from, link.to].sort(), ["bob", "manager"]);
+  const view = linked["view"] as GroupView;
+  assert.equal(view.summary.peerLinks, 1);
+  // 每对至多一条：反向再建被拒
+  const dup = await env.service.linkPeer(
+    { group: "team", from: "bob", to: "manager" },
+    MANAGER,
+  );
+  const dupFail = expectFailure(dup);
+  assert.equal(dupFail.error, "peer_link_exists");
+  const status = await env.service.status({ group: "team" }, MANAGER);
+  const sut = status["view"] as GroupView;
+  assert.equal(sut.summary.open, 0, "平等连接不产生未结指令");
+});
+
+test("send_peer：经平等连接发消息（发完即走、回执 delivered）、无平连接被拒", async () => {
+  const env = await ready();
+  // 未建平等连接 → 拒绝
+  const noLink = await env.service.sendPeer(
+    { group: "team", to: "bob", text: "嗨" },
+    MANAGER,
+  );
+  assert.equal(noLink.ok, false);
+  assert.equal(noLink["error"], "no_peer_link");
+
+  await env.service.linkPeer(
+    { group: "team", from: "manager", to: "bob" },
+    MANAGER,
+  );
+  const sent = await env.service.sendPeer(
+    { group: "team", to: "bob", text: "嗨" },
+    MANAGER,
+  );
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+  assert.equal(sent["delivered"], true);
+  assert.deepEqual(env.transport.sent, [{ to: "sess-bob", text: "嗨" }]);
+  // 不落未结、不进 instructions
+  const status = await env.service.status({ group: "team" }, MANAGER);
+  const view = status["view"] as GroupView;
+  assert.equal(view.summary.open, 0);
+  assert.equal(view.instructions.length, 0);
+
+  // 投递失败 → 逐条失败可区分
+  env.transport.sendFailure = failure("target_offline", "目标不在线", "重试");
+  const failed = await env.service.sendPeer(
+    { group: "team", to: "bob", text: "再嗨" },
+    MANAGER,
+  );
+  assert.equal(failed.ok, false);
+  assert.equal(failed["error"], "target_offline");
+});
+
+test("broadcast：按成员集合逐条发送、送达与失败可区分、不产生未结", async () => {
+  const env = await ready();
+  const cast = await env.service.broadcast(
+    { group: "team", text: "全体注意" },
+    MANAGER,
+  );
+  assert.equal(cast.ok, true, JSON.stringify(cast));
+  assert.deepEqual(cast["targets"], ["alice", "bob"]);
+  const results = cast["results"] as Array<Record<string, unknown>>;
+  assert.equal(results.length, 2);
+  assert.ok(results.every((r) => r["delivered"] === true));
+  assert.deepEqual(
+    cast["delivery"] as { targets: number; delivered: number; failed: number },
+    { targets: 2, delivered: 2, failed: 0 },
+  );
+  assert.deepEqual(env.transport.sent.map((s) => s.to).sort(), [
+    "sess-alice",
+    "sess-bob",
+  ]);
+  const status = await env.service.status({ group: "team" }, MANAGER);
+  assert.equal((status["view"] as GroupView).summary.open, 0);
+
+  // 其中一个投递失败 → 汇总里 failed=1、逐条可区分
+  env.transport.sendDelivered = true;
+  env.transport.sendFailure = failure("target_offline", "目标不在线", "重试");
+  const partial = await env.service.broadcast(
+    { group: "team", to: "alice,bob", text: "再全体" },
+    MANAGER,
+  );
+  assert.equal(partial.ok, true, JSON.stringify(partial));
+  const partialResults = partial["results"] as Array<Record<string, unknown>>;
+  assert.equal(partialResults.length, 2);
+  const failRows = partialResults.filter((r) => r["delivered"] === false);
+  assert.equal(
+    failRows.length,
+    2,
+    "send 失败 → 每条标记 delivered:false 且带 error",
+  );
+  assert.ok(failRows.every((r) => r["error"] === "target_offline"));
+  assert.deepEqual(partial["delivery"], {
+    targets: 2,
+    delivered: 0,
+    failed: 2,
+  });
+});
+
+test("broadcast：显式 to 子集校验成员存在；空正文被拒", async () => {
+  const env = await ready();
+  const bad = await env.service.broadcast(
+    { group: "team", to: "ghost", text: "x" },
+    MANAGER,
+  );
+  assert.equal(bad.ok, false);
+  assert.equal(bad["error"], "member_not_found");
+  const empty = await env.service.broadcast(
+    { group: "team", text: "   " },
+    MANAGER,
+  );
+  assert.equal(empty.ok, false);
+  assert.equal(empty["error"], "invalid_argument");
 });
