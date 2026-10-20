@@ -500,6 +500,7 @@ test("工具定义：动作、参数与描述齐备，render 输出字符串", a
     "broadcast",
     "check",
     "remove",
+    "close_group",
     "status",
   ]);
   assert.deepEqual(parameters.required, ["action"]);

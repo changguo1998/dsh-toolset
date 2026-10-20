@@ -36,20 +36,27 @@
 - 本追踪文档（唯一改动点；状态牌任务的主改动见 `docs/implementation/2026-10-20-agent-status-board.md`）。
 - 收尾：BACKLOG #4 标记完成并移除；本文件归档 `docs/archived/`。
 
-明确不做：本轮不实现 `close_group`；不做组级预算；结算检查不自作主张并入巡查。
+明确不做：不做组级预算（裁定 1）；`close_group` 不连带关闭成员 agent（裁定 3）；结算检查不自作主张并入巡查。
 
 ## 实现记录
 
-（待写。）
+（2026-10-20 用户裁定后落地「关闭组语义」；全组预算 / 检查间隔按裁定不落地代码）
+
+- `agent-group/src/types.ts`：`AgentGroupState` / `GroupView` 加可选 `closedAt`（存在 = 已关闭；缺失即不写键）。
+- `agent-group/src/model.ts`：新增 `closeGroup(book, {group, now})` 纯迁移——幂等守卫（已关闭 → `group_closed`）；全部 `open` 指令按**超时 / 取消口径**收场（`status: "timeout"` + `cause: "组已关闭（组长终止未结指令）"` + `settledAt`）；写 `closedAt`。
+- `agent-group/src/core.ts`：`close_group` 动作（分派 + 实现）——`caller` 须为组长（`caller === group.managerSessionId`，否则 `not_manager`）；经 `#locked` 串行、落盘、镜像；返回 `closedAt` / `terminated` / `view`。新增 `#closedGuard(book, groupName)` 并在 8 个写动作（add_member / link / link_peer / send / send_peer / broadcast / check / remove）load 后调用——**已关闭组一律拒绝写动作**（`group_closed`），`status` 只读仍可用。
+- `agent-group/src/main.ts`：工具 `action` enum 与描述补 `close_group`（10 → 11 个动作）。
 
 ## 偏差
 
-（待写。）
+- 非组长关闭路径：`#load(caller)` 按调用方会话读各自的书——成员会话名下没有组长组的书，直接 `group_not_found`；代码里的 `caller === group.managerSessionId` 检查是防御性双保险（同书被另一会话读到的极端情形才触发 `not_manager`）。
 
 ## 测试与证据
 
-（待写。）
+- `agent-group/tests/core.test.ts` 新增 2 用例：组长关闭（未结终止为 timeout + 成因、`closedAt`、再关 / 写动作被拒、status 仍可读、视图带 `closedAt`）；成员会话访问不到组长组（独立书 → `group_not_found`）+ 关闭组上 remove 被拒（守卫覆盖抽查）。
+- `agent-group/tests/main.test.ts`：工具定义断言更新（action enum 含 `close_group`）。
+- `npm --prefix agent-group run check` 通过；`npm --prefix agent-group run test` **61/61** 绿。
 
 ## 收尾
 
-（待写。）
+- 待办：格式化改动文件 → 提交询问点 → 提交到 `dsh/agent-group` 分支；条目 1 的消费端（四态判定 + 巡查 + 状态视图）等 `dsh/session-channel` 读数面合 main 后按契约补齐（串行），再进行真机四态验证；BACKLOG #4 移除与归档与条目 1 一起收尾。

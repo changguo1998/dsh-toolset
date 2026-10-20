@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import {
   addMember as modelAddMember,
   assignTaskId as modelAssignTaskId,
+  closeGroup as modelCloseGroup,
   createGroup as modelCreateGroup,
   failure,
   groupView,
@@ -411,13 +412,15 @@ export class GroupService {
         return this.check(args, caller);
       case "remove":
         return this.remove(args, caller);
+      case "close_group":
+        return this.closeGroup(args, caller);
       case "status":
         return this.status(args, caller);
       default:
         return failure(
           "unknown_action",
           `未知 action：${action === "" ? "（空）" : action}`,
-          "action 用 create_group / add_member / link / link_peer / send / send_peer / broadcast / check / remove / status",
+          "action 用 create_group / add_member / link / link_peer / send / send_peer / broadcast / check / remove / close_group / status",
         );
     }
   }
@@ -459,6 +462,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const name = stringArg(args, "name");
       const target = stringArg(args, "target");
       const found = pickGroup(book, groupName);
@@ -507,6 +512,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const applied = modelLinkMembers(book, {
         group: groupName,
         from: stringArg(args, "from"),
@@ -539,6 +546,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const to = stringArg(args, "to");
       const timeoutMs =
         typeof args.timeoutMs === "number"
@@ -633,6 +642,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const only = stringArg(args, "to");
       const initial = pickGroup(book, groupName);
       if (isFailure(initial)) return initial;
@@ -725,6 +736,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const applied = modelRemoveMember(book, {
         group: groupName,
         name: stringArg(args, "name"),
@@ -751,6 +764,65 @@ export class GroupService {
     });
   }
 
+  /** 关闭组（#4 裁定 3）：仅组长（创建组的 agent）可关；关闭 = 组内派发任务结束、
+   *  未结指令终止（timeout + cause）、连接关系关闭（此后写动作拒绝）、不连带关成员。 */
+  async closeGroup(
+    args: Record<string, unknown>,
+    caller: string,
+  ): Promise<ActionResult> {
+    return this.#locked(caller, async () => {
+      const book = await this.#load(caller);
+      if (book === undefined) return this.#stateFailure();
+      const groupName = stringArg(args, "group");
+      const group = pickGroup(book, groupName);
+      if (isFailure(group)) return group;
+      if (caller !== group.managerSessionId) {
+        return failure(
+          "not_manager",
+          `仅组长可关闭组（组「${group.name}」由 ${group.managerSessionId} 创建）`,
+          "组长 = 建组的会话；成员如需退出请让组长 remove",
+        );
+      }
+      const applied = modelCloseGroup(book, {
+        group: groupName,
+        now: this.#now(),
+      });
+      if (isFailure(applied)) return applied;
+      const saved = await this.#persist(applied.book);
+      if (saved !== undefined) return saved;
+      await this.#mirrorGroup(applied.group);
+      return {
+        ok: true,
+        action: "close_group",
+        group: groupName,
+        closedAt: applied.group.closedAt,
+        terminated: applied.terminated,
+        view: groupView(applied.group),
+        next:
+          applied.terminated === 0
+            ? "组已关闭：连接关系失效、不再接受写动作；成员 agent 不受影响。如需新组请 create_group 重建"
+            : `组已关闭：${applied.terminated} 条未结指令已终止（timeout）；连接关系失效。成员 agent 不受影响。`,
+      };
+    });
+  }
+
+  /** 已关闭组守卫：写动作 load 后调用；组不存在 / 已关闭 → 失败信封（`group_closed`）。 */
+  #closedGuard(
+    book: AgentGroupBook,
+    groupName: string,
+  ): GroupFailure | undefined {
+    const group = pickGroup(book, groupName);
+    if (isFailure(group)) return group;
+    if (group.closedAt !== undefined) {
+      return failure(
+        "group_closed",
+        `组「${group.name}」已关闭`,
+        "已关闭组不接受任何写动作；如需新组请 create_group 重建",
+      );
+    }
+    return undefined;
+  }
+
   /** 建立平等连接（双向、无等级；每对 agent 每种连接至多一条，决策项 4 / 6）。 */
   async linkPeer(
     args: Record<string, unknown>,
@@ -760,6 +832,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const applied = modelLinkPeer(book, {
         group: groupName,
         from: stringArg(args, "from"),
@@ -793,6 +867,8 @@ export class GroupService {
     const book = await this.#load(caller);
     if (book === undefined) return this.#stateFailure();
     const groupName = stringArg(args, "group");
+    const closed = this.#closedGuard(book, groupName);
+    if (closed !== undefined) return closed;
     const to = stringArg(args, "to");
     const text = stringArg(args, "text").trim();
     const found = pickGroup(book, groupName);
@@ -862,6 +938,8 @@ export class GroupService {
     const book = await this.#load(caller);
     if (book === undefined) return this.#stateFailure();
     const groupName = stringArg(args, "group");
+    const closed = this.#closedGuard(book, groupName);
+    if (closed !== undefined) return closed;
     const text = stringArg(args, "text").trim();
     const found = pickGroup(book, groupName);
     if (isFailure(found))

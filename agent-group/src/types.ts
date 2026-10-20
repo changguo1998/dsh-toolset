@@ -123,6 +123,8 @@ export interface AgentGroupState {
   peerLinks: Record<string, GroupPeerLink>;
   /** 指令记录（按 `sentAt` 升序追加；超出上限从最旧裁）。 */
   instructions: GroupInstruction[];
+  /** 组关闭时刻（#4 裁定 3）：存在即已关闭——连接关系失效、写动作拒绝；缺失 = 未关闭。 */
+  closedAt?: number;
 }
 
 /** 一个管理者会话的全量状态（落盘形状：`<管理者会话目录>/agent-group.json`）。 */
@@ -232,6 +234,8 @@ export interface GroupView {
   id: string;
   manager: { name: string; sessionId: string };
   createdAt: number;
+  /** 组关闭时刻（#4 裁定 3）；缺省 = 组未关闭。 */
+  closedAt?: number;
   members: Array<{
     name: string;
     target: string;

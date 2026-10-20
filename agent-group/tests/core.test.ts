@@ -913,3 +913,68 @@ test("readGroupStatus：传 memberLookup 时附 memberStates，缺省不判定",
   assert.ok(!isFailure(plain));
   assert.equal(plain.groups[0]?.memberStates, undefined);
 });
+
+// ---------- #4 裁定 3：组关闭语义（close_group） ----------
+
+test("close_group：组长关闭 → 未结指令终止(timeout) + closedAt；再关 / 写动作被拒；status 仍可读", async () => {
+  const env = await ready();
+  // 建一条未结指令（manager → alice，主从连接已由 ready 建立）
+  const sent = await env.service.send(
+    { group: "team", to: "alice", text: "任务A", timeoutMs: 60_000 },
+    MANAGER,
+  );
+  assert.equal(sent.ok, true, JSON.stringify(sent));
+
+  // 组长（创建组的管理者会话）关闭
+  const closed = await env.service.closeGroup({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(closed), JSON.stringify(closed));
+  assert.equal(closed["action"], "close_group");
+  assert.equal(closed["terminated"], 1, "1 条未结指令被终止");
+  assert.equal(typeof closed["closedAt"], "number");
+  const view = closed["view"] as GroupView;
+  assert.equal(typeof view.closedAt, "number", "视图带 closedAt");
+
+  // 未结指令已按「超时/取消口径」收场：timeout + 成因
+  const statusAfter = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(statusAfter));
+  const afterView = statusAfter["view"] as GroupView;
+  const terminated = afterView.instructions[0];
+  assert.equal(terminated?.status, "timeout");
+  assert.match(terminated?.cause ?? "", /组已关闭/);
+  assert.equal(afterView.summary.open, 0);
+
+  // 已关闭再关 → group_closed
+  const again = await env.service.closeGroup({ group: "team" }, MANAGER);
+  assert.equal(again.ok, false);
+  assert.equal(again["error"], "group_closed");
+
+  // 关闭后写动作被拒（send 示例；检查与 status 除外）
+  const sent2 = await env.service.send(
+    { group: "team", to: "alice", text: "x", timeoutMs: 60_000 },
+    MANAGER,
+  );
+  assert.equal(sent2.ok, false);
+  assert.equal(sent2["error"], "group_closed");
+
+  // status 仍可读（只读查看允许）
+  const statusLive = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(statusLive));
+  assert.equal((statusLive["view"] as GroupView).closedAt, closed["closedAt"]);
+});
+
+test("close_group：仅组长可关——成员会话无法访问该组（独立书，group_not_found）", async () => {
+  const env = await ready();
+  const member = await env.service.closeGroup({ group: "team" }, "sess-alice");
+  assert.equal(member.ok, false);
+  assert.equal(member["error"], "group_not_found", "成员会话名下无此书");
+
+  // remove 等写动作在关闭组上同样被拒（守卫覆盖齐全性抽查）
+  const closed = await env.service.closeGroup({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(closed), JSON.stringify(closed));
+  const removed = await env.service.remove(
+    { group: "team", name: "bob" },
+    MANAGER,
+  );
+  assert.equal(removed.ok, false);
+  assert.equal(removed["error"], "group_closed");
+});
