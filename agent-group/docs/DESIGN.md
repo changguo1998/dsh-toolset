@@ -36,14 +36,17 @@
 AgentGroupBook（一个管理者会话的全量状态，落盘）
 └─ groups: { <组名>: AgentGroupState }
    ├─ members: { <组内名>: GroupMember }   // 含固定 manager（等级 0、role=manager）
-   ├─ links:   { <从方名>: GroupLink }     // 每 agent 至多一个主：以从方为主键
+   ├─ links:    { <从方名>: GroupLink }     // 每 agent 至多一个主：以从方为主键
+   ├─ peerLinks: { <对键>: GroupPeerLink }  // 平等连接：双向、无等级；对键 = `a.b`（a<b 字典序）
    └─ instructions: GroupInstruction[]     // 未结 + 已结算；按 sentAt 追加，超上限从最旧裁
 ```
 
-- **组内名**（组名 / 成员名）统一口径 `[A-Za-z0-9_-]{1,32}`：窄、无空白、可直接进 JSON 与命令；`manager` 是保留名。
-- **等级**：无主者 0；从方 = 主方 + 1。等级只赋一次、此后不变（因为从方必须是自由代理，不存在子树重排，决策项 9）。
-- **指令**：`status ∈ {open, success, failure, blocked, timeout, removed}`。`open` 即未结；其余是收场。`removed` 是「成员被移除」这一失败成因的独立值，便于 `status` 与 `summary` 区分。
+- **组内名**（组名 / 成员名）统一口径 `[A-Za-z0-9_-]{1,32}`：窄、无空白、可直接进 JSON 与命令；`manager` 是保留名（对键分隔符 `.` 不会与组内名相撞）。
+- **等级**：无主者 0；从方 = 主方 + 1。等级只赋一次、此后不变（因为从方必须是自由代理，不存在子树重排，决策项 9）。平等连接**不记等级**（决策项 6）。
+- **平等连接**（决策项 4 / 6，二期落地）：`peerLinks` 以「对键」为主键（`a.b`，a\<b 字典序）—— 每对至多一条由键唯一性直接保证；与主从连接（`links`）相互独立、可并存；移除成员时其参与的全部平等连接一并删除（纯状态改动）。
+- **指令**：`status ∈ {open, success, failure, blocked, timeout, removed}`。`open` 即未结；其余是收场。`removed` 是「成员被移除」这一失败成因的独立值，便于 `status` 与 `summary` 区分。`send_peer` / `broadcast`（消息式）**不落指令记录**、不产生未结。
 - **可选字段一律按需拼装**：落盘与工具返回都不出现值为 `undefined` 的键（宿主 `INVALID_TOOL_OUTPUT` 的成因）。
+- **向后兼容**：旧落盘文件没有 `peerLinks` 字段，`store.load` 按空对象补齐（不升 `version`）。
 
 ## 4. 状态机
 
@@ -74,12 +77,13 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
               从方（等级 = X.level + 1）──link from=它──▶ 更深的从方
                   │ remove（仅当它是叶子）
                   ▼
-              移除（连接一并删除；未结指令结算为 removed）
+              移除（主从连接随成员一并删除；未结指令结算为 removed；平等连接一并删除）
 ```
 
 - 连接**不可解除**：没有 unlink 动作；改结构只能逐层 `remove` 后重建（决策项 10）。
 - 移除**不级联**：非叶子被拒，`reason` 与 `next` 里列出剩余从代理与逐层移除的顺序（决策项 18）。
 - 管理者不能被移除、也不能作为从方——两条路径都带原因与下一步。
+- **平等连接**：`link_peer group from to` 建立（校验成员存在、不自连、该对尚无平等连接）；建立后**双向可发**（`send_peer` 由管理者经连接发一条消息，发完即走）；不影响主从等级与未结指令。
 
 ### 4.3 「主等级 ≥ 从等级」这条规则怎么落地
 
@@ -119,6 +123,6 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 | 缺依赖 → 不注册工具 + 一次警告（apply 期门禁） | ~~**工具照常注册**，缺依赖改为调用期错误（原因 + 下一步）~~ | ~~真机实测（2026-10-17）：`sessionChannel` / `sessionPaths` 晚于本包激活且无法经 `inject` 解析，注册被推到 agent 创建之后 → 工具表不收录（`/tools agent_group` 为 0）。工具定义改为不依赖服务，`execute` 时才组装 `GroupService`~~ —— **2026-10-19 被下一行取代** |
 | 注册面一并去掉 `inject`（2026-10-17 裁定） | 静态 `inject: ["tools"]` 恢复声明；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 改走 `ctx.inject([...], cb)` 子分叉绑定，工具仍在 `apply` 期注册 | 真机实测（2026-10-19）：不写 `inject` 时 `ctx.get("tools")` 读到 `undefined`（cordis 4.0.5），工具**从未注册**；兄弟 bundle 提供的服务未注入也读不到。回归用例见 `tests/main.test.ts`「真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用」 |
 
-## 9. 明确不做（首期）
+## 9. 明确不做（当前）
 
-广播与平等连接的记录、「每对至多一条」校验；TUI 命令或面板；轮次建模与终止细节；结论聚合与投票；启动 / 销毁成员会话；跨机；`experimental-agent-team` 的挂载。均见 `docs/BACKLOG.md`。
+TUI 命令或面板；轮次建模与终止细节；结论聚合与投票；启动 / 销毁成员会话；跨机；`experimental-agent-team` 的挂载。均见 `docs/BACKLOG.md`。广播与平等连接（含「每对至多一条」校验）已随二期落地（见 §3 / §4.2，追踪文档 `docs/archived/2026-10-19-agent-group-broadcast.md`）。

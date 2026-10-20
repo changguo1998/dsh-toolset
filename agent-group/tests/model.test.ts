@@ -15,9 +15,12 @@ import {
   invariantViolations,
   isFailure,
   linkMembers,
+  linkPeer,
   MANAGER_NAME,
   openInstruction,
   openInstructionOf,
+  peerPairKey,
+  peerLinksOf,
   removeMember,
   settleInstruction,
 } from "../src/model.ts";
@@ -711,4 +714,128 @@ test("不变量自检：正常状态为空表，被改坏的状态逐条报出",
   assert.ok(problems.some((item) => item.includes("主方不存在")));
   assert.ok(problems.some((item) => item.includes("管理者不能作为从方")));
   assert.ok(problems.some((item) => item.includes("自由代理")));
+});
+
+test("平等连接：对键与参与者查询", () => {
+  assert.equal(peerPairKey("bob", "alice"), "alice.bob");
+  assert.equal(peerPairKey("alice", "bob"), "alice.bob");
+  const { group } = fixture();
+  assert.deepEqual(peerLinksOf(group, "alice"), []);
+});
+
+test("平等连接：linkPeer 建立双向记录、无等级、不进 links、每对至多一条", () => {
+  const { book } = fixture();
+  const linked = linkPeer(book, {
+    group: "team",
+    from: "alice",
+    to: "bob",
+    now: NOW,
+  });
+  assert.ok(!isFailure(linked), JSON.stringify(linked));
+  assert.equal(linked.group.peerLinks["alice.bob"]?.from, "alice");
+  assert.equal(linked.group.peerLinks["alice.bob"]?.to, "bob");
+  assert.equal(
+    linked.group.links["alice"],
+    undefined,
+    "平等连接不进主从 links",
+  );
+  assert.equal(linked.group.members["alice"]?.level, 0, "平等连接不改等级");
+  assert.deepEqual(peerLinksOf(linked.group, "bob"), ["alice.bob"]);
+  // 每对至多一条：重复建立被拒
+  const dup = linkPeer(linked.book, {
+    group: "team",
+    from: "bob",
+    to: "alice",
+    now: NOW,
+  });
+  const dupFail = expectFailure(dup);
+  assert.equal(dupFail.error, "peer_link_exists");
+  // 不同对可以各自建（互不影响）
+  const linked2 = linkPeer(linked.book, {
+    group: "team",
+    from: "manager",
+    to: "alice",
+    now: NOW,
+  });
+  assert.ok(!isFailure(linked2));
+  assert.equal(linked2.group.peerLinks["alice.manager"]?.from, "alice");
+});
+
+test("平等连接：拒绝路径（成员不存在 / 自连）", () => {
+  const { book } = fixture();
+  const missing = expectFailure(
+    linkPeer(book, { group: "team", from: "alice", to: "nobody", now: NOW }),
+  );
+  assert.equal(missing.error, "member_not_found");
+  const self = expectFailure(
+    linkPeer(book, { group: "team", from: "alice", to: "alice", now: NOW }),
+  );
+  assert.equal(self.error, "self_link");
+});
+
+test("平等连接：移除成员联动删除其全部平等连接", () => {
+  const { book } = fixture();
+  const l1 = linkPeer(book, {
+    group: "team",
+    from: "alice",
+    to: "bob",
+    now: NOW,
+  });
+  assert.ok(!isFailure(l1));
+  const l2 = linkPeer(l1.book, {
+    group: "team",
+    from: "manager",
+    to: "bob",
+    now: NOW,
+  });
+  assert.ok(!isFailure(l2));
+  const removed = removeMember(l2.book, {
+    group: "team",
+    name: "bob",
+    now: NOW,
+  });
+  assert.ok(!isFailure(removed), JSON.stringify(removed));
+  assert.deepEqual(
+    Object.keys(removed.group.peerLinks),
+    [],
+    "bob 的平等连接应一并删除",
+  );
+  assert.equal(removed.group.members["bob"], undefined);
+});
+
+test("平等连接：不变量自检（两端不存在 / 键与两端不一致各报一条）", () => {
+  const { group } = fixture();
+  const withPeer = linkPeer(
+    { ...emptyBook(MANAGER), groups: { team: group } },
+    { group: "team", from: "alice", to: "bob", now: NOW },
+  );
+  assert.ok(!isFailure(withPeer));
+  const broken: AgentGroupState = {
+    ...withPeer.group,
+    peerLinks: {
+      "alice.bob": { from: "alice", to: "ghost", createdAt: NOW },
+      "zzz.team": { from: "zzz", to: "team", createdAt: NOW },
+    },
+  };
+  const problems = invariantViolations(broken);
+  assert.ok(
+    problems.some((p) => p.includes("平等连接") && p.includes("ghost")),
+  );
+  assert.ok(
+    problems.some((p) => p.includes("平等连接") && p.includes("形态不合法")),
+  );
+});
+
+test("只读视图：平等连接进 view 与 summary 计数", () => {
+  const { group } = fixture();
+  const withPeer = linkPeer(
+    { ...emptyBook(MANAGER), groups: { team: group } },
+    { group: "team", from: "alice", to: "bob", now: NOW },
+  );
+  assert.ok(!isFailure(withPeer));
+  const view = groupView(withPeer.group);
+  assert.equal(view.summary.peerLinks, 1);
+  assert.deepEqual(view.peerLinks, [
+    { from: "alice", to: "bob", createdAt: NOW },
+  ]);
 });

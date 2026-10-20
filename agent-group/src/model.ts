@@ -17,6 +17,7 @@ import type {
   GroupInstruction,
   GroupLink,
   GroupMember,
+  GroupPeerLink,
   GroupView,
   InstructionOutcome,
 } from "./types.ts";
@@ -102,6 +103,37 @@ export function openInstructionOf(
   );
 }
 
+/** 平等连接的对键：`a.b`（a < b 按字典序；组内名不含 `.`，不会撞名）。 */
+export function peerPairKey(a: string, b: string): string {
+  return a < b ? `${a}.${b}` : `${b}.${a}`;
+}
+
+/** 该成员参与的全部平等连接（对键列表，按对键排序）。 */
+export function peerLinksOf(group: AgentGroupState, name: string): string[] {
+  return Object.keys(group.peerLinks)
+    .filter((key) => {
+      const dot = key.indexOf(".");
+      const a = dot < 0 ? "" : key.slice(0, dot);
+      const b = dot < 0 ? "" : key.slice(dot + 1);
+      return a === name || b === name;
+    })
+    .sort((x, y) => x.localeCompare(y));
+}
+
+/** 剔除某个成员参与的全部平等连接（移除成员时联动，决策项 10 的纯状态改动）。 */
+export function removePeerLinksOf(
+  group: AgentGroupState,
+  name: string,
+): Record<string, GroupPeerLink> {
+  const peerLinks: Record<string, GroupPeerLink> = {};
+  for (const [key, link] of Object.entries(group.peerLinks)) {
+    if (link.from !== name && link.to !== name) {
+      peerLinks[key] = link;
+    }
+  }
+  return peerLinks;
+}
+
 /** 默认组名（`group-1`、`group-2`…；跳过已占用的名字）。 */
 export function defaultGroupName(book: AgentGroupBook): string {
   for (let i = 1; ; i += 1) {
@@ -162,6 +194,7 @@ export function createGroup(
     createdAt: input.now,
     members: { [MANAGER_NAME]: manager },
     links: {},
+    peerLinks: {},
     instructions: [],
   };
   return {
@@ -337,6 +370,65 @@ export function linkMembers(
       [target.name]: { ...target, level },
     },
     links: { ...found.links, [target.name]: link },
+  };
+  return {
+    book: { ...book, groups: { ...book.groups, [found.name]: group } },
+    group,
+    link,
+  };
+}
+
+/**
+ * 建立平等连接（决策项 4 / 6）：双向、无等级、不留未结指令；任意两个成员之间
+ * **每种**连接至多一条 —— 本动作负责「每对至多一条平等连接」的校验。
+ */
+export function linkPeer(
+  book: AgentGroupBook,
+  input: { group: string; from: string; to: string; now: number },
+):
+  | { book: AgentGroupBook; group: AgentGroupState; link: GroupPeerLink }
+  | GroupFailure {
+  const found = pickGroup(book, input.group);
+  if (isFailure(found)) return found;
+  const from = found.members[input.from];
+  const to = found.members[input.to];
+  if (from === undefined) {
+    return failure(
+      "member_not_found",
+      `组里没有成员「${input.from}」`,
+      `现有成员：${membersOf(found).join(", ")}`,
+    );
+  }
+  if (to === undefined) {
+    return failure(
+      "member_not_found",
+      `组里没有成员「${input.to}」`,
+      `现有成员：${membersOf(found).join(", ")}`,
+    );
+  }
+  if (from.name === to.name) {
+    return failure(
+      "self_link",
+      `不能把「${to.name}」连到它自己`,
+      "from 与 to 用两个不同成员",
+    );
+  }
+  const key = peerPairKey(from.name, to.name);
+  if (found.peerLinks[key] !== undefined) {
+    return failure(
+      "peer_link_exists",
+      `「${from.name}」与「${to.name}」之间已有一条平等连接`,
+      "每对 agent 的同种连接至多一条（决策项 4）：如需重连，先移除成员后重新 add_member",
+    );
+  }
+  const link: GroupPeerLink = {
+    from: from.name < to.name ? from.name : to.name,
+    to: from.name < to.name ? to.name : from.name,
+    createdAt: input.now,
+  };
+  const group: AgentGroupState = {
+    ...found,
+    peerLinks: { ...found.peerLinks, [key]: link },
   };
   return {
     book: { ...book, groups: { ...book.groups, [found.name]: group } },
@@ -598,6 +690,7 @@ export function removeMember(
     ...found,
     members,
     links,
+    peerLinks: removePeerLinksOf(found, member.name),
     instructions:
       settled === undefined
         ? [...found.instructions]
@@ -641,6 +734,13 @@ export function groupView(
       createdAt: link.createdAt,
     }))
     .sort((a, b) => a.level - b.level || a.to.localeCompare(b.to));
+  const peerLinks = Object.values(group.peerLinks)
+    .map((link) => ({
+      from: link.from,
+      to: link.to,
+      createdAt: link.createdAt,
+    }))
+    .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to));
   const instructions = [...group.instructions]
     .sort((a, b) => b.sentAt - a.sentAt)
     .slice(0, limit)
@@ -675,10 +775,12 @@ export function groupView(
     createdAt: group.createdAt,
     members,
     links,
+    peerLinks,
     instructions,
     summary: {
       members: members.length,
       links: links.length,
+      peerLinks: peerLinks.length,
       open: count("open"),
       success: count("success"),
       failure: count("failure"),
@@ -742,6 +844,25 @@ export function invariantViolations(group: AgentGroupState): string[] {
         problems.push(`主从连接成环（从「${name}」上溯超过成员数）`);
         break;
       }
+    }
+  }
+  // 平等连接自检：对键形态合法（`a.b` 且 a<b）、两端成员存在、同一对不重复。
+  for (const [key, link] of Object.entries(group.peerLinks)) {
+    const dot = key.indexOf(".");
+    const wellFormed = dot > 0 && link.from < link.to;
+    if (!wellFormed) {
+      problems.push(`平等连接键「${key}」形态不合法（应为 a.b 且 a<b）`);
+    }
+    if (link.from === undefined || group.members[link.from] === undefined) {
+      problems.push(`平等连接 ${key} 的一端「${link.from}」不存在`);
+    }
+    if (link.to === undefined || group.members[link.to] === undefined) {
+      problems.push(`平等连接 ${key} 的一端「${link.to}」不存在`);
+    }
+    if (peerPairKey(link.from, link.to) !== key) {
+      problems.push(
+        `平等连接键「${key}」与两端「${link.from}/${link.to}」不一致`,
+      );
     }
   }
   return problems;

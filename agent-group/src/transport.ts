@@ -33,6 +33,13 @@ export interface SessionChannelFace {
     message?: string;
     candidates?: unknown;
   }>;
+  send(request: { to: string; text: string; waitMs?: number }): Promise<{
+    ok: boolean;
+    delivered?: boolean;
+    error?: string;
+    message?: string;
+    candidates?: unknown;
+  }>;
   taskStatus(taskId: string): Promise<{
     ok: boolean;
     task?: {
@@ -155,6 +162,25 @@ export function createSessionChannelTransport(
         );
       }
       return { ok: true as const, taskId };
+    },
+
+    async sendMessage(input) {
+      const result = await face.send({
+        to: input.to,
+        text: input.text,
+        waitMs: 1200,
+      });
+      if (!result.ok) {
+        return failure(
+          result.error ?? "transport_error",
+          result.message ?? `发送失败：${result.error ?? "未知原因"}`,
+          "用 session_channel peers 确认目标在线后重试（离线不排队）",
+          result.candidates === undefined
+            ? {}
+            : { candidates: result.candidates },
+        );
+      }
+      return { ok: true as const, delivered: result.delivered === true };
     },
 
     async taskStatus(taskId) {

@@ -154,7 +154,10 @@ export function toToolDef(
       "同事模型群组的编排（跨会话协调层）：create_group 建组（管理者 = 调用方会话）；" +
       "add_member 加成员（group / name / target，target = 会话 id 或别名，须在线）；" +
       "link 建立主从连接（group / from / to；从方须是自由代理，等级 = 主方 + 1）；" +
+      "link_peer 建立平等连接（group / from / to；双向、无等级、每对这种连接各至多一条）；" +
       "send 发指令（group / to / text / timeoutMs；每条主从连接同时只允许一条未结）；" +
+      "send_peer 经平等连接发消息（group / to / text；发完即走，无未结指令）；" +
+      "broadcast 广播（group / text / to?；按当前成员集合逐条发送并汇总送达与失败）；" +
       "check 懒判定结算（group / to?；成功 / 失败 / 受阻 / 超时）；" +
       "remove 移除成员（group / name；非叶子被拒并列出剩余从代理）；" +
       "status 只读查看（group）。所有拒绝都带原因与下一步；" +
@@ -169,7 +172,10 @@ export function toToolDef(
             "create_group",
             "add_member",
             "link",
+            "link_peer",
             "send",
+            "send_peer",
+            "broadcast",
             "check",
             "remove",
             "status",
@@ -184,12 +190,19 @@ export function toToolDef(
           type: "string",
           description: "add_member 用：会话 id 或别名（须唯一命中且在线）",
         },
-        from: { type: "string", description: "link 用：主方组内名字" },
+        from: {
+          type: "string",
+          description: "link / link_peer 用：主方 / 平等连接一方组内名字",
+        },
         to: {
           type: "string",
-          description: "link / send / check 用：从方（成员）组内名字",
+          description:
+            "link / link_peer / send / send_peer / check 用：从方（成员）组内名字；broadcast 用：目标子集（逗号 / 空格分隔，缺省全部非管理者成员）",
         },
-        text: { type: "string", description: "send 用：指令正文" },
+        text: {
+          type: "string",
+          description: "send / send_peer / broadcast 用：指令或消息正文",
+        },
         timeoutMs: {
           type: "number",
           description:
