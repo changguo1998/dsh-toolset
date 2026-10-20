@@ -129,11 +129,12 @@ class FakeMirror implements GroupMirror {
   }
 }
 
-/** 起一套被测环境（时钟与 id 可预测）。 */
+/** 起一套被测环境（时钟与 id 可预测；假定时器收集轮询回调，不自动跑）。 */
 function setup() {
   const store = new MemoryBookStore();
   const transport = new FakeTransport();
   const mirror = new FakeMirror();
+  const pollCallbacks: Array<() => void> = [];
   let clock = 1_000_000;
   let sequence = 0;
   const service = new GroupService({
@@ -144,12 +145,20 @@ function setup() {
     now: () => clock,
     newId: () => `id-${(sequence += 1)}`,
     log: () => {},
+    // 2b 状态巡查：假定时器（只收集回调，测试手动触发）
+    timers: {
+      interval: (_delayMs, callback) => {
+        pollCallbacks.push(callback);
+        return () => {};
+      },
+    },
   });
   return {
     service,
     store,
     transport,
     mirror,
+    pollCallbacks,
     tick: (ms: number) => {
       clock += ms;
     },
@@ -851,7 +860,7 @@ test("judgeAgentState：四态判定与边缘（离线 / 待机 / 工作 / 疑�
   );
 });
 
-test("status：成员带状态视图（在线集 + 状态牌判定；transport 失败降级不阻塞）", async () => {
+test("status：成员带状态视图（在线集 + 状态牌判定；无缓存读失败降级不阻塞）", async () => {
   const env = await ready();
   const now = 1_000_000;
   env.transport.online.add("sess-manager");
@@ -866,6 +875,15 @@ test("status：成员带状态视图（在线集 + 状态牌判定；transport �
     status: "running",
     at: now - 999_999, // 远超默认 stuckAfterMs(5min=300_000) → 疑似卡死
   });
+
+  // 无缓存 + transport 读失败 → memberStates 缺省，status 仍返回（不阻塞只读）
+  env.transport.peersFailure = failure("transport_error", "x", "y");
+  const degraded = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(degraded));
+  assert.equal(degraded["memberStates"], undefined, "无缓存读失败时缺省字段");
+  env.transport.peersFailure = undefined;
+
+  // 正常读取：现算并入缓存，三态判定
   const result = await env.service.status({ group: "team" }, MANAGER);
   assert.ok(!isFailure(result), JSON.stringify(result));
   const memberStates = result["memberStates"] as Array<{
@@ -880,12 +898,6 @@ test("status：成员带状态视图（在线集 + 状态牌判定；transport �
   assert.equal(byName["manager"], "idle", "manager 待机");
   assert.equal(byName["alice"], "working", "alice 工作");
   assert.equal(byName["bob"], "stuck", "bob 疑似卡死");
-
-  // transport 读失败 → memberStates 缺省，status 仍返回（不阻塞只读）
-  env.transport.peersFailure = failure("transport_error", "x", "y");
-  const degraded = await env.service.status({ group: "team" }, MANAGER);
-  assert.ok(!isFailure(degraded));
-  assert.equal(degraded["memberStates"], undefined, "失败时缺省字段");
 });
 
 test("readGroupStatus：传 memberLookup 时附 memberStates，缺省不判定", async () => {
@@ -977,4 +989,83 @@ test("close_group：仅组长可关——成员会话无法访问该组（独立
   );
   assert.equal(removed.ok, false);
   assert.equal(removed["error"], "group_closed");
+});
+
+// ---------- 2b：状态巡查（组长侧内建轮询） ----------
+
+test("状态巡查（2b）：statusPollMs>0 自动注册 interval；refreshMemberStates 填缓存；写动作失效后重算", async () => {
+  const env = setup();
+  env.transport.resolutions.set("alice-alias", "sess-alice");
+  // 经 run() 调用：记录组长（MANAGER）到 knownManagers，巡查才有归属可扫
+  const created = await env.service.run(
+    "create_group",
+    { action: "create_group", name: "team" },
+    MANAGER,
+  );
+  assert.equal(created.ok, true, JSON.stringify(created));
+  await env.service.run(
+    "add_member",
+    {
+      action: "add_member",
+      group: "team",
+      name: "alice",
+      target: "alice-alias",
+    },
+    MANAGER,
+  );
+  // 成员状态：alice running 且 at 新 → working
+  env.transport.online.add("sess-alice");
+  env.transport.agentStates.set("sess-alice", {
+    status: "running",
+    at: 1_000_000,
+  });
+
+  // interval 已注册（statusPollMs 缺省 20000 生效）且缓存尚无条目
+  assert.equal(env.pollCallbacks.length, 1, "构造即启动轮询 interval");
+  assert.equal(env.service.cachedStateEntries, 0);
+
+  // 手动触发巡查 tick → 缓存填上且 status 命中缓存
+  await env.service.refreshMemberStates();
+  assert.equal(env.service.cachedStateEntries, 1, "组长名下整组缓存一条");
+  const first = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(first), JSON.stringify(first));
+  const memberStates = first["memberStates"] as Array<{ state: string }>;
+  assert.ok(
+    memberStates.some((m) => m.state === "working"),
+    "缓存判定生效: " + JSON.stringify(memberStates),
+  );
+
+  // 写动作落盘 → 该组长名下缓存失效
+  env.transport.resolutions.set("sess-bob", "sess-bob");
+  const added = await env.service.run(
+    "add_member",
+    { action: "add_member", group: "team", name: "bob", target: "sess-bob" },
+    MANAGER,
+  );
+  assert.equal(added.ok, true, JSON.stringify(added));
+  assert.equal(env.service.cachedStateEntries, 0, "写动作后缓存失效");
+
+  // 无缓存时 status 现算并入缓存
+  const second = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(second), JSON.stringify(second));
+  assert.equal(env.service.cachedStateEntries, 1, "无缓存时现算并重新入缓存");
+});
+
+test("状态巡查（2b）：statusPollMs=0 不注册轮询 interval", () => {
+  const store = new MemoryBookStore();
+  const transport = new FakeTransport();
+  const pollCallbacks: Array<() => void> = [];
+  const service = new GroupService({
+    store,
+    transport,
+    config: resolveConfig({ defaultTimeoutMs: 60_000, statusPollMs: 0 }),
+    timers: {
+      interval: (_delayMs, callback) => {
+        pollCallbacks.push(callback);
+        return () => {};
+      },
+    },
+  });
+  assert.equal(service.cachedStateEntries, 0);
+  assert.equal(pollCallbacks.length, 0, "statusPollMs=0 不轮询");
 });

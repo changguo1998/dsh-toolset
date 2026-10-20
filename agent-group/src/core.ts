@@ -87,7 +87,13 @@ export function resolveConfig(config: AgentGroupConfig = {}): ResolvedConfig {
     mirror: config.mirror !== false,
     stateFileName: fileName,
     stuckAfterMs: positiveNumber(config.stuckAfterMs, DEFAULT_STUCK_AFTER_MS),
-    statusPollMs: positiveNumber(config.statusPollMs, DEFAULT_STATUS_POLL_MS),
+    // statusPollMs 允许 0 = 不轮询（positiveNumber 对 0 会落缺省，故单独处理）
+    statusPollMs:
+      typeof config.statusPollMs === "number" &&
+      Number.isFinite(config.statusPollMs) &&
+      config.statusPollMs >= 0
+        ? Math.floor(config.statusPollMs)
+        : DEFAULT_STATUS_POLL_MS,
   };
 }
 
@@ -188,6 +194,24 @@ export interface GroupServiceOptions {
   now?: () => number;
   newId?: () => string;
   log?: (message: string) => void;
+  /** 定时器面（2b 状态轮询用；缺省进程内 `setInterval` + unref）。 */
+  timers?: { interval(delayMs: number, callback: () => void): () => void };
+}
+
+/** 定时器统一面的缺省实现（unref：不阻塞进程退出；测试注入替身）。 */
+function systemTimers(): NonNullable<GroupServiceOptions["timers"]> {
+  return {
+    interval(delayMs, callback) {
+      const handle = setInterval(callback, delayMs);
+      handle.unref?.();
+      return () => clearInterval(handle);
+    },
+  };
+}
+
+/** 状态缓存键（`<manager>\0<group>`；`\0` 分隔避免组名里出现前缀碰撞）。 */
+function stateCacheKey(manager: string, group: string): string {
+  return `${manager}\0${group}`;
 }
 
 /**
@@ -374,6 +398,13 @@ export class GroupService {
   readonly #books = new Map<string, AgentGroupBook>();
   readonly #locks = new Map<string, Promise<unknown>>();
   readonly #mirrorStats = { ok: 0, failed: 0, lastError: "" };
+  readonly #timers: NonNullable<GroupServiceOptions["timers"]>;
+  /** 状态轮询（2b，组长侧）：每组长一个 tick 遍历其全部组；`interval` 未引用。 */
+  #pollTimer: (() => void) | undefined;
+  /** 状态巡查见过的组长集合（`run` 时记录调用方）。 */
+  #knownManagers = new Set<string>();
+  /** 组长名下各组的成员状态缓存（`<manager>\0<group>` → 判定视图；写动作后失效）。 */
+  #stateCache = new Map<string, MemberStateView[]>();
   #lastStateError = "";
   #mirrorLogged = false;
 
@@ -385,6 +416,15 @@ export class GroupService {
     this.#now = options.now ?? Date.now;
     this.#newId = options.newId ?? randomUUID;
     this.#log = options.log ?? (() => {});
+    this.#timers = options.timers ?? systemTimers();
+    if (this.#config.statusPollMs > 0) {
+      // 2b：内建组长侧轮询（状态巡查），间隔可配（缺省 20 s；0 = 不轮询）
+      this.#pollTimer = this.#timers.interval(this.#config.statusPollMs, () => {
+        void this.refreshMemberStates().catch((err: unknown) =>
+          this.#log(`状态巡查失败：${describe(err)}`),
+        );
+      });
+    }
   }
 
   /** 按 action 分派（工具出口；`caller` = 调用方会话 id）。 */
@@ -393,6 +433,8 @@ export class GroupService {
     args: Record<string, unknown>,
     caller: string,
   ): Promise<ActionResult> {
+    // 组长归属：记录出现过的调用方会话，供状态巡查扫其名下的组（2b）
+    if (caller !== "") this.#knownManagers.add(caller);
     switch (action) {
       case "create_group":
         return this.createGroup(args, caller);
@@ -1029,13 +1071,9 @@ export class GroupService {
     const group = pickGroup(book, stringArg(args, "group"));
     if (isFailure(group)) return group;
     const violations = invariantViolations(group);
-    // 成员状态视图（BACKLOG #1 决策②③）：现算不落盘；状态读失败 → 该字段缺省，不阻塞只读
-    const memberStates = await memberStatesOf(
-      group,
-      this.#transport,
-      this.#now(),
-      this.#config.stuckAfterMs,
-    );
+    // 成员状态视图（BACKLOG #1 决策②③）：**状态巡查缓存优先**（2b 组长侧轮询），
+    // 无缓存则现算并入缓存；状态读失败 → 该字段缺省，不阻塞只读
+    const memberStates = await this.statesOf(caller, group);
     const view = groupView(group);
     return {
       ok: true,
@@ -1050,6 +1088,49 @@ export class GroupService {
           ? "只读视图：成员 / 等级与主从关系 / 未结指令 / 最近回报 / 成员状态"
           : "组状态存在不变量违规（见 violations）；建议重建组",
     };
+  }
+
+  /** 组长名下某组的成员状态视图（2b）：缓存优先，缺失则现算并入缓存。 */
+  async statesOf(
+    manager: string,
+    group: AgentGroupState,
+  ): Promise<MemberStateView[] | undefined> {
+    const cached = this.#stateCache.get(stateCacheKey(manager, group.name));
+    if (cached !== undefined) return cached;
+    const states = await memberStatesOf(
+      group,
+      this.#transport,
+      this.#now(),
+      this.#config.stuckAfterMs,
+    );
+    if (states !== undefined) {
+      this.#stateCache.set(stateCacheKey(manager, group.name), states);
+    }
+    return states;
+  }
+
+  /** 状态巡查主体（2b）：遍历已知组长，**按组长归属去重**刷新其全部组的状态缓存。 */
+  async refreshMemberStates(): Promise<void> {
+    for (const manager of this.#knownManagers) {
+      const book = await this.#load(manager);
+      if (book === undefined) continue;
+      for (const group of Object.values(book.groups)) {
+        const states = await memberStatesOf(
+          group,
+          this.#transport,
+          this.#now(),
+          this.#config.stuckAfterMs,
+        );
+        if (states !== undefined) {
+          this.#stateCache.set(stateCacheKey(manager, group.name), states);
+        }
+      }
+    }
+  }
+
+  /** 状态缓存条目数（诊断 / 测试）。 */
+  get cachedStateEntries(): number {
+    return this.#stateCache.size;
   }
 
   // ---------- 内部：状态读写、串行化、镜像 ----------
@@ -1107,6 +1188,11 @@ export class GroupService {
       return this.#stateFailure();
     }
     this.#books.set(book.managerSessionId, book);
+    // 写动作改变了组 → 该组长名下组的状态缓存失效（2b：下次 status / 巡查重算）
+    const prefix = `${book.managerSessionId}\0`;
+    for (const key of [...this.#stateCache.keys()]) {
+      if (key.startsWith(prefix)) this.#stateCache.delete(key);
+    }
     return undefined;
   }
 
