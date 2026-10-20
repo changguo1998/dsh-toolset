@@ -1,14 +1,14 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.0-rc.2）
 
-> 职责：回答「本仓 29 个模块（TUI + 28 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（已审计 22 个：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`；余下 7 个未入表，见 §0 表后注）
+> 职责：回答「本仓 29 个模块（TUI + 28 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（已审计 29 个全量：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
 > 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 29 个模块 = TUI + 28 个插件（清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
-> 结论分布：**改用 0 / 保留 16 / 并存 6**（总表 22 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
+> 结论分布：**改用 0 / 保留 21 / 并存 8**（总表 29 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
-> 未入表的 7 个包：`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`（补审计需逐包重判官方等价物, 另立条目）。
+> 2026-10-20 重审（条目 2，主会话）：29 模块全量入表，7 个缺审包补齐；§4 的 B 已执行、D / E / FTS5 观察项明示关闭（见 §4）；基线维持 `0.2.0-rc.2`（升级裁定并入条目 2 绑定任务，若升级至 `0.2.1-rc.2` 需回查 §0 中「是否受 0.2.1 新面影响」标注行）。
 
 ## 0. 结论总表
 
@@ -36,14 +36,21 @@
 | `TUI` | `client-ui-*`（53 包，Web / 桌面） | 低 | **保留** | 官方客户端是浏览器 / 桌面面；终端 TUI 是不同形态，且本项目「只用 TUI、走 profile 全局组合」是既定口径 |
 | `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
 | `code-map` | `lsp`、`tool-fs-search` | 低 | **保留** | 项目级结构索引 / 影响面 / 候选调用图官方没有；**LSP 语义层已接线但当前不可达**（LSP 三件套不随包分发，见 §5） |
+| `herdr-pane`（2026-10-20 补审） | 无 | 无 | **保留** | 本机 herdr 伪终端层（读屏 / 注入 / 进程探活），官方无对应物；与 `herdr-integration`（会话桥）同域、无官方替代 |
+| `md-table-check`（2026-10-20 补审） | `agent-instructions`、`rule-engine` 类 | 低 | **保留** | 回复正文表格列数检查（rule-engine 消费者，只报不改），项目专属约定；官方无等价物 |
+| `background-daemon`（2026-10-20 补审） | `schedule`（未挂）、`metric-loop` 类 | 中 | **保留** | 进程内守护投递 / 重试 / 持久化（任务表 now memory/SQLite，2026-10-20 entries 5+6）；官方 `schedule` 未挂、`metric-loop` 是测量循环非投递器。**注**：0.2.1-rc.2 官方把「自动化任务」并入 Web 内置（见 `HOST-UPGRADE-0.2.1-rc.2.md` #12），若升级基线需回查是否与本包职责叠加 |
+| `preference-analysis`（2026-10-20 补审） | 无 | 无 | **保留** | 偏好观测（session/event 三信号）→ 跨会话账簿 → 高置信写 memory、提议待审；官方无等价物 |
+| `session-paths`（2026-10-20 补审） | `dsh-paths`（宿主目录编码面） | 高（同编码口径） | **并存** | 复刻宿主 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` 并暴露为 `sessionPaths` 服务供 7+ 插件共用，`ensureSessionDir` 是唯一写盘入口；官方编码口径一致，差异在「以服务形式共享 + 写盘约束」，不含自有能力 |
+| `script-interpreter`（2026-10-20 补审） | `tool-bash`（命令执行面） | 中 | **并存** | 官方 bash 覆盖通用命令执行；本包做**语言探测驱动的解释器执行**（python / node / sh、venv/uv 探测、回执带解释器路径），bash 保留显式启用；两执行面按语言与意图区分 |
+| `agent-group`（2026-10-20 补审） | `experimental-agent-team`（未挂，实验） | 低 | **保留** | 群组协议（组 / 成员 / 主从与平等连接 / 广播 / 懒判定结算 / 状态面），自建 session-channel 分层；官方 team 为实验且未挂，无等价交付物 |
 
-## 1. 保留项（16）的共同理由
+## 1. 保留项（21）的共同理由
 
-官方在这 16 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、Markdown 结构视图与文档引用图、规则表 + 多节点注入 + 消费者框架、模式阶梯注入、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥。
+官方在这 21 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、Markdown 结构视图与文档引用图、规则表 + 多节点注入 + 消费者框架、模式阶梯注入、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥、herdr 伪终端读写、表格列数检查、进程内守护投递、偏好账簿、群组协议与状态（2026-10-20 补审 5 项并入）。
 
 两处「看起来像但没有替代」的对照：`metric-loop` 的循环诉求官方有 `tool-ralph` / `goal-round-driver`（区别在「指标测量 + 边界判定 + 跨进程状态」）；`memory-base` 的检索诉求官方有会话日志 FTS5（区别在「知识 / 记忆语义」）。
 
-## 2. 并存项（6）的边界
+## 2. 并存项（8）的边界
 
 | 并存对 | 谁负责哪一段 | 模型面 / 人面处理 |
 |---|---|---|
@@ -54,6 +61,8 @@
 | `security-guard` ⇄ `sandbox-policy` / `permission-presets` | 官方：沙箱等级与审批预设；我们：危险命令 / 敏感文件的模式拦截（`tools/pre-execute`，命中即 deny） | 若将来启用 `experimental-auto-review`，需先划界（谁拥有最终否决权，见 §5） |
 | `auto-approve` ⇄ `user-approval` / `permission-presets` / `experimental-auto-review` | 官方：审批服务（`ask` / `never` 策略 + 链分发 fail-closed）、沙箱与审批预设；我们：审批链上的逐次自动裁定（名单 / 指纹 / 只读类 / 升级白名单 / LLM 灰区）。`never` > 本插件 > TUI 面板 > fail-closed；`security-guard` 在更晚的单调守卫层仍可否决任何已放行调用 | 人工面保留：未命中判据的请求调 `next()` 交 TUI 面板；官方 auto-review 不挂（职责已由本包承担，见 §5） |
 | `session-title-cutoff` ⇄ `session-title-*` | 官方 provider：全量 / 首条消息；我们：裁剪窗口后的 provider | `ctx.sessionTitle` 只允许一个 provider → fff 显式 `disabled: true` 关掉官方 all-prompts（设计结果，不是冲突） |
+| `session-paths` ⇄ 官方 `dsh-paths` | 官方：宿主目录编码口径（`encodeSegment` / `projectKey` / `sessionDir`）；我们：复刻同一编码暴露为 `sessionPaths` 服务供 7+ 插件共用，`ensureSessionDir` 唯一写盘入口（0o600 约束） | 服务面只读消费；写盘收敛到一个入口，避免各包各自猜目录 |
+| `script-interpreter` ⇄ 官方 `tool-bash` | 官方：通用命令执行（bash 面）；我们：语言探测驱动的解释器执行（python / node / sh，venv/uv 探测，回执带解释器路径），bash 显式启用为可选 | 模型侧两个工具（`bash` 官方 / `script_run` 本仓），按语言意图分流；未启用语言明确报错 |
 
 **内部边界补充（三）**：`md-map` ⇄ `md-logic` ——前者复用后者的单文件解析做**项目级**引用图（`md-map` 依赖 `md-logic`，`link:../md-logic`）；两者与 `code_map` 的分工写进三个工具描述：代码结构 → `code_map`，单文件 Markdown 结构 → `md_logic`，项目级文档关系 / 影响面 / 断链 → `md_map`。
 
@@ -83,18 +92,21 @@
 | `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links / replace）；解析用 `marked` 实例，不消费宿主服务 |
 | `md-map` | inject `tools` / provide `mdMap`（注册 `md_map`：index / refresh / callers / impact / orphans / report / summary）；组合 `md-logic` 的解析，不做解析本身 |
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` / `ponytail` | inject `tools` / `agents` / —（`symbol-normalizer` 与 `ponytail` 消费本仓 `ruleEngine` 服务） |
+| `background-daemon`（2026-10-20 补入） | inject `agents` / `sessions` / `commands` / `tools`；可选 get `guard`；`memory` 经 `ctx.inject(["memory"],cb)` 晚挂（2026-10-20，条目 5+6） |
+
+> 2026-10-20 补审的其余 6 个包（`herdr-pane` / `md-table-check` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）运行时主要消费**本仓**服务面（`ruleEngine` / `guard` / `sessionChannel` / `agentGroup` / `sessionPaths` / `memory`），对官方底座无新增依赖（`script-interpreter` / `herdr-pane` / `agent-group` 仅 inject `tools` 面板或服务面）。
 
 ## 4. 可执行改造清单（未立项，用户择时）
 
 | # | 改造 | 落点 | 工作量 | 依赖 / 前置 |
 |---|---|---|---|---|
 | A | ~~`context-report` **改用已挂的 `sessionStats` / `turnOutline`** 提供轮次 / 墙钟 / 大纲，去掉自己的同类折叠（保留 token / 上下文占用口径）~~ **已完成（2026-10-06）**：轮次 / 步 / 墙钟改读 `sessionStats`，自折叠已删；`turnOutline` 未接（属新增能力，另议） | `context-report/src/{fold,main,report,types,schema}.ts` | 已完成 | 口径已对齐（官方视图字段 `ttftMs` / `ttftSteps`，非 `firstTokenTime`）；过程记录 `docs/archived/2026-10-05-context-report-official-projections.md` |
-| B | `output-compress`：把与官方 `spill-policy` / `compaction-tool-result-pruner` 的**分工与阈值语义**写进 DESIGN，并记录「spill 文件 + 知识库」双份存储的取舍 | `output-compress/docs/DESIGN.md` | 0.2-0.5 h | 无（**不是**修双重截断——实测不存在） |
+| B | `output-compress`：把与官方 `spill-policy` / `compaction-tool-result-pruner` 的**分工与阈值语义**写进 DESIGN，并记录「spill 文件 + 知识库」双份存储的取舍 | `output-compress/docs/DESIGN.md` | **已完成（2026-10-20 重审计复核）** | 分工 / 阈值节已存在（`spill-policy` 分工表 + `maxInlineTokens` 阈值语义 + 不构成双重截断），见该文件 §1 / §2 |
 | C | ~~`metric-loop` 唤醒链缺口：挂 `@deepseek-ai/dsh-schedule`，或把提示改为不依赖宿主 schedule；另一条路是评估「改用官方承担循环」~~ **已裁定（2026-10-06 选 A）**：保留 `metric-loop` 承担指标循环（测量 + 收敛 + 边界停止 + 跨进程状态），与官方循环的分工写进 README；**不挂** `schedule`、**不启用** `tool-ralph`、不改循环代码。`schedule` 提示本身的字段缺陷另立条目（`docs/BACKLOG.md` §2） | `metric-loop/README.md`（口径） | 已完成 | 过程记录 `docs/archived/2026-10-05-metric-loop-official-loops.md` |
-| D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | 两包 `src/**` | 1 h | **含行为变更**：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写（当前绕开沙箱）」变为受 workspace-write 围栏；且 `ctx.fs` 的版本守卫是文件级，**不能**替代行级锚点语义（原「宜与 `hash-edit/docs/BACKLOG.md` #1 同批」的前置已消失：该文件当前无未完成项） |
-| E | 把「可挂但不该挂」清单（§5）落到**非生成型**文档（`docs/BACKLOG.md` 观察项 / `profiles/example/cordis.patch.yml` 注释）——不要写进 `HOST-PACKAGES.md`（升宿主后重生成会被覆盖） | `docs/BACKLOG.md` / `profiles/example` | 0.2 h | 无 |
+| D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | （不实施） | **已关闭（2026-10-20 重审计明示关闭）** | 关闭理由：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写」变为受 workspace-write 围栏（安全语义变更）；且官方版本守卫是文件级，**不能**替代行级锚点语义。维持 `node:fs` 直写现状，不另立条目 |
+| E | 把「可挂但不该挂」清单（§5）落到**非生成型**文档（`docs/BACKLOG.md` 观察项 / `profiles/example/cordis.patch.yml` 注释） | （不实施） | **已关闭（2026-10-20 重审计明示关闭）** | 关闭理由：§5 清单位于 `docs/ARCHITECTURE-REUSE.md`（本仓自维护、**非宿主重生成**，升宿主不会被覆盖），已满足「不随 HOST-PACKAGES 重生成丢失」的原始意图；其中 `experimental-auto-review` / `schedule` 等已在各自条目与本节注记中登记，无需搬移 |
 
-**新增观察项（本次审阅补出）**：① `memory-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② 是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估（**2026-10-05 已评估关闭**：注入点与通道均不同——官方走 `tools/post-execute` 的 `additionalContexts`、不产生消息记录，本引擎走 next-step 消息注入，预算互不挤占；见 `rule-engine/README.md`「与官方 `repeat-tool-reminder` 的分工」）。
+**新增观察项（本次审阅补出）**：① `memory-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② ~~是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证~~ **已关闭（2026-10-20 重审计）**：维持 `openAt: never` —— 官方会话日志检索面不在当前需求内，memory-base 已自建双 FTS5 承载知识库检索，开启官方面徒增分工维护面；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估（**2026-10-05 已评估关闭**：注入点与通道均不同——官方走 `tools/post-execute` 的 `additionalContexts`、不产生消息记录，本引擎走 next-step 消息注入，预算互不挤占；见 `rule-engine/README.md`「与官方 `repeat-tool-reminder` 的分工」）。
 
 ## 5. 判定为「可挂但不该挂」的官方面
 
@@ -134,3 +146,5 @@ done
 | 「`output-compress` 与官方 spill 可能双重截断」 | **不存在**：我们不回写事件，只以 spill 为上游输入做摘要入库；改为「阈值语义文档化」 | `output-compress/src/hooks.ts`（只读订阅）、`trigger.ts`（解析官方 spill 通知） |
 | 「§3 已复用官方面」凭印象填写 | 按代码实测重写（删 8 处不存在项、补 4 处漏记，LSP 标为不可达） | §3 的生成命令 |
 | 「`metric-loop` 官方只有 schedule」 | 官方还有 `tool-ralph`（循环）与 `goal-round-driver`（自主续跑），均已挂载 | `HOST-PACKAGES.md` 对应行、base patch |
+| 2026-10-20 重审计（条目 2）：总表 22 → 29 行 | 补审 7 包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）：保留 5、并存 2（`session-paths` 与官方 `dsh-paths`、`script-interpreter` 与官方 `tool-bash`）；结论分布「改用 0 / 保留 21 / 并存 8」 | 各包 README/DESIGN + 源码实测（inject/get/loadHost grep）+ `HOST-PACKAGES.md` 口径；`background-daemon` 的 memory 晚挂 2026-10-20 落地（条目 5+6） |
+| §4 的 B / D / E 与 FTS5 观察项重判 | B **已执行**（`output-compress/docs/DESIGN.md` 分工节存在）；D / E / FTS5 **明示关闭**（理由见 §4 各行与观察项②） | 实测 `output-compress/docs/DESIGN.md` 内容；官方 `session-query-sqlite` 缺省 `openAt: never` 维持 |
