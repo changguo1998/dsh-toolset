@@ -1,6 +1,6 @@
 # 允许模型查看 TUI 本地输出（notice / `$` 结果 / 命令提示；接取条目：TUI/docs/BACKLOG.md「允许模型查看 notice 信息」2026-10-19 扩展）
 
-状态：测试　　开启：2026-10-19　　关闭：
+状态：关闭　　开启：2026-10-19　　关闭：2026-10-20
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -96,4 +96,12 @@
 
 ## 收尾
 
-（待写。）
+（已完成, 2026-10-20 收尾。）
+
+- 真机复验（用户授权重启, 真实 fff profile 加载最新 dist；2026-10-20）：`tui_local_log` 已注册进宿主工具清单（会话日志最近 `request/header` 的 tools 含该名）；对真实会话目录执行 dist 的 `createTuiLocalLogTool().execute` 读取成功（ok=true, 读回本会话 3 条 notice, 含重启后 session-channel 注入提示, 时间戳与正文渲染正确）；本会话 `tui-local.jsonl` 有 8 条真实写入记录。写入端 / 读取端 / 工具注册三面真机验证通过。
+- 回写文档：`TUI/docs/SPEC.md`（§15 本地输出旁路日志）、`TUI/README.md`（localLog 配置与 `tui_local_log` 工具）已随 `9e2d51d` 提交。
+- 提交：2026-10-19 `9e2d51d`（feat: 本地输出旁路日志与模型侧工具, 含 11 例测试, 全量 1644 例通过）；2026-10-20 收尾提交（本文件状态改关闭 + 填收尾节 + BACKLOG 条目完成清理 + 归档移动）。
+- 遗留项：项目级 `docs/BACKLOG.md` 第 5 条「模型按需检索 notice 历史原文（compaction 后取回）」（宿主 notice 侧遗留）待后续任务接取。
+- BACKLOG 清理：`TUI/docs/BACKLOG.md` 条目「允许模型查看 notice 信息」（#1, 2026-10-19 扩展为「TUI 本地输出对模型可见」）已标完成并从清单移除（注记见该文件头部）。
+- 归档：本文件移入 `TUI/docs/archived/2026-10-19-notice-model-view.md`。
+- 收尾提交为本任务最后一次提交；未发现残留问题。
