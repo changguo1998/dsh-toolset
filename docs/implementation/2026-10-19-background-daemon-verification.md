@@ -1,6 +1,6 @@
 # background-daemon 真机验证（接取条目：docs/BACKLOG.md「background-daemon 真机验证（已挂载，发现 timer 适配缺陷）」）
 
-状态：实现　　开启：2026-10-19　　关闭：
+状态：测试　　开启：2026-10-19　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -133,11 +133,25 @@
 
 ## 偏差
 
-（待写。）
+（2026-10-20 更新，主分支合入 timer 统一面后校正）
+
+- **决策 1 / 规划 / 实现记录中的 `hostTimer` 适配已被主分支取代**：主分支落地「新增定时插件（统一 timer 原语）」条目（commit `9cee6b3`，追踪文档 `docs/archived/2026-10-19-timer-plugin.md`），`background-daemon` 改读 `timer` 插件的 `clock` 服务（`readService<ClockLike>(ctx, "clock")`，缺失回落 `systemTimer()`）；我此前合入本分支的 `HostTimerLike` / `hostTimer` 与宿主形状测试在 `7532f92` 被丢弃，worktree 已同步到 main（`3396f3e`）。任务实际验证的是 clock 统一面版本，D16 口径由 timer 插件承接。
+- **T4 真机实际做法**：主分支合入后 profile 挂载点（主 worktree）的 dist 已是 clock 版本，故真机直接用 `dsh --profile fff`（决定 3(a) 的 `--patch` 覆盖层未用），即验证「真实挂载」本身。
+- **E5 未达成**：真机启动日志为 `backend=json`（非 memory），且没有「memory-base 记录底座不可用」降级告警 → `readService(ctx, "memory")` 在真实 cordis ctx 上未取到服务（memory 属可选依赖、不在 `inject` 里，严格模式读取不可达）。「memory-base 可用时 `/daemon` 状态面报 `records: memory`」的验收不成立，需主分支裁定（是否补 `inject` / 改惰性解析 / 另行处理）。佐证：`~/.dsh/memory-base/memory.db` 自 10-18 起未被写入，说明各 fff 进程均未走到 memory 底座。
+- **E3 时间戳观察**：E3 的 journal `at` 等于计划触发时刻（06:34:21.544Z）而非重启时刻，与「启动补发 at=now」的代码路径不符；重启后任务表恢复与状态处理（done / skipped）属实，但「补发生在启动瞬间」这一具体路径的真机证据待复验。
 
 ## 测试与证据
 
-（待写。）
+（2026-10-20 真机，`dsh --profile fff`，真实 `~/.dsh`，herdr pane `wWR:p2`）
+
+- 门禁：`npm --prefix background-daemon run check` 通过；`npm --prefix background-daemon test` 137 例全绿（clock 版本）。
+- 启动：`[background-daemon] 已启动（任务 1 个，backend=json，store=/home/guochang/.dsh/background-daemon/tasks.json，journal=/home/guochang/.dsh/background-daemon/journal.jsonl）`（stderr 落盘 `tmp/bg-err.log`）；`/daemon list` 与 `daemon_task` 均注册可用。
+- **E1 文本投递 ✓**：`daemon_task create`（deliver / after_seconds:60 / 会话 `tui-dc2f5407-…`）→ task `d-6500b1f8` 于 06:27:53.178Z 触发，journal `delivered` / 17ms / `flush 确认（合并 1 条）`；pane 内目标会话收到注入正文 `[DAEMON] 真机验证 E1 文本投递`。
+- **E2 命令执行 ✓**：command 任务 `d-c29aad21`（payload `/daemon list`）于 06:29:50.627Z 触发，journal `delivered` / 2ms，detail 含命令回执文本（`守护任务 2 个：…`）。
+- **E3 重启恢复 △**：deliver 任务 `d-b0cf39db`（after_seconds:150）创建后退出 dsh，过点后 `--resume` 重启同会话；重启后任务表完整保留（`/daemon list` 可见、status done），journal 记 `skipped`（`no-active-agent`，触发时刻目标会话无活跃 agent，设计内不重试）。「启动补发」具体路径待复验（见偏差）。
+- **E4 无活跃 agent 的 skipped ✓**：deliver 任务 `d-ac6816b3`（sessionId `q-no-such-session-xyz`）于 06:41:17.223Z 触发，journal `skipped` / `no-active-agent`，仅一条记录、不重试，任务 status done。
+- **E5 backend=memory ✗**：启动日志 `backend=json`；`records: memory` 未达成（无 `/daemon status` 子命令，只能经启动日志 / `ctx.backgroundDaemon.status()` 观察）。journal 4 行、tasks.json 4 条均落在本地文件，memory-base 库未参与。
+- 遗留物：验证 pane `wWR:p2`（运行中，dsh 进程 `script -q -c 'dsh --profile fff …'`）；临时文件 `tmp/bg-err.log`、`tmp/verify/overlay.yml`、`tmp/repro.ts`（收尾清理）。
 
 ## 收尾
 
