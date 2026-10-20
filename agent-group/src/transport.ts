@@ -16,6 +16,12 @@ export interface SessionChannelFace {
     peers?: Array<{ sessionId: string; cwd?: string }>;
     error?: string;
   }>;
+  /** 读某会话的 agent 状态牌（BACKLOG #1；旧版 session-channel 无此方法）。 */
+  statusOf?(sessionId: string): Promise<{
+    ok: boolean;
+    state?: { status: "idle" | "running"; at: number };
+    error?: string;
+  }>;
   aliasList(): Promise<{
     ok: boolean;
     aliases?: Array<{ alias: string; sessionId: string; online: boolean }>;
@@ -221,6 +227,43 @@ export function createSessionChannelTransport(
             ? { resultTruncated: true }
             : {}),
         },
+      };
+    },
+
+    async peers() {
+      const result = await face.peers();
+      if (!result.ok) {
+        return failure(
+          "transport_error",
+          `读取在线会话失败：${result.error ?? "未知原因"}`,
+          "确认 session-channel 已连接（session_channel action=status）后重试",
+        );
+      }
+      return {
+        ok: true as const,
+        sessionIds: (result.peers ?? []).map((peer) => peer.sessionId),
+      };
+    },
+
+    async statusOf(sessionId) {
+      if (typeof face.statusOf !== "function") {
+        return failure(
+          "transport_error",
+          "session-channel 未提供状态牌读数面（statusOf）",
+          "升级 session-channel（≥ 含 BACKLOG #1 的版本）后重试",
+        );
+      }
+      const result = await face.statusOf(sessionId);
+      if (!result.ok) {
+        return failure(
+          "transport_error",
+          `读取状态牌失败：${result.error ?? "未知原因"}`,
+          "确认 session-channel 已连接（session_channel action=status）后重试",
+        );
+      }
+      return {
+        ok: true as const,
+        ...(result.state === undefined ? {} : { state: result.state }),
       };
     },
   };

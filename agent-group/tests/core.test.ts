@@ -8,6 +8,7 @@ import { test } from "node:test";
 
 import {
   GroupService,
+  judgeAgentState,
   readGroupStatus,
   resolveConfig,
   verdictOf,
@@ -43,6 +44,31 @@ class FakeTransport implements GroupTransport {
   readonly sent: Array<{ to: string; text: string }> = [];
   sendFailure: GroupFailure | undefined;
   sendDelivered = true;
+  /** 状态牌（BACKLOG #1）：sessionId → 忙闲态（判定面）。 */
+  readonly agentStates = new Map<
+    string,
+    { status: "idle" | "running"; at: number }
+  >();
+  /** 在线会话集合（判定面；缺省空）。 */
+  readonly online = new Set<string>();
+  peersFailure: GroupFailure | undefined;
+  statusOfFailure: GroupFailure | undefined;
+
+  async peers(): Promise<{ ok: true; sessionIds: string[] } | GroupFailure> {
+    if (this.peersFailure !== undefined) return this.peersFailure;
+    return { ok: true, sessionIds: [...this.online] };
+  }
+
+  async statusOf(
+    sessionId: string,
+  ): Promise<
+    | { ok: true; state?: { status: "idle" | "running"; at: number } }
+    | GroupFailure
+  > {
+    if (this.statusOfFailure !== undefined) return this.statusOfFailure;
+    const state = this.agentStates.get(sessionId);
+    return { ok: true as const, ...(state === undefined ? {} : { state }) };
+  }
 
   async resolve(
     target: string,
@@ -457,6 +483,12 @@ test("传输端口抛异常：统一转成 transport_error（不把异常抛给�
     async taskStatus() {
       throw new Error("超时");
     },
+    async peers() {
+      throw new Error("socket 半开");
+    },
+    async statusOf() {
+      throw new Error("socket 半开");
+    },
   };
   const service = new GroupService({
     store: env.store,
@@ -763,4 +795,121 @@ test("readGroupStatus：按会话 id 读只读组清单（全组 / 指定组 / �
   const failed = await readGroupStatus(env.store, MANAGER);
   assert.ok(isFailure(failed));
   assert.equal(failed.error, "state_unavailable");
+});
+
+// ---------- BACKLOG #1：成员状态判定（状态牌：待机 / 工作 / 疑似卡死 / 离线） ----------
+
+test("judgeAgentState：四态判定与边缘（离线 / 待机 / 工作 / 疑似卡死，无牌按待机）", () => {
+  const now = 1_000_000;
+  const stuck = 60_000;
+  assert.equal(
+    judgeAgentState({ online: false, now, stuckAfterMs: stuck }),
+    "offline",
+  );
+  assert.equal(
+    judgeAgentState({
+      online: false,
+      state: { status: "running", at: now - 1 },
+      now,
+      stuckAfterMs: stuck,
+    }),
+    "offline",
+  );
+  assert.equal(
+    judgeAgentState({
+      online: true,
+      state: { status: "idle", at: now - 10 },
+      now,
+      stuckAfterMs: stuck,
+    }),
+    "idle",
+  );
+  // running 且 at 未超阈值 = 工作（含恰在阈值边界）
+  assert.equal(
+    judgeAgentState({
+      online: true,
+      state: { status: "running", at: now - stuck },
+      now,
+      stuckAfterMs: stuck,
+    }),
+    "working",
+  );
+  // running 且 at 超阈值 = 疑似卡死
+  assert.equal(
+    judgeAgentState({
+      online: true,
+      state: { status: "running", at: now - stuck - 1 },
+      now,
+      stuckAfterMs: stuck,
+    }),
+    "stuck",
+  );
+  // 在线但无状态牌（未发布的旧对端）→ 待机，不误报卡死
+  assert.equal(
+    judgeAgentState({ online: true, now, stuckAfterMs: stuck }),
+    "idle",
+  );
+});
+
+test("status：成员带状态视图（在线集 + 状态牌判定；transport 失败降级不阻塞）", async () => {
+  const env = await ready();
+  const now = 1_000_000;
+  env.transport.online.add("sess-manager");
+  env.transport.online.add("sess-alice");
+  env.transport.online.add("sess-bob");
+  env.transport.agentStates.set("sess-manager", { status: "idle", at: now });
+  env.transport.agentStates.set("sess-alice", {
+    status: "running",
+    at: now - 1_000,
+  });
+  env.transport.agentStates.set("sess-bob", {
+    status: "running",
+    at: now - 999_999, // 远超默认 stuckAfterMs(5min=300_000) → 疑似卡死
+  });
+  const result = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(result), JSON.stringify(result));
+  const memberStates = result["memberStates"] as Array<{
+    name: string;
+    state: string;
+  }>;
+  assert.ok(
+    Array.isArray(memberStates),
+    "memberStates 存在: " + JSON.stringify(result["memberStates"]),
+  );
+  const byName = Object.fromEntries(memberStates.map((m) => [m.name, m.state]));
+  assert.equal(byName["manager"], "idle", "manager 待机");
+  assert.equal(byName["alice"], "working", "alice 工作");
+  assert.equal(byName["bob"], "stuck", "bob 疑似卡死");
+
+  // transport 读失败 → memberStates 缺省，status 仍返回（不阻塞只读）
+  env.transport.peersFailure = failure("transport_error", "x", "y");
+  const degraded = await env.service.status({ group: "team" }, MANAGER);
+  assert.ok(!isFailure(degraded));
+  assert.equal(degraded["memberStates"], undefined, "失败时缺省字段");
+});
+
+test("readGroupStatus：传 memberLookup 时附 memberStates，缺省不判定", async () => {
+  const env = await ready();
+  env.transport.online.add("sess-alice");
+  env.transport.agentStates.set("sess-alice", {
+    status: "idle",
+    at: 1_000_000,
+  });
+  const all = await readGroupStatus(env.store, MANAGER, undefined, {
+    now: () => 1_000_000,
+    stuckAfterMs: 300_000,
+    memberLookup: env.transport,
+  });
+  assert.ok(!isFailure(all), JSON.stringify(all));
+  const alice = all.groups[0]?.memberStates?.find((m) => m.name === "alice");
+  assert.equal(alice?.state, "idle");
+  assert.ok(
+    all.groups[0]?.memberStates?.some((m) => m.name === "bob"),
+    "组内全部成员都附状态: " + JSON.stringify(all.groups[0]?.memberStates),
+  );
+
+  // 不传 lookup → 视图不带 memberStates（保持原契约）
+  const plain = await readGroupStatus(env.store, MANAGER);
+  assert.ok(!isFailure(plain));
+  assert.equal(plain.groups[0]?.memberStates, undefined);
 });

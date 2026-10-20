@@ -438,7 +438,14 @@ export interface AgentGroupReadService {
     managerSessionId: string,
     groupName?: string,
   ): Promise<
-    | { ok: true; groups: Array<{ name: string; view: GroupView }> }
+    | {
+        ok: true;
+        groups: Array<{
+          name: string;
+          view: GroupView;
+          memberStates?: import("./types.ts").MemberStateView[];
+        }>;
+      }
     | GroupFailure
   >;
 }
@@ -449,6 +456,13 @@ function createReadService(
   bindings: GroupServiceBindings,
   config: ResolvedConfig,
 ): AgentGroupReadService {
+  const channel = boundOrDirect(bindings, "channel", ctx, "sessionChannel");
+  const transport =
+    typeof channel === "object" &&
+    channel !== null &&
+    isSessionChannelFace(channel)
+      ? createSessionChannelTransport(channel)
+      : undefined;
   return {
     async status(managerSessionId, groupName) {
       const paths = boundOrDirect(bindings, "paths", ctx, "sessionPaths");
@@ -468,7 +482,10 @@ function createReadService(
         (managerSessionId_: string) => sessionDirFor(managerSessionId_),
         config.stateFileName,
       );
-      return readGroupStatus(store, managerSessionId, groupName);
+      return readGroupStatus(store, managerSessionId, groupName, {
+        stuckAfterMs: config.stuckAfterMs,
+        ...(transport === undefined ? {} : { memberLookup: transport }),
+      });
     },
   };
 }

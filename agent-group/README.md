@@ -19,9 +19,14 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 | `broadcast` | `group` · `text` · `to?` | 广播：按当前成员集合逐条发送并**汇总送达 / 失败**（`to` 缺省 = 全部非管理者成员；逗号或空格分隔子集） |
 | `check` | `group` · `to?` | 懒判定结算：成功 / 失败 / 受阻 / 超时（缺 `to` 则检查全组已建立连接的成员） |
 | `remove` | `group` · `name` | 移除成员（**逐层下推**：非叶子被拒并列出剩余从代理；其平等连接一并删除） |
-| `status` | `group` | 只读查看：成员、等级与主从关系、平等连接、未结指令、最近回报、镜像计数 |
+| `status` | `group` | 只读查看：成员、等级与主从关系、平等连接、未结指令、最近回报、镜像计数；**成员状态**（`memberStates`，BACKLOG #1） |
 
 所有拒绝都带 **原因 + 下一步**（`{ok:false, error, reason, next}`，`error` 是稳定错误码）。
+
+**成员状态视图（跨进程忙闲，BACKLOG #1）**：`status` 动作与只读服务面在返回里附 `memberStates` —— 每个成员的 `state ∈ {offline, idle, working, stuck}`，判定基于 session-channel 的**跨进程状态牌**（`state:<sessionId>` = `{status, at}`，发布端见 session-channel README「agent 状态牌」）：
+
+- 不在在线集（`alive:*` 过期 / pid 死）= `offline`；`idle` = 待机；`running` 且 `at`（最近转换时刻）距今未超 `stuckAfterMs` = `working`；`running` 且超阈值 = `stuck`（疑似卡死）；
+- 判定不依赖目标 agent 工作循环、不产生模型推理 —— **目标卡死时依然可判**；只读现算、不落盘不镜像；session-channel 未挂 / 读失败时 `memberStates` 缺省（不阻塞 `status` 只读返回）。
 
 ## 只读服务面（TUI `/group` 等）
 
@@ -83,6 +88,8 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
         maxInstructionRecords: 50 # 每组保留的指令记录条数上限（从最旧裁）
         mirror: true              # 是否镜像进 memory-base
         stateFileName: agent-group.json # 只允许 [A-Za-z0-9._-]
+        stuckAfterMs: 300000      # 疑似卡死阈值（毫秒，缺省 5 分钟）
+        statusPollMs: 20000       # 状态巡查间隔（毫秒，缺省 20 秒；判定面为调用时现算）
 ```
 
 ## 示例（工具调用序列）
