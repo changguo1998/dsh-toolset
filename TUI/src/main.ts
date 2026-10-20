@@ -23,6 +23,7 @@ import {
   type LocalLogWriteOptions,
 } from "./app/adapter/local-log.ts";
 import { createTuiLocalLogTool } from "./app/adapter/local-log-tool.ts";
+import { createNoticeHistoryTool } from "./app/adapter/notice-history-tool.ts";
 import {
   createProcessStatusQueries,
   type StatusQueries,
@@ -923,6 +924,24 @@ export async function apply(
       } catch (err) {
         process.stderr.write(
           "[tui] warn: tui_local_log 注册失败：" + String(err) + "\n",
+        );
+      }
+    }
+  }
+  // 模型侧工具 `notice_history`：读宿主 notice 历史原文（compaction 后从上下文折叠、
+  // 但持久日志仍在的 `source.form:'notice'` 消息）。数据面见 app/adapter/notice-history.ts；
+  // 注册口径与 `tui_local_log` 相同（全局注册、会话由 exec.agent.session 判定）。
+  {
+    const toolsSvc = getTools();
+    if (typeof toolsSvc?.register === "function") {
+      try {
+        const disposeTool = toolsSvc.register(createNoticeHistoryTool());
+        ctxAny.effect?.(() => () => {
+          disposeTool();
+        });
+      } catch (err) {
+        process.stderr.write(
+          "[tui] warn: notice_history 注册失败：" + String(err) + "\n",
         );
       }
     }
