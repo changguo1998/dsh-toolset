@@ -18,6 +18,10 @@ export interface AgentGroupConfig {
   mirror?: boolean;
   /** 状态文件名（缺省 `agent-group.json`；只允许 `[A-Za-z0-9._-]`，落在管理者会话目录里）。 */
   stateFileName?: string;
+  /** 疑似卡死阈值毫秒（缺省 5 分钟）：成员 running 且 `at` 超过该时长未转换 → `stuck`。 */
+  stuckAfterMs?: number;
+  /** 状态巡查间隔毫秒（缺省 20000 = 20 秒；0 = 不巡查）。组长侧廉价读状态牌，无推理、无目标交互。 */
+  statusPollMs?: number;
 }
 
 /** 归一化后的配置。 */
@@ -27,6 +31,8 @@ export interface ResolvedConfig {
   maxInstructionRecords: number;
   mirror: boolean;
   stateFileName: string;
+  stuckAfterMs: number;
+  statusPollMs: number;
 }
 
 /**
@@ -117,6 +123,8 @@ export interface AgentGroupState {
   peerLinks: Record<string, GroupPeerLink>;
   /** 指令记录（按 `sentAt` 升序追加；超出上限从最旧裁）。 */
   instructions: GroupInstruction[];
+  /** 组关闭时刻（#4 裁定 3）：存在即已关闭——连接关系失效、写动作拒绝；缺失 = 未关闭。 */
+  closedAt?: number;
 }
 
 /** 一个管理者会话的全量状态（落盘形状：`<管理者会话目录>/agent-group.json`）。 */
@@ -153,6 +161,10 @@ export interface GroupTransport {
   resolve(
     target: string,
   ): Promise<{ ok: true; sessionId: string } | GroupFailure>;
+  /** 读取任务（= session-channel 的 `taskStatus`；**读取时懒判定超时**）。 */
+  taskStatus(
+    taskId: string,
+  ): Promise<{ ok: true; task: TaskSnapshot } | GroupFailure>;
   /** 投递指令（= session-channel 的 `delegate`），返回任务 id。 */
   delegate(input: {
     from: string;
@@ -165,10 +177,15 @@ export interface GroupTransport {
     to: string;
     text: string;
   }): Promise<{ ok: true; delivered: boolean } | GroupFailure>;
-  /** 读取任务（= session-channel 的 `taskStatus`；**读取时懒判定超时**）。 */
-  taskStatus(
-    taskId: string,
-  ): Promise<{ ok: true; task: TaskSnapshot } | GroupFailure>;
+  /** 在线会话 id 集合（= session-channel `peers`；成员状态判定的在线前提）。 */
+  peers(): Promise<{ ok: true; sessionIds: string[] } | GroupFailure>;
+  /** 读某会话的 agent 状态牌（= session-channel `statusOf`；无牌 → `state` 缺省）。 */
+  statusOf(
+    sessionId: string,
+  ): Promise<
+    | { ok: true; state?: { status: "idle" | "running"; at: number } }
+    | GroupFailure
+  >;
 }
 
 /** 传输侧任务快照（只用本包需要的字段）。 */
@@ -177,6 +194,23 @@ export interface TaskSnapshot {
   result?: string;
   error?: string;
   resultTruncated?: boolean;
+}
+
+/** 成员忙闲判定（状态牌决策③）：离线 / 待机 / 工作 / 疑似卡死。 */
+export type AgentStateVerdict = "offline" | "idle" | "working" | "stuck";
+
+/** 成员状态视图（`status` 动作 / 只读 `agentGroup.status` 的附加字段；读取时现算，不落盘不镜像）。 */
+export interface MemberStateView {
+  /** 组内名。 */
+  name: string;
+  /** 会话 id。 */
+  sessionId: string;
+  /** 判定结果。 */
+  state: AgentStateVerdict;
+  /** 状态牌的两态（在线但无牌时缺省）。 */
+  rawStatus?: "idle" | "running";
+  /** 状态牌 `at`（最近一次转换时刻；无牌缺省）。 */
+  at?: number;
 }
 
 /** 状态存储端口（实现见 `src/store.ts`：文件 / 内存）。 */
@@ -200,6 +234,8 @@ export interface GroupView {
   id: string;
   manager: { name: string; sessionId: string };
   createdAt: number;
+  /** 组关闭时刻（#4 裁定 3）；缺省 = 组未关闭。 */
+  closedAt?: number;
   members: Array<{
     name: string;
     target: string;

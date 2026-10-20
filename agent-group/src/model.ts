@@ -630,6 +630,50 @@ export function settleInstruction(
 }
 
 /**
+ * 关闭组（#4 裁定 3）：关闭 = 组内派发任务结束、**未结指令终止**（收场按超时 / 取消
+ * 口径 → `timeout` + `cause` 注明「组已关闭」）、**连接关系关闭**（此后一切写动作由
+ * 动作层拒绝）、**不连带关闭成员 agent**（成员是否关由拉起方决定）。幂等：已关闭
+ * 再次 close → `group_closed`。返回被终止的未结指令数。
+ */
+export function closeGroup(
+  book: AgentGroupBook,
+  input: { group: string; now: number },
+):
+  | { book: AgentGroupBook; group: AgentGroupState; terminated: number }
+  | GroupFailure {
+  const found = pickGroup(book, input.group);
+  if (isFailure(found)) return found;
+  if (found.closedAt !== undefined) {
+    return failure(
+      "group_closed",
+      `组「${found.name}」已关闭`,
+      "已关闭组不接受任何写动作；如需新组请 create_group 重建",
+    );
+  }
+  const terminated = found.instructions
+    .filter((item) => item.status === "open")
+    .map((item) => ({
+      ...item,
+      status: "timeout" as const,
+      settledAt: input.now,
+      cause: "组已关闭（组长终止未结指令）",
+    }));
+  const group: AgentGroupState = {
+    ...found,
+    closedAt: input.now,
+    instructions: found.instructions.map((item) => {
+      const settled = terminated.find((t) => t.id === item.id);
+      return settled ?? item;
+    }),
+  };
+  return {
+    book: { ...book, groups: { ...book.groups, [found.name]: group } },
+    group,
+    terminated: terminated.length,
+  };
+}
+
+/**
  * 移除成员（决策项 10：逐层下推，不做级联）。非叶子被拒，并在提示里列出剩余从代理；
  * 被移除成员连接上的未结指令结算为 `removed`（失败成因，决策项 14）。
  */
@@ -773,6 +817,7 @@ export function groupView(
       sessionId: group.managerSessionId,
     },
     createdAt: group.createdAt,
+    ...(group.closedAt === undefined ? {} : { closedAt: group.closedAt }),
     members,
     links,
     peerLinks,

@@ -15,7 +15,7 @@
  *   `session_paths_unavailable`，带原因 + 下一步），工具本身照常已注册。
  * - `memory-base`（`memory` 服务）可选：每次组状态变更后把只读视图镜像进去（`kind: "agent_group"`），
  *   失败只计数 + 一次日志、不重试。
- * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派 10 个动作）与只读服务面 `agentGroup`。
+ * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派 11 个动作）与只读服务面 `agentGroup`。
  *
  * 状态落点：`<管理者会话目录>/agent-group.json`（原子写、0600），经
  * `sessionPaths.sessionDirFor(managerSessionId)` 推导。
@@ -166,6 +166,7 @@ export function toToolDef(
       "broadcast 广播（group / text / to?；按当前成员集合逐条发送并汇总送达与失败）；" +
       "check 懒判定结算（group / to?；成功 / 失败 / 受阻 / 超时）；" +
       "remove 移除成员（group / name；非叶子被拒并列出剩余从代理）；" +
+      "close_group 关闭组（group；仅组长可关，未结指令终止、连接关系关闭、不连带关成员）；" +
       "status 只读查看（group）。所有拒绝都带原因与下一步；" +
       "依赖（session-channel / session-paths）在调用时解析，服务缺失会返回带原因的错误。",
     parameters: {
@@ -184,6 +185,7 @@ export function toToolDef(
             "broadcast",
             "check",
             "remove",
+            "close_group",
             "status",
           ],
         },
@@ -438,7 +440,14 @@ export interface AgentGroupReadService {
     managerSessionId: string,
     groupName?: string,
   ): Promise<
-    | { ok: true; groups: Array<{ name: string; view: GroupView }> }
+    | {
+        ok: true;
+        groups: Array<{
+          name: string;
+          view: GroupView;
+          memberStates?: import("./types.ts").MemberStateView[];
+        }>;
+      }
     | GroupFailure
   >;
 }
@@ -449,6 +458,13 @@ function createReadService(
   bindings: GroupServiceBindings,
   config: ResolvedConfig,
 ): AgentGroupReadService {
+  const channel = boundOrDirect(bindings, "channel", ctx, "sessionChannel");
+  const transport =
+    typeof channel === "object" &&
+    channel !== null &&
+    isSessionChannelFace(channel)
+      ? createSessionChannelTransport(channel)
+      : undefined;
   return {
     async status(managerSessionId, groupName) {
       const paths = boundOrDirect(bindings, "paths", ctx, "sessionPaths");
@@ -468,7 +484,10 @@ function createReadService(
         (managerSessionId_: string) => sessionDirFor(managerSessionId_),
         config.stateFileName,
       );
-      return readGroupStatus(store, managerSessionId, groupName);
+      return readGroupStatus(store, managerSessionId, groupName, {
+        stuckAfterMs: config.stuckAfterMs,
+        ...(transport === undefined ? {} : { memberLookup: transport }),
+      });
     },
   };
 }

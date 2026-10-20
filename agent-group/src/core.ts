@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import {
   addMember as modelAddMember,
   assignTaskId as modelAssignTaskId,
+  closeGroup as modelCloseGroup,
   createGroup as modelCreateGroup,
   failure,
   groupView,
@@ -37,6 +38,7 @@ import type {
   AgentGroupBook,
   AgentGroupConfig,
   AgentGroupState,
+  AgentStateVerdict,
   BookStore,
   GroupFailure,
   GroupInstruction,
@@ -44,12 +46,17 @@ import type {
   GroupTransport,
   GroupView,
   InstructionOutcome,
+  MemberStateView,
   ResolvedConfig,
 } from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_RECORDS = 50;
 const STATE_FILE_RE = /^[A-Za-z0-9._-]{1,64}$/;
+/** 疑似卡死阈值（毫秒；BACKLOG #1 决策③）。 */
+const DEFAULT_STUCK_AFTER_MS = 5 * 60 * 1000;
+/** 状态巡查间隔（毫秒；BACKLOG #1 决策②，组长侧廉价读，无推理）。 */
+const DEFAULT_STATUS_POLL_MS = 20 * 1000;
 
 function positiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
@@ -79,12 +86,95 @@ export function resolveConfig(config: AgentGroupConfig = {}): ResolvedConfig {
     ),
     mirror: config.mirror !== false,
     stateFileName: fileName,
+    stuckAfterMs: positiveNumber(config.stuckAfterMs, DEFAULT_STUCK_AFTER_MS),
+    // statusPollMs 允许 0 = 不轮询（positiveNumber 对 0 会落缺省，故单独处理）
+    statusPollMs:
+      typeof config.statusPollMs === "number" &&
+      Number.isFinite(config.statusPollMs) &&
+      config.statusPollMs >= 0
+        ? Math.floor(config.statusPollMs)
+        : DEFAULT_STATUS_POLL_MS,
   };
 }
 
 /** 错误对象 → 一句人话。 */
 export function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 成员忙闲判定的状态牌来源（结构面；`GroupTransport` 满足）。 */
+export interface MemberStateLookup {
+  peers(): Promise<{ ok: true; sessionIds: string[] } | GroupFailure>;
+  statusOf(
+    sessionId: string,
+  ): Promise<
+    | { ok: true; state?: { status: "idle" | "running"; at: number } }
+    | GroupFailure
+  >;
+}
+
+/**
+ * 成员忙闲判定（状态牌决策③，纯函数）：
+ * 不在在线集 = `offline`；`idle` = `idle`（待机）；`running` 且 `at` 距今未超
+ * `stuckAfterMs` = `working`（工作）；`running` 且 `at` 超阈值 = `stuck`（疑似卡死）。
+ * 在线但无状态牌（未发布的旧对端）按 `idle` 处理 —— 不误报卡死。
+ */
+export function judgeAgentState(input: {
+  online: boolean;
+  state?: { status: "idle" | "running"; at: number };
+  now: number;
+  stuckAfterMs: number;
+}): AgentStateVerdict {
+  if (!input.online) return "offline";
+  const state = input.state;
+  if (state === undefined) return "idle";
+  if (state.status === "idle") return "idle";
+  return input.now - state.at > input.stuckAfterMs ? "stuck" : "working";
+}
+
+/**
+ * 现算一个组全部成员的状态视图（决策②③）：在线集一次取 + 每成员状态牌单读，
+ * 判定不涉及目标 agent 工作循环、不产生推理（目标卡死时依然可判）。
+ * transport 缺失 / 读失败 → `undefined`（状态不可用，不阻塞 `status` 本身的只读返回）。
+ */
+export async function memberStatesOf(
+  group: AgentGroupState,
+  lookup: MemberStateLookup | undefined,
+  now: number,
+  stuckAfterMs: number,
+): Promise<MemberStateView[] | undefined> {
+  if (lookup === undefined) return undefined;
+  try {
+    const onlineResult = await lookup.peers();
+    if (!onlineResult.ok) return undefined;
+    const online = new Set(onlineResult.sessionIds);
+    const out: MemberStateView[] = [];
+    for (const member of Object.values(group.members)) {
+      const isOnline = online.has(member.sessionId);
+      let raw: { status: "idle" | "running"; at: number } | undefined;
+      const stateResult = await lookup.statusOf(member.sessionId);
+      if (!stateResult.ok) {
+        // 单成员状态牌读失败：按「在线无牌」处理，不误报卡死，继续其余成员
+        raw = undefined;
+      } else {
+        raw = stateResult.state;
+      }
+      out.push({
+        name: member.name,
+        sessionId: member.sessionId,
+        state: judgeAgentState({
+          online: isOnline,
+          state: raw,
+          now,
+          stuckAfterMs,
+        }),
+        ...(raw === undefined ? {} : { rawStatus: raw.status, at: raw.at }),
+      });
+    }
+    return out;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 镜像计数（`status` 动作里暴露，便于排障）。 */
@@ -104,18 +194,50 @@ export interface GroupServiceOptions {
   now?: () => number;
   newId?: () => string;
   log?: (message: string) => void;
+  /** 定时器面（2b 状态轮询用；缺省进程内 `setInterval` + unref）。 */
+  timers?: { interval(delayMs: number, callback: () => void): () => void };
+}
+
+/** 定时器统一面的缺省实现（unref：不阻塞进程退出；测试注入替身）。 */
+function systemTimers(): NonNullable<GroupServiceOptions["timers"]> {
+  return {
+    interval(delayMs, callback) {
+      const handle = setInterval(callback, delayMs);
+      handle.unref?.();
+      return () => clearInterval(handle);
+    },
+  };
+}
+
+/** 状态缓存键（`<manager>\0<group>`；`\0` 分隔避免组名里出现前缀碰撞）。 */
+function stateCacheKey(manager: string, group: string): string {
+  return `${manager}\0${group}`;
 }
 
 /**
  * 只读组清单（TUI `/group` 服务面）：按管理者会话 id 读落盘书，返回每组的只读视图。
  * 只读、不落盘、不镜像；文件缺失（ENOENT）由 `store.load` 按空组集处理。
+ * `opts.memberLookup` 提供时附每组 `memberStates`（状态牌现算，BACKLOG #1）；缺省不判定。
  */
 export async function readGroupStatus(
   store: BookStore,
   managerSessionId: string,
   groupName?: string,
+  opts: {
+    now?: () => number;
+    stuckAfterMs?: number;
+    memberLookup?: MemberStateLookup;
+  } = {},
 ): Promise<
-  { ok: true; groups: Array<{ name: string; view: GroupView }> } | GroupFailure
+  | {
+      ok: true;
+      groups: Array<{
+        name: string;
+        view: GroupView;
+        memberStates?: MemberStateView[];
+      }>;
+    }
+  | GroupFailure
 > {
   let book: AgentGroupBook;
   try {
@@ -127,6 +249,8 @@ export async function readGroupStatus(
       "确认该会话目录存在且 agent-group.json 可读",
     );
   }
+  const now = (opts.now ?? Date.now)();
+  const stuckAfterMs = opts.stuckAfterMs ?? DEFAULT_STUCK_AFTER_MS;
   const requested = (groupName ?? "").trim();
   if (requested !== "") {
     const group = book.groups[requested];
@@ -137,17 +261,46 @@ export async function readGroupStatus(
         `现有组：${Object.keys(book.groups).join(", ") || "（无）"}`,
       );
     }
+    const view = groupView(group);
+    const memberStates = await memberStatesOf(
+      group,
+      opts.memberLookup,
+      now,
+      stuckAfterMs,
+    );
     return {
       ok: true,
-      groups: [{ name: group.name, view: groupView(group) }],
+      groups: [
+        {
+          name: group.name,
+          view,
+          ...(memberStates === undefined ? {} : { memberStates }),
+        },
+      ],
     };
   }
-  return {
-    ok: true,
-    groups: Object.keys(book.groups)
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => ({ name, view: groupView(book.groups[name]!) })),
-  };
+  const out: Array<{
+    name: string;
+    view: GroupView;
+    memberStates?: MemberStateView[];
+  }> = [];
+  for (const name of Object.keys(book.groups).sort((a, b) =>
+    a.localeCompare(b),
+  )) {
+    const group = book.groups[name]!;
+    const memberStates = await memberStatesOf(
+      group,
+      opts.memberLookup,
+      now,
+      stuckAfterMs,
+    );
+    out.push({
+      name: group.name,
+      view: groupView(group),
+      ...(memberStates === undefined ? {} : { memberStates }),
+    });
+  }
+  return { ok: true, groups: out };
 }
 
 /** `check` 的单条结算结论。 */
@@ -245,6 +398,13 @@ export class GroupService {
   readonly #books = new Map<string, AgentGroupBook>();
   readonly #locks = new Map<string, Promise<unknown>>();
   readonly #mirrorStats = { ok: 0, failed: 0, lastError: "" };
+  readonly #timers: NonNullable<GroupServiceOptions["timers"]>;
+  /** 状态轮询（2b，组长侧）：每组长一个 tick 遍历其全部组；`interval` 未引用。 */
+  #pollTimer: (() => void) | undefined;
+  /** 状态巡查见过的组长集合（`run` 时记录调用方）。 */
+  #knownManagers = new Set<string>();
+  /** 组长名下各组的成员状态缓存（`<manager>\0<group>` → 判定视图；写动作后失效）。 */
+  #stateCache = new Map<string, MemberStateView[]>();
   #lastStateError = "";
   #mirrorLogged = false;
 
@@ -256,6 +416,15 @@ export class GroupService {
     this.#now = options.now ?? Date.now;
     this.#newId = options.newId ?? randomUUID;
     this.#log = options.log ?? (() => {});
+    this.#timers = options.timers ?? systemTimers();
+    if (this.#config.statusPollMs > 0) {
+      // 2b：内建组长侧轮询（状态巡查），间隔可配（缺省 20 s；0 = 不轮询）
+      this.#pollTimer = this.#timers.interval(this.#config.statusPollMs, () => {
+        void this.refreshMemberStates().catch((err: unknown) =>
+          this.#log(`状态巡查失败：${describe(err)}`),
+        );
+      });
+    }
   }
 
   /** 按 action 分派（工具出口；`caller` = 调用方会话 id）。 */
@@ -264,6 +433,8 @@ export class GroupService {
     args: Record<string, unknown>,
     caller: string,
   ): Promise<ActionResult> {
+    // 组长归属：记录出现过的调用方会话，供状态巡查扫其名下的组（2b）
+    if (caller !== "") this.#knownManagers.add(caller);
     switch (action) {
       case "create_group":
         return this.createGroup(args, caller);
@@ -283,13 +454,15 @@ export class GroupService {
         return this.check(args, caller);
       case "remove":
         return this.remove(args, caller);
+      case "close_group":
+        return this.closeGroup(args, caller);
       case "status":
         return this.status(args, caller);
       default:
         return failure(
           "unknown_action",
           `未知 action：${action === "" ? "（空）" : action}`,
-          "action 用 create_group / add_member / link / link_peer / send / send_peer / broadcast / check / remove / status",
+          "action 用 create_group / add_member / link / link_peer / send / send_peer / broadcast / check / remove / close_group / status",
         );
     }
   }
@@ -331,6 +504,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const name = stringArg(args, "name");
       const target = stringArg(args, "target");
       const found = pickGroup(book, groupName);
@@ -379,6 +554,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const applied = modelLinkMembers(book, {
         group: groupName,
         from: stringArg(args, "from"),
@@ -411,6 +588,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const to = stringArg(args, "to");
       const timeoutMs =
         typeof args.timeoutMs === "number"
@@ -505,6 +684,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const only = stringArg(args, "to");
       const initial = pickGroup(book, groupName);
       if (isFailure(initial)) return initial;
@@ -597,6 +778,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const applied = modelRemoveMember(book, {
         group: groupName,
         name: stringArg(args, "name"),
@@ -623,6 +806,65 @@ export class GroupService {
     });
   }
 
+  /** 关闭组（#4 裁定 3）：仅组长（创建组的 agent）可关；关闭 = 组内派发任务结束、
+   *  未结指令终止（timeout + cause）、连接关系关闭（此后写动作拒绝）、不连带关成员。 */
+  async closeGroup(
+    args: Record<string, unknown>,
+    caller: string,
+  ): Promise<ActionResult> {
+    return this.#locked(caller, async () => {
+      const book = await this.#load(caller);
+      if (book === undefined) return this.#stateFailure();
+      const groupName = stringArg(args, "group");
+      const group = pickGroup(book, groupName);
+      if (isFailure(group)) return group;
+      if (caller !== group.managerSessionId) {
+        return failure(
+          "not_manager",
+          `仅组长可关闭组（组「${group.name}」由 ${group.managerSessionId} 创建）`,
+          "组长 = 建组的会话；成员如需退出请让组长 remove",
+        );
+      }
+      const applied = modelCloseGroup(book, {
+        group: groupName,
+        now: this.#now(),
+      });
+      if (isFailure(applied)) return applied;
+      const saved = await this.#persist(applied.book);
+      if (saved !== undefined) return saved;
+      await this.#mirrorGroup(applied.group);
+      return {
+        ok: true,
+        action: "close_group",
+        group: groupName,
+        closedAt: applied.group.closedAt,
+        terminated: applied.terminated,
+        view: groupView(applied.group),
+        next:
+          applied.terminated === 0
+            ? "组已关闭：连接关系失效、不再接受写动作；成员 agent 不受影响。如需新组请 create_group 重建"
+            : `组已关闭：${applied.terminated} 条未结指令已终止（timeout）；连接关系失效。成员 agent 不受影响。`,
+      };
+    });
+  }
+
+  /** 已关闭组守卫：写动作 load 后调用；组不存在 / 已关闭 → 失败信封（`group_closed`）。 */
+  #closedGuard(
+    book: AgentGroupBook,
+    groupName: string,
+  ): GroupFailure | undefined {
+    const group = pickGroup(book, groupName);
+    if (isFailure(group)) return group;
+    if (group.closedAt !== undefined) {
+      return failure(
+        "group_closed",
+        `组「${group.name}」已关闭`,
+        "已关闭组不接受任何写动作；如需新组请 create_group 重建",
+      );
+    }
+    return undefined;
+  }
+
   /** 建立平等连接（双向、无等级；每对 agent 每种连接至多一条，决策项 4 / 6）。 */
   async linkPeer(
     args: Record<string, unknown>,
@@ -632,6 +874,8 @@ export class GroupService {
       const book = await this.#load(caller);
       if (book === undefined) return this.#stateFailure();
       const groupName = stringArg(args, "group");
+      const closed = this.#closedGuard(book, groupName);
+      if (closed !== undefined) return closed;
       const applied = modelLinkPeer(book, {
         group: groupName,
         from: stringArg(args, "from"),
@@ -665,6 +909,8 @@ export class GroupService {
     const book = await this.#load(caller);
     if (book === undefined) return this.#stateFailure();
     const groupName = stringArg(args, "group");
+    const closed = this.#closedGuard(book, groupName);
+    if (closed !== undefined) return closed;
     const to = stringArg(args, "to");
     const text = stringArg(args, "text").trim();
     const found = pickGroup(book, groupName);
@@ -734,6 +980,8 @@ export class GroupService {
     const book = await this.#load(caller);
     if (book === undefined) return this.#stateFailure();
     const groupName = stringArg(args, "group");
+    const closed = this.#closedGuard(book, groupName);
+    if (closed !== undefined) return closed;
     const text = stringArg(args, "text").trim();
     const found = pickGroup(book, groupName);
     if (isFailure(found))
@@ -823,18 +1071,66 @@ export class GroupService {
     const group = pickGroup(book, stringArg(args, "group"));
     if (isFailure(group)) return group;
     const violations = invariantViolations(group);
+    // 成员状态视图（BACKLOG #1 决策②③）：**状态巡查缓存优先**（2b 组长侧轮询），
+    // 无缓存则现算并入缓存；状态读失败 → 该字段缺省，不阻塞只读
+    const memberStates = await this.statesOf(caller, group);
+    const view = groupView(group);
     return {
       ok: true,
       action: "status",
       group: group.name,
-      view: groupView(group),
+      view,
+      ...(memberStates === undefined ? {} : { memberStates }),
       mirror: this.#mirrorReport(),
       ...(violations.length === 0 ? {} : { violations }),
       next:
         violations.length === 0
-          ? "只读视图：成员 / 等级与主从关系 / 未结指令 / 最近回报"
+          ? "只读视图：成员 / 等级与主从关系 / 未结指令 / 最近回报 / 成员状态"
           : "组状态存在不变量违规（见 violations）；建议重建组",
     };
+  }
+
+  /** 组长名下某组的成员状态视图（2b）：缓存优先，缺失则现算并入缓存。 */
+  async statesOf(
+    manager: string,
+    group: AgentGroupState,
+  ): Promise<MemberStateView[] | undefined> {
+    const cached = this.#stateCache.get(stateCacheKey(manager, group.name));
+    if (cached !== undefined) return cached;
+    const states = await memberStatesOf(
+      group,
+      this.#transport,
+      this.#now(),
+      this.#config.stuckAfterMs,
+    );
+    if (states !== undefined) {
+      this.#stateCache.set(stateCacheKey(manager, group.name), states);
+    }
+    return states;
+  }
+
+  /** 状态巡查主体（2b）：遍历已知组长，**按组长归属去重**刷新其全部组的状态缓存。 */
+  async refreshMemberStates(): Promise<void> {
+    for (const manager of this.#knownManagers) {
+      const book = await this.#load(manager);
+      if (book === undefined) continue;
+      for (const group of Object.values(book.groups)) {
+        const states = await memberStatesOf(
+          group,
+          this.#transport,
+          this.#now(),
+          this.#config.stuckAfterMs,
+        );
+        if (states !== undefined) {
+          this.#stateCache.set(stateCacheKey(manager, group.name), states);
+        }
+      }
+    }
+  }
+
+  /** 状态缓存条目数（诊断 / 测试）。 */
+  get cachedStateEntries(): number {
+    return this.#stateCache.size;
   }
 
   // ---------- 内部：状态读写、串行化、镜像 ----------
@@ -892,6 +1188,11 @@ export class GroupService {
       return this.#stateFailure();
     }
     this.#books.set(book.managerSessionId, book);
+    // 写动作改变了组 → 该组长名下组的状态缓存失效（2b：下次 status / 巡查重算）
+    const prefix = `${book.managerSessionId}\0`;
+    for (const key of [...this.#stateCache.keys()]) {
+      if (key.startsWith(prefix)) this.#stateCache.delete(key);
+    }
     return undefined;
   }
 
