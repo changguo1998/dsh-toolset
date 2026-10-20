@@ -15,7 +15,7 @@ import path from "node:path";
 import { after, test } from "node:test";
 
 import { apply, inject, provide } from "../src/main.ts";
-import { FakeTimer } from "./harness.ts";
+import { HostTimer } from "./harness.ts";
 
 const dirs: string[] = [];
 after(() => {
@@ -49,7 +49,7 @@ class StrictContext {
         get: () => ({ session: { id: "sess-1" }, followup: () => {} }),
       },
       sessions: { flush: async () => true },
-      timer: new FakeTimer(),
+      timer: new HostTimer(),
       commands: {
         register: (definition: unknown) => {
           this.commands.defs.push(definition);

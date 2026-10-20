@@ -13,6 +13,7 @@ import {
   ChannelRegistry,
   Scheduler,
   type AgentsLike,
+  type HostTimerLike,
   type TimerLike,
 } from "../src/scheduler.ts";
 import { TaskStore } from "../src/store.ts";
@@ -49,6 +50,39 @@ export class FakeTimer implements TimerLike {
 
   get pendingDelay(): number | null {
     return this.live[0]?.delay ?? null;
+  }
+}
+
+/** 宿主形状 timer 假件：只实现 `timeout(cb, delay)`（与 cordis-plugin-timer 同形）。 */
+export class HostTimer implements HostTimerLike {
+  readonly entries: {
+    delay: number;
+    callback: () => void;
+    disposed: boolean;
+  }[] = [];
+
+  timeout(callback: () => void, delay: number): () => void {
+    const entry = { delay, callback, disposed: false };
+    this.entries.push(entry);
+    return () => {
+      entry.disposed = true;
+    };
+  }
+
+  get live(): { delay: number; callback: () => void; disposed: boolean }[] {
+    return this.entries.filter((entry) => !entry.disposed);
+  }
+
+  get pendingDelay(): number | null {
+    return this.live[0]?.delay ?? null;
+  }
+
+  /** 触发最早那个存活 timer（模拟到点）。 */
+  async fire(): Promise<void> {
+    const entry = this.live[0];
+    if (entry === undefined) return;
+    entry.disposed = true;
+    entry.callback();
   }
 }
 

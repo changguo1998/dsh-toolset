@@ -20,7 +20,7 @@ import type {
   ChannelResult,
   DeliveryRequest,
 } from "../src/types.ts";
-import { FakeTimer } from "./harness.ts";
+import { HostTimer } from "./harness.ts";
 
 const NOW = Date.UTC(2026, 9, 20, 8, 0, 0);
 
@@ -57,7 +57,7 @@ function fakeContext(
     status: "idle",
     followup: () => {},
   };
-  const timer = new FakeTimer();
+  const timer = new HostTimer();
   const services: Record<string, unknown> = {
     agents: { get: (id: string) => (id === "sess-1" ? agent : undefined) },
     sessions: { flush: async () => true },
@@ -162,7 +162,7 @@ test("createDaemonRuntime：注入时钟, 到期即投递", async () => {
           : serviceName === "sessions"
             ? { flush: async () => true }
             : serviceName === "timer"
-              ? new FakeTimer()
+              ? new HostTimer()
               : undefined,
     },
     {
