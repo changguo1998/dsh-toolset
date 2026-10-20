@@ -22,6 +22,10 @@ export interface SessionChannelConfig {
   readBlockMs?: number;
   /** true = 只加载不连接（离线环境静默降级）。 */
   disabled?: boolean;
+  /** 是否发布 agent 状态牌（`state:<sessionId>`；缺省 true）。 */
+  agentStatus?: boolean;
+  /** agent 状态牌 TTL 秒（缺省同 `presenceTtlSec`）。 */
+  agentStateTtlSec?: number;
 }
 
 /** 一个在线对端（在线键的值）。 */
@@ -38,6 +42,14 @@ export interface PeerInfo {
   profile: string;
   /** 进程启动时刻（epoch ms）。 */
   startedAt: number;
+}
+
+/** agent 忙闲状态牌（`state:<sessionId>` 的值；宿主 `agent/status` 事件驱动）。 */
+export interface AgentState {
+  /** 宿主 `AgentStatus` 的两态（`idle` = 无 driver 在跑；`running` = 被唤醒输入开始）。 */
+  status: "idle" | "running";
+  /** 最近一次状态**转换**时刻（epoch ms；心跳续期只刷 TTL、绝不更新 `at`）。 */
+  at: number;
 }
 
 /** 发送请求。 */

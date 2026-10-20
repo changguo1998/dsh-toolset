@@ -362,7 +362,12 @@ test("工具出口归一（2026-10-17）：返回体带 undefined 时置空为 l
       error: undefined,
     }),
     send: async () => {
-      const sentValue = { ok: true, messageId: "1-0", delivered: undefined, target: undefined };
+      const sentValue = {
+        ok: true,
+        messageId: "1-0",
+        delivered: undefined,
+        target: undefined,
+      };
       sent.push(sentValue);
       return sentValue;
     },
@@ -370,7 +375,12 @@ test("工具出口归一（2026-10-17）：返回体带 undefined 时置空为 l
     aliasSet: async () => ({ ok: true }),
     aliasList: async () => ({ ok: true, aliases: [] }),
     aliasClear: async () => ({ ok: true, cleared: [] }),
-    status: () => ({ enabled: true, connected: true, sessions: [], error: undefined }),
+    status: () => ({
+      enabled: true,
+      connected: true,
+      sessions: [],
+      error: undefined,
+    }),
   };
   const tool = withLosslessOutput(toToolDef(fakeService as never));
   for (const args of [{ action: "status" }, { action: "peers" }]) {
