@@ -1,6 +1,6 @@
 # agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）（接取条目：docs/BACKLOG.md「agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）」）
 
-状态：实现完成（待协调确认合 main）　　开启：2026-10-20　　关闭：
+状态：关闭　　开启：2026-10-20　　关闭：2026-10-20
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -85,7 +85,13 @@
 - `npm --prefix session-channel run check` 通过；`npm run build` 通过；`npm run test` **71/71** 绿（含 `tests/agent-state.test.ts` 8 用例）。
 - 关键不变量断言：① 同态 `agent/status` 与心跳都不刷新 `at`（broker `touchAgentState` 只 EXPIRE + 服务层跨多心跳核验）；② TTL 只续期可熬过原 TTL（1 s 牌续期后跨过 1.2 s 仍可读且 at 不变）；③ `agent/disposed` 后内存与 Redis 双清、心跳不复活；④ 跨实例经 `statusOf` 读到异地发布的牌。
 - **真机**（2026-10-20，实时 Redis + 真实 dsh 进程；临时隔离 profile 挂本分支构建，用后即清）：启动即发布（新会话 `agent/created` → `state:<id>` = `{"status":"idle","at":<启动时刻>}`，TTL 随心跳刷新 10→14 s）；转换驱动（经通道注入一条消息 → 对端真实消费并回复 → 状态 `idle → running( at=注入时刻 ) → idle( at=回合结束时刻 )`，`at` 两次都等于事件时刻）；心跳不刷 at（跨多次心跳 `at` 恒定 1792491907187）；进程退出后 alive/state 键 ≤ ~15 s 内被 TTL 清除（残留 0 键）。
+- **真机四态复验**（agent-group 消费端，2026-10-20，`dsh --profile fff` 两会话 A/B，A 建组 group-1 + 加 B 为成员，A 经 `agent_group` 工具 `status` 读 `memberStates`）：
+  - **待机**：初始与 B 长任务结束回落均为 `state=idle`（rawStatus=idle）✓；
+  - **工作**：A 处理回合期间自身 `manager=working`（rawStatus=running，`at` 新）✓；
+  - **疑似卡死**：把 B 的状态牌手工置为 `running` 且 `at` 超 5 min，跨 24 s 心跳后 `at` 仍是手工旧值（心跳只续 TTL，不刷 at），A 经轮询缓存刷新后判 `b=stuck`（rawStatus=running）✓；
+  - **离线**：关闭 B 进程 → alive 键 ≤15 s 过期 → A 判 `b=offline`（无 rawStatus；离线不依赖对端参与）✓；
+  - 心跳不刷 at + 离线不依赖对端在两个环节分别确认；全程判定只读 Redis、无模型推理、不触碰对端工作循环。
 
 ## 收尾
 
-- 待办：格式 → 提交询问（§5）→ 经 channel 向协调会话 `ui-ravine-5e31` 汇报（含 check/test/真机结果、读数面契约、可否合并）→ 协调确认后提交本分支 → 合 main + 重建 dist → 全量四态真机复验（agent-group 侧）→ 收尾提交（追踪文档关闭 + BACKLOG 条目清理归协调侧统一）。
+- 已完成：session-channel 发布 / 读数面（dsh/session-channel 分支, 合 main 705d39a）与 agent-group 消费端（判据③ + 2b 组长轮询 + close_group, dsh/agent-group 分支, 合 main 5dec007 + 双分支真机验证）全部落地; 全量 check / build / test 通过（session-channel 71/71, agent-group 63/63）; 真机四态复验通过; 本追踪文档关闭并归档; BACKLOG 条目 1 移除（归协调侧统一清理）; #4 rounds 追踪文档归档。

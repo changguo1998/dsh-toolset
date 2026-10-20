@@ -95,15 +95,7 @@
 > 2026-10-20：条目 5「background-daemon E5：memory 底座取不到（严格模式 readService 需可选注入 / 惰性解析）」与条目 6「background-daemon tasks.json 多实例共享整文件覆盖（明确单实例边界或加锁合并）」**完成并关闭** —— 追踪文档归档 `docs/archived/2026-10-20-bgdaemon-memory-backend.md`：memory 底座经 `ctx.inject` 子分叉晚挂挂载, 任务表迁入 memory(SQLite), tasks.json 停写, 覆盖竞态消除；真实挂载确认通过。条目从本节移除。
 > 2026-10-20：条目「模型按需检索 notice 历史原文（compaction 后取回）」**完成并关闭** —— 承载 TUI 包内, 模型侧工具 `notice_history` 读宿主持久日志（多帧 zstd 解压）按需取回被折叠的 notice 原文（最近 N + `source.kind` 过滤, 会话非法 / 目录未定位 / 日志缺失三态报错, 纯只读不落库）; 追踪文档归档 `docs/archived/2026-10-20-notice-history-query.md`; 真实 fff profile 注册面待主分支合并后复验。条目从本节移除。
 
-**1. agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）**（〔进行中: 2026-10-20〕 2026-10-20 登记, 来源: 用户需求「检查其他 agent 的状态（待机 / 工作）」并要求卡死时也可判）：
-**现象 / 现状** —— 跨会话**在线**已有（session-channel `alive:<sessionId>` 心跳 5 s / TTL 15 s, 独立于 agent 循环）, 但**没有跨进程的忙闲信号**: 宿主的 `agent/status`（`idle`/`running`）与 `workspace/session-activity`（`turn`/`job`/`subagent`/`schedule` 活跃原因）都只在进程内; `sessions` / `jobs` 查询无跨进程忙闲 API。agent-group 目前只有组内指令簿（未结指令 = 工作）与 `/group` 状态（连接 / 指令计数）, 无法得知成员 agent 的真实待机 / 工作 / 卡死。
-**期望** —— 跨进程状态牌: 每个会话把自身 agent 忙闲发布到 session-channel 的 Redis, 旁观者（组管理器等）只读判定 **离线 / 待机 / 工作 / 疑似卡死**; 判定不依赖目标 agent 工作循环、不涉及模型推理, **目标卡死时依然可判**。并入 agent-group 成员状态（`/group` 状态面 / 工具）。
-**已定裁定（2026-10-20 用户）** —— ① 承载: 不新插件 —— session-channel 增**发布**（订阅 `agent/status` → 由现有非 agent 心跳循环刷 `state:<sessionId>` = `{status, at}` + 关闭清理）与**读数面**（`peers()` 增量带 `{status, at}` 或新增 `statusOf(sessionId)`）; agent-group **消费**判定。② 检查间隔: 组长侧自动定时巡查, **缺省 20 s** 可配。③ 卡死阈值 `stuckAfterMs` **缺省 5 min** 可配; 判据: alive 过期 = 离线; running 且 `at` 新 = 工作; running 且 `at` 超阈值 = 疑似卡死; idle = 待机。④ 发布端实现前需核实官方 `agent/status` 事件名 / 载荷 / 触发时机（dsh-agent 源码口径）。
-**落点（预估）** —— `session-channel/src/**`（发布 + 读数面 + 工具扩展）; `agent-group/src/**`（判定 + 巡查 + 状态视图）; 各自 README / DESIGN; 追踪文档一份（发布 / 读数面归 **dsh/session-channel** 分支, 消费判定与「轮次与终止的三个细节」归 **dsh/agent-group** 分支, 串行: session-channel 先合后 agent-group 消费）。
-**验收** —— 两台以上真实 fff 会话（herdr pane 驱动）: 待机 / 工作（对端在跑回合）/ 疑似卡死（对端回合挂起超阈值）/ 离线（对端关闭）四态在组管理器侧读出正确; **心跳不得刷新 `at`（卡死可判）**; 卡死判定不依赖对端应答、全程无模型推理; 单测覆盖判据与边界; 全量 check / build / test 通过。
-**估时** —— 待细化（初判 0.5-1 天, 含 `agent/status` 事件核实）。**优先级** —— P2。
-
-> 2026-10-20：新增条目 1「agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）」—— 来源: 用户需求 + 卡死可判要求（出炉于「官方 schedule vs background-daemon」对照讨论后）; 接取归 **dsh/agent-group** 分支（跨 session-channel 发布 / 读数面 + agent-group 判定巡查, 与 agent-group「轮次与终止的三个细节」同任务一并处理）。编号按当前顺序重排（§2 原为空, 本条为 1）。
+> 2026-10-20：条目「agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）」**完成并关闭** —— session-channel 发布 / 读数面（dsh/session-channel 分支）+ agent-group 消费端（判据③ + 2b 组长轮询 + close_group, dsh/agent-group 分支）全部落地并随主分支合并; 追踪文档归档 `docs/archived/2026-10-20-agent-status-board.md`; 真机 ≥2 会话四态（待机 / 工作 / 疑似卡死 / 离线）+ 心跳不刷 at + 离线不依赖对端全部通过; 同任务「轮次与终止的三个细节（#4）」按裁定落地组关闭语义, rounds 追踪文档归档 `agent-group/docs/archived/2026-10-19-agent-group-rounds.md`。条目从本节移除。
 
 **后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 29 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 7 个包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。 另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-pane` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
 
@@ -113,7 +105,6 @@
 
 | 顺位 | 条目 | 深度 | 工作量 | 前置（顺位） |
 | --- | --- | --- | --- | --- |
-| 1 | agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌） | 0 | 待估（0.5-1 天） | 无 |
 
 单线程约 **0.5 至 1 天**（本条待估）。
 
