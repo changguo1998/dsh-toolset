@@ -155,4 +155,8 @@
 
 ## 收尾
 
-（待写。）
+- 回写：`README.md` / `README.zh.md` / `AGENTS.md` 的计数与清单已随代码提交（提交点 2）；`timer` 属轻量包，不建 `DESIGN.md` / `ROADMAP` 无相关条目；`STATUS.md` 由用户择时更新。
+- BACKLOG 清理：条目「新增定时插件（统一 timer 原语）」标记完成并从 `docs/BACKLOG.md` 移除（§2 只剩未完成项，编号重排 1 / 2 / 3）；变更记录补一条完成注记；「后续补条目候选」追加「其余包裸定时器接入统一面」。
+- 本追踪文档移入 `docs/archived/2026-10-19-timer-plugin.md`（随本次收尾提交）。
+- 临时文件：`tmp/npm-cache`（npm 安装用临时缓存）已删除；worktree 的 `node_modules` 符号链接保留（本地开发环境，gitignore 内）。
+- 遗留（不在本任务范围）：真实 profile 的 `clock` 装载顺序与 `background-daemon` 端到端真机验证，由 BACKLOG 条目「background-daemon 真机验证」覆盖。
