@@ -1,6 +1,6 @@
 # script-interpreter 语言后端（bash / node / sh）（接取条目：script-interpreter/docs/BACKLOG.md「打开 bash 语言后端与二期语言（node / sh）」）
 
-状态：测试　　开启：2026-10-19　　关闭：
+状态：关闭　　开启：2026-10-19　　关闭：2026-10-19
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -127,4 +127,11 @@ npm test        # node --experimental-transform-types --test 'tests/*.test.ts'
 
 ## 收尾
 
-（待写。）
+（2026-10-19 关闭；用户经主分支会话放行关闭。）
+
+- **人工确认真机效果**：关闭裁定前已做真机烟测（真实 `apply` + 真实 node / sh 解释器执行，证据见「测试与证据」），用户在关闭裁定中放行，视为人工确认通过。运行中 dsh 会话加载新代码需主分支合主 + 重启（由主分支通知时机）。
+- **BACKLOG 清理**：`script-interpreter/docs/BACKLOG.md` 的「打开 bash 语言后端与二期语言（node / sh）」条目标记完成并从清单移除（只留未完成项「Python venv / uv 自动探测」，顺位重排为 `#1`）。
+- **归档**：本追踪文档移入 `script-interpreter/docs/archived/`。
+- **回写**：`README.md` 已随实现同步（主功能口径、配置表、探测、落点、测试表）；`package.json` description 与 `cordis.patch.yml` 注释已按用户批准补正；`STATUS.md` 由用户择时更新，本流程不改。
+- **遗留**：Python venv / uv 自动探测为独立条目（追踪文档 `2026-10-19-script-interpreter-venv.md`，另一任务）；node 项目级环境探测（`.nvmrc` / `fnm` / `nvm` 等）不在本条目，如需要另立条目。
+- **收尾提交**：提交点 4 完成本次变更的最后一次提交（记录见 git 历史）。
