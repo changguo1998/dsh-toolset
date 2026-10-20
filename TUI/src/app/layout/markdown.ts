@@ -780,11 +780,19 @@ const HEADING_RE = /^[ \t]*(#{1,6})[ \t]+(.+)$/;
 /** 引用：行首 `>`（可带一个空格） */
 const QUOTE_RE = /^[ \t]*>[ \t]?(.*)$/;
 
-/** 任务列表：`- [ ]` / `- [x]`（`*`/`+` 前缀亦支持） */
-const TASK_RE = /^[ \t]*[-*+][ \t]+\[([ xX])\][ \t]+(.+)$/;
+/** 任务列表：`- [ ]` / `- [x]`（`*`/`+` 前缀亦支持）；捕获①前导缩进（嵌套层级）③勾选态④正文 */
+const TASK_RE = /^([ \t]*)([-*+])[ \t]+\[([ xX])\][ \t]+(.+)$/;
 
-/** 普通列表项：`-`/`*`/`+` 或 `1.` 前缀 */
-const LIST_RE = /^[ \t]*(?:[-*+]+|\d+\.)[ \t]+(.+)$/;
+/**
+ * 普通列表项：无序 `-` / `*` / `+` 或有序 `1.` / `1)` / `a.` / `a)` / `(1)`；
+ * 捕获 ①前导缩进（嵌套层级用）②完整前缀（含尾随空白）③正文。
+ */
+const LIST_RE = /^([ \t]*)((?:[-*+]|\d+[.)]|[a-zA-Z][.)]|\(\d+\))[ \t]+)(.+)$/;
+
+/** 嵌套层级：前导缩进每 2 列 = 一层（与渲染 pad 同口径；决策节「嵌套实现」） */
+function listDepthOf(indent: string): number {
+  return Math.floor(displayWidth(indent) / 2);
+}
 
 /** 分隔线：三个以上 - / * / _ */
 const RULE_RE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
@@ -855,12 +863,14 @@ function assistantLineRows(text: string, width: number): FrameSegment[][] {
     );
   }
   // 2. 任务列表：ASCII [x]/[ ]，已完成正文删除线、未完成普通（均正常前景色）；
-  //    续行悬挂缩进到前缀起列（对齐正文、不顶满）
+  //    嵌套缩进（前导空白每 2 列一层）随本次扩展生效，续行悬挂对齐该层正文起列
   const task = TASK_RE.exec(text);
   if (task) {
-    const checked = task[1]!.toLowerCase() === "x";
-    const body = parseInlineMarkdown(task[2]!);
-    const taskPrefix = checked ? "[x] " : "[ ] ";
+    const indent = task[1]!;
+    const checked = task[3]!.toLowerCase() === "x";
+    const body = parseInlineMarkdown(task[4]!);
+    const pad = "  ".repeat(listDepthOf(indent));
+    const taskPrefix = pad + (checked ? "[x] " : "[ ] ");
     const segs: FrameSegment[] = checked
       ? [
           // 已完成：勾选前缀 + 正文删除线（正常前景色）
@@ -897,15 +907,21 @@ function assistantLineRows(text: string, width: number): FrameSegment[][] {
     ];
     return wrapFrameSegments(segs, width);
   }
-  // 5. 普通列表项：前缀正常前景色，内容走行内解析；续行悬挂缩进对齐正文（不顶满）
+  // 5. 普通列表项：前缀正常前景色，内容走行内解析；续行悬挂缩进对齐正文（不顶满）。
+  //    编号风格 `1.` / `1)` / `a.` / `a)` / `(1)` 原样保留，无序统一 `• `；
+  //    前导缩进（嵌套层级）每 2 列一层，pad 进前缀并计入悬挂缩进。
   const list = LIST_RE.exec(text);
   if (list) {
-    // 无序列表 (-/*/+) 统一显示为明显的 •；有序列表保留数字前缀
-    const bullet = /^[ \t]*[-*+][ \t]+/.test(text);
-    const prefix = bullet ? "• " : text.slice(0, text.length - list[1]!.length);
+    const indent = list[1]!;
+    const marker = list[2]!.trimStart();
+    const body = list[3]!;
+    const bullet = /^[-*+]/.test(marker);
+    // 无序：子弹 + 单空格；有序：原文编号+分隔符（去尾随空白后补单空格）
+    const markerText = bullet ? "• " : marker.replace(/[ \t]+$/, "") + " ";
+    const prefix = "  ".repeat(listDepthOf(indent)) + markerText;
     const segs: FrameSegment[] = [
       { text: prefix },
-      ...parseInlineMarkdown(list[1]!),
+      ...parseInlineMarkdown(body),
     ];
     return wrapListRows(segs, displayWidth(prefix), width);
   }
