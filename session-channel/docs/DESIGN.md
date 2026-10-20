@@ -4,7 +4,7 @@
 
 本机跨会话的消息通道：把「另一个 dsh 会话/进程」的消息投递进目标会话的下一回合。消费面见 `README.md`（`session-channel` 工具 + `session-channel` 服务 + 类型导出）。
 
-已实现：共享 KV 状态同步（#55）、跨会话委托/协调（#54，planner-worker：任务表 + 结果自动/显式回传 + 任务三工具）。
+已实现：共享 KV 状态同步（#55）、跨会话委托/协调（#54，planner-worker：任务表 + 结果自动/显式回传 + 任务三工具）、跨进程 agent 状态牌（订阅宿主 `agent/status` → Redis 只读忙闲判定，见 §3.2）。
 
 不做（后续条目）：消息历史检索、跨机。
 
@@ -26,6 +26,7 @@
 dsh:session-channel:inbox:<sessionId>   Stream  投递目标（XADD MAXLEN ~ 1000）
   字段：id / from / fromCwd / text / ts        （id 字段占位，真 id = 流条目 id）
 dsh:session-channel:alive:<sessionId>   String  PeerInfo JSON：sessionId/pid/instanceId/cwd/profile/startedAt（TTL 15s）
+dsh:session-channel:state:<sessionId>   String  AgentState JSON：{status, at}（TTL 15s=presenceTtlSec；事件写值、心跳只续期）
 dsh:session-channel:alias:<alias>        String  sessionId（**无 TTL**：用户意图，不随会话离线过期）
 dsh:session-channel:cursor:<sessionId>  String  {"id":"<最后成功注入的流条目 id>","ts":<epoch ms>}（**无 TTL**，7 天懒清理）
 dsh:session-channel:ack:<messageId>     String  "injected"（TTL 60s，仅发送方 waitMs 等待窗口）
@@ -38,6 +39,14 @@ dsh:session-channel:meta                String  schema 版本（不兼容 → �
 
 - **在线 = 在线键存在（TTL 内）且 `process.kill(pid, 0)` 不抛 ESRCH**；形状不符或 pid 已死的残留键由 `listPeers` 懒清理（无额外守护进程）。
 - **寻址解析**（`resolveTarget`）：`cwd:<绝对路径>` 前缀 → 按路径匹配；否则**会话 id 精确匹配 → 别名（`alias:<alias>`）**；都不命中返回空，由发送侧报 `target_offline`。别名由 `setAlias` 写入（校验字符集与保留字 → 冲突需 `force` → 顶掉同会话旧别名 → 写入）。
+
+### 3.2 agent 状态牌（跨进程忙闲，`state:<sessionId>`）
+
+- **发布端**（`src/index.ts`，BACKLOG #1）：根 `ctx.on('agent/status', ({agent, status}))`（宿主 `AgentStatus = 'idle' | 'running'`，按 `agent.session.id` 映射会话）→ 写 `state:<sessionId>` = `{status, at}`；`at` = **最近一次状态转换时刻**（epoch ms，事件驱动写）。`agent/created` 无事件回放 → 读 `agent.status` 作初始值（新建/恢复恒 `idle`；已有转换态不覆盖）。`agent/disposed`（代理离开注册表）→ 删牌。`stop()` 清全部；崩溃靠 TTL 兜底。
+- **心跳只续期、绝不刷 `at`**：心跳（`heartbeatMs`，5 s）对 `#agentStates` 各会话 `EXPIRE` 续 TTL（`touchAgentState`——不写值、不更新 at），否则「running 且 `at` 超阈值 = 疑似卡死」判不了。**同态 `agent/status` 事件也不刷 at**（宿主本来只在状态变化时发，防御性保留）。
+- **键与 TTL**：牌 TTL 复用 `presenceTtlSec` 同族（缺省 15 s，`agentStateTtlSec` 可覆盖；心跳 5 s 续期足够，「两轮巡查（20 s）之间牌不消失」）。`agentStatus: false` 关发布（配置面）。
+- **读数面**：`statusOf(sessionId)` 服务方法（无牌 → `{ok:true}` 且 `state` 缺省）+ `session_channel` 工具 `action=state`。**不做** `peers()` 增量（避免动 `PeerInfo` 落盘形状与既有消费方；组内成员是小集合，逐成员单读廉价）。
+- **消费判据（归 agent-group）**：alive 过期 / pid 死 = 离线；`status='idle'` = 待机；`='running'` 且 `now-at <= stuckAfterMs` = 工作；`='running'` 且 `now-at > stuckAfterMs` = 疑似卡死；在线但无牌按待机（发布端未就绪的短窗，不误报卡死）。全程旁观者只读判定：不依赖目标应答、无模型推理、不要求目标进程协作。
 
 ### 3.1 自动别名（2026-10-17 改版）
 
@@ -90,9 +99,9 @@ reader 循环 ──▶ XREAD BLOCK（多流单次读，id = 各流游标；游�
 
 `export { name, inject, provide, apply }`：`name = "session-channel"`、`inject = ["tools", "agents", "sessions"]`、`provide = ["sessionChannel"]`。`apply` 内 `createSessionChannelService` + `service.start()`（异步、不阻塞）+ `tools.register` + `provide("sessionChannel", …)`。
 
-服务面方法（键集合由 `SERVICE_FACE_METHODS` 声明，`tests/apply.test.ts` 守卫：新增公开方法漏暴露即测试失败）：`peers` / `send` / `inbox` / `aliasSet` / `aliasList` / `aliasClear` / `kvSet` / `kvGet` / `kvList` / `kvDelete` / `delegate` / `taskStatus` / `taskList` / `taskCancel` / `taskResult` / `status`；`start` / `stop` / `noteSession` 为宿主生命周期 / 内部面，不暴露。逐方法的**参数 → 返回**核对表在 `README.md` 的「服务面」一表（对着 `src/index.ts` 与 `src/types.ts` 核过），消费方按那张表写。
+服务面方法（键集合由 `SERVICE_FACE_METHODS` 声明，`tests/apply.test.ts` 守卫：新增公开方法漏暴露即测试失败）：`peers` / `statusOf` / `send` / `inbox` / `aliasSet` / `aliasList` / `aliasClear` / `kvSet` / `kvGet` / `kvList` / `kvDelete` / `delegate` / `taskStatus` / `taskList` / `taskCancel` / `taskResult` / `status`；`start` / `stop` / `noteSession` 为宿主生命周期 / 内部面，不暴露。逐方法的**参数 → 返回**核对表在 `README.md` 的「服务面」一表（对着 `src/index.ts` 与 `src/types.ts` 核过），消费方按那张表写。
 
-工具 `session_channel` 动作：`peers` / `send` / `inbox` / `alias`（`op=set|list|clear`，`name`=别名，`to` 缺省为调用方会话，`force` 覆盖占用）/ `status`。`execute(args, exec)` 从宿主 `exec.agent.session.id` 取调用方会话（非 agent 调用方 → 须显式传 `to`）。
+工具 `session_channel` 动作：`peers` / `send` / `inbox` / `state`（`sessionId` 必填，agent 忙闲牌）/ `alias`（`op=set|list|clear`，`name`=别名，`to` 缺省为调用方会话，`force` 覆盖占用）/ `status`。`execute(args, exec)` 从宿主 `exec.agent.session.id` 取调用方会话（非 agent 调用方 → 须显式传 `to`）。
 
 **工具返回体 = lossless JSON**（2026-10-17）：宿主对工具返回值做 `snapshotToolValue` → `walkJsonValue`，**值为 `undefined` 的键即判非法**（`ToolOutputError`，code `INVALID_TOOL_OUTPUT`；`JSON.stringify` 会丢键但校验发生在序列化之前）。`apply()` 注册时给四个工具的 `execute` 逐个套 `withLosslessOutput`（内部 `pruneUndefined`：递归删对象键 / 数组项，循环安全）；服务面返回值同时不留 `undefined` 键（`sendMessage` 的 `delivered` 条件展开、`status()` 的可选键按需拼装、重连成功用 `delete` 清 `error`）。
 
