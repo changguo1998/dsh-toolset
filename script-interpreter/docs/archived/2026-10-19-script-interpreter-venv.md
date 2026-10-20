@@ -1,6 +1,6 @@
 # script-interpreter Python venv / uv 自动探测（接取条目：script-interpreter/docs/BACKLOG.md「Python venv / uv 自动探测」）
 
-状态：测试　　开启：2026-10-19　　关闭：
+状态：关闭　　开启：2026-10-19　　关闭：2026-10-19
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -101,8 +101,22 @@ npm test        # 86 例全过：tests 86 / pass 86 / fail 0 / skipped 0
 - **真 uv**：为无 `.venv` 的 uv 项目（`pyproject.toml`）目录，`UV_CACHE_DIR` 指到 /tmp → `interpreterChanged: true`，`interpreter` = `uv run` 解析出的项目 `.venv/bin/python`（uv 自动建 venv），回执带切换行；脚本自身报错属烟测脚本写法问题（`list.at`），不影响机制的判定。
 - 验收断言「有 / 无 `.venv` 两态各一例，解释器路径写进回执」→ `tests/tool.test.ts` 两条真实执行用例 + 上述烟测均满足；「解释器路径」有结构化 `interpreter` 字段与文本 `[interpreter: ...]` 行两个落点。
 
-未覆盖 / 未跑：仓库根整仓 check / test（其余包本轮未改，包内三件已绿；上一任务已整仓验证过基线）；未重启 `dsh --profile fff` 真机（等主分支/用户授权）。残留：烟测 `tmp/` 已删；`node_modules` 为软链（gitignore 覆盖）。
+**真实 profile 真机验证（2026-10-19，重启加载新代码后，经 `script_run` 工具真实调用）**：
+
+- **有 `.venv`**：`workdir` 指向含 `.venv` 的目录，python 脚本打印 `sys.executable` / `sys.prefix` → 实际执行 `.venv/bin/python`，`sys.prefix` 为 venv 目录，回执含 `[interpreter: …/.venv/bin/python]` 切换行。
+- **无 `.venv`**：`workdir` 指向空目录 → 实际执行 `/usr/bin/python3`（回落系统解释器），回执无 `[interpreter:` 行。
+- 验收口径「有 / 无 `.venv` 两态各一例，且解释器路径写进回执」在真实 profile 下逐字满足（切换行即有 / 无两态各自出现与不出现，结构化 `interpreter` 字段恒在）。验证用临时工作区已清理（`tmp/` 删除后工作树干净）。
+- 复核：/restart 后（主分支确认 pid 2447319、fff profile）两态结果一致（venv → `.venv/bin/python` + 切换行；plain → `/usr/bin/python3` 无切换行）。
+
+未覆盖：仓库根整仓 check / test（其余包本轮未改，包内三件已绿；上一任务已整仓验证过基线）。残留：`node_modules` 为软链（gitignore 覆盖）。
 
 ## 收尾
 
-（待写。）
+（2026-10-19 关闭；用户经主分支会话放行关闭。）
+
+- **人工确认真机**：/restart（pid 2447319）后在真实 fff profile 下经 `script_run` 完成有 / 无 `.venv` 两态验证，验收断言逐字满足（证据见「测试与证据」）；用户在关闭裁定中放行，视为人工确认通过。
+- **BACKLOG 清理**：`script-interpreter/docs/BACKLOG.md` 的「Python venv / uv 自动探测」条目标记完成并移除，模块待办清单已空（未完成项无，仅留「已裁定不做」备查）。
+- **归档**：本追踪文档移入 `script-interpreter/docs/archived/`。
+- **回写**：`README.md` 已随实现同步（python 工作区 `.venv` / `uv` 探测口径、uv 副作用、回执 `[interpreter: ...]` 标记）；`STATUS.md` 由用户择时更新，本流程不改。
+- **遗留**：node 项目级环境探测（`.nvmrc` / `fnm` / `nvm` 等）未立项，如需要另立条目；REPL / 状态保持等既有「不做」口径不变。
+- **收尾提交**：提交点 4 完成本次变更的最后一次提交（记录见 git 历史）。

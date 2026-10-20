@@ -2,15 +2,9 @@
 
 跨模块条目见项目级 `docs/BACKLOG.md`；本文件只收本模块条目。
 
-> 2026-10-19 接取：venv 条目标〔进行中: 2026-10-19〕，追踪文档 `script-interpreter/docs/implementation/2026-10-19-script-interpreter-venv.md`。（语言后端条目已同日关闭并归档，见 `docs/archived/2026-10-19-script-interpreter-langs.md`。）
-
-## 条目详情（待办）
-
-**#1 Python venv / uv 自动探测**（〔进行中: 2026-10-19〕）：**现象 / 现状** —— 首期只提供解释器
-路径覆盖（`pythonPath` / `SCRIPT_PY_INTERPRETER`），不探测项目内 `.venv`、不调 `uv run`。
-**期望** —— 按工作区探测 `.venv/bin/python`，或支持 `uv` 前缀，且**不**自作主张改 `sys.path`；
-探测不到时仍回落到当前解释器。**落点** —— `src/probe.ts` 的探测顺序与 `README.md` 的探测表。
-**验收** —— 有 / 无 `.venv` 两态各一例，且解释器路径写进回执。**估时** —— 0.5 天。**优先级** —— P3。
+> 2026-10-19 接取并关闭：语言后端（见 `docs/archived/2026-10-19-script-interpreter-langs.md`）与
+> Python venv / uv 自动探测（见 `docs/archived/2026-10-19-script-interpreter-venv.md`）两条均已关闭归档；
+> 模块待办清单已空（未完成项无，仅留下方「已裁定不做（备查）」）。
 
 ## 已裁定不做（备查）
 
