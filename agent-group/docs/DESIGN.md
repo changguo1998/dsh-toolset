@@ -25,7 +25,7 @@
 | `src/core.ts` | 7 个动作的编排：读状态 → 纯迁移 → 落盘 → 镜像 → 结果；`verdictOf` 懒判定 | 不直接拼 SQL / 不直接调 Redis |
 | `src/store.ts` | 文件存储（`<会话目录>/agent-group.json`，原子写 / 0600）与内存存储 | 不建会话目录（宿主负责） |
 | `src/transport.ts` | session-channel 服务面适配：寻址（`peers` + `aliasList`）、投递（`delegate`）、读任务（`taskStatus`） | 不做重试 / 排队 |
-| `src/mirror.ts` | 可选 memory-base 镜像（懒注册 kind + `remember`） | 失败不重试 |
+| `src/mirror.ts` | 可选 memory-base 镜像（`registerKind` 拿写句柄 + `scope.put`） | 失败不重试 |
 | `src/main.ts` | bundle 入口：依赖门禁（可选读取）、组装、注册工具、lossless JSON 归一 | 不含协调逻辑 |
 
 `model.ts` 的纯函数性是本包可测性的基础：连接规则、等级、未结指令、移除下推、视图与不变量自检都能不起任何外部依赖地单测；`core.ts` 只负责把「外部世界」（传输 / 存储 / 镜像 / 时钟）接上。
@@ -111,7 +111,8 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 
 | 设计口径 | 实现口径 | 原因 |
 | --- | --- | --- |
-| 镜像 API 写作 `registerKind({kind, writableTiers}).put({tier, sessionId, …})` | 用仓内现行 memory-base 服务面：`registerKind(KindSpec)` + `remember(RememberInput)`；`source` 用 `{kind: "manual", label: "agent_group", ref}` | memory-base 的 `SourceKind` 是闭合联合（`session/file/url/tool_result/manual`），没有 `agent_group`；`put` 方法在现行服务面上不存在（`memory-base/src/index.ts:824`、`:839`） |
+| 镜像 API 写作 `registerKind({kind, writableTiers}).put({tier, sessionId, …})` | ~~用仓内现行 memory-base 服务面：`registerKind(KindSpec)` + `remember(RememberInput)`；`source` 用 `{kind: "manual", label: "agent_group", ref}`~~ | ~~memory-base 的 `SourceKind` 是闭合联合（`session/file/url/tool_result/manual`），没有 `agent_group`；`put` 方法在现行服务面上不存在（`memory-base/src/index.ts:824`、`:839`）~~ —— **2026-10-20 被下一行取代（上一版读错了服务面：`remember` 不在服务上，写权限本就在 `registerKind` 返回的句柄上）** |
+| 镜像写入口（2026-10-20 真机修正） | `registerKind(KindSpec)` 拿 `MemoryScope` 写句柄，写入走 `scope.put({tier: "session", sessionId, project, content, title, source})` | 真机实测：上一版把 `remember` 当服务方法、`isMemoryFace` 判定失败 → `mirror.enabled=false`、库中从无 `agent_group` 记录。回归用例 `tests/main.test.ts` 的 `fakeMemory` 已改为 `registerKind` 返回 `{put}` 形状 |
 | 指令「由主方发」 | 物理投递的 `delegate.from` = 主方成员的会话 id（未知时回落管理者会话 id） | 结果通知归主方语义；管理者仍可用 `taskStatus` 读到结果（任务表全局） |
 | 回报三态「成功 / 失败 / 受阻」 | 通道只有 `failed: boolean`；本包约定 `failed: true` + `error: "blocked: …"` 表示受阻并剥掉前缀 | session-channel 的追踪文档已定「通道不规定语义，三态由 agent-group 自描述」 |
 | `status` 只读 | 只读且不落盘、不镜像；命中缓存时不碰存储 | 让「目录解析运行期失败」时只读面仍可用（验收细化第 9 条） |

@@ -102,18 +102,19 @@ function fakeChannel() {
   return { face, online, aliases, tasks, delegated };
 }
 
-/** 假 memory-base 服务面（`registerKind` + `remember`）。 */
+/** 假 memory-base 服务面（`registerKind` 返回写句柄 `put`；写入记录进 `calls`）。 */
 function fakeMemory() {
   const calls: Array<Record<string, unknown>> = [];
   const state = { fail: false };
   const face = {
-    async registerKind(spec: { kind: string }) {
-      return spec;
-    },
-    async remember(input: Record<string, unknown>) {
-      if (state.fail) throw new Error("写库失败（测试注入）");
-      calls.push(input);
-      return { ids: [1], sourceId: 1, created: 1 };
+    registerKind(_spec: { kind: string }) {
+      return {
+        put: async (input: Record<string, unknown>) => {
+          if (state.fail) throw new Error("写库失败（测试注入）");
+          calls.push(input);
+          return { ids: [1], sourceId: 1, created: 1 };
+        },
+      };
     },
   };
   return { face, calls, state };
@@ -283,9 +284,9 @@ test("真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分
   );
   assert.equal(added["ok"], true, JSON.stringify(added));
   assert.equal(
-    memory.calls.at(-1)?.["kind"],
-    "agent_group",
-    "镜像应经分叉拿到 memory 服务",
+    String(memory.calls.at(-1)?.["title"]).startsWith("agent-group "),
+    true,
+    "镜像应经分叉拿到 memory 服务并写入",
   );
   const file = join(root, `session-${MANAGER}`, "agent-group.json");
   assert.equal((await stat(file)).mode & 0o777, 0o600);
@@ -643,10 +644,9 @@ test("状态落盘：0600、原子写、跨实例读回；镜像内容带 kind �
     "manager",
   ]);
 
-  // 镜像：每次变更写入 memory-base（kind / sessionId / source.ref）
+  // 镜像：每次变更经 registerKind 拿到的写句柄写入 session 层（sessionId / project / source.ref）
   const last = env.memory.calls.at(-1);
-  assert.ok(last, "应有镜像调用");
-  assert.equal(last["kind"], "agent_group");
+  assert.ok(last, "应有镜像写入");
   assert.equal(last["sessionId"], MANAGER);
   assert.equal(last["project"], env.root, "project 取管理者会话的 cwd");
   assert.match(String(last["title"]), /^agent-group team$/);
