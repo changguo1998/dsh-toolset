@@ -40,9 +40,16 @@ export interface DaemonServiceDeps {
   journal: Journal;
   scheduler: Scheduler;
   channels: { list(): { mode: TaskMode }[] };
-  /** 记录底座（缺省 `json`，与降级口径一致）。 */
-  records?: RecordsBackend;
-  rejectedRows?: number;
+  /**
+   * 记录底座（缺省 `json`，与降级口径一致）。
+   * 支持函数形式：memory 底座可能在 apply 后经 `ctx.inject` 晚挂, 状态视图须读到最新值。
+   */
+  records?: RecordsBackend | (() => RecordsBackend);
+  rejectedRows?: number | (() => number);
+}
+
+function resolveValue<T>(value: T | (() => T) | undefined): T | undefined {
+  return typeof value === "function" ? (value as () => T)() : value;
 }
 
 export function createDaemonService(
@@ -54,8 +61,8 @@ export function createDaemonService(
       ...deps.scheduler.status(),
       storeFile: deps.store.file,
       journalFile: deps.journal.file,
-      records: deps.records ?? "json",
-      rejectedRows: deps.rejectedRows ?? 0,
+      records: resolveValue(deps.records) ?? "json",
+      rejectedRows: resolveValue(deps.rejectedRows) ?? 0,
       channels: deps.channels.list().map((channel) => channel.mode),
       taskCount: deps.store.list().length,
       journalCount: deps.journal.tail(Number.MAX_SAFE_INTEGER).length,

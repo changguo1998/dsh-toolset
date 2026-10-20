@@ -39,7 +39,7 @@ export class Journal {
   readonly #file: string;
   readonly #limit: number;
   readonly #onWarn: ((message: string) => void) | undefined;
-  readonly #sink: RunSink | undefined;
+  #sink: RunSink | undefined;
   readonly #records: RunRecord[] = [];
   #currentLines = 0;
 
@@ -60,6 +60,11 @@ export class Journal {
 
   get limit(): number {
     return this.#limit;
+  }
+
+  /** 晚挂流水外送口（memory 底座在 apply 后经 `ctx.inject` 晚挂时用；已设置则替换）。 */
+  attachSink(sink: RunSink): void {
+    this.#sink = sink;
   }
 
   /** 读盘恢复（主文件 + 上一代 `.1`）；返回恢复的条数。 */

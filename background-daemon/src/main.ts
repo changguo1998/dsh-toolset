@@ -181,12 +181,35 @@ function resolveTimers(ctx: unknown): TimersLike | undefined {
   }
 }
 
+/** `ctx.inject` 的结构面（cordis 把 registry 方法混到 ctx 上；纯服务面 / 测试宿主没有）。 */
+interface InjectFace {
+  inject?(
+    deps: string[],
+    callback: (child: unknown) => (() => void) | void,
+  ): unknown;
+}
+
+/** 读 `ctx.inject`：属性读取在 cordis 下对未声明的键会抛（同 `readService` 的理由）。 */
+function readInject(ctx: unknown): InjectFace["inject"] {
+  if (ctx === null || typeof ctx !== "object") return undefined;
+  try {
+    const value = (ctx as InjectFace).inject;
+    return typeof value === "function" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * 组装一条完整的守护链路（不注册命令 / 工具 / 服务；`apply` 与测试共用）。
  *
  * 记录底座（设计 D19）：`memory` 服务可用 → 注册 `daemon_task` / `daemon_run` 两个 kind，
  * 任务表从 memory-base 读出并接管、每次变更写一条修订行、流水逐条入库（可搜索）；
  * 否则降级到本地 JSON 快照与 JSONL（`backend: "json"`）。
+ *
+ * `memory` 由兄弟 bundle 提供、属**可选**依赖：不进静态 `inject`（缺失时仍应降级激活）；
+ * 真机 cordis 严格面下未 inject 的 `ctx.get` 读不到（agent-group 2026-10-19 真机结论），
+ * 故除构造期直读外, 用 `ctx.inject(["memory"], cb)` 开子分叉在服务就绪后**晚挂**底座。
  *
  * @param ctx 宿主 ctx（结构面读取服务；可为 fake）
  * @param clock 时钟注入（测试用；缺省 `Date.now`；`clock` 服务可用时以服务时钟为准）
@@ -210,36 +233,66 @@ export async function createDaemonRuntime(
   let mirror: MemoryTaskMirror | null = null;
   let sink: RunSink | undefined;
   let rejectedRows = 0;
+  /** journal 构造后才赋值的句柄（mountMemory 晚挂时用来接外送口, 避开 TDZ）。 */
+  let runtimeJournal: Journal | undefined;
+  // 是否已把 memory 底座挂上（mountMemory 幂等; ctx.inject 回调可能反复触发）
+  let memoryMounted = false;
 
-  if (memory !== undefined && typeof memory.registerKind === "function") {
+  /** 挂 memory 底座（构造期直读命中或 `ctx.inject` 晚挂都走这里; 幂等）。 */
+  async function mountMemory(memoryService: MemoryServiceLike): Promise<void> {
+    if (memoryMounted) return;
     try {
-      const kinds = registerDaemonKinds(memory);
-      const loaded = await loadTasks(memory, kinds.task, { warn });
+      const kinds = registerDaemonKinds(memoryService);
+      const loaded = await loadTasks(memoryService, kinds.task, { warn });
       rejectedRows = loaded.rejected.length;
-      mirror = new MemoryTaskMirror(kinds.task, {
+      const nextMirror = new MemoryTaskMirror(kinds.task, {
         revisions: loaded.revisions,
         warn,
         now: clock,
       });
-      sink = createRunSink(kinds.run, { warn, now: clock });
-      store.attachMirror(mirror);
+      const nextSink = createRunSink(kinds.run, { warn, now: clock });
+      store.attachMirror(nextMirror);
       if (loaded.tasks.length > 0) {
         store.adopt(loaded.tasks);
       } else if (snapshot.ok && snapshot.tasks.length > 0) {
-        // 首次迁移：把 JSON 快照导入 memory-base（之后 JSON 只作历史）
+        // 首次迁移：把 JSON 快照导入 memory-base（之后 JSON 只作降级与历史）
         store.adopt(snapshot.tasks);
-        for (const task of snapshot.tasks) mirror.save(task);
+        for (const task of snapshot.tasks) nextMirror.save(task);
         warn(`已把 ${snapshot.tasks.length} 条 JSON 任务导入 memory-base`);
       } else {
         store.adopt([]);
       }
       store.disableSnapshot();
+      mirror = nextMirror;
+      sink = nextSink;
+      runtimeJournal?.attachSink(nextSink);
       backend = "memory";
+      memoryMounted = true;
     } catch (err) {
       warn(`memory-base 记录底座不可用（降级 JSON 快照）：${String(err)}`);
-      mirror = null;
-      sink = undefined;
-      rejectedRows = 0;
+    }
+  }
+
+  if (memory !== undefined && typeof memory.registerKind === "function") {
+    await mountMemory(memory);
+  } else {
+    // 真机严格面兜底：`ctx.get("memory")` 因未 inject 读不到（agent-group 同款结论）,
+    // 用 `ctx.inject(["memory"], cb)` 开子分叉, 服务就绪后晚挂 memory 底座。
+    const inject = readInject(ctx);
+    if (inject !== undefined) {
+      try {
+        inject.call(ctx, ["memory"], (child: unknown) => {
+          const lateMemory = readService<MemoryServiceLike>(child, "memory");
+          if (lateMemory !== undefined) {
+            void mountMemory(lateMemory);
+          }
+          return () => {
+            /* 服务卸载：保持既成底座, 不自动降级（下次启动重新判定） */
+          };
+        });
+      } catch (err) {
+        warn(`memory 底座晚挂失败（继续 JSON 快照）：${String(err)}`);
+      }
     }
   }
 
@@ -251,6 +304,7 @@ export async function createDaemonRuntime(
     ...(sink === undefined ? {} : { sink }),
   });
   journal.load();
+  runtimeJournal = journal;
 
   const agents = readService<AgentsLike>(ctx, "agents");
   const sessions = readService<SessionsLike>(ctx, "sessions");
@@ -294,7 +348,8 @@ export async function createDaemonRuntime(
       ? {}
       : { maxDelayMs: config.maxDelayMs }),
     // memory 底座已在上面读出并接管, 不让调度器再覆盖一遍
-    ...(backend === "memory" ? { loadStore: false } : {}),
+    //（mountMemory 在闭包里赋值, TS 不展宽窄化, 用显式展宽变量做判定）
+    ...(("memory" as RecordsBackend) === backend ? { loadStore: false } : {}),
   });
 
   const service = createDaemonService({
@@ -302,8 +357,9 @@ export async function createDaemonRuntime(
     journal,
     scheduler,
     channels,
-    records: backend,
-    rejectedRows,
+    // 函数形式：memory 底座可能晚挂, 状态视图实时读最新值
+    records: () => backend,
+    rejectedRows: () => rejectedRows,
   });
 
   let disposed = false;
@@ -315,9 +371,16 @@ export async function createDaemonRuntime(
     service,
     storePath,
     journalPath,
-    backend,
-    mirror,
-    rejectedRows,
+    // getter：memory 底座可能晚挂, 返回面实时读最新值
+    get backend() {
+      return backend;
+    },
+    get mirror() {
+      return mirror;
+    },
+    get rejectedRows() {
+      return rejectedRows;
+    },
     async dispose() {
       if (disposed) return;
       disposed = true;
