@@ -94,6 +94,7 @@
 - 清单排序实现在服务端（`readGroupStatus` 核名字典序），TUI 直接展示。
 - `agent-group` 计划改动清单写在 core/main/types/main 测试四处；实际 `types.ts` 无需改（`GroupView` 已存在），测试落在 `tests/core.test.ts`。
 - 全量 `npm run build` 卡在 `herdr-integration` / `session-paths`（worktree 未链 node_modules，既有环境状态，与本任务无关）；受影响包 `TUI` / `agent-group` 单独 build 通过。
+- **真机修正（2026-10-20）**：`handleGroupCommand` 失败面初版渲染 `error（reason）`，但 `failure` 信封的 `error` 是**稳定错误码**（如 `group_not_found`）、`reason` 是描述、`next` 是下一步 / 现有组清单 —— 真机 `/group ghost` 显示 `group_not_found（组「ghost」不存在）`，丢掉了现有组清单，不符决策项 5。改为拼 `reason ?? error` + `next`（`；` 分隔）的可读文案；`group-notice` 测试夹具同步为真信封形状（error=错误码、reason/next=可读），并加「不展示错误码」断言。
 
 ## 测试与证据
 
