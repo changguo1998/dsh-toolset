@@ -1,6 +1,6 @@
 # agent-group 广播与平等连接（接取条目：agent-group/docs/BACKLOG.md「广播与平等连接」）
 
-状态：规划　　开启：2026-10-19　　关闭：
+状态：关闭　　开启：2026-10-19　　关闭：2026-10-20
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -91,7 +91,12 @@
   - 测试：model +11（对键 / linkPeer 校验与每对至多一条 / 自连与成员缺失拒绝 / 移除联动 / 不变量 / 视图计数），core +4（link_peer / send_peer 含未建连接拒绝与投递失败 / broadcast 正常与部分失败可区分 / 子集校验与空正文），main +1（端到端：link_peer → send_peer → broadcast，断言 delivered 与无未结）与 enum 断言更新、fakeChannel 补 `send`。
   - `FakeTransport` 补 `sendMessage`；`GroupTransport` 匿名实现补 `sendMessage`。
 - 验证：`npm run check` / `npm run test` 全绿（54 例，0 fail）；`npm run build` 通过。
-- 真机复验：待合主 + 重建 dist 后按决策口径跑 `link_peer → send_peer → broadcast` 并核对 `status` 的平等连接与无未结（届时回填「测试与证据」）。
+- 追加（25be509）：补「旧落盘文件缺 peerLinks 按空补齐」向后兼容回归用例，test 增至 55 / 55 全绿。
+- 真机复验（2026-10-20，合主 `34e2f62` + dist 重建后）：新起 manager 会话（`tui-7ae415d5`）执行
+  `create_group bc → add_member alice/bob → link_peer(manager⇄alice / manager⇄bob) → send_peer(to=alice) → broadcast → status`，
+  全流程 ok；`send_peer` 与 `broadcast` 两条消息真实投递到成员 alice（本会话收件箱收到原文）；
+  `status` 显示 `summary.peerLinks=2`、`open=0`、`links=0`、`instructions=0`，`peerLinks=[{alice,manager},{bob,manager}]`，
+  `mirror.ok=5`；落盘 `agent-group.json` 的 `peerLinks` 键为 `[alice.manager, bob.manager]`（对键字典序唯一）。
 
 ## 偏差
 
@@ -104,17 +109,27 @@
 代码侧（`agent-group/`，2026-10-20）：
 
 - `npm run check` → 通过（src + tests 双 tsc --noEmit）。
-- `npm run test` → 54 / 54 通过（model 26 / core 16 / main 12；0 fail），覆盖：
+- `npm run test` → 55 / 55 通过（model 26 / core 16 / main 13；0 fail），覆盖：
   - 平等连接：对键字典序、每对至多一条、不自连、成员缺失拒绝、移除成员联动删除、不变量自检、视图计数；
   - `link_peer` / `send_peer`：建连、未建连接发消息被拒（`no_peer_link`）、经连接发送回执 `delivered:true`、投递失败带 `target_offline`、全程无未结指令；
   - `broadcast`：缺省全体非管理者、`to` 子集、逐条 `results`（送达 / 失败可区分）、`delivery` 汇总计数、成员缺失与空正文拒绝、无未结；
-  - 工具面：`action` enum 10 项 + 端到端（假服务面）。
+  - 工具面：`action` enum 10 项 + 端到端（假服务面） + 旧落盘无 `peerLinks` 向后兼容。
 - `npm run build` → 通过（dist 产出，仅存 worktree，未部署）。
-- 真机侧：待合主 + 重建 dist 后复验 `link_peer → send_peer → broadcast`（成员在线投递与离线失败、`status` 的 `peerLinks` 与 `open=0`）。
+
+真机侧（2026-10-20，合主 `34e2f62` + dist 重建，manager 会话 `tui-7ae415d5` + 成员 alice/bob）：
+
+- 工具注册：manager 首行自述「工具有 agent_group」，8 步全部 `ok:true`。
+- `link_peer`：`{alice,manager}` / `{bob,manager}` 两对建立，`status.summary.peerLinks=2`，落盘键 `[alice.manager, bob.manager]`（对键唯一）。
+- `send_peer`：`{ok:true, delivered:true}`；成员 alice（本会话）收件箱收到「平等连接消息: 复验成功」。
+- `broadcast`：`targets:[alice,bob]`，`results` 逐条 `delivered:true`，`delivery={targets:2, delivered:2, failed:0}`；成员 alice 收件箱收到「广播消息: 全员注意」。
+- 无未结：`status` 的 `open=0`、`links=0`、`instructions=0`；`mirror={enabled:true, ok:5, failed:0}`。
+- 失败分支（离线目标 / 服务缺失）由单测覆盖，未在真机复跑。
+- 复验后测试组状态文件与测试 pane 已清理。
 
 ## 收尾
 
-- BACKLOG「广播与平等连接」条目保持〔进行中〕；真机复验通过后标记完成并移除，本文件归档 `docs/archived/`。
+- BACKLOG「广播与平等连接」条目**已完成并移除**（2026-10-20，只留未完成项）。
+- 本文件状态设为「关闭」（关闭：2026-10-20）并归档至 `docs/archived/`。
 - 文档回写：`README.md`（能力表 10 动作 / 规则 / 传输 / 示例 / 边界 / 文件）、`docs/DESIGN.md`（§3 数据模型 / §4.2 状态机 / §9 明确不做）已同步。
-- 提交：2026-10-20 用户裁定本实现提交到 worktree 分支 `dsh/agent-group`（附追踪文档）；真机复验依赖合主 + 重建 dist。
-- 遗留：真机复验（合主后）；成员间发消息属二期（用户已裁定，见偏差）。
+- 提交历史：实现 `2050b5f` + 测试补丁 `25be509`（均已合入 main `34e2f62`）；本次为收尾提交（BACKLOG 清理 + 归档）。
+- 遗留：无（成员间发消息属二期，见偏差；`send_peer` 仅管理者入口为已裁定口径）。
