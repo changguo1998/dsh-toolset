@@ -30,9 +30,10 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 
 ## 配置
 
-bundle 契约：`name` / `inject: []` / `Config` / `apply`；`ruleEngine` **刻意不写进 `inject`**——它缺席时
-只告警一次、不拦任何调用（降级），不让整个插件不加载。缺省**开启**（`cordis.patch.yml` 里
-`enabled: true`）。
+bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`。`ruleEngine` 是**硬依赖**：
+注册 guard 消费者必须等服务就绪（2026-10-22 真机实测——本包 insert 在 profile 里排在 rule-engine
+之前，只读 `ctx.get` 会拿到 undefined，插件加载了却从未注册）。运行期仍保留存在性判断，服务在但
+缺 `registerConsumer` 时告警降级。缺省**开启**（`cordis.patch.yml` 里 `enabled: true`）。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |

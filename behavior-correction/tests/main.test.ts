@@ -68,7 +68,7 @@ function onlyRegistration(registrations: Registered[]): Registered {
   return registration;
 }
 
-/** 用 `ctx.get` 提供假引擎（本包刻意不写 inject，服务经 get 读取） */
+/** 用 `ctx.get` 提供假引擎（结构面驱动，不需要真的 cordis 注入） */
 function contextWith(
   engine: { registerConsumer(input: Registered): () => void },
   on?: (event: string, listener: () => void) => unknown,
@@ -93,7 +93,8 @@ function guardContext(toolName: string, args: unknown): ToolGuardContext {
 
 test("契约符号：name / inject / GUARD_SOURCE", () => {
   assert.equal(name, "behavior-correction");
-  assert.deepEqual(inject, []);
+  // 2026-10-22 真机修正：ruleEngine 升为硬依赖（apply 早于 provide 会拿不到服务）
+  assert.deepEqual(inject, ["ruleEngine"]);
   assert.equal(GUARD_SOURCE, "tools/pre-execute");
 });
 
