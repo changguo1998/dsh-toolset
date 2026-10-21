@@ -1,6 +1,6 @@
 # 消费者 guard 面：`tools/pre-execute` 节点（接取条目：rule-engine/docs/BACKLOG.md「动作面扩展: 在 `tools/pre-execute` 拦截工具调用（消费者 guard 面）」）
 
-状态：规划　　开启：2026-10-21　　关闭：—
+状态：关闭　　开启：2026-10-21　　关闭：2026-10-22
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 条目标题原为「动作面扩展: 新增 `deny-tool` 动作（在 `tools/pre-execute` 执行前拦截）」，2026-10-21 用户裁定 B 后改为消费者 guard 面（见决策 1），文件与条目按新口径命名。
 
@@ -73,3 +73,29 @@
 - **异步 guard 与 waterfall**：宿主支持异步决定（`auto-approve` 已异步）；监听器里的 `await` 与 `next()` 调用顺序需单测锁定。
 - **端到端验收依赖并行任务**：单支只能验证框架层与包内测试；真机拦截效果要等 `behavior-correction` 合并并挂进 profile（仓库外，需批准）。
 - **`RuleSource` 扩展波及面**：grep 全仓 `RULE_SOURCES` / `RuleSource` 与「长度 = 10」类硬编码断言。
+
+## 实现记录 / 测试与证据（2026-10-22，分支 `dsh/rule-engine-guard`，基线 `fc20f46`，已合并主线 `c1b91e0`）
+
+按「决策 1-9」「规划 1-8」落地；`behavior-correction` 与仓库清单（根 `package.json` / `install.sh` / `AGENTS.md` / 根 README）按范围变更**不在本分支**（由并行 bc 分支独占）。未关闭条目、未归档本文件、未动 `docs/STATUS.md`、未改帧基线。
+
+实测数字：
+
+- `npm --prefix rule-engine run check` 通过（`tsc --noEmit` 无输出）。
+- `npm --prefix rule-engine test`：168 条，pass 168 / fail 0（新增 `tests/consumerGuard.test.ts` 11 条；`tests/rules.test.ts` / `tests/tools.test.ts` / `tests/main.test.ts` 增补）。
+- `npm --prefix rule-engine run build` 通过。
+- 全仓 `npm run check` 通过（30 个包的检查链，含 `md-table-check` / `symbol-normalizer` / `ponytail`，既有三个消费者的注册调用未被 `decide` 可选化破坏）；既有消费者测试：md-table-check 73 / 73、symbol-normalizer 43 / 43、ponytail 5 / 5。
+- 反向验证：临时在 `guardTool` 开头插入「恒返回 `undefined`」→ `test` 变 168 条 / pass 158 / fail 10（`tests/consumerGuard.test.ts` 8 条 + `tests/main.test.ts` 的 deny 回执与 fail-open 告警 2 条）；恢复后 168 / 168 全绿、`check` 通过。
+- 规则侧：`normalizeRule({ source: "tools/pre-execute" })` 与 `rule_add` 同参数均报错（「该节点只用于消费者 guard」）；`RULE_SOURCES` 仍 10 项，`CONSUMER_SOURCES` 11 项。
+- 子代理会话：`guardTool` 对 `sessionId` 已具备的会话（含 `origin: "subagent"` / `resumed` 为真）照常唤醒并透传 `resumed`。
+
+证据位置：`tests/consumerGuard.test.ts`（注册校验 / 顺序与 `deny` 胜出 / `allow` 不否决 / 异步 / 异常弃权 / 上下文透传 / 子代理 / 注销）、`tests/rules.test.ts`（规则侧拒绝与源枚举）、`tests/tools.test.ts`（`rule_add` 拒绝）、`tests/main.test.ts`（监听器注册、`next()` 调用次数、deny 回执、fail-open）。
+
+## 真机验收（2026-10-22，合并后另开新会话，profile fff）
+
+- 环境：main 合并 `73af605`（bc 插件）+ `907e066`（bc 的 ruleEngine 硬依赖修正）后，profile 挂载
+  `behavior-correction`（`- insert:` 条目，排在 `rule-engine` 之后），另起新会话执行。
+- 结果：`bash` + `herdr pane list` → 被拒，回执「bash 里不要跑 herdr 命令: 改用 herdr_pane 工具」；
+  `bash` + `echo herdr` → 同样被拒；`bash` + `ls -la` → 正常执行。
+- 告警：活动区两条 `[rule-engine] warn: 消费者 "behavior-correction" 拒绝工具 bash`（消费者 id 与
+  工具名均正确）。
+- 结论：guard 面的注册、唤醒、汇总（deny 回执给宿主）与告警链路在真机成立；框架无遗留缺陷。
