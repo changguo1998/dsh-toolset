@@ -168,3 +168,66 @@ test("容量类配置的上下界（非法回落缺省）", () => {
     8,
   );
 });
+
+test("学习键：缺省值（自动学 / 泛化开 / 审阅开 / 256 / 512 / 5 min / 回填开）", () => {
+  const config = resolveConfig(undefined);
+  assert.equal(config.learnFromManual, true);
+  assert.equal(config.learnGeneralize, true);
+  assert.deepEqual(config.learnReview, { enabled: true, onFailure: "skip" });
+  assert.equal(config.formCapacity, 256);
+  assert.equal(config.selfDecidedCapacity, 512);
+  assert.equal(config.selfDecidedTtlMs, 300_000);
+  assert.equal(config.learnRehydrate, true);
+});
+
+test("学习键：合法值原样生效，不产生诊断", () => {
+  const config = resolveConfig({
+    learnFromManual: false,
+    learnGeneralize: "off",
+    learnReview: { enabled: false, onFailure: "skip" },
+    formCapacity: 8,
+    selfDecidedCapacity: 4,
+    selfDecidedTtlMs: 1000,
+    learnRehydrate: false,
+  });
+  assert.equal(config.learnFromManual, false);
+  assert.equal(config.learnGeneralize, false);
+  assert.deepEqual(config.learnReview, { enabled: false, onFailure: "skip" });
+  assert.equal(config.formCapacity, 8);
+  assert.equal(config.selfDecidedCapacity, 4);
+  assert.equal(config.selfDecidedTtlMs, 1000);
+  assert.equal(config.learnRehydrate, false);
+  assert.deepEqual(config.diagnostics, []);
+});
+
+test("学习键：非法值回落缺省并各记一条诊断（不抛错）", () => {
+  const config = resolveConfig({
+    learnFromManual: "yes" as never,
+    learnGeneralize: "maybe" as never,
+    learnReview: { enabled: 1 as never, onFailure: "panel" as never },
+    formCapacity: -1,
+    selfDecidedCapacity: 0,
+    selfDecidedTtlMs: 10,
+    learnRehydrate: "on" as never,
+  } as never);
+  assert.equal(config.learnFromManual, true);
+  assert.equal(config.learnGeneralize, true);
+  assert.deepEqual(config.learnReview, { enabled: true, onFailure: "skip" });
+  assert.equal(config.formCapacity, 256);
+  assert.equal(config.selfDecidedCapacity, 512);
+  assert.equal(config.selfDecidedTtlMs, 300_000);
+  assert.equal(config.learnRehydrate, true);
+  assert.equal(config.diagnostics.length, 8);
+  for (const label of [
+    "learnFromManual",
+    "learnGeneralize",
+    "learnReview.enabled",
+    "learnReview.onFailure",
+    "formCapacity",
+    "selfDecidedCapacity",
+    "selfDecidedTtlMs",
+    "learnRehydrate",
+  ]) {
+    assert.match(config.diagnostics.join("\n"), new RegExp(label));
+  }
+});

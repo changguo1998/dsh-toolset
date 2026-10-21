@@ -16,6 +16,9 @@ export type AutoApproveMode = "off" | "rules" | "rules+llm" | "all";
 export type DecisionSource =
   "rule" | "fingerprint" | "readonly" | "upgrade" | "llm";
 
+/** 指纹 / 形态条目的来源：`decision` = 本插件裁定的，`manual` = 从人工面板放行学来的。 */
+export type FormSource = "decision" | "manual";
+
 /** 一次判定的结果。`next` = 不裁定（交下一位应答者 / 原路径）。 */
 export type GateOutcome = "allowed-once" | "rejected" | "next";
 
@@ -137,8 +140,12 @@ export interface AutoApproveStatus {
   allowRules: number;
   denyRules: number;
   upgradeRules: number;
-  /** 指纹表本会话条目数。 */
+  /** 本会话指纹条目数。 */
   fingerprints: number;
+  /** 学来的形态条目总数（全部会话）。 */
+  forms: number;
+  /** 学习层是否启用（配置总开关 + 运行态 `learn on/off`）。 */
+  learnEnabled: boolean;
   /** 审计健康度。 */
   audit: AuditHealth;
 }
@@ -150,6 +157,23 @@ export interface FingerprintView {
   toolName: string;
   /** 首次批准时间（ISO）。 */
   approvedAt: string;
+  /** `decision` = 本插件裁定入表；`manual` = 从人工面板放行学来。 */
+  source: FormSource;
+}
+
+/** 形态视图（`provide("autoApprove").forms()` 与 `/autoapprove learn list`）。 */
+export interface FormView {
+  sessionId: string;
+  /** 形态 id（sha256 前 16 位；`learn undo` 用）。 */
+  formHash: string;
+  /** 段形态（值位已抹成占位）。 */
+  form: string;
+  toolName: string;
+  source: FormSource;
+  /** 学到的形态绑定的沙箱升级目标模式（非升级请求省略）。 */
+  target?: string;
+  /** 首次入表时间（ISO）。 */
+  approvedAt: string;
 }
 
 /** 服务面（`provide("autoApprove")`）：只读查询 + 运行态模式切换。 */
@@ -157,6 +181,8 @@ export interface AutoApproveService {
   status(): AutoApproveStatus;
   recent(n?: number): readonly AuditLine[];
   fingerprints(): readonly FingerprintView[];
+  /** 学来的形态（缺省全部会话；新→旧不保证）。 */
+  forms(sessionId?: string): readonly FormView[];
   /** 运行态切换模式（`off` 等价关闭）；只影响当前进程。 */
   setMode(mode: AutoApproveMode): void;
 }

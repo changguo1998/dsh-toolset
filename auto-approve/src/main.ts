@@ -31,9 +31,18 @@ import {
 import { createAnswerer } from "./answerer.ts";
 import { createGate, identityOf } from "./gate.ts";
 import { FingerprintStore } from "./fingerprint.ts";
+import {
+  createLearner,
+  FormStore,
+  readAuditCallIds,
+  type Learner,
+  type LearnHistory,
+} from "./learn.ts";
 import { registerCommand } from "./command.ts";
 import {
   createReviewer,
+  runLearnReview,
+  type LearnReviewer,
   type LlmLike,
   type ReviewInstructionItem,
 } from "./review.ts";
@@ -124,6 +133,8 @@ export interface AutoApproveBundle {
   service: AutoApproveService;
   /** 运行态（测试与诊断用）。 */
   runtime: Runtime;
+  /** 学习器（测试、诊断与 `/autoapprove learn` 的写操作句柄）。 */
+  learn: Learner;
 }
 
 /** bundle 入口。 */
@@ -149,6 +160,7 @@ export function createBundle(
   const calls = new CallTable(resolved.callTableCapacity);
   const sessions = new SessionObserver();
   const fingerprints = new FingerprintStore(resolved.fingerprintCapacity);
+  const forms = new FormStore(resolved.formCapacity);
   const sessionPaths = readService<SessionPathsLike>(ctx, "sessionPaths");
   const memory = readService<MemoryLike>(ctx, "memory");
   const audit = createAudit({
@@ -172,6 +184,23 @@ export function createBundle(
     audit,
     warn,
   });
+  const learnReviewer = learnReviewerOf(ctx, sessions, reviewer, resolved);
+  const learnHistory = historyOf(ctx, sessionPaths, resolved);
+  const learner = createLearner({
+    config: resolved,
+    calls,
+    sessions,
+    forms,
+    fingerprints,
+    isActive: () => resolved.enabled && runtime.mode !== "off",
+    ...(learnReviewer === undefined ? {} : { reviewer: learnReviewer }),
+    warn,
+    log: createLogger(ctx),
+    ...(learnHistory === undefined ? {} : { history: learnHistory }),
+  });
+  // 判定上下文与学习层互指：判定要查形态表 / 触发回填，学习器要读运行态模式
+  runtime.context.forms = forms;
+  runtime.context.learn = learner;
   const instructions = createInstructionReader();
   const answerer = createAnswerer(runtime, {
     instructionsFor: instructions,
@@ -191,6 +220,7 @@ export function createBundle(
       if (sessionId === undefined || event === undefined) return;
       sessions.setCwd(sessionId, session?.header?.cwd);
       sessions.observe(sessionId, event);
+      learner.observe(sessionId, event);
     }),
   );
   bind(
@@ -216,18 +246,35 @@ export function createBundle(
       fingerprints.clear();
       return before;
     },
+    learn: {
+      isEnabled: () => learner.isEnabled(),
+      setEnabled: (on) => learner.setEnabled(on),
+      undo: (hash) => forms.remove(hash, activeSessionId(ctx)),
+      clear: () => forms.clear(activeSessionId(ctx)),
+    },
+    sessionId: () => activeSessionId(ctx),
   });
   if (commandOff !== undefined) detach.push(commandOff);
 
   const service: AutoApproveService = {
     status(): AutoApproveStatus {
-      return statusOf(resolved, runtime, audit.health(), fingerprints);
+      return statusOf(
+        resolved,
+        runtime,
+        audit.health(),
+        fingerprints,
+        forms,
+        learner,
+      );
     },
     recent(n = 10) {
       return audit.recent(n);
     },
     fingerprints() {
       return fingerprints.list();
+    },
+    forms(sessionId?: string) {
+      return forms.list(sessionId);
     },
     setMode(mode: AutoApproveMode) {
       runtime.mode = mode;
@@ -237,6 +284,7 @@ export function createBundle(
   return {
     service,
     runtime,
+    learn: learner,
     dispose() {
       for (const off of detach.splice(0)) {
         try {
@@ -245,6 +293,7 @@ export function createBundle(
           warn(`撤销监听器失败：${String(error)}`);
         }
       }
+      learner.dispose();
       runtime.dispose();
     },
   };
@@ -267,6 +316,7 @@ function recordApply(
     ` readonly=${status.readonlyTools} allow=${status.allowRules}` +
     ` deny=${status.denyRules} upgrade=${status.upgradeRules}` +
     ` llm=${status.llmEnabled ? status.llmRoute : "off"}` +
+    ` learn=${status.learnEnabled ? "on" : "off"} forms=${status.forms}` +
     ` audit.session=${status.audit.sessionWritable ? "ok" : "degraded"}` +
     ` audit.project=${status.audit.projectWritable ? "ok" : "skipped"}`;
   try {
@@ -274,6 +324,71 @@ function recordApply(
   } catch {
     process.stderr.write(`[${name}] ${message}\n`);
   }
+}
+
+/** 信息日志（学习结果等一次性提示；与警告同出口）。 */
+function createLogger(ctx: PluginHost): (message: string) => void {
+  let logger: { info(message: string): void } | undefined;
+  try {
+    logger = ctx.logger?.(name);
+  } catch {
+    logger = undefined;
+  }
+  return (message: string) => {
+    try {
+      if (logger !== undefined) logger.info(message);
+      else process.stderr.write(`[${name}] ${message}\n`);
+    } catch {
+      process.stderr.write(`[${name}] ${message}\n`);
+    }
+  };
+}
+
+/**
+ * 学习审阅器：路由沿用运行时审查的同一条解析（显式 `review.provider/model` 覆盖，否则跟随会话），
+ * 提示与解析换成学习专用口径；只做准入，不参与运行时裁定。
+ */
+function learnReviewerOf(
+  ctx: PluginHost,
+  sessions: SessionObserver,
+  reviewer: ReturnType<typeof createReviewer>,
+  config: ResolvedConfig,
+): LearnReviewer | undefined {
+  const llm = readService<LlmLike>(ctx, "llm");
+  if (llm === undefined) return undefined;
+  return (request) => {
+    const route =
+      reviewer.route(request.sessionId) ??
+      lastRoute(ctx, sessions, request.sessionId);
+    return runLearnReview(
+      llm,
+      route,
+      request.candidates,
+      config.review.timeoutMs,
+    );
+  };
+}
+
+/** 回填数据源：会话事件经 `sessionQuery.readSession`，本包裁定经本会话审计文件。 */
+function historyOf(
+  ctx: PluginHost,
+  sessionPaths: SessionPathsLike | undefined,
+  config: ResolvedConfig,
+): LearnHistory | undefined {
+  if (!config.learnRehydrate) return undefined;
+  return {
+    async readEvents(sessionId: string) {
+      const query = readService<{
+        readSession?(id: string): Promise<{ events?: unknown }>;
+      }>(ctx, "sessionQuery");
+      const snapshot = await query?.readSession?.(sessionId);
+      const events = snapshot?.events;
+      return Array.isArray(events) ? (events as SessionEventLike[]) : [];
+    },
+    readAuditCallIds(sessionId: string) {
+      return readAuditCallIds(sessionPaths, sessionId);
+    },
+  };
 }
 
 function createWarner(ctx: PluginHost): (message: string) => void {
@@ -353,6 +468,8 @@ export function statusOf(
   runtime: Runtime,
   audit: AuditHealth,
   fingerprints: FingerprintStore,
+  forms?: FormStore,
+  learner?: Learner,
 ): AutoApproveStatus {
   const sessionId = undefined;
   return {
@@ -366,6 +483,12 @@ export function statusOf(
     denyRules: config.denyTools.length + config.denyEscalationTo.length,
     upgradeRules: config.escalationRules.length,
     fingerprints: fingerprints.size(sessionId),
+    forms: forms?.size() ?? 0,
+    learnEnabled:
+      config.learnFromManual &&
+      config.enabled &&
+      runtime.mode !== "off" &&
+      (learner?.isEnabled() ?? true),
     audit,
   };
 }

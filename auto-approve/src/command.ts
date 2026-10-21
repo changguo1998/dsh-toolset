@@ -9,6 +9,7 @@
 import type {
   AutoApproveMode,
   AutoApproveService,
+  FormView,
   PluginHost,
 } from "./types.ts";
 import { readService } from "./types.ts";
@@ -35,6 +36,26 @@ export interface CommandResultLike {
 
 const MODES: readonly AutoApproveMode[] = ["rules", "rules+llm", "all", "off"];
 
+/** 学习层的写操作句柄（只读查询仍走服务面）。 */
+export interface LearnCommandHandles {
+  isEnabled(): boolean;
+  setEnabled(on: boolean): void;
+  /** 撤一条形态（返回撤掉的条数）。 */
+  undo(hash: string): number;
+  /** 清空本会话形态（返回清掉的条数）。 */
+  clear(): number;
+}
+
+/** 命令分派的可注入面（测试用假件）。 */
+export interface CommandOptions {
+  clearFingerprints: () => number;
+  defaultLogLines: number;
+  /** 学习层写操作（缺省 = 学习层不可用）。 */
+  learn?: LearnCommandHandles;
+  /** 当前会话 id（`learn list/undo/clear` 的范围；取不到时作用于全部会话）。 */
+  sessionId?: () => string | undefined;
+}
+
 /** 解析命令输入（返回子命令与参数）。 */
 export function parseCommandInput(raw: string): {
   sub: string;
@@ -58,6 +79,7 @@ export function renderStatus(service: AutoApproveService): string {
     `LLM 审查: ${status.llmEnabled ? `开启（路由 ${status.llmRoute}）` : "关闭"}`,
     `名单: 只读类 ${status.readonlyTools} · 白名单 ${status.allowRules} · 拒绝名单 ${status.denyRules} · 升级白名单 ${status.upgradeRules}`,
     `本会话指纹: ${status.fingerprints}`,
+    `学习（人工放行）: ${status.learnEnabled ? `开启 · 形态 ${status.forms}` : "关闭"}`,
     `审计（会话）: ${audit.sessionWritable ? (audit.sessionFilePath ?? "可用") : `不可用（${audit.degradedReason ?? "原因未知"}）`} · ${audit.sessionLines} 行${audit.truncated ? " · 已截断" : ""}`,
     `审计（项目）: ${audit.projectWritable ? "可用" : `跳过（已跳过 ${audit.projectSkipped} 行）`}`,
   ];
@@ -77,11 +99,102 @@ export function renderLog(service: AutoApproveService, n: number): string {
   return [`最近 ${rows.length} 条自动裁定:`, ...lines].join("\n");
 }
 
+/** 渲染形态列表（`learn list`；只列本会话，取不到会话时列全部）。 */
+export function renderForms(
+  rows: readonly FormView[],
+  sessionId: string | undefined,
+): string {
+  const scope =
+    sessionId === undefined ? "全部会话" : `本会话 ${sessionId.slice(0, 8)}`;
+  if (rows.length === 0) return `auto-approve: ${scope}没有学来的形态`;
+  const lines = rows.map(
+    (row) =>
+      `${row.formHash.slice(0, 8)} ${row.form} · ${row.toolName}` +
+      ` · 来源=${row.source}` +
+      `${row.target === undefined ? "" : ` · 升级 ${row.target}`}`,
+  );
+  return [`${scope}学来的形态（${rows.length} 条）:`, ...lines].join("\n");
+}
+
+/** 分发 `learn` 子命令（`off` / `on` / `list` / `undo <hash>` / `clear`）。 */
+export function dispatchLearn(
+  service: AutoApproveService,
+  args: readonly string[],
+  options: CommandOptions,
+): CommandResultLike {
+  const action = (args[0] ?? "list").toLowerCase();
+  const learn = options.learn;
+  const sessionId = options.sessionId?.();
+  switch (action) {
+    case "on":
+    case "off": {
+      if (learn === undefined) {
+        return {
+          kind: "error",
+          text: `学习层不可用（配置 learnFromManual: false）`,
+        };
+      }
+      learn.setEnabled(action === "on");
+      return {
+        kind: "success",
+        text:
+          action === "on"
+            ? "auto-approve: 学习已开启（人工放行照常入表）"
+            : "auto-approve: 学习已关闭（人工放行不再入表；已有形态仍生效）",
+      };
+    }
+    case "list":
+      return {
+        kind: "success",
+        text: renderForms(service.forms(sessionId), sessionId),
+      };
+    case "undo": {
+      const hash = args[1];
+      if (hash === undefined || hash.length === 0) {
+        return {
+          kind: "error",
+          text: `用法: /${COMMAND_NAME} learn undo <形态 id>（见 learn list）`,
+        };
+      }
+      if (learn === undefined) {
+        return { kind: "error", text: "学习层不可用" };
+      }
+      const removed = learn.undo(hash);
+      return {
+        kind: "success",
+        text:
+          removed === 0
+            ? `auto-approve: 没有匹配 ${hash} 的形态（只按完整 id 匹配）`
+            : `auto-approve: 已撤销 ${removed} 条形态`,
+      };
+    }
+    case "clear": {
+      if (learn === undefined) {
+        return { kind: "error", text: "学习层不可用" };
+      }
+      const cleared = learn.clear();
+      return {
+        kind: "success",
+        text:
+          `auto-approve: 已清空 ${cleared} 条学来的形态` +
+          `（${sessionId === undefined ? "全部会话" : "本会话"}；不影响运行时裁定与精确指纹）`,
+      };
+    }
+    default:
+      return {
+        kind: "error",
+        text:
+          `未知子命令: learn ${action}。用法: /${COMMAND_NAME} ` +
+          "learn off | on | list | undo <hash> | clear",
+      };
+  }
+}
+
 /** 分发子命令。 */
 export function dispatch(
   service: AutoApproveService,
   raw: string,
-  options: { clearFingerprints: () => number; defaultLogLines: number },
+  options: CommandOptions,
 ): CommandResultLike {
   const { sub, args } = parseCommandInput(raw);
   switch (sub) {
@@ -124,6 +237,8 @@ export function dispatch(
           : options.defaultLogLines;
       return { kind: "success", text: renderLog(service, n) };
     }
+    case "learn":
+      return dispatchLearn(service, args, options);
     case "clear-fingerprints": {
       const cleared = options.clearFingerprints();
       return {
@@ -136,7 +251,7 @@ export function dispatch(
         kind: "error",
         text:
           `未知子命令: ${sub}。用法: /${COMMAND_NAME} ` +
-          "status | mode <rules|rules+llm|all|off> | on | off | log [n] | clear-fingerprints",
+          "status | mode <rules|rules+llm|all|off> | on | off | log [n] | clear-fingerprints | learn ...",
       };
   }
 }
@@ -148,6 +263,8 @@ export function registerCommand(
     config: ResolvedConfig;
     service: () => AutoApproveService;
     clearFingerprints: () => number;
+    learn?: LearnCommandHandles;
+    sessionId?: () => string | undefined;
   },
 ): (() => void) | undefined {
   const commands = readService<CommandRuntimeLike>(host, "commands");
@@ -158,14 +275,18 @@ export function registerCommand(
     definitionId: `auto-approve:${COMMAND_NAME}`,
     name: COMMAND_NAME,
     description:
-      "自动审批插件：查看状态与放行记录、切换模式（status / mode / on / off / log / clear-fingerprints）",
+      "自动审批插件：查看状态与放行记录、切换模式、管理人工放行学来的形态（status / mode / on / off / log / clear-fingerprints / learn）",
     input: {
-      hint: "status | mode <rules|rules+llm|all|off> | on | off | log [n] | clear-fingerprints",
+      hint: "status | mode <rules|rules+llm|all|off> | on | off | log [n] | clear-fingerprints | learn off|on|list|undo <hash>|clear",
     },
     handler: (invocation: InvocationLike) =>
       dispatch(options.service(), invocation?.rawInput ?? "", {
         clearFingerprints: options.clearFingerprints,
         defaultLogLines: 10,
+        ...(options.learn === undefined ? {} : { learn: options.learn }),
+        ...(options.sessionId === undefined
+          ? {}
+          : { sessionId: options.sessionId }),
       }),
   });
   return typeof off === "function" ? off : undefined;

@@ -11,7 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { FingerprintView } from "./types.ts";
+import type { FingerprintView, FormSource } from "./types.ts";
 
 /** 参数规范化：对象键排序后序列化（数组保持原序；不可序列化值按 `String`）。 */
 export function canonicalize(value: unknown): string {
@@ -52,6 +52,7 @@ export function fingerprintOf(
 interface Entry {
   toolName: string;
   approvedAt: string;
+  source: FormSource;
 }
 
 /** 单会话有界指纹表（近似 LRU）。 */
@@ -72,11 +73,12 @@ export class FingerprintStore {
     return true;
   }
 
-  /** 记一次批准（幂等；超容量淘汰最早的条目）。 */
+  /** 记一次批准（幂等；超容量淘汰最早的条目）。`source` 缺省 = 本插件裁定。 */
   approve(
     sessionId: string,
     hash: string,
     toolName: string,
+    source: FormSource = "decision",
     now = new Date(),
   ): void {
     let table = this.#sessions.get(sessionId);
@@ -85,7 +87,7 @@ export class FingerprintStore {
       this.#sessions.set(sessionId, table);
     }
     if (table.has(hash)) return;
-    table.set(hash, { toolName, approvedAt: now.toISOString() });
+    table.set(hash, { toolName, approvedAt: now.toISOString(), source });
     while (table.size > this.#capacity) {
       const oldest = table.keys().next();
       if (oldest.done === true) break;
@@ -128,6 +130,7 @@ export class FingerprintStore {
           fingerprintHash: hash,
           toolName: entry.toolName,
           approvedAt: entry.approvedAt,
+          source: entry.source,
         });
       }
     }

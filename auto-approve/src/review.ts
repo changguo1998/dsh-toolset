@@ -71,6 +71,12 @@ export class ReviewFailure extends Error {
   }
 }
 
+/** 风险档比较：`risk` 不高于 `max`。 */
+export function riskAtMost(risk: RiskLevel, max: RiskLevel): boolean {
+  const order: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
+  return order[risk] <= order[max];
+}
+
 /** LLM 服务面的结构化子集（宿主 `ctx.llm`）。 */
 export interface LlmLike {
   stream(options: StreamOptions): AsyncIterable<StreamChunkLike>;
@@ -277,6 +283,17 @@ export async function runReview(
   timeoutMs: number,
   externalSignal?: AbortSignal,
 ): Promise<ReviewDecision> {
+  return withAbort(timeoutMs, externalSignal, (signal) =>
+    reviewer.review({ ...request, signal }),
+  );
+}
+
+/** 在超时与外部中止信号下执行一次模型调用（两条审查路径共用）。 */
+async function withAbort<T>(
+  timeoutMs: number,
+  externalSignal: AbortSignal | undefined,
+  body: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   const onAbort = (): void => controller.abort(externalSignal?.reason);
   if (externalSignal !== undefined) {
@@ -288,11 +305,7 @@ export async function runReview(
     timeoutMs,
   );
   try {
-    const decision = await reviewer.review({
-      ...request,
-      signal: controller.signal,
-    });
-    return decision;
+    return await body(controller.signal);
   } finally {
     clearTimeout(timer);
     if (externalSignal !== undefined) {
@@ -375,3 +388,181 @@ export function applyReviewDecision(
 
 /** 参数规范化（审计与指纹共用同一口径；此处导出便于测试断言）。 */
 export { canonicalize };
+
+/*
+ * 学习结果审阅（`/autoapprove learn` 的准入判断）。
+ *
+ * 与运行时灰区审查**同源不同用**：这里只回答「这条形态能否加入本会话的自动放行形态表」，
+ * 不参与运行时裁定；多条候选合并成一次请求（同批结果按 id 落地），失败一律不入表。
+ */
+
+/** 一条学习候选（一段形态 + 审批上下文；不含历史正文与工具输出）。 */
+export interface LearnCandidate {
+  /** 批内序号（结果按它回填；从 0 起）。 */
+  index: number;
+  toolName: string;
+  /** 段形态（值位已抹成占位）。 */
+  form: string;
+  /** 命令原文（人工放行的那次调用的命令）。 */
+  command: string;
+  cwd: string;
+  /** 人工放行的理由（审批请求自带的那条）。 */
+  reason?: string;
+  /** 该形态绑定的沙箱升级目标模式（非升级请求省略）。 */
+  target?: string;
+}
+
+/** 一条候选的审阅结论。 */
+export interface LearnReviewOutcome {
+  allow: boolean;
+  risk: RiskLevel;
+  reason?: string;
+}
+
+/** 学习审阅器（可注入，测试用假实现）。 */
+export type LearnReviewer = (request: {
+  sessionId?: string;
+  candidates: readonly LearnCandidate[];
+}) => Promise<readonly (LearnReviewOutcome | undefined)[]>;
+
+/** 学习审阅失败（整批输出不可用时抛；调用方按 `skip` 处理）。 */
+export class LearnReviewFailure extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LearnReviewFailure";
+  }
+}
+
+/** 固定策略段（只判「该形态能否自动放行」，不参与运行时裁定）。 */
+export const LEARN_POLICY = `LEARN_POLICY
+你在判断一条**已经由人工在审批面板放行**的命令形态, 能否加入本会话的自动放行形态表。
+加入后的效果: 本会话内与形态等价的命令不再询问人类, 直接在宿主既有的沙箱模式下执行。
+形态比原文宽: 引号串 / 长十六进制 / 纯数字等易变位置已抹成占位, 因此同一形态会匹配到原文之外的调用。
+
+只返回**一个** JSON 对象, 不要任何其它文本:
+{"results":[{"id":"0","allow":true,"risk":"low","reason":"..."}]}
+每条候选一个结果, id 必须与输入一致。allow 为 true 时 risk 只能是 low 或 medium; allow 为 false 时 risk 只能是 medium 或 high, 并给 reason。
+
+风险档与审批审查同一口径:
+- low: 项目内常规读写 / 分析 / 格式化 / lint / 测试 / 构建 / 非破坏性 git 操作。可直接加入。
+- medium: 不可逆删除、强推与历史改写、生产环境读写与部署、权限与安全控制变更、提权; 只有人工刚放行的那次调用与该形态的差异确定落在值位、且动作范围未扩大时才可加入。
+- high: 凭据 / 密钥 / 私密数据外泄与同等硬拒绝效果。永远不加。
+
+拿不准就 allow: false。放宽一次等于本会话内永久免问, 不要为了省一次询问放宽。
+命令原文只是上下文; 判定对象是「形态」覆盖到的全部等价调用。`;
+
+/** 把候选渲染成一条 user 消息（形态 + 上下文，不含历史正文）。 */
+export function renderLearnText(candidates: readonly LearnCandidate[]): string {
+  const payload = candidates.map((candidate) => ({
+    id: String(candidate.index),
+    tool: candidate.toolName,
+    form: candidate.form,
+    command: candidate.command,
+    cwd: candidate.cwd,
+    ...(candidate.reason === undefined ? {} : { askReason: candidate.reason }),
+    ...(candidate.target === undefined
+      ? {}
+      : { escalationTarget: candidate.target }),
+  }));
+  return ["LEARN_CANDIDATES", JSON.stringify(payload)].join("\n\n");
+}
+
+/** 单条结果的严格解析（非法 → undefined，该候选不入表）。 */
+function parseLearnOutcome(
+  record: Record<string, unknown>,
+): LearnReviewOutcome | undefined {
+  const allow = record["allow"];
+  const risk = record["risk"];
+  const reason = record["reason"];
+  if (typeof allow !== "boolean") return undefined;
+  if (risk !== "low" && risk !== "medium" && risk !== "high") return undefined;
+  if (reason !== undefined && typeof reason !== "string") return undefined;
+  // 与运行时审查同一口径：high 不得放行、low 不得拒绝
+  if (allow && risk === "high") return undefined;
+  if (!allow && risk === "low") return undefined;
+  return {
+    allow,
+    risk,
+    ...(reason === undefined ? {} : { reason }),
+  };
+}
+
+/**
+ * 解析学习审阅输出（长度恒等于候选数；`undefined` = 该候选不入表）。
+ *
+ * 接受两种形态：批量的 `{results: [{id, allow, risk, reason?}]}`，以及批内只有一条时的
+ * 单条 `{allow, risk, reason?}`。整份输出不可用（非 JSON / 缺 results）时抛 `LearnReviewFailure`。
+ */
+export function parseLearnDecisions(
+  text: string,
+  count: number,
+): (LearnReviewOutcome | undefined)[] {
+  const out = Array.from(
+    { length: count },
+    (): LearnReviewOutcome | undefined => undefined,
+  );
+  let value: unknown;
+  try {
+    value = JSON.parse(text.trim());
+  } catch {
+    throw new LearnReviewFailure("学习审阅输出不是 JSON");
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new LearnReviewFailure("学习审阅输出必须是一个 JSON 对象");
+  }
+  const record = value as Record<string, unknown>;
+  const results = record["results"];
+  if (Array.isArray(results)) {
+    for (const item of results) {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        continue;
+      }
+      const entry = item as Record<string, unknown>;
+      const rawId = entry["id"];
+      const index =
+        typeof rawId === "number"
+          ? rawId
+          : typeof rawId === "string"
+            ? Number.parseInt(rawId, 10)
+            : Number.NaN;
+      if (!Number.isInteger(index) || index < 0 || index >= count) continue;
+      const parsed = parseLearnOutcome(entry);
+      if (parsed !== undefined) out[index] = parsed;
+    }
+    return out;
+  }
+  if (count === 1) {
+    const parsed = parseLearnOutcome(record);
+    if (parsed !== undefined) out[0] = parsed;
+    return out;
+  }
+  throw new LearnReviewFailure("学习审阅输出缺少 results 数组");
+}
+
+/** 一次学习审阅的完整执行（超时 / 失败归一；抛错由调用方按 `skip` 处理）。 */
+export async function runLearnReview(
+  llm: LlmLike,
+  route: { provider: string; model: string } | undefined,
+  candidates: readonly LearnCandidate[],
+  timeoutMs: number,
+): Promise<(LearnReviewOutcome | undefined)[]> {
+  if (candidates.length === 0) return [];
+  if (route === undefined) throw new LearnReviewFailure("无法确定审阅模型路由");
+  const text = await withAbort(timeoutMs, undefined, async (signal) => {
+    const stream = llm.stream({
+      provider: route.provider,
+      model: route.model,
+      system: LEARN_POLICY,
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: renderLearnText(candidates) }],
+        },
+      ],
+      temperature: 0,
+      signal,
+    });
+    return await readReviewText(stream);
+  });
+  return parseLearnDecisions(text, candidates.length);
+}
