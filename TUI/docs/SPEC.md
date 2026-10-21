@@ -796,10 +796,10 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 #### /help 双列表格（无边框）
 
-- **排版**（`app/layout/help.ts`）：`helpTableLines` 把命令目录排成两列——命令列定宽 = `min(最长命令显示宽, HELP_CMD_MAX=10)`（CJK 安全补白）、描述列固定起点；每行 = 行首 2 列缩进 + 命令 + 补白 + 2 列间距 + 描述。命令显示宽超 10（常见诱因：别名/参数示例合并写在一个命令里，如 `/provider、/effort (/thinking)`）不再撑宽整表——拆成两条独立行：命令独占一行、描述另起一行缩进到描述列起点（第二列），后续软折行续行同样停在描述列。描述列起点 = 2 + 上限(10) + 2 = 14 列。
-- **折行**：不做预折行，交给渲染层——notice 的 `BufferLine` 可选 `hanging`（描述列起点的悬挂缩进），`build-box` 落到 `StyledText.hanging`，描述超 pane 宽时续行停靠描述列起点且 resize 后仍对齐。`BufferLine.hanging` 只在 `/help` 生效。
+- **排版**（`app/layout/help.ts`）：`helpTableLines` 把命令目录排成两列，描述列按 **4 空格档位**（`HELP_UNIT = 4`）**逐行独立落档**——`stops(命令显示宽 w) = 4 × (⌊min(w, HELP_CMD_MAX=10) / 4⌋ + 1)`，描述列绝对列 = `HELP_MARGIN(2) + stops`；每行 = 行首 2 列缩进 + 命令 + 档位补白 + 描述。档位恒大于 `w`，故命令后至少 1 空格，补白 1~4 列（CJK 安全：按 `displayWidth` 计，不按码点数）。示例：`/a`（宽 2）与 `/bb`（宽 3）同落档 4 → 绝对列 6，分别补 2 / 1 空格；`/ccc`（宽 4）落档 8 → 绝对列 10；宽 9 / 10 落档 12 → 绝对列 14。命令显示宽超 10（常见诱因：别名/参数示例合并写在一个命令里，如 `/provider、/effort (/thinking)`）不再撑宽描述列——拆成两条独立行：命令独占一行、描述另起一行缩进到**封顶档位**（`stops(10) = 12`，绝对列 14，命令行的 `hanging` 同值），后续软折行续行同样停在该列。于是同一表内各行列位可以不同（宽 5~7 的命令在绝对列 10、宽 8~10 在 14），呈阶梯状——这是「每行独立落档」的直接结果。
+- **折行**：不做预折行，交给渲染层——notice 的 `BufferLine` 可选 `hanging`（该行描述列起点的悬挂缩进，**逐行取值**），`build-box` 落到 `StyledText.hanging`，描述超 pane 宽时续行停靠该行描述列起点且 resize 后仍对齐。`BufferLine.hanging` 只在 `/help` 生效。
 - **入口**：`App.helpLines()` 产出「表头 + 表中行 + 表尾」结构化行，`handleSlash` 走 `notice` action 的 `lines` 字段（`appendNoticeLines`，逐条独立成行）；表头 / 表尾无悬挂缩进。
-- **回归**：`tests/help.test.ts`（命令列定宽 / 超宽命令拆行 / 全短命令回落 / CJK 补白 / 单物理行）+ 渲染层用例（窄 pane 强制折行时续行缩进 == 描述列起点；超宽命令描述另起一行的缩进 == 描述列起点）。
+- **回归**：`tests/help.test.ts`（12 例：逐行落档与档位边界表 1~10 / `/a`·`/bb`·`/ccc` 逐字符 / CJK 按显示列落档 / 逐行 `hanging` 差异 / 超宽命令拆行取封顶档位 / 宽 11 拆行与宽 10 不拆 / 全短命令 / 单物理行 / 字母序）+ 渲染层用例（窄 pane 强制折行时续行缩进 == 该行描述列起点；超宽命令描述另起一行缩进 == 封顶档位 14）。
 
 #### markdown 列表项悬挂缩进
 
