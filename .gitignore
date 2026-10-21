@@ -10,3 +10,6 @@ TUI/dist/
 tmp/
 .agents/
 skills-lock.json
+
+# memory-base 项目层库（运行期生成：<cwd>/.dsh/project.db + WAL/SHM）
+.dsh/
