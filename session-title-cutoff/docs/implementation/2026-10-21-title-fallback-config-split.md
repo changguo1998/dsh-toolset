@@ -141,11 +141,25 @@
 
 ## 实现记录
 
-（待）
+按「规划」8 步落地（2026-10-21，分支 `dsh/session-title-fix`，代码提交 `b8cbfaf`）。
+
+1. **配置拆分**：`src/main.ts:239` 新增 `EXECUTION_CONFIG_KEYS`（5 个执行控制键）；`src/main.ts:251` 新增 `executionConfigOf(resolved)`，按该白名单从合并结果里挑选。`resolveConfig`（`src/main.ts:221-236`）保持「合并缺省 + 白名单过滤」不变，返回对象仍含措辞两键。
+2. **措辞校验**：`src/main.ts:263` 新增 `assertTitleTarget(name, value)`（正整数，文案 `session-title-cutoff: <name> must be a positive integer`）；`apply` 对合并结果的两键各调一次（`src/main.ts:447-451`），抛错与 helper 校验同走「标题 provider 配置非法」告警分支（`:452-455`），只告警、不注册、不向上抛。
+3. **只认 execute 形态**：`SessionTitleLlmHelper` 删掉 `generateSessionTitleWithLlm` 与 `SessionTitleLlmConfigFields` 结构面（`src/main.ts:138-150`），`executeSessionTitleLlm` 改为必选；新增 `isUsableTitleLlmHelper`（`:194`），在 `loadTitleLlmHelper`（`:204`）与 `apply`（`:431-437`）两处复用；`generate` 回调删掉 0.2.0 分支，只组装 `prepared` 并调 `helper.executeSessionTitleLlm`（`:487-510`）。
+4. **字节上限**：`titleFromResponse(response, Number.MAX_SAFE_INTEGER)`（`src/main.ts:506`），删掉 `maxTitleBytes ?? 120` 与相关读取（本包仍做控制字符 / 折行 / 星号强调清洗）。
+5. **诊断出口**：`warn` 的定义移到 ctx 解构之后（`src/main.ts:413-425`），优先 `ctx.logger?.warn`；logger 缺失或自身抛错时回落 `process.stderr.write`。`PluginContext` 补 `logger?: { warn?(message: string): unknown }`（`:180`）。
+6. **测试**：`tests/main.test.ts:47` 严格替身复刻 0.2.1 键面（未知键抛 / 三个正整数 / provider 与 model 成对且非空 / 返回冻结对象）；`fakeCtx` 捕获 logger 告警并支持「logger 抛错」（`:122`）。新增 6 例：`executionConfigOf` 键面（`:276`）、严格替身下注册且交给 helper 的配置无措辞键（`:310`）、旧形态 helper 不可用（`:408`）、措辞非法不注册（`:503`）、logger 抛错回落 stderr（`:530`）、真实 helper 契约（`:550`，未安装时 skip）；删掉原 0.2.0 兼容分支用例。
+7. **文档**：`README.md:16-17` 配置表注明措辞两键本包自用并校验；`README.md:30-34` 依赖姿态补「只把执行控制键交 helper」与「只认 execute 形态，回退 0.2.0 须一并回退本包」。
+8. **验证**：`npm --prefix session-title-cutoff run check / test / build` 全通过（输出见「测试与证据」）；`format src/main.ts tests/main.test.ts README.md` 已跑；原复现脚本改后两条配置均 `registered=true`、零告警。
 
 ## 偏差
 
-（待）
+1. **未改 `docs/BACKLOG.md`**：任务约束 9 把条目状态（进行中 → 完成）与收尾留到主分支合并后，故本分支未动；计划清单里的该项由主分支处理，条目当前仍是「进行中」；文首状态行（「状态：规划」）同属收尾范围，也未改。
+2. **`isUsableTitleLlmHelper` 是计划外新增的导出**：计划只写「加载守卫只认 `executeSessionTitleLlm`」；为让测试注入的旧形态 helper 也走同一判定（而非只在 `loadTitleLlmHelper` 内判断），把守卫提成纯函数并在两处复用。
+3. **logger 回落条件细化**：决策 6 写「不可用时回落 stderr」；实现把「logger 自身 `warn` 抛错」也纳入回落（否则告警会连带让 `apply` 抛出），并加用例钉住。
+4. **`EXECUTION_CONFIG_KEYS` 为新增导出**：让执行键白名单只有一处定义、便于测试与诊断核对；计划只点名 `executionConfigOf`。
+5. **未跑真机四项复验**：按任务约束 8 与决策 9 留主分支合并后由用户重启执行；本分支只做真实 helper 契约测试（不连模型、不启 dsh、不动用户会话与 herdr 布局）。
+6. **`dist/` 已重建但未入库**（`.gitignore` 忽略）：profile 生效仍需主分支合并后按常规流程构建。
 
 ## 测试与证据
 
@@ -182,7 +196,101 @@ process.stdout.write(`仅执行控制键 registered=${b.has()}\n`);
 
 结论：现状必抛；只改调用点传参也不够（`resolveConfig` 的缺省合并会把措辞键补回），必须改 `resolveConfig` 的产物分层。单条最小验证：`resolveSessionTitleLlmConfig({maxInputBytes: 32768, maxOutputTokens: 512, timeoutMs: 60000})` 返回冻结对象，加 `targetWords: 5` 即抛 `session-title-llm: unknown config key "targetWords"`。
 
-（实现期证据待补：`check` / `test` / `build` 输出原文、真实 helper 契约测试结果。）
+### 实现期证据（2026-10-21，分支 `dsh/session-title-fix` @ `b8cbfaf`，本机 helper 0.2.1-rc.2）
+
+命令均在 `.worktree/session-title-cutoff` 下执行；helper 版本取自 `~/.dsh/profiles/node_modules/@deepseek-ai/dsh-session-title-llm/package.json`（`0.2.1-rc.2`）。
+
+```sh
+npm --prefix session-title-cutoff run check
+```
+
+```text
+npm notice run @dsh-toolset/session-title-cutoff@0.1.0 check
+npm notice run tsc -p tsconfig.json --noEmit
+```
+
+（退出码 0。）
+
+```sh
+npm --prefix session-title-cutoff run test
+```
+
+```text
+npm notice run @dsh-toolset/session-title-cutoff@0.1.0 test
+npm notice run node --experimental-transform-types --test 'tests/*.test.ts'
+(node:44) ExperimentalWarning: Transform Types is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+[session-title-cutoff] warn: ctx.sessionTitle 不可用，标题窗口裁剪不会生效
+✔ commandOf / isCommitCall：命令解析与提交判定 (0.669228ms)
+✔ selectSinceCommit：只取 cutoff 之后；空结果回退全量 (0.352107ms)
+✔ CommitCutoffTracker：按会话记账 + FIFO 容量上限 (0.091541ms)
+✔ latestCommitSeq：从会话事件取最近一次提交 seq (0.090058ms)
+✔ resolveConfig：合并缺省、忽略空串、丢弃非白名单字段 (0.10179ms)
+✔ executionConfigOf：恰好 5 个执行控制键；措辞键与路由缺省都不出现 (0.090128ms)
+✔ apply：严格 0.2.1 替身下注册成功；execute 收到的配置不含措辞键 (0.584981ms)
+✔ apply：注册 all-prompts provider；有提交时窗口只含其后的消息（0.2.1 execute 形态） (0.24649ms)
+✔ apply：只提供旧 generate 形态的 helper 视为不可用（告警、不注册） (0.116367ms)
+✔ apply：sessionQuery 重建 cutoff（重启场景）与失败降级 (0.20353ms)
+✔ apply：helper 缺失 / 服务缺失 / 配置非法时告警且不抛 (0.211715ms)
+✔ apply：措辞目标非法（0 / 非整数 / NaN）→ 告警且不注册 (0.329143ms)
+✔ apply：logger.warn 抛错时回落 stderr（诊断不丢） (0.101058ms)
+✔ 真实 helper 契约：executionConfigOf 的输出通过本机 0.2.1 键面校验（未安装 skip） (7.194177ms)
+✔ titleSystemPrompt / frameTitleMessages / selectReasoningEffort：0.2.1 prepared 组装原件 (0.078226ms)
+✔ titleFromResponse / normalizeTitleText：取首行、剥整行星号强调、字节截断 (0.111539ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 83.56382
+```
+
+（退出码 0；`warn: ctx.sessionTitle 不可用` 来自「服务缺失」子用例走 stderr 兜底的预期输出，非失败。）
+
+```sh
+npm --prefix session-title-cutoff run build
+```
+
+```text
+npm notice run @dsh-toolset/session-title-cutoff@0.1.0 build
+npm notice run tsc -p tsconfig.json
+```
+
+（退出码 0。）
+
+回归复现（同调研 06 的脚本，改后重跑；假 ctx 带 logger 收集告警，不连模型）：
+
+```sh
+cd session-title-cutoff
+node --experimental-transform-types --input-type=module -e '
+import { apply } from "./src/main.ts";
+function mk(logger) {
+  let provider;
+  const ctx = { sessionTitle: { register: (p) => { provider = p; return () => {}; } }, llm: {}, on: () => {}, logger };
+  return { ctx, has: () => provider !== undefined };
+}
+const warns = [];
+const a = mk({ warn: (m) => warns.push(m) });
+await apply(a.ctx, { targetWords: 5, targetCjkCharacters: 15, maxInputBytes: 32768, maxOutputTokens: 512, timeoutMs: 60000, provider: "tollgate", model: "ds4f" });
+process.stdout.write(`profile 同款配置 registered=${a.has()} warns=${warns.length}\n`);
+const b = mk({ warn: (m) => warns.push(m) });
+await apply(b.ctx, { maxInputBytes: 32768, maxOutputTokens: 512, timeoutMs: 60000, provider: "tollgate", model: "ds4f" });
+process.stdout.write(`仅执行控制键 registered=${b.has()} warns=${warns.length}\n`);
+'
+```
+
+输出原文：
+
+```text
+profile 同款配置 registered=true warns=0
+仅执行控制键 registered=true warns=0
+```
+
+对照调研期证据（改前 `registered=false`，告警 `unknown config key "targetWords"`）：配置拆分后 provider 能注册，回归由用例「`apply：严格 0.2.1 替身下注册成功`」与「`真实 helper 契约`」双重钉住。
+
+格式化：`format src/main.ts tests/main.test.ts README.md`（`src/main.ts 62ms`、`tests/main.test.ts 58ms`；README 无改动输出），随后 `git diff --check` 干净。
 
 ## 收尾
 
