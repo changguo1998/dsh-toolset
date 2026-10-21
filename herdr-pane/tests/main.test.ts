@@ -29,6 +29,8 @@ import type {
 import {
   errorEnvelope,
   fakeConnector,
+  fakeExec,
+  fakeHerdr,
   fakeReader,
   fakeRunner,
   okEnvelope,
@@ -92,39 +94,60 @@ function toolOf(ctx: FakeCtx): HerdrPaneToolDef {
   return def as HerdrPaneToolDef;
 }
 
-/** 成功的握手（bin 用 `/bin/true` 之外的假值即可——本项目不真起 CLI，除非显式注入 runner）。 */
+/** 成功的可用性握手（二进制已解析；HERDR_* 可选）。 */
 const goodHandshake = {
+  binPath: "/usr/local/bin/herdr",
   socketPath: "/tmp/herdr-test.sock",
   callerPaneId: "wT1:p1",
-  binPath: "/usr/local/bin/herdr",
+  callerTabId: "wT1:t1",
 };
+
+/** 服务端可达（探活成功；不真起 herdr）。 */
+const okProbe = (): { ok: true; socketPath: string } => ({
+  ok: true,
+  socketPath: "/tmp/herdr-test.sock",
+});
+
+/** 服务端不可达。 */
+const badProbe = (): { ok: false; reason: string } => ({
+  ok: false,
+  reason: "server stopped",
+});
 
 test("bundle 契约面: name / inject 与 Config 形态", () => {
   assert.equal(name, "herdr-pane");
   assert.deepEqual(inject, ["tools"]);
 });
 
-test("apply: 未在 herdr 内（握手缺一）不注册工具、只记一行日志", () => {
-  // 测试进程可能就跑在 herdr 管理的 pane 里（本仓 CI 与真机都是），先摘掉握手变量再验降级
-  const keys = ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID"] as const;
-  const saved = keys.map((key) => process.env[key]);
-  for (const key of keys) delete process.env[key];
-  try {
-    const ctx = fakeCtx();
-    assert.equal(apply(ctx, {}), undefined);
-    assert.deepEqual(ctx.defs, []);
-    assert.equal(ctx.listeners.size, 0);
-    assert.deepEqual(ctx.disposers, []);
-  } finally {
-    keys.forEach((key, index) => {
-      const value = saved[index];
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    });
-  }
+test("apply: 二进制可解析但服务端不可达时不注册（探活失败只记日志）", () => {
+  const ctx = fakeCtx();
+  assert.equal(
+    apply(ctx, {}, { readHandshake: () => goodHandshake, probe: badProbe }),
+    undefined,
+  );
+  assert.deepEqual(ctx.defs, []);
+  assert.equal(ctx.listeners.size, 0);
+  assert.deepEqual(ctx.disposers, []);
 });
 
-test("createHerdrPlugin: 握手成立时注册 herdr_pane 并挂 tools/pre-execute", () => {
+test("apply: 无 HERDR_* 仍注册（dsh 不必跑在 herdr 内）", () => {
+  const ctx = fakeCtx();
+  const plugin = apply(
+    ctx,
+    {},
+    {
+      readHandshake: () => ({ binPath: "/usr/local/bin/herdr" }),
+      probe: okProbe,
+      runner: fakeRunner(),
+      reader: fakeReader([readOk("x")]),
+    },
+  );
+  assert.notEqual(plugin, undefined);
+  assert.equal(ctx.defs.length, 1);
+  plugin?.();
+});
+
+test("createHerdrPlugin: 握手成立且服务端可达时注册 herdr_pane 并挂 tools/pre-execute", () => {
   const ctx = fakeCtx();
   const runner = fakeRunner();
   const plugin = createHerdrPlugin(
@@ -132,6 +155,7 @@ test("createHerdrPlugin: 握手成立时注册 herdr_pane 并挂 tools/pre-execu
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner,
       reader: fakeReader([readOk("x", { revision: 1 })]),
       env: {},
@@ -153,10 +177,25 @@ test("createHerdrPlugin: 二进制解析不到时不注册（能力不可用就�
     ctx,
     {},
     {
-      readHandshake: () => ({
-        socketPath: "/tmp/s.sock",
-        callerPaneId: "wT1:p1",
-      }),
+      readHandshake: () => undefined,
+      probe: okProbe,
+      env: {},
+    },
+  );
+  assert.equal(plugin, undefined);
+  assert.deepEqual(ctx.defs, []);
+});
+
+test("createHerdrPlugin: 探活抛错也不注册（不让启动期异常穿出去）", () => {
+  const ctx = fakeCtx();
+  const plugin = createHerdrPlugin(
+    ctx,
+    {},
+    {
+      readHandshake: () => goodHandshake,
+      probe: () => {
+        throw new Error("boom");
+      },
       env: {},
     },
   );
@@ -172,6 +211,7 @@ test("createHerdrPlugin: ctx.tools 缺失时告警并返回 undefined", () => {
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(),
       reader: fakeReader([readOk("x")]),
       env: {},
@@ -192,8 +232,14 @@ function gateOptions(
   registry: PaneRegistry,
   config: ResolvedConfig = resolveConfig({}),
   mode: SandboxMode | undefined = "workspace-write",
+  callerTabId?: string,
 ): PreExecuteOptions {
-  return { registry, config, sandboxMode: modeOf(mode) };
+  return {
+    registry,
+    config,
+    sandboxMode: modeOf(mode),
+    ...(callerTabId === undefined ? {} : { callerTabId }),
+  };
 }
 
 test("preExecuteVerdict: 非本工具 / 无 pane / 读类动作一律放行", () => {
@@ -337,6 +383,7 @@ test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait）
     { action: "run", pane_id: "wT1:p2", command: "rm -rf build" },
     { action: "close", pane_id: "wT1:p2" },
     { action: "wait", pane_id: "wT1:p2", stable: true },
+    { action: "tab_close", tab_id: "wT1:t2" },
   ];
   for (const args of denied) {
     const verdict = preExecuteVerdict(
@@ -347,7 +394,7 @@ test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait）
     const reason = verdict.kind === "deny" ? verdict.reason : "";
     assert.match(reason, /read-only/, args.action);
     assert.match(reason, /\/permission/, args.action);
-    assert.match(reason, /wT1:p2/, args.action);
+    assert.match(reason, /wT1:p2|wT1:t2/, args.action);
   }
 
   const allowed = [
@@ -356,6 +403,7 @@ test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait）
     { action: "list" },
     { action: "label", pane_id: "wT1:p2", label: "x" },
     { action: "create", direction: "right" },
+    { action: "tab_create" },
     { action: "wait", pane_id: "wT1:p2", match: "done" },
   ];
   for (const args of allowed) {
@@ -363,6 +411,80 @@ test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait）
       preExecuteVerdict(
         { name: TOOL_NAME, arguments: args, agent: { session } },
         readOnly,
+      ),
+      { kind: "allow" },
+      args.action,
+    );
+  }
+});
+
+test("preExecuteVerdict: tab_close 按内部绑定判——本 workspace 登记放行、跨 workspace / 调用者 tab 拒绝", () => {
+  const session = { id: "s1" };
+  const registry = new PaneRegistry("dsh-pane");
+  registry.setWorkspaceBinding({
+    sessionId: "s1",
+    workspaceId: "wT1",
+    label: "proj/s1",
+    cwd: "/tmp/proj",
+    createdAt: Date.now(),
+  });
+  registry.registerTab({ tabId: "wT1:t2", workspaceId: "wT1" });
+  registry.registerTab({ tabId: "wT9:t1", workspaceId: "wT9" });
+
+  // 本 workspace 的已登记 tab：foreign 档不打断人
+  assert.deepEqual(
+    preExecuteVerdict(
+      { name: TOOL_NAME, arguments: { action: "tab_close", tab_id: "wT1:t2" } },
+      gateOptions(registry),
+    ),
+    { kind: "allow" },
+  );
+  // 跨 workspace：直接 deny（不是审批问题）
+  const cross = preExecuteVerdict(
+    {
+      name: TOOL_NAME,
+      arguments: { action: "tab_close", tab_id: "wT9:t1" },
+      agent: { session },
+    },
+    gateOptions(registry),
+  );
+  assert.equal(cross.kind, "deny");
+  assert.match(
+    cross.kind === "deny" ? cross.reason : "",
+    /不属于本会话的 workspace/,
+  );
+  // 调用者自己所在的 tab（防御性）
+  const self = preExecuteVerdict(
+    { name: TOOL_NAME, arguments: { action: "tab_close", tab_id: "wT1:t2" } },
+    gateOptions(registry, resolveConfig({}), "workspace-write", "wT1:t2"),
+  );
+  assert.equal(self.kind, "deny");
+  assert.match(self.kind === "deny" ? self.reason : "", /HERDR_TAB_ID/);
+  // 未登记的 tab：交动作层拒绝，但审批门先按 foreign 档打断（与 pane 面同口径）
+  assert.equal(
+    preExecuteVerdict(
+      { name: TOOL_NAME, arguments: { action: "tab_close", tab_id: "wT7:t1" } },
+      gateOptions(registry),
+    ).kind,
+    "ask",
+  );
+  // 缺 tab_id：放行交动作层（那里给 tab-required + 放行方式）
+  assert.deepEqual(
+    preExecuteVerdict(
+      { name: TOOL_NAME, arguments: { action: "tab_close" } },
+      gateOptions(registry, resolveConfig({}), "read-only"),
+    ),
+    { kind: "allow" },
+  );
+});
+
+test("preExecuteVerdict: tab_create / tab_list 不按审批档打断（与 create / list 同档）", () => {
+  const registry = new PaneRegistry("dsh-pane");
+  for (const args of [{ action: "tab_create" }, { action: "tab_list" }]) {
+    assert.deepEqual(
+      preExecuteVerdict(
+        { name: TOOL_NAME, arguments: args },
+        gateOptions(registry, resolveConfig({ requireApproval: "always" })),
       ),
       { kind: "allow" },
       args.action,
@@ -413,6 +535,7 @@ test("tools/pre-execute 监听器: 只读会话拒写类、读类继续链路", 
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(),
       reader: fakeReader([readOk("x")]),
       sandboxMode: () => "read-only",
@@ -456,6 +579,7 @@ test("tools/pre-execute 监听器: 非只读时仍按审批档产出 ask", async
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(),
       reader: fakeReader([readOk("x")]),
       sandboxMode: () => "workspace-write",
@@ -499,6 +623,7 @@ test("工具 execute: 缺 action 返回 unknown-action（不触达 runner）", a
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner,
       reader: fakeReader([readOk("x")]),
       env: {},
@@ -512,66 +637,64 @@ test("工具 execute: 缺 action 返回 unknown-action（不触达 runner）", a
   plugin?.dispose();
 });
 
-test("工具 execute: 动作直达 dispatchAction（create → run → info → close 全链路）", async () => {
+test("工具 execute: exec 透传 → create 落在本会话 workspace 的活动 pane（全链路）", async () => {
   const ctx = fakeCtx();
-  const calls: string[][] = [];
-  const runner = fakeRunner((args) => {
-    calls.push(args);
-    if (args[1] === "split") return okEnvelope({ pane: { pane_id: "wT1:p2" } });
-    if (args[1] === "process-info") {
-      return okEnvelope({
-        process_info: {
-          pane_id: "wT1:p2",
-          shell_pid: 10,
-          foreground_processes: [],
-        },
-      });
-    }
-    return okEnvelope({});
-  });
+  const fake = fakeHerdr();
   const plugin = createHerdrPlugin(
     ctx,
     {},
     {
       readHandshake: () => goodHandshake,
-      runner,
+      probe: okProbe,
+      runner: fake.runner,
       reader: fakeReader([readOk("x")]),
       env: {},
     },
   );
   const tool = toolOf(ctx);
+  const exec = fakeExec();
 
-  const created = (await tool.execute({
-    action: "create",
-    direction: "right",
-  })) as ActionResult;
+  // 不注入 resolveSession：create 能成即证明工具把宿主 exec 透传给了 dispatchAction
+  const created = (await tool.execute(
+    { action: "create", direction: "right" },
+    exec,
+  )) as ActionResult;
   assert.equal(created.ok, true);
-  assert.equal(created.ok && created.payload.pane_id, "wT1:p2");
+  const paneId = created.ok ? String(created.payload.pane_id) : "";
+  assert.equal(paneId, "wT1:p2");
+  // 切的是 workspace 活动 pane（wT1:p1），不是调用者 pane（wT1:p1 恰好同 id 时也要核对 argv 形态）
+  assert.deepEqual(
+    fake.runner.calls.find((args) => args[1] === "split"),
+    [
+      "pane",
+      "split",
+      "wT1:p1",
+      "--direction",
+      "right",
+      "--cwd",
+      "/tmp/proj",
+      "--no-focus",
+    ],
+  );
 
-  const ran = (await tool.execute({
-    action: "run",
-    pane_id: "wT1:p2",
-    command: "python3 -i",
-  })) as ActionResult;
+  const ran = (await tool.execute(
+    { action: "run", pane_id: paneId, command: "python3 -i" },
+    exec,
+  )) as ActionResult;
   assert.equal(ran.ok, true);
 
-  const info = (await tool.execute({
-    action: "info",
-    pane_id: "wT1:p2",
-  })) as ActionResult;
+  const info = (await tool.execute(
+    { action: "info", pane_id: paneId },
+    exec,
+  )) as ActionResult;
   assert.equal(info.ok && info.payload.running, false);
 
-  const closed = (await tool.execute({
-    action: "close",
-    pane_id: "wT1:p2",
-  })) as ActionResult;
+  const closed = (await tool.execute(
+    { action: "close", pane_id: paneId },
+    exec,
+  )) as ActionResult;
   assert.equal(closed.ok, true);
-  assert.equal(plugin?.registry.has("wT1:p2"), false);
-  // 建 / 打标 / run / info / close 都真的走了 runner
-  assert.deepEqual(
-    calls.map((args) => args[1]),
-    ["split", "rename", "run", "process-info", "close"],
-  );
+  assert.equal(plugin?.registry.has(paneId), false);
   plugin?.dispose();
 });
 
@@ -582,6 +705,7 @@ test("工具 execute: 错误信封透传（pane_not_found），render 出可读�
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(() =>
         errorEnvelope("pane_not_found", "pane not found"),
       ),
@@ -618,6 +742,7 @@ test("guard 复查接线：deny 时命令不送达 pane（服务面走 ctx.get('
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner,
       reader: fakeReader([readOk("x")]),
       env: {},
@@ -644,6 +769,7 @@ test("guard 复查接线：服务缺失时 fail-open，命令照常送达", asyn
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner,
       reader: fakeReader([readOk("x")]),
       env: {},
@@ -668,6 +794,7 @@ test("退出清理: closeOnExit=true 时 dispose 后登记表清空；false 时�
     { closeOnExit: false },
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(),
       reader: fakeReader([readOk("x")]),
       env: {},
@@ -685,6 +812,7 @@ test("退出清理: closeOnExit=true 时 dispose 后登记表清空；false 时�
     {},
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(),
       reader: fakeReader([readOk("x")]),
       env: {},
@@ -713,6 +841,7 @@ test("socket 读通道经连接器注入（main 组装 reader 时用配置的超
     { timeoutMs: 2222 },
     {
       readHandshake: () => goodHandshake,
+      probe: okProbe,
       runner: fakeRunner(),
       connector,
       env: {},

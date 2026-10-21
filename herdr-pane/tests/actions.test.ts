@@ -1,7 +1,8 @@
 /**
- * tests/actions.test.ts — 十动作的参数校验、argv / 报文拼装、结果解析与归属前置校验
+ * tests/actions.test.ts — 十三动作的参数校验、argv / 报文拼装、结果解析与归属前置校验
  *
- * 全部用 fake runner / fake reader / 假时钟：不依赖真机 herdr，也不改任何 pane。
+ * 全部用 fake runner / fake reader / 假时钟 / fake herdr 服务端：不依赖真机 herdr，
+ * 也不改任何 pane。
  */
 
 import assert from "node:assert/strict";
@@ -15,12 +16,16 @@ import {
 import type { DispatchDeps } from "../src/actions.ts";
 import { PaneRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
-import type { HerdrPaneConfig } from "../src/types.ts";
+import type { HerdrPaneConfig, WorkspaceBinding } from "../src/types.ts";
+import type { SessionContext } from "../src/workspace.ts";
+import { workspaceLabel } from "../src/workspace.ts";
 import {
   errorEnvelope,
   fakeClock,
+  fakeHerdr,
   fakeReader,
   fakeRunner,
+  fakeSession,
   okEnvelope,
   passGuard,
   readOk,
@@ -29,7 +34,7 @@ import {
 } from "./helpers.ts";
 import type { FakeRunner } from "./helpers.ts";
 
-/** 组装派发依赖（runner / reader 可覆盖）。 */
+/** 组装派发依赖（runner / reader / 会话可覆盖）。 */
 function deps(
   options: {
     runner?: FakeRunner;
@@ -38,6 +43,8 @@ function deps(
     registered?: string[];
     guardCheck?: DispatchDeps["guardCheck"];
     callerPaneId?: string;
+    callerTabId?: string;
+    session?: SessionContext | undefined;
   } = {},
 ): {
   deps: DispatchDeps;
@@ -48,16 +55,42 @@ function deps(
   const registry = new PaneRegistry(config.label);
   for (const paneId of options.registered ?? []) registry.register({ paneId });
   const runner = options.runner ?? fakeRunner();
+  const session = "session" in options ? options.session : fakeSession;
   const dispatch: DispatchDeps = {
     config,
     runner,
     reader: options.reader ?? fakeReader([readOk("x", { revision: 1 })]),
     registry,
-    callerPaneId: options.callerPaneId ?? "wT1:p1",
+    ...("callerPaneId" in options
+      ? options.callerPaneId === undefined
+        ? {}
+        : { callerPaneId: options.callerPaneId }
+      : { callerPaneId: "wT1:p1" }),
+    ...(options.callerTabId === undefined
+      ? {}
+      : { callerTabId: options.callerTabId }),
+    resolveSession: () => session,
     guardCheck: options.guardCheck ?? passGuard,
     clock: fakeClock(),
   };
   return { deps: dispatch, runner, registry };
+}
+
+/** 直接把会话绑定写进登记表（跨 workspace / 调用者 tab 等用例不必真的建 workspace）。 */
+function bindWorkspace(
+  registry: PaneRegistry,
+  workspaceId = "wT9",
+  session: SessionContext = fakeSession,
+): WorkspaceBinding {
+  const binding: WorkspaceBinding = {
+    sessionId: session.id,
+    workspaceId,
+    label: workspaceLabel(session),
+    cwd: session.cwd,
+    createdAt: Date.now(),
+  };
+  registry.setWorkspaceBinding(binding);
+  return binding;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,57 +166,57 @@ test("needsOwnership: 写类动作与 wait-stable 要求自有 pane，读类与 
 });
 
 // ---------------------------------------------------------------------------
-// create / list
+// create / list（create 落点改为本会话 workspace 的活动 pane）
 // ---------------------------------------------------------------------------
 
-test("create: 缺 direction 时先读调用者 pane 的 layout，再按宽高选 right / down", async () => {
-  const calls: string[][] = [];
-  const runner = fakeRunner((args) => {
-    calls.push(args);
-    if (args[0] === "pane" && args[1] === "layout") {
-      return okEnvelope({
-        layout: {
-          type: "pane_layout",
-          area: { height: 50, width: 155 },
-          panes: [],
-          splits: [],
-        },
-      });
-    }
-    return okEnvelope({ pane: { pane_id: "wT1:p2" } });
-  });
-  const { deps: d } = deps({ runner });
+test("create: 活动 pane 缺省布局选方向，切在活动 pane 上（不再 --current）", async () => {
+  const fake = fakeHerdr({ layout: { width: 155, height: 50 } });
+  const { deps: d } = deps({ runner: fake.runner });
   const result = await dispatchAction("create", {}, d);
   assert.equal(result.ok, true);
   assert.equal(result.ok && result.payload.direction, "right");
-  assert.deepEqual(calls[0], ["pane", "layout", "--pane", "wT1:p1"]);
-  assert.deepEqual(calls[1], [
+  // 先确保 workspace，再解析活动 pane（workspace list + pane list），最后按目标 pane 布局
+  const layout = fake.runner.calls.find((args) => args[1] === "layout");
+  assert.deepEqual(layout, ["pane", "layout", "--pane", "wT1:p1"]);
+  const split = fake.runner.calls.find((args) => args[1] === "split");
+  assert.deepEqual(split, [
     "pane",
     "split",
-    "--current",
+    "wT1:p1",
     "--direction",
     "right",
+    "--cwd",
+    "/tmp/proj",
     "--no-focus",
   ]);
+  assert.equal(
+    fake.runner.calls.some((args) => args.includes("--current")),
+    false,
+    "不再使用 --current",
+  );
   // 创建后自动打 label（rename）
-  assert.deepEqual(calls[2], ["pane", "rename", "wT1:p2", "dsh-pane"]);
+  assert.deepEqual(fake.runner.calls.at(-1), [
+    "pane",
+    "rename",
+    "wT1:p2",
+    "dsh-pane",
+  ]);
 });
 
-test("create: 窄 / 高 pane 选 down；显式 direction 与 cwd 直通", async () => {
-  const runner = fakeRunner((args) =>
-    args[1] === "layout"
-      ? okEnvelope({
-          layout: { type: "pane_layout", area: { height: 60, width: 40 } },
-        })
-      : okEnvelope({ pane: { pane_id: "wT1:p3" } }),
+test("create: 窄 / 高活动 pane 选 down；显式 direction 与 cwd 直通", async () => {
+  const narrow = fakeHerdr({ layout: { width: 40, height: 60 } });
+  const first = deps({ runner: narrow.runner });
+  const result = await dispatchAction(
+    "create",
+    { cwd: "/tmp/project" },
+    first.deps,
   );
-  const { deps: d } = deps({ runner });
-  const result = await dispatchAction("create", { cwd: "/tmp/project" }, d);
   assert.equal(result.ok && result.payload.direction, "down");
-  assert.deepEqual(runner.calls[1], [
+  const split = narrow.runner.calls.find((args) => args[1] === "split");
+  assert.deepEqual(split, [
     "pane",
     "split",
-    "--current",
+    "wT1:p1",
     "--direction",
     "down",
     "--cwd",
@@ -191,28 +224,35 @@ test("create: 窄 / 高 pane 选 down；显式 direction 与 cwd 直通", async 
     "--no-focus",
   ]);
 
-  const explicit = fakeRunner(() =>
-    okEnvelope({ pane: { pane_id: "wT1:p4" } }),
-  );
-  const second = deps({ runner: explicit });
+  const explicit = fakeHerdr();
+  const second = deps({ runner: explicit.runner });
   await dispatchAction("create", { direction: "down" }, second.deps);
   // 显式方向不读 layout
-  assert.equal(explicit.calls[0]?.[1], "split");
-  assert.deepEqual(explicit.calls[0], [
-    "pane",
-    "split",
-    "--current",
-    "--direction",
-    "down",
-    "--no-focus",
-  ]);
+  assert.equal(
+    explicit.runner.calls.some((args) => args[1] === "layout"),
+    false,
+  );
+  assert.deepEqual(
+    explicit.runner.calls.find((args) => args[1] === "split"),
+    [
+      "pane",
+      "split",
+      "wT1:p1",
+      "--direction",
+      "down",
+      "--cwd",
+      "/tmp/proj",
+      "--no-focus",
+    ],
+  );
 });
 
 test("create: 取不到 .result.pane.pane_id 时返回 herdr-bad-response（不猜 id）", async () => {
-  const runner = fakeRunner((args) =>
-    args[1] === "split" ? okEnvelope({ type: "ok" }) : okEnvelope({}),
-  );
-  const { deps: d } = deps({ runner });
+  const fake = fakeHerdr({
+    override: (args) =>
+      args[1] === "split" ? okEnvelope({ type: "ok" }) : undefined,
+  });
+  const { deps: d } = deps({ runner: fake.runner });
   const result = await dispatchAction("create", { direction: "right" }, d);
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.error.code, "herdr-bad-response");
@@ -223,32 +263,83 @@ test("create: 取不到 .result.pane.pane_id 时返回 herdr-bad-response（不�
 });
 
 test("create: label 打标失败只记 note，不回滚创建与登记", async () => {
-  const runner = fakeRunner((args) => {
-    if (args[1] === "split") return okEnvelope({ pane: { pane_id: "wT1:p5" } });
-    if (args[1] === "rename") return errorEnvelope("pane_not_found", "gone");
-    return okEnvelope({});
+  const fake = fakeHerdr({
+    override: (args) =>
+      args[1] === "rename"
+        ? errorEnvelope("pane_not_found", "gone")
+        : undefined,
   });
-  const { deps: d, registry } = deps({ runner });
+  const { deps: d, registry } = deps({ runner: fake.runner });
   const result = await dispatchAction("create", { direction: "right" }, d);
   assert.equal(result.ok, true);
-  assert.equal(result.ok && result.payload.pane_id, "wT1:p5");
+  const paneId = result.ok ? String(result.payload.pane_id) : "";
   assert.equal(result.ok && result.notes?.length, 1);
   assert.match(result.ok ? (result.notes?.[0] ?? "") : "", /自动打 label 失败/);
-  assert.equal(registry.has("wT1:p5"), true);
+  assert.equal(registry.has(paneId), true);
+  assert.equal(registry.get(paneId)?.workspaceId, "wT1");
 });
 
 test("create: 自定义 label 走配置与参数（create 的 label 覆盖缺省）", async () => {
-  const runner = fakeRunner((args) =>
-    args[1] === "split"
-      ? okEnvelope({ pane: { pane_id: "wT1:p6" } })
-      : okEnvelope({}),
-  );
-  const { deps: d } = deps({ runner, config: { label: "dsh-work" } });
+  const fake = fakeHerdr();
+  const { deps: d } = deps({
+    runner: fake.runner,
+    config: { label: "dsh-work" },
+  });
   await dispatchAction("create", { direction: "right", label: "custom" }, d);
-  assert.deepEqual(runner.calls[1], ["pane", "rename", "wT1:p6", "custom"]);
+  const rename = fake.runner.calls.find((args) => args[1] === "rename");
+  assert.deepEqual(rename?.slice(0, 3), ["pane", "rename", "wT1:p2"]);
+  assert.equal(rename?.[3], "custom");
 });
 
-test("list: 解析 panes 为摘要并标出本插件登记项；workspace 透传", async () => {
+test("create: 活动 tab 没有 pane 时失败并给提示（不改别的 tab）", async () => {
+  const fake = fakeHerdr({
+    workspaces: [
+      { workspace_id: "wT1", label: "proj/abcd1234", active_tab_id: "wT1:t9" },
+    ],
+    panes: [{ pane_id: "wT1:p1", workspace_id: "wT1", tab_id: "wT1:t1" }],
+  });
+  const { deps: d } = deps({ runner: fake.runner });
+  const result = await dispatchAction("create", {}, d);
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.ok === false && result.error.code,
+    "workspace-unavailable",
+  );
+  assert.match(result.ok === false ? result.error.message : "", /没有 pane/);
+  assert.equal(
+    fake.runner.calls.some((args) => args[1] === "split"),
+    false,
+  );
+});
+
+test("create: 会话缺失返回 session-unavailable（不触达 CLI）", async () => {
+  const runner = fakeRunner();
+  const { deps: d } = deps({ runner, session: undefined });
+  const result = await dispatchAction("create", {}, d);
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.error.code, "session-unavailable");
+  assert.match(result.ok === false ? (result.error.hint ?? "") : "", /exec/);
+  assert.equal(runner.calls.length, 0);
+});
+
+test("create: workspace 确保失败透传 workspace-unavailable", async () => {
+  const fake = fakeHerdr({
+    override: (args) =>
+      args[0] === "workspace" && args[1] === "list"
+        ? errorEnvelope("workspace_error", "server busy")
+        : undefined,
+  });
+  const { deps: d } = deps({ runner: fake.runner });
+  const result = await dispatchAction("create", {}, d);
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.ok === false && result.error.code,
+    "workspace-unavailable",
+  );
+  assert.match(result.ok === false ? result.error.message : "", /server busy/);
+});
+
+test("list: 解析 panes 为摘要并标出本插件登记项；不回传 workspace 面", async () => {
   const runner = fakeRunner(() =>
     okEnvelope({
       type: "pane_list",
@@ -271,7 +362,8 @@ test("list: 解析 panes 为摘要并标出本插件登记项；workspace 透传
   const { deps: d } = deps({ runner, registered: ["wT1:p1"] });
   const result = await dispatchAction("list", { workspace: "wT1" }, d);
   assert.equal(result.ok, true);
-  assert.deepEqual(runner.calls[0], ["pane", "list", "--workspace", "wT1"]);
+  // workspace 参数不再参与 argv（工具面没有 workspace 面）
+  assert.deepEqual(runner.calls[0], ["pane", "list"]);
   const panes = result.ok
     ? (result.payload.panes as Array<Record<string, unknown>>)
     : [];
@@ -280,9 +372,216 @@ test("list: 解析 panes 为摘要并标出本插件登记项；workspace 透传
   assert.equal(panes[0]?.label, "dsh-pane");
   assert.equal(panes[0]?.scroll_offset, 3);
   assert.equal(panes[1]?.registered, false);
-  // label 为 null 时不下发该字段
+  // label 为 null 时不下发该字段；workspace_id 一律不下发
   assert.equal("label" in (panes[1] ?? {}), false);
+  assert.equal("workspace_id" in (panes[0] ?? {}), false);
+  assert.equal("workspace" in (result.ok ? result.payload : {}), false);
   assert.deepEqual(result.ok ? result.payload.registered : [], ["wT1:p1"]);
+});
+
+// ---------------------------------------------------------------------------
+// tab_create / tab_list / tab_close
+// ---------------------------------------------------------------------------
+
+test("tab_create: 固定 --workspace <本会话绑定> + --cwd 会话 cwd + --label + --no-focus，并登记 tab 与 root pane", async () => {
+  const fake = fakeHerdr();
+  const { deps: d, registry } = deps({ runner: fake.runner });
+  const result = await dispatchAction("tab_create", {}, d);
+  assert.equal(result.ok, true);
+  const tabId = result.ok ? String(result.payload.tab_id) : "";
+  const paneId = result.ok ? String(result.payload.pane_id) : "";
+  assert.equal(tabId, "wT1:t2");
+  assert.equal(paneId, "wT1:p3");
+  assert.deepEqual(
+    fake.runner.calls.find((args) => args[0] === "tab" && args[1] === "create"),
+    [
+      "tab",
+      "create",
+      "--workspace",
+      "wT1",
+      "--cwd",
+      "/tmp/proj",
+      "--label",
+      "dsh-pane",
+      "--no-focus",
+    ],
+  );
+  assert.equal(registry.tab(tabId)?.workspaceId, "wT1");
+  assert.equal(registry.has(paneId), true);
+  assert.equal(registry.get(paneId)?.workspaceId, "wT1");
+});
+
+test("tab_create: 取不到 .result.tab.tab_id → 失败；缺 root_pane 时仍登记 tab 可 tab_close 收尾", async () => {
+  const noTab = fakeHerdr({
+    override: (args) =>
+      args[0] === "tab" && args[1] === "create"
+        ? okEnvelope({ type: "tab_create", root_pane: { pane_id: "wT1:p9" } })
+        : undefined,
+  });
+  const first = deps({ runner: noTab.runner });
+  const missingTab = await dispatchAction("tab_create", {}, first.deps);
+  assert.equal(missingTab.ok, false);
+  assert.equal(
+    missingTab.ok === false && missingTab.error.code,
+    "herdr-bad-response",
+  );
+
+  const noRoot = fakeHerdr({
+    override: (args) =>
+      args[0] === "tab" && args[1] === "create"
+        ? okEnvelope({ type: "tab_create", tab: { tab_id: "wT1:t7" } })
+        : undefined,
+  });
+  const second = deps({ runner: noRoot.runner });
+  const missingRoot = await dispatchAction("tab_create", {}, second.deps);
+  assert.equal(missingRoot.ok, false);
+  assert.equal(
+    missingRoot.ok === false && missingRoot.error.code,
+    "herdr-bad-response",
+  );
+  assert.match(
+    missingRoot.ok === false ? missingRoot.error.message : "",
+    /root_pane/,
+  );
+  // tab 已登记 → 可以 tab_close 收尾（否则会漏一个无人认领的 tab）
+  assert.notEqual(second.registry.tab("wT1:t7"), undefined);
+  const closed = await dispatchAction(
+    "tab_close",
+    { tab_id: "wT1:t7" },
+    second.deps,
+  );
+  assert.equal(closed.ok, true);
+});
+
+test("tab_list: 只列本会话 workspace 的 tab，并标出本插件登记项（不回传 workspace 面）", async () => {
+  const fake = fakeHerdr({
+    workspaces: [
+      { workspace_id: "wT1", label: "proj/abcd1234", active_tab_id: "wT1:t1" },
+    ],
+    tabs: [
+      {
+        tab_id: "wT1:t1",
+        workspace_id: "wT1",
+        label: "1",
+        number: 1,
+        pane_count: 1,
+        focused: true,
+      },
+      {
+        tab_id: "wT1:t2",
+        workspace_id: "wT1",
+        label: "dsh-pane",
+        number: 2,
+        pane_count: 2,
+      },
+      {
+        tab_id: "wT8:t1",
+        workspace_id: "wT8",
+        label: "别的",
+        number: 1,
+        pane_count: 1,
+      },
+    ],
+  });
+  const { deps: d, registry } = deps({ runner: fake.runner });
+  bindWorkspace(registry, "wT1");
+  registry.registerTab({
+    tabId: "wT1:t2",
+    workspaceId: "wT1",
+    label: "dsh-pane",
+  });
+  const result = await dispatchAction("tab_list", {}, d);
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    fake.runner.calls.find((args) => args[0] === "tab" && args[1] === "list"),
+    ["tab", "list", "--workspace", "wT1"],
+  );
+  const tabs = result.ok
+    ? (result.payload.tabs as Array<Record<string, unknown>>)
+    : [];
+  assert.equal(tabs.length, 2);
+  assert.equal(tabs[0]?.tab_id, "wT1:t1");
+  assert.equal(tabs[0]?.registered, false);
+  assert.equal(tabs[1]?.registered, true);
+  assert.equal(tabs[1]?.pane_count, 2);
+  assert.equal("workspace_id" in (tabs[0] ?? {}), false);
+  assert.deepEqual(result.ok ? result.payload.registered : [], ["wT1:t2"]);
+});
+
+test("tab_close: 本 workspace 登记 tab 放行并注销 tab 与 root pane", async () => {
+  const fake = fakeHerdr();
+  const { deps: d, registry } = deps({ runner: fake.runner });
+  const created = await dispatchAction("tab_create", {}, d);
+  const tabId = created.ok ? String(created.payload.tab_id) : "";
+  const paneId = created.ok ? String(created.payload.pane_id) : "";
+  assert.equal(registry.has(paneId), true);
+
+  const closed = await dispatchAction("tab_close", { tab_id: tabId }, d);
+  assert.equal(closed.ok, true);
+  assert.deepEqual(
+    fake.runner.calls.find((args) => args[0] === "tab" && args[1] === "close"),
+    ["tab", "close", tabId],
+  );
+  assert.equal(registry.tab(tabId), undefined);
+  assert.equal(registry.has(paneId), false);
+});
+
+test("tab_close: 未登记 / 跨 workspace / 调用者 tab 三种一律拒", async () => {
+  const fake = fakeHerdr();
+  const unknown = deps({ runner: fake.runner });
+  const missing = await dispatchAction(
+    "tab_close",
+    { tab_id: "wT9:t1" },
+    unknown.deps,
+  );
+  assert.equal(
+    missing.ok === false && missing.error.code,
+    "tab-not-registered",
+  );
+
+  // 跨 workspace：登记在别的 workspace 的 tab 不属于本会话绑定
+  const cross = deps({ runner: fake.runner });
+  bindWorkspace(cross.registry, "wT1");
+  cross.registry.registerTab({ tabId: "wT9:t1", workspaceId: "wT9" });
+  cross.registry.registerTab({ tabId: "wT1:t1", workspaceId: "wT1" });
+  const foreign = await dispatchAction(
+    "tab_close",
+    { tab_id: "wT9:t1" },
+    cross.deps,
+  );
+  assert.equal(
+    foreign.ok === false && foreign.error.code,
+    "tab-not-registered",
+  );
+  assert.match(
+    foreign.ok === false ? foreign.error.message : "",
+    /不属于本会话的 workspace/,
+  );
+  assert.equal(
+    fake.runner.calls.some((args) => args[0] === "tab" && args[1] === "close"),
+    false,
+  );
+
+  // 调用者自己所在的 tab（防御性护栏；正常不会出现在可关列表里）
+  const caller = deps({ runner: fake.runner, callerTabId: "wT1:t1" });
+  bindWorkspace(caller.registry, "wT1");
+  caller.registry.registerTab({ tabId: "wT1:t1", workspaceId: "wT1" });
+  const self = await dispatchAction(
+    "tab_close",
+    { tab_id: "wT1:t1" },
+    caller.deps,
+  );
+  assert.equal(self.ok === false && self.error.code, "invalid-params");
+  assert.match(self.ok === false ? self.error.message : "", /调用者/);
+});
+
+test("tab_close: 缺 tab_id 返回 tab-required（不触达 CLI）", async () => {
+  const runner = fakeRunner();
+  const { deps: d } = deps({ runner });
+  const result = await dispatchAction("tab_close", {}, d);
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.error.code, "tab-required");
+  assert.equal(runner.calls.length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -312,6 +611,14 @@ test("read: 走 socket（不碰 CLI），缺省 source / lines / format 按设�
     revision: 12,
     truncated: false,
   });
+});
+
+test("read: 不在 herdr 内（无调用者 pane）时该护栏不生效，可读任意 pane", async () => {
+  const reader = fakeReader([readOk("outside")]);
+  const { deps: d } = deps({ reader, callerPaneId: undefined });
+  const result = await dispatchAction("read", { pane_id: "wT1:p1" }, d);
+  assert.equal(result.ok, true);
+  assert.equal(reader.calls.length, 1);
 });
 
 test("read: 拒绝读调用者自己所在的 pane（会读到本次调用自身的回显）", async () => {

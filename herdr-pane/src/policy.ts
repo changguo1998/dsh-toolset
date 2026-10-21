@@ -27,13 +27,14 @@ import type {
   SandboxPolicyServiceLike,
 } from "./types.ts";
 
-/** 写类动作：必须作用于本插件登记过的 pane。 */
+/** 写类动作：必须作用于本插件登记过的 pane / tab。 */
 export const OWNED_ACTIONS: readonly HerdrPaneAction[] = [
   "send_text",
   "send_keys",
   "run",
   "label",
   "close",
+  "tab_close",
 ];
 
 /** 读类动作：可读任意 pane（只读、无副作用，留出观察能力）。 */
@@ -78,11 +79,11 @@ export function checkOwnership(
 /**
  * 审批判定（`tools/pre-execute` 监听器的核心，纯函数）。
  *
- * `foreign`（缺省）：只在「对非本插件创建的 pane 动输入 / 关闭」时要求审批；
- * `always`：任何「动输入 / 关闭」都要求审批（建 pane、读屏不弹）；
+ * `foreign`（缺省）：只在「对非本插件创建的 pane / tab 动输入 / 关闭」时要求审批；
+ * `always`：任何「动输入 / 关闭」都要求审批（建 pane / tab、读屏不弹）；
  * `never`：从不弹（但仍有 guard 硬拒层与归属限制）。
  *
- * 「动输入 / 关闭」= `send_text` / `send_keys` / `run` / `close`；
+ * 「动输入 / 关闭」= `send_text` / `send_keys` / `run` / `close` / `tab_close`；
  * `label` 虽是写类，但只改本插件自己的归属标记，不打断人审批。
  */
 export function needsApproval(
@@ -91,19 +92,25 @@ export function needsApproval(
   mode: ResolvedConfig["requireApproval"],
 ): boolean {
   if (mode === "never") return false;
-  if (!["send_text", "send_keys", "run", "close"].includes(action)) {
+  if (
+    !["send_text", "send_keys", "run", "close", "tab_close"].includes(action)
+  ) {
     return false;
   }
   if (mode === "always") return true;
   return ownership === "foreign";
 }
 
-/** 只读沙箱下被拒的动作（`label` 只改归属标记、`create` 只切 pane，均不在内）。 */
+/**
+ * 只读沙箱下被拒的动作（`label` 只改归属标记、`create` / `tab_create` 只建新对象，均不在内）。
+ * `tab_close` 与 `close` 同档：都是破坏性关闭。
+ */
 export const SANDBOX_WRITE_ACTIONS: readonly HerdrPaneAction[] = [
   "send_text",
   "send_keys",
   "run",
   "close",
+  "tab_close",
 ];
 
 /**
@@ -118,19 +125,33 @@ export function isSandboxWrite(action: string, waitStable = false): boolean {
 /**
  * 只读会话下的拒绝文案（含切换方式）；非只读或非写类动作返回 undefined。
  * 不写「沙箱会兜住」之类误导语：pane 里的命令跑在 dsh 进程之外。
+ * 目标是 tab 时按 tab 措辞（`tab_close`）。
  */
 export function sandboxDenialReason(
   mode: SandboxMode,
   action: HerdrPaneAction,
-  paneId: string,
+  targetId: string,
   waitStable = false,
 ): string | undefined {
   if (mode !== "read-only") return undefined;
   if (!isSandboxWrite(action, waitStable)) return undefined;
+  const target = action.startsWith("tab_") ? "tab" : "pane";
   return (
     `会话的沙箱模式是 read-only（sandbox mode = "read-only"），` +
-    `写类动作 ${action} 在只读会话里不执行；目标 pane ${paneId}。` +
+    `写类动作 ${action} 在只读会话里不执行；目标 ${target} ${targetId}。` +
     `放行方式：把会话切到可写模式（如宿主 /permission 选含 workspace-write 的预设）后重试。`
+  );
+}
+
+/**
+ * 跨 workspace 的拒绝文案：模型层没有 workspace 概念，这里只说明「不属于本会话的
+ * workspace」，不暴露 workspace id / 名字。
+ */
+export function crossWorkspaceDenialReason(tabId: string): string {
+  return (
+    `tab ${tabId} 不属于本会话的 workspace（写操作不出本会话 workspace）。` +
+    "只关本插件用 tab_create 建过并登记在当前 workspace 里的 tab；" +
+    "会话 workspace 由插件内部绑定，模型侧没有 workspace 参数。"
   );
 }
 

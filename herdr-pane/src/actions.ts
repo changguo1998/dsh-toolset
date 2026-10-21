@@ -1,12 +1,17 @@
 /**
- * src/actions.ts — 十个动作的参数校验、argv / 报文拼装与结果解析（库面核心）
+ * src/actions.ts — 十三个动作的参数校验、argv / 报文拼装与结果解析（库面核心）
  *
- * 通道划分（设计文档决策项 1 的逐动作表）：
- *   CLI：create / list / send_text / send_keys / run / label / info / close
- *        以及 wait 的 `match` / `regex`（服务端 `wait-output` 先搜既有输出再轮询）
+ * 通道划分：
+ *   CLI：create / list / tab_create / tab_list / tab_close / send_text / send_keys /
+ *        run / label / info / close，以及 wait 的 `match` / `regex`（服务端 `wait-output`
+ *        先搜既有输出再轮询）
  *   socket：read（拿 `revision` / `truncated`）、wait 的 `stable`（靠 `revision` 判稳）
  *
- * 本模块**不碰宿主**：runner / reader / registry / guard 检查器全部经 `DispatchDeps` 注入，
+ * 写边界（追踪文档决策项 8）：全部写操作落在**本会话 workspace** 内——
+ * `tab_create` 固定 `--workspace <绑定>`，`tab_close` 只关本 workspace 已登记的 tab，
+ * `create` 切本 workspace 活动 tab 的 pane（不再切调用者 pane）。读类仍可跨 workspace 观察。
+ *
+ * 本模块**不碰宿主**：runner / reader / registry / guard / 会话解析全部经 `DispatchDeps` 注入，
  * 故可完全单测（fake runner + fake reader + 假时钟，不依赖真机 herdr）。
  *
  * 回执口径：错误一律返回结构化失败（`ActionFailure`），**超时不抛错**；
@@ -15,9 +20,13 @@
 
 import type { CliRunResult, HerdrRunner, ParsedEnvelope } from "./cli.ts";
 import { classifyExit, createDefaultRunner, parseEnvelope } from "./cli.ts";
-import { checkOwnership, isOwnedAction } from "./policy.ts";
+import {
+  checkOwnership,
+  crossWorkspaceDenialReason,
+  isOwnedAction,
+} from "./policy.ts";
 import type { GuardCheck } from "./policy.ts";
-import { closeArgs, renameArgs } from "./registry.ts";
+import { closeArgs, renameArgs, tabCloseArgs } from "./registry.ts";
 import type { PaneRegistry } from "./registry.ts";
 import { waitForStable } from "./socket.ts";
 import type { Clock, PaneReader } from "./socket.ts";
@@ -36,7 +45,15 @@ import type {
   ReadFormat,
   ReadSource,
   ResolvedConfig,
+  TabRecord,
+  WorkspaceBinding,
 } from "./types.ts";
+import {
+  activePaneOf,
+  ensureWorkspace,
+  readSessionContext,
+} from "./workspace.ts";
+import type { SessionContext, SessionResolver } from "./workspace.ts";
 
 /** 动作派发依赖（全部可注入，生产路径在 `main.ts` 组装）。 */
 export interface DispatchDeps {
@@ -48,8 +65,12 @@ export interface DispatchDeps {
   reader: PaneReader;
   /** 归属登记表。 */
   registry: PaneRegistry;
-  /** 调用者所在 pane id（`create` 的 `--current` 目标；与 `HERDR_PANE_ID` 一致）。 */
-  callerPaneId: string;
+  /** 调用者所在 pane id（`read` 的同 pane 护栏；不在 herdr 内时 undefined）。 */
+  callerPaneId?: string;
+  /** 调用者所在 tab id（`tab_close` 的防御性护栏；不在 herdr 内时 undefined）。 */
+  callerTabId?: string;
+  /** 会话解析器（缺省从宿主 `exec.agent.session` 读；单测 / 真机脚本可注入固定会话）。 */
+  resolveSession?: SessionResolver;
   /** 命令复查器（缺省不过复查：注入空实现，便于库面单测）。 */
   guardCheck?: (text: string, action: HerdrPaneAction) => GuardCheck;
   /** 时钟（stable 判稳用；缺省真实时钟）。 */
@@ -222,7 +243,10 @@ function objectList(value: unknown): Record<string, unknown>[] {
   );
 }
 
-/** `pane list` 摘要（只保留工具回执需要的字段）。 */
+/**
+ * `pane list` 摘要（只保留工具回执需要的字段）。
+ * **不带 `workspace_id`**：workspace 面不对模型暴露（追踪文档决策项 6）。
+ */
 export function summarizePane(
   pane: Record<string, unknown>,
   isRegistered: (paneId: string) => boolean,
@@ -235,9 +259,6 @@ export function summarizePane(
   return {
     pane_id: paneId,
     ...(typeof pane.label === "string" ? { label: pane.label } : {}),
-    ...(typeof pane.workspace_id === "string"
-      ? { workspace_id: pane.workspace_id }
-      : {}),
     ...(typeof pane.tab_id === "string" ? { tab_id: pane.tab_id } : {}),
     ...(typeof pane.cwd === "string" ? { cwd: pane.cwd } : {}),
     ...(typeof pane.agent === "string" ? { agent: pane.agent } : {}),
@@ -253,10 +274,35 @@ export function summarizePane(
   };
 }
 
-/** 布局探测（`create` 缺方向时按调用者 pane 的宽高自动选 right / down）。 */
-async function detectDirection(deps: DispatchDeps): Promise<"right" | "down"> {
+/** `tab list` 摘要（同样不暴露 workspace id）。 */
+export function summarizeTab(
+  tab: Record<string, unknown>,
+  isRegistered: (tabId: string) => boolean,
+): Record<string, unknown> {
+  const tabId = typeof tab.tab_id === "string" ? tab.tab_id : "";
+  return {
+    tab_id: tabId,
+    ...(typeof tab.label === "string" ? { label: tab.label } : {}),
+    ...(typeof tab.number === "number" ? { number: tab.number } : {}),
+    ...(typeof tab.pane_count === "number"
+      ? { pane_count: tab.pane_count }
+      : {}),
+    ...(typeof tab.agent_status === "string"
+      ? { agent_status: tab.agent_status }
+      : {}),
+    focused: tab.focused === true,
+    /** 本插件 `tab_create` 建出并登记的 tab（`tab_close` 只认这些）。 */
+    registered: tabId !== "" && isRegistered(tabId),
+  };
+}
+
+/** 布局探测（`create` 缺方向时按目标 pane 的宽高自动选 right / down）。 */
+async function detectDirection(
+  deps: DispatchDeps,
+  paneId: string,
+): Promise<"right" | "down"> {
   const result = await deps.runner.run(
-    ["pane", "layout", "--pane", deps.callerPaneId],
+    ["pane", "layout", "--pane", paneId],
     deps.config.timeoutMs,
   );
   const area = resultObject(
@@ -274,25 +320,95 @@ async function detectDirection(deps: DispatchDeps): Promise<"right" | "down"> {
   return width >= height ? "right" : "down";
 }
 
-/** `create`：切一个兄弟 pane（`--current` + `--no-focus` + 显式 cwd），成功后自动打 label。 */
+/** workspace 解析失败的统一出口（会话缺失 / workspace 不可用）。 */
+type WorkspaceReady =
+  | { ok: true; binding: WorkspaceBinding; session: SessionContext }
+  | { ok: false; result: ActionResult };
+
+/**
+ * 取本会话 workspace 绑定（首次使用时确保存在）。
+ * 会话缺失 → `session-unavailable`；确保失败 → `workspace-unavailable`。
+ */
+async function workspaceFor(
+  deps: DispatchDeps,
+  exec: unknown,
+  action: HerdrPaneAction,
+): Promise<WorkspaceReady> {
+  const resolve = deps.resolveSession ?? readSessionContext;
+  let session: SessionContext | undefined;
+  try {
+    session = resolve(exec);
+  } catch {
+    session = undefined;
+  }
+  if (session === undefined) {
+    return {
+      ok: false,
+      result: failure(
+        action,
+        "session-unavailable",
+        `${action} 需要 dsh 会话上下文才能定位本会话的 workspace（workspace 面不对模型暴露）`,
+        {
+          hint:
+            "工具链调用会带会话上下文；库面直调请把宿主 exec（含 agent.session）作为 dispatchAction 的第 4 个参数传入，" +
+            "或在 DispatchDeps 注入 resolveSession。",
+        },
+      ),
+    };
+  }
+  const ensured = await ensureWorkspace({
+    runner: deps.runner,
+    registry: deps.registry,
+    config: deps.config,
+    session,
+  });
+  if (!ensured.ok) {
+    return {
+      ok: false,
+      result: failure(action, ensured.code, ensured.message, {
+        ...(ensured.hint === undefined ? {} : { hint: ensured.hint }),
+      }),
+    };
+  }
+  return { ok: true, binding: ensured.binding, session };
+}
+
+/**
+ * `create`：切本会话 workspace 活动 pane 的兄弟 pane
+ * （`pane split <pane_id> --direction … --cwd <会话 cwd> --no-focus`），成功后自动打 label。
+ */
 async function createAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
+  exec: unknown,
 ): Promise<ActionResult> {
+  const ready = await workspaceFor(deps, exec, "create");
+  if (!ready.ok) return ready.result;
+  const target = await activePaneOf(
+    deps.runner,
+    deps.config,
+    ready.binding.workspaceId,
+  );
+  if (!target.ok) {
+    return failure("create", target.code, target.message, {
+      ...(target.hint === undefined ? {} : { hint: target.hint }),
+    });
+  }
   const requested = str(args, "direction");
   const direction =
     requested === "right" || requested === "down"
       ? requested
-      : await detectDirection(deps);
-  const cwd = str(args, "cwd");
+      : await detectDirection(deps, target.paneId);
+  const cwd = str(args, "cwd") ?? ready.session.cwd;
   const label = str(args, "label") ?? deps.config.label;
   const commandArgs = [
     "pane",
     "split",
-    "--current",
+    target.paneId,
     "--direction",
     direction,
-    ...(cwd === undefined ? [] : ["--cwd", cwd]),
+    "--cwd",
+    cwd,
     "--no-focus",
   ];
   const result = await deps.runner.run(commandArgs, deps.config.timeoutMs);
@@ -318,7 +434,8 @@ async function createAction(
   deps.registry.register({
     paneId,
     label,
-    ...(cwd === undefined ? {} : { cwd }),
+    cwd,
+    workspaceId: ready.binding.workspaceId,
   });
   // 创建成功后自动打一次 label（崩溃残留可被 list 与人工识别）；失败只记 note，不回滚创建
   const notes: string[] = [];
@@ -340,25 +457,21 @@ async function createAction(
       pane_id: paneId,
       direction,
       label,
-      ...(cwd === undefined ? {} : { cwd }),
+      cwd,
+      split_from: target.paneId,
       ...(typeof pane?.pane_id === "string" ? { created: true } : {}),
     },
     { paneId, ...(notes.length === 0 ? {} : { notes }) },
   );
 }
 
-/** `list`：列出 pane 摘要与本插件登记标记。 */
+/** `list`：列出 pane 摘要与本插件登记标记（可跨 workspace 观察，不带 workspace 面）。 */
 async function listAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
-  const workspace = str(args, "workspace");
-  const commandArgs = [
-    "pane",
-    "list",
-    ...(workspace === undefined ? [] : ["--workspace", workspace]),
-  ];
-  const result = await deps.runner.run(commandArgs, deps.config.timeoutMs);
+  void args;
+  const result = await deps.runner.run(["pane", "list"], deps.config.timeoutMs);
   const envelope = parseEnvelope(result.stdout, result.stderr);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
@@ -375,8 +488,200 @@ async function listAction(
   return success("list", {
     panes,
     registered: deps.registry.panes.map((record) => record.paneId),
-    ...(workspace === undefined ? {} : { workspace }),
   });
+}
+
+/**
+ * `tab_create`：在本会话 workspace 里建 tab
+ * （固定 `--workspace <绑定>` + `--cwd` + `--label` + `--no-focus`）。
+ * 成功后登记 tab 与它的 root pane；取不到 root pane 时仍登记 tab（可 `tab_close` 收尾）并报失败。
+ */
+async function tabCreateAction(
+  deps: DispatchDeps,
+  args: Record<string, unknown>,
+  exec: unknown,
+): Promise<ActionResult> {
+  const ready = await workspaceFor(deps, exec, "tab_create");
+  if (!ready.ok) return ready.result;
+  const cwd = str(args, "cwd") ?? ready.session.cwd;
+  const label = str(args, "label") ?? deps.config.label;
+  const result = await deps.runner.run(
+    [
+      "tab",
+      "create",
+      "--workspace",
+      ready.binding.workspaceId,
+      "--cwd",
+      cwd,
+      "--label",
+      label,
+      "--no-focus",
+    ],
+    deps.config.timeoutMs,
+  );
+  const envelope = parseEnvelope(result.stdout, result.stderr);
+  if (result.timedOut || envelope.kind !== "ok") {
+    return cliFailure(
+      "tab_create",
+      undefined,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
+  }
+  const tab = resultObject(envelope, "tab");
+  const tabId = typeof tab?.tab_id === "string" ? tab.tab_id : undefined;
+  if (tabId === undefined || tabId === "") {
+    return failure(
+      "tab_create",
+      "herdr-bad-response",
+      `tab create 成功但取不到 .result.tab.tab_id（原始响应：${result.stdout.slice(0, 200)}）`,
+    );
+  }
+  const root = resultObject(envelope, "root_pane");
+  const rootPaneId =
+    typeof root?.pane_id === "string" && root.pane_id !== ""
+      ? root.pane_id
+      : undefined;
+  deps.registry.registerTab({
+    tabId,
+    workspaceId: ready.binding.workspaceId,
+    label,
+    ...(rootPaneId === undefined ? {} : { rootPaneId }),
+  });
+  if (rootPaneId === undefined) {
+    return failure(
+      "tab_create",
+      "herdr-bad-response",
+      `tab create 成功但取不到 .result.root_pane.pane_id（tab ${tabId} 已登记，可用 tab_close 收尾）`,
+      {
+        hint: `用 tab_close 的 tab_id=${tabId} 关掉它；之后再用 tab_list 核对。`,
+      },
+    );
+  }
+  deps.registry.register({
+    paneId: rootPaneId,
+    label,
+    cwd,
+    workspaceId: ready.binding.workspaceId,
+  });
+  return success(
+    "tab_create",
+    {
+      tab_id: tabId,
+      pane_id: rootPaneId,
+      label,
+      cwd,
+      ...(typeof tab?.number === "number" ? { number: tab.number } : {}),
+    },
+    { paneId: rootPaneId },
+  );
+}
+
+/** `tab_list`：列本会话 workspace 的 tab 与本插件登记标记。 */
+async function tabListAction(
+  deps: DispatchDeps,
+  args: Record<string, unknown>,
+  exec: unknown,
+): Promise<ActionResult> {
+  void args;
+  const ready = await workspaceFor(deps, exec, "tab_list");
+  if (!ready.ok) return ready.result;
+  const result = await deps.runner.run(
+    ["tab", "list", "--workspace", ready.binding.workspaceId],
+    deps.config.timeoutMs,
+  );
+  const envelope = parseEnvelope(result.stdout, result.stderr);
+  if (result.timedOut || envelope.kind !== "ok") {
+    return cliFailure(
+      "tab_list",
+      undefined,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
+  }
+  const tabs = objectList(envelope.result.tabs).map((item) =>
+    summarizeTab(item, (id) => deps.registry.tab(id) !== undefined),
+  );
+  return success("tab_list", {
+    tabs,
+    registered: deps.registry.tabs.map((record) => record.tabId),
+  });
+}
+
+/** `tab_close`：只关本会话 workspace 里已登记的 tab（跨 workspace / 未登记一律拒）。 */
+async function tabCloseAction(
+  deps: DispatchDeps,
+  args: Record<string, unknown>,
+  exec: unknown,
+): Promise<ActionResult> {
+  void exec;
+  const tabId = str(args, "tab_id");
+  if (tabId === undefined) {
+    return failure("tab_close", "tab-required", "tab_close 需要 tab_id 参数");
+  }
+  if (deps.callerTabId !== undefined && tabId === deps.callerTabId) {
+    return failure(
+      "tab_close",
+      "invalid-params",
+      `tab_id 不能是调用者自己所在的 tab（${tabId}）：那是 dsh 自己的界面所在 tab`,
+      {
+        hint: "用 tab_list 选本插件登记的 tab；调用者 tab 只作护栏，正常情况下不会出现在可关列表里。",
+      },
+    );
+  }
+  const record: TabRecord | undefined = deps.registry.tab(tabId);
+  if (record === undefined) {
+    return failure(
+      "tab_close",
+      "tab-not-registered",
+      `tab ${tabId} 不是本插件用 tab_create 建出并登记的 tab，写类动作缺省不作用于它`,
+      {
+        hint:
+          "只关 tab_list 里 marked [本插件] 的 tab；dsh 重启后进程内登记表为空，" +
+          "此前建的 tab 需人工在 herdr 里关闭。",
+      },
+    );
+  }
+  const binding = deps.registry.workspaceBinding;
+  if (binding === undefined || record.workspaceId !== binding.workspaceId) {
+    return failure(
+      "tab_close",
+      "tab-not-registered",
+      crossWorkspaceDenialReason(tabId),
+    );
+  }
+  const result = await deps.runner.run(
+    tabCloseArgs(tabId),
+    deps.config.timeoutMs,
+  );
+  const envelope = parseEnvelope(result.stdout, result.stderr);
+  if (result.timedOut || envelope.kind !== "ok") {
+    return cliFailure(
+      "tab_close",
+      record.rootPaneId,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
+  }
+  deps.registry.unregisterTab(tabId);
+  if (record.rootPaneId !== undefined) {
+    deps.registry.unregister(record.rootPaneId);
+  }
+  return success(
+    "tab_close",
+    {
+      tab_id: tabId,
+      ...(record.rootPaneId === undefined
+        ? { pane_id: null }
+        : { pane_id: record.rootPaneId }),
+    },
+    {
+      ...(record.rootPaneId === undefined ? {} : { paneId: record.rootPaneId }),
+    },
+  );
 }
 
 /** `read`：走 socket（`revision` / `truncated` 是 socket 独有信息）。 */
@@ -703,6 +1008,9 @@ async function labelAction(
         paneId,
         label,
         ...(record.cwd === undefined ? {} : { cwd: record.cwd }),
+        ...(record.workspaceId === undefined
+          ? {}
+          : { workspaceId: record.workspaceId }),
       });
     }
   }
@@ -781,18 +1089,36 @@ async function closeAction(
   }
   const wasRegistered = deps.registry.has(paneId);
   deps.registry.unregister(paneId);
+  // 关掉的是某个已登记 tab 的 root pane 时，同步注销那条 tab 记录
+  const closedTab = deps.registry.unregisterTabByRootPane(paneId);
   return success(
     "close",
-    { pane_id: paneId, was_registered: wasRegistered },
+    {
+      pane_id: paneId,
+      was_registered: wasRegistered,
+      ...(closedTab === undefined ? {} : { tab_id: closedTab.tabId }),
+    },
     { paneId },
   );
 }
 
+/** 动作处理函数（`exec` 只在需要会话上下文的动作里用）。 */
+type ActionHandler = (
+  deps: DispatchDeps,
+  args: Record<string, unknown>,
+  exec: unknown,
+) => Promise<ActionResult>;
+
+/** 需要会话 workspace 的动作（派发时共用一把串行锁，避免并发建两个 workspace）。 */
+const WORKSPACE_ACTIONS: readonly HerdrPaneAction[] = [
+  "create",
+  "tab_create",
+  "tab_list",
+  "tab_close",
+];
+
 /** 动作分派表。 */
-const HANDLERS: Record<
-  HerdrPaneAction,
-  (deps: DispatchDeps, args: Record<string, unknown>) => Promise<ActionResult>
-> = {
+const HANDLERS: Record<HerdrPaneAction, ActionHandler> = {
   create: createAction,
   list: listAction,
   read: readAction,
@@ -803,7 +1129,13 @@ const HANDLERS: Record<
   label: labelAction,
   info: infoAction,
   close: closeAction,
+  tab_create: tabCreateAction,
+  tab_list: tabListAction,
+  tab_close: tabCloseAction,
 };
+
+/** workspace 类动作的共享串行队列键（不占用 pane id 命名空间）。 */
+const WORKSPACE_QUEUE_KEY = "\u0000workspace";
 
 /**
  * 派发一个动作（**唯一的执行入口**：工具面、真机验证脚本、库面消费者都走它）。
@@ -811,11 +1143,15 @@ const HANDLERS: Record<
  * 顺序固定：参数面判定（动作名 / pane 归属 / force）→ guard 复查 → 归属登记校验 → 执行。
  * 审批门（闸③）在宿主 `tools/pre-execute` 里、先于本函数触发；本函数再复核一次归属，
  * 是因为库面调用（不经宿主工具链）不该绕开归属限制。
+ *
+ * `exec` 是宿主工具执行上下文（`{ agent: { session } }`）；只在 `create` / `tab_*` 里用于
+ * 定位本会话 workspace。库面直调要么传它，要么在 `deps.resolveSession` 注入会话。
  */
 export async function dispatchAction(
   action: string,
   args: Record<string, unknown>,
   deps: DispatchDeps,
+  exec?: unknown,
 ): Promise<ActionResult> {
   if (!Object.hasOwn(HANDLERS, action)) {
     return failure(
@@ -872,10 +1208,15 @@ export async function dispatchAction(
   }
   const handler = HANDLERS[typedAction];
   if (paneId === undefined) {
-    return handler(deps, args);
+    const run = (): Promise<ActionResult> => handler(deps, args, exec);
+    if (WORKSPACE_ACTIONS.includes(typedAction)) {
+      // workspace 类动作共用一把锁：并发的 create / tab_create 不会各建一个 workspace
+      return deps.registry.serialize(WORKSPACE_QUEUE_KEY, run);
+    }
+    return run();
   }
   // 同 pane 串行化：同一 pane 上的建 / 发 / 关按提交顺序执行
-  return deps.registry.serialize(paneId, () => handler(deps, args));
+  return deps.registry.serialize(paneId, () => handler(deps, args, exec));
 }
 
 /** 归属被拒的放行方式（`close` 的 force 与通用写类分开写，避免暗示「设了 force 就能发输入」）。 */

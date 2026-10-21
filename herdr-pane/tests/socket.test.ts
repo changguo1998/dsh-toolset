@@ -11,6 +11,7 @@ import { test } from "node:test";
 
 import {
   createPaneReader,
+  defaultHerdrSocketPath,
   interpretReadResponse,
   nextRequestId,
   toSocketSource,
@@ -28,6 +29,19 @@ import {
 function readResponse(read: Record<string, unknown>): string {
   return JSON.stringify({ id: "x", result: { type: "pane_read", read } });
 }
+
+test("defaultHerdrSocketPath: 尊重 XDG_CONFIG_HOME，否则 ~/.config（与 herdr CLI 缺省一致）", () => {
+  assert.equal(
+    defaultHerdrSocketPath({ XDG_CONFIG_HOME: "/xdg" }),
+    "/xdg/herdr/herdr.sock",
+  );
+  assert.equal(
+    defaultHerdrSocketPath({ XDG_CONFIG_HOME: "" }),
+    `${process.env.HOME ?? ""}/.config/herdr/herdr.sock`,
+  );
+  // 空串按未设处理（回退 homedir）
+  assert.match(defaultHerdrSocketPath({}), /\.config\/herdr\/herdr\.sock$/);
+});
 
 test("toSocketSource: 连字符写法映射为下划线，其余不变", () => {
   assert.equal(toSocketSource("recent-unwrapped"), "recent_unwrapped");
