@@ -2433,8 +2433,9 @@ test("/help → 含「按键：」全局键表（冷门键与提示行不再列�
     frame.includes("本地命令："),
     "命令段标题仍在（新增段不改原有两段）",
   );
-  // 键表 17 行逐行对上：键列在左、描述列固定起点（HELP_MARGIN + 键列补白 + HELP_GAP ≥ 2 空格），
-  // 只断言「键 + 描述开头」在同一行，避免依赖描述整体是否折行
+  // 键表 17 行逐行对上：键列在左、描述列按该行 4 空格档位（HELP_MARGIN + 档位；
+  // 补白 1~4 空格，宽 3 / 7 的键只补 1 空格），故断言「至少 1 空格」而不是「≥ 2 空格」，
+  // 且只断言「键 + 描述开头」在同一行，避免依赖描述整体是否折行
   const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rows: [string, string][] = [
     ["↑/↓", "滚动一行"],
@@ -2457,7 +2458,7 @@ test("/help → 含「按键：」全局键表（冷门键与提示行不再列�
   ];
   for (const [key, desc] of rows) {
     assert.ok(
-      new RegExp(esc(key) + "\\s{2,}" + esc(desc)).test(frame),
+      new RegExp(esc(key) + "\\s+" + esc(desc)).test(frame),
       `键表行对不上：${key} / ${desc}`,
     );
   }
