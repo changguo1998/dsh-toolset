@@ -20,7 +20,7 @@ import { pathToFileURL } from "node:url";
 
 export const name = "session-title-cutoff";
 
-/** 硬依赖：标题服务 + LLM 服务（generateSessionTitleWithLlm 需要两者）。 */
+/** 硬依赖：标题服务 + LLM 服务（executeSessionTitleLlm 需要两者）。 */
 export const inject = ["sessionTitle", "llm"];
 
 /** 插件配置（缺省值见 `DEFAULT_CONFIG`；`provider`/`model` 须成对，缺省 = 复用会话已记录路由）。 */
@@ -136,24 +136,15 @@ export class CommitCutoffTracker {
 
 /** 宿主 ctx 的结构面（只声明用到的成员，不引宿主类型依赖）。 */
 interface SessionTitleLlmHelper {
-  SessionTitleLlmConfigFields?: unknown;
-  /** 两个年代都要求：执行控制的校验与冻结。 */
+  /** 只校验并冻结执行控制键（0.2.1 的 `CONFIG_KEYS` 口径）。 */
   resolveSessionTitleLlmConfig(config: Record<string, unknown>): unknown;
-  /** 0.2.1 起：execute 形态（prepared 由调用方组装，内部走 `ctx.llm.prepareCall`）。 */
-  executeSessionTitleLlm?(
+  /** 唯一生成路径：prepared 由调用方组装，内部走 `ctx.llm.prepareCall`。 */
+  executeSessionTitleLlm(
     ctx: unknown,
     config: unknown,
     request: unknown,
     titleProvider: unknown,
     prepared: TitlePrepared,
-  ): Promise<TitleResponse>;
-  /** 0.2.0 及之前：generate 形态（selectedMessages 由 helper 内部预备）。 */
-  generateSessionTitleWithLlm?(
-    ctx: unknown,
-    config: unknown,
-    request: unknown,
-    selectedMessages: readonly unknown[],
-    titleProvider: unknown,
   ): Promise<TitleResponse>;
 }
 
@@ -185,6 +176,8 @@ interface SessionTitleServiceLike {
 interface PluginContext {
   sessionTitle?: SessionTitleServiceLike;
   llm?: unknown;
+  /** 宿主 logger（注册前早退的诊断经它可见；不可用时回落 stderr）。 */
+  logger?: { warn?(message: string): unknown };
   on?: (
     event: string,
     listener: (session: { id?: unknown }, event: unknown) => void,
@@ -197,7 +190,17 @@ function fallbackRequire(): NodeJS.Require {
   return createRequire(join(dshHome, "profiles", "node_modules", "x.js"));
 }
 
-/** 运行时加载宿主同版官方 helper（解析失败 → undefined，调用方告警并降级）。 */
+/** helper 是否可用：只认 0.2.1 的 `execute` 形态（旧 `generate` 形态不再兼容）。 */
+export function isUsableTitleLlmHelper(
+  mod: Partial<SessionTitleLlmHelper> | undefined,
+): mod is SessionTitleLlmHelper {
+  return (
+    typeof mod?.resolveSessionTitleLlmConfig === "function" &&
+    typeof mod.executeSessionTitleLlm === "function"
+  );
+}
+
+/** 运行时加载宿主同版官方 helper（解析失败或形态不可用 → undefined，调用方告警并降级）。 */
 export async function loadTitleLlmHelper(): Promise<
   SessionTitleLlmHelper | undefined
 > {
@@ -208,22 +211,13 @@ export async function loadTitleLlmHelper(): Promise<
     const mod = (await import(
       pathToFileURL(entry).href
     )) as Partial<SessionTitleLlmHelper>;
-    // 0.2.1 起 helper 改 `execute` 形态；0.2.0 为 `generate` 形态。
-    // 两个时代各认一个可选面（升级过渡期兼容），都需 `resolveSessionTitleLlmConfig`。
-    if (
-      typeof mod.resolveSessionTitleLlmConfig !== "function" ||
-      (typeof mod.executeSessionTitleLlm !== "function" &&
-        typeof mod.generateSessionTitleWithLlm !== "function")
-    ) {
-      return undefined;
-    }
-    return mod as SessionTitleLlmHelper;
+    return isUsableTitleLlmHelper(mod) ? mod : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** 合并配置缺省（只透传 helper 白名单字段，见下方键列表；空串视为未配置）。 */
+/** 合并配置缺省（空串视为未配置；非白名单字段丢弃）。 */
 export function resolveConfig(config: Config = {}): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...DEFAULT_CONFIG };
   for (const key of [
@@ -239,6 +233,38 @@ export function resolveConfig(config: Config = {}): Record<string, unknown> {
     if (value !== undefined && value !== "") merged[key] = value;
   }
   return merged;
+}
+
+/** 0.2.1 helper 只接受的执行控制键（措辞两键由本包自用，见 `executionConfigOf`）。 */
+export const EXECUTION_CONFIG_KEYS = [
+  "maxInputBytes",
+  "maxOutputTokens",
+  "timeoutMs",
+  "provider",
+  "model",
+] as const;
+
+/**
+ * 从合并后的配置里挑出 helper 的执行控制键：措辞两键留在本包。
+ * 0.2.1 的 `resolveSessionTitleLlmConfig` 对键集合外的键直接抛，故不能整份透传。
+ */
+export function executionConfigOf(
+  resolved: Record<string, unknown>,
+): Record<string, unknown> {
+  const execution: Record<string, unknown> = {};
+  for (const key of EXECUTION_CONFIG_KEYS) {
+    const value = resolved[key];
+    if (value !== undefined) execution[key] = value;
+  }
+  return execution;
+}
+
+/** 校验标题措辞目标（正整数，与官方 `assertTarget` 同口径）。 */
+export function assertTitleTarget(name: string, value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`session-title-cutoff: ${name} must be a positive integer`);
+  }
+  return value;
 }
 
 /** 读会话事件（结构面；不可读 → 空数组）。用于重启后重建 cutoff。 */
@@ -384,25 +410,45 @@ export async function apply(
   config: Config = {},
   deps: ApplyDeps = {},
 ): Promise<void> {
+  const c = (ctx ?? {}) as PluginContext;
+  // 诊断出口：宿主 logger 在 TUI 下可见（stderr 会被 alt-screen 重绘覆盖）；logger 缺失才回落
   const warn = (message: string): void => {
+    try {
+      if (typeof c.logger?.warn === "function") {
+        c.logger.warn(`[session-title-cutoff] ${message}`);
+        return;
+      }
+    } catch {
+      // logger 自身失败：继续走 stderr
+    }
     process.stderr.write(`[session-title-cutoff] warn: ${message}\n`);
   };
-  const c = (ctx ?? {}) as PluginContext;
   const service = c.sessionTitle;
   if (service === undefined || typeof service.register !== "function") {
     warn("ctx.sessionTitle 不可用，标题窗口裁剪不会生效");
     return;
   }
   const helper = await (deps.loadHelper ?? loadTitleLlmHelper)();
-  if (helper === undefined) {
+  if (!isUsableTitleLlmHelper(helper)) {
     warn(
-      "未能加载宿主 @deepseek-ai/dsh-session-title-llm（约定路径 $DSH_HOME/profiles/node_modules）；不注册 provider",
+      "未能加载可用的宿主 @deepseek-ai/dsh-session-title-llm（需 executeSessionTitleLlm 形态；约定路径 $DSH_HOME/profiles/node_modules）；不注册 provider",
     );
     return;
   }
-  let resolved: unknown;
+  let execution: Record<string, unknown>;
+  let targetWords: number;
+  let targetCjkCharacters: number;
   try {
-    resolved = helper.resolveSessionTitleLlmConfig(resolveConfig(config));
+    // 0.2.1 口径：只把执行控制键交 helper，措辞两键本包自留并校验
+    const resolved = resolveConfig(config);
+    execution = helper.resolveSessionTitleLlmConfig(
+      executionConfigOf(resolved),
+    ) as Record<string, unknown>;
+    targetWords = assertTitleTarget("targetWords", resolved["targetWords"]);
+    targetCjkCharacters = assertTitleTarget(
+      "targetCjkCharacters",
+      resolved["targetCjkCharacters"],
+    );
   } catch (err) {
     warn(`标题 provider 配置非法：${String(err)}`);
     return;
@@ -439,47 +485,28 @@ export async function apply(
           if (cutoff !== undefined) tracker.note(sessionId, cutoff);
         }
         const selected = selectSinceCommit(messages, cutoff);
-        // 0.2.1 起 helper 为 execute 形态：prepared 由调用方组装（内部经 `ctx.llm.prepareCall`）。
-        // 0.2.0 为 generate 形态：selectedMessages 交给 helper 内部预备。两个面按存在与否分支。
-        if (typeof helper.executeSessionTitleLlm === "function") {
-          const resolvedConfig = resolved as {
-            targetWords?: number;
-            targetCjkCharacters?: number;
-            maxTitleBytes?: number;
-          };
-          const prepared: TitlePrepared = {
-            system: titleSystemPrompt({
-              targetWords: resolvedConfig.targetWords ?? 5,
-              targetCjkCharacters: resolvedConfig.targetCjkCharacters ?? 15,
-            }),
-            input: frameTitleMessages(selected as { seq: number }[]),
-            messageSeqs: (selected as { seq: number }[]).map(
-              (message) => message.seq,
-            ),
-            selectReasoningEffort,
-          };
-          const response = await helper.executeSessionTitleLlm(
-            ctx,
-            resolved,
-            request,
-            name,
-            prepared,
-          );
-          return {
-            title: titleFromResponse(
-              response,
-              resolvedConfig.maxTitleBytes ?? 120,
-            ),
-            messageSeqs: prepared.messageSeqs,
-            model: response.model,
-          };
-        }
-        // 0.2.0 分支：execute 缺面时才走 generate（加载守卫保证至少一个存在）
-        const generator = helper.generateSessionTitleWithLlm;
-        if (generator === undefined) {
-          throw new Error("title helper has no available generate function");
-        }
-        return await generator(ctx, resolved, request, selected, name); // 0.2.0 签名
+        // 唯一生成路径（0.2.1 execute 形态）：prepared 由调用方组装，内部经 `ctx.llm.prepareCall`。
+        const prepared: TitlePrepared = {
+          system: titleSystemPrompt({ targetWords, targetCjkCharacters }),
+          input: frameTitleMessages(selected as { seq: number }[]),
+          messageSeqs: (selected as { seq: number }[]).map(
+            (message) => message.seq,
+          ),
+          selectReasoningEffort,
+        };
+        const response = await helper.executeSessionTitleLlm(
+          ctx,
+          execution,
+          request,
+          name,
+          prepared,
+        );
+        return {
+          // 字节上限交给宿主 `maxTitleBytes` 统一裁剪（与官方 provider 同口径）
+          title: titleFromResponse(response, Number.MAX_SAFE_INTEGER),
+          messageSeqs: prepared.messageSeqs,
+          model: response.model,
+        };
       },
     });
   } catch (err) {

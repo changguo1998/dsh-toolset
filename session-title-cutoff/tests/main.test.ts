@@ -1,6 +1,7 @@
 /**
  * session-title-cutoff 单测：提交判定、窗口过滤与回退、记账（容量）、事件重建、
- * 配置合并与 apply 装配（假 ctx + 假 helper，不触宿主与真实 LLM）。
+ * 配置拆分与 apply 装配（假 ctx + 严格复刻 0.2.1 键面的假 helper，不触宿主与真实 LLM）；
+ * 另有一条用本机真实 helper 校验键面的契约测试（未安装时 skip）。
  */
 
 import assert from "node:assert/strict";
@@ -8,14 +9,18 @@ import { test } from "node:test";
 
 import {
   apply,
+  assertTitleTarget,
   commandOf,
   COMMIT_SEGMENT_RE,
   CommitCutoffTracker,
   DEFAULT_CONFIG,
+  executionConfigOf,
   frameTitleMessages,
   isCommitCall,
   isCommitCommand,
+  isUsableTitleLlmHelper,
   latestCommitSeq,
+  loadTitleLlmHelper,
   normalizeTitleText,
   resolveConfig,
   selectReasoningEffort,
@@ -25,18 +30,74 @@ import {
   type ApplyDeps,
 } from "../src/main.ts";
 
-/** 假 helper（0.2.1 execute 形态）：捕获 prepared 与 provider id，返回固定标题。 */
-function fakeHelper021() {
+/** 0.2.1 helper 接受的键集合（宿主 `CONFIG_KEYS`）。 */
+const HELPER_CONFIG_KEYS = new Set([
+  "maxInputBytes",
+  "maxOutputTokens",
+  "timeoutMs",
+  "provider",
+  "model",
+]);
+
+/**
+ * 严格复刻 0.2.1 `resolveSessionTitleLlmConfig` 的键面：未知键抛、正整数、
+ * `provider` / `model` 成对且非空、返回冻结对象。
+ * （宽松替身「接受任何键」正是本缺陷被 11 例全绿盖住的原因。）
+ */
+function strictResolveSessionTitleLlmConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  if (config === null || typeof config !== "object") {
+    throw new Error("session-title-llm: configuration is required");
+  }
+  for (const key of Object.keys(config)) {
+    if (!HELPER_CONFIG_KEYS.has(key)) {
+      throw new Error(`session-title-llm: unknown config key "${key}"`);
+    }
+  }
+  for (const key of [
+    "maxInputBytes",
+    "maxOutputTokens",
+    "timeoutMs",
+  ] as const) {
+    const value = config[key];
+    if (!Number.isInteger(value) || (value as number) <= 0) {
+      throw new Error(`session-title-llm: ${key} must be a positive integer`);
+    }
+  }
+  const hasProvider = config["provider"] !== undefined;
+  if (hasProvider !== (config["model"] !== undefined)) {
+    throw new Error(
+      "session-title-llm: provider and model must be supplied together",
+    );
+  }
+  if (
+    hasProvider &&
+    (typeof config["provider"] !== "string" ||
+      config["provider"] === "" ||
+      typeof config["model"] !== "string" ||
+      config["model"] === "")
+  ) {
+    throw new Error(
+      "session-title-llm: provider and model overrides must be non-empty strings",
+    );
+  }
+  return Object.freeze({ ...config });
+}
+
+/** 假 helper（0.2.1 execute 形态）：捕获 prepared、provider id 与执行控制配置。 */
+function fakeHelper021(title = "生成的标题") {
   const calls: Array<{
     prepared: { messageSeqs: readonly number[]; system: string; input: string };
     id: unknown;
+    config: Record<string, unknown>;
   }> = [];
   return {
     calls,
-    resolveSessionTitleLlmConfig: (config: Record<string, unknown>) => config,
+    resolveSessionTitleLlmConfig: strictResolveSessionTitleLlmConfig,
     executeSessionTitleLlm: async (
       _ctx: unknown,
-      _config: unknown,
+      config: Record<string, unknown>,
       _request: unknown,
       id: unknown,
       prepared: {
@@ -46,10 +107,10 @@ function fakeHelper021() {
         selectReasoningEffort: (m: unknown) => string | undefined;
       },
     ) => {
-      calls.push({ prepared, id });
+      calls.push({ prepared, id, config });
       void prepared.selectReasoningEffort;
       return {
-        blocks: [{ type: "text", text: "生成的标题" }],
+        blocks: [{ type: "text", text: title }],
         finish: { kind: "stop" },
         model: { reasoning: { efforts: [{ id: "high" }] } },
       };
@@ -57,32 +118,8 @@ function fakeHelper021() {
   };
 }
 
-/** 假 helper（0.2.0 generate 形态）：模拟旧 API 分支。 */
-function fakeHelper020() {
-  const calls: Array<{ selected: readonly { seq: number }[]; id: unknown }> =
-    [];
-  return {
-    calls,
-    resolveSessionTitleLlmConfig: (config: Record<string, unknown>) => config,
-    generateSessionTitleWithLlm: async (
-      _ctx: unknown,
-      _config: unknown,
-      _request: unknown,
-      selected: readonly { seq: number }[],
-      id: unknown,
-    ) => {
-      calls.push({ selected, id });
-      return {
-        blocks: [{ type: "text", text: selected.map((m) => m.seq).join(",") }],
-        finish: { kind: "stop" },
-        model: {},
-      };
-    },
-  };
-}
-
-/** 假 ctx：捕获注册的 provider 与 session/event 监听器。 */
-function fakeCtx() {
+/** 假 ctx：捕获注册的 provider、session/event 监听器与 logger 告警。 */
+function fakeCtx(options: { loggerThrows?: boolean } = {}) {
   let provider:
     | {
         id: string;
@@ -92,6 +129,7 @@ function fakeCtx() {
     | undefined;
   const listeners: Array<(session: { id?: unknown }, event: unknown) => void> =
     [];
+  const warnings: string[] = [];
   const ctx = {
     sessionTitle: {
       register: (p: typeof provider) => {
@@ -100,18 +138,22 @@ function fakeCtx() {
       },
     },
     llm: {},
+    logger: {
+      warn: (message: string) => {
+        if (options.loggerThrows === true) throw new Error("logger down");
+        warnings.push(message);
+      },
+    },
     on: (
       _event: string,
       listener: (session: unknown, event: unknown) => void,
     ) => void listeners.push(listener as never),
   };
-  return { ctx, listeners, providerOf: () => provider };
+  return { ctx, listeners, providerOf: () => provider, warnings };
 }
 
-const depsWith = (
-  helper: ReturnType<typeof fakeHelper021> | ReturnType<typeof fakeHelper020>,
-): ApplyDeps => ({
-  loadHelper: async () => helper,
+const depsWith = (helper: unknown): ApplyDeps => ({
+  loadHelper: async () => helper as never,
 });
 
 test("commandOf / isCommitCall：命令解析与提交判定", () => {
@@ -231,6 +273,84 @@ test("resolveConfig：合并缺省、忽略空串、丢弃非白名单字段", (
   assert.equal("model" in withEmpty, false);
 });
 
+test("executionConfigOf：恰好 5 个执行控制键；措辞键与路由缺省都不出现", () => {
+  const execution = executionConfigOf(
+    resolveConfig({
+      targetWords: 7,
+      targetCjkCharacters: 21,
+      provider: "tollgate",
+      model: "ds4f",
+    }),
+  );
+  assert.deepEqual(Object.keys(execution).sort(), [
+    "maxInputBytes",
+    "maxOutputTokens",
+    "model",
+    "provider",
+    "timeoutMs",
+  ]);
+  assert.equal(execution["maxInputBytes"], 32768);
+  assert.equal(execution["provider"], "tollgate");
+  assert.equal("targetWords" in execution, false, "措辞键不交给 helper");
+  assert.equal("targetCjkCharacters" in execution, false);
+
+  const noRoute = executionConfigOf(resolveConfig());
+  assert.deepEqual(Object.keys(noRoute).sort(), [
+    "maxInputBytes",
+    "maxOutputTokens",
+    "timeoutMs",
+  ]);
+  assert.equal(
+    "provider" in noRoute,
+    false,
+    "缺省不带路由（由会话已记录路由兜底）",
+  );
+});
+
+test("apply：严格 0.2.1 替身下注册成功；execute 收到的配置不含措辞键", async () => {
+  const helper = fakeHelper021("长".repeat(60));
+  const fake = fakeCtx();
+  await apply(
+    fake.ctx,
+    {
+      targetWords: 7,
+      targetCjkCharacters: 21,
+      provider: "tollgate",
+      model: "ds4f",
+    },
+    depsWith(helper),
+  );
+
+  const provider = fake.providerOf();
+  assert.ok(
+    provider,
+    "改前整份配置含 targetWords，严格替身会抛 unknown config key",
+  );
+  // 本地不再按 120 字节截断（决策 5）：超长标题原样返回，交给宿主 maxTitleBytes 裁剪
+  const result = await provider.generate({
+    session: { id: "s-long" },
+    messages: [{ seq: 1, text: "x" }],
+  });
+  assert.equal(Array.from(result.title).length, 60);
+  assert.match(
+    helper.calls[0]?.prepared.system ?? "",
+    /7 words in non-CJK languages or 21 CJK characters/,
+    "措辞目标由本包校验后拼进系统提示",
+  );
+  const config = helper.calls[0]?.config ?? {};
+  assert.deepEqual(Object.keys(config).sort(), [
+    "maxInputBytes",
+    "maxOutputTokens",
+    "model",
+    "provider",
+    "timeoutMs",
+  ]);
+  assert.equal("targetWords" in config, false);
+  assert.equal("targetCjkCharacters" in config, false);
+  assert.ok(Object.isFrozen(config), "helper 返回已冻结的配置对象");
+  assert.equal(fake.warnings.length, 0, "成功路径无告警");
+});
+
 test("apply：注册 all-prompts provider；有提交时窗口只含其后的消息（0.2.1 execute 形态）", async () => {
   const helper = fakeHelper021();
   const fake = fakeCtx();
@@ -285,25 +405,23 @@ test("apply：注册 all-prompts provider；有提交时窗口只含其后的消
   );
 });
 
-test("apply：0.2.0 旧 helper（generate 形态）走兼容分支", async () => {
-  const helper = fakeHelper020();
+test("apply：只提供旧 generate 形态的 helper 视为不可用（告警、不注册）", async () => {
+  const legacy = {
+    resolveSessionTitleLlmConfig: strictResolveSessionTitleLlmConfig,
+    generateSessionTitleWithLlm: async () => ({
+      blocks: [{ type: "text", text: "0.2.0" }],
+      finish: { kind: "stop" },
+      model: {},
+    }),
+  };
   const fake = fakeCtx();
-  await apply(fake.ctx, {}, depsWith(helper));
-  const provider = fake.providerOf();
-  assert.ok(provider);
-  await provider.generate({
-    session: { id: "s-legacy" },
-    messages: [
-      { seq: 1, text: "a" },
-      { seq: 2, text: "b" },
-    ],
-  });
-  assert.deepEqual(
-    helper.calls[0]?.selected.map((m) => m.seq),
-    [1, 2],
-    "旧形态把 selected 交给 helper",
-  );
-  assert.equal(helper.calls[0]?.id, "session-title-cutoff");
+  await apply(fake.ctx, {}, depsWith(legacy));
+  assert.equal(fake.providerOf(), undefined, "不回落旧分支");
+  assert.match(fake.warnings.join("\n"), /executeSessionTitleLlm/);
+
+  assert.equal(isUsableTitleLlmHelper(legacy as never), false);
+  assert.equal(isUsableTitleLlmHelper(undefined), false);
+  assert.equal(isUsableTitleLlmHelper({} as never), false);
 });
 
 test("apply：sessionQuery 重建 cutoff（重启场景）与失败降级", async () => {
@@ -353,7 +471,13 @@ test("apply：helper 缺失 / 服务缺失 / 配置非法时告警且不抛", as
   const fake = fakeCtx();
   await apply(fake.ctx, {}, { loadHelper: async () => undefined });
   assert.equal(fake.providerOf(), undefined, "helper 缺失 → 不注册");
+  assert.match(
+    fake.warnings.join("\n"),
+    /未能加载可用的宿主.*executeSessionTitleLlm.*不注册 provider/,
+    "告警走 ctx.logger（TUI 下 stderr 会被重绘覆盖）",
+  );
 
+  const serviceMissing = fakeCtx();
   await apply({}, {}, depsWith(fakeHelper021())); // 无 sessionTitle → 直接返回
 
   const badConfigHelper = {
@@ -372,6 +496,102 @@ test("apply：helper 缺失 / 服务缺失 / 配置非法时告警且不抛", as
     { loadHelper: async () => badConfigHelper as never },
   );
   assert.equal(fake2.providerOf(), undefined, "配置非法 → 不注册");
+  assert.match(fake2.warnings.join("\n"), /配置非法.*bad config/);
+  assert.equal(serviceMissing.providerOf(), undefined);
+});
+
+test("apply：措辞目标非法（0 / 非整数 / NaN）→ 告警且不注册", async () => {
+  const cases: Array<{ config: Record<string, unknown>; key: string }> = [
+    { config: { targetWords: 0 }, key: "targetWords" },
+    { config: { targetWords: 1.5 }, key: "targetWords" },
+    { config: { targetCjkCharacters: 0 }, key: "targetCjkCharacters" },
+    { config: { targetCjkCharacters: Number.NaN }, key: "targetCjkCharacters" },
+  ];
+  for (const { config, key } of cases) {
+    const fake = fakeCtx();
+    await apply(fake.ctx, config as never, depsWith(fakeHelper021()));
+    assert.equal(fake.providerOf(), undefined, `${key} 非法 → 不注册`);
+    assert.match(
+      fake.warnings.join("\n"),
+      new RegExp(`${key} must be a positive integer`),
+    );
+  }
+  assert.throws(
+    () => assertTitleTarget("targetWords", 0),
+    /must be a positive integer/,
+  );
+  assert.throws(
+    () => assertTitleTarget("targetCjkCharacters", 2.5),
+    /must be a positive integer/,
+  );
+  assert.equal(assertTitleTarget("targetWords", 5), 5);
+});
+
+test("apply：logger.warn 抛错时回落 stderr（诊断不丢）", async () => {
+  const fake = fakeCtx({ loggerThrows: true });
+  const original = process.stderr.write;
+  const chunks: string[] = [];
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    await apply(fake.ctx, {}, { loadHelper: async () => undefined });
+  } finally {
+    process.stderr.write = original;
+  }
+  assert.equal(fake.providerOf(), undefined);
+  assert.match(
+    chunks.join(""),
+    /\[session-title-cutoff\] warn: 未能加载可用的宿主/,
+  );
+});
+
+test("真实 helper 契约：executionConfigOf 的输出通过本机 0.2.1 键面校验（未安装 skip）", async (t) => {
+  const helper = await loadTitleLlmHelper();
+  if (helper === undefined) {
+    t.skip(
+      "本机未安装可用的 @deepseek-ai/dsh-session-title-llm（execute 形态）",
+    );
+    return;
+  }
+  const execution = executionConfigOf(
+    resolveConfig({
+      targetWords: 5,
+      targetCjkCharacters: 15,
+      maxInputBytes: 32768,
+      maxOutputTokens: 512,
+      timeoutMs: 60000,
+      provider: "tollgate",
+      model: "ds4f",
+    }),
+  );
+  const resolved = helper.resolveSessionTitleLlmConfig(execution) as Record<
+    string,
+    unknown
+  >;
+  assert.deepEqual(Object.keys(resolved).sort(), [
+    "maxInputBytes",
+    "maxOutputTokens",
+    "model",
+    "provider",
+    "timeoutMs",
+  ]);
+  assert.ok(Object.isFrozen(resolved), "真实 helper 返回冻结对象");
+
+  // 钉住原缺陷：整份 resolveConfig 含措辞键 → 抛 unknown config key
+  assert.throws(
+    () => helper.resolveSessionTitleLlmConfig(resolveConfig()),
+    /unknown config key "targetWords"/,
+  );
+  assert.throws(
+    () => helper.resolveSessionTitleLlmConfig({ ...execution, targetWords: 5 }),
+    /unknown config key "targetWords"/,
+  );
+  assert.throws(
+    () => helper.resolveSessionTitleLlmConfig({ maxInputBytes: 32768 }),
+    /maxOutputTokens must be a positive integer/,
+  );
 });
 
 test("titleSystemPrompt / frameTitleMessages / selectReasoningEffort：0.2.1 prepared 组装原件", () => {
