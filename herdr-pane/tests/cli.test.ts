@@ -211,6 +211,29 @@ test("parseEnvelope: stdout 成功信封 / stderr 错误信封 / 纯文本 unpar
   );
 });
 
+test("parseEnvelope: exit 0 且两侧皆空归一为成功空 result；非零退出 / 未知退出码仍 unparsed", () => {
+  // 实测 pane send-text / send-keys / run 成功时不写任何回执（stdout 与 stderr 都空）
+  assert.deepEqual(parseEnvelope("", "", 0), { kind: "ok", result: {} });
+  assert.deepEqual(parseEnvelope(" \n\t", "", 0), { kind: "ok", result: {} });
+  // 非零退出：空输出仍是失败（保持原语义）
+  assert.equal(parseEnvelope("", "", 1).kind, "unparsed");
+  assert.equal(parseEnvelope("", "", 2).kind, "unparsed");
+  // 不知道退出码（socket 读通道）时不猜成功
+  assert.equal(parseEnvelope("", "").kind, "unparsed");
+  // 有输出但不是信封：不因 exit 0 而放行（由调用方按原文报错）
+  assert.equal(parseEnvelope("warn: something", "", 0).kind, "unparsed");
+  // 有 JSON 信封时行为不变
+  assert.deepEqual(parseEnvelope('{"id":"x","result":{"type":"ok"}}', "", 0), {
+    kind: "ok",
+    result: { type: "ok" },
+  });
+  // 错误信封优先，即使 exit 0
+  assert.equal(
+    parseEnvelope("", '{"error":{"code":"x","message":"m"}}', 0).kind,
+    "error",
+  );
+});
+
 test("parseEnvelope: 带前后噪声仍能取第一个 JSON 对象", () => {
   const envelope = parseEnvelope(
     'warn: something\n{"id":"x","result":{"type":"pane_list"}}\ntrailing',

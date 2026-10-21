@@ -206,7 +206,11 @@ function listWorkspacePanesSync(
 ): Record<string, unknown>[] | undefined {
   const result = run(["pane", "list", "--workspace", workspaceId], timeoutMs);
   if (result.error !== undefined || result.status !== 0) return undefined;
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(
+    result.stdout,
+    result.stderr,
+    result.status ?? undefined,
+  );
   if (envelope.kind !== "ok") return undefined;
   const panes = envelope.result.panes;
   if (!Array.isArray(panes)) return undefined;

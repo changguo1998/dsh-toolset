@@ -794,6 +794,65 @@ test("send_text / send_keys / run: argv 逐项直通（参数数组、不过 she
   assert.deepEqual(runner.calls[2], ["pane", "run", "wT1:p2", "python3 -i"]);
 });
 
+test("send_text / send_keys / run: exit 0 且 stdout / stderr 皆空按成功（真机不写回执）", async () => {
+  const silentOk = (): {
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    timedOut: boolean;
+  } => ({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+  const runner = fakeRunner(silentOk);
+  const { deps: d } = deps({ runner, registered: ["wT1:p2"] });
+
+  const sent = await dispatchAction(
+    "send_text",
+    { pane_id: "wT1:p2", text: "abc" },
+    d,
+  );
+  assert.equal(sent.ok, true);
+  assert.deepEqual(sent.ok ? sent.payload : {}, {
+    pane_id: "wT1:p2",
+    chars: 3,
+  });
+
+  const keys = await dispatchAction(
+    "send_keys",
+    { pane_id: "wT1:p2", keys: ["ctrl+c"] },
+    d,
+  );
+  assert.equal(keys.ok, true);
+  assert.deepEqual(keys.ok ? keys.payload : {}, {
+    pane_id: "wT1:p2",
+    keys: ["ctrl+c"],
+  });
+
+  const ran = await dispatchAction(
+    "run",
+    { pane_id: "wT1:p2", command: "echo hi" },
+    d,
+  );
+  assert.equal(ran.ok, true);
+  assert.deepEqual(ran.ok ? ran.payload : {}, {
+    pane_id: "wT1:p2",
+    command: "echo hi",
+  });
+
+  // 非零退出 + 空输出仍是失败（不能把静默失败当成功）
+  const failedRunner = fakeRunner(() => ({
+    stdout: "",
+    stderr: "",
+    exitCode: 1,
+    timedOut: false,
+  }));
+  const failed = await dispatchAction(
+    "run",
+    { pane_id: "wT1:p2", command: "echo hi" },
+    deps({ runner: failedRunner, registered: ["wT1:p2"] }).deps,
+  );
+  assert.equal(failed.ok, false);
+  assert.equal(failed.ok === false && failed.error.code, "herdr-cli-error");
+});
+
 test("send_text: 交入参校验（text 为空串按未给）", async () => {
   const { deps: d, runner } = deps({ registered: ["wT1:p2"] });
   const result = await dispatchAction(

@@ -65,7 +65,7 @@ function expect(condition, message) {
 /** 直接调 herdr CLI（只读核对；不走插件动作面，避免用被测代码验自己）。 */
 async function herdr(deps, argv) {
   const result = await deps.runner.run(argv, deps.config.timeoutMs);
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (envelope.kind !== "ok") {
     throw new Error(
       `herdr ${argv.join(" ")} 失败：${JSON.stringify(envelope)}`,
