@@ -41,9 +41,21 @@ test("指纹表：同会话命中 / 跨会话隔离 / 未记过不命中", () =>
 test("指纹表：重复批准幂等（条目数与首次时间不变）", () => {
   const store = new FingerprintStore(8);
   const hash = fingerprintOf("bash", { command: "ls" });
-  store.approve("s1", hash, "bash", new Date("2026-01-01T00:00:00Z"));
+  store.approve(
+    "s1",
+    hash,
+    "bash",
+    "decision",
+    new Date("2026-01-01T00:00:00Z"),
+  );
   const before = store.list("s1")[0];
-  store.approve("s1", hash, "bash", new Date("2026-02-01T00:00:00Z"));
+  store.approve(
+    "s1",
+    hash,
+    "bash",
+    "decision",
+    new Date("2026-02-01T00:00:00Z"),
+  );
   assert.equal(store.size("s1"), 1);
   assert.equal(store.list("s1")[0]?.approvedAt, before?.approvedAt);
 });

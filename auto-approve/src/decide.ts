@@ -13,6 +13,12 @@
 import type { ResolvedConfig } from "./config.ts";
 import { reviewActive } from "./config.ts";
 import { FingerprintStore, fingerprintOf } from "./fingerprint.ts";
+import {
+  commandOfCall,
+  formOfCommand,
+  type FormStore,
+  type LearnHooks,
+} from "./learn.ts";
 import type { AuditWriter } from "./audit.ts";
 import {
   applyReviewDecision,
@@ -56,6 +62,10 @@ export interface DecisionContext {
   fingerprints: FingerprintStore;
   audit: AuditWriter;
   reviewer?: Reviewer;
+  /** 学来的段形态集合（缺省 = 形态层不生效）。 */
+  forms?: FormStore;
+  /** 学习层钩子（自记裁定 / 首用回填）；缺省 = 不参与学习。 */
+  learn?: LearnHooks;
   warn: (message: string) => void;
 }
 
@@ -121,6 +131,8 @@ export function decideDeterministic(
       fingerprintHash: hash,
     };
   }
+  const form = coverageOf(ctx, input, hash);
+  if (form !== undefined) return form;
   const hit =
     checkReadonly(config, call.name) ??
     checkPathAllow(config, call) ??
@@ -134,6 +146,40 @@ export function decideDeterministic(
     };
   }
   return undefined;
+}
+
+/**
+ * 形态覆盖层（学习层 A / B）：每一段形态都在本会话表里 → `allowed-once`。
+ *
+ * 只对命令类工具生效；空命令 / 引号不配对 / 段数 0 → 不命中（不猜）。命中记
+ * `ruleId: fingerprint:form`、`source: fingerprint`（审计词汇不变），并顺手记原文指纹
+ * ——下一次完全相同的调用走更窄的精确层。
+ */
+function coverageOf(
+  ctx: DecisionContext,
+  input: DecisionInput,
+  hash: string,
+): DecisionResult | undefined {
+  const { config, forms } = ctx;
+  if (!config.learnFromManual || forms === undefined) return undefined;
+  const sessionId = input.call.sessionId;
+  if (sessionId === undefined) return undefined;
+  const command = commandOfCall(input.call);
+  if (command === undefined) return undefined;
+  const segments = formOfCommand(command);
+  if (segments === undefined) return undefined;
+  // 首用本会话的学习层：异步回填（一次性、失败降级空集），不阻塞本次判定
+  ctx.learn?.ensureRehydrated(sessionId);
+  const target = escalationTargetOf(input);
+  if (!forms.covers(sessionId, segments, target)) return undefined;
+  return {
+    decision: {
+      outcome: "allowed-once",
+      source: "fingerprint",
+      ruleId: "fingerprint:form",
+    },
+    fingerprintHash: hash,
+  };
 }
 
 /** 完整判定（含 LLM 灰区与失败兜底）。 */
@@ -244,7 +290,9 @@ export function recordApproval(
       input.call.arguments,
       escalationTargetOf(input),
     );
-  ctx.fingerprints.approve(sessionId, hash, input.call.name);
+  ctx.fingerprints.approve(sessionId, hash, input.call.name, "decision");
+  // 自记「这次是本插件裁的」：decided 事件不带 decider，学习层靠它排除自己的裁定
+  ctx.learn?.noteSelfDecision(input.call.callId);
 }
 
 /** 审计行（判定层组装；写入器只负责落盘）。 */

@@ -6,6 +6,10 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 首期即含 **LLM 灰区审查**：名单是前置刀口（人类写下的权威规则，模型不得推翻），
 名单覆盖不到的灰区才交给模型判断。
 
+同会话内还会**从人工面板放行里学习**：人工放行过的命令按 shell 词法拆段、抹掉易变值后记成
+「段形态集合」，后续同形不同值的调用自动放行（形态层，先经一次 LLM 准入审阅；见下文
+「人工放行学习」）。
+
 > **自动放行不等于沙箱放行**：本插件只回答「是否免去人工应答」；沙箱围栏仍由 `sandboxPolicy`
 > 承担，自动放行后的命令继续在既有沙箱模式下执行。
 
@@ -24,6 +28,7 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 | 0.5 | 判据要求看参数而参数取不到 | 不裁定 | 落人工面板，不猜（`deny.missingArguments` 可收紧为拒绝） |
 | 1 | 显式拒绝名单（`deny.tools` / `deny.escalation.to`） | `rejected` | 缺省全空；**只表达「不自动批」**；优先于一切放行与 LLM |
 | 2 | 同会话指纹（已批准过的等价调用） | `allowed-once` | 仅单会话内有效；被拒绝过的等价调用不进放行集 |
+| 2.5 | 人工放行学来的形态覆盖（`learnFromManual`） | `allowed-once` | 只对命令类工具；**每一段**形态都在本会话表里才命中；`ruleId: fingerprint:form` |
 | 3 | 只读类工具（`readonlyTools`） | `allowed-once` | 缺省含官方读工具与本仓读面插件工具；**不含 `bash`** |
 | 4 | 路径白名单（`allow.paths`） | `allowed-once` | 归一化后匹配（展开 `~` / `$HOME`、相对路径按会话 cwd） |
 | 5 | 命令白名单（`allow.commands`） | `allowed-once` | 命令原文折叠空白后匹配 |
@@ -46,6 +51,15 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
     # gateTools: [bash, write]  # 非空即只审这些工具
     fingerprintCapacity: 256 # 单会话指纹表容量（近似 LRU）
     callTableCapacity: 256   # callId → 参数 表容量
+    learnFromManual: true    # 从人工面板放行学习（false 即整条学习路径与形态层都关闭）
+    learnGeneralize: on      # on（缺省，B 层最小泛化）| off（只保留逐段精确形态）
+    learnReview:             # 学习结果先经 LLM 准入审阅（失败即不学）
+      enabled: true
+      onFailure: skip        # 目前只有 skip（不入表，fail-closed）
+    formCapacity: 256        # 单会话形态表容量（近似 LRU）
+    selfDecidedCapacity: 512 # 「本插件自己裁过」自记集合容量
+    selfDecidedTtlMs: 300000 # 自记保留窗口（毫秒）
+    learnRehydrate: true     # 重启后首用某会话时回读历史回填形态
     allow:
       paths:
         read: ['^/var/log/']
@@ -91,6 +105,34 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 **且**请求的目标模式在 `to` 内 → 放行；否则落面板。`justification` **不参与判定**（模型自陈理由，
 可被话术诱导）。一次放行只对当次调用有效；想避免反复弹面板就配合指纹记忆（同命令 + 同目标模式）。
 
+### 人工放行学习（形态层）
+
+把「用户在审批面板放行」也记进本会话的放行面，让同会话内**等价**调用不再弹面板。跨会话不生效，
+拒绝不入表，与既有层级的优先级关系不变（精确指纹 > 形态覆盖 > 只读类 / 白名单 / 升级 / LLM）。
+
+- **入口**：订阅 `session/event` 里的 `approval/asked`（建配对表）→ `approval/decided`（收尾）→
+  `tool/result`（按 `toolCallId` 记「执行成功」）。`decided` 为 `allowed-once` 且**不是本插件裁的**
+  才算人工放行：本插件应答时自记 `callId`（容量 + TTL），命中即跳过。
+- **等价判定**：命令先按 `security-guard` 的切段口径拆（`;` `|` `&` 换行切，引号内不切），再按词法
+  切 token（`-m"b"` 与 `-m "b"` 同形），然后固定抹值：引号串 → `<msg>`、长十六进制（≥ 16 位）→
+  `<hex>`、纯数字 → `<n>`；**不抹**路径 / 分支名 / URL / 选项名。一次调用**每一段**都在本会话
+  形态表里才放行（顺序无关；缺一段不命中）。
+- **A 层（基线）**：人工放行的每段形态入表即生效；**不看执行结果**（首次学习照常）。
+- **B 层（增量最小泛化，`learnGeneralize: off` 可关）**：同一段**第二次成功观测**且仅值位不同时，
+  把变化位升级为 `<v>`（如 `git push origin main` + `git push origin dev` → `git push origin <v>`）。
+  段首命令词与子命令永不通配；单段变位 ≤ 2；路径 / 选项 / URL 不作值位；执行失败或拿不到
+  `tool/result` 的调用不推进 B（失败只挡泛化，不挡首次学习）。
+- **准入审阅**：候选（工具名 / 段形态 / 原文 / cwd / 人工放行理由 / 升级目标）交给 LLM 判
+  `{allow, risk, reason}`，`allow` 且 `risk ≤ review.maxRiskAllow` 才入表；2 s 窗口内的多条候选
+  合并成**一次**请求，结果按条落地。超时 / 抛错 / JSON 非法 / 审阅器不可用 → 不学（fail-closed）。
+  `learnReview.enabled: false` 时跳过审阅直接入表。审阅只做准入，**不参与运行时裁定**。
+- **回填**：重启后首用某会话的形态层时，经 `sessionQuery.readSession()` 回读该会话的
+  `approval/asked` / `approval/decided` / `tool/call` / `tool/result`，用本会话审计文件的 `callId`
+  集合排除本插件自己的裁定，只计成功执行，逐条过审阅重建形态集；一次性、单次最多 20 条，
+  数据源缺失或读失败 → 空集（不抛）。
+- **范围**：形态只对命令类工具（`bash` / `pwsh` / `shell`）生效，非命令工具仍只走精确参数指纹；
+  学到的形态绑定当次的沙箱升级目标模式（升级放行只覆盖同目标的后续升级请求）。
+
 ### LLM 灰区审查
 
 - **请求形态**：固定策略段 + 四段数据 —— `ENVIRONMENT`（只有 cwd）/ `PROJECT_INSTRUCTIONS`（带来源）/
@@ -123,14 +165,21 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 | 子命令 | 作用 |
 | --- | --- |
 | `/autoapprove`（无参数） | 等价 `status` |
-| `status` | 模式 / 名单条目数 / 指纹数（全部会话）/ LLM 路由 / 审计两处状态与行数 |
+| `status` | 模式 / 名单条目数 / 指纹数（全部会话）/ 学习开关与形态数 / LLM 路由 / 审计两处状态与行数 |
 | `mode <rules\|rules+llm\|all\|off>` | 切当前进程的运行态模式 |
 | `on` / `off` | 即时开关（`off` 后未命中请求立刻回到审批面板） |
 | `log [n]` | 最近 n 条自动裁定（缺省 10）：时间 / 工具 / 结果 / 来源 / 规则 id；**不含命令原文** |
 | `clear-fingerprints` | 清空本进程的会话指纹，同类调用重新判定 |
+| `learn`（无参数） | 等价 `learn list` |
+| `learn off` / `learn on` | 只切学习：关闭后人工放行不再入表（**已有形态仍生效**），恢复后照常学 |
+| `learn list` | 本会话学来的形态（形态 id 前缀 / 段形态 / 工具 / `source` / 升级目标）；取不到会话时列全部 |
+| `learn undo <hash>` | 撤一条形态（完整 id 或列表里的 8 位前缀） |
+| `learn clear` | 清空本会话的形态表（取不到会话时清全部） |
 
 命令只改**当前进程**的运行态（重启回落配置），不写会话事件、不改 profile 文件；
-只读查询面另经服务 `autoApprove`（`status()` / `recent(n)` / `fingerprints()` / `setMode(mode)`）暴露。
+只读查询面另经服务 `autoApprove`（`status()` / `recent(n)` / `fingerprints()` / `forms(sessionId?)` /
+`setMode(mode)`）暴露。`/autoapprove learn` 的写操作**不动**运行时裁定与精确指纹表（`learn clear`
+只清形态；精确指纹用 `clear-fingerprints`）。
 
 ## 与既有件的关系
 
@@ -151,11 +200,19 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
   推导目录（不在 `inject` 里，经 `readService` 受保护读取）；未挂载、会话目录不可得或 `sessionDirFor` 抛错 → 会话那份审计不可得 → **退回人工面板并警告**（见上表）。
 - `memory-base`（**可选**）：项目那份经 `registerKind({kind: "approval_audit", writableTiers: ["project"]})`
   取句柄写入；取不到即跳过（只计数）。
+- `sessionQuery`（**可选**，仅学习回填用）：经 `ctx.get("sessionQuery").readSession(sessionId)` 回读
+  会话事件；未挂载 / 读失败 → 回填按空集处理，不影响裁定与学习入口。
 - 与 `security-guard` **无接口**；`llm` / `commands` / `sessions` / `agents` 均为可选读取。
 
 ## 边界与已知限制
 
 - 指纹只在**单会话内**有效（与宿主「一次性授权」语义一致），不做跨会话持久授权。
+- 形态层同样只在本会话内生效，且比精确指纹**宽**：人工放行一次等于认可「这一类命令形态」
+  （值位不同的后续调用也免问）。这是它省下重复询问的代价；用 `learn off` / `learn clear` 收紧，
+  危险命令仍由 `security-guard` 在守卫层否决（本包仍**不调用** `guard`）。
+- 形态按会话共享（不分 shell 工具）：`bash` 与 `pwsh` 在同一会话共用一张表；抹值与匹配都是
+  token 级精确比对，跨语言误命中只可能来自完全同形的命令。
+- 拿不到 `callId` / 参数原文、引号不配对、空命令的调用**学不了也命不中**（不猜）。
 - `mode: all` 会放行一切未命中拒绝名单的调用（含灰区），仅建议封闭环境使用。
 - 会话那份审计不可用时**整条自动裁定停用**（决策 5 第 4 条：绝不静默放行）——这是有意的降级。
 - 不做 TUI 审批面板改造、不新增 `ApprovalPolicy` 取值、不新增会话事件词汇。
@@ -174,7 +231,8 @@ node scripts/inspect-session.mjs --file <session.v4.jsonl[.zstd]>
 ```
 
 口径：宿主 `approval/asked` 与 `approval/decided` 按事件 id 配对；本包审计行按 `callId` 关联，
-命中即标「自动」并给 `source` / `ruleId`，未命中标「人工面板」。多帧 zstd 用 `zstd -dc` 解
+命中即标「自动」并给 `source` / `ruleId`（形态层命中为 `source=fingerprint` +
+`ruleId=fingerprint:form`；人工学来的形态也在这里体现），未命中标「人工面板」。多帧 zstd 用 `zstd -dc` 解
 （Node 内置 zstd 只解首帧，缺 CLI 时会提示）。审计行比审批对多 = 该次裁定没走到宿主审批链
 （如 `never` 策略短路）。
 
@@ -188,7 +246,10 @@ npm --prefix auto-approve run build
 
 单测覆盖：裁定矩阵（含优先级与缺参数降级）、指纹（容量 / 会话隔离 / 拒绝不入集）、升级白名单两维
 （含 `justification` 不参与）、LLM 决策矩阵与失败兜底、名单优先于模型（零请求）、审计双落点与
-16 MiB 截断、命令面全部子命令、契约与三处接线、R3 反向验证（代码里没有 guard 调用）。
+16 MiB 截断、命令面全部子命令、契约与三处接线、R3 反向验证（代码里没有 guard 调用）；
+学习层另有 34 例（`tests/learn.test.ts` + `tests/config.test.ts`）：切段 / 切 token / 抹值、段覆盖、
+A / B 两层、审阅与合并窗口、回填与截断、自记集合容量与 TTL、`learn` 命令面、形态层与精确层的优先级、
+学习配置键的缺省与非法回落。
 
 ## 文档
 

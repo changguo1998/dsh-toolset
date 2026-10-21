@@ -47,6 +47,8 @@ function stubService(): AutoApproveService & { modes: AutoApproveMode[] } {
       denyRules: 1,
       upgradeRules: 3,
       fingerprints: 4,
+      forms: 3,
+      learnEnabled: true,
       audit: {
         sessionWritable: true,
         sessionFilePath: "/sessions/s1/auto-approve-audit.jsonl",
@@ -58,6 +60,7 @@ function stubService(): AutoApproveService & { modes: AutoApproveMode[] } {
     }),
     recent: (n = 10) => [line({ callId: "c2" }), line()].slice(0, n),
     fingerprints: () => [],
+    forms: () => [],
     setMode: (value: AutoApproveMode) => {
       mode = value;
       modes.push(value);
@@ -82,6 +85,7 @@ test("status：反映模式 / 名单 / 指纹 / LLM 路由 / 审计两处", () =
   assert.match(text, /LLM 审查: 关闭/);
   assert.match(text, /只读类 9 · 白名单 2 · 拒绝名单 1 · 升级白名单 3/);
   assert.match(text, /本会话指纹: 4/);
+  assert.match(text, /学习（人工放行）: 开启 · 形态 3/);
   assert.match(
     text,
     /审计（会话）: \/sessions\/s1\/auto-approve-audit\.jsonl · 7 行/,

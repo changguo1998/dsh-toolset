@@ -125,6 +125,88 @@
 17. 失败只挡泛化：同一段先失败后成功（仅一次成功观测）→ 不泛化，但仍按 A 入表（首次学习不看结果）。
 18. 两次成功观测（值位不同）才泛化；`tool/result` 缺失（无该 `toolCallId`）按「未成功」处理，不推进 B。
 
+## 实现记录
+
+01. **词法层（`src/learn.ts`）**：`splitCommandSegments`（`:80`，复制 security-guard 的 25 行口径 + `balanced` 标记）、`tokenizeSegment`（`:113`，引号串整体成 token，引号紧贴前文时断开 → `-m"b"` 与 `-m "b"` 同形）、`maskToken`（`:155`，引号串 `<msg>` / 长 hex `<hex>` / 纯数字 `<n>`）、`segmentForm`（`:167`，段首命令词保持原文，引号串也不抹）、`formOfCommand`（`:177`，空命令 / 引号不配对 / 段数 0 → `undefined`）、`commandOfCall`（`:192`，`SHELL_TOOLS` + `COMMAND_KEYS`）、`formHash`（`:198`，sha256 前 16 位，带升级目标）、`matchesForm`（`:209`，`<v>` 通配只认第 3 位起）、`mergeForm`（`:247`，最小泛化）。
+02. **形态表（同文件 `FormStore`，`:294`）**：每会话一张 `Map<formHash, entry>`，`formCapacity` 近似 LRU；`covers` 按「每一段都能匹配（顺序无关、缺一段即不命中）」；`noteSuccess` 记成功观测（`callId + 形态` 去重、有界）；`mergeCandidate` / `applyUpgrade` 承载 B 层（升级后清掉被覆盖的旧条目）；`list` / `remove` / `clear` 供视图与命令面。
+03. **学习器（同文件 `createLearner`，`:632`）**：`approval/asked` 建配对表（容量 256）→ `approval/decided`（`allowed-once` 且非自记裁定才是人工放行）→ `tool/result`（`message.toolCallId` + `message.isError === false`，每会话有界表）→ 候选入队 → 2 s 窗口合并成一次审阅（`LEARN_REVIEW_WINDOW_MS = 2000`）→ 通过才落表；`reviewed` 去重同形态；`selfDecided` 容量 / TTL 按 `selfDecidedCapacity` / `selfDecidedTtlMs`；`noteSelfDecision` 由判定层在 `allowed-once` 记账时调用（`src/decide.ts:295`）；`readAuditCallIds`（`:1196`）读本会话审计文件的 `callId` 集合供回填排除；`rehydrate` 只重建形态（`REHYDRATE_LIMIT = 20`，逐条过审阅、只计成功执行、一次性、失败降级空集）。
+04. **学习审阅（`src/review.ts`）**：`LEARN_POLICY`（`:437`，只做准入）、`renderLearnText`（`:455`，候选带工具名 / 段形态 / 原文 / cwd / 人工放行理由 / 升级目标）、`parseLearnDecisions`（`:496`，批量 `{results:[{id,allow,risk,reason?}]}` 与单条 `{allow,risk,reason?}` 两种形态，非法组合逐条丢弃）、`runLearnReview`（`:543`，超时 / 失败归一）；两条审查路径共用 `withAbort`（`:292`），`riskAtMost` 迁到 `:75`（`decide.ts` 重新导出，外部口径不变）。
+05. **判定阶梯（`src/decide.ts`）**：`DecisionContext` 加 `forms?` / `learn?`（`:66`、`:68`）；精确指纹之后接形态覆盖 `coverageOf`（`:158`，`ruleId: fingerprint:form`、`source: fingerprint`，顺手记原文指纹，并触发首用回填）；`recordApproval` 记指纹时带 `source: "decision"` 并自记裁定（`:293`、`:295`）。`learnFromManual: false` 或 `forms` 缺省时该层整体不生效。
+06. **接线（`src/main.ts`）**：`FormStore` + 学习器创建（`:163`、`:189`，建运行时之后注入 `runtime.context.forms` / `.learn`）；`session/event` 单监听器内转发 `learner.observe`（`:223`，不新增第二个监听器）；学习审阅器沿用运行时审查的路由（`learnReviewerOf`，`:351`）；回填数据源（`historyOf`，`:373`：`sessionQuery.readSession` + 本会话审计文件）；服务面加 `forms(sessionId?)`（`:276`）；`statusOf` 加 `forms` / `learnEnabled`（`:466`）；启动日志加 `learn=` / `forms=`（`:319`）；bundle 暴露 `learn` 句柄（`:287`）。
+07. **配置（`src/config.ts`）**：`learnFromManual` / `learnGeneralize` / `learnReview{enabled,onFailure}` / `formCapacity` / `selfDecidedCapacity` / `selfDecidedTtlMs` / `learnRehydrate`（Config `:127-139`，Resolved `:177-185`）；非法值回落缺省并进 `diagnostics`（`intWithDiagnostic` / `boolWithDiagnostic`）；缺省 256 / 512 / 300000 / 全开。
+08. **类型面（`src/types.ts`）**：`FormSource`（`:20`）、`FingerprintView.source`（`:161`）、`FormView`（`:165`，`formHash` / `form` / `toolName` / `source` / `target?` / `approvedAt`）、`AutoApproveStatus.forms` + `.learnEnabled`（`:146`、`:148`）、`AutoApproveService.forms()`。
+09. **指纹表（`src/fingerprint.ts`）**：条目带 `source`，`approve` 第四参 `source = "decision"`（`:81`），`list()` 透出（`:55` 字段）；人工放行的那次调用也按原文记一条精确指纹（`source: manual`，`learn.ts` 的 `learnFromApproval`）。
+10. **命令面（`src/command.ts`）**：`LearnCommandHandles`（`:40`）、`renderForms`（`:103`）、`dispatchLearn`（`:120`，`off` / `on` / `list` / `undo <hash>` / `clear`）、`status` 加学习行（`:82`）；只读查询走服务面 `forms()`，写操作走学习器 / 形态表句柄；`undo` 支持列表里显示的 8 位前缀。
+11. **用例**：`tests/learn.test.ts`（31 例）覆盖词法 / 形态表 / 最小泛化与 18 组测试要点（含 e2e：`createBundle` + 假宿主 + 假 LLM，人工放行 → 形态命中 → 审计行 `fingerprint:form`）；`tests/config.test.ts` 新增 3 例（学习键缺省 / 合法值 / 非法回落诊断）；既有 `tests/{command,fingerprint}.test.ts` 因新增字段与 `approve` 签名同步调整（`command` 加学习行断言）。
+
+## 偏差
+
+01. **计划清单外的必要改动**：`src/fingerprint.ts` 与 `tests/fingerprint.test.ts` 未列入「计划改动文件清单」，但 `FingerprintView.source` 必须由指纹表条目记录（`approve` 加 `source` 参数），否则该字段无从取值。
+02. **人工放行同时记精确指纹**：条目原始期望是「把人工放行的调用写进会话指纹」，且 `FingerprintView.source` 的 `manual` 取值需要它才有意义；实现为「按原文记一条 `source: manual` 的精确指纹 + 逐段形态候选（过审阅）」。计划步骤只写了形态候选。`learn off` 会同时停掉这两条。
+03. **B 层值位额外收紧**：除「段首命令词与子命令永不通配、单段 ≤ 2 位」外，差异位两侧还必须是可作值的字面量（`-` 开头、含 `/` `\` `=` `*` `$`、`~` `.` 开头、`<…>` 占位一律不作值位）—— `rm -rf /tmp/a` 与 `rm -rf /tmp/b` 不会泛化成 `rm -rf <v>`，按「宁可少泛化」。
+04. **形态条目绑定升级目标模式**：同一段形态在不同 `sandbox_permissions` 目标下各存一条、互不覆盖；非升级放行学到的形态不会放宽后续的升级请求（计划未写，属安全收紧）。
+05. **`Generalizer` 落成纯函数**：`mergeForm` + `FormStore.mergeCandidate` / `applyUpgrade`（计划写的是类）；行为与「第二次成功观测才升级」一致。
+06. **`AutoApproveStatus` 多加 `learnEnabled`**：`status` 要出 `learn` 行（开启 / 关闭），仅有 `forms` 不够。
+07. **`AutoApproveService` 加 `forms(sessionId?)`**：按计划「只读查询走服务面、写操作走学习器句柄」，`learn list` 的数据来自服务面。
+08. **`learn undo` 支持 8 位前缀**：`learn list` 显示的就是前缀，只按完整 id 匹配会让用户无法复制使用；不足 8 位按完整 id 精确匹配。
+09. **回填只重建形态、不重建精确指纹**：决策 13 的措辞是「重建该会话形态集」；放行效果一致（形态层同样免问），且回填不写共享状态。
+10. **学习日志按会话各记一条**：同一 2 s 批次可能跨会话（多个会话并发时），逐会话记一条而不是只记批次首会话。
+11. **`learnReview.onFailure` 只认 `skip`**：其它取值记诊断并回落 `skip`（fail-closed），未实现 `panel` 之类的兜底（决策 06 只定义了 `skip`）。
+12. **`tests/fingerprint.test.ts` 的 `approve` 调用补 `source` 参数**：签名变更的必要同步，断言不变。
+13. **自记集合按 `callId` 存、按 asked 的 `callId` 回查**：应答者（`approval/request`）拿不到宿主 `approval/asked` 的 `id`（该 id 只出现在会话事件里），故决策 02 的「记 (ask id, callId)」落成「记 callId + 由 asked 的 callId 回查」。无 `callId` 的 ask 本就学不了（无参数），行为与决策一致。
+
+## 测试与证据
+
+实现完成后在本 worktree 依次执行（`auto-approve/` 下，`node_modules` 软链主 worktree，未执行 `npm install`）：
+
+```sh
+npm run check   # tsc -p tsconfig.json --noEmit
+npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
+npm run build   # tsc -p tsconfig.json
+```
+
+结果（原文摘要）：
+
+```
+=== check ===
+> tsc -p tsconfig.json --noEmit          （无输出 = 0 错误）
+=== test ===
+ℹ tests 149
+ℹ pass 149
+ℹ fail 0
+=== build ===
+> tsc -p tsconfig.json                  （无输出 = 0 错误）
+```
+
+既有 115 例保持全绿；新增 34 例（`tests/learn.test.ts` 31 + `tests/config.test.ts` 3）覆盖「测试要点」18 组：
+
+| 要点 | 用例 |
+| --- | --- |
+| 01 人工放行 → 形态层命中（不弹面板，`source=fingerprint` / `ruleId=fingerprint:form`） | `01 学习入口：…`（e2e：`createBundle` + 假宿主 + 假 LLM，断言审计最后一行与面板调用次数） |
+| 02 本插件自记裁定不入学习 | `02 本插件自己裁定的 allowed-once 不入学习` |
+| 03 拒绝 / cancelled / unavailable 不入表 | `03 拒绝 / cancelled / unavailable 不入表` |
+| 04 跨会话不生效 | `04 跨会话不生效` |
+| 05 A 层：同形不同值命中；不同命令 / 子命令不命中 | `05 A 层：…` |
+| 06 B 层：第二次成功观测才泛化；段首 / 子命令不通配；≤ 2 位 | `06 B 层：…` + `最小泛化：…`（`mergeForm` 直接断言） |
+| 07 段覆盖：逐段判定、缺段不命中、顺序无关 | `段覆盖：复合命令逐段判定` |
+| 08 切段口径与 security-guard 一致（引号内不切） | `切段口径与 security-guard 一致` |
+| 09 取不到 callId / 参数原文 → 不学不报错 | `09 取不到 callId / 参数原文` |
+| 10 审阅 allow / deny / 高风险 / 超时 / 抛错 / 非法 JSON | `10 审阅：…`、`10 审阅解析：…`、`10 审阅超时：…` |
+| 11 审阅关闭直接入表；`learnFromManual: false` 整条不启用 | `11 审阅关闭：…`、`14 关闭态：…` |
+| 12 回填：3 对（2 人工 + 1 本插件）→ 2 条；> 20 截断；数据源缺失空集；一次性 | `12 回填：…` ×2 |
+| 13 形态表容量 / 自记集合容量与 TTL | `形态表容量：…`、`13 自记集合：…` |
+| 14 关闭态不学习 / 不审阅 / 不回填 + 既有 115 例全绿 | `14 关闭态：…`、全量 `npm run test` |
+| 15 合并审阅：窗口内 3 条 → 1 次请求；窗口外另起 | `15 合并审阅：…`（断言窗口 2000 ms 与请求次数） |
+| 16 命令面：off / on / list / undo / clear，不动运行时裁定与精确指纹 | `16 命令面：…`、`16 learn off 后…`、`16 形态列表渲染：…` |
+| 17 失败只挡泛化（先失败后成功不泛化，A 层照常入表） | `17 / 18 失败只挡泛化：…` |
+| 18 两次成功观测才泛化；`tool/result` 缺失不推进 B | `17 / 18 失败只挡泛化：…`、`06 B 层：…` |
+
+未验证项（按派工要求留给主分支）：
+
+- **真机验证未做**：未启动 dsh、未触碰真实会话与 profile。真机要看的点：`approval/asked` / `approval/decided` / `tool/result` 三个事件在真实会话里的顺序与 `callId` 可得性（调研 03 / 06）、`sessionQuery.readSession` 回填的事件形态（`tool/result.message.toolCallId` / `isError`）、面板放行后形态在下一轮是否真的不再弹。
+- **形态层的实际收益（少弹几次面板）未度量**：需要真实会话样本。
+- **跨 shell 工具的形态共享**（`bash` / `pwsh` 同会话共用一张表）只做了 token 级匹配的单测，未在 pwsh 真机上验证。
+
 ## 估时
 
 单线程约 **2.0 天**：新增 1 个模块（约 450 行）+ 审阅链路 + 回填 + 命令面 + 执行结果表 + 用例 18 组；真机验证另计。

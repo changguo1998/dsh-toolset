@@ -91,6 +91,14 @@ export interface ReviewConfig {
 /** 风险档名（与 `RiskLevel` 同值；独立声明避免配置面依赖 types 的循环）。 */
 export type RiskLevelName = "low" | "medium" | "high";
 
+/** 学习结果审阅配置（只做准入判断，不参与运行时裁定）。 */
+export interface LearnReviewConfig {
+  /** 是否启用审阅（缺省 true）；`false` 时按 A / B 直接入表。 */
+  enabled?: boolean;
+  /** 审阅失败兜底：目前只有 `skip`（不入表，fail-closed）。 */
+  onFailure?: "skip";
+}
+
 /** 审计配置。 */
 export interface AuditConfig {
   /** 项目那份（memory-base）是否启用（缺省 true；有 memory-base 才写）。 */
@@ -115,6 +123,20 @@ export interface Config {
   fingerprintCapacity?: number;
   /** `callId → 参数` 表容量（缺省 256）。 */
   callTableCapacity?: number;
+  /** 是否从人工面板放行学习（缺省 true；`false` 即整条学习路径与形态层都不启用）。 */
+  learnFromManual?: boolean;
+  /** 是否做最小泛化（B 层，缺省 `on`；`off` 只保留逐段精确形态）。 */
+  learnGeneralize?: "on" | "off";
+  /** 学习结果审阅（缺省开启，失败不入表）。 */
+  learnReview?: LearnReviewConfig;
+  /** 学习形态表容量（单会话，缺省 256）。 */
+  formCapacity?: number;
+  /** 「本插件自己裁过」的自记集合容量（缺省 512）。 */
+  selfDecidedCapacity?: number;
+  /** 自记集合的保留窗口（毫秒，缺省 300000）。 */
+  selfDecidedTtlMs?: number;
+  /** 是否在首次用到学习层时回读会话历史做回填（缺省 true）。 */
+  learnRehydrate?: boolean;
   allow?: AllowConfig;
   deny?: DenyConfig;
   escalation?: EscalationConfig;
@@ -151,6 +173,16 @@ export interface ResolvedConfig {
   gateTools: readonly string[];
   fingerprintCapacity: number;
   callTableCapacity: number;
+  /** 人工放行学习总开关；`false` 时形态层也不参与判定。 */
+  learnFromManual: boolean;
+  /** 最小泛化（B 层）开关。 */
+  learnGeneralize: boolean;
+  learnReview: { enabled: boolean; onFailure: "skip" };
+  /** 单会话形态表容量。 */
+  formCapacity: number;
+  selfDecidedCapacity: number;
+  selfDecidedTtlMs: number;
+  learnRehydrate: boolean;
   allowCommands: readonly AllowRule[];
   allowPaths: readonly AllowRule[];
   denyTools: readonly string[];
@@ -180,6 +212,12 @@ export const DEFAULT_REVIEW_TIMEOUT_MS = 10_000;
 export const DEFAULT_FINGERPRINT_CAPACITY = 256;
 /** 缺省 `callId → 参数` 表容量。 */
 export const DEFAULT_CALL_TABLE_CAPACITY = 256;
+/** 缺省单会话形态表容量。 */
+export const DEFAULT_FORM_CAPACITY = 256;
+/** 缺省自记集合容量。 */
+export const DEFAULT_SELF_DECIDED_CAPACITY = 512;
+/** 缺省自记集合保留窗口：5 min。 */
+export const DEFAULT_SELF_DECIDED_TTL_MS = 300_000;
 /** 命令类规则的内置适用工具。 */
 export const SHELL_TOOLS: readonly string[] = ["bash", "pwsh", "shell"];
 
@@ -209,6 +247,39 @@ function asPositiveInt(
   const rounded = Math.floor(value);
   if (rounded < min || rounded > max) return fallback;
   return rounded;
+}
+
+/** 带诊断的整数读数（新增学习键用：非法值回落缺省并记一条诊断）。 */
+function intWithDiagnostic(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+  label: string,
+  diagnostics: string[],
+): number {
+  if (value === undefined) return fallback;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const rounded = Math.floor(value);
+    if (rounded >= min && rounded <= max) return rounded;
+  }
+  diagnostics.push(`${label} 非法（已回落 ${fallback}）：${String(value)}`);
+  return fallback;
+}
+
+/** 带诊断的布尔读数（只接受 true / false）。 */
+function boolWithDiagnostic(
+  value: unknown,
+  fallback: boolean,
+  label: string,
+  diagnostics: string[],
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value === "boolean") return value;
+  diagnostics.push(
+    `${label} 不是布尔值（已回落 ${fallback}）：${String(value)}`,
+  );
+  return fallback;
 }
 
 function compile(
@@ -346,6 +417,23 @@ export function resolveConfig(config: Config | undefined): ResolvedConfig {
       : undefined;
   const auditRaw = raw.audit ?? {};
   const denyRaw = raw.deny ?? {};
+  const learnReviewRaw = raw.learnReview ?? {};
+  const generalizeRaw = raw.learnGeneralize;
+  let learnGeneralize = true;
+  if (generalizeRaw !== undefined) {
+    if (generalizeRaw === "off") learnGeneralize = false;
+    else if (generalizeRaw !== "on") {
+      diagnostics.push(
+        `learnGeneralize 非法（已回落 on）：${String(generalizeRaw)}`,
+      );
+    }
+  }
+  const reviewOnFailure = learnReviewRaw.onFailure;
+  if (reviewOnFailure !== undefined && reviewOnFailure !== "skip") {
+    diagnostics.push(
+      `learnReview.onFailure 非法（已回落 skip）：${String(reviewOnFailure)}`,
+    );
+  }
   return {
     enabled,
     mode,
@@ -363,6 +451,52 @@ export function resolveConfig(config: Config | undefined): ResolvedConfig {
       DEFAULT_CALL_TABLE_CAPACITY,
       1,
       4096,
+    ),
+    learnFromManual: boolWithDiagnostic(
+      raw.learnFromManual,
+      true,
+      "learnFromManual",
+      diagnostics,
+    ),
+    learnGeneralize,
+    learnReview: {
+      enabled: boolWithDiagnostic(
+        learnReviewRaw.enabled,
+        true,
+        "learnReview.enabled",
+        diagnostics,
+      ),
+      onFailure: "skip",
+    },
+    formCapacity: intWithDiagnostic(
+      raw.formCapacity,
+      DEFAULT_FORM_CAPACITY,
+      1,
+      4096,
+      "formCapacity",
+      diagnostics,
+    ),
+    selfDecidedCapacity: intWithDiagnostic(
+      raw.selfDecidedCapacity,
+      DEFAULT_SELF_DECIDED_CAPACITY,
+      1,
+      4096,
+      "selfDecidedCapacity",
+      diagnostics,
+    ),
+    selfDecidedTtlMs: intWithDiagnostic(
+      raw.selfDecidedTtlMs,
+      DEFAULT_SELF_DECIDED_TTL_MS,
+      1000,
+      86_400_000,
+      "selfDecidedTtlMs",
+      diagnostics,
+    ),
+    learnRehydrate: boolWithDiagnostic(
+      raw.learnRehydrate,
+      true,
+      "learnRehydrate",
+      diagnostics,
     ),
     allowCommands: compileAllowTable(
       raw.allow?.commands,
