@@ -26,7 +26,8 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 
 | id | 工具 | 条件 | 理由 |
 | --- | --- | --- | --- |
-| `no-herdr-in-bash` | `bash` | 命令含 `herdr` | `bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）或 herdr_integration 工具` |
+| `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `|` 之后；允许前置 `VAR=值`
+与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）或 herdr_integration 工具` |
 
 ## 配置
 
@@ -83,7 +84,7 @@ profile 覆盖示例（用户层 patch）：
 ## 边界（明确不做）
 
 - **不解释 shell 语义**：管道、别名、变量展开、引号、heredoc 都不解析，只对命令原文做文本判定 ——
-  宁可漏拦也不误伤（例如 `echo herdr` 这种无害命令也会命中缺省规则）。
+  宁可漏拦也不误伤（缺省规则只认命令位，正文里提到该词不拦）。
 - 不做审计、不落 memory-base、不提供人工命令面；规则只能由插件配置表达。
 - 未挂载 rule-engine / 框架不支持该节点时不拦截（fail-open；安全兜底仍在 `security-guard`）。
 

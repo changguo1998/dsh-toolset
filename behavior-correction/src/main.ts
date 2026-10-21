@@ -83,7 +83,14 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
   {
     id: "no-herdr-in-bash",
     tool: "bash",
-    match: { keywords: ["herdr"] },
+    // 只匹配「命令位上的 CLI 调用」：行首 / `;` `&` `|` 之后 / `$( ` 之后，允许前置
+    // `VAR=值` 与环境路径前缀；正文里提到该词（提交信息、echo 参数）不再误拦。
+    match: {
+      regex: [
+        "(?:^|[;&|]\\s*|\\$\\(\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?herdr(?=\\s|$)",
+      ],
+      flags: "im",
+    },
     reason:
       "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）或 herdr_integration 工具",
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
@@ -215,8 +222,8 @@ function readStringList(value: unknown): string[] | undefined {
 }
 
 /**
- * 判定文本：工具名 + 参数字符串。`bash` / `pwsh` 优先取 `arguments.command`（模型给的原文），
- * 其余工具用 `JSON.stringify(arguments)`；序列化失败（循环引用等）按空串处理。
+ * 判定文本：`bash` / `pwsh` 取 `arguments.command` 原文（**不带工具名前缀**，便于规则用 `^` 锚命令位），
+ * 其余工具用「工具名 + `JSON.stringify(arguments)`」；序列化失败（循环引用等）按空串处理。
  */
 export function toolText(context: ToolGuardContext): string {
   const toolName = typeof context?.name === "string" ? context.name : "";
@@ -227,7 +234,7 @@ export function toolText(context: ToolGuardContext): string {
       : undefined;
   if (toolName === "bash" || toolName === "pwsh") {
     const command = record?.["command"];
-    if (typeof command === "string") return `${toolName} ${command}`;
+    if (typeof command === "string") return command;
   }
   return `${toolName} ${serialize(args)}`;
 }
@@ -243,7 +250,7 @@ function serialize(value: unknown): string {
 
 /**
  * 按声明顺序取**第一条**命中的规则：先看 `tool` 限定，再看关键词（对全小写文本做子串匹配），
- * 最后看正则（对原始文本判定，flags 缺省 `i`）。未命中返回 undefined。
+ * 最后看正则（对原始文本判定，flags 缺省 `i`）。判定的都是 `toolText` 产出的文本。未命中返回 undefined。
  */
 export function matchRule(
   rules: readonly CompiledRule[],

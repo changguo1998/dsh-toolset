@@ -141,6 +141,40 @@ test("缺省规则：bash 里的普通命令放行（返回 undefined，不是 a
   assert.equal(decision, undefined);
 });
 
+test("缺省规则只看命令位：正文里提到该词不拦", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "echo herdr",
+    'git commit -m "docs: herdr CLI 迁移"',
+    "grep herdr src/*.ts",
+    "printf 'herdr\n' >> notes.txt",
+  ]) {
+    assert.equal(
+      registration.guard(guardContext("bash", { command })),
+      undefined,
+      command,
+    );
+  }
+});
+
+test("缺省规则认命令位变体：链式 / 前置赋值 / 绝对路径 / 子 shell", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "herdr",
+    "herdr pane list",
+    "ls && herdr pane list",
+    "FOO=1 PATH=/usr/bin herdr pane list",
+    "/usr/bin/herdr pane list",
+    "x=$(herdr pane list)",
+  ]) {
+    assert.equal(
+      registration.guard(guardContext("bash", { command }))?.kind,
+      "deny",
+      command,
+    );
+  }
+});
+
 test("缺省规则只限定 bash：read 参数里带 herdr 不命中", () => {
   const registration = registerDefault();
   assert.equal(
@@ -216,7 +250,7 @@ test("非法正则：告警 + 该条跳过，其余规则照常", () => {
         {
           id: "good-regex",
           tool: "bash",
-          match: { regex: ["^bash\\s+herdr\\b"] },
+          match: { regex: ["^herdr\\b"] },
           reason: "该改用 herdr_pane",
         },
       ],
@@ -441,7 +475,7 @@ test("ctx.on 抛错：只告警，仍返回注销函数", () => {
 test("toolText：shell 工具取 command，其余工具序列化参数", () => {
   assert.equal(
     toolText(guardContext("bash", { command: "herdr pane list", extra: 1 })),
-    "bash herdr pane list",
+    "herdr pane list",
   );
   assert.equal(
     toolText(guardContext("read", { path: "a.md" })),
@@ -450,7 +484,7 @@ test("toolText：shell 工具取 command，其余工具序列化参数", () => {
   assert.equal(toolText(guardContext("read", undefined)), "read ");
   assert.equal(
     toolText(guardContext("pwsh", { command: "Get-ChildItem" })),
-    "pwsh Get-ChildItem",
+    "Get-ChildItem",
   );
 });
 
