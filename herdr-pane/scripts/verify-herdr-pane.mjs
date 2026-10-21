@@ -9,7 +9,7 @@
 //   node scripts/verify-herdr-pane.mjs --keep                       # 跑完保留现场供人工看
 //   node scripts/verify-herdr-pane.mjs --with-python                # 新 pane 里先起 python3 -i
 //   node scripts/verify-herdr-pane.mjs --with-tab                   # 建 tab → run → wait → read → tab_close
-//   node scripts/verify-herdr-pane.mjs --check-cascade              # 关掉最后一个 pane 后看 workspace 是否还在
+//   node scripts/verify-herdr-pane.mjs --check-cascade              # 关掉本次 create 的 pane 后看 workspace 是否还在
 //   node scripts/verify-herdr-pane.mjs --session-id verify-1        # 固定会话身份（重跑可验 workspace 复用）
 //   node scripts/verify-herdr-pane.mjs --cwd /path/to/workdir       # 覆盖会话工作目录（label 用它）
 //
@@ -60,6 +60,21 @@ async function step(label, action, params, deps) {
 /** 断言（失败即抛，交顶层统一收尾）。 */
 function expect(condition, message) {
   if (!condition) throw new Error(`断言失败：${message}`);
+}
+
+/**
+ * socket 等待期间保持事件循环：`src/socket.ts` 的请求超时与 `stable` 判稳 sleep 都 `unref()`
+ * （插件不该吊住宿主进程）。本脚本独立运行时事件循环里可能没有其它 ref 句柄，node 会在顶层
+ * await 未结算时直接退出（实测停在 `wait（stable）`），故只在脚本侧临时挂一个 keepalive；
+ * 不改 `socket.ts` 的 unref 语义。
+ */
+async function withKeepAlive(fn) {
+  const keepAlive = setInterval(() => {}, 500);
+  try {
+    return await fn();
+  } finally {
+    clearInterval(keepAlive);
+  }
 }
 
 /** 直接调 herdr CLI（只读核对；不走插件动作面，避免用被测代码验自己）。 */
@@ -144,15 +159,17 @@ try {
   expect(mine !== undefined, "create 的新 pane 应落在本会话 workspace 内");
 
   // 2) read：socket 通道，拿到 revision / truncated
-  const read = await step(
-    "read（socket）",
-    "read",
-    {
-      pane_id: createdPaneId,
-      source: "visible",
-      lines: 20,
-    },
-    deps,
+  const read = await withKeepAlive(() =>
+    step(
+      "read（socket）",
+      "read",
+      {
+        pane_id: createdPaneId,
+        source: "visible",
+        lines: 20,
+      },
+      deps,
+    ),
   );
   expect(read.ok, "read 应成功");
   expect(
@@ -220,16 +237,18 @@ try {
   expect(runMatched.ok, "run 的回显应可等");
 
   // 7) wait(stable)：静默判稳（走 socket 的 revision）
-  const stable = await step(
-    "wait（stable）",
-    "wait",
-    {
-      pane_id: createdPaneId,
-      stable: true,
-      settle_ms: 400,
-      timeout_ms: 10_000,
-    },
-    deps,
+  const stable = await withKeepAlive(() =>
+    step(
+      "wait（stable）",
+      "wait",
+      {
+        pane_id: createdPaneId,
+        stable: true,
+        settle_ms: 400,
+        timeout_ms: 10_000,
+      },
+      deps,
+    ),
   );
   expect(stable.ok, "stable 应判稳");
 
@@ -349,11 +368,13 @@ try {
       deps,
     );
     expect(tabMatched.ok, "tab 内的命令回显应可等");
-    const tabRead = await step(
-      "read（tab 内）",
-      "read",
-      { pane_id: tabPaneId, source: "visible", lines: 20 },
-      deps,
+    const tabRead = await withKeepAlive(() =>
+      step(
+        "read（tab 内）",
+        "read",
+        { pane_id: tabPaneId, source: "visible", lines: 20 },
+        deps,
+      ),
     );
     expect(tabRead.ok, "tab 内的 pane 应可读");
 
@@ -389,8 +410,10 @@ try {
       (workspace) => workspace.workspace_id === binding.workspaceId,
     );
     console.log(
-      `        workspace ${binding.workspaceId} 关掉最后一个 pane 后：${
-        stillThere ? "仍在（未级联关闭）" : "已随 pane 一起消失（级联关闭）"
+      `        workspace ${binding.workspaceId} 关掉本次 create 的 pane 后：${
+        stillThere
+          ? "仍在（真机结论：关掉 tab 的最后一个 pane 只级联关 tab；workspace 由插件退出清理负责关闭）"
+          : "已随 pane 一起消失（级联关闭）"
       }`,
     );
   }
