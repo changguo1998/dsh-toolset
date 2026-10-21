@@ -12,7 +12,10 @@
  * `enabled: false` 等于不拦。
  *
  * 设计取舍：
- * - **不写进 `inject`**：`ruleEngine` 缺席时应降级（告警一次、不拦任何调用），而不是整个插件不加载；
+ * - **写进 `inject`**（2026-10-22 真机修正）：`ruleEngine` 服务由 rule-engine 插件在 apply 时 provide，
+ *   本包 insert 在 profile 里更靠前，读 `ctx.get` 会先拿到 undefined（真机实测：插件已加载但从未注册
+ *   消费者）；声明 `inject: ["ruleEngine"]` 让 cordis 等到服务就绪再激活。运行期仍保留存在性判断，
+ *   服务在但缺 `registerConsumer` 时告警降级；
  * - **匹配器自带**（关键词 / 正则），不复用 rule-engine 的 `compileMatcher`：这里只需要「任一命中」，
  *   自己写约二十行，省掉包间依赖与 profile 安装步骤；
  * - **只做文本判定**：不解释 shell 语义（管道、别名、变量展开、引号都不解析），宁可漏拦也不误伤；
@@ -22,8 +25,8 @@
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "behavior-correction";
 
-/** 可选服务经 `ctx.get` 读取，故 `inject` 为空：缺 `ruleEngine` 时降级而不是不加载。 */
-export const inject: readonly string[] = [];
+/** 硬依赖 `ruleEngine`：注册 guard 消费者必须先有服务（真机修正，见文件头设计取舍）。 */
+export const inject: readonly string[] = ["ruleEngine"];
 
 /** 本包唯一使用的消费者节点（宿主执行工具前唤醒消费者）。 */
 export const GUARD_SOURCE = "tools/pre-execute";

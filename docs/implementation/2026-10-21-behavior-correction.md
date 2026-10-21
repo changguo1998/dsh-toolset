@@ -71,7 +71,9 @@
 ### 风险与待确认
 
 - **对端契约漂移**：框架分支若改接口（字段名 / 弃权语义），本包测试仍绿但真机不生效；合并后必须做一次端到端，契约测试的第 6 项即为此设的探针。
-- **`inject: []` 与 cordis 严格模式**：读服务用 `ctx.get`，不写 `inject`；若真机报「cannot get property」，改为 `inject: ["ruleEngine"]` 并把降级改到 `apply` 内的存在性判断（文档记录）。
+- **`inject: []` 与激活顺序（已发生的真实缺陷，2026-10-22）**：原设计不写 `inject`、只读 `ctx.get`，真机
+  实测本包 apply 早于 rule-engine 的 `provide`（stderr：`[behavior-correction] warn: ctx.ruleEngine 不可用，工具拦截不会触发`），插件加载了却从未注册消费者；已改为 `inject: ["ruleEngine"]`（硬依赖，
+  与 `md-table-check` / `ponytail` / `symbol-normalizer` 同口径），运行期保留存在性判断。
 - **清单冲突**：两支都改根 `package.json` / `install.sh` 会冲突；本任务独占这几处（见决策 9），框架任务已按此收窄。
 - **包数口径**：仓库文档与 `install.sh` 多处写「29 个插件 / 30 个包」，加包后需全量核对（`AGENTS.md`、两份 README、`scripts/install.sh` 注释）。
 
