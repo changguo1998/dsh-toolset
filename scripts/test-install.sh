@@ -19,11 +19,11 @@ printf '#!/bin/sh\nexit 0\n' > "$fakebin/pnpm"
 chmod +x "$fakebin/pnpm"
 # 假 dsh：--version 给固定宿主版本；--dump-config 默认成功且无告警（收尾自检用）
 fake_dsh_ok() {
-    printf '#!/bin/sh\ncase "$*" in\n*--dump-config*) exit 0 ;;\n*) echo 0.2.0-rc.2 ;;\nesac\n' > "$fakebin/dsh"
+    printf '#!/bin/sh\ncase "$*" in\n*--dump-config*) exit 0 ;;\n*) echo 0.2.1-rc.2 ;;\nesac\n' > "$fakebin/dsh"
     chmod +x "$fakebin/dsh"
 }
 fake_dsh_dump() { # fake_dsh_dump <stderr 文本> <退出码>：--dump-config 时输出该文本并退出
-    printf '#!/bin/sh\ncase "$*" in\n*--dump-config*) printf "%%s\\n" "%s" >&2; exit %s ;;\n*) echo 0.2.0-rc.2 ;;\nesac\n' "$1" "$2" > "$fakebin/dsh"
+    printf '#!/bin/sh\ncase "$*" in\n*--dump-config*) printf "%%s\\n" "%s" >&2; exit %s ;;\n*) echo 0.2.1-rc.2 ;;\nesac\n' "$1" "$2" > "$fakebin/dsh"
     chmod +x "$fakebin/dsh"
 }
 fake_dsh_ok
@@ -141,7 +141,7 @@ node -e '
 const fs = require("fs");
 const file = process.argv[1];
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-manifest.dependencies["@deepseek-ai/dsh-session-title-all-prompts-llm"] = "0.2.0-rc.2";
+manifest.dependencies["@deepseek-ai/dsh-session-title-all-prompts-llm"] = "0.2.1-rc.2";
 manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-session-title-all-prompts-llm", "some-third-party-bundle");
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 ' "$manifest"
@@ -365,9 +365,9 @@ assert_log_contains "cd $vdir && pnpm install" "给出精确修复提示"
 assert_eq "$(count_glob "$vdir" '*.bak.*')" 0 "不一致告警不落盘"
 
 # 9c）一致（~ 前缀兼容）
-write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"~0.2.0-rc.2"}'
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"~0.2.1-rc.2"}'
 install_v
-assert_log_contains "与宿主 dsh 一致（0.2.0-rc.2）" "~ 前缀下判定一致"
+assert_log_contains "与宿主 dsh 一致（0.2.1-rc.2）" "~ 前缀下判定一致"
 assert_log_not_contains "与宿主不一致" "一致时不告警"
 
 # 9d）非精确版本：单列「无法自动判定」，不给改 pin 的强建议
@@ -395,7 +395,7 @@ assert_log_not_contains "与宿主不一致" "版本取不到时不判不一致"
 fake_dsh_ok
 
 # 10）收尾自检（--dump-config）：通过 / stderr 告警 / rc≠0 / --skip-verify / --dry-run / 截断
-write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"0.2.0-rc.2"}'
+write_vmanifest '{"@deepseek-ai/dsh-session-title-all-prompts-llm":"0.2.1-rc.2"}'
 
 # 10a）通过：rc=0 且 stderr 为空
 install_v
@@ -451,7 +451,7 @@ node -e '
 const fs = require("fs");
 const file = process.argv[1];
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-manifest.dependencies["@deepseek-ai/dsh-session-title-all-prompts-llm"] = "0.2.0-rc.2";
+manifest.dependencies["@deepseek-ai/dsh-session-title-all-prompts-llm"] = "0.2.1-rc.2";
 manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-session-title-all-prompts-llm", "some-third-party-bundle");
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 ' "$manifest"

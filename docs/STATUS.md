@@ -12,7 +12,7 @@
 
 - TUI 侧现状见 `TUI/docs/STATUS.md`（完成情况、命令面、宿主升级适配）, 待办与开放项见 `TUI/docs/BACKLOG.md`——本文件不复述 TUI 细节。
 - **28 个插件全部完成并合入 main**（清单见根 `README.md`「组成」）; TUI 单测 1628 例。
-- 宿主基线：本地安装 dsh **`0.2.0-rc.2`**（2026-10-02 由 `0.1.7-rc.2` 升级; `scripts/install.sh` 的默认版本同此）。官方包清单与分类见 `docs/host/HOST-PACKAGES.md`, 升级对照见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`。
+- 宿主基线：本地安装 dsh **`0.2.1-rc.2`**（2026-10-21 由 `0.2.0-rc.2` 升级; `scripts/install.sh` 的默认版本同此）。官方包清单与分类见 `docs/host/HOST-PACKAGES.md`, 升级对照见 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`。
 - profile（`~/.dsh/profiles/fff`）挂载 **29 个 `@dsh-toolset/*` 包**（TUI + 28 插件）。
 - 已取消 / 不再立项：`rate-guard`（pi 侧已移除, dsh 侧由官方 `llm-retry` 覆盖）、GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报、近期改动代码审查、preset 机制迁移评估、`llm-router`（改用现成开源网关）；裁定记录见 `docs/BACKLOG.md` §1 与 `archive/PI-DSH-FEATURE-COMPARISON.md`。
 - 未建插件、真机验证欠账与在办条目见 `docs/BACKLOG.md` §2。

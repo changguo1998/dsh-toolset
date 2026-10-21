@@ -9,7 +9,8 @@
 - 官方最新版本：**`0.2.1-rc.2`**（npm `@deepseek-ai/dsh` dist-tags `latest` = `0.2.1-rc.2`；GitHub release `dsh-v0.2.1-rc.2`，2026-10-17 发布，prerelease）。另 `alpha` 线最新 `0.2.1-alpha.5`。
 - 基线 `0.2.0-rc.2` 发布于 2026-09-29。**官方有新版本（rc 系从 0.2.0 推进到 0.2.1）。**
 - 接口面：有变动，含数项**破坏性**变更（见下表），亦有若干新增工具 / 能力可与本仓既有面发生关系。本仓 29 模块对破坏项的**直接消费为空**（实测 grep），预计升级对本仓代码的直接冲击小；升级前仍须按表复核 `HOST-PACKAGES.md` 实挂行与 profile 装载。
-- 是否升级基线：待用户裁定（升级则 `scripts/install.sh` 默认版本 `0.2.0-rc.2 → 0.2.1-rc.2`，刷 `HOST-PACKAGES.md` 实挂行并复核既有消费方）。
+- 是否升级基线：**已升级（2026-10-21 执行，见追踪文档 `docs/archived/2026-10-21-host-upgrade-0.2.1-rc.2.md`）**：全局安装 `0.2.1-rc.2`、`scripts/install.sh` 默认版本与版本引用 `0.2.0-rc.2 → 0.2.1-rc.2`、`HOST-PACKAGES.md` 实挂行已重生成、逐项复核见追踪文档。
+- 实施新发现（2026-10-21）：`fff` profile 挂载面含 `invariants`（`@deepseek-ai/dsh-invariants`，2026-10-02 挂载扩张加入），恰为 0.2.1 变更 #1 移除的插件 → 升级时已从 profile patch 删除该行（两处目录）。其余复核结论见追踪文档「调研」节。
 
 ## 官方发布渠道与版本实证
 

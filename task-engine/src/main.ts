@@ -821,7 +821,8 @@ function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         const caps = opts
           .resolve<SubagentsLike>("subagents")
           ?.getProvider?.(SUBAGENT_PROVIDER)?.capabilities;
-        if (caps?.toolFilter !== true) opts.onFilterDegraded?.("裁决 / 执行子代理");
+        if (caps?.toolFilter !== true)
+          opts.onFilterDegraded?.("裁决 / 执行子代理");
       }
       const started = await runChildOnce(opts, {
         label: `task:${req.frame}`,
@@ -1148,7 +1149,11 @@ export function makeCommandGuard(
 // 语义：叶子声明 `isolate: "worktree"` → 执行前建 git worktree（`<repo>/.worktree/<leafId 安全化>`，
 // 分支 `dsh/<leafId 安全化>`），把该路径作为 `cwd` 交给后端；帧进入终态（done / failed）时回收。
 // 边界（简单版）：不自动 merge、不做审查 / checkpoint、不处理远程；**仅 command 后端生效**
-// （宿主 `SubagentStartRequest` / workflow 面都没有 cwd 参数 → 声明期即拒绝，不做「假装隔离」）。
+// （宿主 `SubagentStartRequest` / workflow 面到 0.2.0 都没有 cwd 参数 → 声明期即拒绝，
+// 不做「假装隔离」；0.2.1 起 `SubagentStartRequest` 支持 `cwd`（见
+// `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / upstream `working-directory` 升级指南），
+// subagent 后端的 worktree 隔离技术上可落地——**本期仍未启用**（决策 D2，隔离能力另开条目
+// 实现，此处只更新口径；start request 里的 `cwd` 字段自 0.2.1 起会被宿主接受）。
 // 所有 git 调用一律 `execFile` 直调（不经 shell），且**复用** `makeCommandGuard` 做执行前复查
 // （source = `task-engine{worktree} <leafId> cwd=<repo>`）：命中即不执行，回执原文原样返回。
 // ---------------------------------------------------------------------------
@@ -1666,7 +1671,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         resolve<SubagentsLike>("subagents")?.getProvider?.(
           SUBAGENT_PROVIDER,
         )?.capabilities;
-      if (caps?.toolFilter !== true) warnFilterDegradedOnce("裁决 / 执行子代理");
+      if (caps?.toolFilter !== true)
+        warnFilterDegradedOnce("裁决 / 执行子代理");
     }
     const audit: (req: AuditRequest) => Promise<AuditVerdict> = async (req) => {
       const out = await runChildOnce(

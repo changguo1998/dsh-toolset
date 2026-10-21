@@ -1,6 +1,6 @@
 # 升级适配 0.2.1-rc.2 接口（接取条目：docs/BACKLOG.md「升级适配 0.2.1-rc.2 接口」）
 
-状态：调研　　开启：2026-10-21　　关闭：-
+状态：实现　　开启：2026-10-21　　关闭：-
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -66,15 +66,15 @@
 
 任务拆分（执行顺序）：
 
-1. 备份（profile 双目录配置 + 必要的全局包清单）。
-2. 全局安装 `@deepseek-ai/dsh@0.2.1-rc.2`（cache 指到可写 tmp），`dsh --version` 核对。
-3. profile 树同步：`session-title-all-prompts-llm` 钉 `0.2.1-rc.2`（源目录 `npm pkg set` + 两目录 `pnpm install`）；`cordis.patch.yml` 删 `invariants` 行（两处目录同步）。
-4. 装配与健康检查：`dsh --profile fff --dump-config` 退出 0 / stderr 空；PTY 冒烟启动一次（无 activation 失败 / 无 `tool-schedule` 新面）。
-5. 版本引用同步（仓库内）：`scripts/install.sh`（3 处）、`scripts/test-install.sh`、四个 smoke 的 `REQUIRED_VERSION` + 相关 README 前置条件、根 `README.md` / `README.zh.md`、`docs/ARCHITECTURE-REUSE.md` 基线行、`docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `HOST-UPGRADE-0.2.1-rc.2.md` 回写、`docs/BACKLOG.md` 基线行。
-6. `HOST-PACKAGES.md` 按 §6 复现命令整体重生成（0.2.1 包目录 / 挂载集合实测）。
-7. `security-guard` 对 0.2.1 安装树跑 `scripts/tool-surface-check.mjs`（逐升版差异）。
-8. 全仓 `npm run check` + `npm run test`。
-9. 真机验证（重启 dsh 后）：标题生成（session-title-adapters 重点）、会话 / 模型请求可用、`tool-surface` 无回归、`daemon_task` 等自建链路正常、`background-daemon` 启动仪式无变化。
+01. 备份（profile 双目录配置 + 必要的全局包清单）。
+02. 全局安装 `@deepseek-ai/dsh@0.2.1-rc.2`（cache 指到可写 tmp），`dsh --version` 核对。
+03. profile 树同步：`session-title-all-prompts-llm` 钉 `0.2.1-rc.2`（源目录 `npm pkg set` + 两目录 `pnpm install`）；`cordis.patch.yml` 删 `invariants` 行（两处目录同步）。
+04. 装配与健康检查：`dsh --profile fff --dump-config` 退出 0 / stderr 空；PTY 冒烟启动一次（无 activation 失败 / 无 `tool-schedule` 新面）。
+05. 版本引用同步（仓库内）：`scripts/install.sh`（3 处）、`scripts/test-install.sh`、四个 smoke 的 `REQUIRED_VERSION` + 相关 README 前置条件、根 `README.md` / `README.zh.md`、`docs/ARCHITECTURE-REUSE.md` 基线行、`docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `HOST-UPGRADE-0.2.1-rc.2.md` 回写、`docs/BACKLOG.md` 基线行。
+06. `HOST-PACKAGES.md` 按 §6 复现命令整体重生成（0.2.1 包目录 / 挂载集合实测）。
+07. `security-guard` 对 0.2.1 安装树跑 `scripts/tool-surface-check.mjs`（逐升版差异）。
+08. 全仓 `npm run check` + `npm run test`。
+09. 真机验证（重启 dsh 后）：标题生成（session-title-adapters 重点）、会话 / 模型请求可用、`tool-surface` 无回归、`daemon_task` 等自建链路正常、`background-daemon` 启动仪式无变化。
 10. `ARCHITECTURE-REUSE.md` §0 回查（「是否受 0.2.1 新面影响」标注行）。
 11. 关闭收尾（条目清理 / 文档归档）。
 
@@ -89,7 +89,15 @@
 
 ## 实现记录
 
-（按时间追加）
+- 2026-10-21 执行：USER 裁定 D1-D4（D1 由本任务执行外部改动 / D2 只改注释 / D3 真机后定 / D4 全量含 STATUS 一起升）；决策写入本节并经提交点 1 提交（`c02d882`）。
+- 2026-10-21 全局安装：`npm i -g @deepseek-ai/dsh@0.2.1-rc.2`（dist-tags 实测 `latest=0.2.1-rc.2`；added 99 / removed 24 / changed 514，~1m），`dsh --version` = `0.2.1-rc.2`。备份在工作区 `tmp/upgrade-backup-2026-10-21/`（profile 双目录配置 + 全局包清单 + 升级前版本）。
+- 2026-10-21 profile 树同步：源目录与运行时目录的 `cordis.patch.yml` 删 `invariants` 行（0.2.1 移除，`dsh-base` 装配后 dump 中已无）；`session-title-all-prompts-llm` 版本钉 0.2.0-rc.2 → 0.2.1-rc.2（两处 package.json），运行时目录 `pnpm install` 后实测 node_modules 内 0.2.1-rc.2。共享 `~/.dsh/profiles/node_modules` 的 `dsh-session-title{-llm,first-prompt-llm}` 随全局安装已自动到 0.2.1-rc.2。
+- 2026-10-21 装配健康：`dsh --profile fff --dump-config` exit 0 / stderr 空 / 无 `patch: entry` 告警 / 无 `tool-schedule` / 标题相关包在位；活跃官方挂载 100 个（排除无条件 disabled）＝含新面 `working-directory` / `tool-working-directory` / `web-deepseek-api` / `api-remote-access` 四件，`invariants` / `tool-ralph` / `skill-badge` 已不在活跃集。
+- 2026-10-21 版本引用同步完成：`scripts/install.sh`（3 处）/ `scripts/test-install.sh`（6 处）/ 四个 `smoke/smoke.mjs` 的 `REQUIRED_VERSION` / `goal-contract` / `metric-loop` / `security-guard` README 前置条件 / 根 `README.md` / `README.zh.md` / `docs/STATUS.md` / `TUI/docs/STATUS.md` / `TUI/docs/COMMANDS.md`（命令面 6 条复核不变）/ `TUI/docs/DESIGN.md` / `metric-loop/README.md` / `HOST-UPGRADE-0.2.1-rc.2.md` 结论回写。
+- 2026-10-21 `HOST-PACKAGES.md` 按 §6 口径重生成：随包分发 **288 → 306**（`dsh-*` 277 → 294）；移除 11 包（`client-web` 非独立行除外：`subagent-in-process-driver` / `invariants` / `experimental-schedule-bundle` / `hooks-claude-code` / `hooks-codex` / `webhook` / `webhook-github` / `client-store` / `client-ui-primitives` / `client-ui-slots` / `web-frontend` 改名 `dsh-web-frontend` 故恢复行）；新增 26 行（含 `working-directory` / `tool-working-directory` / `web-deepseek-api` / `tool-schedule` / `tool-session-query` / `tool-terminal` 等）；分类计数重算（项数和 306）；§1 挂载清单按 dump 重导（100 官方活跃 + 树外 all-prompts 注记）；§3 服务索引 86 → **92**（新增 workingDirectory / remoteAccess / cotTranslation / translator / pluginMarket / worktrees，另 6 个 API 控制面服务本已在册）；§0 头部口径与 §6 采集时间更新。
+- 2026-10-21 security-guard `tool-surface-check.mjs` 对 0.2.1 安装树：**31 包 / 59 工具 / 需关注 13**（0.2.0 基线 27 / 49 / 8）。新增 4 项 `terminal_open` / `terminal_send`（`dsh-tool-terminal`）与 `session_event_read` / `session_event_trace`（`dsh-tool-session-query`）——两者**均未挂载**（不在 fff 生效面），无需登记；已挂载的 `working_directory` 无 path / command 参数，列入「未覆盖但无相关参数」无需登记。security-guard 无代码改动。
+- 2026-10-21 `task-engine/src/main.ts`：`executor 隔离` 注释口径更新（0.2.1 起 `SubagentStartRequest` 支持 `cwd`，本期仍不启用 subagent 后端 worktree 隔离，能力另开条目——决策 D2）。
+- 2026-10-21 `docs/ARCHITECTURE-REUSE.md` §0 回查：基线口径更新（294 / 100），升级注记与 `background-daemon` 行保留。
 
 ## 偏差
 
@@ -97,7 +105,15 @@
 
 ## 测试与证据
 
-（待实现完成后填写）
+- 全局安装：`npm i -g @deepseek-ai/dsh@0.2.1-rc.2`（`dsh --version` = `0.2.1-rc.2`；`npm ls -g` 确认）。
+- 装配：`dsh --profile fff --dump-config` exit 0 / stderr 空 / 无 `patch: entry`；活跃官方挂载 100（含新面 4 件，无 invariants / tool-ralph / skill-badge）。
+- profile：`session-title-all-prompts-llm` = 0.2.1-rc.2（两处 package.json + 运行时 node_modules 实测）；`invariants` 行已从两处 patch 删除（`grep -c` 0）。
+- 版本引用：`scripts/test-install.sh` 84 项全通过（含 fake dsh 0.2.1-rc.2 与树外 pin 判定）；四个 smoke 的 `REQUIRED_VERSION` 已升（smoke 本体需模型凭据，真机阶段跑）。
+- `HOST-PACKAGES.md`：306 包 / 294 `dsh-*` / §3 92 服务；§2 行数与 §0 口径自洽（分类和 306）；文档↔安装树名字级 diff 余差仅为 vendor 前缀记法（`cordis-*` / `dsh-cordis-*`），无实质缺失。
+- security-guard `tool-surface-check`：0.2.1 树 31 包 / 59 工具 / 需关注 13（0.2.0 基线 27 / 49 / 8）；新增 4 为未挂载包工具，fff 生效面无登记缺口。
+- 全仓 `npm run check`：30 包通过（exit 0）。
+- 全仓 `npm run test`：30 包全绿（exit 0；background-daemon 165 / TUI 1679 等）。
+- 真机（待用户重启确认，按「D3 标题 adapter 优先」）：① 标题仍能生成（session-title-adapters 最可能出问题，失败则补 `llm.registerAdapter` 最小改）；② 会话 / 模型请求可用；③ `daemon_task` / 自建链路启动仪式正常；④ 无 `sandbox-unavailable` / `ERR_MODULE_NOT_FOUND` / activation 失败。
 
 ## 收尾
 

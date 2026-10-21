@@ -1,14 +1,14 @@
-# 本仓插件与官方包的复用审计（基线 DSH 0.2.0-rc.2）
+# 本仓插件与官方包的复用审计（基线 DSH 0.2.1-rc.2）
 
 > 职责：回答「本仓 29 个模块（TUI + 28 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（已审计 29 个全量：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）
-> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
+> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.0-rc.2`（安装树 277 个 `dsh-*`；fff 已挂 102 个官方行，2026-10-02 实测）；本仓 29 个模块 = TUI + 28 个插件（清单见 `AGENTS.md`「结构与约定」）。
+> 口径：官方基线 `dsh 0.2.1-rc.2`（安装树 294 个 `dsh-*`；fff 活跃挂载 100 个官方行，2026-10-21 实测）；本仓 29 个模块 = TUI + 28 个插件（清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
 > 结论分布：**改用 0 / 保留 21 / 并存 8**（总表 29 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
-> 2026-10-20 重审（条目 2，主会话）：29 模块全量入表，7 个缺审包补齐；§4 的 B 已执行、D / E / FTS5 观察项明示关闭（见 §4）；基线维持 `0.2.0-rc.2`（升级裁定并入条目 2 绑定任务，若升级至 `0.2.1-rc.2` 需回查 §0 中「是否受 0.2.1 新面影响」标注行）。
+> 2026-10-20 重审（条目 2，主会话）：29 模块全量入表，7 个缺审包补齐；§4 的 B 已执行、D / E / FTS5 观察项明示关闭（见 §4）；基线于 **2026-10-21 升至 `0.2.1-rc.2`**（追踪文档 `docs/archived/2026-10-21-host-upgrade-0.2.1-rc.2.md`，全局安装 + HOST-PACKAGES 重生成）；§0 回查完成：总表口径更新（安装树 294 / 挂载 100），`background-daemon` 行注记保留（官方 `schedule` 未挂、自动化 #12 与自建链路职责不叠加）。
 
 ## 0. 结论总表
 

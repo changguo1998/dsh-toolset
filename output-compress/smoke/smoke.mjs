@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * output-compress 宿主联调 smoke（profile: dsh-toolset-output-compress，对齐 DSH 0.2.0-rc.2）。
+ * output-compress 宿主联调 smoke（profile: dsh-toolset-output-compress，对齐 DSH 0.2.1-rc.2）。
  *
  * 流程：
  *   0. 环境自检：宿主 dsh 版本、模型网关（tollgate，缺省本机 `http://127.0.0.1:8787/v1`；
@@ -48,7 +48,7 @@ const PROFILE = "dsh-toolset-output-compress";
 const PKG_NAME_OC = "@dsh-toolset/output-compress";
 const PKG_NAME_KB = "@dsh-toolset/memory-base";
 const PKG_NAME_SP = "@dsh-toolset/session-paths";
-const REQUIRED_VERSION = "0.2.0-rc.2";
+const REQUIRED_VERSION = "0.2.1-rc.2";
 const DIGEST_APP_ID = 0x44494745; // output-compress digest-db.ts 'DIGE'
 const MARKER = "ERROR output-compress-smoke-marker unique-token-42";
 const MARKER_LINE = 1402;
