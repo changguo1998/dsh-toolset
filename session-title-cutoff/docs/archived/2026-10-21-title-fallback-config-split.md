@@ -1,6 +1,6 @@
 # 0.2.1 宿主下标题生成仍落 fallback（接取条目：`session-title-cutoff/docs/BACKLOG.md`「0.2.1 宿主下标题生成真机仍落 fallback（provider 已注册但 `generate` 无产出）」）
 
-状态：规划　　开启：2026-10-21　　关闭：待定
+状态：已关闭　　开启：2026-10-21　　关闭：2026-10-21
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -113,7 +113,7 @@
 - `session-title-cutoff/tests/main.test.ts`（严格替身 + 回归与契约用例）
 - `session-title-cutoff/README.md`（配置表与依赖姿态两句同步）
 - `session-title-cutoff/docs/BACKLOG.md`（条目状态：进行中 → 完成）
-- `session-title-cutoff/docs/implementation/2026-10-21-title-fallback-config-split.md`（本文件）
+- `session-title-cutoff/docs/archived/2026-10-21-title-fallback-config-split.md`（本文件，收尾时由 `docs/implementation/` 归档）
 
 ## 测试要点
 
@@ -154,7 +154,7 @@
 
 ## 偏差
 
-1. **未改 `docs/BACKLOG.md`**：任务约束 9 把条目状态（进行中 → 完成）与收尾留到主分支合并后，故本分支未动；计划清单里的该项由主分支处理，条目当前仍是「进行中」；文首状态行（「状态：规划」）同属收尾范围，也未改。
+1. **实现期未改 `docs/BACKLOG.md`**：任务约束 9 把条目状态（进行中 → 完成）与收尾留到主分支合并后，故实现分支未动；收尾提交已把条目移出、留关闭注记，并把文首状态行改为「已关闭」。
 2. **`isUsableTitleLlmHelper` 是计划外新增的导出**：计划只写「加载守卫只认 `executeSessionTitleLlm`」；为让测试注入的旧形态 helper 也走同一判定（而非只在 `loadTitleLlmHelper` 内判断），把守卫提成纯函数并在两处复用。
 3. **logger 回落条件细化**：决策 6 写「不可用时回落 stderr」；实现把「logger 自身 `warn` 抛错」也纳入回落（否则告警会连带让 `apply` 抛出），并加用例钉住。
 4. **`EXECUTION_CONFIG_KEYS` 为新增导出**：让执行键白名单只有一处定义、便于测试与诊断核对；计划只点名 `executionConfigOf`。
@@ -294,4 +294,13 @@ profile 同款配置 registered=true warns=0
 
 ## 收尾
 
-（待：条目标完成、BACKLOG 清理、追踪文档归档、README 回写、真机复验结论）
+- **条目完成并移出**：`docs/BACKLOG.md` 的条目已移出（只留 2026-10-21 关闭注记），文首状态改为「已关闭」。
+- **合并**：`dsh/session-title-fix`（`b8cbfaf` 修复 + `100ed66` 文档）已合并，合并提交 `15806bc`；真机验证在合并后的新实例上执行。
+- **测试**：包内 `check` / `build` 通过，`npm test` 16 例全绿（原 11 例；新增严格键面替身、旧形态不可用、措辞非法、logger 回落、真实 helper 契约），真实 helper 为 0.2.1-rc.2。
+- **真机结论（3 项通过）**：
+  - 自动标题生成：`session/title` 的 `source.kind=provider`，`provider=session-title-cutoff`（不再 fallback）。
+  - `session/title-llm-request` 事件带 `titleProvider` 与 `route={provider:"tollgate",model:"ds4f"}`。
+  - `/rename` 后新增 `source.kind=user` 的标题（手动 pin 语义保持）。
+- **真机未验证（1 项）**：restart 后标题保留 —— `/restart` 提示「重启不可用：需由启动器启动（未设置 `DSH_RESTART_FILE`）」，本环境无法触发；留待后续按需由启动器重启确认（不影响本条目关闭：核心链路与事件已实证）。
+- **已知边界**：只支持 0.2.1 起的 `executeSessionTitleLlm` 形态；回退 0.2.0 宿主须一并回退本包（旧 `generate` 形态 helper 视为不可用，告警且不注册）。标题字节上限交宿主 `maxTitleBytes`（本包传 `Number.MAX_SAFE_INTEGER`）。
+- **文档**：README 配置表与「宿主依赖姿态」已在 `100ed66` 同步（措辞两键本包自用、只交执行控制键、只认 execute 形态），收尾无需再改。
