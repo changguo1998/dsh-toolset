@@ -2,12 +2,15 @@
  * src/types.ts — herdr-pane 的共享类型面
  *
  * 本包把 herdr 的 pane 当**可控伪终端层**：建 pane / 注入文本与按键 / 取屏 / 等输出 /
- * 进程探活 / 关闭（十个动作，动作名与 tmux 条目约定最小共性）。通道口径：CLI 为主，
+ * 进程探活 / 关闭，另加 tab 层三动作（建 / 列 / 关）。通道口径：CLI 为主，
  * 仅 `read` 与 `wait` 的 stable 模式走 unix socket（socket 的 `pane.read` 独有
- * `revision` / `truncated`，见设计文档决策项 1）。
+ * `revision` / `truncated`）。
+ *
+ * **workspace 不出工具面**：模型看不到、也传不进 workspace id / 名字；会话 ↔ workspace 的
+ * 绑定由插件内部维持（`src/workspace.ts`），全部写操作落在该 workspace 内。
  */
 
-/** 十个动作（`herdr_pane` 的 `action` 取值）。 */
+/** 十三个动作（`herdr_pane` 的 `action` 取值）。 */
 export type HerdrPaneAction =
   | "create"
   | "list"
@@ -18,7 +21,10 @@ export type HerdrPaneAction =
   | "run"
   | "label"
   | "info"
-  | "close";
+  | "close"
+  | "tab_create"
+  | "tab_list"
+  | "tab_close";
 
 /** 全部动作名（错误回执里列举用；顺序与工具描述一致）。 */
 export const PANE_ACTIONS: readonly HerdrPaneAction[] = [
@@ -32,6 +38,9 @@ export const PANE_ACTIONS: readonly HerdrPaneAction[] = [
   "label",
   "info",
   "close",
+  "tab_create",
+  "tab_list",
+  "tab_close",
 ];
 
 /** 取屏来源（CLI 的连字符写法；socket 报文的 `recent_unwrapped` 由 socket 层映射）。 */
@@ -146,18 +155,64 @@ function positiveInt(value: unknown, fallback: number): number {
     : fallback;
 }
 
-/** herdr 环境握手结果（三变量齐备才返回）。 */
+/**
+ * herdr 可用性握手结果：**二进制可解析即返回**。
+ *
+ * `HERDR_*` 全部可选——dsh 不一定跑在 herdr 管理的 pane 里（tmux / 普通终端均可）：
+ * 这些变量在 herdr 内时用作护栏上下文（不读调用者自己的 pane、不关调用者所在 tab），
+ * 不在时全部省略。服务端可达性由 `probeHerdrServerSync` 另行探活（`main.ts` 决定是否注册）。
+ */
 export interface HerdrHandshake {
-  /** socket 路径（`HERDR_SOCKET_PATH`）。 */
-  socketPath: string;
-  /** 调用者所在 pane id（`HERDR_PANE_ID`；只用于 `create` 的 `--current` 与同 pane 护栏）。 */
-  callerPaneId: string;
-  /** 二进制路径（显式配置 > `HERDR_BIN_PATH` > PATH；解析不到为 undefined）。 */
-  binPath?: string;
+  /** 二进制路径（显式配置 > `HERDR_BIN_PATH` > PATH）。 */
+  binPath: string;
+  /** socket 路径（`HERDR_SOCKET_PATH`；缺省由 CLI / 探活 / 平台约定解析）。 */
+  socketPath?: string;
+  /** 调用者所在 pane id（`HERDR_PANE_ID`；同 pane 读护栏用）。 */
+  callerPaneId?: string;
+  /** 调用者所在 tab id（`HERDR_TAB_ID`；拒关调用者 tab 的防御性护栏）。 */
+  callerTabId?: string;
+  /** 调用者所在 workspace id（`HERDR_WORKSPACE_ID`；只记日志，不参与判定）。 */
+  callerWorkspaceId?: string;
 }
 
 /** 目标 pane 的归属判定结果。 */
 export type PaneOwnership = "registered" | "foreign";
+
+/**
+ * 会话 ↔ herdr workspace 的绑定（进程内缓存；一个 dsh 进程只绑一个）。
+ *
+ * 首次需要时按 label 精确匹配复用、没有才新建；label =
+ * `<会话 cwd 目录名>/<会话 id 末 8 位>`，故同一会话在 dsh 重启后仍能找回。
+ * 用户手工改名会导致下次新建（已知边界）。
+ */
+export interface WorkspaceBinding {
+  /** 触发绑定的会话 id（子会话沿用同一 workspace，不回写这里）。 */
+  sessionId: string;
+  /** herdr workspace id（**不出工具面**）。 */
+  workspaceId: string;
+  /** 约定 label（`<目录名>/<会话 id 短标记>`）。 */
+  label: string;
+  /** 会话工作目录（`workspace create --cwd` 与 `create` / `tab_create` 的缺省 cwd）。 */
+  cwd: string;
+  /** 建 workspace 时返回的 root pane（复用历史 workspace 时未知）。 */
+  rootPaneId?: string;
+  /** 绑定时间（epoch ms）。 */
+  createdAt: number;
+}
+
+/** 本插件用 `tab_create` 建出并登记的 tab（`tab_close` 只认这些）。 */
+export interface TabRecord {
+  /** tab id（`tab create` 返回的 `.result.tab.tab_id`）。 */
+  tabId: string;
+  /** 所属 workspace（跨 workspace 的 tab 一律拒）。 */
+  workspaceId: string;
+  /** 创建时打的归属标记。 */
+  label: string;
+  /** 该 tab 的 root pane（`tab create` 返回的 `.result.root_pane.pane_id`；缺失为 undefined）。 */
+  rootPaneId?: string;
+  /** 创建时间（epoch ms）。 */
+  createdAt: number;
+}
 
 /**
  * 错误码（herdr 错误信封的 `code` 原样透传，本包自有的码见下）。
@@ -170,6 +225,10 @@ export type HerdrErrorCode =
   | "unknown-action"
   | "pane-required"
   | "pane-not-registered"
+  | "tab-required"
+  | "tab-not-registered"
+  | "session-unavailable"
+  | "workspace-unavailable"
   | "foreign-pane"
   | "guard-denied"
   | "approval-denied"

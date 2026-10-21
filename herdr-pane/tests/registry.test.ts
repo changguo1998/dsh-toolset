@@ -15,7 +15,10 @@ import {
   createExitCleanup,
   renameArgs,
   runPaneCommand,
+  tabCloseArgs,
+  workspaceCloseArgs,
 } from "../src/registry.ts";
+import type { SyncRunResult } from "../src/cli.ts";
 import { resolveConfig } from "../src/types.ts";
 import { fakeRunner, okEnvelope } from "./helpers.ts";
 
@@ -66,6 +69,46 @@ test("PaneRegistry: 同 pane 串行、不同 pane 并行、失败不阻塞后续
   await assert.rejects(failing);
   await after;
   assert.deepEqual(order.slice(4), ["start:c", "end:c", "start:d", "end:d"]);
+});
+
+test("PaneRegistry: workspace 绑定与 tab 登记 / 注销 / 按 root pane 反查", () => {
+  const registry = new PaneRegistry("dsh-pane");
+  assert.equal(registry.workspaceBinding, undefined);
+  const binding = {
+    sessionId: "s1",
+    workspaceId: "wT1",
+    label: "proj/s1",
+    cwd: "/tmp/proj",
+    createdAt: 1,
+  };
+  registry.setWorkspaceBinding(binding);
+  assert.deepEqual(registry.workspaceBinding, binding);
+
+  registry.registerTab({ tabId: "wT1:t2", workspaceId: "wT1", label: "tab" });
+  assert.equal(registry.tabs.length, 1);
+  assert.equal(registry.tab("wT1:t2")?.label, "tab");
+  assert.equal(registry.tab("wT1:t2")?.rootPaneId, undefined);
+
+  registry.registerTab({
+    tabId: "wT1:t3",
+    workspaceId: "wT1",
+    rootPaneId: "wT1:p9",
+  });
+  assert.equal(registry.unregisterTabByRootPane("wT1:p9")?.tabId, "wT1:t3");
+  assert.equal(registry.tab("wT1:t3"), undefined);
+  assert.equal(registry.unregisterTabByRootPane("wT1:p9"), undefined);
+
+  registry.unregisterTab("wT1:t2");
+  assert.deepEqual(registry.tabs, []);
+  registry.setWorkspaceBinding(binding);
+  registry.clear();
+  assert.equal(registry.workspaceBinding, undefined);
+  assert.deepEqual(registry.tabs, []);
+});
+
+test("tabCloseArgs / workspaceCloseArgs: 关闭 argv 只有一处写法", () => {
+  assert.deepEqual(tabCloseArgs("wT1:t2"), ["tab", "close", "wT1:t2"]);
+  assert.deepEqual(workspaceCloseArgs("wT1"), ["workspace", "close", "wT1"]);
 });
 
 test("closeArgs / renameArgs: 异步关闭与 label 共用同一套 argv（避免两处漂移）", () => {
@@ -131,4 +174,110 @@ test("runPaneCommand: 薄包装把 argv 与超时原样交给 runner", async () 
   assert.equal(result.exitCode, 0);
   assert.deepEqual(runner.calls[0], ["pane", "list"]);
   assert.deepEqual(runner.timeouts[0], 1234);
+});
+
+/** 记录型同步执行面（不真起子进程）。 */
+function fakeSync(handler: (args: string[]) => SyncRunResult) {
+  const calls: string[][] = [];
+  return {
+    calls,
+    runSync: (args: string[]): SyncRunResult => {
+      calls.push([...args]);
+      return handler(args);
+    },
+  };
+}
+
+/** 同步成功（带 result）。 */
+function syncOk(result: Record<string, unknown> = {}): SyncRunResult {
+  return {
+    stdout: JSON.stringify({ id: "sync:test", result }),
+    stderr: "",
+    status: 0,
+  };
+}
+
+test("createExitCleanup: workspace 内 pane 全关掉后内部关 workspace（决策项 9a）", () => {
+  const config = resolveConfig({});
+  const registry = new PaneRegistry(config.label);
+  registry.setWorkspaceBinding({
+    sessionId: "s1",
+    workspaceId: "wT1",
+    label: "proj/s1",
+    cwd: "/tmp/proj",
+    createdAt: 1,
+  });
+  registry.register({ paneId: "wT1:p1" });
+  registry.registerTab({
+    tabId: "wT1:t2",
+    workspaceId: "wT1",
+    rootPaneId: "wT1:p2",
+  });
+  registry.register({ paneId: "wT1:p2" });
+  const sync = fakeSync((args) => {
+    if (args[1] === "list") return syncOk({ type: "pane_list", panes: [] });
+    return syncOk({ type: "ok" });
+  });
+  const cleanup = createExitCleanup("/fake/herdr", registry, config, {
+    runSync: sync.runSync,
+  });
+  const entries = cleanup.closeAllSync();
+  assert.deepEqual(entries, [
+    { paneId: "wT1:p1", attempted: true },
+    { paneId: "wT1:p2", attempted: true },
+  ]);
+  assert.deepEqual(sync.calls, [
+    ["pane", "close", "wT1:p1"],
+    ["pane", "close", "wT1:p2"],
+    ["pane", "list", "--workspace", "wT1"],
+    ["workspace", "close", "wT1"],
+  ]);
+  assert.equal(registry.workspaceBinding, undefined, "清理后绑定清空");
+});
+
+test("createExitCleanup: workspace 里还有别人的 pane / 列不出来时不动 workspace", () => {
+  const config = resolveConfig({});
+  const setup = (): PaneRegistry => {
+    const registry = new PaneRegistry(config.label);
+    registry.setWorkspaceBinding({
+      sessionId: "s1",
+      workspaceId: "wT1",
+      label: "proj/s1",
+      cwd: "/tmp/proj",
+      createdAt: 1,
+    });
+    registry.register({ paneId: "wT1:p1" });
+    return registry;
+  };
+
+  const withUserPane = setup();
+  const sync = fakeSync((args) =>
+    args[1] === "list"
+      ? syncOk({
+          type: "pane_list",
+          panes: [{ pane_id: "wT1:p9", workspace_id: "wT1" }],
+        })
+      : syncOk({}),
+  );
+  createExitCleanup("/fake/herdr", withUserPane, config, {
+    runSync: sync.runSync,
+  }).closeAllSync();
+  assert.equal(
+    sync.calls.some((args) => args[0] === "workspace"),
+    false,
+    "还有用户 pane 时不能关 workspace",
+  );
+
+  const listFails = setup();
+  const failing = fakeSync((args) =>
+    args[1] === "list" ? { stdout: "", stderr: "boom", status: 1 } : syncOk({}),
+  );
+  createExitCleanup("/fake/herdr", listFails, config, {
+    runSync: failing.runSync,
+  }).closeAllSync();
+  assert.equal(
+    failing.calls.some((args) => args[0] === "workspace"),
+    false,
+    "核对不了就不动 workspace（宁可留空壳也不误伤）",
+  );
 });

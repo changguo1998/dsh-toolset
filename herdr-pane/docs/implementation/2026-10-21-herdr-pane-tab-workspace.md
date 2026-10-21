@@ -1,6 +1,6 @@
 # herdr 工具面添加 tab / workspace 操作（接取条目：`herdr-pane/docs/BACKLOG.md`「herdr 工具面添加 tab / workspace 操作」）
 
-状态：规划　　开启：2026-10-21　　关闭：待定
+状态：实现完成（待关闭确认）　　开启：2026-10-21　　关闭：待用户确认后归档
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 > 2026-10-21 第二次改向（用户裁定）：**取消「组」概念，只保留会话 ↔ workspace 的对应，且由插件内部保证、模型接触不到 workspace 面**。本文档已按此重写决策与规划；被取代的决策保留原文并划掉。
@@ -156,16 +156,101 @@
 
 ## 实现记录
 
-（待开工）
+（2026-10-21 实现，分支 `dsh/herdr-pane-tab`；按「规划 / 计划改动文件清单」逐项落地。）
+
+01. **会话绑定**（新模块 `src/workspace.ts`）：`readSessionContext` 从宿主 `exec.agent.session` 读 `id` 与
+    `header.cwd`（另收 `meta.cwd` / `cwd` / 直接传 session 三种形态；cwd 缺失回退 `process.cwd()`）；
+    `shortSessionId` 取 id 末 8 位并滤非法字符；`workspaceLabel` = `<cwd 目录名>/<短标记>`（空白 / 斜杠归一
+    为 `-`，截 80 字符）；`ensureWorkspace` 先查进程内缓存，再 `workspace list` 按 label 精确匹配复用，
+    没有才 `workspace create --cwd <会话 cwd> --label <label> --no-focus`，并把建出的 root pane 登记为
+    本插件 pane；`activePaneOf` 用 `workspace list` 的 `active_tab_id` + `pane list --workspace` 对齐，
+    同 tab 内优先焦点 pane。失败一律返回 `workspace-unavailable` + 可操作提示，不抛错。
+02. **工具入参面**：`HerdrPaneToolDef.execute(args, exec?)` → `dispatchAction(action, args, deps, exec?)`；
+    `DispatchDeps` 增 `resolveSession`（缺省 `readSessionContext`，单测 / 真机脚本可注入固定会话）与
+    `callerTabId`；`callerPaneId` 改为可选（不在 herdr 内时没有调用者上下文）。
+03. **动作实现**：新增 `tab_create` / `tab_list` / `tab_close` 三个 handler（argv 走 CLI、回执走信封、
+    登记 / 注销齐全）；`create` 改为 `pane split <本 workspace 活动 pane> --direction … --cwd <会话 cwd> --no-focus`（不再 `--current`）；`list` 去掉 `--workspace` 过滤与回执里的 `workspace_id`（决策项 6：
+    模型看不到也传不进 workspace 面）；工具面动作枚举 10 → 13。
+04. **登记表**（`src/registry.ts`）：`WorkspaceBinding` 单例缓存（`workspaceBinding` / `setWorkspaceBinding`）、
+    `TabRecord` 登记面（`tabs` / `tab` / `registerTab` / `unregisterTab` / `unregisterTabByRootPane`）；
+    `close` 掉 tab 的 root pane 时同步注销该 tab；`clear()` 连绑定与 tab 一起清；新增 `tabCloseArgs` /
+    `workspaceCloseArgs`（argv 同源）。
+05. **门禁**（`src/policy.ts` + `main.ts` 的 `tools/pre-execute`）：`tab_close` 计入审批集合（`needsApproval`）
+    与沙箱写集合（`isSandboxWrite` / `SANDBOX_WRITE_ACTIONS`）；pre-execute 网关按 `tab_id` 解析登记与
+    workspace 归属——跨本会话 workspace 一律 `deny`、调用者所在 tab（`HERDR_TAB_ID`）`deny`、未登记 tab
+    按 `foreign` 档 `ask`（动作层再给 `tab-not-registered` + 放行方式）；缺 `tab_id` 放行交动作层。
+    沙箱拒绝文案按目标类型给「目标 pane / 目标 tab」。
+06. **生命周期**：`createExitCleanup` 关完登记 pane 后，对本会话 workspace 做一次 `pane list --workspace`；
+    列表为空（说明里面的 pane 全是本插件的且已关闭）才内部 `workspace close`，列不出来或还有别人的 pane
+    就不动（宁可留空壳也不误伤）。同步执行面抽成可注入的 `SyncRunner`，单测据此断言 argv。
+07. **可用性判定**（`src/cli.ts` + `src/main.ts`）：`readHerdrHandshake` 改为「二进制可解析即握手」，
+    `HERDR_ENV` 不再参与，`HERDR_SOCKET_PATH` / `HERDR_PANE_ID` / `HERDR_TAB_ID` / `HERDR_WORKSPACE_ID`
+    全部可选；新增 `probeHerdrServerSync`（`herdr status --json` → `server.status === "running"`，顺便带回
+    `server.socket`；探活超时按 3s 封顶）；socket 路径顺序 = `HERDR_SOCKET_PATH` → 探活 socket →
+    `$XDG_CONFIG_HOME/herdr/herdr.sock`（`defaultHerdrSocketPath`）。探活失败 / 抛错只记一行日志、不注册。
+08. **测试**：新增 `tests/workspace.test.ts`；`tests/helpers.ts` 增有状态 `fakeHerdr`（workspace / tab / pane
+    三层按真机信封回）+ `fakeExec` / `fakeSession`；`actions` / `registry` / `policy` / `main` / `tool` /
+    `cli` / `socket` 全部按新口径更新与补例。
+09. **真机脚本**（`scripts/verify-herdr-pane.mjs`）：注入合成会话（`--session-id` / `--cwd`），用 CLI 只读
+    核对 create 落点；新增 `--with-tab`（tab_create → tab_list → run → wait → read → tab_close）、
+    `--check-cascade`（关掉 workspace 最后一个 pane 后看 workspace 是否还在）；开跑前按 label 报「复用 /
+    新建」。修掉 `--keep` 的旧缺陷（原来 dispose 仍会按 `closeOnExit` 关掉现场，现在保留时置 false）。
+10. **文档**：`README.md` 能力表 / `create` 行为差异 / 归属与生命周期 / 降级口径 / 安全边界 / 库面 /
+    测试与验证 / 已知边界全部按 13 动作与「workspace 内部绑定」重写。
 
 ## 偏差
 
-（待记录）
+01. **探活用 `herdr status --json` 而不是 `tab list`**：决策项 10 允许二者其一；status 同时给出
+    `server.socket`（自定义 socket 部署不必再猜路径），且是纯本地只读查询，故取它。
+02. **探活超时按 3s 封顶**（`min(timeoutMs, 3000)`）：`apply` 是同步调用，不能把宿主启动拖到 10s。
+03. **`tab_create` 取不到 `root_pane` 时仍登记 tab**：设计只写「回执缺 root_pane 的失败」；实现按失败返回，
+    但先把 tab 记进登记表（`rootPaneId` 可选），使模型还能用 `tab_close` 收尾——否则会漏一个无人认领的 tab。
+04. **`create` 回执新增 `split_from`**：模型排障要知道切的是哪个 pane（回执仍不含 workspace 面）。
+05. **退出清理的 workspace 判定用「关闭后 pane list 为空」**：等价于「workspace 内全部 pane 都是本插件的且
+    已关闭」，但少一次前置列举；列不出来（服务端已退）时不动 workspace。
+06. **未登记 tab 在审批门走 `ask` 而不是 `deny`**：沿用既有口径「审批门只决定要不要打断人，归属拒绝由动作层
+    给结构化回执 + 放行方式」；跨 workspace 与调用者 tab 是硬拒，不回退到审批。
+07. **`list` 回执不再带 `workspace_id`**：决策项 6 的「模型看不到 workspace id / 名字」按严格口径落；
+    排障改用 `herdr workspace list` 与 label 约定。
+08. **pre-execute 的 `session` 未参与 tab 判定**：绑定是进程内单例（决策项 7 的「子会话沿用同一 workspace」），
+    故跨 workspace 判定只看登记表与绑定，不依赖会话对象；tab 动作的会话缺失只在动作层判
+    （`tab_close` 不需要会话）。
+09. **`--keep` 语义修复**（真机脚本，计划外的小修）：旧脚本打印「保留 pane」后仍会在 `dispose()` 里按
+    `closeOnExit` 关掉它；现在保留时把 `closeOnExit` 置 false，让开关与行为一致。
+10. **BACKLOG 条目未移出、追踪文档未归档**：按仓库流程，这两步属「任务关闭」环节（需用户确认），留给主会话。
 
 ## 测试与证据
 
-（待记录）
+```text
+$ npm --prefix herdr-pane run check
+> tsc -p tsconfig.json --noEmit
+（无输出，exit 0）
+
+$ npm --prefix herdr-pane run test
+ℹ tests 152
+ℹ pass 152
+ℹ fail 0
+（九个用例文件：cli / socket / net / actions / registry / workspace / policy / main / tool）
+
+$ npm --prefix herdr-pane run build
+> tsc -p tsconfig.json
+（无输出，exit 0）
+```
+
+真机验证（`scripts/verify-herdr-pane.mjs` 的 `--with-tab` / `--check-cascade` / `--session-id` 路径）
+按任务要求**未跑**（会改用户 herdr 布局），留给主分支人工跑。已做的真机只读核对：`herdr status --json`
+（探活返回 `{ok:true, socketPath:"/home/guochang/.config/herdr/herdr.sock"}`）、`herdr workspace list` /
+`tab list` / `pane list` 的回执形状（与调研 02 一致）、`herdr tab create --help` / `pane split --help`
+/`workspace create --help` 的参数面。
+
+未验证项（等真机脚本跑一次）：
+
+- `workspace create --label '<目录名>/<短标记>'` 含斜杠时是否被服务端接受（label 无公开约束，按设计取此格式）；
+- `tab create` 回执的 `.result.tab` / `.result.root_pane` 与 `workspace create` 的 `.result.root_pane`
+  是否与官方 skill 描述逐字段一致（单测按该形状模拟）；
+- 关掉 workspace 里最后一个 pane 时 tab / workspace 是否级联关闭（`--check-cascade` 观测）；
+- 退出清理后 workspace 是否被内部关闭、用户已开的 pane 是否被正确保留。
 
 ## 收尾
 
-（待记录）
+待用户确认后：BACKLOG 条目移出、本文件移入 `docs/archived/`、STATUS 由用户择时更新。

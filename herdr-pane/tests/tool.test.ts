@@ -21,9 +21,10 @@ import type { DispatchDeps } from "../src/actions.ts";
 import { resolveConfig, failure, success } from "../src/types.ts";
 import {
   fakeClock,
+  fakeHerdr,
   fakeReader,
   fakeRunner,
-  okEnvelope,
+  fakeSession,
   readOk,
 } from "./helpers.ts";
 
@@ -47,12 +48,13 @@ function tool(
     reader: options.reader ?? fakeReader([readOk("x")]),
     registry,
     callerPaneId: "wT1:p1",
+    resolveSession: () => fakeSession,
     clock: fakeClock(),
   };
   return { def: createHerdrPaneTool(deps), deps, registry, config };
 }
 
-test("工具定义: 名称、必填 action、十动作枚举与关键参数类型", () => {
+test("工具定义: 名称、必填 action、十三动作枚举与关键参数类型", () => {
   const { def } = tool();
   assert.equal(def.name, TOOL_NAME);
   assert.equal(def.name, "herdr_pane");
@@ -72,7 +74,18 @@ test("工具定义: 名称、必填 action、十动作枚举与关键参数类�
     "label",
     "info",
     "close",
+    "tab_create",
+    "tab_list",
+    "tab_close",
   ]);
+  // workspace 面整体不出现（没有 workspace 动作，也没有 workspace 参数）
+  const actions = properties.action?.enum as string[];
+  assert.equal(
+    actions.some((action) => action.includes("workspace")),
+    false,
+  );
+  assert.equal("workspace" in properties, false);
+  assert.equal(properties.tab_id?.type, "string");
   assert.deepEqual(properties.direction?.enum, ["right", "down"]);
   assert.deepEqual(properties.source?.enum, [
     "visible",
@@ -93,6 +106,16 @@ test("工具定义: 名称、必填 action、十动作枚举与关键参数类�
   assert.match(def.description, /不带.*文件沙箱|不受.*沙箱约束/);
   assert.match(def.description, /socket/);
   assert.match(def.description, /revision/);
+  // workspace 由插件内部绑定，模型看不到也传不进
+  assert.match(def.description, /workspace 由插件内部按会话绑定/);
+  assert.match(def.description, /写操作不出这个内部 workspace/);
+  // create 的落点写明是 workspace 活动 pane（不是调用者 pane）
+  assert.match(
+    def.description,
+    /create 在本会话 workspace 的活动 pane 上切兄弟 pane/,
+  );
+  assert.match(def.description, /tab_create/);
+  assert.match(def.description, /tab_close/);
 });
 
 test("工具 execute: 缺 action 返回 unknown-action 并列出可选动作", async () => {
@@ -106,23 +129,25 @@ test("工具 execute: 缺 action 返回 unknown-action 并列出可选动作", a
   );
 });
 
-test("工具 execute: 合法 action 交给 dispatchAction（create 走 runner）", async () => {
-  const runner = fakeRunner((args) =>
-    args[1] === "split"
-      ? okEnvelope({ pane: { pane_id: "wT1:p2" } })
-      : okEnvelope({}),
-  );
-  const { def } = tool({ runner });
+test("工具 execute: 合法 action 交给 dispatchAction（create 走 runner，落点是 workspace 活动 pane）", async () => {
+  const fake = fakeHerdr();
+  const { def } = tool({ runner: fake.runner });
   const result = await def.execute({ action: "create", direction: "right" });
   assert.equal(result.ok, true);
-  assert.deepEqual(runner.calls[0], [
-    "pane",
-    "split",
-    "--current",
-    "--direction",
-    "right",
-    "--no-focus",
-  ]);
+  assert.deepEqual(fake.runner.calls[0]?.[0], "workspace");
+  assert.deepEqual(
+    fake.runner.calls.find((args) => args[1] === "split"),
+    [
+      "pane",
+      "split",
+      "wT1:p1",
+      "--direction",
+      "right",
+      "--cwd",
+      "/tmp/proj",
+      "--no-focus",
+    ],
+  );
 });
 
 test("render: 失败回执含失败动作、错误码、错误信息与放行提示", () => {
@@ -246,6 +271,57 @@ test("render: info 无前台进程时明确说明（pane 停在 shell 提示符�
     }),
   );
   assert.match(idle, /无前台进程/);
+});
+
+test("render: tab_list / tab_create / tab_close 各自要点明结果与登记标记", () => {
+  const listed = renderHerdrPane(
+    success("tab_list", {
+      tabs: [
+        {
+          tab_id: "wT1:t1",
+          label: "1",
+          number: 1,
+          pane_count: 1,
+          agent_status: "idle",
+          focused: true,
+          registered: false,
+        },
+        {
+          tab_id: "wT1:t2",
+          label: "dsh-pane",
+          number: 2,
+          pane_count: 2,
+          registered: true,
+        },
+      ],
+      registered: ["wT1:t2"],
+    }),
+  );
+  assert.match(listed, /herdr_pane tab_list：本会话 workspace 有 2 个 tab/);
+  assert.match(listed, /\[本插件\] wT1:t2 number=2 label=dsh-pane panes=2/);
+  assert.match(listed, /本插件登记：wT1:t2/);
+
+  const created = renderHerdrPane(
+    success("tab_create", {
+      tab_id: "wT1:t2",
+      pane_id: "wT1:p2",
+      label: "dsh-pane",
+      cwd: "/tmp/proj",
+    }),
+  );
+  assert.match(
+    created,
+    /已建 tab wT1:t2（pane=wT1:p2，label=dsh-pane，cwd=\/tmp\/proj）/,
+  );
+
+  const closed = renderHerdrPane(
+    success("tab_close", { tab_id: "wT1:t2", pane_id: "wT1:p2" }),
+  );
+  assert.match(closed, /已关闭 tab wT1:t2（root pane wT1:p2 登记项已注销）/);
+  assert.match(
+    renderHerdrPane(success("tab_close", { tab_id: "wT1:t2", pane_id: null })),
+    /已关闭 tab wT1:t2（登记项已注销）/,
+  );
 });
 
 test("render: create / send_text / send_keys / run / label / close 各自要点明结果", () => {

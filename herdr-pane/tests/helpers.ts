@@ -17,6 +17,7 @@ import type {
 import { PaneRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
 import type { HerdrPaneConfig, ResolvedConfig } from "../src/types.ts";
+import type { SessionContext } from "../src/workspace.ts";
 
 /** 记录型 fake runner：按调用顺序记录 argv，按注入的响应序列返回。 */
 export interface FakeRunner extends HerdrRunner {
@@ -213,3 +214,244 @@ export function setup(config: HerdrPaneConfig = {}): {
 
 /** 不产出命令文本的 guard 检查器（缺省注入用；等价于「guard 缺失、fail-open」）。 */
 export const passGuard = (): { outcome: "pass" } => ({ outcome: "pass" });
+
+/** 单测会话（label 会算成 `proj/abcd1234`）。 */
+export const fakeSession: SessionContext = {
+  id: "session-abcd1234",
+  cwd: "/tmp/proj",
+};
+
+/** 宿主执行上下文的最小形态（`exec.agent.session`，session 的 cwd 在 header 里）。 */
+export function fakeExec(session: SessionContext = fakeSession): {
+  agent: { session: { id: string; header: { cwd: string } } };
+} {
+  return {
+    agent: { session: { id: session.id, header: { cwd: session.cwd } } },
+  };
+}
+
+/** 假 herdr 服务端状态（workspace / tab / pane 三层，够本包的 argv 面用）。 */
+export interface FakeHerdrState {
+  workspaces: Array<Record<string, unknown>>;
+  tabs: Array<Record<string, unknown>>;
+  panes: Array<Record<string, unknown>>;
+  /** 自增序号（生成新 id）。 */
+  seq: number;
+}
+
+/** 假 herdr 服务端的构造入参。 */
+export interface FakeHerdrOptions {
+  workspaces?: Array<Record<string, unknown>>;
+  tabs?: Array<Record<string, unknown>>;
+  panes?: Array<Record<string, unknown>>;
+  /** `pane layout` 返回的宽高（缺省 160x40，即向右切）。 */
+  layout?: { width: number; height: number };
+  /** 先于内建处理的自定义响应（返回 undefined 表示交给内建逻辑）。 */
+  override?: (
+    args: string[],
+    state: FakeHerdrState,
+  ) => CliRunResult | undefined;
+}
+
+/** 假 herdr 服务端（记录 argv；workspace / tab / pane 的增删查都按真机信封形状回）。 */
+export function fakeHerdr(options: FakeHerdrOptions = {}): {
+  runner: FakeRunner;
+  state: FakeHerdrState;
+} {
+  const state: FakeHerdrState = {
+    workspaces: [...(options.workspaces ?? [])],
+    tabs: [...(options.tabs ?? [])],
+    panes: [...(options.panes ?? [])],
+    seq: 0,
+  };
+  const next = (): number => {
+    state.seq += 1;
+    return state.seq;
+  };
+  const flagValue = (args: string[], flag: string): string | undefined => {
+    const index = args.indexOf(flag);
+    return index === -1 ? undefined : args[index + 1];
+  };
+  const runner = fakeRunner((args) => {
+    const custom = options.override?.(args, state);
+    if (custom !== undefined) return custom;
+    const [kind, verb] = args;
+    if (kind === "workspace" && verb === "list") {
+      return okEnvelope({
+        type: "workspace_list",
+        workspaces: state.workspaces,
+      });
+    }
+    if (kind === "workspace" && verb === "create") {
+      const id = `wT${next()}`;
+      const label = flagValue(args, "--label") ?? "ws";
+      const cwd = flagValue(args, "--cwd");
+      const tabId = `${id}:t1`;
+      const paneId = `${id}:p1`;
+      state.workspaces.push({
+        workspace_id: id,
+        label,
+        active_tab_id: tabId,
+        focused: false,
+        pane_count: 1,
+        tab_count: 1,
+      });
+      state.tabs.push({
+        tab_id: tabId,
+        workspace_id: id,
+        label: "1",
+        number: 1,
+        pane_count: 1,
+        focused: false,
+      });
+      state.panes.push({
+        pane_id: paneId,
+        workspace_id: id,
+        tab_id: tabId,
+        focused: false,
+        ...(cwd === undefined ? {} : { cwd }),
+      });
+      return okEnvelope({
+        type: "workspace_create",
+        workspace: { workspace_id: id, label },
+        tab: { tab_id: tabId, workspace_id: id },
+        root_pane: { pane_id: paneId, tab_id: tabId, workspace_id: id },
+      });
+    }
+    if (kind === "workspace" && verb === "close") {
+      const id = args[2] ?? "";
+      state.workspaces = state.workspaces.filter(
+        (item) => item.workspace_id !== id,
+      );
+      state.tabs = state.tabs.filter((item) => item.workspace_id !== id);
+      state.panes = state.panes.filter((item) => item.workspace_id !== id);
+      return okEnvelope({ type: "workspace_close" });
+    }
+    if (kind === "pane" && verb === "list") {
+      const workspace = flagValue(args, "--workspace");
+      const panes =
+        workspace === undefined
+          ? state.panes
+          : state.panes.filter((item) => item.workspace_id === workspace);
+      return okEnvelope({ type: "pane_list", panes });
+    }
+    if (kind === "pane" && verb === "layout") {
+      const layout = options.layout ?? { width: 160, height: 40 };
+      return okEnvelope({
+        layout: { type: "pane_layout", area: layout },
+      });
+    }
+    if (kind === "pane" && verb === "split") {
+      const targetId = args[2] ?? "";
+      const target = state.panes.find((item) => item.pane_id === targetId);
+      if (target === undefined) {
+        return errorEnvelope("pane_not_found", `pane ${targetId} not found`);
+      }
+      const paneId = `${String(target.workspace_id)}:p${next()}`;
+      state.panes.push({
+        pane_id: paneId,
+        workspace_id: target.workspace_id,
+        tab_id: target.tab_id,
+        focused: false,
+        ...(flagValue(args, "--cwd") === undefined
+          ? {}
+          : { cwd: flagValue(args, "--cwd") }),
+      });
+      return okEnvelope({
+        type: "pane_split",
+        pane: {
+          pane_id: paneId,
+          workspace_id: target.workspace_id,
+          tab_id: target.tab_id,
+        },
+      });
+    }
+    if (kind === "pane" && verb === "rename") {
+      const paneId = args[2] === "--clear" ? (args[3] ?? "") : (args[2] ?? "");
+      const pane = state.panes.find((item) => item.pane_id === paneId);
+      if (pane !== undefined) {
+        if (args[2] === "--clear") delete pane.label;
+        else if (args[3] !== undefined) pane.label = args[3];
+      }
+      return okEnvelope({ type: "pane_rename" });
+    }
+    if (kind === "pane" && verb === "close") {
+      const id = args[2] ?? "";
+      state.panes = state.panes.filter((item) => item.pane_id !== id);
+      return okEnvelope({ type: "pane_close" });
+    }
+    if (kind === "pane" && verb === "process-info") {
+      const paneId = flagValue(args, "--pane") ?? "";
+      return okEnvelope({
+        type: "pane_process_info",
+        process_info: {
+          pane_id: paneId,
+          shell_pid: 1,
+          foreground_processes: [],
+        },
+      });
+    }
+    if (kind === "tab" && verb === "list") {
+      const workspace = flagValue(args, "--workspace");
+      const tabs =
+        workspace === undefined
+          ? state.tabs
+          : state.tabs.filter((item) => item.workspace_id === workspace);
+      return okEnvelope({ type: "tab_list", tabs });
+    }
+    if (kind === "tab" && verb === "create") {
+      const workspaceId = flagValue(args, "--workspace") ?? "";
+      const label = flagValue(args, "--label") ?? "tab";
+      const cwd = flagValue(args, "--cwd");
+      const tabId = `${workspaceId}:t${next()}`;
+      const paneId = `${workspaceId}:p${next()}`;
+      const number = state.tabs.length + 1;
+      state.tabs.push({
+        tab_id: tabId,
+        workspace_id: workspaceId,
+        label,
+        number,
+        pane_count: 1,
+        focused: false,
+      });
+      state.panes.push({
+        pane_id: paneId,
+        workspace_id: workspaceId,
+        tab_id: tabId,
+        focused: false,
+        ...(cwd === undefined ? {} : { cwd }),
+      });
+      const workspace = state.workspaces.find(
+        (item) => item.workspace_id === workspaceId,
+      );
+      if (workspace !== undefined) workspace.active_tab_id = tabId;
+      return okEnvelope({
+        type: "tab_create",
+        tab: { tab_id: tabId, workspace_id: workspaceId, label, number },
+        root_pane: {
+          pane_id: paneId,
+          tab_id: tabId,
+          workspace_id: workspaceId,
+        },
+      });
+    }
+    if (kind === "tab" && verb === "close") {
+      const id = args[2] ?? "";
+      const removed = state.tabs.find((item) => item.tab_id === id);
+      state.tabs = state.tabs.filter((item) => item.tab_id !== id);
+      state.panes = state.panes.filter((item) => item.tab_id !== id);
+      const workspace = state.workspaces.find(
+        (item) =>
+          removed !== undefined && item.workspace_id === removed.workspace_id,
+      );
+      if (workspace !== undefined && workspace.active_tab_id === id) {
+        workspace.active_tab_id = state.tabs.find(
+          (item) => item.workspace_id === workspace.workspace_id,
+        )?.tab_id;
+      }
+      return okEnvelope({ type: "tab_close" });
+    }
+    return okEnvelope({});
+  });
+  return { runner, state };
+}

@@ -17,10 +17,28 @@
  */
 
 import net from "node:net";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import type { ParsedEnvelope } from "./cli.ts";
 import { parseEnvelope } from "./cli.ts";
 import type { ReadFormat, ReadSource } from "./types.ts";
+
+/**
+ * herdr 缺省 socket 路径（`HERDR_SOCKET_PATH` 不在时的兜底）：
+ * `$XDG_CONFIG_HOME/herdr/herdr.sock`，未设 XDG_CONFIG_HOME 时 `~/.config/herdr/herdr.sock`
+ * （与 herdr CLI 自己的缺省一致；真机 `herdr status --json` 报出的路径同此）。
+ */
+export function defaultHerdrSocketPath(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const configHome = env.XDG_CONFIG_HOME;
+  const base =
+    configHome !== undefined && configHome !== ""
+      ? configHome
+      : join(homedir(), ".config");
+  return join(base, "herdr", "herdr.sock");
+}
 
 /** socket 报文里的取屏来源（下划线写法）。 */
 export type SocketReadSource =

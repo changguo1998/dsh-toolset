@@ -1,9 +1,12 @@
 /**
  * src/tools.ts — `herdr_pane` 的模型侧工具定义与回执渲染
  *
- * 形态（设计文档决策项 4）：**单个工具 + `action` 分派**——十个动作共享同一套参数与归属规则，
+ * 形态：**单个工具 + `action` 分派**——十三个动作共享同一套参数与归属规则，
  * 一条描述即可讲清选择成本与安全边界，工具面上下文占用最小；写类动作的闸门按 `action` 值判定，
  * 不依赖工具名。
+ *
+ * workspace 面**不出现在工具定义里**：模型看不到、也传不进 workspace id / 名字；
+ * 每个 dsh 会话由插件内部绑定一个 workspace（`create` / `tab_create` 落点固定在其中）。
  *
  * 渲染分层（本包约定）：
  *   `renderHerdrPane` 把动作结果渲染为文本块（可直接测），`createHerdrPaneTool` 只做参数校验与
@@ -87,6 +90,22 @@ function formatPaneRow(pane: Record<string, unknown>): string {
   return `${mark}${String(pane.pane_id)}${label}${agent}${focus}${cwd}`;
 }
 
+/** `tab list` 的一行摘要。 */
+function formatTabRow(tab: Record<string, unknown>): string {
+  const mark = tab.registered === true ? "[本插件] " : "";
+  const label =
+    typeof tab.label === "string" && tab.label !== ""
+      ? ` label=${tab.label}`
+      : "";
+  const number = typeof tab.number === "number" ? ` number=${tab.number}` : "";
+  const panes =
+    typeof tab.pane_count === "number" ? ` panes=${tab.pane_count}` : "";
+  const agent =
+    typeof tab.agent_status === "string" ? ` agent=${tab.agent_status}` : "";
+  const focus = tab.focused === true ? " [焦点]" : "";
+  return `${mark}${String(tab.tab_id)}${number}${label}${panes}${agent}${focus}`;
+}
+
 /** 把动作结果渲染成文本（全函数：任何值都能渲染，不抛）。 */
 export function renderHerdrPane(
   value: unknown,
@@ -127,6 +146,30 @@ export function renderHerdrPane(
       registered.length === 0
         ? "本插件当前没有登记的 pane"
         : `本插件登记：${registered.join(", ")}`,
+    );
+  } else if (action === "tab_list") {
+    const tabs = asObjectList(payload.tabs);
+    lines.push(
+      `herdr_pane tab_list：本会话 workspace 有 ${tabs.length} 个 tab`,
+    );
+    for (const tab of tabs) lines.push(`  ${formatTabRow(tab)}`);
+    const registered = Array.isArray(payload.registered)
+      ? payload.registered.filter((id): id is string => typeof id === "string")
+      : [];
+    lines.push(
+      registered.length === 0
+        ? "本插件当前没有登记的 tab"
+        : `本插件登记：${registered.join(", ")}`,
+    );
+  } else if (action === "tab_create") {
+    lines.push(
+      `herdr_pane tab_create：已建 tab ${String(payload.tab_id)}（pane=${String(payload.pane_id)}，label=${String(payload.label)}，cwd=${String(payload.cwd)}）`,
+    );
+  } else if (action === "tab_close") {
+    lines.push(
+      payload.pane_id === null || payload.pane_id === undefined
+        ? `herdr_pane tab_close：已关闭 tab ${String(payload.tab_id)}（登记项已注销）`
+        : `herdr_pane tab_close：已关闭 tab ${String(payload.tab_id)}（root pane ${String(payload.pane_id)} 登记项已注销）`,
     );
   } else if (action === "create") {
     lines.push(
@@ -205,7 +248,7 @@ export interface HerdrPaneToolDef {
     additionalProperties?: boolean;
     properties: Record<string, unknown>;
   };
-  execute(args: Record<string, unknown>): Promise<ActionResult>;
+  execute(args: Record<string, unknown>, exec?: unknown): Promise<ActionResult>;
   output: {
     schema: Record<string, unknown>;
     render(
@@ -221,29 +264,36 @@ export const TOOL_NAME = "herdr_pane";
 /**
  * 构造 `herdr_pane` 工具定义。
  *
- * 描述里写明三件模型最容易踩的事：① 何时该用本工具（需要屏幕状态 + 按键时序）与何时不该
- * （一条命令能跑完的用 bash / 宿主命令工具）；② 写类动作只作用于自己创建的 pane；
- * ③ 命令跑在 dsh 沙箱之外（要过 guard 与审批）。
+ * 描述里写明四件模型最容易踩的事：① 何时该用本工具（需要屏幕状态 + 按键时序）与何时不该
+ * （一条命令能跑完的用 bash / 宿主命令工具）；② 写类动作只作用于自己创建的 pane / tab，
+ * 且落在本会话内部绑定的 workspace 内（模型看不到、也无需传 workspace）；③ `create` 的落点是
+ * 该 workspace 的活动 pane（不是调用者 pane）；④ 命令跑在 dsh 沙箱之外（要过 guard 与审批）。
  */
 export function createHerdrPaneTool(deps: DispatchDeps): HerdrPaneToolDef {
   return {
     name: TOOL_NAME,
     description:
-      "把 herdr 的 pane 当作可控伪终端层：建 pane、注入文本 / 按键、取屏、等输出、进程探活、关闭。" +
+      "把 herdr 的 pane / tab 当作可控伪终端层：建 pane、建 / 列 / 关 tab、注入文本 / 按键、取屏、" +
+      "等输出、进程探活、关闭。" +
       "适用**需要屏幕状态与按键时序**的交互式命令（TUI 程序、REPL、安装器、要应答的命令）；" +
       "一条命令能跑完的（收退出码 / stdout）用宿主 bash 工具即可，不用本工具。" +
       "通道：read 与 wait 的 stable 模式走 herdr socket（能拿到 revision / truncated），其余走 herdr CLI。" +
-      "动作：create 建兄弟 pane（缺省按调用者 pane 宽高选 right / down，--no-focus 不抢焦点）；" +
-      "list 列 pane 与本插件登记标记；read 取屏（缺省 source=recent-unwrapped、lines=120、剥 ANSI；" +
-      "TUI 类程序用 visible）；wait 等输出（match 字面量 / regex 正则 / stable 静默判稳，三选一）；" +
+      "动作：create 在本会话 workspace 的活动 pane 上切兄弟 pane（缺省按该 pane 宽高选 right / down，" +
+      "--no-focus 不抢焦点，cwd 缺省会话工作目录）；list 列全部 pane 与本插件登记标记；" +
+      "tab_create 在本会话 workspace 建 tab（返回 tab_id 与 root pane）；tab_list 列本会话 workspace 的 tab；" +
+      "tab_close 关闭本插件登记过的 tab；" +
+      "read 取屏（缺省 source=recent-unwrapped、lines=120、剥 ANSI；TUI 类程序用 visible）；" +
+      "wait 等输出（match 字面量 / regex 正则 / stable 静默判稳，三选一）；" +
       "send_text 注入文本（不回车）；send_keys 发按键（如 ['ctrl+c']）；run 文本 + 回车一次提交；" +
       "label 打 / 清归属标记；info 看前台进程（判断命令是否还在跑）；close 关闭 pane。" +
-      "安全边界：**写类动作（send_text / send_keys / run / label / close 与 stable 模式的 wait）" +
-      "缺省只作用于本插件创建的 pane**（配置 allowForeignPanes: true 可放宽，close 另需 force）；" +
+      "workspace 由插件内部按会话绑定（模型看不到也传不进 workspace id / 名字）：" +
+      "**本工具的全部写操作不出这个内部 workspace**，跨 workspace 的 tab 一律拒绝关闭。" +
+      "安全边界：**写类动作（send_text / send_keys / run / label / close / tab_close，以及 stable 模式的 wait）" +
+      "缺省只作用于本插件创建的 pane / tab**（配置 allowForeignPanes: true 可放宽 pane 面的限制，close 另需 force）；" +
       "读类（read / info）可读任意 pane；永不使用「当前聚焦 pane」；" +
       "命令跑在 dsh 进程之外、**不受 dsh 文件沙箱约束**，故过 security-guard 复查与归属审批；" +
-      "对非本插件 pane 动输入 / 关闭会弹审批（requireApproval 缺省 foreign）；" +
-      "会话处于 read-only 沙箱模式时，写类动作（send_text / send_keys / run / close 与 stable 的 wait）" +
+      "对非本插件 pane 动输入 / 关闭、或关非登记的 tab 会弹审批（requireApproval 缺省 foreign）；" +
+      "会话处于 read-only 沙箱模式时，写类动作（send_text / send_keys / run / close / tab_close 与 stable 的 wait）" +
       "直接拒绝（不弹审批），需先把会话切到可写模式；" +
       "不要读调用者自己所在的 pane（那是 dsh 自己的界面，会读到本次调用自身的回显）。",
     parameters: {
@@ -264,32 +314,38 @@ export function createHerdrPaneTool(deps: DispatchDeps): HerdrPaneToolDef {
             "label",
             "info",
             "close",
+            "tab_create",
+            "tab_list",
+            "tab_close",
           ],
           description:
             "create 建 pane；list 列 pane；read 取屏；wait 等输出；send_text 注文本；" +
-            "send_keys 发按键；run 文本 + 回车；label 打归属标记；info 进程探活；close 关闭",
+            "send_keys 发按键；run 文本 + 回车；label 打归属标记；info 进程探活；close 关闭 pane；" +
+            "tab_create 建 tab；tab_list 列 tab；tab_close 关 tab",
         },
         pane_id: {
           type: "string",
           description:
-            "目标 pane id（除 create / list 外的动作必填；从 create 回执或 list 里取，勿自行推断）",
+            "目标 pane id（除 create / list / tab_* 外的动作必填；从 create / tab_create 回执或 list 里取，勿自行推断）",
+        },
+        tab_id: {
+          type: "string",
+          description:
+            "目标 tab id（tab_close 必填；从 tab_create 回执或 tab_list 里取；只关本插件登记的 tab）",
         },
         direction: {
           type: "string",
           enum: ["right", "down"],
-          description: "create 用：切分方向（缺省按调用者 pane 宽高自动选）",
+          description: "create 用：切分方向（缺省按目标 pane 宽高自动选）",
         },
         cwd: {
           type: "string",
-          description: "create 用：新 pane 的工作目录（缺省继承 dsh 进程 cwd）",
+          description:
+            "create / tab_create 用：新 pane / tab 的工作目录（缺省会话工作目录）",
         },
         label: {
           type: "string",
-          description: `create / label 用：归属标记（create 缺省 ${DEFAULT_LABEL}；label 显式给空串表示清除）`,
-        },
-        workspace: {
-          type: "string",
-          description: "list 用：只看某个 workspace 的 pane",
+          description: `create / tab_create / label 用：归属标记（create / tab_create 缺省 ${DEFAULT_LABEL}；label 显式给空串表示清除）`,
         },
         source: {
           type: "string",
@@ -347,16 +403,19 @@ export function createHerdrPaneTool(deps: DispatchDeps): HerdrPaneToolDef {
         },
       },
     },
-    async execute(args: Record<string, unknown>): Promise<ActionResult> {
+    async execute(
+      args: Record<string, unknown>,
+      exec?: unknown,
+    ): Promise<ActionResult> {
       const action = typeof args.action === "string" ? args.action : "";
       if (action === "") {
         return failure(
           "list",
           "unknown-action",
-          "缺少 action 参数（可选 create / list / read / wait / send_text / send_keys / run / label / info / close）",
+          "缺少 action 参数（可选 create / list / read / wait / send_text / send_keys / run / label / info / close / tab_create / tab_list / tab_close）",
         );
       }
-      return dispatchAction(action, args, deps);
+      return dispatchAction(action, args, deps, exec);
     },
     output: {
       schema: { type: "object", additionalProperties: true, properties: {} },

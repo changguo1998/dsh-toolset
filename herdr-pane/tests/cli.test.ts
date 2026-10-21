@@ -17,6 +17,7 @@ import {
   extractJsonObject,
   findOnPath,
   parseEnvelope,
+  probeHerdrServerSync,
   readHerdrHandshake,
   resolveHerdrBin,
 } from "../src/cli.ts";
@@ -34,62 +35,121 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "herdr-pane-cli-"));
 }
 
-test("readHerdrHandshake: 三变量齐备才返回握手（含 socket / pane / bin）", () => {
+test("readHerdrHandshake: 只有二进制必需；HERDR_* 全部可选且逐个收", () => {
   const dir = tempDir();
   const bin = makeExecutable(dir, "herdr");
-  const handshake = readHerdrHandshake(
+  const full = readHerdrHandshake(
     {
-      HERDR_ENV: "1",
       HERDR_SOCKET_PATH: "/tmp/herdr.sock",
       HERDR_PANE_ID: "wT1:p1",
+      HERDR_TAB_ID: "wT1:t1",
+      HERDR_WORKSPACE_ID: "wT1",
       HERDR_BIN_PATH: bin,
     },
     undefined,
   );
-  assert.notEqual(handshake, undefined);
-  assert.equal(handshake?.socketPath, "/tmp/herdr.sock");
-  assert.equal(handshake?.callerPaneId, "wT1:p1");
-  assert.equal(handshake?.binPath, bin);
-});
+  assert.deepEqual(full, {
+    binPath: bin,
+    socketPath: "/tmp/herdr.sock",
+    callerPaneId: "wT1:p1",
+    callerTabId: "wT1:t1",
+    callerWorkspaceId: "wT1",
+  });
 
-test("readHerdrHandshake: HERDR_ENV 缺失 / 非 1 / socket 或 pane 缺失均返回 undefined", () => {
-  const base = {
-    HERDR_SOCKET_PATH: "/tmp/herdr.sock",
-    HERDR_PANE_ID: "wT1:p1",
-  };
-  assert.equal(readHerdrHandshake({ ...base }), undefined);
-  assert.equal(readHerdrHandshake({ ...base, HERDR_ENV: "0" }), undefined);
-  assert.equal(
-    readHerdrHandshake({ HERDR_ENV: "1", HERDR_PANE_ID: "wT1:p1" }),
-    undefined,
-  );
-  assert.equal(
-    readHerdrHandshake({ HERDR_ENV: "1", HERDR_SOCKET_PATH: "/tmp/x.sock" }),
-    undefined,
-  );
-  assert.equal(
+  // 不在 herdr 内（无任何 HERDR_*）也能握手：dsh 可以跑在 tmux / 普通终端
+  assert.deepEqual(readHerdrHandshake({ HERDR_BIN_PATH: bin }), {
+    binPath: bin,
+  });
+  // 空串按未给；HERDR_ENV 不参与判定
+  assert.deepEqual(
     readHerdrHandshake({
-      HERDR_ENV: "1",
+      HERDR_ENV: "0",
       HERDR_SOCKET_PATH: "",
-      HERDR_PANE_ID: "wT1:p1",
+      HERDR_PANE_ID: "",
+      HERDR_TAB_ID: "",
+      HERDR_WORKSPACE_ID: "",
+      HERDR_BIN_PATH: bin,
     }),
-    undefined,
+    { binPath: bin },
   );
 });
 
-test("readHerdrHandshake: 二进制解析不到时 binPath 为 undefined（工具注册由上层拒）", () => {
+test("readHerdrHandshake: 二进制解析不到时返回 undefined（工具注册由上层拒）", () => {
   const emptyPath = tempDir();
-  const handshake = readHerdrHandshake(
-    {
-      HERDR_ENV: "1",
-      HERDR_SOCKET_PATH: "/tmp/herdr.sock",
-      HERDR_PANE_ID: "wT1:p1",
-      PATH: emptyPath,
-    },
+  assert.equal(
+    readHerdrHandshake(
+      { HERDR_SOCKET_PATH: "/tmp/herdr.sock", PATH: emptyPath },
+      undefined,
+    ),
     undefined,
   );
-  assert.notEqual(handshake, undefined);
-  assert.equal(handshake?.binPath, undefined);
+  assert.equal(readHerdrHandshake({}, "/nonexistent/herdr"), undefined);
+});
+
+test("probeHerdrServerSync: server.status=running 即可达并带回 socket，其余为不可达", () => {
+  const ok = probeHerdrServerSync("/fake/herdr", 100, () => ({
+    stdout: JSON.stringify({
+      server: { status: "running", socket: "/custom/herdr.sock" },
+    }),
+    stderr: "",
+    status: 0,
+  }));
+  assert.deepEqual(ok, { ok: true, socketPath: "/custom/herdr.sock" });
+
+  // 没有 socket 字段：可达但不给路径（由调用方回退平台缺省）
+  assert.deepEqual(
+    probeHerdrServerSync("/fake/herdr", 100, () => ({
+      stdout: JSON.stringify({ server: { status: "running" } }),
+      stderr: "",
+      status: 0,
+    })),
+    { ok: true },
+  );
+
+  const stopped = probeHerdrServerSync("/fake/herdr", 100, () => ({
+    stdout: JSON.stringify({ server: { status: "stopped" } }),
+    stderr: "",
+    status: 0,
+  }));
+  assert.equal(stopped.ok, false);
+  assert.match(stopped.reason ?? "", /未运行/);
+
+  const failed = probeHerdrServerSync("/fake/herdr", 100, () => ({
+    stdout: "",
+    stderr: "socket missing",
+    status: 1,
+  }));
+  assert.equal(failed.ok, false);
+  assert.match(failed.reason ?? "", /退出码 1/);
+  assert.match(failed.reason ?? "", /socket missing/);
+
+  const spawnFailed = probeHerdrServerSync("/fake/herdr", 100, () => ({
+    stdout: "",
+    stderr: "",
+    status: null,
+    error: "ENOENT",
+  }));
+  assert.equal(spawnFailed.ok, false);
+  assert.match(spawnFailed.reason ?? "", /ENOENT/);
+
+  const badJson = probeHerdrServerSync("/fake/herdr", 100, () => ({
+    stdout: "server: running",
+    stderr: "",
+    status: 0,
+  }));
+  assert.equal(badJson.ok, false);
+  assert.match(badJson.reason ?? "", /未运行/);
+});
+
+test("probeHerdrServerSync: 真起子进程（参数数组直通，status --json）", () => {
+  const dir = tempDir();
+  const bin = makeScript(
+    dir,
+    "herdr-status",
+    'printf \'%s\' "$1" >/dev/null\nprintf \'{"server":{"status":"running","socket":"/s.sock"}}\'',
+  );
+  const probe = probeHerdrServerSync(bin, 2000);
+  assert.deepEqual(probe, { ok: true, socketPath: "/s.sock" });
 });
 
 test("resolveHerdrBin: 显式路径优先，其次 HERDR_BIN_PATH，最后 PATH", () => {

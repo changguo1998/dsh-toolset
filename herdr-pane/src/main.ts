@@ -1,17 +1,20 @@
 /**
  * src/main.ts — herdr-pane 插件入口（DSH bundle 接入面）
  *
- * 职责（设计文档「规划」节的冻结接口）：
- *   1. **握手判定**：`HERDR_ENV=1` + `HERDR_SOCKET_PATH` + `HERDR_PANE_ID` 三变量齐备才启用；
- *      否则**不注册工具**、只记一行日志（决策项 5：不在 herdr 内是运行位置决定的、本机不可修，
- *      注册必然失败的工具只会诱使模型反复试错）。
- *   2. **工具注册**：单个模型侧工具 `herdr_pane`（`src/tools.ts`；action 分派十动作）。
+ * 职责：
+ *   1. **可用性判定**：二进制可解析（`resolveHerdrBin`）+ 服务端可达（`herdr status --json` 探活）
+ *      才启用；`HERDR_*` 全部可选（dsh 不一定跑在 herdr 内：tmux / 普通终端也可用）。探活失败只记
+ *      一行日志、不注册（注册必然失败的工具只会诱使模型反复试错）。
+ *   2. **工具注册**：单个模型侧工具 `herdr_pane`（`src/tools.ts`；action 分派十三个动作，
+ *      其中 tab 三动作落在插件内部按会话绑定的 workspace 里）。
  *   3. **沙箱门（闸④）与审批门（闸③）**：注册 `tools/pre-execute` 监听器 —— 会话处于
  *      `read-only` 时对写类动作直接返回 `{kind:"deny", reason}`（先于审批，不弹面板）；
- *      对「对非本插件创建的 pane 动输入 / 关闭」返回 `{kind:"ask", reason}`（缺省档 `foreign`）。
+ *      对「对非本插件创建的 pane / tab 动输入 / 关闭」返回 `{kind:"ask", reason}`（缺省档 `foreign`）；
+ *      跨 workspace 的 tab 直接拒绝（模型层没有 workspace 概念，只有本会话内部绑定的一份）。
  *      用宿主既有 ask 门而不是自己调 `ctx.approval`——审计对由宿主写入、无审批服务时自动 fail-closed。
- *   4. **退出清理**：`closeOnExit` 时用 `spawnSync` 同步尽力关闭登记过的 pane
- *      （dsh 的 TUI 退出路径不触发 cordis dispose，故同时挂 `process.once("exit")`）。
+ *   4. **退出清理**：`closeOnExit` 时用 `spawnSync` 同步尽力关闭登记过的 pane，随后若本会话
+ *      workspace 已空则由程序内部 `workspace close`（决策项 9a）。
+ *      dsh 的 TUI 退出路径不触发 cordis dispose，故同时挂 `process.once("exit")`。
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（`export { name, inject, Config, apply }`）：本包导出
  * name / inject / apply，Config 以类型别名给出（无运行时 schema，宿主不校验，配置原样透传给
@@ -20,12 +23,15 @@
 
 import {
   createDefaultRunner,
+  DEFAULT_PROBE_TIMEOUT_MS,
+  probeHerdrServerSync,
   readHerdrHandshake,
   resolveHerdrBin,
 } from "./cli.ts";
-import type { HerdrRunner } from "./cli.ts";
+import type { HerdrProbeResult, HerdrRunner } from "./cli.ts";
 import type { DispatchDeps } from "./actions.ts";
 import {
+  crossWorkspaceDenialReason,
   makeGuardChecker,
   makeSandboxModeReader,
   needsApproval,
@@ -34,7 +40,11 @@ import {
 import type { GuardChecker, SandboxModeReader } from "./policy.ts";
 import { PaneRegistry, createExitCleanup } from "./registry.ts";
 import type { ExitCleanup } from "./registry.ts";
-import { createPaneReader, realClock } from "./socket.ts";
+import {
+  createPaneReader,
+  defaultHerdrSocketPath,
+  realClock,
+} from "./socket.ts";
 import type { Clock, PaneReader, SocketConnector } from "./socket.ts";
 import { createHerdrPaneTool, TOOL_NAME } from "./tools.ts";
 import { PANE_ACTIONS, resolveConfig } from "./types.ts";
@@ -70,11 +80,13 @@ export interface PluginCtxLike {
 
 /** 测试注入面（生产路径全部用真实实现）。 */
 export interface HerdrPaneDeps {
-  /** 替代握手读取（单测用；缺省读 `process.env`）。 */
+  /** 替代握手读取（单测用；缺省读 `process.env` 并解析二进制）。 */
   readHandshake?: (
     env: NodeJS.ProcessEnv,
     explicitBin?: string,
   ) => HerdrHandshake | undefined;
+  /** 替代服务端探活（单测用；缺省 `herdr status --json`）。 */
+  probe?: (binPath: string, timeoutMs: number) => HerdrProbeResult;
   /** 替代 CLI 执行面（单测用记录器）。 */
   runner?: HerdrRunner;
   /** 替代 socket 读通道（单测用假连接器）。 */
@@ -127,6 +139,8 @@ export interface PreExecuteOptions {
   config: ResolvedConfig;
   /** 沙箱模式读取器（缺省接宿主的 `ctx.sandboxPolicy`）。 */
   sandboxMode: SandboxModeReader;
+  /** 调用者所在 tab id（`HERDR_TAB_ID`；拒绝关闭调用者 tab 的防御性护栏）。 */
+  callerTabId?: string;
 }
 
 /** 参数面读取：宿主给的是已解析对象，非对象按空参数处理。 */
@@ -136,13 +150,20 @@ function argumentsOf(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** 参数面取非空字符串 id。 */
+function idOf(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
 /**
  * pre-execute 门判定（纯函数，便于单测），两道：
  *   1. **沙箱门（闸④）**：只读会话里的写类动作直接拒绝（先于审批，不弹面板）；
- *   2. **审批门（闸③）**：对非本插件创建的 pane 动输入 / 关闭时转人工。
+ *   2. **审批门（闸③）**：对非本插件创建的 pane / tab 动输入 / 关闭时转人工。
  *
- * 注意这里**不**拒绝未登记 pane——归属拒绝由动作层给结构化回执（含放行方式），
+ * tab 目标另加两条硬拒：跨本会话 workspace、以及调用者自己所在的 tab（防御性）。
+ * 注意这里**不**拒绝未登记 pane / tab——归属拒绝由动作层给结构化回执（含放行方式），
  * 审批门只负责「要不要打断人」；两层判定目的不同，不重复拦。
+ * 目标不在参数面（`create` / `list` / `tab_create` / `tab_list`，或漏给 id）时放行交动作层。
  */
 export function preExecuteVerdict(
   execution: PreExecuteExecution,
@@ -157,22 +178,66 @@ export function preExecuteVerdict(
   ) {
     return { kind: "allow" };
   }
-  const paneId = typeof args.pane_id === "string" ? args.pane_id : undefined;
-  if (paneId === undefined || paneId === "") return { kind: "allow" };
   const typedAction = action as HerdrPaneAction;
+  const paneId = idOf(args.pane_id);
+  const tabId = idOf(args.tab_id);
+  const targetId = paneId ?? tabId;
+  if (targetId === undefined) return { kind: "allow" };
   // wait 只有 stable 模式算写侧；其余按 policy.ts 的输入 / 关闭集合
   const stabilized = typedAction === "wait" && args.stable === true;
 
-  // 闸④：只读会话里写类动作直接拒绝（决策项 7：不弹审批）
+  // 闸④：只读会话里写类动作直接拒绝（不弹审批）
   const sandboxMode = options.sandboxMode(execution.agent?.session);
   if (sandboxMode !== undefined) {
     const denial = sandboxDenialReason(
       sandboxMode,
       typedAction,
-      paneId,
+      targetId,
       stabilized,
     );
     if (denial !== undefined) return { kind: "deny", reason: denial };
+  }
+
+  // tab 目标：先按登记与 workspace 归属判（模型层没有 workspace 概念，只有内部绑定）
+  if (paneId === undefined) {
+    if (typedAction === "tab_close" && tabId !== undefined) {
+      if (options.callerTabId !== undefined && tabId === options.callerTabId) {
+        return {
+          kind: "deny",
+          reason:
+            `tab ${tabId} 是调用者自己所在的 tab（HERDR_TAB_ID），` +
+            "关闭它会连 dsh 自己的界面一起关掉。",
+        };
+      }
+      const record = options.registry.tab(tabId);
+      const binding = options.registry.workspaceBinding;
+      if (
+        record !== undefined &&
+        binding !== undefined &&
+        record.workspaceId !== binding.workspaceId
+      ) {
+        return { kind: "deny", reason: crossWorkspaceDenialReason(tabId) };
+      }
+      const tabOwnership: PaneOwnership =
+        record === undefined ? "foreign" : "registered";
+      if (
+        !needsApproval(
+          typedAction,
+          tabOwnership,
+          options.config.requireApproval,
+        )
+      ) {
+        return { kind: "allow" };
+      }
+      return {
+        kind: "ask",
+        reason:
+          `herdr_pane tab_close 关闭非本插件登记（或不在当前 workspace）的 tab ${tabId}` +
+          `（requireApproval="${options.config.requireApproval}"）。` +
+          "关闭 tab 会关掉它里面的 pane，跑在 dsh 进程之外。",
+      };
+    }
+    return { kind: "allow" };
   }
 
   const ownership: PaneOwnership = options.registry.has(paneId)
@@ -192,8 +257,8 @@ export function preExecuteVerdict(
 }
 
 /**
- * 组装插件（握手 + 注册 + 审批门 + 退出清理）。
- * 握手不成立或注册面不可用时返回 undefined（不产生任何副作用）。
+ * 组装插件（可用性判定 + 注册 + 审批门 + 退出清理）。
+ * 二进制不可解析 / 服务端不可达 / 注册面不可用时返回 undefined（不产生任何副作用）。
  */
 export function createHerdrPlugin(
   ctx: PluginCtxLike,
@@ -208,18 +273,33 @@ export function createHerdrPlugin(
   const handshake = readHandshake(env);
   if (handshake === undefined) {
     warn(
-      "未检测到 herdr 环境（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID 未齐备），" +
-        "herdr_pane 工具不注册（本插件只在 herdr 管理的 pane 内生效）",
-    );
-    return undefined;
-  }
-  if (handshake.binPath === undefined) {
-    warn(
-      "未找到 herdr 二进制（PATH 与 HERDR_BIN_PATH 均不可用），herdr_pane 工具不注册",
+      "未找到 herdr 二进制（显式配置 / HERDR_BIN_PATH / PATH 均不可用），" +
+        "herdr_pane 工具不注册",
     );
     return undefined;
   }
   const resolved = resolveConfig(config);
+  // 决策项 10：二进制可解析 + 服务端可达才注册；HERDR_* 全部可选（tmux / 普通终端也能用）
+  const probe = deps.probe ?? probeHerdrServerSync;
+  let probed: HerdrProbeResult;
+  try {
+    probed = probe(
+      handshake.binPath,
+      Math.min(resolved.timeoutMs, DEFAULT_PROBE_TIMEOUT_MS),
+    );
+  } catch (error) {
+    warn(`herdr 服务端探活抛错，herdr_pane 工具不注册：${String(error)}`);
+    return undefined;
+  }
+  if (!probed.ok) {
+    warn(
+      `herdr 服务端不可达（探活失败：${probed.reason ?? "未知原因"}），` +
+        "herdr_pane 工具不注册",
+    );
+    return undefined;
+  }
+  const socketPath =
+    handshake.socketPath ?? probed.socketPath ?? defaultHerdrSocketPath(env);
 
   // 工具面与库面共用同一份依赖（真机脚本 / 编排类插件可拿 handle.deps 复调）
   const registry = new PaneRegistry(resolved.label);
@@ -227,7 +307,7 @@ export function createHerdrPlugin(
   const reader =
     deps.reader ??
     createPaneReader(
-      { socketPath: handshake.socketPath, timeoutMs: resolved.timeoutMs },
+      { socketPath, timeoutMs: resolved.timeoutMs },
       deps.connector,
     );
   const guardCheck: GuardChecker =
@@ -239,7 +319,12 @@ export function createHerdrPlugin(
     runner,
     reader,
     registry,
-    callerPaneId: handshake.callerPaneId,
+    ...(handshake.callerPaneId === undefined
+      ? {}
+      : { callerPaneId: handshake.callerPaneId }),
+    ...(handshake.callerTabId === undefined
+      ? {}
+      : { callerTabId: handshake.callerTabId }),
     guardCheck,
     ...(deps.clock === undefined
       ? { clock: realClock }
@@ -266,7 +351,14 @@ export function createHerdrPlugin(
   ) => {
     const verdict: PreExecuteVerdict = preExecuteVerdict(
       (execution ?? {}) as PreExecuteExecution,
-      { registry, config: resolved, sandboxMode },
+      {
+        registry,
+        config: resolved,
+        sandboxMode,
+        ...(handshake.callerTabId === undefined
+          ? {}
+          : { callerTabId: handshake.callerTabId }),
+      },
     );
     if (verdict.kind !== "allow") {
       // 不调 next()（waterfall 语义：不调即截断）：ask 由宿主路由到审批 UI，deny 渲染成失败结果
@@ -289,7 +381,9 @@ export function createHerdrPlugin(
   process.once("exit", onExit);
 
   process.stderr.write(
-    `[${name}] ready（caller=${handshake.callerPaneId}，bin=${handshake.binPath}，` +
+    `[${name}] ready（bin=${handshake.binPath}，socket=${socketPath}，` +
+      `caller=${handshake.callerPaneId ?? "-"}，caller_tab=${handshake.callerTabId ?? "-"}，` +
+      `caller_workspace=${handshake.callerWorkspaceId ?? "-"}，` +
       `requireApproval=${resolved.requireApproval}，closeOnExit=${resolved.closeOnExit}）\n`,
   );
 
@@ -311,12 +405,16 @@ export function createHerdrPlugin(
 /** 仅用于测试注入：替换二进制定位（导出以保持测试与生产同源）。 */
 export { resolveHerdrBin };
 
-/** DSH 宿主按 bundle 契约调用；未在 herdr 内静默空转（只记一行日志）。 */
+/**
+ * DSH 宿主按 bundle 契约调用；二进制缺失 / 服务端不可达时静默空转（只记一行日志）。
+ * 第三个参数是测试注入面（宿主只传前两个）。
+ */
 export function apply(
   ctx: unknown,
   config: HerdrPaneConfig = {},
+  deps: HerdrPaneDeps = {},
 ): (() => void) | undefined {
-  const plugin = createHerdrPlugin(ctx as PluginCtxLike, config);
+  const plugin = createHerdrPlugin(ctx as PluginCtxLike, config, deps);
   if (plugin === undefined) return undefined;
   const ctxAny = ctx as { effect?: (fn: () => unknown) => unknown };
   ctxAny.effect?.(() => () => {

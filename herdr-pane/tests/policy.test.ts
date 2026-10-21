@@ -13,6 +13,7 @@ import {
   READONLY_ACTIONS,
   SANDBOX_WRITE_ACTIONS,
   checkOwnership,
+  crossWorkspaceDenialReason,
   isOwnedAction,
   isReadonlyAction,
   isSandboxWrite,
@@ -24,13 +25,15 @@ import {
   sandboxDenialReason,
 } from "../src/policy.ts";
 
-test("动作分类: 写类 = send_text / send_keys / run / label / close；读类 = read / info", () => {
+test("动作分类: 写类 = send_text / send_keys / run / label / close / tab_close；读类 = read / info", () => {
   assert.deepEqual(
     [...OWNED_ACTIONS].sort(),
-    ["close", "label", "run", "send_keys", "send_text"].sort(),
+    ["close", "label", "run", "send_keys", "send_text", "tab_close"].sort(),
   );
   assert.deepEqual([...READONLY_ACTIONS].sort(), ["info", "read"]);
   assert.equal(isOwnedAction("run"), true);
+  assert.equal(isOwnedAction("tab_close"), true);
+  assert.equal(isOwnedAction("tab_create"), false);
   assert.equal(isOwnedAction("read"), false);
   assert.equal(isReadonlyAction("read"), true);
   assert.equal(isReadonlyAction("create"), false);
@@ -78,10 +81,17 @@ test("needsApproval: foreign 档只对非自有 pane 的输入 / 关闭要求审
   }
   // label 只改自己的标记，不打断人
   assert.equal(needsApproval("label", "foreign", "foreign"), false);
-  // 建 pane / 读屏不弹审批
+  // 建 pane / 建 tab / 读屏不弹审批
   assert.equal(needsApproval("create", "foreign", "foreign"), false);
+  assert.equal(needsApproval("tab_create", "foreign", "foreign"), false);
+  assert.equal(needsApproval("tab_list", "foreign", "foreign"), false);
   assert.equal(needsApproval("read", "foreign", "foreign"), false);
   assert.equal(needsApproval("info", "foreign", "foreign"), false);
+  // tab_close 与 close 同档：非本插件登记的 tab 要打断人
+  assert.equal(needsApproval("tab_close", "foreign", "foreign"), true);
+  assert.equal(needsApproval("tab_close", "registered", "foreign"), false);
+  assert.equal(needsApproval("tab_close", "registered", "always"), true);
+  assert.equal(needsApproval("tab_close", "foreign", "never"), false);
 });
 
 test("needsApproval: always 档任何输入 / 关闭都审批；never 档从不审批", () => {
@@ -93,6 +103,15 @@ test("needsApproval: always 档任何输入 / 关闭都审批；never 档从不�
   // always 档也不对建 pane / 读屏弹审批
   assert.equal(needsApproval("create", "registered", "always"), false);
   assert.equal(needsApproval("read", "registered", "always"), false);
+});
+
+test("crossWorkspaceDenialReason: 说明写操作不出本会话 workspace，且不暴露 workspace id", () => {
+  const reason = crossWorkspaceDenialReason("wT9:t1");
+  assert.match(reason, /wT9:t1/);
+  assert.match(reason, /不属于本会话的 workspace/);
+  assert.match(reason, /tab_create/);
+  assert.match(reason, /模型侧没有 workspace 参数/);
+  assert.equal(/workspace wT|label=/.test(reason), false);
 });
 
 test("ownershipDeniedHint: 含可操作放行方式（create 自建 / allowForeignPanes）", () => {
@@ -195,15 +214,29 @@ test("makeGuardChecker: 惰性解析（每次调用重新读服务，挂载顺�
   assert.equal(check("x", "run").outcome, "deny");
 });
 
-test("沙箱写类集合: 输入 / 关闭 + stable 模式的 wait；label 与 create 不在内", () => {
+test("沙箱写类集合: 输入 / 关闭（含 tab_close）+ stable 模式的 wait；label 与 create 不在内", () => {
   assert.deepEqual(
     [...SANDBOX_WRITE_ACTIONS].sort(),
-    ["close", "run", "send_keys", "send_text"].sort(),
+    ["close", "run", "send_keys", "send_text", "tab_close"].sort(),
   );
-  for (const action of ["send_text", "send_keys", "run", "close"] as const) {
+  for (const action of [
+    "send_text",
+    "send_keys",
+    "run",
+    "close",
+    "tab_close",
+  ] as const) {
     assert.equal(isSandboxWrite(action), true, action);
   }
-  for (const action of ["create", "list", "read", "label", "info"] as const) {
+  for (const action of [
+    "create",
+    "list",
+    "read",
+    "label",
+    "info",
+    "tab_create",
+    "tab_list",
+  ] as const) {
     assert.equal(isSandboxWrite(action), false, action);
   }
   assert.equal(isSandboxWrite("wait", false), false);
@@ -223,6 +256,15 @@ test("sandboxDenialReason: 只在只读会话的写类动作上产出文案", ()
   assert.equal(sandboxDenialReason("read-only", "info", "wT1:p9"), undefined);
   assert.equal(sandboxDenialReason("read-only", "label", "wT1:p9"), undefined);
   assert.equal(sandboxDenialReason("read-only", "create", "wT1:p9"), undefined);
+  // tab_close 按 tab 措辞；tab_create 不拦
+  assert.match(
+    sandboxDenialReason("read-only", "tab_close", "wT1:t2") ?? "",
+    /目标 tab wT1:t2/,
+  );
+  assert.equal(
+    sandboxDenialReason("read-only", "tab_create", "wT1:t2"),
+    undefined,
+  );
   // wait：stable 拦，match 不拦
   assert.notEqual(
     sandboxDenialReason("read-only", "wait", "wT1:p9", true),
