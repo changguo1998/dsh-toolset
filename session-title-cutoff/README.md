@@ -13,8 +13,8 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 
 | 字段 | 缺省 | 说明 |
 | --- | --- | --- |
-| `targetWords` | `5` | 非 CJK 标题目标词数（透传官方 helper） |
-| `targetCjkCharacters` | `15` | CJK 标题目标字数 |
+| `targetWords` | `5` | 非 CJK 标题目标词数（本包自用：0.2.1 起 helper 不收措辞键，正整数校验） |
+| `targetCjkCharacters` | `15` | CJK 标题目标字数（同上） |
 | `maxInputBytes` | `32768` | 入模提示体积上限（UTF-8 字节；超出即失败并保留旧标题） |
 | `maxOutputTokens` | `512` | 标题生成输出 token 上限 |
 | `timeoutMs` | `60000` | 标题请求超时 |
@@ -26,6 +26,11 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 `createRequire($DSH_HOME/profiles/node_modules/x.js)` 解析并动态 `import()` 官方 helper
 （`@deepseek-ai/dsh-session-title-llm`）——该路径是宿主官方兜底解析路径（见 profile 模板注释），
 解析到的是与宿主同版的副本。解析失败 → 告警且**不注册 provider**（宿主回落确定性 fallback，不崩）。
+
+只把**执行控制键**（`maxInputBytes` / `maxOutputTokens` / `timeoutMs` / `provider` / `model`）交给
+`resolveSessionTitleLlmConfig`（0.2.1 对集合外的键直接抛错）；措辞两键由本包自用并本地校验。
+只认 0.2.1 起的 `executeSessionTitleLlm` 形态：只提供旧 `generateSessionTitleWithLlm` 的 helper
+视为不可用（告警、不注册），回退 0.2.0 宿主须一并回退本包。
 
 ## 接入前提
 
