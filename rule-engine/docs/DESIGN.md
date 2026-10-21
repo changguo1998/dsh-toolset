@@ -8,19 +8,25 @@
 
 明确的边界（本期）：
 
-- 动作只做 `inject`；`tag` / `abort` / `memory` 不做。
+- 规则动作只做 `inject`；`tag` / `abort` / `memory` 不做。
+- **消费者 guard 面（2026-10-21）**：消费者框架另有一个唤醒节点 `tools/pre-execute`（宿主 waterfall），
+  由消费者自行裁决「放行 / 拒绝（含理由）」，rule-engine 只做**调度与汇总**（任一 `deny` 胜出，否则
+  `next()`）。它**不是规则动作**：本插件不内置拦截规则、不扩模型工具面、不写审计、不接管
+  `ctx.tools.guard` 单调守卫；具体规则由消费者插件自己的 `config` 实现（首个消费者 `behavior-correction` 属并行任务，本分支只交付框架）。
 - 注入路径三条（与宿主 `Agent` 方法同名）：`followup`（新回合，`agent.followup`）、`steer`（最近 pre-step + 唤醒，`agent.steer`）、`inject`（最近 pre-step 不唤醒，`agent.inject`；宿主 rc.2+）。不自行注册 `agent/pre-step` waterfall 监听者。
-- 节点表（规则与消费者共用）共十项：`assistant-text` / `user-message` / `tool-call` / `tool-result` / `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`；逐 delta 实时匹配不做（正文在回合结束判定）。
+- 节点表（规则与消费者共用）共十项会话事件节点：`assistant-text` / `user-message` / `tool-call` / `tool-result` / `turn-start` / `turn-end` / `step-start` / `step-end` / `session-start` / `compaction`；**消费者另可用** `tools/pre-execute`（规则侧不接受）；逐 delta 实时匹配不做（正文在回合结束判定）。
 
 ## 分层
 
 ```text
 main.ts       插件入口：name / inject / provide / Config / apply
               ├─ ctx.on('session/event') → engine.handle(session, event)
+              ├─ ctx.on('tools/pre-execute') → engine.guardTool(exec)（deny 或 next()）
               ├─ ctx.tools.register(...) ← tools.ts（缺 tools 时降级告警）
               └─ ctx.provide('ruleEngine', { list, status, evaluate, registerConsumer, onNotice })
 engine.ts     编排：事件分流 → 回合正文聚合 → 匹配 → 节流去重 → 交付注入器
               + 节点派发：规则命中 + 消费者唤醒（按注册的 sources）→ 逐段闸门 → 按 delivery 合并写入
+              + guard 汇总：guardTool(exec) 按注册顺序串行 await 消费者的 guard → 任一 deny 胜出
               ├─ match.ts    纯匹配：keyword / regex / 内置谓词 + 消息文本抽取
               ├─ rules.ts    规则归一化 + 两层合并（config 基线 + runtime 层）
               └─ persist.ts  运行时层落盘（{version, state} + tmp/rename 原子写）
@@ -97,13 +103,21 @@ tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_rem
 - 注册时声明 `sources`（唤醒节点，缺省 `["turn-end"]`）、`dedupeInRecord`（与规则同口径）与 `directWrite`（这些节点跳过去重判断，2026-10-02）；在对应节点按注册顺序**同步**询问 `decide`，与规则命中**合并**后交同一注入器（共用逐段上限 / 同文本去重；消费者冷却可选、按注入记账）。
 - **对齐点合并（尺度双 flag）**：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，每消费者 × 每会话 × 每尺度一对 `startFired` / `endFired`；`*-start` 清本尺度及更细的 `endFired` 与更细的 `startFired`（注册才置位/唤醒，`session-start` 无幂等）；`*-end` 查本尺度及更细 `endFired` 的或（注册且全假才唤醒并置位），无论是否唤醒都清本尺度 `startFired`。`reset: true` 清空本消费者 flag。`compaction` 不参与合并。
 - 异常隔离：`decide` 抛错 / 空反馈只记 warning 并跳过该消费者，其余照常；注册返回注销函数（消费者 dispose 时调用）。
-- 复杂度边界：不做异步、priority、脚本谓词注册面；`evaluate` 作为轻量只读判定另备。
+- 复杂度边界：`decide` 仍**同步**（会话事件派发窗口内须廉价）、不做 priority、不做脚本谓词注册面；`evaluate` 作为轻量只读判定另备。**例外**：guard 消费者的 `guard` 允许异步（`tools/pre-execute` 是宿主 waterfall，`await` 串行，见取舍 11）。
 
-### 11. 注入路径三条（delivery）
+### 11. 消费者 guard 面：调度归引擎、判定归插件（2026-10-21）
+
+- **为什么是消费者而不是规则动作**（用户裁定 B）：拦截规则与具体工具集强相关，放进插件 `config` 才能独立演进；rule-engine 只提供节点 + 汇总，与 `md-table-check` / `symbol-normalizer` 同构，也避免把「拒绝」变成模型可创建的动作（工具面仍只有 `inject`）。节点 `tools/pre-execute` 只供消费者：规则侧 `RULE_SOURCES` 仍是 10 项，`normalizeRule` 遇到该节点直接报错；消费者侧用 `CONSUMER_SOURCES`（10 + 该节点）校验。
+- **注册形态互斥**：含该节点的注册必须给 `guard`、不得给 `decide`，也不得带 `delivery` / `dedupeInRecord` / `directWrite` / `cooldownTurns` / `cooldownMs`（guard 不注入、不去重、不记账；违反即拒绝注册并告警）。会话事件节点的注册仍必须给 `decide`，两者共用 `CompiledConsumer` 与前 6 个字段的缺省值。
+- **汇总与失败语义**：注册顺序串行 `await`，`deny` 立即返回（安全向；`allow` 不否决后续 `deny`），全弃权 → `undefined` → 监听器 `next()`。`guard` 抛错 / 非法结构 / 空理由 → 告警并视为弃权（fail-open）：最终否决权在 `security-guard` 的 `ctx.tools.guard` 单调守卫，本层故障不该把工具全拦死。
+- **可见性**：`deny` 时一条 `warn`（「消费者 `<id>` 拒绝工具 `<name>`」），经告警总线进活动区；**不写审计**、不落 memory-base（条目已裁定需要审计由人工决定）。
+- **不做**：异步之外的高级调度（优先级 / 超时 / 并发）、`cancel` / `ask` 裁决、在任何一侧内置拦截规则、配置层直接表达拦截。
+
+### 12. 注入路径三条（delivery）
 
 `followup`（缺省，新回合）、`steer`（`agent.steer`：最近 pre-step + 唤醒，会话空闲时立刻开新回合）与 `inject`（`agent.inject`：最近 pre-step、不唤醒；旧宿主无此 API → warning 跳过；`steer` 缺 API 时回退它并记 warning）。语义与取舍：官方 next-step inbox 就是「消息进入 step 前」的正规出口，不自行注册 `agent/pre-step` 监听者，避免与官方 prepend 监听者（model-selection）的顺序和空 step 语义纠缠；`steer` 与 `inject` 共用该队列，差别只在**唤醒**——不唤醒时条目会一直挂到下次有回合开启（实测：`step-end` 注入撞上回合收尾时会滞留到下一条用户输入）。
 
-### 12. 告警出口：总线优先、stderr 兜底（2026-10-01，「rule-engine 的用户提示应显示在活动区」方案 B）
+### 13. 告警出口：总线优先、stderr 兜底（2026-10-01，「rule-engine 的用户提示应显示在活动区」方案 B）
 
 - `provide("ruleEngine")` 增 `onNotice(listener)`：插件 `warn` 在**有订阅者**（TUI 启动后订阅）时把完整展示行 + tone 发总线（展示层渲染进活动区），**无订阅者**（headless）回退 `process.stderr.write`。
 - 理由：告警是给人看的、不该写进会话/模型上下文（对比 `source.form:'notice'` 会话消息写法）；且对「告警所涉会话已关闭」的场景同样可送达（进程内推送，不经会话句柄）。

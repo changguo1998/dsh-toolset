@@ -10,6 +10,8 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 `source` 可给**单个节点**或**节点数组**（一条规则挂多时机，2026-10-02 起；消费者的对应字段一直是数组 `sources`）。
 
+下表是**会话事件节点**（规则侧 `RULE_SOURCES` 恰为这 10 项）；消费者另有一个专用节点 `tools/pre-execute`（工具执行前拦截），它**不是会话事件、规则侧不接受**，见「消费者面 · guard 面」。
+
 | source | 判定时机 | 判定文本 |
 | --- | --- | --- |
 | `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; `surfaceOp: "replace"` 的影子覆盖事件**不进缓冲**（与 TUI 显示面一致）; 单条 step 正文超 200 000 字符**被截断并发告警**（见「已知限制」） |
@@ -24,6 +26,8 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 | `compaction` | 上下文压缩完成（`compaction/end`） | 空串（边界类）；`match` 可省 = **无条件命中** |
 
 `compaction` 只认一次压缩的**终态** `compaction/end`（`compaction/start` / `compaction/summary` / `compaction/prune` 不触发），避免同一次压缩重复判定。
+
+`tools/pre-execute` 只供消费者 guard 用：规则侧 `normalizeRule` / `rule_add` 遇到它直接报错（「该节点只用于消费者 guard」），消费者侧另有 `CONSUMER_SOURCES`（= 上述 10 项 + 该节点）作注册校验。
 
 `turn/end` 的 `reason` **先归一**再判定：字符串按字面；对象形态读 `reason.kind`（与 TUI 侧 `turnEndReason` 同口径）。归一到 `aborted` / `error` / `interrupted` / `forked` 时不唤醒（只认 `completed` / `max-tokens`）；**`reason` 缺省（事件未带该字段）按 `completed` 处理 = 照常唤醒**（2026-10-16 差分对拍实测）；**非法值**（`null` / 数字 / 布尔 / 空对象 / `kind` 非字符串等）**按「不唤醒」处理并发一条告警**（文案含 `reason` 与「非法」，2026-10-16 修正，用例见 `tests/turnEndMatrix.test.ts`）；边界类新节点不受 `reason` 限制，到达即按对齐 flag 判据处理。
 
@@ -176,12 +180,35 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 | `list()` | 生效规则只读清单（`id` / `enabled` / `sources` / `directWrite` / `delivery` / `origin` / `description` / `text` / 节流参数） |
 | `status()` | 规则条数、运行时条数、被运行时删除的基线条数、状态目录、每回合注入上限 |
 | `evaluate({ text, source? })` | 只读判定：返回命中规则（含**可注入内容** `text` / `summary`）与未启用规则 id；不注入、不改状态 |
-| `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数 |
+| `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数。`sources` 含 `tools/pre-execute` 时改为 guard 形态（必须给 `guard`、不得给 `decide` 与注入 / 冷却参数），见下「guard 面」 |
 | `onNotice(listener)` | 订阅插件告警（完整展示行 + tone） |
 
 - **共用闸门**：逐段上限（`maxInjectionsPerTurn` 以「**段**」计）、同文本去重、`dedupeInRecord` 判空；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。同一次触发的全部命中（规则 + 消费者）按 `delivery` 分组、**每组合并为一条**注入消息（正文空行分隔；多段时 `source.summaries` 记录各段摘要）。
 - **时序约束**：`decide` 运行在 `session/event` 的同步派发窗口内——须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）；`ctx.trigger` 是实际触发的节点 id，`ctx.event` 是原始宿主事件（`session-start` 上是宿主 Session），`ctx.resumed` 是本会话是否为恢复 / 重载（会话内稳定，可直接喂给匹配器复用会话谓词）。
 - **对齐点（尺度双 flag）与复杂度边界**见 `docs/DESIGN.md` 取舍 10：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，`*-start` 清更粗 / 更细 flag、`*-end` 查或后置位，「清」与是否注册无关，`decide` 返回 `reset: true` 清空本消费者 flag，`compaction` 不参与合并、每次到达都触发。
+
+### guard 面（`tools/pre-execute`，工具执行前拦截）
+
+**节点**：`sources: ["tools/pre-execute"]` 的消费者在宿主 `tools/pre-execute`（cordis **waterfall**）唤醒，上下文是 `ToolGuardContext { name, arguments, callId?, sessionId?, resumed? }`（宿主 exec 的结构面子集；`sessionId` 取自 `exec.agent.session.id`，`resumed` 按会话级判据补齐）。裁决是 `ToolGuardDecision = { kind: "allow" } | { kind: "deny"; reason }`，返回 `undefined` = 弃权。
+
+```ts
+service.registerConsumer({
+  id: "my-guard",
+  sources: ["tools/pre-execute"],
+  guard: (context) =>
+    context.name === "bash" && String(context.arguments?.command ?? "").includes("herdr")
+      ? { kind: "deny", reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具" }
+      : undefined,
+});
+```
+
+- **注册约束**（违反即拒绝注册并告警，返回 noop）：该形态**必须**给 `guard`（同步或异步均可）、**不得**给 `decide`，也**不得**带 `delivery` / `dedupeInRecord` / `directWrite` / `cooldownTurns` / `cooldownMs`（guard 只裁决、不注入、不去重、不记账）。不含该节点的注册仍必须给 `decide`。
+- **汇总顺序**：按**注册顺序串行** `await`，任一 `deny` **立即返回**（安全向：`allow` 不否决后续 `deny`）；全部放行 / 弃权 → `undefined`，监听器走宿主 `next()`。
+- **失败语义**：`guard` 抛错 / 返回非法结构 / `deny` 但理由为空 → 告警并视为弃权（fail-open）。最终否决权仍在 `security-guard`（`ctx.tools.guard` 单调守卫），本面不接管。
+- **会话范围**：对所有会话生效（含子代理）。
+- **可见性**：`deny` 时经 `warn` 打一行「消费者 `<id>` 拒绝工具 `<name>`」；**不写审计**、不落 memory-base。
+- **工具面**：`rule_*` 仍只接受 `inject` 动作 —— 消费者 guard 只由插件代码注册，配置无法直接表达拦截规则；规则由各消费者插件自己的 `config` 提供（首个消费者 `behavior-correction` 是并行任务，口径见项目级 `docs/implementation/2026-10-21-behavior-correction.md`）。
+- **与相邻拦截层的关系**：`security-guard`（危险命令 / 敏感路径，单调守卫，拥有最终否决）与 `auto-approve`（`approval/request` 审批裁定）职责不变；本面只表达「应改用专用工具」。
 
 ## 时序约束（重要）
 
@@ -201,7 +228,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 ```sh
 npm run check   # tsc --noEmit
 npm run build   # 编译到 dist/
-npm test        # node --test（151 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
+npm test        # node --test（168 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
 npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 

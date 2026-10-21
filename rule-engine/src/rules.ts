@@ -21,7 +21,10 @@ import type {
   RuntimeLayer,
 } from "./types.ts";
 
-/** 合法匹配面（工具面入参校验与错误提示用）。 */
+/** 只供消费者使用的节点：规则侧不接受（规则只在会话事件节点上判定）。 */
+export const CONSUMER_ONLY_SOURCE = "tools/pre-execute" as const;
+
+/** 合法匹配面（工具面入参校验与错误提示用；**不含** `tools/pre-execute`）。 */
 export const RULE_SOURCES: readonly RuleSource[] = [
   "assistant-text",
   "user-message",
@@ -35,10 +38,23 @@ export const RULE_SOURCES: readonly RuleSource[] = [
   "compaction",
 ];
 
-/** 匹配面是否合法。 */
+/** 匹配面是否合法（规则侧口径：不含 `tools/pre-execute`）。 */
 export function isRuleSource(value: unknown): value is RuleSource {
   return (
     typeof value === "string" && RULE_SOURCES.includes(value as RuleSource)
+  );
+}
+
+/** 消费者可用的节点：规则侧 10 项 + 仅消费者可用的 `tools/pre-execute`。 */
+export const CONSUMER_SOURCES: readonly RuleSource[] = [
+  ...RULE_SOURCES,
+  CONSUMER_ONLY_SOURCE,
+];
+
+/** 消费者唤醒时机是否合法（含 `tools/pre-execute`）。 */
+export function isConsumerSource(value: unknown): value is RuleSource {
+  return (
+    typeof value === "string" && CONSUMER_SOURCES.includes(value as RuleSource)
   );
 }
 
@@ -234,6 +250,13 @@ function normalizeRuleSources(
   const list: RuleSource[] = [];
   const invalid: unknown[] = [];
   for (const item of raw) {
+    // 专用文案：这是「用错面」而不是笔误，直接指向消费者 guard 面
+    if (item === CONSUMER_ONLY_SOURCE) {
+      return {
+        ok: false,
+        error: `规则 "${id}" 的 source 不能是 "${CONSUMER_ONLY_SOURCE}"：该节点只用于消费者 guard（规则侧只在会话事件节点上判定；拦截规则由消费者插件实现，见 rule-engine/README.md「消费者面」）`,
+      };
+    }
     if (!isRuleSource(item)) invalid.push(item);
     else if (!list.includes(item)) list.push(item);
   }

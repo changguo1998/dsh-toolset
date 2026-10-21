@@ -38,11 +38,12 @@ import {
   type CompiledMatcher,
 } from "./match.ts";
 import {
+  CONSUMER_ONLY_SOURCE,
   effectiveRules,
+  isConsumerSource,
   isRuleDelivery,
   isRuleSource,
   normalizeRule,
-  RULE_SOURCES,
 } from "./rules.ts";
 import { emptyLayer, loadLayer, saveLayer } from "./persist.ts";
 import type {
@@ -65,6 +66,8 @@ import type {
   RuntimeLayer,
   SessionEventLike,
   SessionLike,
+  ToolGuardContext,
+  ToolGuardDecision,
 } from "./types.ts";
 
 /** 单条 `assistant/message` 正文的缓冲上限（字符），超出截断（防长回复把内存撑大）。 */
@@ -90,7 +93,7 @@ interface CompiledRule {
   matcher: CompiledMatcher;
 }
 
-/** 归一化后的消费者注册项。 */
+/** 归一化后的消费者注册项：`decide`（会话事件节点）与 `guard`（`tools/pre-execute`）至多一个。 */
 interface CompiledConsumer {
   id: string;
   /** 唤醒时机（节点表）。 */
@@ -102,7 +105,12 @@ interface CompiledConsumer {
   dedupeInRecord: number;
   /** 直写节点：这些节点跳过投影去重判断。 */
   directWrite: readonly RuleSource[];
-  decide(context: ConsumerContext): ConsumerFeedback | null;
+  /** 会话事件节点的同步决策（guard 消费者没有）。 */
+  decide?: (context: ConsumerContext) => ConsumerFeedback | null;
+  /** `tools/pre-execute` 的裁决（guard 消费者才有）。 */
+  guard?: (
+    context: ToolGuardContext,
+  ) => ToolGuardDecision | undefined | Promise<ToolGuardDecision | undefined>;
 }
 
 /** 对齐尺度（越靠后越细）。 */
@@ -280,8 +288,12 @@ export class RuleEngine {
   }
 
   /**
-   * 简单消费者注册面：在注册的 `sources`（缺省 `["turn-end"]`）节点按注册顺序**同步**询问
-   * `decide`，返回的反馈内容由本引擎统一注入（每回合上限 / 同文本去重 / 可选消费者冷却）。
+   * 消费者注册面。两种形态互斥：
+   * - **会话事件节点**（`sources` 缺省 `["turn-end"]`）：按注册顺序**同步**询问 `decide`，返回的反馈内容
+   *   由本引擎统一注入（每回合上限 / 同文本去重 / 可选消费者冷却）；
+   * - **`tools/pre-execute`**（guard）：宿主每次执行工具前由 `guardTool` 按注册顺序串行询问 `guard`；
+   *   该类注册必须给 `guard`、不得给 `decide`，也不得带注入 / 冷却 / 直写参数（违反即拒绝注册并告警）。
+   *
    * 返回注销函数；重复 id / 非法注册记 warning 并返回 noop。
    */
   registerConsumer(input: ConsumerRegistration): () => void {
@@ -294,6 +306,41 @@ export class RuleEngine {
     if (id.length === 0) {
       this.#warn("registerConsumer 的 id 必须是非空字符串");
       return noop;
+    }
+    const sources = normalizeSources(input.sources);
+    if (sources.includes(CONSUMER_ONLY_SOURCE)) {
+      // guard 形态：结构上不属于注入面，注入 / 冷却 / 直写参数一律拒绝（避免「注册了却不生效」）
+      const violation = guardRegistrationViolation(input);
+      if (violation !== null) {
+        this.#warn(`消费者 "${id}" ${violation}，注册被拒绝`);
+        return noop;
+      }
+      if (typeof input.guard !== "function") {
+        this.#warn(
+          `消费者 "${id}" 声明了 "${CONSUMER_ONLY_SOURCE}" 但没给 guard 函数，注册被拒绝`,
+        );
+        return noop;
+      }
+      if (this.#consumers.some((item) => item.id === id)) {
+        this.#warn(`消费者 "${id}" 已注册，重复注册被忽略`);
+        return noop;
+      }
+      const guardConsumer: CompiledConsumer = {
+        id,
+        sources,
+        delivery: "followup",
+        cooldownTurns: 0,
+        cooldownMs: 0,
+        dedupeInRecord: 0,
+        directWrite: [],
+        guard: input.guard,
+      };
+      this.#consumers = [...this.#consumers, guardConsumer];
+      return () => {
+        this.#consumers = this.#consumers.filter(
+          (item) => item !== guardConsumer,
+        );
+      };
     }
     if (typeof input.decide !== "function") {
       this.#warn(`消费者 "${id}" 的 decide 必须是函数`);
@@ -308,7 +355,6 @@ export class RuleEngine {
         `消费者 "${id}" 的 delivery ${JSON.stringify(input.delivery)} 非法，按 followup 处理`,
       );
     }
-    const sources = normalizeSources(input.sources);
     const consumer: CompiledConsumer = {
       id,
       sources,
@@ -327,6 +373,91 @@ export class RuleEngine {
     this.#consumers = [...this.#consumers, consumer];
     return () => {
       this.#consumers = this.#consumers.filter((item) => item !== consumer);
+    };
+  }
+
+  /**
+   * `tools/pre-execute` 汇总（guard 面）：按消费者**注册顺序串行**询问注册在该节点的 guard。
+   *
+   * - 返回 `{kind:"deny", reason}` 立即结束：安全向优先，`allow` **不**否决后续 `deny`；
+   * - 全部放行 / 弃权 → `undefined`（调用方走宿主 `next()`）；
+   * - `guard` 抛错 / 返回非法结构 / `deny` 但理由为空 → 告警并视为弃权（fail-open：
+   *   最终否决权仍在 `security-guard`，本层不因消费者故障而拦死工具）；
+   * - `deny` 时打一行告警（可见性）；**不**写审计、不落 memory-base。
+   *
+   * `resumed` 由本引擎按会话级判据补齐（调用方显式给出时以其为准），其余字段原样透传。
+   */
+  async guardTool(
+    context: ToolGuardContext,
+  ): Promise<ToolGuardDecision | undefined> {
+    const exec = this.#normalizeGuardContext(context);
+    if (exec === null) return undefined;
+    for (const consumer of this.#consumers) {
+      const guard = consumer.guard;
+      if (guard === undefined) continue;
+      let decision: unknown;
+      try {
+        decision = await guard(exec);
+      } catch (err) {
+        this.#warn(`消费者 "${consumer.id}" guard 抛错：${String(err)}`);
+        continue;
+      }
+      if (decision === undefined || decision === null) continue;
+      const kind = (decision as { kind?: unknown }).kind;
+      if (kind === "allow") continue;
+      if (kind !== "deny") {
+        this.#warn(
+          `消费者 "${consumer.id}" guard 返回非法裁决 ${previewValue(decision)}，已视为弃权`,
+        );
+        continue;
+      }
+      const rawReason = (decision as { reason?: unknown }).reason;
+      const reason = typeof rawReason === "string" ? rawReason.trim() : "";
+      if (reason.length === 0) {
+        this.#warn(`消费者 "${consumer.id}" guard 拒绝但未给理由，已视为弃权`);
+        continue;
+      }
+      this.#warn(`消费者 "${consumer.id}" 拒绝工具 ${exec.name}`);
+      return { kind: "deny", reason };
+    }
+    return undefined;
+  }
+
+  /**
+   * guard 上下文归一：`name` 必须是非空字符串（否则告警弃权）；
+   * `resumed` 缺省时按本会话已知的判定补齐（未知会话按 false = fresh，与纯函数调用同口径）。
+   */
+  #normalizeGuardContext(context: ToolGuardContext): ToolGuardContext | null {
+    const name =
+      context !== null && typeof context === "object"
+        ? (context as { name?: unknown }).name
+        : undefined;
+    if (typeof name !== "string" || name.length === 0) {
+      this.#warn(
+        `tools/pre-execute 的 exec.name ${previewValue(name)} 非法，本次不询问消费者 guard`,
+      );
+      return null;
+    }
+    const callId =
+      typeof context.callId === "string" && context.callId.length > 0
+        ? context.callId
+        : undefined;
+    const sessionId =
+      typeof context.sessionId === "string" && context.sessionId.length > 0
+        ? context.sessionId
+        : undefined;
+    const resumed =
+      typeof context.resumed === "boolean"
+        ? context.resumed
+        : sessionId === undefined
+          ? false
+          : (this.#sessions.get(sessionId)?.resumed ?? false);
+    return {
+      name,
+      arguments: context.arguments,
+      ...(callId === undefined ? {} : { callId }),
+      ...(sessionId === undefined ? {} : { sessionId }),
+      resumed,
     };
   }
 
@@ -641,9 +772,11 @@ export class RuleEngine {
     state.buffers.set(turn, list);
   }
 
-  /** 是否需要回合正文（文本类规则或已注册消费者都要；无则完全不缓冲，省内存）。 */
+  /** 是否需要回合正文（有 `decide` 的消费者、或文本类规则；guard 消费者不需要，省内存）。 */
   #needsText(): boolean {
-    if (this.#consumers.length > 0) return true;
+    if (this.#consumers.some((consumer) => consumer.decide !== undefined)) {
+      return true;
+    }
     return this.#compiled.some(
       (item) =>
         item.rule.enabled &&
@@ -766,6 +899,9 @@ export class RuleEngine {
     const node = NODE_SCALES.get(trigger);
     const now = this.#now();
     for (const consumer of this.#consumers) {
+      // guard 消费者（`tools/pre-execute`）不参与会话事件节点：没有 decide 就没有可注入的反馈
+      const decide = consumer.decide;
+      if (decide === undefined) continue;
       const registered = consumer.sources.includes(trigger);
       let wake = registered;
       if (node !== undefined) {
@@ -788,7 +924,7 @@ export class RuleEngine {
       }
       let feedback: ConsumerFeedback | null = null;
       try {
-        feedback = consumer.decide({
+        feedback = decide({
           sessionId,
           turn,
           text,
@@ -1087,11 +1223,35 @@ function normalizeDirectWriteNodes(
   return out;
 }
 
-/** 消费者唤醒时机兜底：缺省 `["turn-end"]`；过滤非法值，全非法同样退回缺省。 */
+/**
+ * 消费者唤醒时机兜底：缺省 `["turn-end"]`；按**消费者口径**过滤（含 `tools/pre-execute`），
+ * 全非法同样退回缺省。
+ */
 function normalizeSources(value: unknown): readonly RuleSource[] {
   if (!Array.isArray(value)) return ["turn-end"];
-  const list = value.filter((item) => isRuleSource(item));
+  const list = value.filter((item) => isConsumerSource(item));
   return list.length > 0 ? list : ["turn-end"];
+}
+
+/** guard 形态注册的非法参数检查：命中返回原因（拒绝注册），全部合规返回 null。 */
+function guardRegistrationViolation(
+  input: ConsumerRegistration,
+): string | null {
+  if (input.decide !== undefined) {
+    return `声明了 "${CONSUMER_ONLY_SOURCE}" 时不能同时给 decide（guard 只裁决、不注入反馈）`;
+  }
+  for (const key of [
+    "delivery",
+    "dedupeInRecord",
+    "directWrite",
+    "cooldownTurns",
+    "cooldownMs",
+  ] as const) {
+    if (input[key] !== undefined) {
+      return `声明了 "${CONSUMER_ONLY_SOURCE}" 时不能带 ${key}（guard 不注入、不去重、不记账）`;
+    }
+  }
+  return null;
 }
 
 /** 本尺度及更细尺度（含自身，从粗到细）。 */
