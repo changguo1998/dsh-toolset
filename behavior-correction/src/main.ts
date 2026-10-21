@@ -91,8 +91,7 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       ],
       flags: "im",
     },
-    reason:
-      "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）或 herdr_integration 工具",
+    reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）",
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
   },
 ];

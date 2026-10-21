@@ -27,7 +27,7 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 | id | 工具 | 条件 | 理由 |
 | --- | --- | --- | --- |
 | `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `|` 之后；允许前置 `VAR=值`
-与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）或 herdr_integration 工具` |
+与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）` |
 
 ## 配置
 
