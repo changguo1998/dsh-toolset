@@ -40,8 +40,12 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 `/daemon`（`ctx.commands.register`，零 TUI 改动）：
 
+守护**默认关闭**（进程内开关）：插件挂载后调度器不启动，`/daemon start` 开启、`/daemon stop` 关闭；状态**不落盘**，重启复位。未开启时写类子命令（`pause` / `resume` / `run` / `cancel`）与模型侧工具的写类 action 一律拒绝并提示先开启，读类（`list` / `show` / `log`）照常。
+
 | 子命令 | 作用 |
 | --- | --- |
+| `start` | 开启守护并启动调度器（含启动补算：周期只补最近一次，一次性超窗记 `missed`） |
+| `stop` | 关闭守护（撤销定时器，任务表保留；重启后仍需手动开启） |
 | `list` | 任务列表（下次触发 / 状态 / 上次结果），空表输出「暂无守护任务」 |
 | `show <id>` | 单条详情 |
 | `pause <id>` / `resume <id>` | 暂停 / 恢复（恢复时周期任务按当前时钟重算下次） |
@@ -51,7 +55,7 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 只读服务面 `ctx.get("backgroundDaemon")`：`list()` / `status()` / `journal(limit?, taskId?)`，供 `/daemon` 与**后续** TUI 状态列块消费；缺失时 TUI 按仓内惯例提示不可用。
 
-模型侧工具 `daemon_task`（宿主 `schedule_create` 的等价物）：`create` / `list` / `show` / `pause` / `resume` / `run` / `cancel` / `log`。
+模型侧工具 `daemon_task`（宿主 `schedule_create` 的等价物）：`create` / `list` / `show` / `pause` / `resume` / `run` / `cancel` / `log`。未开启时 `create` / `pause` / `resume` / `run` / `cancel` 返回 `error: "daemon_disabled"`，`list` / `show` / `log` 照常。
 
 ## 配置
 
@@ -61,6 +65,7 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
   config:
     storePath: !!js process.env.BACKGROUND_DAEMON_STORE || dshHomePath('background-daemon/tasks.json')
     journalLimit: 200
+    enabled: false             # 启动时的开关初始状态（缺省关闭；仅进程内, /daemon start 开启）
     awaitAgentMs: 0            # 目标未活跃时等多久再判 skipped
     catchUpWindowMs: 86400000  # 一次性任务过期补发窗口（缺省 24 h）
     maxDelayMs: 86400000       # 单段 timer 上限
@@ -79,6 +84,8 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 
 ## 边界（行为口径）
 
+- **默认关闭（进程内开关）**：插件挂载后**不启动调度器**（`config.enabled` 缺省 `false` 是唯一开箱放行口）。`/daemon start` 开启并按启动补算口径补算（周期任务只补最近一次，一次性超窗记 `missed`）；`/daemon stop` 撤销定时器、任务表保留。开关状态**仅进程内、不落盘**：重启后需重新开启，未开启期间到点不投递。未开启时写类动作（`pause` / `resume` / `run` / `cancel` 与 `daemon_task` 的写类 action）一律拒绝并提示先开启，读类（`list` / `show` / `log`）照常。
+- **S 档创建期目标校验**：`daemon_task create` 在落任务**之前**用 `sessionPaths.sessionDirFor` 只读探测目标会话；不可解析返回 `error: "session_unresolvable"` 且**不创建**任务（避免「内存里有、盘上没有」的半截任务与创建期写透告警）。`sessionPaths` 读不到时跳过校验（可选依赖，不进 inject）；`P` / `U` 档不校验（不落 session 层）。
 - **目标 = 本进程内已注册的活跃 agent**：`agents.get(sessionId)` 未命中 → `skipped`（原因 `no-active-agent`）并写流水；`awaitAgentMs > 0` 时在窗口内按固定间隔复查（不是失败重试链）。**不**冷恢复会话、**不**跨进程唤醒。
 - **投递语义 = at-least-once**：`flush` 成功（L2）才记持久投递；`flush` 返回 false 记 `delivered` + `durable:false`（原因码 `volatile`）+ 告警，**不**自动重投（D13）。崩溃窗口可能造成重复投递。
 - **安全边界**：投递是 user 消息，后续工具调用照常受 `security-guard` 与 approval / sandbox 策略约束；本插件**不降级**任何策略、不自动批准、不绕过审批。命令类任务属「命令来自状态文件」一侧 → 引擎侧复查（`guardScope: engine-side`）；复查不可用时 fail-open 但结果标 `guardSkipped`。
@@ -106,6 +113,6 @@ npm --prefix background-daemon run check   # tsc --noEmit
 npm --prefix background-daemon test        # node --test（假时钟 / 假 timer / 假渠道）
 ```
 
-单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop / 控制帐收敛）、共享控制帐（读写、坏行跳过、取消 / 暂停 / 恢复、幂等）、`/daemon` 七个子命令（`pause` 与 `resume` 分立，上表并列一行）、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
+单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop / 控制帐收敛）、共享控制帐（读写、坏行跳过、取消 / 暂停 / 恢复、幂等）、`/daemon` 九个子命令（`pause` 与 `resume` 分立，上表并列一行）、进程内开关（默认关闭 / `start` 与 `stop` 的调度器联动 / 关闭态闸门）、创建期目标校验（`sessionPaths` 可选读取、S 档探测、P / U 放行）、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
 
 真机验证（`dsh --profile fff`）属实现条目的独立一步，尚未在本包完成。

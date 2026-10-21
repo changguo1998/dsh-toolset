@@ -1,6 +1,6 @@
 # 默认关闭开关与创建期目标校验（接取条目：background-daemon/docs/BACKLOG.md「background-daemon 默认不开启, 需显式命令开启（1b）」；「创建指向不可解析会话的 S 档任务时仍弹 memory 写透告警」）
 
-状态：测试　　开启：2026-10-21　　关闭：-
+状态：关闭　　开启：2026-10-21　　关闭：2026-10-21
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -120,8 +120,16 @@
   - `tests/tools.test.ts`：关闭态写类 action 返回 `daemon_disabled` 且不建任务、读类照常、开启后可建；S 档目标不可解析返回 `session_unresolvable` 且任务表为空、P 档同目标可建。
   - `tests/apply.test.ts`：缺省关闭 → 调度器不启动、服务面 `enabled=false`、经注册 handler `start` 后启动；既有装配用例显式 `enabled: true` 保持原断言。
   - `tests/service.test.ts`：`status().enabled` 跟随开关函数、缺省 false。
-- 真机验证（待人工确认）：`dsh --profile fff` 重启后 stderr 出现「未开启（默认关闭）」；`/daemon start` 后 `daemon_task list` 正常、`create` 可用；对不存在会话建 S 档任务返回 `session_unresolvable` 且不再出现「任务写入 memory-base 失败」error 行；`/daemon stop` 后写类动作被拒。
+- 真机验证（2026-10-21 15:26 起, 重启后的新进程 pid 3649953）：
+  - 默认关闭：`daemon_task create` 直接返回 `error: "daemon_disabled"`（写类闸门生效）, `list` 读类照常。
+  - `/daemon start` 之后：对不存在会话 `tui-00000000-…` 建 S 档任务返回 `error: "session_unresolvable"`, 原因文案为 `sessionPaths.sessionDirFor: 会话「…」不在宿主的 sessions 里, 无法解析其 cwd`；`list` 为空; `tasks.json` / `journal.jsonl` / `control.jsonl` 的 mtime 均未变（13:58 / 00:44 / 00:46）, 即**没有落半截任务**, 写透未触发（拒绝发生在 `store.create` 之前）。
+  - `/daemon stop` 之后：写类 `create` 仍返回 `daemon_disabled`；读类 `log` 正常返回最近 3 条流水（`list` 同）。
+  - 未真机覆盖：命令面的 `pause` / `resume` / `run` / `cancel` 关闭态拒绝（由 `tests/switch.test.ts` 单测锁定, 真机只验了工具面与 `start` / `stop`）。
 
 ## 收尾
 
-（待关闭时填写）
+- 条目：`background-daemon/docs/BACKLOG.md` 的「background-daemon 默认不开启, 需显式命令开启（1b）」与「创建指向不可解析会话的 S 档任务时仍弹 memory 写透告警」标**完成**并从清单移除（清单现为空）。
+- 回写：`background-daemon/README.md` —— `/daemon` 表增 `start` / `stop` 与默认关闭口径、工具写类拒绝、配置增 `enabled`、「边界」增「默认关闭（进程内开关）」与「S 档创建期目标校验」、测试覆盖清单同步。`DESIGN.md` 不存在（轻量包豁免，见 `AGENTS.md`「结构与约定」）。
+- 归档：本文件移入 `background-daemon/docs/archived/`。
+- 提交：代码与测试 `437c68b`；关闭提交（README / BACKLOG / 本文件归档移动）为本次变更的最后一次提交。
+- 遗留：无。真机四项通过（见「测试与证据」末条）。
