@@ -27,8 +27,8 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 | id | 工具 | 条件 | 理由 |
 | --- | --- | --- | --- |
 | `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `|` 之后；允许前置 `VAR=值`
-| `no-python-in-bash` | `bash` | **命令位**调用 `python` / `python3` / `python3.12`（判定同上一行） | `bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句` |
-与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）` |
+| `no-python-in-bash` | `bash` | **命令位**调用 `python` / `python3` / `python3.12`（判定同上一行） | `script_run` |
+与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `herdr_pane` |
 
 ## 配置
 

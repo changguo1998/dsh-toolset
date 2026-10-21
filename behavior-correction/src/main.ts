@@ -95,7 +95,7 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       ],
       flags: "im",
     },
-    reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）",
+    reason: "herdr_pane",
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
   },
   {
@@ -109,8 +109,7 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       ],
       flags: "im",
     },
-    reason:
-      "bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句",
+    reason: "script_run",
     description:
       "Python 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
   },
