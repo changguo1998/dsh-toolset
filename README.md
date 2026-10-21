@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 29 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 30 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -31,6 +31,7 @@ The repository contains the `TUI/` terminal UI package and 29 in-process plugins
 | **code-map** | Code structure map: file nodes plus an import graph index, with `callers`/`callees`/`cycles`/`impact` queries and project/module reports (references are candidates: semantic `callers` precision needs the official LSP trio, which the profile does not distribute, so it falls back to `structural`); depends on `@dsh-toolset/ast-tools` via `link:`, so install both when mounting |
 | **context-report** | Session context and usage report: the host-only `sessionContext` projection folds what the official projections lack (token buckets), turns/steps and wall clock are read from the official `sessionStats` projection, and the `context_report` tool combines token-meter live pressure with model capacity readings |
 | **rule-engine** | Rule-triggered automatic injection: matches model text, tool calls and turn boundaries by keyword/regex/built-in predicate, then injects a user-role message as a new turn (`followup`), onto the nearest pre-step with a wake (`steer`), or without one (`inject`); exposes a per-node consumer registration surface (`registerConsumer`, `sources` defaulting to `turn-end`, asked synchronously, injected centrally) and a read-only `evaluate` |
+| **behavior-correction** | Behavior correction (rule-engine guard consumer on `tools/pre-execute`): before a tool runs, matches the tool name plus its argument string against its own config rule table and, on a hit, denies the call with a reason naming the dedicated tool. The default rule blocks `bash` commands containing `herdr` and points at `herdr_pane`; `rules` replaces the table wholesale, an empty array / `enabled: false` disables blocking, and the optional `ruleEngine` service is read through `ctx.get` (a missing service only warns, never blocks) |
 | **symbol-normalizer** | Symbol normalization: presentation-layer normalization of symbols in model text (alias substitution) plus turn review (human notice / model feedback), plugged in as a rule-engine consumer; provides the `symbolNormalizer` service for the TUI to consume |
 | **ponytail** | Lazy senior dev mode (on by default since 2026-10-05; set `enabled: false` to turn off): injects a 7-rung ladder (YAGNI → reuse → stdlib → platform → installed deps → one line → minimal code) at session start. |
 | **md-table-check** | Reply-body markdown table check (rule-engine consumer on `assistant-text`): compares the cell counts of header / delimiter / data rows and, on mismatch, injects one consolidated prompt (header line + excerpt + expected vs actual columns) asking the model to resend the corrected reply. Report-only: it never rewrites the reply or any file, ignores column-count-consistent tables, width-driven fallbacks and pseudo-tables |
@@ -67,6 +68,7 @@ dsh-toolset/
 ├── code-map/             # code structure map (symbol / import graph, queries and reports)
 ├── context-report/       # session context / usage report (sessionContext projection + context_report tool)
 ├── rule-engine/          # rule-triggered automatic injection (rules / consumer surface + injector)
+├── behavior-correction/  # behavior correction (rule-engine guard consumer on tools/pre-execute; default: no herdr in bash)
 ├── symbol-normalizer/    # symbol normalization (presentation aliasing + turn review; rule-engine consumer)
 ├── ponytail/             # ponytail mode (decision-ladder injection; rule-engine consumer; on by default)
 ├── md-table-check/       # reply-body table column check (rule-engine consumer; on by default, report-only)
@@ -104,7 +106,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 30 packages: TUI + 29 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 31 packages: TUI + 30 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset
@@ -143,7 +145,7 @@ Two change flows: `docs/WORKFLOW-STANDARD.md` (standard) and `docs/WORKFLOW-FAST
 - `docs/ROADMAP.md` — future development directions and completion criteria (progress, schedule and items live in `docs/BACKLOG.md` §3 milestones).
 - `docs/BACKLOG.md` — actionable items: cross-package features and defects (P0/P1/P2) + milestones + plugin roadmap.
 - `docs/STATUS.md` — reference document recording what has been implemented (updated by maintainers as needed).
-- `docs/ARCHITECTURE-REUSE.md` — reuse audit for 22 of the 29 modules (the 7 newest are not in the table yet): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
+- `docs/ARCHITECTURE-REUSE.md` — reuse audit for 22 of the 30 modules (the 8 newest are not in the table yet): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
 - `docs/WORKFLOW-STANDARD.md` — content change policy · standard flow (full version).
 - `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
 - `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).

@@ -1,6 +1,6 @@
 # 新插件 behavior-correction（接取条目：docs/BACKLOG.md「新插件 behavior-correction（暂定名：该用专用工具却走 shell 时拦截并指路）」）
 
-状态：规划　　开启：2026-10-21　　关闭：—
+状态：测试　　开启：2026-10-21　　关闭：—（待两支合并后由主线关闭）
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 与 rule-engine「消费者 guard 面」任务**并行实现**（用户 2026-10-21 指令「分开并行实现」），接口按对方追踪文档 `rule-engine/docs/implementation/2026-10-21-consumer-guard.md` 的决策 2 至 6 钉死。
 
@@ -47,6 +47,7 @@
 09. `scripts/install.sh` —— `canonical_pkgs` 在 `rule-engine` 之后加 `behavior-correction`。
 10. `AGENTS.md` + 根 `README.md` / `README.zh.md` —— 包列表与插件清单各加一条（两 README 逐节同构）。
 11. `docs/BACKLOG.md` —— 条目状态与口径；本文件。
+12. `scripts/test-parallel.sh` —— `default_pkgs` 在 `rule-engine` 之后加 `behavior-correction`（实施时补充：`scripts/test-install.sh:469` 要求它与 `install.sh` 的 `canonical_pkgs` 同序，只改 `install.sh` 会让该检查失败）。
 
 **明确不做**：审计；`/bc` 之类的人工命令面；按参数 JSON 的精确语义解析（只做文本匹配）；profile 挂载与 `pnpm install`（仓库外，主线获批准后做）；`docs/STATUS.md`；框架侧文件（`rule-engine/*` 由并行任务负责）。
 
@@ -73,3 +74,67 @@
 - **`inject: []` 与 cordis 严格模式**：读服务用 `ctx.get`，不写 `inject`；若真机报「cannot get property」，改为 `inject: ["ruleEngine"]` 并把降级改到 `apply` 内的存在性判断（文档记录）。
 - **清单冲突**：两支都改根 `package.json` / `install.sh` 会冲突；本任务独占这几处（见决策 9），框架任务已按此收窄。
 - **包数口径**：仓库文档与 `install.sh` 多处写「29 个插件 / 30 个包」，加包后需全量核对（`AGENTS.md`、两份 README、`scripts/install.sh` 注释）。
+
+## 实现记录
+
+（2026-10-22，worktree `.worktree/behavior-correction`，分支 `dsh/behavior-correction`）
+
+1. **包骨架**：`package.json`（`main: dist/src/main.js`；`check` = 主 tsconfig + tests 两个 program；`test` =
+   `node --experimental-transform-types --test 'tests/*.test.ts'`）、`cordis.patch.yml`（`enabled: true`，注释
+   写明依赖降级与 `rules` 整体替换）、`tsconfig.json` + `tests/tsconfig.json`（照 `timer`）、`.gitignore`、
+   `LICENSE`（复制 `timer`）。
+2. **`src/main.ts`**：`name` / `inject: []` / `GUARD_SOURCE` / `Config` / `RuleSpec` / `ToolGuardContext` /
+   `ToolGuardDecision` / `DEFAULT_RULES` / `resolveConfig` / `compileRules` / `toolText` / `matchRule` / `apply`。
+   判定文本按决策 04 抽取（`bash` / `pwsh` 取 `arguments.command`，其余 `JSON.stringify`，序列化失败按空串）；
+   规则编译期逐条校验，非法条目 / 非法正则各告警一行并跳过（非法正则跳过**整条**规则），其余照常；命中第一条
+   规则即返回 `deny`，未命中返回 `undefined`（不返回 `allow`）；没有任何匹配条件的规则永不命中。
+   服务读取走 `readEngine`：直接属性（`try` 包住，严格模式下未注入服务直读会抛）→ `ctx.get`；`enabled: false`
+   不注册；服务缺席 / 注册被拒各告警一行并降级；注销函数包 `once`，同时挂 `ctx.on("dispose")`（订阅抛错只告警）。
+3. **`tests/main.test.ts`** 24 例：契约符号 / 缺省规则命中与放行 / 工具限定 / 大小写与 flags / 规则顺序 /
+   配置替换与空数组 / `enabled: false` / 非法规则与非法正则 / `config.rules` 非数组 / 服务缺席与 `ctx.get` 抛错 /
+   注册被拒 / dispose 幂等 / `toolText` 抽取（含循环引用与非字符串 `command`）。
+4. **`tests/contract.test.ts`**：变量说明符 `import("@dsh-toolset/rule-engine")`；可解析时校验
+   `CONSUMER_SOURCES` 含 `tools/pre-execute`、`isConsumerSource` 为真、`RuleEngine` 实例的 `registerConsumer`
+   接受「`sources` + `guard`、不带 `decide`」的注册；不可解析时 skip。本分支（`c1b91e0`）尚无框架 guard 面，
+   故实际 skip。
+5. **清单同步**：根 `package.json` 的 check/build 链、`scripts/install.sh` 的 `canonical_pkgs`、
+   `scripts/test-parallel.sh` 的 `default_pkgs`、`AGENTS.md`（插件清单 3 处 + 包数 2 处 + 轻量包清单）、
+   根 `README.md` / `README.zh.md`（组成表一行 + 目录树一行 + 包数 + 复用审计覆盖口径 22/30、未入表 8 个）。
+6. **环境**：本 worktree 无 `node_modules`，`~/.npm` 在沙箱下只读，故用
+   `npm install --cache ../tmp/npm-cache` 装本包依赖；其余 30 包软链主 worktree（同一提交 `c1b91e0`）的
+   `node_modules` 后跑全仓 check / build / test（软链在 `node_modules`，已被 gitignore；验证后已删除软链，避免后续 `npm install` 跟随软链写进主 worktree）。
+
+## 测试与证据
+
+以上命令均在 `.worktree/behavior-correction` 执行（2026-10-22）。
+
+| 命令 | 结果 |
+| --- | --- |
+| `npm --prefix behavior-correction run check` | 通过（两个 program 均无输出） |
+| `npm --prefix behavior-correction test` | tests 25 / pass 24 / fail 0 / skipped 1（skip = 真包契约探针，本分支解析不到 `@dsh-toolset/rule-engine`） |
+| 反向验证：guard 恒返回 `undefined` | 8 例转红（含「缺省规则：bash 里跑 herdr → 拒绝并指向 herdr_pane」）；恢复后 24 例全绿 |
+| `npm --prefix behavior-correction run build` | 通过（产出 `dist/src/main.js`） |
+| 根 `npm run check` | exit 0（31 个包） |
+| 根 `npm run build` | exit 0 |
+| 根 `npm test` | 首次运行 `timer` 1 例失败（`tests/timers.test.ts:189` 的 55 ms 间隔断言，并行负载下计时抖动），重跑全绿：31 包 0 失败，`behavior-correction` pass 24 |
+| `sh scripts/test-install.sh` | 全部 84 项通过（含 `canonical_pkgs` ↔ `default_pkgs` 同序、↔ 根 check/build 链一致） |
+| 对端契约探针（一次性脚本，直接 import 并行 worktree `.worktree/rule-engine-guard` 的 `rule-engine/src/main.ts`） | `CONSUMER_SOURCES` 含 `tools/pre-execute`、`isConsumerSource` 为 true、`RuleEngine.registerConsumer` 无告警接受本注册形态、`guardTool` 对 `bash` + `herdr` 返回本包的 `deny`、对 `ls` / `read` 返回 `undefined` |
+| 端到端探针（同上，把框架 `RuleEngine` 实例作为 `ruleEngine` 服务交给本包 `apply`） | 注册零告警；`bash` + `herdr pane list` → deny（理由含 `herdr_pane`）；`ls -la` → `undefined`；`read` + herdr 路径 → `undefined`；调用返回的注销函数后再问同一调用 → `undefined`（确认注销生效） |
+
+**未验证（如实记录）**：真机拦截效果。本分支没有 rule-engine 的 guard 面，端到端要等两支合并并在 profile
+挂载 `behavior-correction` 后执行（决策 10；profile 属仓库外，需用户批准）。
+
+## 偏差
+
+1. **`scripts/test-parallel.sh` 属计划外改动**（清单第 12 条，计划补记）：`scripts/test-install.sh:469`
+   要求 `canonical_pkgs` 与 `default_pkgs` 同序，只改 `install.sh` 会让该检查失败；属机械同步，无行为影响。
+2. **`docs/ARCHITECTURE-REUSE.md` 未改**：其中「本仓 29 个模块」「已审计 29 个全量」等口径因新增包而少 1，
+   但该文件不在本次清单内（计划只列 `AGENTS.md` 与两份 README）。已在 `docs/BACKLOG.md` 追加条目交后续
+   整理；两份 README 只把模块总数改成 30、覆盖数 22 不变、未入表数 7 → 8。
+3. **真机验收未做**：依赖并行任务的框架合并与 profile 挂载（仓库外，需用户批准），按决策 10 由主线在合并后执行。
+
+## 收尾
+
+本任务按计划第 5 步**不关闭条目、不归档本文件**：两支合并（先框架、后本包）后由主线关闭条目、把本文件移入
+`docs/archived/`，并在 profile 挂载后做真机验收。`docs/STATUS.md` 未改（用户择时更新）；profile 依赖与
+`pnpm install` 属仓库外，待用户批准。

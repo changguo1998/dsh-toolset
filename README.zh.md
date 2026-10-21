@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 29 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 30 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -31,6 +31,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选：`callers` 的语义精度需官方 LSP 三件套，而 profile 不分发它，故回落 `structural`）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 只折官方空缺的部分（token 分桶），回合/步与墙钟读官方 `sessionStats` 投影；工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 | **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后作为独立新回合（`followup`）、挂到最近 pre-step 并唤醒（`steer`）或不唤醒（`inject`）注入 user-role 消息；提供按节点的消费者注册面（`registerConsumer`，`sources` 缺省 `turn-end`，同步询问、统一注入）与只读 `evaluate` |
+| **behavior-correction** | 行为纠正（`tools/pre-execute` 上的 rule-engine guard 消费者）：在工具执行前按自身 config 的规则表比对工具名 + 参数字符串，命中即拒绝该调用、理由写明该改用的专用工具。缺省规则拦下 `bash` 里含 `herdr` 的命令并指向 `herdr_pane`；`rules` 给即整体替换，空数组 / `enabled: false` 不拦；可选服务 `ruleEngine` 经 `ctx.get` 读取，服务缺席只告警、不拦截 |
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
 | **ponytail** | ponytail 模式（2026-10-05 起缺省开启；`enabled: false` 关闭）：会话起始注入「懒资深工程师」7 级决策阶梯（YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）。 |
 | **md-table-check** | 回复正文表格列数检查（`assistant-text` 上的 rule-engine 消费者）：逐行比对表头 / 分隔行 / 数据行的单元格数，不一致时注入一条汇总提示（表头行号 + 摘录 + 期望与实际列数），要求模型更正后重新回复。只报不改：不改写回复正文与任何文件；列数一致的表格、宽度退回的表格与伪表格都不报 |
@@ -67,6 +68,7 @@ dsh-toolset/
 ├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
 ├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
 ├── rule-engine/          # 规则触发的自动注入（规则 / 消费者面 + 注入器）
+├── behavior-correction/  # 行为纠正（rule-engine 的 tools/pre-execute guard 消费者；缺省拦 bash 里的 herdr）
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
 ├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
 ├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
@@ -104,7 +106,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 30 个包：TUI + 29 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 31 个包：TUI + 30 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
@@ -143,7 +145,7 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 - `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/ARCHITECTURE-REUSE.md` — 复用审计（覆盖 29 个模块中的 22 个，最新的 7 个尚未入表）：「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
+- `docs/ARCHITECTURE-REUSE.md` — 复用审计（覆盖 30 个模块中的 22 个，最新的 8 个尚未入表）：「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
