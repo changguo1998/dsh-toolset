@@ -309,8 +309,17 @@ function obj(value: unknown): Record<string, unknown> | undefined {
  * 形态（实测 0.9.5）：成功 `{"id":…,"result":{…}}`、失败 `{"error":{"code","message"},"id":…}`。
  * 先看 stdout（多数命令写 stdout），再看 stderr（错误信封实测写 stderr）；两处都没有 JSON
  * 时按 `unparsed` 处理，由调用方按退出码决定文案（如 CLI 语法错误只有一行纯文本）。
+ *
+ * `exitCode` 可选（socket 读通道没有退出码）：**exit 0 且两侧都没有任何输出**时归一为
+ * 「成功 + 空 result」——实测 `pane send-text` / `pane send-keys` / `pane run` 成功时
+ * stdout / stderr 都为空（exit 0），不写回执；把「无输出」当 CLI 失败会让这三条命令在真机
+ * 全部不可用。非零退出、有错误信封、有输出但解析不出 JSON 时语义不变（仍判失败）。
  */
-export function parseEnvelope(stdout: string, stderr: string): ParsedEnvelope {
+export function parseEnvelope(
+  stdout: string,
+  stderr: string,
+  exitCode?: number,
+): ParsedEnvelope {
   const texts = [stdout, stderr];
   // **错误信封优先**：两侧任一携带 error 即判失败。实测 herdr 把错误写 stderr（exit 1），
   // 但不同子命令的写侧并不统一；只要出现错误信封就不该被另一侧的 result 掩盖（宁可报错）。
@@ -334,6 +343,10 @@ export function parseEnvelope(stdout: string, stderr: string): ParsedEnvelope {
     if (root === undefined) continue;
     const result = obj(root.result);
     if (result !== undefined) return { kind: "ok", result };
+  }
+  // 静默成功：CLI 约定 exit 0 即成功，部分命令不写回执（见上方注释）
+  if (exitCode === 0 && texts.every((text) => text.trim() === "")) {
+    return { kind: "ok", result: {} };
   }
   return { kind: "unparsed" };
 }

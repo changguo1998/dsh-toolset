@@ -148,7 +148,11 @@ export async function ensureWorkspace(
   }
   const label = workspaceLabel(session);
   const listed = await runner.run(["workspace", "list"], config.timeoutMs);
-  const listEnvelope = parseEnvelope(listed.stdout, listed.stderr);
+  const listEnvelope = parseEnvelope(
+    listed.stdout,
+    listed.stderr,
+    listed.exitCode,
+  );
   if (listed.timedOut || listEnvelope.kind !== "ok") {
     return {
       ok: false,
@@ -179,6 +183,7 @@ export async function ensureWorkspace(
     const createEnvelope = parseEnvelope(
       createdResult.stdout,
       createdResult.stderr,
+      createdResult.exitCode,
     );
     if (createdResult.timedOut || createEnvelope.kind !== "ok") {
       return {
@@ -244,7 +249,11 @@ export async function activePaneOf(
   workspaceId: string,
 ): Promise<ActivePaneResult> {
   const listed = await runner.run(["workspace", "list"], config.timeoutMs);
-  const listEnvelope = parseEnvelope(listed.stdout, listed.stderr);
+  const listEnvelope = parseEnvelope(
+    listed.stdout,
+    listed.stderr,
+    listed.exitCode,
+  );
   if (listed.timedOut || listEnvelope.kind !== "ok") {
     return {
       ok: false,
@@ -277,7 +286,11 @@ export async function activePaneOf(
     ["pane", "list", "--workspace", workspaceId],
     config.timeoutMs,
   );
-  const panesEnvelope = parseEnvelope(panesResult.stdout, panesResult.stderr);
+  const panesEnvelope = parseEnvelope(
+    panesResult.stdout,
+    panesResult.stderr,
+    panesResult.exitCode,
+  );
   if (panesResult.timedOut || panesEnvelope.kind !== "ok") {
     return {
       ok: false,

@@ -306,7 +306,7 @@ async function detectDirection(
     deps.config.timeoutMs,
   );
   const area = resultObject(
-    parseEnvelope(result.stdout, result.stderr),
+    parseEnvelope(result.stdout, result.stderr, result.exitCode),
     "layout",
   );
   const rect =
@@ -412,7 +412,7 @@ async function createAction(
     "--no-focus",
   ];
   const result = await deps.runner.run(commandArgs, deps.config.timeoutMs);
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "create",
@@ -445,7 +445,8 @@ async function createAction(
   );
   if (
     labeled.timedOut ||
-    parseEnvelope(labeled.stdout, labeled.stderr).kind !== "ok"
+    parseEnvelope(labeled.stdout, labeled.stderr, labeled.exitCode).kind !==
+      "ok"
   ) {
     notes.push(
       `自动打 label 失败（pane ${paneId} 已创建并登记，仍可显式调 label 动作）：${labeled.stderr.trim() || `exit ${labeled.exitCode}`}`,
@@ -472,7 +473,7 @@ async function listAction(
 ): Promise<ActionResult> {
   void args;
   const result = await deps.runner.run(["pane", "list"], deps.config.timeoutMs);
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "list",
@@ -519,7 +520,7 @@ async function tabCreateAction(
     ],
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "tab_create",
@@ -591,7 +592,7 @@ async function tabListAction(
     ["tab", "list", "--workspace", ready.binding.workspaceId],
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "tab_list",
@@ -656,7 +657,7 @@ async function tabCloseAction(
     tabCloseArgs(tabId),
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "tab_close",
@@ -788,7 +789,7 @@ async function waitAction(
   ];
   // CLI 侧留 5s 余量等进程收尾（服务端到点先返回错误信封，退出码 1）
   const result = await deps.runner.run(commandArgs, timeoutMs + 5000);
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (envelope.kind === "ok") {
     const read = resultObject(envelope, "read");
     const matchedLine =
@@ -901,7 +902,7 @@ async function sendTextAction(
     ["pane", "send-text", paneId, text],
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "send_text",
@@ -940,7 +941,7 @@ async function sendKeysAction(
     ["pane", "send-keys", paneId, ...keys],
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
       "send_keys",
@@ -972,7 +973,7 @@ async function runAction(
     ["pane", "run", paneId, command],
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure("run", paneId, envelope, result, deps.config.timeoutMs);
   }
@@ -995,7 +996,7 @@ async function labelAction(
     renameArgs(paneId, label),
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure("label", paneId, envelope, result, deps.config.timeoutMs);
   }
@@ -1034,7 +1035,7 @@ async function infoAction(
     ["pane", "process-info", "--pane", paneId],
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure("info", paneId, envelope, result, deps.config.timeoutMs);
   }
@@ -1083,7 +1084,7 @@ async function closeAction(
     closeArgs(paneId),
     deps.config.timeoutMs,
   );
-  const envelope = parseEnvelope(result.stdout, result.stderr);
+  const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure("close", paneId, envelope, result, deps.config.timeoutMs);
   }

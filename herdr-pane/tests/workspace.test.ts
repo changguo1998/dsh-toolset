@@ -179,6 +179,25 @@ test("ensureWorkspace: 命中进程内缓存后不再调用 CLI；子会话沿�
   assert.equal(registry.workspaceBinding?.sessionId, fakeSession.id);
 });
 
+test("ensureWorkspace: workspace list 空输出 + exit 0 按成功（无历史 workspace → 新建）", async () => {
+  const { config, registry } = setup();
+  const fake = fakeHerdr({
+    override: (args) =>
+      args[0] === "workspace" && args[1] === "list"
+        ? { stdout: "", stderr: "", exitCode: 0, timedOut: false }
+        : undefined,
+  });
+  const ensured = await ensureWorkspace({
+    runner: fake.runner,
+    registry,
+    config,
+    session: fakeSession,
+  });
+  assert.equal(ensured.ok, true);
+  assert.equal(ensured.ok && ensured.created, true);
+  assert.equal(ensured.ok && ensured.binding.workspaceId, "wT1");
+});
+
 test("ensureWorkspace: workspace list / create 失败返回 workspace-unavailable（不抛）", async () => {
   const { config, registry } = setup();
   const listFailure = fakeHerdr({

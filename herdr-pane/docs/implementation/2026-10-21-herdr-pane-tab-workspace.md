@@ -238,18 +238,37 @@ $ npm --prefix herdr-pane run build
 ```
 
 真机验证（`scripts/verify-herdr-pane.mjs` 的 `--with-tab` / `--check-cascade` / `--session-id` 路径）
-按任务要求**未跑**（会改用户 herdr 布局），留给主分支人工跑。已做的真机只读核对：`herdr status --json`
-（探活返回 `{ok:true, socketPath:"/home/guochang/.config/herdr/herdr.sock"}`）、`herdr workspace list` /
+按当时的任务要求**未在实现分支跑**（会改用户 herdr 布局）。实现完成后由主分支合并后执行真机复测，
+结论如下：
+
+- **通过**：workspace label 含斜杠被服务端接受（实测建成 `dsh-toolset/mvikr2hz`）；关掉 tab 的最后一个
+  pane 会**级联关 tab**（tab 从 `tab list` 消失）；退出清理把空 workspace 关掉且无残留；
+  `pane close` / `tab close` / `workspace close` / `pane split` 均返回 JSON 回执。
+- **发现缺陷（与本任务的 tab / workspace 改动无关，属既有缺陷）**：`herdr pane send-text` /
+  `send-keys` / `run` 成功时 stdout 与 stderr **都为空**（exit 0）；`parseEnvelope` 把「无输出」判成
+  `unparsed` → `dispatchAction` 回 `herdr-cli-error: herdr CLI 失败（exit 0）：（无输出）`，导致
+  `send_text` / `send_keys` / `run` 在真机全部不可用，真机脚本 FAIL 在 `send_text`。单测的假信封
+  （自带 `{"result":…}`）掩盖了这类静默成功。
+- **修法（2026-10-21 补丁）**：`parseEnvelope(stdout, stderr, exitCode?)` 增可选退出码——**exit 0 且
+  两侧都没有任何输出**时归一为 `{kind:"ok", result:{}}`；错误信封仍优先，非零退出 / 有输出但解析不出
+  JSON / 不知道退出码（socket）时语义不变。`actions.ts` / `workspace.ts` / `registry.ts` 与真机脚本的
+  全部 CLI 调用点都传入退出码（socket 读通道不传）。
+- **补单测**：`cli`（exit 0 + 空输出 → ok 空 result；exit 1 / 无退出码 / 非 JSON 噪声 / 错误信封各保持
+  原语义）、`actions`（`send_text` / `send_keys` / `run` 静默成功且回执字段正确；exit 1 + 空输出仍失败）、
+  `workspace`（`workspace list` 静默成功按空列表处理并新建 workspace）。真机写操作按要求未重跑。
+
+已做的真机只读核对：`herdr status --json`（探活返回
+`{ok:true, socketPath:"/home/guochang/.config/herdr/herdr.sock"}`）、`herdr workspace list` /
 `tab list` / `pane list` 的回执形状（与调研 02 一致）、`herdr tab create --help` / `pane split --help`
 /`workspace create --help` 的参数面。
 
-未验证项（等真机脚本跑一次）：
+未验证项（本次补丁后未重跑真机写链路）：
 
-- `workspace create --label '<目录名>/<短标记>'` 含斜杠时是否被服务端接受（label 无公开约束，按设计取此格式）；
+- 补丁后的 `send_text` / `send_keys` / `run` 在真机上是否恢复（单测已覆盖 exit 0 空输出，真机待复跑
+  `scripts/verify-herdr-pane.mjs`）；
 - `tab create` 回执的 `.result.tab` / `.result.root_pane` 与 `workspace create` 的 `.result.root_pane`
-  是否与官方 skill 描述逐字段一致（单测按该形状模拟）；
-- 关掉 workspace 里最后一个 pane 时 tab / workspace 是否级联关闭（`--check-cascade` 观测）；
-- 退出清理后 workspace 是否被内部关闭、用户已开的 pane 是否被正确保留。
+  已由真机 tab / workspace 链路的通过结论间接确认，但未逐字段断言；
+- 退出清理「用户后来在 workspace 里开的 pane 会阻止内部关 workspace」这一保护分支未在真机构造验证。
 
 ## 收尾
 
