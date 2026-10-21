@@ -137,18 +137,39 @@ export class CommitCutoffTracker {
 /** 宿主 ctx 的结构面（只声明用到的成员，不引宿主类型依赖）。 */
 interface SessionTitleLlmHelper {
   SessionTitleLlmConfigFields?: unknown;
+  /** 两个年代都要求：执行控制的校验与冻结。 */
   resolveSessionTitleLlmConfig(config: Record<string, unknown>): unknown;
-  generateSessionTitleWithLlm(
+  /** 0.2.1 起：execute 形态（prepared 由调用方组装，内部走 `ctx.llm.prepareCall`）。 */
+  executeSessionTitleLlm?(
+    ctx: unknown,
+    config: unknown,
+    request: unknown,
+    titleProvider: unknown,
+    prepared: TitlePrepared,
+  ): Promise<TitleResponse>;
+  /** 0.2.0 及之前：generate 形态（selectedMessages 由 helper 内部预备）。 */
+  generateSessionTitleWithLlm?(
     ctx: unknown,
     config: unknown,
     request: unknown,
     selectedMessages: readonly unknown[],
     titleProvider: unknown,
-  ): Promise<{
-    title: string;
-    messageSeqs: readonly unknown[];
-    model?: unknown;
-  }>;
+  ): Promise<TitleResponse>;
+}
+
+/** execute 形态的「已预备请求」（system / input / 源消息 seq / 推理努力选择器）。 */
+interface TitlePrepared {
+  system: string;
+  input: string;
+  messageSeqs: readonly number[];
+  selectReasoningEffort(model: unknown): string | undefined;
+}
+
+/** 标题模型响应（`blocks` 文本块 + 终止原因 + 路由）。 */
+interface TitleResponse {
+  blocks: readonly { type: string; text?: string }[];
+  finish: { kind: string };
+  model?: unknown;
 }
 
 interface SessionTitleProviderLike {
@@ -187,9 +208,12 @@ export async function loadTitleLlmHelper(): Promise<
     const mod = (await import(
       pathToFileURL(entry).href
     )) as Partial<SessionTitleLlmHelper>;
+    // 0.2.1 起 helper 改 `execute` 形态；0.2.0 为 `generate` 形态。
+    // 两个时代各认一个可选面（升级过渡期兼容），都需 `resolveSessionTitleLlmConfig`。
     if (
       typeof mod.resolveSessionTitleLlmConfig !== "function" ||
-      typeof mod.generateSessionTitleWithLlm !== "function"
+      (typeof mod.executeSessionTitleLlm !== "function" &&
+        typeof mod.generateSessionTitleWithLlm !== "function")
     ) {
       return undefined;
     }
@@ -263,6 +287,95 @@ export interface ApplyDeps {
 }
 
 /**
+ * 语言感知的标题系统提示（0.2.1 起 helper 不再内置，由调用方组装 prepared）。
+ * 对齐官方 `session-title-first-prompt-llm` 0.2.1 的同款文案口径。
+ */
+export function titleSystemPrompt(config: {
+  targetWords: number;
+  targetCjkCharacters: number;
+}): string {
+  return [
+    "Create a concise title for an AI coding-assistant session from the supplied human messages.",
+    "Return only the title on one line, **in plain text of natural language**, with no quotes, prefix, explanation, Markdown, XML, or terminal control codes. No code is allowed.",
+    "Use the language of the messages.",
+    `Aim for about ${config.targetWords} words in non-CJK languages or ${config.targetCjkCharacters} CJK characters.`,
+    "If the messages give little to name, still return a short best-effort title, such as Greeting, instead of explaining.",
+  ].join("\n");
+}
+
+/** 把选定消息帧成 JSON（用户文本不能破坏结构定界符）。 */
+export function frameTitleMessages(
+  messages: readonly { seq: number }[],
+): string {
+  return `Generate the session title from this JSON array of human messages:\n${JSON.stringify(messages)}`;
+}
+
+/** 选 route 支持的最低推理努力（标题请求用最省档）。 */
+export function selectReasoningEffort(model: unknown): string | undefined {
+  const reasoning = (
+    model as { reasoning?: { efforts?: readonly { id?: string }[] } }
+  )?.reasoning;
+  return reasoning?.efforts?.[0]?.id;
+}
+
+/** 清洗 + 字节截断标题（对齐官方 `normalizeSessionTitle`；终端安全单行）。 */
+export function normalizeTitleText(input: string, maxBytes: number): string {
+  const cleaned = input
+    // eslint-disable-next-line no-control-regex
+    .replace(
+      /[\u001b\u009b]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|\u202a-\u202e/gu,
+      "",
+    )
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (Buffer.byteLength(cleaned, "utf8") <= maxBytes) return cleaned.trimEnd();
+  let used = 0;
+  let output = "";
+  for (const character of cleaned) {
+    const bytes = Buffer.byteLength(character, "utf8");
+    if (used + bytes > maxBytes) break;
+    output += character;
+    used += bytes;
+  }
+  return output;
+}
+
+/** 取整行星号强调包裹内的内容（模型不守约时剥离）。 */
+const EMPHASIS_WRAPPER_RE =
+  /^(?<marker>\*{1,3})(?<inner>\S(?:.*\S)?)\k<marker>$/u;
+
+/** 模型输出 → 单行标题（首行、去整行星号强调、白名单记为 UTF-8 内）。 */
+export function titleFromResponse(
+  response: TitleResponse,
+  maxTitleBytes: number,
+): string {
+  if (response.finish.kind === "tool-calls") {
+    throw new Error("session-title-llm: title output must contain text only");
+  }
+  if (response.finish.kind === "max-tokens") {
+    throw new Error("session-title-llm: title output reached maxOutputTokens");
+  }
+  const textBlocks = response.blocks.filter((block) => block.type === "text");
+  if (response.blocks.some((block) => block.type === "tool-call")) {
+    throw new Error("session-title-llm: title output must contain text only");
+  }
+  const joined = textBlocks.map((block) => block.text ?? "").join(" ");
+  const line =
+    joined
+      .split(/\r?\n/u)
+      .map((item) => item.trim())
+      .find((item) => item.length > 0) ?? "";
+  const groups = EMPHASIS_WRAPPER_RE.exec(line)?.groups;
+  const marker = groups?.["marker"];
+  const inner = groups?.["inner"];
+  const unemphasized =
+    marker === undefined || inner === undefined || inner.includes(marker)
+      ? line
+      : inner;
+  return normalizeTitleText(unemphasized, maxTitleBytes);
+}
+
+/**
  * dsh 宿主按 bundle 契约调用：注册唯一标题 provider（异步：需先加载宿主 helper）。
  * 失败只告警不抛（加载失败时官方 provider 若已禁用 → 标题回落宿主确定性 fallback）。
  */
@@ -326,13 +439,47 @@ export async function apply(
           if (cutoff !== undefined) tracker.note(sessionId, cutoff);
         }
         const selected = selectSinceCommit(messages, cutoff);
-        return await helper.generateSessionTitleWithLlm(
-          ctx,
-          resolved,
-          request,
-          selected,
-          name,
-        );
+        // 0.2.1 起 helper 为 execute 形态：prepared 由调用方组装（内部经 `ctx.llm.prepareCall`）。
+        // 0.2.0 为 generate 形态：selectedMessages 交给 helper 内部预备。两个面按存在与否分支。
+        if (typeof helper.executeSessionTitleLlm === "function") {
+          const resolvedConfig = resolved as {
+            targetWords?: number;
+            targetCjkCharacters?: number;
+            maxTitleBytes?: number;
+          };
+          const prepared: TitlePrepared = {
+            system: titleSystemPrompt({
+              targetWords: resolvedConfig.targetWords ?? 5,
+              targetCjkCharacters: resolvedConfig.targetCjkCharacters ?? 15,
+            }),
+            input: frameTitleMessages(selected as { seq: number }[]),
+            messageSeqs: (selected as { seq: number }[]).map(
+              (message) => message.seq,
+            ),
+            selectReasoningEffort,
+          };
+          const response = await helper.executeSessionTitleLlm(
+            ctx,
+            resolved,
+            request,
+            name,
+            prepared,
+          );
+          return {
+            title: titleFromResponse(
+              response,
+              resolvedConfig.maxTitleBytes ?? 120,
+            ),
+            messageSeqs: prepared.messageSeqs,
+            model: response.model,
+          };
+        }
+        // 0.2.0 分支：execute 缺面时才走 generate（加载守卫保证至少一个存在）
+        const generator = helper.generateSessionTitleWithLlm;
+        if (generator === undefined) {
+          throw new Error("title helper has no available generate function");
+        }
+        return await generator(ctx, resolved, request, selected, name); // 0.2.0 签名
       },
     });
   } catch (err) {

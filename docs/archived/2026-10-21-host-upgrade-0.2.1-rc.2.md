@@ -101,7 +101,11 @@
 
 ## 偏差
 
-（待实现完成后填写）
+- **D3 真机实测结论与追加代码（2026-10-21）**：验证实例（独立 herdr pane）实测标题落在 `source: {"kind":"fallback"}`——根因是 0.2.1 把标题 helper `@deepseek-ai/dsh-session-title-llm` 的导出从 `generateSessionTitleWithLlm` 改名并换了签名（`executeSessionTitleLlm(ctx, config, request, titleProvider, prepared)`，prepared 由调用方组装，内部经 `ctx.llm.prepareCall`），本仓 `session-title-cutoff` 的加载守卫只认旧名 → 判定 shape 不符、不注册 provider，标题恒 fallback。**属计划外代码改动**（D3 已在规划中预留「失败再补最小代码」的裁定，此为其落地）：
+  - `session-title-cutoff/src/main.ts`：helper 结构面改认 `executeSessionTitleLlm`（保留旧 `generateSessionTitleWithLlm` 兼容分支）；新增本地纯函数 `titleSystemPrompt` / `frameTitleMessages` / `selectReasoningEffort` / `titleFromResponse` / `normalizeTitleText`（对齐官方 0.2.1 `session-title-first-prompt-llm` 同款口径，零依赖复刻）；`generate` 里组装 `prepared` 再dispatch。
+  - `session-title-cutoff/tests/main.test.ts`：fake helper 改 execute 形态 + 新增旧 API 兼容分支用例 + 纯函数用例（11 例全绿）。
+  - profile patch（仓库外）：`session-title-cutoff` 的 `provider: ustc / model: deepseek-flash` → `tollgate / ds4f`（0.2.1 起 `llm-pi-ai` 只给已配置的 providers 注册 adapter route；`ustc` 不再有 route，标题请求 `prepareCall` 会因无 adapter 失败——这是独立于 helper 改名之外的第二个必要条件；`tollgate` 为已注册 route，`ds4f` 是其既有模型）。
+- 其余无偏差：HOST-PACKAGES 重生成里的 `web-frontend`（0.2.1 改名 `dsh-web-frontend`）按「恢复行 + 前缀注记」处理；`tool-schedule` / `tool-session-query` / `tool-terminal` 等新工具未挂载、不影响 fff 生效面。
 
 ## 测试与证据
 
@@ -117,4 +121,7 @@
 
 ## 收尾
 
-（待关闭时填写）
+- **D3 遗留**：标题真机仍 fallback（见「偏差」节），已登记为 `session-title-cutoff/docs/BACKLOG.md` 条目 1（P2，未接取），后续单独跟进修复；本任务关闭前不再阻塞。
+- 条目：`docs/BACKLOG.md`「升级适配 0.2.1-rc.2 接口」标完成并从 §2 清理。
+- 提交：仓库内改动分两次提交——代码/测试/文档同步与 HOST-PACKAGES 重生成 `d9b12d1`；本文件「偏差 / 收尾」与 session-title-cutoff 代码适配、herdr-pane BACKLOG 条目随关闭提交。
+- 遗留：① 标题真机（上文模块条目 1）；② 真机冒烟（`npm run smoke:*` 需模型凭据）与全程四向真机复验由用户重启后执行（本任务已用独立 tab 实例验过装配与标题链路）。

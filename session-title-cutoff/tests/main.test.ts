@@ -12,16 +12,53 @@ import {
   COMMIT_SEGMENT_RE,
   CommitCutoffTracker,
   DEFAULT_CONFIG,
+  frameTitleMessages,
   isCommitCall,
   isCommitCommand,
   latestCommitSeq,
+  normalizeTitleText,
   resolveConfig,
+  selectReasoningEffort,
   selectSinceCommit,
+  titleFromResponse,
+  titleSystemPrompt,
   type ApplyDeps,
 } from "../src/main.ts";
 
-/** 假 helper：记录调用参数，返回固定标题。 */
-function fakeHelper() {
+/** 假 helper（0.2.1 execute 形态）：捕获 prepared 与 provider id，返回固定标题。 */
+function fakeHelper021() {
+  const calls: Array<{
+    prepared: { messageSeqs: readonly number[]; system: string; input: string };
+    id: unknown;
+  }> = [];
+  return {
+    calls,
+    resolveSessionTitleLlmConfig: (config: Record<string, unknown>) => config,
+    executeSessionTitleLlm: async (
+      _ctx: unknown,
+      _config: unknown,
+      _request: unknown,
+      id: unknown,
+      prepared: {
+        messageSeqs: readonly number[];
+        system: string;
+        input: string;
+        selectReasoningEffort: (m: unknown) => string | undefined;
+      },
+    ) => {
+      calls.push({ prepared, id });
+      void prepared.selectReasoningEffort;
+      return {
+        blocks: [{ type: "text", text: "生成的标题" }],
+        finish: { kind: "stop" },
+        model: { reasoning: { efforts: [{ id: "high" }] } },
+      };
+    },
+  };
+}
+
+/** 假 helper（0.2.0 generate 形态）：模拟旧 API 分支。 */
+function fakeHelper020() {
   const calls: Array<{ selected: readonly { seq: number }[]; id: unknown }> =
     [];
   return {
@@ -36,8 +73,9 @@ function fakeHelper() {
     ) => {
       calls.push({ selected, id });
       return {
-        title: "标题",
-        messageSeqs: selected.map((m) => m.seq),
+        blocks: [{ type: "text", text: selected.map((m) => m.seq).join(",") }],
+        finish: { kind: "stop" },
+        model: {},
       };
     },
   };
@@ -70,7 +108,9 @@ function fakeCtx() {
   return { ctx, listeners, providerOf: () => provider };
 }
 
-const depsWith = (helper: ReturnType<typeof fakeHelper>): ApplyDeps => ({
+const depsWith = (
+  helper: ReturnType<typeof fakeHelper021> | ReturnType<typeof fakeHelper020>,
+): ApplyDeps => ({
   loadHelper: async () => helper,
 });
 
@@ -191,8 +231,8 @@ test("resolveConfig：合并缺省、忽略空串、丢弃非白名单字段", (
   assert.equal("model" in withEmpty, false);
 });
 
-test("apply：注册 all-prompts provider；有提交时窗口只含其后的消息", async () => {
-  const helper = fakeHelper();
+test("apply：注册 all-prompts provider；有提交时窗口只含其后的消息（0.2.1 execute 形态）", async () => {
+  const helper = fakeHelper021();
   const fake = fakeCtx();
   await apply(fake.ctx, {}, depsWith(helper));
 
@@ -224,23 +264,50 @@ test("apply：注册 all-prompts provider；有提交时窗口只含其后的消
   ];
   await provider.generate({ session: { id: "s1" }, messages });
   assert.deepEqual(
-    helper.calls[0]?.selected.map((m) => m.seq),
+    helper.calls[0]?.prepared.messageSeqs,
     [3],
     "只取提交之后的人类消息",
   );
+  assert.match(
+    helper.calls[0]?.prepared.input ?? "",
+    /新消息/,
+    "input 帧含选定消息",
+  );
+  assert.match(helper.calls[0]?.prepared.system ?? "", /concise title/);
   assert.equal(helper.calls[0]?.id, "session-title-cutoff");
 
   // 未提交过的会话 → 全量
   await provider.generate({ session: { id: "s2" }, messages });
   assert.deepEqual(
-    helper.calls[1]?.selected.map((m) => m.seq),
+    helper.calls[1]?.prepared.messageSeqs,
     [1, 2, 3],
     "无提交记录 → 回退全量",
   );
 });
 
+test("apply：0.2.0 旧 helper（generate 形态）走兼容分支", async () => {
+  const helper = fakeHelper020();
+  const fake = fakeCtx();
+  await apply(fake.ctx, {}, depsWith(helper));
+  const provider = fake.providerOf();
+  assert.ok(provider);
+  await provider.generate({
+    session: { id: "s-legacy" },
+    messages: [
+      { seq: 1, text: "a" },
+      { seq: 2, text: "b" },
+    ],
+  });
+  assert.deepEqual(
+    helper.calls[0]?.selected.map((m) => m.seq),
+    [1, 2],
+    "旧形态把 selected 交给 helper",
+  );
+  assert.equal(helper.calls[0]?.id, "session-title-cutoff");
+});
+
 test("apply：sessionQuery 重建 cutoff（重启场景）与失败降级", async () => {
-  const helper = fakeHelper();
+  const helper = fakeHelper021();
   const registered: Array<(session: unknown, event: unknown) => void> = [];
   const ctx: Record<string, unknown> = {
     sessionTitle: {
@@ -276,7 +343,7 @@ test("apply：sessionQuery 重建 cutoff（重启场景）与失败降级", asyn
   ];
   await provider.generate({ session: { id: "s9" }, messages });
   assert.deepEqual(
-    helper.calls[0]?.selected.map((m) => m.seq),
+    helper.calls[0]?.prepared.messageSeqs,
     [12],
     "重启后按会话事件重建 cutoff",
   );
@@ -287,13 +354,16 @@ test("apply：helper 缺失 / 服务缺失 / 配置非法时告警且不抛", as
   await apply(fake.ctx, {}, { loadHelper: async () => undefined });
   assert.equal(fake.providerOf(), undefined, "helper 缺失 → 不注册");
 
-  await apply({}, {}, depsWith(fakeHelper())); // 无 sessionTitle → 直接返回
+  await apply({}, {}, depsWith(fakeHelper021())); // 无 sessionTitle → 直接返回
 
   const badConfigHelper = {
     resolveSessionTitleLlmConfig: () => {
       throw new Error("bad config");
     },
-    generateSessionTitleWithLlm: async () => ({ title: "", messageSeqs: [] }),
+    executeSessionTitleLlm: async () => ({
+      blocks: [{ type: "text", text: "x" }],
+      finish: { kind: "stop" },
+    }),
   };
   const fake2 = fakeCtx();
   await apply(
@@ -302,4 +372,49 @@ test("apply：helper 缺失 / 服务缺失 / 配置非法时告警且不抛", as
     { loadHelper: async () => badConfigHelper as never },
   );
   assert.equal(fake2.providerOf(), undefined, "配置非法 → 不注册");
+});
+
+test("titleSystemPrompt / frameTitleMessages / selectReasoningEffort：0.2.1 prepared 组装原件", () => {
+  const sys = titleSystemPrompt({ targetWords: 5, targetCjkCharacters: 15 });
+  assert.match(sys, /concise title/);
+  assert.match(sys, /5 words in non-CJK languages or 15 CJK characters/);
+  assert.match(sys, /15 CJK/);
+
+  const frame = frameTitleMessages([{ seq: 3 }]);
+  assert.match(frame, /JSON array of human messages/);
+  assert.match(frame, /"seq":3/);
+
+  assert.equal(
+    selectReasoningEffort({ reasoning: { efforts: [{ id: "high" }] } }),
+    "high",
+  );
+  assert.equal(selectReasoningEffort({}), undefined);
+  assert.equal(selectReasoningEffort(undefined), undefined);
+});
+
+test("titleFromResponse / normalizeTitleText：取首行、剥整行星号强调、字节截断", () => {
+  const stop = (blocks: { type: string; text?: string }[]) => ({
+    blocks,
+    finish: { kind: "stop" as const },
+    model: {},
+  });
+  assert.equal(
+    titleFromResponse(
+      stop([{ type: "text", text: "**真机验证标题**\n 附带说明" }]),
+      1024,
+    ),
+    "真机验证标题",
+    "剥整行星号强调取首行",
+  );
+  assert.equal(
+    titleFromResponse(stop([{ type: "text", text: " 多   行 标题 " }]), 1024),
+    "多 行 标题",
+    "折叠空白",
+  );
+  assert.throws(
+    () => titleFromResponse(stop([{ type: "tool-call" }]), 1024),
+    /text only/,
+  );
+  const long = "标题".repeat(100);
+  assert.ok(Buffer.byteLength(normalizeTitleText(long, 60), "utf8") <= 60);
 });
