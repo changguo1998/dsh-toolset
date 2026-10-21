@@ -1,4 +1,4 @@
-# 消费者 guard 面与 behavior-correction 插件（接取条目：rule-engine/docs/BACKLOG.md「动作面扩展: 在 `tools/pre-execute` 拦截工具调用（消费者 guard 面）」；docs/BACKLOG.md「新插件 behavior-correction」）
+# 消费者 guard 面：`tools/pre-execute` 节点（接取条目：rule-engine/docs/BACKLOG.md「动作面扩展: 在 `tools/pre-execute` 拦截工具调用（消费者 guard 面）」）
 
 状态：规划　　开启：2026-10-21　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
@@ -30,25 +30,22 @@
 07. **会话范围**：对所有会话生效（含子代理）；`sessionId` / `resumed` 能取到就传，取不到按 `{ resumed: false }`。
 08. **可见性**：返回 `deny` 时经 `warn` 打一行「消费者 <id> 拒绝工具 <name>」；**不写审计**、不落 memory-base（条目已裁定「需要审计由人工决定」）。
 09. **工具面：不变** —— `rule_add` / `rule_update` 仍只接受 `inject` 动作（用户同日裁定「不给模型工具面」）；消费者 guard 只由插件代码注册，配置无法直接表达拦截规则。
-10. **首消费者：本任务一并实现**（用户 2026-10-21 指令：创建 worktree 实现和测试、合并回主分支做真机验收）—— 新建插件 `behavior-correction`（暂定名，用户指定），规则走自身 `config`，初始规则 `bash` 命令含 `herdr` → 拒绝并提示 `herdr_pane`；它是 guard 面的首个消费者，同批实现才能做端到端验收。
+10. **首消费者另立并行任务**（用户 2026-10-21 指令「分开并行实现」）—— 插件 `behavior-correction` 的条目在项目级 `docs/BACKLOG.md`，追踪文档 `docs/implementation/2026-10-21-behavior-correction.md`，按本文件钉死的接口契约并行实现；本任务只交付框架。端到端真机验收在两支合并后做。
 11. **文档**：`rule-engine/README.md` 消费者章节补 guard 面（口径、限制、示例代码、与 `security-guard` / `auto-approve` 的顺序）；`rule-engine/docs/DESIGN.md` 边界段把 guard 面纳入（`tag` / `abort` / `memory` 仍不做）。
 
 ## 规划
 
 ### 计划改动文件清单
 
-01. `rule-engine/src/types.ts` —— `RuleSource` 增 `"tools/pre-execute"`；新增 `ToolGuardContext` / `ToolGuardDecision`；`ConsumerRegistration` 增 `guard` 并把 `decide` 放宽为可选；`CompiledConsumer` 类型同步。
-02. `rule-engine/src/rules.ts` —— 新增 `CONSUMER_SOURCES`；`normalizeRuleSources` 拒绝该节点（文案指向消费者 guard 面）。
-03. `rule-engine/src/engine.ts` —— `registerConsumer` 的 guard 分支校验与 `CompiledConsumer` 组装；新增 `guardTool(exec)`（注册顺序串行、`deny` 立即返回、异常弃权 + 告警）。
-04. `rule-engine/src/main.ts` —— 注册 `tools/pre-execute` 监听器（`await guardTool` → `deny` 或 `next()`），补事件常量与 ctx 结构面类型；服务面不新增方法（消费者仍走 `registerConsumer`）。
-05. `rule-engine/tests/consumerGuard.test.ts`（新） —— 注册校验（含节点缺 guard / 同时给 decide / 带 delivery 冷却等）、`deny` 胜出与顺序、`allow` 不否决、异步 guard、异常弃权、子代理会话、注销后不再唤醒。
-06. `rule-engine/tests/rules.test.ts`、`tests/main.test.ts` —— 规则侧拒绝 `tools/pre-execute`、监听器注册与 `next()` 调用次数、`deny` 回执。
-07. `rule-engine/README.md`、`rule-engine/docs/DESIGN.md` —— 消费者 guard 面口径与示例。
-08. `rule-engine/docs/BACKLOG.md` + `docs/BACKLOG.md` —— 两条条目状态与口径；本文件。
-09. `behavior-correction/`（新包） —— `package.json`（`dsh.bundle` 指向 `cordis.patch.yml`、`build` / `check` / `test` 脚本）/ `cordis.patch.yml`（`insert` 一条 `@dsh-toolset/behavior-correction`）/ `tsconfig.json` / `src/main.ts`（bundle 契约 + `Config` + 规则表判定 + 注册 guard 消费者 + 缺服务降级）/ `README.md`（口径、配置、示例、与 guard 面的关系）/ `tests/*.test.ts`（缺省规则命中、配置覆盖与关闭、工具名限定、参数抽取、缺服务降级、通知）。
-10. 仓库清单同步 —— 根 `package.json` 的 `check` / `build` 追加该包；`scripts/install.sh` 的 `canonical_pkgs` 追加 `behavior-correction`（排在 `rule-engine` 之后）；`AGENTS.md` 包列表、根 `README.md` / `README.zh.md` 插件清单。
-
-**明确不做**：内置 `deny-tool` 动作；模型工具面 / 人工命令面；审计；`cancel` / `ask` 裁决；`ctx.tools.guard` 单调守卫接入；`tag` / `abort` / `memory` 动作；profile 挂载与 pnpm 安装（仓库外，合并后由主线在获得批准后执行）。
+1. `rule-engine/src/types.ts` —— `RuleSource` 增 `"tools/pre-execute"`；新增 `ToolGuardContext` / `ToolGuardDecision`；`ConsumerRegistration` 增 `guard` 并把 `decide` 放宽为可选；`CompiledConsumer` 类型同步。
+2. `rule-engine/src/rules.ts` —— 新增 `CONSUMER_SOURCES`；`normalizeRuleSources` 拒绝该节点（文案指向消费者 guard 面）。
+3. `rule-engine/src/engine.ts` —— `registerConsumer` 的 guard 分支校验与 `CompiledConsumer` 组装；新增 `guardTool(exec)`（注册顺序串行、`deny` 立即返回、异常弃权 + 告警）。
+4. `rule-engine/src/main.ts` —— 注册 `tools/pre-execute` 监听器（`await guardTool` → `deny` 或 `next()`），补事件常量与 ctx 结构面类型；服务面不新增方法（消费者仍走 `registerConsumer`）。
+5. `rule-engine/tests/consumerGuard.test.ts`（新） —— 注册校验（含节点缺 guard / 同时给 decide / 带 delivery 冷却等）、`deny` 胜出与顺序、`allow` 不否决、异步 guard、异常弃权、子代理会话、注销后不再唤醒。
+6. `rule-engine/tests/rules.test.ts`、`tests/main.test.ts` —— 规则侧拒绝 `tools/pre-execute`、监听器注册与 `next()` 调用次数、`deny` 回执。
+7. `rule-engine/README.md`、`rule-engine/docs/DESIGN.md` —— 消费者 guard 面口径与示例。
+8. `rule-engine/docs/BACKLOG.md` —— 条目状态与口径；本文件。仓库清单（根 `package.json` / `install.sh` / `AGENTS.md` / 根 README）由并行的 bc 任务独占，本任务不碰。
+   **明确不做**：内置 `deny-tool` 动作；模型工具面 / 人工命令面；审计；`cancel` / `ask` 裁决；`ctx.tools.guard` 单调守卫接入；`tag` / `abort` / `memory` 动作；`behavior-correction` 插件与仓库清单同步（并行任务）；profile 挂载与 pnpm 安装（仓库外，合并后由主线获批准后执行）。
 
 ### 步骤
 
@@ -67,7 +64,6 @@
 - 异步 guard 正常 `await`；guard 抛错 → 告警 + 视为弃权、调用照常放行。
 - 规则侧：`normalizeRule({source:"tools/pre-execute", …})` 报错；`rule_add` 同。
 - 子代理会话同样被唤醒（`sessionId` 有值）。
-- bc：缺省规则对 `bash` + `herdr pane list` 拒绝并给出 `herdr_pane` 指引；`bash` + `ls` 放行；配置可覆盖规则表与整体关闭；非 `bash` 工具不命中；`ruleEngine` 服务缺失时降级为不拦截 + 告警。
 - `check` / 包内测试全绿 / `build` 通过；真机（合并 + profile 挂载后）工具被拒且回执含 reason。
 
 ### 风险与待实现时确认
@@ -75,5 +71,5 @@
 - **事件注册是否需 inject `tools`**：预期不需要（`ctx.on` 是事件面；`auto-approve` 注入 `tools` 是为读 `ctx.tools`）；真机若不触发，改为「`ctx.get("tools")` 存在才注册」并记录。
 - **`decide` 变可选后的兼容面**：`md-table-check` / `symbol-normalizer` / `ponytail` 的注册调用需保持通过类型检查；实现后跑全仓 `npm run check`。
 - **异步 guard 与 waterfall**：宿主支持异步决定（`auto-approve` 已异步）；监听器里的 `await` 与 `next()` 调用顺序需单测锁定。
-- **profile 挂载**（仓库外）：验收需把 `behavior-correction` 加进 `~/.dsh/profiles/fff`（`package.json` 依赖 + `cordis.patch.yml` 条目 + `pnpm install`），需用户批准后由主线执行；未挂载时只能验证框架层与包内测试。
+- **端到端验收依赖并行任务**：单支只能验证框架层与包内测试；真机拦截效果要等 `behavior-correction` 合并并挂进 profile（仓库外，需批准）。
 - **`RuleSource` 扩展波及面**：grep 全仓 `RULE_SOURCES` / `RuleSource` 与「长度 = 10」类硬编码断言。
