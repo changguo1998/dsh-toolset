@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-toolset/behavior-correction",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）behavior-correction 插件：rule-engine 的 guard 消费者，在工具执行前拦下「该用专用工具却走 shell」的调用并指路（缺省：bash 里跑 herdr → 改用 herdr_pane）",
+  "type": "module",
+  "main": "dist/src/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
