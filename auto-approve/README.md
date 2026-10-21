@@ -251,6 +251,12 @@ npm --prefix auto-approve run build
 A / B 两层、审阅与合并窗口、回填与截断、自记集合容量与 TTL、`learn` 命令面、形态层与精确层的优先级、
 学习配置键的缺省与非法回落。
 
+真机验证（2026-10-21）：人工放行 `echo "probe-alpha"`（`danger-full-access`）后，sleep 6 s 的同形态
+`echo "probe-beta"` **未再弹面板**（审计行 `source=fingerprint` + `ruleId=fingerprint:form`，会话日志
+无新增 `approval/asked`）；差异落在**未加引号** token 上的两条命令（`echo learn-probe-one` /
+`learn-probe-two`）第二次仍弹面板 —— 形态不同，属预期。**未真机验证**：重启回填（`sessionQuery`
+回读）、`pwsh` 跨 shell 的形态共享、免问收益的度量。
+
 ## 文档
 
 - 设计与决策（优先级表、审计口径、R1–R7 裁定）：项目级 `docs/archived/2026-10-16-auto-approval-design.md`。

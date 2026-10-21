@@ -1,6 +1,6 @@
 # 单会话内用户面板人工放行的调用进会话指纹（接取条目：`auto-approve/docs/BACKLOG.md`「单会话内: 用户面板人工放行的调用进会话指纹（同会话后续等价调用免问）」）
 
-状态：规划（调研 17 项 + 决策 15 项 + 规划 10 步；实现待派工）　　开启：2026-10-21　　关闭：待定
+状态：已关闭（实现 + 真机验证通过；合并 `7bee2bf`）　　开启：2026-10-21　　关闭：2026-10-21
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -201,9 +201,16 @@ npm run build   # tsc -p tsconfig.json
 | 17 失败只挡泛化（先失败后成功不泛化，A 层照常入表） | `17 / 18 失败只挡泛化：…` |
 | 18 两次成功观测才泛化；`tool/result` 缺失不推进 B | `17 / 18 失败只挡泛化：…`、`06 B 层：…` |
 
-未验证项（按派工要求留给主分支）：
+真机验证（2026-10-21，主会话代按审批面板，A 方案）：
 
-- **真机验证未做**：未启动 dsh、未触碰真实会话与 profile。真机要看的点：`approval/asked` / `approval/decided` / `tool/result` 三个事件在真实会话里的顺序与 `callId` 可得性（调研 03 / 06）、`sessionQuery.readSession` 回填的事件形态（`tool/result.message.toolCallId` / `isError`）、面板放行后形态在下一轮是否真的不再弹。
+- **试验 1（构造错误，属预期）**：`echo learn-probe-one` / `echo learn-probe-two` 的差异在**未加引号**的 token 上 → 第二次仍弹面板（两个形态不同，本就该问）。
+- **试验 2（成立）**：`echo "probe-alpha"` + `danger-full-access` → 面板出现，主会话 04:55:59 按 y 放行；sleep 6 s 后 `echo "probe-beta"`（同形态，引号串已抹 `<msg>`）→ **未再弹面板**。
+- **审计行（04:56:11）**：`{"outcome":"allowed-once","source":"fingerprint","ruleId":"fingerprint:form","fingerprintHash":"0737c58b3b9a1a65"}` —— 命中形态层而非精确指纹层。
+- **会话日志**：`approval/asked` 共 5 条（两次试验各 2 + probe-alpha 1），probe-beta 无新增 → 免问成立。
+
+仍未验证（留后续或真机补）：
+
+- **重启回填未真机跑**：`sessionQuery.readSession` 回读 `approval/asked` / `approval/decided` / `tool/call` / `tool/result` 的事件形态与 `isError` 字段只在假件里断言过。
 - **形态层的实际收益（少弹几次面板）未度量**：需要真实会话样本。
 - **跨 shell 工具的形态共享**（`bash` / `pwsh` 同会话共用一张表）只做了 token 级匹配的单测，未在 pwsh 真机上验证。
 
@@ -213,4 +220,11 @@ npm run build   # tsc -p tsconfig.json
 
 ## 收尾
 
-（待：实现 / 测试 / 真机验证后填）
+- BACKLOG「单会话内: 用户面板人工放行的调用进会话指纹」条目**已完成并移除**（2026-10-21，只留未完成项，清单标「当前无未完成项」）。
+- 本文件状态设为「已关闭」（关闭：2026-10-21）并归档至 `auto-approve/docs/archived/`。
+- 合入：main `7bee2bf`（本分支实现提交 `df6e4be` + 文档 `27cdf0c` / `9a84e82`；收尾提交即本文件与 BACKLOG 的清理提交）。
+- 测试：`npm run check` / `build` 零错误，`npm run test` 149 例全绿（既有 115 + 新增 34）。
+- 真机：见「测试与证据」——人工放行 `echo "probe-alpha"` 后同形态 `echo "probe-beta"` 未再弹面板，审计行 `source=fingerprint` / `ruleId=fingerprint:form`，会话日志无新增 `approval/asked`；反例（未加引号 token 不同）仍弹，属预期。
+- 未验证：重启回填（`sessionQuery` 回读）未真机跑、`pwsh` 跨 shell 未验、免问收益未度量。
+- 文档回写：`README.md` 判定表加形态层、配置表补七个学习键、新增「人工放行学习（形态层）」整节、命令表补 `learn` 五个子命令、依赖补 `sessionQuery`、边界与巡检口径同步；`docs/STATUS.md` 由用户择时更新，本次未改。
+- 遗留：无（`security-guard` 仍是危险命令的唯一最终否决者；形态层不参与 `deny` 名单的放宽）。

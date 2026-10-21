@@ -1,6 +1,6 @@
 /**
  * 学习层：把「用户在审批面板人工放行」的调用学成本会话的**段形态集合**，让同会话内后续等价
- * 调用不再弹面板（追踪文档 `docs/implementation/2026-10-21-manual-approval-fingerprint.md`）。
+ * 调用不再弹面板（追踪文档 `docs/archived/2026-10-21-manual-approval-fingerprint.md`）。
  *
  * 三个部分：
  *
