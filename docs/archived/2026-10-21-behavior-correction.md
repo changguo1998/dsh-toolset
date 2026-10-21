@@ -1,6 +1,6 @@
 # 新插件 behavior-correction（接取条目：docs/BACKLOG.md「新插件 behavior-correction（暂定名：该用专用工具却走 shell 时拦截并指路）」）
 
-状态：测试　　开启：2026-10-21　　关闭：—（待两支合并后由主线关闭）
+状态：关闭　　开启：2026-10-21　　关闭：2026-10-22
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 与 rule-engine「消费者 guard 面」任务**并行实现**（用户 2026-10-21 指令「分开并行实现」），接口按对方追踪文档 `rule-engine/docs/implementation/2026-10-21-consumer-guard.md` 的决策 2 至 6 钉死。
 
@@ -140,3 +140,15 @@
 本任务按计划第 5 步**不关闭条目、不归档本文件**：两支合并（先框架、后本包）后由主线关闭条目、把本文件移入
 `docs/archived/`，并在 profile 挂载后做真机验收。`docs/STATUS.md` 未改（用户择时更新）；profile 依赖与
 `pnpm install` 属仓库外，待用户批准。
+
+## 真机验收（2026-10-22，合并后另起新会话，profile fff）
+
+- 环境：main 合并 `73af605`（本包）+ `907e066`（ruleEngine 硬依赖修正，`inject: ["ruleEngine"]`）；
+  profile `fff` 以 `- insert:` 挂载本包，位于 `rule-engine` 之后。
+- 结果：`bash` + `herdr pane list` → 调用失败，回执「bash 里不要跑 herdr 命令: 改用 herdr_pane 工具
+  （pane / tab 操作）或 herdr_integration 工具」；`bash` + `echo herdr` → 同样被拒；
+  `bash` + `ls -la` → 正常执行并列出目录。
+- 告警：活动区两条 `[rule-engine] warn: 消费者 "behavior-correction" 拒绝工具 bash`。
+- 真机发现并修正的缺陷（已记入「风险」节）：原设计不写 `inject`、只读 `ctx.get`，真机 stderr 为
+  `[behavior-correction] warn: ctx.ruleEngine 不可用，工具拦截不会触发` —— 本包 apply 早于 rule-engine
+  的 `provide`，插件加载但从未注册；修正为 `inject: ["ruleEngine"]` 后真机通过。
