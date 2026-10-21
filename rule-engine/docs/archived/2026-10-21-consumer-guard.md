@@ -1,6 +1,6 @@
 # 消费者 guard 面：`tools/pre-execute` 节点（接取条目：rule-engine/docs/BACKLOG.md「动作面扩展: 在 `tools/pre-execute` 拦截工具调用（消费者 guard 面）」）
 
-状态：实现完成，待真机验收　　开启：2026-10-21　　关闭：—
+状态：关闭　　开启：2026-10-21　　关闭：2026-10-22
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 条目标题原为「动作面扩展: 新增 `deny-tool` 动作（在 `tools/pre-execute` 执行前拦截）」，2026-10-21 用户裁定 B 后改为消费者 guard 面（见决策 1），文件与条目按新口径命名。
 
@@ -89,3 +89,13 @@
 - 子代理会话：`guardTool` 对 `sessionId` 已具备的会话（含 `origin: "subagent"` / `resumed` 为真）照常唤醒并透传 `resumed`。
 
 证据位置：`tests/consumerGuard.test.ts`（注册校验 / 顺序与 `deny` 胜出 / `allow` 不否决 / 异步 / 异常弃权 / 上下文透传 / 子代理 / 注销）、`tests/rules.test.ts`（规则侧拒绝与源枚举）、`tests/tools.test.ts`（`rule_add` 拒绝）、`tests/main.test.ts`（监听器注册、`next()` 调用次数、deny 回执、fail-open）。
+
+## 真机验收（2026-10-22，合并后另开新会话，profile fff）
+
+- 环境：main 合并 `73af605`（bc 插件）+ `907e066`（bc 的 ruleEngine 硬依赖修正）后，profile 挂载
+  `behavior-correction`（`- insert:` 条目，排在 `rule-engine` 之后），另起新会话执行。
+- 结果：`bash` + `herdr pane list` → 被拒，回执「bash 里不要跑 herdr 命令: 改用 herdr_pane 工具」；
+  `bash` + `echo herdr` → 同样被拒；`bash` + `ls -la` → 正常执行。
+- 告警：活动区两条 `[rule-engine] warn: 消费者 "behavior-correction" 拒绝工具 bash`（消费者 id 与
+  工具名均正确）。
+- 结论：guard 面的注册、唤醒、汇总（deny 回执给宿主）与告警链路在真机成立；框架无遗留缺陷。
