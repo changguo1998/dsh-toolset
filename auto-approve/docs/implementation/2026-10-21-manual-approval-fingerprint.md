@@ -153,6 +153,7 @@
 10. **学习日志按会话各记一条**：同一 2 s 批次可能跨会话（多个会话并发时），逐会话记一条而不是只记批次首会话。
 11. **`learnReview.onFailure` 只认 `skip`**：其它取值记诊断并回落 `skip`（fail-closed），未实现 `panel` 之类的兜底（决策 06 只定义了 `skip`）。
 12. **`tests/fingerprint.test.ts` 的 `approve` 调用补 `source` 参数**：签名变更的必要同步，断言不变。
+13. **自记集合按 `callId` 存、按 asked 的 `callId` 回查**：应答者（`approval/request`）拿不到宿主 `approval/asked` 的 `id`（该 id 只出现在会话事件里），故决策 02 的「记 (ask id, callId)」落成「记 callId + 由 asked 的 callId 回查」。无 `callId` 的 ask 本就学不了（无参数），行为与决策一致。
 
 ## 测试与证据
 
