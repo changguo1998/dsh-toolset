@@ -15,7 +15,7 @@ The repository contains the `TUI/` terminal UI package and 29 in-process plugins
 | **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
 | **timer** | Timer unification surface: the `clock` service (`now()` plus `scope(ctx)` returning `schedule(delayMs, cb)` / `interval(delayMs, cb)`, whose disposal is registered on the caller's `ctx.effect` so a plugin unload leaves no live timer; handles are `unref`ed by default). Also exports a hand-driven `ManualClock` (advance the clock, fire due callbacks in order) for tests. Coexists with, and does not wrap, the host's `cordis-plugin-timer`: no `schedule`, no `unref`, and a required `inject` make wrapping a worse deal |
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
-| **herdr-pane** | herdr pane read/write: treats a pane as a controllable pseudo-terminal layer (create pane / inject text and keys / read screen / wait for output / inspect processes / close) to drive interactive commands that need screen state and key timing; one model-facing tool `herdr_pane` plus a reusable library surface; write actions are limited to panes this plugin created, and pass through guard re-check, security-guard registration and out-of-scope approval |
+| **herdr-pane** | herdr pane read/write: treats a pane as a controllable pseudo-terminal layer (create pane / inject text and keys / read screen / wait for output / inspect processes / close, plus `tab_create` / `tab_list` / `tab_close`) to drive interactive commands that need screen state and key timing; each dsh session is internally bound to one herdr workspace (created on first use, never exposed to the model), so tabs and panes land there and writes stay inside it; one model-facing tool `herdr_pane` plus a reusable library surface; write actions are limited to objects this plugin created, and pass through guard re-check, security-guard registration and out-of-scope approval |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`execute`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
 | **session-paths** | Host session-directory encoding, replicated as one in-repo source of truth: `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` re-implemented character-for-character from `@deepseek-ai/dsh-session-persistence-jsonl`, exposed as the `sessionPaths` service (`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`). Pure functions never touch disk; `sessionDirFor(sessionId)` resolves `header.cwd` through the host `sessions` service (optional read, not in `inject`) |
 | **memory-base** | Tiered memory store — one SQLite database per tier (S/P/U, created lazily; the S location comes from `sessionPaths.sessionDirFor`) with two FTS5 indexes per kind table. Storage only: a kind is registered as a table and written/deleted through the returned scope handle (`writableTiers` + `preWrite`), while reads are global across kinds and tiers (`search` / `list`); the model gets one read-only tool, `memory_query` |
@@ -34,8 +34,8 @@ The repository contains the `TUI/` terminal UI package and 29 in-process plugins
 | **symbol-normalizer** | Symbol normalization: presentation-layer normalization of symbols in model text (alias substitution) plus turn review (human notice / model feedback), plugged in as a rule-engine consumer; provides the `symbolNormalizer` service for the TUI to consume |
 | **ponytail** | Lazy senior dev mode (on by default since 2026-10-05; set `enabled: false` to turn off): injects a 7-rung ladder (YAGNI → reuse → stdlib → platform → installed deps → one line → minimal code) at session start. |
 | **md-table-check** | Reply-body markdown table check (rule-engine consumer on `assistant-text`): compares the cell counts of header / delimiter / data rows and, on mismatch, injects one consolidated prompt (header line + excerpt + expected vs actual columns) asking the model to resend the corrected reply. Report-only: it never rewrites the reply or any file, ignores column-count-consistent tables, width-driven fallbacks and pseudo-tables |
-| **auto-approve** | Approval-chain auto-decision: answers `approval/request` with `allowed-once` / `rejected` through a priority ladder (deny list → same-session fingerprint → read-only tools → path / command allowlists → sandbox-escalation allowlist → LLM gray-zone review) and delegates unmatched requests to the TUI approval panel. Audits both a session JSONL and a memory-base `approval_audit` row (never arguments); `/autoapprove status|mode|on|off|log|clear-fingerprints`; when disabled or not mounted, behavior matches the host's own |
-| **session-channel** | Cross-session message channel (dedicated Redis instance + unix socket): `peers`/`send`/`inbox`/`status`, with messages injected into the target session's next turn (as `[CHANNEL](来源) 正文`); provides the `sessionChannel` service (aliases, shared KV with last-value + version number, and cross-session delegation: `channel_delegate`/`channel_task`/`channel_task_result` with a task table and automatic or explicit result return) |
+| **auto-approve** | Approval-chain auto-decision: answers `approval/request` with `allowed-once` / `rejected` through a priority ladder (deny list → same-session fingerprint → same-session form coverage → read-only tools → path / command allowlists → sandbox-escalation allowlist → LLM gray-zone review) and delegates unmatched requests to the TUI approval panel. A learning layer turns a manual panel approval into form-level coverage (quoted strings / long hex / numbers masked, minimal generalization after a second successful observation, LLM admission review, restart rehydration from the session log) with `learn off|on|list|undo|clear`. Audits both a session JSONL and a memory-base `approval_audit` row (never arguments); `/autoapprove status|mode|on|off|log|clear-fingerprints`; when disabled or not mounted, behavior matches the host's own |
+| **session-channel** | Cross-session message channel (dedicated Redis instance + unix socket): `peers`/`send`/`inbox`/`status`, with messages injected into the target session's next turn (as `[CHANNEL](<source>) <body>`); provides the `sessionChannel` service (aliases, shared KV with last-value + version number, and cross-session delegation: `channel_delegate`/`channel_task`/`channel_task_result` with a task table and automatic or explicit result return) |
 | **session-title-cutoff** | Session title provider: keeps the all-prompts trigger but narrows the reference window to human messages after the most recent `git commit` (falls back to the full set when there are no commits or the window is empty); takes over as the sole provider of `ctx.sessionTitle`, so the official all-prompts implementation must be disabled in the profile |
 | **preference-analysis** | Preference analysis: observes session events for three structured signals (repeated constraints, correction-weighted restatements, rejected approvals), merges near-identical wordings into a cross-session ledger (the only state source), auto-writes high-confidence preferences into memory-base's project tier and injects them through a single rule-engine consumer; model proposals always land as pending candidates, and every exit (reject / undo / aging at 90 or 180 days) records a suppression key |
 | **command-template** | Template system: prompt flows declared as `.md` files (YAML-subset front-matter) and invoked through one slash command (`/playbook <template> [args]`, with `list` / `show` / `reload` subcommands) — dual-source directories (bundled `templates/` + user `~/.dsh/command-templates`, user wins), step types `prompt` (inject into the current session) and `agent` (one-shot subagent with per-run model override), chaining via `{{stepId}}`, `bestOf` + `judge` |
@@ -48,43 +48,43 @@ Every package's `package.json` carries the `dsh.bundle` integration contract alo
 
 ```
 dsh-toolset/
-├── TUI/                  # 终端 UI 包（src/app 状态层、src/renderer 渲染层、src/app/adapter 适配层、demo/ mock）
-├── timer/                # 定时器统一面（服务 clock：now + schedule / interval，随调用方 fiber 释放，带手控假时钟）
-├── herdr-integration/    # herdr 面板桥
-├── herdr-pane/           # herdr pane 读写（交互式命令驱动）
-├── task-engine/          # 任务树引擎
-├── session-paths/        # 会话目录编码（宿主编码复刻 + sessionPaths 服务）
-├── memory-base/       # 知识库与持久记忆
-├── goal-contract/        # Done-when 契约起草
-├── metric-loop/          # 指标循环
-├── output-compress/      # 大输出摘要入库
-├── fs-digest/            # 文件摘要（outline/signatures/pruned）
-├── hash-edit/            # LINE:HASH 锚定编辑
-├── ast-tools/            # AST 搜索/替换/大纲/规则
-├── md-logic/            # Markdown 逻辑结构（节树 + 块 + 链接，带行范围，模型工具 md_logic）
-├── md-map/              # 文档版 code-map（锚点 / 引用 / 影响面 / 断链，模型工具 md_map）
-├── security-guard/       # 危险命令与敏感文件防护
-├── code-map/             # 代码结构地图（符号/import 图、查询与报告）
-├── context-report/       # 会话上下文/用量报告（sessionContext 投影 + context_report 工具）
-├── rule-engine/          # 规则触发的自动注入（规则 / 消费者面 + 注入器）
-├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
-├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
-├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
-├── auto-approve/         # 审批链自动裁定（approval/request 应答者；审计双落点）
-├── background-daemon/    # 面向会话投递的进程内调度（/daemon + daemon_task；记录落 memory-base）
-├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
-├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）
-├── command-template/     # 模板体系（slash 命令模板 + 模板级模型选择，双源模板目录）
-├── script-interpreter/   # 模型侧脚本解释器（script_run：单次执行 Python；围栏 + 溢出落盘 + 审批开关）
-├── preference-analysis/  # 偏好分析（行为归纳 + 账簿 + 自动应用；rule-engine 消费者）
-├── agent-group/          # 群组编排（组 / 成员 / 主从连接 / 指令与回报）
-├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
-├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
-├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
-├── archive/              # 已归档：完成的任务清单与历史调研记录
-├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
-├── docs/host/DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
-└── package.json          # 根脚本：委托全部子包的 check/build/test
+├── TUI/                  # Terminal UI package (src/app state layer, src/renderer render layer, src/app/adapter adapters, demo/ mock)
+├── timer/                # unified timer surface (clock service: now + schedule / interval, disposed with the caller fiber, plus a hand-driven fake clock)
+├── herdr-integration/    # herdr panel bridge
+├── herdr-pane/           # herdr pane read/write (interactive command driving)
+├── task-engine/          # task-tree engine
+├── session-paths/        # session-directory encoding (host encoding replicated + sessionPaths service)
+├── memory-base/          # knowledge base and persistent memory
+├── goal-contract/        # Done-when contract drafting
+├── metric-loop/          # metric loop
+├── output-compress/      # large-output digest into memory
+├── fs-digest/            # file digests (outline / signatures / pruned)
+├── hash-edit/            # LINE:HASH anchored editing
+├── ast-tools/            # AST search / replace / outline / rules
+├── md-logic/            # Markdown logical structure (section tree + blocks + links with line ranges; md_logic tool)
+├── md-map/               # doc-level code-map (anchors / references / impact / broken links; md_map tool)
+├── security-guard/       # dangerous-command and sensitive-file guard
+├── code-map/             # code structure map (symbol / import graph, queries and reports)
+├── context-report/       # session context / usage report (sessionContext projection + context_report tool)
+├── rule-engine/          # rule-triggered automatic injection (rules / consumer surface + injector)
+├── symbol-normalizer/    # symbol normalization (presentation aliasing + turn review; rule-engine consumer)
+├── ponytail/             # ponytail mode (decision-ladder injection; rule-engine consumer; on by default)
+├── md-table-check/       # reply-body table column check (rule-engine consumer; on by default, report-only)
+├── auto-approve/         # approval-chain auto-decision (approval/request answerer; dual audit sinks)
+├── background-daemon/    # in-process scheduling for session delivery (/daemon + daemon_task; records in memory-base)
+├── session-channel/      # cross-session message channel (dedicated Redis instance + unix socket)
+├── session-title-cutoff/ # session title provider (all-prompts trigger unchanged; window = after the latest git commit)
+├── command-template/     # template system (slash-command templates + per-template model selection, dual source dirs)
+├── script-interpreter/   # model-side script interpreter (script_run: single-run Python; fencing + overflow to file + approval switch)
+├── preference-analysis/  # preference analysis (behavior induction + ledger + auto-apply; rule-engine consumer)
+├── agent-group/          # group orchestration (groups / members / leader-follower links / instructions and reports)
+├── profiles/             # profile config examples (example: manifest + user-layer patch + pnpm trio; see profiles/README.md)
+├── scripts/              # install.sh (one-shot install on a new machine); test scheduler
+├── docs/                 # status table, backlog, agent composition notes, architecture comparison and host package list
+├── archive/              # archived completed task lists and historical research
+├── AGENTS.md             # collaboration rules for agents (language / commands / formatting / build and deploy / change workflow)
+├── docs/host/DSH-CTX-API.md        # cross-plugin study notes (read-only)
+└── package.json          # root scripts delegating check / build / test to all subpackages
 ```
 
 ## Quick start (build and test)
@@ -92,12 +92,12 @@ dsh-toolset/
 The repository root `package.json` delegates to all subpackages:
 
 ```sh
-npm run check   # 全部子包类型检查（tsc --noEmit）
-npm run build   # 全部子包编译到 dist/
-npm run test    # 全部子包测试并行运行（scripts/test-parallel.sh）
-npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
-npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
-npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/文件名过滤）
+npm run check   # type-check all subpackages (tsc --noEmit)
+npm run build   # compile all subpackages to dist/
+npm run test    # run all subpackage tests in parallel (scripts/test-parallel.sh)
+npm run demo    # build the TUI and run the mock demo (no DSH dependency)
+npm run demo -- --smoke   # TUI smoke check (frame assertion SMOKE_PASS)
+npm run test:tui          # TUI single-package test shortcut (name regex / file-name filters)
 ```
 
 Inside a single subpackage you can run its own `npm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `AGENTS.md`.
@@ -107,8 +107,8 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 30 packages: TUI + 29 plugins):
 
 ```sh
-git clone <本仓库> && cd dsh-toolset
-scripts/install.sh                 # profile 名默认 fff
+git clone <this repo> && cd dsh-toolset
+scripts/install.sh                 # profile name defaults to fff
 scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
 ```
 
@@ -119,12 +119,12 @@ For manual setup, mount each plugin into a DSH profile as a cordis bundle. Examp
 ```jsonc
 // <profile>/package.json
 {
-  "dependencies": { "@dsh-toolset/tui": "link:<本包路径>" },
+  "dependencies": { "@dsh-toolset/tui": "link:<package path>" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/tui"] } }
 }
 ```
 
-During local development, use `link:` dependencies: build artifacts are visible through the symlink immediately, with no reinstall. The release form is `dsh plugin --profile <p> add <包名>`. Inspect the composition tree with `dsh --profile <p> --dump-config`, and start with `dsh --profile <p>`.
+During local development, use `link:` dependencies: build artifacts are visible through the symlink immediately, with no reinstall. The release form is `dsh plugin --profile <p> add <package>`. Inspect the composition tree with `dsh --profile <p> --dump-config`, and start with `dsh --profile <p>`.
 
 `profiles/example/` in this repository is a ready-to-copy three-file profile example (manifest + user-layer patch + pnpm config); it demonstrates both dialects — `- id:` overriding and `- insert:` adding — as well as `!!js` expressions and permission preset table overrides (custom sandbox + approval-bundled presets). For deployment steps and boundaries, see `profiles/README.md`.
 
