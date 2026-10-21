@@ -22,7 +22,7 @@
 
 - 上下文报告：context-report（host-only 投影 `sessionContext` 只折 token 分桶；回合 / 步 / 墙钟读官方 `sessionStats` 投影，2026-10-06 去重 + `context_report` 三档报告）；
 
-- 安全与集成：security-guard 策略层、herdr-integration、herdr-pane（把 herdr pane 当可控伪终端层驱动交互式命令：十个动作 + `herdr_pane` 工具 + 库面，CLI 为主、`read` / `stable` 走 socket；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`）；
+- 安全与集成：security-guard 策略层、herdr-integration、herdr-pane（把 herdr pane 当可控伪终端层驱动交互式命令：13 个动作 + tab 三动作与会话 ↔ workspace 内部绑定 + `herdr_pane` 工具 + 库面，CLI 为主、`read` / `stable` 走 socket；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`）；
 
 - 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、注入消息呈现（**不带** `source.form:'notice'`：TUI 按用户输入块显示、正文以 `[RULE] ` 前缀标明自动注入）、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
 
