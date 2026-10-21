@@ -4,7 +4,9 @@
 
 ## 条目详情（待办）
 
-**1. herdr 工具面添加 tab / workspace 操作**（2026-10-21 登记, 来源: 升级 0.2.1 真机验证时发现——新开独立验证实例只能走 herdr CLI `tab create`, 建出的 tab pane 不在插件登记范围, `herdr_pane` 写类动作拒收; 且工具面 10 个动作全为 pane 层, 无 tab / workspace 语义）：**现象 / 现状** —— `herdr_pane` 工具动作枚举仅 `create / list / read / wait / send_text / send_keys / run / label / info / close`（`src/tools.ts`），无一覆盖 tab（`herdr tab create/list/get/focus/rename/close`）与 workspace（`herdr workspace ...`）; 需要独立窗口 / 独立会话验证（如本次 dsh 升级真机复测）时只能退到 bash 调 CLI, 且对非插件创建的 pane 写类操作被拒。**期望** —— 工具面补充 tab / workspace 类动作（如 `tab_create` / `tab_list` / `tab_close` 与 workspace 查询 / 切换）, 新建 tab 内的 pane 走插件登记, 使写类动作（run / send_text / 等）可作用于其中; 复用既有 `allowForeignPanes` / label 归属与安全边界。**优先级** —— P3。**状态注记** —— 完成: 2026-10-21（实现 tab 三动作 + 会话 workspace 内部绑定；追踪文档 `herdr-pane/docs/implementation/2026-10-21-herdr-pane-tab-workspace.md`；按流程待任务关闭时移出本清单）。
+（当前无待办条目。）
+
+> 2026-10-21 关闭：「herdr 工具面添加 tab / workspace 操作」已完成并从本清单移除 —— 工具面 10 → 13 个动作（`tab_create` / `tab_list` / `tab_close`），workspace 面整体不出工具面（每个 dsh 会话由插件内部绑定一个 herdr workspace，`create` 落点是该 workspace 的活动 pane，`tab_close` 只认本 workspace 已登记的 tab）；合并 `b3f45ea` / `b17ad5c` / `ef94191`；本包 155 例单测全绿；真机 `--with-tab --check-cascade` 20 步全链路通过（含 `send_text` / `send_keys` / `run` 静默成功修复生效），关掉 tab 的最后一个 pane 只级联关 tab、workspace 由插件退出清理关闭且无残留；追踪文档归档 `herdr-pane/docs/archived/2026-10-21-herdr-pane-tab-workspace.md`。剩余未验证项：用户后来在 workspace 里开的 pane 会阻止内部关 workspace 的保护分支未在真机构造验证。
 
 > 2026-10-19 关闭：「沙箱模式联动：会话处于 `read-only` 时拒绝写类动作」已完成并从本清单移除 —— 新增沙箱门（闸④，`tools/pre-execute` 里先于审批返回 `deny`），模式问宿主 `ctx.sandboxPolicy.resolve()`；同处修正了审批门的载荷字段名（`name` / `arguments` / `agent`，原实现读 `toolName` / `args`，导致审批门在生产路径恒放行）；121 例单测（+12）与两次反向验证；追踪文档归档 `herdr-pane/docs/archived/2026-10-19-herdr-pane-sandbox-mode.md`。
 

@@ -1,6 +1,6 @@
 # herdr 工具面添加 tab / workspace 操作（接取条目：`herdr-pane/docs/BACKLOG.md`「herdr 工具面添加 tab / workspace 操作」）
 
-状态：实现完成（待关闭确认）　　开启：2026-10-21　　关闭：待用户确认后归档
+状态：已关闭　　开启：2026-10-21　　关闭：2026-10-21
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 > 2026-10-21 第二次改向（用户裁定）：**取消「组」概念，只保留会话 ↔ workspace 的对应，且由插件内部保证、模型接触不到 workspace 面**。本文档已按此重写决策与规划；被取代的决策保留原文并划掉。
@@ -291,4 +291,13 @@ $ npm --prefix herdr-pane run build
 
 ## 收尾
 
-待用户确认后：BACKLOG 条目移出、本文件移入 `docs/archived/`、STATUS 由用户择时更新。
+- **合并**：`b3f45ea`（tab 三动作 + 会话 workspace 内部绑定）、`b17ad5c`（`parseEnvelope` 静默成功修复）、
+  `ef94191`（验证脚本 `wait(stable)` 期间保持事件循环）；主分支合并后本包 `check` / `build` 通过、
+  155 例单测全绿。
+- **真机**：`node herdr-pane/scripts/verify-herdr-pane.mjs --with-tab --check-cascade` 20 步全 OK、
+  exit 0、不再提前退出；workspace label 含斜杠被服务端接受；关掉 tab 的最后一个 pane 只级联关 tab，
+  workspace 由插件退出清理关闭，事后 workspace / pane 均无残留（`wXS` 已消失）。
+- **未验证项**：用户后来在 workspace 里开的 pane 阻止内部关 workspace 的保护分支未在真机构造验证
+  （逻辑在 `src/registry.ts` 的 `createExitCleanup`：关闭后 `pane list` 为空才关 workspace）。
+- **文档**：本文件已归档到 `herdr-pane/docs/archived/2026-10-21-herdr-pane-tab-workspace.md`；
+  BACKLOG 条目已移出；`STATUS.md` 由用户择时更新。
