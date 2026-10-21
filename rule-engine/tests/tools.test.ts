@@ -187,7 +187,11 @@ test("rule_update：patch.text / patch.summary 归入 action；patch.action 浅�
     });
     assert.equal(nonObjectAction["ok"], true);
     assert.equal(current()?.text, "只留正文");
-    assert.equal(current()?.summary, "最终摘要", "被丢弃的 action 不影响原摘要");
+    assert.equal(
+      current()?.summary,
+      "最终摘要",
+      "被丢弃的 action 不影响原摘要",
+    );
 
     const noId = await update.execute({ patch: { text: "x" } });
     assert.equal(noId["ok"], false);
@@ -251,12 +255,15 @@ test("rule_test：干跑列出命中（缺省 / 指定 / 非法 source 与非法
       matched: ["base"],
       disabled: [],
     });
-    assert.deepEqual(await dryRun.execute({ text: "hit", source: "tool-call" }), {
-      ok: true,
-      source: "tool-call",
-      matched: ["base"],
-      disabled: [],
-    });
+    assert.deepEqual(
+      await dryRun.execute({ text: "hit", source: "tool-call" }),
+      {
+        ok: true,
+        source: "tool-call",
+        matched: ["base"],
+        disabled: [],
+      },
+    );
     assert.deepEqual(await dryRun.execute({ text: "没有关键词" }), {
       ok: true,
       source: "assistant-text",
@@ -264,9 +271,35 @@ test("rule_test：干跑列出命中（缺省 / 指定 / 非法 source 与非法
       disabled: [],
     });
     // 非法 source 回落 assistant-text；非字符串 text 按空串判定（不抛）
+    assert.deepEqual(await dryRun.execute({ text: 42, source: "nope" }), {
+      ok: true,
+      source: "assistant-text",
+      matched: [],
+      disabled: [],
+    });
+    // `tools/pre-execute` 只供消费者 guard：干跑同样回落 assistant-text（规则侧不接受该节点）
     assert.deepEqual(
-      await dryRun.execute({ text: 42, source: "nope" }),
-      { ok: true, source: "assistant-text", matched: [], disabled: [] },
+      await dryRun.execute({ text: "hit", source: "tools/pre-execute" }),
+      { ok: true, source: "assistant-text", matched: ["base"], disabled: [] },
+    );
+  });
+});
+
+test("rule_add：source 用 tools/pre-execute → 结构化错误（只用于消费者 guard）", async () => {
+  await withTools(async ({ tool, engine }) => {
+    const add = tool("rule_add");
+    const result = await add.execute({
+      id: "via-guard-node",
+      text: "不该建成规则",
+      source: "tools/pre-execute",
+    });
+    assert.equal(result["ok"], false);
+    assert.equal(result["rule"], null);
+    assert.match(String(result["error"]), /只用于消费者 guard/);
+    assert.deepEqual(
+      engine.summaries().map((item) => item.id),
+      ["base"],
+      "拒绝的规则不落层",
     );
   });
 });
@@ -341,7 +374,11 @@ test("输出渲染：jsonText 遇循环引用 / BigInt / 连 String 都抛的值
       assert.equal(typeof bigintText, "string", `${def.name}：BigInt 不抛`);
       assert.equal(bigintText, "10");
       const hostileText = renderText(hostile);
-      assert.equal(typeof hostileText, "string", `${def.name}：String 也抛时给占位`);
+      assert.equal(
+        typeof hostileText,
+        "string",
+        `${def.name}：String 也抛时给占位`,
+      );
       assert.equal(hostileText, "（无法序列化的值）");
     }
   } finally {

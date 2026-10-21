@@ -6,7 +6,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  CONSUMER_ONLY_SOURCE,
+  CONSUMER_SOURCES,
   effectiveRules,
+  isConsumerSource,
   isRuleDelivery,
   isRuleSource,
   normalizeRule,
@@ -253,6 +256,35 @@ test("isRuleSource：合法匹配面枚举", () => {
   assert.equal(isRuleSource("compaction"), true);
   assert.equal(isRuleSource("turn_end"), false);
   assert.equal(isRuleSource(undefined), false);
+});
+
+test("isRuleSource：规则侧仍是 10 项，tools/pre-execute 只供消费者", () => {
+  assert.equal(RULE_SOURCES.length, 10);
+  assert.equal(isRuleSource(CONSUMER_ONLY_SOURCE), false);
+  assert.equal(CONSUMER_SOURCES.length, 11);
+  assert.equal(CONSUMER_SOURCES.at(-1), CONSUMER_ONLY_SOURCE);
+  assert.equal(isConsumerSource(CONSUMER_ONLY_SOURCE), true);
+  assert.equal(isConsumerSource("turn-end"), true);
+  assert.equal(isConsumerSource("turn_end"), false);
+  assert.equal(isConsumerSource(undefined), false);
+});
+
+test("normalizeRule：source 不能是 tools/pre-execute（只用于消费者 guard）", () => {
+  const single = normalizeRule(ruleInput({ source: CONSUMER_ONLY_SOURCE }));
+  assert.equal(single.ok, false);
+  if (!single.ok) {
+    assert.match(single.error, /只用于消费者 guard/);
+    assert.match(single.error, /tools\/pre-execute/);
+  }
+  const inArray = normalizeRule(
+    ruleInput({ source: ["turn-end", CONSUMER_ONLY_SOURCE] }),
+  );
+  assert.equal(inArray.ok, false, "节点数组里出现该节点同样报错");
+  if (!inArray.ok) assert.match(inArray.error, /只用于消费者 guard/);
+  const viaSources = normalizeRule(
+    ruleInput({ sources: [CONSUMER_ONLY_SOURCE] }),
+  );
+  assert.equal(viaSources.ok, false, "持久化回流的 sources 写法同样报错");
 });
 
 test("isRuleDelivery：合法送达路径枚举", () => {

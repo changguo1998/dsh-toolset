@@ -63,6 +63,12 @@ function fakeCtx() {
       return (listeners.get("session/created") ?? null) as
         ((session: unknown) => void) | null;
     },
+    get preExecuteListener() {
+      // `tools/pre-execute`（waterfall）：`(exec, next) => 裁决 | next()`
+      return (listeners.get("tools/pre-execute") ?? null) as
+        | ((exec: unknown, next: () => unknown) => unknown | Promise<unknown>)
+        | null;
+    },
     ctx: {
       on: (
         event: string,
@@ -918,6 +924,157 @@ test("apply：记录读面缺失 fail-open（缺 sessionProjections / 会话取�
     fakeB.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
     await tick();
     assert.equal(fakeB.steers.length, 1, "会话取不到 → 照旧注入（fail-open）");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/* ── 消费者 guard 面（tools/pre-execute）────────────────────────────────── */
+
+test("apply：注册 tools/pre-execute 监听器；无消费者时调 next() 1 次并原样返回", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    assert.equal(
+      typeof fake.preExecuteListener,
+      "function",
+      "监听器须随插件装载注册",
+    );
+    let nextCalls = 0;
+    const allow = { kind: "allow" } as const;
+    const result = await fake.preExecuteListener?.(
+      { name: "bash", arguments: { command: "ls" } },
+      () => {
+        nextCalls += 1;
+        return allow;
+      },
+    );
+    assert.equal(nextCalls, 1);
+    assert.equal(result, allow, "放行 = 交下一位（waterfall 的 next() 回执）");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：消费者 deny → 返回 {kind:'deny', reason} 且不调 next()（回执含理由）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        sources: readonly string[];
+        guard(context: {
+          name: string;
+          arguments: unknown;
+          sessionId?: string;
+        }): { kind: "deny"; reason: string } | undefined;
+      }): () => void;
+    };
+    const seen: Array<{ name: string; sessionId?: string }> = [];
+    service.registerConsumer({
+      id: "behavior-correction",
+      sources: ["tools/pre-execute"],
+      guard: (context) => {
+        seen.push({
+          name: context.name,
+          ...(context.sessionId === undefined
+            ? {}
+            : { sessionId: context.sessionId }),
+        });
+        return context.name === "bash"
+          ? {
+              kind: "deny",
+              reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane（pane）",
+            }
+          : undefined;
+      },
+    });
+    let nextCalls = 0;
+    const next = (): unknown => {
+      nextCalls += 1;
+      return { kind: "allow" };
+    };
+    // 会话 id 经 exec.agent.session.id 结构面取
+    const deny = await fake.preExecuteListener?.(
+      {
+        name: "bash",
+        arguments: { command: "herdr pane list" },
+        callId: "call-1",
+        agent: { session: { id: "s1" } },
+      },
+      next,
+    );
+    assert.deepEqual(deny, {
+      kind: "deny",
+      reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane（pane）",
+    });
+    assert.equal(nextCalls, 0, "deny 不再交下一位");
+    assert.deepEqual(seen, [{ name: "bash", sessionId: "s1" }]);
+    // 未命中 → next()
+    assert.deepEqual(
+      await fake.preExecuteListener?.(
+        { name: "read", arguments: { path: "a.ts" } },
+        next,
+      ),
+      { kind: "allow" },
+    );
+    assert.equal(nextCalls, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("apply：guard 抛错 / 汇总失败 → fail-open（调 next()）且告警不发声到宿主", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "rule-engine-test-"));
+  try {
+    const fake = fakeCtx();
+    await apply(fake.ctx, { stateDir: dir });
+    const service = fake.provided.get("ruleEngine") as {
+      registerConsumer(input: {
+        id: string;
+        sources: readonly string[];
+        guard(): { kind: "deny"; reason: string };
+      }): () => void;
+    };
+    const notices: string[] = [];
+    (
+      fake.provided.get("ruleEngine") as {
+        onNotice(listener: (event: { text: string }) => void): () => void;
+      }
+    ).onNotice((event) => notices.push(event.text));
+    service.registerConsumer({
+      id: "boom",
+      sources: ["tools/pre-execute"],
+      guard: () => {
+        throw new Error("guard 炸了");
+      },
+    });
+    let nextCalls = 0;
+    const result = await fake.preExecuteListener?.(
+      { name: "bash", arguments: { command: "ls" } },
+      () => {
+        nextCalls += 1;
+        return { kind: "allow" };
+      },
+    );
+    assert.deepEqual(result, { kind: "allow" });
+    assert.equal(nextCalls, 1, "guard 抛错视为弃权，工具照常放行");
+    assert.ok(
+      notices.some((text) => /guard 抛错/.test(text)),
+      `告警须经总线可见：${notices.join(" | ")}`,
+    );
+    // exec 结构畸形（缺 name）→ 也不抛，交下一位
+    assert.deepEqual(
+      await fake.preExecuteListener?.({}, () => {
+        nextCalls += 1;
+        return { kind: "allow" };
+      }),
+      { kind: "allow" },
+    );
+    assert.equal(nextCalls, 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

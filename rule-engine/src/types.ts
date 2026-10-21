@@ -12,7 +12,9 @@
  * - 规则来源两层：插件配置（config，只读基线）+ 运行时层（工具族增删改，落状态目录）
  */
 
-/** 节点（匹配面）：文本 / 消息 / 工具 / 回合与步的边界 / 压缩。 */
+/** 节点（匹配面）：文本 / 消息 / 工具 / 回合与步的边界 / 压缩。
+ *  `tools/pre-execute` 例外：**只供消费者 guard 用**（规则侧不接受，见 rules.ts 的 RULE_SOURCES /
+ *  CONSUMER_SOURCES）——它不是会话事件、没有文本载荷，只在宿主执行工具前唤醒消费者。 */
 export type RuleSource =
   | "assistant-text"
   | "user-message"
@@ -23,7 +25,8 @@ export type RuleSource =
   | "step-start"
   | "step-end"
   | "session-start"
-  | "compaction";
+  | "compaction"
+  | "tools/pre-execute";
 
 /**
  * 注入送达路径（与宿主 `Agent` 方法同名）：
@@ -263,7 +266,28 @@ export interface ConsumerFeedback {
   reset?: boolean;
 }
 
-/** 消费者注册项（简单注册面：同步 decide，返回 null = 本轮不反馈）。 */
+/** `tools/pre-execute` 的调用上下文（宿主 exec 的结构面子集，不 import 宿主类型）。 */
+export interface ToolGuardContext {
+  /** 工具名（如 `bash`）。 */
+  name: string;
+  /** 模型原始参数（对象 / JSON 串原样透传，判定侧自行取字段）。 */
+  arguments: unknown;
+  /** 宿主调用 id（能取到就传）。 */
+  callId?: string;
+  /** 会话 id（从 `exec.agent.session.id` 结构面取；取不到时省略）。 */
+  sessionId?: string;
+  /** 本会话是否从记录恢复 / 重载（引擎按会话级判据补齐；缺省 false）。 */
+  resumed?: boolean;
+}
+
+/** guard 裁决：`allow` = 明确放行（**不**否决后续消费者的 `deny`）；`deny` = 拒绝并给出理由。
+ *  返回 `undefined`（或抛错）= 弃权。 */
+export type ToolGuardDecision =
+  { kind: "allow" } | { kind: "deny"; reason: string };
+
+/** 消费者注册项：两种形态互斥——会话事件节点的同步 `decide`，或 `tools/pre-execute` 的 `guard`。
+ *  `sources` 含 `tools/pre-execute` 时**必须**给 `guard`、**不得**给 `decide`，也不得带注入 / 冷却 /
+ *  直写参数（其取值与 `guard` 的登记方式无关，见 `engine.ts#registerConsumer`）。 */
 export interface ConsumerRegistration {
   /** 消费者标识（唯一；日志与冷却记账用）。 */
   id: string;
@@ -279,8 +303,12 @@ export interface ConsumerRegistration {
   cooldownTurns?: number;
   /** 同一会话两次反馈之间的最小毫秒间隔，缺省 0（不限制）。 */
   cooldownMs?: number;
-  /** 同步决策：返回要注入的内容；null = 跳过本轮。 */
-  decide(context: ConsumerContext): ConsumerFeedback | null;
+  /** 同步决策：返回要注入的内容；null = 跳过本轮。`sources` 不含 `tools/pre-execute` 时**必须**给。 */
+  decide?(context: ConsumerContext): ConsumerFeedback | null;
+  /** `tools/pre-execute` 裁决（同步或异步均可）：返回 `deny` 拒绝该工具调用，`undefined` = 弃权。 */
+  guard?(
+    context: ToolGuardContext,
+  ): ToolGuardDecision | undefined | Promise<ToolGuardDecision | undefined>;
 }
 
 /** 只读状态。 */

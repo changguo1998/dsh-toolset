@@ -33,6 +33,7 @@ import type {
   NoticeEvent,
   SessionEventLike,
   SessionLike,
+  ToolGuardContext,
 } from "./types.ts";
 
 /** 宿主子代理会话判据（`session.header.origin === "subagent"` 或 `delegationDepth > 0`）：
@@ -51,6 +52,12 @@ export function isSubagentSession(session: unknown): boolean {
 }
 
 export const name = "rule-engine";
+
+/** 会话事件订阅名。 */
+const SESSION_EVENT = "session/event";
+const SESSION_CREATED_EVENT = "session/created";
+/** 工具执行前拦截点（waterfall；消费者 guard 面的唤醒时机）。 */
+const PRE_EXECUTE_EVENT = "tools/pre-execute";
 
 /** 硬依赖：事件面（sessions）与注入面（agents）。 */
 export const inject = ["agents", "sessions"];
@@ -85,7 +92,10 @@ export {
   statePathFor,
 } from "./persist.ts";
 export {
+  CONSUMER_ONLY_SOURCE,
+  CONSUMER_SOURCES,
   effectiveRules,
+  isConsumerSource,
   isRuleDelivery,
   isRuleSource,
   normalizeRule,
@@ -104,6 +114,27 @@ interface EventBus {
   ): unknown;
   /** 会话建立（含恢复）事件：载荷为 session 句柄。 */
   on(event: "session/created", listener: (session: unknown) => void): unknown;
+  /** 工具执行前（waterfall）：监听器返回裁决，或 `next()` 交下一位。 */
+  on(
+    event: "tools/pre-execute",
+    listener: (exec: PreExecuteExecutionLike, next: () => unknown) => unknown,
+  ): unknown;
+}
+
+/** `tools/pre-execute` 的宿主执行对象（结构面子集，不 import 宿主类型）。 */
+export interface PreExecuteExecutionLike {
+  name: string;
+  arguments: unknown;
+  callId?: string;
+  /** 宿主 Agent（从 `agent.session.id` 取会话 id）。 */
+  agent?: unknown;
+  signal?: unknown;
+}
+
+/** 监听器返回的拒绝回执（宿主 `PreToolDecision` 的结构子集）。 */
+export interface PreToolDeny {
+  kind: "deny";
+  reason: string;
 }
 
 /** 工具注册面最小形态。 */
@@ -145,7 +176,8 @@ export interface RuleEngineService {
   status(): ReturnType<RuleEngine["status"]>;
   /** 只读判定：返回命中规则（含可注入内容），不注入、不改状态。 */
   evaluate(input: EvaluateInput): EvaluateResult;
-  /** 消费者注册：按注册的 `sources` 在对应节点唤醒 decide，反馈由本引擎统一注入；返回注销函数。 */
+  /** 消费者注册：会话事件节点按 `sources` 唤醒 decide（反馈由本引擎统一注入）；`sources` 含
+   *  `tools/pre-execute` 时改唤醒 `guard`（返回 `deny` 即拦截）。返回注销函数。 */
   registerConsumer(input: ConsumerRegistration): () => void;
   /** 订阅插件告警（完整展示行 + tone；项目级 #61 方案 B）；返回注销函数。 */
   onNotice(listener: (event: NoticeEvent) => void): () => void;
@@ -227,6 +259,19 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         });
       } catch (err) {
         warn(`session/created 订阅失败：${String(err)}`);
+      }
+      // `tools/pre-execute`（waterfall）→ 消费者 guard 面：任一消费者 deny 即拒，否则交下一位。
+      // 本插件不内置拦截规则（规则在各消费者插件自己的 config 里），也不接管 ctx.tools.guard
+      // 单调守卫（最终否决权仍在 security-guard）。异常一律 fail-open（调 next()）。
+      try {
+        c.on(PRE_EXECUTE_EVENT, async (exec, next) => {
+          const deny = await guardDecisionOf(engine, exec, warn);
+          return deny ?? next();
+        });
+      } catch (err) {
+        warn(
+          `tools/pre-execute 订阅失败：消费者 guard 不会触发：${String(err)}`,
+        );
       }
     }
 
@@ -341,6 +386,50 @@ function pendingInboxMessages(
   } catch {
     return [];
   }
+}
+
+/**
+ * `tools/pre-execute` 监听器的判定包装：`deny` 才返回回执，其余（放行 / 弃权 / 汇总抛错）
+ * 返回 `undefined`，由调用方走宿主 `next()`（fail-open）。**不**抛错给宿主 waterfall。
+ */
+async function guardDecisionOf(
+  engine: RuleEngine,
+  exec: PreExecuteExecutionLike,
+  warn: (message: string) => void,
+): Promise<PreToolDeny | undefined> {
+  try {
+    const decision = await engine.guardTool(guardContextOf(exec));
+    return decision?.kind === "deny" ? decision : undefined;
+  } catch (err) {
+    warn(`消费者 guard 汇总失败（本次工具照常放行）：${String(err)}`);
+    return undefined;
+  }
+}
+
+/** 宿主 exec → guard 上下文（会话 id 经 `exec.agent.session.id` 结构面取，取不到省略）。 */
+export function guardContextOf(
+  exec: PreExecuteExecutionLike,
+): ToolGuardContext {
+  const name = typeof exec?.name === "string" ? exec.name : "";
+  const callId =
+    typeof exec?.callId === "string" && exec.callId.length > 0
+      ? exec.callId
+      : undefined;
+  const sessionId = sessionIdOf(exec?.agent);
+  return {
+    name,
+    arguments: exec?.arguments,
+    ...(callId === undefined ? {} : { callId }),
+    ...(sessionId === undefined ? {} : { sessionId }),
+  };
+}
+
+/** 会话 id 读取（`agent.session.id`；结构面访问，读不到返回 undefined）。 */
+function sessionIdOf(agent: unknown): string | undefined {
+  const session = (agent as { session?: { id?: unknown } } | null | undefined)
+    ?.session;
+  const id = session?.id;
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 /** 可选服务的严格安全读取（未注入服务的直接属性访问在 cordis 严格模式下抛错）。 */
