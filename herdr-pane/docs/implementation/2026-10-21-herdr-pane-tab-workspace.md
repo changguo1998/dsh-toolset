@@ -227,8 +227,8 @@ $ npm --prefix herdr-pane run check
 （无输出，exit 0）
 
 $ npm --prefix herdr-pane run test
-ℹ tests 152
-ℹ pass 152
+ℹ tests 155
+ℹ pass 155
 ℹ fail 0
 （九个用例文件：cli / socket / net / actions / registry / workspace / policy / main / tool）
 
@@ -242,32 +242,51 @@ $ npm --prefix herdr-pane run build
 结论如下：
 
 - **通过**：workspace label 含斜杠被服务端接受（实测建成 `dsh-toolset/mvikr2hz`）；关掉 tab 的最后一个
-  pane 会**级联关 tab**（tab 从 `tab list` 消失）；退出清理把空 workspace 关掉且无残留；
-  `pane close` / `tab close` / `workspace close` / `pane split` 均返回 JSON 回执。
-- **发现缺陷（与本任务的 tab / workspace 改动无关，属既有缺陷）**：`herdr pane send-text` /
-  `send-keys` / `run` 成功时 stdout 与 stderr **都为空**（exit 0）；`parseEnvelope` 把「无输出」判成
-  `unparsed` → `dispatchAction` 回 `herdr-cli-error: herdr CLI 失败（exit 0）：（无输出）`，导致
-  `send_text` / `send_keys` / `run` 在真机全部不可用，真机脚本 FAIL 在 `send_text`。单测的假信封
-  （自带 `{"result":…}`）掩盖了这类静默成功。
-- **修法（2026-10-21 补丁）**：`parseEnvelope(stdout, stderr, exitCode?)` 增可选退出码——**exit 0 且
-  两侧都没有任何输出**时归一为 `{kind:"ok", result:{}}`；错误信封仍优先，非零退出 / 有输出但解析不出
-  JSON / 不知道退出码（socket）时语义不变。`actions.ts` / `workspace.ts` / `registry.ts` 与真机脚本的
-  全部 CLI 调用点都传入退出码（socket 读通道不传）。
+  pane 会**级联关 tab**（tab 从 `tab list` 消失），**workspace 仍在**，随后由插件退出清理关掉空
+  workspace，事后 workspace / pane 均无残留（`wXR` 已消失）；`pane close` / `tab close` /
+  `workspace close` / `pane split` 均返回 JSON 回执。
+- **全链路通过（主分支合并 `8c52b65` + `c56d488` 后）**：`--with-tab --check-cascade` 共 20 步全 OK
+  （create / read / send_text / send_keys / wait(match) / run / wait(run 回显) / wait(stable) / info /
+  label 自定义 + 恢复 / tab_create / tab_list / run(tab 内) / wait / read / tab_close / list /
+  close(cascade 探针)），`send_text` / `send_keys` / `run` 的静默成功修复在真机生效。
+- **发现缺陷（既有缺陷, 与 tab / workspace 改动无关）**：`herdr pane send-text` / `send-keys` / `run`
+  成功时 stdout 与 stderr **都为空**（exit 0）；`parseEnvelope` 把「无输出」判成 `unparsed` →
+  `dispatchAction` 回 `herdr-cli-error: herdr CLI 失败（exit 0）：（无输出）`，导致这三条命令在真机
+  全部不可用，真机脚本 FAIL 在 `send_text`。单测的假信封（自带 `{"result":…}`）掩盖了这类静默成功。
+- **修法（`8c52b65`）**：`parseEnvelope(stdout, stderr, exitCode?)` 增可选退出码——**exit 0 且两侧都
+  没有任何输出**时归一为 `{kind:"ok", result:{}}`；错误信封仍优先，非零退出 / 有输出但解析不出 JSON /
+  不知道退出码（socket）时语义不变。`actions.ts` / `workspace.ts` / `registry.ts` 与真机脚本的全部
+  CLI 调用点都传入退出码（socket 读通道不传）。
 - **补单测**：`cli`（exit 0 + 空输出 → ok 空 result；exit 1 / 无退出码 / 非 JSON 噪声 / 错误信封各保持
   原语义）、`actions`（`send_text` / `send_keys` / `run` 静默成功且回执字段正确；exit 1 + 空输出仍失败）、
-  `workspace`（`workspace list` 静默成功按空列表处理并新建 workspace）。真机写操作按要求未重跑。
+  `workspace`（`workspace list` 静默成功按空列表处理并新建 workspace）。
+
+### 验证脚本 `wait(stable)` 提前退出缺陷（2026-10-21 第二次补丁）
+
+- **现象**：不打临时补丁独立跑 `scripts/verify-herdr-pane.mjs` 时，`wait（stable）` 之后进程提前退出，
+  输出 `Warning: Detected unsettled top-level await at …/verify-herdr-pane.mjs:223`；后续 info / label /
+  tab 链全部没跑，但退出清理仍照常关掉 pane 与 workspace。
+- **根因**：`src/socket.ts` 的请求超时（`:154`）与 `waitForStable` 的 `sleep`（`:313`）都用 `unref()`
+  ——插件不该吊住宿主进程，在 dsh 进程内不受影响；脚本独立运行时事件循环里没有其它 ref 句柄，node 在顶层
+  await 未结算时直接退出（复现：`node --input-type=module -e 'await new Promise(r => { const t = setTimeout(r, 50); t.unref(); })'` → `exit 13` + 同一条 Warning）。
+- **修法**：只在脚本侧加 `withKeepAlive(fn)`（`setInterval(() => {}, 500)` + `finally clearInterval`），
+  包住 `read（socket）` / `wait（stable）` / `read（tab 内）` 三个会走 socket 的步骤；**不改
+  `socket.ts` 的 `unref` 语义**。同一条复现命令外包 keepalive 后正常打印 `done`（exit 0）。
+- **顺带改文案**：`--check-cascade` 的输出改为「关掉本次 create 的 pane 后：仍在（真机结论：关掉 tab 的
+  最后一个 pane 只级联关 tab；workspace 由插件退出清理负责关闭）」，避免把「workspace 仍在」误读为缺陷。
+  该探测步骤本身只覆盖 pane → workspace 的级联；tab 的级联由 `--with-tab` 的 `tab_close` 链路覆盖。
 
 已做的真机只读核对：`herdr status --json`（探活返回
 `{ok:true, socketPath:"/home/guochang/.config/herdr/herdr.sock"}`）、`herdr workspace list` /
 `tab list` / `pane list` 的回执形状（与调研 02 一致）、`herdr tab create --help` / `pane split --help`
 /`workspace create --help` 的参数面。
 
-未验证项（本次补丁后未重跑真机写链路）：
+未验证项：
 
-- 补丁后的 `send_text` / `send_keys` / `run` 在真机上是否恢复（单测已覆盖 exit 0 空输出，真机待复跑
-  `scripts/verify-herdr-pane.mjs`）；
+- 带 keepalive 的脚本尚未在真机独立复跑（本次按要求不做真机写操作，需主分支再跑一次
+  `node herdr-pane/scripts/verify-herdr-pane.mjs --with-tab --check-cascade`）；
 - `tab create` 回执的 `.result.tab` / `.result.root_pane` 与 `workspace create` 的 `.result.root_pane`
-  已由真机 tab / workspace 链路的通过结论间接确认，但未逐字段断言；
+  已由真机 tab / workspace 链路通过间接确认，但未逐字段断言；
 - 退出清理「用户后来在 workspace 里开的 pane 会阻止内部关 workspace」这一保护分支未在真机构造验证。
 
 ## 收尾
