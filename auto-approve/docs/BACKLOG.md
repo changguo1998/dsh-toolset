@@ -5,7 +5,9 @@
 
 ## 待办
 
-**1. 单会话内: 用户面板人工放行的调用进会话指纹（同会话后续等价调用免问）**（2026-10-20 登记, 来源: 用户需求「正常触发审批, 但会自动放行我放行过的命令; 单会话内有效就行」）：**现象 / 现状** —— 指纹表只记 auto-approve 自己 `allowed-once` 的调用; 用户在面板人工放行（`approval/decided` outcome=`allowed-once` 且非本插件裁定）的调用**不进指纹** → 同会话内再次出现等价调用仍弹面板（实测: 同会话两次 `git push` 各弹一次沙箱升级审批）。**期望** —— auto-approve 观察 `approval/decided`, 对本插件未裁定的 `allowed-once`（人工放行）按 callId 配对到 pre-execute 记录的参数, 把该工具的命令写入**会话指纹**（沿用现有单会话指纹表 / 容量 / LRU 上限, 跨会话不持久, 拒绝不入表）; 等价判定加**形态层**: 命令按 shell 词法**拆段**（`;` `|` `&` 换行, 切分口径沿用 security-guard）, 每段做形态归一（折叠空白, **抹易变参**: 引号串消息体 / 长 hex / 数字 → 占位）; 匹配按**段覆盖**: 一次调用 = 每段形态各自已在该会话放行集内即 `allowed-once`（顺序无关; 复合命令逐段独立判定）; 与现有精确参数 hash 指纹**并存**（精确命中或段覆盖命中任一即放行; 如 `git commit -m"a"` 与 `-m"b"` 归为同一段形态 `git commit -m <msg>` 而等价）。**优先级** —— P2。**状态注记** —— 进行中: 2026-10-21（追踪文档 `auto-approve/docs/implementation/2026-10-21-manual-approval-fingerprint.md`; 调研已完成, 待决策）。
+（当前无未完成项）
+
+> 2026-10-21 关闭：「单会话内: 用户面板人工放行的调用进会话指纹」已完成并合入 main `7bee2bf` —— 学习层含形态表（每会话 / 段覆盖 / 容量 LRU）、最小泛化（同段第二次成功观测、段首与子命令不通配、单段变位 ≤2）、LLM 准入审阅（2 s 窗口合并、失败不学）、重启回填（≤20 条、只计成功执行、一次性）与 `learn off|on|list|undo|clear` 命令面；`npm run test` 149 例全绿（既有 115 + 新增 34）。真机验证（2026-10-21，主会话代按面板）：`echo "probe-alpha"` + danger-full-access 面板放行后，sleep 6 s 的 `echo "probe-beta"`（同形态）**未再弹面板**（04:55:59 放行 / 04:56:11 自动放行），审计行 `source=fingerprint` / `ruleId=fingerprint:form` / `fingerprintHash=0737c58b3b9a1a65`，会话日志 `approval/asked` 无新增（共 5 条：两次试验各 2 + probe-alpha 1）；反例 `echo learn-probe-one` / `learn-probe-two` 的差异在未加引号 token → 第二次仍弹面板，属预期（形态不同）。未验证：重启回填（`sessionQuery` 回读）未真机跑、`pwsh` 跨 shell 未验、免问收益未度量。过程记录见 `auto-approve/docs/archived/2026-10-21-manual-approval-fingerprint.md`。
 
 > 2026-10-18 关闭：「项目层审计行的 `source.kind` 与 memory-base `SourceKind` 闭集对齐」已改为 `manual` + `label: "auto-approve"`（提交 `e8faf41`）；「巡检工具：从会话日志还原哪些调用被自动放行」已实现为只读脚本 `scripts/inspect-session.mjs`（提交 `7afb5e5`）。过程记录见 `docs/archived/2026-10-18-five-backlog-items.md`。
 
