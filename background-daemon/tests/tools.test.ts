@@ -10,6 +10,7 @@ import {
   executeDaemonTool,
   TOOL_NAME,
 } from "../src/tools.ts";
+import type { DaemonToolDeps } from "../src/tools.ts";
 import { harness, type Harness } from "./harness.ts";
 
 const built: Harness[] = [];
@@ -28,6 +29,7 @@ async function setup(options: Parameters<typeof harness>[0] = {}): Promise<{
     store: h.store,
     journal: h.journal,
     scheduler: h.scheduler,
+    switcher: h.switcher,
     control: h.control,
     now: () => h.clock.value,
     defaultSessionId: () => "sess-1",
@@ -45,6 +47,7 @@ test("工具定义：名称 / 参数 / render", async () => {
     store: h.store,
     journal: h.journal,
     scheduler: h.scheduler,
+    switcher: h.switcher,
   }) as {
     name: string;
     parameters: { required: string[]; properties: Record<string, unknown> };
@@ -147,7 +150,12 @@ test("create：无可用会话 → missing_session", async () => {
       selector: { kind: "every_seconds", seconds: 60 },
       payload: "x",
     },
-    { store: h.store, journal: h.journal, scheduler: h.scheduler },
+    {
+      store: h.store,
+      journal: h.journal,
+      scheduler: h.scheduler,
+      switcher: h.switcher,
+    },
   );
   assert.equal(result["ok"], false);
   assert.equal(result["error"], "missing_session");
@@ -219,4 +227,94 @@ test("控制帐：工具的 pause / resume / cancel 同样写事件", async () =
     h.control.load().map((entry) => `${entry.taskId}:${entry.action}`),
     [`${id}:pause`, `${id}:resume`, `${id}:cancel`],
   );
+});
+
+test("关闭态：写类 action 一律 daemon_disabled, 读类照常", async () => {
+  const h = harness({ enabled: false, start: false });
+  built.push(h);
+  const deps: DaemonToolDeps = {
+    store: h.store,
+    journal: h.journal,
+    scheduler: h.scheduler,
+    switcher: h.switcher,
+    defaultSessionId: () => "sess-1",
+    now: () => h.clock.value,
+  };
+  const create = await executeDaemonTool(
+    {
+      action: "create",
+      selector: { kind: "every_seconds", seconds: 60 },
+      payload: "x",
+    },
+    deps,
+    () => h.clock.value,
+  );
+  assert.equal(create["ok"], false);
+  assert.equal(create["error"], "daemon_disabled");
+  assert.equal(h.store.list().length, 0, "关闭态不应建出任务");
+
+  const list = await executeDaemonTool(
+    { action: "list" },
+    deps,
+    () => h.clock.value,
+  );
+  assert.equal(list["ok"], true);
+  assert.equal(list["text"], "暂无守护任务");
+
+  // 开启后同一调用可以创建（开关是唯一闸门, 不是权限模型）
+  h.switcher.enable();
+  const created = await executeDaemonTool(
+    {
+      action: "create",
+      selector: { kind: "every_seconds", seconds: 60 },
+      payload: "x",
+    },
+    deps,
+    () => h.clock.value,
+  );
+  assert.equal(created["ok"], true);
+});
+
+test("create：S 档目标不可解析 → session_unresolvable, 不落任务", async () => {
+  const h = harness();
+  built.push(h);
+  const deps: DaemonToolDeps = {
+    store: h.store,
+    journal: h.journal,
+    scheduler: h.scheduler,
+    switcher: h.switcher,
+    defaultSessionId: () => "sess-gone",
+    validateTarget: (sessionId, tier) =>
+      tier === "S" && sessionId === "sess-gone"
+        ? "会话「sess-gone」不在宿主的 sessions 里"
+        : null,
+    now: () => h.clock.value,
+  };
+  const result = await executeDaemonTool(
+    {
+      action: "create",
+      selector: { kind: "every_seconds", seconds: 60 },
+      payload: "x",
+    },
+    deps,
+    () => h.clock.value,
+  );
+  assert.equal(result["ok"], false);
+  assert.equal(result["error"], "session_unresolvable");
+  assert.match(String(result["text"]), /不可解析/);
+  assert.equal(h.store.list().length, 0, "被拒的任务不应留在任务表里");
+
+  // P 档落 project 层, 同目标照建
+  const p = await executeDaemonTool(
+    {
+      action: "create",
+      tier: "P",
+      selector: { kind: "every_seconds", seconds: 60 },
+      payload: "y",
+    },
+    deps,
+    () => h.clock.value,
+  );
+  assert.equal(p["ok"], true);
+  assert.equal(h.store.list().length, 1);
 });

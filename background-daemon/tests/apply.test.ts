@@ -98,15 +98,46 @@ test("apply：注册服务面 / 命令 / 工具并启动调度", async () => {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
     defaultSessionId: "sess-1",
+    enabled: true,
   });
   assert.equal(fake.provided.has("backgroundDaemon"), true);
   assert.equal(fake.commands.definitions.length, 1);
   assert.equal(fake.tools.registered.length, 1);
+  assert.equal(runtime.switcher.enabled, true);
   assert.equal(runtime.scheduler.status().running, true);
   assert.equal(runtime.storePath, path.join(dir, "tasks.json"));
   assert.equal(runtime.controlPath, path.join(dir, "control.jsonl"));
   await runtime.dispose();
   assert.equal(runtime.scheduler.status().running, false);
+});
+
+test("apply：缺省关闭 → 调度器不启动, /daemon start 后启动", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const runtime = await bootDaemon(fake.ctx, {
+    storePath: path.join(dir, "tasks.json"),
+    journalPath: path.join(dir, "journal.jsonl"),
+    defaultSessionId: "sess-1",
+  });
+  // 默认关闭（决策 D1/D2）：开关 false、调度器不运行、服务面同步
+  assert.equal(runtime.switcher.enabled, false);
+  assert.equal(runtime.scheduler.status().running, false);
+  assert.equal(runtime.service.status().enabled, false);
+  // 命令面与工具面照常注册（关闭态只是拒绝写类动作）
+  assert.equal(fake.commands.definitions.length, 1);
+  assert.equal(fake.tools.registered.length, 1);
+  // 经注册的 handler 开启
+  const definition = fake.commands.definitions[0] as {
+    handler: (invocation: {
+      rawInput?: string;
+    }) => Promise<{ kind: string; text: string }>;
+  };
+  const started = await definition.handler({ rawInput: "start" });
+  assert.equal(started.kind, "success");
+  assert.equal(runtime.switcher.enabled, true);
+  assert.equal(runtime.scheduler.status().running, true);
+  assert.equal(runtime.service.status().enabled, true);
+  await runtime.dispose();
 });
 
 test("apply：任务表损坏 → 面不启用但命令面仍注册（错误可见）", async () => {
@@ -137,6 +168,7 @@ test("apply：commands / tools 缺失 → 降级告警, 不抛", async () => {
     const runtime = await bootDaemon(fake.ctx, {
       storePath: path.join(dir, "tasks.json"),
       journalPath: path.join(dir, "journal.jsonl"),
+      enabled: true,
     });
     assert.equal(runtime.scheduler.status().running, true);
     await runtime.dispose();
@@ -302,6 +334,7 @@ test("工具注册：缺省 defaultSessionId 时 create 报 missing_session", as
   const runtime = await bootDaemon(fake.ctx, {
     storePath: path.join(dir, "tasks.json"),
     journalPath: path.join(dir, "journal.jsonl"),
+    enabled: true,
   });
   const tool = fake.tools.registered[0] as {
     execute: (
@@ -589,6 +622,7 @@ test("控制帐：装配后取消经由工具写入共享控制帐（其它实�
     journalPath: path.join(dir, "journal.jsonl"),
     controlPath: path.join(dir, "control.jsonl"),
     defaultSessionId: "sess-1",
+    enabled: true,
   });
   const task = runtime.store.create({
     mode: "deliver",

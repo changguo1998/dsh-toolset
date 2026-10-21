@@ -12,18 +12,33 @@ import type { DaemonTask, RunRecord, TaskMode, TaskTier } from "./types.ts";
 import { renderDetail, renderJournal, renderList } from "./commands.ts";
 import type { ControlLog } from "./control.ts";
 import type { Journal } from "./journal.ts";
+import type { DaemonSwitch } from "./switch.ts";
+import { TARGET_UNRESOLVABLE, type TargetValidator } from "./target.ts";
 
 export const TOOL_NAME = "daemon_task";
 
 /** 允许的 `tier` 取值。 */
 const TIERS: readonly TaskTier[] = ["S", "P", "U"];
 
+/** 写类 action（未开启时拒绝；读类 list / show / log 放行）。 */
+const WRITE_ACTIONS: ReadonlySet<string> = new Set([
+  "create",
+  "pause",
+  "resume",
+  "run",
+  "cancel",
+]);
+
 export interface DaemonToolDeps {
   store: TaskStore;
   journal: Journal;
   scheduler: Scheduler;
+  /** 进程内总开关（缺省关闭；未开启时写类 action 一律拒绝）。 */
+  switcher: DaemonSwitch;
   /** 缺省目标会话（模型侧调用时通常是当前会话）。 */
   defaultSessionId?: () => string | undefined;
+  /** S 档目标会话校验（返回 null = 可解析；未接 = 不校验）。 */
+  validateTarget?: TargetValidator;
   now?: () => number;
   /** 共享控制帐（取消 / 暂停 / 恢复写入后其它实例到点前收敛；缺省不接）。 */
   control?: ControlLog;
@@ -43,7 +58,8 @@ export function createDaemonTaskTool(deps: DaemonToolDeps): object {
   return {
     name: TOOL_NAME,
     description:
-      "后台守护任务（定时执行）：create 新建（选择器 + 投递文本或 slash 命令）, list 列表, " +
+      "后台守护任务（定时执行；守护默认关闭, 需先 /daemon start 开启, 进程内状态）。" +
+      "create 新建（选择器 + 投递文本或 slash 命令）, list 列表, " +
       "show 详情, pause / resume 暂停恢复, run 立即投递一次, cancel 删除, log 运行流水。" +
       "选择器支持 after_seconds / at / every_seconds（≥60 s）/ daily / weekly（cron 不在首期）。" +
       "投递只面向本进程已注册的活跃 agent：目标会话无活跃 agent 时记 skipped, 不重试。",
@@ -119,6 +135,14 @@ export async function executeDaemonTool(
   now: () => number = Date.now,
 ): Promise<Record<string, unknown>> {
   const action = typeof args["action"] === "string" ? args["action"] : "";
+  // 写类动作需要守护已开启（决策 D4）：读类（list / show / log）在关闭态仍可查
+  if (WRITE_ACTIONS.has(action) && !deps.switcher.enabled) {
+    return {
+      ok: false,
+      error: "daemon_disabled",
+      text: "守护未开启（默认关闭）：先运行 /daemon start 开启（进程内状态, 重启复位）",
+    };
+  }
   switch (action) {
     case "create":
       return createTask(args, deps, now);
@@ -251,6 +275,16 @@ async function createTask(
     typeof rawTier === "string" && TIERS.includes(rawTier as TaskTier)
       ? (rawTier as TaskTier)
       : "S";
+  // S 档落 memory-base 的 session 层：目标会话不可解析时写透必然失败, 创建期即拒绝
+  //（决策 D5：不留「内存里有、盘上没有」的半截任务, 也不弹写透告警）
+  const unresolvable = deps.validateTarget?.(sessionId, tier) ?? null;
+  if (unresolvable !== null) {
+    return {
+      ok: false,
+      error: TARGET_UNRESOLVABLE,
+      text: `目标会话不可解析（${sessionId}）：${unresolvable}`,
+    };
+  }
   const task = deps.store.create({
     mode,
     selector: selector.selector,

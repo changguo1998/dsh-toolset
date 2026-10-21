@@ -47,6 +47,8 @@ import {
 } from "./service.ts";
 import { readService } from "./services.ts";
 import { TaskStore } from "./store.ts";
+import { DaemonSwitch } from "./switch.ts";
+import { createTargetValidator } from "./target.ts";
 import { createDaemonTaskTool, TOOL_NAME } from "./tools.ts";
 
 /** 配置（profile 层可覆盖；路径类与阈值类都在这里）。 */
@@ -71,6 +73,14 @@ export interface DaemonConfig {
   command?: boolean;
   /** 是否注册模型侧工具 `daemon_task`（缺省 true）。 */
   tool?: boolean;
+  /**
+   * 启动时的开关初始状态（缺省 `false` = 关闭）。
+   *
+   * 守护**默认关闭**：关闭时不启动调度器, 模型侧工具与 `/daemon` 写类动作被拒绝;
+   * 由 `/daemon start` 在运行期开启、`/daemon stop` 关闭。状态**仅进程内**, 不落盘
+   *（重启复位, 追踪文档决策 D1）。
+   */
+  enabled?: boolean;
 }
 
 /** 插件名（宿主日志与告警前缀）。 */
@@ -107,6 +117,8 @@ export interface DaemonRuntime {
   scheduler: Scheduler;
   channels: ChannelRegistry;
   service: BackgroundDaemonService;
+  /** 进程内总开关（默认关闭；`/daemon start` / `stop` 切换, 不落盘）。 */
+  switcher: DaemonSwitch;
   /** 共享控制帐（取消 / 暂停 / 恢复的跨实例传播）。 */
   control: ControlLog;
   storePath: string;
@@ -374,6 +386,9 @@ export async function createDaemonRuntime(
     ...(("memory" as RecordsBackend) === backend ? { loadStore: false } : {}),
   });
 
+  // 进程内总开关（决策 D1 / D2）：关闭态不启动调度器, 命令面 / 工具面统一拦写类动作
+  const switcher = new DaemonSwitch(config.enabled === true);
+
   const service = createDaemonService({
     store,
     journal,
@@ -382,6 +397,7 @@ export async function createDaemonRuntime(
     // 函数形式：memory 底座可能晚挂, 状态视图实时读最新值
     records: () => backend,
     rejectedRows: () => rejectedRows,
+    enabled: () => switcher.enabled,
   });
 
   let disposed = false;
@@ -391,6 +407,7 @@ export async function createDaemonRuntime(
     scheduler,
     channels,
     service,
+    switcher,
     control,
     storePath,
     journalPath,
@@ -452,6 +469,7 @@ export async function bootDaemon(
       journal: runtime.journal,
       scheduler: runtime.scheduler,
       control: runtime.control,
+      switcher: runtime.switcher,
     });
     if (dispose === null) {
       warn("ctx.commands 不可用：/daemon 未注册（服务面与调度仍可用）");
@@ -467,6 +485,8 @@ export async function bootDaemon(
     if (tools === undefined || typeof tools.register !== "function") {
       warn(`ctx.tools 不可用：${TOOL_NAME} 工具未注册`);
     } else {
+      // S 档目标校验器：`sessionPaths` 读不到时为 undefined（不校验, 决策 D6）
+      const validateTarget = createTargetValidator(ctx);
       try {
         tools.register(
           createDaemonTaskTool({
@@ -474,6 +494,8 @@ export async function bootDaemon(
             journal: runtime.journal,
             scheduler: runtime.scheduler,
             control: runtime.control,
+            switcher: runtime.switcher,
+            ...(validateTarget === undefined ? {} : { validateTarget }),
             ...(config.defaultSessionId === undefined
               ? {}
               : { defaultSessionId: () => config.defaultSessionId }),
@@ -485,13 +507,24 @@ export async function bootDaemon(
     }
   }
 
-  // 启动调度（任务表不可用时只告警, 不抛）
-  const status = runtime.scheduler.start();
-  if (status.running) {
+  // 启动调度（默认关闭: 未开启时不启动调度器, 由 /daemon start 开启——决策 D2）
+  if (runtime.switcher.enabled) {
+    const status = runtime.scheduler.start();
+    if (status.running) {
+      process.stderr.write(
+        `[background-daemon] 已启动（任务 ${runtime.store.list().length} 个，` +
+          `backend=${runtime.backend}，store=${runtime.storePath}，` +
+          `journal=${runtime.journalPath}）\n`,
+      );
+    }
+  } else {
+    const error = runtime.scheduler.status().error;
+    if (error !== null) {
+      warn(`任务表面不可用（开启会被拒绝）：${error}`);
+    }
     process.stderr.write(
-      `[background-daemon] 已启动（任务 ${runtime.store.list().length} 个，` +
-        `backend=${runtime.backend}，store=${runtime.storePath}，` +
-        `journal=${runtime.journalPath}）\n`,
+      `[background-daemon] 未开启（默认关闭）：/daemon start 开启（进程内状态, 重启复位）；` +
+        `任务 ${runtime.store.list().length} 个待开启后补算\n`,
     );
   }
 

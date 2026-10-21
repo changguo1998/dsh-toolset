@@ -1,8 +1,11 @@
 /**
  * `/daemon` 命令面（`ctx.commands.register`，零 TUI 改动）。
  *
- * 子命令（设计 §C③）：`list` / `show <id>` / `pause|resume <id>` / `run <id>` /
- * `cancel <id>` / `log [<id>] [n]`；空表输出「暂无守护任务」。
+ * 子命令（设计 §C③ + 2026-10-21 开关）：`start` / `stop` / `list` / `show <id>` /
+ * `pause|resume <id>` / `run <id>` / `cancel <id>` / `log [<id>] [n]`；空表输出「暂无守护任务」。
+ *
+ * 守护**默认关闭**（进程内开关，见 `switch.ts`）：未开启时读类子命令照常、写类子命令
+ * 一律拒绝并提示先 `start`；`start` / `stop` 负责切开关并启停调度器。
  *
  * 渲染与分派是纯函数（`renderList` / `runDaemonCommand`）, 注册只做薄适配——这样
  * 不用宿主命令面就能测全部子命令。
@@ -11,8 +14,9 @@
 import type { ControlLog } from "./control.ts";
 import type { Journal } from "./journal.ts";
 import { describeSelector, isPeriodic, nextAfter } from "./selectors.ts";
-import type { Scheduler } from "./scheduler.ts";
+import type { Scheduler, SchedulerStatus } from "./scheduler.ts";
 import type { TaskStore } from "./store.ts";
+import type { DaemonSwitch } from "./switch.ts";
 import type { DaemonTask, RunRecord, RunOutcome, TaskStatus } from "./types.ts";
 
 /** 命令名（不带斜杠）。 */
@@ -20,6 +24,8 @@ export const COMMAND_NAME = "daemon";
 
 /** 全部子命令（帮助文案与测试共用）。 */
 export const SUBCOMMANDS = [
+  "start",
+  "stop",
   "list",
   "show",
   "pause",
@@ -31,11 +37,13 @@ export const SUBCOMMANDS = [
 
 export type Subcommand = (typeof SUBCOMMANDS)[number];
 
-/** 命令面依赖（store / journal / scheduler；control 可选 = 跨实例传播）。 */
+/** 命令面依赖（store / journal / scheduler / switcher；control 可选 = 跨实例传播）。 */
 export interface DaemonCommandDeps {
   store: TaskStore;
   journal: Journal;
   scheduler: Scheduler;
+  /** 进程内总开关（缺省关闭；`/daemon start` / `stop` 切它，写类子命令据此拒绝）。 */
+  switcher: DaemonSwitch;
   now?: () => number;
   /** 共享控制帐（取消 / 暂停 / 恢复写入后其它实例到点前收敛；缺省不接）。 */
   control?: ControlLog;
@@ -128,14 +136,24 @@ export function renderJournal(
   return [`${label}：最近 ${records.length} 条`, ...lines].join("\n");
 }
 
+/** 未开启时的统一拒绝（D3 / D4：读类放行, 写类拒绝）。 */
+function notEnabled(): DaemonCommandResult {
+  return {
+    kind: "error",
+    text: `守护未开启（默认关闭）：先 /${COMMAND_NAME} start 开启`,
+  };
+}
+
 function usage(): string {
   return (
     `用法：/${COMMAND_NAME} ${SUBCOMMANDS.join(" | ")}\n` +
+    "  start               开启守护（默认关闭；进程内状态, 重启复位）\n" +
+    "  stop                关闭守护（撤销定时器, 任务表保留）\n" +
     "  list                列出任务（下次触发 / 状态 / 上次结果）\n" +
     "  show <id>           查看单条详情\n" +
-    "  pause|resume <id>   暂停 / 恢复\n" +
-    "  run <id>            立即投递一次（不改排期）\n" +
-    "  cancel <id>         删除任务\n" +
+    "  pause|resume <id>   暂停 / 恢复（需先开启）\n" +
+    "  run <id>            立即投递一次（不改排期；需先开启）\n" +
+    "  cancel <id>         删除任务（需先开启）\n" +
     "  log [<id>] [n]      查看运行流水（缺省最近 20 条）"
   );
 }
@@ -152,6 +170,37 @@ export async function runDaemonCommand(
   }
   const [sub = "", first, second] = trimmed.split(/\s+/);
   switch (sub) {
+    case "start": {
+      if (deps.switcher.enabled) {
+        return { kind: "success", text: "守护已开启" };
+      }
+      deps.switcher.enable();
+      const status: SchedulerStatus = deps.scheduler.start();
+      if (!status.running) {
+        deps.switcher.disable();
+        return {
+          kind: "error",
+          text: `开启失败（调度器未启动）：${status.error ?? "未知原因"}`,
+        };
+      }
+      return {
+        kind: "success",
+        text:
+          `已开启（任务 ${deps.store.list().length} 个；进程内状态, 重启复位）\n` +
+          "启动补算已执行：周期任务只补最近一次, 一次性任务超窗记 missed",
+      };
+    }
+    case "stop": {
+      if (!deps.switcher.enabled) {
+        return { kind: "success", text: "守护未开启" };
+      }
+      deps.switcher.disable();
+      await deps.scheduler.stop();
+      return {
+        kind: "success",
+        text: `已关闭（定时器已撤销；任务 ${deps.store.list().length} 个保留）`,
+      };
+    }
     case "list":
       return { kind: "success", text: renderList(deps.store.list()) };
     case "show": {
@@ -165,6 +214,7 @@ export async function runDaemonCommand(
       return { kind: "success", text: renderDetail(task) };
     }
     case "pause": {
+      if (!deps.switcher.enabled) return notEnabled();
       if (first === undefined) {
         return { kind: "error", text: `缺少任务 id。\n${usage()}` };
       }
@@ -184,6 +234,7 @@ export async function runDaemonCommand(
       };
     }
     case "resume": {
+      if (!deps.switcher.enabled) return notEnabled();
       if (first === undefined) {
         return { kind: "error", text: `缺少任务 id。\n${usage()}` };
       }
@@ -207,6 +258,7 @@ export async function runDaemonCommand(
       };
     }
     case "run": {
+      if (!deps.switcher.enabled) return notEnabled();
       if (first === undefined) {
         return { kind: "error", text: `缺少任务 id。\n${usage()}` };
       }
@@ -219,6 +271,7 @@ export async function runDaemonCommand(
       };
     }
     case "cancel": {
+      if (!deps.switcher.enabled) return notEnabled();
       if (first === undefined) {
         return { kind: "error", text: `缺少任务 id。\n${usage()}` };
       }
@@ -263,9 +316,9 @@ export function registerDaemonCommand(
     definitionId: "background-daemon:daemon",
     name: COMMAND_NAME,
     description:
-      "后台守护任务：list | show <id> | pause <id> | resume <id> | run <id> | cancel <id> | log [<id>] [n]",
+      "后台守护任务（默认关闭, 先 start 开启）：start | stop | list | show <id> | pause <id> | resume <id> | run <id> | cancel <id> | log [<id>] [n]",
     input: {
-      hint: "list | show <id> | pause|resume <id> | run <id> | cancel <id> | log [<id>] [n]",
+      hint: "start | stop | list | show <id> | pause|resume <id> | run <id> | cancel <id> | log [<id>] [n]",
     },
     handler: (invocation: InvocationLike) =>
       runDaemonCommand(invocation.rawInput ?? "", deps),

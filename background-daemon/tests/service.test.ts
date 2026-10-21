@@ -108,3 +108,26 @@ test("journal：最近流水与按任务过滤", async () => {
   assert.equal(face.journal(10, task.id).length, 1);
   assert.equal(face.journal(10, "d-nope").length, 0);
 });
+
+test("status：enabled 跟随开关（函数形式实时读；缺省 false）", async () => {
+  const h = harness();
+  built.push(h);
+  const face = createDaemonService({
+    store: h.store,
+    journal: h.journal,
+    scheduler: h.scheduler,
+    channels: { list: () => [] },
+    enabled: () => h.switcher.enabled,
+  });
+  assert.equal(face.status().enabled, true);
+  h.switcher.disable();
+  assert.equal(face.status().enabled, false);
+
+  const bare = createDaemonService({
+    store: h.store,
+    journal: h.journal,
+    scheduler: h.scheduler,
+    channels: { list: () => [] },
+  });
+  assert.equal(bare.status().enabled, false, "缺省按关闭口径");
+});

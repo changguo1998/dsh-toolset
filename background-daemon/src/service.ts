@@ -13,6 +13,8 @@ import type { DaemonTask, RunRecord, TaskMode } from "./types.ts";
 
 /** 状态视图（`/daemon` 与将来的状态列块共用）。 */
 export interface DaemonStatusView extends SchedulerStatus {
+  /** 进程内开关（`/daemon start` 开启；关闭态调度器不运行）。 */
+  enabled: boolean;
   storeFile: string;
   journalFile: string;
   /** 记录底座（`memory` = memory-base 注册 kind；`json` = 本地快照降级）。 */
@@ -46,6 +48,8 @@ export interface DaemonServiceDeps {
    */
   records?: RecordsBackend | (() => RecordsBackend);
   rejectedRows?: number | (() => number);
+  /** 进程内开关（缺省 false；支持函数形式以读到运行期最新值）。 */
+  enabled?: boolean | (() => boolean);
 }
 
 function resolveValue<T>(value: T | (() => T) | undefined): T | undefined {
@@ -59,6 +63,7 @@ export function createDaemonService(
     list: () => deps.store.list(),
     status: () => ({
       ...deps.scheduler.status(),
+      enabled: resolveValue(deps.enabled) ?? false,
       storeFile: deps.store.file,
       journalFile: deps.journal.file,
       records: resolveValue(deps.records) ?? "json",

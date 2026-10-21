@@ -30,8 +30,13 @@ function tempDir(): string {
 /** `apply` 期必须读到的服务（与 main.ts 的 inject 一一对应）。 */
 const REQUIRED_SERVICES = ["agents", "sessions", "commands", "tools"] as const;
 
-/** 可选依赖：缺失时降级而不是拒绝激活。 */
-const OPTIONAL_SERVICES = ["memory", "guard", "clock"] as const;
+/**
+ * 可选依赖：缺失时降级而不是拒绝激活。
+ *
+ * `sessionPaths`（2026-10-21 起）：S 档创建期的目标会话探测（`src/target.ts`）经它做
+ * 只读解析；读不到即跳过校验，不进 inject（决策 D6）。
+ */
+const OPTIONAL_SERVICES = ["memory", "guard", "clock", "sessionPaths"] as const;
 
 /** 严格模式假 ctx：未就绪时 `get` 与 cordis 一样抛错。 */
 class StrictContext {

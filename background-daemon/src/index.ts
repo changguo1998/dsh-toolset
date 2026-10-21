@@ -137,6 +137,12 @@ export {
   type Tier,
 } from "./records.ts";
 export { readService } from "./services.ts";
+export { DaemonSwitch } from "./switch.ts";
+export {
+  createTargetValidator,
+  TARGET_UNRESOLVABLE,
+  type TargetValidator,
+} from "./target.ts";
 export {
   apply,
   bootDaemon,

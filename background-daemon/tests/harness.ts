@@ -17,6 +17,7 @@ import {
   type TimerLike,
 } from "../src/scheduler.ts";
 import { TaskStore } from "../src/store.ts";
+import { DaemonSwitch } from "../src/switch.ts";
 import type {
   AgentLike,
   ChannelResult,
@@ -88,6 +89,8 @@ export interface Harness {
   text: FakeChannel;
   command: FakeChannel;
   scheduler: Scheduler;
+  /** 进程内总开关（harness 缺省开启；用例可传 `enabled: false` 造关闭态）。 */
+  switcher: DaemonSwitch;
   warnings: string[];
   create(
     input: Partial<NewTaskInput> & { selector: NewTaskInput["selector"] },
@@ -108,6 +111,8 @@ export function harness(
     ) => Promise<ChannelResult> | ChannelResult;
     agents?: Map<string, AgentLike>;
     start?: boolean;
+    /** 开关初始状态（缺省 true：既有用例按「已开启」跑；关闭态用例传 false）。 */
+    enabled?: boolean;
   } = {},
 ): Harness {
   const dir = mkdtempSync(path.join(tmpdir(), "background-daemon-test-"));
@@ -133,6 +138,7 @@ export function harness(
   const channels = new ChannelRegistry();
   channels.register(text);
   channels.register(command);
+  const switcher = new DaemonSwitch(options.enabled ?? true);
   const timer = new FakeTimer();
   const scheduler = new Scheduler({
     store,
@@ -165,6 +171,7 @@ export function harness(
     text,
     command,
     scheduler,
+    switcher,
     warnings,
     create(input) {
       return store.create({

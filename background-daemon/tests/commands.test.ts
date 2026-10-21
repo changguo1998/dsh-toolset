@@ -33,6 +33,7 @@ async function setup(options: Parameters<typeof harness>[0] = {}): Promise<{
         store: h.store,
         journal: h.journal,
         scheduler: h.scheduler,
+        switcher: h.switcher,
         control: h.control,
         now: () => h.clock.value,
       }),
@@ -199,7 +200,12 @@ test("registerDaemonCommand：注册形态与 handler 转发；commands 缺失�
   const definitions: unknown[] = [];
   const dispose = registerDaemonCommand(
     { register: (definition) => (definitions.push(definition), () => {}) },
-    { store: h.store, journal: h.journal, scheduler: h.scheduler },
+    {
+      store: h.store,
+      journal: h.journal,
+      scheduler: h.scheduler,
+      switcher: h.switcher,
+    },
   );
   assert.equal(typeof dispose, "function");
   const definition = definitions[0] as {
@@ -219,6 +225,7 @@ test("registerDaemonCommand：注册形态与 handler 转发；commands 缺失�
       store: h.store,
       journal: h.journal,
       scheduler: h.scheduler,
+      switcher: h.switcher,
     }),
     null,
   );
