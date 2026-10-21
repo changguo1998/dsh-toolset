@@ -78,7 +78,11 @@ export interface Config {
   rules?: readonly RuleSpec[];
 }
 
-/** 内置缺省规则：bash 里跑 herdr CLI → 指路 `herdr_pane`。 */
+/**
+ * 内置缺省规则：
+ * 1. bash 里跑 herdr CLI → 指路 `herdr_pane`；
+ * 2. bash 里跑 python → 指路 `script_run`（script-interpreter 插件）。
+ */
 export const DEFAULT_RULES: readonly RuleSpec[] = [
   {
     id: "no-herdr-in-bash",
@@ -93,6 +97,22 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
     },
     reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）",
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
+  },
+  {
+    id: "no-python-in-bash",
+    tool: "bash",
+    // 同一套命令位判定：行首 / `;` `&` `|` 之后 / `$( ` 之后，允许前置 `VAR=值` 与路径；
+    // 认 `python` / `python3` / `python3.12`；`echo python`、`.py` 扩展名、`pip` 都不拦。
+    match: {
+      regex: [
+        "(?:^|[;&|]\\s*|\\$\\(\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?python(?:3(?:\\.\\d+)?)?(?=\\s|$)",
+      ],
+      flags: "im",
+    },
+    reason:
+      "bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句",
+    description:
+      "Python 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
   },
 ];
 

@@ -103,7 +103,7 @@ test("resolveConfig：缺省开启 + 内置规则；rules 给即整体替换；�
   assert.equal(defaults.enabled, true);
   assert.deepEqual(
     defaults.rules.map((rule) => rule.id),
-    ["no-herdr-in-bash"],
+    ["no-herdr-in-bash", "no-python-in-bash"],
   );
   assert.equal(resolveConfig({ enabled: false }).enabled, false);
 
@@ -170,6 +170,42 @@ test("缺省规则认命令位变体：链式 / 前置赋值 / 绝对路径 / �
     assert.equal(
       registration.guard(guardContext("bash", { command }))?.kind,
       "deny",
+      command,
+    );
+  }
+});
+
+test("缺省规则：bash 命令位跑 python → 拒绝并指向 script_run", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "python x.py",
+    "python3 -c 'print(1)'",
+    "python3.12 tools/gen.py",
+    "ls && python3 -V",
+    "FOO=1 /usr/bin/python3 -m http.server",
+  ]) {
+    const decision = registration.guard(guardContext("bash", { command }));
+    assert.equal(decision?.kind, "deny", command);
+    assert.match(
+      (decision as { reason: string }).reason,
+      /script_run/,
+      "拒绝理由要指向 script_run",
+    );
+  }
+});
+
+test("缺省规则：正文提到 python / .py 扩展名 / pip 不拦", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "echo python",
+    "grep -rn python3 src/",
+    "ls scripts/run.py",
+    "pip install requests",
+    "git commit -m 'docs: python -> script_run'",
+  ]) {
+    assert.equal(
+      registration.guard(guardContext("bash", { command })),
+      undefined,
       command,
     );
   }
