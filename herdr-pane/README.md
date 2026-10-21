@@ -4,7 +4,7 @@ DSH（DeepSeek Harness）进程内集成插件：把 **herdr 的 pane / tab 当�
 
 模型侧工具：**`herdr_pane`**（单工具 + `action` 分派十三个动作）；同时导出库面，供编排类插件与真机验证脚本直接调用，不必经模型工具链。
 
-设计依据与取舍（tab / 会话 workspace 的调研与决策）见 `herdr-pane/docs/implementation/2026-10-21-herdr-pane-tab-workspace.md`（任务关闭后移入 `docs/archived/`）；本包按**轻量包**口径只留 `README.md` + `docs/BACKLOG.md`。
+设计依据与取舍（tab / 会话 workspace 的调研与决策）见 `herdr-pane/docs/archived/2026-10-21-herdr-pane-tab-workspace.md`；本包按**轻量包**口径只留 `README.md` + `docs/BACKLOG.md`。
 
 ## 能力
 
@@ -127,9 +127,9 @@ if (plugin) {
   `workspace`（label 规范化 / 复用与新建 / 缓存与子会话沿用 / 活动 pane 解析）、
   `policy`（归属 / 审批三档 / 沙箱门 / 跨 workspace 文案 / fail-open）、`main`（注册条件 / 沙箱门与审批门 / tab 门禁 / exec 透传）、`tool`（定义契约 / 渲染 / 截断）。
 
-- 真机端到端（**人工跑、不进 CI**，只需 herdr 二进制可解析 + 服务端在跑）：先 `npm --prefix herdr-pane run build`，再跑 `node herdr-pane/scripts/verify-herdr-pane.mjs`（全自动，跑完即关 pane）。开关：`--keep`（保留 pane / tab / workspace 供人工看）、`--with-python`（额外验 `python3 -i` 的 REPL 场景）、`--with-tab`（建 tab → run → wait → read → tab_close）、`--check-cascade`（关掉 workspace 里最后一个 pane 后看 workspace 是否还在）、`--session-id <id>`（固定会话身份，重跑可验 workspace 复用）、`--cwd <dir>`（覆盖会话工作目录）。
+- 真机端到端（**人工跑、不进 CI**，只需 herdr 二进制可解析 + 服务端在跑）：先 `npm --prefix herdr-pane run build`，再跑 `node herdr-pane/scripts/verify-herdr-pane.mjs`（全自动，跑完即关 pane）。开关：`--keep`（保留 pane / tab / workspace 供人工看）、`--with-python`（额外验 `python3 -i` 的 REPL 场景）、`--with-tab`（建 tab → run → wait → read → tab_close）、`--check-cascade`（关掉本次 create 的 pane 后看 workspace 是否还在）、`--session-id <id>`（固定会话身份，重跑可验 workspace 复用）、`--cwd <dir>`（覆盖会话工作目录）。
 
-- 覆盖链：`create → read → send_text → send_keys → wait(match) → run → wait(stable) → info → label → list → close`（另可选 tab 链），并核对「新 pane 落在本会话 workspace」「调用者焦点未被抢走」「正常退出后无本次创建的 pane / tab，workspace 空则一并关闭」。
+- 覆盖链：`create → read → send_text → send_keys → wait(match) → run → wait(stable) → info → label → list → close`（另可选 tab 链），并核对「新 pane 落在本会话 workspace」「调用者焦点未被抢走」「正常退出后无本次创建的 pane / tab，workspace 空则一并关闭」。2026-10-21 真机复跑 `--with-tab --check-cascade` 20 步全通过（含 `send_text` / `send_keys` / `run` 的静默成功修复）。
 
 ## 与相邻能力的分工
 
