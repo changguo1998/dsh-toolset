@@ -99,8 +99,9 @@ export class PaneRegistry implements RegistrySnapshot {
     return this.binding;
   }
 
-  /** 写会话 workspace 绑定（由 `workspace.ts` 的 ensure 调用）。 */
-  setWorkspaceBinding(binding: WorkspaceBinding): void {
+  /** 写会话 workspace 绑定（由 `workspace.ts` 的 ensure 调用）；传 undefined 表示清空
+   *  （缓存的 workspace 已被关闭时由 ensure 主动失效，下次按 label 重新匹配 / 新建）。 */
+  setWorkspaceBinding(binding: WorkspaceBinding | undefined): void {
     this.binding = binding;
   }
 

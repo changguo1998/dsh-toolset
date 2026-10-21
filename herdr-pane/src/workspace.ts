@@ -134,18 +134,15 @@ const WORKSPACE_HINT =
   "确认 herdr 服务端在跑（herdr status）后重试：本插件需要能在服务端建 / 查 workspace。";
 
 /**
- * 确保当前会话的 workspace 绑定：命中进程内缓存直接返回；否则 `workspace list` 按 label
- * 精确匹配复用，没有才新建。新建时把 workspace 的 root pane 登记为本插件 pane
+ * 确保当前会话的 workspace 绑定：`workspace list` 复核后，缓存仍存活则直接复用（只花一次只读
+ * 列举）；缓存指向的 workspace 已被关闭时**清空绑定并按 label 重新匹配 / 新建**（2026-10-22：
+ * workspace 被关掉后不再要求重启 dsh）。新建时把 workspace 的 root pane 登记为本插件 pane
  * （退出清理据此判断「workspace 内是否只剩本插件的 pane」）。
  */
 export async function ensureWorkspace(
   options: EnsureWorkspaceOptions,
 ): Promise<EnsureWorkspaceResult> {
   const { runner, registry, config, session } = options;
-  const cached = registry.workspaceBinding;
-  if (cached !== undefined) {
-    return { ok: true, binding: cached, created: false };
-  }
   const label = workspaceLabel(session);
   const listed = await runner.run(["workspace", "list"], config.timeoutMs);
   const listEnvelope = parseEnvelope(
@@ -161,9 +158,17 @@ export async function ensureWorkspace(
       hint: WORKSPACE_HINT,
     };
   }
-  const matched = objectList(listEnvelope.result.workspaces).find(
-    (item) => item.label === label,
-  );
+  const workspaces = objectList(listEnvelope.result.workspaces);
+  const cached = registry.workspaceBinding;
+  if (cached !== undefined) {
+    const alive = workspaces.some(
+      (item) => nonEmpty(item.workspace_id) === cached.workspaceId,
+    );
+    if (alive) return { ok: true, binding: cached, created: false };
+    // 缓存的 workspace 已不在服务端（被关闭）：失效后按 label 重新匹配，没有就新建
+    registry.setWorkspaceBinding(undefined);
+  }
+  const matched = workspaces.find((item) => item.label === label);
   let workspaceId = nonEmpty(matched?.workspace_id);
   let rootPaneId: string | undefined;
   let created = false;
@@ -270,7 +275,8 @@ export async function activePaneOf(
       ok: false,
       code: "workspace-unavailable",
       message: `本会话的 workspace ${workspaceId} 不在 workspace list 里（可能已被关闭）`,
-      hint: "让 dsh 重启一次会话可重新建立 workspace；或人工用 herdr 核对服务端状态。",
+      hint:
+        "重试即可：ensureWorkspace 会按 label 重建被关闭的 workspace；持续失败再用 herdr workspace list 核对服务端状态。",
     };
   }
   const activeTabId = nonEmpty(workspace.active_tab_id);

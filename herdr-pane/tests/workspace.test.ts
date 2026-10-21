@@ -146,9 +146,12 @@ test("ensureWorkspace: 未匹配时建 workspace（--cwd 会话 cwd + 约定 lab
   assert.equal(record?.workspaceId, "wT1");
 });
 
-test("ensureWorkspace: 命中进程内缓存后不再调用 CLI；子会话沿用同一 workspace", async () => {
+test("ensureWorkspace: 缓存命中时只复核一次 workspace list（不 create）；子会话沿用同一 workspace", async () => {
   const { config, registry } = setup();
   const fake = fakeHerdr();
+  const created = () =>
+    fake.runner.calls.filter((args) => args[0] === "workspace" && args[1] === "create")
+      .length;
   const first = await ensureWorkspace({
     runner: fake.runner,
     registry,
@@ -156,6 +159,7 @@ test("ensureWorkspace: 命中进程内缓存后不再调用 CLI；子会话沿�
     session: fakeSession,
   });
   const callsAfterFirst = fake.runner.calls.length;
+  assert.equal(created(), 1, "首次建 workspace");
   const second = await ensureWorkspace({
     runner: fake.runner,
     registry,
@@ -170,13 +174,49 @@ test("ensureWorkspace: 命中进程内缓存后不再调用 CLI；子会话沿�
     config,
     session: subSession,
   });
-  assert.equal(fake.runner.calls.length, callsAfterFirst, "缓存命中不调 CLI");
+  assert.equal(
+    fake.runner.calls.length,
+    callsAfterFirst + 2,
+    "缓存命中每次只多一次只读 workspace list",
+  );
+  assert.equal(created(), 1, "缓存命中不重复 create");
   assert.equal(second.ok && second.created, false);
   assert.equal(
     third.ok && third.binding.workspaceId,
     first.ok ? first.binding.workspaceId : "",
   );
   assert.equal(registry.workspaceBinding?.sessionId, fakeSession.id);
+});
+
+test("ensureWorkspace: 缓存的 workspace 已被关闭 → 清空绑定并按 label 重建（不要求重启）", async () => {
+  const { config, registry } = setup();
+  const fake = fakeHerdr();
+  const first = await ensureWorkspace({
+    runner: fake.runner,
+    registry,
+    config,
+    session: fakeSession,
+  });
+  assert.equal(first.ok, true);
+  const staleId = registry.workspaceBinding?.workspaceId;
+  // 服务端把该 workspace 关掉（模拟用户关 tab / workspace 被回收）
+  fake.state.workspaces = [];
+  const again = await ensureWorkspace({
+    runner: fake.runner,
+    registry,
+    config,
+    session: fakeSession,
+  });
+  assert.equal(again.ok, true);
+  assert.equal(again.ok && again.created, true, "失效后重建");
+  assert.notEqual(registry.workspaceBinding?.workspaceId, staleId);
+  assert.equal(
+    fake.runner.calls.filter(
+      (args) => args[0] === "workspace" && args[1] === "create",
+    ).length,
+    2,
+    "重建走一次 workspace create",
+  );
 });
 
 test("ensureWorkspace: workspace list 空输出 + exit 0 按成功（无历史 workspace → 新建）", async () => {

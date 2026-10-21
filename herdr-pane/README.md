@@ -63,7 +63,7 @@ CLI 调用一律 `spawn(bin, args)` **参数数组、不过 shell**：模型给�
 
 ## 归属与生命周期
 
-- **会话 ↔ workspace 绑定**：进程内只绑一个（首个使用本工具的会话决定，子会话沿用）。约定 label = `<会话 cwd 目录名>/<会话 id 末 8 位>`（如 `dsh-toolset/a1b2c3d4`）；首次需要时先 `workspace list` 按 label 精确匹配复用，没有才 `workspace create --cwd <会话 cwd> --label <label> --no-focus`，并把建出的 root pane 登记为本插件 pane。不引入持久存储，靠 label 约定跨 dsh 重启找回。
+- **会话 ↔ workspace 绑定**：进程内只绑一个（首个使用本工具的会话决定，子会话沿用）。约定 label = `<会话 cwd 目录名>/<会话 id 末 8 位>`（如 `dsh-toolset/a1b2c3d4`）；首次需要时先 `workspace list` 按 label 精确匹配复用，没有才 `workspace create --cwd <会话 cwd> --label <label> --no-focus`，并把建出的 root pane 登记为本插件 pane。不引入持久存储，靠 label 约定跨 dsh 重启找回。**每次动作前先 `workspace list` 复核绑定**：绑定的 workspace 已被关闭（用户关掉 tab / 服务端回收）时清空绑定、按 label 重新匹配或新建，不再要求重启 dsh（2026-10-22）。
 - **写边界**：`tab_create` 固定 `--workspace <绑定>`；`tab_close` 只关**本 workspace 内已登记**的 tab；`create` 切本 workspace 活动 pane 的兄弟 pane。**读类**（`read` / `info` / `list`）仍可跨 workspace 观察。
 - **写类动作**（`send_text` / `send_keys` / `run` / `label` / `close` / `tab_close`，以及 `stable` 模式的 `wait`）缺省只作用于**本插件创建并登记**的 pane / tab；pane 面可配置 `allowForeignPanes: true` 放宽（`close` 另需 `force: true`），tab 面不收例外。审批门覆盖 `send_text` / `send_keys` / `run` / `close` / `tab_close`（按 `requireApproval` 档判断），`label` 与 `stable` 模式的 `wait` 不触发审批；**永不使用「当前聚焦 pane」**（官方技能：不依赖别的客户端的焦点）。
 - `create` 成功后自动 `pane rename` 打一次标记（失败只记 `注：`，不回滚创建）；`tab_create` 在建 tab 时直接带 `--label`。
