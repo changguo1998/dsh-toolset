@@ -186,6 +186,7 @@ export type SlashRoute =
   | "agents"
   | "tools"
   | "settings"
+  | "config"
   | "fork"
   | "task"
   | "guard"
@@ -302,6 +303,11 @@ export const LOCAL_COMMANDS: readonly {
     name: "settings",
     route: "settings",
     desc: "只读展示配置（ns：value，secret 脱敏）",
+  },
+  {
+    name: "config",
+    route: "config",
+    desc: "插件条目配置编辑（config-editor：列表 / show / set / unset）",
   },
   { name: "fork", route: "fork", desc: "分叉当前会话为新会话" },
   {

@@ -75,6 +75,7 @@ import type {
   AgentPresetInfo,
   PermissionPresetServiceLike,
   JobInfo,
+  ConfigEntrySummary,
 } from "./types.ts";
 import {
   type ApprovalDetail,
@@ -156,6 +157,8 @@ export type {
   ScopeKeyLike,
   SettingsLike,
   SettingsDescriptorLike,
+  ConfigEditorLike,
+  ConfigEntrySummary,
   TaskEngineLike,
   TaskEngineQueryLike,
   TaskEngineTaskLike,
@@ -3741,6 +3744,60 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       } catch {
         return undefined;
       }
+    },
+    /** 列出 config-editor 的可编辑条目（`configuration()` → 纯数据快照）；服务缺失 /
+     *  形状不符 / 读取抛错 → undefined。 */
+    async configEntries(): Promise<readonly ConfigEntrySummary[] | undefined> {
+      const svc = opts.configEditor;
+      if (!svc || typeof svc.configuration !== "function") return undefined;
+      try {
+        const rows = svc.configuration() ?? [];
+        const out: ConfigEntrySummary[] = [];
+        for (const row of rows) {
+          const id = row?.entry?.options?.id;
+          if (typeof id !== "string" || id === "") continue;
+          const name = row.entry.options?.name;
+          out.push({
+            id,
+            name: typeof name === "string" ? name : "",
+            inherited: row.inherited ?? {},
+            override: row.override ?? {},
+          });
+        }
+        return out;
+      } catch {
+        return undefined;
+      }
+    },
+    /** 按 id 重新解析当前 Entry 再调 `configEditor.edit()`：不缓存 Loader 对象（HMR 重载后
+     *  旧 Entry 即失效，宿主会以「entry is no longer available」拒绝）。服务缺失 → reject
+     *  中文提示；宿主拒绝 → reject 原样文案（上层统一加「编辑失败：」前缀）。 */
+    async editConfigEntry(
+      id: string,
+      change: (
+        current: Record<string, unknown>,
+        inherited: Record<string, unknown>,
+      ) => Record<string, unknown>,
+    ): Promise<void> {
+      const svc = opts.configEditor;
+      if (
+        !svc ||
+        typeof svc.edit !== "function" ||
+        typeof svc.entries !== "function"
+      ) {
+        throw new Error(
+          "config-editor 未挂载（profile 未装该插件），条目配置不可编辑",
+        );
+      }
+      const entry = (svc.entries() ?? []).find(
+        (candidate) => candidate?.options?.id === id,
+      );
+      if (entry === undefined) {
+        throw new Error(
+          `条目 ${id} 不在可编辑集合内（不存在或不是 profile 直属行）`,
+        );
+      }
+      await svc.edit(entry, change);
     },
     /** /fork：`sessions.fork(activeSessionId)`（省略 boundary/childSessionId =
      *  源会话当前最后事件 + store id 策略）；错误码 5 个映射中文后 reject（不抛穿）。 */

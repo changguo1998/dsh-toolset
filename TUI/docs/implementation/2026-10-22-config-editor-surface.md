@@ -116,3 +116,10 @@
 - 单测：`key=value` 解析（点路径 / JSON 值 / 裸串 / 缺 `=` / 空键）、点路径 set 与 unset（不改原对象）、条目列表与明细格式、服务缺失降级、`edit()` 抛错文案透出。
 - `cd TUI && npm run check` 与 `cd TUI && npm test` 全绿。
 - 真机验收（改一条真实插件条目、观察 patch 落盘与生效）由用户安排；本次按指令不做真机验收。
+
+## 实现记录
+
+- 2026-10-23：新增 `TUI/src/app/config-edit.ts`（纯逻辑：`parseConfigCommand` 子命令决策、`parseConfigKeyPath` / `parseConfigValue`、不可变 `setConfigPath` / `deleteConfigPath`、列表与明细格式化、`CONFIG_USAGE`）；点路径拒绝 `__proto__` / `prototype` / `constructor`。
+- 2026-10-23：`TUI/src/app/adapter/types.ts` 增 `ConfigEditorLike` / `ConfigEditorEntryLike` / `ConfigEditorRowLike` / `ConfigEntrySummary`、adapter 两个可选方法 `configEntries` / `editConfigEntry`、`RealAdapterOptions.configEditor`；`TUI/src/app/adapter/dsh.ts` 实现两个方法（列表走 `configuration()` 归一成纯数据，写入按 id 重新解析 `entries()` 再调 `edit()`）。
+- 2026-10-23：`TUI/src/app/commands.ts` 增 `/config` 目录项与 `SlashRoute` 成员；`TUI/src/app/index.ts` 增 `case "config"` 与 `handleConfigCommand`（列表 / show / set / unset，缺服务降级，宿主错误统一「编辑失败：」前缀）；`TUI/src/main.ts` 以惰读 getter 传入 `ctx.get('configEditor')`。
+- 2026-10-23：既有用例 `TUI/tests/completion.test.ts` 的补全候选断言同步加入 `/config`（目录变更的必要索引更新，不是新用例）。

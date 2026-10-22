@@ -58,6 +58,7 @@ import {
   type SubagentsLike,
   type ToolsLike,
   type SettingsLike,
+  type ConfigEditorLike,
   type TaskEngineLike,
   type SecurityGuardLike,
   type KnowledgeServiceLike,
@@ -757,6 +758,14 @@ export async function apply(
     // 设置服务（ctx.get('settings')，dsh-settings；缺失时 /settings 提示不可用）
     settings: (ctx as { get?: (name: string) => unknown }).get?.("settings") as
       SettingsLike | undefined,
+    // 配置编辑服务（ctx.get('configEditor')，dsh-config-editor；缺失时 /config 提示不可用）
+    // **惰读**（getter，与 guard/knowledge 同口径）：config-editor 行与 TUI 并发装载，
+    // apply 期快照可能为空 → 快照会把本来可用的编辑面误判为「未挂载」。
+    get configEditor(): ConfigEditorLike | undefined {
+      return (ctx as { get?: (name: string) => unknown }).get?.(
+        "configEditor",
+      ) as ConfigEditorLike | undefined;
+    },
     // 任务引擎只读查询面（ctx.get('taskEngine')，task-engine provide；缺失时 /task 提示不可用）
     taskEngine: (ctx as { get?: (name: string) => unknown }).get?.(
       "taskEngine",

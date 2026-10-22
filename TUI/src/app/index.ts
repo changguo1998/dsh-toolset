@@ -126,6 +126,15 @@ import {
 } from "./commands.ts";
 export { formatModelCatalog, resolveModelSpec } from "./commands.ts";
 import {
+  CONFIG_USAGE,
+  deleteConfigPath,
+  formatConfigDetail,
+  formatConfigEntries,
+  formatConfigValue,
+  parseConfigCommand,
+  setConfigPath,
+} from "./config-edit.ts";
+import {
   buildQuestionAnswers,
   questionKeyDecision,
 } from "./question-transition.ts";
@@ -3908,6 +3917,9 @@ export class App {
       case "settings":
         this.handleSettingsCommand();
         return;
+      case "config":
+        this.handleConfigCommand(line);
+        return;
       case "new":
         this.startNewSession();
         return;
@@ -4891,6 +4903,99 @@ export class App {
         this.notice(text && text.trim() !== "" ? text : "（无设置项）", "info"),
       () => this.notice("settings 服务不可用", "warn"),
     );
+  }
+
+  /** `/config`：插件条目配置编辑面（config-editor）。全部写入经 `configEditor.edit()`：
+   *  宿主负责完整候选值校验、原子写 profile patch、与 HMR 串行、更高层覆盖拒绝。
+   *  服务缺失 → 只提示不可用（条目数据只此一个来源，不做假只读列表）。 */
+  private handleConfigCommand(line: string): void {
+    const adapter = this.deps.adapter;
+    const decision = parseConfigCommand(line);
+    if (decision.kind === "usage") {
+      // 用法提示带原因：缺参 / 未知子命令 / 非法 key=value 都在这里
+      this.notice(`${decision.reason}\n${CONFIG_USAGE}`, "warn");
+      return;
+    }
+    const read = adapter.configEntries;
+    if (!read) {
+      this.notice(
+        "config-editor 服务不可用（profile 未挂载该插件），条目配置不可编辑",
+        "warn",
+      );
+      return;
+    }
+    if (decision.kind === "list" || decision.kind === "show") {
+      void read.call(adapter).then(
+        (entries) => {
+          if (entries === undefined) {
+            this.notice(
+              "config-editor 服务不可用（profile 未挂载该插件），条目配置不可编辑",
+              "warn",
+            );
+            return;
+          }
+          if (decision.kind === "list") {
+            this.notice(formatConfigEntries(entries), "info");
+            return;
+          }
+          const hit = entries.find((entry) => entry.id === decision.id);
+          if (hit === undefined) {
+            this.notice(
+              `条目 ${decision.id} 不在可编辑集合内（不存在或不是 profile 直属行）`,
+              "warn",
+            );
+            return;
+          }
+          this.notice(formatConfigDetail(hit), "info");
+        },
+        () => this.notice("读取条目配置失败（config-editor 抛错）", "warn"),
+      );
+      return;
+    }
+    const edit = adapter.editConfigEntry;
+    if (!edit) {
+      this.notice(
+        "config-editor 服务不可用（profile 未挂载该插件），条目配置不可编辑",
+        "warn",
+      );
+      return;
+    }
+    // unset 命中「键不存在」时宿主那边的 config 原样返回：写入是空操作，提示单独区分
+    let changed = true;
+    void edit
+      .call(adapter, decision.id, (current) => {
+        if (decision.kind === "set") {
+          const out = setConfigPath(current, decision.path, decision.value);
+          if (!out.ok) throw new Error(out.reason);
+          return out.config;
+        }
+        const out = deleteConfigPath(current, decision.path);
+        changed = out.changed;
+        return out.config;
+      })
+      .then(
+        () => {
+          const key = decision.path.join(".");
+          if (decision.kind === "set") {
+            this.notice(
+              `已写入 ${decision.id}: ${key} = ${formatConfigValue(decision.value)}`,
+              "success",
+            );
+            return;
+          }
+          this.notice(
+            changed
+              ? `已删除 ${decision.id}: ${key}（该键回到继承值）`
+              : `键 ${key} 在 ${decision.id} 的本层 override 里不存在，未改动`,
+            changed ? "success" : "info",
+          );
+        },
+        (err: unknown) =>
+          this.notice(
+            `编辑失败：${err instanceof Error ? err.message : String(err)}`,
+            "error",
+          ),
+      );
   }
 
   /** `/new`：不重启进程新建会话——释放当前 agent handle → `agents.create` 全新会话

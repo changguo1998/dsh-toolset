@@ -88,10 +88,11 @@ test("completeCommandInput：宿主命令并入 + 同名以本地目录优先（
   ];
   const r = completeCommandInput("/co", host, "slash");
   // 本地目录含 /stats 的别名 context（批次 1）、/contract（A5）、/council（P2#18）、
-  // /continue（TUI#1）、/collapse（2026-10-18 恢复：按类别压缩）；排序=名称长度优先、同长按字典序
+  // /continue（TUI#1）、/collapse（2026-10-18 恢复：按类别压缩）、/config（插件条目编辑面）
   // 排序=名称长度优先、同长按字典序
   assert.deepEqual(names(r?.items), [
     "copy",
+    "config",
     "compact",
     "context",
     "council",
