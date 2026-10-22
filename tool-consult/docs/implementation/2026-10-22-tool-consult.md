@@ -13,7 +13,7 @@
 1. 向该代理的**自身作用域**注册常驻咨询工具 `consult_tools`（自身层注册不受遮罩影响，故永远可见）；
 2. 用**一条可替换的 allow 遮罩**（宿主 `tools.restrict`）把其余工具收进「按需揭示」集合，缺省只留 8 个核心工具。
 
-模型用一句话描述需求调用 `consult_tools`，插件用本地关键词索引（BM25 + 中文二元组 + 别名表）返回匹配工具的名称与一句话简述，并把这些工具加入可见集。**揭示从下一次请求装配起生效**（宿主自己会为工具面变化追加 `request/header` 与 `tool-addition` 公告，插件不注入消息）。**收回只在 `turn/end` 发生**（LRU 预算 + 可选 TTL），不在回合中途抽走工具。任一步失败（服务缺失 / 无会话作用域 / 名称失配 / 重名）都**降级为不遮罩**，咨询工具仍可用，会话不中断。
+模型用一句话描述需求调用 `consult_tools`，插件用本地关键词索引（BM25 + 中文二元组 + 别名表）返回匹配工具的名称与一句话简述，并把这些工具加入可见集。**揭示从下一次请求装配起生效**（宿主自己会为工具面变化追加 `request/header` 与 `tool-addition` 公告，插件不注入消息）。**收回只在 `turn/end` 发生**（LRU 预算 + 可选 TTL），不在回合中途抽走工具；揭示项默认可收回，可用 `pin` 钉住少数长期项。被遮罩的工具若仍被调用，返回一条可行动文案（先咨询再调用），而不是裸的 unknown tool。任一步失败（服务缺失 / 无会话作用域 / 名称失配 / 重名）都**降级为不遮罩**，咨询工具仍可用，会话不中断。
 
 一句话：**遮罩用 `tools.restrict` 单条替换，揭示即时生效，收回只在回合边界，匹配先做关键词。**
 
@@ -38,6 +38,7 @@
 
 - 缺省工具面从 61 个降到 9 个（8 核心 + 咨询），单请求工具描述体量下降 ≥ 80%。
 - 一次常规任务（改一个文件 + 跑测试 + 提交）最多多 1 至 2 次咨询调用。
+- 被遮罩工具被误调时返回可行动文案（引导咨询），不是裸的 unknown tool。
 - 任何降级路径都不会让会话报错或工具面错乱。
 
 ## 2. 调研
@@ -151,7 +152,16 @@ turn/end
 
 **边界**：`initialTools: []` 合法（全部遮罩，只剩咨询工具）；`initialTools: ["*"]` 等价于不遮罩。
 
-**成本**：缺省面约 9.2k 字符（≈ 2.6k tokens，对比现状 16.5k，-84%）；预算满（12 个揭示项）约 20.5k 字符（≈ 5.9k tokens，-64%）。
+**收益测算（基线取 R1 实测值）**：
+
+| 口径 | 工具数 | 字符 | ≈ tokens | 相对基线 |
+| --- | --- | --- | --- | --- |
+| 现状（全量） | 61 | 57,798 | 16.5k | — |
+| 初始可见集（8 核心 + 咨询工具约 600 字符） | 9 | 9,175 | 2.6k | -84% |
+| 初始集 + 12 个揭示项（按平均 947 字符/个） | 21 | 20,539 | 5.9k | -64% |
+
+- 单请求节省 48,623 字符（≈ 13.9k tokens）；预算打满时仍省 37,259 字符（≈ 10.6k tokens）。
+- 取值口径：一个工具被隐藏后，每次使用要多一次咨询往返（一次工具调用 + 一轮模型推理）。8 个核心工具属于「几乎每个任务都用」的一类，隐藏它们净亏；其余 53 个属于「多数任务不用」的一类，隐藏才划算。这条分界线就是 8 个高频工具的量化依据（单工具平均 947 字符 ≈ 270 tokens/请求）。
 
 **不采用的方案**：
 
@@ -211,6 +221,32 @@ turn/end
 - 收回后下一次装配发生变化，宿主会发 `tool-removal`（`in-history` 路由）或重写声明列表（`addition-only` 路由，R4）。代价可接受：每回合至多一次头部变更。
 - 「使用」判定：监听 `tools/result`（载荷含 `exec.name` 与 `exec.agent`，`packages/core/tools/src/index.ts:199`），命中即刷新 `lastUsedTurn`。
 
+**揭示后是否可收回**：
+
+- 默认**可收回**：咨询揭示的工具在 `turn/end` 按预算（`maxRevealed`）与 TTL 收回；`initialTools` 与咨询工具本身永不收回。
+- 需要长期保留时，`consult_tools(names: […], pin: true)` 把该揭示项标为「钉住」：不参与 LRU / TTL 收回，但计入可见成本，且受 `maxPinned`（缺省 3）限制。
+- 收回只是「不再可见 + 之后调用会失败」，不改变已发生事实（下条）。
+
+**收回后的调用历史**：
+
+- 宿主会话日志**不改写**：已发生的 tool/call 与 tool/result 记录原样保留，审计与回放完整；收回只改后续可见性。
+- 下一次请求的声明列表会移除该工具（`addition-only` 路由重写列表），或追加 `tool-removal` 块（`in-history` 路由，R4）；历史消息里的调用记录仍在，模型可读。
+- 插件侧只从 revealed 表移除，不触碰历史、不重算结果；已揭示期间产生的调用结果继续有效。
+
+**被遮罩工具被调用时**：
+
+- 机制：在代理作用域注册一条 `tools/pre-execute` 监听器，对「全局存在但当前被遮罩」的名字返回 `{ kind: "deny", reason }`（决策形状见 `packages/core/tools/src/index.ts:608-612`）。宿主对未知名字仍会走策略管线（`:1408-1414` 的注释明确「policy listeners still see every name」），所以遮罩中的调用能被拦到。
+- 文案（进会话的可行动错误，形态为 `Error: …`）：
+
+```
+工具 "task_decompose" 当前不可见（被 tool-consult 收纳）。
+先调用 consult_tools 咨询（例如 query: "拆任务"），揭示后即可调用；
+已知名字时也可用 names 直接指定。
+```
+
+- 该监听器在审批判定之前执行，因此不会为不可见的工具弹出审批。
+- 兜底：监听器未注册或自身异常时，退回宿主原生 `unknown tool "<name>"`（`UNKNOWN_TOOL`），行为与未装插件一致。
+
 **成本稳态**：初始面 2.6k + 12 个揭示项（平均 947 字符，约 3.2k tokens）≈ 5.9k tokens，仍比现状（16.5k）低 64%。
 
 **不采用的方案**：
@@ -238,13 +274,19 @@ turn/end
 - 宿主 `subagent` 的 `toolFilter` 也是 `restrict`（`packages/subagent/subagent/src/child-agent.ts:217`）。两条遮罩**取交集**：父级（我方）遮掉的工具，子代理即使被显式 allow 也拿不到。
 - 因此缺省 `applyTo: "roots"`：只遮根代理（`header.origin !== 'subagent'` 且 `delegationDepth` 缺省），子代理保持调用方给定的工具面。配置 `applyTo: "all"` 可覆盖（此时子代理也会多一个咨询工具，且其 `toolFilter` 结果会与我方遮罩取交集）。
 
-**降级矩阵**：
+**失败与降级（三种必答场景）**：
+
+1. **agent scope 不可用**（旧宿主，或 `ctx` 没有 scope 标签）：`restrict` 会抛「requires a scoped context」。插件捕获后把该代理标记 `unmasked`：不遮罩、不报错，咨询工具退化为全局目录检索（只讲有哪些工具，不改可见性）。会话行为与未装插件一致。
+2. **`restrict` 抛错**（名单含未知全局名、工具在应用瞬间被注销等）：先按 `schemas()` 过滤名单重试一次；仍失败则 `unmasked`，写一条告警（每代理一次）。咨询工具保持可用；此后揭示只记本地、不生效，返回值里注明「本次揭示未生效」。
+3. **服务缺失**（`tools` 或 `agents` 服务未挂载）：插件整体不启用，`apply` 直接返回；不订阅事件、不注册工具、不产生任何副作用。
+
+完整矩阵：
 
 | 失败 | 判定 | 降级行为 | 告警 |
 | --- | --- | --- | --- |
 | `tools` 服务缺失 | apply 时 `ctx.get("tools")` 为空 | 插件整体不启用 | 一次 |
 | 无会话作用域（旧宿主 / 非 agent ctx） | `agent.ctx` 无 scope，或 `restrict` 抛 “requires a scoped context” | 该代理不遮罩；改注册一个全局咨询工具，只做目录检索、不改可见性（仍可用） | 每插件一次 |
-| 名单失配（未知全局名） | `restrict` 抛 unknown global tool | 用 `schemas()` 过滤后重试一次；仍失败则该代理标记 unmasked | 每代理一次 |
+| `restrict` 抛错（未知全局名 / 名称失配） | 抛 unknown global tool | 用 `schemas()` 过滤后重试一次；仍失败则该代理标记 unmasked，揭示不生效并在返回值注明 | 每代理一次 |
 | 咨询工具重名 | 自身层 `register` 抛 duplicate | 该代理不注册咨询工具，遮罩照常 | 每代理一次 |
 | 代理销毁 / 插件卸载 | Effect dispose | 遮罩与工具自动撤销，状态表清理 | 无 |
 | 索引为空 | 无全局工具 | 咨询工具返回「无可用工具」 | 无 |
@@ -269,6 +311,7 @@ turn/end
 | `names` | string[] | — | 直接按名揭示；与 `query` 二选一 |
 | `limit` | number | 5 | 匹配返回数量，1 至 20 |
 | `reveal` | boolean | true | false = 只预览，不改变可见性 |
+| `pin` | boolean | false | 钉住本次揭示项（不参与 LRU / TTL 收回），受 `maxPinned` 限制 |
 
 返回内容（渲染为文本）：已揭示项（名称 + 一句话 + 状态）、未揭示候选、预算提示；无匹配时给分组名称索引。
 
@@ -307,6 +350,7 @@ turn/end
 | `initialTools` | 8 核心清单 | 支持通配 |
 | `applyTo` | `roots` | `roots` / `all` |
 | `maxRevealed` | 12 | 揭示预算 |
+| `maxPinned` | 3 | 钉住项上限（`pin: true` 的揭示项） |
 | `ttlTurns` | 0 | 揭示项闲置多少回合后收回；0 = 关闭 |
 | `matcher` | `keyword` | 预留 `hybrid` |
 | `maxResults` | 5 | 单次返回上限（`limit` 不得超过它） |
@@ -327,7 +371,7 @@ disposed → 清状态（Effect 自动撤销）
 ### 4.4 插件接线契约
 
 - `export const name = "tool-consult"`、`inject = ["tools", "agents"]`（`agents` 用于热挂载时列已有代理）。
-- 订阅：`agent/created`（建遮罩与咨询工具）、`agent/disposed`（清状态）、`tools/change`（重建索引）、`tools/result`（刷新使用回合）、`session/event` 里的 `turn/end`（预算修剪，按 `session.id` 归属代理）。
+- 订阅：`agent/created`（建遮罩与咨询工具）、`agent/disposed`（清状态）、`tools/change`（重建索引）、`tools/result`（刷新使用回合）、`session/event` 里的 `turn/end`（预算修剪，按 `session.id` 归属代理）；另在代理作用域注册 `tools/pre-execute` 拦截器（被遮罩工具的可行动文案，见 D3）。
 - 所有注册都经 `ctx.effect` / `agent.ctx`，插件卸载时自动撤销；状态表按 `agentId` 幂等，重复 apply 先 dispose 旧 Effect。
 
 ## 5. 风险与已知限制
@@ -348,7 +392,7 @@ disposed → 清状态（Effect 自动撤销）
 - `tool-consult/package.json`（`dsh.bundle.patch` 契约）
 - `tool-consult/cordis.patch.yml`（插入自身行 + 缺省配置）
 - `tool-consult/index.ts`（re-export）
-- `tool-consult/src/main.ts`（`apply`、`agent/created` 监听、遮罩管理）
+- `tool-consult/src/main.ts`（`apply`、`agent/created` 监听、遮罩管理、遮罩中调用拦截）
 - `tool-consult/src/tokenize.ts`（英文 / CJK 分词）
 - `tool-consult/src/matcher.ts`（BM25 打分、别名、回退）
 - `tool-consult/src/aliases.ts`（别名表）
