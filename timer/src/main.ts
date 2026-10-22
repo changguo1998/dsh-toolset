@@ -24,7 +24,7 @@ export { createTimers, ManualClock, resolveDelay } from "./timers.ts";
 export type { CreateTimersOptions, Disposer, Timers } from "./timers.ts";
 
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
-export const name = "timer";
+export const name = "timer-toolset";
 
 /** 服务面挂载声明：其他插件经 `ctx.get("clock")` 取用（刻意不叫 `timer`，避开宿主服务）。 */
 export const provide = ["clock"];

@@ -192,3 +192,12 @@ cd <pkg> && node $TSC -p tsconfig.json --typeRoots $TYPES            # build（d
 - 卸载无残留的直接证据：各包 `createDeadline` 用例在模拟 fiber 卸载后断言 `manual.pending === 0`；herdr-integration 的周期补发在 `plugin.dispose()` 后 `pending === 0`；rule-engine 卸载后推进假时钟不再回调宿主；task-engine / command-template / auto-approve 的在途 run / 审查在卸载时被立即中止且 `pending === 0`。
 - 已知现象：command-template 既有测试的宿主 ctx 不提供 clock，运行时会打印一行回落告警（预期文案；既有断言不依赖 stderr 为空）。
 - 未做真机验收（按用户要求）。
+
+## 接线上发现的缺陷（2026-10-23，主分支）
+
+真机接入 profile 时出现三条告警：`[rule-engine] warn: clock 服务不可用`、`dsh: warning: 1 entry did not activate`、`hmr: pending (waiting for service: timer)`。逐层排查后是**两个接线缺陷**，都不在本条的实现里，而在挂载面：
+
+1. **bundle 未登记**：profile 的 `dsh.profile.bundles` 里没有 `@dsh-toolset/timer`。只在 profile patch 写 `- id: timer` 是无效的 —— 宿主对非 `insert` 补丁先按 id 查找已有条目，找不到就跳过（`dsh-app-boot/lib/index.js:95-99`）。修法：把包加进 bundles（排在消费方之前），让包内 `cordis.patch.yml` 的 `- insert:` 生效。
+2. **条目 id 撞车**：宿主 base 已有 `- id: timer`（`@deepseek-ai/cordis-plugin-timer`, `dsh-base/cordis.patch.yml:24-25`）。本包原 patch 也用 `id: timer`，重复 id 使其中一条未激活、`hmr` 一直等 `timer` 服务。修法：本包条目 id 改为 `timer-toolset`（`cordis.patch.yml`、`src/main.ts` 的 `export const name`、README 示例、单测断言同步）。
+
+验证：`dsh --profile fff --dump-config` 可见宿主 `- id: timer` 与我们的 `- id: timer-toolset` 并存且无重复；重启后最新一次启动只余一条无关的 `herdr-use` 告警，上述三条均未再出现；`timer` 单测 24 例全过。

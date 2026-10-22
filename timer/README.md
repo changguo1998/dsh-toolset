@@ -62,7 +62,7 @@ const dispose = timers.schedule(1_000, () => { /* 到点做事 */ });
 
 ```yaml
 - insert:
-    - id: timer
+    - id: timer-toolset
       name: '@dsh-toolset/timer'
 ```
 

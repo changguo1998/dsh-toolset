@@ -48,8 +48,8 @@ function captureStderr(run: () => void): string[] {
   return lines;
 }
 
-test("bundle 声明：name=timer、provide=[clock]", () => {
-  assert.equal(name, "timer");
+test("bundle 声明：name=timer-toolset、provide=[clock]", () => {
+  assert.equal(name, "timer-toolset");
   assert.deepEqual(provide, ["clock"]);
 });
 
