@@ -114,4 +114,23 @@
 
 - 2026-10-23：`TUI/src/main.ts`：新增导出 `TuiTeardownOptions { exit?, notify? }`，`main()` 返回的 disposer 接受该选项；插件 effect 清理改 `disposeApp({ exit: false })`（卸载不结束进程）；`process.once("exit")` 兜底改 `disposeApp({ exit: false, notify: false })`（不再在 exit 钩子里再 `process.exit`，也不写提示）；提示经 `opts.logger`（生产落 stderr，`[tui] ` 前缀）输出一行，说明会话保留、重建后界面自动回来、长时间无界面可 Ctrl+C 退出重启。
 
+## 测试与证据
+
+- 新增 `TUI/tests/hmr-teardown-no-exit.test.ts`（7 例）：
+
+  - `renderer.close()` 在 `exitOnClose` 缺省 true 时仍 `process.exit(0)`（替换 `process.exit` 记录调用）；`close({ exit: false })` 不调用退出函数，同一实例的终端恢复流程照常执行；
+  - `App.dispose()`（用户退出）→ `renderer.close` 收到 `undefined`（语义不变）；`App.dispose({ exit: false })` → 收到 `{ exit: false }` 且仍释放 adapter；
+  - `/quit` → close 仍收 `undefined`（三条既有退出路径中的显式命令未回归；面板与 `/restart` 走同一 `dispose()`/`requestRestart()`）；
+  - `main()` disposer：`{ exit: false }` 透传并写一行「宿主卸载了 TUI 行…会话与进程保留」；`{ exit: false, notify: false }` 不写提示；不带参仍是用户退出语义且不写提示。
+
+- 命令结果（2026-10-23，worktree `.worktree/b-app`）：
+
+  - `cd TUI && npm run check` → 通过；
+  - `cd TUI && npm run build` → 通过；
+  - `cd TUI && npm test` → `tests 1714 / pass 1714 / fail 0`（#4 收尾后基线 1707，新增 7 例），连跑两轮同结果。
+
+- 未做：真机验收（改真实 profile 非 TUI 行观察进程存活与界面重建）——按指令本次不做，留给用户；真机若发现条目不再重建且进程空转，按决策项 5 的提示路径处理。
+
+- 未改：宿主 `dsh-hmr` / `dsh-app-boot` / `cordis-plugin-loader`（按边界）；`/quit`、退出确认面板、`/restart` 的语义与退出码 75 交接（未触碰其代码路径）。
+
 - `cd TUI && npm run check` 与 `cd TUI && npm test` 全绿。
