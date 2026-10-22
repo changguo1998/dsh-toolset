@@ -1,6 +1,6 @@
 # herdr-pane 插件与工具改名（接取条目：`docs/BACKLOG.md`「herdr-pane 插件与工具改名（`herdr-pane` / `herdr_pane` → `herdr-use` / `herdr_use`）」）
 
-状态：实现完成（待人工确认与收尾）　　开启：2026-10-22　　关闭：-
+状态：关闭　　开启：2026-10-22　　关闭：2026-10-22
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -75,11 +75,11 @@
 
 ## 偏差
 
-01. **`git mv` 不可用 → 用 `mv`**: 本 worktree 的 git 元数据在 `.git/worktrees/dsh-toolset-herdr-use/` (工作区之外), 文件沙箱只读, `git mv` / `git add` 均报 `index.lock: 只读文件系统`。改用 `mv` 移动目录与脚本, 内容未变; 提交时 git 按内容识别为改名 (R)。
-02. **包内 `docs/BACKLOG.md` 的历史关闭记录保留旧动作名**: 那两条是 2026-10-19 / 2026-10-21 的关闭注记, 与「历史注记不改」同口径, 只改文件标题与当前「已知边界」段; 项目级 `docs/BACKLOG.md` 的 behavior-correction 关闭记录同样保留 `herdr_pane`。
-03. **Markdown 未跑 `format`**: `mdformat --check` 在 HEAD 版本上就已报 `AGENTS.md` / `docs/BACKLOG.md` / `security-guard/README.md` / `behavior-correction/README.md` 未格式化, 全量格式化会带出与本次改名无关的大片 diff。故只对改动的 TS / MJS / SH 文件跑 `format` (prettier / shfmt), MD 保持原格式手工编辑。
-04. **未跑真机**: `verify-herdr-use.mjs` 需要 herdr 二进制可解析 + 服务端在跑, 属人工验收项 (追踪文档 `收尾` 与真机验收留给主会话)。
-05. **未跑全仓 `npm run test`**: 本次只跑受影响包 (herdr-use / security-guard / behavior-correction / rule-engine) 与全仓 `npm run check`; 其余包未受影响且全仓测会拉起 31 包并行。
+1. **`git mv` 不可用 → 用 `mv`**: 本 worktree 的 git 元数据在 `.git/worktrees/dsh-toolset-herdr-use/` (工作区之外), 文件沙箱只读, `git mv` / `git add` 均报 `index.lock: 只读文件系统`。改用 `mv` 移动目录与脚本, 内容未变; 提交时 git 按内容识别为改名 (R)。
+2. **包内 `docs/BACKLOG.md` 的历史关闭记录保留旧动作名**: 那两条是 2026-10-19 / 2026-10-21 的关闭注记, 与「历史注记不改」同口径, 只改文件标题与当前「已知边界」段; 项目级 `docs/BACKLOG.md` 的 behavior-correction 关闭记录同样保留 `herdr_pane`。
+3. **Markdown 未跑 `format`**: `mdformat --check` 在 HEAD 版本上就已报 `AGENTS.md` / `docs/BACKLOG.md` / `security-guard/README.md` / `behavior-correction/README.md` 未格式化, 全量格式化会带出与本次改名无关的大片 diff。故只对改动的 TS / MJS / SH 文件跑 `format` (prettier / shfmt), MD 保持原格式手工编辑。
+4. **未跑真机**: `verify-herdr-use.mjs` 需要 herdr 二进制可解析 + 服务端在跑, 属人工验收项 (追踪文档 `收尾` 与真机验收留给主会话)。
+5. **未跑全仓 `npm run test`**: 本次只跑受影响包 (herdr-use / security-guard / behavior-correction / rule-engine) 与全仓 `npm run check`; 其余包未受影响且全仓测会拉起 31 包并行。
 
 ## 测试与证据
 
@@ -100,4 +100,12 @@
 
 ## 收尾
 
-（待主会话在真机验收后执行: 条目从 `docs/BACKLOG.md` 移除、本文件移入 `docs/archived/`、profile 两文件 (`~/.dsh/profiles/fff/package.json` 与 `cordis.patch.yml`) 的 `link:` 依赖与 patch 行改到 `herdr-use`。）
+1. **profile 已改** (工作区外, 未进提交): `~/.dsh/profiles/fff/package.json` 的 `link:` 依赖与 `bundles` 清单改到 `@dsh-toolset/herdr-use`; `cordis.patch.yml` 的 behavior-correction 注释同步改 `herdr_use`; 旧 `node_modules/@dsh-toolset/herdr-pane` 软链删除, `pnpm install` 重建为 `herdr-use`。
+2. **主仓合并与清理**: main 合并 `cbfd899` (分支末笔 `caf1c1e`); 合并后遗留的 `herdr-pane/{dist,node_modules,.fff-build-hash}` 已处理 —— `node_modules` 移到 `herdr-use/`, 其余删除, 空目录移除。
+3. **主会话补验**: `herdr-use` build 通过 (`dist` 的 `TOOL_NAME=herdr_use`, `ALL_ACTIONS` 13 项全部 `pane_*` / `tab_*`); 全仓 `npm run test` 30 包全绿 (herdr-use 156 / security-guard 135 / behavior-correction 28 / rule-engine 168); 各包 `check` 全绿, 例外 `timer` 因本机缺 `node_modules` 未跑 (与本次改动无关); `dsh --profile fff --dump-config` 第 717-719 行是 `- id: herdr-use / name: '@dsh-toolset/herdr-use'`, 全文无 `herdr-pane`。
+4. **真机验收**: 由子代理在真实会话用 `herdr_use` 跑通 5 步 —— `pane_create` (`wY2:p2`, label `verify-herdr-use`) → `pane_run echo herdr-use-ok` → `pane_wait` 命中 → `pane_read` 见到输出行 → `pane_close` 注销登记项; 无失败步骤、无错误码。
+5. **本会话个例**: 主会话自身多次尝试调用 `herdr_use` 都被发成 `bash` (宿主未报未知工具), 同进程内子代理调用正常; 已核进程启动于 09:29 重载, 只加载新 dist, 旧 `[herdr-pane]` 日志是上一进程写进同一会话文件的历史记录。属本会话调用通道的偶发现象, 未改代码。
+6. **BACKLOG**: 所接条目已标完成并从 `docs/BACKLOG.md` 移除 (只留未完成项); 临时寄存在项目级的「tab_create 之后不必再建 pane」条目已回注 `herdr-use/docs/BACKLOG.md`, 本身仍未接取。
+7. **归档**: 本文件移入 `docs/archived/2026-10-22-herdr-use-rename.md`。
+8. **分支清理**: worktree `/home/guochang/Projects/dsh-toolset-herdr-use` 与分支 `dsh/herdr-use-rename` 已删除; 残留临时文件 (`/tmp/check-*.log`、`/tmp/req.json`、`/tmp/last-rec.json`) 已清。
+9. **未做**: `docs/STATUS.md` 未改 (用户择时更新); `TUI/docs/STATUS.md` 历史引用保留旧名。

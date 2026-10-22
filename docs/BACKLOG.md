@@ -99,11 +99,7 @@
 
 > 2026-10-20：新增条目 1「工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）」—— 用户提出的新插件构想, 设计讨论中未定稿, 等用户指令继续设计。
 
-> 2026-10-22：新增条目 4「herdr-pane 插件与工具改名」—— 用户指出该包能力面已扩到 tab 与会话 workspace 绑定, 旧名不再贴合; 新名由用户自定 `herdr-use`（工具 `herdr_use`）; 条目已接取（编号按追加顺序, 待下次整理重排）。
-
-**4. herdr-pane 插件与工具改名（`herdr-pane` / `herdr_pane` → `herdr-use` / `herdr_use`）**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 用户指出该包能力面已扩展, 旧名不再贴合）：**现象 / 现状** —— 包名 `@dsh-toolset/herdr-pane`、插件 id `herdr-pane`、模型侧工具 `herdr_pane`、目录 `herdr-pane/` 仍按「pane」命名, 而工具面已是 13 个动作（pane 读写 + `tab_create` / `tab_list` / `tab_close` + 会话 ↔ workspace 内部绑定）。**期望** —— 全量改名: 目录 `herdr-use/`、包名 `@dsh-toolset/herdr-use`、插件 id `herdr-use`、工具 `herdr_use`、导出符号 `HerdrPane*` → `HerdrUse*`; 现行代码 / 测试 / 文档 / profile 挂载同步, 归档文档保留旧名。**优先级** —— P2。**状态注记** —— 已接取, 追踪文档 `docs/implementation/2026-10-22-herdr-use-rename.md`。
-
-**5. tab_create 之后不必再建 pane（临时寄存于项目级, 待改名任务完成后回注模块）**（2026-10-22 登记, 来源: 用户实机使用发现）：**现象 / 现状** —— `herdr tab create` 建 tab 时 herdr 已默认开好一个 pane, 插件也读回来了 (`src/actions.ts:542-568` 取 `.result.root_pane.pane_id`, 登记并作为回执 `pane_id` 返回), 但工具描述只写「tab_create 建 tab」(`src/tools.ts:283`、`:324`), 没有说明这个 pane 可直接用于 `run` / `send_text` / `read`; 实际使用中出现先 `tab_create` 再 `create`, 同一个 tab 里多出一个 pane。**期望** —— 工具描述与 `tab_create` 回执写明「新 tab 自带 root pane, 回执里的 `pane_id` 就是操作目标, 无需再 `create`」; `create` 的描述补一句「在活动 pane 上切兄弟 pane, 刚建完 tab 时不必调用」。**优先级** —— P2。**状态注记** —— 未接取; 本属模块级条目, 因改名任务正在挪动 `herdr-pane/` 目录, 先临时寄存在本节, 待改名完成后移入 `herdr-use/docs/BACKLOG.md`（届时动作名按 `pane_*` 口径）。
+> 2026-10-22：新增条目 4「herdr-pane 插件与工具改名」并当日接取; 同日**完成并关闭** —— 包 / 插件 id / 工具 / 目录 / 导出符号均改为 `herdr-use` / `herdr_use` / `HerdrUse*`, 10 个 pane 类动作加 `pane_` 前缀 (tab 三项不变), `PANE_ACTIONS` → `ALL_ACTIONS` + 新增 `TAB_ACTIONS`; 追踪文档归档 `docs/archived/2026-10-22-herdr-use-rename.md`。条目从本节移除。
 
 **1. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 未接取, 等用户指令继续设计。
 

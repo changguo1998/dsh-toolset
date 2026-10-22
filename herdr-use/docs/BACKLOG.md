@@ -4,7 +4,7 @@
 
 ## 条目详情（待办）
 
-（当前无待办条目。）
+**tab_create 之后不必再建 pane: 工具描述与回执要说清「新 tab 自带 root pane」**（2026-10-22 登记, 来源: 用户实机使用发现）：**现象 / 现状** —— `herdr tab create` 建 tab 时 herdr 已默认开好一个 pane, 插件也读回来了 (`src/actions.ts` 取 `.result.root_pane.pane_id`, 登记并作为回执 `pane_id` 返回), 但工具描述只写「tab_create 建 tab」(`src/tools.ts` 的描述与 `tab_create` 参数说明), 没有说明这个 pane 可直接用于 `pane_run` / `pane_send_text` / `pane_read`; 实际使用中出现先 `tab_create` 再 `pane_create`, 同一个 tab 里多出一个 pane。**期望** —— 工具描述与 `tab_create` 回执写明「新 tab 自带 root pane, 回执里的 `pane_id` 就是操作目标, 无需再 `pane_create`」; `pane_create` 的描述补一句「在活动 pane 上切兄弟 pane, 刚建完 tab 时不必调用」。**优先级** —— P2。**状态** —— 未接取（2026-10-22 由项目级 `docs/BACKLOG.md` 回注本文件）。
 
 > 2026-10-21 关闭：「herdr 工具面添加 tab / workspace 操作」已完成并从本清单移除 —— 工具面 10 → 13 个动作（`tab_create` / `tab_list` / `tab_close`），workspace 面整体不出工具面（每个 dsh 会话由插件内部绑定一个 herdr workspace，`create` 落点是该 workspace 的活动 pane，`tab_close` 只认本 workspace 已登记的 tab）；合并 `b3f45ea` / `b17ad5c` / `ef94191`；本包 155 例单测全绿；真机 `--with-tab --check-cascade` 20 步全链路通过（含 `send_text` / `send_keys` / `run` 静默成功修复生效），关掉 tab 的最后一个 pane 只级联关 tab、workspace 由插件退出清理关闭且无残留；追踪文档归档 `herdr-use/docs/archived/2026-10-21-herdr-pane-tab-workspace.md`。剩余未验证项：用户后来在 workspace 里开的 pane 会阻止内部关 workspace 的保护分支未在真机构造验证。
 
