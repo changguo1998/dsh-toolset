@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Deadline } from "./timers.ts";
 import type { AstOptions } from "./types.ts";
 
 /** 默认子进程超时（毫秒）。 */
@@ -131,13 +132,15 @@ export function runCli(
   bin: string,
   args: string[],
   timeoutMs: number,
+  deadline?: Deadline,
 ): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const timer = setTimeout(() => {
+    let cancelTimer: (() => void) | undefined;
+    const onTimeout = (): void => {
       if (settled) return;
       settled = true;
       child.kill("SIGKILL");
@@ -146,7 +149,14 @@ export function runCli(
         stderr: `timeout: ${timeoutMs}ms 超时被终止`,
         exitCode: -1,
       });
-    }, timeoutMs);
+    };
+    // 超时走定时器统一面（可注入假时钟；卸载即按超时收尾，子进程不残留）。
+    if (deadline !== undefined) {
+      cancelTimer = deadline(timeoutMs, onTimeout);
+    } else {
+      const timer = setTimeout(onTimeout, timeoutMs);
+      cancelTimer = () => clearTimeout(timer);
+    }
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
@@ -156,13 +166,13 @@ export function runCli(
     child.on("error", (error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cancelTimer?.();
       reject(new AstGrepError(`ast-grep 启动失败（${bin}）：${String(error)}`));
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cancelTimer?.();
       resolve({ stdout, stderr, exitCode: code ?? -1 });
     });
   });
@@ -199,7 +209,12 @@ export async function runCliJson(
   opts: AstOptions = {},
 ): Promise<unknown[]> {
   const bin = ensureAstGrepBin(opts.bin);
-  const result = await runCli(bin, args, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const result = await runCli(
+    bin,
+    args,
+    opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    opts.deadline,
+  );
   if (result.stdout.trim()) {
     return parseJsonArray(args.join(" "), result.stdout);
   }

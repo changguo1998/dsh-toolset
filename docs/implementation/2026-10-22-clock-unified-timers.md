@@ -1,6 +1,6 @@
 # 其余包接入定时器统一面 `clock`（接取条目：`docs/BACKLOG.md`「3. 其余包接入定时器统一面 `clock`」）
 
-状态：规划（决策已定稿，待实现）　　开启：2026-10-22　　关闭：—
+状态：实现（源码完成，测试补齐中）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -140,3 +140,36 @@
 ### 明确不做（再次约束）
 
 不做收尾：追踪文档不归档、两级 `BACKLOG` 不改、`SPEC` / `README` / `COMMANDS` 不动；不 commit 到 main、不 push。
+
+## 实现记录
+
+2026-10-22（实现完成检查点）：
+
+八包各新增 `src/timers.ts`（结构面 `TimersLike` / `ClockLike`、`systemTimers()` 回落、`resolveClock`、`createDeadline`；同文复制，包间零运行时依赖）。逐包接线：
+
+- `herdr-integration`：周期补发改 `timers.scoped.interval`，`dispose()` 调 disposer；`HerdrClientOptions.deadline`，socket 单次等待改 deadline；`HerdrPluginDeps.warn`。
+- `herdr-use`：`createDefaultRunner(bin, deadline)` 与 `createNetConnector(deadline)`；新增 `createTimersClock(timers)`（判稳 `now` / `sleep` 用不绑定 fiber 的排期器，避免卸载撤销 sleep 让 Promise 永不结算）；`HerdrUseDeps.warn`。
+- `script-interpreter`：`RunOptions.deadline` / `ToolRuntime.deadline`；总超时与 SIGTERM 宽限都走 deadline，卸载原因**直接 SIGKILL**（不再排 1 s 宽限）；`apply` 装配期解析并注入。
+- `rule-engine`：`InjectorOptions.schedule`；`apply` 传 `scoped.schedule`（卸载即取消推迟的注入）。
+- `task-engine`：`runChildOnce` 的 `opts.deadline`、`ExecutorWireOptions.deadline`，executor 的 subagent run 与 audit / entail 裁决 run 共用；`apply` 装配期解析。
+- `auto-approve`：`Reviewer.deadline` + `runReview` / `runLearnReview` 走 deadline；学习窗口走 `scoped.schedule`；`createBundle` 装配期解析。
+- `ast-tools`：`AstOptions.deadline` / `runCli(..., deadline)`；`createAstToolsBundle(config, deadline)` 由 `apply` 注入；`BundleHost` 补 `get` / `effect` 结构面。
+- `command-template`：`OneShotAgentOptions.deadline`；`CommandTemplateService` 构造期解析一次并透传给每次 agent 步骤。
+
+关键命令与结果（本环境未安装全局 `tsc`，用外部 5.9.3 + 缓存 `@types/node`；`npm run check` 在本机报 `tsc: not found`，故用等价直调）：
+
+```sh
+TSC=/home/guochang/.pi-lens/tools/node_modules/typescript/bin/tsc
+TYPES=/home/guochang/.npm/_npx/ab5cd9f6d13a2312/node_modules/@types
+cd <pkg> && node $TSC -p tsconfig.json --noEmit --typeRoots $TYPES   # check
+cd <pkg> && node $TSC -p tsconfig.json --typeRoots $TYPES            # build（dist/ 已被包内 .gitignore 忽略）
+```
+
+八包 check / build 均以退出码 0 通过（2026-10-22，源码完成后）。`format` 已对本次改动的 33 个 TS 文件执行（`/home/guochang/fff/scripts/format`）。
+
+## 偏差
+
+- 计划清单里的 `tests/cli.test.ts` / `tests/net.test.ts` / `tests/inject.test.ts` / `tests/run.test.ts` 等（标「按需」）未改：新用例集中在新文件 `tests/clock.test.ts`。`rule-engine/tests/main.test.ts` 属计划外修改——其假宿主补了 `clock` 服务，否则新增的回落告警会改变既有告警计数与 stderr 断言；回落路径由新测试专门覆盖。
+- 各包 `tsconfig.json` 各加一行 `exclude`（超出「只改 src/tests」的字面范围）：测试要 import 真实 `ManualClock`（`timer/src/timers.ts`），在包内 `rootDir` 下触发 TS6059；沿用 `md-table-check` 的既有先例把跨包测试文件排除出类型检查。该行不影响构建产物。
+- 计划中的「根 `npm run check` / `npm run build`」改为逐包等价直调 tsc：本机没有可用 `tsc` 命令。
+- 按用户要求不做收尾：追踪文档未归档、两级 `BACKLOG` 未改、`SPEC` / `README` / `COMMANDS` 未动。

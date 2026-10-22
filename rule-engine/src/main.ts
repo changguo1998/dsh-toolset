@@ -23,6 +23,7 @@
 import { RuleEngine } from "./engine.ts";
 import { createAgentInjector } from "./inject.ts";
 import { defaultStateDir } from "./persist.ts";
+import { resolveClock } from "./timers.ts";
 import { toToolDefs } from "./tools.ts";
 import type {
   Config,
@@ -218,9 +219,16 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   const c = (ctx ?? {}) as PluginContext;
   try {
     const stateDir = config?.stateDir ?? defaultStateDir();
+    // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+    // 注入推迟走 `scoped.schedule`：排期随本插件 fiber 卸载撤销（卸下后不再回调宿主）。
+    const timers = resolveClock(c, warn);
     const injector = createAgentInjector(
       { agents: c.agents, sessions: c.sessions },
-      { warn },
+      {
+        warn,
+        schedule: (delayMs, callback) =>
+          timers.scoped.schedule(delayMs, callback),
+      },
     );
     // 会话投影注册表（可选面）：`dedupeInRecord` 判据要读 inbox 待消费注入，见 sessionMessagesOf
     const projections = readOptional<ProjectionRegistryLike>(

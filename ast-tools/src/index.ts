@@ -33,6 +33,8 @@ import { searchAst } from "./search.ts";
 import { replaceAst } from "./replace.ts";
 import { outlineFile } from "./outline.ts";
 import { runRules } from "./rules.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
+import type { Deadline } from "./timers.ts";
 import { toToolDefs, unavailableOps } from "./tools.ts";
 
 export {
@@ -92,10 +94,17 @@ export const name = "ast-tools";
 /** 注入面：tools（注册 ast_query / ast_replace；二进制缺失时注册降级版，调用返回安装指引）。 */
 export const inject = ["tools"];
 
-/** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger 与工具注册面。 */
+/** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger、工具注册面与服务读取口。 */
 export interface BundleHost {
-  logger?(ns: string): { info(message: string): void };
+  logger?(ns: string): {
+    info(message: string): void;
+    warn?(message: string): void;
+  };
   tools?: { register(def: unknown): unknown };
+  /** 宿主服务读取口（`ctx.get`；`clock` 等可选服务经受保护读取）。 */
+  get?(name: string): unknown;
+  /** 副作用登记（`clock.scope(ctx)` 的排期随本插件 fiber 卸载撤销）。 */
+  effect?(fn: () => () => void): unknown;
 }
 
 /** 插件配置（Config 契约名）。 */
@@ -135,11 +144,13 @@ export interface AstToolsBundle {
  */
 export function createAstToolsBundle(
   config: AstToolsConfig = {},
+  deadline?: Deadline,
 ): AstToolsBundle {
   const bin = ensureAstGrepBin(config.bin);
   const base: AstOptions = {
     bin,
     timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    ...(deadline === undefined ? {} : { deadline }),
   };
   return {
     bin,
@@ -159,9 +170,21 @@ export function createAstToolsBundle(
  * 不抛出、不使宿主崩溃。
  */
 export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
+  // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+  const warn = (message: string): void => {
+    const logger = ctx.logger?.(name) as
+      { warn?: (text: string) => void } | undefined;
+    if (typeof logger?.warn === "function") {
+      logger.warn(message);
+      return;
+    }
+    process.stderr.write(`[${name}] warn: ${message}\n`);
+  };
+  const timers = resolveClock(ctx, warn);
+  const deadline = createDeadline(timers.scoped, ctx);
   let bundle: AstToolsBundle;
   try {
-    bundle = createAstToolsBundle(config);
+    bundle = createAstToolsBundle(config, deadline);
   } catch (error) {
     if (error instanceof AstGrepMissingError) {
       ctx

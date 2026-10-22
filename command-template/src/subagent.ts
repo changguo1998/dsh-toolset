@@ -10,6 +10,7 @@
 // 失败一律抛错：上层（steps.ts）转 `step_failed` 并给出可读原因；不静默降级为「忽略模型覆盖」。
 
 import { describe, importHostModule, readService } from "./host.ts";
+import type { Deadline } from "./timers.ts";
 import type { ModelRef } from "./types.ts";
 
 /** 宿主 `SubagentRuntime` 的最小形态（服务面；一次性运行走 `start(name, request)`）。 */
@@ -40,6 +41,11 @@ export interface OneShotAgentOptions {
   timeoutMs?: number;
   /** 调用方取消信号（命令 handler 的 signal）。 */
   signal?: AbortSignal;
+  /**
+   * 超时排期（缺省进程内 `setTimeout`；装配期由服务注入定时器统一面：
+   * 到点中止子代理，插件卸载时立即按超时收尾，命令不会悬挂）。
+   */
+  deadline?: Deadline;
   /** 测试注入：宿主模块读取器（缺省 `importHostModule`；测试避免依赖本机宿主安装）。 */
   loadHostModule?: (
     specifier: string,
@@ -96,10 +102,19 @@ export async function runOneShotAgent(
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 600_000;
   let timedOut = false;
-  const timer = setTimeout(() => {
+  const onTimeout = (): void => {
     timedOut = true;
     controller.abort();
-  }, timeoutMs);
+  };
+  // 超时走定时器统一面（可注入假时钟；卸载即按超时收尾，不让命令悬挂）。
+  const cancelDeadline =
+    options.deadline === undefined
+      ? undefined
+      : options.deadline(timeoutMs, onTimeout);
+  const timer =
+    options.deadline === undefined
+      ? setTimeout(onTimeout, timeoutMs)
+      : undefined;
   const fused = fuseSignals(options.signal, controller.signal);
   const signal = fused.signal;
   /** 中止原因文案（调用方取消优先于超时——两者可能几乎同时触发）。 */
@@ -152,7 +167,8 @@ export async function runOneShotAgent(
       throw new Error(`${describe(err)}${suffix}`);
     }
   } finally {
-    clearTimeout(timer);
+    cancelDeadline?.();
+    if (timer !== undefined) clearTimeout(timer);
     fused.dispose();
   }
 }

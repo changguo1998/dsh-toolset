@@ -15,6 +15,7 @@
 
 import type { ResolvedConfig } from "./config.ts";
 import { canonicalize } from "./fingerprint.ts";
+import type { Deadline } from "./timers.ts";
 import type { CallInfo, RiskLevel } from "./types.ts";
 
 /** 审查输入（由调用方组装；不含环境变量、不含 assistant 正文与工具结果原文）。 */
@@ -122,6 +123,8 @@ export interface Reviewer {
   /** 解析本次审查的 provider / model；返回 undefined = 路由不可用。 */
   route(sessionId?: string): { provider: string; model: string } | undefined;
   review(request: ReviewRequest): Promise<ReviewDecision>;
+  /** 超时排期（缺省进程内 `setTimeout`；装配期注入统一面，卸载时立即中止审查）。 */
+  deadline?: Deadline;
 }
 
 /** 固定策略段（自有文案；对齐官方 `REVIEW_POLICY` 的口径，不复制原文）。 */
@@ -283,8 +286,11 @@ export async function runReview(
   timeoutMs: number,
   externalSignal?: AbortSignal,
 ): Promise<ReviewDecision> {
-  return withAbort(timeoutMs, externalSignal, (signal) =>
-    reviewer.review({ ...request, signal }),
+  return withAbort(
+    timeoutMs,
+    externalSignal,
+    (signal) => reviewer.review({ ...request, signal }),
+    reviewer.deadline,
   );
 }
 
@@ -293,6 +299,7 @@ async function withAbort<T>(
   timeoutMs: number,
   externalSignal: AbortSignal | undefined,
   body: (signal: AbortSignal) => Promise<T>,
+  deadline?: Deadline,
 ): Promise<T> {
   const controller = new AbortController();
   const onAbort = (): void => controller.abort(externalSignal?.reason);
@@ -300,14 +307,16 @@ async function withAbort<T>(
     if (externalSignal.aborted) controller.abort(externalSignal.reason);
     else externalSignal.addEventListener("abort", onAbort, { once: true });
   }
-  const timer = setTimeout(
-    () => controller.abort(new Error("review timeout")),
-    timeoutMs,
-  );
+  const fireTimeout = (): void => controller.abort(new Error("review timeout"));
+  const cancelDeadline =
+    deadline === undefined ? undefined : deadline(timeoutMs, fireTimeout);
+  const timer =
+    deadline === undefined ? setTimeout(fireTimeout, timeoutMs) : undefined;
   try {
     return await body(controller.signal);
   } finally {
-    clearTimeout(timer);
+    cancelDeadline?.();
+    if (timer !== undefined) clearTimeout(timer);
     if (externalSignal !== undefined) {
       externalSignal.removeEventListener("abort", onAbort);
     }
@@ -322,13 +331,16 @@ export function createReviewer(options: {
   route: (
     sessionId?: string,
   ) => { provider: string; model: string } | undefined;
+  /** 超时排期（缺省进程内定时器；装配期注入统一面）。 */
+  deadline?: Deadline;
 }): Reviewer {
-  const { llm, config, route } = options;
+  const { llm, config, route, deadline } = options;
   const overridden =
     config.review.provider !== undefined && config.review.model !== undefined
       ? { provider: config.review.provider, model: config.review.model }
       : undefined;
   return {
+    ...(deadline === undefined ? {} : { deadline }),
     route(sessionId?: string) {
       if (overridden !== undefined) return overridden;
       return route(sessionId);
@@ -545,24 +557,30 @@ export async function runLearnReview(
   route: { provider: string; model: string } | undefined,
   candidates: readonly LearnCandidate[],
   timeoutMs: number,
+  deadline?: Deadline,
 ): Promise<(LearnReviewOutcome | undefined)[]> {
   if (candidates.length === 0) return [];
   if (route === undefined) throw new LearnReviewFailure("无法确定审阅模型路由");
-  const text = await withAbort(timeoutMs, undefined, async (signal) => {
-    const stream = llm.stream({
-      provider: route.provider,
-      model: route.model,
-      system: LEARN_POLICY,
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: renderLearnText(candidates) }],
-        },
-      ],
-      temperature: 0,
-      signal,
-    });
-    return await readReviewText(stream);
-  });
+  const text = await withAbort(
+    timeoutMs,
+    undefined,
+    async (signal) => {
+      const stream = llm.stream({
+        provider: route.provider,
+        model: route.model,
+        system: LEARN_POLICY,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: renderLearnText(candidates) }],
+          },
+        ],
+        temperature: 0,
+        signal,
+      });
+      return await readReviewText(stream);
+    },
+    deadline,
+  );
   return parseLearnDecisions(text, candidates.length);
 }

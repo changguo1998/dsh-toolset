@@ -12,6 +12,8 @@ import { randomUUID } from "node:crypto";
 import { describe, readService } from "./host.ts";
 import { loadDefaultTemplates, type LoadResult } from "./registry.ts";
 import { budgetOrInfinity, runTemplate } from "./steps.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
+import type { ClockTimers, Deadline } from "./timers.ts";
 import type {
   CommandTemplateConfig,
   ModelRef,
@@ -109,6 +111,10 @@ export class CommandTemplateService {
   readonly #config: CommandTemplateConfig;
   readonly #ctx: BundleHost;
   readonly #log: (message: string) => void;
+  /** 定时器统一面（装配期解析一次；缺失时回落进程内定时器并只告警一次）。 */
+  readonly #timers: ClockTimers;
+  /** 子代理步骤超时排期（卸载即按超时收尾）。 */
+  readonly #deadline: Deadline;
   #load: LoadResult = { templates: [], errors: [] };
   #disposers: (() => void)[] = [];
 
@@ -122,6 +128,20 @@ export class CommandTemplateService {
         process.stderr.write(`[${name}] ${message}\n`);
       }
     };
+    this.#timers = resolveClock(ctx, (message) => {
+      try {
+        const logger = ctx.logger?.(name) as
+          { warn?: (text: string) => void } | undefined;
+        if (typeof logger?.warn === "function") {
+          logger.warn(message);
+          return;
+        }
+      } catch {
+        // 落到 stderr
+      }
+      process.stderr.write(`[${name}] warn: ${message}\n`);
+    });
+    this.#deadline = createDeadline(this.#timers.scoped, ctx);
   }
 
   /** 读盘（不注册）：双源加载（仓库随包目录 → 用户目录，用户优先）。 */
@@ -371,6 +391,7 @@ export class CommandTemplateService {
       ...(opts.model === undefined ? {} : { model: opts.model }),
       ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
       ...(invocation.signal === undefined ? {} : { signal: invocation.signal }),
+      deadline: this.#deadline,
     });
   }
 }

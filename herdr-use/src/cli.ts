@@ -18,6 +18,7 @@ import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import type { HerdrHandshake } from "./types.ts";
+import type { Deadline } from "./timers.ts";
 
 /** CLI 调用结果（原始观测值）。 */
 export interface CliRunResult {
@@ -112,14 +113,17 @@ function nonEmpty(value: string | undefined): string | undefined {
  * 缺省执行面：`spawn` 参数数组（不过 shell）、两侧输出全收、超时 SIGKILL。
  * 超时按设计口径**不抛错**：返回 `timedOut: true` 与 exitCode -1，由上层归一到 `timeout` 码。
  */
-export function createDefaultRunner(binPath: string): HerdrRunner {
+export function createDefaultRunner(
+  binPath: string,
+  deadline?: Deadline,
+): HerdrRunner {
   return {
     run(args: string[], timeoutMs: number): Promise<CliRunResult> {
       return new Promise<CliRunResult>((resolve) => {
         let stdout = "";
         let stderr = "";
         let settled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        let cancelTimer: (() => void) | undefined;
         const child = spawn(binPath, args, {
           stdio: ["ignore", "pipe", "pipe"],
         });
@@ -130,7 +134,7 @@ export function createDefaultRunner(binPath: string): HerdrRunner {
         ): void => {
           if (settled) return;
           settled = true;
-          if (timer !== undefined) clearTimeout(timer);
+          cancelTimer?.();
           // 释放句柄：超时只杀掉直接子进程，孙进程可能仍持有 stdout / stderr 写端；
           // 不主动 destroy 会让**宿主进程**一直等到它们退出（实测 `sh -c 'sleep 5'`
           // 会把测试挂 5 秒），unref 则让子进程句柄不再阻碍事件循环退出。
@@ -144,11 +148,18 @@ export function createDefaultRunner(binPath: string): HerdrRunner {
             timedOut,
           });
         };
-        timer = setTimeout(() => {
+        const killOnTimeout = (): void => {
           child.kill("SIGKILL");
           finish(-1, true, `timeout: ${timeoutMs}ms 超时被终止`);
-        }, timeoutMs);
-        timer.unref();
+        };
+        // 超时走定时器统一面（可注入假时钟；插件卸载时立即按超时收尾，子进程不残留）。
+        if (deadline !== undefined) {
+          cancelTimer = deadline(timeoutMs, killOnTimeout);
+        } else {
+          const timer = setTimeout(killOnTimeout, timeoutMs);
+          timer.unref();
+          cancelTimer = () => clearTimeout(timer);
+        }
         child.stdout?.on("data", (chunk: Buffer) => {
           stdout += chunk.toString("utf8");
         });

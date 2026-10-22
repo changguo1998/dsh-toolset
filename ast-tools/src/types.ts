@@ -5,6 +5,8 @@
  * 行号与列号均从 0 起，byteOffset 为文件 UTF-8 编码下的字节偏移。
  */
 
+import type { Deadline } from "./timers.ts";
+
 /** 0-based 行列位置。 */
 export interface AstPos {
   line: number;
@@ -89,6 +91,11 @@ export interface AstOptions {
   bin?: string;
   /** 子进程超时（毫秒），缺省 30s。 */
   timeoutMs?: number;
+  /**
+   * 超时排期（缺省进程内 `setTimeout`；装配期由 `apply` 注入统一面：
+   * 到点 SIGKILL，插件卸载时立即按超时收尾，子进程不残留）。
+   */
+  deadline?: Deadline;
 }
 
 /** 搜索参数。 */

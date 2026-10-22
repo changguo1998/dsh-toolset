@@ -47,6 +47,7 @@ import {
   type ReviewInstructionItem,
 } from "./review.ts";
 import { createRuntime, type Runtime } from "./runtime.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
 import {
   SessionObserver,
   type SessionEventLike,
@@ -161,6 +162,10 @@ export function createBundle(
   const sessions = new SessionObserver();
   const fingerprints = new FingerprintStore(resolved.fingerprintCapacity);
   const forms = new FormStore(resolved.formCapacity);
+  // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+  // 审查超时走 deadline（卸载即中止）；学习窗口走绑定排期器（卸载即撤销）。
+  const timers = resolveClock(ctx, warn);
+  const deadline = createDeadline(timers.scoped, ctx);
   const sessionPaths = readService<SessionPathsLike>(ctx, "sessionPaths");
   const memory = readService<MemoryLike>(ctx, "memory");
   const audit = createAudit({
@@ -175,6 +180,7 @@ export function createBundle(
     llm: readService<LlmLike>(ctx, "llm"),
     config: resolved,
     route: (sessionId) => lastRoute(ctx, sessions, sessionId),
+    deadline,
   });
   const runtime = createRuntime({
     config: resolved,
@@ -196,6 +202,7 @@ export function createBundle(
     ...(learnReviewer === undefined ? {} : { reviewer: learnReviewer }),
     warn,
     log: createLogger(ctx),
+    schedule: (fn, ms) => timers.scoped.schedule(ms, fn),
     ...(learnHistory === undefined ? {} : { history: learnHistory }),
   });
   // 判定上下文与学习层互指：判定要查形态表 / 触发回填，学习器要读运行态模式
@@ -365,6 +372,7 @@ function learnReviewerOf(
       route,
       request.candidates,
       config.review.timeoutMs,
+      reviewer.deadline,
     );
   };
 }

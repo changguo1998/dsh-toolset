@@ -18,6 +18,7 @@ import { probeInterpreter } from "./probe.ts";
 import { renderScriptValue } from "./render.ts";
 import { runScript } from "./run.ts";
 import type { SpillSink } from "./run.ts";
+import type { Deadline } from "./timers.ts";
 import {
   SANDBOX_UNAVAILABLE,
   SandboxUnavailableError,
@@ -86,12 +87,14 @@ export interface ToolHost {
   readonly approval?: ApprovalServiceLike;
 }
 
-/** 工具装配输入：设置 + 已启用语言 + 落盘后端 + 宿主面。 */
+/** 工具装配输入：设置 + 已启用语言 + 落盘后端 + 宿主面 + 超时排期。 */
 export interface ToolRuntime {
   readonly settings: ToolSettings;
   readonly languages: readonly EnabledLanguage[];
   readonly spill: SpillSink;
   readonly host: ToolHost;
+  /** 超时排期（缺省进程内定时器；装配期由 `apply` 注入统一面）。 */
+  readonly deadline?: Deadline;
 }
 
 /** 宿主 `ToolRunContext` 里本工具读到的字段（其余字段与本工具无关）。 */
@@ -431,6 +434,7 @@ async function executeScript(
     ...(workdir.dir === undefined ? {} : { cwd: workdir.dir }),
     ...(exec?.signal === undefined ? {} : { signal: exec.signal }),
     ...(sessionId === undefined ? {} : { sessionId }),
+    ...(runtime.deadline === undefined ? {} : { deadline: runtime.deadline }),
   });
   if (outcome.spawnError !== undefined) {
     return fail(
