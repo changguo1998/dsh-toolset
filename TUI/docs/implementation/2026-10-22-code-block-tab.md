@@ -1,6 +1,6 @@
 # 代码块排版：`\t` 展开为 4 个空格并保证底色填满整行（接取条目：`TUI/docs/BACKLOG.md`「#1 代码块排版…」）
 
-状态：决策　　开启：2026-10-22　　关闭：—
+状态：实现　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -75,3 +75,17 @@
 - 含 `\t` 的围栏代码块：每行 `\t` 显示为 4 个空格，输出不含 `\t`；折行、行号列、续行缩进与 `↩` / `↪` 位置按展开后的宽度算；每行（含补白）显示宽恰为内容宽，底色到右缘连续。
 - 三条出行路径（预折 / 宽未知 / 紧凑 fence）与思考区代码块口径一致。
 - 既有 `TUI/tests/code-block-gutter.test.ts` 等代码块断言全绿，全量 TUI 测试全绿。
+
+## 实现记录
+
+2026-10-23（提交前门禁：`cd TUI && npm run check` 与 `npm run build` 均通过；本工作树没有 `node_modules`，临时软链到主检出的 `TUI/node_modules`，软链属工作树环境准备、不进提交）：
+
+- `TUI/src/app/layout/markdown.ts`：新增 `expandCodeTabs`（`\t` → 固定 4 空格，无 tab 时原样返回）与常量 `CODE_TAB_WIDTH = 4`；`codeLineRows`（`wrapCodeLine` 直算路径）先 `expandCodeTabs(text)` 再计宽 / 折行 / 补底色。
+  - 覆盖：宽未知退化路径（`barLine` → `fillParagraph` fillBg → `wrapCodeLine`）、紧凑模式 fence 内 final 行（同走 fillBg），顺带覆盖审批面板与 `panel.ts` 的 fence 行（同一 `wrapCodeLine` 出口）。
+- `TUI/src/app/layout/build-box.ts`：`codeBlockRows` 逐行 `expandCodeTabs` 后再预折（含行号列、续行缩进、`↩` / `↪` 预留位与补白量）；补一行注释说明终端 tab stop 与计宽不一致。
+- 实测复核（临时 `node --experimental-transform-types` 脚本，内容宽 30）：预折、宽未知、紧凑 fence、思考区四条路径的 `\tindent();` 均输出 `"┃ 1     indent();…"`（4 空格），每行 `displayWidth` 恰为 30、无 `\t` 残留；含 `\t` 的长行按展开后的宽度折行，`↩` / `↪` 与右缘对齐。
+
+## 偏差
+
+- 行内代码（`` `x` ``）里的 `\t` 本次不展开（决策项 3 选定 a）：条目边界如此，且展开需改动行内 markdown 解析与列表前导缩进的 tab 口径。若真机出现行内代码 tab 导致的行宽偏差，另开条目。
+- 普通正文 / 用户块里的真 `\t` 同样按 1 列计宽（决策项 4 选定 a，未改 `charWidth`）：本次范围仅围栏代码块，残留同上。

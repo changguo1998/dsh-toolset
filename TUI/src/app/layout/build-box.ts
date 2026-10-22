@@ -41,6 +41,7 @@ import {
   FENCE_RE,
   charWidth,
   displayWidth,
+  expandCodeTabs,
   wrapAssistantLine,
 } from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
@@ -296,7 +297,8 @@ function codeBlockRows(
     // 行号：只数代码正文行、从 1 起、固定 2 列（>99 显示 `99+`）
     const num =
       numW === 0 ? "" : (i + 1 > 99 ? "99+" : String(i + 1)).padStart(2) + " ";
-    const src = code[i]!;
+    // 制表符先展开为固定 4 空格：终端 tab stop（8 列、随当前列变化）与计宽的「1 列」不一致
+    const src = expandCodeTabs(code[i]!);
     if (avail === undefined) {
       // 宽未知：交给 fill 折行（自动换行、续行缩进 = 行号列 + 4，不保证右对齐）
       out.push(barLine(num + src));
