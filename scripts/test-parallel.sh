@@ -5,7 +5,7 @@
 # xargs -P（TEST_RUNNER=auto|parallel|xargs 可强制）。单包执行单元
 # scripts/test-one.sh 写 <logdir>/<pkg>.{log,exit,ms}，全部结束后统一聚合。
 #
-# 为什么并行：11 包子包测试各自独立（node --test 各自进程），串行 `&&` 只是顺序
+# 为什么并行：30 个包各自独立（node --test 各自进程），串行 `&&` 只是顺序
 # 等待；并行后墙钟 ≈ 最慢包（当前 TUI ~8.6s）。
 # 输出：每包 OK/FAIL + 耗时 + pass/fail 计数；FAIL 的包附日志。
 # 退出码：任一包失败即非零（不 fail-fast——等全部跑完，便于一次看到所有失败）。

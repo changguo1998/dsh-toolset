@@ -103,8 +103,9 @@ export interface BundleHost {
  *
  * 两条读取路径都要防护：cordis 对**未 inject** 的服务做**属性读取**会直接抛
  * `cannot get property "<name>" without inject`（实测：重启后加载即栈顶落在这里）。
- * 本包故意不写 `inject`（可选读取口径），所以回退路径必须自吞异常，否则「没挂
- * session-channel」的进程会整包加载失败，而不是按设计「不注册工具 + 一次警告」。
+ * 本包的 `inject` 只声明 `["tools"]`（注册面必需），其余服务（`sessionChannel` /
+ * `sessionPaths` / `memory` / `sessions`）都是可选读取，所以回退路径必须自吞异常，
+ * 否则「没挂 session-channel」的进程会因读服务抛错而整包加载失败。
  */
 function readService(ctx: BundleHost, key: string): unknown {
   try {

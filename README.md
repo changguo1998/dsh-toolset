@@ -145,7 +145,7 @@ Two change flows: `docs/WORKFLOW-STANDARD.md` (standard) and `docs/WORKFLOW-FAST
 - `docs/ROADMAP.md` — future development directions and completion criteria (progress, schedule and items live in `docs/BACKLOG.md` §3 milestones).
 - `docs/BACKLOG.md` — actionable items: cross-package features and defects (P0/P1/P2) + milestones + plugin roadmap.
 - `docs/STATUS.md` — reference document recording what has been implemented (updated by maintainers as needed).
-- `docs/ARCHITECTURE-REUSE.md` — reuse audit for 22 of the 30 modules (the 8 newest are not in the table yet): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
+- `docs/ARCHITECTURE-REUSE.md` — reuse audit covering all 31 packages (TUI + 30 plugins; verdicts: 0 reuse / 22 keep / 9 coexist): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
 - `docs/WORKFLOW-STANDARD.md` — content change policy · standard flow (full version).
 - `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
 - `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).

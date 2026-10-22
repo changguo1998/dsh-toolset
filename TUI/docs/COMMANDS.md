@@ -11,7 +11,7 @@
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（44 条 = 38 命令 + 6 别名 `/cls` `/thinking` `/usage` `/context` `/exit` `/clean`；`/continue` 为 TUI#1 新增，`/restart` 为显式重启命令新增，`/detect-char-width` 为字符宽度重测命令新增，`/cleanquit` 为「清理并退出」新增——删除当前会话记录与历史、先弹确认面板，`/clean` 是其别名，`/group` 为「群组只读状态」新增（agent-group 只读服务面，见 `TUI/docs/DESIGN.md`「命令实现落点」）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。`/collapse` 与 `/verbose` 于 2026-10-18 按类别重做并恢复进目录（压缩 / 显示六开关，见 `docs/SPEC.md` §15.5）。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（44 条 = 38 命令 + 6 别名 `/cls` `/thinking` `/usage` `/context` `/exit` `/clean`；`/continue` 为后续新增命令，`/restart` 为显式重启命令新增，`/detect-char-width` 为字符宽度重测命令新增，`/cleanquit` 为「清理并退出」新增——删除当前会话记录与历史、先弹确认面板，`/clean` 是其别名，`/group` 为「群组只读状态」新增（agent-group 只读服务面，见 `TUI/docs/DESIGN.md`「命令实现落点」）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。`/collapse` 与 `/verbose` 于 2026-10-18 按类别重做并恢复进目录（压缩 / 显示六开关，见 `docs/SPEC.md` §15.5）。
 
 命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**落点与降级**见 `TUI/docs/DESIGN.md`「命令实现落点」。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
 

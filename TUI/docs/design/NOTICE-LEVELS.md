@@ -128,7 +128,7 @@
 | 未知命令，输入 /help 查看可用命令。 | finish（注册表未命中） | error |
 | 命令 \<commandId> 执行出错：\<text> | finish（kind = error） | error |
 | [\<commandId>] \<text>（命令成功输出） | finish（kind = success） | success（命令结果落 result 级） |
-| 注入消息 notice 摘要（`source.form:'notice'` 的 `summary`；缺省取正文首行，≤120 字符） | agent/inbox/spliced · user/message（TUI#17，按消息 id 去重） | log（一行提示，不展开、不占用户块） |
+| 注入消息 notice 摘要（`source.form:'notice'` 的 `summary`；缺省取正文首行，≤120 字符） | agent/inbox/spliced · user/message（按消息 id 去重） | log（一行提示，不展开、不占用户块） |
 
 ## C. reducer 层活动区行（src/app/state.ts）
 

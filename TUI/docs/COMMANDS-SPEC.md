@@ -70,7 +70,7 @@ commandPanel: {
 - 行样式：首行标题（青）+ 计数，右侧按键提示（灰，按剩余宽截断）；行 = `> ` 高亮前缀 + 状态符号 + 主文本，符号着色沿用 `JobsPanel.statusMark` 口径。
 - 空态：灰占位，仍输出恰 `height` 行；超宽 `truncateToWidth`，不切半个 CJK。
 - 互斥：打开时关闭 `history` / `picker` / `jobsPanel` / 其他 `commandPanel`。
-- 数据：打开时经 `adapter.refresh<Name>()` 拉一次写入 `command-panel-data`；需保鲜的 kind（`agents` / `workflows`）打开期间定时刷新，`/agents` 另有 `r` 手动刷新（TUI#10 起 `agents` 还订阅宿主 `subagent/start` · `subagent/end` 即时重拉，2s 定时退为兜底），其余不做增量订阅（不引入轮询）。
+- 数据：打开时经 `adapter.refresh<Name>()` 拉一次写入 `command-panel-data`；需保鲜的 kind（`agents` / `workflows`）打开期间定时刷新，`/agents` 另有 `r` 手动刷新（`agents` 还订阅宿主 `subagent/start` · `subagent/end` 即时重拉，2s 定时退为兜底），其余不做增量订阅（不引入轮询）。
 
 ## 5. 命名、冲突与 help
 

@@ -100,12 +100,12 @@
 > 2026-10-20：新增条目 1「工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）」—— 用户提出的新插件构想, 设计讨论中未定稿, 等用户指令继续设计。
 
 > 2026-10-22：新增条目 4「herdr-pane 插件与工具改名」并当日接取; 同日**完成并关闭** —— 包 / 插件 id / 工具 / 目录 / 导出符号均改为 `herdr-use` / `herdr_use` / `HerdrUse*`, 10 个 pane 类动作加 `pane_` 前缀 (tab 三项不变), `PANE_ACTIONS` → `ALL_ACTIONS` + 新增 `TAB_ACTIONS`; 追踪文档归档 `docs/archived/2026-10-22-herdr-use-rename.md`。条目从本节移除。
+> 2026-10-22：接取条目 3「docs/ARCHITECTURE-REUSE.md 的模块口径随 behavior-correction 加包同步」并修正其口径（实为 **31 个包 = TUI + 30 插件**，非「30 个模块」；审计表 29 行缺 `timer` 与 `behavior-correction` 两行）；同日新增并接取条目 4「文档口径与整理遗留同步（TUI#n / 代码注释 / BACKLOG §4 表 / herdr-use 条目）」—— 两条目同一任务处理，追踪文档 `docs/implementation/2026-10-22-docs-consistency.md`。
+> 2026-10-22：条目 3 与条目 4 **完成并关闭**（同一任务）—— 追踪文档归档 `docs/archived/2026-10-22-docs-consistency.md`。结论：`ARCHITECTURE-REUSE.md` 计数改「31 个包 = TUI + 30 插件」、§0 补 `timer`（并存）/ `behavior-correction`（保留）两行（总表 31 行、结论分布 0 / 22 / 9）、§1 / §2 标题与并列述同步、§7 补修订记录；README 双侧审计行同步；`TUI#n` 旧编号全仓清零（DESIGN.md 15 处 + 同类 3 处，共 18 处，改由正文描述承载）；`test-parallel.sh:8` 注释 11 包 → 30 包；`agent-group/src/main.ts` 的 `readService` 注释与 `inject = ["tools"]` 对齐；`docs/BACKLOG.md` §4 未建包表清空；`herdr-use/docs/BACKLOG.md` 已完成条目改关闭注记。证据：`agent-group` check / build 通过且 63 例全绿，全仓 30 包 check 全通过，`TUI#n` 与旧计数 grep 零残留。条目从本节移除（§2 仅剩条目 1 工具咨询插件）。
 
 **1. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 未接取, 等用户指令继续设计。
 
-**3. docs/ARCHITECTURE-REUSE.md 的模块口径随 behavior-correction 加包同步**（2026-10-22 登记, 来源: `docs/implementation/2026-10-21-behavior-correction.md` 实施时发现）：**现象 / 现状** —— 该文件多处写「本仓 29 个模块」「已审计 29 个全量」，新增 `behavior-correction`（第 30 个插件）后少 1；本次任务清单只含 `AGENTS.md` 与根 README，未改该文件。**期望** —— 模块总数改成 30、「已审计 / 未入表」口径与 22 条审计行一致（新增包未入表）。**优先级** —— P2。**状态** —— 未接取。
-
-**后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 30 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 8 个包（`herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `behavior-correction`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。 另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-use` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
+**后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **文档整理遗留（剩余）**：用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读，需在有写权限的环境执行）。另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-use` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
 
 ### 实现顺序（2026-10-18 重排：修复类 > 依赖深度 > 工作量）
 
@@ -128,8 +128,7 @@
 
 | 插件 | 承载清单项 | 复用（不新建） |
 |------|-----------|----------------|
-| 内容资产（非插件） | 模板体系③ | workflow 脚本 + skill 内容 |
-| behavior-correction（暂定名） | §2 条目 2（该用专用工具却走 shell 的拦截与指路） | rule-engine 消费者 guard 面 + 自带轻量匹配器（关键词 / 正则） |
+（当前无未建包插件；`behavior-correction` 已于 2026-10-22 建包并关闭，模板体系③随 `command-template` 交付。）
 
 ## 5. TUI 侧
 
