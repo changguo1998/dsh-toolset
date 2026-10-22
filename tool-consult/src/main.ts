@@ -181,6 +181,27 @@ function disposeMask(runtime: AgentRuntime): void {
   }
 }
 
+/** 拆除一个运行时的全部注册（遮罩 / 代理级监听 / 咨询工具）。 */
+function teardownRuntime(runtime: AgentRuntime): void {
+  disposeMask(runtime);
+  const consult = runtime.consultDisposer;
+  runtime.consultDisposer = undefined;
+  if (consult !== undefined) {
+    try {
+      consult();
+    } catch {
+      // 已回收，忽略。
+    }
+  }
+  for (const dispose of runtime.listeners.splice(0)) {
+    try {
+      dispose();
+    } catch {
+      // 已回收，忽略。
+    }
+  }
+}
+
 /** 降级为不遮罩并告警一次。 */
 function degradeUnmasked(runtime: AgentRuntime, message: string): void {
   disposeMask(runtime);
@@ -408,14 +429,7 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
     if (typeof id !== "string") return;
     const runtime = REGISTRY.get(id);
     if (runtime === undefined) return;
-    disposeMask(runtime);
-    for (const dispose of runtime.listeners.splice(0)) {
-      try {
-        dispose();
-      } catch {
-        // 忽略。
-      }
-    }
+    teardownRuntime(runtime);
     REGISTRY.delete(id);
     owned.delete(runtime);
   });
@@ -453,14 +467,7 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
   // 插件卸载：撤销本实例注册的遮罩与代理级监听（agent.ctx 上的 Effect 不随插件回收）。
   ctx.effect?.(() => () => {
     for (const runtime of [...owned]) {
-      disposeMask(runtime);
-      for (const dispose of runtime.listeners.splice(0)) {
-        try {
-          dispose();
-        } catch {
-          // 忽略。
-        }
-      }
+      teardownRuntime(runtime);
       REGISTRY.delete(runtime.id);
     }
     owned.clear();
