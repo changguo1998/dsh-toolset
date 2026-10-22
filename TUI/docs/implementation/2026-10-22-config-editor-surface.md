@@ -1,37 +1,118 @@
 # 给 TUI 接 `config-editor` 的配置编辑面（接取条目：`TUI/docs/BACKLOG.md`「#4 给 TUI 接 `config-editor` 的配置编辑面」）
 
-状态：进行中（仅接取：本文档已建，调研未开始）　　开启：2026-10-22　　关闭：—
+状态：规划（调研与决策已完成，实现未开始）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
 
 给 TUI 一个**受控的配置编辑面**：用户改某个插件条目的 config 时，走 `ctx.configEditor.edit()`（写盘前校验完整候选值 → 原子写 profile patch → 与 profile 变更 / HMR 串行 → 经 Loader 立即应用），而不是手改 YAML。
 
-交付：可列出现有插件条目及其配置、可编辑并提交、越权 / 更高层覆盖的字段如实回报、服务缺失时降级为只读并说明原因。
+交付：可列出现有插件条目及其配置、可编辑并提交、越权 / 更高层覆盖的字段如实回报、服务缺失时降级并说明原因。
 
-边界：不做配置文件全文编辑器（只按插件条目的 config 编辑）；不承担插件启停 / 装卸（那属 `plugin-manager`）；不改 `/config` 现有只读展示的语义。
+边界：不做配置文件全文编辑器（只按插件条目的 config 编辑）；不承担插件启停 / 装卸（那属 `plugin-manager`）；不改 `/settings` 现有只读展示的语义。
 
 ## 调研
 
-（待填；base 已挂 `config-editor`（`dsh-base/cordis.patch.yml:105-106`），TUI 目前只有 `/config` 只读展示）
+**来源**：宿主安装目录 `@deepseek-ai/dsh-config-editor`（`lib/types/index.d.ts`、`lib/index.js`）、`@deepseek-ai/cordis-plugin-loader`（`lib/index.js` `Entry.update`）、`@deepseek-ai/dsh-hmr`（README「Further Exploration」与 `reconcileProfile`）、本仓 TUI 源码（行号为当前分支实测）。
+
+### 1. 宿主 `config-editor` 的契约（服务名 `configEditor`）
+
+- 挂载：`dsh-base` 组合包已挂该行（条目正文记 `dsh-base/cordis.patch.yml:105-106`），`inject = ["loader", "profileContext"]`，无需 profile 改动即可用。
+- 读面：
+  - `documentPath`：被编辑的 profile patch 路径（`profileContext.patchPath`）。
+  - `entries(): Entry[]`：**仅**返回 root Include 直属、且 `id` 唯一的行（`lib/index.js` `entries()`：按 `entry.parent.tree.ctx.fiber.entry?.id === "include"` 过滤 + 同 id 去重）→ 嵌套 Include 里的行不可编辑（官方已知限制）。
+  - `configuration(): { entry, inherited, override }[]`：`inherited` = 去掉本行 override 后的组合值，`override` = 本行 patch 里的显式值（均为 detached 拷贝）。
+- 写面：`edit(entry, change)`，`change: (current, inherited) => Record<string, unknown>`：
+  1. `withFileLock(profile/package.json)` 串行化，并与 HMR 队列串行（`hmr.runExclusive`）；
+  2. 先 `reconcileProfilePatches` 对账外部改动，再校验 `entry` 仍是活跃条目（`fiber.state === 2`）；
+  3. `next = change(current, inherited)` → 过插件 `internal/config` waterfall + `resolveConfig` 校验（**无效值在此抛出，文件不动**）；
+  4. 用 `yaml` 文档级改写 patch（保留注释与 `!!js` 表达式；`next` 等于 `inherited` 时删掉该行 `config`）；
+  5. 组合后复核「该行实际生效值 === next」，不等则抛 `Configuration for "<id>" is overridden by a home patch or command-line overlay`；
+  6. `writeFileAtomic` 落盘 → `reconcileProfilePatches([id])`；对账失败会**回滚文件**并重放旧 patches。
+- 失败文案（TUI 侧原样透出即可定位）：`Configuration entry is no longer available`、`Configuration entry changed during reload`、`Configuration plugin is no longer active`、上面那条「overridden by a home patch or command-line overlay」、YAML 解析错误与 `resolveConfig` 校验错误。
+
+### 2. TUI 侧现状（与条目正文的差异）
+
+- 条目正文说「TUI 未消费该服务，只有 `/config` 只读展示（`TUI/src/app/commands.ts:304`）」——**实测不符**：全仓 `grep -rn "config" TUI/src/app/commands.ts` 零命中，`:304` 附近是 `/settings`（`desc: "只读展示配置（ns：value，secret 脱敏）"`）。只读展示的真身是 `handleSettingsCommand`（`TUI/src/app/index.ts:4880`），读的是宿主 `settings.describe()`（`TUI/src/app/adapter/dsh.ts:3722`），与插件条目 config 无关。故本任务的起点是「TUI 完全没有条目配置编辑面」，不是「改进既有 `/config`」。
+- 可选服务的接线口径：`main.ts` 一次性读 `ctx.get(...)` 传给 App / adapter；会与插件树并发装载的服务用**惰读 getter**（`guard` / `knowledge` / `sessionChannel` 三处注释已说明「apply 期快照会是 undefined」）。`configEditor` 属同一类，必须惰读。
+- 命令面：目录在 `TUI/src/app/commands.ts`（`LOCAL_COMMANDS` + `routeSlashCommand`），分派在 `TUI/src/app/index.ts` 的 `routeSlash` switch，参数解析用 `slashCommandArg(line)`；提示用 `this.notice(text, tone)`。adapter 侧可选方法以 `?(): Promise<...>` 形式挂在 `DshAdapter`（`TUI/src/app/adapter/types.ts`），实现放 `TUI/src/app/adapter/dsh.ts`，App 侧判空后给降级提示。
+
+### 3. 与 #5 的耦合
+
+编辑**本行（tui）**的 config 会走 TUI 自己的 `internal/update` 否决钩子（可热应用 `theme` 就地生效，其余提示需重启）；编辑**其它行**会触发该行重载，退出风险由 #5 处理（本条目只负责发起编辑）。
 
 ## 决策
 
-（待填；编辑面形态：命令 + 逐项编辑，还是一个提交式面板）
+**决策项 1（编辑面形态）**
+
+- a 命令 + 逐项编辑（`/config` 列表、`/config show <id>` 明细、`/config set` / `/config unset` 单点写入）
+- b 提交式面板（面板里改多个字段后一次 `edit()`）
+
+选定 **a**。理由：复用既有 slash 命令 + notice 基建（`commands.ts` / `routeSlash` / `notice`），零新面板状态机；配置值多为标量、逐项写入与 `configEditor.edit()` 的「完整候选值」语义天然对齐（每次写入都会带完整 config）；b 需要新写多字段编辑 UI 与校验展示，工作量与回归面都远超本条目（P2）的收益。
+
+**决策项 2（写路径）**
+
+- a 全部经 `configEditor.edit(entry, change)`
+- b TUI 直接读写 profile patch YAML
+
+选定 **a**。理由：条目要求的就是这一条；`edit()` 已包办校验 / 原子写 / 与 HMR 串行 / 失败回滚 / 更高层覆盖拒绝，b 会重复实现且必然漏掉「home patch 覆盖」判定。
+
+**决策项 3（寻址与陈旧对象）**
+
+- a 按条目 `id` 寻址，写入时用 `entries()` 重新解析出当前 `Entry` 对象
+- b 列表阶段缓存 `Entry` 对象，写入时直接用缓存
+
+选定 **a**。理由：HMR 重载后 `Entry` 对象会被替换（`edit()` 自己也以「条目是否仍在活跃集合 / 是否被替换」做守卫）；缓存对象会让每次编辑在重载后报 `Configuration entry is no longer available`。a 用 id 重新解析，与宿主的守卫语义一致。
+
+**决策项 4（值语法）**
+
+- a `key=value`，`key` 支持点路径（如 `rules`、`approval.timeoutMs`）；值先按 JSON 解析，失败则当字符串
+- b 只接受整段 JSON 对象替换该行 config
+- c 只接受扁平标量键
+
+选定 **a**。理由：日常改动是单键（`theme`、`defaultMaxGoalRounds`、`dbPath` 之类），点路径覆盖嵌套；JSON 优先让 `true` / `42` / `[1,2]` / `{"a":1}` 都能写，写不成 JSON 的裸串保持字符串（不引入 YAML 解析器，避免与 patch 的 `!!js` 语义混淆）。b 每次都要重述整份 config（会把继承值钉进本层，官方已知限制），c 写不了 `rules` 这类数组/对象。
+
+**决策项 5（服务缺失）**
+
+- a 提示「config-editor 未挂载」并停止（不做只读列表）
+- b 只读列出条目（需另找数据源）
+
+选定 **a**。理由：条目数据只有 `configEditor` 一个来源（`loader.entries()` 是宿主内部面，TUI 不宜直连）；没有服务就没有可信的「可编辑集合」，只读列表会给出可编辑的假象。
+
+**决策项 6（拒绝与失败的呈现）**
+
+- a 原样透出宿主错误文案（前缀「编辑失败：」）+ 保留 TUI 自己的前置校验文案（缺参 / 空键 / 非 JSON 的提示）
+- b 统一改写成 TUI 自造文案
+
+选定 **a**。理由：宿主文案已区分「条目消失 / 被替换 / 更高层覆盖 / 校验失败」，改写给排查添噪声；TUI 只补自己的前置校验。
 
 ## 规划
 
+### 任务拆分
+
+1. 纯函数层（`config-edit.ts`）：子命令判定、`key=value` 解析、点路径 set/del、条目列表与明细格式化。
+2. 服务接线：`main.ts` 惰读 `configEditor` → adapter 选项；adapter 暴露 `configEntries()` / `editConfigEntry()`（把 `Entry` 归一成纯数据）。
+3. 命令层：`commands.ts` 目录项 + `index.ts` 分派与 `handleConfigCommand`（含降级与错误文案）。
+4. 单测：纯函数全覆盖 + App 层服务缺失 / 成功 / 抛错三条路径。
+
 ### 计划改动文件清单
 
-（初判，调研后定稿）
+- `TUI/src/app/config-edit.ts`（新增：纯函数 + 类型）
+- `TUI/src/app/adapter/types.ts`（`ConfigEditorLike` 结构面、`ConfigEntrySummary`、adapter 两个可选方法、`RealAdapterOptions.configEditor`）
+- `TUI/src/app/adapter/dsh.ts`（实现上述两个方法）
+- `TUI/src/app/commands.ts`（`/config` 目录项）
+- `TUI/src/app/index.ts`（`case "config"` 与 `handleConfigCommand`）
+- `TUI/src/main.ts`（惰读 `ctx.get('configEditor')` 并传入 adapter）
+- `TUI/tests/config-edit.test.ts`（新增）
 
-- `TUI/src/app/index.ts`（命令 / 面板路由）、`TUI/src/app/commands.ts`（命令目录）
-- `TUI/src/main.ts`（取 `configEditor` 服务）
-- 可选新 `TUI/src/app/config-edit.ts`（纯函数 + 测试）
+### 明确不做
+
+- 不做全文 patch 编辑器 / 不做插件启停与装卸（`plugin-manager` 面）。
+- 不碰 `/settings` 的读面语义，也不新增第二套配置读面。
+- 不改 `TUI/docs/SPEC.md`、`TUI/README.md`、`COMMANDS*.md` 与两级 BACKLOG（按并行约定归共享文档线）。
 
 ### 验收
 
-（初判）
-
-- 经 TUI 改一个插件 config 值：patch 被原子改写、无需重启生效或明确提示需重启
-- 无效值被拒且文件不变；单测覆盖服务缺失降级与拒绝路径
+- 单测：`key=value` 解析（点路径 / JSON 值 / 裸串 / 缺 `=` / 空键）、点路径 set 与 unset（不改原对象）、条目列表与明细格式、服务缺失降级、`edit()` 抛错文案透出。
+- `cd TUI && npm run check` 与 `cd TUI && npm test` 全绿。
+- 真机验收（改一条真实插件条目、观察 patch 落盘与生效）由用户安排；本次按指令不做真机验收。
