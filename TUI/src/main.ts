@@ -58,6 +58,7 @@ import {
   type SubagentsLike,
   type ToolsLike,
   type SettingsLike,
+  type ConfigEditorLike,
   type TaskEngineLike,
   type SecurityGuardLike,
   type KnowledgeServiceLike,
@@ -74,6 +75,17 @@ import {
 interface TimersLike {
   schedule(delayMs: number, callback: () => void): () => void;
   interval(delayMs: number, callback: () => void): () => void;
+}
+
+/**
+ * 插件卸载时的收尾选项（`main()` 返回的 disposer 接收）：
+ * - `exit`：缺省 true = 用户退出语义（恢复终端并结束进程）；false = 宿主停掉本条目
+ *   （HMR / 插件重载 / 进程已在退出）→ 只恢复终端，不结束进程，会话留给重建后的实例。
+ * - `notify`：缺省 true；false = 不写卸载提示（进程已在退出路径上时用）。
+ */
+export interface TuiTeardownOptions {
+  exit?: boolean;
+  notify?: boolean;
 }
 
 /**
@@ -123,7 +135,7 @@ export function main(opts: {
   /** profile 目录（`ctx.get('profileContext').dir`）：符号列表落盘位置；缺省不落盘
    *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-symbols.ts） */
   profileDir?: string;
-}): () => void {
+}): (options?: TuiTeardownOptions) => void {
   // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
   const tuiConfig = loadTuiConfig();
   // 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源）：缺省开启，可配置关闭与上限
@@ -197,10 +209,19 @@ export function main(opts: {
   app.start();
   void renderer;
   // 返回 disposer：Cordis pause/unload 与信号/退出均经它释放 App/adapter
-  // （adapter.dispose 释放当前活跃 handle，含 resume 后由 adapter 持有的新 handle）
-  return () => {
+  // （adapter.dispose 释放当前活跃 handle，含 resume 后由 adapter 持有的新 handle）。
+  // 退出分流（BACKLOG「非 TUI 行的 HMR 重载不连带退出会话」）：宿主停掉本条目时传
+  // `exit:false` —— 终端恢复、进程与会话保留，宿主重载完成后本行重建、界面自己回来；
+  // 没有重建时留一行提示，用户可 Ctrl+C 退出后重启 dsh（不自动退出，避免二次丢会话）。
+  return (teardown?: TuiTeardownOptions) => {
     stderrBridge.restore();
-    app.dispose();
+    app.dispose(teardown);
+    if (teardown?.exit === false && teardown.notify !== false) {
+      configLogger(
+        "宿主卸载了 TUI 行（HMR / 插件重载）：会话与进程保留，" +
+          "重载完成后界面会自动重建；若长时间无界面，Ctrl+C 退出后重启 dsh",
+      );
+    }
   };
 }
 
@@ -757,6 +778,14 @@ export async function apply(
     // 设置服务（ctx.get('settings')，dsh-settings；缺失时 /settings 提示不可用）
     settings: (ctx as { get?: (name: string) => unknown }).get?.("settings") as
       SettingsLike | undefined,
+    // 配置编辑服务（ctx.get('configEditor')，dsh-config-editor；缺失时 /config 提示不可用）
+    // **惰读**（getter，与 guard/knowledge 同口径）：config-editor 行与 TUI 并发装载，
+    // apply 期快照可能为空 → 快照会把本来可用的编辑面误判为「未挂载」。
+    get configEditor(): ConfigEditorLike | undefined {
+      return (ctx as { get?: (name: string) => unknown }).get?.(
+        "configEditor",
+      ) as ConfigEditorLike | undefined;
+    },
     // 任务引擎只读查询面（ctx.get('taskEngine')，task-engine provide；缺失时 /task 提示不可用）
     taskEngine: (ctx as { get?: (name: string) => unknown }).get?.(
       "taskEngine",
@@ -906,9 +935,11 @@ export async function apply(
   });
   // Cordis 插件生命周期：pause/unload 时释放 App/adapter——
   // adapter.dispose 释放当前活跃 handle（含 resume 后由 adapter 持有的新 handle）。
+  // 卸载不结束进程（exit:false）：HMR / 插件重载会先停掉本行再重建，若在这里退出，
+  // 任何一轮重载（含改非 TUI 行触发的模块替换）都会连带杀掉会话。
   const ctxAny = ctx as { effect?: (fn: () => unknown) => unknown };
   ctxAny.effect?.(() => () => {
-    disposeApp();
+    disposeApp({ exit: false });
   });
   // 模型侧工具 `tui_local_log`：读 TUI 本地输出旁路日志（`$` 结果与命令 notice）。
   // 数据面见 app/adapter/local-log.ts；工具在插件作用域注册 = 全局可用（会话由
@@ -955,8 +986,9 @@ export async function apply(
     makeConfigHotUpdateHandler(config, configSink),
   );
   // 信号/退出兜底（renderer 的 SIGINT/TERM/Esc → close() 后进程退出）：
-  // 同一清理路径，不再只释放初始 handle。
+  // 同一清理路径，不再只释放初始 handle。进程已在退出中：只恢复终端（exit:false，
+  // 避免在 exit 钩子里再 process.exit 重入）、静默不写提示。
   process.once("exit", () => {
-    disposeApp();
+    disposeApp({ exit: false, notify: false });
   });
 }

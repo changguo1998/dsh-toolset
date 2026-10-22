@@ -22,6 +22,7 @@ import {
   type AgentRowInfo,
   type ToolsLike,
   type SettingsLike,
+  type ConfigEditorLike,
   type TaskEngineLike,
   type SecurityGuardLike,
   type KnowledgeServiceLike,
@@ -140,6 +141,7 @@ interface AdapterServices {
   subagents?: SubagentsLike;
   tools?: ToolsLike;
   settings?: SettingsLike;
+  configEditor?: ConfigEditorLike;
   sessions?: SessionStoreLike;
   taskEngine?: TaskEngineLike;
   guard?: SecurityGuardLike;
@@ -6979,4 +6981,164 @@ test("listFileCandidates: 中止信号触发的 AbortError 也被吞掉（返回
     },
   });
   assert.deepEqual(await adapter.listFileCandidates!("x", ac.signal), []);
+});
+
+// ---------- /config：真实 adapter 的 config-editor 接线契约 ----------
+// 断言：configuration() 归一化成纯数据（含 name / inherited / override）；进入 edit 的是
+// 按 id 重新解析的当前 Entry（不缓存陈旧对象）；服务缺失与条目消失都 reject 中文原因。
+
+test("真实 adapter /config：configuration() 归一化为纯数据（id / name / override）", async () => {
+  const services: AdapterServices = {
+    configEditor: {
+      configuration() {
+        return [
+          {
+            entry: {
+              options: { id: "tui", name: "@dsh-toolset/tui", config: {} },
+            },
+            inherited: { theme: "dark" },
+            override: { theme: "dark" },
+          },
+          // 无 id 的行被丢弃（官方 entries() 里不会出现，但形状面按宽松口径守卫）
+          { entry: { options: { id: "" } }, inherited: {}, override: {} },
+        ];
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const entries = await adapter.configEntries?.();
+  assert.equal(entries?.length, 1);
+  assert.deepEqual(entries?.[0], {
+    id: "tui",
+    name: "@dsh-toolset/tui",
+    inherited: { theme: "dark" },
+    override: { theme: "dark" },
+  });
+  unbind();
+});
+
+test("真实 adapter /config：服务缺失 / configuration 缺失 → undefined", async () => {
+  const missing = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {},
+  );
+  assert.equal(await missing.adapter.configEntries?.(), undefined);
+  missing.unbind();
+  const shapeless = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    { configEditor: {} },
+  );
+  assert.equal(await shapeless.adapter.configEntries?.(), undefined);
+  shapeless.unbind();
+});
+
+test("真实 adapter /config：edit 收到按 id 重新解析的 Entry 并透传 change 结果", async () => {
+  const calls: { ids: string[]; next: Record<string, unknown> } = {
+    ids: [],
+    next: {},
+  };
+  const services: AdapterServices = {
+    configEditor: {
+      entries() {
+        calls.ids.push("entries()");
+        return [
+          { options: { id: "other", name: "@x/other", config: {} } },
+          { options: { id: "tui", name: "@dsh-toolset/tui", config: {} } },
+        ];
+      },
+      async edit(entry, change) {
+        calls.next = change({ theme: "dark" }, { theme: "light" });
+        assert.equal(entry.options?.id, "tui");
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  await adapter.editConfigEntry?.("tui", (current) => ({
+    ...current,
+    theme: "light",
+  }));
+  assert.deepEqual(calls.next, { theme: "light" });
+  assert.equal(calls.ids.length, 1);
+  unbind();
+});
+
+test("真实 adapter /config：服务缺失 / 条目不在集合内 / 宿主拒绝 → reject 原因", async () => {
+  const missing = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {},
+  );
+  await assert.rejects(
+    () =>
+      missing.adapter.editConfigEntry?.("tui", (c) => c) ?? Promise.resolve(),
+    /config-editor 未挂载/,
+  );
+  missing.unbind();
+
+  const absent = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {
+      configEditor: {
+        entries: () => [{ options: { id: "tui" } }],
+        async edit() {},
+      },
+    },
+  );
+  await assert.rejects(
+    () =>
+      absent.adapter.editConfigEntry?.("nope", (c) => c) ?? Promise.resolve(),
+    /不在可编辑集合内/,
+  );
+  absent.unbind();
+
+  const rejected = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {
+      configEditor: {
+        entries: () => [{ options: { id: "tui" } }],
+        async edit() {
+          throw new Error("Configuration entry is no longer available");
+        },
+      },
+    },
+  );
+  await assert.rejects(
+    () =>
+      rejected.adapter.editConfigEntry?.("tui", (c) => c) ?? Promise.resolve(),
+    /no longer available/,
+  );
+  rejected.unbind();
 });

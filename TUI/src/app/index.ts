@@ -126,6 +126,15 @@ import {
 } from "./commands.ts";
 export { formatModelCatalog, resolveModelSpec } from "./commands.ts";
 import {
+  CONFIG_USAGE,
+  deleteConfigPath,
+  formatConfigDetail,
+  formatConfigEntries,
+  formatConfigValue,
+  parseConfigCommand,
+  setConfigPath,
+} from "./config-edit.ts";
+import {
   buildQuestionAnswers,
   questionKeyDecision,
 } from "./question-transition.ts";
@@ -1609,7 +1618,11 @@ export class App {
     return "on";
   }
 
-  dispose(): void {
+  /** 释放 App（收尾落盘 → 释放 adapter → 渲染器 close）。
+   *  `options.exit === false` = 宿主停掉本条目（HMR / 插件重载）的卸载路径：只恢复终端，
+   *  不结束进程、不跑退出式空会话清理（宿主随后会按新配置重建本行，会话由新实例接回）。
+   *  用户退出路径（`/quit`、确认面板、`/restart`、`/cleanquit`）不传选项，行为与之前一致。 */
+  dispose(options?: { exit?: boolean }): void {
     if (this.disposed) return;
     // 退出前落盘会话状态快照（未过合并窗口的变更不丢）
     this.flushSessionStateSave();
@@ -1629,21 +1642,27 @@ export class App {
     this.cancelMentionRequest();
     // 退出时清理其他空会话（复用 session.autoCleanEmpty 开关）：开启时先打印提示并等待
     // 清理完成，再释放 adapter/关闭渲染器退出；关闭或无可清理服务时保持同步收尾。
-    // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）覆盖——信号强退
+    // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C）覆盖——信号强退
     // （SIGINT/SIGTERM）与崩溃路径由 renderer 直接 process.exit，无法可靠等待异步 IO。
     // 「重启 dsh」路径（restartPending）跳过清理：重启不该改动其它会话（BACKLOG #51）。
-    if (!this.autoCleanEmpty || this.restartPending) {
-      this.finishDispose();
+    // 宿主卸载（exit:false）同样跳过：它不再是「退出」，异步清理会与重建后的实例抢写。
+    if (
+      !this.autoCleanEmpty ||
+      this.restartPending ||
+      options?.exit === false
+    ) {
+      this.finishDispose(options?.exit);
       return;
     }
     void this.disposeWithExitClean();
   }
 
-  /** 收尾释放：适配器 →（「清理并退出」时）删当前会话 → 渲染器（close 恢复终端并退出）。 */
-  private finishDispose(): void {
+  /** 收尾释放：适配器 →（「清理并退出」时）删当前会话 → 渲染器（close 恢复终端并按需退出）。
+   *  `exit === false` 透传给 renderer（只恢复终端、不结束进程）。 */
+  private finishDispose(exit?: boolean): void {
     this.deps.adapter.dispose?.();
     if (this.cleanQuitPending) this.deleteActiveSessionForExit();
-    this.deps.renderer.close();
+    this.deps.renderer.close(exit === false ? { exit: false } : undefined);
   }
 
   /** 「清理并退出」的删除步骤：只在 `adapter.dispose()` 之后调用（handle 已释放，删目录
@@ -3908,6 +3927,9 @@ export class App {
       case "settings":
         this.handleSettingsCommand();
         return;
+      case "config":
+        this.handleConfigCommand(line);
+        return;
       case "new":
         this.startNewSession();
         return;
@@ -4891,6 +4913,99 @@ export class App {
         this.notice(text && text.trim() !== "" ? text : "（无设置项）", "info"),
       () => this.notice("settings 服务不可用", "warn"),
     );
+  }
+
+  /** `/config`：插件条目配置编辑面（config-editor）。全部写入经 `configEditor.edit()`：
+   *  宿主负责完整候选值校验、原子写 profile patch、与 HMR 串行、更高层覆盖拒绝。
+   *  服务缺失 → 只提示不可用（条目数据只此一个来源，不做假只读列表）。 */
+  private handleConfigCommand(line: string): void {
+    const adapter = this.deps.adapter;
+    const decision = parseConfigCommand(line);
+    if (decision.kind === "usage") {
+      // 用法提示带原因：缺参 / 未知子命令 / 非法 key=value 都在这里
+      this.notice(`${decision.reason}\n${CONFIG_USAGE}`, "warn");
+      return;
+    }
+    const read = adapter.configEntries;
+    if (!read) {
+      this.notice(
+        "config-editor 服务不可用（profile 未挂载该插件），条目配置不可编辑",
+        "warn",
+      );
+      return;
+    }
+    if (decision.kind === "list" || decision.kind === "show") {
+      void read.call(adapter).then(
+        (entries) => {
+          if (entries === undefined) {
+            this.notice(
+              "config-editor 服务不可用（profile 未挂载该插件），条目配置不可编辑",
+              "warn",
+            );
+            return;
+          }
+          if (decision.kind === "list") {
+            this.notice(formatConfigEntries(entries), "info");
+            return;
+          }
+          const hit = entries.find((entry) => entry.id === decision.id);
+          if (hit === undefined) {
+            this.notice(
+              `条目 ${decision.id} 不在可编辑集合内（不存在或不是 profile 直属行）`,
+              "warn",
+            );
+            return;
+          }
+          this.notice(formatConfigDetail(hit), "info");
+        },
+        () => this.notice("读取条目配置失败（config-editor 抛错）", "warn"),
+      );
+      return;
+    }
+    const edit = adapter.editConfigEntry;
+    if (!edit) {
+      this.notice(
+        "config-editor 服务不可用（profile 未挂载该插件），条目配置不可编辑",
+        "warn",
+      );
+      return;
+    }
+    // unset 命中「键不存在」时宿主那边的 config 原样返回：写入是空操作，提示单独区分
+    let changed = true;
+    void edit
+      .call(adapter, decision.id, (current) => {
+        if (decision.kind === "set") {
+          const out = setConfigPath(current, decision.path, decision.value);
+          if (!out.ok) throw new Error(out.reason);
+          return out.config;
+        }
+        const out = deleteConfigPath(current, decision.path);
+        changed = out.changed;
+        return out.config;
+      })
+      .then(
+        () => {
+          const key = decision.path.join(".");
+          if (decision.kind === "set") {
+            this.notice(
+              `已写入 ${decision.id}: ${key} = ${formatConfigValue(decision.value)}`,
+              "success",
+            );
+            return;
+          }
+          this.notice(
+            changed
+              ? `已删除 ${decision.id}: ${key}（该键回到继承值）`
+              : `键 ${key} 在 ${decision.id} 的本层 override 里不存在，未改动`,
+            changed ? "success" : "info",
+          );
+        },
+        (err: unknown) =>
+          this.notice(
+            `编辑失败：${err instanceof Error ? err.message : String(err)}`,
+            "error",
+          ),
+      );
   }
 
   /** `/new`：不重启进程新建会话——释放当前 agent handle → `agents.create` 全新会话

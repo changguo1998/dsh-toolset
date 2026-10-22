@@ -140,8 +140,9 @@ export interface Renderer {
   /** 终端 bell（BEL ；声音提醒事件钩子的输出口）。可选：注入型 renderer
    *  可不实现，App 侧经 `bell?.()` 调用。 */
   bell?(): void;
-  /** 恢复终端并退出事件循环 */
-  close(): void;
+  /** 恢复终端并退出事件循环（`options.exit === false` 时只恢复终端、不结束进程：
+   *  宿主停掉本条目（HMR / 插件重载）时由此保留会话，见 App 的 `dispose({ exit: false })`） */
+  close(options?: { exit?: boolean }): void;
 }
 
 export interface CreateRendererOptions {
@@ -478,7 +479,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     bell(): void {
       screen.beep();
     },
-    close(): void {
+    close(options?: { exit?: boolean }): void {
       if (closed) return;
       closed = true;
       detach(); // 移除退出钩子，防止 close 后再被信号触发
@@ -492,7 +493,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       // DESIGN：close() = 恢复终端 + 退出事件循环
       // 尊重既有 process.exitCode（BACKLOG TUI#14：冒烟失败已置 1，不能被这里
       // 的硬 exit(0) 覆盖成「看起来通过」；未设置时按 0 正常退出）
-      if (exitOnClose) process.exit(process.exitCode ?? 0);
+      // 退出分流（BACKLOG「非 TUI 行的 HMR 重载不连带退出会话」）：宿主停掉本条目时
+      // 调用方显式传 exit:false——终端照常恢复，进程与会话留给宿主重载后重建的实例。
+      if (options?.exit ?? exitOnClose) process.exit(process.exitCode ?? 0);
     },
   };
   return renderer;

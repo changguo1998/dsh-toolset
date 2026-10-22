@@ -475,6 +475,18 @@ export interface DshAdapter {
   /** 读取全部设置（`settings.describe()` → `ns：value` 多行，secret 脱敏）；
    *  服务缺失或读取失败 → undefined（调用方 notice「settings 服务不可用」或空态） */
   readSettings?(): Promise<string | undefined>;
+  /** 列出 `configEditor.configuration()` 的可编辑条目（id / name / inherited / override）；
+   *  服务缺失或形状不符 → undefined（调用方 notice「config-editor 不可用」） */
+  configEntries?(): Promise<readonly ConfigEntrySummary[] | undefined>;
+  /** 按条目 id 重新解析当前 Entry 并调 `configEditor.edit()` 改写其 config（校验 / 原子写 /
+   *  与 HMR 串行都由宿主完成）；服务缺失 → reject，宿主拒绝 → reject 原文透出 */
+  editConfigEntry?(
+    id: string,
+    change: (
+      current: Record<string, unknown>,
+      inherited: Record<string, unknown>,
+    ) => Record<string, unknown>,
+  ): Promise<void>;
   /** 分叉当前会话为新会话（`sessions.fork(activeSessionId)`，后两参省略）；
    *  错误码 5 个映射为中文文案后 reject；服务缺失 → reject（提示 sessions 未挂载） */
   forkCurrentSession?(): Promise<{ id: string; title?: string }>;
@@ -1306,6 +1318,43 @@ export interface SettingsLike {
   }): readonly SettingsDescriptorLike[];
 }
 
+/** 宿主 `config-editor` 服务里一个可编辑条目的原始形态（`Entry` 的 TUI 侧宽松子集）：
+ *  官方只把 profile 直属、id 唯一的行放进 `entries()`，故 `options.id` 恒有。 */
+export interface ConfigEditorEntryLike {
+  options?: { id?: string; name?: string; config?: Record<string, unknown> };
+}
+
+/** `configEditor.configuration()` 的一行：`inherited` 为去掉本行 override 后的组合值，
+ *  `override` 为本行 patch 里的显式值（官方均为 detached 拷贝）。 */
+export interface ConfigEditorRowLike {
+  entry: ConfigEditorEntryLike;
+  inherited?: Record<string, unknown>;
+  override?: Record<string, unknown>;
+}
+
+/** 宿主配置编辑服务结构面（ctx.get('configEditor')，@deepseek-ai/dsh-config-editor）：
+ *  写面 `edit(entry, change)` 内部完成校验 / 原子写 profile patch / 与 HMR 串行 / 失败回滚，
+ *  TUI 只经它改写条目 config，不直接碰 YAML。 */
+export interface ConfigEditorLike {
+  entries?(): readonly ConfigEditorEntryLike[];
+  configuration?(): readonly ConfigEditorRowLike[];
+  edit?(
+    entry: ConfigEditorEntryLike,
+    change: (
+      current: Record<string, unknown>,
+      inherited: Record<string, unknown>,
+    ) => Record<string, unknown>,
+  ): Promise<void>;
+}
+
+/** 一个可编辑条目的纯数据快照（adapter → App；不含 Loader 对象，避免复用陈旧 Entry） */
+export interface ConfigEntrySummary {
+  id: string;
+  name: string;
+  inherited: Record<string, unknown>;
+  override: Record<string, unknown>;
+}
+
 /** task-engine 只读查询面快照（C1 前置；host `TaskEngine.query()` 返回形态的 TUI 侧宽松子集） */
 export interface TaskEngineTaskLike {
   id: string;
@@ -1686,6 +1735,9 @@ export interface RealAdapterOptions {
   tools?: ToolsLike;
   /** ctx.get('settings') 服务（dsh-settings）；缺失时 /settings 提示不可用 */
   settings?: SettingsLike;
+  /** ctx.get('configEditor') 服务（dsh-config-editor）；缺失时 /config 提示不可用。
+   *  main.ts 以惰读 getter 传入（该行与 TUI 并发装载，apply 期快照可能为空）。 */
+  configEditor?: ConfigEditorLike;
   /** ctx.get('taskEngine') 只读查询面（task-engine cordis provide）；缺失时 /task 提示不可用 */
   taskEngine?: TaskEngineLike;
   /** ctx.get('guard') 只读查询面（security-guard cordis provide）；缺失时 /guard 提示不可用 */
