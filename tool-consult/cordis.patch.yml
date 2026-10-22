@@ -1,0 +1,25 @@
+# tool-consult bundle 层（2026-10-22 裁定后的缺省值）：
+# session 档揭示（会话内只增不减）、9 个核心工具常驻、只遮根代理。
+- insert:
+    - id: tool-consult
+      name: '@dsh-toolset/tool-consult'
+      config:
+        enabled: true
+        maskMode: allowlist
+        initialTools:
+          - bash
+          - read
+          - write
+          - edit
+          - glob
+          - grep
+          - todo_write
+          - ask_user_question
+          - skill
+        applyTo: roots
+        maxRevealed: 12
+        revealScope: session
+        ttlTurns: 0
+        maxPinned: 3
+        maxResults: 5
+        audit: false
