@@ -4,8 +4,9 @@
  * 口径（2026-10-17 接口重设）：本文件只做**存储**，不承载管理逻辑——
  * - `put`：隐私底线 → 注册方 `preWrite` → content_hash 去重、~2K token 按 markdown 边界分块、
  *   source 记账（chunk_count）、按需建表；分类必须由注册表解析（未注册 = `skipped.kind`，不抛错）；
- * - `search`：跨已注册分类的只读并集检索（porter 语义 BM25，可叠加 trigram 模糊召回，CJK 走 LIKE 兜底），
- *   结果带 `kind` 标签、按分数取 Top-N，**不再有任何写副作用**（`last_referenced` 与淘汰族已取消）；
+ * - `search`：跨已注册分类的只读并集检索。按 `mode` 分流：缺省 `bm25`（porter 语义 BM25，可叠加
+ *   trigram 模糊召回，CJK 走 LIKE 兜底）与 `hybrid`（四路召回 + RRF 融合）。结果带 `kind` 标签、
+ *   按分数取 Top-N，**不再有任何写副作用**（`last_referenced` 与淘汰族已取消）；
  * - `listRows`：按 kind 的结构化列举（可按项目过滤、分页），供全局面 `list` 与模型侧工具复用；
  * - `evict`：删除行并联动 sources.chunk_count，归零清理 source（句柄 `forget` 的底层实现）。
  * 仅依赖 node:sqlite + node:crypto，无新增依赖。
@@ -13,6 +14,16 @@
 
 import { createHash } from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
+import {
+  hybridPoolSize,
+  proximitySpan,
+  PROXIMITY_MAX_SPAN,
+  PROXIMITY_MIN_TERMS,
+  queryTerms,
+  rrfFuse,
+  trigramQuery,
+  type SearchMode,
+} from "./hybrid.ts";
 import {
   checkContent,
   compileRules,
@@ -80,8 +91,10 @@ export interface SearchOptions {
   /** 限定单个分类；缺省查全部已注册分类。 */
   kind?: string;
   limit?: number;
-  /** true 时叠加 trigram 子串召回（无法召回 <3 字符的串）。 */
+  /** true 时叠加 trigram 子串召回（无法召回 <3 字符的串）；hybrid 下 trigram 恒开、本字段不再改变召回。 */
   fuzzy?: boolean;
+  /** 检索策略：缺省 `bm25`（改造前的单词面行为）；`hybrid` = 多路召回 + RRF 融合。 */
+  mode?: SearchMode;
 }
 
 /** 列举入参（单库；按 kind 走一张物理表）。 */
@@ -258,18 +271,32 @@ export class KnowledgeService {
   }
 
   /**
-   * 检索（设计 §7）：对命中分类取并集；porter 语义 BM25（fuzzy 时叠加 trigram 子串召回），
-   * CJK 短词或 FTS 语法错误时走 LIKE 兜底。**只读**：不刷新任何列。
+   * 检索入口（设计 §4）：按 `mode` 分流——缺省 `bm25` 走改造前的单词面实现，`hybrid` 走多路融合。
+   * 两条分支都**只读**：不刷新任何列。
    */
   search(opts: SearchOptions): SearchHit[] {
+    return (opts.mode ?? "bm25") === "hybrid"
+      ? this.#searchHybrid(opts)
+      : this.#searchBm25(opts);
+  }
+
+  /** 项目过滤片段（前缀 `AND`，与既有 `where` 拼接约定一致；不过滤时为空串）。 */
+  #projectFilter(project: string | undefined): {
+    where: string;
+    params: Array<string | number>;
+  } {
+    return project === undefined
+      ? { where: "", params: [] }
+      : { where: " AND c.project = ?", params: [project] };
+  }
+
+  /**
+   * 单词面分支（= 改造前的 `search` 实现，行为逐行保留）：对命中分类取并集；porter 语义 BM25
+   * （fuzzy 时叠加 trigram 子串召回），CJK 短词或 FTS 语法错误时走 LIKE 兜底。
+   */
+  #searchBm25(opts: SearchOptions): SearchHit[] {
     const limit = Math.max(1, Math.min(opts.limit ?? 10, 100));
-    const filters: string[] = [];
-    const params: Array<string | number> = [];
-    if (opts.project !== undefined) {
-      filters.push("c.project = ?");
-      params.push(opts.project);
-    }
-    const where = filters.length > 0 ? ` AND ${filters.join(" AND ")}` : "";
+    const { where, params } = this.#projectFilter(opts.project);
     const entries = this.#entries(opts.kind);
 
     const runQuery = (entry: RegisteredKind, fts: string): SearchHit[] => {
@@ -337,6 +364,138 @@ export class KnowledgeService {
     return [...hits.values()]
       .sort((a, b) => a.score - b.score || a.id - b.id)
       .slice(0, limit);
+  }
+
+  /**
+   * 混合分支：每张分类表四路召回，RRF 融合后取 Top-N。
+   * - `bm25`：porter 路，列权重 title 2 / content 1（标题命中优先）；
+   * - `trigram`：≥3 字符词项作为 phrase 的 OR 查询，hybrid 下恒开（不再依赖 `fuzzy`）；
+   * - `like`：逐词项子串（CJK 短词的主力召回），`ORDER BY c.id` 保证确定序；
+   * - `proximity`：复用 `like` 候选行，只收「≥2 个词项共现于同一小窗口」的行，按覆盖词项数
+   *   降序、窗口跨度升序、id 升序排名。
+   * 候选池按 `hybridPoolSize(limit)` 有界，故耗时与语料规模无关（不随行数线性增长）。
+   */
+  #searchHybrid(opts: SearchOptions): SearchHit[] {
+    const limit = Math.max(1, Math.min(opts.limit ?? 10, 100));
+    const pool = hybridPoolSize(limit);
+    const { where, params } = this.#projectFilter(opts.project);
+    const entries = this.#entries(opts.kind);
+    const terms = queryTerms(opts.query);
+    const tri = trigramQuery(terms);
+    const columns = ROW_COLUMNS.replaceAll(", ", ", c.");
+
+    // 并集去重键 = (kind, id)（决策 D39）；每路的键序单独收集，交给 RRF 融合。
+    const hits = new Map<string, SearchHit>();
+    const paths: string[][] = [];
+    const keyOf = (hit: SearchHit): string => `${hit.kind}\u0000${hit.id}`;
+    const remember = (hit: SearchHit): SearchHit => {
+      const key = keyOf(hit);
+      if (!hits.has(key)) hits.set(key, hit);
+      return hit;
+    };
+
+    for (const entry of entries) {
+      // 路 1：porter BM25（列权重 = title 2 / content 1）。
+      try {
+        const rows = this.#db
+          .prepare(
+            `SELECT c.${columns}, bm25(${entry.fts}, 2.0, 1.0) AS score
+             FROM ${entry.fts} JOIN ${entry.table} c ON c.id = ${entry.fts}.rowid
+             WHERE ${entry.fts} MATCH ?${where}
+             ORDER BY score, c.id LIMIT ?`,
+          )
+          .all(opts.query, ...params, pool) as Array<Record<string, unknown>>;
+        const path = rows.map((row) =>
+          keyOf(
+            remember({
+              ...mapRow(row, entry.kind, this.#tier),
+              score: Number(row.score),
+            }),
+          ),
+        );
+        if (path.length > 0) paths.push(path);
+      } catch {
+        // FTS5 语法错误（如 '-' 排除符）：该路跳过，其余路照常。
+      }
+
+      // 路 2：trigram（≥3 字符词项的 phrase OR）。
+      if (tri !== undefined) {
+        try {
+          const rows = this.#db
+            .prepare(
+              `SELECT c.${columns}, bm25(${entry.trigram}) AS score
+               FROM ${entry.trigram} JOIN ${entry.table} c ON c.id = ${entry.trigram}.rowid
+               WHERE ${entry.trigram} MATCH ?${where}
+               ORDER BY score, c.id LIMIT ?`,
+            )
+            .all(tri, ...params, pool) as Array<Record<string, unknown>>;
+          const path = rows.map((row) =>
+            keyOf(
+              remember({
+                ...mapRow(row, entry.kind, this.#tier),
+                score: Number(row.score),
+              }),
+            ),
+          );
+          if (path.length > 0) paths.push(path);
+        } catch {
+          // trigram 路失败不影响其余路。
+        }
+      }
+
+      // 路 3 / 4：LIKE 候选行（一次 SQL）→ 子串路与邻近路。
+      if (terms.length > 0) {
+        const groups = terms
+          .map(
+            () =>
+              "(c.content LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')",
+          )
+          .join(" OR ");
+        const likeArgs = terms.flatMap((term) => {
+          const pattern = likePattern(term);
+          return [pattern, pattern];
+        });
+        const rows = this.#db
+          .prepare(
+            `SELECT c.${columns} FROM ${entry.table} c
+             WHERE (${groups})${where} ORDER BY c.id LIMIT ?`,
+          )
+          .all(...likeArgs, ...params, pool) as Array<Record<string, unknown>>;
+        const candidates = rows.map((row) =>
+          remember({ ...mapRow(row, entry.kind, this.#tier), score: 0 }),
+        );
+        if (candidates.length > 0) paths.push(candidates.map(keyOf));
+
+        // 邻近路：一行至少命中 2 个词项、且这些词项共现于同一小窗口（≤ 跨度上限）才算邻近；
+        // 窗口越紧越靠前（覆盖词项数优先，其次跨度，最后 id）。
+        const near = candidates
+          .map((hit) => ({
+            hit,
+            ...proximitySpan(`${hit.title ?? ""}\n${hit.content}`, terms),
+          }))
+          .filter(
+            (item) =>
+              item.covered >= PROXIMITY_MIN_TERMS &&
+              item.span >= 0 &&
+              item.span <= PROXIMITY_MAX_SPAN,
+          )
+          .sort(
+            (a, b) =>
+              b.covered - a.covered || a.span - b.span || a.hit.id - b.hit.id,
+          );
+        if (near.length > 0) paths.push(near.map((item) => keyOf(item.hit)));
+      }
+    }
+
+    // RRF 融合：分值为各路 1/(K+rank+1) 之和，取负以保持「分数越小越相关」。
+    const fused = rrfFuse(paths);
+    // 取负以保持「分数越小越相关」（跨层排序与既有调用方都按升序读）。
+    const out: SearchHit[] = [];
+    for (const [key, hit] of hits) {
+      const score = fused.get(key);
+      if (score !== undefined) out.push({ ...hit, score: -score });
+    }
+    return out.sort((a, b) => a.score - b.score || a.id - b.id).slice(0, limit);
   }
 
   /**

@@ -219,7 +219,7 @@ export class TierSet {
     return out;
   }
 
-  /** 跨层检索（只读）：按 `tier` 收窄可选；排序 = 层权重 → 同层分数。 */
+  /** 跨层检索（只读）：按 `tier` 收窄可选；`mode` 原样透传给各库；排序 = 层权重 → 同层分数。 */
   search(opts: SearchOptions & { tier?: Tier }): LayeredHit[] {
     const limit = Math.max(1, Math.min(opts.limit ?? 10, 100));
     const hits: LayeredHit[] = [];

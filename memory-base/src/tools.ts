@@ -2,12 +2,13 @@
  * 模型侧查询工具 `memory_query`（只读，决策项 10）：
  * - 单工具 + `action` 分派：`"search"`（全文检索，缺省）/ `"list"`（结构化列举）；
  * - 参数：`query`（search 必填）、`kind?`、`tier?`、`project?`、`limit?`（缺省 10、clamp 1..100）、
- *   `fuzzy?`（仅 search）、`offset?`（仅 list）；
+ *   `fuzzy?`（仅 search）、`mode?`（仅 search：`bm25` 缺省 / `hybrid`）、`offset?`（仅 list）；
  * - 输出：带 `kind` / `tier` 标签的结构化行 + 渲染文本；超限截断并在结果里标明；
  * - 安全面：参数里没有文件路径与命令文本，故不进 `security-guard` 的登记表；
  *   写侧不对模型开放（写权限留在各扩展的句柄上）。
  */
 
+import { isSearchMode, type SearchMode } from "./hybrid.ts";
 import type { SearchHit, StoreRow } from "./knowledge.ts";
 import type { Tier } from "./router.ts";
 
@@ -36,6 +37,7 @@ export interface MemoryQueryExecutor {
     project?: string;
     limit?: number;
     fuzzy?: boolean;
+    mode?: SearchMode;
   }): Promise<SearchHit[]>;
 }
 
@@ -104,6 +106,7 @@ export function memoryQueryTool(executor: MemoryQueryExecutor): unknown {
     description:
       "只读查询跨会话记忆库（跨全部扩展的 kind，按层 / 项目过滤）。" +
       "action=search（缺省）做全文检索（porter 词干 + CJK 子串兜底）；action=list 按 kind 结构化列举。" +
+      "search 可用 mode 选策略：缺省 bm25（单词面）；hybrid 叠加 trigram 与词项邻近并按 RRF 融合（长句 / 多词查询更稳）。" +
       "选择成本：知道要查什么用 search，要「某类记忆都写了什么」用 list；" +
       "结果多时用 kind / tier / project / limit 收窄（缺省 10 行，上限 100）；" +
       "只读——写入与删除只经各扩展持有的句柄，本工具不提供写面。",
@@ -143,6 +146,12 @@ export function memoryQueryTool(executor: MemoryQueryExecutor): unknown {
           type: "boolean",
           description:
             "search 用：叠加 trigram 子串召回（无法召回 <3 字符的串）",
+        },
+        mode: {
+          type: "string",
+          enum: ["bm25", "hybrid"],
+          description:
+            "search 用：检索策略（缺省 bm25 = 单词面；hybrid = 多路召回 + RRF 融合）",
         },
         offset: {
           type: "integer",
@@ -194,6 +203,7 @@ export function memoryQueryTool(executor: MemoryQueryExecutor): unknown {
         ...(project === undefined ? {} : { project }),
         limit,
         ...(args.fuzzy === true ? { fuzzy: true } : {}),
+        ...(isSearchMode(args.mode) ? { mode: args.mode } : {}),
       });
       return {
         action,
