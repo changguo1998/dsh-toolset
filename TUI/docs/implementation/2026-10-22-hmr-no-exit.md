@@ -105,4 +105,13 @@
 ### 验收
 
 - 单测：`renderer.close()` 缺省仍按 `exitOnClose`；`close({ exit: false })` 不触发进程退出（用可注入的退出函数断言）；`App.dispose()`（用户退出）→ close 收到「按缺省退出」；`App.dispose({ exit: false })` → close 收到 `{ exit: false }` 且跳过空会话清理；`main()` disposer 在 `exit: false` 时写一行提示、在不带参时行为不变。
+
+## 实现记录
+
+- 2026-10-23：`TUI/src/renderer/index.ts`：`Renderer.close(options?: { exit?: boolean })`，实现改 `if (options?.exit ?? exitOnClose) process.exit(...)`——终端恢复（`detach` / `pasteOff` / `stdio.pause` / `screen.reset` / `terminal.close`）在两种情形下都照常执行，只有「是否结束进程」可变。
+
+- 2026-10-23：`TUI/src/app/index.ts`：`dispose(options?: { exit?: boolean })`；`exit === false` 时跳过 `autoCleanEmpty` 的退出式清理直接收尾（与新实例抢写会话目录的风险），`finishDispose(exit)` 仅在 `exit === false` 时给 renderer 传 `{ exit: false }`（用户退出路径不传，保持 `exitOnClose` 语义与 `process.exitCode` 口径）。
+
+- 2026-10-23：`TUI/src/main.ts`：新增导出 `TuiTeardownOptions { exit?, notify? }`，`main()` 返回的 disposer 接受该选项；插件 effect 清理改 `disposeApp({ exit: false })`（卸载不结束进程）；`process.once("exit")` 兜底改 `disposeApp({ exit: false, notify: false })`（不再在 exit 钩子里再 `process.exit`，也不写提示）；提示经 `opts.logger`（生产落 stderr，`[tui] ` 前缀）输出一行，说明会话保留、重建后界面自动回来、长时间无界面可 Ctrl+C 退出重启。
+
 - `cd TUI && npm run check` 与 `cd TUI && npm test` 全绿。

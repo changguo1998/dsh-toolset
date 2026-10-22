@@ -1618,7 +1618,11 @@ export class App {
     return "on";
   }
 
-  dispose(): void {
+  /** 释放 App（收尾落盘 → 释放 adapter → 渲染器 close）。
+   *  `options.exit === false` = 宿主停掉本条目（HMR / 插件重载）的卸载路径：只恢复终端，
+   *  不结束进程、不跑退出式空会话清理（宿主随后会按新配置重建本行，会话由新实例接回）。
+   *  用户退出路径（`/quit`、确认面板、`/restart`、`/cleanquit`）不传选项，行为与之前一致。 */
+  dispose(options?: { exit?: boolean }): void {
     if (this.disposed) return;
     // 退出前落盘会话状态快照（未过合并窗口的变更不丢）
     this.flushSessionStateSave();
@@ -1638,21 +1642,27 @@ export class App {
     this.cancelMentionRequest();
     // 退出时清理其他空会话（复用 session.autoCleanEmpty 开关）：开启时先打印提示并等待
     // 清理完成，再释放 adapter/关闭渲染器退出；关闭或无可清理服务时保持同步收尾。
-    // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C、插件 unload）覆盖——信号强退
+    // 注意：仅优雅退出路径（/quit、Ctrl+D、双击 Ctrl+C）覆盖——信号强退
     // （SIGINT/SIGTERM）与崩溃路径由 renderer 直接 process.exit，无法可靠等待异步 IO。
     // 「重启 dsh」路径（restartPending）跳过清理：重启不该改动其它会话（BACKLOG #51）。
-    if (!this.autoCleanEmpty || this.restartPending) {
-      this.finishDispose();
+    // 宿主卸载（exit:false）同样跳过：它不再是「退出」，异步清理会与重建后的实例抢写。
+    if (
+      !this.autoCleanEmpty ||
+      this.restartPending ||
+      options?.exit === false
+    ) {
+      this.finishDispose(options?.exit);
       return;
     }
     void this.disposeWithExitClean();
   }
 
-  /** 收尾释放：适配器 →（「清理并退出」时）删当前会话 → 渲染器（close 恢复终端并退出）。 */
-  private finishDispose(): void {
+  /** 收尾释放：适配器 →（「清理并退出」时）删当前会话 → 渲染器（close 恢复终端并按需退出）。
+   *  `exit === false` 透传给 renderer（只恢复终端、不结束进程）。 */
+  private finishDispose(exit?: boolean): void {
     this.deps.adapter.dispose?.();
     if (this.cleanQuitPending) this.deleteActiveSessionForExit();
-    this.deps.renderer.close();
+    this.deps.renderer.close(exit === false ? { exit: false } : undefined);
   }
 
   /** 「清理并退出」的删除步骤：只在 `adapter.dispose()` 之后调用（handle 已释放，删目录
