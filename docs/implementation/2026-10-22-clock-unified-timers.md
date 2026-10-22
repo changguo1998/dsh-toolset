@@ -1,6 +1,6 @@
 # 其余包接入定时器统一面 `clock`（接取条目：`docs/BACKLOG.md`「3. 其余包接入定时器统一面 `clock`」）
 
-状态：实现（源码完成，测试补齐中）　　开启：2026-10-22　　关闭：—
+状态：测试（八包 check / build / test 全绿）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -173,3 +173,22 @@ cd <pkg> && node $TSC -p tsconfig.json --typeRoots $TYPES            # build（d
 - 各包 `tsconfig.json` 各加一行 `exclude`（超出「只改 src/tests」的字面范围）：测试要 import 真实 `ManualClock`（`timer/src/timers.ts`），在包内 `rootDir` 下触发 TS6059；沿用 `md-table-check` 的既有先例把跨包测试文件排除出类型检查。该行不影响构建产物。
 - 计划中的「根 `npm run check` / `npm run build`」改为逐包等价直调 tsc：本机没有可用 `tsc` 命令。
 - 按用户要求不做收尾：追踪文档未归档、两级 `BACKLOG` 未改、`SPEC` / `README` / `COMMANDS` 未动。
+
+## 测试与证据
+
+2026-10-22（测试通过检查点）：
+
+- 新用例：八包 `tests/clock.test.ts` 共 54 例（herdr-integration 8 / herdr-use 8 / script-interpreter 8 / rule-engine 5 / task-engine 6 / auto-approve 6 / ast-tools 7 / command-template 6）。每包均覆盖：`resolveClock` 形状与回落告警恰好一次；`createDeadline` 的到点与卸载两条路径（卸载后 `ManualClock.pending === 0`）；该包接线用例（假时钟 `advance` 触发超时 / 插件级排期在卸载后清零 / 服务缺失仍可工作）。
+- 包内全套（`npm test`，`fail 0`）：
+  - herdr-integration 57 / 57
+  - herdr-use 164 / 164
+  - script-interpreter 94 / 94
+  - rule-engine 173 / 173
+  - task-engine 142 / 142
+  - auto-approve 155 / 155
+  - ast-tools 45 / 45
+  - command-template 33 / 33
+- 类型检查与构建：八包 `node <tsc> -p tsconfig.json --noEmit --typeRoots <types>` 与 `node <tsc> -p tsconfig.json --typeRoots <types>` 均退出码 0。
+- 卸载无残留的直接证据：各包 `createDeadline` 用例在模拟 fiber 卸载后断言 `manual.pending === 0`；herdr-integration 的周期补发在 `plugin.dispose()` 后 `pending === 0`；rule-engine 卸载后推进假时钟不再回调宿主；task-engine / command-template / auto-approve 的在途 run / 审查在卸载时被立即中止且 `pending === 0`。
+- 已知现象：command-template 既有测试的宿主 ctx 不提供 clock，运行时会打印一行回落告警（预期文案；既有断言不依赖 stderr 为空）。
+- 未做真机验收（按用户要求）。
