@@ -14,6 +14,7 @@
 - 现状缺口不是「缺少脚本面」，而是「没挂 `mcp-client`」与「`tools.mode` 仍是 native」——两项都是部署与配置动作。
 - 若将来确需在 native 模式下批量调用 MCP（不切全局 PTC），最小形态是一个薄批处理工具（暂名 `mcp_batch`），不是脚本解释器；本任务不实现。
 - TUI 补充（Q6）：PTC 能只靠一行 profile patch 打开，base 的 provider 与服务前提齐全；但它是**全 agent** 生效，并把嵌套工具与人工等待压进 `run_code` 的 120s/600s。推荐保持 native，固定多步需求走新薄包 `mcp_batch`；真脚本化才考虑 PTC。
+- 前置挂载完成后，剩余工作主要在配置、安全与运维；插件侧只需 TUI 适配与可选策略/状态，**不需要新的编排包**。粗估 11-18 人日（Q7）。
 
 ## 目标与边界
 
@@ -270,6 +271,97 @@ MCP 工具名允许 `-`，不是合法 JS 标识符时 SDK 要求引号访问 `t
 6. MCP server 清单、传输、凭据、只读优先、`security-guard` / `auto-approve` 接线（Q4）。
 7. 根级接线（包数、README、profile、test-parallel）由主分支承接。
 
+### Q7 前置挂载完成后的剩余工作（2026-10-23 补充）
+
+假设：`mcp-client` 已挂、需要时 `tools.mode: ptc` 已设、server 已在 profile 声明。以下只列「让多步编排真正可运营」的剩余项；估时为单人净人日（粗估，不含外部 server 团队、审批等待与真机联调）。关键证据见 Q6；安全与运维补充 `security-guard/README.md:166-199`、`auto-approve/README.md:70`、`mcp-client/README.zh.md:61-67`、`:137`、`:191`、`docs/host/HOST-PACKAGES.md:316-318`。
+
+**先给结论**：PTC 下不需要新的编排插件；`run_code` 就是脚本面（`code` / `description` / `timeoutMs` 加 MCP SDK 绑定）。剩余工作的大头在配置、安全与运维；可选新包只有「每调用审批策略」与「MCP 状态」两个，`mcp_batch` 只在 native 回退时需要。
+
+#### 7.1 插件侧
+
+| 工作项 | 职责与接口 | 估时（人日） | 风险 | 不改会怎样 |
+| --- | --- | --- | --- | --- |
+| TUI `/tools` 的 PTC 感知（改 `TUI`） | `refreshTools` 现在用 `svc.schemas()`（`TUI/src/app/adapter/dsh.ts:3667-3674`）；ptc 下过滤 native 工具或标注「仅 run_code 内可调」；不动 `tools` 服务 | 0.5-1 | 低 | `/tools` 列出模型不能直呼的工具，用户与模型预期错位 |
+| MCP 脚本配方（skill 或 `command-template`，不是插件） | 写 2-3 个固定 recipe：读资源→抽取→写回、批量查询→聚合；约定 `timeoutMs`、错误处理、命名；复用宿主 skill 或模板机制 | 0.5-1 | 低 | 每次临时写脚本，超时与错误处理不一致，结果不可复现 |
+| 可选：每调用审批策略（新包） | `tools/pre-execute` 对 `mcp__*` 发 `ask`，跳过 outer `run_code`；与 `auto-approve` 配合；审批等待占用 run_code 预算 | 1-2 | 高：审批延迟与疲劳；默认 120s 会被人工等待吃掉 | 无逐次人工门；危险 server 动作静默执行 |
+| 可选：MCP 状态插件（新包） | 无 `ctx.mcpClients` 服务；只能观察 `tools/change` 与工具存在性，或读日志；主动探测有副作用 | 2-3 | 中：只能间接判断，易误报 | 无状态牌；故障只能靠工具消失或日志发现 |
+| `mcp_batch`（仅 native 回退） | 固定步骤 `steps: [{tool,args}]`，`ctx.tools.execute` 按序，聚合；只允许 `mcp__*` 与资源三工具；不做脚本语言 | PTC 下 0；native 2-4 | 中：第二套 dispatch 面；嵌套 parent/token 语义 | PTC 下不需要；native 下没有批量面 |
+| 不改宿主 `mcp-client` / `mcp-resources` | 不 fork；host 升级跟随；过滤与状态放外层插件 | 0 | 高（若 fork）：每版 rebase，破坏契约 | 无影响（保持现状）；fork 才有维护债 |
+
+#### 7.2 配置侧
+
+前置（按假设已完成）：`- insert:` 的 mcp-client 行、`- id: tools` 的 `config: {mode: ptc}`。剩余：
+
+| 工作项 | 具体内容 / profile 行 | 估时（人日） | 风险 | 不改会怎样 |
+| --- | --- | --- | --- | --- |
+| `tools.mode` patch 复核 | `- id: tools` + `config: {mode: ptc}`，不写 `name`；`config` 整键替换；同时改 `maxParallelSubCalls` 要重述 | 0.1 | 低：写错 `name` 会静默跳过 | 仍是 native，PTC 不生效 |
+| `ptc-runtime` 超时与输出 | `- id: ptc-runtime` + `config`：`timeoutMs`（默认 120s）、`maxTimeoutMs`（600s）、`maxOutputBytes`、`maxOldGenerationSizeMb`、`maxPendingCalls` | 0.5 | 中：默认 120s 切断多步；抬太高挂死 | 3 步以上 60s 调用可能超时；内存与输出无界 |
+| `maxParallelSubCalls` | 保持默认 10；MCP 工具 exclusive，调大不会并行 MCP；只影响非 MCP 子调用 | 0.1 | 低：误以为能加速 MCP | 无影响（默认 10）；调大是误导 |
+| server 级 `toolCallTimeoutMs` | 每 server 按 P95 设，默认 60s；与 run_code 预算联动 | 0.5 | 中：太短切慢调用，太长拖失败 | 慢 server 被切，或失败等待过久 |
+| `reconnect` | `{enabled:true, initialDelayMs:500, maxDelayMs:30000, maxAttempts:10}`；按稳定性调；`enabled:false` 仅调试 | 0.2 | 中：默认行为无人知 | 断线后恢复预期不明；预算耗尽工具消失 |
+| `failOnStartupError` | 必需 server 设 `true`；可选 server 设 `false`；配启动告警 | 0.2 | 中：false 静默缺工具，true 启动失败 | 缺工具无告警，或一个 server 拖垮启动 |
+| `maxInstructionBytes` | 默认 32768；不可信 server 收紧；超限连接失败 | 0.1 | 中：大指令占 prompt 与注入面 | 提示词膨胀与注入面；过小连不上 |
+| server 行（每 server） | `serverName` 唯一、`transport`、`command/args/env/cwd` 或 `url/headers`；stdio 显式 `env`；HTTP `headers` | 0.5-1 / server | 高：信任与凭据；命名冲突 | 无 MCP；或命名冲突与凭据泄漏 |
+| server 工具面裁剪 | `mcp-client` 无 include/exclude；只能选 server；`tools.restrict` 需 agent scope（本仓无 preset） | 0.5（选型）/ 2-3（改 host 或新插件） | 高：工具面不可裁剪 | 大 server 的几十个工具全进 SDK，token 与攻击面上升 |
+| `profiles/example` 注释模板（主分支） | 只放注释示例，不放真实 server 与 secret；用户 profile 放实配 | 0.5 | 低 | 无参考；有人把 secret 写进提交物 |
+
+示意（`config` 整键替换，按现有字段重述；不是完整配置）：
+
+```yaml
+- id: ptc-runtime
+  config:
+    timeoutMs: 120000
+    maxTimeoutMs: 600000
+    maxOutputBytes: 67108864
+    maxPendingCalls: 128
+- id: security-guard
+  config:
+    unknownToolPolicy: check
+    unknownToolAllowlist: ['mcp__*', 'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource']
+- id: auto-approve
+  config:
+    deny:
+      tools: ['mcp__*', 'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource']
+```
+
+#### 7.3 安全侧
+
+| 工作项 | 具体内容 | 估时（人日） | 风险 | 不改会怎样 |
+| --- | --- | --- | --- | --- |
+| `security-guard` 三态与 allowlist | `unknownToolPolicy: allow/check/deny`；`unknownToolAllowlist: ['mcp__*', 'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource']` | 0.5-1 | 高：allowlist 等于放弃参数扫描；不放行等于保守拦 | 默认 allow 无扫描；check/deny 无 allowlist 会拦合法调用 |
+| `auto-approve` 拒绝名单 | `deny.tools: ['mcp__*', 资源三工具]`；只在审批链生效；要逐次问需上游 `ask` | 0.2 | 高：误以为逐次确认 | 无人工门；危险动作静默 |
+| 每调用 ask 策略（可选插件） | 见 7.1；审批等待计入 run_code 预算 | 1-2 | 高：人工慢会超时 | 无门；或加门但 120s 被等待吃掉 |
+| 不可信 instruction 与 schema | 只挂可信 server；审查 instructions；`maxInstructionBytes` 收紧；工具描述与 schema 进 prompt；无法过滤时按不可信文本处理 | 1-2 / server + 持续 | 高：prompt injection | 模型被 server 指令操纵或泄密 |
+| server 进程越出沙箱 | stdio 由 mcp-client 直接 spawn，不用 `ctx.sandbox`；用户级文件与网络；用容器、受限用户或只读挂载 | 1-2 | 高：用户级权限 | 恶意 server 读密钥或改文件 |
+| 凭据 | stdio `env` 显式；HTTP `headers`；profile 0600；example 无 secret；env scrub 只清 KEY / PASSWORD / SECRET / TOKEN 与 `DSH_*` | 0.5 | 中：泄漏或不继承 | 凭据泄漏，或显式变量没传导致连不上 |
+| 输出泄漏与二进制 | 返回值进模型；图片与资源 base64；审计是否含敏感；server 侧裁剪或脱敏 | 0.5 | 中：secret 进上下文或日志 | 敏感数据进模型与日志 |
+| PTC 沙箱语义说明 | `run_code.sandbox_permissions` 只约束程序文件访问，不约束 server；写进 runbook 与培训 | 0.2 | 低/中：false assurance | 误以为 server 已被隔离 |
+
+#### 7.4 运维侧
+
+| 工作项 | 具体内容 | 估时（人日） | 风险 | 不改会怎样 |
+| --- | --- | --- | --- | --- |
+| 生命周期与启动 | 激活等 connect/discovery；`failOnStartupError` 策略；启动后检查工具出现；缺工具告警 | 0.5 | 中 | 静默缺工具，用户看到 unknown tool |
+| 重连 runbook | 500ms→30s，10 次；断线期工具仍在列表但调用失败；预算耗尽移除；长连接重置；重载或重启恢复 | 0.5 | 中 | 误判与无恢复预期 |
+| 超时预算 runbook | MCP 60s/次；run_code 120s/600s；串行；`N×latency+overhead < timeoutMs`；多步显式 timeout；失败、取消、无重放 | 1 | 高 | 程序被切、部分副作用、重试重复 |
+| 审计与可观测 | `tool/ptc-dispatch` 子调用 name/args/content；outer `tool/result`；session 日志；TUI 灰行与失败红行；无 MCP 专用指标 | 1-2 | 中/高 | 事故无法还原调用链 |
+| 状态牌 | 无 `ctx.mcpClients`；只能看工具存在性与日志；可选状态插件 2-3 人日（7.1） | 0.5（runbook）/ 2-3（插件） | 中 | 故障发现慢 |
+| 容量 | 每 server 一进程/连接；工具数、SDK、Token；`maxPendingCalls` 128、`maxOldGenerationSizeMb` 512、`maxOutputBytes` 64MiB；限制 server 与工具面 | 0.5 | 中 | 启动慢、上下文膨胀、OOM |
+| 升级复核 | 宿主 0.2.1-rc.2；升级后复核 mcp-client config、mcp-resources 工具面、PTC 语义 | 0.5 / 次 | 中 | 字段漂移与行为变化 |
+| 回滚与停用 | 禁用 server 行、`tools.mode: native`、重启；演练一次 | 0.5 | 低 | 故障时无回滚路径 |
+
+#### 7.5 估时汇总
+
+| 类别 | 最小落地 | 含可选项 | 主要风险 |
+| --- | --- | --- | --- |
+| 插件 | 1-2 | +5-9 | TUI 体验、审批、状态 |
+| 配置 | 2.5-4 | +per server | 超时、凭据、工具面 |
+| 安全 | 3.5-6 | +容器 | 注入、越界、无逐次门 |
+| 运维 | 4-6 | +2-3 | 超时、审计、状态盲区 |
+| **合计** | **11-18** | **20-30** | 最贵的不是写代码，是安全评审与超时/审计口径 |
+
+说明：估时是单人净人日，按 1-2 台 server、单机 TUI、无容器估算；server 数量、是否上容器、是否要逐次审批会显著改变区间。
+
 ## 决策
 
 **建议：不立项**（最终裁定待人工）。理由四条：
@@ -280,6 +372,8 @@ MCP 工具名允许 `-`，不是合法 JS 标识符时 SDK 要求引号访问 `t
 4. **切换 PTC 的代价是全 agent 面的**，不属于一个小包能解决的问题；它应由用户按使用方式决定，而不是被一个脚本化包倒逼。
 
 **TUI 推荐路径（Q6.5 摘要）**：保持 native；按需用 `- insert:` 挂 `mcp-client`；固定多步需求出现时新增薄包 `mcp_batch`；不推荐为 MCP 单独全局切 PTC。只有需要任意控制流、且人工接受全 agent 副作用时，才评估 PTC。
+
+若按 PTC 落地，按 Q7 预算 11-18 人日；最贵的不是编排代码，而是安全评审、超时预算与审计/运维。
 
 **重开触发条件**（任一成立）：
 
@@ -306,6 +400,7 @@ MCP 工具名允许 `-`，不是合法 JS 标识符时 SDK 要求引号访问 `t
 - 不改代码、不跑真机 MCP server；文档经 `format` 与 diff 自查。
 - 未验证项：真实 server 的启动、调用与重连未实测；PTC 未启用，`run_code` 的 MCP 绑定未实测。
 - Q6 的 PTC 装配结论来自源码与样例 patch；未实机 boot，未改 profile；正式启用前需隔离 profile 试跑。
+- Q7 四类剩余工作清单已列，估时为粗估；实际按 server 数量、是否上容器、是否逐次审批浮动。
 
 ### 偏差与未验证
 
@@ -313,4 +408,5 @@ MCP 工具名允许 `-`，不是合法 JS 标识符时 SDK 要求引号访问 `t
 - PTC 与 MCP 的组合是「README 明确声明 + 代码路径推断」，不是端到端验证；这也是建议不立项的理由之一（没有 server 与用例）。
 - Q6 依 profile patch 写法与 base 依赖链推断 PTC 可装配；`--dump-config` 会写 profile 的 `cordis.yml`，本任务未执行，故未实机验证启动。
 - 本机 bwrap 0.9.0 可用是环境事实；换机若 sandbox runner 不可用，PTC 会 fail-closed `sandbox-unavailable`。
+- Q7 估时是单人净人日粗估，不含外部 server 团队、审批等待与真机联调；未实机验证。
 - 升级宿主后需复核三处：`dsh-tools` 的 mode 与 PTC 语义、`mcp-client` 的 config 字段、`mcp-resources` 的工具面。
