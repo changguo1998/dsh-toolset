@@ -6,7 +6,7 @@
 
 > 本清单只列**未完成**项；已完成项见 `STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
 > 设计依据：`docs/host/AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `docs/host/DSH-CTX-API.md` 对齐宿主接口。
-> 基线：dsh `dsh-v0.2.0-rc.2`（2026-10-02 由 `0.1.7-rc.2` 升级；本次接口对照见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）。
+> 基线：dsh `0.2.1-rc.2`（2026-10-21 升级；对照见 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`，上一步 `0.2.0-rc.2` 见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）。
 > 编号口径：`#N` **仅供阅读**——不用于追踪文档的命名与引用；**每次整理时按当前顺序从 1 起重新编号**（不保证稳定，勿作跨引用）；与其它层 BACKLOG 的编号互不关联，跨层引用须写明文件路径。
 > 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
 
@@ -16,7 +16,7 @@
 
 - 任务控制：task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决、**叶子执行后端**：`executor` 声明 + `task_execute` 工具 + `subagent` / `workflow` / `command` 后端 + 用量计量，追踪文档 `docs/archived/2026-10-02-injection-timing-naming-warn-executor.md`）、fan-out 就绪池、goal-contract、metric-loop；
 
-- 知识库与记忆：memory-base（原名 knowledge-base；两张基表 + 两张 FTS5 虚表、持久记忆 CRUD、**入库规则与隐私 / 容量边界**、**自动巩固**（提升 / 合并 / 淘汰，启动后与 compaction 后触发）；**分层记忆系统**：S / P / U 三库 + 一库一指纹、写入闸门下沉库核心、`project` 派生链、容量寿命控制——实施批次 13 条中 8 条已提交（`a81da69` / `0652866` / `55c6382` / `270b2df`），余 5 条见 §2）、output-compress、fs-digest（追踪文档 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md`，前身 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`）；
+- 知识库与记忆：memory-base（原名 knowledge-base；两张基表 + 两张 FTS5 虚表、持久记忆 CRUD、**入库规则与隐私 / 容量边界**、**自动巩固**（提升 / 合并 / 淘汰，启动后与 compaction 后触发）；**分层记忆系统**：S / P / U 三库 + 一库一指纹、写入闸门下沉库核心、`project` 派生链、容量寿命控制——实施批次 13 条全部关闭：前 8 条提交 `a81da69` / `0652866` / `55c6382` / `270b2df`，余 5 条于 2026-10-08 关闭）、output-compress、fs-digest（追踪文档 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md`，前身 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`）；
 
 - 代码与文件：hash-edit、ast-tools、code-map 报告与影响面、结构层索引与候选调用图 + LSP 语义层（callers 的 findReferences 精确裁决，`precision:lsp/structural`；追踪文档 `docs/archived/2026-09-29-codemap-lsp-semantic.md`）；
 
@@ -50,11 +50,11 @@
 
 - Markdown 结构视图：`fs_digest` 的 Markdown `outline` 现在给**每节行范围**（含端点、尾空行不计、父子包含）与**块级结构清单**（list / table / code / quote / frontmatter，带 `§L{节}` 归属）；标题树 45 行 + 块清单 15 行两个独立预算；`scanMarkdown` 为 `src/outline.ts` 的**模块级导出**（未透出包入口，`md-logic` 仅对齐口径、无 import 依赖，2026-10-04 复核更正）（追踪文档 `docs/archived/2026-10-02-markdown-structure-view.md`）。
 
-- 复用审计：官方包与本仓 18 包逐项对照的「改用 / 保留 / 并存」结论（**改用 0 / 保留 12 / 并存 6**）与 5 项改造点，见 `docs/ARCHITECTURE-REUSE.md`（追踪文档 `docs/archived/2026-10-02-reuse-audit.md`）。
+- 复用审计：现行结论见 `docs/ARCHITECTURE-REUSE.md`（**31 个包全量：改用 0 / 保留 22 / 并存 9**）；首版（18 包，改用 0 / 保留 12 / 并存 6）与 5 项改造点记录于 `docs/archived/2026-10-02-reuse-audit.md`，重审见 `docs/archived/2026-10-19-reuse-reaudit.md`。
 
 - profile 挂载面：**扩张到 base + 本仓插件 + 10 个官方行**（2026-10-02：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`；全部为投影 / 服务 / 事件面扩展，排除口径与第二批选题见 `docs/archived/2026-10-02-profile-mount-expansion.md`）。
 
-- 宿主运行基线：**已升到 `dsh 0.2.0-rc.2`**（2026-10-02：全局安装 + profile 树外加装包 `session-title-all-prompts-llm` 同步 + `scripts/install.sh` 默认版本 + 主要版本引用（含 5 个包 smoke 脚本的宿主门槛）；进程外与进程内验证见追踪文档 `docs/archived/2026-10-02-host-upgrade-execution.md`）。
+- 宿主运行基线：**已升到 `dsh 0.2.1-rc.2`**（2026-10-21；前一步 0.2.0-rc.2 于 2026-10-02：全局安装 + profile 树外加装包 `session-title-all-prompts-llm` 同步 + `scripts/install.sh` 默认版本 + 主要版本引用（含 5 个包 smoke 脚本的宿主门槛）；进程外与进程内验证见追踪文档 `docs/archived/2026-10-02-host-upgrade-execution.md`）。
 
 - install.sh 四条硬化：`.bak` 堆积（内容未变不写不备份）、profile 树外官方插件版本检查、收尾 `--dump-config` 自检（`--skip-verify`）、头注释口径 + 接线一致性校验；新增 `scripts/test-install.sh`（49 例；追踪文档 `docs/archived/2026-10-03-install-sh-followups.md`）。
 
@@ -63,58 +63,48 @@
 ## 2. 未完成项
 
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 2026-10-08：**§2 已清空**——全部条目（分类注册、闸门下沉、派生链、文档索引、提升链 I → S → P → U、TUI 侧改造、output-compress 自持 `digest.db`）完成并关闭；过程记录见 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md`（完成后归档 `docs/archived/`）。后续可选项见下方「后续补条目候选 / 未立项观察项 / 复用审计产出」。
+> 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）过程记录全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >
-> 2026-10-14：新增条目 1（检查回复正文表格列数一致性的新插件，条目正文见下）。
-> 2026-10-15：新增条目 2（后台常驻守护机制的设计，条目正文见下）。
-> 2026-10-15：条目 1（检查回复正文表格列数一致性的新插件）完成并关闭 —— 新建包 `md-table-check`（第 21 个插件），追踪文档归档 `docs/archived/2026-10-15-md-table-check.md`；编号按当前顺序重排（原条目 2 → 1）。
-> 2026-10-16：条目 2（助手正文「三面一致」核对）完成并关闭 —— 追踪文档归档 `docs/archived/2026-10-16-three-surface-text-consistency.md`; 核对结论: 2 个缺陷登记到 `rule-engine/docs/BACKLOG.md`（超长截断漏检 / replace 语义不一致）, 1 条宿主依赖写入 `rule-engine/README.md`（每回合必须发 `turn/start`）; 编号按当前顺序重排（无待办条目变化）。
-> 2026-10-16：新增条目 2（自动审批插件，用户意向，条目正文见下）；原条目 2 已关闭，编号按当前顺序重排（原条目 2 → 1；后续新增条目以此类推）。
-> 2026-10-16：**§2 重新排序并重编号**（用户指示「重新排序」；依据仍为工作量升序，同工时缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序）：原 1-8 → 新 1-8 映射为 1→1 / 2→2 / 3→3 / 4→4 / 7→5 / 5→6 / 8→7 / 6→8；正文内条目间引用（「条目 N」）已同步改为新编号；上一条目的「待细化」与依赖注记随行保留。
-> 2026-10-16：接取 5 条（自动审批插件 / 脚本语言解释器插件 / 基于 herdr 的交互式命令扩展 / 偏好分析 / 同事模型群组的编排协议）并标〔进行中: 2026-10-16〕（用户指示：先在 BACKLOG 标进行中，再分 worktree）。
-> 2026-10-17：新增条目 9 / 10 / 11（读完五份新插件设计文档后补的跨包项：仓库清单与包计数统一、§5 herdr 取证指向修正、条目 5 的〔进行中〕标记核正），按追加顺序编号，待下次整理重排；同日按「需要变更的模块各自登记」新建 `security-guard/docs/BACKLOG.md` 与 `memory-base/docs/BACKLOG.md`、在 `session-channel/docs/BACKLOG.md` 补一条功能条目。
-> 2026-10-18：条目「自动审批插件（工具调用的审批链自动裁定）」**完成并关闭** —— 新建包 `auto-approve`（第 22 个插件），过程记录与证据归档 `docs/archived/2026-10-16-auto-approval-design.md`；已从 §2 条目正文与「实现顺序」表清理。其余条目编号未重排（编号仅供阅读，留待下次整理统一）。
-> 2026-10-18：条目「`output-compress` 接入 memory-base 作用域句柄（`promote` 取消后的 I→S 推送路径重定）」**完成并关闭** —— 过程记录与证据归档 `docs/archived/2026-10-17-output-compress-scope-handle.md`；已从 §2 条目正文与「实现顺序」表清理，真机验证与 smoke 脚本更新另立条目（现为本节第 2 条）。其余条目编号未重排（编号仅供阅读，留待下次整理统一）。
-
-> 2026-10-18：**§2 整理**（清理重复与逻辑矛盾）：关闭并移出 10 条 —— 自动审批插件 / 脚本语言解释器插件 / 偏好分析 / 同事模型群组的编排协议 / 五个新插件落地时的清单与计数统一 / 修正 §5 取证指向 / 核正 Docker 条目标记 / 修正脚本解释器设计文档表述 / 新增 `session-paths` 插件 / 重复的 Docker 条目（关闭记录见各自追踪文档与 git 历史）；编号按当前顺序从 1 重排。
-> 2026-10-18：条目「插件文档事实校正、去重与精简（29 个模块的文档一致性）」**完成并关闭** —— 追踪文档归档 `docs/archived/2026-10-18-plugin-docs-refresh.md`；遗留项见本节「后续补条目候选」。
-> 2026-10-19：Docker 交互插件按用户裁定不做，条目已从 §2 删除（取消记录见 §1「已取消 / 不再立项」）；编号按当前顺序重排（原条目 3 → 2）。
-> 2026-10-19：原「复用审计产出（未立项）」改为编号条目 3「重新审计：本仓插件与官方包的复用关系」—— 旧审计过时（2026-10-02 基线仅入表 22 模块、7 包未审，其后又有新包与变更），原 §4 B / D / E 与 FTS5 观察项并入重审范围。
-> 2026-10-19：新增条目 4「检查官方 deepseek-harness 更新（新 rc 版本与接口约定变动）」—— 用户要求核查官方是否有新 rc 及工具 / 事件 / 服务面约定是否变动。
-> 2026-10-19：接取 4 条并标〔进行中: 2026-10-19〕（background-daemon 真机验证 / 新增定时插件 / 重新审计 / 检查官方更新），每条各一份追踪文档：`docs/implementation/2026-10-19-background-daemon-verification.md` / `2026-10-19-timer-plugin.md` / `2026-10-19-reuse-reaudit.md` / `2026-10-19-dsh-update-check.md`。
-> 2026-10-19：新增条目 5「模型按需检索 notice 历史原文（compaction 后取回）」—— 来源：TUI 任务「允许模型查看 notice 信息」的调研结论（模型实时已可见 notice 原文，缺口仅在压缩出保留尾段后的按需取回；见 `TUI/docs/implementation/2026-10-19-notice-model-view.md`）；按追加顺序编号，待下次整理重排。
-> 2026-10-19：条目「新增定时插件（统一 timer 原语）」完成并关闭（追踪文档归档 `docs/archived/2026-10-19-timer-plugin.md`），条目从本节移除；其余包裸定时器接入统一面记入候选。
-> 2026-10-20：条目「background-daemon 真机验证（已挂载，发现 timer 适配缺陷）」**完成并关闭** —— 追踪文档归档 `docs/archived/2026-10-19-background-daemon-verification.md`；四条端到端真机各一次通过（E1 文本投递 / E2 命令执行 / E3 重启恢复含启动补发复验 / E4 skipped）；E5 `records: memory` 与 tasks.json 多实例共享覆盖按主分支最终裁定**本期不修**，分别登记为新条目 5 / 6，原条目从本节移除。
-> 2026-10-20：新增条目 5「background-daemon E5：memory 底座取不到（严格模式 readService 需可选注入 / 惰性解析）」与条目 6「background-daemon tasks.json 多实例共享整文件覆盖（明确单实例边界或加锁合并）」—— 来源：「background-daemon 真机验证」收尾移入；按追加顺序编号，待下次整理重排。
-> 2026-10-20：接取 —— 条目 3「检查官方 deepseek-harness 更新」由主会话承接（延续其〔进行中〕状态）；条目 5 / 6 按二次裁定绑同一分支（background-daemon）一并接取，修法以条目 5 已丢弃原型为基（可选注入 / 惰性解析），任务表迁 memory（SQLite, 库级锁）后条目 6 覆盖竞态随之消除、验收并入条目 5。
-> 2026-10-20：二次裁定 —— 条目 2「重新审计」与条目 3「检查官方更新」**绑同一任务一并处理**（用户指定）：以条目 3 的最新基线口径（升级则 0.2.1-rc.2）重跑复用审计, 对照记录与审计共用基线。
-> 2026-10-20：条目 2「重新审计：本仓插件与官方包的复用关系」**完成并关闭** —— `ARCHITECTURE-REUSE.md` §0 总表全量 29 行（7 个缺审包补齐），结论分布改用 0 / 保留 21 / 并存 8；§4 的 B 已执行、D / E / FTS5 观察项明示关闭；基线维持 0.2.0-rc.2，升级回查门随升级流程后置（见归档追踪文档）。条目从本节移除。
-
-> 2026-10-20：条目 3「检查官方 deepseek-harness 更新」**完成并关闭** —— 调研产出 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`（官方最新 `0.2.1-rc.2`, 2026-10-17；26 消费包类型名只增无删，`ToolExecution` / `sessions` / `sandboxPolicy.resolve` / `llm` 定点零 diff；1925 提交）；升级裁定与复用审计续作并入条目 2（绑同任务）。条目从本节移除。
-
-> 2026-10-20：条目 5「background-daemon E5：memory 底座取不到（严格模式 readService 需可选注入 / 惰性解析）」与条目 6「background-daemon tasks.json 多实例共享整文件覆盖（明确单实例边界或加锁合并）」**完成并关闭** —— 追踪文档归档 `docs/archived/2026-10-20-bgdaemon-memory-backend.md`：memory 底座经 `ctx.inject` 子分叉晚挂挂载, 任务表迁入 memory(SQLite), tasks.json 停写, 覆盖竞态消除；真实挂载确认通过。条目从本节移除。
-> 2026-10-20：条目「模型按需检索 notice 历史原文（compaction 后取回）」**完成并关闭** —— 承载 TUI 包内, 模型侧工具 `notice_history` 读宿主持久日志（多帧 zstd 解压）按需取回被折叠的 notice 原文（最近 N + `source.kind` 过滤, 会话非法 / 目录未定位 / 日志缺失三态报错, 纯只读不落库）; 追踪文档归档 `docs/archived/2026-10-20-notice-history-query.md`; 真实 fff profile 注册面待主分支合并后复验。条目从本节移除。
-
-> 2026-10-20：条目「agent 状态检查（待机 / 工作 / 卡死, 跨进程状态牌）」**完成并关闭** —— session-channel 发布 / 读数面（dsh/session-channel 分支）+ agent-group 消费端（判据③ + 2b 组长轮询 + close_group, dsh/agent-group 分支）全部落地并随主分支合并; 追踪文档归档 `docs/archived/2026-10-20-agent-status-board.md`; 真机 ≥2 会话四态（待机 / 工作 / 疑似卡死 / 离线）+ 心跳不刷 at + 离线不依赖对端全部通过; 同任务「轮次与终止的三个细节（#4）」按裁定落地组关闭语义, rounds 追踪文档归档 `agent-group/docs/archived/2026-10-19-agent-group-rounds.md`。条目从本节移除。
-
-> 2026-10-20：新增条目 1「工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）」—— 用户提出的新插件构想, 设计讨论中未定稿, 等用户指令继续设计。
-
-> 2026-10-22：新增条目 4「herdr-pane 插件与工具改名」并当日接取; 同日**完成并关闭** —— 包 / 插件 id / 工具 / 目录 / 导出符号均改为 `herdr-use` / `herdr_use` / `HerdrUse*`, 10 个 pane 类动作加 `pane_` 前缀 (tab 三项不变), `PANE_ACTIONS` → `ALL_ACTIONS` + 新增 `TAB_ACTIONS`; 追踪文档归档 `docs/archived/2026-10-22-herdr-use-rename.md`。条目从本节移除。
-> 2026-10-22：接取条目 3「docs/ARCHITECTURE-REUSE.md 的模块口径随 behavior-correction 加包同步」并修正其口径（实为 **31 个包 = TUI + 30 插件**，非「30 个模块」；审计表 29 行缺 `timer` 与 `behavior-correction` 两行）；同日新增并接取条目 4「文档口径与整理遗留同步（TUI#n / 代码注释 / BACKLOG §4 表 / herdr-use 条目）」—— 两条目同一任务处理，追踪文档 `docs/implementation/2026-10-22-docs-consistency.md`。
-> 2026-10-22：条目 3 与条目 4 **完成并关闭**（同一任务）—— 追踪文档归档 `docs/archived/2026-10-22-docs-consistency.md`。结论：`ARCHITECTURE-REUSE.md` 计数改「31 个包 = TUI + 30 插件」、§0 补 `timer`（并存）/ `behavior-correction`（保留）两行（总表 31 行、结论分布 0 / 22 / 9）、§1 / §2 标题与并列述同步、§7 补修订记录；README 双侧审计行同步；`TUI#n` 旧编号全仓清零（DESIGN.md 15 处 + 同类 3 处，共 18 处，改由正文描述承载）；`test-parallel.sh:8` 注释 11 包 → 30 包；`agent-group/src/main.ts` 的 `readService` 注释与 `inject = ["tools"]` 对齐；`docs/BACKLOG.md` §4 未建包表清空；`herdr-use/docs/BACKLOG.md` 已完成条目改关闭注记。证据：`agent-group` check / build 通过且 63 例全绿，全仓 30 包 check 全通过，`TUI#n` 与旧计数 grep 零残留。条目从本节移除（§2 仅剩条目 1 工具咨询插件）。
+> - 知识库 / 记忆：`2026-10-07-knowledge-memory-lifecycle.md`、`2026-10-17-output-compress-scope-handle.md`、`2026-10-20-bgdaemon-memory-backend.md`
+> - 新插件落地：`2026-10-15-md-table-check.md`、`2026-10-16-auto-approval-design.md`、`2026-10-16-script-interpreter-design.md`、`2026-10-19-timer-plugin.md`、`2026-10-21-behavior-correction.md`、`2026-10-22-herdr-use-rename.md`
+> - 审计 / 宿主面：`2026-10-02-reuse-audit.md`、`2026-10-19-reuse-reaudit.md`、`2026-10-02-host-upgrade-0.2.0-rc.2.md`、`2026-10-21-host-upgrade-0.2.1-rc.2.md`
+> - 跨会话与通知：`2026-09-30-cross-session-delegation.md`、`2026-10-20-notice-history-query.md`、`2026-10-20-agent-status-board.md`
+> - 文档与流程：`2026-10-18-plugin-docs-refresh.md`、`2026-10-22-docs-consistency.md`
 
 **1. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 未接取, 等用户指令继续设计。
 
-**后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **文档整理遗留（剩余）**：用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读，需在有写权限的环境执行）。另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-use` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
+**2. `/memory` 的 `replace` 与 `remove` 子命令**（2026-10-22 登记, 来源: 原「后续补条目候选」立项）：**现象 / 现状** —— TUI 的 `/memory` 只有只读面（概要 / `search`；命令描述还写着已移除的 `review` 审阅, 见 `TUI/src/app/commands.ts:319-320`）；memory-base 写侧只经 `registerKind` 句柄（`memory-base/src/scope.ts:46` 的 `forget(refs): Promise<number>`），而 TUI 只持只读 `memory` 面（`TUI/src/main.ts:775-781`），全仓无 `forget` 调用方 → 错误的 U / P 条目没有任何删除路径。**期望** —— 两个子命令：`remove` 删条目、`replace` 先删后写（需定原子性与半途失败回滚）；**先裁定写权归属**：① memory-base 另开一个管理面（不经 kind 句柄），或 ② TUI `registerKind` 一个自己的 kind（语义上不自然）。**落点** —— 先改 memory-base 写面 / 管理面，再改 `TUI/src/app/index.ts` 的 `handleMemoryCommand` 与 `commands.ts` 描述（同步去掉 `review`）；记忆存在 S 层时需按层权限拒绝。**验收** —— 删一条 U / P 条目后 `search` 不可见、计数正确；对不存在的 ref 返回 0；越权（S 层）明确拒绝；包内单测覆盖三条路径。**优先级** —— P2。**状态** —— 未接取。
 
-### 实现顺序（2026-10-18 重排：修复类 > 依赖深度 > 工作量）
+**3. memory-base 的意图 / 多策略混合检索**（2026-10-22 登记, 来源: 原「未立项观察项」立项）：**现象 / 现状** —— memory-base 已有双 FTS5（内容 + 元数据），但只做单语词面匹配：无 BM25 权重、无词项邻近（proximity）排序、无多路结果融合（RRF），长句 / 同义 / 多词查询召回不稳定。**期望** —— 混合检索：FTS5 BM25 + 邻近加权 + RRF 融合；策略经工具参数暴露（如 `mode`）且**缺省保持现有行为**避免回归；上限 / 截断语义沿用现有参数。**落点** —— `memory-base/src` 检索层（FTS 查询与结果合并）、`memory_query` 工具参数、TUI `/memory search` 输出。**验收** —— 一组固定查询 + 期望命中序作夹具，改前 / 改后对比（旧模式不回归）；无命中时行为不变；延迟不超基线约定值。**优先级** —— P2。**状态** —— 未接取。
 
-排序：**先修复类，再按依赖深度升序，同深度按工作量升序**；条目一律按标题引用。
+**4. MCP 脚本化（mcpScript）**（2026-10-22 登记, 来源: 原「未立项观察项」立项；**形态未定**）：**现象 / 现状** —— 宿主有 `dsh-mcp-client`（MCP 客户端桥：连 server 并把工具注册进 `ctx.tools`）与 `dsh-mcp-resources`（作用域化资源发现与读取）；base 只挂了后者（`dsh-base/cordis.patch.yml:492-493`），仓内无 MCP 相关代码。所谓「mcpScript」到底是把 MCP 工具**以脚本方式一次跑多步**（结果结构化回传）还是把 MCP 资源读取脚本化，尚未定义。**期望** —— 先补设计再动手：定清目标场景、与 `script-interpreter` 的关系（扩展它 vs 新包）、是否需要挂 `mcp-client` 与凭据边界。**落点** —— 待设计定稿（候选：新包，或 `script-interpreter` 扩展 + 挂 `mcp-client`）。**验收** —— 待设计定稿后补。**优先级** —— 待定（形态未定）。**状态** —— 未接取，等用户指令继续设计。
 
-| 顺位 | 条目 | 深度 | 工作量 | 前置（顺位） |
+**5. 其余包接入定时器统一面 `clock`**（2026-10-22 登记, 来源: 原「遗留」项立项）：**现象 / 现状** —— `timer` 插件已 `provide` 服务 `clock`（`now` / `schedule` / `interval`，排期随调用方 fiber 卸载撤销、缺省 unref，附手控假时钟 `ManualClock`；见 `timer/README.md`），但下列包仍在用裸定时器：`herdr-integration` 5 处、`herdr-use` 5、`script-interpreter` 2、`rule-engine` 2、`task-engine` 1、`auto-approve` 2、`ast-tools` 1、`command-template` 1（`grep -rn 'setInterval\|setTimeout'` 计数，2026-10-22）；TUI 内部 34 处另有渲染节律，不在本条范围。裸定时器脱离插件生命周期、测试无法注入假时钟。**期望** —— 逐包把可注入的排期换成 `ctx.get("clock")`（服务缺失时退回裸定时器并告警一次）；本期未排期。**落点** —— 上述 8 个包的 `src/` 与各自测试。**验收** —— 每包卸载后无残留排期（用 `ManualClock` 断言）；`check` / `test` 全绿；服务缺失降级用例存在。**优先级** —— P2（逐包小改，量大）。**状态** —— 未接取，本期未排期。
+
+**6. coagent：基于 herdr-use + agent-group + session-channel 拉起并管理 agent、派发任务**（2026-10-22 登记, 来源: 用户构想）：**现象 / 现状** —— 现有的 agent 拉起面都不满足「干净上下文 + 高控制自由度」：`subagent` / `subagent_fork` 在宿主进程内跑，`subagent_fork` 还继承本会话已完成回合的上下文；`channel_delegate` 只能派给**已经在线**的 dsh 会话（要有人先起进程、且不知道它从哪来）；`herdr-use` 能在 pane 里跑任意命令，但它不知道「怎么起一个 agent、怎么认领它、怎么收尾」。三块能力各自齐备却没有人把它们编排成「按需拉起 → 派任务 → 收结果 → 关闭」的生命周期。**期望** —— 新插件（暂名 `coagent`，能力名同）以 herdr-use 为执行底、session-channel 为通信面、agent-group 为编排面，提供：① **拉起**：在 herdr pane 里起 `dsh headless "<task>"`（一次性、跑完打印结果并退出）或长驻交互会话（可 `--resume`）；可指定 profile / cwd / 模型，pane 打 label 归属；② **认领**：经 session-channel `peers`（sessionId / pid / cwd / profile / startedAt）确认新会话上线，或对 headless 直接读退出码 + stdout；③ **派发**：一次性把任务写进命令行；长驻走 `channel_delegate`（任务表 + 结果自动 / 显式回传）；④ **管理**：`state` 查忙闲、`channel_task cancel` 或发 `ctrl+c` 取消、`pane_read` / `pane_send_text` / `pane_send_keys` 观察与补输入、结束 `pane_close`；⑤ **编排**：多 coagent 用 agent-group 的组 / 成员 / 主从等级与懒判定结算；⑥ **与 subagent 的差异（本条核心）**：coagent 是**独立进程 + 全新会话，上下文零继承**（不喂任何父会话历史），换来更高控制自由度（看屏、实时插话、按键中断、独立 profile / 模型、跨 cwd、可并行多实例）。**待定项** —— 一次性与长驻的默认策略（按任务长短自动选？）；结果回收主路径（headless stdout 解析 vs 统一走 session-channel 回传）；`DSH_HOME` 与凭据是否隔离（现在共享 → 权限面放大）；并发上限与 pane 数量治理；失败 / 超时 / 崩溃残留的判定与清理；是否复用 agent-group 的等级语义。**落点** —— 新包 `coagent/`（`package.json` 的 `dsh.bundle` + `cordis.patch.yml`；依赖 herdr-use 库面与 session-channel / agent-group 服务面，缺任一服务时降级并如实报错），工具 `coagent`（action 分派：`spawn` / `list` / `send` / `wait` / `cancel` / `close`），profile 挂载与 README / DESIGN。**验收** —— 真机跑通「拉起 → 派任务 → 收结果 → 关闭」全链；验证上下文干净（coagent 会话里看不到父会话任何历史）；并行 2 个 coagent 且能单独取消；崩溃 / 超时后无残留 pane；单测用 fake pane + fake channel 覆盖六类失败路径。**优先级** —— P1（新能力，直接补足「干净上下文 agent」缺口）。**状态** —— 未接取，设计待细化（先与用户对齐待定项再动手）。
+
+**未立项观察项**：活动工具交互管理（暂不立项, 作为后续可选项）。
+
+### 实现顺序与并行分组（2026-10-22 按「可并行」重排；组内按工作量升序）
+
+**分组口径**: 同组条目改同一批文件（或同一包）, 组内**串行**; 不同组之间文件不重叠, 可**并行**开工。条目一律按标题引用, TUI 条目见 `TUI/docs/BACKLOG.md`。工作量 = 单线程人日（含测试与文档）。
+
+| 组 | 顺位 | 条目 | 工作量 | 组内串行原因（同文件 / 同包） |
 | --- | --- | --- | --- | --- |
+| A 渲染线 | A1 | `#3 代码块 \t 展开 4 空格 + 底色填满`（TUI） | 约 0.5 天 | `layout/build-box.ts`、`layout/markdown.ts` |
+| A 渲染线 | A2 | `#5 用户块折行后右侧大片留白`（TUI） | 约 0.5 至 1 天 | `layout/build-box.ts`、`layout/fill.ts`、`content-rules.ts` |
+| A 渲染线 | A3 | `#4 表格与正文内容不一致`（TUI） | 约 1 天（调研为主） | `layout/build-box.ts`、`layout/table.ts` |
+| B 运行时线 | B1 | `#2 给 TUI 接 config-editor`（TUI） | 约 1 天 | `TUI/src/main.ts`、`app/index.ts` |
+| B 运行时线 | B2 | `#1 非 TUI 行的 HMR 重载不退出会话`（TUI） | 约 1 至 1.5 天 | `TUI/src/main.ts`、`renderer/` |
+| C 记忆线 | C1 | `2. /memory 的 replace 与 remove 子命令`（项目级） | 约 1 至 2 天 | `memory-base/src`（写面） |
+| C 记忆线 | C2 | `3. memory-base 意图 / 多策略混合检索`（项目级） | 约 2 至 3 天 | `memory-base/src`（检索层） |
+| D 新包线 | D1 | `6. coagent`（项目级） | 约 3 至 4 天 | 根 `package.json`、`AGENTS.md`、根 README、profile 挂载 |
+| D 新包线 | D2 | `1. 工具咨询插件`（项目级） | 约 3 至 5 天 | 同上（且设计未定稿） |
+| D 新包线 | D3 | `4. MCP 脚本化`（项目级） | 未定（估计 ≥ 5 天） | 同上（形态未定）; 若选扩展 `script-interpreter` 则与 E 组冲突 |
+| E 定时器线 | E1 | `5. 其余包接入定时器统一面 clock`（项目级） | 约 1.5 至 2 天 | 8 个包的 `src/` 与各自测试 |
 
-单线程约 **0.5 至 1 天**（本条待估）。
+**并行上限**: A / B / C / E 四条线可同时起; D 线本体也能并行, 但根 `package.json`、`AGENTS.md`、根 README 与 profile 挂载四处必须排队, 故 D 线同时最多 1 条。
+**线内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: TUI `#1`、TUI `#4`、项目级 `6. coagent`）; 表内顺序只表示同组「谁先动手最省事」。
 
 ## 3. 里程碑
 
