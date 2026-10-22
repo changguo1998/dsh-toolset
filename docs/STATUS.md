@@ -22,7 +22,7 @@
 | 插件 | 状态 | 说明 | 单测 |
 | --- | --- | --- | --- |
 | herdr-integration | 完成 | herdr 面板桥：agent 状态上报 + ask-user / approval / turn 三类 blocked 事件桥接; seq 闸门 + 周期重发 | 49 |
-| herdr-pane | 完成 | 把 herdr pane 当可控伪终端层（13 个动作 + `herdr_pane` 工具 + 库面; 新增 tab 三动作与会话 ↔ workspace 内部绑定; CLI 为主, `read` / `stable` 走 socket） | 155 |
+| herdr-use | 完成 | 把 herdr pane / tab 当可控伪终端层（13 个动作：pane 类 `pane_*` 前缀 + tab 三动作; 工具 `herdr_use` + 库面 `HerdrUse*`; 会话 ↔ workspace 内部绑定; CLI 为主, `pane_read` / `stable` 走 socket） | 156 |
 | task-engine | 完成 | Frame 状态机、`decompose` / `implement` / `execute` / `stop` / `status` 工具族、双重门禁、RET 三级路由、fan-out 就绪池、叶子执行后端 | 136 |
 | session-paths | 完成 | 复刻宿主会话目录编码（`encodeSegment` / `projectKey` / `projectDir` / `sessionDir`）, 以 `sessionPaths` 服务供各包共用 | 24 |
 | memory-base | 完成 | 分层记忆存储：S / P / U 每层一个 SQLite 库 + 每分类双 FTS5 索引; 存储面（作用域句柄）与只读工具 `memory_query` | 61 |
