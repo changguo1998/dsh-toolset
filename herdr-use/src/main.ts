@@ -41,11 +41,14 @@ import type { GuardChecker, SandboxModeReader } from "./policy.ts";
 import { PaneRegistry, createExitCleanup } from "./registry.ts";
 import type { ExitCleanup } from "./registry.ts";
 import {
+  createNetConnector,
   createPaneReader,
+  createTimersClock,
   defaultHerdrSocketPath,
   realClock,
 } from "./socket.ts";
 import type { Clock, PaneReader, SocketConnector } from "./socket.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
 import { createHerdrUseTool, TOOL_NAME } from "./tools.ts";
 import { ALL_ACTIONS, resolveConfig } from "./types.ts";
 import type {
@@ -101,6 +104,8 @@ export interface HerdrUseDeps {
   sandboxMode?: SandboxModeReader;
   /** 环境变量（缺省 `process.env`）。 */
   env?: NodeJS.ProcessEnv;
+  /** 告警出口（缺省写 stderr；单测用记录器）。 */
+  warn?: (message: string) => void;
 }
 
 /** 插件句柄。 */
@@ -265,9 +270,11 @@ export function createHerdrPlugin(
   config: HerdrUseConfig = {},
   deps: HerdrUseDeps = {},
 ): HerdrUseHandle | undefined {
-  const warn = (message: string): void => {
-    process.stderr.write(`[${name}] warn: ${message}\n`);
-  };
+  const warn =
+    deps.warn ??
+    ((message: string): void => {
+      process.stderr.write(`[${name}] warn: ${message}\n`);
+    });
   const env = deps.env ?? process.env;
   const readHandshake = deps.readHandshake ?? readHerdrHandshake;
   const handshake = readHandshake(env);
@@ -303,13 +310,17 @@ export function createHerdrPlugin(
 
   // 工具面与库面共用同一份依赖（真机脚本 / 编排类插件可拿 handle.deps 复调）
   const registry = new PaneRegistry(resolved.label);
-  const runner = deps.runner ?? createDefaultRunner(handshake.binPath);
+  // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+  // 操作级超时（CLI / socket）走 deadline（卸载时立即收尾）；判稳 sleep 用 detached 排期器
+  // （被卸载撤销会让等待的 Promise 永不结算）。
+  const timers = resolveClock(ctx, warn);
+  const deadline = createDeadline(timers.scoped, ctx);
+  const runner =
+    deps.runner ?? createDefaultRunner(handshake.binPath, deadline);
+  const connector = deps.connector ?? createNetConnector(deadline);
   const reader =
     deps.reader ??
-    createPaneReader(
-      { socketPath, timeoutMs: resolved.timeoutMs },
-      deps.connector,
-    );
+    createPaneReader({ socketPath, timeoutMs: resolved.timeoutMs }, connector);
   const guardCheck: GuardChecker =
     deps.guardCheck ?? makeGuardChecker(ctx, warn);
   const sandboxMode: SandboxModeReader =
@@ -327,7 +338,11 @@ export function createHerdrPlugin(
       : { callerTabId: handshake.callerTabId }),
     guardCheck,
     ...(deps.clock === undefined
-      ? { clock: realClock }
+      ? {
+          clock: timers.fromClock
+            ? createTimersClock(timers.detached)
+            : realClock,
+        }
       : { clock: deps.clock }),
   };
   const tool = createHerdrUseTool(dispatchDeps);

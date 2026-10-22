@@ -16,6 +16,8 @@ import { appendFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { Deadline } from "./timers.ts";
+
 /** 进程组清理宽限期（毫秒）：`SIGTERM` 后等这么久再 `SIGKILL`。 */
 export const KILL_GRACE_MS = 1_000;
 
@@ -210,6 +212,11 @@ export interface RunOptions {
   readonly spill?: SpillSink;
   /** 会话 id（决定落盘分桶）。 */
   readonly sessionId?: string;
+  /**
+   * 超时排期（缺省进程内 `setTimeout`）。统一面可用时由插件装配期注入：到点按超时收尾，
+   * 插件卸载时立即按超时收尾（不再排 1 s 宽限），避免在途脚本悬挂。
+   */
+  readonly deadline?: Deadline;
 }
 
 /** 一次执行的结果（进程层事实；围栏判定在 tools.ts 里叠加）。 */
@@ -298,8 +305,19 @@ export async function runScript(options: RunOptions): Promise<RunOutcome> {
     let spawned = false;
     let timedOut = false;
     let spawnError: string | undefined;
-    let timeoutTimer: NodeJS.Timeout | undefined;
-    const timers: NodeJS.Timeout[] = [];
+    const cancels: Array<() => void> = [];
+
+    /** 排期一个收尾动作：统一面可用时走 deadline（卸载即收尾），否则回落进程内定时器。 */
+    const schedule = (
+      delayMs: number,
+      fire: (reason: "timeout" | "unload") => void,
+    ): (() => void) => {
+      if (options.deadline !== undefined) {
+        return options.deadline(delayMs, fire);
+      }
+      const timer = setTimeout(() => fire("timeout"), delayMs);
+      return () => clearTimeout(timer);
+    };
 
     /** 按进程组发信号；组不存在时退回单进程（进程可能已退出）。 */
     const killGroup = (signal: NodeJS.Signals): void => {
@@ -320,11 +338,14 @@ export async function runScript(options: RunOptions): Promise<RunOutcome> {
       }
     };
 
-    /** SIGTERM → 宽限 1s → SIGKILL。 */
-    const terminate = (): void => {
+    /** SIGTERM → 宽限 1s → SIGKILL；卸载路径直接 SIGKILL（不留宽限排期）。 */
+    const terminate = (onUnload = false): void => {
+      if (onUnload) {
+        killGroup("SIGKILL");
+        return;
+      }
       killGroup("SIGTERM");
-      const timer = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
-      timers.push(timer);
+      cancels.push(schedule(KILL_GRACE_MS, () => killGroup("SIGKILL")));
     };
 
     /** 取消信号：与超时同一条终止路径。 */
@@ -336,8 +357,7 @@ export async function runScript(options: RunOptions): Promise<RunOutcome> {
     const finish = (code: number | null, signal: string | null): void => {
       if (settled) return;
       settled = true;
-      if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
-      for (const timer of timers) clearTimeout(timer);
+      for (const cancel of cancels.splice(0)) cancel();
       options.signal?.removeEventListener("abort", onAbort);
       void (async () => {
         const stdout = await captureOut.finish();
@@ -383,12 +403,15 @@ export async function runScript(options: RunOptions): Promise<RunOutcome> {
       child.stdin.end(options.script);
     }
 
-    timeoutTimer = setTimeout(
-      () => {
+    cancels.push(
+      schedule(Math.max(1, Math.floor(options.timeoutMs)), (reason) => {
+        if (reason === "unload") {
+          terminate(true);
+          return;
+        }
         timedOut = true;
         terminate();
-      },
-      Math.max(1, Math.floor(options.timeoutMs)),
+      }),
     );
 
     if (options.signal?.aborted === true) {

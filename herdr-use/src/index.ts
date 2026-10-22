@@ -56,6 +56,7 @@ export type {
 export {
   createNetConnector,
   createPaneReader,
+  createTimersClock,
   defaultHerdrSocketPath,
   interpretReadResponse,
   nextRequestId,

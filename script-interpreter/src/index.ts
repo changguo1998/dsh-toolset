@@ -21,6 +21,7 @@ import { pythonBackend } from "./langs/python.ts";
 import { shBackend } from "./langs/sh.ts";
 import { probeInterpreter } from "./probe.ts";
 import { SpillStore } from "./run.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
 import { createScriptRunTool } from "./tools.ts";
 import type { ToolHost, ToolSettings } from "./tools.ts";
 import type {
@@ -285,6 +286,17 @@ export function apply(
       ? {}
       : { pythonPath: settings.pythonPath }),
   };
+  // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+  // 超时排期走 deadline：到点按超时收尾，插件卸载时立即按超时收尾（不排宽限）。
+  const warn = (message: string): void => {
+    if (logger?.warn !== undefined) {
+      logger.warn(message);
+      return;
+    }
+    process.stderr.write(`[${name}] warn: ${message}\n`);
+  };
+  const timers = resolveClock(ctx, warn);
+  const deadline = createDeadline(timers.scoped, ctx);
   const host: ToolHost = {
     ...(sandbox === undefined ? {} : { sandbox }),
     ...(sandboxPolicy === undefined ? {} : { sandboxPolicy }),
@@ -296,6 +308,7 @@ export function apply(
       languages: enabled,
       spill: new SpillStore(settings.spillPrefix),
       host,
+      deadline,
     }),
   );
   logger?.info(

@@ -80,6 +80,11 @@ export function buildInjectionMessage(
 export interface InjectorOptions {
   /** 推迟毫秒数，缺省 0（一个宏任务）；测试可显式传。 */
   delayMs?: number;
+  /**
+   * 推迟一个宏任务的排期器（缺省进程内 `setTimeout`）。装配期由 `apply` 注入定时器统一面
+   * 的排期器：插件卸载时排期随 fiber 撤销（`session/event` 派发窗口内不再回调宿主）。
+   */
+  schedule?: (delayMs: number, callback: () => void) => () => void;
   /** 告警出口，缺省写 stderr。 */
   warn?: (message: string) => void;
 }
@@ -101,11 +106,17 @@ export function createAgentInjector(
 ): Injector {
   const warn = options.warn ?? defaultWarn;
   const delayMs = options.delayMs ?? 0;
+  const schedule =
+    options.schedule ??
+    ((ms: number, callback: () => void): (() => void) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    });
   return {
     inject(request: InjectionRequest): void {
-      setTimeout(() => {
+      schedule(delayMs, () => {
         deliver(host, request, warn);
-      }, delayMs);
+      });
     },
   };
 }

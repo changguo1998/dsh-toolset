@@ -31,6 +31,8 @@ import type {
   SessionRef,
 } from "./herdr.ts";
 import { BlockTracker, COMPACTING_MESSAGE, desiredState } from "./state.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
+import type { Deadline } from "./timers.ts";
 
 /** 根 agent 结构面（只消费 session.id 与 status）。 */
 export interface RootAgentLike {
@@ -77,6 +79,8 @@ export interface HerdrPluginDeps {
   readHerdrEnv?: (env: NodeJS.ProcessEnv) => HerdrClientOptions | undefined;
   /** 替代 agents 注册表读取（单测用） */
   readRoots?: () => RootAgentLike[];
+  /** 告警出口（缺省写 stderr；单测用记录器） */
+  warn?: (message: string) => void;
 }
 
 export interface HerdrPluginHandle {
@@ -120,6 +124,15 @@ export function createHerdrPlugin(
   const clientOptions = readEnv(process.env);
   if (!clientOptions) return undefined;
 
+  // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+  const warn =
+    deps.warn ??
+    ((message: string): void => {
+      process.stderr.write(`[herdr-integration] warn: ${message}\n`);
+    });
+  const timers = resolveClock(ctx, warn);
+  const deadline: Deadline = createDeadline(timers.scoped, ctx);
+
   const sender: HerdrSender =
     deps.sender ??
     new HerdrClient({
@@ -128,6 +141,7 @@ export function createHerdrPlugin(
       agent: config.agent ?? clientOptions.agent,
       attemptTimeoutMs:
         config.attemptTimeoutMs ?? clientOptions.attemptTimeoutMs,
+      deadline,
     });
 
   const readRoots: () => RootAgentLike[] =
@@ -322,14 +336,15 @@ export function createHerdrPlugin(
   // 同态判断，payload 与会话引用随当前 state 走）。
   // 补发只用一条两行 JSON 的独立连接，周期内开销可忽略；refreshIntervalMs: 0 关闭。
   const refreshIntervalMs = config.refreshIntervalMs ?? 20_000;
-  const refreshTimer =
+  // 周期排期走定时器统一面（`clock`，带 unref、随本插件 fiber 卸载撤销；未挂载时回落
+  // 进程内定时器）。补发不拖住进程退出（TUI 的 /quit 走 process.exit，兜底 release 由
+  // exit 回调负责）。
+  const stopRefresh =
     refreshIntervalMs > 0
-      ? setInterval(() => {
+      ? timers.scoped.interval(refreshIntervalMs, () => {
           publish(true);
-        }, refreshIntervalMs)
+        })
       : undefined;
-  // 定时器不拖住进程退出（TUI 的 /quit 走 process.exit，兜底 release 由 exit 回调负责）
-  refreshTimer?.unref?.();
 
   // 进程退出兜底：dsh 的 TUI 退出路径（/quit → process.exit）不会触发 cordis
   // 插件 dispose，且 exit 回调内异步 socket 无法送达——用同步子进程写 release，
@@ -347,8 +362,8 @@ export function createHerdrPlugin(
         }
       }
       process.removeListener("exit", onExit);
-      if (refreshTimer) {
-        clearInterval(refreshTimer);
+      if (stopRefresh) {
+        stopRefresh();
       }
       // 退出/卸载时释放 herdr pane 的 agent authority，避免 dsh 退出后
       // herdr 面板仍显示本 agent（release 带递增 seq，覆盖宿主 seq 门控）

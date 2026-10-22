@@ -26,5 +26,8 @@
         "demo",
         "tests",
         "index.ts"
+    ],
+    "exclude": [
+        "tests/clock.test.ts"
     ]
 }

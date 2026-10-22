@@ -22,6 +22,7 @@ import { join } from "node:path";
 
 import type { ParsedEnvelope } from "./cli.ts";
 import { parseEnvelope } from "./cli.ts";
+import type { Deadline, TimersLike } from "./timers.ts";
 import type { ReadFormat, ReadSource } from "./types.ts";
 
 /**
@@ -132,7 +133,7 @@ export function nextRequestId(now: number = Date.now()): string {
  * 缺省连接器：`net.createConnection` → 写一行 → 收到含换行的完整响应即关闭。
  * 超时 / 连接失败 / 对端提前关闭都归一为非 data 的响应，不抛错。
  */
-export function createNetConnector(): SocketConnector {
+export function createNetConnector(deadline?: Deadline): SocketConnector {
   return {
     request(
       socketPath: string,
@@ -142,16 +143,26 @@ export function createNetConnector(): SocketConnector {
       return new Promise<SocketResponse>((resolve) => {
         let buffer = "";
         let settled = false;
+        let cancelTimer: (() => void) | undefined;
         const socket = net.createConnection(socketPath);
         const finish = (response: SocketResponse): void => {
           if (settled) return;
           settled = true;
-          clearTimeout(timer);
+          cancelTimer?.();
           socket.destroy();
           resolve(response);
         };
-        const timer = setTimeout(() => finish({ kind: "timeout" }), timeoutMs);
-        timer.unref?.();
+        // 读超时走定时器统一面（可注入假时钟；插件卸载时立即按超时收尾）。
+        if (deadline !== undefined) {
+          cancelTimer = deadline(timeoutMs, () => finish({ kind: "timeout" }));
+        } else {
+          const timer = setTimeout(
+            () => finish({ kind: "timeout" }),
+            timeoutMs,
+          );
+          timer.unref?.();
+          cancelTimer = () => clearTimeout(timer);
+        }
         socket.on("error", (error: Error) =>
           finish({ kind: "error", message: error.message }),
         );
@@ -313,6 +324,20 @@ export const realClock: Clock = {
       timer.unref?.();
     }),
 };
+
+/**
+ * 由定时器统一面造的时钟（判稳读钟与 sleep 同源，假时钟一次注入即可驱动两者）。
+ * 用不绑定 fiber 的排期器：判稳中的 sleep 被卸载撤销会让等待的 Promise 永不结算。
+ */
+export function createTimersClock(timers: TimersLike): Clock {
+  return {
+    now: () => timers.now(),
+    sleep: (ms: number) =>
+      new Promise<void>((resolve) => {
+        timers.schedule(ms, resolve);
+      }),
+  };
+}
 
 /**
  * 静默判定（`wait` 的 stable 模式）：反复 `pane.read`，相邻两次 `revision` 相同即判稳；

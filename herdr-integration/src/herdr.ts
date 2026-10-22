@@ -16,6 +16,8 @@
 import net from "node:net";
 import { spawnSync } from "node:child_process";
 
+import type { Deadline } from "./timers.ts";
+
 /**
  * 同步发送的内联子进程脚本（process 退出回调里已无异步事件循环，需 fork 子进程
  * 完成 unix socket connect+write；argv[1]=socket 路径，argv[2]=报文）。
@@ -48,6 +50,8 @@ export interface HerdrClientOptions {
   agent: string;
   /** 首档发送尝试的等待响应超时 ms（默认 500） */
   attemptTimeoutMs?: number;
+  /** 超时排期（缺省进程内 `setTimeout`；插件装配时注入定时器统一面） */
+  deadline?: Deadline;
 }
 
 /** 可注入的发送面（插件只依赖此接口，便于单测注入记录器）。 */
@@ -110,12 +114,14 @@ export class HerdrClient implements HerdrSender {
   private readonly source: string;
   private readonly agent: string;
   private readonly attemptTimeoutMs: number;
+  private readonly deadline: Deadline | undefined;
 
   constructor(options: HerdrClientOptions) {
     this.paneId = options.paneId;
     this.source = options.source;
     this.agent = options.agent;
     this.attemptTimeoutMs = options.attemptTimeoutMs ?? 500;
+    this.deadline = options.deadline;
     this.socketEndpoint =
       process.platform === "win32"
         ? `\\\\.\\pipe\\${options.socketPath}`
@@ -259,13 +265,11 @@ export class HerdrClient implements HerdrSender {
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       let done = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      let cancel: (() => void) | undefined;
       const finish = (delivered: boolean): void => {
         if (done) return;
         done = true;
-        if (timer) {
-          clearTimeout(timer);
-        }
+        cancel?.();
         socket.destroy();
         resolve(delivered);
       };
@@ -275,8 +279,14 @@ export class HerdrClient implements HerdrSender {
       socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
       socket.on("data", () => finish(true));
       socket.on("end", () => finish(false));
-      timer = setTimeout(() => finish(false), timeoutMs);
-      timer.unref?.();
+      // 走定时器统一面（可注入假时钟）；未注入时回落进程内 `setTimeout`。
+      if (this.deadline !== undefined) {
+        cancel = this.deadline(timeoutMs, () => finish(false));
+      } else {
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        timer.unref?.();
+        cancel = () => clearTimeout(timer);
+      }
     });
   }
 }

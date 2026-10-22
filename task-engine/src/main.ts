@@ -33,6 +33,8 @@ import {
 import { createTools, type TaskToolDef, type ToolExecuteCtx } from "./tools.ts";
 import { validateIsolateId } from "./gate.ts";
 import type { AuditRequest, AuditVerdict } from "./acceptance.ts";
+import { createDeadline, resolveClock } from "./timers.ts";
+import type { Deadline } from "./timers.ts";
 import type {
   Acceptance,
   AcceptanceLevel,
@@ -333,6 +335,8 @@ export async function runChildOnce(
     resolve<T>(name: string): T | undefined;
     agent?: unknown;
     warn(message: string): void;
+    /** 超时排期（缺省进程内 `setTimeout`；装配期注入统一面，卸载时立即按超时收尾）。 */
+    deadline?: Deadline;
   },
   req: {
     label: string;
@@ -392,10 +396,17 @@ export async function runChildOnce(
   // 低频，但一个任务至少有 entail + audit 两次，逐次打会刷屏
   let timedOut = false;
   const controller = new AbortController();
-  const timer = setTimeout(() => {
+  const onTimeout = (): void => {
     timedOut = true;
     controller.abort();
-  }, timeoutMs);
+  };
+  // 超时走定时器统一面（可注入假时钟；卸载即按超时收尾，不让 run 悬挂）。
+  const cancelDeadline =
+    opts.deadline === undefined
+      ? undefined
+      : opts.deadline(timeoutMs, onTimeout);
+  const timer =
+    opts.deadline === undefined ? setTimeout(onTimeout, timeoutMs) : undefined;
   try {
     // 请求构造：`withFilter` 为 false 时**不带** toolFilter（降级 / 重试路径共用）
     const buildRequest = (
@@ -510,7 +521,8 @@ export async function runChildOnce(
         : { structured: result.structured }),
     };
   } finally {
-    clearTimeout(timer);
+    cancelDeadline?.();
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -737,6 +749,8 @@ interface ExecutorWireOptions {
    * 共用同一个标志，避免两侧各打一条。
    */
   onFilterDegraded?: (who: string) => void;
+  /** 超时排期（缺省进程内 `setTimeout`；装配期注入统一面，卸载即按超时收尾）。 */
+  deadline?: Deadline;
   /** 当前工具调用所属 agent（subagent 的 parent / workflow 的 parent） */
   agent?: unknown;
   warn(message: string): void;
@@ -1573,6 +1587,11 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   if (toolsSvc === undefined || typeof toolsSvc.register !== "function") {
     warn("ctx.tools 不可用，跳过工具注册");
   }
+  // 定时器统一面（可选服务）：装配期解析一次；缺失时回落进程内定时器并只告警一次。
+  // 超时排期同时覆盖 executor 的 subagent run 与 audit / entail 裁决 run：
+  // 到点按超时中止，插件卸载时立即按超时收尾（不在途悬挂）。
+  const timers = resolveClock(ctx, warn);
+  const deadline = createDeadline(timers.scoped, ctx);
 
   // 审批服务（可选）：human 级验收经 ctx.approval.request，fail-closed
   const approval: ApprovalLike | undefined = (
@@ -1676,7 +1695,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     }
     const audit: (req: AuditRequest) => Promise<AuditVerdict> = async (req) => {
       const out = await runChildOnce(
-        { resolve, agent: parent, warn },
+        { resolve, agent: parent, warn, deadline },
         {
           label: `task:audit:${req.frame}`,
           prompt: auditPrompt(req),
@@ -1710,7 +1729,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     };
     const entail: EntailHook = async (parentFrame, children) => {
       const out = await runChildOnce(
-        { resolve, agent: parent, warn },
+        { resolve, agent: parent, warn, deadline },
         {
           label: `task:entail:${parentFrame.id}`,
           prompt: entailPrompt(
@@ -1774,6 +1793,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         ...(agent === undefined ? {} : { agent }),
         ownToolNames: () => ownToolNames,
         onFilterDegraded: warnFilterDegradedOnce,
+        deadline,
         warn,
       });
     },

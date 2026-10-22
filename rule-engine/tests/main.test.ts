@@ -93,6 +93,24 @@ function fakeCtx() {
               key === "inbox" ? inbox : undefined,
           };
         }
+        // 定时器统一面：假宿主提供 clock，避免每次装配都走回落告警（回落路径由
+        // tests/clock.test.ts 专门覆盖）。
+        if (name === "clock") {
+          return {
+            now: () => Date.now(),
+            scope: () => ({
+              now: () => Date.now(),
+              schedule: (delayMs: number, callback: () => void) => {
+                const timer = setTimeout(callback, delayMs);
+                return () => clearTimeout(timer);
+              },
+              interval: (delayMs: number, callback: () => void) => {
+                const timer = setInterval(callback, delayMs);
+                return () => clearInterval(timer);
+              },
+            }),
+          };
+        }
         return undefined;
       },
       agents: {
