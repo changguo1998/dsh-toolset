@@ -115,6 +115,9 @@ test("工具定义: 名称、必填 action、十三动作枚举与关键参数�
     /pane_create 在本会话 workspace 的活动 pane 上切兄弟 pane/,
   );
   assert.match(def.description, /tab_create/);
+  assert.match(def.description, /新 tab 自带 root pane/);
+  assert.match(def.description, /无需再 pane_create/);
+  assert.match(def.description, /刚建完 tab 时不必调用/);
   assert.match(def.description, /tab_close/);
 });
 
@@ -314,7 +317,7 @@ test("render: tab_list / tab_create / tab_close 各自要点明结果与登记�
   );
   assert.match(
     created,
-    /已建 tab wT1:t2（pane=wT1:p2，label=dsh-pane，cwd=\/tmp\/proj）/,
+    /已建 tab wT1:t2，自带 root pane wT1:p2（即回执的 pane_id，可直接对其 pane_run \/ pane_send_text \/ pane_read，无需再 pane_create；label=dsh-pane，cwd=\/tmp\/proj）/,
   );
 
   const closed = renderHerdrUse(

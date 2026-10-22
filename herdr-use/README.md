@@ -10,9 +10,9 @@ DSH（DeepSeek Harness）进程内集成插件：把 **herdr 的 pane / tab 当�
 
 | 动作 | 作用 | 通道 | 必填 | 参数 |
 | --- | --- | --- | --- | --- |
-| `pane_create` | 在**本会话 workspace 的活动 pane** 上切兄弟 pane（缺省按该 pane 宽高选 `right` / `down`，`--no-focus` 不抢焦点，成功自动打 label） | CLI `pane split` | 无 | `direction?`（`right` / `down`）· `cwd?`（缺省会话工作目录）· `label?`（缺省配置 `label`） |
+| `pane_create` | 在**本会话 workspace 的活动 pane** 上切兄弟 pane（缺省按该 pane 宽高选 `right` / `down`，`--no-focus` 不抢焦点，成功自动打 label；刚建完 tab 时不必调用，tab 自带 root pane） | CLI `pane split` | 无 | `direction?`（`right` / `down`）· `cwd?`（缺省会话工作目录）· `label?`（缺省配置 `label`） |
 | `pane_list` | 列全部 pane 摘要 + 本插件登记标记（可跨 workspace 观察，不回传 workspace 面） | CLI `pane list` | 无 | 无 |
-| `tab_create` | 在**本会话 workspace** 建 tab（`--no-focus`），返回 `tab_id` 与该 tab 的 root pane | CLI `tab create` | 无 | `cwd?`（缺省会话工作目录）· `label?`（缺省配置 `label`） |
+| `tab_create` | 在**本会话 workspace** 建 tab（`--no-focus`）；新 tab 自带 root pane——返回的 `pane_id` 即该 pane，可直接 `pane_run` / `pane_send_text` / `pane_read`，无需再 `pane_create` | CLI `tab create` | 无 | `cwd?`（缺省会话工作目录）· `label?`（缺省配置 `label`） |
 | `tab_list` | 列本会话 workspace 的 tab + 本插件登记标记 | CLI `tab list` | 无 | 无 |
 | `tab_close` | 关闭本插件用 `tab_create` 建出并登记的 tab（跨 workspace / 未登记一律拒） | CLI `tab close` | `tab_id` | — |
 | `pane_read` | 取屏，回执带 `revision` / `truncated` | **socket** `pane.read` | `pane_id` | `source?`（缺省 `recent-unwrapped`）· `lines?`（缺省 120）· `format?`（缺省 `text`） |

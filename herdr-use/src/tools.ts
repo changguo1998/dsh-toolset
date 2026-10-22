@@ -161,7 +161,7 @@ export function renderHerdrUse(
     );
   } else if (action === "tab_create") {
     lines.push(
-      `herdr_use tab_create：已建 tab ${String(payload.tab_id)}（pane=${String(payload.pane_id)}，label=${String(payload.label)}，cwd=${String(payload.cwd)}）`,
+      `herdr_use tab_create：已建 tab ${String(payload.tab_id)}，自带 root pane ${String(payload.pane_id)}（即回执的 pane_id，可直接对其 pane_run / pane_send_text / pane_read，无需再 pane_create；label=${String(payload.label)}，cwd=${String(payload.cwd)}）`,
     );
   } else if (action === "tab_close") {
     lines.push(
@@ -277,8 +277,10 @@ export function createHerdrUseTool(deps: DispatchDeps): HerdrUseToolDef {
       "一条命令能跑完的（收退出码 / stdout）用宿主 bash 工具即可，不用本工具。" +
       "通道：pane_read 与 pane_wait 的 stable 模式走 herdr socket（能拿到 revision / truncated），其余走 herdr CLI。" +
       "动作：pane_create 在本会话 workspace 的活动 pane 上切兄弟 pane（缺省按该 pane 宽高选 right / down，" +
-      "--no-focus 不抢焦点，cwd 缺省会话工作目录）；pane_list 列全部 pane 与本插件登记标记；" +
-      "tab_create 在本会话 workspace 建 tab（返回 tab_id 与 root pane）；tab_list 列本会话 workspace 的 tab；" +
+      "--no-focus 不抢焦点，cwd 缺省会话工作目录；刚建完 tab 时不必调用，tab 自带 root pane）；" +
+      "pane_list 列全部 pane 与本插件登记标记；" +
+      "tab_create 在本会话 workspace 建 tab（新 tab 自带 root pane，回执的 pane_id 即该 pane，可直接" +
+      " pane_run / pane_send_text / pane_read 等，无需再 pane_create）；tab_list 列本会话 workspace 的 tab；" +
       "tab_close 关闭本插件登记过的 tab；" +
       "pane_read 取屏（缺省 source=recent-unwrapped、lines=120、剥 ANSI；TUI 类程序用 visible）；" +
       "pane_wait 等输出（match 字面量 / regex 正则 / stable 静默判稳，三选一）；" +
