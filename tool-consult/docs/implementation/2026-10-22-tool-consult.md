@@ -13,7 +13,7 @@
 1. 向该代理的**自身作用域**注册常驻咨询工具 `consult_tools`（自身层注册不受遮罩影响，故永远可见）；
 2. 用**一条可替换的 allow 遮罩**（宿主 `tools.restrict`）把其余工具收进「按需揭示」集合，缺省只留 8 个核心工具。
 
-模型用一句话描述需求调用 `consult_tools`，插件用本地关键词索引（BM25 + 中文二元组 + 别名表）返回匹配工具的名称与一句话简述，并把这些工具加入可见集。**揭示作用域可配置**：`revealScope: "session"`（缺省）指一次揭示整个会话可用、`turn/end` 不收回、`maxRevealed` 作新增揭示硬上限；`revealScope: "turn"` 指揭示只在本回合有效、`turn/end` 按 LRU 收回并支持 `ttlTurns`。逐次调用可用 `scope` 覆盖，优先级为逐次参数 > 插件配置 > 缺省 `session`。揭示在下一次请求装配时生效（宿主自己会为工具面变化追加 `request/header` 与 `tool-addition` 公告，插件不注入消息），同回合内调不到刚揭示的工具。被遮罩的工具若仍被调用，返回一条可行动文案（先咨询再调用），而不是裸的 unknown tool。任一步失败（服务缺失 / 无会话作用域 / 名称失配 / 重名）都**降级为不遮罩**，咨询工具仍可用，会话不中断。
+模型用一句话描述需求调用 `consult_tools`，插件用本地关键词索引（BM25 + 中文二元组 + 别名表）返回匹配工具的名称与一句话简述，并把这些工具加入可见集。**揭示作用域可配置**：`revealScope: "session"`（缺省）指一次揭示整个会话可用、`turn/end` 不收回、`maxRevealed` 作新增揭示硬上限；`revealScope: "turn"` 指揭示只在本回合有效、`turn/end` 按 LRU 收回并支持 `ttlTurns`（可用 `pin` 钉住少数跨回合仍要用的工具，受 `maxPinned` 限制）。逐次调用可用 `scope` 覆盖，优先级为逐次参数 > 插件配置 > 缺省 `session`。揭示在下一次请求装配时生效（宿主自己会为工具面变化追加 `request/header` 与 `tool-addition` 公告，插件不注入消息），同回合内调不到刚揭示的工具。被遮罩的工具若仍被调用，返回一条可行动文案（先咨询再调用），而不是裸的 unknown tool。任一步失败（服务缺失 / 无会话作用域 / 名称失配 / 重名）都**降级为不遮罩**，咨询工具仍可用，会话不中断。
 
 一句话：**遮罩用 `tools.restrict` 单条替换，揭示作用域两档可配（session 缺省 / turn），匹配先做关键词。**
 
@@ -40,7 +40,7 @@
 - 缺省工具面从 61 个降到 9 个（8 核心 + 咨询），单请求工具描述体量下降 ≥ 80%。
 - 一次常规任务（改一个文件 + 跑测试 + 提交）最多多 1 至 2 次咨询调用。
 - `session` 档：授权只增不减、`turn/end` 不收回；达到 `maxRevealed` 后拒绝新增并给出重开或改用 `turn` 档的提示。
-- `turn` 档：`turn/end` 按 LRU（与可选 `ttlTurns`）收敛，回合内揭示可用，回合后回到预算内。
+- `turn` 档：`turn/end` 按 LRU（与可选 `ttlTurns`）收敛，回合内揭示可用，回合后回到容量内；`pin` 的项跨回合有效，受 `maxPinned` 限制。
 - 逐次 `scope` 覆盖生效，优先级为逐次参数 > 插件配置 > 缺省 `session`。
 - 被遮罩工具被误调时返回可行动文案（引导咨询），不是裸的 unknown tool。
 - 任何降级路径都不会让会话报错或工具面错乱。
@@ -220,9 +220,9 @@ turn/end（只处理 turn 项）
 | 维度 | `session`（缺省） | `turn` |
 | --- | --- | --- |
 | 生命周期 | 揭示后整个会话可见，`turn/end` 不收回 | 揭示后到本回合结束，`turn/end` 收敛 |
-| `maxRevealed` 语义 | 新增揭示的**硬上限**；超限拒绝新增 | 同时可见揭示项的**预算**；超预算按 LRU 收回 |
+| `maxRevealed` 语义 | 新增揭示的**硬上限**；超限拒绝新增 | **回合内容量上限**；回合末按 LRU 收敛 |
 | `ttlTurns` | 不生效（配置时告警一次） | 生效：闲置 N 回合后收回，0 = 关闭 |
-| 收益形态 | 起步 -84%，随授权单调衰减；上限 12 封顶约 -64% | 每回合回到预算内，稳态接近 -84% |
+| 收益形态 | 起步 -84%，随授权单调衰减；上限 12 封顶约 -64% | 每回合回到容量内，稳态接近 -84% |
 | 主要代价 | 长会话末段逼近全量 | 跨回合重复咨询、收回后误调废步 |
 | 适合 | 长会话、连续多轮开发、任务链 | 短任务、只读探索、工具面要一直紧 |
 
@@ -259,6 +259,13 @@ turn/end（只处理 turn 项）
 - 「使用」判定：监听 `tools/result`（`exec.name` / `exec.agent`，`packages/core/tools/src/index.ts:199`），命中即刷新 `lastUsedTurn`。
 - 收回后下一次装配发 `tool-removal`（`in-history` 路由）或重写声明列表（`addition-only` 路由），代价是每回合至多一次头部变更。
 
+**turn 档的 `pin`（仅该档生效）**：
+
+- `consult_tools(names: […], pin: true)` 把本次揭示项钉住：不参与 LRU / TTL 收回，直到会话结束或该项被注销。
+- 钉住项仍计入 `maxRevealed` 容量；`maxPinned`（缺省 3）限制同时钉住的数量，超出时本次按普通揭示处理，并在返回里注明「钉住名额已满」。
+- `session` 档下 `pin` 无意义（授权本来就不收回）：传了也忽略，记一条调试日志，不报错、不影响揭示结果。
+- 为何需要：`turn` 档受回合预算约束，长任务里「本回合用完、下一回合还要用」的工具会被收回并导致重复咨询；钉住是对这类工具的最小豁免，`maxPinned = 3` 把额外成本封顶在约 0.8k tokens。
+
 **逐次覆盖 `scope`**：
 
 - `consult_tools(..., scope: "turn")` 只决定**本次新增揭示项**的作用域，不追溯已有项。
@@ -266,9 +273,9 @@ turn/end（只处理 turn 项）
 
 **混用时的状态模型**：
 
-- `granted: Map<toolName, { scope: "session" | "turn", revealedTurn, lastUsedTurn }>`。
-- 可见面 = 初始集 ∪ session 项 ∪ turn 项；session 项永不收回，turn 项按回合规则收敛。
-- 名额分开计数：session 档上限只数 session 项，turn 档预算只数 turn 项，互不挤占。
+- `granted: Map<toolName, { scope: "session" | "turn", pinned?: boolean, revealedTurn, lastUsedTurn }>`。
+- 可见面 = 初始集 ∪ session 项 ∪ turn 项；session 项永不收回，turn 项按回合规则收敛，`pinned` 的 turn 项不参与收敛。
+- 名额分开计数：session 档上限只数 session 项，turn 档容量只数 turn 项（含钉住项），互不挤占。
 
 **切换既有揭示的处理**：
 
@@ -281,11 +288,16 @@ turn/end（只处理 turn 项）
 - 量化基线（R1）：全量 61 工具 / 57,798 字符 / ≈ 16.5k tokens；初始面 9 工具 / 9,175 字符 / ≈ 2.6k（-84%）；单工具平均 947 字符 ≈ 270 tokens。
 - `session` 档：授权 k 个后 ≈ 9,175 + Σschema(k)。上限 12 时约 20.5k 字符（≈ 5.9k tokens，-64%）；上限调高或会话很长时逼近全量 57.8k（≈ 16.5k tokens，**收益趋近于零**）。这是换取「授权后不再消失」的明确代价。
 - `turn` 档：每回合回到初始面 + 本回合揭示项（通常 1 至 3 个，约 0.3 至 0.8k tokens），稳态接近 -84%；代价是跨回合重复咨询，以及回合末收回后的误调废步。
-- 建议用法：
-  - 长会话 / 连续多轮开发 / 任务链：`session` 档（避免同一工具反复咨询），一次性探索用 `scope: "turn"`。
-  - 短任务 / 一次性问答 / 上下文吃紧：整会话设 `revealScope: "turn"`。
-  - 只读探索（读文档、搜代码、看日志）：`turn` 档 + 较小 `limit`（2 至 3）；或在 `session` 档只揭示 1 至 2 个。
-  - 混合：缺省 `session`，只在明确「用完即弃」的调用上带 `scope: "turn"`。
+- 两档适用场景与收益对比：
+
+| 场景 | 建议档位 | 预期单请求工具面 | 主要代价 |
+| --- | --- | --- | --- |
+| 长会话 / 连续多轮开发 / 任务链 | `session`（缺省），一次性探索用逐次 `scope: "turn"` | 起步约 2.6k tokens；授权后增长，缺省上限 12 约 5.9k | 授权只增不减，末段收益衰减 |
+| 短任务 / 一次性问答 / 上下文吃紧 | 整会话 `revealScope: "turn"` | 每回合约 2.6k 至 3.4k tokens | 跨回合重复咨询 |
+| 只读探索（读文档 / 搜代码 / 看日志） | `turn` + 较小 `limit`（2 至 3），必要时 `pin` 保留 1 个常用工具 | 每回合约 2.6k 至 3.0k tokens | 回合末收回，重读需再咨询 |
+| 混合（长会话偶发一次性工具） | 缺省 `session` + 逐次 `scope: "turn"` | 会话基线 + 少量临时项 | 同长会话 |
+
+- 一句话取舍：**短任务与只读探索用 `turn`（稳、便宜），长会话与任务链用 `session`（不再反复咨询），两侧都靠 `maxRevealed` / `maxPinned` 兜住上限。**
 
 **被遮罩工具被调用时**：
 
@@ -306,7 +318,7 @@ turn/end（只处理 turn 项）
 - 只保留 `session` 档（长会话收益衰减不可控）。
 - 只保留 `turn` 档（跨回合重复咨询，长任务体验差）。
 - 按任务长度自动切档（需要预测器，v1 过重）。
-- `pin` / `maxPinned`（已删除）：`session` 档下授权本来就不收回，钉住没有意义；`turn` 档下宽限期已覆盖「本回合用过的先不收」，再引入钉住只会让紧预算失效，故不保留。
+- `pin` 在两档都生效（`session` 档授权本来就不收回，钉住没有意义；只保留为 `turn` 档对「跨回合仍要用」的最小豁免，`maxPinned` 兜底）。
 
 ### D4 与 tools.restrict 的配合与失败降级
 
@@ -365,6 +377,7 @@ turn/end（只处理 turn 项）
 | `limit` | number | 5 | 匹配返回数量，1 至 20 |
 | `reveal` | boolean | true | false = 只预览，不改变可见性 |
 | `scope` | string | 继承配置 | 逐次覆盖揭示作用域：`"session"` / `"turn"` |
+| `pin` | boolean | false | 仅 `turn` 档生效：钉住本次揭示项，不参与 LRU / TTL 收回；`session` 档忽略并记调试日志 |
 
 返回内容（渲染为文本）：已揭示项（名称 + 一句话 + 状态 / 作用域）、未揭示候选、名额或预算提示；无匹配时给分组名称索引；`session` 档超上限时返回拒绝新增的文案。
 
@@ -399,12 +412,21 @@ turn/end（只处理 turn 项）
 已授权的工具不受影响；如确需更多，可逐次改用 scope: "turn" 揭示，或结束会话重开。
 ```
 
-示例五（`turn` 档）：
+示例五（`turn` 档，含钉住）：
 
 ```
 已揭示（仅本回合有效，下一次请求起可调用）：
 - read_image：读取 PNG/JPEG/WebP/GIF 并返回图片本身。
-预算：turn 档 1 / 12；本回合结束按最久未用收回，闲置超 TTL 也会收回。
+- session_channel：跨会话消息通道：列在线会话 / 发消息 / 查收件箱。[已钉住]
+
+预算：turn 档 2 / 12（钉住 1 / 3）；未钉住的在本回合结束按最久未用收回，闲置超 TTL 也会收回。
+```
+
+示例六（`session` 档传了 `pin`）：
+
+```
+已揭示：read_image（本会话内持续可见）。
+注：pin 仅在 turn 档生效，本次按普通揭示处理。
 ```
 
 工具描述（模型可见部分）要写清：何时用、一次调用即揭示、两档作用域与缺省、名额 / 预算与拒绝或收回行为、已可见的工具不重复计数。
@@ -417,9 +439,10 @@ turn/end（只处理 turn 项）
 | `maskMode` | `allowlist` | `allowlist` / `denylist` / `off` |
 | `initialTools` | 8 核心清单 | 支持通配 |
 | `applyTo` | `roots` | `roots` / `all` |
-| `maxRevealed` | 12 | `session` 档：新增揭示的**硬上限**（超限拒绝新增）；`turn` 档：同时可见揭示项的**预算**（超预算按 LRU 收回） |
+| `maxRevealed` | 12 | `session` 档：新增揭示的**硬上限**（超限拒绝新增）；`turn` 档：**回合内容量上限**（回合末按 LRU 收敛） |
 | `revealScope` | `session` | 揭示作用域缺省档：`session` / `turn`；逐次 `scope` 可覆盖 |
 | `ttlTurns` | 0 | 仅 `turn` 档生效：揭示项闲置多少回合后收回；0 = 关闭 |
+| `maxPinned` | 3 | 仅 `turn` 档生效：同时钉住的揭示项上限；超出时按普通揭示处理 |
 | `matcher` | `keyword` | 预留 `hybrid` |
 | `maxResults` | 5 | 单次返回上限（`limit` 不得超过它） |
 | `audit` | false | 是否向会话写 `tool-consult/*` 审计事件（ignorable） |
@@ -450,7 +473,7 @@ disposed → 清状态（Effect 自动撤销）
 - **模型误判「工具不存在」**：遮罩后模型看不到工具，可能改用 `bash` 绕路（用 shell 代替专用工具）。缓解：咨询工具描述写明「先咨询再动手」；核心集保留通用工具。
 - **多一次往返**：隐藏工具首次使用要多一次咨询。缓解：核心集覆盖高频工具；一次咨询可揭示 5 个。
 - **`session` 档收益衰减（接受的代价）**：授权只增不减，可见面单调增长；缺省上限 12 把增长封顶在约 5.9k tokens，但上限调高或会话很长时，末段会逼近全量 16.5k tokens，收益趋近于零。这是换取「授权后不再消失」的代价；缓解手段是缺省上限、`turn` 档与「结束会话重开」的提示。
-- **`turn` 档撤回代价**：回合末收回后，模型若凭记忆再调同一工具会产生一次 `UNKNOWN_TOOL` 废步；跨回合复用同一工具需要反复咨询。缓解：宽限规则（本回合用过的先不收）、`session` 档按需切换。
+- **`turn` 档撤回代价**：回合末收回后，模型若凭记忆再调同一工具会产生一次 `UNKNOWN_TOOL` 废步；跨回合复用同一工具需要反复咨询。缓解：宽限规则（本回合用过的先不收）、`pin`（`maxPinned` 兜底）、`session` 档按需切换。
 - **resume / fork 丢授权**：新代理从初始集重建，历史里提到过的工具可能不可见。缓解：模型可再咨询；后续可用审计事件重放（见 §7）。
 - **缓存失效**：揭示 / 收回改变工具声明列表；`in-history` 路由靠 tool-addition / removal 增量，`addition-only` 路由重写列表。`turn` 档每回合至多一次收敛，`session` 档只在揭示时变更。
 - **PTC（`run_code`）模式**：PTC 下模型只看见 `run_code` 与 SDK 投影，遮罩对 SDK 内可见工具同样生效（`sdkSchemas` 走同一 `view`），但「咨询后揭示」的收益与交互需另测；v1 不做专门适配。
@@ -470,7 +493,7 @@ disposed → 清状态（Effect 自动撤销）
 - `tool-consult/src/tokenize.ts`（英文 / CJK 分词）
 - `tool-consult/src/matcher.ts`（BM25 打分、别名、回退）
 - `tool-consult/src/aliases.ts`（别名表）
-- `tool-consult/src/state.ts`（每代理授权集合与两档状态、上限判定、LRU / TTL 收敛、遮罩替换）
+- `tool-consult/src/state.ts`（每代理授权集合与两档状态、上限与钉住判定、LRU / TTL 收敛、遮罩替换）
 - `tool-consult/src/tool.ts`（`consult_tools` 定义与渲染）
 - `tool-consult/tests/*.test.ts`（分词 / 打分 / 状态机 / 宿主假件）
 - `tool-consult/README.md`；机制较厚时补 `tool-consult/docs/DESIGN.md`
@@ -480,7 +503,7 @@ disposed → 清状态（Effect 自动撤销）
 ### 6.2 分阶段实现
 
 1. 阶段一（纯函数）：分词 + 打分 + 别名 + 回退，配单测（不碰宿主）。
-2. 阶段二（状态机）：granted 两档（session / turn）、`session` 超限拒绝、`turn` 的 LRU / TTL 收敛、替换式遮罩应用（假宿主单测）。
+2. 阶段二（状态机）：granted 两档（session / turn）、`session` 超限拒绝、`turn` 的 LRU / TTL 收敛与 `pin` / `maxPinned`、替换式遮罩应用（假宿主单测）。
 3. 阶段三（接线）：`apply` + `agent/created` + `tools/change` + 工具注册与渲染。
 4. 阶段四（真机）：本 profile 挂载，实测工具面与咨询命中率，人工确认。
 
@@ -489,7 +512,8 @@ disposed → 清状态（Effect 自动撤销）
 - 机械：包内 `npm run check`、`npm run build`、`npm run test` 通过。
 - 行为：缺省会话首请求工具数 = 初始集 + 1；咨询「跨会话发消息」命中 `session_channel`；揭示后下一步可调用。
 - `session` 档：揭示后各回合持续可见（`turn/end` 不减）；第 13 次新增揭示被拒绝，文案含「结束会话重开」或改 `turn` 档的提示，可见集不变。
-- `turn` 档：回合内揭示可用，`turn/end` 后按 LRU 收敛到预算内；`ttlTurns` 生效；收回后误调返回可行动文案。
+- `turn` 档：回合内揭示可用，`turn/end` 后按 LRU 收敛到容量内；`ttlTurns` 生效；收回后误调返回可行动文案。
+- 钉住：`turn` 档 `pin: true` 的项跨回合可见、不参与 LRU / TTL；超过 `maxPinned` 时按普通揭示处理并注明；`session` 档传 `pin` 被忽略且记一条调试日志。
 - 逐次覆盖：配置 `session` 时用 `scope: "turn"` 揭示，回合末收回且不占 session 名额。
 - 切换：配置从 `session` 改为 `turn` 时，已有 session 项在下一个 `turn/end` 收敛；反向切换时 turn 项提升为 session 项。
 - 重置：resume / fork 后新代理回到初始集。
@@ -499,7 +523,7 @@ disposed → 清状态（Effect 自动撤销）
 ### 6.4 测试样例（实现期可运行）
 
 - 纯函数：固定文档集，断言「查询 → 期望首位」；断言中文二元组命中；断言同分稳定排序。
-- 状态机：断言 `session` 项只增不减（重复 reveal 与跨回合不减少）；断言 `session` 超上限拒绝新增且集合不变；断言 `turn` 项在 `turn/end` 按 LRU / TTL 收敛、宽限期内不收回；断言逐次 `scope` 只影响新项；断言两档名额分开计数；断言幂等返回「已可见」。
+- 状态机：断言 `session` 项只增不减（重复 reveal 与跨回合不减少）；断言 `session` 超上限拒绝新增且集合不变；断言 `turn` 项在 `turn/end` 按 LRU / TTL 收敛、宽限期内不收回；断言 `turn` 档钉住项不参与收敛、超过 `maxPinned` 时降级为普通项；断言 `session` 档传 `pin` 被忽略；断言逐次 `scope` 只影响新项；断言两档名额分开计数；断言幂等返回「已可见」。
 - 切换：构造 `session` → `turn` 的配置变更，断言既有项在下一个 `turn/end` 收敛；反向切换断言提升为 session 项。
 - 假宿主：记录 `restrict` 调用序列，断言「替换而非叠加」；断言代理销毁后 dispose 被调用。
 
