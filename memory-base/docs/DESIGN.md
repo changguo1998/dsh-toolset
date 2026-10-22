@@ -74,7 +74,7 @@ interface KindSpec {
 
 查询是**全局只读**，不分扩展（用户 2026-10-17 裁定「读可以全局」）。两个入口：
 
-- `search({query, kind?, tier?, project?, limit?, fuzzy?})`：对已注册分类取并集，`porter` 词干 BM25 为主，`fuzzy: true` 叠加 `trigram` 子串召回；\*\*结果不足 `limit` 且（查询含 CJK 或 FTS 语法错误（如 `-`））\*\*时走 `LIKE` 子串兜底。**跨层合并排序 = 层权重 U > P > S，同层按分数**。
+- `search({query, kind?, tier?, project?, limit?, fuzzy?, mode?})`：对已注册分类取并集；`mode` 缺省 `bm25`（单词面），取值 `hybrid` 时改为四路 RRF 融合（带权 BM25（title 2 / content 1）+ trigram + LIKE + 词项邻近（共现窗口 ≤ 64 字符，K=60）），分数取负保持「越小越相关」。`bm25` 口径下：`porter` 词干 BM25 为主，`fuzzy: true` 叠加 `trigram` 子串召回；\*\*结果不足 `limit` 且（查询含 CJK 或 FTS 语法错误（如 `-`））\*\*时走 `LIKE` 子串兜底。**跨层合并排序 = 层权重 U > P > S，同层按分数**。
 - `list({kind?, tier?, project?, limit?, offset?})`：按 kind 结构化列举（未给 kind = 跨 kind），`created_at` 倒序 + 分页。这是修掉旧「按 kind 列举缺口」的面——旧 `targetRows` 只返回 `target IS NOT NULL` 的行。
 
 `search` **没有任何写副作用**：旧口径的 `last_referenced` 刷新已随列删除一并下线（命中即写会让只读查询变成写操作，也让「存储」与「生命周期」纠缠）。

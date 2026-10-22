@@ -13,7 +13,7 @@ DSH（DeepSeek Harness）进程内插件：**分层记忆的存储底座**——
 | 键 | 参数要点 | 返回 |
 | --- | --- | --- |
 | `registerKind(spec)` | `{kind, table?, writableTiers?, preWrite?}`；同步注册、返回写入句柄 | `MemoryScope`（见下） |
-| `search(opts)` | `query` 必填；`kind?` / `tier?` / `project?` / `limit?`（缺省 10，clamp 1..100）/ `fuzzy?` | `SearchHit[]`（带 `kind` / `tier` / `score`） |
+| `search(opts)` | `query` 必填；`kind?` / `tier?` / `project?` / `limit?`（缺省 10，clamp 1..100）/ `fuzzy?` / `mode?` | `SearchHit[]`（带 `kind` / `tier` / `score`） |
 | `list(opts?)` | `kind?` / `tier?` / `project?` / `limit?`（缺省 20，clamp 1..100）/ `offset?` | `StoreRow[]`（`created_at` 倒序） |
 | `checkPrivacy(text)` | 隐私底线查询（内置 + `persistRules.denyPatterns`） | 命中返回模式源串，否则 `null` |
 | `getSummary()` | 无 | `{ready, kinds[{kind, table, writableTiers, rows}], tiers[{tier, path, created}], chunkCount, sourceCount}`；`created: false` = 该层库尚未创建 |
@@ -72,11 +72,12 @@ const scope = memory.registerKind({
 - **S 层落点经 `session-paths` 的 `sessionDirFor(sessionId)` 解析**：本包不自己拼路径、不读宿主会话服务。该服务未挂载时 S 层写入按明示例外报错，P / U 层不受影响。
 - 同一进程可能同时存在主会话与子代理会话，S 层按 `(tier, sessionId)` 惰性打开并缓存，各落各库。
 - 检索排序：**U > P > S**，同层按分数。
+- 检索策略 `mode`：`bm25`（缺省，单词面：porter BM25 + `fuzzy` 叠加 trigram + LIKE 兜底）或 `hybrid`（带权 BM25 + trigram + LIKE + 词项邻近四路 RRF 融合，长句 / 多词更稳，延迟约 6 倍）。
 
 ## 模型侧工具 `memory_query`（只读）
 
 - `action`：`search`（缺省，全文检索）/ `list`（按 kind 结构化列举）；
-- 参数：`query`（search 必填）、`kind?`、`tier?`、`project?`、`limit?`（缺省 10，clamp 1..100）、`fuzzy?`（仅 search）、`offset?`（仅 list）；
+- 参数：`query`（search 必填）、`kind?`、`tier?`、`project?`、`limit?`（缺省 10，clamp 1..100）、`fuzzy?`（仅 search）、`mode?`（仅 search：`bm25` 缺省 / `hybrid`）、`offset?`（仅 list）；
 - 输出带 `kind` / `tier` 标签；单行正文超 300 字符截断标注，命中数达 `limit` 标「已截断」；空结果给 `(无命中)` / `(无条目)`；
 - 参数里没有文件路径与命令文本，故**不进** `security-guard` 的登记表；写侧不对模型开放。
 

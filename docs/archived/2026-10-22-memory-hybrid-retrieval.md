@@ -1,7 +1,15 @@
 # memory-base 的意图 / 多策略混合检索（接取条目：`docs/BACKLOG.md` §2「2. memory-base 的意图 / 多策略混合检索」）
 
-状态：进行中（实现与测试完成；收尾按组任务边界未做）　　开启：2026-10-22　　关闭：—
+状态：已完成　　开启：2026-10-22　　关闭：2026-10-23
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
+
+## 关闭记录
+
+- 实现与测试提交（C 组分支，已并入主分支）：`221855f`（决策与规划）、`28a7a55`（实现）、`abc3d14`（夹具与延迟证据）
+- 改动：`memory-base/src/hybrid.ts`（新增）、`knowledge.ts`、`tiers.ts`、`index.ts`、`tools.ts`（`memory_query` 增 `mode`）、`tests/hybrid-search.test.ts`（新增 13 例）
+- 验证：`check` / `build` 通过，74 例全过（原 61 + 新 13）；缺省 `bm25` 与改造前逐行等价（6 条基线命中序与分数一致）；延迟 200 行语料单查询 0.16 ms（bm25）/ 0.97 ms（hybrid）
+- 文档同步：`memory-base/README.md`（`search` 与 `memory_query` 补 `mode`）、`memory-base/docs/DESIGN.md`（检索入口补 hybrid 口径）
+- 未做：真机验收（按组任务边界由主分支在合并后统一验收）
 
 ## 目标
 

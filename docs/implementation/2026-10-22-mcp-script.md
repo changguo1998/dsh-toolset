@@ -1,10 +1,10 @@
 # MCP 脚本化（mcpScript）：调研与决策
 
 状态：设计定稿（建议：**不立项**；最终裁定待人工；未收尾）　　开启：2026-10-22　　关闭：—
-接取条目：项目级 `docs/BACKLOG.md` §2「6. MCP 脚本化（mcpScript）」
+接取条目：项目级 `docs/BACKLOG.md` §2「5. MCP 脚本化（mcpScript）」
 本文件是本任务唯一的过程记录与文档变更落点；本阶段的计划外文件不改。
 
-**协作约定（2026-10-23）**：本包可**写自己包目录内的代码与文档**（含包内 `docs/`），以及**自己的追踪文档**；共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、`profiles/example/cordis.patch.yml`、用户 profile）**只由主分支代理回写**，见项目级 `docs/BACKLOG.md` §2「7. 共享文档与根级接线」。
+**协作约定（2026-10-23）**：本包可**写自己包目录内的代码与文档**（含包内 `docs/`），以及**自己的追踪文档**；共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、`profiles/example/cordis.patch.yml`、用户 profile）**只由主分支代理回写**，见项目级 `docs/BACKLOG.md` §2「6. 共享文档与根级接线」。
 
 ## 结论摘要
 

@@ -1,10 +1,10 @@
-# 工具咨询插件：按需揭示工具（接取条目：`docs/BACKLOG.md` §2「5. 工具咨询插件…」）
+# 工具咨询插件：按需揭示工具（接取条目：`docs/BACKLOG.md` §2「4. 工具咨询插件…」）
 
 状态：实施中（2026-10-22 人工裁定批准进入实现：核心集加 `skill`、`applyTo` 缺省 `roots`、v1 不做语义匹配与 resume 持久化）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 条目状态仍为「设计未定稿」，保持不动（由主分支代理回写）。
 
-**协作约定（2026-10-23）**: 本包可**写自己包目录内的代码与文档**（含包内 `docs/`），以及**自己的追踪文档**；共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、`profiles/example/cordis.patch.yml`、用户 profile）**只由主分支代理回写**，见项目级 `docs/BACKLOG.md` §2「7. 共享文档与根级接线」。
+**协作约定（2026-10-23）**: 本包可**写自己包目录内的代码与文档**（含包内 `docs/`），以及**自己的追踪文档**；共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、`profiles/example/cordis.patch.yml`、用户 profile）**只由主分支代理回写**，见项目级 `docs/BACKLOG.md` §2「6. 共享文档与根级接线」。
 
 ## 0. 结论摘要
 
