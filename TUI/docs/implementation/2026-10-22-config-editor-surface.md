@@ -123,3 +123,13 @@
 - 2026-10-23：`TUI/src/app/adapter/types.ts` 增 `ConfigEditorLike` / `ConfigEditorEntryLike` / `ConfigEditorRowLike` / `ConfigEntrySummary`、adapter 两个可选方法 `configEntries` / `editConfigEntry`、`RealAdapterOptions.configEditor`；`TUI/src/app/adapter/dsh.ts` 实现两个方法（列表走 `configuration()` 归一成纯数据，写入按 id 重新解析 `entries()` 再调 `edit()`）。
 - 2026-10-23：`TUI/src/app/commands.ts` 增 `/config` 目录项与 `SlashRoute` 成员；`TUI/src/app/index.ts` 增 `case "config"` 与 `handleConfigCommand`（列表 / show / set / unset，缺服务降级，宿主错误统一「编辑失败：」前缀）；`TUI/src/main.ts` 以惰读 getter 传入 `ctx.get('configEditor')`。
 - 2026-10-23：既有用例 `TUI/tests/completion.test.ts` 的补全候选断言同步加入 `/config`（目录变更的必要索引更新，不是新用例）。
+
+## 测试与证据
+
+- 新增 `TUI/tests/config-edit.test.ts`（20 例）：命令解析 6 例（list / show / set / unset / usage 各失败分支、点路径与 JSON 值）、点路径 3 例（嵌套创建与不可变、中间层标量拒绝、删除命中 / 缺失 / 非对象）、格式化 2 例、App 层 9 例（列表、服务缺失两种、show 命中与未命中、set 透传 change、宿主拒绝文案透出、unset 未改动、缺参不调 adapter）。
+- `TUI/tests/adapter.dsh.test.ts` 追加 4 例：`configuration()` 归一化（含丢弃空 id 行）、服务缺失与 `configuration` 缺失 → undefined、edit 收到按 id 重新解析的 Entry 并透传 change 结果、三类 reject 原因（未挂载 / 不在集合内 / 宿主拒绝原文）。
+- 命令结果（2026-10-23，worktree `.worktree/b-app`）：
+  - `cd TUI && npm run check` → 通过（tsc --noEmit）；
+  - `cd TUI && npm run build` → 通过；
+  - `cd TUI && npm test` → `tests 1707 / pass 1707 / fail 0`（改动前基线 1683，新增 24 例）。
+- 真机验收（改真实插件条目并观察 patch 落盘与生效）按指令未做，留给用户。
