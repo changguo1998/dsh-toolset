@@ -85,14 +85,16 @@ export class AgentGrants {
   /** session 项数量（`maxRevealed` 在 session 档的口径）。 */
   sessionCount(): number {
     let count = 0;
-    for (const entry of this.entries.values()) if (entry.scope === "session") count += 1;
+    for (const entry of this.entries.values())
+      if (entry.scope === "session") count += 1;
     return count;
   }
 
   /** turn 项数量（`maxRevealed` 在 turn 档的口径，含钉住项）。 */
   turnCount(): number {
     let count = 0;
-    for (const entry of this.entries.values()) if (entry.scope === "turn") count += 1;
+    for (const entry of this.entries.values())
+      if (entry.scope === "turn") count += 1;
     return count;
   }
 
@@ -124,10 +126,20 @@ export class AgentGrants {
     limits: GrantLimits,
   ): GrantResult {
     if (this.entries.has(name)) {
-      return { granted: false, status: "already", pinApplied: false, pinIgnored: undefined };
+      return {
+        granted: false,
+        status: "already",
+        pinApplied: false,
+        pinIgnored: undefined,
+      };
     }
     if (scope === "session" && this.sessionCount() >= limits.maxRevealed) {
-      return { granted: false, status: "rejected-cap", pinApplied: false, pinIgnored: undefined };
+      return {
+        granted: false,
+        status: "rejected-cap",
+        pinApplied: false,
+        pinIgnored: undefined,
+      };
     }
     let applied = false;
     let ignored: GrantResult["pinIgnored"];
@@ -142,13 +154,19 @@ export class AgentGrants {
       revealedTurn: turn,
       lastUsedTurn: turn,
     });
-    return { granted: true, status: "granted", pinApplied: applied, pinIgnored: ignored };
+    return {
+      granted: true,
+      status: "granted",
+      pinApplied: applied,
+      pinIgnored: ignored,
+    };
   }
 
   /** 记录一次使用（刷新 LRU 时间戳）。 */
   noteUse(name: string, turn: number): void {
     const entry = this.entries.get(name);
-    if (entry !== undefined) entry.lastUsedTurn = Math.max(entry.lastUsedTurn, turn);
+    if (entry !== undefined)
+      entry.lastUsedTurn = Math.max(entry.lastUsedTurn, turn);
   }
 
   /** 工具被注销时静默移除。 */
@@ -161,7 +179,10 @@ export class AgentGrants {
    * @param next 新的缺省档。
    * @returns 是否改变了既有序（提升 / 待降级）。
    */
-  switchScope(next: RevealScope): { promoted: number; pendingDemotion: number } {
+  switchScope(next: RevealScope): {
+    promoted: number;
+    pendingDemotion: number;
+  } {
     if (next === this.scope) return { promoted: 0, pendingDemotion: 0 };
     this.scope = next;
     if (next === "session") {
@@ -177,7 +198,8 @@ export class AgentGrants {
       return { promoted, pendingDemotion: 0 };
     }
     let pending = 0;
-    for (const entry of this.entries.values()) if (entry.scope === "session") pending += 1;
+    for (const entry of this.entries.values())
+      if (entry.scope === "session") pending += 1;
     this.demoteOnNextConverge = pending > 0;
     return { promoted: 0, pendingDemotion: pending };
   }
@@ -216,13 +238,18 @@ export class AgentGrants {
     }
 
     // 容量：turn 项超过 maxRevealed 时按 LRU 收回（钉住项免收；宽限项本轮跳过）。
-    const turnItems = [...this.entries.entries()].filter(([, entry]) => entry.scope === "turn");
+    const turnItems = [...this.entries.entries()].filter(
+      ([, entry]) => entry.scope === "turn",
+    );
     if (turnItems.length > limits.maxRevealed) {
       const candidates = turnItems
         .filter(([, entry]) => !entry.pinned && !isFresh(entry, turn))
-        .sort((a, b) => (a[1].lastUsedTurn - b[1].lastUsedTurn)
-          || (a[1].revealedTurn - b[1].revealedTurn)
-          || a[0].localeCompare(b[0]));
+        .sort(
+          (a, b) =>
+            a[1].lastUsedTurn - b[1].lastUsedTurn ||
+            a[1].revealedTurn - b[1].revealedTurn ||
+            a[0].localeCompare(b[0]),
+        );
       let overflow = turnItems.length - limits.maxRevealed;
       for (const [name] of candidates) {
         if (overflow <= 0) break;
@@ -234,7 +261,11 @@ export class AgentGrants {
 
     removed.sort((a, b) => a.localeCompare(b));
     demoted.sort((a, b) => a.localeCompare(b));
-    return { removed, demoted, changed: removed.length > 0 || demoted.length > 0 };
+    return {
+      removed,
+      demoted,
+      changed: removed.length > 0 || demoted.length > 0,
+    };
   }
 }
 

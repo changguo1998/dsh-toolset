@@ -8,16 +8,10 @@
 
 /** 遮罩相关失败类型。 */
 export type RestrictFailure =
-  | "no-scope"
-  | "unknown-name"
-  | "empty-intersection"
-  | "other";
+  "no-scope" | "unknown-name" | "empty-intersection" | "other";
 
 /** 降级动作。 */
-export type DegradeAction =
-  | "retry-filtered"
-  | "unmasked"
-  | "disable-plugin";
+export type DegradeAction = "retry-filtered" | "unmasked" | "disable-plugin";
 
 /** 一次降级判定。 */
 export interface DegradeDecision {
@@ -54,13 +48,15 @@ export function decideDegradation(failure: RestrictFailure): DegradeDecision {
       return {
         action: "unmasked",
         warn: true,
-        message: "宿主未提供 agent 作用域，本会话不遮罩；咨询工具退化为目录检索。",
+        message:
+          "宿主未提供 agent 作用域，本会话不遮罩；咨询工具退化为目录检索。",
       };
     case "empty-intersection":
       return {
         action: "unmasked",
         warn: true,
-        message: "可遮罩工具与初始集无交集，已回退为不遮罩（避免藏光全部工具）。",
+        message:
+          "可遮罩工具与初始集无交集，已回退为不遮罩（避免藏光全部工具）。",
       };
     case "other":
     default:
@@ -86,7 +82,9 @@ export function decideMissingService(): DegradeDecision {
  * @param error register 抛出的任意值。
  * @returns `duplicate` 或 `other`。
  */
-export function classifyToolRegisterError(error: unknown): "duplicate" | "other" {
+export function classifyToolRegisterError(
+  error: unknown,
+): "duplicate" | "other" {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("already registered") ? "duplicate" : "other";
 }

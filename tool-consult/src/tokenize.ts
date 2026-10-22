@@ -8,11 +8,53 @@
 
 /** 英文停止词（小写）。只收极高频、无区分度的词。 */
 export const STOP_WORDS: ReadonlySet<string> = new Set([
-  "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "for",
-  "from", "has", "have", "how", "i", "if", "in", "into", "is", "it",
-  "its", "of", "on", "or", "that", "the", "then", "there", "these",
-  "they", "this", "to", "use", "used", "using", "was", "were", "what",
-  "when", "where", "which", "who", "will", "with", "you", "your",
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "can",
+  "do",
+  "for",
+  "from",
+  "has",
+  "have",
+  "how",
+  "i",
+  "if",
+  "in",
+  "into",
+  "is",
+  "it",
+  "its",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "then",
+  "there",
+  "these",
+  "they",
+  "this",
+  "to",
+  "use",
+  "used",
+  "using",
+  "was",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "will",
+  "with",
+  "you",
+  "your",
 ]);
 
 /** 是否 CJK 字符（基本区 + 扩展 A + 兼容区）。 */
@@ -32,9 +74,10 @@ function splitCamel(segment: string): string[] {
   let current = "";
   for (const ch of segment) {
     const upper = ch >= "A" && ch <= "Z";
-    const prevLower = current.length > 0
-      && current[current.length - 1]! >= "a"
-      && current[current.length - 1]! <= "z";
+    const prevLower =
+      current.length > 0 &&
+      current[current.length - 1]! >= "a" &&
+      current[current.length - 1]! <= "z";
     if (upper && prevLower) {
       parts.push(current);
       current = ch;
@@ -81,9 +124,10 @@ export function tokenize(text: string): string[] {
       cjk += ch;
       continue;
     }
-    const isWord = (ch >= "a" && ch <= "z")
-      || (ch >= "A" && ch <= "Z")
-      || (ch >= "0" && ch <= "9");
+    const isWord =
+      (ch >= "a" && ch <= "z") ||
+      (ch >= "A" && ch <= "Z") ||
+      (ch >= "0" && ch <= "9");
     if (isWord) {
       flushCjk();
       ascii += ch;

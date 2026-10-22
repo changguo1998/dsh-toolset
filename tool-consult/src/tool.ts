@@ -28,7 +28,11 @@ export interface ConsultRuntime {
   /** 已授权的工具名（用于名额提示）。 */
   grantedNames: () => string[];
   /** 执行授权；返回每个名字的结果（未知名字由调用方过滤）。 */
-  reveal: (names: string[], scope: RevealScope, pin: boolean) => Array<{ name: string; result: GrantResult }>;
+  reveal: (
+    names: string[],
+    scope: RevealScope,
+    pin: boolean,
+  ) => Array<{ name: string; result: GrantResult }>;
 }
 
 /** 参数解析后的形态。 */
@@ -42,18 +46,28 @@ interface ParsedArgs {
 }
 
 /** 归一化入参（非法值回退，不抛错）。 */
-function parseArgs(args: Record<string, unknown>, config: ResolvedConfig): ParsedArgs {
-  const query = typeof args["query"] === "string" && args["query"].trim().length > 0
-    ? args["query"].trim()
-    : undefined;
+function parseArgs(
+  args: Record<string, unknown>,
+  config: ResolvedConfig,
+): ParsedArgs {
+  const query =
+    typeof args["query"] === "string" && args["query"].trim().length > 0
+      ? args["query"].trim()
+      : undefined;
   const names = Array.isArray(args["names"])
-    ? args["names"].filter((item): item is string => typeof item === "string" && item.length > 0)
+    ? args["names"].filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
     : undefined;
-  const rawLimit = typeof args["limit"] === "number" ? Math.floor(args["limit"]) : config.maxResults;
+  const rawLimit =
+    typeof args["limit"] === "number"
+      ? Math.floor(args["limit"])
+      : config.maxResults;
   const limit = Math.min(HARD_LIMIT, config.maxResults, Math.max(1, rawLimit));
-  const scope: RevealScope = args["scope"] === "turn" || args["scope"] === "session"
-    ? args["scope"]
-    : config.revealScope;
+  const scope: RevealScope =
+    args["scope"] === "turn" || args["scope"] === "session"
+      ? args["scope"]
+      : config.revealScope;
   return {
     query,
     names: names !== undefined && names.length > 0 ? names : undefined,
@@ -69,7 +83,8 @@ function renderGroups(matcher: Matcher): string {
   const groups = matcher.nameGroups();
   if (groups.length === 0) return "当前没有可咨询的工具（工具面为空）。";
   const lines = groups.map(
-    (group) => `- ${group.prefix}（${group.names.length}）：${group.names.join(", ")}`,
+    (group) =>
+      `- ${group.prefix}（${group.names.length}）：${group.names.join(", ")}`,
   );
   return [
     "没有匹配的工具。可用的工具分组：",
@@ -80,7 +95,11 @@ function renderGroups(matcher: Matcher): string {
 }
 
 /** 名额 / 容量提示。 */
-function renderQuota(runtime: ConsultRuntime, scope: RevealScope, config: ResolvedConfig): string {
+function renderQuota(
+  runtime: ConsultRuntime,
+  scope: RevealScope,
+  config: ResolvedConfig,
+): string {
   if (scope === "session") {
     return `名额：session 档已揭示 ${runtime.grants.sessionCount()} / ${config.maxRevealed}（新增上限）。授权只增不减，本会话内不会收回。`;
   }
@@ -97,8 +116,10 @@ function describeResult(
   const summary = doc === undefined ? "（无描述）" : oneLine(doc.description);
   const tags: string[] = [];
   if (result.pinApplied) tags.push("已钉住");
-  if (result.pinIgnored === "pinned-full") tags.push("钉住名额已满，按普通揭示处理");
-  if (result.pinIgnored === "session-scope") tags.push("pin 仅 turn 档生效，本次忽略");
+  if (result.pinIgnored === "pinned-full")
+    tags.push("钉住名额已满，按普通揭示处理");
+  if (result.pinIgnored === "session-scope")
+    tags.push("pin 仅 turn 档生效，本次忽略");
   const suffix = tags.length > 0 ? ` [${tags.join("；")}]` : "";
   return `- ${name}：${summary}${suffix}`;
 }
@@ -122,7 +143,10 @@ export function createConsultTool(runtime: ConsultRuntime): {
   execute: (args: Record<string, unknown>, exec?: unknown) => Promise<unknown>;
   output: {
     schema: Record<string, unknown>;
-    render: (args: unknown, value: unknown) => Array<{ type: string; text: string }>;
+    render: (
+      args: unknown,
+      value: unknown,
+    ) => Array<{ type: string; text: string }>;
   };
 } {
   const description = [
@@ -186,7 +210,9 @@ export function createConsultTool(runtime: ConsultRuntime): {
           }
           if (!args.reveal) {
             const doc = runtime.matcher.get(name);
-            sections.push(`- ${name}：${doc === undefined ? "" : oneLine(doc.description)}（预览，未揭示）`);
+            sections.push(
+              `- ${name}：${doc === undefined ? "" : oneLine(doc.description)}（预览，未揭示）`,
+            );
             continue;
           }
           const [outcome] = runtime.reveal([name], args.scope, args.pin);
@@ -212,7 +238,9 @@ export function createConsultTool(runtime: ConsultRuntime): {
           }
           if (!args.reveal) {
             const doc = runtime.matcher.get(hit.name);
-            sections.push(`- ${hit.name}：${doc === undefined ? "" : oneLine(doc.description)}（预览，未揭示）`);
+            sections.push(
+              `- ${hit.name}：${doc === undefined ? "" : oneLine(doc.description)}（预览，未揭示）`,
+            );
             continue;
           }
           fresh.push(hit.name);
@@ -229,14 +257,20 @@ export function createConsultTool(runtime: ConsultRuntime): {
       }
 
       const lines: string[] = [];
-      if (args.names === undefined && args.query !== undefined && granted.length === 0 && notices.length === 0) {
+      if (
+        args.names === undefined &&
+        args.query !== undefined &&
+        granted.length === 0 &&
+        notices.length === 0
+      ) {
         // 全部命中项都已可见。
         lines.push("命中的工具都已在可见集中，直接调用即可。");
       }
       if (granted.length > 0) {
-        const header = args.scope === "session"
-          ? "已揭示（本会话内持续可见，下一次请求起可调用）："
-          : "已揭示（仅本回合有效，下一次请求起可调用）：";
+        const header =
+          args.scope === "session"
+            ? "已揭示（本会话内持续可见，下一次请求起可调用）："
+            : "已揭示（仅本回合有效，下一次请求起可调用）：";
         lines.push(header, ...granted);
       }
       if (sections.length > 0) {
@@ -265,9 +299,13 @@ export function createConsultTool(runtime: ConsultRuntime): {
         required: ["text"],
         additionalProperties: false,
       },
-      render: (_args: unknown, value: unknown): Array<{ type: string; text: string }> => {
+      render: (
+        _args: unknown,
+        value: unknown,
+      ): Array<{ type: string; text: string }> => {
         const record = value as { text?: unknown } | undefined;
-        const text = typeof record?.text === "string" ? record.text : String(value);
+        const text =
+          typeof record?.text === "string" ? record.text : String(value);
         return [{ type: "text", text }];
       },
     },

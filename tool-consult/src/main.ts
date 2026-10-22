@@ -27,7 +27,11 @@ import {
 } from "./degrade.ts";
 import { createMatcher, type Matcher } from "./matcher.ts";
 import { AgentGrants } from "./state.ts";
-import { CONSULT_TOOL_NAME, createConsultTool, type ConsultRuntime } from "./tool.ts";
+import {
+  CONSULT_TOOL_NAME,
+  createConsultTool,
+  type ConsultRuntime,
+} from "./tool.ts";
 
 export { type Config };
 export const name = "tool-consult";
@@ -50,7 +54,10 @@ interface HostToolDefinition {
   execute: (args: Record<string, unknown>, exec?: unknown) => Promise<unknown>;
   output: {
     schema: Record<string, unknown>;
-    render: (args: unknown, value: unknown) => Array<{ type: string; text: string }>;
+    render: (
+      args: unknown,
+      value: unknown,
+    ) => Array<{ type: string; text: string }>;
   };
 }
 
@@ -115,13 +122,15 @@ const REGISTRY = new Map<string, AgentRuntime>();
 
 /** 结构面取工具服务。 */
 function asTools(value: unknown): HostTools | undefined {
-  if (value === undefined || value === null || typeof value !== "object") return undefined;
+  if (value === undefined || value === null || typeof value !== "object")
+    return undefined;
   return value as HostTools;
 }
 
 /** 结构面取代理注册表。 */
 function asAgents(value: unknown): { list: () => HostAgent[] } | undefined {
-  if (value === undefined || value === null || typeof value !== "object") return undefined;
+  if (value === undefined || value === null || typeof value !== "object")
+    return undefined;
   const candidate = value as { list?: unknown };
   return typeof candidate.list === "function"
     ? (candidate as { list: () => HostAgent[] })
@@ -129,7 +138,11 @@ function asAgents(value: unknown): { list: () => HostAgent[] } | undefined {
 }
 
 /** 记录一条日志（宿主 logger 形态差异不影响主流程）。 */
-function log(ctx: HostCtx, level: "info" | "warn" | "debug", message: string): void {
+function log(
+  ctx: HostCtx,
+  level: "info" | "warn" | "debug",
+  message: string,
+): void {
   try {
     ctx.logger?.(name)?.[level]?.(message);
   } catch {
@@ -153,7 +166,9 @@ function isVisible(runtime: AgentRuntime, toolName: string): boolean {
 /** 当前可限制名（全局视图；`schemas()` 不传 scope）。 */
 function restrictableNames(tools: HostTools): string[] {
   const schemas = tools.schemas?.() ?? [];
-  return schemas.map((schema) => schema.name).filter((toolName) => toolName !== CONSULT_TOOL_NAME);
+  return schemas
+    .map((schema) => schema.name)
+    .filter((toolName) => toolName !== CONSULT_TOOL_NAME);
 }
 
 /** 由当前工具面重建检索器。 */
@@ -162,7 +177,8 @@ function buildMatcher(tools: HostTools): Matcher {
   return createMatcher(
     schemas.map((schema) => ({
       name: schema.name,
-      description: typeof schema.description === "string" ? schema.description : "",
+      description:
+        typeof schema.description === "string" ? schema.description : "",
       parameters: schema.parameters,
     })),
   );
@@ -213,7 +229,9 @@ function degradeUnmasked(runtime: AgentRuntime, message: string): void {
 /** 揭示 / 收回后重算并替换遮罩（替换式：先撤旧再追加）。 */
 function applyMask(runtime: AgentRuntime, tools: HostTools): void {
   const restrictable = new Set(restrictableNames(tools));
-  runtime.initialNames = expandInitialTools(runtime.config.initialTools, [...restrictable]).names;
+  runtime.initialNames = expandInitialTools(runtime.config.initialTools, [
+    ...restrictable,
+  ]).names;
 
   if (runtime.config.maskMode === "off") {
     disposeMask(runtime);
@@ -225,8 +243,12 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
     const hidden = new Set(runtime.initialNames);
     allow = [...restrictable].filter((toolName) => !hidden.has(toolName));
   } else {
-    const granted = runtime.grants.allowedNames().filter((toolName) => restrictable.has(toolName));
-    allow = [...new Set([...runtime.initialNames, ...granted])].sort((a, b) => a.localeCompare(b));
+    const granted = runtime.grants
+      .allowedNames()
+      .filter((toolName) => restrictable.has(toolName));
+    allow = [...new Set([...runtime.initialNames, ...granted])].sort((a, b) =>
+      a.localeCompare(b),
+    );
   }
 
   if (allow.length === 0) {
@@ -266,7 +288,11 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
 }
 
 /** 授权上限（按运行时配置取）。 */
-function limitsOf(runtime: AgentRuntime): { maxRevealed: number; ttlTurns: number; maxPinned: number } {
+function limitsOf(runtime: AgentRuntime): {
+  maxRevealed: number;
+  ttlTurns: number;
+  maxPinned: number;
+} {
   return {
     maxRevealed: runtime.config.maxRevealed,
     ttlTurns: runtime.config.ttlTurns,
@@ -275,7 +301,10 @@ function limitsOf(runtime: AgentRuntime): { maxRevealed: number; ttlTurns: numbe
 }
 
 /** 咨询工具的运行时 API（闭包到单个代理）。 */
-function consultRuntime(runtime: AgentRuntime, tools: HostTools): ConsultRuntime {
+function consultRuntime(
+  runtime: AgentRuntime,
+  tools: HostTools,
+): ConsultRuntime {
   return {
     matcher: runtime.matcher,
     config: runtime.config,
@@ -286,9 +315,16 @@ function consultRuntime(runtime: AgentRuntime, tools: HostTools): ConsultRuntime
     reveal: (names, scope, pin) => {
       const outcomes = names.map((toolName) => ({
         name: toolName,
-        result: runtime.grants.grant(toolName, scope, pin, runtime.currentTurn, limitsOf(runtime)),
+        result: runtime.grants.grant(
+          toolName,
+          scope,
+          pin,
+          runtime.currentTurn,
+          limitsOf(runtime),
+        ),
       }));
-      if (outcomes.some((outcome) => outcome.result.granted)) applyMask(runtime, tools);
+      if (outcomes.some((outcome) => outcome.result.granted))
+        applyMask(runtime, tools);
       return outcomes;
     },
   };
@@ -296,9 +332,11 @@ function consultRuntime(runtime: AgentRuntime, tools: HostTools): ConsultRuntime
 
 /** 被遮罩工具被调用时的可行动文案（D3）。 */
 function denyReason(toolName: string): string {
-  return `工具 "${toolName}" 当前不可见（被 tool-consult 管理）。`
-    + `调用 consult_tools（names: ["${toolName}"]）揭示后即可调用；`
-    + `也可以 query 描述用途来检索。`;
+  return (
+    `工具 "${toolName}" 当前不可见（被 tool-consult 管理）。` +
+    `调用 consult_tools（names: ["${toolName}"]）揭示后即可调用；` +
+    `也可以 query 描述用途来检索。`
+  );
 }
 
 /** 把咨询工具注册进代理自身层（自身层豁免遮罩）。 */
@@ -306,12 +344,18 @@ function attachConsultTool(runtime: AgentRuntime, tools: HostTools): void {
   if (runtime.consultDisposer !== undefined) return;
   const agentTools = asTools(runtime.agent.ctx.tools);
   if (agentTools?.register === undefined) {
-    log(runtime.agent.ctx, "warn", "agent.ctx 缺少 tools.register，咨询工具未注册。");
+    log(
+      runtime.agent.ctx,
+      "warn",
+      "agent.ctx 缺少 tools.register，咨询工具未注册。",
+    );
     return;
   }
   try {
     runtime.consultDisposer = agentTools.register(
-      createConsultTool(consultRuntime(runtime, tools)) as unknown as HostToolDefinition,
+      createConsultTool(
+        consultRuntime(runtime, tools),
+      ) as unknown as HostToolDefinition,
     );
   } catch (error: unknown) {
     const kind = classifyToolRegisterError(error);
@@ -342,7 +386,11 @@ function attachListeners(runtime: AgentRuntime): void {
     const exec = args[0] as HostToolExecution | undefined;
     const next = args[1] as (() => unknown) | undefined;
     const toolName = exec?.name;
-    if (typeof toolName !== "string" || !runtime.masked || isVisible(runtime, toolName)) {
+    if (
+      typeof toolName !== "string" ||
+      !runtime.masked ||
+      isVisible(runtime, toolName)
+    ) {
       return typeof next === "function" ? next() : { kind: "allow" };
     }
     return { kind: "deny", reason: denyReason(toolName) };
@@ -358,7 +406,12 @@ function setupAgent(
   config: ResolvedConfig,
   owned: Set<AgentRuntime>,
 ): void {
-  if (agent === undefined || typeof agent.id !== "string" || agent.ctx === undefined) return;
+  if (
+    agent === undefined ||
+    typeof agent.id !== "string" ||
+    agent.ctx === undefined
+  )
+    return;
   if (!shouldManage(config, agent)) return;
 
   const existing = REGISTRY.get(agent.id);
@@ -391,7 +444,11 @@ function setupAgent(
   attachListeners(runtime);
   attachConsultTool(runtime, tools);
   applyMask(runtime, tools);
-  log(ctx, "info", `tool-consult: agent ${agent.id} 已就绪（${runtime.grants.mode()} 档）。`);
+  log(
+    ctx,
+    "info",
+    `tool-consult: agent ${agent.id} 已就绪（${runtime.grants.mode()} 档）。`,
+  );
 }
 
 /** 查找会话对应的运行时。 */
@@ -450,16 +507,21 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
   });
 
   ctx.on?.("session/event", (...args: unknown[]) => {
-    const event = args[1] as { type?: string; data?: { turn?: number } } | undefined;
+    const event = args[1] as
+      { type?: string; data?: { turn?: number } } | undefined;
     const session = args[0] as { id?: string } | undefined;
     const runtime = runtimeOf(session?.id);
     if (runtime === undefined || event?.type === undefined) return;
     if (event.type === "turn/start") {
-      if (typeof event.data?.turn === "number") runtime.currentTurn = event.data.turn;
+      if (typeof event.data?.turn === "number")
+        runtime.currentTurn = event.data.turn;
       return;
     }
     if (event.type !== "turn/end") return;
-    const turn = typeof event.data?.turn === "number" ? event.data.turn : runtime.currentTurn;
+    const turn =
+      typeof event.data?.turn === "number"
+        ? event.data.turn
+        : runtime.currentTurn;
     const result = runtime.grants.converge(turn, limitsOf(runtime));
     if (result.changed) applyMask(runtime, tools);
   });
@@ -474,5 +536,6 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
   });
 
   // 热挂载：对已存在的代理补做。
-  for (const agent of agents.list()) setupAgent(agent, ctx, tools, config, owned);
+  for (const agent of agents.list())
+    setupAgent(agent, ctx, tools, config, owned);
 }

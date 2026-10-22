@@ -41,7 +41,11 @@ test("非法值回退缺省", () => {
 });
 
 test("显式 turn 档与 all 生效", () => {
-  const config = resolveConfig({ revealScope: "turn", applyTo: "all", maxRevealed: 3 });
+  const config = resolveConfig({
+    revealScope: "turn",
+    applyTo: "all",
+    maxRevealed: 3,
+  });
   assert.equal(config.revealScope, "turn");
   assert.equal(config.applyTo, "all");
   assert.equal(config.maxRevealed, 3);
@@ -57,7 +61,10 @@ test("通配匹配", () => {
 
 test("通配展开与未命中的模式", () => {
   const known = ["task_stop", "task_status", "bash", "session_channel"];
-  const result = expandInitialTools(["task_*", "bash", "nope", "missing_*"], known);
+  const result = expandInitialTools(
+    ["task_*", "bash", "nope", "missing_*"],
+    known,
+  );
   assert.deepEqual(result.names, ["bash", "task_status", "task_stop"]);
   assert.deepEqual(result.unknown, ["nope", "missing_*"]);
 });

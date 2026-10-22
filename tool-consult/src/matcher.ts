@@ -80,7 +80,11 @@ function indexDoc(
   for (const alias of aliases[doc.name] ?? []) add(alias, FIELD_WEIGHT.alias);
   add(doc.description, FIELD_WEIGHT.description);
   const properties = doc.parameters?.["properties"];
-  if (properties !== undefined && typeof properties === "object" && properties !== null) {
+  if (
+    properties !== undefined &&
+    typeof properties === "object" &&
+    properties !== null
+  ) {
     for (const key of Object.keys(properties)) add(key, FIELD_WEIGHT.parameter);
   }
   let length = 0;
@@ -107,7 +111,11 @@ export function createMatcher(
   aliases: Readonly<Record<string, readonly string[]>> = ALIASES,
 ): Matcher {
   const byName = new Map<string, ToolDoc>();
-  const indexed: Array<{ doc: ToolDoc; tf: Map<string, number>; length: number }> = [];
+  const indexed: Array<{
+    doc: ToolDoc;
+    tf: Map<string, number>;
+    length: number;
+  }> = [];
   const df = new Map<string, number>();
   let totalLength = 0;
 
@@ -152,7 +160,7 @@ export function createMatcher(
       if (score > 0) hits.push({ name: doc.name, score, matched });
     }
 
-    hits.sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name));
+    hits.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     return hits.slice(0, Math.max(0, limit));
   };
 
@@ -162,7 +170,9 @@ export function createMatcher(
     names: () => [...byName.keys()].sort((a, b) => a.localeCompare(b)),
     nameGroups: () => {
       const groups = new Map<string, string[]>();
-      for (const name of [...byName.keys()].sort((a, b) => a.localeCompare(b))) {
+      for (const name of [...byName.keys()].sort((a, b) =>
+        a.localeCompare(b),
+      )) {
         const prefix = prefixOf(name);
         const list = groups.get(prefix);
         if (list === undefined) groups.set(prefix, [name]);

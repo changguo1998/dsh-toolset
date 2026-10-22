@@ -12,7 +12,10 @@ const DOCS: ToolDoc[] = [
   { name: "bash", description: "Execute a shell command in the workspace." },
   { name: "task_decompose", description: "把一个待细化任务拆成子任务。" },
   { name: "task_status", description: "查看嵌套任务树。" },
-  { name: "rule_add", description: "新增一条注入规则：命中条件成立时注入正文。" },
+  {
+    name: "rule_add",
+    description: "新增一条注入规则：命中条件成立时注入正文。",
+  },
 ];
 
 test("精确名称排第一", () => {
@@ -56,7 +59,10 @@ test("同分按名称字典序（稳定排序）", () => {
   ];
   const matcher = createMatcher(docs);
   const hits = matcher.search("alpha", 5);
-  assert.deepEqual(hits.map((hit) => hit.name), ["aa", "bb"]);
+  assert.deepEqual(
+    hits.map((hit) => hit.name),
+    ["aa", "bb"],
+  );
 });
 
 test("名称分组回退", () => {

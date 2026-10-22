@@ -33,7 +33,9 @@ function schemas(): FakeToolSchema[] {
 function consultOf(host: ReturnType<typeof createFakeHost>) {
   const definition = host.registered.get("consult_tools");
   assert.ok(definition?.execute, "consult_tools 应已注册");
-  return definition.execute as (args: Record<string, unknown>) => Promise<{ text: string }>;
+  return definition.execute as (
+    args: Record<string, unknown>,
+  ) => Promise<{ text: string }>;
 }
 
 const CORE = [
@@ -61,20 +63,29 @@ test("session 档：初始遮罩 9 核心 + 揭示替换 + 拦截文案", async 
   const result = await execute({ query: "跨会话发消息" });
   assert.match(result.text, /已揭示/);
   assert.equal(host.restrictCalls.length, 2);
-  assert.equal(host.restrictCalls[0]?.disposed, true, "旧遮罩应被撤销（替换式）");
+  assert.equal(
+    host.restrictCalls[0]?.disposed,
+    true,
+    "旧遮罩应被撤销（替换式）",
+  );
   const mask = host.activeMask() ?? [];
   assert.ok(mask.includes("session_channel"));
   assert.ok(mask.length > CORE.length);
 
-  const deny = agent.emit("tools/pre-execute", { name: "rule_add" }, () => ({ kind: "allow" }));
+  const deny = agent.emit("tools/pre-execute", { name: "rule_add" }, () => ({
+    kind: "allow",
+  }));
   assert.deepEqual(deny, {
     kind: "deny",
-    reason: '工具 "rule_add" 当前不可见（被 tool-consult 管理）。'
-      + '调用 consult_tools（names: ["rule_add"]）揭示后即可调用；'
-      + "也可以 query 描述用途来检索。",
+    reason:
+      '工具 "rule_add" 当前不可见（被 tool-consult 管理）。' +
+      '调用 consult_tools（names: ["rule_add"]）揭示后即可调用；' +
+      "也可以 query 描述用途来检索。",
   });
 
-  const allow = agent.emit("tools/pre-execute", { name: "bash" }, () => ({ kind: "allow" }));
+  const allow = agent.emit("tools/pre-execute", { name: "bash" }, () => ({
+    kind: "allow",
+  }));
   assert.deepEqual(allow, { kind: "allow" });
 
   host.dispose();
@@ -110,9 +121,17 @@ test("turn 档：回合末收敛，宽限保留本回合揭示项", async () => 
   await execute({ names: ["rule_add"] });
   assert.ok((host.activeMask() ?? []).includes("rule_add"));
 
-  host.emit("session/event", { id: agent.id }, { type: "turn/start", data: { turn: 1 } });
+  host.emit(
+    "session/event",
+    { id: agent.id },
+    { type: "turn/start", data: { turn: 1 } },
+  );
   await execute({ names: ["rule_update"] });
-  host.emit("session/event", { id: agent.id }, { type: "turn/end", data: { turn: 1 } });
+  host.emit(
+    "session/event",
+    { id: agent.id },
+    { type: "turn/end", data: { turn: 1 } },
+  );
 
   const mask = host.activeMask() ?? [];
   assert.ok(mask.includes("rule_update"), "本回合揭示项享受宽限");
@@ -130,8 +149,16 @@ test("turn 档：pin 的项跨回合保留", async () => {
 
   await execute({ names: ["rule_add"], pin: true });
   await execute({ names: ["rule_update"] });
-  host.emit("session/event", { id: agent.id }, { type: "turn/start", data: { turn: 1 } });
-  host.emit("session/event", { id: agent.id }, { type: "turn/end", data: { turn: 1 } });
+  host.emit(
+    "session/event",
+    { id: agent.id },
+    { type: "turn/start", data: { turn: 1 } },
+  );
+  host.emit(
+    "session/event",
+    { id: agent.id },
+    { type: "turn/end", data: { turn: 1 } },
+  );
 
   const mask = host.activeMask() ?? [];
   assert.ok(mask.includes("rule_add"), "钉住项不参与收敛");
@@ -143,7 +170,10 @@ test("turn 档：pin 的项跨回合保留", async () => {
 test("applyTo=roots：子代理不遮、不注册咨询工具", () => {
   const host = createFakeHost({ schemas: schemas() });
   apply(host.ctx, {});
-  const child = host.addAgent({ id: "t5-child", header: { origin: "subagent" } });
+  const child = host.addAgent({
+    id: "t5-child",
+    header: { origin: "subagent" },
+  });
   host.emit("agent/created", { agent: child });
 
   assert.equal(host.restrictCalls.length, 0);
@@ -166,7 +196,11 @@ test("无 agent 作用域：回退不遮并告警", () => {
 });
 
 test("tools 服务缺失：插件不启用", () => {
-  const host = createFakeHost({ schemas: schemas(), withToolsService: false, withAgentTools: false });
+  const host = createFakeHost({
+    schemas: schemas(),
+    withToolsService: false,
+    withAgentTools: false,
+  });
   apply(host.ctx, {});
   const agent = host.addAgent({ id: "t7-agent" });
   host.emit("agent/created", { agent });
@@ -181,7 +215,10 @@ test("tools 服务缺失：插件不启用", () => {
 test("名单失配：过滤后重试一次成功", () => {
   const host = createFakeHost({
     schemas: schemas(),
-    restrictFailure: { message: 'tools.restrict() names unknown global tool "ghost"', times: 1 },
+    restrictFailure: {
+      message: 'tools.restrict() names unknown global tool "ghost"',
+      times: 1,
+    },
   });
   apply(host.ctx, {});
   const agent = host.addAgent({ id: "t8-agent" });

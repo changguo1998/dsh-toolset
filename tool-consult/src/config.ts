@@ -88,13 +88,16 @@ function nonNegativeInt(value: unknown, fallback: number): number {
 /** 把宿主透传的配置归一化为全字段版本（永不抛错）。 */
 export function resolveConfig(raw?: Config): ResolvedConfig {
   const config = raw ?? {};
-  const mode: MaskMode = config.maskMode === "denylist" || config.maskMode === "off"
-    ? config.maskMode
-    : "allowlist";
+  const mode: MaskMode =
+    config.maskMode === "denylist" || config.maskMode === "off"
+      ? config.maskMode
+      : "allowlist";
   const scope: RevealScope = config.revealScope === "turn" ? "turn" : "session";
   const applyTo: ApplyTo = config.applyTo === "all" ? "all" : "roots";
   const tools = Array.isArray(config.initialTools)
-    ? config.initialTools.filter((item): item is string => typeof item === "string" && item.length > 0)
+    ? config.initialTools.filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
     : [...DEFAULT_INITIAL_TOOLS];
   const maxResults = nonNegativeInt(config.maxResults, DEFAULTS.maxResults);
   return {
@@ -163,8 +166,12 @@ export interface SessionHeaderLike {
 }
 
 /** 是否子代理会话（`applyTo: "roots"` 时跳过）。 */
-export function isSubagentSession(header: SessionHeaderLike | undefined): boolean {
+export function isSubagentSession(
+  header: SessionHeaderLike | undefined,
+): boolean {
   if (header === undefined) return false;
-  return header.origin === "subagent"
-    || (typeof header.delegationDepth === "number" && header.delegationDepth > 0);
+  return (
+    header.origin === "subagent" ||
+    (typeof header.delegationDepth === "number" && header.delegationDepth > 0)
+  );
 }
