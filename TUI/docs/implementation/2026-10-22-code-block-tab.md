@@ -1,6 +1,6 @@
 # 代码块排版：`\t` 展开为 4 个空格并保证底色填满整行（接取条目：`TUI/docs/BACKLOG.md`「#1 代码块排版…」）
 
-状态：实现　　开启：2026-10-22　　关闭：—
+状态：测试　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -89,3 +89,18 @@
 
 - 行内代码（`` `x` ``）里的 `\t` 本次不展开（决策项 3 选定 a）：条目边界如此，且展开需改动行内 markdown 解析与列表前导缩进的 tab 口径。若真机出现行内代码 tab 导致的行宽偏差，另开条目。
 - 普通正文 / 用户块里的真 `\t` 同样按 1 列计宽（决策项 4 选定 a，未改 `charWidth`）：本次范围仅围栏代码块，残留同上。
+
+## 测试与证据
+
+2026-10-23，命令均在 `TUI/` 下执行：
+
+- `node --experimental-transform-types --test tests/code-block-tab.test.ts` → 6 例全通过（`tests 6 / pass 6 / fail 0`）。用例：
+  - `expandCodeTabs` 纯函数：`\t` → 4 空格、无 tab 原样返回；
+  - 预折路径：`\tindent();` → `┃ 1` + 4 空格 + 代码，行宽恰为 40（内容宽），行尾是代码底色段；
+  - 预折路径长行：`\tfoo(a, b, c) + bar(d, e, f) + baz(g, h, i);` 按展开后的宽度折行，首行尾 `↩` / 续行首 `↪`，每行宽 40 且无 `\t`；
+  - 宽未知路径（`buildBox` 不带 width → fill 折行）：展开后行宽恰为 40；
+  - 紧凑模式 fence 行（`activityCompact.reply`）：竖线后 4 空格，灰底铺到正文右缘（`W - USER_MIN_LEFT_GUTTER`），行宽 40；
+  - 思考区代码块：同一构建器，行号列后 4 空格、行宽 40。
+- `npm test`（TUI 全量，`scripts/test.sh`）→ `tests 1689 / pass 1689 / fail 0`（duration 约 7.8s），既有代码块与排版断言全绿。
+- `npm run check`（`tsc --noEmit`，含 tests）→ 通过；`npm run build` → 通过。
+- 未做真机验收（按并行任务约定留到主分支人工确认）；共享文档与根级文件未改。
