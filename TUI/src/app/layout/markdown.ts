@@ -803,6 +803,19 @@ const HEADING_FG: ColorName = "brightCyan";
 /** 代码块行：整行主题灰底并补齐到内容区宽度；fence 内不解析 markdown */
 const wrapCodeCache = createTextCache<FrameSegment[][]>();
 
+/** 代码块制表符展开列宽（固定 4 列；不按终端 tab stop 8 列推进，见 TUI/docs/SPEC.md §3） */
+const CODE_TAB_WIDTH = 4;
+
+/**
+ * 代码块制表符展开：`\t` → 固定 4 个空格（纯函数）。终端对真 tab 的推进量随当前列变化
+ * （推进到下一个 tab stop），与 `charWidth` 的「1 列」永远对不上——出行前必须先替换成空格，
+ * 宽度计算、折行与底色补齐才与终端实际列一致。
+ */
+export function expandCodeTabs(text: string): string {
+  if (!text.includes("\t")) return text;
+  return text.replace(/\t/g, " ".repeat(CODE_TAB_WIDTH));
+}
+
 export function wrapCodeLine(text: string, width: number): FrameSegment[][] {
   return memo(wrapCodeCache, sizedKey(text, width), () =>
     codeLineRows(text, width),
@@ -812,7 +825,9 @@ export function wrapCodeLine(text: string, width: number): FrameSegment[][] {
 /** wrapCodeLine 直算路径（无缓存）：整行主题灰底并补齐到内容区宽度 */
 function codeLineRows(text: string, width: number): FrameSegment[][] {
   if (text === "") return [[]];
-  const segs: FrameSegment[] = [{ text, style: { bg: "code" } }];
+  const segs: FrameSegment[] = [
+    { text: expandCodeTabs(text), style: { bg: "code" } },
+  ];
   return wrapFrameSegments(segs, width).map((row) => {
     const rowText = row.map((s) => s.text).join("");
     const pad = Math.max(0, width - displayWidth(rowText));
