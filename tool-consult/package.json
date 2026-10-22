@@ -1,0 +1,30 @@
+{
+    "name": "@dsh-toolset/tool-consult",
+    "version": "0.1.0",
+    "description": "DSH（DeepSeek Harness）工具咨询插件：按需揭示工具（咨询即授权，遮罩 + 关键词索引）",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    },
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
