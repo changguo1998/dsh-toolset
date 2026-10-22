@@ -505,3 +505,14 @@ test("status 快照字段与名单计数一致", () => {
   assert.equal(status.llmRoute, "p/m");
   assert.equal(status.audit.sessionWritable, true);
 });
+
+test("缺省补丁带 worktree 提交的升级规则（防止误删）", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const text = await readFile(
+    new URL("../cordis.patch.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(text, /id: git-worktree-commit/);
+  assert.match(text, /add\|commit\|tag/);
+  assert.match(text, /danger-full-access/);
+});

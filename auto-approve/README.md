@@ -81,6 +81,9 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
         - id: logs
           path: '^/var/log/'
           to: [read-only]               # 目标模式必须与宿主词表一致
+        - id: git-worktree-commit       # 缺省补丁已带：worktree 内的 add / commit / tag
+          match: '^git +(?:-C +[^ ]+ +)?(?:add|commit|tag)(?: +[^;&|]*)?$'
+          to: [danger-full-access]
     review:
       enabled: true            # 缺省 true；只有 mode: rules+llm 时才真的调用
       # provider: some-provider # provider + model 同时给出才覆盖（缺省跟随当前会话模型）
@@ -104,6 +107,12 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 判定顺序：拒绝名单（`deny.escalation.to`）→ 命令 / 路径归一化后匹配 `match` / `path`，
 **且**请求的目标模式在 `to` 内 → 放行；否则落面板。`justification` **不参与判定**（模型自陈理由，
 可被话术诱导）。一次放行只对当次调用有效；想避免反复弹面板就配合指纹记忆（同命令 + 同目标模式）。
+
+**缺省补丁自带的一条**：`git-worktree-commit` 放行 `git add` / `git commit` / `git tag`（含 `-C <path>`
+前缀）升到 `danger-full-access`，供并行开发时在 git worktree 内提交使用。命令规则看不到 `cwd` 与分支，
+之所以等价于「只对 worktree 生效」：主检出里的 git 写操作都在工作区内、不触发升级；worktree 的 git
+目录（索引、objects、refs）在工作区外，才需要升级。正则锚定整串并排除 `;`、`&&`、`|`，避免
+`git commit && <任意命令>` 被一并放行；`git commit` 会执行仓库 hook，属仓库内容、不在本层管辖。
 
 ### 人工放行学习（形态层）
 

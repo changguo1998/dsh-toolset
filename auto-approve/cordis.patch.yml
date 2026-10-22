@@ -10,3 +10,12 @@
       config:
         enabled: true
         mode: rules
+        # worktree 内的 git 提交要写工作区外的 .git（索引 / objects / refs），会请求升级到
+        # danger-full-access；这里放行三种简单形态，正则锚定整串并排除复合命令。
+        # deny.escalation.to 优先于本层，需要收紧的用户仍可用拒绝名单覆盖。
+        escalation:
+          mode: match
+          allow:
+            - id: git-worktree-commit
+              match: '^git +(?:-C +[^ ]+ +)?(?:add|commit|tag)(?: +[^;&|]*)?$'
+              to: ['danger-full-access']

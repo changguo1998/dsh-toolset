@@ -516,3 +516,55 @@ test("parseReviewDecision：只接受封闭组合，其余一律失败", () => {
     );
   }
 });
+
+test("缺省补丁的 worktree 提交规则：命中简单形态、拒绝复合命令与错的目标模式", async () => {
+  // 与 auto-approve/cordis.patch.yml 里的 git-worktree-commit 保持一致
+  const config = resolveConfig({
+    escalation: {
+      allow: [
+        {
+          id: "git-worktree-commit",
+          match: "^git +(?:-C +[^ ]+ +)?(?:add|commit|tag)(?: +[^;&|]*)?$",
+          to: ["danger-full-access"],
+        },
+      ],
+    },
+  });
+  const ctx = context(config);
+  const reason =
+    "escalate sandbox to danger-full-access: worktree git metadata";
+
+  const commit = await decide(
+    ctx,
+    input("bash", { command: 'git commit -m "feat: x"' }, { reason }),
+  );
+  assert.equal(commit.decision.outcome, "allowed-once");
+  assert.equal(commit.decision.source, "upgrade");
+  assert.equal(commit.decision.ruleId, "git-worktree-commit");
+
+  const withC = await decide(
+    ctx,
+    input("bash", { command: "git -C .worktree/a commit -m x" }, { reason }),
+  );
+  assert.equal(withC.decision.outcome, "allowed-once");
+
+  const compound = await decide(
+    ctx,
+    input(
+      "bash",
+      { command: 'git commit -m "x" && rm -rf /tmp/x' },
+      { reason },
+    ),
+  );
+  assert.notEqual(compound.decision.outcome, "allowed-once");
+
+  const wrongTarget = await decide(
+    ctx,
+    input(
+      "bash",
+      { command: 'git commit -m "x"' },
+      { reason: "escalate sandbox to workspace-write: worktree git metadata" },
+    ),
+  );
+  assert.notEqual(wrongTarget.decision.outcome, "allowed-once");
+});
