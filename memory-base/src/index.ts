@@ -41,6 +41,7 @@ import { memoryQueryTool, type MemoryQueryExecutor } from "./tools.ts";
 
 export { migrate, KindRegistry, memoryQueryTool };
 export type { MemoryQueryExecutor, MemoryQueryResult } from "./tools.ts";
+export type { SearchMode } from "./hybrid.ts";
 export type {
   ListOptions,
   PutInput,
@@ -335,6 +336,7 @@ export function createGlobalService(
         ...(opts.project === undefined ? {} : { project: opts.project }),
         ...(opts.limit === undefined ? {} : { limit: opts.limit }),
         ...(opts.fuzzy === undefined ? {} : { fuzzy: opts.fuzzy }),
+        ...(opts.mode === undefined ? {} : { mode: opts.mode }),
       }),
   };
 }

@@ -32,7 +32,7 @@
     - `bm25`：porter 词干路（带列权重，按 BM25 升序）；
     - `trigram`：trigram 路，查询词按空白切分后取 ≥3 字符的词项，各自加引号（FTS5 phrase 字面量）以 `OR` 连接；hybrid 下**恒开**，不再依赖 `fuzzy`；
     - `like`：逐词项 `content LIKE %词% OR title LIKE %词%`（沿用 `likePattern` 转义），`ORDER BY c.id` 保证确定序；这是 CJK 短词的主力召回；
-    - `proximity`：对 `like` 路的候选行做词项邻近计算（不再发 SQL）。命中词项数 ≥2 才进入该路，排序 = 覆盖词项数降序 → 最小窗口跨度升序 → id 升序。
+    - `proximity`：对 `like` 路的候选行做词项邻近计算（不再发 SQL）。命中词项数 ≥2 且这些词项共现于同一小窗口（跨度 ≤ `PROXIMITY_MAX_SPAN = 64` 字符）才进入该路，排序 = 覆盖词项数降序 → 最小窗口跨度升序 → id 升序。窗口阈值是「邻近」与「长文里恰好都出现」的分界。
 04. **融合用 RRF，而不是分数相加**：各路的分数（BM25 / trigram BM25 / 常量 0 / 邻近跨度）量纲不可比，故只取**路内名次**——`fused` 为各路 `1 / (K + rank + 1)` 之和，`K = 60`。RRF 之外不做归一化，避免引入可调参数。
 05. **`SearchHit.score` 语义不变**（越小越相关）：hybrid 下 `score = -fused`（负值）。这样 `TierSet.search` 的跨层排序（层权重优先、同层按分数升序）**一行不改**即可复用，`score < 0` 只表示「融合分高」。
 06. **邻近窗口算法**：把 `title + "\n" + content` 小写化并截到 `PROXIMITY_SCAN_CHARS = 4000` 字符，收集各词项出现位置，用双指针求「覆盖文档内全部出现词项」的最小窗口；跨度 = 末位置减首位置。纯函数放 `src/hybrid.ts`，可单测。
