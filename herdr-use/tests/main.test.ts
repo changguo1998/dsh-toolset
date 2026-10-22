@@ -10,7 +10,7 @@ import { test } from "node:test";
 
 import { dispatchAction } from "../src/actions.ts";
 import { TOOL_NAME } from "../src/tools.ts";
-import type { HerdrPaneToolDef } from "../src/tools.ts";
+import type { HerdrUseToolDef } from "../src/tools.ts";
 import {
   apply,
   createHerdrPlugin,
@@ -87,11 +87,11 @@ function fakeCtx(services: Record<string, object> = {}): FakeCtx {
 }
 
 /** 校验一个 decode 成功的工具定义。 */
-function toolOf(ctx: FakeCtx): HerdrPaneToolDef {
-  const def = ctx.defs[0] as HerdrPaneToolDef | undefined;
+function toolOf(ctx: FakeCtx): HerdrUseToolDef {
+  const def = ctx.defs[0] as HerdrUseToolDef | undefined;
   assert.notEqual(def, undefined, "应注册一个工具");
   assert.equal(def?.name, TOOL_NAME);
-  return def as HerdrPaneToolDef;
+  return def as HerdrUseToolDef;
 }
 
 /** 成功的可用性握手（二进制已解析；HERDR_* 可选）。 */
@@ -115,7 +115,7 @@ const badProbe = (): { ok: false; reason: string } => ({
 });
 
 test("bundle 契约面: name / inject 与 Config 形态", () => {
-  assert.equal(name, "herdr-pane");
+  assert.equal(name, "herdr-use");
   assert.deepEqual(inject, ["tools"]);
 });
 
@@ -147,7 +147,7 @@ test("apply: 无 HERDR_* 仍注册（dsh 不必跑在 herdr 内）", () => {
   plugin?.();
 });
 
-test("createHerdrPlugin: 握手成立且服务端可达时注册 herdr_pane 并挂 tools/pre-execute", () => {
+test("createHerdrPlugin: 握手成立且服务端可达时注册 herdr_use 并挂 tools/pre-execute", () => {
   const ctx = fakeCtx();
   const runner = fakeRunner();
   const plugin = createHerdrPlugin(
@@ -253,14 +253,17 @@ test("preExecuteVerdict: 非本工具 / 无 pane / 读类动作一律放行", ()
   );
   assert.deepEqual(
     preExecuteVerdict(
-      { name: TOOL_NAME, arguments: { action: "list" } },
+      { name: TOOL_NAME, arguments: { action: "pane_list" } },
       gateOptions(registry),
     ),
     { kind: "allow" },
   );
   assert.deepEqual(
     preExecuteVerdict(
-      { name: TOOL_NAME, arguments: { action: "read", pane_id: "wT1:p9" } },
+      {
+        name: TOOL_NAME,
+        arguments: { action: "pane_read", pane_id: "wT1:p9" },
+      },
       gateOptions(registry),
     ),
     { kind: "allow" },
@@ -274,7 +277,7 @@ test("preExecuteVerdict: 读宿主字段名 name / arguments / agent（旧字段
     preExecuteVerdict(
       {
         toolName: TOOL_NAME,
-        args: { action: "run", pane_id: "wT1:p9" },
+        args: { action: "pane_run", pane_id: "wT1:p9" },
       } as never,
       gateOptions(registry, resolveConfig({}), "read-only"),
     ),
@@ -285,7 +288,7 @@ test("preExecuteVerdict: 读宿主字段名 name / arguments / agent（旧字段
     preExecuteVerdict(
       {
         name: TOOL_NAME,
-        arguments: { action: "run", pane_id: "wT1:p2" },
+        arguments: { action: "pane_run", pane_id: "wT1:p2" },
         agent: { session: { id: "s1" } },
       },
       gateOptions(registry, resolveConfig({}), "read-only"),
@@ -311,7 +314,7 @@ test("preExecuteVerdict: foreign 档对非自有 pane 的输入产出 ask；自�
   const foreign = preExecuteVerdict(
     {
       name: TOOL_NAME,
-      arguments: { action: "run", pane_id: "wT1:p9", command: "ls" },
+      arguments: { action: "pane_run", pane_id: "wT1:p9", command: "ls" },
     },
     gateOptions(registry),
   );
@@ -322,7 +325,7 @@ test("preExecuteVerdict: foreign 档对非自有 pane 的输入产出 ask；自�
   const own = preExecuteVerdict(
     {
       name: TOOL_NAME,
-      arguments: { action: "run", pane_id: "wT1:p2", command: "ls" },
+      arguments: { action: "pane_run", pane_id: "wT1:p2", command: "ls" },
     },
     gateOptions(registry),
   );
@@ -336,7 +339,7 @@ test("preExecuteVerdict: always 档对自有 pane 也 ask；never 档从不 ask"
     preExecuteVerdict(
       {
         name: TOOL_NAME,
-        arguments: { action: "send_keys", pane_id: "wT1:p2" },
+        arguments: { action: "pane_send_keys", pane_id: "wT1:p2" },
       },
       gateOptions(registry, resolveConfig({ requireApproval: "always" })),
     ).kind,
@@ -344,19 +347,22 @@ test("preExecuteVerdict: always 档对自有 pane 也 ask；never 档从不 ask"
   );
   assert.deepEqual(
     preExecuteVerdict(
-      { name: TOOL_NAME, arguments: { action: "close", pane_id: "wT1:p9" } },
+      {
+        name: TOOL_NAME,
+        arguments: { action: "pane_close", pane_id: "wT1:p9" },
+      },
       gateOptions(registry, resolveConfig({ requireApproval: "never" })),
     ),
     { kind: "allow" },
   );
 });
 
-test("preExecuteVerdict: wait 只有 stable 模式算写侧（match 不打断人）", () => {
+test("preExecuteVerdict: pane_wait 只有 stable 模式算写侧（match 不打断人）", () => {
   const registry = new PaneRegistry("dsh-pane");
   const match = preExecuteVerdict(
     {
       name: TOOL_NAME,
-      arguments: { action: "wait", pane_id: "wT1:p9", match: "x" },
+      arguments: { action: "pane_wait", pane_id: "wT1:p9", match: "x" },
     },
     gateOptions(registry),
   );
@@ -364,25 +370,25 @@ test("preExecuteVerdict: wait 只有 stable 模式算写侧（match 不打断人
   const stable = preExecuteVerdict(
     {
       name: TOOL_NAME,
-      arguments: { action: "wait", pane_id: "wT1:p9", stable: true },
+      arguments: { action: "pane_wait", pane_id: "wT1:p9", stable: true },
     },
     gateOptions(registry),
   );
   assert.equal(stable.kind, "ask");
 });
 
-test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait），读类与标记类放行", () => {
+test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 pane_wait），读类与标记类放行", () => {
   const registry = new PaneRegistry("dsh-pane");
   registry.register({ paneId: "wT1:p2" });
   const readOnly = gateOptions(registry, resolveConfig({}), "read-only");
   const session = { id: "s1" };
 
   const denied = [
-    { action: "send_text", pane_id: "wT1:p2", text: "ls" },
-    { action: "send_keys", pane_id: "wT1:p2", keys: ["enter"] },
-    { action: "run", pane_id: "wT1:p2", command: "rm -rf build" },
-    { action: "close", pane_id: "wT1:p2" },
-    { action: "wait", pane_id: "wT1:p2", stable: true },
+    { action: "pane_send_text", pane_id: "wT1:p2", text: "ls" },
+    { action: "pane_send_keys", pane_id: "wT1:p2", keys: ["enter"] },
+    { action: "pane_run", pane_id: "wT1:p2", command: "rm -rf build" },
+    { action: "pane_close", pane_id: "wT1:p2" },
+    { action: "pane_wait", pane_id: "wT1:p2", stable: true },
     { action: "tab_close", tab_id: "wT1:t2" },
   ];
   for (const args of denied) {
@@ -398,13 +404,13 @@ test("preExecuteVerdict: 只读会话拒绝写类动作（含 stable 的 wait）
   }
 
   const allowed = [
-    { action: "read", pane_id: "wT1:p2" },
-    { action: "info", pane_id: "wT1:p2" },
-    { action: "list" },
-    { action: "label", pane_id: "wT1:p2", label: "x" },
-    { action: "create", direction: "right" },
+    { action: "pane_read", pane_id: "wT1:p2" },
+    { action: "pane_info", pane_id: "wT1:p2" },
+    { action: "pane_list" },
+    { action: "pane_label", pane_id: "wT1:p2", label: "x" },
+    { action: "pane_create", direction: "right" },
     { action: "tab_create" },
-    { action: "wait", pane_id: "wT1:p2", match: "done" },
+    { action: "pane_wait", pane_id: "wT1:p2", match: "done" },
   ];
   for (const args of allowed) {
     assert.deepEqual(
@@ -497,7 +503,7 @@ test("preExecuteVerdict: 可写模式不拒；模式无法判定时 fail-open", 
   registry.register({ paneId: "wT1:p2" });
   const payload = {
     name: TOOL_NAME,
-    arguments: { action: "run", pane_id: "wT1:p2", command: "ls" },
+    arguments: { action: "pane_run", pane_id: "wT1:p2", command: "ls" },
   };
   const modes = ["workspace-write", "danger-full-access", undefined] as const;
   for (const mode of modes) {
@@ -517,7 +523,7 @@ test("preExecuteVerdict: 拒绝先于审批（只读会话里非自有 pane 不�
   const verdict = preExecuteVerdict(
     {
       name: TOOL_NAME,
-      arguments: { action: "run", pane_id: "wT1:p9", command: "ls" },
+      arguments: { action: "pane_run", pane_id: "wT1:p9", command: "ls" },
     },
     gateOptions(
       registry,
@@ -555,7 +561,7 @@ test("tools/pre-execute 监听器: 只读会话拒写类、读类继续链路", 
   const denied = await listener?.(
     {
       name: TOOL_NAME,
-      arguments: { action: "run", pane_id: "wT1:p2" },
+      arguments: { action: "pane_run", pane_id: "wT1:p2" },
       agent: { session: { id: "s1" } },
     },
     next,
@@ -564,7 +570,7 @@ test("tools/pre-execute 监听器: 只读会话拒写类、读类继续链路", 
   assert.equal(nextCalls, 0, "deny 分支不应继续链路");
 
   const read = await listener?.(
-    { name: TOOL_NAME, arguments: { action: "read", pane_id: "wT1:p9" } },
+    { name: TOOL_NAME, arguments: { action: "pane_read", pane_id: "wT1:p9" } },
     next,
   );
   assert.equal(nextCalls, 1, "读类动作继续链路");
@@ -596,7 +602,7 @@ test("tools/pre-execute 监听器: 非只读时仍按审批档产出 ask", async
   };
 
   const blocked = await listener?.(
-    { name: TOOL_NAME, arguments: { action: "run", pane_id: "wT1:p9" } },
+    { name: TOOL_NAME, arguments: { action: "pane_run", pane_id: "wT1:p9" } },
     next,
   );
   assert.equal(
@@ -607,7 +613,7 @@ test("tools/pre-execute 监听器: 非只读时仍按审批档产出 ask", async
   assert.equal(nextCalls, 0, "ask 分支不应继续链路");
 
   const allowed = await listener?.(
-    { name: TOOL_NAME, arguments: { action: "run", pane_id: "wT1:p2" } },
+    { name: TOOL_NAME, arguments: { action: "pane_run", pane_id: "wT1:p2" } },
     next,
   );
   assert.equal(nextCalls, 1);
@@ -637,7 +643,7 @@ test("工具 execute: 缺 action 返回 unknown-action（不触达 runner）", a
   plugin?.dispose();
 });
 
-test("工具 execute: exec 透传 → create 落在本会话 workspace 的活动 pane（全链路）", async () => {
+test("工具 execute: exec 透传 → pane_create 落在本会话 workspace 的活动 pane（全链路）", async () => {
   const ctx = fakeCtx();
   const fake = fakeHerdr();
   const plugin = createHerdrPlugin(
@@ -656,7 +662,7 @@ test("工具 execute: exec 透传 → create 落在本会话 workspace 的活动
 
   // 不注入 resolveSession：create 能成即证明工具把宿主 exec 透传给了 dispatchAction
   const created = (await tool.execute(
-    { action: "create", direction: "right" },
+    { action: "pane_create", direction: "right" },
     exec,
   )) as ActionResult;
   assert.equal(created.ok, true);
@@ -678,19 +684,19 @@ test("工具 execute: exec 透传 → create 落在本会话 workspace 的活动
   );
 
   const ran = (await tool.execute(
-    { action: "run", pane_id: paneId, command: "python3 -i" },
+    { action: "pane_run", pane_id: paneId, command: "python3 -i" },
     exec,
   )) as ActionResult;
   assert.equal(ran.ok, true);
 
   const info = (await tool.execute(
-    { action: "info", pane_id: paneId },
+    { action: "pane_info", pane_id: paneId },
     exec,
   )) as ActionResult;
   assert.equal(info.ok && info.payload.running, false);
 
   const closed = (await tool.execute(
-    { action: "close", pane_id: paneId },
+    { action: "pane_close", pane_id: paneId },
     exec,
   )) as ActionResult;
   assert.equal(closed.ok, true);
@@ -715,7 +721,7 @@ test("工具 execute: 错误信封透传（pane_not_found），render 出可读�
   );
   const tool = toolOf(ctx);
   const result = (await tool.execute({
-    action: "info",
+    action: "pane_info",
     pane_id: "wT1:p999",
   })) as ActionResult;
   assert.equal(result.ok, false);
@@ -724,7 +730,7 @@ test("工具 execute: 错误信封透传（pane_not_found），render 出可读�
   assert.equal(blocks[0]?.type, "text");
   assert.match(
     blocks[0]?.text ?? "",
-    /herdr_pane info 失败\[herdr-cli-error\]/,
+    /herdr_use pane_info 失败\[herdr-cli-error\]/,
   );
   assert.match(blocks[0]?.text ?? "", /pane_not_found/);
   plugin?.dispose();
@@ -751,7 +757,7 @@ test("guard 复查接线：deny 时命令不送达 pane（服务面走 ctx.get('
   assert.notEqual(plugin, undefined);
   plugin?.registry.register({ paneId: "wT1:p2" });
   const result = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p2", command: "dangerous-cmd" },
     plugin?.deps as never,
   );
@@ -777,7 +783,7 @@ test("guard 复查接线：服务缺失时 fail-open，命令照常送达", asyn
   );
   plugin?.registry.register({ paneId: "wT1:p2" });
   const result = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p2", command: "echo hi" },
     plugin?.deps as never,
   );

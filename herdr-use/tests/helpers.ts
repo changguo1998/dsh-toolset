@@ -2,7 +2,7 @@
  * tests/helpers.ts — 单测共用的假件（不依赖真机 herdr）
  *
  * 口径：所有对外部世界的访问都经依赖注入（runner / reader / 连接器 / 时钟 / 环境变量），
- * 故单测不需要 herdr 二进制、socket 或真 pane；真机验证见 `scripts/verify-herdr-pane.mjs`
+ * 故单测不需要 herdr 二进制、socket 或真 pane；真机验证见 `scripts/verify-herdr-use.mjs`
  * （人工跑、不进 CI）。
  */
 
@@ -16,7 +16,7 @@ import type {
 } from "../src/socket.ts";
 import { PaneRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
-import type { HerdrPaneConfig, ResolvedConfig } from "../src/types.ts";
+import type { HerdrUseConfig, ResolvedConfig } from "../src/types.ts";
 import type { SessionContext } from "../src/workspace.ts";
 
 /** 记录型 fake runner：按调用顺序记录 argv，按注入的响应序列返回。 */
@@ -204,7 +204,7 @@ export function fakeConnector(responses: SocketResponse[]): FakeConnector {
 }
 
 /** 注册表 + 配置的快捷构造。 */
-export function setup(config: HerdrPaneConfig = {}): {
+export function setup(config: HerdrUseConfig = {}): {
   registry: PaneRegistry;
   config: ResolvedConfig;
 } {

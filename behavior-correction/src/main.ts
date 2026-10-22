@@ -7,7 +7,7 @@
  * 规则表（工具名 + 参数字符串）判定，命中返回 `{ kind: "deny", reason }`（回执写明该改用哪个专用
  * 工具），未命中返回 `undefined`（弃权，交给其它消费者与宿主继续）。
  *
- * 缺省规则只有一条：`bash` 命令里出现 `herdr` → 拒绝并指向 `herdr_pane`。herdr CLI 有专用工具，
+ * 缺省规则只有一条：`bash` 命令里出现 `herdr` → 拒绝并指向 `herdr_use`。herdr CLI 有专用工具，
  * 走 bash 会绕过插件面板与状态绑定。规则表可在 profile `config` 里整体替换；`rules: []` 或
  * `enabled: false` 等于不拦。
  *
@@ -80,7 +80,7 @@ export interface Config {
 
 /**
  * 内置缺省规则：
- * 1. bash 里跑 herdr CLI → 指路 `herdr_pane`；
+ * 1. bash 里跑 herdr CLI → 指路 `herdr_use`；
  * 2. bash 里跑 python → 指路 `script_run`（script-interpreter 插件）。
  */
 export const DEFAULT_RULES: readonly RuleSpec[] = [
@@ -95,7 +95,8 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       ],
       flags: "im",
     },
-    reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）",
+    reason:
+      "bash 里不要跑 herdr 命令: 改用 herdr_use 工具（pane_* / tab_* 操作）",
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
   },
   {

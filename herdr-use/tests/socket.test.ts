@@ -53,7 +53,7 @@ test("toSocketSource: 连字符写法映射为下划线，其余不变", () => {
 test("nextRequestId: 单调递增且带随机尾（不引入 uuid 依赖）", () => {
   const a = nextRequestId(1000);
   const b = nextRequestId(1000);
-  assert.match(a, /^herdr-pane:1000:\d+:/);
+  assert.match(a, /^herdr-use:1000:\d+:/);
   assert.notEqual(a, b);
   assert.notEqual(a.split(":")[2], b.split(":")[2]);
 });
@@ -97,7 +97,7 @@ test("readPane: 报文含 method=pane.read、source 下划线、strip_ansi 随 f
     params: Record<string, unknown>;
   };
   assert.equal(parsed.method, "pane.read");
-  assert.match(parsed.id, /^herdr-pane:/);
+  assert.match(parsed.id, /^herdr-use:/);
   assert.deepEqual(parsed.params, {
     pane_id: "wT:p2",
     source: "recent_unwrapped",

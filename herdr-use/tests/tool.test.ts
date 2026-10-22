@@ -1,5 +1,5 @@
 /**
- * tests/tool.test.ts — `herdr_pane` 工具定义与回执渲染
+ * tests/tool.test.ts — `herdr_use` 工具定义与回执渲染
  *
  * 重点：
  *   - `parameters` 的必填项与枚举是模型侧契约（改它等于改接口）；
@@ -14,8 +14,8 @@ import { PaneRegistry } from "../src/registry.ts";
 import {
   TOOL_NAME,
   capText,
-  createHerdrPaneTool,
-  renderHerdrPane,
+  createHerdrUseTool,
+  renderHerdrUse,
 } from "../src/tools.ts";
 import type { DispatchDeps } from "../src/actions.ts";
 import { resolveConfig, failure, success } from "../src/types.ts";
@@ -51,29 +51,29 @@ function tool(
     resolveSession: () => fakeSession,
     clock: fakeClock(),
   };
-  return { def: createHerdrPaneTool(deps), deps, registry, config };
+  return { def: createHerdrUseTool(deps), deps, registry, config };
 }
 
 test("工具定义: 名称、必填 action、十三动作枚举与关键参数类型", () => {
   const { def } = tool();
   assert.equal(def.name, TOOL_NAME);
-  assert.equal(def.name, "herdr_pane");
+  assert.equal(def.name, "herdr_use");
   assert.deepEqual(def.parameters.required, ["action"]);
   const properties = def.parameters.properties as Record<
     string,
     Record<string, unknown>
   >;
   assert.deepEqual(properties.action?.enum, [
-    "create",
-    "list",
-    "read",
-    "wait",
-    "send_text",
-    "send_keys",
-    "run",
-    "label",
-    "info",
-    "close",
+    "pane_create",
+    "pane_list",
+    "pane_read",
+    "pane_wait",
+    "pane_send_text",
+    "pane_send_keys",
+    "pane_run",
+    "pane_label",
+    "pane_info",
+    "pane_close",
     "tab_create",
     "tab_list",
     "tab_close",
@@ -112,7 +112,7 @@ test("工具定义: 名称、必填 action、十三动作枚举与关键参数�
   // create 的落点写明是 workspace 活动 pane（不是调用者 pane）
   assert.match(
     def.description,
-    /create 在本会话 workspace 的活动 pane 上切兄弟 pane/,
+    /pane_create 在本会话 workspace 的活动 pane 上切兄弟 pane/,
   );
   assert.match(def.description, /tab_create/);
   assert.match(def.description, /tab_close/);
@@ -125,14 +125,17 @@ test("工具 execute: 缺 action 返回 unknown-action 并列出可选动作", a
   assert.equal(result.ok === false && result.error.code, "unknown-action");
   assert.match(
     result.ok === false ? result.error.message : "",
-    /create \/ list/,
+    /pane_create \/ pane_list/,
   );
 });
 
 test("工具 execute: 合法 action 交给 dispatchAction（create 走 runner，落点是 workspace 活动 pane）", async () => {
   const fake = fakeHerdr();
   const { def } = tool({ runner: fake.runner });
-  const result = await def.execute({ action: "create", direction: "right" });
+  const result = await def.execute({
+    action: "pane_create",
+    direction: "right",
+  });
   assert.equal(result.ok, true);
   assert.deepEqual(fake.runner.calls[0]?.[0], "workspace");
   assert.deepEqual(
@@ -151,28 +154,28 @@ test("工具 execute: 合法 action 交给 dispatchAction（create 走 runner，
 });
 
 test("render: 失败回执含失败动作、错误码、错误信息与放行提示", () => {
-  const text = renderHerdrPane(
-    failure("run", "pane-not-registered", "pane wT1:p9 不是本插件创建的", {
+  const text = renderHerdrUse(
+    failure("pane_run", "pane-not-registered", "pane wT1:p9 不是本插件创建的", {
       paneId: "wT1:p9",
-      hint: "放行方式：用 create 建新 pane",
+      hint: "放行方式：用 pane_create 建新 pane",
     }),
   );
-  assert.match(text, /herdr_pane run 失败\[pane-not-registered\]/);
+  assert.match(text, /herdr_use pane_run 失败\[pane-not-registered\]/);
   assert.match(text, /不是本插件创建的/);
-  assert.match(text, /放行 \/ 下一步：放行方式：用 create 建新 pane/);
+  assert.match(text, /放行 \/ 下一步：放行方式：用 pane_create 建新 pane/);
 });
 
 test("render: 畸形值 / null 也能渲染（全函数，不抛）", () => {
   for (const value of [null, undefined, 42, "text", {}, { ok: true }]) {
-    const text = renderHerdrPane(value);
+    const text = renderHerdrUse(value);
     assert.equal(typeof text, "string");
     assert.notEqual(text, "");
   }
 });
 
 test("render: list 回执标出本插件登记项与焦点", () => {
-  const text = renderHerdrPane(
-    success("list", {
+  const text = renderHerdrUse(
+    success("pane_list", {
       panes: [
         {
           pane_id: "wT1:p2",
@@ -188,7 +191,7 @@ test("render: list 回执标出本插件登记项与焦点", () => {
       registered: ["wT1:p2"],
     }),
   );
-  assert.match(text, /herdr_pane list：2 个 pane/);
+  assert.match(text, /herdr_use pane_list：2 个 pane/);
   assert.match(
     text,
     /\[本插件\] wT1:p2 label=dsh-pane agent=dsh\(idle\) \[焦点\]/,
@@ -197,8 +200,8 @@ test("render: list 回执标出本插件登记项与焦点", () => {
 });
 
 test("render: read 回执带 revision / source，空屏给明确占位", () => {
-  const text = renderHerdrPane(
-    success("read", {
+  const text = renderHerdrUse(
+    success("pane_read", {
       pane_id: "wT1:p2",
       source: "recent-unwrapped",
       revision: 12,
@@ -208,12 +211,12 @@ test("render: read 回执带 revision / source，空屏给明确占位", () => {
   );
   assert.match(
     text,
-    /herdr_pane read：pane=wT1:p2 source=recent-unwrapped revision=12/,
+    /herdr_use pane_read：pane=wT1:p2 source=recent-unwrapped revision=12/,
   );
   assert.match(text, /line1\nline2/);
 
-  const empty = renderHerdrPane(
-    success("read", {
+  const empty = renderHerdrUse(
+    success("pane_read", {
       pane_id: "wT1:p2",
       source: "visible",
       text: "",
@@ -223,8 +226,8 @@ test("render: read 回执带 revision / source，空屏给明确占位", () => {
 });
 
 test("render: wait 的命中形态与判稳形态文案不同（模型能区分）", () => {
-  const matched = renderHerdrPane(
-    success("wait", {
+  const matched = renderHerdrUse(
+    success("pane_wait", {
       pane_id: "wT1:p2",
       matched: true,
       stable: false,
@@ -234,8 +237,8 @@ test("render: wait 的命中形态与判稳形态文案不同（模型能区分�
   );
   assert.match(matched, /已命中：>>> ready/);
 
-  const stable = renderHerdrPane(
-    success("wait", {
+  const stable = renderHerdrUse(
+    success("pane_wait", {
       pane_id: "wT1:p2",
       matched: true,
       stable: true,
@@ -249,8 +252,8 @@ test("render: wait 的命中形态与判稳形态文案不同（模型能区分�
 });
 
 test("render: info 无前台进程时明确说明（pane 停在 shell 提示符）", () => {
-  const busy = renderHerdrPane(
-    success("info", {
+  const busy = renderHerdrUse(
+    success("pane_info", {
       pane_id: "wT1:p2",
       running: true,
       shell_pid: 4242,
@@ -262,8 +265,8 @@ test("render: info 无前台进程时明确说明（pane 停在 shell 提示符�
   assert.match(busy, /running=true shell_pid=4242/);
   assert.match(busy, /pid=77 python3 {2}python3 -i/);
 
-  const idle = renderHerdrPane(
-    success("info", {
+  const idle = renderHerdrUse(
+    success("pane_info", {
       pane_id: "wT1:p2",
       running: false,
       shell_pid: 4242,
@@ -274,7 +277,7 @@ test("render: info 无前台进程时明确说明（pane 停在 shell 提示符�
 });
 
 test("render: tab_list / tab_create / tab_close 各自要点明结果与登记标记", () => {
-  const listed = renderHerdrPane(
+  const listed = renderHerdrUse(
     success("tab_list", {
       tabs: [
         {
@@ -297,11 +300,11 @@ test("render: tab_list / tab_create / tab_close 各自要点明结果与登记�
       registered: ["wT1:t2"],
     }),
   );
-  assert.match(listed, /herdr_pane tab_list：本会话 workspace 有 2 个 tab/);
+  assert.match(listed, /herdr_use tab_list：本会话 workspace 有 2 个 tab/);
   assert.match(listed, /\[本插件\] wT1:t2 number=2 label=dsh-pane panes=2/);
   assert.match(listed, /本插件登记：wT1:t2/);
 
-  const created = renderHerdrPane(
+  const created = renderHerdrUse(
     success("tab_create", {
       tab_id: "wT1:t2",
       pane_id: "wT1:p2",
@@ -314,19 +317,19 @@ test("render: tab_list / tab_create / tab_close 各自要点明结果与登记�
     /已建 tab wT1:t2（pane=wT1:p2，label=dsh-pane，cwd=\/tmp\/proj）/,
   );
 
-  const closed = renderHerdrPane(
+  const closed = renderHerdrUse(
     success("tab_close", { tab_id: "wT1:t2", pane_id: "wT1:p2" }),
   );
   assert.match(closed, /已关闭 tab wT1:t2（root pane wT1:p2 登记项已注销）/);
   assert.match(
-    renderHerdrPane(success("tab_close", { tab_id: "wT1:t2", pane_id: null })),
+    renderHerdrUse(success("tab_close", { tab_id: "wT1:t2", pane_id: null })),
     /已关闭 tab wT1:t2（登记项已注销）/,
   );
 });
 
 test("render: create / send_text / send_keys / run / label / close 各自要点明结果", () => {
-  const create = renderHerdrPane(
-    success("create", {
+  const create = renderHerdrUse(
+    success("pane_create", {
       pane_id: "wT1:p2",
       direction: "right",
       label: "dsh-pane",
@@ -335,43 +338,45 @@ test("render: create / send_text / send_keys / run / label / close 各自要点�
   assert.match(create, /已建 pane wT1:p2（direction=right，label=dsh-pane）/);
 
   assert.match(
-    renderHerdrPane(success("send_text", { pane_id: "wT1:p2", chars: 5 })),
+    renderHerdrUse(success("pane_send_text", { pane_id: "wT1:p2", chars: 5 })),
     /注入 5 个字符（未回车）/,
   );
   assert.match(
-    renderHerdrPane(
-      success("send_keys", { pane_id: "wT1:p2", keys: ["ctrl+c"] }),
+    renderHerdrUse(
+      success("pane_send_keys", { pane_id: "wT1:p2", keys: ["ctrl+c"] }),
     ),
     /发送按键 ctrl\+c/,
   );
   assert.match(
-    renderHerdrPane(success("run", { pane_id: "wT1:p2", command: "ls -la" })),
+    renderHerdrUse(
+      success("pane_run", { pane_id: "wT1:p2", command: "ls -la" }),
+    ),
     /提交命令并回车：ls -la/,
   );
   assert.match(
-    renderHerdrPane(
-      success("label", { pane_id: "wT1:p2", label: "x", cleared: false }),
+    renderHerdrUse(
+      success("pane_label", { pane_id: "wT1:p2", label: "x", cleared: false }),
     ),
     /标记为 x/,
   );
   assert.match(
-    renderHerdrPane(
-      success("label", { pane_id: "wT1:p2", label: "", cleared: true }),
+    renderHerdrUse(
+      success("pane_label", { pane_id: "wT1:p2", label: "", cleared: true }),
     ),
     /已清除/,
   );
   assert.match(
-    renderHerdrPane(
-      success("close", { pane_id: "wT1:p2", was_registered: true }),
+    renderHerdrUse(
+      success("pane_close", { pane_id: "wT1:p2", was_registered: true }),
     ),
     /已关闭 pane wT1:p2（本插件登记项已注销）/,
   );
 });
 
 test("render: create 的自动打标失败以「注：」附在回执末尾", () => {
-  const text = renderHerdrPane(
+  const text = renderHerdrUse(
     success(
-      "create",
+      "pane_create",
       { pane_id: "wT1:p2", direction: "right", label: "dsh-pane" },
       { notes: ["自动打 label 失败（pane wT1:p2 已创建并登记）"] },
     ),
@@ -381,15 +386,15 @@ test("render: create 的自动打标失败以「注：」附在回执末尾", ()
 
 test("capText: 超字符 / 超行数各自截断并给收窄提示，未超时原样返回", () => {
   const limit = { lines: 2, chars: 10 };
-  const unchanged = capText("short", limit, "read");
+  const unchanged = capText("short", limit, "pane_read");
   assert.deepEqual(unchanged, { text: "short", truncated: false });
 
-  const byChars = capText("0123456789abcdef", limit, "read");
+  const byChars = capText("0123456789abcdef", limit, "pane_read");
   assert.equal(byChars.truncated, true);
   assert.match(byChars.text, /已截断：正文超过 10 字符/);
   assert.match(byChars.text, /用 lines 收窄行数、用 source 收窄范围/);
 
-  const byLines = capText("a\nb\nc", { lines: 2, chars: 100 }, "wait");
+  const byLines = capText("a\nb\nc", { lines: 2, chars: 100 }, "pane_wait");
   assert.equal(byLines.truncated, true);
   assert.match(byLines.text, /行数超过 2 行/);
   assert.equal(byLines.text.split("\n").slice(0, 2).join("\n"), "a\nb");
@@ -399,7 +404,7 @@ test("render 的截断使用注入的 renderLimit（不写死 200 / 16000）", (
   const { def } = tool({ renderLimit: { lines: 1, chars: 1000 } });
   const text = def.output.render(
     {},
-    success("read", {
+    success("pane_read", {
       pane_id: "wT1:p2",
       source: "visible",
       text: "line1\nline2\nline3",

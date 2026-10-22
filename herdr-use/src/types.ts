@@ -1,46 +1,51 @@
 /**
- * src/types.ts — herdr-pane 的共享类型面
+ * src/types.ts — herdr-use 的共享类型面
  *
  * 本包把 herdr 的 pane 当**可控伪终端层**：建 pane / 注入文本与按键 / 取屏 / 等输出 /
  * 进程探活 / 关闭，另加 tab 层三动作（建 / 列 / 关）。通道口径：CLI 为主，
- * 仅 `read` 与 `wait` 的 stable 模式走 unix socket（socket 的 `pane.read` 独有
+ * 仅 `pane_read` 与 `pane_wait` 的 stable 模式走 unix socket（socket 的 `pane.read` 独有
  * `revision` / `truncated`）。
  *
  * **workspace 不出工具面**：模型看不到、也传不进 workspace id / 名字；会话 ↔ workspace 的
  * 绑定由插件内部维持（`src/workspace.ts`），全部写操作落在该 workspace 内。
  */
 
-/** 十三个动作（`herdr_pane` 的 `action` 取值）。 */
-export type HerdrPaneAction =
-  | "create"
-  | "list"
-  | "read"
-  | "wait"
-  | "send_text"
-  | "send_keys"
-  | "run"
-  | "label"
-  | "info"
-  | "close"
+/** 十三个动作（`herdr_use` 的 `action` 取值；pane 类带 `pane_` 前缀，tab 类带 `tab_` 前缀）。 */
+export type HerdrUseAction =
+  | "pane_create"
+  | "pane_list"
+  | "pane_read"
+  | "pane_wait"
+  | "pane_send_text"
+  | "pane_send_keys"
+  | "pane_run"
+  | "pane_label"
+  | "pane_info"
+  | "pane_close"
   | "tab_create"
   | "tab_list"
   | "tab_close";
 
-/** 全部动作名（错误回执里列举用；顺序与工具描述一致）。 */
-export const PANE_ACTIONS: readonly HerdrPaneAction[] = [
-  "create",
-  "list",
-  "read",
-  "wait",
-  "send_text",
-  "send_keys",
-  "run",
-  "label",
-  "info",
-  "close",
+/** tab 类动作名（workspace 类动作集合复用；顺序与工具描述一致）。 */
+export const TAB_ACTIONS: readonly HerdrUseAction[] = [
   "tab_create",
   "tab_list",
   "tab_close",
+];
+
+/** 全部动作名（错误回执里列举用；顺序与工具描述一致）。 */
+export const ALL_ACTIONS: readonly HerdrUseAction[] = [
+  "pane_create",
+  "pane_list",
+  "pane_read",
+  "pane_wait",
+  "pane_send_text",
+  "pane_send_keys",
+  "pane_run",
+  "pane_label",
+  "pane_info",
+  "pane_close",
+  ...TAB_ACTIONS,
 ];
 
 /** 取屏来源（CLI 的连字符写法；socket 报文的 `recent_unwrapped` 由 socket 层映射）。 */
@@ -83,7 +88,7 @@ export interface RenderLimit {
 }
 
 /** 插件配置（`Config` 契约名；宿主不校验，缺省 / 非法值由 resolveConfig 回退）。 */
-export interface HerdrPaneConfig {
+export interface HerdrUseConfig {
   /** 审批档（缺省 `"foreign"`）。 */
   requireApproval?: ApprovalMode;
   /** 是否允许对非本插件创建的 pane 动输入 / 关闭（缺省 `false`）。 */
@@ -116,7 +121,7 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
 export const DEFAULT_READ_SOURCE: ReadSource = "recent-unwrapped";
 /** 缺省取屏行数。 */
 export const DEFAULT_READ_LINES = 120;
-/** 缺省 `wait` 总超时。 */
+/** 缺省 `pane_wait` 总超时。 */
 export const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
 /** 缺省 stable 判稳间隔（两次读取之间的最小间隔）。 */
 export const DEFAULT_SETTLE_MS = 400;
@@ -127,7 +132,7 @@ export const DEFAULT_RENDER_LIMIT: RenderLimit = { lines: 200, chars: 16_000 };
  * 归一化配置：非法 / 缺失值回退缺省（不抛错）。
  * `renderLimit` 支持部分覆盖（`{ lines }` 或 `{ chars }` 单给一项）。
  */
-export function resolveConfig(config?: HerdrPaneConfig): ResolvedConfig {
+export function resolveConfig(config?: HerdrUseConfig): ResolvedConfig {
   const renderLimit = config?.renderLimit;
   const lines = positiveInt(renderLimit?.lines, DEFAULT_RENDER_LIMIT.lines);
   const chars = positiveInt(renderLimit?.chars, DEFAULT_RENDER_LIMIT.chars);
@@ -192,7 +197,7 @@ export interface WorkspaceBinding {
   workspaceId: string;
   /** 约定 label（`<目录名>/<会话 id 短标记>`）。 */
   label: string;
-  /** 会话工作目录（`workspace create --cwd` 与 `create` / `tab_create` 的缺省 cwd）。 */
+  /** 会话工作目录（`workspace create --cwd` 与 `pane_create` / `tab_create` 的缺省 cwd）。 */
   cwd: string;
   /** 建 workspace 时返回的 root pane（复用历史 workspace 时未知）。 */
   rootPaneId?: string;
@@ -245,18 +250,18 @@ export type HerdrErrorCode =
  */
 export interface ActionSuccess {
   ok: true;
-  action: HerdrPaneAction;
-  /** 目标 pane（`list` 无目标，为 undefined）。 */
+  action: HerdrUseAction;
+  /** 目标 pane（`pane_list` 无目标，为 undefined）。 */
   paneId?: string;
   /** 动作载荷（形状随动作，见各动作实现）。 */
   payload: Record<string, unknown>;
-  /** 附加说明（如 `create` 自动打 label 失败）。 */
+  /** 附加说明（如 `pane_create` 自动打 label 失败）。 */
   notes?: string[];
 }
 
 export interface ActionFailure {
   ok: false;
-  action: HerdrPaneAction;
+  action: HerdrUseAction;
   paneId?: string;
   error: {
     code: HerdrErrorCode;
@@ -272,7 +277,7 @@ export type ActionResult = ActionSuccess | ActionFailure;
 
 /** 失败回执构造（各层共用，避免各处手拼形状）。 */
 export function failure(
-  action: HerdrPaneAction,
+  action: HerdrUseAction,
   code: HerdrErrorCode,
   message: string,
   extra: { paneId?: string; hint?: string; notes?: string[] } = {},
@@ -292,7 +297,7 @@ export function failure(
 
 /** 成功回执构造。 */
 export function success(
-  action: HerdrPaneAction,
+  action: HerdrUseAction,
   payload: Record<string, unknown>,
   extra: { paneId?: string; notes?: string[] } = {},
 ): ActionSuccess {

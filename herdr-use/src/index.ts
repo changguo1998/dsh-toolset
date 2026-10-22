@@ -1,8 +1,8 @@
 /**
- * herdr-pane 的库面入口（DSH bundle 的 `main` 指向本文件）。
+ * herdr-use 的库面入口（DSH bundle 的 `main` 指向本文件）。
  *
  * 双出口（对齐 `ast-tools` 的既有先例）：
- *   - **工具面**：`apply` 注册单个模型侧工具 `herdr_pane`（十三个 action；workspace 面不对模型暴露）；
+ *   - **工具面**：`apply` 注册单个模型侧工具 `herdr_use`（十三个 action；workspace 面不对模型暴露）；
  *   - **库面**：`createHerdrPlugin` 返回的 handle 里带 `deps`，编排类插件与真机脚本可直接
  *     `dispatchAction(action, args, handle.deps, exec)`，不必经模型工具链。
  *
@@ -20,8 +20,8 @@ export {
 } from "./main.ts";
 export type {
   Config,
-  HerdrPaneDeps,
-  HerdrPaneHandle,
+  HerdrUseDeps,
+  HerdrUseHandle,
   PluginCtxLike,
   PreExecuteExecution,
   PreExecuteOptions,
@@ -152,12 +152,13 @@ export {
   actionPane,
   actionText,
   capText,
-  createHerdrPaneTool,
-  renderHerdrPane,
+  createHerdrUseTool,
+  renderHerdrUse,
 } from "./tools.ts";
-export type { HerdrPaneToolDef } from "./tools.ts";
+export type { HerdrUseToolDef } from "./tools.ts";
 
 export {
+  ALL_ACTIONS,
   DEFAULT_LABEL,
   DEFAULT_READ_LINES,
   DEFAULT_READ_SOURCE,
@@ -165,8 +166,8 @@ export {
   DEFAULT_SETTLE_MS,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
-  PANE_ACTIONS,
   READ_SOURCES,
+  TAB_ACTIONS,
   failure,
   resolveConfig,
   success,
@@ -178,8 +179,8 @@ export type {
   ApprovalMode,
   HerdrErrorCode,
   HerdrHandshake,
-  HerdrPaneAction,
-  HerdrPaneConfig,
+  HerdrUseAction,
+  HerdrUseConfig,
   PaneOwnership,
   ReadFormat,
   ReadSource,

@@ -22,7 +22,7 @@
 
 - 上下文报告：context-report（host-only 投影 `sessionContext` 只折 token 分桶；回合 / 步 / 墙钟读官方 `sessionStats` 投影，2026-10-06 去重 + `context_report` 三档报告）；
 
-- 安全与集成：security-guard 策略层、herdr-integration、herdr-pane（把 herdr pane 当可控伪终端层驱动交互式命令：13 个动作 + tab 三动作与会话 ↔ workspace 内部绑定 + `herdr_pane` 工具 + 库面，CLI 为主、`read` / `stable` 走 socket；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`）；
+- 安全与集成：security-guard 策略层、herdr-integration、herdr-use（把 herdr pane 当可控伪终端层驱动交互式命令：13 个动作（pane 类 `pane_` 前缀 + tab 三动作）与会话 ↔ workspace 内部绑定 + `herdr_use` 工具 + 库面，CLI 为主、`pane_read` / `stable` 走 socket；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`）；
 
 - 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、注入消息呈现（**不带** `source.form:'notice'`：TUI 按用户输入块显示、正文以 `[RULE] ` 前缀标明自动注入）、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
 
@@ -109,7 +109,7 @@
 
 **3. docs/ARCHITECTURE-REUSE.md 的模块口径随 behavior-correction 加包同步**（2026-10-22 登记, 来源: `docs/implementation/2026-10-21-behavior-correction.md` 实施时发现）：**现象 / 现状** —— 该文件多处写「本仓 29 个模块」「已审计 29 个全量」，新增 `behavior-correction`（第 30 个插件）后少 1；本次任务清单只含 `AGENTS.md` 与根 README，未改该文件。**期望** —— 模块总数改成 30、「已审计 / 未入表」口径与 22 条审计行一致（新增包未入表）。**优先级** —— P2。**状态** —— 未接取。
 
-**后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 30 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 8 个包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `behavior-correction`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。 另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-pane` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
+**后续补条目候选**（随 TUI 侧改造条目产出记录）：`/memory replace|remove` 子命令（`forget` 服务面已就绪、全仓无调用方——错误 U/P 条目的唯一删除路径）。**未立项观察项**（暂不单独立项，作为后续可选项）：意图/多策略检索（memory-base 已双 FTS5，距 BM25+RRF+proximity 一步）、MCP 脚本化（mcpScript）、活动工具交互管理。 **2026-10-18 文档整理遗留**（未立项）：① `TUI/docs/DESIGN.md` 仍有约 15 处 `TUI#n` 旧任务编号（属历史溯源, 需按标题改写）；② `scripts/test-parallel.sh:8` 注释「11 包子包测试各自独立」与现状 30 包不符；③ `docs/ARCHITECTURE-REUSE.md` 的 8 个包（`herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `behavior-correction`）待补审计行；④ `agent-group/src/main.ts:6-8` 头部注释仍写「任一不可用 → 不注册工具」, 与代码实况（工具照常注册、调用期报错）不符；⑤ 用户 profile（`~/.dsh/profiles/fff`）里 output-compress 的过渡 `sessionDir` 行待删（工作区外只读, 需在有写权限的环境执行）。 另一项：其余有裸定时器 / 自行排期的包（`herdr-integration` / `herdr-use` / `script-interpreter` / `rule-engine` / `preference-analysis` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 及 TUI 内部其它定时器）可选接入定时器统一面 `clock`（由 timer 插件提供；本期明确不做）。
 
 ### 实现顺序（2026-10-18 重排：修复类 > 依赖深度 > 工作量）
 

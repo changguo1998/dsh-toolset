@@ -1,12 +1,12 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.1-rc.2）
 
-> 职责：回答「本仓 29 个模块（TUI + 28 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（已审计 29 个全量：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）
+> 职责：回答「本仓 29 个模块（TUI + 28 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（已审计 29 个全量：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
 > 口径：官方基线 `dsh 0.2.1-rc.2`（安装树 294 个 `dsh-*`；fff 活跃挂载 100 个官方行，2026-10-21 实测）；本仓 29 个模块 = TUI + 28 个插件（清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
-> 结论分布：**改用 0 / 保留 21 / 并存 8**（总表 29 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
+> 结论分布：**改用 0 / 保留 21 / 并存 8**（总表 29 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
 > 2026-10-20 重审（条目 2，主会话）：29 模块全量入表，7 个缺审包补齐；§4 的 B 已执行、D / E / FTS5 观察项明示关闭（见 §4）；基线于 **2026-10-21 升至 `0.2.1-rc.2`**（追踪文档 `docs/archived/2026-10-21-host-upgrade-0.2.1-rc.2.md`，全局安装 + HOST-PACKAGES 重生成）；§0 回查完成：总表口径更新（安装树 294 / 挂载 100），`background-daemon` 行注记保留（官方 `schedule` 未挂、自动化 #12 与自建链路职责不叠加）。
 
@@ -36,7 +36,7 @@
 | `TUI` | `client-ui-*`（53 包，Web / 桌面） | 低 | **保留** | 官方客户端是浏览器 / 桌面面；终端 TUI 是不同形态，且本项目「只用 TUI、走 profile 全局组合」是既定口径 |
 | `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
 | `code-map` | `lsp`、`tool-fs-search` | 低 | **保留** | 项目级结构索引 / 影响面 / 候选调用图官方没有；**LSP 语义层已接线但当前不可达**（LSP 三件套不随包分发，见 §5） |
-| `herdr-pane`（2026-10-20 补审） | 无 | 无 | **保留** | 本机 herdr 伪终端层（读屏 / 注入 / 进程探活），官方无对应物；与 `herdr-integration`（会话桥）同域、无官方替代 |
+| `herdr-use`（2026-10-20 补审） | 无 | 无 | **保留** | 本机 herdr 伪终端层（读屏 / 注入 / 进程探活），官方无对应物；与 `herdr-integration`（会话桥）同域、无官方替代 |
 | `md-table-check`（2026-10-20 补审） | `agent-instructions`、`rule-engine` 类 | 低 | **保留** | 回复正文表格列数检查（rule-engine 消费者，只报不改），项目专属约定；官方无等价物 |
 | `background-daemon`（2026-10-20 补审） | `schedule`（未挂）、`metric-loop` 类 | 中 | **保留** | 进程内守护投递 / 重试 / 持久化（任务表 now memory/SQLite，2026-10-20 entries 5+6）；官方 `schedule` 未挂、`metric-loop` 是测量循环非投递器。**注**：0.2.1-rc.2 官方把「自动化任务」并入 Web 内置（见 `HOST-UPGRADE-0.2.1-rc.2.md` #12），若升级基线需回查是否与本包职责叠加 |
 | `preference-analysis`（2026-10-20 补审） | 无 | 无 | **保留** | 偏好观测（session/event 三信号）→ 跨会话账簿 → 高置信写 memory、提议待审；官方无等价物 |
@@ -94,7 +94,7 @@
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` / `ponytail` | inject `tools` / `agents` / —（`symbol-normalizer` 与 `ponytail` 消费本仓 `ruleEngine` 服务） |
 | `background-daemon`（2026-10-20 补入） | inject `agents` / `sessions` / `commands` / `tools`；可选 get `guard`；`memory` 经 `ctx.inject(["memory"],cb)` 晚挂（2026-10-20，条目 5+6） |
 
-> 2026-10-20 补审的其余 6 个包（`herdr-pane` / `md-table-check` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）运行时主要消费**本仓**服务面（`ruleEngine` / `guard` / `sessionChannel` / `agentGroup` / `sessionPaths` / `memory`），对官方底座无新增依赖（`script-interpreter` / `herdr-pane` / `agent-group` 仅 inject `tools` 面板或服务面）。
+> 2026-10-20 补审的其余 6 个包（`herdr-use` / `md-table-check` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）运行时主要消费**本仓**服务面（`ruleEngine` / `guard` / `sessionChannel` / `agentGroup` / `sessionPaths` / `memory`），对官方底座无新增依赖（`script-interpreter` / `herdr-use` / `agent-group` 仅 inject `tools` 面板或服务面）。
 
 ## 4. 可执行改造清单（未立项，用户择时）
 
@@ -146,5 +146,5 @@ done
 | 「`output-compress` 与官方 spill 可能双重截断」 | **不存在**：我们不回写事件，只以 spill 为上游输入做摘要入库；改为「阈值语义文档化」 | `output-compress/src/hooks.ts`（只读订阅）、`trigger.ts`（解析官方 spill 通知） |
 | 「§3 已复用官方面」凭印象填写 | 按代码实测重写（删 8 处不存在项、补 4 处漏记，LSP 标为不可达） | §3 的生成命令 |
 | 「`metric-loop` 官方只有 schedule」 | 官方还有 `tool-ralph`（循环）与 `goal-round-driver`（自主续跑），均已挂载 | `HOST-PACKAGES.md` 对应行、base patch |
-| 2026-10-20 重审计（条目 2）：总表 22 → 29 行 | 补审 7 包（`herdr-pane` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）：保留 5、并存 2（`session-paths` 与官方 `dsh-paths`、`script-interpreter` 与官方 `tool-bash`）；结论分布「改用 0 / 保留 21 / 并存 8」 | 各包 README/DESIGN + 源码实测（inject/get/loadHost grep）+ `HOST-PACKAGES.md` 口径；`background-daemon` 的 memory 晚挂 2026-10-20 落地（条目 5+6） |
+| 2026-10-20 重审计（条目 2）：总表 22 → 29 行 | 补审 7 包（`herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）：保留 5、并存 2（`session-paths` 与官方 `dsh-paths`、`script-interpreter` 与官方 `tool-bash`）；结论分布「改用 0 / 保留 21 / 并存 8」 | 各包 README/DESIGN + 源码实测（inject/get/loadHost grep）+ `HOST-PACKAGES.md` 口径；`background-daemon` 的 memory 晚挂 2026-10-20 落地（条目 5+6） |
 | §4 的 B / D / E 与 FTS5 观察项重判 | B **已执行**（`output-compress/docs/DESIGN.md` 分工节存在）；D / E / FTS5 **明示关闭**（理由见 §4 各行与观察项②） | 实测 `output-compress/docs/DESIGN.md` 内容；官方 `session-query-sqlite` 缺省 `openAt: never` 维持 |

@@ -15,7 +15,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；**零运行时依赖**（源码零第三方 import，颜色走 manual ANSI） |
 | **timer** | 定时器统一面：服务 `clock`（`now()` + `scope(ctx)` 返回的 `schedule(delayMs, cb)` / `interval(delayMs, cb)`；撤销动作登记在调用方 `ctx.effect` 上，插件卸载不留活定时器，句柄默认 `unref`），另导出可手控的 `ManualClock`（推进时间、按到期顺序触发）供测试用。与宿主 `cordis-plugin-timer` 并存、不包装：宿主无 `schedule`、不支持 `unref`、mixin 需硬 `inject`，包装代价更大 |
 | **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
-| **herdr-pane** | herdr pane 读写：把 pane 当可控伪终端层（建 pane / 注入文本与按键 / 取屏 / 等输出 / 进程探活 / 关闭，另加 `tab_create` / `tab_list` / `tab_close`），驱动需要屏幕状态与按键时序的交互式命令；每个 dsh 会话由插件内部绑定一个 herdr workspace（首次使用时创建，模型看不到），tab 与 pane 都落在其中、写操作不出该 workspace；单个模型侧工具 `herdr_pane` + 可复用的库面；写类动作只作用于自建对象，过 guard 复查、security-guard 登记与越界审批 |
+| **herdr-use** | herdr pane / tab 读写：把 pane 当可控伪终端层（`pane_create` / `pane_send_text` / `pane_send_keys` / `pane_run` / `pane_read` / `pane_wait` / `pane_label` / `pane_info` / `pane_close` / `pane_list`，另加 `tab_create` / `tab_list` / `tab_close`），驱动需要屏幕状态与按键时序的交互式命令；每个 dsh 会话由插件内部绑定一个 herdr workspace（首次使用时创建，模型看不到），tab 与 pane 都落在其中、写操作不出该 workspace；单个模型侧工具 `herdr_use` + 可复用的库面；写类动作只作用于自建对象，过 guard 复查、security-guard 登记与越界审批 |
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`execute`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
 | **session-paths** | 宿主会话目录编码的仓内唯一事实源：逐字符复刻 `@deepseek-ai/dsh-session-persistence-jsonl` 的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用（`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`）。纯函数不落盘；`sessionDirFor(sessionId)` 经宿主 `sessions` 服务取 `header.cwd`（可选读取，不写进 `inject`） |
 | **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层落点经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
@@ -31,7 +31,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **code-map** | 代码结构地图：文件节点 + import 图索引，`callers`/`callees`/`cycles`/`impact` 查询与项目/模块报告（引用为候选：`callers` 的语义精度需官方 LSP 三件套，而 profile 不分发它，故回落 `structural`）；经 `link:` 依赖 `@dsh-toolset/ast-tools`（挂载时需一并安装） |
 | **context-report** | 会话上下文与用量报告：host-only 投影 `sessionContext` 只折官方空缺的部分（token 分桶），回合/步与墙钟读官方 `sessionStats` 投影；工具 `context_report` 合成 token-meter 即时压力与模型容量读数 |
 | **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后作为独立新回合（`followup`）、挂到最近 pre-step 并唤醒（`steer`）或不唤醒（`inject`）注入 user-role 消息；提供按节点的消费者注册面（`registerConsumer`，`sources` 缺省 `turn-end`，同步询问、统一注入）与只读 `evaluate` |
-| **behavior-correction** | 行为纠正（`tools/pre-execute` 上的 rule-engine guard 消费者）：在工具执行前按自身 config 的规则表比对工具名 + 参数字符串，命中即拒绝该调用、理由写明该改用的专用工具。缺省规则拦下 `bash` 里含 `herdr` 的命令并指向 `herdr_pane`；`rules` 给即整体替换，空数组 / `enabled: false` 不拦；可选服务 `ruleEngine` 经 `ctx.get` 读取，服务缺席只告警、不拦截 |
+| **behavior-correction** | 行为纠正（`tools/pre-execute` 上的 rule-engine guard 消费者）：在工具执行前按自身 config 的规则表比对工具名 + 参数字符串，命中即拒绝该调用、理由写明该改用的专用工具。缺省规则拦下 `bash` 里含 `herdr` 的命令并指向 `herdr_use`；`rules` 给即整体替换，空数组 / `enabled: false` 不拦；可选服务 `ruleEngine` 经 `ctx.get` 读取，服务缺席只告警、不拦截 |
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
 | **ponytail** | ponytail 模式（2026-10-05 起缺省开启；`enabled: false` 关闭）：会话起始注入「懒资深工程师」7 级决策阶梯（YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）。 |
 | **md-table-check** | 回复正文表格列数检查（`assistant-text` 上的 rule-engine 消费者）：逐行比对表头 / 分隔行 / 数据行的单元格数，不一致时注入一条汇总提示（表头行号 + 摘录 + 期望与实际列数），要求模型更正后重新回复。只报不改：不改写回复正文与任何文件；列数一致的表格、宽度退回的表格与伪表格都不报 |
@@ -52,7 +52,7 @@ dsh-toolset/
 ├── TUI/                  # 终端 UI 包（src/app 状态层、src/renderer 渲染层、src/app/adapter 适配层、demo/ mock）
 ├── timer/                # 定时器统一面（服务 clock：now + schedule / interval，随调用方 fiber 释放，带手控假时钟）
 ├── herdr-integration/    # herdr 面板桥
-├── herdr-pane/           # herdr pane 读写（交互式命令驱动）
+├── herdr-use/            # herdr pane / tab 读写（交互式命令驱动）
 ├── task-engine/          # 任务树引擎
 ├── session-paths/        # 会话目录编码（宿主编码复刻 + sessionPaths 服务）
 ├── memory-base/       # 知识库与持久记忆

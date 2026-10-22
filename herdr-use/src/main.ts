@@ -1,11 +1,11 @@
 /**
- * src/main.ts — herdr-pane 插件入口（DSH bundle 接入面）
+ * src/main.ts — herdr-use 插件入口（DSH bundle 接入面）
  *
  * 职责：
  *   1. **可用性判定**：二进制可解析（`resolveHerdrBin`）+ 服务端可达（`herdr status --json` 探活）
  *      才启用；`HERDR_*` 全部可选（dsh 不一定跑在 herdr 内：tmux / 普通终端也可用）。探活失败只记
  *      一行日志、不注册（注册必然失败的工具只会诱使模型反复试错）。
- *   2. **工具注册**：单个模型侧工具 `herdr_pane`（`src/tools.ts`；action 分派十三个动作，
+ *   2. **工具注册**：单个模型侧工具 `herdr_use`（`src/tools.ts`；action 分派十三个动作，
  *      其中 tab 三动作落在插件内部按会话绑定的 workspace 里）。
  *   3. **沙箱门（闸④）与审批门（闸③）**：注册 `tools/pre-execute` 监听器 —— 会话处于
  *      `read-only` 时对写类动作直接返回 `{kind:"deny", reason}`（先于审批，不弹面板）；
@@ -46,24 +46,24 @@ import {
   realClock,
 } from "./socket.ts";
 import type { Clock, PaneReader, SocketConnector } from "./socket.ts";
-import { createHerdrPaneTool, TOOL_NAME } from "./tools.ts";
-import { PANE_ACTIONS, resolveConfig } from "./types.ts";
+import { createHerdrUseTool, TOOL_NAME } from "./tools.ts";
+import { ALL_ACTIONS, resolveConfig } from "./types.ts";
 import type {
   HerdrHandshake,
-  HerdrPaneAction,
-  HerdrPaneConfig,
+  HerdrUseAction,
+  HerdrUseConfig,
   PaneOwnership,
   ResolvedConfig,
 } from "./types.ts";
 
 /** 插件名（bundle 标识，`cordis.patch.yml` 的 insert 条目同名）。 */
-export const name = "herdr-pane";
+export const name = "herdr-use";
 
-/** 注入面：tools（注册 herdr_pane）；guard / approval 经 `ctx.get` 惰性解析，不进 inject。 */
+/** 注入面：tools（注册 herdr_use）；guard / approval 经 `ctx.get` 惰性解析，不进 inject。 */
 export const inject = ["tools"];
 
 /** `Config` 契约别名（仅类型级；无运行时 schema，宿主不校验）。 */
-export type Config = HerdrPaneConfig;
+export type Config = HerdrUseConfig;
 
 /** cordis Context 的结构面（窄化访问，不引入 `@deepseek-ai/*` 类型）。 */
 export interface PluginCtxLike {
@@ -79,7 +79,7 @@ export interface PluginCtxLike {
 }
 
 /** 测试注入面（生产路径全部用真实实现）。 */
-export interface HerdrPaneDeps {
+export interface HerdrUseDeps {
   /** 替代握手读取（单测用；缺省读 `process.env` 并解析二进制）。 */
   readHandshake?: (
     env: NodeJS.ProcessEnv,
@@ -104,7 +104,7 @@ export interface HerdrPaneDeps {
 }
 
 /** 插件句柄。 */
-export interface HerdrPaneHandle {
+export interface HerdrUseHandle {
   /** 登记表（真机脚本与库面消费者可读）。 */
   registry: PaneRegistry;
   /** 归一化配置。 */
@@ -163,7 +163,7 @@ function idOf(value: unknown): string | undefined {
  * tab 目标另加两条硬拒：跨本会话 workspace、以及调用者自己所在的 tab（防御性）。
  * 注意这里**不**拒绝未登记 pane / tab——归属拒绝由动作层给结构化回执（含放行方式），
  * 审批门只负责「要不要打断人」；两层判定目的不同，不重复拦。
- * 目标不在参数面（`create` / `list` / `tab_create` / `tab_list`，或漏给 id）时放行交动作层。
+ * 目标不在参数面（`pane_create` / `pane_list` / `tab_create` / `tab_list`，或漏给 id）时放行交动作层。
  */
 export function preExecuteVerdict(
   execution: PreExecuteExecution,
@@ -174,17 +174,17 @@ export function preExecuteVerdict(
   const action = args.action;
   if (
     typeof action !== "string" ||
-    !PANE_ACTIONS.includes(action as HerdrPaneAction)
+    !ALL_ACTIONS.includes(action as HerdrUseAction)
   ) {
     return { kind: "allow" };
   }
-  const typedAction = action as HerdrPaneAction;
+  const typedAction = action as HerdrUseAction;
   const paneId = idOf(args.pane_id);
   const tabId = idOf(args.tab_id);
   const targetId = paneId ?? tabId;
   if (targetId === undefined) return { kind: "allow" };
-  // wait 只有 stable 模式算写侧；其余按 policy.ts 的输入 / 关闭集合
-  const stabilized = typedAction === "wait" && args.stable === true;
+  // pane_wait 只有 stable 模式算写侧；其余按 policy.ts 的输入 / 关闭集合
+  const stabilized = typedAction === "pane_wait" && args.stable === true;
 
   // 闸④：只读会话里写类动作直接拒绝（不弹审批）
   const sandboxMode = options.sandboxMode(execution.agent?.session);
@@ -232,7 +232,7 @@ export function preExecuteVerdict(
       return {
         kind: "ask",
         reason:
-          `herdr_pane tab_close 关闭非本插件登记（或不在当前 workspace）的 tab ${tabId}` +
+          `herdr_use tab_close 关闭非本插件登记（或不在当前 workspace）的 tab ${tabId}` +
           `（requireApproval="${options.config.requireApproval}"）。` +
           "关闭 tab 会关掉它里面的 pane，跑在 dsh 进程之外。",
       };
@@ -243,14 +243,14 @@ export function preExecuteVerdict(
   const ownership: PaneOwnership = options.registry.has(paneId)
     ? "registered"
     : "foreign";
-  const effective: HerdrPaneAction = stabilized ? "send_text" : typedAction;
+  const effective: HerdrUseAction = stabilized ? "pane_send_text" : typedAction;
   if (!needsApproval(effective, ownership, options.config.requireApproval)) {
     return { kind: "allow" };
   }
   return {
     kind: "ask",
     reason:
-      `herdr_pane ${typedAction} 作用于非本插件创建的 pane ${paneId}` +
+      `herdr_use ${typedAction} 作用于非本插件创建的 pane ${paneId}` +
       `（requireApproval="${options.config.requireApproval}"）。` +
       "该命令会在 herdr 服务端的 pane 里执行，跑在 dsh 进程之外、不受文件沙箱约束。",
   };
@@ -262,9 +262,9 @@ export function preExecuteVerdict(
  */
 export function createHerdrPlugin(
   ctx: PluginCtxLike,
-  config: HerdrPaneConfig = {},
-  deps: HerdrPaneDeps = {},
-): HerdrPaneHandle | undefined {
+  config: HerdrUseConfig = {},
+  deps: HerdrUseDeps = {},
+): HerdrUseHandle | undefined {
   const warn = (message: string): void => {
     process.stderr.write(`[${name}] warn: ${message}\n`);
   };
@@ -274,7 +274,7 @@ export function createHerdrPlugin(
   if (handshake === undefined) {
     warn(
       "未找到 herdr 二进制（显式配置 / HERDR_BIN_PATH / PATH 均不可用），" +
-        "herdr_pane 工具不注册",
+        "herdr_use 工具不注册",
     );
     return undefined;
   }
@@ -288,13 +288,13 @@ export function createHerdrPlugin(
       Math.min(resolved.timeoutMs, DEFAULT_PROBE_TIMEOUT_MS),
     );
   } catch (error) {
-    warn(`herdr 服务端探活抛错，herdr_pane 工具不注册：${String(error)}`);
+    warn(`herdr 服务端探活抛错，herdr_use 工具不注册：${String(error)}`);
     return undefined;
   }
   if (!probed.ok) {
     warn(
       `herdr 服务端不可达（探活失败：${probed.reason ?? "未知原因"}），` +
-        "herdr_pane 工具不注册",
+        "herdr_use 工具不注册",
     );
     return undefined;
   }
@@ -330,11 +330,11 @@ export function createHerdrPlugin(
       ? { clock: realClock }
       : { clock: deps.clock }),
   };
-  const tool = createHerdrPaneTool(dispatchDeps);
+  const tool = createHerdrUseTool(dispatchDeps);
 
   const tools = ctx.tools;
   if (tools === undefined || typeof tools.register !== "function") {
-    warn("ctx.tools 不可用，herdr_pane 工具未注册");
+    warn("ctx.tools 不可用，herdr_use 工具未注册");
     return undefined;
   }
   try {
@@ -411,8 +411,8 @@ export { resolveHerdrBin };
  */
 export function apply(
   ctx: unknown,
-  config: HerdrPaneConfig = {},
-  deps: HerdrPaneDeps = {},
+  config: HerdrUseConfig = {},
+  deps: HerdrUseDeps = {},
 ): (() => void) | undefined {
   const plugin = createHerdrPlugin(ctx as PluginCtxLike, config, deps);
   if (plugin === undefined) return undefined;

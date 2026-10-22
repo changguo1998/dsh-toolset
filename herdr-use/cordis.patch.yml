@@ -1,0 +1,3 @@
+- insert:
+    - id: herdr-use
+      name: '@dsh-toolset/herdr-use'

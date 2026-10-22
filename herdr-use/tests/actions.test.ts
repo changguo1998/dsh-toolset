@@ -16,7 +16,7 @@ import {
 import type { DispatchDeps } from "../src/actions.ts";
 import { PaneRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
-import type { HerdrPaneConfig, WorkspaceBinding } from "../src/types.ts";
+import type { HerdrUseConfig, WorkspaceBinding } from "../src/types.ts";
 import type { SessionContext } from "../src/workspace.ts";
 import { workspaceLabel } from "../src/workspace.ts";
 import {
@@ -39,7 +39,7 @@ function deps(
   options: {
     runner?: FakeRunner;
     reader?: ReturnType<typeof fakeReader>;
-    config?: HerdrPaneConfig;
+    config?: HerdrUseConfig;
     registered?: string[];
     guardCheck?: DispatchDeps["guardCheck"];
     callerPaneId?: string;
@@ -110,14 +110,14 @@ test("dispatchAction: 缺 pane_id / text / keys / command 的动作一律先拒�
   // 用**已登记**的 pane：否则写类动作会先撞归属拒绝，测不到参数校验分支
   const { deps: d, runner } = deps({ registered: ["wT1:p2"] });
   for (const action of [
-    "read",
-    "wait",
-    "send_text",
-    "send_keys",
-    "run",
-    "label",
-    "info",
-    "close",
+    "pane_read",
+    "pane_wait",
+    "pane_send_text",
+    "pane_send_keys",
+    "pane_run",
+    "pane_label",
+    "pane_info",
+    "pane_close",
   ]) {
     const result = await dispatchAction(action, {}, d);
     assert.equal(result.ok, false, `${action} 缺 pane_id 应被拒`);
@@ -128,9 +128,9 @@ test("dispatchAction: 缺 pane_id / text / keys / command 的动作一律先拒�
     );
   }
   for (const [action, key] of [
-    ["send_text", "text"],
-    ["send_keys", "keys"],
-    ["run", "command"],
+    ["pane_send_text", "text"],
+    ["pane_send_keys", "keys"],
+    ["pane_run", "command"],
   ] as const) {
     const result = await dispatchAction(action, { pane_id: "wT1:p2" }, d);
     assert.equal(result.ok, false);
@@ -143,24 +143,33 @@ test("dispatchAction: 缺 pane_id / text / keys / command 的动作一律先拒�
 });
 
 test("inspectedText: 命令侧参数面与 security-guard 登记同源（command / text / keys）", () => {
-  assert.equal(inspectedText("run", { command: "python3 -i" }), "python3 -i");
-  assert.equal(inspectedText("send_text", { text: "hi" }), "hi");
   assert.equal(
-    inspectedText("send_keys", { keys: ["ctrl+c", "esc"] }),
+    inspectedText("pane_run", { command: "python3 -i" }),
+    "python3 -i",
+  );
+  assert.equal(inspectedText("pane_send_text", { text: "hi" }), "hi");
+  assert.equal(
+    inspectedText("pane_send_keys", { keys: ["ctrl+c", "esc"] }),
     "ctrl+c esc",
   );
-  assert.equal(inspectedText("send_keys", { keys: [] }), undefined);
-  assert.equal(inspectedText("label", { label: "x" }), undefined);
-  assert.equal(inspectedText("close", {}), undefined);
+  assert.equal(inspectedText("pane_send_keys", { keys: [] }), undefined);
+  assert.equal(inspectedText("pane_label", { label: "x" }), undefined);
+  assert.equal(inspectedText("pane_close", {}), undefined);
 });
 
 test("needsOwnership: 写类动作与 wait-stable 要求自有 pane，读类与 list / create 不要求", () => {
-  for (const action of ["send_text", "send_keys", "run", "label", "close"]) {
+  for (const action of [
+    "pane_send_text",
+    "pane_send_keys",
+    "pane_run",
+    "pane_label",
+    "pane_close",
+  ]) {
     assert.equal(needsOwnership(action, { pane_id: "x" }), true, action);
   }
-  assert.equal(needsOwnership("wait", { stable: true }), true);
-  assert.equal(needsOwnership("wait", { match: "x" }), false);
-  for (const action of ["read", "info", "list", "create"]) {
+  assert.equal(needsOwnership("pane_wait", { stable: true }), true);
+  assert.equal(needsOwnership("pane_wait", { match: "x" }), false);
+  for (const action of ["pane_read", "pane_info", "pane_list", "pane_create"]) {
     assert.equal(needsOwnership(action, {}), false, action);
   }
 });
@@ -169,10 +178,10 @@ test("needsOwnership: 写类动作与 wait-stable 要求自有 pane，读类与 
 // create / list（create 落点改为本会话 workspace 的活动 pane）
 // ---------------------------------------------------------------------------
 
-test("create: 活动 pane 缺省布局选方向，切在活动 pane 上（不再 --current）", async () => {
+test("pane_create: 活动 pane 缺省布局选方向，切在活动 pane 上（不再 --current）", async () => {
   const fake = fakeHerdr({ layout: { width: 155, height: 50 } });
   const { deps: d } = deps({ runner: fake.runner });
-  const result = await dispatchAction("create", {}, d);
+  const result = await dispatchAction("pane_create", {}, d);
   assert.equal(result.ok, true);
   assert.equal(result.ok && result.payload.direction, "right");
   // 先确保 workspace，再解析活动 pane（workspace list + pane list），最后按目标 pane 布局
@@ -203,11 +212,11 @@ test("create: 活动 pane 缺省布局选方向，切在活动 pane 上（不再
   ]);
 });
 
-test("create: 窄 / 高活动 pane 选 down；显式 direction 与 cwd 直通", async () => {
+test("pane_create: 窄 / 高活动 pane 选 down；显式 direction 与 cwd 直通", async () => {
   const narrow = fakeHerdr({ layout: { width: 40, height: 60 } });
   const first = deps({ runner: narrow.runner });
   const result = await dispatchAction(
-    "create",
+    "pane_create",
     { cwd: "/tmp/project" },
     first.deps,
   );
@@ -226,7 +235,7 @@ test("create: 窄 / 高活动 pane 选 down；显式 direction 与 cwd 直通", 
 
   const explicit = fakeHerdr();
   const second = deps({ runner: explicit.runner });
-  await dispatchAction("create", { direction: "down" }, second.deps);
+  await dispatchAction("pane_create", { direction: "down" }, second.deps);
   // 显式方向不读 layout
   assert.equal(
     explicit.runner.calls.some((args) => args[1] === "layout"),
@@ -247,13 +256,13 @@ test("create: 窄 / 高活动 pane 选 down；显式 direction 与 cwd 直通", 
   );
 });
 
-test("create: 取不到 .result.pane.pane_id 时返回 herdr-bad-response（不猜 id）", async () => {
+test("pane_create: 取不到 .result.pane.pane_id 时返回 herdr-bad-response（不猜 id）", async () => {
   const fake = fakeHerdr({
     override: (args) =>
       args[1] === "split" ? okEnvelope({ type: "ok" }) : undefined,
   });
   const { deps: d } = deps({ runner: fake.runner });
-  const result = await dispatchAction("create", { direction: "right" }, d);
+  const result = await dispatchAction("pane_create", { direction: "right" }, d);
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.error.code, "herdr-bad-response");
   assert.match(
@@ -262,7 +271,7 @@ test("create: 取不到 .result.pane.pane_id 时返回 herdr-bad-response（不�
   );
 });
 
-test("create: label 打标失败只记 note，不回滚创建与登记", async () => {
+test("pane_create: label 打标失败只记 note，不回滚创建与登记", async () => {
   const fake = fakeHerdr({
     override: (args) =>
       args[1] === "rename"
@@ -270,7 +279,7 @@ test("create: label 打标失败只记 note，不回滚创建与登记", async (
         : undefined,
   });
   const { deps: d, registry } = deps({ runner: fake.runner });
-  const result = await dispatchAction("create", { direction: "right" }, d);
+  const result = await dispatchAction("pane_create", { direction: "right" }, d);
   assert.equal(result.ok, true);
   const paneId = result.ok ? String(result.payload.pane_id) : "";
   assert.equal(result.ok && result.notes?.length, 1);
@@ -279,19 +288,23 @@ test("create: label 打标失败只记 note，不回滚创建与登记", async (
   assert.equal(registry.get(paneId)?.workspaceId, "wT1");
 });
 
-test("create: 自定义 label 走配置与参数（create 的 label 覆盖缺省）", async () => {
+test("pane_create: 自定义 label 走配置与参数（create 的 label 覆盖缺省）", async () => {
   const fake = fakeHerdr();
   const { deps: d } = deps({
     runner: fake.runner,
     config: { label: "dsh-work" },
   });
-  await dispatchAction("create", { direction: "right", label: "custom" }, d);
+  await dispatchAction(
+    "pane_create",
+    { direction: "right", label: "custom" },
+    d,
+  );
   const rename = fake.runner.calls.find((args) => args[1] === "rename");
   assert.deepEqual(rename?.slice(0, 3), ["pane", "rename", "wT1:p2"]);
   assert.equal(rename?.[3], "custom");
 });
 
-test("create: 活动 tab 没有 pane 时失败并给提示（不改别的 tab）", async () => {
+test("pane_create: 活动 tab 没有 pane 时失败并给提示（不改别的 tab）", async () => {
   const fake = fakeHerdr({
     workspaces: [
       { workspace_id: "wT1", label: "proj/abcd1234", active_tab_id: "wT1:t9" },
@@ -299,7 +312,7 @@ test("create: 活动 tab 没有 pane 时失败并给提示（不改别的 tab）
     panes: [{ pane_id: "wT1:p1", workspace_id: "wT1", tab_id: "wT1:t1" }],
   });
   const { deps: d } = deps({ runner: fake.runner });
-  const result = await dispatchAction("create", {}, d);
+  const result = await dispatchAction("pane_create", {}, d);
   assert.equal(result.ok, false);
   assert.equal(
     result.ok === false && result.error.code,
@@ -312,17 +325,17 @@ test("create: 活动 tab 没有 pane 时失败并给提示（不改别的 tab）
   );
 });
 
-test("create: 会话缺失返回 session-unavailable（不触达 CLI）", async () => {
+test("pane_create: 会话缺失返回 session-unavailable（不触达 CLI）", async () => {
   const runner = fakeRunner();
   const { deps: d } = deps({ runner, session: undefined });
-  const result = await dispatchAction("create", {}, d);
+  const result = await dispatchAction("pane_create", {}, d);
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.error.code, "session-unavailable");
   assert.match(result.ok === false ? (result.error.hint ?? "") : "", /exec/);
   assert.equal(runner.calls.length, 0);
 });
 
-test("create: workspace 确保失败透传 workspace-unavailable", async () => {
+test("pane_create: workspace 确保失败透传 workspace-unavailable", async () => {
   const fake = fakeHerdr({
     override: (args) =>
       args[0] === "workspace" && args[1] === "list"
@@ -330,7 +343,7 @@ test("create: workspace 确保失败透传 workspace-unavailable", async () => {
         : undefined,
   });
   const { deps: d } = deps({ runner: fake.runner });
-  const result = await dispatchAction("create", {}, d);
+  const result = await dispatchAction("pane_create", {}, d);
   assert.equal(result.ok, false);
   assert.equal(
     result.ok === false && result.error.code,
@@ -339,7 +352,7 @@ test("create: workspace 确保失败透传 workspace-unavailable", async () => {
   assert.match(result.ok === false ? result.error.message : "", /server busy/);
 });
 
-test("list: 解析 panes 为摘要并标出本插件登记项；不回传 workspace 面", async () => {
+test("pane_list: 解析 panes 为摘要并标出本插件登记项；不回传 workspace 面", async () => {
   const runner = fakeRunner(() =>
     okEnvelope({
       type: "pane_list",
@@ -360,7 +373,7 @@ test("list: 解析 panes 为摘要并标出本插件登记项；不回传 worksp
     }),
   );
   const { deps: d } = deps({ runner, registered: ["wT1:p1"] });
-  const result = await dispatchAction("list", { workspace: "wT1" }, d);
+  const result = await dispatchAction("pane_list", { workspace: "wT1" }, d);
   assert.equal(result.ok, true);
   // workspace 参数不再参与 argv（工具面没有 workspace 面）
   assert.deepEqual(runner.calls[0], ["pane", "list"]);
@@ -588,12 +601,12 @@ test("tab_close: 缺 tab_id 返回 tab-required（不触达 CLI）", async () =>
 // read / wait
 // ---------------------------------------------------------------------------
 
-test("read: 走 socket（不碰 CLI），缺省 source / lines / format 按设计口径", async () => {
+test("pane_read: 走 socket（不碰 CLI），缺省 source / lines / format 按设计口径", async () => {
   const reader = fakeReader([
     readOk("screen text", { revision: 12, truncated: false }),
   ]);
   const { deps: d, runner } = deps({ reader });
-  const result = await dispatchAction("read", { pane_id: "wT1:p2" }, d);
+  const result = await dispatchAction("pane_read", { pane_id: "wT1:p2" }, d);
   assert.equal(result.ok, true);
   assert.equal(runner.calls.length, 0, "read 不走 CLI");
   assert.deepEqual(reader.calls[0], {
@@ -613,28 +626,28 @@ test("read: 走 socket（不碰 CLI），缺省 source / lines / format 按设�
   });
 });
 
-test("read: 不在 herdr 内（无调用者 pane）时该护栏不生效，可读任意 pane", async () => {
+test("pane_read: 不在 herdr 内（无调用者 pane）时该护栏不生效，可读任意 pane", async () => {
   const reader = fakeReader([readOk("outside")]);
   const { deps: d } = deps({ reader, callerPaneId: undefined });
-  const result = await dispatchAction("read", { pane_id: "wT1:p1" }, d);
+  const result = await dispatchAction("pane_read", { pane_id: "wT1:p1" }, d);
   assert.equal(result.ok, true);
   assert.equal(reader.calls.length, 1);
 });
 
-test("read: 拒绝读调用者自己所在的 pane（会读到本次调用自身的回显）", async () => {
+test("pane_read: 拒绝读调用者自己所在的 pane（会读到本次调用自身的回显）", async () => {
   const reader = fakeReader([readOk("self")]);
   const { deps: d } = deps({ reader });
-  const result = await dispatchAction("read", { pane_id: "wT1:p1" }, d);
+  const result = await dispatchAction("pane_read", { pane_id: "wT1:p1" }, d);
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.error.code, "invalid-params");
   assert.equal(reader.calls.length, 0);
 });
 
-test("read: source / lines / format 归一（非法值回退缺省，下划线写法也收）", async () => {
+test("pane_read: source / lines / format 归一（非法值回退缺省，下划线写法也收）", async () => {
   const reader = fakeReader([readOk("x")]);
   const { deps: d } = deps({ reader });
   await dispatchAction(
-    "read",
+    "pane_read",
     { pane_id: "wT1:p2", source: "recent_unwrapped", lines: 7, format: "ansi" },
     d,
   );
@@ -646,7 +659,7 @@ test("read: source / lines / format 归一（非法值回退缺省，下划线�
   });
 });
 
-test("wait: match 走 CLI wait-output，命中后回执带 matched_line 与 revision", async () => {
+test("pane_wait: match 走 CLI wait-output，命中后回执带 matched_line 与 revision", async () => {
   const runner = fakeRunner(() =>
     okEnvelope({
       type: "wait_matched",
@@ -656,7 +669,7 @@ test("wait: match 走 CLI wait-output，命中后回执带 matched_line 与 revi
   );
   const { deps: d } = deps({ runner });
   const result = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p2", match: "ready" },
     d,
   );
@@ -680,13 +693,13 @@ test("wait: match 走 CLI wait-output，命中后回执带 matched_line 与 revi
   assert.equal(runner.timeouts[0], 35_000);
 });
 
-test("wait: 服务端超时（错误信封 code=timeout）返回结构化 timeout，不抛错", async () => {
+test("pane_wait: 服务端超时（错误信封 code=timeout）返回结构化 timeout，不抛错", async () => {
   const runner = fakeRunner(() =>
     errorEnvelope("timeout", "timed out waiting for output match"),
   );
   const { deps: d } = deps({ runner });
   const result = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p2", regex: "rea+y", timeout_ms: 400 },
     d,
   );
@@ -702,7 +715,7 @@ test("wait: 服务端超时（错误信封 code=timeout）返回结构化 timeou
   ]);
 });
 
-test("wait: stable 走 socket 判稳，与 match / regex 互斥；三选一必填", async () => {
+test("pane_wait: stable 走 socket 判稳，与 match / regex 互斥；三选一必填", async () => {
   const reader = fakeReader([
     readOk("line1", { revision: 1 }),
     readOk("line1", { revision: 1 }),
@@ -710,7 +723,7 @@ test("wait: stable 走 socket 判稳，与 match / regex 互斥；三选一必�
   ]);
   const { deps: d } = deps({ reader, registered: ["wT1:p2"] });
   const stable = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p2", stable: true },
     d,
   );
@@ -719,24 +732,24 @@ test("wait: stable 走 socket 判稳，与 match / regex 互斥；三选一必�
   assert.equal(stable.ok && stable.payload.basis, "revision");
 
   const conflict = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p2", stable: true, match: "x" },
     d,
   );
   assert.equal(conflict.ok === false && conflict.error.code, "invalid-params");
 
   const both = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p2", match: "a", regex: "b" },
     d,
   );
   assert.equal(both.ok === false && both.error.code, "invalid-params");
 
-  const none = await dispatchAction("wait", { pane_id: "wT1:p2" }, d);
+  const none = await dispatchAction("pane_wait", { pane_id: "wT1:p2" }, d);
   assert.equal(none.ok === false && none.error.code, "invalid-params");
 });
 
-test("wait: stable 未收敛 → timeout 结构化结果（写入的是「仍在变化」而非「无输出」）", async () => {
+test("pane_wait: stable 未收敛 → timeout 结构化结果（写入的是「仍在变化」而非「无输出」）", async () => {
   let revision = 0;
   const reader = fakeReader(() => {
     revision += 1;
@@ -744,7 +757,7 @@ test("wait: stable 未收敛 → timeout 结构化结果（写入的是「仍在
   });
   const { deps: d } = deps({ reader, registered: ["wT1:p2"] });
   const result = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p2", stable: true, settle_ms: 300, timeout_ms: 900 },
     d,
   );
@@ -753,11 +766,11 @@ test("wait: stable 未收敛 → timeout 结构化结果（写入的是「仍在
   assert.match(result.ok === false ? result.error.message : "", /仍在变化/);
 });
 
-test("wait: stable 模式要求自有 pane（读侧之外的写侧）", async () => {
+test("pane_wait: stable 模式要求自有 pane（读侧之外的写侧）", async () => {
   const reader = fakeReader([readOk("x", { revision: 1 })]);
   const { deps: d } = deps({ reader });
   const result = await dispatchAction(
-    "wait",
+    "pane_wait",
     { pane_id: "wT1:p9", stable: true },
     d,
   );
@@ -774,11 +787,15 @@ test("send_text / send_keys / run: argv 逐项直通（参数数组、不过 she
   const runner = fakeRunner(() => okEnvelope({}));
   const { deps: d } = deps({ runner, registered: ["wT1:p2"] });
 
-  await dispatchAction("send_text", { pane_id: "wT1:p2", text: "abc def" }, d);
+  await dispatchAction(
+    "pane_send_text",
+    { pane_id: "wT1:p2", text: "abc def" },
+    d,
+  );
   assert.deepEqual(runner.calls[0], ["pane", "send-text", "wT1:p2", "abc def"]);
 
   await dispatchAction(
-    "send_keys",
+    "pane_send_keys",
     { pane_id: "wT1:p2", keys: ["ctrl+c", "esc"] },
     d,
   );
@@ -790,7 +807,11 @@ test("send_text / send_keys / run: argv 逐项直通（参数数组、不过 she
     "esc",
   ]);
 
-  await dispatchAction("run", { pane_id: "wT1:p2", command: "python3 -i" }, d);
+  await dispatchAction(
+    "pane_run",
+    { pane_id: "wT1:p2", command: "python3 -i" },
+    d,
+  );
   assert.deepEqual(runner.calls[2], ["pane", "run", "wT1:p2", "python3 -i"]);
 });
 
@@ -805,7 +826,7 @@ test("send_text / send_keys / run: exit 0 且 stdout / stderr 皆空按成功（
   const { deps: d } = deps({ runner, registered: ["wT1:p2"] });
 
   const sent = await dispatchAction(
-    "send_text",
+    "pane_send_text",
     { pane_id: "wT1:p2", text: "abc" },
     d,
   );
@@ -816,7 +837,7 @@ test("send_text / send_keys / run: exit 0 且 stdout / stderr 皆空按成功（
   });
 
   const keys = await dispatchAction(
-    "send_keys",
+    "pane_send_keys",
     { pane_id: "wT1:p2", keys: ["ctrl+c"] },
     d,
   );
@@ -827,7 +848,7 @@ test("send_text / send_keys / run: exit 0 且 stdout / stderr 皆空按成功（
   });
 
   const ran = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p2", command: "echo hi" },
     d,
   );
@@ -845,7 +866,7 @@ test("send_text / send_keys / run: exit 0 且 stdout / stderr 皆空按成功（
     timedOut: false,
   }));
   const failed = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p2", command: "echo hi" },
     deps({ runner: failedRunner, registered: ["wT1:p2"] }).deps,
   );
@@ -853,10 +874,10 @@ test("send_text / send_keys / run: exit 0 且 stdout / stderr 皆空按成功（
   assert.equal(failed.ok === false && failed.error.code, "herdr-cli-error");
 });
 
-test("send_text: 交入参校验（text 为空串按未给）", async () => {
+test("pane_send_text: 交入参校验（text 为空串按未给）", async () => {
   const { deps: d, runner } = deps({ registered: ["wT1:p2"] });
   const result = await dispatchAction(
-    "send_text",
+    "pane_send_text",
     { pane_id: "wT1:p2", text: "" },
     d,
   );
@@ -864,20 +885,20 @@ test("send_text: 交入参校验（text 为空串按未给）", async () => {
   assert.equal(runner.calls.length, 0);
 });
 
-test("label: 缺省写配置 label；显式空串清除并注销登记", async () => {
+test("pane_label: 缺省写配置 label；显式空串清除并注销登记", async () => {
   const runner = fakeRunner(() => okEnvelope({}));
   const { deps: d, registry } = deps({
     runner,
     registered: ["wT1:p2"],
     config: { label: "dsh-pane" },
   });
-  const tagged = await dispatchAction("label", { pane_id: "wT1:p2" }, d);
+  const tagged = await dispatchAction("pane_label", { pane_id: "wT1:p2" }, d);
   assert.equal(tagged.ok, true);
   assert.deepEqual(runner.calls[0], ["pane", "rename", "wT1:p2", "dsh-pane"]);
   assert.equal(registry.get("wT1:p2")?.label, "dsh-pane");
 
   const cleared = await dispatchAction(
-    "label",
+    "pane_label",
     { pane_id: "wT1:p2", label: "" },
     d,
   );
@@ -887,17 +908,17 @@ test("label: 缺省写配置 label；显式空串清除并注销登记", async (
   assert.equal(registry.has("wT1:p2"), false);
 });
 
-test("label: 对非自建 pane 被拒（归写类动作）", async () => {
+test("pane_label: 对非自建 pane 被拒（归写类动作）", async () => {
   const runner = fakeRunner(() => okEnvelope({}));
   const { deps: d } = deps({ runner });
-  const result = await dispatchAction("label", { pane_id: "wT1:p9" }, d);
+  const result = await dispatchAction("pane_label", { pane_id: "wT1:p9" }, d);
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.error.code, "pane-not-registered");
   assert.match(result.ok === false ? (result.error.hint ?? "") : "", /create/);
   assert.equal(runner.calls.length, 0);
 });
 
-test("info: 解析 foreground_processes / shell_pid；无前台进程时 running=false", async () => {
+test("pane_info: 解析 foreground_processes / shell_pid；无前台进程时 running=false", async () => {
   const runner = fakeRunner(() =>
     okEnvelope({
       type: "pane_process_info",
@@ -913,7 +934,7 @@ test("info: 解析 foreground_processes / shell_pid；无前台进程时 running
     }),
   );
   const { deps: d } = deps({ runner });
-  const result = await dispatchAction("info", { pane_id: "wT1:p2" }, d);
+  const result = await dispatchAction("pane_info", { pane_id: "wT1:p2" }, d);
   assert.deepEqual(runner.calls[0], [
     "pane",
     "process-info",
@@ -943,7 +964,7 @@ test("info: 解析 foreground_processes / shell_pid；无前台进程时 running
     }),
   );
   const idleResult = await dispatchAction(
-    "info",
+    "pane_info",
     { pane_id: "wT1:p2" },
     deps({ runner: idle }).deps,
   );
@@ -954,12 +975,12 @@ test("info: 解析 foreground_processes / shell_pid；无前台进程时 running
   );
 });
 
-test("info: pane 不存在时返回结构化错误（code 原样透传），读类不要求归属", async () => {
+test("pane_info: pane 不存在时返回结构化错误（code 原样透传），读类不要求归属", async () => {
   const runner = fakeRunner(() =>
     errorEnvelope("pane_not_found", "pane not found"),
   );
   const { deps: d } = deps({ runner });
-  const result = await dispatchAction("info", { pane_id: "wT1:p999" }, d);
+  const result = await dispatchAction("pane_info", { pane_id: "wT1:p999" }, d);
   assert.equal(result.ok, false);
   assert.equal(result.ok === false && result.error.code, "herdr-cli-error");
   assert.match(
@@ -968,17 +989,21 @@ test("info: pane 不存在时返回结构化错误（code 原样透传），读�
   );
 });
 
-test("close: 关闭登记 pane 后注销；对非自建 pane 需 force + allowForeignPanes", async () => {
+test("pane_close: 关闭登记 pane 后注销；对非自建 pane 需 force + allowForeignPanes", async () => {
   const runner = fakeRunner(() => okEnvelope({}));
   const own = deps({ runner, registered: ["wT1:p2"] });
-  const closed = await dispatchAction("close", { pane_id: "wT1:p2" }, own.deps);
+  const closed = await dispatchAction(
+    "pane_close",
+    { pane_id: "wT1:p2" },
+    own.deps,
+  );
   assert.equal(closed.ok, true);
   assert.deepEqual(runner.calls[0], ["pane", "close", "wT1:p2"]);
   assert.equal(own.registry.has("wT1:p2"), false);
 
   const foreign = deps({ runner });
   const refused = await dispatchAction(
-    "close",
+    "pane_close",
     { pane_id: "wT1:p9" },
     foreign.deps,
   );
@@ -991,7 +1016,7 @@ test("close: 关闭登记 pane 后注销；对非自建 pane 需 force + allowFo
   // force 但配置未开 allowForeignPanes → 仍拒
   const notAllowed = deps({ runner });
   const still = await dispatchAction(
-    "close",
+    "pane_close",
     { pane_id: "wT1:p9", force: true },
     notAllowed.deps,
   );
@@ -1000,7 +1025,7 @@ test("close: 关闭登记 pane 后注销；对非自建 pane 需 force + allowFo
   // force + allowForeignPanes → 放行
   const allowed = deps({ runner, config: { allowForeignPanes: true } });
   const forced = await dispatchAction(
-    "close",
+    "pane_close",
     { pane_id: "wT1:p9", force: true },
     allowed.deps,
   );
@@ -1016,7 +1041,7 @@ test("allowForeignPanes: 打开后写类动作可作用于他人 pane（关闭�
   const opened = deps({ runner, config: { allowForeignPanes: true } });
 
   const sent = await dispatchAction(
-    "send_text",
+    "pane_send_text",
     { pane_id: "wT1:p9", text: "hi" },
     opened.deps,
   );
@@ -1024,7 +1049,7 @@ test("allowForeignPanes: 打开后写类动作可作用于他人 pane（关闭�
   assert.deepEqual(runner.calls[0], ["pane", "send-text", "wT1:p9", "hi"]);
 
   const ran = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p9", command: "ls" },
     opened.deps,
   );
@@ -1032,7 +1057,7 @@ test("allowForeignPanes: 打开后写类动作可作用于他人 pane（关闭�
 
   // close 是破坏性的：allowForeignPanes 打开还不够，仍需显式 force
   const noForce = await dispatchAction(
-    "close",
+    "pane_close",
     { pane_id: "wT1:p9" },
     opened.deps,
   );
@@ -1051,7 +1076,7 @@ test("allowForeignPanes: 打开后写类动作可作用于他人 pane（关闭�
 
 test("错误归一: CLI 语法错误（exit 2）与超时各有独立码与提示", async () => {
   const usage = deps({ runner: fakeRunner(() => usageError()) });
-  const usageResult = await dispatchAction("list", {}, usage.deps);
+  const usageResult = await dispatchAction("pane_list", {}, usage.deps);
   assert.equal(
     usageResult.ok === false && usageResult.error.code,
     "herdr-cli-error",
@@ -1066,7 +1091,7 @@ test("错误归一: CLI 语法错误（exit 2）与超时各有独立码与提�
     registered: ["wT1:p2"],
   });
   const timeoutResult = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p2", command: "sleep 60" },
     timeout.deps,
   );
@@ -1094,8 +1119,8 @@ test("dispatchAction: 同 pane 串行化（前一笔未结算时后一笔不并�
   };
   const { deps: d } = deps({ runner, registered: ["wT1:p2"] });
   await Promise.all([
-    dispatchAction("send_text", { pane_id: "wT1:p2", text: "a" }, d),
-    dispatchAction("send_text", { pane_id: "wT1:p2", text: "b" }, d),
+    dispatchAction("pane_send_text", { pane_id: "wT1:p2", text: "a" }, d),
+    dispatchAction("pane_send_text", { pane_id: "wT1:p2", text: "b" }, d),
   ]);
   assert.deepEqual(order, [
     "start:send-text",
@@ -1120,8 +1145,8 @@ test("dispatchAction: 不同 pane 不互相阻塞", async () => {
   };
   const { deps: d } = deps({ runner, registered: ["wT1:p2", "wT1:p3"] });
   await Promise.all([
-    dispatchAction("send_text", { pane_id: "wT1:p2", text: "a" }, d),
-    dispatchAction("send_text", { pane_id: "wT1:p3", text: "b" }, d),
+    dispatchAction("pane_send_text", { pane_id: "wT1:p2", text: "a" }, d),
+    dispatchAction("pane_send_text", { pane_id: "wT1:p3", text: "b" }, d),
   ]);
   // 两个 pane 的操作在时间上重叠（start,start,end,end）
   assert.deepEqual(order.slice(0, 2), ["start:wT1:p2", "start:wT1:p3"]);
@@ -1138,7 +1163,7 @@ test("dispatchAction: guard 回执为 deny 时不执行并把回执作来源行"
     }),
   });
   const result = await dispatchAction(
-    "run",
+    "pane_run",
     { pane_id: "wT1:p2", command: "sudo ls /" },
     d,
   );

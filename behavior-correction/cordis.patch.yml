@@ -1,6 +1,6 @@
 # behavior-correction 插件的 dsh bundle 声明。
 # 本包是 rule-engine 的 guard 消费者：在节点 `tools/pre-execute` 上按自身 config 的规则表拦截
-# 「该用专用工具却走 shell」的调用（缺省开启；缺省规则 = bash 命令含 herdr → 拒绝并指向 herdr_pane）。
+# 「该用专用工具却走 shell」的调用（缺省开启；缺省规则 = bash 命令含 herdr → 拒绝并指向 herdr_use）。
 # 依赖服务 `ruleEngine`（刻意不写进 inject）：服务缺席时降级为只告警、不拦截，不让宿主启动失败。
 # 规则表要覆盖时在 profile 用户 patch 里按 id 追加 config：给 rules 即**整体替换**内置规则，
 # rules: [] 或 enabled: false 等于不拦。

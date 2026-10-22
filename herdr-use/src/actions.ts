@@ -2,14 +2,14 @@
  * src/actions.ts — 十三个动作的参数校验、argv / 报文拼装与结果解析（库面核心）
  *
  * 通道划分：
- *   CLI：create / list / tab_create / tab_list / tab_close / send_text / send_keys /
- *        run / label / info / close，以及 wait 的 `match` / `regex`（服务端 `wait-output`
- *        先搜既有输出再轮询）
- *   socket：read（拿 `revision` / `truncated`）、wait 的 `stable`（靠 `revision` 判稳）
+ *   CLI：pane_create / pane_list / tab_create / tab_list / tab_close / pane_send_text /
+ *        pane_send_keys / pane_run / pane_label / pane_info / pane_close，以及 pane_wait 的
+ *        `match` / `regex`（服务端 `wait-output` 先搜既有输出再轮询）
+ *   socket：pane_read（拿 `revision` / `truncated`）、pane_wait 的 `stable`（靠 `revision` 判稳）
  *
  * 写边界（追踪文档决策项 8）：全部写操作落在**本会话 workspace** 内——
  * `tab_create` 固定 `--workspace <绑定>`，`tab_close` 只关本 workspace 已登记的 tab，
- * `create` 切本 workspace 活动 tab 的 pane（不再切调用者 pane）。读类仍可跨 workspace 观察。
+ * `pane_create` 切本 workspace 活动 tab 的 pane（不再切调用者 pane）。读类仍可跨 workspace 观察。
  *
  * 本模块**不碰宿主**：runner / reader / registry / guard / 会话解析全部经 `DispatchDeps` 注入，
  * 故可完全单测（fake runner + fake reader + 假时钟，不依赖真机 herdr）。
@@ -34,14 +34,15 @@ import {
   DEFAULT_READ_LINES,
   DEFAULT_SETTLE_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
-  PANE_ACTIONS,
+  ALL_ACTIONS,
+  TAB_ACTIONS,
   failure,
   success,
 } from "./types.ts";
 import type {
   ActionResult,
   HerdrErrorCode,
-  HerdrPaneAction,
+  HerdrUseAction,
   ReadFormat,
   ReadSource,
   ResolvedConfig,
@@ -65,14 +66,14 @@ export interface DispatchDeps {
   reader: PaneReader;
   /** 归属登记表。 */
   registry: PaneRegistry;
-  /** 调用者所在 pane id（`read` 的同 pane 护栏；不在 herdr 内时 undefined）。 */
+  /** 调用者所在 pane id（`pane_read` 的同 pane 护栏；不在 herdr 内时 undefined）。 */
   callerPaneId?: string;
   /** 调用者所在 tab id（`tab_close` 的防御性护栏；不在 herdr 内时 undefined）。 */
   callerTabId?: string;
   /** 会话解析器（缺省从宿主 `exec.agent.session` 读；单测 / 真机脚本可注入固定会话）。 */
   resolveSession?: SessionResolver;
   /** 命令复查器（缺省不过复查：注入空实现，便于库面单测）。 */
-  guardCheck?: (text: string, action: HerdrPaneAction) => GuardCheck;
+  guardCheck?: (text: string, action: HerdrUseAction) => GuardCheck;
   /** 时钟（stable 判稳用；缺省真实时钟）。 */
   clock?: Clock;
 }
@@ -131,15 +132,15 @@ function readFormat(value: unknown): ReadFormat {
 /**
  * 命令复查的待检文本（guard 复查与 security-guard 登记**同源**的参数面）：
  * `command`（run）/ `text`（send_text）/ `keys`（send_keys，逐键）；
- * 其余动作无命令文本（`label` / `close` / `read` / `info` / `create` / `list`）。
+ * 其余动作无命令文本（`pane_label` / `pane_close` / `pane_read` / `pane_info` / `pane_create` / `pane_list`）。
  */
 export function inspectedText(
   action: string,
   args: Record<string, unknown>,
 ): string | undefined {
-  if (action === "run") return str(args, "command");
-  if (action === "send_text") return str(args, "text");
-  if (action === "send_keys") {
+  if (action === "pane_run") return str(args, "command");
+  if (action === "pane_send_text") return str(args, "text");
+  if (action === "pane_send_keys") {
     const keys = strList(args, "keys");
     return keys === undefined || keys.length === 0 ? undefined : keys.join(" ");
   }
@@ -147,14 +148,14 @@ export function inspectedText(
 }
 
 /**
- * 动作是否要求自有 pane（`wait` 只在 stable 模式要求；其余按 `policy.ts` 的写类集合）。
+ * 动作是否要求自有 pane（`pane_wait` 只在 stable 模式要求；其余按 `policy.ts` 的写类集合）。
  * 供 `main.ts` 的审批门在执行前做一次同样的归属判定。
  */
 export function needsOwnership(
   action: string,
   args: Record<string, unknown>,
 ): boolean {
-  if (action === "wait") return flag(args, "stable");
+  if (action === "pane_wait") return flag(args, "stable");
   return isOwnedAction(action);
 }
 
@@ -168,7 +169,7 @@ export function paneTargetFor(
 
 /** herdr CLI 信封 → 统一失败（错误码透传，退出码兜底）。 */
 function cliFailure(
-  action: HerdrPaneAction,
+  action: HerdrUseAction,
   paneId: string | undefined,
   envelope: ParsedEnvelope,
   result: CliRunResult,
@@ -181,7 +182,7 @@ function cliFailure(
       `herdr CLI 超时（${timeoutMs}ms）被终止`,
       {
         ...(paneId === undefined ? {} : { paneId }),
-        hint: "长耗时场景用 wait 的 timeout_ms 参数放宽总超时，或把配置 timeoutMs 调大。",
+        hint: "长耗时场景用 pane_wait 的 timeout_ms 参数放宽总超时，或把配置 timeoutMs 调大。",
       },
     );
   }
@@ -296,7 +297,7 @@ export function summarizeTab(
   };
 }
 
-/** 布局探测（`create` 缺方向时按目标 pane 的宽高自动选 right / down）。 */
+/** 布局探测（`pane_create` 缺方向时按目标 pane 的宽高自动选 right / down）。 */
 async function detectDirection(
   deps: DispatchDeps,
   paneId: string,
@@ -332,7 +333,7 @@ type WorkspaceReady =
 async function workspaceFor(
   deps: DispatchDeps,
   exec: unknown,
-  action: HerdrPaneAction,
+  action: HerdrUseAction,
 ): Promise<WorkspaceReady> {
   const resolve = deps.resolveSession ?? readSessionContext;
   let session: SessionContext | undefined;
@@ -374,7 +375,7 @@ async function workspaceFor(
 }
 
 /**
- * `create`：切本会话 workspace 活动 pane 的兄弟 pane
+ * `pane_create`：切本会话 workspace 活动 pane 的兄弟 pane
  * （`pane split <pane_id> --direction … --cwd <会话 cwd> --no-focus`），成功后自动打 label。
  */
 async function createAction(
@@ -382,7 +383,7 @@ async function createAction(
   args: Record<string, unknown>,
   exec: unknown,
 ): Promise<ActionResult> {
-  const ready = await workspaceFor(deps, exec, "create");
+  const ready = await workspaceFor(deps, exec, "pane_create");
   if (!ready.ok) return ready.result;
   const target = await activePaneOf(
     deps.runner,
@@ -390,7 +391,7 @@ async function createAction(
     ready.binding.workspaceId,
   );
   if (!target.ok) {
-    return failure("create", target.code, target.message, {
+    return failure("pane_create", target.code, target.message, {
       ...(target.hint === undefined ? {} : { hint: target.hint }),
     });
   }
@@ -415,7 +416,7 @@ async function createAction(
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
-      "create",
+      "pane_create",
       undefined,
       envelope,
       result,
@@ -426,7 +427,7 @@ async function createAction(
   const paneId = typeof pane?.pane_id === "string" ? pane.pane_id : undefined;
   if (paneId === undefined || paneId === "") {
     return failure(
-      "create",
+      "pane_create",
       "herdr-bad-response",
       `pane split 成功但取不到新 pane id（期望 .result.pane.pane_id）：${result.stdout.slice(0, 200)}`,
     );
@@ -453,7 +454,7 @@ async function createAction(
     );
   }
   return success(
-    "create",
+    "pane_create",
     {
       pane_id: paneId,
       direction,
@@ -466,7 +467,7 @@ async function createAction(
   );
 }
 
-/** `list`：列出 pane 摘要与本插件登记标记（可跨 workspace 观察，不带 workspace 面）。 */
+/** `pane_list`：列出 pane 摘要与本插件登记标记（可跨 workspace 观察，不带 workspace 面）。 */
 async function listAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
@@ -476,7 +477,7 @@ async function listAction(
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
-      "list",
+      "pane_list",
       undefined,
       envelope,
       result,
@@ -486,7 +487,7 @@ async function listAction(
   const panes = objectList(envelope.result.panes).map((item) =>
     summarizePane(item, (id) => deps.registry.has(id)),
   );
-  return success("list", {
+  return success("pane_list", {
     panes,
     registered: deps.registry.panes.map((record) => record.paneId),
   });
@@ -685,18 +686,18 @@ async function tabCloseAction(
   );
 }
 
-/** `read`：走 socket（`revision` / `truncated` 是 socket 独有信息）。 */
+/** `pane_read`：走 socket（`revision` / `truncated` 是 socket 独有信息）。 */
 async function readAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("read", "pane-required", "read 需要 pane_id 参数");
+    return failure("pane_read", "pane-required", "read 需要 pane_id 参数");
   }
   if (paneId === deps.callerPaneId) {
     return failure(
-      "read",
+      "pane_read",
       "invalid-params",
       `pane_id 不能是调用者自己所在的 pane（${paneId}）：那是 dsh 自己的界面，读它会读到本次调用自身的回显`,
       {
@@ -710,10 +711,10 @@ async function readAction(
   const format = readFormat(args.format);
   const outcome = await deps.reader.readPane({ paneId, source, lines, format });
   if (!outcome.ok) {
-    return failure("read", outcome.code, outcome.message, { paneId });
+    return failure("pane_read", outcome.code, outcome.message, { paneId });
   }
   return success(
-    "read",
+    "pane_read",
     {
       pane_id: paneId,
       source,
@@ -731,21 +732,21 @@ async function readAction(
   );
 }
 
-/** `wait`：`match` / `regex` 走 CLI `wait-output`，`stable` 走 socket 判稳。 */
+/** `pane_wait`：`match` / `regex` 走 CLI `wait-output`，`stable` 走 socket 判稳。 */
 async function waitAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("wait", "pane-required", "wait 需要 pane_id 参数");
+    return failure("pane_wait", "pane-required", "wait 需要 pane_id 参数");
   }
   const match = str(args, "match");
   const regex = str(args, "regex");
   const stable = flag(args, "stable");
   if (stable && (match !== undefined || regex !== undefined)) {
     return failure(
-      "wait",
+      "pane_wait",
       "invalid-params",
       "stable 与 match / regex 互斥：静默判定等「屏内容不再变化」，不叠加匹配条件",
       { paneId },
@@ -753,7 +754,7 @@ async function waitAction(
   }
   if (!stable && match !== undefined && regex !== undefined) {
     return failure(
-      "wait",
+      "pane_wait",
       "invalid-params",
       "match 与 regex 二选一，不能同时给出",
       {
@@ -763,7 +764,7 @@ async function waitAction(
   }
   if (!stable && match === undefined && regex === undefined) {
     return failure(
-      "wait",
+      "pane_wait",
       "invalid-params",
       "wait 需要 match / regex / stable 之一：match 等字面量出现，regex 等正则匹配，stable 等屏内容不再变化",
       { paneId },
@@ -797,7 +798,7 @@ async function waitAction(
         ? envelope.result.matched_line
         : undefined;
     return success(
-      "wait",
+      "pane_wait",
       {
         pane_id: paneId,
         matched: true,
@@ -814,12 +815,12 @@ async function waitAction(
     );
   }
   if (result.timedOut) {
-    return cliFailure("wait", paneId, envelope, result, timeoutMs + 5000);
+    return cliFailure("pane_wait", paneId, envelope, result, timeoutMs + 5000);
   }
   // 服务端超时（错误信封 code=timeout）→ 结构化超时结果，不抛错
   if (envelope.kind === "error" && envelope.error.code === "timeout") {
     return failure(
-      "wait",
+      "pane_wait",
       "timeout",
       `等待超时（${timeoutMs}ms）：未在 pane 输出里等到${
         match === undefined ? `正则 ${regex ?? ""}` : `字面量 ${match}`
@@ -830,10 +831,10 @@ async function waitAction(
       },
     );
   }
-  return cliFailure("wait", paneId, envelope, result, timeoutMs + 5000);
+  return cliFailure("pane_wait", paneId, envelope, result, timeoutMs + 5000);
 }
 
-/** `wait` 的 stable 分支（socket 判稳；超时返回结构化结果）。 */
+/** `pane_wait` 的 stable 分支（socket 判稳；超时返回结构化结果）。 */
 async function waitStableAction(
   deps: DispatchDeps,
   paneId: string,
@@ -854,11 +855,11 @@ async function waitStableAction(
     ...(clock === undefined ? [] : [clock]),
   );
   if (outcome.error !== undefined) {
-    return failure("wait", "socket-error", outcome.error, { paneId });
+    return failure("pane_wait", "socket-error", outcome.error, { paneId });
   }
   if (!outcome.stable) {
     return failure(
-      "wait",
+      "pane_wait",
       "timeout",
       `等待超时（${params.timeoutMs}ms）：屏内容仍在变化，未判稳`,
       {
@@ -868,7 +869,7 @@ async function waitStableAction(
     );
   }
   return success(
-    "wait",
+    "pane_wait",
     {
       pane_id: paneId,
       matched: true,
@@ -883,20 +884,29 @@ async function waitStableAction(
   );
 }
 
-/** `send_text`：字面量文本（不追加回车）。 */
+/** `pane_send_text`：字面量文本（不追加回车）。 */
 async function sendTextAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("send_text", "pane-required", "send_text 需要 pane_id 参数");
+    return failure(
+      "pane_send_text",
+      "pane-required",
+      "send_text 需要 pane_id 参数",
+    );
   }
   const text = str(args, "text");
   if (text === undefined) {
-    return failure("send_text", "invalid-params", "send_text 需要 text 参数", {
-      paneId,
-    });
+    return failure(
+      "pane_send_text",
+      "invalid-params",
+      "send_text 需要 text 参数",
+      {
+        paneId,
+      },
+    );
   }
   const result = await deps.runner.run(
     ["pane", "send-text", paneId, text],
@@ -905,7 +915,7 @@ async function sendTextAction(
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
-      "send_text",
+      "pane_send_text",
       paneId,
       envelope,
       result,
@@ -913,25 +923,29 @@ async function sendTextAction(
     );
   }
   return success(
-    "send_text",
+    "pane_send_text",
     { pane_id: paneId, chars: text.length },
     { paneId },
   );
 }
 
-/** `send_keys`：按键序列（如 `["ctrl+c"]` / `["esc"]` / `["up"]`）。 */
+/** `pane_send_keys`：按键序列（如 `["ctrl+c"]` / `["esc"]` / `["up"]`）。 */
 async function sendKeysAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("send_keys", "pane-required", "send_keys 需要 pane_id 参数");
+    return failure(
+      "pane_send_keys",
+      "pane-required",
+      "send_keys 需要 pane_id 参数",
+    );
   }
   const keys = strList(args, "keys");
   if (keys === undefined || keys.length === 0) {
     return failure(
-      "send_keys",
+      "pane_send_keys",
       "invalid-params",
       'send_keys 需要非空的 keys 字符串数组（如 ["ctrl+c"] / ["esc"] / ["up"]）',
       { paneId },
@@ -944,28 +958,28 @@ async function sendKeysAction(
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
     return cliFailure(
-      "send_keys",
+      "pane_send_keys",
       paneId,
       envelope,
       result,
       deps.config.timeoutMs,
     );
   }
-  return success("send_keys", { pane_id: paneId, keys }, { paneId });
+  return success("pane_send_keys", { pane_id: paneId, keys }, { paneId });
 }
 
-/** `run`：文本 + 回车一次提交。 */
+/** `pane_run`：文本 + 回车一次提交。 */
 async function runAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("run", "pane-required", "run 需要 pane_id 参数");
+    return failure("pane_run", "pane-required", "run 需要 pane_id 参数");
   }
   const command = str(args, "command");
   if (command === undefined) {
-    return failure("run", "invalid-params", "run 需要 command 参数", {
+    return failure("pane_run", "invalid-params", "run 需要 command 参数", {
       paneId,
     });
   }
@@ -975,19 +989,25 @@ async function runAction(
   );
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
-    return cliFailure("run", paneId, envelope, result, deps.config.timeoutMs);
+    return cliFailure(
+      "pane_run",
+      paneId,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
   }
-  return success("run", { pane_id: paneId, command }, { paneId });
+  return success("pane_run", { pane_id: paneId, command }, { paneId });
 }
 
-/** `label`：打 / 清归属标记（空串 = 清除）。 */
+/** `pane_label`：打 / 清归属标记（空串 = 清除）。 */
 async function labelAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("label", "pane-required", "label 需要 pane_id 参数");
+    return failure("pane_label", "pane-required", "label 需要 pane_id 参数");
   }
   // 只有显式空串表示清除；未给则写配置缺省 label
   const rawLabel = args.label;
@@ -998,7 +1018,13 @@ async function labelAction(
   );
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
-    return cliFailure("label", paneId, envelope, result, deps.config.timeoutMs);
+    return cliFailure(
+      "pane_label",
+      paneId,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
   }
   const record = deps.registry.get(paneId);
   if (record !== undefined) {
@@ -1016,20 +1042,20 @@ async function labelAction(
     }
   }
   return success(
-    "label",
+    "pane_label",
     { pane_id: paneId, label, cleared: label === "" },
     { paneId },
   );
 }
 
-/** `info`：进程探活（`foreground_processes` / `shell_pid`，用于判「命令是否还在跑」）。 */
+/** `pane_info`：进程探活（`foreground_processes` / `shell_pid`，用于判「命令是否还在跑」）。 */
 async function infoAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("info", "pane-required", "info 需要 pane_id 参数");
+    return failure("pane_info", "pane-required", "info 需要 pane_id 参数");
   }
   const result = await deps.runner.run(
     ["pane", "process-info", "--pane", paneId],
@@ -1037,12 +1063,18 @@ async function infoAction(
   );
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
-    return cliFailure("info", paneId, envelope, result, deps.config.timeoutMs);
+    return cliFailure(
+      "pane_info",
+      paneId,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
   }
   const info = resultObject(envelope, "process_info");
   if (info === undefined) {
     return failure(
-      "info",
+      "pane_info",
       "herdr-bad-response",
       `process-info 响应缺少 result.process_info：${result.stdout.slice(0, 200)}`,
       { paneId },
@@ -1050,7 +1082,7 @@ async function infoAction(
   }
   const processes = objectList(info.foreground_processes);
   return success(
-    "info",
+    "pane_info",
     {
       pane_id: paneId,
       // 与官方 bash 工具「命令是否还在跑」的判定口径一致：有前台进程 = 在跑
@@ -1071,14 +1103,14 @@ async function infoAction(
   );
 }
 
-/** `close`：关闭 pane（只关登记过的；`force` 需配置 `allowForeignPanes`）。 */
+/** `pane_close`：关闭 pane（只关登记过的；`force` 需配置 `allowForeignPanes`）。 */
 async function closeAction(
   deps: DispatchDeps,
   args: Record<string, unknown>,
 ): Promise<ActionResult> {
   const paneId = str(args, "pane_id");
   if (paneId === undefined) {
-    return failure("close", "pane-required", "close 需要 pane_id 参数");
+    return failure("pane_close", "pane-required", "close 需要 pane_id 参数");
   }
   const result = await deps.runner.run(
     closeArgs(paneId),
@@ -1086,14 +1118,20 @@ async function closeAction(
   );
   const envelope = parseEnvelope(result.stdout, result.stderr, result.exitCode);
   if (result.timedOut || envelope.kind !== "ok") {
-    return cliFailure("close", paneId, envelope, result, deps.config.timeoutMs);
+    return cliFailure(
+      "pane_close",
+      paneId,
+      envelope,
+      result,
+      deps.config.timeoutMs,
+    );
   }
   const wasRegistered = deps.registry.has(paneId);
   deps.registry.unregister(paneId);
   // 关掉的是某个已登记 tab 的 root pane 时，同步注销那条 tab 记录
   const closedTab = deps.registry.unregisterTabByRootPane(paneId);
   return success(
-    "close",
+    "pane_close",
     {
       pane_id: paneId,
       was_registered: wasRegistered,
@@ -1111,25 +1149,23 @@ type ActionHandler = (
 ) => Promise<ActionResult>;
 
 /** 需要会话 workspace 的动作（派发时共用一把串行锁，避免并发建两个 workspace）。 */
-const WORKSPACE_ACTIONS: readonly HerdrPaneAction[] = [
-  "create",
-  "tab_create",
-  "tab_list",
-  "tab_close",
+const WORKSPACE_ACTIONS: readonly HerdrUseAction[] = [
+  "pane_create",
+  ...TAB_ACTIONS,
 ];
 
 /** 动作分派表。 */
-const HANDLERS: Record<HerdrPaneAction, ActionHandler> = {
-  create: createAction,
-  list: listAction,
-  read: readAction,
-  wait: waitAction,
-  send_text: sendTextAction,
-  send_keys: sendKeysAction,
-  run: runAction,
-  label: labelAction,
-  info: infoAction,
-  close: closeAction,
+const HANDLERS: Record<HerdrUseAction, ActionHandler> = {
+  pane_create: createAction,
+  pane_list: listAction,
+  pane_read: readAction,
+  pane_wait: waitAction,
+  pane_send_text: sendTextAction,
+  pane_send_keys: sendKeysAction,
+  pane_run: runAction,
+  pane_label: labelAction,
+  pane_info: infoAction,
+  pane_close: closeAction,
   tab_create: tabCreateAction,
   tab_list: tabListAction,
   tab_close: tabCloseAction,
@@ -1145,7 +1181,7 @@ const WORKSPACE_QUEUE_KEY = "\u0000workspace";
  * 审批门（闸③）在宿主 `tools/pre-execute` 里、先于本函数触发；本函数再复核一次归属，
  * 是因为库面调用（不经宿主工具链）不该绕开归属限制。
  *
- * `exec` 是宿主工具执行上下文（`{ agent: { session } }`）；只在 `create` / `tab_*` 里用于
+ * `exec` 是宿主工具执行上下文（`{ agent: { session } }`）；只在 `pane_create` / `tab_*` 里用于
  * 定位本会话 workspace。库面直调要么传它，要么在 `deps.resolveSession` 注入会话。
  */
 export async function dispatchAction(
@@ -1156,19 +1192,20 @@ export async function dispatchAction(
 ): Promise<ActionResult> {
   if (!Object.hasOwn(HANDLERS, action)) {
     return failure(
-      "list",
+      "pane_list",
       "unknown-action",
-      `未知 action：${String(action)}（可选 ${PANE_ACTIONS.join(" / ")}）`,
+      `未知 action：${String(action)}（可选 ${ALL_ACTIONS.join(" / ")}）`,
     );
   }
-  const typedAction = action as HerdrPaneAction;
+  const typedAction = action as HerdrUseAction;
   const paneId = paneTargetFor(action, args);
   // 归属前置校验：写类 / wait-stable 要求登记过（读类放行）。
   // `allowForeignPanes: true` 是这条限制的**总开关**（决策项 6 的「缺省」出口）：
   // 打开后写类动作可作用于他人的 pane，但审批门（闸③，foreign 档）会先打断一次；
-  // `close` 另要求 `force: true`（关闭是破坏性的，多一道显式信号）。
+  // `pane_close` 另要求 `force: true`（关闭是破坏性的，多一道显式信号）。
   if (paneId !== undefined && needsOwnership(action, args)) {
-    const closeNeedsForce = typedAction === "close" && !flag(args, "force");
+    const closeNeedsForce =
+      typedAction === "pane_close" && !flag(args, "force");
     const foreignAllowed = deps.config.allowForeignPanes && !closeNeedsForce;
     if (!foreignAllowed) {
       const verdict = checkOwnership(
@@ -1211,7 +1248,7 @@ export async function dispatchAction(
   if (paneId === undefined) {
     const run = (): Promise<ActionResult> => handler(deps, args, exec);
     if (WORKSPACE_ACTIONS.includes(typedAction)) {
-      // workspace 类动作共用一把锁：并发的 create / tab_create 不会各建一个 workspace
+      // workspace 类动作共用一把锁：并发的 pane_create / tab_create 不会各建一个 workspace
       return deps.registry.serialize(WORKSPACE_QUEUE_KEY, run);
     }
     return run();
@@ -1220,16 +1257,16 @@ export async function dispatchAction(
   return deps.registry.serialize(paneId, () => handler(deps, args, exec));
 }
 
-/** 归属被拒的放行方式（`close` 的 force 与通用写类分开写，避免暗示「设了 force 就能发输入」）。 */
-function ownershipHintFor(action: HerdrPaneAction): string {
-  if (action === "close") {
+/** 归属被拒的放行方式（`pane_close` 的 force 与通用写类分开写，避免暗示「设了 force 就能发输入」）。 */
+function ownershipHintFor(action: HerdrUseAction): string {
+  if (action === "pane_close") {
     return (
       "放行方式：关非本插件创建的 pane 需同时满足配置 allowForeignPanes: true 与 close 的 force: true" +
       "（审批门仍按 requireApproval 档要求人工确认）。"
     );
   }
   return (
-    "放行方式：用 herdr_pane 的 create 建新 pane 后对它操作；" +
+    "放行方式：用 herdr_use 的 create 建新 pane 后对它操作；" +
     "或把插件配置 allowForeignPanes 置 true 让写类动作可作用于他人的 pane" +
     "（此时审批门按 requireApproval 档先打断一次）。读类动作可读任意 pane。"
   );

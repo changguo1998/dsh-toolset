@@ -1,21 +1,21 @@
-// scripts/verify-herdr-pane.mjs — 真机端到端验证脚本（人工跑，不进 CI）
+// scripts/verify-herdr-use.mjs — 真机端到端验证脚本（人工跑，不进 CI）
 //
 // 为什么不进 CI：herdr 不保证存在，且真实验证会改动用户布局（建 / 关 pane、tab、workspace）。
 // 单测覆盖参数面与判定逻辑（`npm test`，注入 fake runner / fake reader / fake herdr 服务端），
 // 本脚本只补「真机行为对不对」这一层。
 //
 // 用法（二进制可解析 + herdr 服务端在跑即可；dsh 不必在 herdr 内）：
-//   npm run build && node scripts/verify-herdr-pane.mjs            # 全自动：跑完即关 pane
-//   node scripts/verify-herdr-pane.mjs --keep                       # 跑完保留现场供人工看
-//   node scripts/verify-herdr-pane.mjs --with-python                # 新 pane 里先起 python3 -i
-//   node scripts/verify-herdr-pane.mjs --with-tab                   # 建 tab → run → wait → read → tab_close
-//   node scripts/verify-herdr-pane.mjs --check-cascade              # 关掉本次 create 的 pane 后看 workspace 是否还在
-//   node scripts/verify-herdr-pane.mjs --session-id verify-1        # 固定会话身份（重跑可验 workspace 复用）
-//   node scripts/verify-herdr-pane.mjs --cwd /path/to/workdir       # 覆盖会话工作目录（label 用它）
+//   npm run build && node scripts/verify-herdr-use.mjs            # 全自动：跑完即关 pane
+//   node scripts/verify-herdr-use.mjs --keep                       # 跑完保留现场供人工看
+//   node scripts/verify-herdr-use.mjs --with-python                # 新 pane 里先起 python3 -i
+//   node scripts/verify-herdr-use.mjs --with-tab                   # 建 tab → pane_run → pane_wait → pane_read → tab_close
+//   node scripts/verify-herdr-use.mjs --check-cascade              # 关掉本次 pane_create 的 pane 后看 workspace 是否还在
+//   node scripts/verify-herdr-use.mjs --session-id verify-1        # 固定会话身份（重跑可验 workspace 复用）
+//   node scripts/verify-herdr-use.mjs --cwd /path/to/workdir       # 覆盖会话工作目录（label 用它）
 //
 // 验收对应关系（追踪文档「测试要点」与「规划」第 8 条）：
-//   create → read → send_text → send_keys → wait(match) → wait(stable) → run → info → label → list → close，
-//   期间不抢调用者 pane 的焦点（`--no-focus`）；`create` 落在本会话 workspace 的活动 pane；
+//   pane_create → pane_read → pane_send_text → pane_send_keys → pane_wait(match) → pane_wait(stable) → pane_run → pane_info → pane_label → pane_list → pane_close，
+//   期间不抢调用者 pane 的焦点（`--no-focus`）；`pane_create` 落在本会话 workspace 的活动 pane；
 //   正常退出后本会话 workspace 内无本次创建的 pane（workspace 空则被内部关闭）。
 import {
   createHerdrPlugin,
@@ -132,16 +132,16 @@ try {
     }`,
   );
 
-  // 1) create：落在本会话 workspace 的活动 pane（不是调用者 pane），不抢焦点
-  const created = await step("create", "create", {}, deps);
-  if (!created.ok) throw new Error("create 失败，后续动作无目标 pane");
+  // 1) pane_create：落在本会话 workspace 的活动 pane（不是调用者 pane），不抢焦点
+  const created = await step("pane_create", "pane_create", {}, deps);
+  if (!created.ok) throw new Error("pane_create 失败，后续动作无目标 pane");
   createdPaneId = created.payload.pane_id;
   expect(
     typeof createdPaneId === "string" && createdPaneId !== "",
-    "create 应返回 pane_id",
+    "pane_create 应返回 pane_id",
   );
   const binding = plugin.registry.workspaceBinding;
-  expect(binding !== undefined, "create 应建立会话 workspace 绑定");
+  expect(binding !== undefined, "pane_create 应建立会话 workspace 绑定");
   console.log(
     `        新 pane = ${createdPaneId}（direction=${created.payload.direction}，split_from=${created.payload.split_from}，workspace label=${binding.label}）`,
   );
@@ -156,13 +156,13 @@ try {
   const mine = (panes.panes ?? []).find(
     (pane) => pane.pane_id === createdPaneId,
   );
-  expect(mine !== undefined, "create 的新 pane 应落在本会话 workspace 内");
+  expect(mine !== undefined, "pane_create 的新 pane 应落在本会话 workspace 内");
 
-  // 2) read：socket 通道，拿到 revision / truncated
+  // 2) pane_read：socket 通道，拿到 revision / truncated
   const read = await withKeepAlive(() =>
     step(
-      "read（socket）",
-      "read",
+      "pane_read（socket）",
+      "pane_read",
       {
         pane_id: createdPaneId,
         source: "visible",
@@ -171,27 +171,27 @@ try {
       deps,
     ),
   );
-  expect(read.ok, "read 应成功");
+  expect(read.ok, "pane_read 应成功");
   expect(
     typeof read.payload.revision === "number",
-    "read 应带 revision（socket 独有）",
+    "pane_read 应带 revision（socket 独有）",
   );
 
-  // 3) send_text：注入字面量（不回车）
+  // 3) pane_send_text：注入字面量（不回车）
   await step(
-    "send_text",
-    "send_text",
+    "pane_send_text",
+    "pane_send_text",
     {
       pane_id: createdPaneId,
-      text: "printf 'herdr-pane-ready\\n'",
+      text: "printf 'herdr-use-ready\\n'",
     },
     deps,
   );
 
-  // 4) send_keys：回车提交（enter 是 herdr 的规范键名之一）
+  // 4) pane_send_keys：回车提交（enter 是 herdr 的规范键名之一）
   await step(
-    "send_keys（enter）",
-    "send_keys",
+    "pane_send_keys（enter）",
+    "pane_send_keys",
     {
       pane_id: createdPaneId,
       keys: ["enter"],
@@ -199,24 +199,24 @@ try {
     deps,
   );
 
-  // 5) wait(match)：等服务端在输出里看到标记
+  // 5) pane_wait(match)：等服务端在输出里看到标记
   const matched = await step(
-    "wait（match）",
-    "wait",
+    "pane_wait（match）",
+    "pane_wait",
     {
       pane_id: createdPaneId,
-      match: "herdr-pane-ready",
+      match: "herdr-use-ready",
       lines: 40,
       timeout_ms: 10_000,
     },
     deps,
   );
-  expect(matched.ok, "wait match 应命中");
+  expect(matched.ok, "pane_wait match 应命中");
 
-  // 6) run：文本 + 回车一次提交
+  // 6) pane_run：文本 + 回车一次提交
   await step(
-    "run",
-    "run",
+    "pane_run",
+    "pane_run",
     {
       pane_id: createdPaneId,
       command: "printf 'run-ok\\n'",
@@ -224,8 +224,8 @@ try {
     deps,
   );
   const runMatched = await step(
-    "wait（run 回显）",
-    "wait",
+    "pane_wait（run 回显）",
+    "pane_wait",
     {
       pane_id: createdPaneId,
       match: "run-ok",
@@ -234,13 +234,13 @@ try {
     },
     deps,
   );
-  expect(runMatched.ok, "run 的回显应可等");
+  expect(runMatched.ok, "pane_run 的回显应可等");
 
-  // 7) wait(stable)：静默判稳（走 socket 的 revision）
+  // 7) pane_wait(stable)：静默判稳（走 socket 的 revision）
   const stable = await withKeepAlive(() =>
     step(
-      "wait（stable）",
-      "wait",
+      "pane_wait（stable）",
+      "pane_wait",
       {
         pane_id: createdPaneId,
         stable: true,
@@ -252,27 +252,37 @@ try {
   );
   expect(stable.ok, "stable 应判稳");
 
-  // 8) info：进程探活
-  const info = await step("info", "info", { pane_id: createdPaneId }, deps);
-  expect(info.ok, "info 应成功");
+  // 8) pane_info：进程探活
+  const info = await step(
+    "pane_info",
+    "pane_info",
+    { pane_id: createdPaneId },
+    deps,
+  );
+  expect(info.ok, "pane_info 应成功");
 
-  // 9) label：改 / 清都验一次
+  // 9) pane_label：改 / 清都验一次
   await step(
-    "label（自定义）",
-    "label",
+    "pane_label（自定义）",
+    "pane_label",
     {
       pane_id: createdPaneId,
       label: "dsh-pane-verify",
     },
     deps,
   );
-  await step("label（恢复缺省）", "label", { pane_id: createdPaneId }, deps);
+  await step(
+    "pane_label（恢复缺省）",
+    "pane_label",
+    { pane_id: createdPaneId },
+    deps,
+  );
 
   if (withPython) {
     // 交互式程序（REPL）：需要屏幕状态 + 按键时序的典型场景
     await step(
-      "run（python3 -i）",
-      "run",
+      "pane_run（python3 -i）",
+      "pane_run",
       {
         pane_id: createdPaneId,
         command: "python3 -i",
@@ -280,8 +290,8 @@ try {
       deps,
     );
     const prompt = await step(
-      "wait（python 提示符）",
-      "wait",
+      "pane_wait（python 提示符）",
+      "pane_wait",
       {
         pane_id: createdPaneId,
         regex: ">>>",
@@ -292,8 +302,8 @@ try {
     );
     expect(prompt.ok, "python 提示符应出现");
     await step(
-      "send_text（python 表达式）",
-      "send_text",
+      "pane_send_text（python 表达式）",
+      "pane_send_text",
       {
         pane_id: createdPaneId,
         text: "1+1",
@@ -302,7 +312,7 @@ try {
     );
     await step(
       "send_keys（enter）",
-      "send_keys",
+      "pane_send_keys",
       {
         pane_id: createdPaneId,
         keys: ["enter"],
@@ -310,8 +320,8 @@ try {
       deps,
     );
     await step(
-      "wait（表达式结果）",
-      "wait",
+      "pane_wait（表达式结果）",
+      "pane_wait",
       {
         pane_id: createdPaneId,
         match: "2",
@@ -322,7 +332,7 @@ try {
     );
     await step(
       "send_keys（ctrl+d 退出 python）",
-      "send_keys",
+      "pane_send_keys",
       {
         pane_id: createdPaneId,
         keys: ["ctrl+d"],
@@ -332,7 +342,7 @@ try {
   }
 
   if (withTab) {
-    // tab 三动作：建 tab → 在其中 run / wait / read → tab_close
+    // tab 三动作：建 tab → 在其中 pane_run / pane_wait / pane_read → tab_close
     const tab = await step(
       "tab_create",
       "tab_create",
@@ -356,22 +366,22 @@ try {
     );
 
     await step(
-      "run（tab 内）",
-      "run",
+      "pane_run（tab 内）",
+      "pane_run",
       { pane_id: tabPaneId, command: "printf 'tab-ok\\n'" },
       deps,
     );
     const tabMatched = await step(
-      "wait（tab 内回显）",
-      "wait",
+      "pane_wait（tab 内回显）",
+      "pane_wait",
       { pane_id: tabPaneId, match: "tab-ok", lines: 40, timeout_ms: 10_000 },
       deps,
     );
     expect(tabMatched.ok, "tab 内的命令回显应可等");
     const tabRead = await withKeepAlive(() =>
       step(
-        "read（tab 内）",
-        "read",
+        "pane_read（tab 内）",
+        "pane_read",
         { pane_id: tabPaneId, source: "visible", lines: 20 },
         deps,
       ),
@@ -389,7 +399,7 @@ try {
   }
 
   // 10) list：核对 label 与本插件登记标记
-  const listed = await step("list", "list", {}, deps);
+  const listed = await step("pane_list", "pane_list", {}, deps);
   expect(listed.ok, "list 应成功");
   const mineInList = listed.payload.panes.find(
     (pane) => pane.pane_id === createdPaneId,
@@ -400,7 +410,7 @@ try {
     // 关掉 workspace 里最后一个本插件 pane 后，看 workspace 是否还在（关闭语义未文档化）
     await step(
       "close（cascade 探针）",
-      "close",
+      "pane_close",
       { pane_id: createdPaneId },
       deps,
     );
@@ -441,7 +451,7 @@ try {
   if (createdPaneId !== undefined && !keep) {
     const closed = await step(
       "close（收尾）",
-      "close",
+      "pane_close",
       { pane_id: createdPaneId },
       deps,
     );

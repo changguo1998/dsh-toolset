@@ -1,6 +1,6 @@
 # herdr-pane 插件与工具改名（接取条目：`docs/BACKLOG.md`「herdr-pane 插件与工具改名（`herdr-pane` / `herdr_pane` → `herdr-use` / `herdr_use`）」）
 
-状态：规划　　开启：2026-10-22　　关闭：-
+状态：实现完成（待人工确认与收尾）　　开启：2026-10-22　　关闭：-
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -59,16 +59,45 @@
 
 ## 实现记录
 
-（待实现。）
+（2026-10-22 实现, 分支 `dsh/herdr-use-rename`; 按「规划」逐项落地。）
+
+01. **目录与包身份**: `herdr-pane/` → `herdr-use/`; `package.json` 的 `name` = `@dsh-toolset/herdr-use`, `verify` 脚本指向 `scripts/verify-herdr-use.mjs`; `package-lock.json` 两处 name 同步; `cordis.patch.yml` 的 `id` / `name` 同步。
+02. **插件与工具标识**: `main.ts` 的 `name = "herdr-use"`; `tools.ts` 的 `TOOL_NAME = "herdr_use"`; 所有回执前缀 `herdr_use ...`; guard 来源标注 `herdr-use:<action>`; socket 请求 id 前缀 `herdr-use:`; 单测临时目录前缀 `herdr-use-*`。
+03. **导出符号**: `HerdrPaneAction` / `HerdrPaneConfig` / `HerdrPaneDeps` / `HerdrPaneHandle` / `HerdrPaneToolDef` → `HerdrUse*`; `createHerdrPaneTool` / `renderHerdrPane` → `createHerdrUseTool` / `renderHerdrUse`; `index.ts` 导出面同步。
+04. **动作名分组**: `create` / `list` / `read` / `wait` / `send_text` / `send_keys` / `run` / `label` / `info` / `close` → `pane_*` (10 个); `tab_create` / `tab_list` / `tab_close` 不变 (共 13 个)。同步改: `HerdrUseAction` 联合类型、工具 schema 的 `enum` 与全部参数描述、`HANDLERS` 分派表、13 个回执分支与错误文案、`policy.ts` 的 `OWNED_ACTIONS` / `READONLY_ACTIONS` / `SANDBOX_WRITE_ACTIONS` / `needsApproval` / `checkOwnership` / `isSandboxWrite`、`actions.ts` 的 `inspectedText` / `needsOwnership` / `workspaceFor` / `WORKSPACE_ACTIONS` / `ownershipHintFor`、`main.ts` 的 `preExecuteVerdict` 与审批文案。
+05. **常量**: `PANE_ACTIONS` → `ALL_ACTIONS` (13 项, 尾部 `...TAB_ACTIONS`); 新增 `TAB_ACTIONS` (3 项), 由 `actions.ts` 的 `WORKSPACE_ACTIONS` 复用 (`["pane_create", ...TAB_ACTIONS]`), 锁语义不变。
+06. **口径保持不变**: 动作集合 13 个、参数面、回执结构、错误码、闸门顺序 (沙箱门 → 审批门 → guard 复查 → 归属校验) 全部未动; `pane_read` / `pane_info` 仍可读任意 pane, 写类 (`pane_send_text` / `pane_send_keys` / `pane_run` / `pane_label` / `pane_close` / `tab_close`) 与 `pane_wait` 的 stable 模式仍要求自有对象。
+07. **真机脚本**: `scripts/verify-herdr-pane.mjs` → `verify-herdr-use.mjs`, 步骤标签与 `dispatchAction` 的 action 参数同步改名; 覆盖链不变。
+08. **包内测试**: 10 个用例文件 + `helpers.ts` 的 action 名与回执断言同步; 用例数不变 (156)。
+09. **跨包三处**: `security-guard/src/index.ts` 登记键 `herdr_use` (参数面不变) + 注释 + `tests/guard.test.ts` (26 处 fixture action 名 / 工具名 / 断言) + `README.md`; `behavior-correction` 缺省规则回执指向 `herdr_use`（动作提示写 `pane_*` / `tab_*`）+ 测试 + README + `package.json` 描述 + `cordis.patch.yml` 注释; `rule-engine` README 示例 + 两处测试用例文案。
+10. **接线面**: 根 `package.json` 的 check / build 链、`scripts/install.sh` 与 `scripts/test-parallel.sh` 的包清单、`AGENTS.md` (三处清单 + 子包说明 + behavior-correction 说明)、根 `README.md` / `README.zh.md` (插件表两行 + 结构树)、`docs/ARCHITECTURE-REUSE.md` (6 处)、`docs/BACKLOG.md` §1 索引与两条候选行。
+11. **归档保留旧名**: `herdr-use/docs/archived/*` 两个文件、根 `docs/archived/**`、各模块 `docs/archived/**` 均未改名、未改内容; 包 README 与包 BACKLOG 指向归档文件的**路径前缀**改 `herdr-use/`, **文件名**保持 `2026-10-19-herdr-pane-sandbox-mode.md` / `2026-10-21-herdr-pane-tab-workspace.md`。
 
 ## 偏差
 
-（待填。）
+01. **`git mv` 不可用 → 用 `mv`**: 本 worktree 的 git 元数据在 `.git/worktrees/dsh-toolset-herdr-use/` (工作区之外), 文件沙箱只读, `git mv` / `git add` 均报 `index.lock: 只读文件系统`。改用 `mv` 移动目录与脚本, 内容未变; 提交时 git 按内容识别为改名 (R)。
+02. **包内 `docs/BACKLOG.md` 的历史关闭记录保留旧动作名**: 那两条是 2026-10-19 / 2026-10-21 的关闭注记, 与「历史注记不改」同口径, 只改文件标题与当前「已知边界」段; 项目级 `docs/BACKLOG.md` 的 behavior-correction 关闭记录同样保留 `herdr_pane`。
+03. **Markdown 未跑 `format`**: `mdformat --check` 在 HEAD 版本上就已报 `AGENTS.md` / `docs/BACKLOG.md` / `security-guard/README.md` / `behavior-correction/README.md` 未格式化, 全量格式化会带出与本次改名无关的大片 diff。故只对改动的 TS / MJS / SH 文件跑 `format` (prettier / shfmt), MD 保持原格式手工编辑。
+04. **未跑真机**: `verify-herdr-use.mjs` 需要 herdr 二进制可解析 + 服务端在跑, 属人工验收项 (追踪文档 `收尾` 与真机验收留给主会话)。
+05. **未跑全仓 `npm run test`**: 本次只跑受影响包 (herdr-use / security-guard / behavior-correction / rule-engine) 与全仓 `npm run check`; 其余包未受影响且全仓测会拉起 31 包并行。
 
 ## 测试与证据
 
-（待填。）
+本 worktree 无 `node_modules` (各包子包依赖未安装), 且沙箱不允许写工作区之外的 npm 缓存; 验证时把主检出 `/home/guochang/Projects/dsh-toolset/<pkg>/node_modules` 以符号链接挂到本 worktree 对应包下 (node_modules 已被 `.gitignore` 忽略, 不进变更)。
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 包内类型 | `npm --prefix herdr-use run check` | 退出码 0, 0 个 TS 错误 |
+| 包内单测 | `npm --prefix herdr-use run test` | 156 例 / 156 通过 / 0 失败 / 0 跳过 |
+| 包内构建 | `npm --prefix herdr-use run build` | 退出码 0 (产出 `dist/src/*.js`) |
+| 跨包 | `security-guard` check + test | check 退出码 0; 135 例 / 134 通过 / 0 失败 / 1 跳过 (原基线同样是 1 skip) |
+| 跨包 | `behavior-correction` check + test | check 退出码 0; 29 例 / 28 通过 / 0 失败 / 1 跳过 |
+| 跨包 | `rule-engine` check + test | check 退出码 0; 168 例 / 168 通过 / 0 失败 |
+| 全仓类型 | 根 `npm run check` | 退出码 0 (31 个包全部通过) |
+| 残留扫描 | `grep -rn 'herdr_pane\|herdr-pane\|HerdrPane'` (排除 `node_modules` 与归档) | 仅剩本追踪文档、`docs/STATUS.md` (用户择时更新)、`docs/BACKLOG.md` 的条目与关闭记录 |
+
+真机脚本未跑 (见偏差 04); 真机验收要点: 重启 `dsh --profile fff` 后工具清单出现 `herdr_use`, 一次 `pane_create` → `pane_run` → `pane_wait` → `pane_read` → `pane_close` 链路, 以及 `bash` 里跑 `herdr pane list` 被 behavior-correction 拒绝且回执指向 `herdr_use`。
 
 ## 收尾
 
-（待填。）
+（待主会话在真机验收后执行: 条目从 `docs/BACKLOG.md` 移除、本文件移入 `docs/archived/`、profile 两文件 (`~/.dsh/profiles/fff/package.json` 与 `cordis.patch.yml`) 的 `link:` 依赖与 patch 行改到 `herdr-use`。）
