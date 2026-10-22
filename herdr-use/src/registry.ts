@@ -8,7 +8,7 @@
  *     决定 workspace 与 label，子会话沿用；模型看不到这个 id。
  *   - `tab_create` 建出的 tab 进 `TabRecord` 登记表；`tab_close` 只认这里登记过、
  *     且属于本会话 workspace 的 tab（跨 workspace 一律拒）。
- *   - 创建 pane / tab 成功后自动打 label（缺省 `dsh-pane`），让崩溃残留可被 `list` 与人工识别。
+ *   - 创建 pane / tab 成功后自动打 label（缺省 `dsh-pane`），让崩溃残留可被 `pane_list` 与人工识别。
  *   - dsh 退出时按 `closeOnExit` 关闭本次创建的 pane；关闭后若本会话 workspace 已空，
  *     由程序内部一并 `workspace close`（仅此一例、不出工具面），避免留空壳。
  *   - 同 pane 的操作串行化；workspace 类动作另有一个共享队列（避免并发建两个 workspace）。
@@ -36,7 +36,7 @@ export interface PaneRecord {
 export interface RegistrySnapshot {
   /** 当前登记的 pane（创建顺序）。 */
   panes: PaneRecord[];
-  /** 是否已登记（`list` 回执打标记用）。 */
+  /** 是否已登记（`pane_list` 回执打标记用）。 */
   has(paneId: string): boolean;
 }
 
@@ -88,7 +88,7 @@ export class PaneRegistry implements RegistrySnapshot {
     return record;
   }
 
-  /** 注销（`close` 成功后调用；重复注销无副作用）。 */
+  /** 注销（`pane_close` 成功后调用；重复注销无副作用）。 */
   unregister(paneId: string): void {
     this.records.delete(paneId);
     this.queues.delete(paneId);
@@ -140,7 +140,7 @@ export class PaneRegistry implements RegistrySnapshot {
     this.tabRecords.delete(tabId);
   }
 
-  /** 按 root pane 反查并注销 tab（`close` 掉 tab 的 root pane 后调用）。 */
+  /** 按 root pane 反查并注销 tab（`pane_close` 掉 tab 的 root pane 后调用）。 */
   unregisterTabByRootPane(paneId: string): TabRecord | undefined {
     for (const [tabId, record] of this.tabRecords) {
       if (record.rootPaneId === paneId) {
@@ -266,12 +266,12 @@ export function createExitCleanup(
   };
 }
 
-/** 关闭命令的 argv（异步 `close` 动作与同步退出清理共用，避免两处写法漂移）。 */
+/** 关闭命令的 argv（异步 `pane_close` 动作与同步退出清理共用，避免两处写法漂移）。 */
 export function closeArgs(paneId: string): string[] {
   return ["pane", "close", paneId];
 }
 
-/** 重命名命令的 argv（`label` 动作与 `create` 后的自动打标共用）。 */
+/** 重命名命令的 argv（`pane_label` 动作与 `pane_create` 后的自动打标共用）。 */
 export function renameArgs(paneId: string, label: string): string[] {
   return label === ""
     ? ["pane", "rename", "--clear", paneId]

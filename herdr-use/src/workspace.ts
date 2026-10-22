@@ -7,7 +7,7 @@
  *   - label = `<会话 cwd 目录名>/<会话 id 末 8 位>`：`workspace list` 按 label 精确匹配复用，
  *     找不到才 `workspace create --cwd <会话 cwd> --label <label> --no-focus`；进程内缓存 binding，
  *     子会话（各自有 session id）沿用同一 workspace（进程内只绑一个）。
- *   - `create` 的落点由本模块解析：本 workspace 活动 tab 的 pane 由
+ *   - `pane_create` 的落点由本模块解析：本 workspace 活动 tab 的 pane 由
  *     `workspace list` 的 `active_tab_id` 与 `pane list --workspace <id>` 对齐取得。
  *
  * 会话对象来自宿主 `exec.agent.session`（`Session` 的 `id` 与 `header.cwd`）；为容忍版本漂移，
@@ -275,8 +275,7 @@ export async function activePaneOf(
       ok: false,
       code: "workspace-unavailable",
       message: `本会话的 workspace ${workspaceId} 不在 workspace list 里（可能已被关闭）`,
-      hint:
-        "重试即可：ensureWorkspace 会按 label 重建被关闭的 workspace；持续失败再用 herdr workspace list 核对服务端状态。",
+      hint: "重试即可：ensureWorkspace 会按 label 重建被关闭的 workspace；持续失败再用 herdr workspace list 核对服务端状态。",
     };
   }
   const activeTabId = nonEmpty(workspace.active_tab_id);

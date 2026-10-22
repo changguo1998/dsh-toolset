@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 ## 为什么需要
 
 `security-guard` 只拦危险命令与敏感路径，`auto-approve` 只裁定审批，两者都不表达「该改用专用工具」。
-模型仍会用 `bash` 直接跑有专用工具的命令（典型：`herdr pane list` —— herdr CLI 有 `herdr_pane` 工具，
+模型仍会用 `bash` 直接跑有专用工具的命令（典型：`herdr pane list` —— herdr CLI 有 `herdr_use` 工具，
 走 bash 会绕过插件面板与状态绑定）。rule-engine 的注入面只能事后提醒，拦不住已经执行的调用。
 
 ## 行为
@@ -28,7 +28,7 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 | --- | --- | --- | --- |
 | `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `|` 之后；允许前置 `VAR=值`
 | `no-python-in-bash` | `bash` | **命令位**调用 `python` / `python3` / `python3.12`（判定同上一行） | `bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句` |
-与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_pane 工具（pane / tab 操作）` |
+与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_use 工具（pane_* / tab_* 操作）` |
 
 ## 配置
 
@@ -66,7 +66,7 @@ profile 覆盖示例（用户层 patch）：
       - id: no-herdr-in-bash
         tool: bash
         match: { keywords: [herdr] }
-        reason: bash 里不要跑 herdr 命令: 改用 herdr_pane 工具
+        reason: bash 里不要跑 herdr 命令: 改用 herdr_use 工具
       - id: no-git-in-bash
         tool: bash
         match: { regex: ['^\s*git\s+(status|log)'] }

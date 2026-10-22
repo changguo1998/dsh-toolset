@@ -197,7 +197,7 @@ service.registerConsumer({
   sources: ["tools/pre-execute"],
   guard: (context) =>
     context.name === "bash" && String(context.arguments?.command ?? "").includes("herdr")
-      ? { kind: "deny", reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane 工具" }
+      ? { kind: "deny", reason: "bash 里不要跑 herdr 命令: 改用 herdr_use 工具" }
       : undefined,
 });
 ```

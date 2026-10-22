@@ -1,7 +1,7 @@
 /**
  * src/cli.ts — herdr CLI 薄封装、可用性握手与探活
  *
- * 通道口径：**CLI 为缺省通道**，仅 `read` / `wait stable` 走 socket。本模块做四件事：
+ * 通道口径：**CLI 为缺省通道**，仅 `pane_read` / `pane_wait` 的 stable 模式走 socket。本模块做四件事：
  *   1. 可用性握手 —— **只要二进制可解析**就返回握手；`HERDR_*` 全部可选（dsh 不一定跑在
  *      herdr 内：tmux / 普通终端也可用）。二进制定位顺序为「显式配置 → `HERDR_BIN_PATH` →
  *      PATH 上的 `herdr`」。服务端可达性由 `probeHerdrServerSync`（`herdr status --json`）判，
@@ -370,6 +370,6 @@ export function commandLabel(args: string[]): string {
 /** 待执行命令（与 runner 对接的最小形态）。 */
 export interface HerdrCommand {
   args: string[];
-  /** 调用超时（`wait` 的动作级超时由调用方在此叠加，见 actions.ts）。 */
+  /** 调用超时（`pane_wait` 的动作级超时由调用方在此叠加，见 actions.ts）。 */
   timeoutMs: number;
 }

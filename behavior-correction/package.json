@@ -1,7 +1,7 @@
 {
   "name": "@dsh-toolset/behavior-correction",
   "version": "0.1.0",
-  "description": "DSH（DeepSeek Harness）behavior-correction 插件：rule-engine 的 guard 消费者，在工具执行前拦下「该用专用工具却走 shell」的调用并指路（缺省：bash 里跑 herdr → 改用 herdr_pane）",
+  "description": "DSH（DeepSeek Harness）behavior-correction 插件：rule-engine 的 guard 消费者，在工具执行前拦下「该用专用工具却走 shell」的调用并指路（缺省：bash 里跑 herdr → 改用 herdr_use）",
   "type": "module",
   "main": "dist/src/main.js",
   "scripts": {

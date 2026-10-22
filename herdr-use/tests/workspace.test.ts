@@ -150,8 +150,9 @@ test("ensureWorkspace: 缓存命中时只复核一次 workspace list（不 creat
   const { config, registry } = setup();
   const fake = fakeHerdr();
   const created = () =>
-    fake.runner.calls.filter((args) => args[0] === "workspace" && args[1] === "create")
-      .length;
+    fake.runner.calls.filter(
+      (args) => args[0] === "workspace" && args[1] === "create",
+    ).length;
   const first = await ensureWorkspace({
     runner: fake.runner,
     registry,

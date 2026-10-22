@@ -987,7 +987,7 @@ test("apply：消费者 deny → 返回 {kind:'deny', reason} 且不调 next()�
         return context.name === "bash"
           ? {
               kind: "deny",
-              reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane（pane）",
+              reason: "bash 里不要跑 herdr 命令: 改用 herdr_use（pane）",
             }
           : undefined;
       },
@@ -1009,7 +1009,7 @@ test("apply：消费者 deny → 返回 {kind:'deny', reason} 且不调 next()�
     );
     assert.deepEqual(deny, {
       kind: "deny",
-      reason: "bash 里不要跑 herdr 命令: 改用 herdr_pane（pane）",
+      reason: "bash 里不要跑 herdr 命令: 改用 herdr_use（pane）",
     });
     assert.equal(nextCalls, 0, "deny 不再交下一位");
     assert.deepEqual(seen, [{ name: "bash", sessionId: "s1" }]);

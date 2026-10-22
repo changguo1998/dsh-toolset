@@ -32,7 +32,7 @@ function makeExecutable(dir: string, name: string): string {
 
 /** 临时目录（测试结束不清理时由 OS 回收；仍显式登记便于真机排查）。 */
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), "herdr-pane-cli-"));
+  return mkdtempSync(join(tmpdir(), "herdr-use-cli-"));
 }
 
 test("readHerdrHandshake: 只有二进制必需；HERDR_* 全部可选且逐个收", () => {

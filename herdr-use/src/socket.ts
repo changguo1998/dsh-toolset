@@ -3,7 +3,7 @@
  *
  * 为什么只有读走 socket（设计文档决策项 1）：socket 相对 CLI 的**硬优势只有一处**——
  * `pane.read` 返回 `revision` / `truncated`，而 CLI 的 `pane read` 只输出纯文本。
- * `wait` 的 stable 判稳需要 `revision`（相邻两次相同即判稳），故二者共用本通道。
+ * `pane_wait` 的 stable 判稳需要 `revision`（相邻两次相同即判稳），故二者共用本通道。
  *
  * 特点：
  *   - **单请求连接**：连上 → 写一行 JSON → 收一行 JSON → 关闭（与 herdr-integration 同形，
@@ -125,7 +125,7 @@ export interface PaneReader {
 let requestSeq = 0;
 export function nextRequestId(now: number = Date.now()): string {
   requestSeq += 1;
-  return `herdr-pane:${now}:${requestSeq}:${Math.random().toString(36).slice(2, 8)}`;
+  return `herdr-use:${now}:${requestSeq}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
 /**

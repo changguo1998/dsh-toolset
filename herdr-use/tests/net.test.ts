@@ -23,7 +23,7 @@ async function withServer(
   onConnection: (socket: net.Socket) => void,
   body: (socketPath: string) => Promise<void>,
 ): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), "herdr-pane-net-"));
+  const dir = mkdtempSync(join(tmpdir(), "herdr-use-net-"));
   const socketPath = join(dir, "herdr.sock");
   // 服务端侧连接必须自己收好：客户端超时后直接 destroy，若这里从没读过数据，socket 会停在
   // paused 态，`server.close()` 就会一直等它——这是本轮「测试跑完不退出」的根因。
@@ -125,7 +125,7 @@ test("createNetConnector: 服务端不回包 → timeout（不抛错）", async 
 });
 
 test("createNetConnector: socket 路径不存在 → error（带原因）", async () => {
-  const missing = join(tmpdir(), `herdr-pane-missing-${process.pid}.sock`);
+  const missing = join(tmpdir(), `herdr-use-missing-${process.pid}.sock`);
   const response = await createNetConnector().request(
     missing,
     '{"id":"req"}\n',
