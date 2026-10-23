@@ -1,17 +1,12 @@
-/**
- * tests/workspace.test.ts — 会话 ↔ workspace 绑定、label 约定与活动 pane 解析
- *
- * 全部用 fake herdr 服务端（`helpers.fakeHerdr`）：不依赖真机 herdr，也不建任何真实 tab / pane。
- */
-
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import test from "node:test";
 
-import { PaneRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
+import { TerminalRegistry } from "../src/registry.ts";
 import {
-  activePaneOf,
   ensureWorkspace,
+  laneArgs,
+  laneRunner,
   readSessionContext,
   shortSessionId,
   workspaceLabel,
@@ -22,320 +17,183 @@ import {
   fakeExec,
   fakeHerdr,
   fakeSession,
-  timedOut,
+  isBackgroundCall,
 } from "./helpers.ts";
 
-/** 组装 ensure 入参。 */
-function setup(): {
-  config: ReturnType<typeof resolveConfig>;
-  registry: PaneRegistry;
-} {
-  const config = resolveConfig({});
-  return { config, registry: new PaneRegistry(config.label) };
+test("readSessionContext 收 exec / { session } / { id, cwd } 三种形态", () => {
+  assert.deepEqual(readSessionContext(fakeExec()), {
+    id: fakeSession.id,
+    cwd: fakeSession.cwd,
+  });
+  assert.deepEqual(
+    readSessionContext({ session: { id: "s2", cwd: "/tmp/two" } }),
+    { id: "s2", cwd: "/tmp/two" },
+  );
+  assert.deepEqual(readSessionContext({ id: "s3", cwd: "/tmp/three" }), {
+    id: "s3",
+    cwd: "/tmp/three",
+  });
+  assert.equal(readSessionContext(undefined), undefined);
+  assert.equal(readSessionContext({}), undefined);
+});
+
+test("workspaceLabel / shortSessionId 约定", () => {
+  assert.equal(shortSessionId("session-abcd1234"), "abcd1234");
+  assert.equal(shortSessionId("!!!"), "session");
+  assert.equal(workspaceLabel(fakeSession), "proj/abcd1234");
+});
+
+test("laneArgs：后台加 --session dshbg，前台不加", () => {
+  assert.deepEqual(laneArgs("foreground"), []);
+  assert.deepEqual(laneArgs("background"), ["--session", "dshbg"]);
+});
+
+test("laneRunner：后台命令自动带前缀", async () => {
+  const { runner } = fakeHerdr();
+  await laneRunner(runner, "background").run(["tab", "list"], 1000);
+  assert.equal(isBackgroundCall(runner.calls[0] ?? []), true);
+  await laneRunner(runner, "foreground").run(["tab", "list"], 1000);
+  assert.equal(runner.calls[1]?.[0], "tab");
+});
+
+async function ensure(
+  overrides: {
+    session?: SessionContext;
+    lane?: "foreground" | "background";
+    runner?: ReturnType<typeof fakeHerdr>["runner"];
+    registry?: TerminalRegistry;
+  } = {},
+) {
+  const { runner } = fakeHerdr();
+  const registry = overrides.registry ?? new TerminalRegistry("dsh-pane");
+  return ensureWorkspace({
+    runner: overrides.runner ?? runner,
+    registry,
+    config: resolveConfig(),
+    session: overrides.session ?? fakeSession,
+    lane: overrides.lane ?? "foreground",
+  });
 }
 
-test("workspaceLabel: <cwd 目录名>/<会话 id 末 8 位>，过滤非法字符与空白", () => {
-  assert.equal(
-    workspaceLabel({ id: "session-abcd1234", cwd: "/tmp/proj" }),
-    "proj/abcd1234",
-  );
-  // 带空白的目录名归一为连字符（label 不写进命令行参数以外的语义）
-  assert.equal(
-    workspaceLabel({ id: "session-abcd1234", cwd: "/tmp/my proj/" }),
-    "my-proj/abcd1234",
-  );
-  // 短 id 原样取；根目录回退 dsh
-  assert.equal(workspaceLabel({ id: "x", cwd: "/" }), "dsh/x");
-  // 全非法字符的 id 回退 session（不让 label 变空段）
-  assert.equal(workspaceLabel({ id: "!!!@@@", cwd: "/w" }), "w/session");
-  // 长 label 截到 80 字符
-  assert.equal(
-    workspaceLabel({ id: "abcdefgh", cwd: `/${"x".repeat(120)}` }).length,
-    80,
-  );
-});
-
-test("shortSessionId: 只取末 8 位，非法字符先滤掉", () => {
-  assert.equal(shortSessionId("session-abcd1234"), "abcd1234");
-  assert.equal(shortSessionId("s1"), "s1");
-  assert.equal(shortSessionId("s/1:2 3"), "s123");
-  assert.equal(shortSessionId(""), "session");
-});
-
-test("readSessionContext: exec.agent.session 的 id 与 cwd（header / meta / 直接 cwd）", () => {
-  assert.deepEqual(readSessionContext(fakeExec()), fakeSession);
-  // 宿主里 cwd 在 session.header；meta.cwd 是创建入参的写法，一起收
-  assert.deepEqual(
-    readSessionContext({
-      agent: { session: { id: "s1", meta: { cwd: "/work/dir" } } },
-    }),
-    { id: "s1", cwd: "/work/dir" },
-  );
-  // 直接传 session（库面 / 真机脚本便利形态）
-  assert.deepEqual(readSessionContext({ id: "s2", cwd: "/x" }), {
-    id: "s2",
-    cwd: "/x",
-  });
-  // cwd 缺失回退进程 cwd；id 缺失 / 非对象一律 undefined
-  assert.deepEqual(readSessionContext({ agent: { session: { id: "s3" } } }), {
-    id: "s3",
-    cwd: process.cwd(),
-  });
-  for (const value of [undefined, null, 42, "x", {}, { agent: {} }]) {
-    assert.equal(readSessionContext(value), undefined, String(value));
-  }
-});
-
-test("ensureWorkspace: label 精确匹配则复用已有 workspace（不再 create）", async () => {
-  const { config, registry } = setup();
-  const label = workspaceLabel(fakeSession);
-  const fake = fakeHerdr({
-    workspaces: [
-      { workspace_id: "wT9", label, active_tab_id: "wT9:t1" },
-      { workspace_id: "wT8", label: "别的/aaaa" },
-    ],
-  });
-  const ensured = await ensureWorkspace({
-    runner: fake.runner,
-    registry,
-    config,
-    session: fakeSession,
-  });
-  assert.equal(ensured.ok, true);
-  assert.equal(ensured.ok && ensured.created, false);
-  assert.equal(ensured.ok && ensured.binding.workspaceId, "wT9");
-  assert.equal(ensured.ok && ensured.binding.label, label);
-  // 只读列举，没有建 workspace
-  assert.deepEqual(
-    fake.runner.calls.map((args) => args.slice(0, 2)),
-    [["workspace", "list"]],
-  );
-  // 复用历史 workspace 时没有 root pane 可登记
-  assert.deepEqual(registry.panes, []);
-  assert.equal(registry.workspaceBinding?.workspaceId, "wT9");
-});
-
-test("ensureWorkspace: 未匹配时建 workspace（--cwd 会话 cwd + 约定 label + --no-focus）并登记 root pane", async () => {
-  const { config, registry } = setup();
-  const fake = fakeHerdr();
-  const ensured = await ensureWorkspace({
-    runner: fake.runner,
-    registry,
-    config,
-    session: fakeSession,
-  });
-  assert.equal(ensured.ok, true);
-  assert.equal(ensured.ok && ensured.created, true);
-  const binding = ensured.ok ? ensured.binding : undefined;
-  assert.equal(binding?.workspaceId, "wT1");
-  assert.equal(binding?.rootPaneId, "wT1:p1");
-  assert.equal(binding?.sessionId, fakeSession.id);
-  assert.equal(binding?.cwd, fakeSession.cwd);
-  assert.deepEqual(fake.runner.calls[1], [
-    "workspace",
-    "create",
-    "--cwd",
-    "/tmp/proj",
-    "--label",
-    "proj/abcd1234",
-    "--no-focus",
-  ]);
-  // workspace root pane 登记为本插件 pane（退出清理据此判定 workspace 是否已空）
-  const record = registry.get("wT1:p1");
-  assert.equal(record?.label, "dsh-pane");
-  assert.equal(record?.workspaceId, "wT1");
-});
-
-test("ensureWorkspace: 缓存命中时只复核一次 workspace list（不 create）；子会话沿用同一 workspace", async () => {
-  const { config, registry } = setup();
-  const fake = fakeHerdr();
-  const created = () =>
-    fake.runner.calls.filter(
-      (args) => args[0] === "workspace" && args[1] === "create",
-    ).length;
+test("ensureWorkspace：首次建、二次复用", async () => {
+  const registry = new TerminalRegistry("dsh-pane");
+  const { runner, state } = fakeHerdr();
   const first = await ensureWorkspace({
-    runner: fake.runner,
+    runner,
     registry,
-    config,
+    config: resolveConfig(),
     session: fakeSession,
-  });
-  const callsAfterFirst = fake.runner.calls.length;
-  assert.equal(created(), 1, "首次建 workspace");
-  const second = await ensureWorkspace({
-    runner: fake.runner,
-    registry,
-    config,
-    session: fakeSession,
-  });
-  // 子会话（自己的 session id 与 cwd）同样命中缓存，沿用首个会话的 workspace
-  const subSession: SessionContext = { id: "sub-9999", cwd: "/other" };
-  const third = await ensureWorkspace({
-    runner: fake.runner,
-    registry,
-    config,
-    session: subSession,
-  });
-  assert.equal(
-    fake.runner.calls.length,
-    callsAfterFirst + 2,
-    "缓存命中每次只多一次只读 workspace list",
-  );
-  assert.equal(created(), 1, "缓存命中不重复 create");
-  assert.equal(second.ok && second.created, false);
-  assert.equal(
-    third.ok && third.binding.workspaceId,
-    first.ok ? first.binding.workspaceId : "",
-  );
-  assert.equal(registry.workspaceBinding?.sessionId, fakeSession.id);
-});
-
-test("ensureWorkspace: 缓存的 workspace 已被关闭 → 清空绑定并按 label 重建（不要求重启）", async () => {
-  const { config, registry } = setup();
-  const fake = fakeHerdr();
-  const first = await ensureWorkspace({
-    runner: fake.runner,
-    registry,
-    config,
-    session: fakeSession,
+    lane: "foreground",
   });
   assert.equal(first.ok, true);
-  const staleId = registry.workspaceBinding?.workspaceId;
-  // 服务端把该 workspace 关掉（模拟用户关 tab / workspace 被回收）
-  fake.state.workspaces = [];
-  const again = await ensureWorkspace({
-    runner: fake.runner,
+  if (!first.ok) return;
+  assert.equal(first.created, true);
+  assert.equal(first.binding.workspaceId, "wT1");
+  assert.equal(first.binding.label, "proj/abcd1234");
+  assert.equal(state.workspaces.length, 1);
+  assert.deepEqual(runner.calls[0], ["workspace", "list"]);
+
+  const second = await ensureWorkspace({
+    runner,
     registry,
-    config,
+    config: resolveConfig(),
     session: fakeSession,
+    lane: "foreground",
   });
-  assert.equal(again.ok, true);
-  assert.equal(again.ok && again.created, true, "失效后重建");
-  assert.notEqual(registry.workspaceBinding?.workspaceId, staleId);
+  assert.equal(second.ok, true);
+  if (!second.ok) return;
+  assert.equal(second.created, false);
+  assert.equal(second.binding.workspaceId, "wT1");
+  assert.equal(runner.calls.length, 3);
+  assert.deepEqual(runner.calls[2], ["workspace", "list"]);
+});
+
+test("ensureWorkspace：后台 lane 全部命令带 --session dshbg", async () => {
+  const registry = new TerminalRegistry("dsh-pane");
+  const { runner, stateFor } = fakeHerdr();
+  const result = await ensureWorkspace({
+    runner,
+    registry,
+    config: resolveConfig(),
+    session: fakeSession,
+    lane: "background",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.binding.lane, "background");
+  assert.ok(runner.calls.every(isBackgroundCall));
+  assert.equal(stateFor("default").workspaces.length, 0);
+  assert.equal(stateFor("dshbg").workspaces.length, 1);
+});
+
+test("ensureWorkspace：严格按会话隔离（两个会话两个 workspace）", async () => {
+  const registry = new TerminalRegistry("dsh-pane");
+  const { runner, state } = fakeHerdr();
+  const a = await ensureWorkspace({
+    runner,
+    registry,
+    config: resolveConfig(),
+    session: { id: "s-a", cwd: "/tmp/proj" },
+    lane: "foreground",
+  });
+  const b = await ensureWorkspace({
+    runner,
+    registry,
+    config: resolveConfig(),
+    session: { id: "s-b", cwd: "/tmp/proj" },
+    lane: "foreground",
+  });
+  assert.equal(a.ok && b.ok, true);
+  if (!a.ok || !b.ok) return;
+  assert.notEqual(a.binding.workspaceId, b.binding.workspaceId);
+  assert.equal(state.workspaces.length, 2);
   assert.equal(
-    fake.runner.calls.filter(
-      (args) => args[0] === "workspace" && args[1] === "create",
-    ).length,
-    2,
-    "重建走一次 workspace create",
+    registry.getBinding("s-a", "foreground")?.workspaceId,
+    a.binding.workspaceId,
   );
 });
 
-test("ensureWorkspace: workspace list 空输出 + exit 0 按成功（无历史 workspace → 新建）", async () => {
-  const { config, registry } = setup();
-  const fake = fakeHerdr({
+test("ensureWorkspace：workspace 被关闭后按 label 重建", async () => {
+  const registry = new TerminalRegistry("dsh-pane");
+  const { runner, state } = fakeHerdr();
+  const first = await ensureWorkspace({
+    runner,
+    registry,
+    config: resolveConfig(),
+    session: fakeSession,
+    lane: "foreground",
+  });
+  assert.equal(first.ok, true);
+  state.workspaces = [];
+  const second = await ensureWorkspace({
+    runner,
+    registry,
+    config: resolveConfig(),
+    session: fakeSession,
+    lane: "foreground",
+  });
+  assert.equal(second.ok, true);
+  if (!second.ok) return;
+  assert.equal(second.created, true);
+  assert.notEqual(second.binding.workspaceId, "wT1");
+});
+
+test("ensureWorkspace：workspace list 失败 → workspace-unavailable", async () => {
+  const { runner } = fakeHerdr({
     override: (args) =>
       args[0] === "workspace" && args[1] === "list"
-        ? { stdout: "", stderr: "", exitCode: 0, timedOut: false }
+        ? errorEnvelope("server_unavailable", "no server")
         : undefined,
   });
-  const ensured = await ensureWorkspace({
-    runner: fake.runner,
-    registry,
-    config,
+  const result = await ensureWorkspace({
+    runner,
+    registry: new TerminalRegistry("dsh-pane"),
+    config: resolveConfig(),
     session: fakeSession,
+    lane: "foreground",
   });
-  assert.equal(ensured.ok, true);
-  assert.equal(ensured.ok && ensured.created, true);
-  assert.equal(ensured.ok && ensured.binding.workspaceId, "wT1");
-});
-
-test("ensureWorkspace: workspace list / create 失败返回 workspace-unavailable（不抛）", async () => {
-  const { config, registry } = setup();
-  const listFailure = fakeHerdr({
-    override: (args) =>
-      args[0] === "workspace" && args[1] === "list"
-        ? errorEnvelope("workspace_error", "server busy")
-        : undefined,
-  });
-  const failedList = await ensureWorkspace({
-    runner: listFailure.runner,
-    registry,
-    config,
-    session: fakeSession,
-  });
-  assert.equal(failedList.ok, false);
-  assert.equal(
-    failedList.ok === false && failedList.code,
-    "workspace-unavailable",
-  );
-  assert.match(
-    failedList.ok === false ? failedList.message : "",
-    /workspace_error/,
-  );
-  assert.match(
-    failedList.ok === false ? (failedList.hint ?? "") : "",
-    /herdr status/,
-  );
-
-  const createFailure = fakeHerdr({
-    override: (args) =>
-      args[0] === "workspace" && args[1] === "create" ? timedOut() : undefined,
-  });
-  const { registry: fresh } = setup();
-  const failedCreate = await ensureWorkspace({
-    runner: createFailure.runner,
-    registry: fresh,
-    config,
-    session: fakeSession,
-  });
-  assert.equal(failedCreate.ok, false);
-  assert.match(failedCreate.ok === false ? failedCreate.message : "", /超时/);
-  assert.equal(fresh.workspaceBinding, undefined, "失败不写绑定");
-});
-
-test("activePaneOf: 用 workspace list 的 active_tab_id 对齐 pane，优先焦点 pane", async () => {
-  const { config } = setup();
-  const fake = fakeHerdr({
-    workspaces: [
-      { workspace_id: "wT1", label: "proj/x", active_tab_id: "wT1:t2" },
-    ],
-    panes: [
-      {
-        pane_id: "wT1:p1",
-        workspace_id: "wT1",
-        tab_id: "wT1:t1",
-        focused: true,
-      },
-      {
-        pane_id: "wT1:p2",
-        workspace_id: "wT1",
-        tab_id: "wT1:t2",
-        focused: false,
-      },
-      {
-        pane_id: "wT1:p3",
-        workspace_id: "wT1",
-        tab_id: "wT1:t2",
-        focused: true,
-      },
-    ],
-  });
-  const active = await activePaneOf(fake.runner, config, "wT1");
-  assert.deepEqual(active, { ok: true, paneId: "wT1:p3", tabId: "wT1:t2" });
-  assert.deepEqual(
-    fake.runner.calls.map((args) => args.slice(0, 3)),
-    [
-      ["workspace", "list"],
-      ["pane", "list", "--workspace"],
-    ],
-  );
-});
-
-test("activePaneOf: 活动 tab 里没有 pane / workspace 不在列表 → 结构化失败 + 提示", async () => {
-  const { config } = setup();
-  const emptyTab = fakeHerdr({
-    workspaces: [
-      { workspace_id: "wT1", label: "proj/x", active_tab_id: "wT1:t2" },
-    ],
-    panes: [{ pane_id: "wT1:p1", workspace_id: "wT1", tab_id: "wT1:t1" }],
-  });
-  const empty = await activePaneOf(emptyTab.runner, config, "wT1");
-  assert.equal(empty.ok, false);
-  assert.equal(empty.ok === false && empty.code, "workspace-unavailable");
-  assert.match(empty.ok === false ? empty.message : "", /没有 pane/);
-  assert.match(empty.ok === false ? (empty.hint ?? "") : "", /tab_list/);
-
-  const missing = await activePaneOf(emptyTab.runner, config, "wT404");
-  assert.equal(missing.ok, false);
-  assert.match(missing.ok === false ? missing.message : "", /已被关闭|不在/);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.code, "workspace-unavailable");
+  assert.match(result.message, /workspace list 失败/);
 });

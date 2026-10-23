@@ -92,12 +92,14 @@ export function readHerdrHandshake(
   const binPath = resolveHerdrBin(explicitBin, env);
   if (binPath === null) return undefined;
   const socketPath = nonEmpty(env.HERDR_SOCKET_PATH);
+  const sessionName = nonEmpty(env.HERDR_SESSION);
   const callerPaneId = nonEmpty(env.HERDR_PANE_ID);
   const callerTabId = nonEmpty(env.HERDR_TAB_ID);
   const callerWorkspaceId = nonEmpty(env.HERDR_WORKSPACE_ID);
   return {
     binPath,
     ...(socketPath === undefined ? {} : { socketPath }),
+    ...(sessionName === undefined ? {} : { sessionName }),
     ...(callerPaneId === undefined ? {} : { callerPaneId }),
     ...(callerTabId === undefined ? {} : { callerTabId }),
     ...(callerWorkspaceId === undefined ? {} : { callerWorkspaceId }),
@@ -252,9 +254,14 @@ export function probeHerdrServerSync(
   binPath: string,
   timeoutMs = DEFAULT_PROBE_TIMEOUT_MS,
   run?: SyncRunner,
+  sessionName?: string,
 ): HerdrProbeResult {
   const execute = run ?? createSpawnSyncRunner(binPath);
-  const result = execute(["status", "--json"], timeoutMs);
+  const args =
+    sessionName === undefined
+      ? ["status", "--json"]
+      : ["--session", sessionName, "status", "--json"];
+  const result = execute(args, timeoutMs);
   if (result.error !== undefined) {
     return { ok: false, reason: `herdr status 无法执行：${result.error}` };
   }

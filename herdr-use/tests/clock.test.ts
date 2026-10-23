@@ -221,7 +221,7 @@ test("插件装配: clock 缺失时回落并只告警一次", () => {
     reader: {
       readPane: async () => ({
         ok: true,
-        result: { text: "", truncated: false },
+        read: { text: "", truncated: false },
       }),
     },
     env: {},
@@ -229,7 +229,7 @@ test("插件装配: clock 缺失时回落并只告警一次", () => {
   };
   const plugin = createHerdrPlugin(ctx, {}, deps);
   assert.notEqual(plugin, undefined);
-  assert.equal(defs.length, 1, "工具照常注册");
+  assert.equal(defs.length, 10, "工具照常注册");
   assert.equal(warnings.length, 1, "每个插件实例只告警一次");
   assert.match(warnings[0] ?? "", /回落进程内定时器/);
   plugin?.dispose();
@@ -259,7 +259,7 @@ test("插件装配: clock 可用时不告警，stub 时钟仍可判稳", async (
       reader: {
         readPane: async () => ({
           ok: true,
-          result: { text: "", truncated: false },
+          read: { text: "", truncated: false },
         }),
       },
       env: {},

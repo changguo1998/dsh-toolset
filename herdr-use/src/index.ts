@@ -1,18 +1,22 @@
 /**
  * herdr-use 的库面入口（DSH bundle 的 `main` 指向本文件）。
  *
- * 双出口（对齐 `ast-tools` 的既有先例）：
- *   - **工具面**：`apply` 注册单个模型侧工具 `herdr_use`（十三个 action；workspace 面不对模型暴露）；
- *   - **库面**：`createHerdrPlugin` 返回的 handle 里带 `deps`，编排类插件与真机脚本可直接
- *     `dispatchAction(action, args, handle.deps, exec)`，不必经模型工具链。
+ * 三个出口：
+ *   - **工具面**：`apply` 注册十个模型侧工具（herdr_list / read / info / wait / create /
+ *     close / label / text / key / run），工具即动作、无 action 参数；
+ *   - **服务面**：`ctx.provide("herdrUse", …)`，方法与十个动作同名（camelCase），
+ *     与工具面共用同一份 registry 与写锁；
+ *   - **库面**：`createHerdrPlugin` 返回的 handle 带 `deps` / `service`，编排类插件与真机
+ *     脚本可直接调 `dispatchAction()` 或服务方法，不必经模型工具链。
  *
- * 契约对齐 docs/host/DSH-CTX-API.md §0：导出 `name` / `inject` / `Config` / `apply`；
+ * 契约对齐 docs/host/DSH-CTX-API.md §0：导出 `name` / `inject` / `provide` / `Config` / `apply`；
  * 其余导出是库面，不影响宿主加载。
  */
 
 export {
   name,
   inject,
+  provide,
   apply,
   createHerdrPlugin,
   preExecuteVerdict,
@@ -80,36 +84,26 @@ export type {
 } from "./socket.ts";
 
 export {
-  PaneRegistry,
-  closeArgs,
+  TerminalRegistry,
   createExitCleanup,
-  renameArgs,
+  paneRenameArgs,
   runPaneCommand,
   tabCloseArgs,
+  tabRenameArgs,
   workspaceCloseArgs,
 } from "./registry.ts";
 export type {
   CleanupEntry,
   ExitCleanup,
   ExitCleanupOptions,
-  PaneRecord,
-  RegistrySnapshot,
+  TerminalLookup,
 } from "./registry.ts";
 
 export {
-  OWNED_ACTIONS,
-  READONLY_ACTIONS,
   SANDBOX_WRITE_ACTIONS,
-  approvalDeniedMessage,
-  checkOwnership,
-  crossWorkspaceDenialReason,
-  isOwnedAction,
-  isReadonlyAction,
   isSandboxWrite,
   makeGuardChecker,
   makeSandboxModeReader,
-  needsApproval,
-  ownershipDeniedHint,
   readService,
   sandboxDenialReason,
 } from "./policy.ts";
@@ -117,30 +111,30 @@ export type {
   GuardCheck,
   GuardChecker,
   GuardServiceLike,
-  OwnershipVerdict,
   SandboxModeReader,
 } from "./policy.ts";
 
-export {
-  defaultRunner,
-  dispatchAction,
-  inspectedText,
-  needsOwnership,
-  paneTargetFor,
-  summarizePane,
-  summarizeTab,
-} from "./actions.ts";
+export { defaultRunner, dispatchAction, inspectedText } from "./actions.ts";
 export type { DispatchDeps } from "./actions.ts";
 
+export { createHerdrUseService } from "./service.ts";
+export type {
+  CreateOptions,
+  HerdrUseService,
+  ReadOptions,
+  WaitOptions,
+} from "./service.ts";
+
 export {
-  activePaneOf,
   ensureWorkspace,
+  laneArgs,
+  laneRunner,
   readSessionContext,
   shortSessionId,
+  withLane,
   workspaceLabel,
 } from "./workspace.ts";
 export type {
-  ActivePaneResult,
   EnsureWorkspaceOptions,
   EnsureWorkspaceResult,
   SessionContext,
@@ -148,18 +142,17 @@ export type {
 } from "./workspace.ts";
 
 export {
-  TOOL_NAME,
-  actionOf,
-  actionPane,
-  actionText,
   capText,
-  createHerdrUseTool,
+  createHerdrTools,
   renderHerdrUse,
+  TOOL_ACTIONS,
 } from "./tools.ts";
 export type { HerdrUseToolDef } from "./tools.ts";
 
+export { actionForTool } from "./types.ts";
 export {
   ALL_ACTIONS,
+  BACKGROUND_SESSION,
   DEFAULT_LABEL,
   DEFAULT_READ_LINES,
   DEFAULT_READ_SOURCE,
@@ -167,8 +160,9 @@ export {
   DEFAULT_SETTLE_MS,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_WAIT_TIMEOUT_MS,
+  LANES,
   READ_SOURCES,
-  TAB_ACTIONS,
+  TOOL_NAMES,
   failure,
   resolveConfig,
   success,
@@ -177,16 +171,15 @@ export type {
   ActionResult,
   ActionFailure,
   ActionSuccess,
-  ApprovalMode,
   HerdrErrorCode,
   HerdrHandshake,
   HerdrUseAction,
   HerdrUseConfig,
-  PaneOwnership,
+  Lane,
   ReadFormat,
   ReadSource,
   RenderLimit,
   ResolvedConfig,
-  TabRecord,
+  TerminalRecord,
   WorkspaceBinding,
 } from "./types.ts";

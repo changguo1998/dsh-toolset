@@ -1,167 +1,59 @@
 /**
- * src/policy.ts — 安全闸门的四层判定（纯函数 + 两个可注入的接线）
+ * src/policy.ts — 安全闸门的判定（纯函数 + 两个可注入的接线）
  *
- * 四道判定（设计文档决策项 10 / 11 + 沙箱模式联动）：
+ * 2026-10-23 终端面重构后只剩两层：
  *   ① **guard 复查**（本包本地加固）：执行前 `ctx.get("guard")?.inspectCommand(text,
  *      "herdr-use:<action>")` —— 返回 `null` 放行；返回字符串即命中，按 deny 处理并把该
  *      字符串作为回执来源行附上；服务缺失 / 无该方法 / 调用抛错 → 告警一次后**照常执行**
  *      （fail-open，与 TUI `$` 模式同口径）。本层**不构成对 security-guard 的要求**。
- *   ② **security-guard 登记**（跨包）：`PLUGIN_COMMAND_TOOLS.herdr_use = { commandKeys:
- *      ["command", "text"], commandPaths: ["keys[]"] }` —— 由 security-guard 侧按**登记处**
- *      检查（命令跑在 dsh 沙箱之外，沙箱兜不住，故必须有这一层）。
- *   ③ **越界审批**（来源在 `main.ts` 的 `tools/pre-execute` 监听器）：只对非本插件创建
- *      的 pane 动输入 / 关闭时打断人；缺省档 `foreign`。
+ *   ② **沙箱模式联动**（`main.ts` 的 `tools/pre-execute` 监听器）：会话处于 `read-only`
+ *      时直接拒绝写类工具（create / label / text / key / run / close）；模式向宿主
+ *      `ctx.sandboxPolicy.resolve()` 查，服务缺失 / 解析失败 → 告警一次后放行（fail-open）。
  *
- *   ④ **沙箱模式联动**（来源同在 `main.ts` 的 `tools/pre-execute` 监听器，先于 ③ 生效）：会话处于
- *      `read-only` 时直接拒绝写类动作；模式向宿主 `ctx.sandboxPolicy.resolve()` 查，
- *      服务缺失 / 解析失败 → 告警一次后放行（fail-open，决策项 4）。
+ * 外来 pane 审批门与归属白名单已随终端抽象删除：工具面只有本插件登记的终端，
+ * 没有「对别人对象动输入」这回事，也就没有审批档。
  *
- * 本模块只放**判定**（可单测的纯函数）与 guard 服务的惰性接线；不含任何执行代码。
+ * 本模块只放**判定**与 guard 服务的惰性接线；不含任何执行代码。
  */
 
 import type {
   HerdrUseAction,
-  PaneOwnership,
-  ResolvedConfig,
   SandboxMode,
   SandboxPolicyServiceLike,
 } from "./types.ts";
 
-/** 写类动作：必须作用于本插件登记过的 pane / tab。 */
-export const OWNED_ACTIONS: readonly HerdrUseAction[] = [
-  "pane_send_text",
-  "pane_send_keys",
-  "pane_run",
-  "pane_label",
-  "pane_close",
-  "tab_close",
-];
-
-/** 读类动作：可读任意 pane（只读、无副作用，留出观察能力）。 */
-export const READONLY_ACTIONS: readonly HerdrUseAction[] = [
-  "pane_read",
-  "pane_info",
-];
-
-/** 是否属于「写类」动作（必须自有 pane）。 */
-export function isOwnedAction(action: string): boolean {
-  return (OWNED_ACTIONS as readonly string[]).includes(action);
-}
-
-/** 是否属于「读类」动作。 */
-export function isReadonlyAction(action: string): boolean {
-  return (READONLY_ACTIONS as readonly string[]).includes(action);
-}
-
-/**
- * 归属校验：写类动作要求登记过；读类放行。
- * `pane_wait` 由调用方按模式分流（`match` / `regex` 只读、`stable` 走写侧串行化与归属校验，
- * 见 actions.ts 的 `needsOwnership`）。
- */
-export type OwnershipVerdict =
-  | { allowed: true; ownership: PaneOwnership }
-  | { allowed: false; reason: "pane-not-registered" };
-
-export function checkOwnership(
-  action: string,
-  paneId: string,
-  isRegistered: (paneId: string) => boolean,
-  options: { waitStable?: boolean } = {},
-): OwnershipVerdict {
-  const ownership: PaneOwnership = isRegistered(paneId)
-    ? "registered"
-    : "foreign";
-  const needsOwnership =
-    isOwnedAction(action) ||
-    (action === "pane_wait" && options.waitStable === true);
-  if (needsOwnership && ownership === "foreign") {
-    return { allowed: false, reason: "pane-not-registered" };
-  }
-  return { allowed: true, ownership };
-}
-
-/**
- * 审批判定（`tools/pre-execute` 监听器的核心，纯函数）。
- *
- * `foreign`（缺省）：只在「对非本插件创建的 pane / tab 动输入 / 关闭」时要求审批；
- * `always`：任何「动输入 / 关闭」都要求审批（建 pane / tab、读屏不弹）；
- * `never`：从不弹（但仍有 guard 硬拒层与归属限制）。
- *
- * 「动输入 / 关闭」= `pane_send_text` / `pane_send_keys` / `pane_run` / `pane_close` / `tab_close`；
- * `pane_label` 虽是写类，但只改本插件自己的归属标记，不打断人审批。
- */
-export function needsApproval(
-  action: string,
-  ownership: PaneOwnership,
-  mode: ResolvedConfig["requireApproval"],
-): boolean {
-  if (mode === "never") return false;
-  if (
-    ![
-      "pane_send_text",
-      "pane_send_keys",
-      "pane_run",
-      "pane_close",
-      "tab_close",
-    ].includes(action)
-  ) {
-    return false;
-  }
-  if (mode === "always") return true;
-  return ownership === "foreign";
-}
-
-/**
- * 只读沙箱下被拒的动作（`pane_label` 只改归属标记、`pane_create` / `tab_create` 只建新对象，均不在内）。
- * `tab_close` 与 `pane_close` 同档：都是破坏性关闭。
- */
+/** 只读会话下被拒的动作（读类放行）。 */
 export const SANDBOX_WRITE_ACTIONS: readonly HerdrUseAction[] = [
-  "pane_send_text",
-  "pane_send_keys",
-  "pane_run",
-  "pane_close",
-  "tab_close",
+  "create",
+  "label",
+  "text",
+  "key",
+  "run",
+  "close",
 ];
 
-/**
- * 该动作是否算「向 pane 写入」（只读会话里一律拒绝）。
- * `pane_wait` 只有 stable 模式算写侧（与归属 / 审批口径一致）。
- */
-export function isSandboxWrite(action: string, waitStable = false): boolean {
-  if (action === "pane_wait") return waitStable;
-  return (SANDBOX_WRITE_ACTIONS as readonly string[]).includes(action);
+/** 该动作是否算「写类」（只读会话里一律拒绝）。 */
+export function isSandboxWrite(action: HerdrUseAction): boolean {
+  return SANDBOX_WRITE_ACTIONS.includes(action);
 }
 
 /**
- * 只读会话下的拒绝文案（含切换方式）；非只读或非写类动作返回 undefined。
- * 不写「沙箱会兜住」之类误导语：pane 里的命令跑在 dsh 进程之外。
- * 目标是 tab 时按 tab 措辞（`tab_close`）。
+ * 只读会话下的拒绝文案（含切换方式）；非只读或读类动作返回 undefined。
+ * 不写「沙箱会兜住」之类误导语：终端里的命令跑在 dsh 进程之外。
  */
 export function sandboxDenialReason(
   mode: SandboxMode,
+  toolName: string,
   action: HerdrUseAction,
-  targetId: string,
-  waitStable = false,
+  terminalId?: string,
 ): string | undefined {
   if (mode !== "read-only") return undefined;
-  if (!isSandboxWrite(action, waitStable)) return undefined;
-  const target = action.startsWith("tab_") ? "tab" : "pane";
+  if (!isSandboxWrite(action)) return undefined;
+  const target = terminalId === undefined ? "" : `；目标终端 ${terminalId}`;
   return (
     `会话的沙箱模式是 read-only（sandbox mode = "read-only"），` +
-    `写类动作 ${action} 在只读会话里不执行；目标 ${target} ${targetId}。` +
+    `写类工具 ${toolName} 在只读会话里不执行${target}。` +
     `放行方式：把会话切到可写模式（如宿主 /permission 选含 workspace-write 的预设）后重试。`
-  );
-}
-
-/**
- * 跨 workspace 的拒绝文案：模型层没有 workspace 概念，这里只说明「不属于本会话的
- * workspace」，不暴露 workspace id / 名字。
- */
-export function crossWorkspaceDenialReason(tabId: string): string {
-  return (
-    `tab ${tabId} 不属于本会话的 workspace（写操作不出本会话 workspace）。` +
-    "只关本插件用 tab_create 建过并登记在当前 workspace 里的 tab；" +
-    "会话 workspace 由插件内部绑定，模型侧没有 workspace 参数。"
   );
 }
 
@@ -175,26 +67,6 @@ function asSandboxMode(value: unknown): SandboxMode | undefined {
     value === "danger-full-access"
     ? value
     : undefined;
-}
-
-/** 审批门拒绝后的回执文案（含放行方式）。 */
-export function approvalDeniedMessage(
-  action: HerdrUseAction,
-  paneId: string,
-  mode: ResolvedConfig["requireApproval"],
-): string {
-  return (
-    `动作 ${action} 作用于非本插件创建的 pane ${paneId}，` +
-    `审批档 requireApproval="${mode}" 要求人工确认，审批未通过或不可用，本次未执行。`
-  );
-}
-
-/** 归属被拒的回执文案（含放行方式）。 */
-export function ownershipDeniedHint(): string {
-  return (
-    "写类动作只作用于本插件创建的 pane。放行方式：用 herdr_use 的 pane_create 建新 pane 后对它操作；" +
-    "或把插件配置 allowForeignPanes 置 true（仍需过审批与 guard），再对目标 pane 调 pane_close 的 force 参数。"
-  );
 }
 
 /** guard 服务面（结构子集；不 import 对方代码、不进 inject，避免跨包硬依赖）。 */
@@ -276,7 +148,7 @@ export function makeGuardChecker(
 /**
  * 构造沙箱模式读取器：按名惰性解析宿主 `ctx.sandboxPolicy`，每次调用问 `resolve()`。
  *
- * fail-open 口径（决策项 4）：服务缺失 / 形状不符 / 解析抛错 → 返回 undefined（调用方放行），
+ * fail-open 口径：服务缺失 / 形状不符 / 解析抛错 → 返回 undefined（调用方放行），
  * **每种失效模式只告警一次**。宿主按会话回放 `sandbox/mode` 事件，故重启 / resume 后仍正确。
  */
 export function makeSandboxModeReader(
