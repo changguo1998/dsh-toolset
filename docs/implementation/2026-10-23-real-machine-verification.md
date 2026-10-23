@@ -56,9 +56,11 @@
 
 ## 遗留与下一步
 
-- **后台 lane 的前置已查清**：`herdr server` 是 headless server（文档 CLI reference「Server」节：「runs the headless server explicitly ... for supervised or service-style setups」），配 `--session dshbg` 即可在无常驻 TUI 的情况下拉起具名会话。实测通过（见 #2 / #3）。
-  - 待定：这件事由谁做 —— ① `herdr-use` 在后台 lane 首次使用前自动拉起（`setsid herdr --session dshbg server`，需处理并发与「server 退出后重启」）；② 放在 `fffdsh` 预处理阶段（用户 shell 函数，工作区外）；③ 手动前置（用户自己起，插件只给指引）。
+- **后台 lane 的前置已查清并已实现**：`herdr server` 是 headless server（文档 CLI reference「Server」节：「runs the headless server explicitly ... for supervised or service-style setups」），配 `--session dshbg` 即可在无常驻 TUI 的情况下拉起具名会话。实测通过（见 #2 / #3）。
+  - 落地方式（用户 2026-10-23 裁定）：`herdr-use` 在后台命令前 `ensure()` —— 探测 `session list --json`，缺则 detached spawn `herdr --session dshbg server` 并轮询到 running（10 s / 250 ms），**只拉起不关闭**、不记「谁起的」；并发单飞、失败清缓存下次重探，失败返回 `background-session-unavailable` 不退化前台。实现见 `herdr-use/src/background.ts`（合并 `8de0816`，4 个提交 `bfdbea5` / `d4bfa4b` / `aa44c2c` / `e184ffe`，135 例单测全绿）。
+  - **真机核过探测面**：`herdr session list --json` 的真实形态是**顶层 `{"sessions":[{"name":"default","running":true,…},{"name":"dshbg","running":true,…}]}`**（不是 `{result:{…}}` 信封、也不是裸数组）；实现里 `obj(root.result) ?? root` 的回落正好覆盖，字段取 `name` 与 `running: true`，与本机输出一致。
   - 附带发现：`herdr session attach <name>`（TUI 客户端）与 `herdr server`（headless）是两条不同入口；此前误以为只有 attach。
+  - 待真机：自动拉起本身（需重启 dsh 让新 dist 生效后，`herdr session stop dshbg` 再由后台工具触发一次）。
 - #8 需要真机看到审批面板才能定；#9 / #10 需要用户在 TUI 里看一眼。
 - #12 至 #14 已完成（coagent 接线后重启验过，见上表）。
 - 接线过程中修掉一个真实缺陷：`coagent` 原先只把 `herdrUse` / `sessionChannel` 放在 `ctx.get` 里取，cordis 不保证对方先 `provide`，取到 `undefined` 就走「缺服务」分支直接 return，表现为重启后工具静默不出现；已改为静态 `inject`（`231f26a`）。
