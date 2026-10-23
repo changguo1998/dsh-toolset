@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 31 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 32 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -44,6 +44,7 @@ The repository contains the `TUI/` terminal UI package and 31 in-process plugins
 | **background-daemon** | In-process scheduler whose target is agent-session delivery: selectors `after_seconds` / `at` / `every_seconds` / `daily` / `weekly` (no `cron` yet); two channels — `deliver` (user message via `agent.followup`, then `sessions.flush` as L2 confirmation) and `command` (slash command, re-checked engine-side by `security-guard`); restart catch-up (periodic tasks pick up the latest missed slot, one-off tasks trigger within a 24 h window), a single timer, no retries; `/daemon` subcommands plus the `daemon_task` model tool; records go to memory-base (`daemon_task` / `daemon_run` kinds) with a local JSON fallback |
 | **agent-group** | Cross-session group orchestration: groups, members, leader→follower links with levels, instructions and reports; lazy settlement on `check` (success / failure / blocked / timeout / removed), removal pushed down layer by layer, every refusal carries a reason + next step; depends on session-channel (transport) and session-paths (state location) |
 | **coagent** | Long-lived agent launcher: creates a terminal through the `herdrUse` service surface, submits `fffdsh` in its interactive shell, claims the new dsh session via session-channel `peers`, and returns `terminal_id` / `session_id`; scope is launch and shutdown only — task dispatch and orchestration stay in session-channel and agent-group; rolls back the terminal on launch failure and keeps `failed` records with a screen digest |
+| **tool-consult** | On-demand tool revelation: the model describes what it wants to do, `consult_tools` matches tools by keyword index and returns name plus one-line summary, and reveals the hits to the current session (host `tools.restrict` mask + single active-mask replacement); only 9 core tools stay visible by default; consultation is authorisation, revelation is monotonic within a session (`revealScope: session`) or bounded to one turn (`turn`, with `ttlTurns` / `pin`); calling a masked tool returns an actionable "consult first" message; any failure (no agent scope, `restrict` throws, name mismatch, empty intersection) degrades to "no mask" instead of breaking the session |
 Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
 ## Directory layout
@@ -82,6 +83,7 @@ dsh-toolset/
 ├── preference-analysis/  # preference analysis (behavior induction + ledger + auto-apply; rule-engine consumer)
 ├── agent-group/          # group orchestration (groups / members / leader-follower links / instructions and reports)
 ├── coagent/              # long-lived agent launcher (herdrUse terminal + fffdsh + session claim; launch and shutdown only)
+├── tool-consult/         # on-demand tool revelation (keyword index + tools.restrict mask; consult is authorisation)
 ├── profiles/             # profile config examples (example: manifest + user-layer patch + pnpm trio; see profiles/README.md)
 ├── scripts/              # install.sh (one-shot install on a new machine); test scheduler
 ├── docs/                 # status table, backlog, agent composition notes, architecture comparison and host package list
@@ -108,7 +110,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 32 packages: TUI + 31 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 33 packages: TUI + 32 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset

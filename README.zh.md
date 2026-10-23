@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 31 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 32 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -44,6 +44,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **background-daemon** | 面向「agent 会话投递」的进程内调度：选择器 `after_seconds` / `at` / `every_seconds` / `daily` / `weekly`（首期无 `cron`）；两条渠道 —— `deliver`（user 消息经 `agent.followup`，再以 `sessions.flush` 作 L2 确认）与 `command`（slash 命令，执行前过引擎侧 `security-guard` 复查）；重启补算（周期任务只补最近一次错过的时点，一次性任务 24 h 窗口内仍触发）、单 timer、不重试；`/daemon` 子命令 + `daemon_task` 模型工具；记录落 memory-base（`daemon_task` / `daemon_run`）并带本地 JSON 降级 |
 | **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时 / 已移除），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
 | **coagent** | 长驻 agent 拉起与收尾：经 `herdrUse` 服务面建终端、在其交互 shell 里发 `fffdsh`、用 session-channel 的 `peers` 认领新会话，回执 `terminal_id` / `session_id`；职责只到拉起与收尾，派任务与编排分别归 session-channel 与 agent-group；拉起失败回滚终端并落 `failed` 记录（含失败码与屏摘要） |
+| **tool-consult** | 工具咨询与按需揭示：模型描述要做什么，`consult_tools` 按关键词索引返回名称 + 一句话并揭示给当前会话（宿主 `tools.restrict` 遮罩 + 单条活动 mask 替换）；缺省只留 9 个核心工具；咨询即授权，揭示在会话内只增不减（`revealScope: session`）或仅本回合（`turn`，带 `ttlTurns` / `pin`）；调用被遮罩的工具返回「先咨询」的可行动文案；任一路径失败（无 agent 作用域 / `restrict` 抛错 / 名单失配 / 空交集）降级为「不遮罩」而不中断会话 |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
 ## 目录结构
@@ -82,6 +83,7 @@ dsh-toolset/
 ├── preference-analysis/  # 偏好分析（行为归纳 + 账簿 + 自动应用；rule-engine 消费者）
 ├── agent-group/          # 群组编排（组 / 成员 / 主从连接 / 指令与回报）
 ├── coagent/              # 长驻 agent 拉起与收尾（herdrUse 终端 + fffdsh + 会话认领；只管拉起与收尾）
+├── tool-consult/         # 工具咨询与按需揭示（关键词索引 + tools.restrict 遮罩；咨询即授权）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
@@ -108,7 +110,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 32 个包：TUI + 31 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 33 个包：TUI + 32 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
