@@ -17,10 +17,16 @@
 | 根 `README.md` / `README.zh.md` | 包计数 30 / 31 → 31 / 32、功能表加 `coagent` 行、目录树加 `coagent/` 行；同步把 `herdr-use` 与 `behavior-correction` 两行改到新工具面 |
 | `coagent/package-lock.json` | 新增（`npm install` 生成，供新环境复现依赖） |
 
+## profile 挂载（2026-10-23 已做）
+
+在 herdr 终端（沙箱外）执行，`~/.dsh/profiles/fff` 现在已挂载 `coagent`：
+
+1. `scripts/install.sh --profile fff --sync --skip-build` —— 关键在 `--sync`：已有 `package.json` 时该脚本默认**保留**不覆盖，只有 `--sync` 才按当前选择集合并刷新（输出「已更新 package.json（本仓库 bundle 32 个 + dsh-base）」）。
+2. 随后 `pnpm install`（脚本内的 install 步已在 `--sync` 同一次运行里完成），`node_modules/@dsh-toolset/coagent -> ../../../Projects/dsh-toolset/coagent`，`dsh.profile.bundles` 变成 33 项（dsh-base + 32 个包）。
+
 ## 未做
 
-- **profile 挂载**：`~/.dsh/profiles/fff` 需执行 `scripts/install.sh --profile fff`（幂等，只补缺失项）才会加载 `coagent`；该目录在工作区外，本次未改。
-- 真机验证 #12 至 #14（`coagent spawn` / `close` / 服务面共享）等 profile 挂载后重启 dsh 再做，清单见 `docs/implementation/2026-10-23-real-machine-verification.md`。
+- 真机验证 #12 至 #14（`coagent spawn` / `close` / 服务面共享）：需重启 dsh 让新 bundle 生效后做，清单见 `docs/implementation/2026-10-23-real-machine-verification.md`。
 
 ## 验证
 
