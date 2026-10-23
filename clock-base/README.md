@@ -30,7 +30,7 @@ DSH（DeepSeek Harness）进程内定时器统一面：以服务 `clock` 提供�
 
 延迟为负按 0 处理（与 `setTimeout` 一致），非有限数抛 `RangeError`。定时器句柄默认 `unref`：不阻止进程退出。
 
-纯函数 `createTimers(options)` 同时具名导出（`import { createTimers } from "@dsh-toolset/timer"`），无宿主 ctx 的场景（TUI demo / 单测）可直接用。
+纯函数 `createTimers(options)` 同时具名导出（`import { createTimers } from "@dsh-toolset/clock-base"`），无宿主 ctx 的场景（TUI demo / 单测）可直接用。
 
 ## 假时钟
 

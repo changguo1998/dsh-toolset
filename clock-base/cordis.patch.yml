@@ -6,4 +6,4 @@
 # 使 `ctx.get("clock")` 在它们激活时可用（scripts/install.sh 的 canonical_pkgs 已置首）。
 - insert:
     - id: clock-base
-      name: '@dsh-toolset/timer'
+      name: '@dsh-toolset/clock-base'
