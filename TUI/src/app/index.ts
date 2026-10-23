@@ -44,7 +44,7 @@ import type {
   SymbolNormalizerLike,
   RuleEngineLike,
 } from "./adapter/dsh.ts";
-import type { NoticeTone } from "./adapter/types.ts";
+import type { MemoryRowRef, NoticeTone } from "./adapter/types.ts";
 import {
   allSections,
   applyDelivery,
@@ -207,6 +207,11 @@ export const EXIT_CONFIRM_CLEAN_LABEL = "清理并退出（删除本会话）";
 /** `/cleanquit` 的合成确认面板 id 与确认项文案（删除不可逆，显式命令也要二次确认） */
 const CLEAN_QUIT_PANEL_ID = "clean-quit-confirm";
 const CLEAN_QUIT_CONFIRM_LABEL = "清理并退出";
+/** `/memory` 用法（管理面子命令；S 层按会话隔离，管理面只处理 project / user）。 */
+const MEMORY_USAGE =
+  "usage: /memory [search <query> [--all-projects] | list [project|user] [--kind <k>] | " +
+  "remove <tier> <kind> <id> | replace <tier> <kind> <id> <content> | " +
+  "add <project|user> --kind <k> <content>]";
 /** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
  *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
 const EXIT_CLEAN_TIMEOUT_MS = 5000;
@@ -5255,7 +5260,7 @@ export class App {
     if (sub === "review") {
       // 审阅面板随 memory-base 瘦身移除（候选队列 `candidates.*` 已删）：只留一句指引。
       this.notice(
-        "审阅面板已移除（memory-base 候选队列下沉）：用 /memory search <query> 查看，/memory add 写入",
+        "审阅面板已移除：用 /memory list 定位条目、/memory remove|replace 修正（/memory search 检索）",
         "warn",
       );
       return;
@@ -5264,14 +5269,66 @@ export class App {
       this.handleMemorySearchCommand(rest);
       return;
     }
+    if (sub === "list") {
+      this.handleMemoryListCommand(rest);
+      return;
+    }
+    if (sub === "remove") {
+      this.handleMemoryRemoveCommand(rest);
+      return;
+    }
+    if (sub === "replace") {
+      this.handleMemoryReplaceCommand(rest);
+      return;
+    }
     if (sub === "add") {
       this.handleMemoryAddCommand(rest);
       return;
     }
-    this.notice(
-      "usage: /memory [search <query> [--all-projects] | add <session|project|user> [--kind <k>] <content>]",
-      "warn",
-    );
+    this.notice(MEMORY_USAGE, "warn");
+  }
+
+  /** `/memory` 行的单行呈现：`· #id [tier/kind] 摘要（project）`（id 供 remove / replace 寻址）。 */
+  private formatMemoryRow(hit: unknown): string {
+    const row = hit as {
+      id?: number;
+      kind?: string;
+      title?: string;
+      content?: string;
+      tier?: string;
+      project?: string;
+      doc?: { ref: string; lineStart: number; lineEnd: number };
+    };
+    const scope = row.tier ?? "?";
+    const kind = row.kind ?? "?";
+    const id = typeof row.id === "number" ? `#${row.id} ` : "";
+    const head =
+      row.title && row.title !== ""
+        ? row.title
+        : (row.content ?? "").slice(0, 60);
+    const where =
+      row.doc !== undefined
+        ? ` → ${row.doc.ref}:${row.doc.lineStart}-${row.doc.lineEnd}`
+        : "";
+    return `· ${id}[${scope}/${kind}] ${head}${where}（${row.project ?? "-"}）`;
+  }
+
+  /** 解析管理面地址 `<tier> <kind> <id>`（只接受 project / user）。 */
+  private parseMemoryRef(
+    tokens: string[],
+  ): { ref: MemoryRowRef; rest: string } | { reason: string } {
+    const [tier, kind, idText] = tokens;
+    if (tier !== "project" && tier !== "user") {
+      return {
+        reason: `tier 只接受 project / user（收到 ${tier ?? "空"}；S 层按会话隔离，管理面不处理）`,
+      };
+    }
+    if (kind === undefined || kind === "") return { reason: "缺 kind" };
+    const id = Number(idText);
+    if (!Number.isInteger(id) || id <= 0) {
+      return { reason: `id 必须是正整数（收到 ${idText ?? "空"}）` };
+    }
+    return { ref: { tier, kind, id }, rest: tokens.slice(3).join(" ") };
   }
 
   /** 概要（notice 型）——就绪 → info 展示；未就绪 → info 说明；缺失/失败 → warn。 */
@@ -5313,27 +5370,7 @@ export class App {
           this.notice("无命中", "info");
           return;
         }
-        const lines = hits.map((hit) => {
-          const row = hit as {
-            kind?: string;
-            title?: string;
-            content?: string;
-            tier?: string;
-            project?: string;
-            doc?: { ref: string; lineStart: number; lineEnd: number };
-          };
-          const scope = row.tier ?? "?";
-          const kind = row.kind ?? "?";
-          const head =
-            row.title && row.title !== ""
-              ? row.title
-              : (row.content ?? "").slice(0, 60);
-          const where =
-            row.doc !== undefined
-              ? ` → ${row.doc.ref}:${row.doc.lineStart}-${row.doc.lineEnd}`
-              : "";
-          return `· [${scope}/${kind}] ${head}${where}（${row.project ?? "-"}）`;
-        });
+        const lines = hits.map((hit) => this.formatMemoryRow(hit));
         const tag = allProjects
           ? "--all-projects：检索范围 = 已配置的跨项目库（未配置则仅本域）\n"
           : "";
@@ -5343,17 +5380,148 @@ export class App {
     );
   }
 
-  /** `/memory add <tier> [--kind <k>] <content>`：用户明确指令直达（免审，
-   *  origin: user——设计 §6「用户直接动作」；数据面仍过该层闸门）。
-   *  U 层禁兜底（allowFallback false）→ user 必须显式 --kind。 */
+  /** `/memory list [project|user] [--kind <k>]`：管理面列举（`remove` / `replace` 的寻址入口）。 */
+  private handleMemoryListCommand(rest: string): void {
+    const tokens = rest.split(/\s+/).filter((token) => token !== "");
+    let tier: "project" | "user" | undefined;
+    let kind: string | undefined;
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i]!;
+      if (token === "--kind") {
+        kind = tokens[i + 1];
+        i++;
+        continue;
+      }
+      if (token === "project" || token === "user") {
+        tier = token;
+        continue;
+      }
+      this.notice("usage: /memory list [project|user] [--kind <k>]", "warn");
+      return;
+    }
+    const list = this.deps.adapter.memoryList;
+    if (!list) {
+      this.notice("knowledge 服务不可用（管理面）", "warn");
+      return;
+    }
+    void list
+      .call(this.deps.adapter, {
+        ...(tier === undefined ? {} : { tier }),
+        ...(kind === undefined ? {} : { kind }),
+        limit: 20,
+      })
+      .then(
+        (rows) => {
+          if (rows === undefined) {
+            this.notice("管理面不可用（memory-base 未挂载或版本过旧）", "warn");
+            return;
+          }
+          if (rows.length === 0) {
+            this.notice("（无条目；管理面只列 U / P 层）", "info");
+            return;
+          }
+          this.notice(
+            rows.map((row) => this.formatMemoryRow(row)).join("\n"),
+            "info",
+          );
+        },
+        () => this.notice("列举失败", "warn"),
+      );
+  }
+
+  /** `/memory remove <tier> <kind> <id>`：管理面真删 U / P 条目。 */
+  private handleMemoryRemoveCommand(rest: string): void {
+    const parsed = this.parseMemoryRef(
+      rest.split(/\s+/).filter((token) => token !== ""),
+    );
+    if ("reason" in parsed) {
+      this.notice(`${parsed.reason}\n${MEMORY_USAGE}`, "warn");
+      return;
+    }
+    const forget = this.deps.adapter.memoryForget;
+    if (!forget) {
+      this.notice("knowledge 服务不可用（管理面）", "warn");
+      return;
+    }
+    const { ref } = parsed;
+    void forget.call(this.deps.adapter, ref).then(
+      (result) => {
+        if (!result.ok) {
+          this.notice(`删除失败：${result.reason ?? "未知原因"}`, "warn");
+          return;
+        }
+        if (result.removed === 0) {
+          this.notice(
+            `未找到 ${ref.tier}/${ref.kind}#${ref.id}（未改动）`,
+            "info",
+          );
+          return;
+        }
+        this.notice(
+          `已删除 ${ref.tier}/${ref.kind}#${ref.id}（${result.removed} 条）`,
+          "success",
+        );
+      },
+      () => this.notice("删除失败（管理面抛错）", "warn"),
+    );
+  }
+
+  /** `/memory replace <tier> <kind> <id> <content>`：管理面就地更新（失败时原行不动）。 */
+  private handleMemoryReplaceCommand(rest: string): void {
+    const parsed = this.parseMemoryRef(
+      rest.split(/\s+/).filter((token) => token !== ""),
+    );
+    if ("reason" in parsed) {
+      this.notice(`${parsed.reason}\n${MEMORY_USAGE}`, "warn");
+      return;
+    }
+    const content = parsed.rest.trim();
+    if (content === "") {
+      this.notice(`缺替换内容\n${MEMORY_USAGE}`, "warn");
+      return;
+    }
+    const replace = this.deps.adapter.memoryReplace;
+    if (!replace) {
+      this.notice("knowledge 服务不可用（管理面）", "warn");
+      return;
+    }
+    const { ref } = parsed;
+    void replace.call(this.deps.adapter, ref, { content }).then(
+      (result) => {
+        if (result.ok) {
+          this.notice(`已更新 ${ref.tier}/${ref.kind}#${ref.id}`, "success");
+          return;
+        }
+        const reason =
+          result.skipped === "duplicate"
+            ? "内容与该分类另一条重复"
+            : result.skipped === "missing"
+              ? "条目不存在"
+              : result.skipped === "kind"
+                ? "分类未注册"
+                : result.skipped === "hook"
+                  ? "被该分类的写前钩子拒绝"
+                  : (result.skipped ?? "未知原因");
+        this.notice(`更新被拒（${reason}），原条目未改动`, "warn");
+      },
+      () => this.notice("更新失败（管理面抛错），原条目未改动", "warn"),
+    );
+  }
+
+  /** `/memory add <project|user> --kind <k> <content>`：管理面用户直写（免审直达；
+   *  数据面仍过内容闸门与 `preWrite`）。kind 必填（没有兜底分类），S 层按会话隔离不处理。 */
   private handleMemoryAddCommand(rest: string): void {
     const tokens = rest.split(/\s+/).filter((token) => token !== "");
     const tier = tokens[0];
-    if (tier !== "session" && tier !== "project" && tier !== "user") {
+    if (tier === "session") {
       this.notice(
-        "usage: /memory add <session|project|user> [--kind <k>] <content>",
+        "管理面不处理会话层（S 层按会话隔离），请用 project / user",
         "warn",
       );
+      return;
+    }
+    if (tier !== "project" && tier !== "user") {
+      this.notice(MEMORY_USAGE, "warn");
       return;
     }
     const kindFlag = tokens.indexOf("--kind");
@@ -5364,14 +5532,11 @@ export class App {
     }
     const content = tokens.slice(1).join(" ").trim();
     if (content === "") {
-      this.notice("usage: /memory add <tier> [--kind <k>] <content>", "warn");
+      this.notice(MEMORY_USAGE, "warn");
       return;
     }
-    if (tier === "user" && kind === undefined) {
-      this.notice(
-        "user 层必须显式 --kind（禁兜底分类，设计 §5）；已注册分类见 /memory review 或 profile",
-        "warn",
-      );
+    if (kind === undefined || kind === "") {
+      this.notice("add 必须显式 --kind（没有兜底分类）", "warn");
       return;
     }
     const add = this.deps.adapter.memoryAdd;
@@ -5382,10 +5547,7 @@ export class App {
     void add.call(this.deps.adapter, { content, kind, tier }).then(
       (result) => {
         if (result.ok) {
-          this.notice(
-            `已记录（${tier}${kind === undefined ? "" : ` · ${kind}`}），origin: user 免审直达`,
-            "info",
-          );
+          this.notice(`已记录（${tier} · ${kind}）`, "info");
         } else {
           this.notice(
             `写入被拒${result.skipped === undefined ? "" : `（${result.skipped}）`}`,

@@ -215,7 +215,7 @@ test("句柄：forget 真删并返回条数（不再恒返 0）", async () => {
   }
 });
 
-test("全局面：八键齐备且没有写入 / 删除键", async () => {
+test("全局面：八读 + 三管理写齐备（写入口是管理面，不是旧 remember 形态）", async () => {
   const ws = await workspace();
   try {
     const bundle = createMemoryBundle({
@@ -228,15 +228,18 @@ test("全局面：八键齐备且没有写入 / 删除键", async () => {
         Object.keys(memory).sort(),
         [
           "checkPrivacy",
+          "forget",
           "getSummary",
           "list",
           "migrate",
           "registerKind",
+          "remember",
           "search",
+          "update",
           "usage",
           "whenReady",
         ],
-        "全局面只暴露八键（无 remember / forget / promote / candidates）",
+        "八读 + 三管理写（forget / update / remember；无 promote / candidates）",
       );
       assert.equal(
         memory.checkPrivacy("password: supersecretvalue") !== null,

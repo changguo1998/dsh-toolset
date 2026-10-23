@@ -9,7 +9,7 @@
 由此推出三条硬口径，其余设计都从它们推出来：
 
 1. **管理逻辑不在本包**。提升链（`promote` / `candidates` / 审阅 / LLM 概括）、生命周期与容量（淘汰 / 压缩 / 逐库上限 / 自动巩固）、事件沉淀（`session/event` 写直达）、文档索引（`doc_index`）已全部**删除**，需要时由消费插件自建（先例：`preference-analysis` 自持账簿、`output-compress` 自持 `digest.db`）。
-2. **隔离只落在写侧**（用户 2026-10-17 裁定「读可以全局，只有写需要隔离权限」）。全局面 `ctx.get("memory")` 八键，**没有任何写入与删除**；写入与删除只经 `registerKind(spec)` 返回的作用域句柄（`MemoryScope`）。
+2. **隔离只落在写侧**（用户 2026-10-17 裁定「读可以全局，只有写需要隔离权限」）。全局面 `ctx.get("memory")` = **八读 + 三管理写**：`forget` / `update` / `remember` 只处理 **U / P 层**（S 层按会话隔离，一律拒绝），用于用户纠错与直写（2026-10-23 裁定，见 `/memory` 条目）；扩展的业务写入与删除仍只经 `registerKind(spec)` 返回的作用域句柄（`MemoryScope`）。
 3. **本包只解释内容形态，不解释语义**。隐私闸与注册方 `preWrite` 是存储侧约束；分类名、分类语义、内容价值都归注册方。代码里不出现具体分类名（`tests/kinds.test.ts` 有一条 grep 断言守住这点）。
 
 ## 1 分层与落点
@@ -75,7 +75,7 @@ interface KindSpec {
 查询是**全局只读**，不分扩展（用户 2026-10-17 裁定「读可以全局」）。两个入口：
 
 - `search({query, kind?, tier?, project?, limit?, fuzzy?, mode?})`：对已注册分类取并集；`mode` 缺省 `bm25`（单词面），取值 `hybrid` 时改为四路 RRF 融合（带权 BM25（title 2 / content 1）+ trigram + LIKE + 词项邻近（共现窗口 ≤ 64 字符，K=60）），分数取负保持「越小越相关」。`bm25` 口径下：`porter` 词干 BM25 为主，`fuzzy: true` 叠加 `trigram` 子串召回；\*\*结果不足 `limit` 且（查询含 CJK 或 FTS 语法错误（如 `-`））\*\*时走 `LIKE` 子串兜底。**跨层合并排序 = 层权重 U > P > S，同层按分数**。
-- `list({kind?, tier?, project?, limit?, offset?})`：按 kind 结构化列举（未给 kind = 跨 kind），`created_at` 倒序 + 分页。这是修掉旧「按 kind 列举缺口」的面——旧 `targetRows` 只返回 `target IS NOT NULL` 的行。
+- `list({kind?, tier?, project?, limit?, offset?})`：按 kind 结构化列举（未给 kind = 跨 kind），`created_at` 倒序 + 分页。这是修掉旧「按 kind 列举缺口」的面——旧 `targetRows` 只返回 `target IS NOT NULL` 的行。**U / P 层列举前按需 `openExisting`**（只开既有库、不建库），否则冷启动时列表恒空、管理面无法按 id 寻址；只列 `tier` 时不开另一层。
 
 `search` **没有任何写副作用**：旧口径的 `last_referenced` 刷新已随列删除一并下线（命中即写会让只读查询变成写操作，也让「存储」与「生命周期」纠缠）。
 
@@ -131,13 +131,14 @@ interface SearchHit extends StoreRow { score: number }   // 分数越小越相�
 | `output-compress` | 自持 `digest.db`，只经句柄 `put` 把 `is_error` 摘要推进本包；不直写本包的表 |
 | `security-guard` | 命令 / 文件级防护；本包的隐私闸是**写库前**的最后一道内容闸，两者不重叠 |
 | 官方 `session-query-sqlite` | 索引**原始会话事件**；本包索引**沉淀后的知识**。两库独立，`search` 不跨库合并 |
-| TUI `/memory` | `search` 走全局只读面不受影响；`/memory add` 与 `/memory review` 依赖已删除的 `remember` / `candidates.*`，属 TUI 侧待适配（已知窗口） |
+| TUI `/memory` | `search` / `list` / `remove` / `replace` / `add` 均走全局面：读用 `search` / `list`，删改与用户直写用管理面 `forget` / `update` / `remember`（S 层在 TUI 侧前置拒绝） |
 
 ## 10 已知边界
 
 - **CJK 召回**：`porter` 按连续串分词（`构建通过` 匹配不到 `构建`），trigram 需 ≥3 字符子串。故「结果不足 `limit` 且（查询含 CJK 或 FTS 语法错误）」时走 `LIKE` 兜底——这是分词器能力边界，不是可调参数。
 - **`LIKE` 必须转义** `\` / `%` / `_`，否则用户内容里的 `%` 会变成通配符。
 - **去重是全局的**：`content_hash` 不按 project 隔离，跨 project 写入相同内容会复用同一行。
+- **管理面 `update` 不重新分块**：就地改单行的内容 / 标题 / 重要度（用于纠错），超长内容按单行存；需要重新分块的场景仍应走「删旧行 + `put`」。
 - **token 预算按 1 token ≈ 3 字符估算**（分块上限 2000 token ≈ 6000 字符），非精确分词。
 - **隐私边界是形态匹配**：无熵检测、无规则语言；命中即整条拒绝（不打码），因此「正文里混了一段密钥」的整条会被丢弃——宁可丢，不可泄漏。`denyPatterns` 只能追加，不能关闭内置模式。
 - **本包不做价值判断**：`importance` 由写入方给，本包不据此淘汰、不做冲突裁定、不做近似替换——这些都需要语义，归上层。
@@ -155,7 +156,7 @@ interface SearchHit extends StoreRow { score: number }   // 分数越小越相�
 | `src/router.ts` | `Tier` 与全量层顺序、`KindSpec` / `KindRegistry`（注册校验与 `writableTiers` 归一）、`kindTableName` |
 | `src/scope.ts` | `MemoryScope` 句柄：`put` / `forget`，越权层与参数级抛错、内容级走 `skipped` |
 | `src/tiers.ts` | `TierSet`：落点解析、惰性打开、按会话缓存、跨层检索 / 列举、用量 |
-| `src/knowledge.ts` | `KnowledgeService`：put / search / listRows / evict + 分块 / 去重 / source 联动 |
+| `src/knowledge.ts` | `KnowledgeService`：put / updateRow / search / listRows / evict + 分块 / 去重 / source 联动 |
 | `src/rules.ts` | 内容闸门：内置隐私模式 + 追加拒绝模式 + 最小长度；`checkContent` / `matchDenyPattern` |
 | `src/tools.ts` | 模型侧只读工具 `memory_query`（参数解析、clamp、截断、渲染） |
 | `src/index.ts` | bundle 接入面：`createMemoryBundle` / `createGlobalService` / `apply`、`provide` 与 `inject` |
@@ -163,7 +164,7 @@ interface SearchHit extends StoreRow { score: number }   // 分数越小越相�
 
 **装配与生命周期**（`src/index.ts`）：
 
-- `apply(ctx, config)` **同步完成**：`readSessionPaths(ctx)`（`ctx.get("sessionPaths")` 探测）→ `createMemoryBundle({config, sessionPaths})` → `createGlobalService(bundle, config)` → `ctx.provide("memory", 八键)` → 注册 `memory_query`；没有异步就绪窗口，故 `whenReady()` 恒 resolve。
+- `apply(ctx, config)` **同步完成**：`readSessionPaths(ctx)`（`ctx.get("sessionPaths")` 探测）→ `createMemoryBundle({config, sessionPaths})` → `createGlobalService(bundle, config)` → `ctx.provide("memory", 八读 + 三管理写)` → 注册 `memory_query`；没有异步就绪窗口，故 `whenReady()` 恒 resolve。
 - `createMemoryBundle` **不打开任何库**，只建 `KindRegistry` 与 `TierSet`（后者只存落点参数）；`ctx.get("sessionPaths")` 只认 `sessionDirFor` 一个方法，形状不符视为未挂载，解析异常统一改写成带 `sessionId` 的文案。
 - `inject = ["tools"]`；`ctx.tools` / `ctx.provide` 缺失时只记日志并跳过（写入面不受影响），`sessionPaths` 不写进 `inject`。
 

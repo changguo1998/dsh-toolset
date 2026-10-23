@@ -1,6 +1,6 @@
 # `/memory` 的 `replace` 与 `remove` 子命令（接取条目：`docs/BACKLOG.md` §2「1. `/memory` 的 `replace` 与 `remove` 子命令」）
 
-状态：调研（只做调研与候选方案；写权归属待用户裁定，未进决策与实现）　　开启：2026-10-22　　关闭：—
+状态：实现完成（2026-10-23；决策 A + A1 + add 死路径并入）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -75,24 +75,58 @@
 - `replace` 语义：A1 就地更新（建议）/ A2 先删后写 + 补偿。
 - 范围：是否把 `/memory add` 的死路径修复并入本条。
 
-## 决策
+## 决策（2026-10-23 用户裁定）
 
-（待用户裁定后填；当前未进入决策）
+- **写权归属：方案 A** —— `memory-base` 全局面新增管理面（删除 / 就地更新 / 用户直写），不经 kind 句柄。
+- **`replace`：A1 就地更新** —— 单条 `UPDATE` + 内容闸门与 `preWrite`，失败不动原行。
+- **`/memory add` 死路径：并入本条修复** —— add 改走管理面的写入入口。
+- 沿建议 3 / 4：管理面对 `session` 层一律拒绝（S 层按会话隔离，跨会话语义不明）；TUI 用 `(tier, kind, id)` 寻址，`search` 行补 `#id`，新增 `/memory list [tier]`。
+- 范围外（不做）：`replace` 重新分块（单行就地改，长内容不拆块，文档写明）；`review` 面板不恢复。
 
 ## 规划
 
-### 计划改动文件清单
+### 计划改动文件清单（定稿）
 
-（待裁定后定稿；候选范围）
+- `memory-base/src/knowledge.ts`：`KnowledgeService.updateRow(ref, patch)` + `UpdateResult` / `UpdateSkip`（内容闸门、`preWrite`、同表 `content_hash` 冲突拒绝、单条 `UPDATE`）。
+- `memory-base/src/index.ts`：`MemoryGlobalService` 增 `forget` / `update` / `remember`（管理面；`session` 拒绝、kind 必须已注册、id 为正整数）；`createGlobalService` 实现。
+- `memory-base/README.md`（与 `docs/DESIGN.md` 如提及服务面口径）：八键只读 → 八读 + 三管理写。
+- `TUI/src/app/adapter/types.ts`：`KnowledgeServiceLike` 增 `list` / `forget` / `update` / `remember`；`DshAdapter` 增 `memoryList` / `memoryForget` / `memoryReplace`，`memoryAdd` 改走管理面（tier 收窄为 project / user）。
+- `TUI/src/app/adapter/dsh.ts`：上述四个方法实现。
+- `TUI/src/app/index.ts`：`handleMemoryCommand` 增 `list` / `remove` / `replace`，`search` 行补 `#id`，`add` 走管理面并收窄 tier，usage 与 `review` 提示同步。
+- `TUI/src/app/commands.ts`：`/memory` 描述去掉 `review`、补 `list` / `remove` / `replace`。
+- 测试：`memory-base/tests/admin-surface.test.ts`（新增）、`TUI/tests/memory-edit.test.ts`（新增）。
 
-- `memory-base/src/index.ts`（全局面新增管理面）+ `memory-base/src/knowledge.ts`（`updateRow`）+ 可能的 `memory-base/src/tiers.ts` 导出调整
-- `TUI/src/app/index.ts`（`handleMemoryCommand` 增 `remove` / `replace`）、`TUI/src/app/commands.ts`（描述去掉 `review`、补子命令）
-- `TUI/src/app/adapter/types.ts` + `adapter/dsh.ts`（管理面结构面与调用）
-- 两侧测试：`memory-base/tests`、`TUI/tests`
+### 验收（定稿）
 
-### 验收
+- `remove`：删 U / P 条目后 `search` 不可见、计数正确；不存在的 ref 返回 0；`session` 层明确拒绝并给原因。
+- `replace`：成功后就地更新且 FTS 命中新内容、旧内容不再命中；内容闸门 / `duplicate` / 行不存在时原行不动并如实回报。
+- `/memory add`：project / user 层写入成功（过内容闸门与 `preWrite`）；U 层缺 `--kind` 拒绝；`session` 层明确拒绝。
+- 全仓 `check` / `build` / `test` 绿。
 
-（初判，待裁定后定稿）
+## 实现记录（2026-10-23）
 
-- 删一条 U / P 条目后 `search` 不可见、计数正确；对不存在的 ref 返回 0；S 层越权明确拒绝并给原因。
-- `replace` 中途失败时原条目仍在（或被明确回滚），FTS 检索同步更新。
+- `memory-base/src/knowledge.ts`：`KnowledgeService.updateRow(ref, patch)`。顺序：kind 已注册 → 表存在 / 行存在（`missing`）→ `checkContent`（`empty` / `short` / `pattern`）→ `preWrite`（`hook`）→ 同表 `content_hash` 撞别的行（`duplicate`）→ 单条 `UPDATE`（内容 / hash / 标题 / 重要度）；`_au` 触发器同步双 FTS。**不重新分块**（`DESIGN.md` §10 已记）。
+- `memory-base/src/index.ts`：全局面新增三管理写并在 `createGlobalService` 实现 —— `forget(refs)`（逐条 `openExisting` + `evict`，返回删除数）、`update(ref, patch)`（`openExisting` → `updateRow`；库不存在 = `missing`）、`remember(input)`（`tiers.write`，不经句柄、不受 `writableTiers` 限制；内容闸门与 `preWrite` 仍生效）。参数级校验：`session` 层、未注册 kind、非正整数 id 一律抛错（与句柄的「参数级抛错」同口径）。
+- `memory-base/README.md` / `docs/DESIGN.md`：服务面从「八键只读」改为「八读 + 三管理写」，补管理面参数 / 返回 / 边界；TUI `/memory` 一栏从「待适配」改为已收敛。
+- `TUI/src/app/adapter/types.ts`：`MemoryRowRef`；`KnowledgeServiceLike` 增 `list` / `forget` / `update` / `remember`（tier 收窄为 project / user）；`DshAdapter` 增 `memoryList` / `memoryForget` / `memoryReplace`，`memoryAdd` 改为管理面直写（kind 必填）。
+- `TUI/src/app/adapter/dsh.ts`：四个方法实现；`memoryForget` / `memoryReplace` / `memoryAdd` 把参数级抛错折算成 `reason` / `skipped` 文案，管理面缺失时如实提示。
+- `TUI/src/app/index.ts`：`/memory` 增 `list [project|user] [--kind <k>]`、`remove <tier> <kind> <id>`、`replace <tier> <kind> <id> <content>`；`search` / `list` 行统一 `· #id [tier/kind] 摘要（project）`；`add` 改为 `<project|user> --kind <k> <content>`（S 层与缺 kind 前置拒绝）；`review` 提示与 usage 同步。
+- `TUI/src/app/commands.ts`：命令描述去掉 `review`，补 `list` / `remove` / `replace`。
+
+## 测试与证据（2026-10-23）
+
+- 新增 `memory-base/tests/admin-surface.test.ts`（8 例）：就地更新 + FTS 新旧内容对照、内容闸门 / `preWrite` 拒绝后原行不动、行不存在 / 重复内容 / 未注册 kind、删除计数与幂等 + 摘要计数、S 层 / 非法 id / 未注册 kind 抛错、`remember` 直写（含绕过 `writableTiers` 的口径与 S 层拒绝）、冷启动 `list` 按需打开既有 U / P 库、冷启动 `forget` / `update` 经 `openExisting` 作用于既有库。
+- 更新 `memory-base/tests/bundle-tiers.test.ts` / `exposure.test.ts` 的服务面断言（八键 → 八读 + 三管理写）。
+- 新增 `TUI/tests/adapter.dsh.test.ts` 4 例（真实 adapter 的 `memoryList` / `memoryForget` / `memoryReplace` / `memoryAdd`：参数透传、异常折算成 reason / skipped、管理面缺失降级）。
+- 新增 `TUI/tests/memory-edit.test.ts`（11 例）：`list`（#id 呈现 / tier + kind 过滤 / 管理面缺失）、`remove`（成功 / removed 0 / S 层与非法 id 前置拒绝）、`replace`（成功 / duplicate 文案）、`add`（成功 / S 层与缺 kind 拒绝）、`search` 行带 #id。
+- 命令结果（worktree `.worktree/b-app`）：
+  - 根 `npm run check` → 31 包全通过；`npm run build` → 31 包全通过；
+  - 根 `sh scripts/test-parallel.sh` → 31 包全 OK（TUI 1745 / memory-base 82，其余 29 包全绿）；
+  - 说明：本 worktree 原先只有 TUI 的 `node_modules`，为跑全仓检查从主仓按包建立 `node_modules` 符号链接（均在 `.gitignore` 内，收尾时移除）。
+- 未做：真机验收（`/memory list` → `remove` / `replace` / `add` 的真实 dsh 会话）留待用户；`replace` 只传内容（不提供改 title / importance 的 TUI 入口）。
+
+### 补充：`list` 冷启动可见性（实现中发现）
+
+- 原先 `list` 只遍历**已打开**的库：新进程里若没有插件先写过，`/memory list` 恒空，`remove` / `replace` 无从拿到 id（`forget` / `update` 本身走 `openExisting`，冷启动可用）。
+- 调整：全局 `list` 在列举 U / P 层前按需 `openExisting`（只开既有库、不建库；只列某一层时不开另一层）。**读面无写副作用**不变，`search` 维持原样（本条目不需要）。
+- 用例：`memory-base/tests/admin-surface.test.ts`「list：冷启动按需打开既有 U / P 库」；`README` / `DESIGN.md §4` 已同步口径。
