@@ -29,7 +29,7 @@ profile_asset_dir="$repo_root/profiles/example"
 # scripts/test-parallel.sh 的 default_pkgs 同序（scripts/test-install.sh 有校验）。
 # `clock-base` 置首：它注册服务 `clock`，要排在消费方（TUI / session-channel / background-daemon /
 # metric-loop）之前激活，否则消费方启动时读不到服务（会回落各自的进程内定时器）。
-canonical_pkgs="clock-base TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group"
+canonical_pkgs="clock-base TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group coagent"
 usage() {
     cat << 'EOF'
 用法：scripts/install.sh [选项]

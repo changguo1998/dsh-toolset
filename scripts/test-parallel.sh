@@ -14,7 +14,7 @@
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
-default_pkgs="clock-base TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group"
+default_pkgs="clock-base TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group coagent"
 pkgs="${*:-$default_pkgs}"
 logbase="${TMPDIR:-/tmp}/dsh-test-parallel.$$"
 mkdir -p "$logbase"

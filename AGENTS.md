@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-toolset
 
-本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 30 个进程内集成插件（clock-base / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group）。
+本项目为 DSH（DeepSeek Harness）进程内集成插件工具集，包含 `TUI/` 终端界面包与 31 个进程内集成插件（clock-base / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group / coagent）。
 
 > 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；变更规范简版见下方「内容变更规范」，详版分两份：标准流程 `docs/WORKFLOW-STANDARD.md`、小改动快速流程 `docs/WORKFLOW-FAST.md`；状态对照见 `docs/STATUS.md` 与各模块 `docs/`，宿主面知识与升级记录见 `docs/host/`。
 
@@ -12,7 +12,7 @@
 
 ## 命令
 
-仓库根 `package.json` 委托全部子包（clock-base / TUI / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group）：
+仓库根 `package.json` 委托全部子包（clock-base / TUI / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group / coagent）：
 
 ```sh
 npm run check   # 全部子包类型检查（tsc --noEmit）
@@ -27,7 +27,7 @@ npm run test:tui          # TUI 单包测试（开发迭代常用，避免全包
 
 单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `npm run bench` 排版性能基准、`npm run smoke:pty` 真机冒烟）。
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 31 个包：TUI + 30 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 32 个包：TUI + 31 个插件）：
 
 ```sh
 scripts/install.sh          # profile 名默认 fff；幂等，--force 才覆盖
@@ -59,7 +59,7 @@ scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使
 
 任何改动（不论范围大小与种类：文档 / 代码 / 配置）默认走**标准流程**（本节各项）；**改动量少、逻辑简单直接**的小改动走**快速流程**——免条目与追踪文档（唯一记录是 commit message），验证不减（文档类 `format` + 自查 diff，代码类 `check` + `build` + `test`），提交前复核硬阈值（文件 ≤ 3 且增删合计 ≤ 50 行；不达标用三选一询问：转标准流程 / 维持快速流程 / 停手），完成后问一次是否提交；agent 判定后须先问用户（依据与选项写在正文，需要一次是非确认时用 `ask_user_question`；见 `docs/WORKFLOW-STANDARD.md` §5），同意才走，入口答否则不做处理、等用户新指示。详版见 `docs/WORKFLOW-STANDARD.md`（标准）与 `docs/WORKFLOW-FAST.md`（快速）。
 
-分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计；**轻量包豁免**，见「结构与约定」）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。模块 = TUI 与 30 个包；跨模块条目归项目级。
+分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计；**轻量包豁免**，见「结构与约定」）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。模块 = TUI 与 31 个包；跨模块条目归项目级。
 
 1. **开工前**：对应层 `BACKLOG.md` 里要有可执行条目。
 2. **开工时**：本次接取的**每个**条目标「进行中」（此后不再切状态）；建追踪文档——**一个任务可同时接取多个条目**，文件头按**条目标题**列出全部条目（**不写编号**），并先写「计划改动文件清单」。
@@ -74,7 +74,7 @@ scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使
 
 - `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 
-- 插件子包：`clock-base/`（定时器统一面：服务 `clock` 的 `now()` 与 `schedule(delayMs, cb)` / `interval(delayMs, cb)`，排期随调用方 fiber 卸载撤销、默认 `unref`，另带手控假时钟 `ManualClock`；与宿主 `cordis-plugin-timer` 并存、不包装）、`task-engine/`（任务执行引擎）、`session-paths/`（会话目录编码：复刻宿主的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用；纯函数不落盘，`ensureSessionDir` 是唯一写盘入口）、`memory-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`herdr-use/`（pane / tab 读写：把 herdr pane 当可控伪终端层驱动交互式命令，含 tab 三动作与会话 ↔ workspace 内部绑定）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`md-logic/`（Markdown 逻辑结构：节树 + 块 + 链接，带行范围；`replace` 按节整节替换 / 删除）、`md-map/`（文档版 code-map：锚点 / 引用 / 影响面 / 断链）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）、`rule-engine/`（规则触发的自动注入与消费者框架）、`behavior-correction/`（行为纠正：rule-engine 的 `tools/pre-execute` guard 消费者，在工具执行前拦下「该用专用工具却走 shell」的调用并指路；缺省为 bash 里跑 herdr → 拒绝并指向 `herdr_use`；服务缺席降级不拦）、`symbol-normalizer/`（符号规范：展示归一 + 回合审查）、`session-channel/`（跨会话消息通道：专用 Redis 实例 + unix socket）、`session-title-cutoff/`（会话标题 provider：all-prompts 触发不变，参考窗口改为最近一次 `git commit` 之后）、`command-template/`（模板体系：slash 命令模板 + 模板级模型选择，双源模板目录）、`ponytail/`（ponytail 模式：会话起始注入「懒资深工程师」决策阶梯；rule-engine 消费者；缺省开启，显式 `enabled: false` 关闭）、`md-table-check/`（回复正文表格列数检查：`assistant-text` 上的 rule-engine 消费者，不一致时注入汇总提示要求模型更正后重发；只报不改）、`script-interpreter/`（模型侧脚本解释器：以 `script_run` 工具在当前 worktree 内受控执行 Python 等脚本，首期只做单次执行、不保状态）、`agent-group/`（群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报，懒判定结算；依赖 session-channel 的 `delegate` / `taskStatus` 与 session-paths 的 `sessionDirFor`）、`auto-approve/`（审批链自动裁定：拒绝名单 → 会话指纹 → 只读类 → 白名单 → 沙箱升级 → LLM 灰区逐次裁定，未命中交 TUI 面板；审计双落点）、`background-daemon/`（面向会话投递的进程内调度：`/daemon` 子命令 + `daemon_task` 工具，记录落 memory-base）、`preference-analysis/`（偏好分析：`session/event` 观测三条信号 → 跨会话账簿（唯一状态源）→ 高置信自动写 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律候选待审）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
+- 插件子包：`clock-base/`（定时器统一面：服务 `clock` 的 `now()` 与 `schedule(delayMs, cb)` / `interval(delayMs, cb)`，排期随调用方 fiber 卸载撤销、默认 `unref`，另带手控假时钟 `ManualClock`；与宿主 `cordis-plugin-timer` 并存、不包装）、`task-engine/`（任务执行引擎）、`session-paths/`（会话目录编码：复刻宿主的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用；纯函数不落盘，`ensureSessionDir` 是唯一写盘入口）、`memory-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`herdr-use/`（终端读写：模型侧十个具名工具 `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`，一个终端 = 一个 tab + 自带 root pane，`terminal_id` 取 root pane id；前台 lane 继承父会话，后台 lane 落在 `dshbg` 会话且缺会话时自动拉起 headless server；另向进程内提供 `herdrUse` 服务面，与工具面共用同一 registry 与同一把锁）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑）、`ast-tools/`（AST 搜索/替换/大纲）、`md-logic/`（Markdown 逻辑结构：节树 + 块 + 链接，带行范围；`replace` 按节整节替换 / 删除）、`md-map/`（文档版 code-map：锚点 / 引用 / 影响面 / 断链）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）、`rule-engine/`（规则触发的自动注入与消费者框架）、`behavior-correction/`（行为纠正：rule-engine 的 `tools/pre-execute` guard 消费者，在工具执行前拦下「该用专用工具却走 shell」的调用并指路；缺省为 bash 里跑 herdr → 拒绝并指向 `herdr_run` / `herdr_text` / `herdr_key`（写类）与 `herdr_read` / `herdr_list`（查看类）；服务缺席降级不拦）、`symbol-normalizer/`（符号规范：展示归一 + 回合审查）、`session-channel/`（跨会话消息通道：专用 Redis 实例 + unix socket）、`session-title-cutoff/`（会话标题 provider：all-prompts 触发不变，参考窗口改为最近一次 `git commit` 之后）、`command-template/`（模板体系：slash 命令模板 + 模板级模型选择，双源模板目录）、`ponytail/`（ponytail 模式：会话起始注入「懒资深工程师」决策阶梯；rule-engine 消费者；缺省开启，显式 `enabled: false` 关闭）、`md-table-check/`（回复正文表格列数检查：`assistant-text` 上的 rule-engine 消费者，不一致时注入汇总提示要求模型更正后重发；只报不改）、`script-interpreter/`（模型侧脚本解释器：以 `script_run` 工具在当前 worktree 内受控执行 Python 等脚本，首期只做单次执行、不保状态）、`agent-group/`（群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报，懒判定结算；依赖 session-channel 的 `delegate` / `taskStatus` 与 session-paths 的 `sessionDirFor`）、`auto-approve/`（审批链自动裁定：拒绝名单 → 会话指纹 → 只读类 → 白名单 → 沙箱升级 → LLM 灰区逐次裁定，未命中交 TUI 面板；审计双落点）、`background-daemon/`（面向会话投递的进程内调度：`/daemon` 子命令 + `daemon_task` 工具，记录落 memory-base）、`preference-analysis/`（偏好分析：`session/event` 观测三条信号 → 跨会话账簿（唯一状态源）→ 高置信自动写 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律候选待审）、`coagent/`（长驻 agent 拉起与收尾：经 `herdrUse` 服务面建终端并在其交互 shell 里发 `fffdsh`，用 session-channel 的 `peers` 认领新会话，回执 `terminal_id` / `session_id`；只管拉起与收尾，派任务与编排分别归 session-channel 与 agent-group）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
 
 - 核心契约对齐官方 deepseek-harness：根目录 `docs/host/DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
 
@@ -90,7 +90,7 @@ scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使
 
 - 设计与机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`）；TUI 的渲染规格在 `TUI/docs/SPEC.md`。
 
-  **`DESIGN.md` 口径（2026-10-04 裁定）**：有独立架构与机制沉淀的包必须有 —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
+  **`DESIGN.md` 口径（2026-10-04 裁定）**：有独立架构与机制沉淀的包必须有 —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group` / `coagent`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
 
 ## Git
 
