@@ -2,8 +2,11 @@
  * tests/helpers.ts — 单测共用的假件（不依赖真机 herdr）
  *
  * 口径：所有对外部世界的访问都经依赖注入（runner / reader / 连接器 / 时钟 / 环境变量），
- * 故单测不需要 herdr 二进制、socket 或真 pane；真机验证见 `scripts/verify-herdr-use.mjs`
+ * 故单测不需要 herdr 二进制、socket 或真终端；真机验证见 `scripts/verify-herdr-use.mjs`
  * （人工跑、不进 CI）。
+ *
+ * lane 支持：`--session dshbg` 前缀在 fakeHerdr 内被剥离，状态按 herdr session 名隔离，
+ * 因此可以同时断言前台 / 后台两套 workspace 与终端。
  */
 
 import type { CliRunResult, HerdrRunner } from "../src/cli.ts";
@@ -14,14 +17,19 @@ import type {
   SocketConnector,
   SocketResponse,
 } from "../src/socket.ts";
-import { PaneRegistry } from "../src/registry.ts";
+import { TerminalRegistry } from "../src/registry.ts";
 import { resolveConfig } from "../src/types.ts";
-import type { HerdrUseConfig, ResolvedConfig } from "../src/types.ts";
+import type { HerdrUseConfig, Lane, ResolvedConfig } from "../src/types.ts";
 import type { SessionContext } from "../src/workspace.ts";
+import type { DispatchDeps } from "../src/actions.ts";
+import type { GuardCheck } from "../src/policy.ts";
+
+/** 不产出命令文本的 guard 检查器（缺省注入用；等价于「guard 缺失、fail-open」）。 */
+export const passGuard = (): GuardCheck => ({ outcome: "pass" });
 
 /** 记录型 fake runner：按调用顺序记录 argv，按注入的响应序列返回。 */
 export interface FakeRunner extends HerdrRunner {
-  /** 已执行的命令（每项为 argv 数组）。 */
+  /** 已执行的命令（每项为 argv 数组，含 lane 前缀）。 */
   calls: string[][];
   /** 每项调用收到的超时。 */
   timeouts: number[];
@@ -205,15 +213,12 @@ export function fakeConnector(responses: SocketResponse[]): FakeConnector {
 
 /** 注册表 + 配置的快捷构造。 */
 export function setup(config: HerdrUseConfig = {}): {
-  registry: PaneRegistry;
+  registry: TerminalRegistry;
   config: ResolvedConfig;
 } {
   const resolved = resolveConfig(config);
-  return { registry: new PaneRegistry(resolved.label), config: resolved };
+  return { registry: new TerminalRegistry(resolved.label), config: resolved };
 }
-
-/** 不产出命令文本的 guard 检查器（缺省注入用；等价于「guard 缺失、fail-open」）。 */
-export const passGuard = (): { outcome: "pass" } => ({ outcome: "pass" });
 
 /** 单测会话（label 会算成 `proj/abcd1234`）。 */
 export const fakeSession: SessionContext = {
@@ -227,6 +232,19 @@ export function fakeExec(session: SessionContext = fakeSession): {
 } {
   return {
     agent: { session: { id: session.id, header: { cwd: session.cwd } } },
+  };
+}
+
+/** 组装 DispatchDeps（默认 fakeHerdr + fake reader + passGuard）。 */
+export function makeDeps(overrides: Partial<DispatchDeps> = {}): DispatchDeps {
+  const { registry, config } = setup();
+  return {
+    config,
+    runner: fakeRunner(),
+    readerFor: () => fakeReader([readOk("")]),
+    registry,
+    guardCheck: passGuard,
+    ...overrides,
   };
 }
 
@@ -244,8 +262,6 @@ export interface FakeHerdrOptions {
   workspaces?: Array<Record<string, unknown>>;
   tabs?: Array<Record<string, unknown>>;
   panes?: Array<Record<string, unknown>>;
-  /** `pane layout` 返回的宽高（缺省 160x40，即向右切）。 */
-  layout?: { width: number; height: number };
   /** 先于内建处理的自定义响应（返回 undefined 表示交给内建逻辑）。 */
   override?: (
     args: string[],
@@ -253,18 +269,28 @@ export interface FakeHerdrOptions {
   ) => CliRunResult | undefined;
 }
 
-/** 假 herdr 服务端（记录 argv；workspace / tab / pane 的增删查都按真机信封形状回）。 */
+/** 假 herdr 服务端（记录 argv；按 herdr session 名隔离状态；tab / pane 增删查按真机信封回）。 */
 export function fakeHerdr(options: FakeHerdrOptions = {}): {
   runner: FakeRunner;
   state: FakeHerdrState;
+  stateFor(sessionName?: string): FakeHerdrState;
 } {
-  const state: FakeHerdrState = {
+  const states = new Map<string, FakeHerdrState>();
+  const fresh = (): FakeHerdrState => ({
     workspaces: [...(options.workspaces ?? [])],
     tabs: [...(options.tabs ?? [])],
     panes: [...(options.panes ?? [])],
     seq: 0,
+  });
+  const stateFor = (sessionName?: string): FakeHerdrState => {
+    const key = sessionName ?? "default";
+    const existing = states.get(key);
+    if (existing !== undefined) return existing;
+    const created = fresh();
+    states.set(key, created);
+    return created;
   };
-  const next = (): number => {
+  const next = (state: FakeHerdrState): number => {
     state.seq += 1;
     return state.seq;
   };
@@ -273,9 +299,12 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
     return index === -1 ? undefined : args[index + 1];
   };
   const runner = fakeRunner((args) => {
-    const custom = options.override?.(args, state);
+    const sessionName = args[0] === "--session" ? args[1] : undefined;
+    const argv = sessionName === undefined ? args : args.slice(2);
+    const state = stateFor(sessionName);
+    const custom = options.override?.(argv, state);
     if (custom !== undefined) return custom;
-    const [kind, verb] = args;
+    const [kind, verb] = argv;
     if (kind === "workspace" && verb === "list") {
       return okEnvelope({
         type: "workspace_list",
@@ -283,9 +312,9 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
       });
     }
     if (kind === "workspace" && verb === "create") {
-      const id = `wT${next()}`;
-      const label = flagValue(args, "--label") ?? "ws";
-      const cwd = flagValue(args, "--cwd");
+      const id = `wT${next(state)}`;
+      const label = flagValue(argv, "--label") ?? "ws";
+      const cwd = flagValue(argv, "--cwd");
       const tabId = `${id}:t1`;
       const paneId = `${id}:p1`;
       state.workspaces.push({
@@ -319,7 +348,7 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
       });
     }
     if (kind === "workspace" && verb === "close") {
-      const id = args[2] ?? "";
+      const id = argv[2] ?? "";
       state.workspaces = state.workspaces.filter(
         (item) => item.workspace_id !== id,
       );
@@ -328,60 +357,15 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
       return okEnvelope({ type: "workspace_close" });
     }
     if (kind === "pane" && verb === "list") {
-      const workspace = flagValue(args, "--workspace");
+      const workspace = flagValue(argv, "--workspace");
       const panes =
         workspace === undefined
           ? state.panes
           : state.panes.filter((item) => item.workspace_id === workspace);
       return okEnvelope({ type: "pane_list", panes });
     }
-    if (kind === "pane" && verb === "layout") {
-      const layout = options.layout ?? { width: 160, height: 40 };
-      return okEnvelope({
-        layout: { type: "pane_layout", area: layout },
-      });
-    }
-    if (kind === "pane" && verb === "split") {
-      const targetId = args[2] ?? "";
-      const target = state.panes.find((item) => item.pane_id === targetId);
-      if (target === undefined) {
-        return errorEnvelope("pane_not_found", `pane ${targetId} not found`);
-      }
-      const paneId = `${String(target.workspace_id)}:p${next()}`;
-      state.panes.push({
-        pane_id: paneId,
-        workspace_id: target.workspace_id,
-        tab_id: target.tab_id,
-        focused: false,
-        ...(flagValue(args, "--cwd") === undefined
-          ? {}
-          : { cwd: flagValue(args, "--cwd") }),
-      });
-      return okEnvelope({
-        type: "pane_split",
-        pane: {
-          pane_id: paneId,
-          workspace_id: target.workspace_id,
-          tab_id: target.tab_id,
-        },
-      });
-    }
-    if (kind === "pane" && verb === "rename") {
-      const paneId = args[2] === "--clear" ? (args[3] ?? "") : (args[2] ?? "");
-      const pane = state.panes.find((item) => item.pane_id === paneId);
-      if (pane !== undefined) {
-        if (args[2] === "--clear") delete pane.label;
-        else if (args[3] !== undefined) pane.label = args[3];
-      }
-      return okEnvelope({ type: "pane_rename" });
-    }
-    if (kind === "pane" && verb === "close") {
-      const id = args[2] ?? "";
-      state.panes = state.panes.filter((item) => item.pane_id !== id);
-      return okEnvelope({ type: "pane_close" });
-    }
     if (kind === "pane" && verb === "process-info") {
-      const paneId = flagValue(args, "--pane") ?? "";
+      const paneId = flagValue(argv, "--pane") ?? "";
       return okEnvelope({
         type: "pane_process_info",
         process_info: {
@@ -391,8 +375,30 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
         },
       });
     }
+    if (kind === "pane" && verb === "rename") {
+      const paneId = argv[2] ?? "";
+      const pane = state.panes.find((item) => item.pane_id === paneId);
+      if (pane !== undefined && argv[3] !== undefined) pane.label = argv[3];
+      return okEnvelope({ type: "pane_rename" });
+    }
+    if (kind === "pane" && verb === "send-text") {
+      return okEnvelope({ type: "pane_send_text" });
+    }
+    if (kind === "pane" && verb === "send-keys") {
+      return okEnvelope({ type: "pane_send_keys" });
+    }
+    if (kind === "pane" && verb === "run") {
+      return okEnvelope({ type: "pane_run" });
+    }
+    if (kind === "pane" && verb === "wait-output") {
+      return okEnvelope({
+        type: "output_matched",
+        matched_line: "ready",
+        read: { pane_id: argv[2] ?? "", text: "ready\n" },
+      });
+    }
     if (kind === "tab" && verb === "list") {
-      const workspace = flagValue(args, "--workspace");
+      const workspace = flagValue(argv, "--workspace");
       const tabs =
         workspace === undefined
           ? state.tabs
@@ -400,11 +406,11 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
       return okEnvelope({ type: "tab_list", tabs });
     }
     if (kind === "tab" && verb === "create") {
-      const workspaceId = flagValue(args, "--workspace") ?? "";
-      const label = flagValue(args, "--label") ?? "tab";
-      const cwd = flagValue(args, "--cwd");
-      const tabId = `${workspaceId}:t${next()}`;
-      const paneId = `${workspaceId}:p${next()}`;
+      const workspaceId = flagValue(argv, "--workspace") ?? "";
+      const label = flagValue(argv, "--label") ?? "tab";
+      const cwd = flagValue(argv, "--cwd");
+      const tabId = `${workspaceId}:t${next(state)}`;
+      const paneId = `${workspaceId}:p${next(state)}`;
       const number = state.tabs.length + 1;
       state.tabs.push({
         tab_id: tabId,
@@ -421,10 +427,6 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
         focused: false,
         ...(cwd === undefined ? {} : { cwd }),
       });
-      const workspace = state.workspaces.find(
-        (item) => item.workspace_id === workspaceId,
-      );
-      if (workspace !== undefined) workspace.active_tab_id = tabId;
       return okEnvelope({
         type: "tab_create",
         tab: { tab_id: tabId, workspace_id: workspaceId, label, number },
@@ -435,23 +437,51 @@ export function fakeHerdr(options: FakeHerdrOptions = {}): {
         },
       });
     }
+    if (kind === "tab" && verb === "rename") {
+      const tabId = argv[2] ?? "";
+      const tab = state.tabs.find((item) => item.tab_id === tabId);
+      if (tab !== undefined && argv[3] !== undefined) tab.label = argv[3];
+      return okEnvelope({ type: "tab_rename" });
+    }
     if (kind === "tab" && verb === "close") {
-      const id = args[2] ?? "";
-      const removed = state.tabs.find((item) => item.tab_id === id);
+      const id = argv[2] ?? "";
       state.tabs = state.tabs.filter((item) => item.tab_id !== id);
       state.panes = state.panes.filter((item) => item.tab_id !== id);
-      const workspace = state.workspaces.find(
-        (item) =>
-          removed !== undefined && item.workspace_id === removed.workspace_id,
-      );
-      if (workspace !== undefined && workspace.active_tab_id === id) {
-        workspace.active_tab_id = state.tabs.find(
-          (item) => item.workspace_id === workspace.workspace_id,
-        )?.tab_id;
-      }
       return okEnvelope({ type: "tab_close" });
     }
     return okEnvelope({});
   });
-  return { runner, state };
+  return { runner, state: stateFor(), stateFor };
+}
+
+/** lane 断言辅助：取某次调用去掉 lane 前缀后的 argv。 */
+export function argvOf(call: string[]): string[] {
+  return call[0] === "--session" ? call.slice(2) : call;
+}
+
+/** 是否带 `--session dshbg` 前缀。 */
+export function isBackgroundCall(call: string[]): boolean {
+  return call[0] === "--session" && call[1] === "dshbg";
+}
+
+/** 一个合法的登记终端（测试用）。 */
+export function registerTerminal(
+  registry: TerminalRegistry,
+  overrides: {
+    paneId?: string;
+    tabId?: string;
+    lane?: Lane;
+    sessionId?: string;
+    workspaceId?: string;
+    label?: string;
+  } = {},
+) {
+  return registry.register({
+    paneId: overrides.paneId ?? "wT1:p10",
+    tabId: overrides.tabId ?? "wT1:t10",
+    lane: overrides.lane ?? "foreground",
+    sessionId: overrides.sessionId ?? fakeSession.id,
+    workspaceId: overrides.workspaceId ?? "wT1",
+    ...(overrides.label === undefined ? {} : { label: overrides.label }),
+  });
 }
