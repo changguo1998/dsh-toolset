@@ -1,9 +1,15 @@
-// src/app/config-edit.ts — /config 命令的纯逻辑（解析 / 点路径 / 格式化，无副作用）
+// src/app/config-edit.ts — /config 命令的纯逻辑（解析 / 点路径 / 值校验 / 格式化，无副作用）
 //
 // 编辑动作本身经 adapter 交给宿主 config-editor（`configEditor.edit()`：完整候选值校验 →
 // 原子写 profile patch → 与 profile 变更 / HMR 串行 → 经 Loader 立即应用）；本模块只做
 // 决策与文本，便于单测。
+//
+// 值校验落地在 `change` 回调里（`configEditor.edit()` 在写盘前调用它）：抛错即中止，
+// profile patch 保持原样。宿主的 `resolveConfig(fiber.runtime, next)` 只对**声明了运行时
+// schema** 的插件生效（`runtime.Config` 为标准 schema）；本仓插件都按契约把 `Config` 写成
+// TS 类型别名（无运行时 schema），故 TUI 侧用「已知键类型表 + 既有值类别兜底」补位。
 
+import { isDeepStrictEqual } from "node:util";
 import type { ConfigEntrySummary } from "./adapter/types.ts";
 
 /** 一条 `/config` 命令的决策结果（App 侧据此调 adapter 与 notice） */
@@ -246,4 +252,155 @@ export function formatConfigDetail(entry: ConfigEntrySummary): string {
     }
   }
   return lines.join("\n");
+}
+
+// ---------- 写入前值校验 ----------
+
+/** 配置值的 JSON 类别（`other` = 不是可写入的 JSON 值，正常 CLI 路径不可达） */
+export type ConfigValueKind =
+  "number" | "string" | "boolean" | "array" | "object" | "null" | "other";
+
+/** 已知键的期望类型：单类别，或字符串枚举 */
+export type ConfigKeyType =
+  | { kind: "number" | "boolean" | "string" | "array" | "object" }
+  | { kind: "enum"; values: readonly string[] };
+
+/**
+ * 已知键类型表（键 = `条目 id + 点路径`）。宿主对无运行时 schema 的插件不做任何类型校验，
+ * 故这里给「类型写错会污染插件运行期」的键补一道闸门。
+ *
+ * 收录口径：只登记**本仓自己声明**的键（`tui`，与 `DshTuiConfig` 同源）与真机验收暴露的
+ * `output-compress` 键；表外键交给「既有值类别兜底」（见 `validateConfigSetValue`）。
+ * 有运行时 schema 的插件由宿主 `resolveConfig` 校验，**不要**再登记（否则 TUI 判断会盖过
+ * 权威 schema）；新增键 = 表里加一行。
+ * 漂移风险：插件改字段类型 / 改名后本表不会自动跟随（类型错误 = 误拒合法值，可见且可改）；
+ * 权威修法是各插件导出运行时 schema（跨包，另行立项）。
+ */
+export const CONFIG_KEY_TYPES: Readonly<Record<string, ConfigKeyType>> = {
+  "tui.cwd": { kind: "string" },
+  "tui.approvalTimeoutMs": { kind: "number" },
+  "tui.provider": { kind: "string" },
+  "tui.model": { kind: "string" },
+  "tui.reasoningEffort": { kind: "string" },
+  "tui.theme": { kind: "enum", values: ["dark", "light"] },
+  "tui.messageGutter": { kind: "number" },
+  "tui.toolBootstrap": { kind: "boolean" },
+  "output-compress.sessionDir": { kind: "string" },
+  "output-compress.minBytes": { kind: "number" },
+  "output-compress.maxSourceBytes": { kind: "number" },
+};
+
+/** 校验失败（App 侧据此用「值校验失败：」而非「编辑失败：」前缀） */
+export class ConfigValueError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigValueError";
+  }
+}
+
+/** 值的 JSON 类别（非 JSON 值 → `other`；CLI 只产出 JSON 六类，故该分支仅防御性存在） */
+export function configValueKind(value: unknown): ConfigValueKind {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  switch (typeof value) {
+    case "number":
+      return "number";
+    case "string":
+      return "string";
+    case "boolean":
+      return "boolean";
+    case "object":
+      return "object";
+    default:
+      return "other";
+  }
+}
+
+/** `!!js` 表达式在 config 里的占位形态（`{ __jsExpr: "…" }`）：类型未知，不参与类别比对 */
+function isJsExpression(value: unknown): boolean {
+  return (
+    isPlainObject(value) &&
+    typeof value["__jsExpr"] === "string" &&
+    Object.keys(value).length === 1
+  );
+}
+
+/** 读点路径上的既有值：路径任一层缺失 / 不是对象 → `found:false` */
+export function readConfigPath(
+  config: Record<string, unknown> | undefined,
+  path: readonly string[],
+): { found: boolean; value?: unknown } {
+  let cursor: unknown = config;
+  for (const key of path) {
+    if (!isPlainObject(cursor) || !Object.hasOwn(cursor, key)) {
+      return { found: false };
+    }
+    cursor = cursor[key];
+  }
+  return { found: true, value: cursor };
+}
+
+/**
+ * 写入前的值校验：类型表命中 → 按表判定（含字符串枚举）；表外键 → 用既有值
+ * （本行 override 优先，其次 inherited）的类别做一致性判断；两处都无信息 → 放行。
+ * `layers` 传 `[current, inherited]`，即宿主 `change(current, inherited)` 的两个入参。
+ */
+export function validateConfigSetValue(
+  id: string,
+  path: readonly string[],
+  value: unknown,
+  layers: readonly (Record<string, unknown> | undefined)[],
+): { ok: true } | { ok: false; reason: string } {
+  const key = `${id}.${path.join(".")}`;
+  const kind = configValueKind(value);
+  if (kind === "other") {
+    return { ok: false, reason: `${key} 的值不是可写入的 JSON 值` };
+  }
+  const declared = CONFIG_KEY_TYPES[key];
+  if (declared !== undefined) {
+    if (declared.kind === "enum") {
+      if (kind !== "string" || !declared.values.includes(value as string)) {
+        return {
+          ok: false,
+          reason: `${key} 只接受 ${declared.values.join(" / ")}，收到 ${formatConfigValue(value)}`,
+        };
+      }
+      return { ok: true };
+    }
+    if (kind !== declared.kind) {
+      return {
+        ok: false,
+        reason: `${key} 期望 ${declared.kind}，收到 ${kind}（${formatConfigValue(value)}）`,
+      };
+    }
+    return { ok: true };
+  }
+  for (const layer of layers) {
+    const hit = readConfigPath(layer, path);
+    if (!hit.found) continue;
+    // null / `!!js` 表达式 / 非 JSON 的既有值不提供类型信息
+    if (isJsExpression(hit.value)) return { ok: true };
+    const existing = configValueKind(hit.value);
+    if (existing === "null" || existing === "other") return { ok: true };
+    if (existing !== kind) {
+      return {
+        ok: false,
+        reason: `${key} 既有值的类型是 ${existing}，不接受 ${kind}（${formatConfigValue(value)}）`,
+      };
+    }
+    return { ok: true };
+  }
+  return { ok: true };
+}
+
+/**
+ * 宿主写回归一化的触发条件：候选值与本层 inherited 全等时，`configEditor.edit()` 会删掉本行
+ * `config`，并在行内只剩 id / name 时**连整行（含注释）一起删除**（`dsh-config-editor` 的
+ * `edit()` 里 `isDeepStrictEqual(next, inherited)` 分支）。TUI 只能预判并提示，无法阻止。
+ */
+export function configsEqual(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): boolean {
+  return isDeepStrictEqual(a, b);
 }

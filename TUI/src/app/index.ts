@@ -127,12 +127,15 @@ import {
 export { formatModelCatalog, resolveModelSpec } from "./commands.ts";
 import {
   CONFIG_USAGE,
+  ConfigValueError,
+  configsEqual,
   deleteConfigPath,
   formatConfigDetail,
   formatConfigEntries,
   formatConfigValue,
   parseConfigCommand,
   setConfigPath,
+  validateConfigSetValue,
 } from "./config-edit.ts";
 import {
   buildQuestionAnswers,
@@ -4917,6 +4920,8 @@ export class App {
 
   /** `/config`：插件条目配置编辑面（config-editor）。全部写入经 `configEditor.edit()`：
    *  宿主负责完整候选值校验、原子写 profile patch、与 HMR 串行、更高层覆盖拒绝。
+   *  宿主的校验只对有运行时 schema 的插件生效，故 set 在 `change` 回调里先过 TUI 侧值校验
+   *  （抛错 = 宿主中止在写盘前，patch 保持原样）。
    *  服务缺失 → 只提示不可用（条目数据只此一个来源，不做假只读列表）。 */
   private handleConfigCommand(line: string): void {
     const adapter = this.deps.adapter;
@@ -4972,39 +4977,70 @@ export class App {
     }
     // unset 命中「键不存在」时宿主那边的 config 原样返回：写入是空操作，提示单独区分
     let changed = true;
+    // 宿主写回归一化：候选值与 inherited 全等 → 本行 config（乃至整行与注释）被删
+    let collapsesRow = false;
     void edit
-      .call(adapter, decision.id, (current) => {
+      .call(adapter, decision.id, (current, inherited) => {
         if (decision.kind === "set") {
+          // 写盘前拦截：宿主对无运行时 schema 的插件不校验类型（缺陷 1）
+          const verdict = validateConfigSetValue(
+            decision.id,
+            decision.path,
+            decision.value,
+            [current, inherited],
+          );
+          if (!verdict.ok) throw new ConfigValueError(verdict.reason);
           const out = setConfigPath(current, decision.path, decision.value);
           if (!out.ok) throw new Error(out.reason);
+          collapsesRow = configsEqual(out.config, inherited);
           return out.config;
         }
         const out = deleteConfigPath(current, decision.path);
         changed = out.changed;
+        collapsesRow = configsEqual(out.config, inherited);
         return out.config;
       })
       .then(
         () => {
           const key = decision.path.join(".");
           if (decision.kind === "set") {
+            const base = `已写入 ${decision.id}: ${key} = ${formatConfigValue(decision.value)}`;
             this.notice(
-              `已写入 ${decision.id}: ${key} = ${formatConfigValue(decision.value)}`,
-              "success",
+              collapsesRow
+                ? `${base}（等于 inherited；宿主归一化删掉了本行 override 与其注释，条目仍在）`
+                : base,
+              collapsesRow ? "warn" : "success",
+            );
+            return;
+          }
+          if (!changed) {
+            this.notice(
+              `键 ${key} 在 ${decision.id} 的本层 override 里不存在，未改动`,
+              "info",
+            );
+            return;
+          }
+          const base = `已删除 ${decision.id}: ${key}（该键回到继承值）`;
+          this.notice(
+            collapsesRow
+              ? `${base}；本行已无 override，宿主归一化连同注释删掉了该 profile 行（条目仍由 bundle 的 insert 提供，生效值即 inherited）`
+              : base,
+            collapsesRow ? "warn" : "success",
+          );
+        },
+        (err: unknown) => {
+          if (err instanceof ConfigValueError) {
+            this.notice(
+              `值校验失败：${err.message}；未写入 profile patch`,
+              "error",
             );
             return;
           }
           this.notice(
-            changed
-              ? `已删除 ${decision.id}: ${key}（该键回到继承值）`
-              : `键 ${key} 在 ${decision.id} 的本层 override 里不存在，未改动`,
-            changed ? "success" : "info",
-          );
-        },
-        (err: unknown) =>
-          this.notice(
             `编辑失败：${err instanceof Error ? err.message : String(err)}`,
             "error",
-          ),
+          );
+        },
       );
   }
 

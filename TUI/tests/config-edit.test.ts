@@ -10,6 +10,9 @@ import assert from "node:assert/strict";
 import { App } from "../src/app/index.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import {
+  CONFIG_KEY_TYPES,
+  configsEqual,
+  configValueKind,
   deleteConfigPath,
   formatConfigDetail,
   formatConfigEntries,
@@ -17,7 +20,9 @@ import {
   parseConfigCommand,
   parseConfigKeyPath,
   parseConfigValue,
+  readConfigPath,
   setConfigPath,
+  validateConfigSetValue,
 } from "../src/app/config-edit.ts";
 import type { ConfigEntrySummary } from "../src/app/adapter/types.ts";
 import type {
@@ -77,6 +82,12 @@ class FakeConfigAdapter implements DshAdapter {
   configEntries:
     (() => Promise<readonly ConfigEntrySummary[] | undefined>) | undefined =
     async () => this.entriesResult;
+  /** 宿主 `edit()` 的入参快照：本行 override（current）与去掉本行后的组合值（inherited） */
+  current: Record<string, unknown> = { threshold: 4000, theme: "dark" };
+  inherited: Record<string, unknown> = { threshold: 4000 };
+  /** 模拟 profile patch：只有 change 成功返回才会被改写（抛错 = 不写盘） */
+  patch: Record<string, unknown> = { threshold: 4000, theme: "dark" };
+  writes = 0;
   editCalls: { id: string; config: Record<string, unknown> }[] = [];
   editError: Error | undefined;
   editConfigEntry:
@@ -88,10 +99,14 @@ class FakeConfigAdapter implements DshAdapter {
         ) => Record<string, unknown>,
       ) => Promise<void>)
     | undefined = async (id, change) => {
-    const current: Record<string, unknown> = { threshold: 4000, theme: "dark" };
-    const next = change(current, { threshold: 4000 });
-    this.editCalls.push({ id, config: next });
+    const next = change(
+      structuredClone(this.current),
+      structuredClone(this.inherited),
+    );
     if (this.editError) throw this.editError;
+    this.patch = next;
+    this.writes++;
+    this.editCalls.push({ id, config: next });
   };
   emit(e: DshEvent): void {
     for (const cb of this.cbs) cb(e);
@@ -136,6 +151,11 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 function frames(renderer: FakeRenderer): string {
   return renderer.lastRender.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+/** 去掉换行、空白与右侧边框竖线后的整屏文本：长 notice 会被面板折行，逐字断言用这个 */
+function flatFrames(renderer: FakeRenderer): string {
+  return frames(renderer).replace(/[│┃|]/g, "").replace(/\s+/g, "");
 }
 
 function makeApp(adapter: FakeConfigAdapter): {
@@ -280,6 +300,94 @@ test("formatConfigDetail：override 与 inherited 分节展示", () => {
   assert.equal(formatConfigValue(undefined), "undefined");
 });
 
+// ---------- 写入前值校验 ----------
+
+test("configValueKind / readConfigPath：类别判定与点路径读取", () => {
+  assert.equal(configValueKind(1), "number");
+  assert.equal(configValueKind("x"), "string");
+  assert.equal(configValueKind(false), "boolean");
+  assert.equal(configValueKind([1]), "array");
+  assert.equal(configValueKind({}), "object");
+  assert.equal(configValueKind(null), "null");
+  assert.equal(
+    configValueKind(() => 1),
+    "other",
+  );
+  assert.deepEqual(readConfigPath({ a: { b: 2 } }, ["a", "b"]), {
+    found: true,
+    value: 2,
+  });
+  assert.equal(readConfigPath({ a: 1 }, ["a", "b"]).found, false);
+  assert.equal(readConfigPath(undefined, ["a"]).found, false);
+});
+
+test("validateConfigSetValue：类型表命中 → 按表拒绝 / 放行（number 与枚举）", () => {
+  const bad = validateConfigSetValue("output-compress", ["minBytes"], "abc", [
+    {},
+    {},
+  ]);
+  assert.equal(bad.ok, false);
+  if (!bad.ok) assert.ok(bad.reason.includes("期望 number"), bad.reason);
+  assert.equal(
+    validateConfigSetValue("output-compress", ["minBytes"], 32768, [{}, {}]).ok,
+    true,
+  );
+  const theme = validateConfigSetValue("tui", ["theme"], "blue", [{}, {}]);
+  assert.equal(theme.ok, false);
+  if (!theme.ok) assert.ok(theme.reason.includes("dark / light"), theme.reason);
+  assert.equal(
+    validateConfigSetValue("tui", ["theme"], "light", [{}, {}]).ok,
+    true,
+  );
+  // 表里登记的顶层键不被子路径误用
+  assert.equal(
+    validateConfigSetValue("tui", ["theme", "x"], "blue", [{}, {}]).ok,
+    true,
+  );
+});
+
+test("validateConfigSetValue：表外键用既有值类别兜底，无信息则放行", () => {
+  const fromCurrent = validateConfigSetValue("tui", ["custom"], "abc", [
+    { custom: 5 },
+    {},
+  ]);
+  assert.equal(fromCurrent.ok, false);
+  if (!fromCurrent.ok)
+    assert.ok(
+      fromCurrent.reason.includes("既有值的类型是 number"),
+      fromCurrent.reason,
+    );
+  const fromInherited = validateConfigSetValue("tui", ["custom"], "abc", [
+    {},
+    { custom: false },
+  ]);
+  assert.equal(fromInherited.ok, false);
+  assert.equal(
+    validateConfigSetValue("tui", ["custom"], "abc", [{}, {}]).ok,
+    true,
+  );
+  assert.equal(
+    validateConfigSetValue("tui", ["custom"], "abc", [{ custom: null }, {}]).ok,
+    true,
+    "null 既有值不提供类型信息",
+  );
+  assert.equal(
+    validateConfigSetValue("tui", ["custom"], "abc", [
+      { custom: { __jsExpr: "process.env.X" } },
+      {},
+    ]).ok,
+    true,
+    "!!js 表达式既有值不提供类型信息",
+  );
+});
+
+test("configsEqual：与宿主归一化判据一致（深比较）", () => {
+  assert.equal(configsEqual({ a: 1 }, { a: 1 }), true);
+  assert.equal(configsEqual({ a: 1 }, { a: "1" }), false);
+  assert.equal(configsEqual({ a: { b: [1] } }, { a: { b: [1] } }), true);
+  assert.ok(CONFIG_KEY_TYPES["output-compress.minBytes"] !== undefined);
+});
+
 // ---------- App 层 ----------
 
 test("/config：列表 → info notice 含条目 id", async () => {
@@ -387,5 +495,119 @@ test("/config set：缺参 → usage 提示（不调 adapter）", async () => {
   await tick();
   assert.equal(adapter.editCalls.length, 0);
   assert.ok(frames(renderer).includes("set 需要"), frames(renderer));
+  app.dispose();
+});
+
+test("/config set：无效值被拒且 profile patch 不变（缺陷 1）", async () => {
+  const adapter = new FakeConfigAdapter();
+  adapter.current = {};
+  adapter.inherited = {};
+  adapter.patch = {};
+  const { renderer, app } = makeApp(adapter);
+  typeAndEnter(renderer, "/config set output-compress minBytes=abc");
+  await tick();
+  await tick();
+  assert.equal(adapter.writes, 0, "写盘一次的计数不动");
+  assert.deepEqual(
+    adapter.patch,
+    {},
+    "patch 保持原样（change 抛错 → 宿主不写盘）",
+  );
+  assert.ok(frames(renderer).includes("值校验失败："), frames(renderer));
+  assert.ok(
+    flatFrames(renderer).includes("output-compress.minBytes期望number"),
+    frames(renderer),
+  );
+  assert.ok(
+    flatFrames(renderer).includes("未写入profilepatch"),
+    frames(renderer),
+  );
+  app.dispose();
+});
+
+test("/config set：类型正确的值正常写入", async () => {
+  const adapter = new FakeConfigAdapter();
+  adapter.current = {};
+  adapter.inherited = {};
+  adapter.patch = {};
+  const { renderer, app } = makeApp(adapter);
+  typeAndEnter(renderer, "/config set output-compress minBytes=32768");
+  await tick();
+  await tick();
+  assert.equal(adapter.writes, 1);
+  assert.deepEqual(adapter.patch, { minBytes: 32768 });
+  assert.ok(
+    frames(renderer).includes("已写入 output-compress: minBytes = 32768"),
+    frames(renderer),
+  );
+  app.dispose();
+});
+
+test("/config set：表外键的类型不一致被既有值拦下", async () => {
+  const adapter = new FakeConfigAdapter();
+  adapter.current = { threshold: 4000 };
+  adapter.inherited = {};
+  adapter.patch = { threshold: 4000 };
+  const { renderer, app } = makeApp(adapter);
+  typeAndEnter(renderer, "/config set tui threshold=abc");
+  await tick();
+  await tick();
+  assert.equal(adapter.writes, 0);
+  assert.deepEqual(adapter.patch, { threshold: 4000 });
+  assert.ok(
+    flatFrames(renderer).includes("既有值的类型是number"),
+    frames(renderer),
+  );
+  app.dispose();
+});
+
+test("/config unset：删掉最后一个 override 键 → 提示宿主归一化会删行（缺陷 2）", async () => {
+  const adapter = new FakeConfigAdapter();
+  adapter.current = { minBytes: 32768 };
+  adapter.inherited = {};
+  adapter.patch = { minBytes: 32768 };
+  const { renderer, app } = makeApp(adapter);
+  typeAndEnter(renderer, "/config unset output-compress minBytes");
+  await tick();
+  await tick();
+  // TUI 侧候选值只删键（条目保留是宿主侧行为，删行由宿主归一化决定）
+  assert.deepEqual(adapter.patch, {});
+  assert.ok(
+    frames(renderer).includes("已删除 output-compress: minBytes"),
+    frames(renderer),
+  );
+  assert.ok(
+    flatFrames(renderer).includes("宿主归一化连同注释删掉了该profile行"),
+    flatFrames(renderer),
+  );
+  app.dispose();
+});
+
+test("/config unset：仍有其它 override 键 → 只提示回到继承值", async () => {
+  const adapter = new FakeConfigAdapter();
+  adapter.current = { minBytes: 32768, sessionDir: "/tmp/x" };
+  adapter.inherited = {};
+  adapter.patch = { minBytes: 32768, sessionDir: "/tmp/x" };
+  const { renderer, app } = makeApp(adapter);
+  typeAndEnter(renderer, "/config unset output-compress minBytes");
+  await tick();
+  await tick();
+  assert.deepEqual(adapter.patch, { sessionDir: "/tmp/x" });
+  assert.ok(frames(renderer).includes("该键回到继承值"), frames(renderer));
+  assert.equal(flatFrames(renderer).includes("宿主归一化"), false);
+  app.dispose();
+});
+
+test("/config set：值等于 inherited → 提示宿主归一化删掉本行 override", async () => {
+  const adapter = new FakeConfigAdapter();
+  adapter.current = {};
+  adapter.inherited = { minBytes: 16384 };
+  adapter.patch = {};
+  const { renderer, app } = makeApp(adapter);
+  typeAndEnter(renderer, "/config set output-compress minBytes=16384");
+  await tick();
+  await tick();
+  assert.ok(flatFrames(renderer).includes("等于inherited"), frames(renderer));
+  assert.ok(flatFrames(renderer).includes("宿主归一化"), frames(renderer));
   app.dispose();
 });
