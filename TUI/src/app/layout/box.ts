@@ -8,11 +8,29 @@ import type { ColorName } from "../../renderer/theme.ts";
 
 /** 节点公共属性（Box 与 Paragraph 共享；除 children/direction/text 外） */
 export interface NodeBase {
-  /** 尺寸意图：覆盖父分配（缺省由父容器分配） */
-  width?: Width;
-  /** 高度意图：分区固定行高 / Spacer 用；普通段落缺省由内容折行决定 */
-  height?: Height;
-  /** 行级对齐（缺省 left）；仅 width 为 fixed/fill 时有效 */
+  /** 宽度类型（缺省 auto）；widthLocked 为 true 时不改写 width */
+  widthStyle?: WidthStyle;
+  /** 宽度下限（auto / fill） */
+  widthMin?: number;
+  /** 宽度上限（auto / fill） */
+  widthMax?: number;
+  /** 固定列数（fixed） */
+  widthFixed?: number;
+  /** 容器分数（ratio） */
+  widthRatio?: number;
+  /** 实际宽度：measure 写自然宽，allocate 写最终宽；widthLocked 时冻结 */
+  width?: number;
+  /** true = width 不再被测量 / 分配改写 */
+  widthLocked?: boolean;
+  /** 高度类型（缺省 auto = 内容折行决定） */
+  heightStyle?: HeightStyle;
+  /** 固定行数（fixed） */
+  heightFixed?: number;
+  /** 实际高度：measure / allocate 写入；heightLocked 时冻结 */
+  height?: number;
+  /** true = height 不再被测量 / 分配改写 */
+  heightLocked?: boolean;
+  /** 行级对齐（缺省 left）；仅宽度为 fixed/fill 时有效 */
   align?: "left" | "right" | "center";
   /** 垂直对齐：fill 补白位置（缺省 top）；矮格补行高时上/中/下摆放 */
   valign?: "top" | "center" | "bottom";
@@ -64,21 +82,35 @@ export interface Separator {
 /** 可寻址分区 id（与 state.focusedPanel 收口一处）；仅可寻址区域挂 */
 export type PaneId = "history" | "activity" | "status";
 
-/** spacer 轴：width（h 占列）与 height（v 占行）互斥，且至少一个 */
+/** spacer 轴：宽 / 高两套字段互斥，且必须给出其中一轴的 widthStyle / heightStyle */
 export type SpacerAxis =
-  { width: Width; height?: never } | { height: Height; width?: never };
+  | {
+      widthStyle: WidthStyle;
+      widthMin?: number;
+      widthMax?: number;
+      widthFixed?: number;
+      widthRatio?: number;
+      width?: number;
+      widthLocked?: boolean;
+      heightStyle?: never;
+    }
+  | {
+      heightStyle: HeightStyle;
+      heightFixed?: number;
+      height?: number;
+      heightLocked?: boolean;
+      widthStyle?: never;
+    };
 
-/** 宽度意图（对齐现状：状态列 1/3、历史区保底 10 列） */
-export type Width =
-  | { mode: "auto"; min?: number; max?: number } // 按内容宽度（用户块的"收缩块"用）
-  | { mode: "fill"; min?: number; max?: number } // 占满剩余
-  | { mode: "fixed"; cols: number }
-  | { mode: "ratio"; value: number; min?: number; max?: number }; // 按剩余比例（状态列 1/3）
+/** 宽度类型：尺寸的计算方式（对齐现状：状态列 1/3、历史区保底 10 列） */
+export type WidthStyle =
+  | "auto" // 按内容宽度（用户块的"收缩块"用）
+  | "fill" // 占满剩余
+  | "fixed" // 固定列数
+  | "ratio"; // 按剩余比例（状态列 1/3）
 
-/** 高度意图 */
-export type Height =
-  | { mode: "fixed"; rows: number } // 交互区/输入区固定行数
-  | { mode: "fill" };
+/** 高度类型：auto = 内容折行决定 */
+export type HeightStyle = "auto" | "fixed" | "fill";
 
 /** 1. Box = 组合节点（屏幕分区与内容容器）：可嵌套子 Box，也可嵌套 Paragraph */
 export interface Box extends NodeBase {
@@ -148,14 +180,13 @@ export function text(
 
 /**
  * spacer 便捷构造：只声明尺寸意图，不产出内容。轴须显式给出：
- * `spacer({ width })` 在 h 容器中占列；`spacer({ height })` 在 v 容器中占行。
- * auto/ratio 对空内容无意义，不接受（YAGNI，SPEC §2）。
- * 占位字段由调用方按所在容器取向选写（二者至少写一个）。
+ * `spacer({ widthStyle: "fill", widthMin: 3 })` 在 h 容器中占列；
+ * `spacer({ heightStyle: "fill" })` 在 v 容器中占行。
+ * auto/ratio 对空内容无意义，不推荐（YAGNI，SPEC §2）。
+ * 占位字段由调用方按所在容器取向选写（两轴至少写一个）。
  */
 export function spacer(opts: SpacerAxis): Paragraph {
-  if (opts.width !== undefined)
-    return { kind: "text", text: "", width: opts.width };
-  return { kind: "text", text: "", height: opts.height };
+  return { kind: "text", text: "", ...opts };
 }
 
 /** 预样式叶子便捷构造：styled(segments, opts?) */

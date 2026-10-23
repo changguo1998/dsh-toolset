@@ -35,7 +35,7 @@ import {
   renderToolText,
   renderToolNameLine,
 } from "./content-rules.ts";
-import { measure, allocate } from "./measure.ts";
+import { layout } from "./measure.ts";
 import { fillToList, type ContentRow, type RowMeta } from "./fill.ts";
 import {
   FENCE_RE,
@@ -281,7 +281,7 @@ function codeBlockRows(
   const barLine = (t: string, style?: FrameStyle) =>
     text(t, {
       fillBg: true,
-      width: { mode: "fill" as const },
+      widthStyle: "fill",
       prefix: bar,
       ...(style === undefined ? {} : { style }),
     });
@@ -816,7 +816,7 @@ export function buildBox(
                 },
                 { text: " " },
               ],
-              { width: { mode: "fixed", cols: symW } },
+              { widthStyle: "fixed", widthFixed: symW },
             ),
             body,
           ])
@@ -825,10 +825,8 @@ export function buildBox(
       // 有符号时符号格已占 2 列，左侧留白再扣 2（正文列与无符号时一致）
       const block = h([
         spacer({
-          width: {
-            mode: "fill",
-            min: Math.max(0, gutter - 1 - (sym ? symW : 0)),
-          },
+          widthStyle: "fill",
+          widthMin: Math.max(0, gutter - 1 - (sym ? symW : 0)),
         }),
         content,
       ]);
@@ -1001,7 +999,7 @@ export function buildBox(
       }
       if (inFence) bodyRun = undefined; // fence 内行不参与合并，且是硬边界
       const body = text(line.final ? line.text : bodyText(line.text), {
-        ...(inFence ? { fillBg: true, width: { mode: "fill" } } : {}),
+        ...(inFence ? { fillBg: true, widthStyle: "fill" as const } : {}),
         prefix: {
           text: "┃",
           style: { fg: "brightBlue" },
@@ -1107,7 +1105,7 @@ function finalSpace(
   // 右缘留白 gutter 列，其中 1 列已被左竖线（prefix）占用 → 其余 gutter-1 留白
   const block = h([
     body,
-    spacer({ width: { mode: "fixed", cols: Math.max(0, gutter - 1) } }),
+    spacer({ widthStyle: "fixed", widthFixed: Math.max(0, gutter - 1) }),
   ]);
   meta.set(block, rowMeta);
   return block;
@@ -1297,9 +1295,8 @@ export function buildContentRows(
   // 可用宽随上下文交给 buildBox：markdown 表格列宽是跨行约束，须构建期算死
   const built = buildBox(local, { ...opts, width: w, activityWidth: aw });
   const fillPane = (pane: Box, paneW: number): ContentRow[] => {
-    const rect = { x: 0, y: 0, w: paneW, h: 1_000_000 };
-    const st = measure(pane, { maxW: paneW });
-    const rects = allocate(st, rect);
+    const rects = layout(pane, paneW);
+    const rect = rects.get(pane) ?? { x: 0, y: 0, w: paneW, h: 1 };
     return fillToList(
       { viewportWidth: paneW },
       pane,

@@ -1,8 +1,8 @@
-// TUI/src/app/layout/measure.ts — Box 排版尺寸测量与矩形分配（规范见 SPEC.md §6）
+// TUI/src/app/layout/measure.ts — Box 布局：自顶向下分配与自底向上测量交替，循环到尺寸稳定
 //
-// 接口冻结后的纯函数实现：measure 自底向上量尺寸（宽锁→高自由生长），
-// allocate 自顶向下切矩形。不解析 markdown（fill 阶段的事），只按 displayWidth
-// 折行/截断。复用既有 wrapLine/truncateToWidth/displayWidth 宽度原语。
+// 尺寸真相在节点自身（width / height）：allocate 负责“分”，measure 负责“量”，
+// 两者轮流执行；`widthLocked` / `heightLocked` 一旦置位，后续写入跳过。
+// 分配按 fixed > ratio > auto > fill 的顺序更新，每次只推一种。
 
 import { wrapLine, truncateToWidth } from "./primitives.ts";
 import { displayWidth } from "./markdown.ts";
@@ -12,33 +12,451 @@ import type {
   Paragraph,
   StyledText,
   Rect,
-  Width,
-  Height,
+  WidthStyle,
+  HeightStyle,
 } from "./box.ts";
 
-/** measure 约束：来自父链的可用宽上界（宽锁）。根：终端 cols */
-export interface MeasureConstraint {
-  maxW: number;
+/** 轮数上限：先放宽到几十轮观察收敛（每轮只推进一种类型） */
+const MAX_PASS = 64;
+
+const WIDTH_ORDER: WidthStyle[] = ["fixed", "ratio", "auto", "fill"];
+
+/** 满宽铺底量出的 auto 自然宽（参考值，分配时只作上限） */
+let naturalWidths = new WeakMap<Node, number>();
+/** 宽度已由 measure 量过的节点（区分“分配占位值”与“自然宽”） */
+let measuredWidths = new WeakSet<Node>();
+/** 宽度已由 allocate 正式分配过的节点（种子铺宽不算） */
+let allocatedWidths = new WeakSet<Node>();
+
+// ---------------- 入口 ----------------
+
+/** 布局整棵树：根宽锁为 maxW，返回每个节点的最终矩形（尺寸同时写回节点） */
+export function layout(root: Node, maxW: number): Map<Node, Rect> {
+  naturalWidths = new WeakMap<Node, number>();
+  measuredWidths = new WeakSet<Node>();
+  allocatedWidths = new WeakSet<Node>();
+  const width = Math.max(1, Math.floor(maxW));
+  root.width = width;
+  root.widthLocked = true;
+  if (root.heightStyle === "fixed") {
+    root.height = Math.max(1, root.heightFixed ?? 1);
+    root.heightLocked = true;
+  }
+  for (let pass = 0; pass < MAX_PASS; pass++) {
+    // 每轮从同一初始态重来：全部铺满宽，再由分配与测量各自收敛
+    seedWidth(root, width);
+    const before = snapshot(root);
+    allocateNode(root);
+    measurePass(root, undefined, true, true);
+    if (pass > 0 && isSame(before, root)) break;
+  }
+  const rects = new Map<Node, Rect>();
+  collectRects(root, 0, 0, rects);
+  return rects;
 }
 
-/** 单个节点实测尺寸（SizeTable.size 值） */
-export interface MeasuredSize {
-  /** 节点总宽（含 indent + prefix） */
-  w: number;
-  /** 自然高（内容决定） */
-  h: number;
+/** 铺宽：所有节点宽度重置为 maxW；已锁定宽度的节点保持其值 */
+function seedWidth(node: Node, width: number): void {
+  if (node.widthLocked !== true) node.width = width;
+  if (node.kind === "box") {
+    for (const child of node.children) seedWidth(child, width);
+  }
 }
 
-/** measure 产物：每个节点测量后的自然宽高 */
-export interface SizeTable {
-  /** 根节点引用，allocate 由它出发递归（避免重复解析文本） */
-  root: Node;
-  /** 根总宽 */
-  w: number;
-  /** 根自然高 */
-  h: number;
-  /** 子树实测（含自身），供 allocate 精确切分 */
-  size: Map<Node, MeasuredSize>;
+/** 取自然宽参考值（满宽铺底时记录；未记录则按满宽现量一次） */
+function naturalWidthOf(node: Node, maxW: number): number {
+  const hit = naturalWidths.get(node);
+  if (hit !== undefined) return hit;
+  const natural = measureWidthAt(node, maxW);
+  naturalWidths.set(node, natural);
+  return natural;
+}
+
+/** 在给定可用宽下量节点自然宽（叶子按折行、Box 按子项宽度累加） */
+function measureWidthAt(node: Node, maxW: number): number {
+  if (node.kind === "box") {
+    const box = node as Box;
+    const sep =
+      box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
+    let w = 0;
+    for (const c of box.children) {
+      const cw = measureWidthAt(c, maxW);
+      w = box.direction === "h" ? w + cw : Math.max(w, cw);
+    }
+    return w + (box.direction === "h" ? sep : 0);
+  }
+  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
+  const text = node.kind === "styled" ? styledText(node) : node.text;
+  const firstBase = Math.max(1, maxW - indent - prefixW - suffixW);
+  const balance = node.balance === true && !text.includes("\n");
+  const wrapW = balance ? balancedWidthFor(text, firstBase) : firstBase;
+  const rows = paragraphRows(text, wrapW, node.wrap !== false);
+  const firstTotal = indent + prefixW + displayWidth(rows[0] ?? "");
+  const contTotal =
+    hanging + Math.max(0, ...rows.slice(1).map((r) => displayWidth(r)));
+  return Math.max(firstTotal, contTotal) + suffixW;
+}
+
+/** 每个容器自己推进：取自己第一个“还有子项未锁定”的类型；全锁则跑 fill */
+function firstPendingWidth(box: Box): WidthStyle | undefined {
+  for (const style of WIDTH_ORDER) {
+    if (
+      box.children.some(
+        (c) => widthStyleOf(c) === style && c.widthLocked !== true,
+      )
+    ) {
+      return style;
+    }
+  }
+  return undefined;
+}
+
+const HEIGHT_ORDER: HeightStyle[] = ["fixed", "auto", "fill"];
+
+function firstPendingHeight(box: Box): HeightStyle | undefined {
+  for (const style of HEIGHT_ORDER) {
+    if (
+      box.children.some(
+        (c) => heightStyleOf(c) === style && c.heightLocked !== true,
+      )
+    ) {
+      return style;
+    }
+  }
+  return undefined;
+}
+
+// ---------------- 分配（自顶向下） ----------------
+
+function widthStyleOf(node: Node): WidthStyle {
+  return node.widthStyle ?? "auto";
+}
+
+function heightStyleOf(node: Node): HeightStyle {
+  return node.heightStyle ?? "auto";
+}
+
+/** 是否所有“更早的宽度类型”都已锁定（顺序 fixed > ratio > auto > fill） */
+function earlierWidthLocked(box: Box, style: WidthStyle): boolean {
+  const idx = WIDTH_ORDER.indexOf(style);
+  return box.children.every((c) => {
+    const i = WIDTH_ORDER.indexOf(widthStyleOf(c));
+    return i >= idx || c.widthLocked === true;
+  });
+}
+
+/** 分配：每个容器按自己的阶段推进一种类型，然后递归子项 */
+function allocateNode(node: Node): void {
+  if (node.kind !== "box") return;
+  const box = node as Box;
+  // 固定高度：任何方向的子项都先按声明值落地（高度链的 fixed 阶段）
+  for (const child of box.children) {
+    if (heightStyleOf(child) !== "fixed" || child.heightLocked === true)
+      continue;
+    child.height = Math.max(1, child.heightFixed ?? 1);
+    child.heightLocked = true;
+  }
+  if (box.direction === "h") {
+    const style = firstPendingWidth(box) ?? "fill";
+    allocateWidths(box, style);
+  } else {
+    // 纵向容器：子项宽度随父；父宽还没定下来时先给父宽，定下来后直接锁定
+    for (const child of box.children) {
+      if (child.widthLocked === true || box.width === undefined) continue;
+      child.width = box.width;
+      allocatedWidths.add(child);
+      if (box.widthLocked === true) child.widthLocked = true;
+    }
+    const style = firstPendingHeight(box) ?? "fill";
+    allocateHeights(box, style);
+  }
+  for (const child of box.children) allocateNode(child);
+}
+
+function clampWidth(node: Node, width: number): number {
+  let w = Math.max(1, Math.floor(width));
+  if (node.widthMax !== undefined) w = Math.min(w, node.widthMax);
+  if (node.widthMin !== undefined) w = Math.max(w, node.widthMin);
+  return w;
+}
+
+/** 容器内 fixed 子项定值之和 */
+function fixedWidthSum(box: Box): number {
+  let sum = 0;
+  for (const c of box.children) {
+    if (widthStyleOf(c) !== "fixed") continue;
+    sum += Math.max(1, c.widthFixed ?? 1);
+  }
+  return sum;
+}
+
+function allocateWidths(box: Box, style: WidthStyle): void {
+  const total = box.width ?? 0;
+  const sep =
+    box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
+
+  if (style === "fixed") {
+    for (const c of box.children) {
+      if (widthStyleOf(c) !== "fixed" || c.widthLocked === true) continue;
+      c.width = clampWidth(c, c.widthFixed ?? 1);
+      allocatedWidths.add(c);
+      c.widthLocked = true;
+    }
+    return;
+  }
+
+  if (style === "ratio") {
+    let sum = 0;
+    for (const c of box.children) {
+      if (widthStyleOf(c) === "ratio") sum += c.widthRatio ?? 0;
+    }
+    const denom = sum > 1 ? sum : 1;
+    const contentW = Math.max(0, total - sep - fixedWidthSum(box));
+    // 压缩余量：fixed 定值之后若超出容器，ratio 让到「容器 - 其余类型自然宽」，但不破 min
+    const othersW = box.children
+      .filter((c) => {
+        const s = widthStyleOf(c);
+        return s === "auto" || s === "fill";
+      })
+      .reduce((acc, c) => {
+        // auto / fill 让路时只保证各自的 min（自然宽不占预算）
+        return acc + (c.widthMin ?? 0);
+      }, 0);
+    const budget = Math.max(0, contentW - othersW);
+    let ratioTotal = 0;
+    for (const c of box.children) {
+      if (widthStyleOf(c) !== "ratio" || c.widthLocked === true) continue;
+      ratioTotal += (contentW * (c.widthRatio ?? 0)) / denom;
+    }
+    const shrink = ratioTotal > budget ? budget / ratioTotal : 1;
+    for (const c of box.children) {
+      if (widthStyleOf(c) !== "ratio" || c.widthLocked === true) continue;
+      const raw = ((contentW * (c.widthRatio ?? 0)) / denom) * shrink;
+      c.width = clampWidth(c, raw);
+      allocatedWidths.add(c);
+      // 父宽锁定后，比例宽度才算最终值
+      if (box.widthLocked === true) c.widthLocked = true;
+    }
+    return;
+  }
+
+  if (style === "auto") {
+    // 预算 = 总宽 - fixed 定值 - ratio 宽度 - fill 的保底下限
+    const rest =
+      fixedWidthSum(box) +
+      box.children
+        .filter((c) => widthStyleOf(c) === "ratio")
+        .reduce((s, c) => s + (c.width ?? 0), 0);
+    const reserved = box.children
+      .filter((c) => widthStyleOf(c) === "fill")
+      .reduce((s, c) => s + (c.widthMin ?? 0), 0);
+    // auto 子项平摊预算（min 先保底，再按剩余均分）；自然宽只作上限
+    const autos = box.children.filter(
+      (c) => widthStyleOf(c) === "auto" && c.widthLocked !== true,
+    );
+    const pool = Math.max(0, total - sep - rest - reserved);
+    // auto：有自然宽就取自然宽（受池子上限）；还没有自然宽时先按池子均分占位
+    const natural = autos.map((c) => naturalWidths.get(c));
+    const known = autos.map(
+      (c) => measuredWidths.has(c) && naturalWidths.has(c),
+    );
+    autos.forEach((c, i) => {
+      if (known[i]) {
+        c.width = clampWidth(c, Math.min(natural[i]!, pool));
+        // 容器还要等子项宽度全部锁定，否则自然宽还会变
+        const childrenLocked =
+          c.kind !== "box" ||
+          (c as Box).children.every((g) => g.widthLocked === true);
+        if (
+          box.widthLocked === true &&
+          earlierWidthLocked(box, "auto") &&
+          childrenLocked
+        ) {
+          c.widthLocked = true;
+        }
+      } else {
+        // 未量过：均分池子占位，等 measure 给出自然宽
+        c.width = clampWidth(c, Math.floor(pool / autos.length));
+      }
+      allocatedWidths.add(c);
+    });
+    return;
+  }
+
+  // fill：剩余均分；更早类型全锁后可锁
+  const fills = box.children.filter((c) => widthStyleOf(c) === "fill");
+  if (fills.length === 0) return;
+  const rest = box.children
+    .filter((c) => widthStyleOf(c) !== "fill")
+    .reduce((s, c) => s + (c.width ?? 0), 0);
+  const remaining = Math.max(0, total - sep - rest);
+  const share = Math.floor(remaining / fills.length);
+  let carry = remaining - share * fills.length;
+  for (const c of fills) {
+    if (c.widthLocked === true) continue;
+    const extra = carry > 0 ? 1 : 0;
+    if (carry > 0) carry -= 1;
+    c.width = Math.max(c.widthMin ?? 0, share + extra);
+    allocatedWidths.add(c);
+    if (box.widthLocked === true && earlierWidthLocked(box, "fill")) {
+      c.widthLocked = true;
+    }
+  }
+}
+
+function allocateHeights(box: Box, style: HeightStyle): void {
+  const total = box.height ?? 0;
+  const sep =
+    box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
+
+  if (style === "fixed") {
+    for (const c of box.children) {
+      if (heightStyleOf(c) !== "fixed" || c.heightLocked === true) continue;
+      c.height = Math.max(1, c.heightFixed ?? 1);
+      c.heightLocked = true;
+    }
+    return;
+  }
+  if (style === "auto") return; // 内容高由 measure 写，稳定后在 measure 里锁定
+
+  const fills = box.children.filter((c) => heightStyleOf(c) === "fill");
+  if (fills.length === 0) return;
+  const rest = box.children
+    .filter((c) => heightStyleOf(c) !== "fill")
+    .reduce((s, c) => s + (c.height ?? 0), 0);
+  const remaining = Math.max(0, total - sep - rest);
+  const share = Math.floor(remaining / fills.length);
+  let carry = remaining - share * fills.length;
+  for (const c of fills) {
+    if (c.heightLocked === true) continue;
+    const extra = carry > 0 ? 1 : 0;
+    if (carry > 0) carry -= 1;
+    c.height = share + extra;
+    if (box.heightLocked === true) c.heightLocked = true;
+  }
+}
+
+// ---------------- 测量（自底向上） ----------------
+
+/** 写自动宽度：只写值并记录自然宽，锁定交给上层按条件判断 */
+function writeAutoWidth(node: Node, width: number): void {
+  if (node.widthLocked === true || widthStyleOf(node) !== "auto") return;
+  // 空内容的自然宽是 0（tail / 空段不主张列），其余至少 1 列
+  node.width = Math.max(0, width);
+  measuredWidths.add(node);
+  if (!naturalWidths.has(node)) naturalWidths.set(node, node.width);
+}
+
+function measurePass(
+  node: Node,
+  parentDir: "h" | "v" | undefined,
+  parentLocked: boolean,
+  parentWidthKnown: boolean,
+): void {
+  if (node.kind === "box") {
+    const box = node as Box;
+    for (const child of box.children) {
+      measurePass(
+        child,
+        box.direction,
+        box.widthLocked === true,
+        box.width !== undefined,
+      );
+    }
+    const sep =
+      box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
+    const widthsKnown = box.children.every((c) => c.width !== undefined);
+    const heightsKnown = box.children.every((c) => c.height !== undefined);
+    if (heightsKnown && heightStyleOf(box) === "auto") {
+      let h = 0;
+      if (box.direction === "v") {
+        for (const c of box.children) h += c.height ?? 0;
+        h += sep;
+      } else {
+        for (const c of box.children) h = Math.max(h, c.height ?? 0);
+      }
+      if (box.heightLocked !== true) {
+        box.height = h;
+        if (box.children.every((c) => c.heightLocked === true)) {
+          box.heightLocked = true;
+        }
+      }
+    }
+    if (
+      parentDir === "h" &&
+      widthStyleOf(box) === "auto" &&
+      box.widthLocked !== true &&
+      widthsKnown
+    ) {
+      let w = 0;
+      if (box.direction === "v") {
+        for (const c of box.children) w = Math.max(w, c.width ?? 0);
+      } else {
+        for (const c of box.children) w += c.width ?? 0;
+        w += sep;
+      }
+      writeAutoWidth(box, w);
+      // 容器 auto 宽锁定：父宽已锁 + 更早类型全锁 + 子项宽度全部锁定
+      if (
+        parentLocked &&
+        earlierWidthLocked(box, "auto") &&
+        box.children.every((c) => c.widthLocked === true)
+      ) {
+        box.widthLocked = true;
+      }
+    }
+    return;
+  }
+  measureLeaf(node, parentDir, parentWidthKnown);
+}
+
+function measureLeaf(
+  node: Paragraph | StyledText,
+  parentDir: "h" | "v" | undefined,
+  parentWidthKnown: boolean,
+): void {
+  // 宽度未知时不量：折行宽没有意义，也不锁定
+  if (node.width === undefined) return;
+  const width = Math.max(1, node.width);
+  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
+  const text = node.kind === "styled" ? styledText(node) : node.text;
+  const wrap = node.wrap !== false;
+  const balance = node.balance === true && !text.includes("\n");
+  const body = Math.max(1, width - suffixW);
+  const firstW = Math.max(1, body - indent - prefixW);
+  const contW = Math.max(1, body - hanging);
+  // 平衡折行：按收窄列宽折；Paragraph 不拆物理行（\n 当普通字符，与 fill 一致），
+  // StyledText 才按 \n 切物理行
+  const rows = balance
+    ? paragraphRows(text, balancedWidthFor(text, firstW), wrap)
+    : node.kind === "text"
+      ? paragraphRowsNoSplit(text, firstW, contW, wrap)
+      : paragraphRows(text, firstW, wrap);
+  if (node.heightLocked !== true && heightStyleOf(node) === "auto") {
+    node.height = rows.length;
+    // 宽度锁定后内容高才算最终；平衡折行反过来先锁高，下一轮再锁宽
+    if (node.widthLocked === true || node.balance === true) {
+      node.heightLocked = true;
+    }
+  }
+  if (parentDir !== "h") return;
+  // 行内自然宽 = 最长行（首行含 indent+prefix，续行含 hanging）+ suffix
+  const firstTotal = indent + prefixW + displayWidth(rows[0] ?? "");
+  const contTotal =
+    hanging + Math.max(0, ...rows.slice(1).map((r) => displayWidth(r)));
+  const rawW = text === "" ? 0 : Math.max(firstTotal, contTotal) + suffixW;
+  // min / max 是硬约束：自然宽先按声明夹取
+  const contentW = clampWidth(node, rawW);
+  writeAutoWidth(node, contentW);
+  // 叶子 auto 宽锁定：父宽已知 + 宽度已被正式分配过 + 平衡折行要求高度已锁
+  if (
+    widthStyleOf(node) === "auto" &&
+    parentWidthKnown &&
+    allocatedWidths.has(node) &&
+    (node.balance !== true || node.heightLocked === true)
+  ) {
+    node.widthLocked = true;
+  }
 }
 
 /** 段落正文折行；wrap=false 时单行截断 */
@@ -56,46 +474,44 @@ function paraWidthCtx(node: Paragraph | StyledText) {
   return { prefixW, suffixW, indent, hanging };
 }
 
-/** height.fixed 声明覆盖测量高（v 排布 spacer/固定行高区用） */
-function applyDeclaredHeight(node: Node, m: MeasuredSize): MeasuredSize {
-  if (node.height?.mode === "fixed") return { w: m.w, h: node.height.rows };
-  return m;
-}
-
 /** 预样式中段的拼接文本（显示宽度测量用；样式忽略） */
 function styledText(node: StyledText): string {
   return node.segments.map((s) => s.text).join("");
 }
 
-/** 测量单个预样式叶子：按拼接文本折行（StyledText） */
-/** 按物理行（\n 切分）折行，产出显示行列表——StyledText/Paragraph 测量共用，
- * 与 fill 的 splitAndWrapSegments 语义一致（显式换行 = 行边界，非零宽字符）。 */
+/** 按物理行（\n 切分）折行，产出显示行列表 */
 function paragraphRows(
   text: string,
-  firstW: number,
-  contW: number,
+  wrapWidth: number,
   wrap: boolean,
 ): string[] {
   const rows: string[] = [];
-  const physical = text.split("\n");
-  for (let pi = 0; pi < physical.length; pi++) {
-    const line = physical[pi]!;
+  // 全部按同一折行宽折（与 fill 行内 markdown 折行口径一致）
+  for (const line of text.split("\n")) {
     if (line === "") {
       rows.push("");
       continue;
     }
-    if (rows.length === 0) {
-      // 首个物理行：首行用全宽，续行用 hanging 减宽（悬挂语义）
-      rows.push(...wrapParagraph(line, Math.max(1, firstW), wrap));
-    } else {
-      rows.push(...wrapParagraph(line, Math.max(1, contW), wrap));
-    }
+    rows.push(...wrapParagraph(line, Math.max(1, wrapWidth), wrap));
   }
   if (rows.length === 0) rows.push("");
   return rows;
 }
 
-/** 平衡折行宽度（与 fill 同公式）：R = ceil(L / Cmax)，C = ceil(L / R)，宽字符修正。 */
+/** Paragraph 折行：\n 是普通字符（与 fill 的 assistant/plain 口径一致），首行与续行同宽 */
+function paragraphRowsNoSplit(
+  text: string,
+  wrapWidth: number,
+  contWidth: number,
+  wrap: boolean,
+): string[] {
+  void contWidth;
+  const rows = wrapParagraph(text, Math.max(1, wrapWidth), wrap);
+  if (rows.length === 0) rows.push("");
+  return rows;
+}
+
+/** 平衡折行宽度：R = ceil(L / Cmax)，C = ceil(L / R)，宽字符修正。 */
 function balancedWidthFor(text: string, maxWidth: number): number {
   if (text.includes("\n") || maxWidth <= 0) return maxWidth;
   const rowsAt = (w: number): number =>
@@ -108,433 +524,45 @@ function balancedWidthFor(text: string, maxWidth: number): number {
   return width;
 }
 
-/** 测量单个预样式叶子：按拼接文本折行（StyledText） */
-function measureStyledText(node: StyledText, maxW: number): MeasuredSize {
-  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
-  const text0 = styledText(node);
-  const firstBase = maxW - indent - prefixW - suffixW; // 首行可用正文宽
-  // `balance`：测量与 fill 用同一收窄列宽，块宽随之变小 → 外层 spacer 仍能把它推到右侧
-  const firstW =
-    node.balance === true ? balancedWidthFor(text0, firstBase) : firstBase;
-  const contW = node.balance === true ? firstW : maxW - hanging - suffixW;
-  const wrap = node.wrap !== false;
-  const text = styledText(node);
-  const rows = paragraphRows(text, firstW, contW, wrap);
-  // 总宽 = max(首行 overhead+首行宽, 续行 overhead(hanging)+续行最宽) + suffix
-  const firstTotal = indent + prefixW + displayWidth(rows[0]!);
-  const contTotal =
-    hanging + Math.max(...rows.slice(1).map((r) => displayWidth(r)), 0);
-  return { w: Math.max(firstTotal, contTotal) + suffixW, h: rows.length };
-}
-function measureParagraph(node: Paragraph, maxW: number): MeasuredSize {
-  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
-  const firstW = maxW - indent - prefixW - suffixW; // 首行可用正文宽
-  const contW = maxW - hanging - suffixW; // 续行可用正文宽（suffix 逐行重复占列）
-  const wrap = node.wrap !== false;
-  // 首行按 firstW 折、续行按 contW 折：拆首行，其余文本按续行宽重折（悬挂缩进）
-  const rows: string[] = [];
-  let remaining = node.text;
-  const firstRows = wrapParagraph(
-    remaining,
-    Math.max(1, firstW),
-    wrap && firstW > 0,
-  );
-  if (firstRows.length > 0) {
-    rows.push(firstRows[0]!);
-    remaining = firstRows.slice(1).join(""); // 首行放不下的并入续行续排
-  }
-  if (remaining !== "" || firstRows.length === 0) {
-    rows.push(...wrapParagraph(remaining, Math.max(1, contW), wrap));
-  }
-  // 空文本：至少 1 行（空段落占行）
-  if (rows.length === 0) rows.push("");
-  // 总宽 = max(首行 overhead+首行宽, 续行 overhead(hanging)+续行最宽) + suffix
-  const firstTotal = indent + prefixW + displayWidth(rows[0]!);
-  const contTotal =
-    hanging + Math.max(...rows.slice(1).map((r) => displayWidth(r)), 0);
-  return { w: Math.max(firstTotal, contTotal) + suffixW, h: rows.length };
-}
+// ---------------- 收敛与矩形 ----------------
 
-/** 子项声明宽度（无声明 → auto） */
-function widthOf(node: Node): Width {
-  return node.width ?? { mode: "auto" };
-}
-
-/** 给 h 排布的子项按分配宽度（SPEC §6.5 冻结优先级）。
- *
- * 契约：先算每个子项的无约束目标与显式底线，再按优先级逐层满足；
- * 总目标超宽时分层压缩（fill→auto→ratio→破 min→fixed），压缩前不把
- * auto/ratio 封顶到“当前剩余”。
- */
-function allocateWidths(
-  children: Node[],
-  totalW: number,
-  natural: Map<Node, MeasuredSize>,
-): { w: number; constrain: Width }[] {
-  const widthOfNode = (n: Node): Width => n.width ?? { mode: "auto" };
-  const wids = children.map(widthOfNode);
-  // 无约束目标 target[i] 与显式底线 floor[i]
-  const target: number[] = [];
-  const floor: number[] = [];
-  const mode: ("fixed" | "ratio" | "auto" | "fill")[] = [];
-  for (let i = 0; i < children.length; i++) {
-    const w = wids[i]!;
-    if (w.mode === "fixed") {
-      mode[i] = "fixed";
-      const fw = Math.max(1, w.cols);
-      target[i] = fw;
-      floor[i] = fw; // fixed 底线 = 其值
-      continue;
-    }
-    if (w.mode === "ratio") {
-      mode[i] = "ratio";
-      target[i] = 0; // 稍后按分数算
-      floor[i] = w.min ?? 0;
-      continue;
-    }
-    if (w.mode === "fill") {
-      mode[i] = "fill";
-      target[i] = 0; // 吃剩余，暂 0
-      floor[i] = w.min ?? 0;
-      continue;
-    }
-    // auto（含无声明）
-    mode[i] = "auto";
-    const nat = natural.get(children[i]!)!.w;
-    let t = nat;
-    const mx = "max" in w ? w.max : undefined;
-    const mn = "min" in w ? w.min : undefined;
-    if (mx !== undefined) t = Math.min(t, mx); // 先上限
-    if (mn !== undefined) t = Math.max(t, mn); // 再保底（min>max 时 min 赢）
-    target[i] = t;
-    floor[i] = mn ?? 0;
+function snapshot(node: Node, out: number[] = []): number[] {
+  out.push(node.width ?? -1, node.height ?? -1);
+  if (node.kind === "box") {
+    for (const child of node.children) snapshot(child, out);
   }
-  // ratio 目标：value=容器分数（1/3=三分之一）基数容器总宽；仅 Σvalue>1 归一
-  {
-    let rs = 0;
-    let rc = 0;
-    for (let i = 0; i < children.length; i++) {
-      if (mode[i] === "ratio") {
-        rs += (wids[i]! as Extract<Width, { mode: "ratio" }>).value;
-        rc++;
-      }
-    }
-    if (rc > 0) {
-      const denom = rs > 1 ? rs : 1;
-      for (let i = 0; i < children.length; i++) {
-        if (mode[i] !== "ratio") continue;
-        const w = wids[i]! as Extract<Width, { mode: "ratio" }>;
-        let t = Math.floor((totalW * w.value) / denom);
-        if (w.max !== undefined) t = Math.min(t, w.max); // 先上限
-        if (w.min !== undefined) t = Math.max(t, w.min); // 再保底（min>max 时 min 赢）
-        t = Math.max(1, Math.max(t, floor[i]!));
-        target[i] = t;
-      }
-    }
-  }
-  // 目标汇总后：取 target 快照为当前分配，fixed 底线已在 target 内
-  const assign = target.slice();
-  // 预汇总：fixed + ratio + auto 目标
-  let consumed = 0;
-  for (let i = 0; i < children.length; i++) {
-    if (mode[i] !== "fill") consumed += target[i]!;
-  }
-  // fill 池 = 剩余（先按目标，暂不管 ratio/auto 是否超宽）
-  const fillIdx: number[] = [];
-  for (let i = 0; i < children.length; i++) {
-    if (mode[i] === "fill") fillIdx.push(i);
-  }
-  let fillPool = totalW - consumed;
-  // fill 迭代：平分池；某 fill 达 max 则封顶并把超出量回流给其余 fill，直至无回流源
-  const fillVal: number[] = fillIdx.map(() => 0);
-  const fillCapped: boolean[] = fillIdx.map(() => false);
-  if (fillIdx.length > 0) {
-    let active = fillIdx.length;
-    while (active > 0 && fillPool > 1) {
-      const share = Math.floor(fillPool / active);
-      if (share <= 0) break;
-      let carry = fillPool - share * active;
-      let cappedThisRound = false;
-      const before = fillPool;
-      for (let k = 0; k < fillIdx.length; k++) {
-        if (fillCapped[k]) continue;
-        const w = wids[fillIdx[k]!]! as Extract<Width, { mode: "fill" }>;
-        const mx = w.max;
-        let got = fillVal[k]! + share + (carry > 0 ? 1 : 0);
-        carry -= carry > 0 ? 1 : 0;
-        if (mx !== undefined && got > mx) {
-          fillPool += got - mx; // 超出回流
-          got = mx;
-          fillVal[k] = got; // 保留封顶值
-          fillCapped[k] = true;
-          active--;
-          cappedThisRound = true;
-        } else {
-          fillVal[k] = got;
-        }
-      }
-      // 本轮无人封顶且池没变化 → 全部分配稳定，退出
-      if (!cappedThisRound && fillPool === before) break;
-      // 池在平分中被耗尽且无人回流 → 退出
-      if (fillPool <= 0) break;
-    }
-  }
-  // 汇总 fill 最终值到 assign
-  for (let k = 0; k < fillIdx.length; k++) {
-    assign[fillIdx[k]!] = Math.max(0, fillVal[k]!);
-    // fill 也要 min 保底（在预算内才抬；预算外由压缩阶段处理）
-    const w = wids[fillIdx[k]!]! as Extract<Width, { mode: "fill" }>;
-    if (w.min !== undefined && assign[fillIdx[k]!]! < w.min) {
-      assign[fillIdx[k]!] = w.min;
-    }
-  }
-  // 压缩阶段（advisor 冻结语义）：总值超 totalW 时按序收缩——
-  // 第一遍 fill→auto→ratio 让到各自显式 min（不破），仍超则第二遍
-  // 破 fill/auto/ratio 的 min（压到 0），fixed 最后才让（不可破到 0 以下）。
-  let deficit = assign.reduce((a, b) => a + b, 0) - totalW;
-  const shrinkLayer = (iList: number[], canBreakFloor: boolean): void => {
-    // 同层先按分配值从大到小让
-    iList.sort((a, b) => assign[b]! - assign[a]!);
-    for (const i of iList) {
-      if (deficit <= 0) return;
-      const minFloor = canBreakFloor ? 0 : floor[i]!;
-      const cut = Math.min(assign[i]! - minFloor, deficit);
-      if (cut <= 0) continue;
-      assign[i]! -= cut;
-      deficit -= cut;
-    }
-  };
-  const collect = (m: (typeof mode)[number]): number[] => {
-    const out: number[] = [];
-    for (let i = 0; i < children.length; i++) {
-      if (mode[i] === m) out.push(i);
-    }
-    return out;
-  };
-  const order: (typeof mode)[number][] = ["fill", "auto", "ratio"];
-  if (deficit > 0) {
-    for (const m of order) {
-      if (deficit <= 0) break;
-      shrinkLayer(collect(m), false); // 不破 min
-    }
-  }
-  if (deficit > 0) {
-    for (const m of order) {
-      if (deficit <= 0) break;
-      shrinkLayer(collect(m), true); // 破 min 压到 0
-    }
-  }
-  if (deficit > 0) {
-    // 最后才让 fixed（可让到其 floor=自身值，即不可让；再破时也仅到 0 兜底已在最后）
-    for (let i = 0; i < children.length && deficit > 0; i++) {
-      if (mode[i] !== "fixed") continue;
-      const cut = Math.min(assign[i]! - 1, deficit);
-      if (cut <= 0) continue;
-      assign[i]! -= cut;
-      deficit -= cut;
-    }
-  }
-  // 兜底：非 fill 至少 1 列（底线强于一切）；fill 可为 0
-  for (let i = 0; i < children.length; i++) {
-    if (mode[i] !== "fill" && assign[i]! < 1) assign[i]! = 1;
-  }
-  return children.map((_, i) => ({
-    w: Math.max(0, Math.floor(assign[i]!)),
-    constrain: wids[i]!,
-  }));
-}
-
-/** 递归测量（自底向上）；返回节点自身尺寸，并写入 st.size */
-function measureNode(
-  node: Node,
-  c: MeasureConstraint,
-  st: { size: Map<Node, MeasuredSize> },
-): MeasuredSize {
-  if (node.kind === "text") {
-    const m = applyDeclaredHeight(node, measureParagraph(node, c.maxW));
-    st.size.set(node, m);
-    return m;
-  }
-  if (node.kind === "styled") {
-    const m = applyDeclaredHeight(node, measureStyledText(node, c.maxW));
-    st.size.set(node, m);
-    return m;
-  }
-  const box = node as Box;
-  if (box.direction === "v") {
-    let h = 0;
-    let w = 0;
-    let base = c.maxW;
-    for (let i = 0; i < box.children.length; i++) {
-      // 若子项声明了高度固定，其宽度仍受容器同宽约束
-      const m = measureNode(box.children[i]!, { maxW: base }, st);
-      w = Math.max(w, m.w);
-      // height:fill 是剩余吸收者：不主张测量高（allocate 时才分给剩余）
-      h += box.children[i]!.height?.mode === "fill" ? 0 : m.h;
-      if (i < box.children.length - 1 && box.separator) h += 1;
-    }
-    const m = applyDeclaredHeight(box, { w: Math.max(0, w), h });
-    st.size.set(box, m);
-    return m;
-  }
-  // h 排布
-  let childMaxH = 0;
-  // 子项间框线占 1 列（横向 separator；无 separator 时 0，行为与旧一致）
-  const sepCount =
-    box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
-  const contentW = Math.max(1, c.maxW - sepCount);
-  // fill 项的 min 预留：auto 折宽上界先扣除（右侧留白如用户块 gutter）
-  let fillReserve = 0;
-  for (let i = 0; i < box.children.length; i++) {
-    const wd = widthOf(box.children[i]!);
-    if (wd.mode === "fill" && wd.min !== undefined) fillReserve += wd.min;
-  }
-  // 第一遍：fixed/ratio/auto 先按自然宽测量（auto 以 max/扣 fill.min 为上界）
-  for (let i = 0; i < box.children.length; i++) {
-    const child = box.children[i]!;
-    const wd = widthOf(child);
-    const reserve = wd.mode === "fill" ? 0 : fillReserve;
-    const upper =
-      wd.mode === "auto" && wd.max !== undefined
-        ? Math.min(contentW, wd.max)
-        : Math.max(1, contentW - reserve);
-    measureNode(child, { maxW: Math.max(1, upper) }, st); // 副作用：写入 st.size 供第二遍取高
-  }
-  // 第二遍：按优先级分配宽度（预算扣框线占列）
-  const allocated = allocateWidths(box.children, contentW, st.size);
-  let filledW = 0;
-  for (let i = 0; i < box.children.length; i++) {
-    const child = box.children[i]!;
-    const aw = allocated[i]!.w;
-    // 全部子项以分配宽重测高度（fixed/ratio 段落折行也受分配宽影响）
-    const m = measureNode(child, { maxW: Math.max(1, aw) }, st);
-    childMaxH = Math.max(childMaxH, m.h);
-    filledW += aw;
-  }
-  const m = applyDeclaredHeight(box, { w: filledW + sepCount, h: childMaxH });
-  st.size.set(box, m);
-  return m;
-}
-
-/**
- * 测量整棵 Box 树。返回 SizeTable（含 root 与全部子节点实测）。
- * 宽度原语来自中立模块（./primitives.ts / ./markdown.ts），不依赖 layout.ts —
- * 无循环依赖。
- */
-export function measure(root: Node, c: MeasureConstraint): SizeTable {
-  const size = new Map<Node, MeasuredSize>();
-  const r = measureNode(root, c, { size });
-  return { root, w: r.w, h: r.h, size };
-}
-
-/** h 排布递归切宽；v 排布递归切高；输出每个节点的最终矩形 */
-function allocateNode(
-  node: Node,
-  rect: Rect,
-  st: SizeTable,
-  out: Map<Node, Rect>,
-): void {
-  out.set(node, rect);
-  if (node.kind === "text" || node.kind === "styled") return;
-  const box = node as Box;
-  if (box.direction === "h") {
-    // 子项间框线占 1 列（横向 separator）：预算扣框线，x 递增时跳过
-    const sepCount =
-      box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
-    const widths = allocateWidths(
-      box.children,
-      Math.max(1, rect.w - sepCount),
-      st.size,
-    );
-    let x = rect.x;
-    for (let i = 0; i < box.children.length; i++) {
-      const child = box.children[i]!;
-      const w = widths[i]!.w;
-      allocateNode(child, { x, y: rect.y, w, h: rect.h }, st, out);
-      x += w;
-      if (box.separator && i < box.children.length - 1) x += 1;
-    }
-    return;
-  }
-  // v 排布：同宽，逐个切高；separator 占 1 行
-  let y = rect.y;
-  let remainingH = rect.h;
-  // 各子项高度主张：fixed 按声明行数；fill 吃剩余；无声明取测量高（auto）
-  const heights: number[] = [];
-  const prio: number[] = []; // 让路优先级：fill=5, auto=4, fixed=1
-  let claim = 0; // 非 fill 主张和
-  let fillCount = 0;
-  for (let i = 0; i < box.children.length; i++) {
-    const child = box.children[i]!;
-    const hg = child.height;
-    if (hg?.mode === "fixed") {
-      heights[i] = hg.rows;
-      prio[i] = 1;
-      claim += hg.rows;
-    } else if (hg?.mode === "fill") {
-      heights[i] = -1; // fill 占位，稍后分配
-      prio[i] = 5;
-      fillCount++;
-    } else {
-      const h = st.size.get(child)?.h ?? 0;
-      heights[i] = h;
-      prio[i] = 4;
-      claim += h;
-    }
-  }
-  // 预算 = rect.h - separator 行数；不足时按让路顺序压缩（auto → fixed）
-  const sepWide =
-    box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
-  const avail = Math.max(0, remainingH - sepWide);
-  if (claim > avail) {
-    let deficit = claim - avail;
-    const shrinkOrder = [4, 1]; // auto（测量）先让，fixed 最后
-    for (const p of shrinkOrder) {
-      if (deficit <= 0) break;
-      for (let i = 0; i < box.children.length; i++) {
-        if (deficit <= 0) break;
-        if (prio[i] !== p) continue;
-        const cut = Math.min(heights[i]!, deficit);
-        heights[i]! -= cut;
-        deficit -= cut;
-      }
-    }
-  }
-  // fill 平分剩余（无剩余得 0；余数从左到右：share=floor(pool/count)，carry 逐项 +1）
-  const nonFillTotal = heights
-    .filter((_, i) => prio[i] !== 5)
-    .reduce((a, b) => a + b, 0);
-  const fillPool = Math.max(0, avail - nonFillTotal);
-  if (fillCount > 0) {
-    const share = Math.floor(fillPool / fillCount);
-    let carry = fillPool - share * fillCount;
-    for (let i = 0; i < box.children.length; i++) {
-      if (heights[i] !== -1) continue;
-      const extra = carry > 0 ? 1 : 0;
-      carry -= extra;
-      heights[i] = share + extra;
-      fillCount--;
-    }
-  }
-  for (let i = 0; i < box.children.length; i++) {
-    const child = box.children[i]!;
-    const h = Math.max(0, heights[i] ?? 0);
-    allocateNode(child, { x: rect.x, y, w: rect.w, h }, st, out);
-    y += h;
-    remainingH -= h;
-    if (i < box.children.length - 1 && box.separator) {
-      y += 1;
-      remainingH -= 1;
-    }
-  }
-}
-
-/** 按 SizeTable 从根递归分配矩形；返回每个节点的最终矩形 */
-export function allocate(st: SizeTable, rect: Rect): Map<Node, Rect> {
-  const out = new Map<Node, Rect>();
-  allocateNode(st.root, rect, st, out);
   return out;
 }
 
-// 展开未用类型避免 noUnusedLocals 干净
-export type { Width, Height };
+function isSame(before: number[], node: Node): boolean {
+  const now = snapshot(node);
+  if (now.length !== before.length) return false;
+  return now.every((v, i) => v === before[i]);
+}
+
+/** 从根向下落矩形（位置只依赖最终尺寸） */
+function collectRects(
+  node: Node,
+  x: number,
+  y: number,
+  out: Map<Node, Rect>,
+): void {
+  const w = Math.max(0, node.width ?? 0);
+  const h = Math.max(0, node.height ?? 0);
+  out.set(node, { x, y, w, h });
+  if (node.kind !== "box") return;
+  const box = node as Box;
+  if (box.direction === "h") {
+    let cx = x;
+    for (const child of box.children) {
+      collectRects(child, cx, y, out);
+      cx += (child.width ?? 0) + (box.separator ? 1 : 0);
+    }
+  } else {
+    let cy = y;
+    for (const child of box.children) {
+      collectRects(child, x, cy, out);
+      cy += (child.height ?? 0) + (box.separator ? 1 : 0);
+    }
+  }
+}
