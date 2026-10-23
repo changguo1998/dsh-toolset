@@ -117,7 +117,7 @@ test("resolveConfig：缺省开启 + 内置规则；rules 给即整体替换；�
   assert.deepEqual(resolveConfig({ rules: [] }).rules, []);
 });
 
-test("缺省规则：bash 里跑 herdr → 拒绝并指向 herdr_use", () => {
+test("缺省规则：bash 里跑 herdr → 拒绝并指向十个具名工具", () => {
   const registration = registerDefault();
   assert.equal(registration.id, "behavior-correction");
   assert.deepEqual(registration.sources, ["tools/pre-execute"]);
@@ -126,10 +126,20 @@ test("缺省规则：bash 里跑 herdr → 拒绝并指向 herdr_use", () => {
     guardContext("bash", { command: "herdr pane list" }),
   );
   assert.equal(decision?.kind, "deny");
-  assert.match(
-    (decision as { reason: string }).reason,
-    /herdr_use/,
-    "拒绝理由要指向专用工具",
+  const reason = (decision as { reason: string }).reason;
+  for (const tool of [
+    "herdr_run",
+    "herdr_text",
+    "herdr_key",
+    "herdr_read",
+    "herdr_list",
+  ]) {
+    assert.match(reason, new RegExp(tool), `拒绝理由要指向专用工具 ${tool}`);
+  }
+  assert.doesNotMatch(
+    reason,
+    /herdr_use|pane_|tab_/,
+    "不得再指向已删除的旧工具",
   );
 });
 
@@ -287,7 +297,7 @@ test("非法正则：告警 + 该条跳过，其余规则照常", () => {
           id: "good-regex",
           tool: "bash",
           match: { regex: ["^herdr\\b"] },
-          reason: "该改用 herdr_use",
+          reason: "该改用 herdr_run",
         },
       ],
     });
@@ -301,7 +311,7 @@ test("非法正则：告警 + 该条跳过，其余规则照常", () => {
     guardContext("bash", { command: "herdr pane list" }),
   );
   assert.equal(decision?.kind, "deny");
-  assert.equal((decision as { reason: string }).reason, "该改用 herdr_use");
+  assert.equal((decision as { reason: string }).reason, "该改用 herdr_run");
 });
 
 test("正则缺省大小写不敏感；显式 flags 覆盖缺省", () => {
