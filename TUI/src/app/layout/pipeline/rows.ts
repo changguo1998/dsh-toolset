@@ -413,15 +413,33 @@ function tableLines(box: LayoutBox, dialogue: boolean): HistoryRow[] {
   const header = rows.find((row0) => row0.header === true);
   const out: HistoryRow[] = [];
   if (header !== undefined) out.push(line(row(cellsOf(header))));
-  out.push({
-    text: row(
-      (box.aligns ?? []).map((align) =>
-        align === "right" ? "---:" : align === "center" ? ":---:" : "---",
+  // 分隔行按**表头格数**生成（不是按 aligns 长度）：aligns 与表头格数一旦不一致
+  // （上游任何一处补 / 丢格），按 aligns 生成会让分隔行比表头少列 → 旧渲染器
+  // `isTableStart` 判不成表格 → 整表退回原样打印（真机实例：4 列表头 + 2 列分隔行）。
+  // 对齐只决定 `---` / `---:` / `:---:`，缺的列按左对齐。
+  const aligns = box.aligns ?? [];
+  const ncols =
+    header !== undefined
+      ? cellsOf(header).length
+      : rows[0] === undefined
+        ? 0
+        : cellsOf(rows[0]).length;
+  if (ncols > 0) {
+    out.push({
+      text: row(
+        Array.from({ length: ncols }, (_, j) => {
+          const align = aligns[j];
+          return align === "right"
+            ? "---:"
+            : align === "center"
+              ? ":---:"
+              : "---";
+        }),
       ),
-    ),
-    kind,
-    ...(final ? { final: true } : {}),
-  });
+      kind,
+      ...(final ? { final: true } : {}),
+    });
+  }
   for (const row0 of rows) {
     if (row0 === header) continue;
     out.push(line(row(cellsOf(row0))));

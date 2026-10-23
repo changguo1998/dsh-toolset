@@ -771,6 +771,35 @@ export function buildBox(
         li = closed ? j : local.length - 1;
         continue;
       }
+      // markdown 表格（fence 外）：思考行与正文同口径识别（表头行 + 分隔行成对 →
+      // 收集连续 thinking 表格行），构建期降级为固定宽 Box 子树；左缘竖线用思考紫。
+      // 可用宽 = 活动 pane 文字宽（表 box 自带左缘竖线列与间隔列）。
+      if (actPaneW > 0) {
+        const next = local[li + 1];
+        if (
+          next !== undefined &&
+          next.kind === "thinking" &&
+          isTableStart(line.text, next.text)
+        ) {
+          const texts = [line.text, next.text];
+          for (let j = li + 2; j < local.length; j++) {
+            const l = local[j]!;
+            if (l.kind !== "thinking" || !hasCellPipe(l.text)) break;
+            texts.push(l.text);
+          }
+          const parsed = parseTableAt(texts, 0);
+          const box = parsed
+            ? tableBox(parsed.table, actPaneW, {
+                barStyle: thinkingBar.style,
+              })
+            : null;
+          if (parsed && box) {
+            push(box);
+            li += parsed.end - 1; // 表格各行已并入本节点（循环再自增 1）
+            continue;
+          }
+        }
+      }
       // 普通思考行：Paragraph → fill 侧 wrapAssistantLine（块级分类 + 行内 markdown）
       push(text(line.text, { prefix: thinkingBar }));
       continue;

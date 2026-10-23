@@ -16,7 +16,11 @@
 import type { Box, Node, StyledText } from "./box.ts";
 import { v, h, styled, spacer } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
-import { displayWidth, parseInlineMarkdown } from "./markdown.ts";
+import {
+  displayWidth,
+  parseInlineMarkdown,
+  wrapFrameSegments,
+} from "./markdown.ts";
 import { seg } from "./primitives.ts";
 
 /** 列对齐：`:---` 左（缺省）/ `:--:` 中 / `---:` 右 */
@@ -136,14 +140,19 @@ function isNumericCell(cell: string): boolean {
 }
 
 /**
- * 表头行 + 分隔行成对判定（列数一致且分隔行全为 `:?-+:?`）。
+ * 表头行 + 分隔行成对判定（分隔行每格形如 `:?-+:?`；列数**只允许少、不允许多**）。
+ *
+ * 列数口径（2026-10-23 起容错）：分隔行少于表头列数时仍判为表格——上游任何一处把分隔行
+ * 写短（历史真机实例：4 列表头 + 2 列分隔行）都不该让整表退回原样打印；缺的列按左对齐
+ * 补（见 `parseTableAt`）。分隔行**多于**表头列数仍拒绝（表头缺格，语义不明）。
  * 预筛用途：只有成对才继续收集数据行（O(1) 判定，长回复下不做全量扫描）。
  */
 export function isTableStart(header: string, delimiter: string): boolean {
   const head = splitCells(header);
   const delim = splitCells(delimiter);
   if (!head || head.length === 0) return false;
-  if (!delim || delim.length !== head.length) return false;
+  if (!delim || delim.length === 0) return false;
+  if (delim.length > head.length) return false;
   return delim.every(isDelimCell);
 }
 
@@ -151,6 +160,9 @@ export function isTableStart(header: string, delimiter: string): boolean {
  * 自 lines[start] 起解析 markdown 表格：表头 + 分隔行 + 若干数据行（各行须含 `|`，
  * 否则表格结束）。数据行缺格补空、多格忽略（列数取表头）。非表格返回 null；
  * end = 首个未消费行下标（= 表格之后的行）。
+ *
+ * 列数取**表头**（分隔行可能短于表头，容错口径见 `isTableStart`）：缺对齐信息的列
+ * 按左对齐，`aligns` 长度恒等于表头列数。
  */
 export function parseTableAt(
   lines: readonly string[],
@@ -163,7 +175,10 @@ export function parseTableAt(
   if (!isTableStart(headerLine, delimLine)) return null;
   const header = splitCells(headerLine)!;
   const delimCells = splitCells(delimLine)!;
-  const aligns = delimCells.map(delimAlign);
+  // 分隔行短于表头：缺的列按左对齐补（不把整表判为非表格）
+  const aligns = header.map((_, j) =>
+    delimCells[j] === undefined ? "left" : delimAlign(delimCells[j]!),
+  );
   const rows: string[][] = [];
   let end = start + 2;
   for (; end < lines.length; end++) {
@@ -175,7 +190,8 @@ export function parseTableAt(
   }
   // 数字列自动右对齐：分隔行未显式标注（无 `:`）且表体非空格全为数字 → 右对齐
   for (let j = 0; j < aligns.length; j++) {
-    if (hasExplicitAlign(delimCells[j]!)) continue;
+    const delimCell = delimCells[j];
+    if (delimCell !== undefined && hasExplicitAlign(delimCell)) continue;
     const body = rows.map((r) => (r[j] ?? "").trim()).filter((c) => c !== "");
     if (body.length > 0 && body.every(isNumericCell)) aligns[j] = "right";
   }
@@ -292,18 +308,29 @@ function cellLeaf(
   });
 }
 
-/** 单元格叶子在自身固定列宽下的行数（与布局引擎同口径的折行） */
+/**
+ * 单元格叶子在自身固定列宽下的行数（**与渲染同源**）。
+ *
+ * 不能按 `ceil(显示宽 / 列宽)` 估算：`wrapFrameSegments` 在「下一个字符放不进剩余列」时
+ * 提前换行（宽字符 2 列落进最后 1 列时该行只填一半），估算值会**低估**行数 → `rowBox`
+ * 把偏小值写死成 `heightFixed` → 折行多出的行溢出到行 box 之外，该行左缘 `┃` 与列分隔
+ * `│` 全丢（A3 复现之一，2026-10-23）。故直接调用渲染用的同一个折行函数取行数。
+ */
 function measureLeafRows(leaf: StyledText): number {
   const width = Math.max(1, leaf.width ?? 1);
   const suffixW = leaf.suffix ? displayWidth(leaf.suffix.text) : 0;
-  const text = leaf.segments.map((s) => s.text).join("");
-  return text.split("\n").reduce((rows, line) => {
-    if (line === "") return rows + 1;
-    return (
-      rows +
-      Math.max(1, Math.ceil(displayWidth(line) / Math.max(1, width - suffixW)))
+  const bodyW = Math.max(1, width - suffixW);
+  // 单元格正常不含显式换行；含时按物理行分别折行再累加（与 fill 的 Paragraph 口径一致）
+  return leaf.segments
+    .map((s) => s.text)
+    .join("")
+    .split("\n")
+    .reduce(
+      (rows, line) =>
+        rows +
+        Math.max(1, wrapFrameSegments(parseInlineMarkdown(line), bodyW).length),
+      0,
     );
-  }, 0);
 }
 
 /** 竖线字形叶子：按行数铺出同样多行（行高显式声明）——行 box 高 = 行高，
@@ -345,17 +372,24 @@ function gridRow(
   return h(kids);
 }
 
+/** 表格构建选项：左缘竖线配色（正文蓝 `brightBlue` / 思考紫 `brightMagenta`） */
+export interface TableBoxOptions {
+  /** 左缘竖线样式，缺省正文蓝 */
+  barStyle?: FrameStyle;
+}
+
 /** 数据/表头行：左缘回复竖线 + 各格（固定列宽、列对齐）+ 列分隔 */
 function rowBox(
   cells: string[],
   cols: number[],
   aligns: TableAlign[],
   header: boolean,
+  barStyle: FrameStyle,
 ): Box {
   const leaves = cells.map((c, j) =>
     cellLeaf(c, cols[j]!, aligns[j] ?? "left", header),
   );
-  // 行高 = 各格在本格列宽下的自身行数最大值（用引擎同口径的单叶测量算得）
+  // 行高 = 各格在本格列宽下的自身行数最大值（与折行同源的单叶测量算得）
   let rowH = 1;
   for (const leaf of leaves) {
     leaf.width = Math.max(1, leaf.widthFixed ?? 1);
@@ -366,15 +400,20 @@ function rowBox(
     leaf.heightStyle = "fixed";
     leaf.heightFixed = rowH;
   }
-  return gridRow(vLineLeaf(BAR_CHAR, rowH, BAR_STYLE), leaves, COL_SEP, rowH);
+  return gridRow(vLineLeaf(BAR_CHAR, rowH, barStyle), leaves, COL_SEP, rowH);
 }
 
 /** 横线行（表头下双横线 / 数据行间单横线）：左缘回复竖线照常连续（不设交叉字），
  *  隔 BAR_GAP 空格后横线铺满整个列区域（含左右留白），与列分隔的交叉处以交叉字
  *  连接（保证交叉位置不断开）。 */
-function ruleRow(cols: number[], ch: string, colCross: string): Box {
+function ruleRow(
+  cols: number[],
+  ch: string,
+  colCross: string,
+  barStyle: FrameStyle,
+): Box {
   const kids: Node[] = [
-    vLineLeaf(BAR_CHAR, 1, BAR_STYLE),
+    vLineLeaf(BAR_CHAR, 1, barStyle),
     spacer({ widthStyle: "fixed", widthFixed: BAR_GAP }),
   ];
   for (let j = 0; j < cols.length; j++) {
@@ -387,11 +426,17 @@ function ruleRow(cols: number[], ch: string, colCross: string): Box {
 /**
  * 表格 Box 子树：v([表头行, ═ 横线, 数据行…])，数据行之间以 `─` 分隔
  * （内容折行时用于区分「哪一行」）。整表左缘保留回复竖线 `┃`（与 assistant
- * 正文同列同色、逐行连续），竖线后隔 BAR_GAP 空格再排表格内容——横线不与
- * 回复竖线连接。可用宽 width 含左缘竖线 + 间隔 + 列间分隔 + 每列左右留白；
- * 过窄返回 null，由调用方退回普通文本行渲染（窄终端降级）。
+ * 正文同列同色、逐行连续；思考行表格用思考紫，见 `TableBoxOptions`），竖线后隔
+ * BAR_GAP 空格再排表格内容——横线不与回复竖线连接。可用宽 width 含左缘竖线 +
+ * 间隔 + 列间分隔 + 每列左右留白；过窄返回 null，由调用方退回普通文本行渲染
+ * （窄终端降级）。
  */
-export function tableBox(table: TableSpec, width: number): Box | null {
+export function tableBox(
+  table: TableSpec,
+  width: number,
+  opts: TableBoxOptions = {},
+): Box | null {
+  const barStyle = opts.barStyle ?? BAR_STYLE;
   const ncols = table.header.length;
   if (ncols === 0) return null;
   // 固定开销：左缘竖线 + 间隔 + 每列左右留白 + 列间分隔
@@ -407,12 +452,12 @@ export function tableBox(table: TableSpec, width: number): Box | null {
   const cols = fitCols(natural, width - overhead);
   if (cols === null) return null; // #6：容不下最小列宽 → 退回普通文本行（不截断内容）
   const body: Node[] = [
-    rowBox(table.header, cols, table.aligns, true),
-    ruleRow(cols, HEAD_RULE, HEAD_CROSS),
+    rowBox(table.header, cols, table.aligns, true, barStyle),
+    ruleRow(cols, HEAD_RULE, HEAD_CROSS, barStyle),
   ];
   for (let i = 0; i < table.rows.length; i++) {
-    if (i > 0) body.push(ruleRow(cols, ROW_RULE, ROW_CROSS));
-    body.push(rowBox(table.rows[i]!, cols, table.aligns, false));
+    if (i > 0) body.push(ruleRow(cols, ROW_RULE, ROW_CROSS, barStyle));
+    body.push(rowBox(table.rows[i]!, cols, table.aligns, false, barStyle));
   }
   return v(body);
 }
