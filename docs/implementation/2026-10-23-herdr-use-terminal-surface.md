@@ -1,6 +1,6 @@
 # herdr-use 终端面重构（10 个工具）与共用服务面
 
-状态：规划（2026-10-23 由「共用服务面」条目扩范围并入；契约与计划已成文，代码未动）
+状态：规划（2026-10-23 由「共用服务面」条目扩范围并入；契约与计划已成文，受影响面已盘点并拆出四个跨插件任务，代码未动）
 接取条目：项目级 `docs/BACKLOG.md` §2「7. herdr-use 共用服务面」——本轮按用户裁定扩为「终端面重构 + 共用服务面」，两件事同轮交付
 本文件是本任务唯一的过程记录与文档落点；计划外的文件不改。
 
@@ -18,6 +18,7 @@
 | list | 汇总两个 lane，逐条标 `foreground` 与 `registered` |
 | 服务面 | 原 #7 服务面并入本轮，方法用 camelCase（`create` / `list` / `read` / `info` / `wait` / `label` / `text` / `key` / `run` / `close`），不加前缀；与工具面共用同一份登记表与写锁 |
 | 错误码 | 同步改为 terminal 口径：`pane-required` -> `terminal-required`、`pane-not-registered` -> `terminal-not-registered`；删 `tab-required` / `tab-not-registered` / `foreign-pane` / `approval-denied`；新增 `ambiguous-terminal` |
+| 范围 | 本任务**只改 `herdr-use/` 包内**（`src/` / `tests/` / `README.md` / `scripts/verify-herdr-use.mjs`）与本文档；其他插件的配合改动各自建追踪文档、各自执行，本任务不代改 |
 
 ## 目标
 
@@ -131,17 +132,43 @@ export interface HerdrUseService {
 - `herdr-use/tests/helpers.ts`：fake runner 支持按 lane 断言。
 - `herdr-use/README.md`：重写工具表、会话模型（foreground / dshbg）、安全边界、服务面节。
 - `herdr-use/scripts/verify-herdr-use.mjs`：验证链改 10 个工具与新参数。
-- `security-guard/src/index.ts`：`PLUGIN_COMMAND_TOOLS` 改 10 条登记。
-- `behavior-correction/src/main.ts`（一行）：指路文案由 `herdr_use` / `pane_*` 改为 `herdr_run` / `herdr_text` / `herdr_key` 等。
 - `docs/BACKLOG.md`：条目 7 范围、组表 I1 工作量（1 至 1.5 天 -> 2 至 3 天）。
 - 本追踪文档。
+- **不含跨插件改动**：`security-guard` / `behavior-correction` / `tool-consult` / `auto-approve` 的配合改动已各自建追踪文档（见下节），由各自任务执行；本任务只把本包契约定稿并实现，不代改其他包（2026-10-23 用户裁定）。
 
-**不改**：`coagent/`、`session-channel/`、`agent-group/`、`herdr-integration/`；根 `README.md` / `README.zh.md` / `AGENTS.md` 的包描述按 2026-10-23 约定由 H 组回写。
+**不改**：`coagent/`、`session-channel/`、`agent-group/`、`herdr-integration/`，以及上条列出的四个插件包；根 `README.md` / `README.zh.md` / `AGENTS.md` 的包描述按 2026-10-23 约定由 H 组回写。
+
+## 受影响面盘点（2026-10-23 全仓 grep 复核）
+
+边界（2026-10-23 用户裁定）：本任务只改 `herdr-use/` 包内与本文档；其他插件的配合改动各自建追踪文档、各自执行。下表是复核结论与处置，不是本任务的改动清单。
+
+| 包 | 影响 | 位置（2026-10-23 复核） | 处置 |
+| --- | --- | --- | --- |
+| `security-guard` | 命令面登记按旧工具名建键；改名后 `herdr_run` / `herdr_text` / `herdr_key` 的命令文本不再过命令层（未登记工具走「未知工具不拦」，`unknownToolPolicy` 缺省 `allow`） | `src/index.ts:249-273`；`tests/guard.test.ts:8,932-1050,2506`；`README.md` | 另建 `security-guard/docs/implementation/2026-10-23-herdr-terminal-tool-registration.md`；**P0，建议与本任务同批上线** |
+| `behavior-correction` | 缺省拦截文案与包描述指向 `herdr_use` / `pane_*`；改名后指路失效，范围比原计划的「一行」大 | `src/main.ts:99`（注释 `:10`、`:83`）、`package.json:4`、`README.md:11,31,69`、`cordis.patch.yml:3`、`tests/main.test.ts:120,131,290,304` | 另建 `behavior-correction/docs/implementation/2026-10-23-herdr-terminal-hint.md`；P1 |
+| `tool-consult` | 别名表按 `herdr_use` 建键，十个新工具无别名 | `src/aliases.ts:29` | 另建 `tool-consult/docs/implementation/2026-10-23-herdr-terminal-aliases.md`；P1（属 F 组范围） |
+| `auto-approve` | 只读类缺省清单不含 herdr 工具，四个读类工具不会被判为只读 | `src/config.ts:12-21` | 另建 `auto-approve/docs/implementation/2026-10-23-herdr-terminal-readonly.md`；**待决策**（该不该把读终端当无副作用） |
+| `rule-engine` | 仅测试夹具与 README 示例提到旧名，无契约耦合 | `tests/main.test.ts:1008,1030`、`tests/consumerGuard.test.ts:137,148`、`README.md:200` | 不改 |
+| `coagent` | 消费方；追踪文档已抄录定稿契约并标注三处影响 | `coagent/docs/implementation/2026-10-22-coagent.md` | 已完成（文档） |
+| `herdr-integration` | 不受影响：其 `pane_id` 是自身上报载荷 | `src/herdr.ts:147,198,240` | 不改 |
+| `TUI` | 无引用（工具名走通用渲染） | — | 不改 |
+
+文档面（H 组 / 用户，本任务不代改）：
+
+| 位置 | 需要改成 |
+| --- | --- |
+| 根 `README.md:18,34`、`README.zh.md:18,34` | `herdr-use` 与 `behavior-correction` 两行（10 个工具、无 `herdr_use`） |
+| `AGENTS.md:3,15,77` | 同上两处包描述与包清单行 |
+| `docs/ARCHITECTURE-REUSE.md:39,47` | 同上两行 |
+| `docs/STATUS.md:25` | herdr-use 行（13 动作 -> 10 工具 + 服务面）；**用户择时改** |
+| `~/.dsh/profiles/fff/cordis.patch.yml:97` | behavior-correction 规则注释里的旧工具名（工作区外，需明确授权） |
+
+不改动项：根 `package.json`、`scripts/install.sh`、`scripts/test-parallel.sh` 只枚举包名，与工具面无关。
 
 ## 验收
 
 - 单测：10 个工具各自 schema（`additionalProperties: false`、必填项、无 `action`）、注册数 10、argv 形状（含 `--session dshbg` 前缀）、`terminal_id` 归属拒绝、`herdr_list` 两 lane 聚合与 `registered` 标记、`herdr_close` 关 tab 而非单 pane、两个 dsh 会话各有独立 workspace、退出清理跨 lane、服务面与工具面共享同一 registry 与同一把锁（串行可观察）、`session-unavailable` 覆盖、context 三种形态（exec / `{session}` / `{id,cwd}`）。
-- `cd herdr-use && npm run check && npm test` 全绿；`cd security-guard && npm test`、`cd behavior-correction && npm test` 全绿；根 `npm run check` 通过；`npm run build` 通过。
+- `cd herdr-use && npm run check && npm test` 全绿；根 `npm run check` 通过；`npm run build` 通过。（`security-guard` / `behavior-correction` / `tool-consult` / `auto-approve` 的测试归各自任务，不在本任务验收内。）
 - 改动文件跑 `format`；README 与十个工具描述逐条一致。
 - 真机不跑；`--session dshbg` 的实际建会话、`tab rename` 行为列未验证项。
 - 人工确认：合并后由用户挂载 profile 实测 `herdr_create -> herdr_run -> herdr_read -> herdr_close` 与 `foreground: false` 一次。
