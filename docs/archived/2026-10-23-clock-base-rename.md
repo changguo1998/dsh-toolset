@@ -1,6 +1,6 @@
 # 把 `timer` 包改名为 `clock-base`（与宿主定时器错开）
 
-状态：进行中　　开启：2026-10-23　　关闭：—
+状态：已完成　　开启：2026-10-23　　关闭：2026-10-23
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -37,3 +37,10 @@
 - `cd clock-base && npm run check && npm test` 全绿；八个消费包的 `tests/clock.test.ts` 通过。
 - 根 `npm run check` 通过（改名后不再有 `timer` 目录）。
 - `dsh --profile fff --dump-config` 只出现 `- id: clock-base`，无 `timer`（宿主那条除外），且不再有 `1 entry did not activate` / `hmr: pending (waiting for service: timer)` / `clock 服务不可用`。
+
+## 关闭记录
+
+- 提交：`2d2fbd4`（rename + 引用同步 + 文档），本提交（收尾）
+- 验证：`clock-base` 24 例、八个消费包 check/test（45/157/33/13/164/173/94/44）、根 `npm run check` 全绿；`dsh --profile fff --dump-config` 只出现 `- id: clock-base`
+- profile 侧（工作区外）：bundles 与依赖链接改为 `@dsh-toolset/clock-base`，符号链接重建；备份 `package.json.bak-clockbase`
+- 未做：真机重启后的服务可用性确认（用户下次重启时观察日志即可）

@@ -62,6 +62,7 @@
 
 ## 2. 未完成项
 
+> 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；过程记录 `docs/archived/2026-10-23-clock-base-rename.md`）。
 > 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；过程记录 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
 
@@ -85,8 +86,6 @@
 **5. MCP 脚本化（mcpScript）**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 原「未立项观察项」立项；**形态未定**）：**现象 / 现状** —— 宿主有 `dsh-mcp-client`（MCP 客户端桥：连 server 并把工具注册进 `ctx.tools`）与 `dsh-mcp-resources`（作用域化资源发现与读取）；base 只挂了后者（`dsh-base/cordis.patch.yml:492-493`），仓内无 MCP 相关代码。所谓「mcpScript」到底是把 MCP 工具**以脚本方式一次跑多步**（结果结构化回传）还是把 MCP 资源读取脚本化，尚未定义。**期望** —— 先补设计再动手：定清目标场景、与 `script-interpreter` 的关系（扩展它 vs 新包）、是否需要挂 `mcp-client` 与凭据边界。**落点** —— 待设计定稿（候选：新包，或 `script-interpreter` 扩展 + 挂 `mcp-client`）。**验收** —— 待设计定稿后补。**优先级** —— 待定（形态未定）。**状态** —— 未接取，等用户指令继续设计。
 
 **6. 共享文档与根级接线（由主分支代理承接）**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 用户约定「新包只改自己包目录内的文件, 项目级文件交给主分支上的代理」）：**现象 / 现状** —— 三个新包（`coagent` / `tool-consult`，以及形态待定的 MCP 若最终定为新包）若各自去改根级接线文件，会与并行开发的其它线在 `package.json`、`AGENTS.md`、根 README 双侧、`profiles/example/cordis.patch.yml` 上互相踩踏。**期望** —— 并行任务只写**自己范围内的文件**（新包写包内目录；TUI 任务写自己的 `src/` 与 `tests/`）外加**自己的追踪文档**；**共享文档**与**根级接线**一律由主分支代理统一回写。共享文档清单：`docs/BACKLOG.md`、`TUI/docs/BACKLOG.md`（状态与关闭注记）、`TUI/docs/SPEC.md`、`TUI/README.md`、`TUI/docs/COMMANDS.md` / `COMMANDS-SPEC.md`、根 `README.md` / `README.zh.md`。**接线清单（每个新包一份）** —— ① 根 `package.json`：`check` / `build` / `test` / `demo` 链加入新包；② `AGENTS.md`：包清单（30 → 31 …）与「结构与约定」一行说明；③ 根 `README.md` / `README.zh.md`：包数与功能行（双侧同构）；④ `profiles/example/cordis.patch.yml` 与用户 profile（工作区外，需明确授权）；⑤ `scripts/test-parallel.sh` 的包枚举（若为硬编码）。**优先级** —— P1（不接线则新包不进构建与测试链）。**状态** —— 由主分支代理承接；新包只负责在包内把 `package.json` 的 `dsh.bundle` 契约与 `cordis.patch.yml` 写好。
-
-**把 `timer` 包改名为 `clock-base`（与宿主定时器错开）**〔进行中: 2026-10-23〕（2026-10-23 登记, 来源: 真机接线事故）：**现象 / 现状** —— 宿主 base 已有 `- id: timer`（`-ai/cordis-plugin-timer`）, 本仓包名与条目 id 同为 `timer`, 重复 id 使其中一条未激活、`hmr` 一直等 `timer` 服务, 八个消费方仍取不到 `clock`（详见 `docs/implementation/2026-10-22-clock-unified-timers.md`「接线上发现的缺陷」）。**期望** —— 包名、目录、条目 id 统一改为 `clock-base`, 与宿主彻底错开; 服务名保持 `clock` 不变。**落点** —— 包目录与 `package.json`、`cordis.patch.yml`、`README.md`、`src/main.ts`、`tests/main.test.ts`; 八个消费包的 `tests/clock.test.ts` import; 根 `package.json` 脚本链、`scripts/test-parallel.sh`、`scripts/install.sh`; `AGENTS.md`、根 README 双侧; profile 的 bundles 与依赖链接。**验收** —— `clock-base` 自身与八个消费包 `check` / `test` 全绿; 根 `npm run check` 通过; `dsh --profile fff --dump-config` 只出现 `- id: clock-base`, 无 `-toolset/timer`。**优先级** —— P1（不改则时钟服务始终回落）。**状态** —— 进行中。
 
 **未立项观察项**：活动工具交互管理（暂不立项, 作为后续可选项）。
 
