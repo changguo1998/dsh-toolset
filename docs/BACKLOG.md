@@ -97,7 +97,6 @@
 | A 渲染 | A2 | `#2 用户块折行后右侧大片留白`（TUI） | 约 0.5 至 1 天 | 同改 `layout/build-box.ts`（另涉 `fill.ts`、`content-rules.ts`） |
 | A 渲染 | A3 | `#3 表格与正文内容不一致`（TUI） | 约 1 天（调研为主） | 同改 `layout/build-box.ts`（另涉 `table.ts`） |
 | B 应用 | B1 | `#4 给 TUI 接 config-editor`（TUI） | 约 1 天 | 同改 `TUI/src/main.ts`、`app/index.ts`、`app/commands.ts` |
-| B 应用 | B2 | `#5 非 TUI 行的 HMR 重载不退出会话`（TUI） | 约 1 至 1.5 天 | 同改 `TUI/src/main.ts`（另涉 `renderer/`） |
 | B 应用 | B3 | `1. /memory 的 replace 与 remove 子命令`（项目级） | 约 1 至 2 天 | 同改 `app/index.ts`、`app/commands.ts`（另涉 `memory-base/src` 写面） |
 | E coagent | E1 | `3. coagent`（项目级） | 约 3 至 4 天 | 单条; **只改 `coagent/`**（根级接线属 H 组） |
 | F tool-consult | F1 | `4. 工具咨询插件`（项目级） | 约 3 至 5 天 | 单条; **只改 `tool-consult/`**（根级接线属 H 组） |
@@ -107,7 +106,7 @@
 **写入范围（2026-10-23 约定）**: 各组任务可写**自己的代码与测试**（新包：包内目录；TUI：自己的 `src/` 与 `tests/`）以及**自己的追踪文档**; 共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、profile 模板）**只由 H 组（主分支代理）回写**。因此 A、B 两组虽然都属 TUI，但代码文件互不重叠、共享文档单写者，故**可并行**。
 **可并行度**: 余下 A / B / E / F / G / H **六组互不重叠，理论可六路并行**; 实际受机器资源与评审带宽限制。
 **H 组前置**: 需对应新包的 `package.json`（`dsh.bundle`）与 `cordis.patch.yml` 就绪, 故通常在各新包编排提交后收尾; 但不与它们争文件。
-**组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: TUI `#3`、TUI `#5`、项目级 `3. coagent`、项目级 `6. 新包根级接线`）。
+**组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: TUI `#3`、项目级 `3. coagent`、项目级 `6. 新包根级接线`）。
 
 ## 3. 里程碑
 
