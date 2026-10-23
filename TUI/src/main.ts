@@ -71,7 +71,7 @@ import {
   type RuleEngineLike,
 } from "./app/adapter/dsh.ts";
 
-/** 定时器统一面（`timer` 插件的 `clock` 服务 `scope` 返回）的最小结构面：不 import 该包。 */
+/** 定时器统一面（`clock-base` 插件的 `clock` 服务 `scope` 返回）的最小结构面：不 import 该包。 */
 interface TimersLike {
   schedule(delayMs: number, callback: () => void): () => void;
   interval(delayMs: number, callback: () => void): () => void;
@@ -102,7 +102,7 @@ export function main(opts: {
   renderer?: Renderer;
   /** 测试注入：替代真实状态查询（缺省 createProcessStatusQueries()） */
   statusQueries?: StatusQueries;
-  /** 定时器统一面读取器（懒读；timer 插件的 `clock` 服务未挂载 / 未就绪返回 undefined →
+  /** 定时器统一面读取器（懒读；clock-base 插件的 `clock` 服务未挂载 / 未就绪返回 undefined →
    *  StatusTicker 回落 setInterval，行为不变） */
   getTimers?: () => TimersLike | undefined;
   /** 符号服务读取器（懒读，容忍插件装载顺序；symbol-normalizer 未挂载时返回 undefined） */

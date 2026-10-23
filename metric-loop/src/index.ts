@@ -630,7 +630,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     controller = new MetricLoopController({
       stateDir: config?.stateDir ?? defaultStateDir(),
       timeoutMs: config?.commandTimeoutMs,
-      // 读钟来源（可选服务）：timer 插件的 `clock` 在就随它走（假时钟可测），否则 Date.now
+      // 读钟来源（可选服务）：clock-base 插件的 `clock` 在就随它走（假时钟可测），否则 Date.now
       ...(clockNow === undefined ? {} : { now: clockNow }),
       // 状态文件命令复查（可选服务）：惰性解析，guard 未挂载时不复查（fail-open）
       commandGuard: makeCommandGuard(ctx, warn),

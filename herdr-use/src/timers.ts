@@ -1,5 +1,5 @@
 /**
- * 定时器统一面接线（`timer` 插件的 `clock` 服务；结构面访问，不 import 该包）。
+ * 定时器统一面接线（`clock-base` 插件的 `clock` 服务；结构面访问，不 import 该包）。
  *
  * 两件事：
  * - `resolveClock(ctx, warn)`：读 `clock`，按调用方 ctx 造「绑定 fiber」与「不绑定」两组

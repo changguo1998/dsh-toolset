@@ -13,7 +13,7 @@
 
 ## 调研
 
-来源：本仓八包源码（逐处读实现与调用链）、`timer/src/timers.ts` / `timer/README.md`、既有消费方 `background-daemon` / `session-channel` / `metric-loop` 的接线先例。
+来源：本仓八包源码（逐处读实现与调用链）、`clock-base/src/timers.ts` / `clock-base/README.md`、既有消费方 `background-daemon` / `session-channel` / `metric-loop` 的接线先例。
 
 ### 裸定时器清单与分类
 
@@ -44,8 +44,8 @@
 
 ### 发现的两处事实
 
-1. `clock-base/README.md:44` 称 `ManualClock` 自带 `scope()`，实际实现（`timer/src/timers.ts:142-227`）只有 `now` / `schedule` / `interval` / `advance` / `pending`。测试里以 `{ now: () => manual.now(), scope: () => manual }` 适配；`timer` 包不在本任务范围内（仅记录，留待后续条目）。
-2. 仓内包彼此零运行时依赖，且各包 `tsconfig` 的 `rootDir` 是本包目录 → 测试直接 import `timer/src/timers.ts` 会触发 TS6059。沿用 `md-table-check` 的先例：把跨包测试文件从本包 `tsconfig.json` 的 `include` 中排除（`exclude` 一行），测试运行时（node 类型擦除）仍能 import 真实 `ManualClock`。
+1. `clock-base/README.md:44` 称 `ManualClock` 自带 `scope()`，实际实现（`clock-base/src/timers.ts:142-227`）只有 `now` / `schedule` / `interval` / `advance` / `pending`。测试里以 `{ now: () => manual.now(), scope: () => manual }` 适配；`timer` 包不在本任务范围内（仅记录，留待后续条目）。
+2. 仓内包彼此零运行时依赖，且各包 `tsconfig` 的 `rootDir` 是本包目录 → 测试直接 import `clock-base/src/timers.ts` 会触发 TS6059。沿用 `md-table-check` 的先例：把跨包测试文件从本包 `tsconfig.json` 的 `include` 中排除（`exclude` 一行），测试运行时（node 类型擦除）仍能 import 真实 `ManualClock`。
 
 ## 决策
 
@@ -170,7 +170,7 @@ cd <pkg> && node $TSC -p tsconfig.json --typeRoots $TYPES            # build（d
 ## 偏差
 
 - 计划清单里的 `tests/cli.test.ts` / `tests/net.test.ts` / `tests/inject.test.ts` / `tests/run.test.ts` 等（标「按需」）未改：新用例集中在新文件 `tests/clock.test.ts`。`rule-engine/tests/main.test.ts` 属计划外修改——其假宿主补了 `clock` 服务，否则新增的回落告警会改变既有告警计数与 stderr 断言；回落路径由新测试专门覆盖。
-- 各包 `tsconfig.json` 各加一行 `exclude`（超出「只改 src/tests」的字面范围）：测试要 import 真实 `ManualClock`（`timer/src/timers.ts`），在包内 `rootDir` 下触发 TS6059；沿用 `md-table-check` 的既有先例把跨包测试文件排除出类型检查。该行不影响构建产物。
+- 各包 `tsconfig.json` 各加一行 `exclude`（超出「只改 src/tests」的字面范围）：测试要 import 真实 `ManualClock`（`clock-base/src/timers.ts`），在包内 `rootDir` 下触发 TS6059；沿用 `md-table-check` 的既有先例把跨包测试文件排除出类型检查。该行不影响构建产物。
 - 计划中的「根 `npm run check` / `npm run build`」改为逐包等价直调 tsc：本机没有可用 `tsc` 命令。
 - 按用户要求不做收尾：追踪文档未归档、两级 `BACKLOG` 未改、`SPEC` / `README` / `COMMANDS` 未动。
 
@@ -197,7 +197,7 @@ cd <pkg> && node $TSC -p tsconfig.json --typeRoots $TYPES            # build（d
 
 真机接入 profile 时出现三条告警：`[rule-engine] warn: clock 服务不可用`、`dsh: warning: 1 entry did not activate`、`hmr: pending (waiting for service: timer)`。逐层排查后是**两个接线缺陷**，都不在本条的实现里，而在挂载面：
 
-1. **bundle 未登记**：profile 的 `dsh.profile.bundles` 里没有 `@dsh-toolset/timer`。只在 profile patch 写 `- id: timer` 是无效的 —— 宿主对非 `insert` 补丁先按 id 查找已有条目，找不到就跳过（`dsh-app-boot/lib/index.js:95-99`）。修法：把包加进 bundles（排在消费方之前），让包内 `cordis.patch.yml` 的 `- insert:` 生效。
+1. **bundle 未登记**：profile 的 `dsh.profile.bundles` 里没有 `@dsh-toolset/timer`（当时包名; 现已改为 `@dsh-toolset/clock-base`）。只在 profile patch 写 `- id: timer` 是无效的 —— 宿主对非 `insert` 补丁先按 id 查找已有条目，找不到就跳过（`dsh-app-boot/lib/index.js:95-99`）。修法：把包加进 bundles（排在消费方之前），让包内 `cordis.patch.yml` 的 `- insert:` 生效。
 2. **条目 id 撞车**：宿主 base 已有 `- id: timer`（`@deepseek-ai/cordis-plugin-timer`, `dsh-base/cordis.patch.yml:24-25`）。本包原 patch 也用 `id: timer`，重复 id 使其中一条未激活、`hmr` 一直等 `timer` 服务。修法：本包条目 id 改为 `timer-toolset`（`cordis.patch.yml`、`src/main.ts` 的 `export const name`、README 示例、单测断言同步）。
 
-验证：`dsh --profile fff --dump-config` 可见宿主 `- id: timer` 与我们的 `- id: timer-toolset` 并存且无重复；重启后最新一次启动只余一条无关的 `herdr-use` 告警，上述三条均未再出现；`timer` 单测 24 例全过。
+验证：`dsh --profile fff --dump-config` 可见宿主 `- id: timer` 与我们的 `- id: clock-base`（当时临时名 `timer-toolset`）并存且无重复；重启后最新一次启动只余一条无关的 `herdr-use` 告警，上述三条均未再出现；`timer` 单测 24 例全过。
