@@ -243,6 +243,7 @@ export type HerdrErrorCode =
   | "terminal-not-registered"
   | "ambiguous-terminal"
   | "session-unavailable"
+  | "background-session-unavailable"
   | "workspace-unavailable"
   | "guard-denied"
   | "timeout"

@@ -29,6 +29,8 @@ import {
 } from "./cli.ts";
 import type { HerdrProbeResult, HerdrRunner } from "./cli.ts";
 import type { DispatchDeps } from "./actions.ts";
+import { createBackgroundSession } from "./background.ts";
+import type { BackgroundSession } from "./background.ts";
 import {
   makeGuardChecker,
   makeSandboxModeReader,
@@ -110,6 +112,8 @@ export interface HerdrUseDeps {
   guardCheck?: GuardChecker;
   /** 替代沙箱模式读取器（单测断言只读拒绝 / fail-open）。 */
   sandboxMode?: SandboxModeReader;
+  /** 替代后台会话控制器（单测用；缺省按真实探测 + detached spawn 拉起）。 */
+  backgroundSession?: BackgroundSession;
   /** 环境变量（缺省 `process.env`）。 */
   env?: NodeJS.ProcessEnv;
   /** 告警出口（缺省写 stderr；单测用记录器）。 */
@@ -255,6 +259,13 @@ export function createHerdrPlugin(
   const deadline = createDeadline(timers.scoped, ctx);
   const runner =
     deps.runner ?? createDefaultRunner(handshake.binPath, deadline);
+  const backgroundSession =
+    deps.backgroundSession ??
+    createBackgroundSession({
+      binPath: handshake.binPath,
+      runner,
+      timeoutMs: resolved.timeoutMs,
+    });
   const connector = deps.connector ?? createNetConnector(deadline);
   const foregroundReader =
     deps.reader ??
@@ -308,6 +319,7 @@ export function createHerdrPlugin(
       ? {}
       : { callerTabId: handshake.callerTabId }),
     guardCheck,
+    backgroundSession,
     ...(deps.clock === undefined
       ? {
           clock: timers.fromClock

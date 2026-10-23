@@ -17,6 +17,7 @@
 
 import type { CliRunResult, HerdrRunner, ParsedEnvelope } from "./cli.ts";
 import { classifyExit, createDefaultRunner, parseEnvelope } from "./cli.ts";
+import type { BackgroundSession } from "./background.ts";
 import type { GuardCheck } from "./policy.ts";
 import {
   paneRenameArgs,
@@ -69,6 +70,8 @@ export interface DispatchDeps {
   resolveSession?: SessionResolver;
   /** 命令复查器（缺省不过复查：注入空实现，便于库面单测）。 */
   guardCheck?: (text: string, action: HerdrUseAction) => GuardCheck;
+  /** 后台 lane 的会话控制器（缺省不保证；生产在 `main.ts` 注入）。 */
+  backgroundSession?: BackgroundSession;
   /** 时钟（stable 判稳用；缺省真实时钟）。 */
   clock?: Clock;
 }
@@ -161,6 +164,25 @@ function sessionFailure(action: HerdrUseAction): ActionResult {
       hint: "服务面消费方把自己会话对象作为末参传入；不要在插件内部猜会话。",
     },
   );
+}
+
+/**
+ * 后台 lane 前置：确保 `dshbg` 会话在跑（缺则 detached 拉起 headless server）。
+ * 失败返回 `background-session-unavailable`，**不回退前台 lane**。
+ */
+async function ensureBackgroundSession(
+  deps: DispatchDeps,
+  action: HerdrUseAction,
+): Promise<ActionResult | undefined> {
+  const controller = deps.backgroundSession;
+  if (controller === undefined) return undefined;
+  const ready = await controller.ensure();
+  if (ready.ok) return undefined;
+  return failure(action, "background-session-unavailable", ready.message, {
+    hint:
+      "在 dsh 外的终端执行 `herdr --session dshbg server` 可手动拉起 headless server；" +
+      "要停止后台会话用 `herdr session stop dshbg`（插件只拉起，不关闭）。",
+  });
 }
 
 /** herdr CLI 信封 → 统一失败（错误码透传，退出码兜底）。 */
@@ -297,6 +319,10 @@ async function listAction(
   for (const lane of ["foreground", "background"] as const) {
     const binding = deps.registry.getBinding(session.id, lane);
     if (binding === undefined) continue;
+    if (lane === "background") {
+      const denial = await ensureBackgroundSession(deps, "list");
+      if (denial !== undefined) return denial;
+    }
     const runner = laneRunner(deps.runner, lane);
     const tabsResult = await runner.run(
       ["tab", "list", "--workspace", binding.workspaceId],
@@ -635,6 +661,10 @@ async function createAction(
   if (session === undefined) return sessionFailure("create");
   const foreground = args.foreground !== false;
   const lane: Lane = foreground ? "foreground" : "background";
+  if (lane === "background") {
+    const denial = await ensureBackgroundSession(deps, "create");
+    if (denial !== undefined) return denial;
+  }
   const ready = await ensureWorkspace({
     runner: deps.runner,
     registry: deps.registry,
@@ -1014,17 +1044,37 @@ export async function dispatchAction(
   }
   // workspace 类动作共用一把锁：并发的 create 不会各建一个 workspace
   if (typedAction === "list" || typedAction === "create") {
-    return deps.registry.serialize(WORKSPACE_QUEUE_KEY, () =>
-      WORKSPACE_HANDLERS[typedAction](deps, args, context),
-    );
+    return deps.registry.serialize(WORKSPACE_QUEUE_KEY, async () => {
+      const result = await WORKSPACE_HANDLERS[typedAction](
+        deps,
+        args,
+        context,
+      );
+      // 后台命令失败（含 server 不可达）→ 清缓存，下一次后台操作重新探测 / 拉起
+      if (!result.ok) deps.backgroundSession?.invalidate();
+      return result;
+    });
   }
   const target = targetOf(deps, typedAction, args);
   if (!target.ok) return target.result;
   const record = target.record;
   // 同终端串行化：同一终端上的驱动 / 关闭按提交顺序执行
-  return deps.registry.serialize(`${record.lane}:${record.paneId}`, () =>
-    TARGET_HANDLERS[typedAction](deps, args, context, record),
-  );
+  return deps.registry.serialize(`${record.lane}:${record.paneId}`, async () => {
+    if (record.lane === "background") {
+      const denial = await ensureBackgroundSession(deps, typedAction);
+      if (denial !== undefined) return denial;
+    }
+    const result = await TARGET_HANDLERS[typedAction](
+      deps,
+      args,
+      context,
+      record,
+    );
+    if (record.lane === "background" && !result.ok) {
+      deps.backgroundSession?.invalidate();
+    }
+    return result;
+  });
 }
 
 /** 生产路径的 runner 构造（`main.ts` 用；库面消费者可自备）。 */
