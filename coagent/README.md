@@ -112,12 +112,18 @@ npm test        # node --test：T1-T13（fake herdrUse + fake sessionChannel + �
 npm run build
 ```
 
-真机脚本（人工跑，不进 CI）：
+真机自检（人工跑，不进 CI）：
 
 ```sh
 cd coagent
-npm run verify              # 拉起 → 认领 → 交接提示 → 收尾 → 残留核对
-npm run verify -- --negative  # 追加 cwd 非法与 target 参数被拒两项
+npm run build               # 脚本断言的是 dist 产物
+npm run verify              # 前置条件 + 本地守门断言 + 打印人工步骤
+npm run verify -- --negative  # 追加 task 参数被拒与指路检查
 ```
+
+脚本自动做的三件事：检查登录 shell 能拿到 `fffdsh` 函数、环境里有 `*_API_KEY`、herdr CLI 在 PATH
+上；对本包构建产物断言命令白名单与脱管痕迹守门；打印「拉起 → 认领 → 交接 → 收尾 → 残留核对」
+的人工步骤。**它不假装跑通全链**：跨进程调用模型工具没有通路，真机链路必须在挂载了 coagent 的
+dsh 会话里按打印的步骤手工执行。
 
 **诚实边界**：单测全部由 fake 服务面驱动；herdr-use 服务面落地前，`create` / `run` / `read` / `info` / `close` 的真实回执形状未在真机核对，`fffdsh` 拉起 / 认领 / 交接链路也未在真实 herdr 上跑过。
