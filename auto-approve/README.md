@@ -29,7 +29,7 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 | 1 | 显式拒绝名单（`deny.tools` / `deny.escalation.to`） | `rejected` | 缺省全空；**只表达「不自动批」**；优先于一切放行与 LLM |
 | 2 | 同会话指纹（已批准过的等价调用） | `allowed-once` | 仅单会话内有效；被拒绝过的等价调用不进放行集 |
 | 2.5 | 人工放行学来的形态覆盖（`learnFromManual`） | `allowed-once` | 只对命令类工具；**每一段**形态都在本会话表里才命中；`ruleId: fingerprint:form` |
-| 3 | 只读类工具（`readonlyTools`） | `allowed-once` | 缺省含官方读工具与本仓读面插件工具；**不含 `bash`** |
+| 3 | 只读类工具（`readonlyTools`） | `allowed-once` | 缺省含官方读工具与本仓读面插件工具；**不含 `bash`**；herdr 十个工具一律按未登记只读类处理（四个读类也逐次确认，见 `docs/implementation/2026-10-23-herdr-terminal-readonly.md`） |
 | 4 | 路径白名单（`allow.paths`） | `allowed-once` | 归一化后匹配（展开 `~` / `$HOME`、相对路径按会话 cwd） |
 | 5 | 命令白名单（`allow.commands`） | `allowed-once` | 命令原文折叠空白后匹配 |
 | 6 | 沙箱升级白名单（`escalation.allow`） | `allowed-once` | **两维**：命令 / 路径命中 **且** 目标模式在 `to` 内 |
