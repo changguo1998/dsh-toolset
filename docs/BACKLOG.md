@@ -94,7 +94,6 @@
 
 | 组 | 顺位 | 条目 | 工作量 | 组内串行原因 |
 | --- | --- | --- | --- | --- |
-| A 渲染 | A2 | `#2 用户块折行后右侧大片留白`（TUI） | 约 0.5 至 1 天 | 同改 `layout/build-box.ts`（另涉 `fill.ts`、`content-rules.ts`） |
 | A 渲染 | A3 | `#3 表格与正文内容不一致`（TUI） | 约 1 天（调研为主） | 同改 `layout/build-box.ts`（另涉 `table.ts`） |
 | E coagent | E1 | `3. coagent`（项目级） | 约 3 至 4 天 | 单条; **只改 `coagent/`**（根级接线属 H 组） |
 | F tool-consult | F1 | `4. 工具咨询插件`（项目级） | 约 3 至 5 天 | 单条; **只改 `tool-consult/`**（根级接线属 H 组） |
