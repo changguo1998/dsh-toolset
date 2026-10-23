@@ -1,0 +1,33 @@
+{
+    "name": "@dsh-toolset/coagent",
+    "version": "0.1.0",
+    "description": "DSH（DeepSeek Harness）进程内集成插件：经 herdr-use 服务面在交互终端里拉起长驻 dsh 会话（独立进程、上下文零继承），认领后把 terminal_id / session_id 交给调用方；只管拉起与收尾",
+    "type": "module",
+    "main": "dist/src/index.js",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "check": "tsc -p tsconfig.json --noEmit",
+        "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+        "verify": "node scripts/verify-coagent.mjs",
+        "watch": "tsc -p tsconfig.json --watch"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@types/node": "^24.13.3",
+        "typescript": "^5.9.3"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "cordis.patch.yml"
+    ],
+    "engines": {
+        "node": ">=22.19.0"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    }
+}
