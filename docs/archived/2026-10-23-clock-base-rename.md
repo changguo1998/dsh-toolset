@@ -10,7 +10,7 @@
 
 ## 调研
 
-- 起因：接入 profile 时宿主 base 已有 `- id: timer`，本包同名导致重复 id、其中一条未激活、HMR 一直等 `timer` 服务（详见 `docs/implementation/2026-10-22-clock-unified-timers.md`「接线上发现的缺陷」）。
+- 起因：接入 profile 时宿主 base 已有 `- id: timer`，本包同名导致重复 id、其中一条未激活、HMR 一直等 `timer` 服务（详见 `docs/archived/2026-10-22-clock-unified-timers.md`「接线上发现的缺陷」）。
 - 命名风格：项目内包名统一「小写、连字符、二到三词的名词短语、按角色命名」，如 `memory-base` / `session-paths` / `rule-engine` / `command-template`；单字只有 `timer` 与 `ponytail` 两个例外。
 - 功能对照：`alarm` 指墙上时刻触发且通常持久化，不贴合；`timer` 最贴合排期但这正是宿主占用的名字；`clock` 覆盖 `now()` 与排期面，最终取「领域 + 底座」构词 `clock-base`。
 
@@ -29,7 +29,7 @@
 - 消费包测试 import：`ast-tools`、`auto-approve`、`command-template`、`herdr-integration`、`herdr-use`、`rule-engine`、`script-interpreter`、`task-engine` 的 `tests/clock.test.ts`
 - 根 `package.json` 的 `check` / `build` / `test` / `demo` 链；`scripts/test-parallel.sh`；`scripts/install.sh`
 - `AGENTS.md`、根 `README.md` 与 `README.zh.md`
-- 文档：`docs/BACKLOG.md` 条目 2 正文的包名、`docs/implementation/2026-10-22-clock-unified-timers.md`
+- 文档：`docs/BACKLOG.md` 条目 2 正文的包名、`docs/archived/2026-10-22-clock-unified-timers.md`
 - 工作区外：profile `fff` 的 bundles / dependencies / 符号链接
 
 ### 验收

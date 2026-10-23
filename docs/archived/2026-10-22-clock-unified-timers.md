@@ -1,6 +1,6 @@
-# 其余包接入定时器统一面 `clock`（接取条目：`docs/BACKLOG.md`「3. 其余包接入定时器统一面 `clock`」）
+# 其余包接入定时器统一面 `clock`（接取条目：`docs/BACKLOG.md`「其余包接入定时器统一面 `clock`」）
 
-状态：测试（八包 check / build / test 全绿）　　开启：2026-10-22　　关闭：—
+状态：已关闭（2026-10-23）　　开启：2026-10-22　　关闭：2026-10-23
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -201,3 +201,11 @@ cd <pkg> && node $TSC -p tsconfig.json --typeRoots $TYPES            # build（d
 2. **条目 id 撞车**：宿主 base 已有 `- id: timer`（`@deepseek-ai/cordis-plugin-timer`, `dsh-base/cordis.patch.yml:24-25`）。本包原 patch 也用 `id: timer`，重复 id 使其中一条未激活、`hmr` 一直等 `timer` 服务。修法：本包条目 id 改为 `timer-toolset`（`cordis.patch.yml`、`src/main.ts` 的 `export const name`、README 示例、单测断言同步）。
 
 验证：`dsh --profile fff --dump-config` 可见宿主 `- id: timer` 与我们的 `- id: clock-base`（当时临时名 `timer-toolset`）并存且无重复；重启后最新一次启动只余一条无关的 `herdr-use` 告警，上述三条均未再出现；`timer` 单测 24 例全过。
+
+## 关闭（2026-10-23）
+
+- **真机复验**：本会话于 2026-10-23 09:51 启动（改名后）。在沙箱内以 `DSH_HOME` 复刻 profile 跑 `dsh --profile fff --dump-config`（只读，临时目录已删）：组合 160 条、stderr 0 字节 → 无「1 entry did not activate」、无「waiting for service: timer」；宿主 `- id: timer` 与本仓 `- id: clock-base` 并存且 id 不撞；`clock-base` 与八个消费方条目都在树内（`clock-base` 在 564 行，消费方自 575 行起）。
+- **测试**：2026-10-23 全量 30 包 0 失败。本条相关：`clock-base` 24、herdr-integration 57、herdr-use 164、script-interpreter 94、rule-engine 173、task-engine 142、auto-approve 157、ast-tools 45、command-template 33；根 `npm run check` 通过。
+- **未取证**：运行中各包是否真取到 `clock` 服务（缺失只打一行回落告警并降级）——该告警只出现在启动终端，沙箱内取不到。
+- **收尾动作**：条目从 `docs/BACKLOG.md` §2 移除并补关闭注记；「实现顺序与并行分组」表删去 D 组行、并注明余下六组；本文件移入 `docs/archived/`；`TUI` / `SPEC` / `README` / `COMMANDS` 不动（本条不涉界面与命令）。
+- **提交**：实现 `190ee24`、假时钟与降级用例 `e40f5d0`；接线修复 `86e44f3`（条目 id 改 `timer-toolset`）与 `2d2fbd4`（包名改 `clock-base`）。

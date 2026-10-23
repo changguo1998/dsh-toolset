@@ -62,6 +62,7 @@
 
 ## 2. 未完成项
 
+> 2026-10-23 关闭：条目「其余包接入定时器统一面 `clock`」完成并移出清单（实现 `190ee24`、假时钟与降级用例 `e40f5d0`；过程记录 `docs/archived/2026-10-22-clock-unified-timers.md`）。
 > 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；过程记录 `docs/archived/2026-10-23-clock-base-rename.md`）。
 > 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；过程记录 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
@@ -76,8 +77,6 @@
 > - 文档与流程：`2026-10-18-plugin-docs-refresh.md`、`2026-10-22-docs-consistency.md`
 
 **1. `/memory` 的 `replace` 与 `remove` 子命令**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 原「后续补条目候选」立项）：**现象 / 现状** —— TUI 的 `/memory` 只有只读面（概要 / `search`；命令描述还写着已移除的 `review` 审阅, 见 `TUI/src/app/commands.ts:319-320`）；memory-base 写侧只经 `registerKind` 句柄（`memory-base/src/scope.ts:46` 的 `forget(refs): Promise<number>`），而 TUI 只持只读 `memory` 面（`TUI/src/main.ts:775-781`），全仓无 `forget` 调用方 → 错误的 U / P 条目没有任何删除路径。**期望** —— 两个子命令：`remove` 删条目、`replace` 先删后写（需定原子性与半途失败回滚）；**先裁定写权归属**：① memory-base 另开一个管理面（不经 kind 句柄），或 ② TUI `registerKind` 一个自己的 kind（语义上不自然）。**落点** —— 先改 memory-base 写面 / 管理面，再改 `TUI/src/app/index.ts` 的 `handleMemoryCommand` 与 `commands.ts` 描述（同步去掉 `review`）；记忆存在 S 层时需按层权限拒绝。**验收** —— 删一条 U / P 条目后 `search` 不可见、计数正确；对不存在的 ref 返回 0；越权（S 层）明确拒绝；包内单测覆盖三条路径。**优先级** —— P2。**状态** —— 未接取。
-
-**2. 其余包接入定时器统一面 `clock`**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 原「遗留」项立项）：**现象 / 现状** —— `timer` 插件已 `provide` 服务 `clock`（`now` / `schedule` / `interval`，排期随调用方 fiber 卸载撤销、缺省 unref，附手控假时钟 `ManualClock`；见 `clock-base/README.md`），但下列包仍在用裸定时器：`herdr-integration` 5 处、`herdr-use` 5、`script-interpreter` 2、`rule-engine` 2、`task-engine` 1、`auto-approve` 2、`ast-tools` 1、`command-template` 1（`grep -rn 'setInterval\|setTimeout'` 计数，2026-10-22）；TUI 内部 34 处另有渲染节律，不在本条范围。裸定时器脱离插件生命周期、测试无法注入假时钟。**期望** —— 逐包把可注入的排期换成 `ctx.get("clock")`（服务缺失时退回裸定时器并告警一次）；本期未排期。**落点** —— 上述 8 个包的 `src/` 与各自测试。**验收** —— 每包卸载后无残留排期（用 `ManualClock` 断言）；`check` / `test` 全绿；服务缺失降级用例存在。**优先级** —— P2（逐包小改，量大）。**状态** —— 未接取，本期未排期。
 
 **3. coagent：基于 herdr-use + agent-group + session-channel 拉起并管理 agent、派发任务**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 用户构想）：**现象 / 现状** —— 现有的 agent 拉起面都不满足「干净上下文 + 高控制自由度」：`subagent` / `subagent_fork` 在宿主进程内跑，`subagent_fork` 还继承本会话已完成回合的上下文；`channel_delegate` 只能派给**已经在线**的 dsh 会话（要有人先起进程、且不知道它从哪来）；`herdr-use` 能在 pane 里跑任意命令，但它不知道「怎么起一个 agent、怎么认领它、怎么收尾」。三块能力各自齐备却没有人把它们编排成「按需拉起 → 派任务 → 收结果 → 关闭」的生命周期。**期望** —— 新插件（暂名 `coagent`，能力名同）以 herdr-use 为执行底、session-channel 为通信面、agent-group 为编排面，提供：① **拉起**：在 herdr pane 里起 `dsh headless "<task>"`（一次性、跑完打印结果并退出）或长驻交互会话（可 `--resume`）；可指定 profile / cwd / 模型，pane 打 label 归属；② **认领**：经 session-channel `peers`（sessionId / pid / cwd / profile / startedAt）确认新会话上线，或对 headless 直接读退出码 + stdout；③ **派发**：一次性把任务写进命令行；长驻走 `channel_delegate`（任务表 + 结果自动 / 显式回传）；④ **管理**：`state` 查忙闲、`channel_task cancel` 或发 `ctrl+c` 取消、`pane_read` / `pane_send_text` / `pane_send_keys` 观察与补输入、结束 `pane_close`；⑤ **编排**：多 coagent 用 agent-group 的组 / 成员 / 主从等级与懒判定结算；⑥ **与 subagent 的差异（本条核心）**：coagent 是**独立进程 + 全新会话，上下文零继承**（不喂任何父会话历史），换来更高控制自由度（看屏、实时插话、按键中断、独立 profile / 模型、跨 cwd、可并行多实例）。**待定项** —— 一次性与长驻的默认策略（按任务长短自动选？）；结果回收主路径（headless stdout 解析 vs 统一走 session-channel 回传）；`DSH_HOME` 与凭据是否隔离（现在共享 → 权限面放大）；并发上限与 pane 数量治理；失败 / 超时 / 崩溃残留的判定与清理；是否复用 agent-group 的等级语义。**落点** —— 新包 `coagent/`（`package.json` 的 `dsh.bundle` + `cordis.patch.yml`；依赖 herdr-use 库面与 session-channel / agent-group 服务面，缺任一服务时降级并如实报错），工具 `coagent`（action 分派：`spawn` / `list` / `send` / `wait` / `cancel` / `close`），profile 挂载与 README / DESIGN。**验收** —— 真机跑通「拉起 → 派任务 → 收结果 → 关闭」全链；验证上下文干净（coagent 会话里看不到父会话任何历史）；并行 2 个 coagent 且能单独取消；崩溃 / 超时后无残留 pane；单测用 fake pane + fake channel 覆盖六类失败路径。**优先级** —— P1（新能力，直接补足「干净上下文 agent」缺口）。**状态** —— 未接取，设计待细化（先与用户对齐待定项再动手）。
 
@@ -101,14 +100,13 @@
 | B 应用 | B1 | `#4 给 TUI 接 config-editor`（TUI） | 约 1 天 | 同改 `TUI/src/main.ts`、`app/index.ts`、`app/commands.ts` |
 | B 应用 | B2 | `#5 非 TUI 行的 HMR 重载不退出会话`（TUI） | 约 1 至 1.5 天 | 同改 `TUI/src/main.ts`（另涉 `renderer/`） |
 | B 应用 | B3 | `1. /memory 的 replace 与 remove 子命令`（项目级） | 约 1 至 2 天 | 同改 `app/index.ts`、`app/commands.ts`（另涉 `memory-base/src` 写面） |
-| D 定时器 | D1 | `2. 其余包接入定时器统一面 clock`（项目级） | 约 1.5 至 2 天 | 单条; 改 8 个包的 `src/` 与测试 |
 | E coagent | E1 | `3. coagent`（项目级） | 约 3 至 4 天 | 单条; **只改 `coagent/`**（根级接线属 H 组） |
 | F tool-consult | F1 | `4. 工具咨询插件`（项目级） | 约 3 至 5 天 | 单条; **只改 `tool-consult/`**（根级接线属 H 组） |
-| G MCP | G1 | `5. MCP 脚本化`（项目级） | 未定（估计 ≥ 5 天） | 单条; 形态定稿前不动其它包; 若选扩展 `script-interpreter` 则并入 D 组 |
+| G MCP | G1 | `5. MCP 脚本化`（项目级） | 未定（估计 ≥ 5 天） | 单条; 形态定稿前不动其它包; 若选扩展 `script-interpreter` 则并入其所在组 |
 | H 共享文档与接线 | H1 | `6. 共享文档与根级接线`（项目级, 主分支代理） | 约 1 天 | 单条; **独占两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`、根 `package.json`、`AGENTS.md`、profile 模板** |
 
 **写入范围（2026-10-23 约定）**: 各组任务可写**自己的代码与测试**（新包：包内目录；TUI：自己的 `src/` 与 `tests/`）以及**自己的追踪文档**; 共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、profile 模板）**只由 H 组（主分支代理）回写**。因此 A、B 两组虽然都属 TUI，但代码文件互不重叠、共享文档单写者，故**可并行**。
-**可并行度**: A 至 H **八组互不重叠，理论可八路并行**; 实际受机器资源与评审带宽限制。
+**可并行度**: 余下 A / B / E / F / G / H **六组互不重叠，理论可六路并行**; 实际受机器资源与评审带宽限制。
 **H 组前置**: 需对应新包的 `package.json`（`dsh.bundle`）与 `cordis.patch.yml` 就绪, 故通常在各新包编排提交后收尾; 但不与它们争文件。
 **组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: TUI `#3`、TUI `#5`、项目级 `3. coagent`、项目级 `6. 新包根级接线`）。
 
