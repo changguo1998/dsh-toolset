@@ -1,6 +1,6 @@
 # 给 TUI 接 `config-editor` 的配置编辑面（接取条目：`TUI/docs/BACKLOG.md`「#4 给 TUI 接 `config-editor` 的配置编辑面」）
 
-状态：实现完成，真机验收（2026-10-23）发现两处缺陷待修　　开启：2026-10-22　　关闭：—
+状态：实现完成；真机验收（2026-10-23）两处缺陷已修（2026-10-23，待复验）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -157,3 +157,77 @@
 **未覆盖**：越权 / 更高层覆盖字段的表现（未构造双层覆盖）；`configEditor` 服务缺失时的降级未真机跑（仅有单测）；`/config set` 对 `!!js` 表达式值（如 `memory-base` 的 `dbPath`）未试。
 
 **清理**：两个测试 tab 已关闭；探测用的注释行与 `minBytes` 均已从 profile patch 移除（该条目因缺陷 2 已被宿主删去，功能由 bundle 提供）。
+
+## 继续修改（2026-10-23，缺陷 1 / 2）
+
+按指令沿用本条目与本文件，不新开条目 / 追踪文档；只改 `TUI/src`、`TUI/tests` 与本文件，未 commit。
+
+### 缺陷 1：无效值未被拒（P1）
+
+**根因（宿主校验空转）**：`dsh-config-editor` 的 `edit()` 在写盘前唯一的类型关是
+`resolveConfig(fiber.runtime, resolved)`；`resolveConfig`（cordis `lib/index.js:956`）在
+`runtime.Config` 缺席时**原样返回配置**。本仓 30 个插件按契约把 `Config` 写成 TS 类型别名
+（如 `output-compress` 的 `export type Config = OutputCompressConfig`，编译后运行时不存在），
+故 `minBytes: "abc"` 一路落到 profile patch。宿主也没有第二个类型源：`Entry` 只有
+`options.config`（原始值）与 `moduleNamespace`（模块导出，类型别名不含运行时值），
+`entry.fiber.runtime.Config` 是唯一 schema 面，对无 schema 插件为空。
+
+**方案与取舍**：
+
+- a 宿主 / 插件侧加运行时 schema（让各包导出 schemastery `Config`）：唯一权威解，但要改 30 个包并迁移
+  用户 patch，跨包且超出本条目边界，另行立项。
+- b TUI 侧已知键类型表（选定）：`CONFIG_KEY_TYPES` 按「条目 id + 点路径」登记
+  `number` / `boolean` / `string` / `array` / `object` 与字符串枚举。最小集只收 TUI 自己的键
+  （与 `DshTuiConfig` 同源，无漂移）与真机验收暴露的 `output-compress` 三个键。
+- c 既有值类别兜底（选定，作为 b 的补充而非替代）：表外键用 `change(current, inherited)` 的既有值
+  做同路径类别一致性判断（已是 number 的键不接受 string）；既有值为 `null` 或 `!!js` 表达式
+  （`{ __jsExpr }`）时视为无类型信息放行；两处都无信息 → 放行（首次写入的新键只能靠表）。
+- 落点：校验在 `change` 回调内执行，`configEditor.edit()` 在 `readFile` / `writeFileAtomic` 之前调用它，
+  抛 `ConfigValueError` 即中止、patch 保持原样；App 用「值校验失败：…；未写入 profile patch」提示，
+  与宿主错误（「编辑失败：…」）区分。
+
+**漂移风险（明写）**：类型表是手维护的，插件改字段类型 / 改名后表不会跟随；错表项会**误拒合法值**
+（提示可见、改一行即可修），不会静默写坏配置。表只登记**无运行时 schema** 的插件键——有 schema 的插件
+由宿主 `resolveConfig` 校验，再登记会盖过权威 schema；新增键 = 表里加一行。
+
+### 缺陷 2：unset 连条目一起删（P2）
+
+**根因（宿主写回归一化，已读源码确认）**：`dsh-config-editor/lib/index.js:99-104`——当
+`isDeepStrictEqual(next, inherited)` 成立（删掉该行最后一个 override 键后，候选值 = 继承值）时，
+宿主遍历所有同 `id` 的行：`row.delete("config")`，随后
+`if (row.items.length === Number(row.has("id")) + Number(row.has("name"))) document.delete(index)`
+把只剩 id / name 的行**整行删除**，行上注释随之消失。不是 TUI 判定：TUI 送出的 `next` 只是删了键的副本。
+
+**为什么不能从 TUI 阻止**：`edit()` 是唯一写路径（决策项 2）；要绕过归一化只能让 `next` 不等于 inherited，
+即往用户 patch 里钉一个等于继承值的键——正是本条目要避免的「把继承值复制进本层」，不做。
+故按任务给兜底提示：unset 命中该分支时回执
+「已删除 …；本行已无 override，宿主归一化连同注释删掉了该 profile 行（条目仍由 bundle 的 insert 提供，生效值即 inherited）」。
+同一归一化也作用于「set 的值恰好等于 inherited」：`/config set` 会给出「等于 inherited；宿主归一化删掉了本行
+override 与其注释」的 warn 提示（`configsEqual` 预判，判据与宿主同为 `isDeepStrictEqual`）。
+
+### 改动文件
+
+- `TUI/src/app/config-edit.ts`：新增 `CONFIG_KEY_TYPES` / `ConfigValueError` / `configValueKind` /
+  `readConfigPath` / `validateConfigSetValue` / `configsEqual`（内部判据 `isJsExpression`）。
+- `TUI/src/app/index.ts`：`handleConfigCommand` 的 `change` 内值校验、归一化预判与提示文案、
+  「值校验失败」错误分支。
+- `TUI/tests/config-edit.test.ts`：新增 10 例——值类别与点路径读取、类型表（number / 枚举 / 子路径不误用）、
+  既有值兜底（current / inherited / `null` / `!!js` 放行 / 无信息放行）、`configsEqual`；
+  App 层：无效值被拒且 patch 不变、正确值写入、表外键类型不一致被拦、unset 删末键的归一化提示、
+  仍有其它键时只提示回到继承值、set 等于 inherited 的提示。假 adapter 改为维护 `patch` / `writes`，
+  使「不写盘」可直接断言。
+
+### 验证
+
+- `cd TUI && npm run check` → 通过；`cd TUI && npm run build` → 通过。
+- `cd TUI && npm test` → `tests 1730 / pass 1730 / fail 0`（本文件 20 → 30 例，+10；其余文件未动）。
+- 未做真机复验（按指令留工作区等批准）。复验口径：`/config set output-compress minBytes=abc` 应报
+  「值校验失败：output-compress.minBytes 期望 number」且 patch 不变；`/config unset` 删掉末键后应看到归一化提示。
+
+### 未做 / 存疑
+
+- 类型表只覆盖 11 个键，其余键靠既有值兜底；插件导出运行时 schema 才是权威解（跨包，另行立项）。
+- 嵌套键只在「整路径命中表项」或「同路径已有值」时校验；数组 / 对象的元素级类型不查。
+- 缺陷 2 的「条目保留」在宿主侧不可控（已记不可控 + 提示兜底）；要真正保留需宿主区分「空 config 行」
+  与「用户显式行」，属官方面。
+- 真机验收那节记录的「写回重排整份 patch」副作用未改（非缺陷）。
