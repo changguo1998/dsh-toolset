@@ -1,6 +1,6 @@
 # 给 TUI 接 `config-editor` 的配置编辑面（接取条目：`TUI/docs/BACKLOG.md`「#4 给 TUI 接 `config-editor` 的配置编辑面」）
 
-状态：实现完成；真机验收（2026-10-23）两处缺陷已修（2026-10-23，待复验）　　开启：2026-10-22　　关闭：—
+状态：已关闭（2026-10-23，真机复验通过）　　开启：2026-10-22　　关闭：2026-10-23
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -231,3 +231,18 @@ override 与其注释」的 warn 提示（`configsEqual` 预判，判据与宿�
 - 缺陷 2 的「条目保留」在宿主侧不可控（已记不可控 + 提示兜底）；要真正保留需宿主区分「空 config 行」
   与「用户显式行」，属官方面。
 - 真机验收那节记录的「写回重排整份 patch」副作用未改（非缺陷）。
+
+## 真机复验（2026-10-23，主分支）
+
+环境：主树构建 `TUI/dist`（15:42）后在 herdr 新 tab 起 `fffdsh`；改前先把 profile patch 存到 `tmp/` 作基线，逐条比对。
+
+| 步骤 | 命令 | 结果 |
+| --- | --- | --- |
+| 缺陷 1 拦截 | `/config set output-compress minBytes=abc` | 回执「值校验失败：output-compress.minBytes 期望 number，收到 string（"abc"）；未写入 profile patch」；patch 与基线**逐字相同**，mtime 未变 |
+| 正常写入 | `/config set output-compress minBytes=32768` | 成功，patch 出现 `- id: output-compress` + `config: minBytes: 32768` |
+| 缺陷 2 提示 | `/config unset output-compress minBytes` | 回执「…该键回到继承值；本行已无 override，宿主归一化连同注释删掉了该 profile 行（条目仍由 bundle 的 insert 提供，生效值即 inherited）」 |
+| 收尾比对 | — | patch 回到基线，仅差末尾一个空行（宿主序列化口径）；`output-compress` 条目已不在 patch（bundle 的 `- insert:` 兜底） |
+
+- 两处缺陷在真机上均按预期表现，`#4` 的验收项（list / show / set / unset、无效值被拒、免重启生效）全部满足。
+- 清理：测试 tab 已关闭，`tmp/` 基线文件已删除，主树干净。
+- 未覆盖：越权 / 更高层覆盖字段的表现、服务缺失降级、`!!js` 表达式值的写入（仍只有单测覆盖），与上节「未做 / 存疑」一致。
