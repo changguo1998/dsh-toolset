@@ -94,7 +94,6 @@
 
 | 组 | 顺位 | 条目 | 工作量 | 组内串行原因 |
 | --- | --- | --- | --- | --- |
-| A 渲染 | A1 | `#1 代码块 \t 展开 4 空格 + 底色填满`（TUI） | 约 0.5 天 | 同改 `layout/build-box.ts`（另涉 `markdown.ts`） |
 | A 渲染 | A2 | `#2 用户块折行后右侧大片留白`（TUI） | 约 0.5 至 1 天 | 同改 `layout/build-box.ts`（另涉 `fill.ts`、`content-rules.ts`） |
 | A 渲染 | A3 | `#3 表格与正文内容不一致`（TUI） | 约 1 天（调研为主） | 同改 `layout/build-box.ts`（另涉 `table.ts`） |
 | B 应用 | B1 | `#4 给 TUI 接 config-editor`（TUI） | 约 1 天 | 同改 `TUI/src/main.ts`、`app/index.ts`、`app/commands.ts` |
