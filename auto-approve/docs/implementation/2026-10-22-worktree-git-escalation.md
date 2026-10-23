@@ -1,6 +1,6 @@
 # 放行 worktree 内的 git 提交（沙箱升级白名单）
 
-状态：进行中　　开启：2026-10-22　　关闭：—
+状态：进行中（真机验证 2026-10-23：升级路径不可达，规则空转；保留或删除待裁定）　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -46,3 +46,12 @@
 - 行为用例：`git commit -m "x"` + `danger-full-access` → `allowed-once`、`ruleId` 为本规则；
   `git commit -m x && rm -rf /tmp/x` → 不命中；`git commit` + `workspace-write` → 不命中。
 - 真机：worktree 内提交不再弹面板（待主分支重启后验证，本条不做真机验收）。
+
+## 真机验证（2026-10-23，主分支）
+
+- **做法**：在测试用 worktree（`.worktree/test-approve`，分支 `test/auto-approve-check`）里用 herdr 新 tab 起 `fffdsh`，由该会话的 agent 建文件后执行 `git add` / `git commit`，观察是否出现审批面板与审计行。
+- **结果**：文件创建成功（工作区内可写）；`git add` 直接失败——`fatal: 无法创建 '/home/guochang/Projects/dsh-toolset/.git/worktrees/test-approve/index.lock': 只读文件系统`（exit 128），`commit` 因 `&&` 短路未执行。全程**无审批面板**；该会话目录下**没有** `auto-approve-audit.jsonl`，即没有任何审批裁定发生。
+- **判定**：本环境的越界写是**直接拒绝**（EROFS），不发起沙箱升级请求，故 `escalation.allow` 的判定路径不可达。本条的验收条件（「worktree 内提交不再弹面板」）在此配置下既无法验证，规则本身也不会被触发（空转）。
+- **附带发现**：以 worktree 为**会话工作区**的 agent 根本无法提交——`.git` 在工作区外且只读。先前各组代理能提交，是因为其会话工作区是仓库根（`.git` 在根内、`workspace-write` 已覆盖）。这解释了本规则「看似必要」的成因，也说明真问题在 workspace 口径而非审批。
+- **待裁定**：① 本规则保留（等真有升级场景再验）还是删除（当前空转）；② 是否为「worktree 代理的 workspace 口径」另开条目（跨包，属项目级）。
+- **测试清理**：herdr tab 已关闭；`probe2.txt`、测试 worktree 与分支 `test/auto-approve-check` 均已删除；主树干净。
