@@ -1,51 +1,49 @@
 /**
- * src/registry.ts — 归属登记、会话 workspace 绑定与生命周期
+ * src/registry.ts — 终端登记、会话 × lane 的 workspace 绑定与生命周期
  *
- * 口径（追踪文档决策项 7 / 8 / 9）：
- *   - 写类动作缺省只作用于**本插件创建并登记**的 pane；读类可读任意 pane；
- *     **缺省永不使用「当前聚焦 pane」**（官方技能：不依赖别的客户端的焦点）。
- *   - 进程内只维护**一个**会话 workspace 绑定（`WorkspaceBinding`）：首个使用本工具的会话
- *     决定 workspace 与 label，子会话沿用；模型看不到这个 id。
- *   - `tab_create` 建出的 tab 进 `TabRecord` 登记表；`tab_close` 只认这里登记过、
- *     且属于本会话 workspace 的 tab（跨 workspace 一律拒）。
- *   - 创建 pane / tab 成功后自动打 label（缺省 `dsh-pane`），让崩溃残留可被 `pane_list` 与人工识别。
- *   - dsh 退出时按 `closeOnExit` 关闭本次创建的 pane；关闭后若本会话 workspace 已空，
- *     由程序内部一并 `workspace close`（仅此一例、不出工具面），避免留空壳。
- *   - 同 pane 的操作串行化；workspace 类动作另有一个共享队列（避免并发建两个 workspace）。
+ * 口径（2026-10-23 终端面重构）：
+ *   - 登记的是**终端**（tab + 自带 root pane）：所有驱动动作只认登记过的 `terminal_id`；
+ *     工具面没有外来对象的概念，因此没有 allowForeignPanes / force / 审批档。
+ *   - 登记键 = `lane:paneId`：两个 herdr session 的 pane id 可能各自从 `w1:p1` 起编号，
+ *     跨 lane 同名时按 id 查找会歧义，调用方返回 `ambiguous-terminal`。
+ *   - workspace 绑定严格按 `(dsh session, lane)` 建键，会话之间不共享。
+ *   - 同终端操作串行化；workspace 类动作（create / list）另有一把共享队列，
+ *     避免并发建出两个 workspace。
+ *   - dsh 退出时按 `closeOnExit` 逐条 `tab close` 登记终端；其后若某绑定 workspace 已空，
+ *     由程序内部一并 `workspace close`（不出工具面）。
  */
 
 import type { CliRunResult, HerdrRunner, SyncRunner } from "./cli.ts";
 import { createSpawnSyncRunner, parseEnvelope } from "./cli.ts";
-import type { ResolvedConfig, TabRecord, WorkspaceBinding } from "./types.ts";
+import type {
+  Lane,
+  ResolvedConfig,
+  TerminalRecord,
+  WorkspaceBinding,
+} from "./types.ts";
+import { withLane } from "./workspace.ts";
 
-/** 单条登记记录。 */
-export interface PaneRecord {
-  /** pane id（创建返回的 `.result.pane.pane_id`）。 */
-  paneId: string;
-  /** 创建时打的归属标记。 */
-  label: string;
-  /** 创建时间（epoch ms）。 */
-  createdAt: number;
-  /** 创建时请求的 cwd（未指定则 undefined）。 */
-  cwd?: string;
-  /** 所属 workspace（建 / 切时已知则记下；用于收尾判定与排障）。 */
-  workspaceId?: string;
+/** 终端查找结果（跨 lane 同 id 时 ambiguous）。 */
+export interface TerminalLookup {
+  record?: TerminalRecord;
+  ambiguous?: boolean;
 }
 
-/** 登记表查询面（只读）。 */
-export interface RegistrySnapshot {
-  /** 当前登记的 pane（创建顺序）。 */
-  panes: PaneRecord[];
-  /** 是否已登记（`pane_list` 回执打标记用）。 */
-  has(paneId: string): boolean;
+/** 登记键（lane + pane id）。 */
+function recordKey(lane: Lane, paneId: string): string {
+  return `${lane}:${paneId}`;
+}
+
+/** 绑定键（会话 + lane）。 */
+function bindingKey(sessionId: string, lane: Lane): string {
+  return `${sessionId}:${lane}`;
 }
 
 /** 登记表（进程内内存态；dsh 进程重启即清空，崩溃残留靠 label 识别）。 */
-export class PaneRegistry implements RegistrySnapshot {
-  private readonly records = new Map<string, PaneRecord>();
-  private readonly tabRecords = new Map<string, TabRecord>();
-  private binding: WorkspaceBinding | undefined;
-  /** 同 pane / 同队列的串行化尾部 Promise。 */
+export class TerminalRegistry {
+  private readonly records = new Map<string, TerminalRecord>();
+  private readonly bindings = new Map<string, WorkspaceBinding>();
+  /** 同终端 / 同队列的串行化尾部 Promise。 */
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly label: string;
 
@@ -53,109 +51,103 @@ export class PaneRegistry implements RegistrySnapshot {
     this.label = label;
   }
 
-  /** 当前登记的 pane（创建顺序）。 */
-  get panes(): PaneRecord[] {
+  /** 当前登记的终端（创建顺序）。 */
+  get terminals(): TerminalRecord[] {
     return [...this.records.values()];
   }
 
-  /** 是否登记过该 pane。 */
-  has(paneId: string): boolean {
-    return this.records.has(paneId);
+  /** 是否登记过该终端（任一 lane）。 */
+  has(terminalId: string): boolean {
+    const lookup = this.find(terminalId);
+    return lookup.record !== undefined || lookup.ambiguous === true;
   }
 
-  /** 取单条记录。 */
-  get(paneId: string): PaneRecord | undefined {
-    return this.records.get(paneId);
+  /**
+   * 按 terminal_id 查找登记记录。
+   * 两个 lane 各有一条同 id 记录时返回 `ambiguous: true`（调用方给结构化错误）。
+   */
+  find(terminalId: string): TerminalLookup {
+    const matches = [...this.records.values()].filter(
+      (record) => record.paneId === terminalId,
+    );
+    if (matches.length === 0) return {};
+    if (matches.length > 1) return { ambiguous: true };
+    const [record] = matches;
+    return record === undefined ? {} : { record };
   }
 
-  /** 登记（重复登记按最新一次覆盖，不改创建时间以外的语义）。 */
+  /** 登记（重复登记按最新一次覆盖，创建时间沿用首次）。 */
   register(input: {
     paneId: string;
-    label?: string;
-    cwd?: string;
-    workspaceId?: string;
-  }): PaneRecord {
-    const record: PaneRecord = {
-      paneId: input.paneId,
-      label: input.label ?? this.label,
-      createdAt: Date.now(),
-      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-      ...(input.workspaceId === undefined
-        ? {}
-        : { workspaceId: input.workspaceId }),
-    };
-    this.records.set(record.paneId, record);
-    return record;
-  }
-
-  /** 注销（`pane_close` 成功后调用；重复注销无副作用）。 */
-  unregister(paneId: string): void {
-    this.records.delete(paneId);
-    this.queues.delete(paneId);
-  }
-
-  /** 当前会话的 workspace 绑定（未用时 undefined）。 */
-  get workspaceBinding(): WorkspaceBinding | undefined {
-    return this.binding;
-  }
-
-  /** 写会话 workspace 绑定（由 `workspace.ts` 的 ensure 调用）；传 undefined 表示清空
-   *  （缓存的 workspace 已被关闭时由 ensure 主动失效，下次按 label 重新匹配 / 新建）。 */
-  setWorkspaceBinding(binding: WorkspaceBinding | undefined): void {
-    this.binding = binding;
-  }
-
-  /** 当前登记的 tab（创建顺序）。 */
-  get tabs(): TabRecord[] {
-    return [...this.tabRecords.values()];
-  }
-
-  /** 取单条 tab 记录。 */
-  tab(tabId: string): TabRecord | undefined {
-    return this.tabRecords.get(tabId);
-  }
-
-  /** 登记 tab（重复登记按最新一次覆盖）。 */
-  registerTab(input: {
     tabId: string;
+    lane: Lane;
+    sessionId: string;
     workspaceId: string;
     label?: string;
-    rootPaneId?: string;
-  }): TabRecord {
-    const record: TabRecord = {
+    cwd?: string;
+  }): TerminalRecord {
+    const key = recordKey(input.lane, input.paneId);
+    const previous = this.records.get(key);
+    const record: TerminalRecord = {
+      paneId: input.paneId,
       tabId: input.tabId,
+      lane: input.lane,
+      sessionId: input.sessionId,
       workspaceId: input.workspaceId,
       label: input.label ?? this.label,
-      createdAt: Date.now(),
-      ...(input.rootPaneId === undefined
-        ? {}
-        : { rootPaneId: input.rootPaneId }),
+      createdAt: previous?.createdAt ?? Date.now(),
+      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
     };
-    this.tabRecords.set(record.tabId, record);
+    this.records.set(key, record);
     return record;
   }
 
-  /** 注销 tab。 */
-  unregisterTab(tabId: string): void {
-    this.tabRecords.delete(tabId);
+  /** 注销（`herdr_close` 成功后调用；重复注销无副作用）。 */
+  unregister(record: Pick<TerminalRecord, "lane" | "paneId">): void {
+    const key = recordKey(record.lane, record.paneId);
+    this.records.delete(key);
+    this.queues.delete(key);
   }
 
-  /** 按 root pane 反查并注销 tab（`pane_close` 掉 tab 的 root pane 后调用）。 */
-  unregisterTabByRootPane(paneId: string): TabRecord | undefined {
-    for (const [tabId, record] of this.tabRecords) {
-      if (record.rootPaneId === paneId) {
-        this.tabRecords.delete(tabId);
-        return record;
-      }
-    }
-    return undefined;
+  /** 更新登记记录的 label（`herdr_label` 成功后调用）。 */
+  relabel(record: TerminalRecord, label: string): TerminalRecord {
+    const updated: TerminalRecord = { ...record, label };
+    this.records.set(recordKey(record.lane, record.paneId), updated);
+    return updated;
   }
 
-  /** 清空（退出清理后调用；含 tab 与 workspace 绑定）。 */
+  /** 取 (会话, lane) 的 workspace 绑定（未用时 undefined）。 */
+  getBinding(sessionId: string, lane: Lane): WorkspaceBinding | undefined {
+    return this.bindings.get(bindingKey(sessionId, lane));
+  }
+
+  /** 写 / 清 (会话, lane) 的 workspace 绑定（清空传 undefined）。 */
+  setBinding(
+    sessionId: string,
+    lane: Lane,
+    binding: WorkspaceBinding | undefined,
+  ): void {
+    const key = bindingKey(sessionId, lane);
+    if (binding === undefined) this.bindings.delete(key);
+    else this.bindings.set(key, binding);
+  }
+
+  /** 某会话的全部绑定（list 用；lane 顺序固定）。 */
+  bindingsOf(sessionId: string): WorkspaceBinding[] {
+    return [...this.bindings.values()].filter(
+      (binding) => binding.sessionId === sessionId,
+    );
+  }
+
+  /** 全部绑定（退出清理用）。 */
+  allBindings(): WorkspaceBinding[] {
+    return [...this.bindings.values()];
+  }
+
+  /** 清空（退出清理后调用；含终端、绑定与队列）。 */
   clear(): void {
     this.records.clear();
-    this.tabRecords.clear();
-    this.binding = undefined;
+    this.bindings.clear();
     this.queues.clear();
   }
 
@@ -178,16 +170,16 @@ export class PaneRegistry implements RegistrySnapshot {
   }
 }
 
-/** 退出清理结果（每条记录一条，供日志与真机验证）。 */
+/** 退出清理结果（每条终端一条，供日志与真机验证）。 */
 export interface CleanupEntry {
-  paneId: string;
+  terminalId: string;
   /** 是否尝试关闭（`closeOnExit: false` 时不尝试）。 */
   attempted: boolean;
 }
 
 /** 退出清理面（`main.ts` 在 dispose 与 `process.exit` 回调里调用）。 */
 export interface ExitCleanup {
-  /** 同步尽力关闭全部登记 pane（返回尝试记录；`closeOnExit: false` 时为空）。 */
+  /** 同步尽力关闭全部登记终端（返回尝试记录；`closeOnExit: false` 时为空）。 */
   closeAllSync(): CleanupEntry[];
 }
 
@@ -201,11 +193,11 @@ export interface ExitCleanupOptions {
 
 /** 列某 workspace 的 pane（同步；解析不出返回 undefined，调用方按「无法核对」处理）。 */
 function listWorkspacePanesSync(
-  run: SyncRunner,
+  run: (lane: Lane, args: string[]) => ReturnType<SyncRunner>,
   workspaceId: string,
-  timeoutMs: number,
+  lane: Lane,
 ): Record<string, unknown>[] | undefined {
-  const result = run(["pane", "list", "--workspace", workspaceId], timeoutMs);
+  const result = run(lane, ["pane", "list", "--workspace", workspaceId]);
   if (result.error !== undefined || result.status !== 0) return undefined;
   const envelope = parseEnvelope(
     result.stdout,
@@ -222,22 +214,22 @@ function listWorkspacePanesSync(
 }
 
 /**
- * 构造同步退出清理器：逐条 `spawnSync(herdr, ["pane","close",id])`（每条约 3s 上限）。
- * 只关登记过的 pane；随后按决策项 9(a) 收尾 workspace：本会话 workspace 里已无 pane
- * （说明里面的 pane 全部是本插件的、且都已关闭）时，内部 `workspace close` 掉它。
- * 用户后来在其中开的 pane 会让这条判定不成立，故不会误伤。
+ * 构造同步退出清理器：逐条 `spawnSync(herdr, ["tab","close",id])`（每条约 3s 上限，
+ * background 终端带 `--session dshbg`）。关闭全部登记终端后，按绑定逐个核对：
+ * workspace 里已无 pane 才 `workspace close`；用户后来在其中开的 pane 会让该判定不成立。
  */
 export function createExitCleanup(
   binPath: string | undefined,
-  registry: PaneRegistry,
+  registry: TerminalRegistry,
   config: ResolvedConfig,
   options: ExitCleanupOptions = {},
 ): ExitCleanup {
   return {
     closeAllSync(): CleanupEntry[] {
-      const records = registry.panes;
+      const records = registry.terminals;
+      const bindings = registry.allBindings();
       const entries: CleanupEntry[] = records.map((record) => ({
-        paneId: record.paneId,
+        terminalId: record.paneId,
         attempted: config.closeOnExit && binPath !== undefined,
       }));
       if (!config.closeOnExit || binPath === undefined) {
@@ -245,19 +237,20 @@ export function createExitCleanup(
         return entries;
       }
       const timeoutMs = options.timeoutMs ?? 3000;
-      const run = options.runSync ?? createSpawnSyncRunner(binPath);
+      const base = options.runSync ?? createSpawnSyncRunner(binPath);
+      const run = (lane: Lane, args: string[]) =>
+        base(withLane(lane, args), timeoutMs);
       for (const record of records) {
-        run(closeArgs(record.paneId), timeoutMs);
+        run(record.lane, tabCloseArgs(record.tabId));
       }
-      const binding = registry.workspaceBinding;
-      if (binding !== undefined) {
+      for (const binding of bindings) {
         const remaining = listWorkspacePanesSync(
           run,
           binding.workspaceId,
-          timeoutMs,
+          binding.lane,
         );
         if (remaining !== undefined && remaining.length === 0) {
-          run(workspaceCloseArgs(binding.workspaceId), timeoutMs);
+          run(binding.lane, workspaceCloseArgs(binding.workspaceId));
         }
       }
       registry.clear();
@@ -266,21 +259,19 @@ export function createExitCleanup(
   };
 }
 
-/** 关闭命令的 argv（异步 `pane_close` 动作与同步退出清理共用，避免两处写法漂移）。 */
-export function closeArgs(paneId: string): string[] {
-  return ["pane", "close", paneId];
-}
-
-/** 重命名命令的 argv（`pane_label` 动作与 `pane_create` 后的自动打标共用）。 */
-export function renameArgs(paneId: string, label: string): string[] {
-  return label === ""
-    ? ["pane", "rename", "--clear", paneId]
-    : ["pane", "rename", paneId, label];
-}
-
-/** 关闭 tab 的 argv（`tab_close` 动作与真机断言共用）。 */
+/** 关闭 tab 的 argv（`herdr_close`、退出清理与真机断言共用）。 */
 export function tabCloseArgs(tabId: string): string[] {
   return ["tab", "close", tabId];
+}
+
+/** 改 tab 标题的 argv（`herdr_label` 用）。 */
+export function tabRenameArgs(tabId: string, label: string): string[] {
+  return ["tab", "rename", tabId, label];
+}
+
+/** 改 pane 归属标记的 argv（`herdr_label` 用；与 tab 标题同步）。 */
+export function paneRenameArgs(paneId: string, label: string): string[] {
+  return ["pane", "rename", paneId, label];
 }
 
 /** 关闭 workspace 的 argv（仅退出清理内部使用，不出工具面）。 */
