@@ -181,9 +181,25 @@ export interface HerdrUseService {
 - 删除 `requireApproval` / `allowForeignPanes` 后，旧 profile 的未知配置被静默忽略（不迁移、不告警）。
 - 工具数从 1 增至 10，模型侧上下文与 `security-guard` / 审批名单 / 文档同步成本上升；已计入工作量。
 
+## 真机验证（2026-10-23，本会话内跑）
+
+清单与逐项证据见 `docs/implementation/2026-10-23-real-machine-verification.md`。已通过：
+
+| 项 | 结论 |
+| --- | --- |
+| 十工具主链 | `herdr_create` -> `herdr_run "echo hello-verify"` -> `herdr_read` 见输出 -> `herdr_info` 回 `running=true` + `shell_pid` -> `herdr_close` 后 `herdr_list` 只剩宿主 pane |
+| `herdr_label` | 改 label 后 `herdr_list` 里该终端 label 同步变更，仍标 `[本插件]` |
+| 归属与列表 | `herdr_list` 正确区分「本插件登记」与宿主 pane（`wZ3:p1` 无标记） |
+| security-guard 联动 | `herdr_run "echo mkfs-probe"` 被拦，回执明写命中「插件命令工具 herdr_run 的命令参数」——改名后登记仍生效 |
+| behavior-correction 联动 | `bash` 里跑 herdr 被拦，文案指向 `herdr_run` / `herdr_text` / `herdr_key` 与 `herdr_read` / `herdr_list`，无 `herdr_use` / `pane_*` |
+
+**未通过（契约级缺口，待裁定）**：`foreground:false`（后台 `dshbg` lane）真机起不来 —— `dshbg` 的 herdr server 未运行，`herdr session list` 只有 `default`；在 herdr pane 内 `herdr session attach dshbg` 被拒（`nested herdr is disabled by default`），去 TTY 用 `setsid` 则客户端立即退出。具名会话的 server 只能由**非 herdr 的交互终端** attach 起来，「使用或创建」的假设不成立。处置选项（收窄契约要求预置会话 / 改为同会话内隐式 tab / 砍掉后台 lane）待用户裁定。
+
+**待目视**：TUI 里「3 列表头 + 2 列分隔行」是否成表、思考行表格是否成紫竖线（单测与 smoke 已过）。
+
 ## 明确不做
 
 - 不改 `coagent`（消费方实现属 E 组）；不改 `session-channel` 终态缺陷。
 - 不保留旧 `herdr_use` 工具或旧动作别名；不新增 workspace / tab / 布局类工具。
-- 不做真机验证；不引入跨 herdr machine / remote 目标。
+- 不引入跨 herdr machine / remote 目标。
 - 根 README 双侧与 `AGENTS.md` 的包描述留给 H 组回写。

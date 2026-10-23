@@ -23,6 +23,6 @@
   - `npm test` → 135 例，134 pass / 0 fail / 1 skipped（`tool-surface-check` 的「发布形态」用例因 worktree 未构建 `dist` 跳过，与本次改动无关）。
   - 反证实验：把 `herdr_key` 临时改为 `commandKeys: ["keys"]`，`herdr_key.keys[]` 用例失败；恢复 `commandPaths: ["keys[]"]` 后全绿，证明用例锁得住「数组走路径面」。
 - 提交：`2e13f38`（登记表 + 注释）、`a4defb6`（测试）、`37ec474`（README），本条记录随收尾提交归档。
+- **真机验收（2026-10-23，合并后）通过**：`herdr_run "echo mkfs-probe"` 被拦，回执明写「拦截来源：插件命令工具「herdr_run」的命令参数（command）」——改名后登记仍生效。另注：`rm -rf /tmp/...` 未被拦（黑名单不含通用 `rm`，属既有策略，与本次改名无关）。证据见 `docs/implementation/2026-10-23-real-machine-verification.md` #6。
 - 未验证 / 存疑：
-  - 真机未跑：本 worktree 的 `herdr-use` 包仍是旧实现（单工具 `herdr_use`），十个新工具名以 `docs/implementation/2026-10-23-herdr-use-terminal-surface.md` 的定稿契约为准，待 i-herdr-use 分支合入后才真正生效；改名完成前 `herdr_use` 落入未登记工具策略（缺省 `allow`），旧名登记已删。
-  - 七个无命令面工具未登记进 `PLUGIN_COMMAND_TOOLS`（按契约无命令面）；若把 `unknownToolPolicy` 调成 `check` / `deny`，它们按未登记工具口径处理（其中 `herdr_create.cwd` 属路径键，`deny` 下会被整工具拦），属既有边界，本次不改。
+  - ~~真机未跑~~（已于 2026-10-23 验，见上）；七个无命令面工具未登记进 `PLUGIN_COMMAND_TOOLS`（按契约无命令面）；若把 `unknownToolPolicy` 调成 `check` / `deny`，它们按未登记工具口径处理（其中 `herdr_create.cwd` 属路径键，`deny` 下会被整工具拦），属既有边界，本次不改。
