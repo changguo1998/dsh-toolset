@@ -1,6 +1,6 @@
 # 给 TUI 接 `config-editor` 的配置编辑面（接取条目：`TUI/docs/BACKLOG.md`「#4 给 TUI 接 `config-editor` 的配置编辑面」）
 
-状态：规划（调研与决策已完成，实现未开始）　　开启：2026-10-22　　关闭：—
+状态：实现完成，真机验收（2026-10-23）发现两处缺陷待修　　开启：2026-10-22　　关闭：—
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -133,3 +133,27 @@
   - `cd TUI && npm run build` → 通过；
   - `cd TUI && npm test` → `tests 1707 / pass 1707 / fail 0`（改动前基线 1683，新增 24 例）。
 - 真机验收（改真实插件条目并观察 patch 落盘与生效）按指令未做，留给用户。
+
+## 真机验收（2026-10-23，主分支）
+
+**做法**：herdr 新 tab 起 `fffdsh`（profile `fff`，工作区仓库根），在该会话里依次执行 `/config list`、`show`、`set`、`unset`；改动对象取 `output-compress`（非 TUI 行，无副作用键 `minBytes`）。
+
+**通过项**：
+
+- `/config list` 列出 50 条条目（`id` / `name` / `override` 列），`/config show output-compress` 分「override（本行 patch 显式值）/ inherited」两段展示。
+- `/config set output-compress minBytes=32768` → 回执「已写入」，profile patch 原子出现 `config: minBytes: 32768`，会话未重启；随后的 `show` 显示 override `minBytes: 32768`，说明新值已生效。
+- `/config unset output-compress minBytes` → 回执「已删除（该键回到继承值）」。
+
+**缺陷 1（P1，无效值未被拒）**：`/config set output-compress minBytes=abc` 返回「已写入 output-compress: minBytes = "abc"」，patch 实际落入 `minBytes: abc`。含义是任何字符串都能写进配置，宿主 `configEditor.edit()` 未按插件期望类型校验（该插件 `OutputCompressConfig.minBytes?: number`）。与「验收」中「无效值被拒且文件不变」相反；插件下次加载会拿到错类型（`??` 兜底只挡 `undefined`，字符串会一路带到比较 / 算术里）。
+
+- 待定修法：① 宿主侧按 schema 校验（跨包，属官方面）；② TUI 侧对已知键做类型拒绝（需自带类型表，易与插件漂移）；③ 只做「非标量结构合法性」校验并在文档写明不做类型校验。倾向 ①＋③。
+
+**缺陷 2（P2，unset 连条目一起删）**：`/config unset output-compress minBytes` 后，profile patch 里 `- id: output-compress` 整条连同其注释一并消失，而非只删 `config` 下的键。功能未受损（bundle 的 `- insert:` 仍提供该条目，默认值生效），但用户 patch 的显式条目与注释丢失。
+
+- 待定：这是宿主写的归一化（空 config 的条目视为冗余即删）还是本轮 TUI 判定的副作用，需要读 `configEditor.edit()` 的写回实现确认；若属后者则 TUI 侧应在删除后判断「条目是否仍应保留」。
+
+**副作用（记录，非缺陷）**：宿主写回会**重排整份 profile patch**——长字符串折行、空行归一；本次文件从 15695 字节变为 15433 字节，逻辑内容等价（除缺陷 2 删掉的那条）。这在预期内，但意味着「改一个键」会产生整文件级 diff。
+
+**未覆盖**：越权 / 更高层覆盖字段的表现（未构造双层覆盖）；`configEditor` 服务缺失时的降级未真机跑（仅有单测）；`/config set` 对 `!!js` 表达式值（如 `memory-base` 的 `dbPath`）未试。
+
+**清理**：两个测试 tab 已关闭；探测用的注释行与 `minBytes` 均已从 profile patch 移除（该条目因缺陷 2 已被宿主删去，功能由 bundle 提供）。
