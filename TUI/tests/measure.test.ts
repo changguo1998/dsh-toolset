@@ -1,14 +1,13 @@
-// tests/measure.test.ts — Box 排版 measure/allocate 纯函数契约测试（SPEC.md §6）
+// tests/measure.test.ts — Box 布局契约测试（SPEC.md §6；2026-10 起节点自持尺寸 + 多轮收敛）
 //
-// 覆盖：分配优先级（fixed/ratio/fill、多 ratio 归一）、auto 无 fill 留白、
-// 多 fill 余数、min 保底与退化宽度、min>max 时 min 赢、prefix/indent 首行 +
-// hanging 续行总宽、固定宽长段落高度、v Box 高度求和与 separator、
-// v 过度约束压缩顺序、allocate 矩形映射与节点对象身份、spacer 横/纵轴。
+// 覆盖：分配优先级（fixed > ratio > auto > fill）、ratio 归一与让路、
+// auto 平摊与 min/max、fill 均分与余数、prefix/indent/hanging 折行、
+// v 高度求和与 separator、高度 fixed/fill、锁定语义与矩形映射。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { h, v, text, spacer, type Node } from "../src/app/layout/box.ts";
-import { measure, allocate } from "../src/app/layout/measure.ts";
+import { layout } from "../src/app/layout/measure.ts";
 
 /** 按段落文本取分配矩形（正文文本在本测试内互异） */
 function rectOf(
@@ -23,16 +22,13 @@ function rectOf(
 
 // ---- 分配优先级：fixed + ratio + fill ----
 
-test("h 排布：fixed 定值 → ratio(value=1/3) 按分数 → fill 吃剩余", () => {
+test("h 排布：fixed 定值 → ratio(1/3) 按分数 → fill 吃剩余", () => {
   const root = h([
-    text("xx", { width: { mode: "fixed", cols: 2 } }),
-    text("BBB", { width: { mode: "ratio", value: 1 / 3 } }),
-    text("CC", { width: { mode: "fill" } }),
+    text("xx", { widthStyle: "fixed", widthFixed: 2 }),
+    text("BBB", { widthStyle: "ratio", widthRatio: 1 / 3 }),
+    text("CC", { widthStyle: "fill" }),
   ]);
-  const st = measure(root, { maxW: 20 });
-  assert.equal(st.w, 20);
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 3 });
-  // fixed 2；ratio 1/3 × 20 = 6（floor）；fill = 12（剩余）
+  const rects = layout(root, 20);
   assert.equal(rectOf(rects, "xx").w, 2);
   assert.equal(rectOf(rects, "BBB").w, 6);
   assert.equal(rectOf(rects, "CC").w, 12);
@@ -40,23 +36,19 @@ test("h 排布：fixed 定值 → ratio(value=1/3) 按分数 → fill 吃剩余"
   assert.equal(rectOf(rects, "CC").x, 8);
 });
 
-test("ratio：value 是容器分数（1/3=三分之一），单 ratio 不吃满", () => {
-  const root = h([text("a", { width: { mode: "ratio", value: 1 / 3 } })]);
-  const st = measure(root, { maxW: 21 });
-  const rects = allocate(st, { x: 0, y: 0, w: 21, h: 1 });
-  // 1/3 × 21 = 7 —— 不是吃满 21
+test("ratio：value 是容器分数，单个 ratio 不吃满", () => {
+  const root = h([text("a", { widthStyle: "ratio", widthRatio: 1 / 3 })]);
+  const rects = layout(root, 21);
   assert.equal(rectOf(rects, "a").w, 7);
 });
 
 test("ratio：多个 ratio 之和 ≤1 时各自按分数、不归一", () => {
   const root = h([
-    text("a", { width: { mode: "ratio", value: 1 / 3 } }),
-    text("b", { width: { mode: "ratio", value: 1 / 6 } }),
-    text("c", { width: { mode: "fill" } }),
+    text("a", { widthStyle: "ratio", widthRatio: 1 / 3 }),
+    text("b", { widthStyle: "ratio", widthRatio: 1 / 6 }),
+    text("c", { widthStyle: "fill" }),
   ]);
-  const st = measure(root, { maxW: 18 });
-  const rects = allocate(st, { x: 0, y: 0, w: 18, h: 1 });
-  // a=6, b=3, c=9（剩余）
+  const rects = layout(root, 18);
   assert.equal(rectOf(rects, "a").w, 6);
   assert.equal(rectOf(rects, "b").w, 3);
   assert.equal(rectOf(rects, "c").w, 9);
@@ -64,391 +56,304 @@ test("ratio：多个 ratio 之和 ≤1 时各自按分数、不归一", () => {
 
 test("ratio：多个 ratio 之和 >1 时按比例归一", () => {
   const root = h([
-    text("a", { width: { mode: "ratio", value: 2 / 3 } }),
-    text("b", { width: { mode: "ratio", value: 2 / 3 } }),
+    text("a", { widthStyle: "ratio", widthRatio: 2 / 3 }),
+    text("b", { widthStyle: "ratio", widthRatio: 2 / 3 }),
   ]);
-  const st = measure(root, { maxW: 12 });
-  const rects = allocate(st, { x: 0, y: 0, w: 12, h: 1 });
-  // 和 4/3 > 1 → 归一：各占 (2/3)/(4/3)=1/2 → 6/6
+  const rects = layout(root, 12);
   assert.equal(rectOf(rects, "a").w, 6);
   assert.equal(rectOf(rects, "b").w, 6);
 });
 
-test("ratio 基数受可分配剩余封顶（min 保底仍生效）", () => {
+test("ratio min：保底下不破 min，剩余归 fill", () => {
   const root = h([
-    text("a", { width: { mode: "ratio", value: 1 / 3, min: 8 } }),
-    text("b", { width: { mode: "fill" } }),
+    text("a", { widthStyle: "ratio", widthRatio: 1 / 3, widthMin: 8 }),
+    text("b", { widthStyle: "fill" }),
   ]);
-  const st = measure(root, { maxW: 20 });
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 1 });
-  // ratio 1/3×20≈6 → min 8 保底 → a=8；fill=12
+  const rects = layout(root, 20);
   assert.equal(rectOf(rects, "a").w, 8);
   assert.equal(rectOf(rects, "b").w, 12);
 });
 
-test("无声明子项 ≡ auto：按内容宽，不摊开剩余（余量留白）", () => {
-  const root = h([text("ab"), text("cde")]); // 均为 auto（无 width）
-  const st = measure(root, { maxW: 20 });
-  assert.equal(st.w, 5); // 2+3 内容宽，不占满 20
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 1 });
-  assert.equal(rectOf(rects, "ab").w, 2);
-  assert.equal(rectOf(rects, "cde").w, 3);
-  assert.equal(rectOf(rects, "ab").x + 2 + 3, 5); // 尾部留白
+test("ratio 让路：ratio 0.8 + auto min:4，宽 10 → 6 / 4", () => {
+  const root = h([
+    text("a", { widthStyle: "ratio", widthRatio: 0.8 }),
+    text("bbbbb", { widthStyle: "auto", widthMin: 4 }),
+  ]);
+  const rects = layout(root, 10);
+  assert.equal(rectOf(rects, "a").w, 6);
+  assert.equal(rectOf(rects, "bbbbb").w, 4);
 });
 
-test("多 fill 平分剩余，余数从左到右（内容宽为自然上限）", () => {
+test("ratio 让路：ratio 0.8 + fill min:4，宽 10 → 6 / 4", () => {
   const root = h([
-    text("a", { width: { mode: "fill" } }),
-    text("b", { width: { mode: "fill" } }),
-    text("c", { width: { mode: "fill" } }),
+    text("a", { widthStyle: "ratio", widthRatio: 0.8 }),
+    text("b", { widthStyle: "fill", widthMin: 4 }),
   ]);
-  const st = measure(root, { maxW: 10 });
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
-  // 10/3 = 3 余 1 → a=4,b=3,c=3
+  const rects = layout(root, 10);
+  assert.equal(rectOf(rects, "a").w, 6);
+  assert.equal(rectOf(rects, "b").w, 4);
+});
+
+test("auto：按内容宽，单子项不摊开剩余", () => {
+  const root = h([text("ab"), text("cde")]);
+  const rects = layout(root, 20);
+  assert.equal(rectOf(rects, "ab").w, 2);
+  assert.equal(rectOf(rects, "cde").w, 3);
+});
+
+test("auto：各子项按自然宽，剩余留白不摊满", () => {
+  const root = h([text("a"), text("b")]);
+  const rects = layout(root, 10);
+  assert.equal(rectOf(rects, "a").w, 1);
+  assert.equal(rectOf(rects, "b").w, 1);
+  assert.equal(rectOf(rects, "a").w + rectOf(rects, "b").w, 2);
+});
+
+test("多 fill 平分剩余，余数从左到右", () => {
+  const root = h([
+    text("a", { widthStyle: "fill" }),
+    text("b", { widthStyle: "fill" }),
+    text("c", { widthStyle: "fill" }),
+  ]);
+  const rects = layout(root, 10);
   assert.equal(rectOf(rects, "a").w, 4);
   assert.equal(rectOf(rects, "b").w, 3);
   assert.equal(rectOf(rects, "c").w, 3);
-  assert.equal(rectOf(rects, "a").x + rectOf(rects, "a").w, 4);
-  assert.equal(rectOf(rects, "b").x + rectOf(rects, "b").w, 7);
-  assert.equal(rectOf(rects, "c").x + rectOf(rects, "c").w, 10);
 });
 
 // ---- min 保底 / min>max / 退化宽度 ----
 
-test("auto + min：min 保底夹取", () => {
+test("auto + min：min 保底", () => {
   const root = h([
-    text("ab", { width: { mode: "auto", min: 8 } }),
-    text("cd", { width: { mode: "fill" } }),
+    text("ab", { widthStyle: "auto", widthMin: 8 }),
+    text("cd", { widthStyle: "fill" }),
   ]);
-  const st = measure(root, { maxW: 20 });
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 1 });
-  assert.equal(rectOf(rects, "ab").w, 8); // min 保底
+  const rects = layout(root, 20);
+  assert.equal(rectOf(rects, "ab").w, 8);
   assert.equal(rectOf(rects, "cd").w, 12);
 });
 
-test("min > max 时 min 赢（先上限后保底）", () => {
+test("min > max 时 min 赢", () => {
   const root = h([
-    text("a", { width: { mode: "ratio", value: 1, min: 10, max: 5 } }),
+    text("a", {
+      widthStyle: "ratio",
+      widthRatio: 1,
+      widthMin: 10,
+      widthMax: 5,
+    }),
   ]);
-  const st = measure(root, { maxW: 12 });
-  const rects = allocate(st, { x: 0, y: 0, w: 12, h: 1 });
-  // ratio 1×12=12 → max 5 → min 10 → 10（min 赢）
+  const rects = layout(root, 12);
   assert.equal(rectOf(rects, "a").w, 10);
 });
 
-test("退化宽度：总宽 2，两个 fill 各保 ≥1，超出截断（底线≥1）", () => {
+test("退化宽度：总宽 2，两个 fill 各保 ≥1", () => {
   const root = h([
-    text("a", { width: { mode: "fill" } }),
-    text("b", { width: { mode: "fill" } }),
+    text("a", { widthStyle: "fill" }),
+    text("b", { widthStyle: "fill" }),
   ]);
-  const st = measure(root, { maxW: 2 });
-  const rects = allocate(st, { x: 0, y: 0, w: 2, h: 1 });
+  const rects = layout(root, 2);
   assert.equal(rectOf(rects, "a").w, 1);
   assert.equal(rectOf(rects, "b").w, 1);
 });
 
-test("fill 池为 0 时 fill 得 0（无剩余可吃，吃剩余不主张底线）", () => {
+test("fill 池为 0 时 fill 得 0", () => {
   const root = h([
-    text("abcd", { width: { mode: "fixed", cols: 4 } }),
-    text("e", { width: { mode: "fill" } }),
+    text("abcd", { widthStyle: "fixed", widthFixed: 4 }),
+    text("e", { widthStyle: "fill" }),
   ]);
-  const st = measure(root, { maxW: 4 });
-  const rects = allocate(st, { x: 0, y: 0, w: 4, h: 1 });
+  const rects = layout(root, 4);
   assert.equal(rectOf(rects, "abcd").w, 4);
   assert.equal(rectOf(rects, "e").w, 0);
 });
 
 // ---- prefix / indent / hanging ----
 
-test("Paragraph：indent+prefix 占列；总宽=max(首行+overhead, 续行+hanging)", () => {
+test("Paragraph：indent+prefix 占列；行宽 = 正文宽扣缩进与前缀", () => {
   const p = text("abcdefghijklmnop", {
     indent: 1,
     hanging: 0,
     prefix: { text: ">" },
   });
-  const st = measure(p, { maxW: 6 });
-  // 首行正文宽 = 6-1-1 = 4；续行正文宽 = 6-0 = 6；文本 16 → 4 + 6+6 → 高 3
-  assert.equal(st.h, 3);
-  // 首行总宽 = 1(indent)+1(prefix)+4 = 6；续行总宽 = 0(hanging)+6 = 6 → 6
-  assert.equal(st.w, 6);
+  layout(p, 6);
+  // 正文宽 6 - indent 1 - prefix 1 = 4 列 → 16 字折 4 行
+  assert.equal(p.height, 4);
+  assert.equal(p.width, 6);
 });
 
-test("Paragraph：无 hanging 时缺省 = indent（整段同缩进）", () => {
+test("Paragraph：无 hanging 时缺省 = indent", () => {
   const p = text("abcdefghij", { indent: 2, prefix: { text: "•" } });
-  const st = measure(p, { maxW: 6 });
-  // 首行 6-2-1=3；续行 6-2=4；10 字 → 3 + 4+3 → 高 3
-  // 首行总宽 = 2+1+3 = 6；续行总宽 = 2+4 = 6 → 6
-  assert.equal(st.h, 3);
-  assert.equal(st.w, 6);
+  layout(p, 6);
+  // 正文宽 6 - indent 2 - prefix 1 = 3 列 → 10 字折 4 行
+  assert.equal(p.height, 4);
+  assert.equal(p.width, 6);
 });
 
-test("Paragraph：hanging 小于 indent 时续行比首行宽（悬挂缩进）", () => {
+test("Paragraph：hanging 小于 indent 时总宽按最长行计", () => {
   const p = text("abcdefghijklmnop", { indent: 4, hanging: 0 });
-  const st = measure(p, { maxW: 8 });
-  // 首行 8-4=4；续行 8-0=8；16 字 → 4 + 8+8 → 高 3
-  assert.equal(st.h, 3);
-  // 首行总宽 = 4+4=8；续行总宽 = 0+8=8 → 8
-  assert.equal(st.w, 8);
+  layout(p, 8);
+  assert.equal(p.width, 8);
 });
 
 test("Paragraph：wrap=false 单行截断不换行", () => {
   const p = text("abcdefghij", { wrap: false });
-  const st = measure(p, { maxW: 4 });
-  assert.equal(st.h, 1);
-  assert.equal(st.w, 4); // 截断后总宽 = 可用宽
+  layout(p, 4);
+  assert.equal(p.height, 1);
+  assert.equal(p.width, 4);
 });
 
-test("固定宽长段落：分配宽决定折行高度", () => {
+test("固定宽长段落：宽度锁定后按固定宽折行", () => {
   const root = h([
-    text("abcdefghijklmnop", { width: { mode: "fixed", cols: 4 } }),
+    text("abcdefghijklmnop", { widthStyle: "fixed", widthFixed: 4 }),
   ]);
-  const st = measure(root, { maxW: 20 });
-  // 该段落以分配宽 4 重测 → 16 字每行 4 → 高 4
-  assert.equal(st.h, 4);
+  layout(root, 20);
+  assert.equal(root.height, 4);
 });
 
-// ---- v Box：高度求和 + separator + 过度约束压缩----
+// ---- v Box：高度求和 + separator ----
 
 test("v 排布：高度为子项和；separator 占 1 行且仅子项间", () => {
   const root = v([text("ab"), text("cde"), text("f")], {
     separator: { char: "─" },
   });
-  const st = measure(root, { maxW: 20 });
-  assert.equal(st.h, 3 + 2); // 3 子各 1 行 + 2 条分隔线
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 5 });
+  const rects = layout(root, 20);
+  assert.equal(root.height, 5);
   assert.equal(rectOf(rects, "ab").y, 0);
-  assert.equal(rectOf(rects, "cde").y, 2); // 空一行
+  assert.equal(rectOf(rects, "cde").y, 2);
   assert.equal(rectOf(rects, "f").y, 4);
 });
 
 test("v 排布：无 separator 时紧挨", () => {
   const root = v([text("a"), text("b")]);
-  const st = measure(root, { maxW: 10 });
-  assert.equal(st.h, 2);
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 2 });
+  const rects = layout(root, 10);
+  assert.equal(root.height, 2);
   assert.equal(rectOf(rects, "a").y, 0);
   assert.equal(rectOf(rects, "b").y, 1);
 });
 
-test("v 过度约束：预算 4 时 auto 先压、fixed 不压、fill=0", () => {
-  const fixed = text("F", { height: { mode: "fixed", rows: 3 } });
-  const auto = text("A".repeat(20)); // 自然高 2（折10+10）
-  const root = v([fixed, auto, text("f2", { height: { mode: "fill" } })]);
-  const st = measure(root, { maxW: 10 });
-  assert.equal(st.size.get(auto)!.h, 2); // auto 自然高 2
-  // 预算 4：claim=5 > 4 → 压 auto(2→1)，fixed 保持 3，fill=0
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 4 });
-  assert.equal(rectOf(rects, "F").h, 3, "fixed 不先让");
-  assert.equal(rectOf(rects, "A".repeat(20)).h, 1, "auto 先压");
-  assert.equal(rectOf(rects, "f2").h, 0, "fill 最让");
-});
-
-test("v 过度约束：预算 2 时 auto 压到 0、fixed 最后压到 2", () => {
-  const fixed = text("F", { height: { mode: "fixed", rows: 3 } });
-  const auto = text("A".repeat(20));
-  const root = v([fixed, auto, text("f2", { height: { mode: "fill" } })]);
-  const st = measure(root, { maxW: 10 });
-  // 预算 2：claim=5 → auto 先压至 0，fixed 再压到 2，fill=0
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 2 });
-  assert.equal(rectOf(rects, "A".repeat(20)).h, 0, "auto 先压到 0");
-  assert.equal(rectOf(rects, "F").h, 2, "fixed 最后被压");
-  assert.equal(rectOf(rects, "f2").h, 0);
-});
-
-test("v 排布：多 fill 平分纵向剩余，余数从左到右", () => {
+test("v 高度 fixed：声明行高覆盖内容高", () => {
   const root = v([
-    text("a"), // 自然高 1
-    text("b", { height: { mode: "fill" } }),
-    text("c", { height: { mode: "fill" } }),
+    text("F", { heightStyle: "fixed", heightFixed: 3 }),
+    text("A"),
   ]);
-  const st = measure(root, { maxW: 10 });
-  assert.equal(st.h, 1); // 只计固定部分；fill 不吃测量高
-  // 预算 6：1 + (5/2=2 余 1) → b=3, c=2
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 6 });
-  assert.equal(rectOf(rects, "a").h, 1);
-  assert.equal(rectOf(rects, "b").h, 3);
-  assert.equal(rectOf(rects, "c").h, 2);
+  const rects = layout(root, 10);
+  assert.equal(rectOf(rects, "F").h, 3);
+  assert.equal(root.height, 4);
 });
 
-// ---- allocate 矩形映射与节点对象身份 ----
+test("v 高度 fill：父高固定时吃剩余", () => {
+  const root = v([text("aaa"), spacer({ heightStyle: "fill" })], {
+    heightStyle: "fixed",
+    heightFixed: 5,
+  });
+  layout(root, 20);
+  assert.equal(root.height, 5);
+  assert.equal(root.children[1]!.height, 4);
+});
 
-test("allocate：矩形按节点对象身份映射（Map 键 = 同一对象）", () => {
+// ---- 矩形映射与节点身份 ----
+
+test("layout：矩形按节点对象身份映射", () => {
   const child = text("hello");
   const root = h([child, text("world")]);
-  const st = measure(root, { maxW: 12 });
-  const rects = allocate(st, { x: 1, y: 2, w: 12, h: 1 });
-  assert.equal(rects.get(child)!.x, 1); // 对象身份命中
+  const rects = layout(root, 12);
+  assert.equal(rects.get(child)!.x, 0);
   assert.equal(rects.get(root)!.w, 12);
-  assert.equal(rects.get(root)!.y, 2);
+  assert.equal(rects.get(root)!.x, 0);
 });
 
 // ---- spacer 横/纵轴 ----
 
-test("spacer(width) 在 h 中占固定列、内容为空不产出行", () => {
-  const s = spacer({ width: { mode: "fixed", cols: 3 } });
+test("spacer(width) 在 h 中占固定列", () => {
+  const s = spacer({ widthStyle: "fixed", widthFixed: 3 });
   const root = h([s, text("ab")]);
-  const st = measure(root, { maxW: 20 });
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 1 });
-  assert.equal(rects.get(s)!.w, 3); // 身份命中，spacer 占 3 列
+  const rects = layout(root, 20);
+  assert.equal(rects.get(s)!.w, 3);
   assert.equal(rectOf(rects, "ab").x, 3);
 });
 
-test("spacer(height) 在 v 中占固定行、内容为空不产出行", () => {
-  const s = spacer({ height: { mode: "fixed", rows: 2 } });
+test("spacer(height) 在 v 中占固定行", () => {
+  const s = spacer({ heightStyle: "fixed", heightFixed: 2 });
   const root = v([s, text("ab")]);
-  const st = measure(root, { maxW: 20 });
-  const rects = allocate(st, { x: 0, y: 0, w: 20, h: 3 });
-  assert.equal(st.h, 3); // 2+1
+  const rects = layout(root, 20);
+  assert.equal(root.height, 3);
   assert.equal(rects.get(s)!.h, 2);
   assert.equal(rectOf(rects, "ab").y, 2);
 });
 
 test("spacer(fill) 按所在容器取向：h 吃列、v 吃行", () => {
   const hroot = h([
-    text("x", { width: { mode: "fixed", cols: 1 } }),
-    spacer({ width: { mode: "fill" } }),
+    text("x", { widthStyle: "fixed", widthFixed: 1 }),
+    spacer({ widthStyle: "fill" }),
   ]);
-  const hrects = allocate(measure(hroot, { maxW: 5 }), {
-    x: 0,
-    y: 0,
-    w: 5,
-    h: 1,
+  const hrects = layout(hroot, 5);
+  assert.equal(hrects.get(hroot.children[1]!)!.w, 4);
+
+  const vroot = v([text("x"), spacer({ heightStyle: "fill" })], {
+    heightStyle: "fixed",
+    heightFixed: 4,
   });
-  const hs = hroot.children[1]!;
-  assert.equal(hrects.get(hs)!.w, 4); // h 中吃剩余列
-
-  const vroot = v([text("x"), spacer({ height: { mode: "fill" } })]);
-  const vrects = allocate(measure(vroot, { maxW: 5 }), {
-    x: 0,
-    y: 0,
-    w: 5,
-    h: 4,
-  });
-  const vs = vroot.children[1]!;
-  assert.equal(vrects.get(vs)!.h, 3); // v 中吃剩余行
+  const vrects = layout(vroot, 5);
+  assert.equal(vrects.get(vroot.children[1]!)!.h, 3);
 });
 
-test("h 排布：高度取最高子项（固定宽长段落）", () => {
-  const root = h([
-    text("aaaa", { width: { mode: "fixed", cols: 4 } }),
-    text("bbbbbbbbbbbbbb", { width: { mode: "fill" } }),
-  ]);
-  const st = measure(root, { maxW: 12 });
-  // 第二子 contentW=12 → "bbbbbbbbbbbbbb"(14) 折成 12+2 → 高 2
-  assert.equal(st.h, 2);
-});
-
-// ---- advisor 复核补充：fill max 回流 / h 过度约束 / 类型契约 ----
-
-test("h 排布：fill 被 max 截断后空间回流给未封顶 fill → 2+8", () => {
-  const root = h([
-    text("a", { width: { mode: "fill", max: 2 } }),
-    text("b", { width: { mode: "fill" } }),
-  ]);
-  const st = measure(root, { maxW: 10 });
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
-  // 平分 5/5 → a 被 max 截到 2，释放 3 回流给 b → 2+8
-  assert.equal(rectOf(rects, "a").w, 2);
-  assert.equal(rectOf(rects, "b").w, 8);
-});
-
-test("h 过度约束：fixed + auto + fill 按 fill→auto→fixed 让路", () => {
-  const root = h([
-    text("FF", { width: { mode: "fixed", cols: 5 } }),
-    text("AAAAA", { width: { mode: "auto", min: 3 } }),
-    text("B", { width: { mode: "fill" } }),
-  ]);
-  const st = measure(root, { maxW: 6 });
-  const rects = allocate(st, { x: 0, y: 0, w: 6, h: 1 });
-  // 声明：fixed 5 + auto(自然5,min3) + fill。容器 6：fixed 5 → 剩1 → auto 取 1(被压到剩1)，
-  // fill 得 0。仍溢出则 auto 再让步。断言总和=6 且 fill=0, fixed 不减。
-  const total =
-    rectOf(rects, "FF").w + rectOf(rects, "AAAAA").w + rectOf(rects, "B").w;
-  assert.equal(total, 6);
-  assert.equal(rectOf(rects, "FF").w, 5, "fixed 不先让");
-  assert.equal(rectOf(rects, "B").w, 0, "fill 最让");
-  assert.ok(rectOf(rects, "AAAAA").w >= 1, "auto 让到 1");
-});
-
-test("spacer 类型契约：空/双轴编译期拒绝；h 接受 separator（横向框线）", () => {
-  // 非法构造放在未调用函数体内：仅做编译期拒绝验证、永不执行
+test("spacer 类型契约：空/双轴编译期拒绝", () => {
   const typeguard = (): void => {
     // @ts-expect-error spacer 必须至少给一个轴
     const bad1 = spacer({});
-    // @ts-expect-error width/height 互斥
-    const bad2 = spacer({ width: { mode: "fill" }, height: { mode: "fill" } });
-    // h 排布接受 separator（横向框线分隔，SPEC §2）
-    const ok3 = h([], { separator: { char: "-" } });
+    // @ts-expect-error 宽/高两轴互斥
+    const bad2 = spacer({ widthStyle: "fill", heightStyle: "fill" });
     void bad1;
     void bad2;
-    void ok3;
   };
   void typeguard;
-  assert.ok(spacer({ width: { mode: "fill" } }).kind === "text");
+  assert.ok(spacer({ widthStyle: "fill" }).kind === "text");
 });
 
-// ---- advisor 第三轮：优先级契约暴露测试 ----
-
-test("ratio 0.8 + auto min:4，宽 10 → ratio 6、auto 4（min 从 fill 不足处保底）", () => {
-  const root = h([
-    text("a", { width: { mode: "ratio", value: 0.8 } }),
-    text("bbbbb", { width: { mode: "auto", min: 4 } }),
-  ]);
-  const st = measure(root, { maxW: 10 });
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
-  // ratio 0.8×10=8，auto 自然 5 → 需求 13>10：auto 让到 min4、ratio 保 6
-  assert.equal(rectOf(rects, "a").w, 6);
-  assert.equal(rectOf(rects, "bbbbb").w, 4);
-});
-
-test("ratio 0.8 + fill min:4，宽 10 → ratio 6、fill 4（fill 让但 min 保）", () => {
-  const root = h([
-    text("a", { width: { mode: "ratio", value: 0.8 } }),
-    text("b", { width: { mode: "fill", min: 4 } }),
-  ]);
-  const st = measure(root, { maxW: 10 });
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 1 });
-  // ratio 8、fill 吃 2 → 不足 10；ratio 先让到 6（fill min4 保底）
-  assert.equal(rectOf(rects, "a").w, 6);
-  assert.equal(rectOf(rects, "b").w, 4);
-});
-
-// ---- 通用契约扩展：suffix / tail（SPEC §2/§6.5）----
+// ---- suffix / tail ----
 
 test("Paragraph suffix：占列并入总宽、正文折行扣 suffix 宽", () => {
-  // maxW=8，suffix ┃（1 列）→ 正文可用 7。文本 8×A → 折 7+1（续行再扣 1 后 1 宽）
   const p = text("AAAAAAAA", { suffix: { text: "┃" } });
-  const st = measure(p, { maxW: 8 });
-  assert.equal(st.h, 2); // 正文折 7 列 + 续 1 列
-  assert.equal(st.w, 8); // 最长行 7 + suffix 1
+  layout(p, 8);
+  assert.equal(p.height, 2);
+  assert.equal(p.width, 8);
 });
 
-test("Paragraph suffix：suffix 纳总宽（空文本 = prefix/suffix 宽）", () => {
+test("Paragraph suffix：空文本 = prefix/suffix 宽", () => {
   const p = text("", { suffix: { text: "┃" } });
-  const st = measure(p, { maxW: 10 });
-  assert.equal(st.h, 1);
-  assert.equal(st.w, 1); // 空文本总宽 = suffix 占列
+  layout(p, 10);
+  assert.equal(p.height, 1);
+  // 空段不主张列：宽度由分配决定（父容器给满），suffix 只在 fill 阶段补挂
+  assert.equal(p.width, 10);
 });
 
-test("Paragraph tail：不占测量宽、不增加行数；铺满由 fill 决定", () => {
+test("Paragraph tail：不主张宽度、不增加行数", () => {
   const p = text("", { tail: { char: "╌" } });
-  const st = measure(p, { maxW: 12 });
-  assert.equal(st.h, 1);
-  assert.equal(st.w, 0); // tail 不占测量宽
+  layout(p, 12);
+  assert.equal(p.height, 1);
+  // tail 是铺满装饰（fill 阶段按矩形宽补），不参与宽度主张；节点宽由分配决定
+  assert.equal(p.width, 12);
 });
 
-test("h 排布：fill.min 预留约束 auto 折宽上界（用户块右缘留白）", () => {
-  // h([spacer(fill,min:4), text(...)]) 宽 10：auto 折宽 6 → 2 行（6+4）
-  const box = h([
-    spacer({ width: { mode: "fill", min: 4 } }),
-    text("user message", {}),
-  ]);
-  const st = measure(box, { maxW: 10 });
-  const rects = allocate(st, { x: 0, y: 0, w: 10, h: 400 });
-  // spacer 至少 4 列，text 折宽 6 → 块宽 10（fill 吃剩余 0）
-  const spacerR = rects.get(box.children[0]!)!;
-  const textR = rects.get(box.children[1]!)!;
-  assert.equal(spacerR.w, 4); // min 保底
-  assert.equal(textR.w, 6); // 折宽 6（10−4）
-  assert.equal(st.size.get(box.children[1]!)!.h, 2); // "user message" 折 6 列 = 2 行
+// ---- 锁定语义与用户块右缘 ----
+
+test("锁定：根宽锁定、fixed 子项宽高锁定", () => {
+  const fixed = text("xx", { widthStyle: "fixed", widthFixed: 2 });
+  const root = h([fixed, text("abc")]);
+  layout(root, 20);
+  assert.equal(root.widthLocked, true);
+  assert.equal(fixed.widthLocked, true);
+  assert.equal(fixed.heightLocked, true);
+});
+
+test("用户块右缘：fill.min 预留 + balance 后竖线贴右（空隙 0）", () => {
+  const body = text("汉汉汉汉汉 abc abc abc abc abc abc", {
+    balance: true,
+    suffix: { text: "┃" },
+  });
+  const content = h([text("▶ ", { widthStyle: "fixed", widthFixed: 2 }), body]);
+  const gutterSpacer = spacer({ widthStyle: "fill", widthMin: 3 });
+  const block = h([gutterSpacer, content]);
+  layout(v([block]), 38);
+  assert.equal(block.width, 38);
+  assert.equal((content.width ?? 0) + (gutterSpacer.width ?? 0), 38);
 });

@@ -198,7 +198,7 @@ export function buildApprovalBox(
       ...optionLeaves,
       ...Array.from({ length: padding }, () => panelExplanation("")),
     ],
-    { height: { mode: "fixed", rows: height } },
+    { heightStyle: "fixed", heightFixed: height },
   );
 }
 

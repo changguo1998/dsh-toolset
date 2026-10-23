@@ -65,8 +65,7 @@ import {
   createLineTable,
   indexOfTop,
 } from "./layout/pipeline/rows.ts";
-import { measure } from "./layout/measure.ts";
-import { allocate } from "./layout/measure.ts";
+import { layout } from "./layout/measure.ts";
 import { fillToList, fillBoxTree } from "./layout/fill.ts";
 import { h, styled } from "./layout/box.ts";
 import { focusFrame, focusColor } from "./layout/focus-frame.ts";
@@ -847,13 +846,13 @@ export function titleBarSegments(
   return out;
 }
 
-/** 状态列 Box 树 → 内容行（排版库唯一出行路径：measure → allocate → fillToList）。
- *  分配高取**自然高**：不让 allocate 按帧高压缩子项——帧高只用于折叠等级与兜底截断。 */
+/** 状态列 Box 树 → 内容行（排版库唯一出行路径：layout → fillToList）。
+ *  分配高取**自然高**：不让布局按帧高压缩子项——帧高只用于折叠等级与兜底截断。 */
 function fillStatusColumnBox(box: Box, width: number): ContentRow[] {
   const w = Math.max(1, width);
-  const st = measure(box, { maxW: w });
-  const rect = { x: 0, y: 0, w, h: Math.max(1, st.h) };
-  return fillToList({ viewportWidth: w }, box, rect, allocate(st, rect));
+  const rects = layout(box, w);
+  const rect = rects.get(box) ?? { x: 0, y: 0, w, h: 1 };
+  return fillToList({ viewportWidth: w }, box, rect, rects);
 }
 
 /** 顶部状态列（最左侧列）内容行：`width` = 状态列**正文宽**（`statusBodyW`，调用点传入）。
@@ -978,9 +977,8 @@ function fillPanelBox(
   width: number,
 ): ContentRow[] {
   const w = Math.max(1, width);
-  const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
-  const st = measure(box, { maxW: w });
-  const rects = allocate(st, rect);
+  const rects = layout(box, w);
+  const rect = rects.get(box) ?? { x: 0, y: 0, w, h: Math.max(1, height) };
   return fillToList({ viewportWidth: w }, box, rect, rects);
 }
 

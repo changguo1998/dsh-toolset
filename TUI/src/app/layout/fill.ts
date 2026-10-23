@@ -19,7 +19,7 @@ import {
   displayWidth,
 } from "./markdown.ts";
 import { seg, rowWidth2 } from "./primitives.ts";
-import { measure, allocate } from "./measure.ts";
+import { layout } from "./measure.ts";
 
 /** fill 上下文：视口宽（装饰降级判定） */
 export interface FillContext {
@@ -46,14 +46,13 @@ export interface ContentRow extends FrameRow {
  * （单一数据源，避免 render/build 双算法漂移）。 */
 export function fillBoxTree(
   box: Box,
-  height: number,
+  _height: number,
   width: number,
 ): ContentRow[] {
   const w = Math.max(1, width);
-  const rect = { x: 0, y: 0, w, h: Math.max(1, height) };
-  const st = measure(box, { maxW: w });
-  const rects = allocate(st, rect);
-  return fillToList({ viewportWidth: w }, box, rect, rects);
+  const rects = layout(box, w);
+  const root = rects.get(box) ?? { x: 0, y: 0, w, h: 1 };
+  return fillToList({ viewportWidth: w }, box, root, rects);
 }
 
 /** 节点 → 行元数据（buildBox 产出；fill 传播到每行） */
@@ -345,8 +344,11 @@ function decorateRows(
 }
 
 /** 节点是否声明了显式高度（valign 补白仅在声明高度时生效） */
-function hasHeightDecl(p: { height?: unknown }): boolean {
-  return p.height !== undefined;
+function hasHeightDecl(p: {
+  height?: unknown;
+  heightStyle?: unknown;
+}): boolean {
+  return p.height !== undefined || p.heightStyle !== undefined;
 }
 
 // ---------------- Paragraph ----------------

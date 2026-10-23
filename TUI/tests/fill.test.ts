@@ -1,29 +1,29 @@
 // tests/fill.test.ts — fill 通用摊平引擎测试（SPEC §6.5/§6.7）
 //
 // Paragraph 折行/prefix/suffix/tail/对齐/valign + Box v/h 递归 + separator。
-// 单段落单元测试用固定 rect（fillFixed，不涉 allocate）；Box 集成测试用
-// measure+allocate 取子项矩形（render）。行内 markdown 复用 markdown.ts。
+// 单段落单元测试用固定 rect（fillFixed，不涉布局）；Box 集成测试用
+// layout 取子项矩形（render）。行内 markdown 复用 markdown.ts。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { v, h, text, spacer, type Node } from "../src/app/layout/box.ts";
-import { measure, allocate } from "../src/app/layout/measure.ts";
+import { layout } from "../src/app/layout/measure.ts";
 import { fillToList, type ContentRow } from "../src/app/layout/fill.ts";
 import { rowText } from "./helpers/rowText.ts";
 
 const ctx = {};
 const rowsText = (rows: ContentRow[]): string[] => rows.map(rowText);
 
-/** 便捷 1：直接固定 rect 摊平（单段落单元测试，不涉 allocate） */
+/** 便捷 1：直接固定 rect 摊平（单段落单元测试，不涉布局分配） */
 function fillFixed(node: Node, w: number, hgt: number): ContentRow[] {
   return fillToList(ctx, node, { x: 0, y: 0, w, h: hgt });
 }
 
-/** 便捷 2：measure+allocate+fill 一步到行（Box 集成测试） */
-function render(node: Node, w: number, hgt: number): ContentRow[] {
-  const st = measure(node, { maxW: w });
-  const rects = allocate(st, { x: 0, y: 0, w, h: hgt });
-  return fillToList(ctx, node, { x: 0, y: 0, w, h: hgt }, rects);
+/** 便捷 2：layout+fill 一步到行（Box 集成测试） */
+function render(node: Node, w: number, _hgt: number): ContentRow[] {
+  const rects = layout(node, w);
+  const rect = rects.get(node) ?? { x: 0, y: 0, w, h: 1 };
+  return fillToList(ctx, node, rect, rects);
 }
 
 test("fill Paragraph：短文本单行", () => {
@@ -46,7 +46,7 @@ test("fill Paragraph：assistant 正文 \n 为普通字符（对齐旧 wrapAssis
 test("fill Paragraph：valign center 显式声明高度时上下补白", () => {
   // valign 仅在声明 height（矮格）时补白；纯内容自然高不补（SPECH §6.5）
   const rows = fillFixed(
-    text("x", { valign: "center", height: { mode: "fill" } }),
+    text("x", { valign: "center", heightStyle: "fill" }),
     5,
     3,
   );
@@ -55,7 +55,7 @@ test("fill Paragraph：valign center 显式声明高度时上下补白", () => {
 
 test("fill Paragraph：valign bottom 显式声明高度时补白在上", () => {
   const rows = fillFixed(
-    text("x", { valign: "bottom", height: { mode: "fill" } }),
+    text("x", { valign: "bottom", heightStyle: "fill" }),
     5,
     3,
   );
@@ -66,7 +66,8 @@ test("fill Paragraph：align right 行内右对齐", () => {
   // width fixed → 右对齐 pad
   const node = text("ab", {
     align: "right",
-    width: { mode: "fixed", cols: 5 },
+    widthStyle: "fixed",
+    widthFixed: 5,
   });
   const rows = fillFixed(node, 5, 1);
   assert.deepEqual(rowsText(rows), ["   ab"]);
@@ -111,14 +112,14 @@ test("fill Box v：separator 在子项间产横线", () => {
 });
 
 test("fill Box h：spacer(fill) 吃剩余推位（用户块右对齐雏形）", () => {
-  const box = h([spacer({ width: { mode: "fill" } }), text("u")]);
+  const box = h([spacer({ widthStyle: "fill" }), text("u")]);
   const rows = render(box, 8, 1);
   // spacer 吃 7 列 → 文本在第 7 列开始
   assert.deepEqual(rowsText(rows), ["       u"]);
 });
 
 test("fill Box h：相邻子项按 allocate 切的可宽（右缘留白雏形）", () => {
-  const box = h([text("x"), spacer({ width: { mode: "fixed", cols: 2 } })]);
+  const box = h([text("x"), spacer({ widthStyle: "fixed", widthFixed: 2 })]);
   const rows = render(box, 6, 1);
   assert.deepEqual(rowsText(rows), ["x  "]);
 });

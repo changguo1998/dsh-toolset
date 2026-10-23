@@ -18,7 +18,6 @@ import { v, h, styled, spacer } from "./box.ts";
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import { displayWidth, parseInlineMarkdown } from "./markdown.ts";
 import { seg } from "./primitives.ts";
-import { measure } from "./measure.ts";
 
 /** 列对齐：`:---` 左（缺省）/ `:--:` 中 / `---:` 右 */
 export type TableAlign = "left" | "center" | "right";
@@ -286,10 +285,25 @@ function cellLeaf(
       style: { ...(s.style ?? {}), bold: true },
     }));
   return styled(segs, {
-    width: { mode: "fixed", cols: colW },
+    widthStyle: "fixed",
+    widthFixed: colW,
     align,
     valign: "center",
   });
+}
+
+/** 单元格叶子在自身固定列宽下的行数（与布局引擎同口径的折行） */
+function measureLeafRows(leaf: StyledText): number {
+  const width = Math.max(1, leaf.width ?? 1);
+  const suffixW = leaf.suffix ? displayWidth(leaf.suffix.text) : 0;
+  const text = leaf.segments.map((s) => s.text).join("");
+  return text.split("\n").reduce((rows, line) => {
+    if (line === "") return rows + 1;
+    return (
+      rows +
+      Math.max(1, Math.ceil(displayWidth(line) / Math.max(1, width - suffixW)))
+    );
+  }, 0);
 }
 
 /** 竖线字形叶子：按行数铺出同样多行（行高显式声明）——行 box 高 = 行高，
@@ -297,7 +311,8 @@ function cellLeaf(
  *  无 style 时用主题默认前景色（网格线一律不着色）。 */
 function vLineLeaf(ch: string, rows: number, style?: FrameStyle): StyledText {
   return styled([seg(Array(rows).fill(ch).join("\n"), style)], {
-    height: { mode: "fixed", rows },
+    heightStyle: "fixed",
+    heightFixed: rows,
   });
 }
 
@@ -318,10 +333,10 @@ function gridRow(
   sep: string,
   sepRows: number,
 ): Box {
-  const pad = (): Node => spacer({ width: { mode: "fixed", cols: CELL_PAD } });
+  const pad = (): Node => spacer({ widthStyle: "fixed", widthFixed: CELL_PAD });
   const kids: Node[] = [
     bar,
-    spacer({ width: { mode: "fixed", cols: BAR_GAP } }),
+    spacer({ widthStyle: "fixed", widthFixed: BAR_GAP }),
   ];
   for (let j = 0; j < cells.length; j++) {
     kids.push(pad(), cells[j]!, pad());
@@ -340,15 +355,17 @@ function rowBox(
   const leaves = cells.map((c, j) =>
     cellLeaf(c, cols[j]!, aligns[j] ?? "left", header),
   );
-  // 行高 = 各格在本格列宽下的自身行数最大值（用引擎同口径 measure 算得）
+  // 行高 = 各格在本格列宽下的自身行数最大值（用引擎同口径的单叶测量算得）
   let rowH = 1;
-  for (let j = 0; j < leaves.length; j++)
-    rowH = Math.max(
-      rowH,
-      measure(leaves[j]!, { maxW: Math.max(1, cols[j]!) }).h,
-    );
+  for (const leaf of leaves) {
+    leaf.width = Math.max(1, leaf.widthFixed ?? 1);
+    rowH = Math.max(rowH, measureLeafRows(leaf));
+  }
   // 显式声明行高：fill 的 valign:center 补白依赖显式高度（SPEC §2 valign）
-  for (const leaf of leaves) leaf.height = { mode: "fixed", rows: rowH };
+  for (const leaf of leaves) {
+    leaf.heightStyle = "fixed";
+    leaf.heightFixed = rowH;
+  }
   return gridRow(vLineLeaf(BAR_CHAR, rowH, BAR_STYLE), leaves, COL_SEP, rowH);
 }
 
@@ -358,7 +375,7 @@ function rowBox(
 function ruleRow(cols: number[], ch: string, colCross: string): Box {
   const kids: Node[] = [
     vLineLeaf(BAR_CHAR, 1, BAR_STYLE),
-    spacer({ width: { mode: "fixed", cols: BAR_GAP } }),
+    spacer({ widthStyle: "fixed", widthFixed: BAR_GAP }),
   ];
   for (let j = 0; j < cols.length; j++) {
     kids.push(hRuleLeaf(ch, cols[j]! + CELL_PAD * 2));

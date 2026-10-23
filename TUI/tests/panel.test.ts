@@ -15,7 +15,7 @@ import {
   panelMarkdownRows,
 } from "../src/app/layout/panel.ts";
 import type { Paragraph, Box, StyledText } from "../src/app/layout/box.ts";
-import { measure, allocate } from "../src/app/layout/measure.ts";
+import { layout } from "../src/app/layout/measure.ts";
 import { fillToList } from "../src/app/layout/fill.ts";
 import { rowText } from "./helpers/rowText.ts";
 
@@ -23,9 +23,9 @@ const ctx = { viewportWidth: 40 };
 
 /** 以 fill 摊平节点 → 纯文本行 */
 function rowsOf(node: Box | Paragraph | StyledText, w = 40): string[] {
-  const st = measure(node, { maxW: w });
-  const rects = allocate(st, { x: 0, y: 0, w, h: 1000 });
-  return fillToList(ctx, node, { x: 0, y: 0, w, h: 1000 }, rects).map(rowText);
+  const rects = layout(node, w);
+  const rect = rects.get(node) ?? { x: 0, y: 0, w, h: 1 };
+  return fillToList(ctx, node, rect, rects).map(rowText);
 }
 
 test("panelTitle：StyledText（bold）且 fill 渲染为标题全文", () => {
