@@ -17,6 +17,7 @@ import {
 } from "../src/app/layout/table.ts";
 import type { TableSpec } from "../src/app/layout/table.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
+import { boxToLines } from "../src/app/layout/pipeline/rows.ts";
 import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
 import { rowText } from "./helpers/rowText.ts";
@@ -80,13 +81,36 @@ test("hasCellPipe: 转义竖线不算（表格行预筛）", () => {
   assert.equal(hasCellPipe("普通一行"), false);
 });
 
-test("isTableStart: 表头与分隔行须成对（列数一致且全为 :?-+:?）", () => {
+test("isTableStart: 分隔行每格 :?-+:?；列数只许少（容错）、不许多", () => {
   assert.equal(isTableStart("| a | b |", "| --- | --- |"), true);
-  assert.equal(isTableStart("| a | b |", "| --- |"), false, "列数不一致");
+  assert.equal(
+    isTableStart("| a | b |", "| --- |"),
+    true,
+    "分隔行短于表头 → 仍判为表格（缺列左对齐，2026-10-23 容错）",
+  );
+  assert.equal(
+    isTableStart("| a | b |", "| --- | --- | --- |"),
+    false,
+    "分隔行多于表头 → 表头缺格、语义不明，拒绝",
+  );
   assert.equal(isTableStart("| a | b |", "| --- | -- |"), true, "两列都合法");
   assert.equal(isTableStart("| a | b |", "| --- | :: |"), false, "非法分隔格");
   assert.equal(isTableStart("普通行", "| --- |"), false, "表头无竖线");
   assert.equal(isTableStart("| a | b |", "---"), false, "分隔行无竖线");
+});
+
+test("parseTableAt: 分隔行短于表头 → 按表头列数成表，缺列左对齐", () => {
+  const { table } = parseTableAt(
+    [
+      "| 阶段 | 现象 | 结论 | 备注 |",
+      "| --- | --- |",
+      "| 解析 | 切分 | 一致 | 无 |",
+    ],
+    0,
+  )!;
+  assert.equal(table.header.length, 4);
+  assert.deepEqual(table.aligns, ["left", "left", "left", "left"]);
+  assert.deepEqual(table.rows[0], ["解析", "切分", "一致", "无"]);
 });
 
 test("parseTableAt: 表头/对齐/数据行，缺格补空、多格忽略，遇非表格行终止", () => {
@@ -464,7 +488,11 @@ test("集成：表格行保留回复左缘竖线，横线与其之间隔 1 空�
 });
 
 test("buildContentRows: 管道符不再原样渲染；非 final 表格进活动区", () => {
-  const finalBuf: HistoryRow[] = [a("| a | b |"), a("| --- | --- |"), a("| 1 | 2 |")];
+  const finalBuf: HistoryRow[] = [
+    a("| a | b |"),
+    a("| --- | --- |"),
+    a("| 1 | 2 |"),
+  ];
   const { dialogue, activity } = buildContentRows(finalBuf, { gutter: 4 }, 40);
   assert.equal(activity.length, 0);
   assert.ok(!dialogue.some((r) => rowText(r).includes("|")), "无残留 `|`");
@@ -516,4 +544,112 @@ test("窄宽回退：可用宽过窄时退回普通文本（不抛错、不溢�
     "退回原样管道符文本",
   );
   for (const t of texts) assert.ok(widthOf(t) <= 10, "不溢出：" + t);
+});
+
+test("行高测量与折行同源：奇数格宽 + 中文折行时每行都有左竖线与列分隔", () => {
+  // 格宽 3（奇数）+ 5 个中文字：实际折行 5 行，旧的 ceil(显示宽/格宽) 只得 4 行，
+  // 溢出行的 ┃ 与 │ 会丢失（A3 复现之一）
+  const spec = parse([
+    "| 说明 | 备注 |",
+    "| --- | --- |",
+    "| 一二三四五 | 值 |",
+  ]);
+  const out = rows(spec, 13);
+  for (const line of out) {
+    assert.ok(line.startsWith("┃"), "左缘竖线逐行连续：" + line);
+    const isRule = /[═─]/.test(line);
+    const glyphs = line.match(isRule ? /[╪┼]/g : /│/g) ?? [];
+    assert.equal(glyphs.length, 1, "列分隔逐行存在：" + line);
+    assert.equal(widthOf(line), 13, "整表等宽（无溢出行）：" + line);
+  }
+  assert.ok(out.join("").includes("五"), "折行内容不丢：" + out.join(" / "));
+});
+
+test("思考行识别 markdown 表格（左缘竖线用思考紫）", () => {
+  const buffer: HistoryRow[] = [
+    { text: "| 阶段 | 现象 |", kind: "thinking" },
+    { text: "| --- | --- |", kind: "thinking" },
+    { text: "| 解析 | 切分 |", kind: "thinking" },
+  ];
+  const { dialogue, activity } = buildContentRows(buffer, { gutter: 4 }, 60);
+  assert.equal(dialogue.length, 0, "思考行进活动区");
+  const texts = activity.map(rowText);
+  assert.ok(
+    texts.some((t) => t.includes("═")),
+    "表头横线成表：" + texts.join(" / "),
+  );
+  assert.ok(!texts.some((t) => t.includes("|")), "无残留管道符");
+  const barRow = activity.find((r) => rowText(r).startsWith("┃"));
+  assert.ok(barRow, "表格左缘有竖线");
+  assert.equal(
+    barRow!.segments[0]!.style?.fg,
+    "brightMagenta",
+    "思考表格竖线用思考紫",
+  );
+});
+
+test("集成: 分隔行短于表头（4 列表头 + 2 列分隔行）照样成 4 列表", () => {
+  const buffer: HistoryRow[] = [
+    a("| 阶段 | 现象 | 结论 | 备注 |"),
+    a("| --- | --- |"),
+    a("| 解析 | 切分 | 一致 | 无 |"),
+  ];
+  const { dialogue } = buildContentRows(buffer, { gutter: 4 }, 80);
+  const texts = dialogue.map(rowText);
+  assert.ok(
+    texts.some((t) => t.includes("═")),
+    "成表（表头横线在）：" + texts.join(" / "),
+  );
+  assert.ok(!texts.some((t) => t.includes("|")), "无残留管道符（未退回原样）");
+  const seps = texts
+    .filter((t) => t.includes("│"))
+    .map((t) => (t.match(/│/g) ?? []).length);
+  assert.ok(
+    seps.length > 0 && seps.every((n) => n === 3),
+    "4 列 → 每行 3 个列分隔：" + JSON.stringify(seps),
+  );
+});
+
+test("表格往返: 分隔行按表头格数生成（aligns 短于表头也不丢列）", () => {
+  const cell = (text: string) => ({
+    kind: "content" as const,
+    turn: 1,
+    step: 1,
+    source: "assistant" as const,
+    shape: "cell" as const,
+    text,
+  });
+  const rowBox = (cells: string[], header = false) => ({
+    kind: "layout" as const,
+    turn: 1,
+    step: 1,
+    source: "assistant" as const,
+    role: "row" as const,
+    ...(header ? { header: true } : {}),
+    children: cells.map(cell),
+  });
+  const table = {
+    kind: "layout" as const,
+    turn: 1,
+    step: 1,
+    source: "assistant" as const,
+    role: "table" as const,
+    // 上游只给了 2 个对齐（少于表头 4 列）：分隔行仍须按表头 4 列生成
+    aligns: ["left", "left"],
+    children: [
+      rowBox(["a", "b", "c", "d"], true),
+      rowBox(["1", "2", "3", "4"]),
+    ],
+  };
+  const rows = boxToLines(
+    table as unknown as Parameters<typeof boxToLines>[0],
+    true,
+  );
+  const delim = rows.find((r) => r.text.includes("---"));
+  assert.ok(delim, "有分隔行：" + rows.map((r) => r.text).join(" / "));
+  assert.equal(
+    delim!.text.split("|").length - 2,
+    4,
+    "分隔行格数 = 表头格数：" + delim!.text,
+  );
 });
