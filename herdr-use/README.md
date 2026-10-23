@@ -13,6 +13,14 @@ DSH（DeepSeek Harness）进程内集成插件：把 **herdr 的终端**（一�
 - **lane**：`herdr_create` 的 `foreground` 缺省 `true`，终端落在父会话所在 herdr session；设 `false` 时落在名为 `dshbg` 的 herdr session，之后该终端的所有命令自动带 `--session dshbg`。
 - **会话 ↔ workspace**：严格按 `(dsh session, lane)` 绑定，每个组合一个 workspace；label = `<会话 cwd 目录名>/<会话 id 末 8 位>`。workspace 的创建 / 查找 / 收尾都由程序完成，**不出工具面**。
 
+### 后台 lane 前置（`dshbg`）
+
+`--session dshbg` 只在 `dshbg` 的 herdr server 已运行时才可用（真机结论：herdr 的 `--session` 不是「使用或创建」）。因此后台 lane 的每条命令前，插件先 `herdr session list --json` 探测；缺会话时 detached 拉起 headless server（`herdr --session dshbg server`，stdio ignore + unref），轮询到 running（缺省 10s 上限）；成功后进程内缓存「已就绪」，后续后台命令不再探测。若某次后台命令报 server 不可达，清缓存，下一次后台操作重新探测并再拉起一次。
+
+- **只拉起，不关闭**：不记「谁起的」、不 stop，退出清理也不碰它；要停用 `herdr session stop dshbg`，要手动起用 `herdr --session dshbg server`。
+- 拉起超时 / 起不来时返回 `background-session-unavailable`（附 herdr 原文与下一步），**不会**静默退化到前台 lane。
+- 探测与 spawn 可注入（`createBackgroundSession`）；并发后台命令共享同一次拉起（单飞）。
+
 ## 能力（10 个工具）
 
 | 工具 | 作用 | 通道 | 必填 | 参数 |
@@ -130,8 +138,8 @@ if (plugin) {
   ```
 
 - 用例文件：`cli`（可用性握手 / 二进制定位 / 探活 / 信封解析 / 退出码）、`socket`（报文拼装 / 响应解析 / 判稳 / 缺省 socket 路径）、`net`（真实 unix socket：分片 framing / 超时 / 连接失败）、
-  `actions`（十个动作 argv 与结果解析 / lane 前缀 / 归属拒绝 / list 聚合 / close 关 tab / 串行化 / guard 拒绝）、`registry`（登记 / 跨 lane 歧义 / 会话 × lane 绑定 / 退出清理）、
-  `workspace`（label / 会话隔离 / 复用与重建 / 后台 lane）、`policy`（沙箱写类集合 / guard 与沙箱 fail-open）、`main`（注册条件 / 十工具注册 / 服务面 / 沙箱门）、`tool`（十个 schema / 渲染 / 截断）、`service`（方法映射 / 同源 registry / 串行化 / context 三形态）。
+  `actions`（十个动作 argv 与结果解析 / lane 前缀 / 归属拒绝 / list 聚合 / close 关 tab / 串行化 / guard 拒绝 / 后台会话就绪）、`registry`（登记 / 跨 lane 歧义 / 会话 × lane 绑定 / 退出清理）、
+  `workspace`（label / 会话隔离 / 复用与重建 / 后台 lane）、`policy`（沙箱写类集合 / guard 与沙箱 fail-open）、`background`（探测 / 拉起 / 单飞 / 超时 / 缓存失效）、`main`（注册条件 / 十工具注册 / 服务面 / 沙箱门）、`tool`（十个 schema / 渲染 / 截断）、`service`（方法映射 / 同源 registry / 串行化 / context 三形态）。
 
 - 真机端到端（**人工跑、不进 CI**，只需 herdr 二进制可解析 + 服务端在跑）：先 `npm --prefix herdr-use run build`，再跑 `node herdr-use/scripts/verify-herdr-use.mjs`（全自动，跑完即关终端）。开关：`--keep`（保留终端 / workspace 供人工看）、`--with-python`（额外验 `python3 -i` 的 REPL 场景）、`--background`（额外验 `foreground: false` 的 dshbg lane）、`--check-cascade`、`--session-id <id>`、`--cwd <dir>`。
 

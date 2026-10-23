@@ -247,3 +247,22 @@ test("二进制缺失 / 探活失败 → 不注册", () => {
   assert.equal(second.tools.length, 0);
   assert.equal(warnings.length >= 2, true);
 });
+
+test("插件装配：注入的后台会话控制器进入 dispatchDeps", () => {
+  const harness = fakeCtx();
+  const backgroundSession = {
+    async ensure() {
+      return { ok: true as const, started: false };
+    },
+    invalidate() {
+      // no-op
+    },
+  };
+  const handle = createHerdrPlugin(
+    harness.ctx,
+    {},
+    pluginDeps({ backgroundSession }),
+  );
+  assert.ok(handle !== undefined);
+  assert.equal(handle.deps.backgroundSession, backgroundSession);
+});

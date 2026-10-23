@@ -12,6 +12,7 @@ import {
   fakeExec,
   fakeHerdr,
   fakeReader,
+  fakeSession,
   isBackgroundCall,
   makeDeps,
   readError,
@@ -445,4 +446,129 @@ test("registry 与 deps 共用（服务面同源的前提）", () => {
   const registry = new TerminalRegistry("x");
   const deps = makeDeps({ registry });
   assert.equal(deps.registry, registry);
+});
+
+/** 假后台会话控制器（记录 ensure / invalidate 次数）。 */
+function fakeBackgroundSession(
+  ready: { ok: true; started: boolean } | { ok: false; message: string } = {
+    ok: true,
+    started: true,
+  },
+): {
+  ensure: () => Promise<typeof ready>;
+  invalidate: () => void;
+  ensured: number;
+  invalidated: number;
+} {
+  const state = {
+    ensured: 0,
+    invalidated: 0,
+    async ensure() {
+      state.ensured += 1;
+      return ready;
+    },
+    invalidate() {
+      state.invalidated += 1;
+    },
+  };
+  return state;
+}
+
+test("create 前台不触发后台会话拉起；create 后台触发一次", async () => {
+  const deps = depsFor(fakeHerdr().runner);
+  const background = fakeBackgroundSession();
+  deps.backgroundSession = background;
+  const foreground = await dispatchAction("create", {}, deps, fakeExec());
+  assert.equal(foreground.ok, true);
+  assert.equal(background.ensured, 0);
+
+  const behind = await dispatchAction(
+    "create",
+    { foreground: false },
+    deps,
+    fakeExec(),
+  );
+  assert.equal(behind.ok, true);
+  assert.equal(background.ensured, 1);
+});
+
+test("后台会话拉起失败：返回 background-session-unavailable，不跑任何命令", async () => {
+  const { runner } = fakeHerdr();
+  const deps = depsFor(runner);
+  deps.backgroundSession = fakeBackgroundSession({
+    ok: false,
+    message: "后台 session 起不来：server_not_running",
+  });
+  const result = await dispatchAction(
+    "create",
+    { foreground: false },
+    deps,
+    fakeExec(),
+  );
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "background-session-unavailable");
+  assert.match(result.error.message, /server_not_running/);
+  assert.match(result.error.hint ?? "", /herdr session stop dshbg/);
+  assert.deepEqual(runner.calls, []);
+});
+
+test("后台目标动作：执行前 ensure，失败后 invalidate", async () => {
+  const { runner } = fakeHerdr({
+    override: (args) =>
+      args[0] === "pane" && args[1] === "run"
+        ? errorEnvelope("server_not_running", "no server")
+        : undefined,
+  });
+  const deps = depsFor(runner);
+  const background = fakeBackgroundSession();
+  deps.backgroundSession = background;
+  registerTerminal(deps.registry, { lane: "background" });
+  const result = await dispatchAction(
+    "run",
+    { terminal_id: "wT1:p10", command: "ls" },
+    deps,
+  );
+  assert.equal(result.ok, false);
+  assert.equal(background.ensured, 1);
+  assert.equal(background.invalidated, 1);
+  // 命令仍带 lane 前缀（不静默退化到前台）
+  assert.ok(isBackgroundCall(runner.calls[0] ?? []));
+});
+
+test("后台目标动作：ensure 失败时不执行命令", async () => {
+  const { runner } = fakeHerdr();
+  const deps = depsFor(runner);
+  deps.backgroundSession = fakeBackgroundSession({
+    ok: false,
+    message: "起不来",
+  });
+  registerTerminal(deps.registry, { lane: "background" });
+  const result = await dispatchAction(
+    "text",
+    { terminal_id: "wT1:p10", text: "x" },
+    deps,
+  );
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "background-session-unavailable");
+  assert.deepEqual(runner.calls, []);
+});
+
+test("list 有后台绑定：查询前 ensure 后台会话", async () => {
+  const { runner } = fakeHerdr();
+  const deps = depsFor(runner);
+  const background = fakeBackgroundSession();
+  deps.backgroundSession = background;
+  deps.registry.setBinding(fakeSession.id, "background", {
+    sessionId: fakeSession.id,
+    lane: "background",
+    workspaceId: "wT9",
+    label: "proj/abcd1234",
+    cwd: fakeSession.cwd,
+    createdAt: 1,
+  });
+  const result = await dispatchAction("list", {}, deps, fakeExec());
+  assert.equal(result.ok, true);
+  assert.equal(background.ensured, 1);
 });

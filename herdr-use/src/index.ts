@@ -117,6 +117,18 @@ export type {
 export { defaultRunner, dispatchAction, inspectedText } from "./actions.ts";
 export type { DispatchDeps } from "./actions.ts";
 
+export {
+  createBackgroundSession,
+  DEFAULT_BACKGROUND_POLL_INTERVAL_MS,
+  DEFAULT_BACKGROUND_START_TIMEOUT_MS,
+} from "./background.ts";
+export type {
+  BackgroundSession,
+  BackgroundSessionOptions,
+  BackgroundSessionProbe,
+  BackgroundSessionResult,
+} from "./background.ts";
+
 export { createHerdrUseService } from "./service.ts";
 export type {
   CreateOptions,
