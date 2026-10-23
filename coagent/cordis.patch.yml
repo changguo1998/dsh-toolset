@@ -1,0 +1,11 @@
+# coagent 插件的 dsh bundle 声明。
+# 本包默认开启；依赖两个服务（**注册期**判定，缺任一个都不注册工具、只告警一次）：
+# - herdrUse（herdr-use 插件）：建终端 / 提交命令 / 取屏 / 探活 / 关闭；
+# - sessionChannel（session-channel 插件）：认领新会话（`peers`）。
+# sessionPaths（session-paths 插件）可选：把记录落调用方会话目录；缺席时降级到
+# `$DSH_HOME/coagent/<会话 id>/` 并告警。三个服务都不写进 `inject`（只声明注册面 `tools`），
+# 由 `ctx.get` 读取；缺 herdrUse / sessionChannel 时不降级到库面（见 README「依赖与降级」）。
+# 要覆盖配置时在 profile 用户 patch 里按 id 追加同名字段（见 README「配置」）。
+- insert:
+    - id: coagent
+      name: '@dsh-toolset/coagent'
