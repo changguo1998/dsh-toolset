@@ -2,9 +2,9 @@
  * src/main.ts — 插件入口（DSH bundle 接入面）：注册模型侧工具 `coagent`。
  *
  * 契约对齐 `docs/host/DSH-CTX-API.md` §0（`export { name, inject, Config, apply }`）：
- * - `inject = ["tools"]`：注册面是必需依赖（宿主 base 在 agent 创建前就 provide `tools`）；
- * - `herdrUse` / `sessionChannel`：**注册期**硬前置，缺席不注册工具并告警一次（不降级到库面）；
- * - `sessionPaths`：可选，缺席时记录降级到 `$DSH_HOME/coagent/<会话 id>/` 并告警一次。
+ * - `inject = ["tools", "herdrUse", "sessionChannel"]`：注册面与服务面都是必需依赖，
+ *   由容器等对方 provide 后再 apply（只靠 `ctx.get` 会因 apply 顺序拿到 undefined，工具静默不注册）；
+ * - `sessionPaths`：可选，不走 `inject`，缺席时记录降级到 `$DSH_HOME/coagent/<会话 id>/` 并告警一次。
  *
  * 状态落点：`<调用方会话目录>/coagent/`（经 `sessionPaths.sessionDirFor` 推导）；父进程正常
  * 退出时把非 `closed` 记录标 `closed(reason=parent-exit)`（终端的关闭由 herdr-use 的退出清理
@@ -35,8 +35,14 @@ import type {
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "coagent";
 
-/** 静态依赖：只有注册面 `tools`（其余服务走 `ctx.get` 可选读取）。 */
-export const inject = ["tools"];
+/**
+ * 静态依赖：注册面 `tools` + 两个注册期硬前置的服务面。
+ *
+ * `herdrUse` / `sessionChannel` 必须进 `inject`：只靠 `ctx.get` 取，会在对方 `provide`
+ * 之前拿到 `undefined`（cordis 的 apply 顺序不保证），表现为「工具静默不注册」。
+ * 进 `inject` 后由容器等对方 provide 再调用本插件 apply；下面的形状校验留作纵深防御。
+ */
+export const inject = ["tools", "herdrUse", "sessionChannel"];
 
 /** 插件配置。 */
 export type Config = CoagentConfig;
