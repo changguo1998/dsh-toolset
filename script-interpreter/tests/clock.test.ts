@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { apply } from "../src/index.ts";
 import { runScript } from "../src/run.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";
-import { ManualClock } from "../../timer/src/timers.ts";
+import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /** `clock` 服务的假实现：`scope()` 一律返回同一块手控表，并记录调用参数。 */
 function fakeClock(manual: ManualClock, scopes: unknown[] = []): unknown {

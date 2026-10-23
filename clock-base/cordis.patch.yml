@@ -5,5 +5,5 @@
 # 挂载顺序：请排在使用方（background-daemon / session-channel / metric-loop / TUI）之前，
 # 使 `ctx.get("clock")` 在它们激活时可用（scripts/install.sh 的 canonical_pkgs 已置首）。
 - insert:
-    - id: timer-toolset
+    - id: clock-base
       name: '@dsh-toolset/timer'

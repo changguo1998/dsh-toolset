@@ -14,7 +14,7 @@ import { runReview, type Reviewer } from "../src/review.ts";
 import { SessionObserver } from "../src/sessions.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";
 import type { PluginHost } from "../src/types.ts";
-import { ManualClock } from "../../timer/src/timers.ts";
+import { ManualClock } from "../../clock-base/src/timers.ts";
 import { createFakeHost } from "./fakes.ts";
 
 /**

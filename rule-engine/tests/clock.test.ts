@@ -13,7 +13,7 @@ import type { InjectionHost } from "../src/inject.ts";
 import { apply } from "../src/main.ts";
 import { resolveClock } from "../src/timers.ts";
 import type { InjectionRequest } from "../src/types.ts";
-import { ManualClock } from "../../timer/src/timers.ts";
+import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /**
  * 假 `clock`：`scope(ctx)` 把每次排期的撤销动作登记到 ctx 的 `effect` 上

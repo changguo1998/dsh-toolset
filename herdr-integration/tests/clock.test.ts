@@ -13,7 +13,7 @@ import { createHerdrPlugin } from "../src/main.ts";
 import type { HerdrPluginDeps } from "../src/main.ts";
 import { HerdrClient } from "../src/herdr.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";
-import { ManualClock } from "../../timer/src/timers.ts";
+import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /** `clock` 服务的假实现：`scope()` 一律返回同一块手控表，并记录调用参数。 */
 function fakeClock(manual: ManualClock, scopes: unknown[] = []): unknown {

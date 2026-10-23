@@ -13,7 +13,7 @@ The repository contains the `TUI/` terminal UI package and 30 in-process plugins
 | Package | What it does |
 |----|------|
 | **TUI** (`TUI/`, `@dsh-toolset/tui`) | Terminal UI: four-region layout (conversation / activity / status column / input), event-driven rendering, slash commands, session switching and cleanup, model and approval panels; **zero runtime dependencies** (no third-party imports in the source, colors via manual ANSI) |
-| **timer** | Timer unification surface: the `clock` service (`now()` plus `scope(ctx)` returning `schedule(delayMs, cb)` / `interval(delayMs, cb)`, whose disposal is registered on the caller's `ctx.effect` so a plugin unload leaves no live timer; handles are `unref`ed by default). Also exports a hand-driven `ManualClock` (advance the clock, fire due callbacks in order) for tests. Coexists with, and does not wrap, the host's `cordis-plugin-timer`: no `schedule`, no `unref`, and a required `inject` make wrapping a worse deal |
+| **clock-base** | Timer unification surface: the `clock` service (`now()` plus `scope(ctx)` returning `schedule(delayMs, cb)` / `interval(delayMs, cb)`, whose disposal is registered on the caller's `ctx.effect` so a plugin unload leaves no live timer; handles are `unref`ed by default). Also exports a hand-driven `ManualClock` (advance the clock, fire due callbacks in order) for tests. Coexists with, and does not wrap, the host's `cordis-plugin-timer`: no `schedule`, no `unref`, and a required `inject` make wrapping a worse deal |
 | **herdr-integration** | herdr panel bridge: agent state is reported to the herdr panel over a unix socket, and blocked events are bridged across three signal sources (ask-user questions, approvals, turn blocking) |
 | **herdr-use** | herdr pane / tab read/write: treats a pane as a controllable pseudo-terminal layer (`pane_create` / `pane_send_text` / `pane_send_keys` / `pane_run` / `pane_read` / `pane_wait` / `pane_label` / `pane_info` / `pane_close` / `pane_list`, plus `tab_create` / `tab_list` / `tab_close`) to drive interactive commands that need screen state and key timing; each dsh session is internally bound to one herdr workspace (created on first use, never exposed to the model), so tabs and panes land there and writes stay inside it; one model-facing tool `herdr_use` plus a reusable library surface; write actions are limited to objects this plugin created, and pass through guard re-check, security-guard registration and out-of-scope approval |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`execute`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
@@ -50,7 +50,7 @@ Every package's `package.json` carries the `dsh.bundle` integration contract alo
 ```
 dsh-toolset/
 ├── TUI/                  # Terminal UI package (src/app state layer, src/renderer render layer, src/app/adapter adapters, demo/ mock)
-├── timer/                # unified timer surface (clock service: now + schedule / interval, disposed with the caller fiber, plus a hand-driven fake clock)
+├── clock-base/           # unified timer surface (clock service: now + schedule / interval, disposed with the caller fiber, plus a hand-driven fake clock)
 ├── herdr-integration/    # herdr panel bridge
 ├── herdr-use/            # herdr pane / tab read/write (interactive command driving)
 ├── task-engine/          # task-tree engine

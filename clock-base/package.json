@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-toolset/timer",
+  "name": "@dsh-toolset/clock-base",
   "version": "0.1.0",
   "description": "DSH (DeepSeek Harness) 进程内集成插件：定时器统一面（服务 clock：now + 随调用方 fiber 释放的 schedule / interval，带可手控假时钟）",
   "type": "module",

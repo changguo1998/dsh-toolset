@@ -5,7 +5,7 @@
 
 ## 目标
 
-把各包里的裸定时器换成 `timer` 插件提供的 `clock` 服务，使**插件级排期**随调用方 fiber 卸载自动撤销、**操作级超时**在卸载时立即收尾（不悬挂），并让测试可注入假时钟。
+把各包里的裸定时器换成 `clock-base` 插件提供的 `clock` 服务，使**插件级排期**随调用方 fiber 卸载自动撤销、**操作级超时**在卸载时立即收尾（不悬挂），并让测试可注入假时钟。
 
 交付：`herdr-integration` / `herdr-use` / `script-interpreter` / `rule-engine` / `task-engine` / `auto-approve` / `ast-tools` / `command-template` 八个包的改造 + `ManualClock` 断言 + 服务缺失降级（进程内定时器 + 每个插件实例告警一次）。
 
@@ -44,7 +44,7 @@
 
 ### 发现的两处事实
 
-1. `timer/README.md:44` 称 `ManualClock` 自带 `scope()`，实际实现（`timer/src/timers.ts:142-227`）只有 `now` / `schedule` / `interval` / `advance` / `pending`。测试里以 `{ now: () => manual.now(), scope: () => manual }` 适配；`timer` 包不在本任务范围内（仅记录，留待后续条目）。
+1. `clock-base/README.md:44` 称 `ManualClock` 自带 `scope()`，实际实现（`timer/src/timers.ts:142-227`）只有 `now` / `schedule` / `interval` / `advance` / `pending`。测试里以 `{ now: () => manual.now(), scope: () => manual }` 适配；`timer` 包不在本任务范围内（仅记录，留待后续条目）。
 2. 仓内包彼此零运行时依赖，且各包 `tsconfig` 的 `rootDir` 是本包目录 → 测试直接 import `timer/src/timers.ts` 会触发 TS6059。沿用 `md-table-check` 的先例：把跨包测试文件从本包 `tsconfig.json` 的 `include` 中排除（`exclude` 一行），测试运行时（node 类型擦除）仍能 import 真实 `ManualClock`。
 
 ## 决策
@@ -92,7 +92,7 @@
 
 **明确不做**
 
-- 不改 `timer` 包（`ManualClock` 缺 `scope` 的 README 偏差只记录）。
+- 不改 `clock-base` 包（`ManualClock` 缺 `scope` 的 README 偏差只记录）。
 - 不改 TUI 内部 34 处渲染节律定时器。
 - 不改 `herdr-integration/src/herdr.ts` 面板协议**子进程脚本字符串**里的 `setTimeout`（不是本进程排期）。
 - 不改 `docs/STATUS.md` / 两级 `BACKLOG` / `SPEC` / `README` / `COMMANDS`（本任务不做收尾）。
