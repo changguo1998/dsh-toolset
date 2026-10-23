@@ -7,9 +7,9 @@
  * 规则表（工具名 + 参数字符串）判定，命中返回 `{ kind: "deny", reason }`（回执写明该改用哪个专用
  * 工具），未命中返回 `undefined`（弃权，交给其它消费者与宿主继续）。
  *
- * 缺省规则只有一条：`bash` 命令里出现 `herdr` → 拒绝并指向 `herdr_use`。herdr CLI 有专用工具，
- * 走 bash 会绕过插件面板与状态绑定。规则表可在 profile `config` 里整体替换；`rules: []` 或
- * `enabled: false` 等于不拦。
+ * 缺省规则只有一条：`bash` 命令里出现 `herdr` → 拒绝并指向 herdr 的专用工具（写类 `herdr_run` /
+ * `herdr_text` / `herdr_key`，查看类 `herdr_read` / `herdr_list`）；走 bash 会绕过插件面板与状态绑定。
+ * 规则表可在 profile `config` 里整体替换；`rules: []` 或 `enabled: false` 等于不拦。
  *
  * 设计取舍：
  * - **写进 `inject`**（2026-10-22 真机修正）：`ruleEngine` 服务由 rule-engine 插件在 apply 时 provide，
@@ -80,7 +80,8 @@ export interface Config {
 
 /**
  * 内置缺省规则：
- * 1. bash 里跑 herdr CLI → 指路 `herdr_use`；
+ * 1. bash 里跑 herdr CLI → 指路 herdr 专用工具（写类 `herdr_run` / `herdr_text` / `herdr_key`，
+ *    查看类 `herdr_read` / `herdr_list`）；
  * 2. bash 里跑 python → 指路 `script_run`（script-interpreter 插件）。
  */
 export const DEFAULT_RULES: readonly RuleSpec[] = [
@@ -96,7 +97,7 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       flags: "im",
     },
     reason:
-      "bash 里不要跑 herdr 命令: 改用 herdr_use 工具（pane_* / tab_* 操作）",
+      "bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）",
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
   },
   {
