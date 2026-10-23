@@ -1,6 +1,6 @@
 # `/memory` 的 `replace` 与 `remove` 子命令（接取条目：`docs/BACKLOG.md` §2「1. `/memory` 的 `replace` 与 `remove` 子命令」）
 
-状态：实现完成（2026-10-23；决策 A + A1 + add 死路径并入）　　开启：2026-10-22　　关闭：—
+状态：已关闭（2026-10-23；决策 A + A1 + add 死路径并入）　　开启：2026-10-22　　关闭：2026-10-23
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -130,3 +130,11 @@
 - 原先 `list` 只遍历**已打开**的库：新进程里若没有插件先写过，`/memory list` 恒空，`remove` / `replace` 无从拿到 id（`forget` / `update` 本身走 `openExisting`，冷启动可用）。
 - 调整：全局 `list` 在列举 U / P 层前按需 `openExisting`（只开既有库、不建库；只列某一层时不开另一层）。**读面无写副作用**不变，`search` 维持原样（本条目不需要）。
 - 用例：`memory-base/tests/admin-surface.test.ts`「list：冷启动按需打开既有 U / P 库」；`README` / `DESIGN.md §4` 已同步口径。
+
+## 关闭（2026-10-23，主分支）
+
+- **合并**：b-app 组提交 `02d79c0`（基于 `09956cb`），合并提交 `6ab5b43`；与 main 无文件重叠，合入后主树干净。
+- **复核**：合并后主分支独立复跑 —— 根 `npm run check` 通过；`memory-base` 82/82、`TUI` 1745/1745 全绿（与交付报告一致）。
+- **改动面**：`memory-base` 管理面 `forget` / `update` / `remember`（只 U / P，S 层拒绝）+ `TUI` 的 `/memory list|remove|replace`（`search` 行带 `#id`）+ `/memory add` 死路径修复（改走管理面，`kind` 必填）；`README` / `DESIGN.md` 同步。
+- **未做**：真机验收（真实会话里跑 `/memory list` → `remove` / `replace` / `add`）——按用户指令本轮直接归档，真机留待后续按需补。
+- **收尾**：条目从 `docs/BACKLOG.md` §2 移除并补关闭注记；并行分组表删去 B3 行；本文件移入 `docs/archived/`。
