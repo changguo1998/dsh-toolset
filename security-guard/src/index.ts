@@ -246,14 +246,16 @@ interface PluginCommandTool {
  *   不含命令文本），故检查点落在声明处（残留边界见 README「边界与限制」）；
  * - `script_run`：`script`（脚本正文，由解释器执行，见 script-interpreter——与官方
  *   `run_code` 的 `code` 同口径，命中即 deny）；
- * - `herdr_use`：`command`（`pane_run` 动作注入 pane 的命令，文本 + 回车一次提交）、`text`
- *   （`pane_send_text` 动作注入的文本，与 `pane_run` 只差是否补回车，故同纳）与 `keys[]`（`pane_send_keys`
- *   动作的按键串数组，**逐元素**过命令层；`keys` 是数组，走 `commandPaths` —— 见下）——
- *   herdr-use 三闸并用，本表是其一。
+ * - `herdr_run` / `herdr_text` / `herdr_key`：herdr-use 十个具名工具里的三个命令面
+ *   （其余 `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` /
+ *   `herdr_close` / `herdr_label` 无命令面）——`herdr_run` 的 `command`（提交终端的命令，
+ *   文本 + 回车一次提交）、`herdr_text` 的 `text`（注入终端的文本，与 `herdr_run` 只差
+ *   是否补回车，故同纳）与 `herdr_key` 的 `keys[]`（按键串数组，**逐元素**过命令层；
+ *   `keys` 是数组，走 `commandPaths` —— 见下）。
  *
  * **登记写法的三条口径**（写错即假覆盖：名字在册但运行时不检查）：
  * 1. `commandKeys` 只收**顶层非空 string**，数组值**静默失效** —— 数组参数必须走
- *    `commandPaths`（如 `herdr_use` 的 `keys`）。
+ *    `commandPaths`（如 `herdr_key` 的 `keys`）。
  * 2. `commandPaths` 走点号路径，段名带 `[]` 表示该值是数组、逐元素展开（如 `keys[]`）。
  * 3. **登记即脱离未登记工具策略**：门禁分支是 `plugin === undefined && commandTool === undefined`，
  *    工具名一旦在册，`unknownToolPolicy` 对它不再生效 —— 登记等于承诺「这套参数面是真的」。
@@ -269,8 +271,12 @@ const PLUGIN_COMMAND_TOOLS: Record<string, PluginCommandTool> = {
     ],
   },
   script_run: { commandKeys: ["script"] },
-  // keys 是字符串数组：commandKeys 对数组值静默失效，必须走 commandPaths 才真正生效。
-  herdr_use: { commandKeys: ["command", "text"], commandPaths: ["keys[]"] },
+  // herdr-use 命令面：herdr_run 的 command 与 herdr_text 的 text 是顶层字符串，
+  // 走 commandKeys；herdr_key 的 keys 是字符串数组：commandKeys 对数组值静默失效，
+  // 必须走 commandPaths 才真正生效。
+  herdr_run: { commandKeys: ["command"] },
+  herdr_text: { commandKeys: ["text"] },
+  herdr_key: { commandPaths: ["keys[]"] },
 };
 
 /**
