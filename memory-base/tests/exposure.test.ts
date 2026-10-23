@@ -1,5 +1,5 @@
 /**
- * 暴露面测试：`apply` 同步建 bundle（无异步就绪窗口）、`ctx.provide("memory")` 八键、
+ * 暴露面测试：`apply` 同步建 bundle（无异步就绪窗口）、`ctx.provide("memory")` 八读 + 三管理写、
  * `getMemoryBundle` 持有实例、经服务面注册句柄后可直接写读。
  */
 
@@ -43,7 +43,7 @@ function makeHost(sessionPaths?: SessionPathsLike): {
   };
 }
 
-test("apply：同步暴露 memory 面（八键）并注册 memory_query", async () => {
+test("apply：同步暴露 memory 面（八读 + 三管理写）并注册 memory_query", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kb-exposure-"));
   const sessionPaths: SessionPathsLike = {
     sessionDirFor: (id) => join(dir, "sessions", id),
@@ -61,11 +61,14 @@ test("apply：同步暴露 memory 面（八键）并注册 memory_query", async 
     assert.ok(memory, "memory 服务面已暴露");
     assert.deepEqual(Object.keys(memory).sort(), [
       "checkPrivacy",
+      "forget",
       "getSummary",
       "list",
       "migrate",
       "registerKind",
+      "remember",
       "search",
+      "update",
       "usage",
       "whenReady",
     ]);

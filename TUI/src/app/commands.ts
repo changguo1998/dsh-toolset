@@ -323,7 +323,7 @@ export const LOCAL_COMMANDS: readonly {
   {
     name: "memory",
     route: "memory",
-    desc: "知识库（memory-base：概要 / review 审阅 / search / add；Enter 看用法）",
+    desc: "知识库（memory-base：概要 / search / list / remove / replace / add；Enter 看用法）",
   },
   {
     name: "loop",

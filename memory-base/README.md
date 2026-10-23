@@ -4,22 +4,25 @@ DSH（DeepSeek Harness）进程内插件：**分层记忆的存储底座**——
 
 ## 定位与读写边界
 
-- **读全局**：`ctx.get('memory')` 八键，跨 kind、跨层查询，调用方不传文件路径、不关心一次会碰几个库。
-- **写隔离**：写入与删除**只经 `registerKind(spec)` 返回的作用域句柄**（按 kind + 可写层），全局面没有任何写入键。
-- **不注册写工具**：模型侧只有一个只读查询工具 `memory_query`；写权限留在各扩展的句柄上。
+- **读全局**：`ctx.get('memory')` 八读 + 三管理写，跨 kind、跨层查询，调用方不传文件路径、不关心一次会碰几个库。
+- **写隔离**：扩展的业务写入与删除**只经 `registerKind(spec)` 返回的作用域句柄**（按 kind + 可写层）；全局面另有三管理写（`forget` / `update` / `remember`），只做 U / P 层的用户纠错与直写，S 层一律拒绝。
+- **不注册写工具**：模型侧只有一个只读查询工具 `memory_query`；写权限留在各扩展的句柄与 TUI 管理面。
 
-## 服务面（`ctx.get('memory')`，八键）
+## 服务面（`ctx.get('memory')`，八读 + 三管理写）
 
 | 键 | 参数要点 | 返回 |
 | --- | --- | --- |
 | `registerKind(spec)` | `{kind, table?, writableTiers?, preWrite?}`；同步注册、返回写入句柄 | `MemoryScope`（见下） |
 | `search(opts)` | `query` 必填；`kind?` / `tier?` / `project?` / `limit?`（缺省 10，clamp 1..100）/ `fuzzy?` / `mode?` | `SearchHit[]`（带 `kind` / `tier` / `score`） |
-| `list(opts?)` | `kind?` / `tier?` / `project?` / `limit?`（缺省 20，clamp 1..100）/ `offset?` | `StoreRow[]`（`created_at` 倒序） |
+| `list(opts?)` | `kind?` / `tier?` / `project?` / `limit?`（缺省 20，clamp 1..100）/ `offset?`；U / P 层列举前按需打开**既有**库（`openExisting` 只开不建） | `StoreRow[]`（`created_at` 倒序） |
 | `checkPrivacy(text)` | 隐私底线查询（内置 + `persistRules.denyPatterns`） | 命中返回模式源串，否则 `null` |
 | `getSummary()` | 无 | `{ready, kinds[{kind, table, writableTiers, rows}], tiers[{tier, path, created}], chunkCount, sourceCount}`；`created: false` = 该层库尚未创建 |
 | `whenReady()` | 无 | `Promise<MemoryBundle>`（`apply` 同步建 bundle，故恒 resolve） |
 | `usage()` | 无 | `{tier, path, bytes}[]`，**只报已创建的库** |
 | `migrate({from, mode})` | 只有 `from: "v1"` / `mode: "drop"` | `{dbPath, removed[]}`；删库文件与 `-wal` / `-shm`，不备份、不静默删 |
+| `forget(refs)` | `{tier: "project" \| "user", kind, id}[]`；S 层 / 未注册 kind / 非法 id 抛错 | `number`（删除条数；不存在的行不计） |
+| `update(ref, patch)` | 同上地址 + `{content, title?, importance?}`；单行就地改，**不重新分块** | `{ok, id}` 或 `{ok: false, skipped}`（`missing` / `duplicate` / 内容闸门原因） |
+| `remember(input)` | `{tier: "project" \| "user", kind, content, title?, importance?}`；用户直写，内容闸门与 `preWrite` 仍生效 | `PutResult` |
 
 ## 写入作用域句柄（`MemoryScope`）
 
@@ -113,7 +116,7 @@ await memory.list({ kind: "note" });
 bundle.dispose();
 ```
 
-宿主侧由 bundle 契约自动调用 `apply(ctx, config)`：同步建 bundle → `ctx.provide("memory", 八键)` → 注册 `memory_query`（宿主缺 `tools` 时只记日志）。profile 挂载（`~/.dsh/profiles/<p>`）以 `link:` 指向本包：
+宿主侧由 bundle 契约自动调用 `apply(ctx, config)`：同步建 bundle → `ctx.provide("memory", 八读 + 三管理写)` → 注册 `memory_query`（宿主缺 `tools` 时只记日志）。profile 挂载（`~/.dsh/profiles/<p>`）以 `link:` 指向本包：
 
 ```yaml
 - id: memory-base
@@ -129,7 +132,7 @@ S 层写入需要 `session-paths` 插件同在组合里（它 `provide: ["sessio
 - **已知边界**（CJK 召回与 `LIKE` 兜底及转义、去重全局、隐私形态匹配、不做价值判断、token 估算、层权重、删除不传播、同进程共享）见 `docs/DESIGN.md` §10。
 - **`search` 无写副作用**：命中不刷新任何列（`last_referenced` 已随列删除下线）。
 - 库文件 `0o600`、父目录 `0o700`；**一库一指纹**，指纹或版本不符一律拒绝打开（不整库重置）；旧库清空走显式 `migrate({from: "v1", mode: "drop"})`。
-- **已知窗口**：TUI `/memory add` 与 `/memory review` 依赖已删除的 `remember` / `candidates.*`，属 TUI 侧待适配；`/memory search` 走全局只读面不受影响。
+- **已收敛（2026-10-23）**：TUI `/memory add` 改走管理面 `remember`（kind 必填、S 层拒绝），并新增 `list` / `remove` / `replace`；`/memory review` 的提示已指向新子命令。
 
 ## 测试
 

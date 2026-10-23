@@ -1,10 +1,12 @@
 /**
  * memory-base 插件入口（DSH bundle 接入面）。
  *
- * 口径（2026-10-17 接口重设）：本包只保留**分层 / 分类 / 读写 / 查询 / 按扩展隔离**五件事。
- * - 全局面（`ctx.get("memory")`）八键，**无任何写入与删除**：`registerKind` / `checkPrivacy` /
- *   `getSummary` / `whenReady` / `usage` / `migrate` / `list` / `search`；
- * - 写侧只经 `registerKind(spec)` 返回的作用域句柄（`MemoryScope`，见 `scope.ts`）；
+ * 口径（2026-10-17 接口重设；2026-10-23 增管理面）：本包只保留**分层 / 分类 / 读写 / 查询 /
+ * 按扩展隔离**五件事。
+ * - 全局面（`ctx.get("memory")`）八读 + 三管理写：`registerKind` / `checkPrivacy` /
+ *   `getSummary` / `whenReady` / `usage` / `migrate` / `list` / `search`，加管理面
+ *   `forget` / `update` / `remember`（只作用于 U / P 层：删除、就地更新、用户直写）；
+ * - 扩展写侧仍只经 `registerKind(spec)` 返回的作用域句柄（`MemoryScope`，见 `scope.ts`）；
  * - 层级恒开启、库惰性创建；S 层落点经宿主的 `sessionPaths.sessionDirFor(sessionId)` 解析；
  * - 模型侧只注册一个只读查询工具 `memory_query`（写权限留在各扩展的句柄上）。
  *
@@ -25,9 +27,14 @@ import {
 import type {
   KnowledgeService,
   ListOptions,
+  PutResult,
+  RowRef,
   SearchHit,
   SearchOptions,
   StoreRow,
+  UpdateResult,
+  UpdateRowPatch,
+  UpdateSkip,
 } from "./knowledge.ts";
 import { compileRules, matchDenyPattern, type PersistRules } from "./rules.ts";
 import { KindRegistry, TIERS, type KindSpec, type Tier } from "./router.ts";
@@ -52,6 +59,9 @@ export type {
   SourceKind,
   SourceRef,
   StoreRow,
+  UpdateResult,
+  UpdateRowPatch,
+  UpdateSkip,
 } from "./knowledge.ts";
 export type { ForgetRef, MemoryScope, ScopePutInput } from "./scope.ts";
 export type {
@@ -124,7 +134,27 @@ export interface KnowledgeConfig {
  */
 export type Config = KnowledgeConfig;
 
-/** 全局面：八键，**无写与删**（写权限留在各扩展的句柄上）。 */
+/** 管理面可寻址的层（S 层按会话隔离，管理面不处理）。 */
+export type ManagedTier = Exclude<Tier, "session">;
+
+/** 管理面的行地址：`(tier, kind, id)`（`id` 为分类表内主键）。 */
+export interface ManagedRowRef {
+  tier: ManagedTier;
+  kind: string;
+  id: number;
+}
+
+/** 管理面的用户直写入参（`/memory add`）：内容闸门与 `preWrite` 仍生效。 */
+export interface ManagedWriteInput {
+  tier: ManagedTier;
+  kind: string;
+  content: string;
+  title?: string;
+  importance?: number;
+}
+
+/** 全局面：八读 + 三管理写。扩展写侧仍以 `registerKind` 句柄为主路径；
+ *  管理面只做 U / P 层的**删除 / 就地更新 / 用户直写**（S 层一律拒绝）。 */
 export interface MemoryGlobalService {
   /** 注册分类并拿到写入句柄（同步；表在首次写入时按需建）。 */
   registerKind(spec: KindSpec): MemoryScope;
@@ -149,6 +179,12 @@ export interface MemoryGlobalService {
   search(
     opts: Omit<SearchOptions, "kind"> & { kind?: string; tier?: Tier },
   ): Promise<SearchHit[]>;
+  /** 管理面：删除 U / P 条目（逐条结算，返回删除条数；S 层 / 未注册 kind / 非法 id 抛错）。 */
+  forget(refs: readonly ManagedRowRef[]): Promise<number>;
+  /** 管理面：就地更新 U / P 条目（单行，不重新分块；S 层 / 未注册 kind / 非法 id 抛错）。 */
+  update(ref: ManagedRowRef, patch: UpdateRowPatch): Promise<UpdateResult>;
+  /** 管理面：用户直写 U / P 条目（不经扩展句柄；内容闸门与 `preWrite` 仍生效）。 */
+  remember(input: ManagedWriteInput): Promise<PutResult>;
 }
 
 /** 已注册分类的统计（概要面；只报条数，不回显内容）。 */
@@ -299,6 +335,31 @@ export function createGlobalService(
       bundle.tiers.opened(tier, sessionId)?.kb,
     defaultProject: () => project,
   };
+  /** 管理面参数校验：S 层 / 未注册 kind / 非正整数 id 一律抛错（与句柄的参数级抛错同口径）。 */
+  const managedTier = (tier: string): ManagedTier => {
+    if (tier === "project" || tier === "user") return tier;
+    if (tier === "session") {
+      throw new Error(
+        "memory-base 管理面不处理会话层（S 层按会话隔离，跨会话语义不明）",
+      );
+    }
+    throw new Error(
+      `memory-base 管理面的层「${tier}」不合法（只支持 project / user）`,
+    );
+  };
+  const managedKind = (kind: string): void => {
+    if (bundle.registry.resolve(kind) === undefined) {
+      throw new Error(`memory-base 分类「${kind}」未注册，管理面不可操作`);
+    }
+  };
+  const managedId = (id: number): number => {
+    if (!Number.isInteger(id) || id <= 0) {
+      throw new Error(
+        `memory-base 管理面的 id 必须是正整数（收到 ${String(id)}）`,
+      );
+    }
+    return id;
+  };
   return {
     registerKind: (spec: KindSpec): MemoryScope =>
       createMemoryScope(host, bundle.registry.register(spec)),
@@ -316,6 +377,14 @@ export function createGlobalService(
         mode: opts.mode,
       }),
     list: async (opts) => {
+      // 读面默认只看已打开的库；U / P 是持久库，列举前按需打开既有文件
+      // （`openExisting` 只开不建），否则冷启动时 /memory list 永远为空、无法按 id 寻址。
+      const tiersToOpen: readonly Tier[] =
+        opts?.tier === undefined ? ["project", "user"] : [opts.tier];
+      for (const tier of tiersToOpen) {
+        if (tier === "session") continue;
+        await bundle.tiers.openExisting(tier);
+      }
       const limit = Math.max(
         1,
         Math.min(opts?.limit ?? config.listLimit ?? 20, 100),
@@ -338,6 +407,41 @@ export function createGlobalService(
         ...(opts.fuzzy === undefined ? {} : { fuzzy: opts.fuzzy }),
         ...(opts.mode === undefined ? {} : { mode: opts.mode }),
       }),
+    forget: async (refs) => {
+      let removed = 0;
+      for (const ref of refs) {
+        const tier = managedTier(ref.tier);
+        managedKind(ref.kind);
+        const id = managedId(ref.id);
+        // 只作用于已存在的库（openExisting 不建库，未创建 = 没有该行）。
+        const store = await bundle.tiers.openExisting(tier);
+        if (store === undefined) continue;
+        removed += store.kb.evict([{ kind: ref.kind, id }]);
+      }
+      return removed;
+    },
+    update: async (ref, patch) => {
+      const tier = managedTier(ref.tier);
+      managedKind(ref.kind);
+      const id = managedId(ref.id);
+      const store = await bundle.tiers.openExisting(tier);
+      if (store === undefined) return { ok: false, skipped: "missing" };
+      return store.kb.updateRow({ kind: ref.kind, id }, patch);
+    },
+    remember: async (input) => {
+      // 用户直写：不经扩展句柄，故不受 kind 的 writableTiers 限制；内容闸门与 preWrite 照旧。
+      const tier = managedTier(input.tier);
+      managedKind(input.kind);
+      return bundle.tiers.write(tier, {
+        kind: input.kind,
+        project,
+        content: input.content,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.importance === undefined
+          ? {}
+          : { importance: input.importance }),
+      });
+    },
   };
 }
 

@@ -84,6 +84,21 @@ export interface PutResult {
   skipped?: SkipReason;
 }
 
+/** 就地更新入参（管理面 `replace`；只改单行，不重新分块）。 */
+export interface UpdateRowPatch {
+  content: string;
+  title?: string;
+  /** clamp 1..5；可被 `preWrite` 建议覆盖。 */
+  importance?: number;
+}
+
+/** 就地更新被拒的原因：内容闸门沿用 `SkipReason`，另加定位类原因。 */
+export type UpdateSkip = SkipReason | "missing" | "duplicate";
+
+/** 就地更新结果（失败时原行不动）。 */
+export type UpdateResult =
+  { ok: true; id: number } | { ok: false; skipped: UpdateSkip };
+
 /** 检索入参（单库；跨层由 `TierSet` 聚合）。 */
 export interface SearchOptions {
   query: string;
@@ -639,6 +654,71 @@ export class KnowledgeService {
       this.#db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /**
+   * 就地更新单行（管理面 `replace`，决策 A1）：与 `put` 同口径过内容闸门（隐私 +
+   * `preWrite`），任一拒绝都不动原行；同表 `content_hash` 撞到别的行时按 `duplicate`
+   * 拒绝（维持 `put` 的「同表同内容只一行」不变量）。
+   *
+   * 只改这一行的内容 / 标题 / 重要度，**不重新分块**：管理面用于纠错，超长内容按单行存；
+   * `_au` 触发器同步双 FTS 索引，无需手工重建。
+   */
+  async updateRow(ref: RowRef, patch: UpdateRowPatch): Promise<UpdateResult> {
+    const entry = this.#registry.resolve(ref.kind);
+    if (entry === undefined) return { ok: false, skipped: "kind" };
+    if (!this.#tableExists(entry.table)) {
+      return { ok: false, skipped: "missing" };
+    }
+    const existing = this.#db
+      .prepare(
+        `SELECT project, title, importance FROM ${entry.table} WHERE id = ?`,
+      )
+      .get(ref.id) as
+      { project: string; title: string | null; importance: number } | undefined;
+    if (existing === undefined) return { ok: false, skipped: "missing" };
+    const verdict = checkContent(this.#rules, patch.content);
+    if (!verdict.accept) {
+      return { ok: false, skipped: verdict.reason ?? "pattern" };
+    }
+    const hook = await entry.preWrite?.({
+      content: patch.content,
+      ...(patch.title === undefined ? {} : { title: patch.title }),
+      project: existing.project,
+      kind: entry.kind,
+    });
+    if (hook !== undefined && !hook.accept) {
+      return { ok: false, skipped: "hook" };
+    }
+    const contentHash = sha256(patch.content);
+    const duplicate = this.#db
+      .prepare(
+        `SELECT id FROM ${entry.table} WHERE content_hash = ? AND id <> ? LIMIT 1`,
+      )
+      .get(contentHash, ref.id) as { id: number } | undefined;
+    if (duplicate !== undefined) return { ok: false, skipped: "duplicate" };
+    const importance = Math.max(
+      1,
+      Math.min(
+        5,
+        hook?.importance ?? patch.importance ?? Number(existing.importance),
+      ),
+    );
+    const changed = this.#db
+      .prepare(
+        `UPDATE ${entry.table} SET content = ?, content_hash = ?, title = ?, importance = ? WHERE id = ?`,
+      )
+      .run(
+        patch.content,
+        contentHash,
+        patch.title ?? existing.title,
+        importance,
+        ref.id,
+      );
+    if (Number(changed.changes) === 0) {
+      return { ok: false, skipped: "missing" };
+    }
+    return { ok: true, id: ref.id };
   }
 
   /**

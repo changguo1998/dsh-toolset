@@ -507,11 +507,28 @@ export interface DshAdapter {
     query: string;
     limit?: number;
   }): Promise<unknown[] | undefined>;
-  /** `/memory add`：用户直写（origin user；U 层须带 kind，否则数据面拒） */
+  /** `/memory list`：跨 kind 列举（管理面定位；未挂载 → undefined） */
+  memoryList?(args: {
+    tier?: "project" | "user";
+    kind?: string;
+    limit?: number;
+  }): Promise<unknown[] | undefined>;
+  /** `/memory remove`：删除 U / P 条目（参数级错误折算成 reason） */
+  memoryForget?(ref: MemoryRowRef): Promise<{
+    ok: boolean;
+    removed: number;
+    reason?: string;
+  }>;
+  /** `/memory replace`：就地更新 U / P 条目（失败时原行不动） */
+  memoryReplace?(
+    ref: MemoryRowRef,
+    patch: { content: string; title?: string; importance?: number },
+  ): Promise<{ ok: boolean; skipped?: string }>;
+  /** `/memory add`：用户直写（管理面；kind 必填，tier 只接受 project / user） */
   memoryAdd?(input: {
     content: string;
-    kind?: string;
-    tier: "session" | "project" | "user";
+    kind: string;
+    tier: "project" | "user";
   }): Promise<{ ok: boolean; skipped?: string }>;
   /** 请求刷新循环面板（经 metric-loop `list()` 归一化为行后推送）；未挂载 → reject */
   refreshLoops?(): Promise<void>;
@@ -1462,7 +1479,14 @@ export interface KnowledgeBundleSummaryLike {
   sourceCount: number;
 }
 
-/** ctx.get('memory') 只读查询面（memory-base cordis provide；缺失时 /memory 提示不可用） */
+/** `/memory` 管理面的行地址（memory-base 管理面只处理 U / P 层）。 */
+export interface MemoryRowRef {
+  tier: "project" | "user";
+  kind: string;
+  id: number;
+}
+
+/** ctx.get('memory') 面：八读 + 三管理写（memory-base cordis provide；缺失时 /memory 提示不可用） */
 export interface KnowledgeServiceLike {
   getSummary?(): KnowledgeBundleSummaryLike | undefined;
   whenReady?(): Promise<{ summary?(): KnowledgeBundleSummaryLike | undefined }>;
@@ -1473,13 +1497,25 @@ export interface KnowledgeServiceLike {
     kind?: string;
     limit?: number;
   }): Promise<unknown[]> | unknown[];
-  /** 用户直写（`/memory add`：origin user 免审直达；数据面仍过该层闸门）。 */
+  /** 跨 kind 列举（管理面定位：行带 `id` / `tier` / `kind`）。 */
+  list?(opts?: {
+    kind?: string;
+    tier?: "project" | "user";
+    limit?: number;
+  }): Promise<unknown[]> | unknown[];
+  /** 管理面：删除 U / P 条目（返回删除条数；S 层等参数级错误抛错）。 */
+  forget?(refs: readonly MemoryRowRef[]): Promise<number>;
+  /** 管理面：就地更新 U / P 条目（失败时原行不动）。 */
+  update?(
+    ref: MemoryRowRef,
+    patch: { content: string; title?: string; importance?: number },
+  ): Promise<{ ok: boolean; skipped?: string }>;
+  /** 管理面：用户直写 U / P（内容闸门与 preWrite 仍生效）。 */
   remember?(input: {
     content: string;
-    kind?: string;
+    kind: string;
     title?: string;
-    tier?: "session" | "project" | "user";
-    origin?: "auto" | "user";
+    tier: "project" | "user";
   }): Promise<{ ids?: number[]; skipped?: string }>;
 }
 

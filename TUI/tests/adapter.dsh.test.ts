@@ -5340,6 +5340,222 @@ test("真实 adapter /memory：whenReady 就绪路径；knowledge 缺失 → rej
   u2();
 });
 
+// 管理面（2026-10-23）：list / forget / replace / add 的参数透传与异常折算。
+
+test("真实 adapter /memory 管理面：list 透传过滤与 limit；缺失 → undefined", async () => {
+  const calls: unknown[] = [];
+  const services: AdapterServices = {
+    knowledge: {
+      list: (opts) => {
+        calls.push(opts);
+        return [{ id: 7, tier: "user", kind: "pref", content: "偏好" }];
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const rows = await adapter.memoryList?.({
+    tier: "user",
+    kind: "pref",
+    limit: 5,
+  });
+  assert.deepEqual(calls, [{ tier: "user", kind: "pref", limit: 5 }]);
+  assert.equal(rows?.length, 1);
+  unbind();
+
+  const { adapter: a2, unbind: u2 } = makeAdapter();
+  assert.equal(await a2.memoryList?.({}), undefined);
+  u2();
+});
+
+test("真实 adapter /memory 管理面：forget 成功 / 抛错折算 / 缺服务", async () => {
+  const ref = { tier: "project" as const, kind: "note", id: 3 };
+  const seen: unknown[] = [];
+  const services: AdapterServices = {
+    knowledge: {
+      forget: async (refs) => {
+        seen.push(refs);
+        return 1;
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  assert.deepEqual(await adapter.memoryForget?.(ref), {
+    ok: true,
+    removed: 1,
+  });
+  assert.deepEqual(seen, [[ref]]);
+  unbind();
+
+  const throwing = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {
+      knowledge: {
+        forget: async () => {
+          throw new Error("管理面不处理会话层");
+        },
+      },
+    },
+  );
+  const failed = await throwing.adapter.memoryForget?.(ref);
+  assert.equal(failed?.ok, false);
+  assert.ok(failed?.reason?.includes("会话层"), failed?.reason);
+  throwing.unbind();
+
+  const { adapter: a2, unbind: u2 } = makeAdapter();
+  assert.ok((await a2.memoryForget?.(ref))?.reason?.includes("管理面不可用"));
+  u2();
+});
+
+test("真实 adapter /memory 管理面：replace 成功 / skipped 透传 / 抛错与缺服务", async () => {
+  const ref = { tier: "user" as const, kind: "pref", id: 7 };
+  const services: AdapterServices = {
+    knowledge: {
+      update: async () => ({ ok: false, skipped: "duplicate" }),
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  assert.deepEqual(await adapter.memoryReplace?.(ref, { content: "重复" }), {
+    ok: false,
+    skipped: "duplicate",
+  });
+  unbind();
+
+  const throwing = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {
+      knowledge: {
+        update: async () => {
+          throw new Error("分类「nope」未注册");
+        },
+      },
+    },
+  );
+  const failed = await throwing.adapter.memoryReplace?.(ref, { content: "x" });
+  assert.equal(failed?.ok, false);
+  assert.ok(failed?.skipped?.includes("未注册"), failed?.skipped);
+  throwing.unbind();
+
+  const { adapter: a2, unbind: u2 } = makeAdapter();
+  assert.ok(
+    (await a2.memoryReplace?.(ref, { content: "x" }))?.skipped?.includes(
+      "管理面不可用",
+    ),
+  );
+  u2();
+});
+
+test("真实 adapter /memory 管理面：add 走 remember（成功 / skipped / 抛错 / 缺服务）", async () => {
+  const seen: unknown[] = [];
+  const services: AdapterServices = {
+    knowledge: {
+      remember: async (input) => {
+        seen.push(input);
+        return { ids: [1] };
+      },
+    },
+  };
+  const { adapter, unbind } = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    services,
+  );
+  const ok = await adapter.memoryAdd?.({
+    content: "新的用户偏好",
+    kind: "pref",
+    tier: "user",
+  });
+  assert.deepEqual(ok, { ok: true });
+  assert.deepEqual(seen, [
+    { content: "新的用户偏好", kind: "pref", tier: "user" },
+  ]);
+  unbind();
+
+  const skippedServices = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {
+      knowledge: { remember: async () => ({ ids: [], skipped: "pattern" }) },
+    },
+  );
+  assert.deepEqual(
+    await skippedServices.adapter.memoryAdd?.({
+      content: "password: x",
+      kind: "pref",
+      tier: "user",
+    }),
+    { ok: false, skipped: "pattern" },
+  );
+  skippedServices.unbind();
+
+  const throwing = makeAdapter(
+    new FakeRuntime(),
+    new FakeAgent(),
+    50,
+    undefined,
+    undefined,
+    {
+      knowledge: {
+        remember: async () => {
+          throw new Error("分类「nope」未注册");
+        },
+      },
+    },
+  );
+  const failed = await throwing.adapter.memoryAdd?.({
+    content: "x",
+    kind: "nope",
+    tier: "user",
+  });
+  assert.equal(failed?.ok, false);
+  assert.ok(failed?.skipped?.includes("未注册"), failed?.skipped);
+  throwing.unbind();
+
+  const { adapter: a2, unbind: u2 } = makeAdapter();
+  const missing = await a2.memoryAdd?.({
+    content: "x",
+    kind: "pref",
+    tier: "user",
+  });
+  assert.equal(missing?.ok, false);
+  assert.ok(missing?.skipped?.includes("管理面不可用"), missing?.skipped);
+  u2();
+});
+
 // ---------- A4：/loop 的真实 adapter 接线契约 ----------
 // 断言：refreshLoops 经 list() 归一化（measureCmd/状态/rounds/best/更新时间，running→running、
 // stopped→inactive）；loopDetail list() 定位 4 行；服务缺失 reject。

@@ -62,6 +62,7 @@ import type {
   TaskEngineTaskLike,
   CommandPanelRow,
   KnowledgeBundleSummaryLike,
+  MemoryRowRef,
   LoopSummaryLike,
   ContractParseResult,
   ContractClauseLike,
@@ -167,6 +168,7 @@ export type {
   PolicySnapshotLike,
   KnowledgeServiceLike,
   KnowledgeBundleSummaryLike,
+  MemoryRowRef,
   MetricLoopLike,
   LoopSummaryLike,
   SessionChannelLike,
@@ -4127,19 +4129,94 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       if (typeof search !== "function") return undefined;
       return search({ query: args.query, limit: args.limit ?? 10 });
     },
-    /** `/memory add`：用户直写（origin user；数据面仍过该层闸门——U 层禁兜底）。 */
+    /** `/memory list`：跨 kind 列举（管理面定位用；行带 `id` / `tier` / `kind`）。 */
+    async memoryList(args: {
+      tier?: "project" | "user";
+      kind?: string;
+      limit?: number;
+    }): Promise<unknown[] | undefined> {
+      const list = opts.knowledge?.list;
+      if (typeof list !== "function") return undefined;
+      return list({
+        ...(args.tier === undefined ? {} : { tier: args.tier }),
+        ...(args.kind === undefined ? {} : { kind: args.kind }),
+        limit: args.limit ?? 20,
+      });
+    },
+    /** `/memory remove`：管理面删除（S 层 / 未注册 kind 等参数级错误折算成 reason）。 */
+    async memoryForget(ref: MemoryRowRef): Promise<{
+      ok: boolean;
+      removed: number;
+      reason?: string;
+    }> {
+      const forget = opts.knowledge?.forget;
+      if (typeof forget !== "function") {
+        return {
+          ok: false,
+          removed: 0,
+          reason: "管理面不可用（memory-base 未挂载或版本过旧）",
+        };
+      }
+      try {
+        const removed = await forget([ref]);
+        return { ok: true, removed };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          removed: 0,
+          reason: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    /** `/memory replace`：管理面就地更新（失败时原行不动；skipped 原样透出）。 */
+    async memoryReplace(
+      ref: MemoryRowRef,
+      patch: { content: string; title?: string; importance?: number },
+    ): Promise<{ ok: boolean; skipped?: string }> {
+      const update = opts.knowledge?.update;
+      if (typeof update !== "function") {
+        return {
+          ok: false,
+          skipped: "管理面不可用（memory-base 未挂载或版本过旧）",
+        };
+      }
+      try {
+        const result = await update(ref, patch);
+        return result.ok
+          ? { ok: true }
+          : { ok: false, skipped: result.skipped };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          skipped: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+    /** `/memory add`：管理面用户直写（内容闸门与 preWrite 仍生效；kind 必填）。 */
     async memoryAdd(input: {
       content: string;
-      kind?: string;
-      tier: "session" | "project" | "user";
+      kind: string;
+      tier: "project" | "user";
     }): Promise<{ ok: boolean; skipped?: string }> {
       const remember = opts.knowledge?.remember;
-      if (typeof remember !== "function") return { ok: false };
-      const result = await remember({ ...input, origin: "user" });
-      if (result.skipped !== undefined || (result.ids?.length ?? 0) === 0) {
-        return { ok: false, skipped: result.skipped };
+      if (typeof remember !== "function") {
+        return {
+          ok: false,
+          skipped: "管理面不可用（memory-base 未挂载或版本过旧）",
+        };
       }
-      return { ok: true };
+      try {
+        const result = await remember(input);
+        if (result.skipped !== undefined || (result.ids?.length ?? 0) === 0) {
+          return { ok: false, skipped: result.skipped };
+        }
+        return { ok: true };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          skipped: error instanceof Error ? error.message : String(error),
+        };
+      }
     },
     /** 守卫面板：经 security-guard `recent()` 归一化为行（工具名 + 放行/拦截 + 原因首行）；
      *  deny → status failed（红）、allow → success（绿）；未挂载 reject */
