@@ -67,6 +67,7 @@
 > 2026-10-23 关闭：条目「MCP 脚本化（mcpScript）」按「不立项」关闭并移出清单（用户 2026-10-23 裁定: 本工作先不做, 等真正需要再做; 设计定稿见 `docs/archived/2026-10-22-mcp-script.md`，重开触发条件与两档预案在该文件）。
 > 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；过程记录 `docs/archived/2026-10-23-clock-base-rename.md`）。
 > 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；过程记录 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
+> 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；过程记录 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/implementation/2026-10-23-real-machine-verification.md` #12 至 #14）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
 
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
@@ -77,8 +78,6 @@
 > - 审计 / 宿主面：`2026-10-02-reuse-audit.md`、`2026-10-19-reuse-reaudit.md`、`2026-10-02-host-upgrade-0.2.0-rc.2.md`、`2026-10-21-host-upgrade-0.2.1-rc.2.md`
 > - 跨会话与通知：`2026-09-30-cross-session-delegation.md`、`2026-10-20-notice-history-query.md`、`2026-10-20-agent-status-board.md`
 > - 文档与流程：`2026-10-18-plugin-docs-refresh.md`、`2026-10-22-docs-consistency.md`
-
-**3. coagent：基于 herdr-use + agent-group + session-channel 拉起并管理 agent、派发任务**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 用户构想）：**现象 / 现状** —— 现有的 agent 拉起面都不满足「干净上下文 + 高控制自由度」：`subagent` / `subagent_fork` 在宿主进程内跑，`subagent_fork` 还继承本会话已完成回合的上下文；`channel_delegate` 只能派给**已经在线**的 dsh 会话（要有人先起进程、且不知道它从哪来）；`herdr-use` 能在 pane 里跑任意命令，但它不知道「怎么起一个 agent、怎么认领它、怎么收尾」。三块能力各自齐备却没有人把它们编排成「按需拉起 → 派任务 → 收结果 → 关闭」的生命周期。**期望** —— 新插件（暂名 `coagent`，能力名同）以 herdr-use 为执行底、session-channel 为通信面、agent-group 为编排面，提供：① **拉起**：在 herdr pane 里起 `dsh headless "<task>"`（一次性、跑完打印结果并退出）或长驻交互会话（可 `--resume`）；可指定 profile / cwd / 模型，pane 打 label 归属；② **认领**：经 session-channel `peers`（sessionId / pid / cwd / profile / startedAt）确认新会话上线，或对 headless 直接读退出码 + stdout；③ **派发**：一次性把任务写进命令行；长驻走 `channel_delegate`（任务表 + 结果自动 / 显式回传）；④ **管理**：`state` 查忙闲、`channel_task cancel` 或发 `ctrl+c` 取消、`pane_read` / `pane_send_text` / `pane_send_keys` 观察与补输入、结束 `pane_close`；⑤ **编排**：多 coagent 用 agent-group 的组 / 成员 / 主从等级与懒判定结算；⑥ **与 subagent 的差异（本条核心）**：coagent 是**独立进程 + 全新会话，上下文零继承**（不喂任何父会话历史），换来更高控制自由度（看屏、实时插话、按键中断、独立 profile / 模型、跨 cwd、可并行多实例）。**待定项** —— 一次性与长驻的默认策略（按任务长短自动选？）；结果回收主路径（headless stdout 解析 vs 统一走 session-channel 回传）；`DSH_HOME` 与凭据是否隔离（现在共享 → 权限面放大）；并发上限与 pane 数量治理；失败 / 超时 / 崩溃残留的判定与清理；是否复用 agent-group 的等级语义。**落点** —— 新包 `coagent/`（`package.json` 的 `dsh.bundle` + `cordis.patch.yml`；依赖 herdr-use 库面与 session-channel / agent-group 服务面，缺任一服务时降级并如实报错），工具 `coagent`（action 分派：`spawn` / `list` / `send` / `wait` / `cancel` / `close`），profile 挂载与 README / DESIGN。**验收** —— 真机跑通「拉起 → 派任务 → 收结果 → 关闭」全链；验证上下文干净（coagent 会话里看不到父会话任何历史）；并行 2 个 coagent 且能单独取消；崩溃 / 超时后无残留 pane；单测用 fake pane + fake channel 覆盖六类失败路径。**优先级** —— P1（新能力，直接补足「干净上下文 agent」缺口）。**状态** —— 未接取，设计待细化（先与用户对齐待定项再动手）。
 
 **4. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**〔进行中: 2026-10-22〕（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 未接取, 等用户指令继续设计。
 
@@ -94,16 +93,14 @@
 
 | 组 | 顺位 | 条目 | 工作量 | 组内串行原因 |
 | --- | --- | --- | --- | --- |
-| A 渲染 | A3 | `#3 表格与正文内容不一致`（TUI） | 约 1 天（调研为主） | 同改 `layout/build-box.ts`（另涉 `table.ts`） |
-| E coagent | E1 | `3. coagent`（项目级） | 约 3 至 4 天 | 单条; **只改 `coagent/`**（根级接线属 H 组） |
 | F tool-consult | F1 | `4. 工具咨询插件`（项目级） | 约 3 至 5 天 | 单条; **只改 `tool-consult/`**（根级接线属 H 组） |
 | H 共享文档与接线 | H1 | `6. 共享文档与根级接线`（项目级, 主分支代理） | 约 1 天 | 单条; **独占两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`、根 `package.json`、`AGENTS.md`、profile 模板** |
 | I herdr-use 终端面 | I1 | `7. herdr-use 终端面重构与共用服务面`（项目级, 主分支承接） | 约 2 至 3 天 | 单条; 主要改 `herdr-use/`（`src/`、tests、README、验证脚本），另 `security-guard/` 命令登记与 `behavior-correction/` 一行文案 |
 
-**写入范围（2026-10-23 约定）**: 各组任务可写**自己的代码与测试**（新包：包内目录；TUI：自己的 `src/` 与 `tests/`）以及**自己的追踪文档**; 共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、profile 模板）**只由 H 组（主分支代理）回写**。因此 A、B 两组虽然都属 TUI，但代码文件互不重叠、共享文档单写者，故**可并行**。
-**可并行度**: 余下 A / E / F / H / I **五组互不重叠，理论可五路并行**; 实际受机器资源与评审带宽限制。
+**写入范围（2026-10-23 约定）**: 各组任务可写**自己的代码与测试**（新包：包内目录；TUI：自己的 `src/` 与 `tests/`）以及**自己的追踪文档**; 共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、profile 模板）**只由 H 组（主分支代理）回写**。
+**可并行度**: 余下 F / H / I **三组互不重叠，理论可三路并行**; 实际受机器资源与评审带宽限制。
 **H 组前置**: 需对应新包的 `package.json`（`dsh.bundle`）与 `cordis.patch.yml` 就绪, 故通常在各新包编排提交后收尾; 但不与它们争文件。
-**组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: 项目级 `3. coagent`、项目级 `6. 新包根级接线`、项目级 `7. herdr-use 终端面`；TUI `#3` 已于 2026-10-23 关闭）。
+**组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: 项目级 `6. 新包根级接线`、项目级 `7. herdr-use 终端面`；TUI `#3` 与项目级 `3. coagent` 已于 2026-10-23 关闭）。
 
 ## 3. 里程碑
 
