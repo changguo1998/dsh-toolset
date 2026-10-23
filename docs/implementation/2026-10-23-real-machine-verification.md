@@ -50,7 +50,9 @@
 | 9 | 待用户目视 | 单测与 smoke 已覆盖（1748/1748、SMOKE_OK），真机需在 TUI 里看「3 列表头 + 2 列分隔行」是否成表． |
 | 10 | 待用户目视 | 同上；需在 TUI 里看思考行表格是否成表且左缘竖线为紫． |
 | 11 | 配置层面通过 | `~/.dsh/profiles/fff/cordis.patch.yml` 无 `md-table-check` 条目 → 走 bundle 默认（已改 `enabled: false`）；运行时「不再注入提醒」待一条列数不一致的回复确认． |
-| 12-14 | 未做 | `coagent` 尚未接根级线（未挂载），服务面消费与拉起链路无从验． |
+| 12 | 通过 | `coagent spawn {label:"verify-12", cwd:".../dsh-toolset"}` -> 回执 `coagent_id=c-44dc4f93` / `terminal_id=wZ3:p7` / `session_id=tui-294e7a43-...` / `state=ready`，认领耗时约 4.4 s（180 s 上限内）；`herdr_list` 里该终端标 `[本插件]`、label `coagent/c-44dc4f93`；`herdr_read` 读到子会话的 dsh 界面（工具提示行可见）；`session_channel peers` 里有该 session，`state` 回 `running`． |
+| 13 | 通过 | `coagent close {coagent_id}` -> `state=closed` / `closed_with=quit` / `removed_files=true`；`herdr_list` 只剩宿主 pane；`session_channel peers` 已无 `tui-294e7a43`（子会话确实退出）．注：`session_channel state` 对该 session 仍回 `running`（退出后的缓存），以 `peers` 为准． |
+| 14 | 通过 | 服务面与工具面同源：coagent 经 `herdrUse` 建的终端出现在 `herdr_list` 并同标 `[本插件]`，`herdr_read` 可直接读它的屏；`coagent close` 关掉后工具面也同步消失． |
 
 ## 遗留与下一步
 
@@ -58,5 +60,6 @@
   - 待定：这件事由谁做 —— ① `herdr-use` 在后台 lane 首次使用前自动拉起（`setsid herdr --session dshbg server`，需处理并发与「server 退出后重启」）；② 放在 `fffdsh` 预处理阶段（用户 shell 函数，工作区外）；③ 手动前置（用户自己起，插件只给指引）。
   - 附带发现：`herdr session attach <name>`（TUI 客户端）与 `herdr server`（headless）是两条不同入口；此前误以为只有 attach。
 - #8 需要真机看到审批面板才能定；#9 / #10 需要用户在 TUI 里看一眼。
-- #12 至 #14 卡在 `coagent` 根级接线（项目级条目 6）。
+- #12 至 #14 已完成（coagent 接线后重启验过，见上表）。
+- 接线过程中修掉一个真实缺陷：`coagent` 原先只把 `herdrUse` / `sessionChannel` 放在 `ctx.get` 里取，cordis 不保证对方先 `provide`，取到 `undefined` 就走「缺服务」分支直接 return，表现为重启后工具静默不出现；已改为静态 `inject`（`231f26a`）。
 - 本次验证过程中起的 `dshbg` headless server 仍在运行（detached，日志 `/tmp/dshbg-server.log`）；如需还原，`herdr session stop dshbg`。
