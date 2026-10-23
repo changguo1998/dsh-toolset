@@ -77,27 +77,37 @@ test(
   },
 );
 
-test("互证 ②：TUI 不认作表格（整表退回纯文本）⇔ 本插件报出", { skip }, () => {
-  const brokenPairs = [
-    ["| a | b | c |", "| --- | --- |"],
-    ["| a | b |", "| --- | --- | --- |"],
-    ["| a | b |", "| --- |"],
-  ];
-  for (const [header, delim] of brokenPairs) {
-    assert.equal(
-      tui!.isTableStart(header!, delim!),
-      false,
-      `TUI 应不认作表格：${header} / ${delim}`,
-    );
-    const result = checkTables([header, delim].join("\n"));
-    assert.equal(result.tableTotal, 1, `本插件应报出：${header} / ${delim}`);
-    assert.equal(result.tables[0]!.expected, tui!.splitCells(header!)!.length);
-    assert.equal(
-      result.tables[0]!.mismatches[0]!.actual,
-      tui!.splitCells(delim!)!.length,
-    );
-  }
-});
+// 2026-10-23：TUI 改为「分隔行列数只许少不许多、缺列按左对齐补齐」（TUI/docs/SPEC.md §3.2 / §15.6），
+// 少列不再让整表退回纯文本——本互证的前提随之失效，这正是本插件下线的理由。此处按新口径断言，
+// 留作「插件会为 TUI 本就能渲染的表格报噪音」的证据。
+test(
+  "互证 ②（新口径）：少列 TUI 认表但仍被本插件报出, 多列 TUI 仍不认",
+  { skip },
+  () => {
+    const pairs: [string, string, boolean][] = [
+      ["| a | b | c |", "| --- | --- |", true],
+      ["| a | b |", "| --- | --- | --- |", false],
+      ["| a | b |", "| --- |", true],
+    ];
+    for (const [header, delim, tuiRenders] of pairs) {
+      assert.equal(
+        tui!.isTableStart(header!, delim!),
+        tuiRenders,
+        `TUI 认表应为 ${tuiRenders}：${header} / ${delim}`,
+      );
+      const result = checkTables([header, delim].join("\n"));
+      assert.equal(result.tableTotal, 1, `本插件应报出：${header} / ${delim}`);
+      assert.equal(
+        result.tables[0]!.expected,
+        tui!.splitCells(header!)!.length,
+      );
+      assert.equal(
+        result.tables[0]!.mismatches[0]!.actual,
+        tui!.splitCells(delim!)!.length,
+      );
+    }
+  },
+);
 
 test("互证 ③：列数一致 → TUI 认表且本插件不报", { skip }, () => {
   const pairs = [
@@ -183,9 +193,9 @@ test(
         { reports: false, renders: true },
       ],
       [
-        "分隔行少 1 列",
+        "分隔行少 1 列（2026-10-23 起 TUI 容错：仍被本插件报出, 属噪音）",
         "| a | b | c |\n| --- | --- |\n| 1 | 2 | 3 |",
-        { reports: true, renders: false },
+        { reports: true, renders: true },
       ],
       [
         "数据行多 1 格",
@@ -198,9 +208,9 @@ test(
         { reports: false, renders: false },
       ],
       [
-        "围栏混用标记（``` 开 / ~~~ 闭）后的坏表",
+        "围栏混用标记（``` 开 / ~~~ 闭）后的坏表（少列, 2026-10-23 起 TUI 认表）",
         "```\n| a | b |\n| --- |\n~~~\n| a | b |\n| --- |",
-        { reports: true, renders: false },
+        { reports: true, renders: true },
       ],
       [
         "围栏混用标记后的好表（两侧都认闭栅已闭合）",
