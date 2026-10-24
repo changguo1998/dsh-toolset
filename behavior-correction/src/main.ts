@@ -64,6 +64,18 @@ export interface RuleSpec {
     /** 正则 flags，缺省 `"i"`；`g` / `y` 会被去掉，避免 `test` 的状态污染。 */
     flags?: string;
   };
+  /**
+   * 排除条件：与 `match` 同形；**命中即本条规则弃权**（继续看后续规则），用于「同一条命令
+   * 里出现写/跟随/管道等特征时不该拦」的场景。
+   */
+  exclude?: {
+    /** 关键词（大小写不敏感，子串匹配）。 */
+    keywords?: readonly string[];
+    /** 正则源串（任一匹配即弃权）。 */
+    regex?: readonly string[];
+    /** 正则 flags，缺省 `"i"`；`g` / `y` 会被去掉。 */
+    flags?: string;
+  };
   /** 命中时回给模型的拒绝理由（应写明该改用哪个工具）。 */
   reason: string;
   /** 给人看的说明（不参与判定）。 */
@@ -116,6 +128,36 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
     description:
       "Python 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
   },
+  {
+    id: "no-view-text-in-bash",
+    tool: "bash",
+    // 只看「命令位」：行首 / `;` `&` 之后（**不含管道与 `$(`** —— 管道下游是合法裁剪，
+    // 命令替换是组合而非查看），允许前置 `VAR=值` 与路径前缀。
+    match: {
+      regex: [
+        "(?:^|[;&]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?(?:head|tail|cat|less|more|nl)(?=[\\s;|&]|$)",
+        "(?:^|[;&]\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?sed(?=[\\s;|&]|$)(?=[^;&|\\n]*(?<!\\S)(?:-{1,2}[\\w.=/-]*n[\\w.=/-]*|--quiet|--silent)(?=\\s|$))",
+      ],
+      flags: "im",
+    },
+    exclude: {
+      regex: [
+        "\\bsed\\b[^;&|\\n]*(?<!\\S)-{1,2}[\\w.=/-]*i[\\w.=/-]*(?=\\s|$)",
+        "\\btail\\b[^;&|\\n]*(?<!\\S)-{1,2}[\\w.=/-]*[fF][\\w.=/-]*(?=\\s|$)|\\+F\\b",
+        ">>?(?!&)|<<-?",
+        "\\b(?:head|tail)\\b[^;&|\\n]*(?<!\\S)-{1,2}[\\w.=/-]*c[\\w.=/-]*(?=\\s|$)",
+        "\\bcat\\b[^;&|\\n]*(?<!\\S)-{1,2}[\\w.=/-]*[AEvTs][\\w.=/-]*(?=\\s|$)",
+        "\\s-n\\s*-\\d",
+        "\\bxargs\\b|\\s-exec\\s|(?:^|[;&\\n])\\s*(?:for|while|until|do)\\s",
+        "(?:^|[;&])\\s*[^;&|\\n]*\\|",
+      ],
+      flags: "m",
+    },
+    reason:
+      "bash 里不要用 cat / head / tail / nl / less / more / sed -n 查看文本: 读行段用 read（offset + limit）, 搜内容用 grep, 长文件先 fs_digest（pruned 或 outline）",
+    description:
+      "查看文本有专用工具面：read 给行号与范围、grep 负责检索、fs_digest 负责长文件摘要；bash 直跑会绕过这些",
+  },
 ];
 
 /** 归一化后的配置。 */
@@ -138,6 +180,8 @@ export interface CompiledRule {
   readonly tools?: readonly string[];
   readonly keywords: readonly string[];
   readonly regexes: readonly RegExp[];
+  readonly excludeKeywords: readonly string[];
+  readonly excludeRegexes: readonly RegExp[];
 }
 
 /** 编译规则表：逐条校验，丢弃非法条目与非法正则（各告警一行），其余照常。 */
@@ -212,11 +256,46 @@ function compileRule(
       return undefined;
     }
   }
+  const exclude = record.exclude;
+  if (
+    exclude !== undefined &&
+    (exclude === null || typeof exclude !== "object")
+  ) {
+    warn(`规则 ${label} 的 exclude 不是对象，已跳过`);
+    return undefined;
+  }
+  const excludeKeywords = readStringList(exclude?.keywords);
+  if (excludeKeywords === undefined) {
+    warn(`规则 ${label} 的 exclude.keywords 不是字符串数组，已跳过`);
+    return undefined;
+  }
+  const excludePatterns = readStringList(exclude?.regex);
+  if (excludePatterns === undefined) {
+    warn(`规则 ${label} 的 exclude.regex 不是字符串数组，已跳过`);
+    return undefined;
+  }
+  const excludeFlags =
+    typeof exclude?.flags === "string"
+      ? exclude.flags.replace(/[gy]/g, "")
+      : "i";
+  const excludeRegexes: RegExp[] = [];
+  for (const source of excludePatterns) {
+    try {
+      excludeRegexes.push(new RegExp(source, excludeFlags));
+    } catch (error) {
+      warn(
+        `规则 ${label} 的 exclude 正则 ${JSON.stringify(source)} 无效，整条规则跳过：${String(error)}`,
+      );
+      return undefined;
+    }
+  }
   return {
     reason: record.reason,
     ...(tools === undefined ? {} : { tools }),
     keywords: keywords.map((keyword) => keyword.toLowerCase()),
     regexes,
+    excludeKeywords: excludeKeywords.map((keyword) => keyword.toLowerCase()),
+    excludeRegexes,
   };
 }
 
@@ -282,8 +361,18 @@ export function matchRule(
   const toolName = typeof context?.name === "string" ? context.name : "";
   for (const rule of rules) {
     if (rule.tools !== undefined && !rule.tools.includes(toolName)) continue;
-    if (rule.keywords.some((keyword) => lower.includes(keyword))) return rule;
-    if (rule.regexes.some((pattern) => pattern.test(text))) return rule;
+    const hit =
+      rule.keywords.some((keyword) => lower.includes(keyword)) ||
+      rule.regexes.some((pattern) => pattern.test(text));
+    if (!hit) continue;
+    // 排除条件命中即弃权（继续看后续规则），不是命中
+    if (
+      rule.excludeKeywords.some((keyword) => lower.includes(keyword)) ||
+      rule.excludeRegexes.some((pattern) => pattern.test(text))
+    ) {
+      continue;
+    }
+    return rule;
   }
   return undefined;
 }

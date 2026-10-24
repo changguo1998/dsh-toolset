@@ -103,7 +103,7 @@ test("resolveConfig：缺省开启 + 内置规则；rules 给即整体替换；�
   assert.equal(defaults.enabled, true);
   assert.deepEqual(
     defaults.rules.map((rule) => rule.id),
-    ["no-herdr-in-bash", "no-python-in-bash"],
+    ["no-herdr-in-bash", "no-python-in-bash", "no-view-text-in-bash"],
   );
   assert.equal(resolveConfig({ enabled: false }).enabled, false);
 
@@ -546,4 +546,90 @@ test("toolText：参数无法序列化（循环引用 / 非字符串 command）�
     toolText({ name: undefined as unknown as string, arguments: "x" }),
     ' "x"',
   );
+});
+
+test("no-view-text-in-bash：命令位查看类命令 → 拒绝并指路", () => {
+  const commands = [
+    "head -n 20 src/main.ts",
+    "sed -n '1,80p' AGENTS.md",
+    "sed -n '/ruleEngine/p' AGENTS.md",
+    "tail -20 docs/STATUS.md",
+    "cat README.md",
+    "nl -ba behavior-correction/src/main.ts",
+    "less docs/SPEC.md",
+    "ls; head -3 CHANGELOG.md",
+    "tsc --noEmit && tail -5 build.log",
+    "/usr/bin/cat package.json",
+  ];
+  for (const command of commands) {
+    const registration = registerDefault();
+    const decision = registration.guard(guardContext("bash", { command }));
+    assert.equal(decision?.kind, "deny", command);
+    assert.match(
+      decision?.kind === "deny" ? decision.reason : "",
+      /read|grep|fs_digest/,
+    );
+  }
+});
+
+test("no-view-text-in-bash：放行形态（写参数 / 跟随 / 重定向 / 管道 / 批处理）", () => {
+  const commands = [
+    "sed 's/a/b/' f",
+    "sed -i.bak 's/a/b/g' src/main.ts",
+    "tail -f log/app.log",
+    "less +F log",
+    "head -c 100 f",
+    "cat f >> out.txt",
+    "cat <<'EOF' > notes.md",
+    "npm test 2>&1 | tail -40",
+    'for f in *.md; do head -2 "$f"; done',
+    "x=$(cat msg.txt)",
+  ];
+  for (const command of commands) {
+    const registration = registerDefault();
+    const decision = registration.guard(guardContext("bash", { command }));
+    assert.equal(decision, undefined, command);
+  }
+});
+
+test("no-view-text-in-bash：不做整段匹配（参数位 / 其它命令里提到不拦）", () => {
+  const commands = [
+    "echo cat",
+    "grep -rn head docs/",
+    "git commit -m 'use cat instead of read'",
+    "read -r line < f",
+    "grep -c tail f",
+  ];
+  for (const command of commands) {
+    const registration = registerDefault();
+    assert.equal(
+      registration.guard(guardContext("bash", { command })),
+      undefined,
+      command,
+    );
+  }
+});
+
+test("exclude：命中即弃权并由后续规则接手", () => {
+  // 自定义规则表：A 命中但被 exclude 挡掉，B 命中
+  const rules: RuleSpec[] = [
+    {
+      id: "a",
+      tool: "bash",
+      match: { keywords: ["danger"] },
+      exclude: { regex: ["--safe"] },
+      reason: "a",
+    },
+    { id: "b", tool: "bash", match: { keywords: ["danger"] }, reason: "b" },
+  ];
+  const registration = registerDefault({ rules });
+  const blocked = registration.guard(
+    guardContext("bash", { command: "echo danger" }),
+  );
+  assert.equal(blocked?.kind, "deny");
+  assert.equal(blocked?.kind === "deny" ? blocked.reason : "", "a");
+  const excluded = registration.guard(
+    guardContext("bash", { command: "echo danger --safe" }),
+  );
+  assert.equal(excluded?.kind === "deny" ? excluded.reason : "", "b");
 });
