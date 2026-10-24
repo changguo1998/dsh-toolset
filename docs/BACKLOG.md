@@ -82,11 +82,7 @@
   - 期望：给 `CommandRule` 增加可选 `scope: "command"`（缺省整段、完全向后兼容）—— 先按分隔符把复合命令拆成逐条简单命令（复用 `splitCommandSegments`），`scope: "command"` 的规则只对每条简单命令的**命令名**（段首词 basename，跳过前导 `VAR=` 赋值）做匹配，参数位出现关键词不算命中；默认规则中**纯命令名即可判定危险**的 `sudo` / `reboot-class` / `mkfs` / `wipefs` 改为 command scope（`echo sudo` / `grep sudo file` / `grep shutdown file` 放行，`sudo apt` / `reboot` 仍拦）；rm / chmod 谓词与 fork-bomb / remote-pipe-shell / 带参数约束类规则（`crontab -r` / `kill 1` / `find -delete` 等）保持整段语义不变，安全底线不降；补 `tests/blacklist.test.ts` 命中/放行用例与 README 规则表说明。
   - 优先级：P1。
 
-- **#4 新增 `escalation-hint` 插件：补齐「沙箱拒绝但升级提示缺失」的一类问题**〔进行中: 2026-10-24〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
-
-  - 现象 / 现状：宿主只在 `sandbox.denied === true` 时渲染 `[sandbox: escalation available …]`，而 `denied` 靠英文 stderr 签名判定（`dsh-sandbox` 的 `matchesSignature`，`diagnostics.ts:86-93`）；本地化报错（git 的「只读文件系统」）判不出来 → 模型看不到升级提示，`auto-approve` 的 `git-worktree-commit` 白名单等不到请求。同类缺口同样存在于 `write` / `edit` / `str_replace_editor` 的越界写。
-  - 期望：新包 `@dsh-toolset/escalation-hint`，注册 rule-engine 消费者（`sources: ["tool-result"]`、`delivery: "steer"`、`dedupeInRecord: 1`），判据三层 —— 已有升级提示则跳过、有 `[sandbox: file access denied under <mode> mode]` 无提示则补、无 marker 时用结构化 `exitCode` / `sandbox.mode` + 命令形状兜底；含根级接线（`AGENTS.md` / `README.md` 双侧 / `scripts/install.sh` / workspaces）。方案见 `docs/archived/2026-10-24-worktree-git-escalation.md` 决策 5 修订、决策 6。
-  - 优先级：P1。
+> 2026-10-25 关闭：条目「新增 `escalation-hint` 插件：补齐「沙箱拒绝但升级提示缺失」的一类问题」完成并移出清单（实现 + 根级接线已随 `031190b` 落地；误报收紧与补齐测试见后续提交；真机端到端：worktree 内 `git add` / `git commit` 被 EROFS 拒 → 同回合收到提示 → 带 `sandbox_permissions: danger-full-access` + `justification` 重试成功，审计两条 `outcome=allowed-once` / `ruleId=git-worktree-commit`，无审批面板；过程记录 `docs/archived/2026-10-24-escalation-hint-package.md`）。
 
 > 2026-10-24 关闭（不立项）：条目「rule-engine 消费者的 `tool-result` 判定透传结构化上下文」移出清单 —— 查证发现 `tool/result` 会话事件只带 `message` / `error` / `meta`（`agent-loop/src/tool-calls.ts:282-295`），工具返回值不进事件流，透传无从谈起；改由 `tools/post-execute` 直接拿 `exec` + `result.value`，已落在 `escalation-hint`（过程记录 `docs/archived/2026-10-24-rule-engine-tool-result-context.md`）。
 
