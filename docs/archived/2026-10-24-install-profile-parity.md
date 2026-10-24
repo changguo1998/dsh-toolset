@@ -32,6 +32,7 @@
   （`find src ! -name '*.md'`），与本机制不同；这里额外把 md/docs 放进 `ignored` 以减少文件事件。
 - **宿主版本**：脚本与 `docs/STATUS.md` / `HOST-PACKAGES` 写 `0.2.1-rc.2`，本机 `dsh --version`
   实为 `0.2.0-rc.2`。用户裁定以文档（0.2.1）为目标版本，本次不动版本号，只记录需升级 dsh。
+  （收尾补充 2026-10-24：宿主已升级 `dsh 0.2.1-rc.2`，与文档一致，此项消解。）
 
 ## 决策
 
@@ -68,4 +69,11 @@
   重载一次（patch 变更触发行级重载），模块热重载自此生效。
 - 示例资产的 `permission` 预设表 / `schedule` / `invariants` 与 fff 不同，属「另行决定」项，本次未动。
 - fff 的 `rule-engine` 规则块、`llm-pi-ai` provider、`agent-default-model`、标题路由均为个人配置，
-  不镜像；宿主版本按文档口径留给升级 dsh。
+  不镜像；宿主版本已随 2026-10-21 升级 dsh 0.2.1-rc.2 消解，不再挂起。
+- **收尾补充（2026-10-24「示例 profile 资产对齐当前 fff 的通用配置（去个人化）」条目）**：另行决定项已裁定——
+  示例资产对齐 fff 通用挂载形态：删 `permission` 预设表 / `schedule` / `invariants`，补入 fff 挂载的本仓库
+  通用插件行与 `behavior-correction`，`rule-engine` 只保留启用的 `resumed-notice`（停用的 `skill-autoload`
+  不写）；个人模型配置以 `PROVIDER` / `MODEL` 占位（`agent-default-model` / `llm-pi-ai` / 标题路由），
+  `tui.theme` 对齐 fff 改 `dark`；`memory-base` 沿用的 `project` 面不抄 fff 的废弃 `dbPath`。
+  同步 `profiles/README.md`、`scripts/install.sh`（full-ask 提示）、`scripts/test-install.sh`（theme 断言）。
+  追踪文档 `docs/archived/2026-10-24-example-align-fff.md`。

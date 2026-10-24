@@ -64,6 +64,8 @@
 
 ## 2. 未完成项
 
+> 2026-10-24 关闭：条目「示例 profile 资产对齐当前 fff 的通用配置（去个人化）」完成并移出清单（`profiles/example/cordis.patch.yml` 删 permission / schedule / invariants，补 fff 通用条目，`rule-engine` 只留启用的 `resumed-notice`，个人模型配置以 `PROVIDER` / `MODEL` 占位，`tui.theme` 改 `dark`；同步 `profiles/README.md`、`scripts/install.sh`（full-ask 提示）、`scripts/test-install.sh`（theme 断言）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-example-align-fff.md`）。
+
 > 2026-10-24 关闭：条目「安装脚本生成的 profile 与当前 fff 的通用配置对齐」完成并移出清单（实现 `a3f1e3b`：示例 patch 补 theme light / goal 999 / ponytail 停挂，`install.sh` 追加 hmr 生成区（`base` = 仓库根 + `root: ['.']` + 文档忽略，幂等且保留手写 hmr）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-install-profile-parity.md`；fff 已由用户执行 `--sync` 生效）。
 
 > 2026-10-23 关闭：条目「`/memory` 的 `replace` 与 `remove` 子命令」完成并移出清单（实现 `02d79c0`、合并 `6ab5b43`；过程记录 `docs/archived/2026-10-22-memory-edit-subcommands.md`；复核：根 check 通过、memory-base 82/82、TUI 1745/1745；真机验收未做）。
