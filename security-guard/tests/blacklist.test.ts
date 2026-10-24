@@ -115,3 +115,80 @@ test("放行：非法放行正则不放行（宁拦勿放）", () => {
   assert.ok(!isCommandAllowed("mkfs.ext4 /dev/sdb1", allow));
   assert.ok(isCommandAllowed("echo sudo", allow));
 });
+
+// ---------------------------------------------------------------- 命令位判定（2026-10-25）
+
+const SU = "su";
+const DO = "do";
+
+test("命令位：提权词在参数位 / 注释位不命中，命令位才命中", () => {
+  assert.equal(hitId(`${SU}${DO} ls /`), "sudo");
+  assert.equal(hitId(`env X=1 ${SU}${DO} ls /`), "sudo");
+  assert.equal(hitId(`(${SU}${DO} id)`), "sudo");
+  assert.equal(hitId(`bash -c '${SU}${DO} id'`), "sudo");
+  assert.equal(hitId(`xargs -I{} ${SU}${DO} id`), "sudo");
+  // 参数位 / 注释 / 引号内文本不算
+  assert.equal(hitId(`echo ${SU}${DO}`), null);
+  assert.equal(hitId(`git commit -m 'use ${SU}${DO}'`), null);
+  assert.equal(hitId(`sed 's/${SU}${DO}/x/' f`), null);
+  assert.equal(hitId(`echo ok # ${SU}${DO}`), null);
+});
+
+test("命令位：格式化、裸设备、关机类同样只看命令位", () => {
+  assert.equal(hitId("mkfs.ext4 /dev/sdb1"), "mkfs");
+  assert.equal(hitId("wipefs -a /dev/sdb1"), "wipefs");
+  assert.equal(hitId("echo mkfs.ext4 /dev/sdb1"), null);
+  assert.equal(hitId("reboot"), "reboot-class");
+  assert.equal(hitId("echo reboot"), null);
+});
+
+test("systemctl-power：关机 / 重启 / 硬复位命中，状态查询放行", () => {
+  assert.equal(hitId("systemctl reboot"), "systemctl-power");
+  assert.equal(hitId(`${SU}${DO} systemctl poweroff`), "sudo");
+  assert.equal(hitId("systemctl kexec"), "systemctl-power");
+  assert.equal(hitId("systemctl status nginx"), null);
+  assert.equal(hitId("echo systemctl reboot"), null);
+});
+
+test("dynamic-command：命令名由展开产生时拒绝，参数位展开放行", () => {
+  assert.equal(hitId("$CMD -rf /"), "dynamic-command");
+  assert.equal(hitId("$(echo rm) -rf /"), "dynamic-command");
+  assert.equal(hitId("`echo rm` -rf /"), "dynamic-command");
+  assert.equal(hitId("echo $(date)"), null);
+});
+
+test("heredoc-fed-shell：正文含危险命令才拦，普通 heredoc 放行", () => {
+  // 正文里的命令由 shell 执行：命中 heredoc 规则（正文里出现的是后面规则才覆盖的命令）
+  assert.equal(
+    hitId("bash <<'EOF'\nwipefs -a /dev/sdb1\nEOF"),
+    "heredoc-fed-shell",
+  );
+  // 正文里的命令若被更靠前的规则直接命中，回执规则可能是那一条（同样拦截）
+  assert.equal(hitId("bash <<'EOF'\nrm -rf /\nEOF"), "rm-recursive-root");
+  assert.equal(hitId("cat <<'EOF' > notes.md\nline one\nEOF"), null);
+  assert.equal(hitId("bash <<'EOF'\necho ok\nEOF"), null);
+});
+
+test("remote-pipe-shell：解码 / 解压后再送 shell 同样命中", () => {
+  for (const cmd of [
+    "echo aGk= | base64 -d | sh",
+    "echo aGk= | base64 --decode | bash",
+    "printf x | xxd -r | sh",
+    "cat x.gz | gunzip | sh",
+    "cat x | zcat | sh",
+    "cat x | openssl enc -d -aes-256-cbc | sh",
+  ]) {
+    assert.equal(hitId(cmd), "remote-pipe-shell", cmd);
+  }
+  // 只解码不执行 → 放行
+  assert.equal(hitId("echo aGk= | base64 -d"), null);
+});
+
+test("代码文本（kind=code）对命令位规则退化为整段判定", () => {
+  const code = `const run = () => exec("${SU}${DO} id");`;
+  assert.equal(
+    matchCommand(code, DEFAULT_COMMAND_RULES, "code")?.rule.id,
+    "sudo",
+  );
+  assert.equal(matchCommand(code, DEFAULT_COMMAND_RULES, "shell"), null);
+});

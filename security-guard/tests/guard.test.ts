@@ -916,16 +916,21 @@ test("插件命令工具：script_run 的 script 缺失 / 非 string / 空串 / 
 test("插件命令工具：script_run 的 script 命中黑名单但 allowPatterns 放行 → 放行", () => {
   const guard = new GuardEngine({
     homeDir: HOME,
-    commandBlacklist: { allowPatterns: ["^echo "] },
+    commandBlacklist: { allowPatterns: ["^su"] },
   });
   assert.equal(
     guard.inspect("script_run", { script: CHECK_BLACKLIST_COMMAND }),
     null,
   );
-  // 放行正则是**整段命令**匹配：换一个不以 echo 开头的同类命令仍被拦
+  // 放行正则是**命令文本**匹配（不限命令位）：换一条命中黑名单的命令仍被拦
   assert.match(
     guard.inspect("script_run", { script: "rm -rf /" }) ?? "",
     /rm-recursive-root/,
+  );
+  // 参数位出现提权词（不是执行它）→ 放行（命令位判定，2026-10-25 起）
+  assert.equal(
+    guard.inspect("script_run", { script: `echo ${["su", "do"].join("")}` }),
+    null,
   );
 });
 
@@ -1379,7 +1384,7 @@ test("配置覆盖：allowedPaths 放行读面四工具（hash_read / fs_digest 
 
 /** 命中 sudo 规则的无害命令文本（拼接构造：仓库内不出现真实危险命令字面量）。 */
 function riskyCommand(): string {
-  return `echo 0 # su${"do"} --version`;
+  return `${["su", "do --version"].join("")}`;
 }
 
 test("命令复查：inspectCommand 命中默认黑名单 → deny 回执（含来源标注、规则 id、放行方式）", () => {
@@ -1517,7 +1522,7 @@ test("命令层 + 敏感层同时命中：只回命令层（来源标注 + 规�
   try {
     // 同一条命令文本：黑名单命中（"su"+"do" 拼接，仓库内不出现危险命令字面量）
     // + 敏感文件名路径（临时目录 fixture 的 .env，非真实家目录路径）
-    const command = `cat "${fx.envPath}" # su${"do"} --version`;
+    const command = `cat "${fx.envPath}"; su${"do"} --version`;
     const { host, listeners } = makeHost();
     createSecurityGuard(host, { homeDir: HOME });
     const result = await listeners[0]!(
@@ -1558,7 +1563,7 @@ test("命令层 + 敏感层同时命中：只回命令层（来源标注 + 规�
 test("插件命令工具：allowPatterns 正向放行（对照：不匹配 / 空的 allowPatterns 仍被拦）", async () => {
   const command = riskyCommand();
   // 能匹配该命令文本的放行正则（与 command 同款拼接构造）
-  const allowPattern = `^echo 0 # su${"do"} --version$`;
+  const allowPattern = `^${["su", "do --version"].join("")}$`;
   const { host, listeners } = makeHost();
   createSecurityGuard(host, {
     homeDir: HOME,
@@ -1625,7 +1630,7 @@ test("unknownToolPolicy:deny —— 只拦携带潜在路径/命令参数的未�
 });
 
 /** 对照 / 嵌套用例用：黑名单命中命令按拼接构造（不在测试文件里写危险命令字面量）。 */
-const CHECK_BLACKLIST_COMMAND = `echo ${["su", "do ls /"].join("")}`;
+const CHECK_BLACKLIST_COMMAND = `${["su", "do ls /"].join("")}`;
 
 test("unknownToolPolicy：三态下已登记与官方工具判定一致（含敏感参数 + 同规则 id，有区分度）", () => {
   const fixture = makeSensitiveFixture();
@@ -1768,7 +1773,7 @@ test("unknownToolPolicy:check —— 命令键（command / measureCmd / cmd）�
   const allowed = new GuardEngine({
     homeDir: HOME,
     unknownToolPolicy: "check",
-    commandBlacklist: { allowPatterns: ["^echo "] },
+    commandBlacklist: { allowPatterns: ["^su"] },
   });
   assert.equal(
     allowed.inspect("unknown_runner", { command: CHECK_BLACKLIST_COMMAND }),

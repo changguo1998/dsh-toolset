@@ -17,6 +17,11 @@ export interface CommandRule {
   pattern?: string;
   /** 自定义谓词检测（内置规则用它实现精确的命令语义）；与 pattern 二选一。 */
   test?: (command: string) => boolean;
+  /**
+   * 匹配范围：`"text"`（缺省）= 整段命令文本子串匹配；`"command"` = 只匹配**命令位**
+   * （逐段第一词，跳过前导赋值与前缀词链），参数位出现关键词不算命中。
+   */
+  scope?: "text" | "command";
 }
 
 /** 黑名单命中结果。 */
@@ -122,6 +127,9 @@ export function remotePipeShellHit(command: string): boolean {
   // curl/wget ... | (sudo) sh 形式
   const pipeToShell =
     /\b(?:curl|wget)\b[^|;&\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
+  // 解码 / 解压后再送 shell（内容先变形再执行，与 curl|sh 等价）
+  const decodedPipeToShell =
+    /\b(?:base64\s+(?:-d|--decode|-D)|xxd\s+-r|uudecode|gunzip|zcat|openssl\s+enc\s+-d)\b[^|;&\n]*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/;
   // sh -c "$(curl ...)" 形式
   const substShell = /\b(?:ba|z|da|k)?sh\b[^\n]*?\$\(\s*(?:curl|wget)\b/;
   // sh -c `curl ...` 反引号形式
@@ -130,6 +138,7 @@ export function remotePipeShellHit(command: string): boolean {
   const procSubst = /\b(?:ba|z|da|k)?sh\s+<\(\s*(?:curl|wget)\b/;
   return (
     pipeToShell.test(command) ||
+    decodedPipeToShell.test(command) ||
     substShell.test(command) ||
     substShellTick.test(command) ||
     procSubst.test(command)
@@ -176,6 +185,190 @@ function basenameOf(p: string): string {
   return parts[parts.length - 1] ?? p;
 }
 
+/** 前缀词链：跳过它们继续找真正的命令词（与 bash 常见包装一致）。 */
+const PREFIX_WORDS: ReadonlySet<string> = new Set([
+  "sudo",
+  "doas",
+  "su",
+  "env",
+  "nohup",
+  "command",
+  "exec",
+  "time",
+  "nice",
+  "stdbuf",
+  "timeout",
+  "xargs",
+  "watch",
+  "busybox",
+  "if",
+  "then",
+  "else",
+  "elif",
+  "while",
+  "until",
+  "do",
+]);
+
+/** shell 族（用于 `-c` 递归与 heredoc 判定）。 */
+const SHELL_FAMILY: ReadonlySet<string> = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+]);
+
+/** 轻量分词：剥引号、按空白切、丢掉括号与 `!` / `;` 这类结构符号。 */
+function tokensOf(segment: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | null = null;
+  for (const ch of segment) {
+    if (quote !== null) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur.length > 0) {
+        out.push(cur);
+        cur = "";
+      }
+      continue;
+    }
+    if ("(){}!;".includes(ch)) continue;
+    cur += ch;
+  }
+  if (cur.length > 0) out.push(cur);
+  return out;
+}
+
+/** 词 → 命令名（basename，去成对引号与残留括号）。 */
+function commandName(word: string): string {
+  const trimmed = word.replace(/^[([{!]+/, "").replace(/[)\]};]+$/, "");
+  return basenameOf(trimmed).replace(/^["']|["']$/g, "");
+}
+
+/** `$(...)` 与反引号的内部文本（不处理嵌套，交给递归深度控制）。 */
+function substitutionBodies(command: string): string[] {
+  const out: string[] = [];
+  for (const match of command.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
+    const body = match[1] ?? match[2];
+    if (body !== undefined && body.trim().length > 0) out.push(body);
+  }
+  return out;
+}
+
+/**
+ * 取命令位词：逐段跳过前导 `VAR=` 赋值、前缀词链与选项，第一个非前缀词即命令名；
+ * 对 shell 族 `-c`、`eval` 与 `$()` / 反引号内容递归（深度上限 2）。
+ */
+export function commandWords(command: string, depth = 0): string[] {
+  const words: string[] = [];
+  for (const segment of splitCommandSegments(command)) {
+    const tokens = tokensOf(segment);
+    let i = 0;
+    while (i < tokens.length) {
+      const token = tokens[i]!;
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token) || token.startsWith("-")) {
+        i += 1;
+        continue;
+      }
+      if (PREFIX_WORDS.has(commandName(token))) {
+        // 前缀词本身也可能是被禁的对象（如 sudo），一并作为命令位候选
+        words.push(commandName(token));
+        i += 1;
+        continue;
+      }
+      const name = commandName(token);
+      words.push(name);
+      if (depth < 2 && SHELL_FAMILY.has(name)) {
+        const at = tokens.findIndex((x) => /^-[A-Za-z]*c[A-Za-z]*$/.test(x));
+        const script = at >= 0 ? tokens[at + 1] : undefined;
+        if (script !== undefined)
+          words.push(...commandWords(script, depth + 1));
+      }
+      if (depth < 2 && name === "eval") {
+        const rest = tokens.slice(i + 1).join(" ");
+        if (rest.length > 0) words.push(...commandWords(rest, depth + 1));
+      }
+      break;
+    }
+  }
+  if (depth < 2) {
+    for (const body of substitutionBodies(command)) {
+      words.push(...commandWords(body, depth + 1));
+    }
+  }
+  return words;
+}
+
+/** 命令位是否由展开产生（`$cmd` / `$(...)` / 反引号）：词面不完整，无法判定。 */
+export function dynamicCommandHit(command: string): boolean {
+  for (const segment of splitCommandSegments(command)) {
+    const tokens = tokensOf(segment);
+    let i = 0;
+    while (i < tokens.length) {
+      const token = tokens[i]!;
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token) || token.startsWith("-")) {
+        i += 1;
+        continue;
+      }
+      if (PREFIX_WORDS.has(commandName(token))) {
+        i += 1;
+        continue;
+      }
+      return (
+        token.startsWith("$") || token.includes("$(") || token.includes("`")
+      );
+    }
+  }
+  return false;
+}
+
+/** systemctl 的关机 / 重启 / 硬复位（参数约束类谓词）。 */
+export function systemctlPowerHit(command: string): boolean {
+  for (const segment of splitCommandSegments(command)) {
+    const tokens = tokensOf(segment);
+    let i = 0;
+    while (i < tokens.length) {
+      const token = tokens[i]!;
+      if (
+        /^[A-Za-z_][A-Za-z0-9_]*=/.test(token) ||
+        token.startsWith("-") ||
+        PREFIX_WORDS.has(commandName(token))
+      ) {
+        i += 1;
+        continue;
+      }
+      if (commandName(token) !== "systemctl") break;
+      const rest = tokens.slice(i + 1);
+      return rest.some((x) => /^(?:reboot|poweroff|halt|kexec)$/.test(x));
+    }
+  }
+  return false;
+}
+
+/** heredoc 喂给 shell：正文里出现危险命令才拦（深度 1，不递归）。 */
+export function heredocFedShellHit(command: string): boolean {
+  if (!/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(command)) return false;
+  if (!commandWords(command).some((word) => SHELL_FAMILY.has(word)))
+    return false;
+  const at = command.indexOf("\n");
+  if (at < 0) return false;
+  const body = command.slice(at + 1);
+  if (body.trim().length === 0) return false;
+  const inner = DEFAULT_COMMAND_RULES.filter(
+    (rule) => rule.id !== "heredoc-fed-shell",
+  );
+  return matchCommand(body, inner, "shell") !== null;
+}
+
 /**
  * 默认危险命令黑名单（保守集）。
  * 规则顺序即回执优先级：先精确的灾难性语义（rm/chmod/远程管道），
@@ -193,6 +386,16 @@ export const DEFAULT_COMMAND_RULES: readonly CommandRule[] = [
     test: remotePipeShellHit,
   },
   {
+    id: "dynamic-command",
+    reason: "命令名由变量或命令替换展开产生，无法判定真实命令",
+    test: dynamicCommandHit,
+  },
+  {
+    id: "heredoc-fed-shell",
+    reason: "heredoc 喂给 shell，且正文里出现危险命令",
+    test: heredocFedShellHit,
+  },
+  {
     id: "chmod-777-system",
     reason: "chmod 777 系统目录，破坏系统权限边界",
     test: chmod777RootHit,
@@ -201,6 +404,7 @@ export const DEFAULT_COMMAND_RULES: readonly CommandRule[] = [
     id: "sudo",
     reason: "提权（sudo）执行，超出本会话的权限边界",
     pattern: "\\bsudo\\b",
+    scope: "command",
   },
   {
     id: "fork-bomb",
@@ -221,11 +425,13 @@ export const DEFAULT_COMMAND_RULES: readonly CommandRule[] = [
     id: "mkfs",
     reason: "文件系统格式化，不可逆销毁磁盘数据",
     pattern: "\\bmkfs(?:\\.[A-Za-z0-9]+)?\\b",
+    scope: "command",
   },
   {
     id: "wipefs",
     reason: "wipefs 清除磁盘文件系统签名，属破坏性操作",
     pattern: "\\bwipefs\\b",
+    scope: "command",
   },
   {
     id: "partition-tool",
@@ -236,6 +442,12 @@ export const DEFAULT_COMMAND_RULES: readonly CommandRule[] = [
     id: "reboot-class",
     reason: "关机/重启系统，会中断所有在跑的业务",
     pattern: "\\b(?:shutdown|reboot|halt|poweroff)\\b",
+    scope: "command",
+  },
+  {
+    id: "systemctl-power",
+    reason: "通过 systemctl 关机 / 重启 / 硬复位，会中断所有在跑的业务",
+    test: systemctlPowerHit,
   },
   {
     id: "find-delete",
@@ -276,13 +488,22 @@ function compilePattern(source: string | undefined): RegExp | null {
 export function matchCommand(
   command: string,
   rules: readonly CommandRule[],
+  kind: "shell" | "code" = "shell",
 ): CommandHit | null {
+  // 命令位模式只对 shell 文本有意义（代码文本按整段保守判定）
+  const words = kind === "shell" ? commandWords(command) : [];
   for (const rule of rules) {
     if (rule.test !== undefined) {
       if (rule.test(command)) return { rule, command };
       continue;
     }
     const re = compilePattern(rule.pattern);
+    if (rule.scope === "command" && kind === "shell") {
+      if (re === null || words.some((word) => re.test(word))) {
+        return { rule, command };
+      }
+      continue;
+    }
     if (re === null || re.test(command)) return { rule, command };
   }
   return null;

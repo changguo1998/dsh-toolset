@@ -1054,7 +1054,11 @@ export class GuardEngine {
     if (!cfg.enabled) return null;
     const args = asStringRecord(rawArguments);
     // 待过命令黑名单层的命令文本（sourceLine = 插件命令工具的来源标注行）
-    const commands: { text: string; sourceLine?: string }[] = [];
+    const commands: {
+      text: string;
+      sourceLine?: string;
+      kind?: "shell" | "code";
+    }[] = [];
     const paths: string[] = [];
     if (SHELL_TOOLS.has(toolName)) {
       // shell 工具：命令文本过黑名单层；文本中的路径 + workdir 过敏感文件层
@@ -1068,7 +1072,8 @@ export class GuardEngine {
     } else if (RUN_CODE_TOOLS.has(toolName)) {
       // run_code：代码文本整体过黑名单层（其子分发工具调用会再走一遍管线）
       const codeText = firstString(args, ["code", "program"]);
-      if (codeText !== undefined) commands.push({ text: codeText });
+      if (codeText !== undefined)
+        commands.push({ text: codeText, kind: "code" });
     } else if (FILE_TOOLS.has(toolName)) {
       // 内置文件工具：路径参数过敏感文件层
       for (const key of FILE_PATH_KEYS) {
@@ -1242,7 +1247,12 @@ export class GuardEngine {
   #decideCollected(
     toolName: string,
     args: Record<string, unknown>,
-    commands: readonly { text: string; sourceLine?: string }[],
+    commands: readonly {
+      text: string;
+      sourceLine?: string;
+      /** `shell`（缺省）= 命令文本；`code` = 代码文本（命令位规则退化为整段判定）。 */
+      kind?: "shell" | "code";
+    }[],
     paths: readonly (string | { path: string; sourceLine?: string })[],
     operation?: "read" | "write" | "read-write",
     labelKind: "tool" | "source" = "tool",
@@ -1255,7 +1265,11 @@ export class GuardEngine {
         if (isCommandAllowed(c.text, cfg.commandBlacklist.allowPatterns)) {
           continue;
         }
-        const hit = matchCommand(c.text, cfg.commandBlacklist.rules);
+        const hit = matchCommand(
+          c.text,
+          cfg.commandBlacklist.rules,
+          c.kind ?? "shell",
+        );
         if (hit !== null) {
           const receipt = formatCommandReceipt(hit);
           return c.sourceLine === undefined

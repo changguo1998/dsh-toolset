@@ -10,7 +10,8 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 
 | 层 | 覆盖 | 默认规则 |
 | --- | --- | --- |
-| 命令黑名单 | `bash` / `shell` / `pwsh` 的 `command` 或 `script`；`run_code` 的 `code` 或 `program`；插件命令工具（`PLUGIN_COMMAND_TOOLS`）登记的命令参数（明细见下「插件命令面」） | 15 条：`rm -rf /` 族、`curl \| sh` 族、`chmod 777` 系统目录、`sudo`、fork 炸弹、`dd` 裸盘写入、裸设备重定向 / `tee` 写入、`mkfs`、`wipefs`、分区工具、重启关机、`find -delete`、`crontab -r`、`iptables -F`、kill PID 1 |
+| 命令黑名单 | `bash` / `shell` / `pwsh` 的 `command` 或 `script`；`run_code` 的 `code` 或 `program`；插件命令工具（`PLUGIN_COMMAND_TOOLS`）登记的命令参数（明细见下「插件命令面」） | 18 条：`rm -rf /` 族、`curl \| sh` 族（含 `base64 -d` / `xxd -r` / `gunzip` / `zcat` / `openssl enc -d` 解码后再送 shell）、`chmod 777` 系统目录、`sudo`、fork 炸弹、`dd` 裸盘写入、裸设备重定向 / `tee` 写入、`mkfs`、`wipefs`、分区工具、重启关机、`systemctl` 关机 / 重启 / `kexec`、`find -delete`、`crontab -r`、`iptables -F`、kill PID 1、命令名由展开产生（`$CMD` / `$(...)` / 反引号）、heredoc 喂给 shell 且正文含危险命令 |
+| 敏感文件 | shell 命令文本中提取的路径（含 `workdir`）；插件命令工具命令文本中提取的路径（同口径）；文件工具 `read` / `read_image` / `write` / `edit` / `patch` / `grep` / `glob` 的 `file_path` / `path` / `target` / `file` 参数；插件文件工具（`PLUGIN_FILE_TOOLS`）登记的路径参数（写侧 / 读侧明细见下「插件工具」与「读面插件工具」） | 26 条：`.ssh`、`.aws`、`.gnupg`、`.kube`、`gh`、`gcloud`、`docker config` 目录；`.netrc`、`.git-credentials`、`.npmrc`、`.pypirc`、`kubeconfig` 凭据文件；`.env` 族；`*.pem` / `*.key` / `*.p12` / `*.pfx` / `*.jks` / `*.keystore` / `id_rsa` 族 / GCP `credentials.json` / service-account |
 | 敏感文件 | shell 命令文本中提取的路径（含 `workdir`）；插件命令工具命令文本中提取的路径（同口径）；文件工具 `read` / `read_image` / `write` / `edit` / `patch` / `grep` / `glob` 的 `file_path` / `path` / `target` / `file` 参数；插件文件工具（`PLUGIN_FILE_TOOLS`）登记的路径参数（写侧 / 读侧明细见下「插件工具」与「读面插件工具」） | 26 条：`.ssh`、`.aws`、`.gnupg`、`.kube`、`gh`、`gcloud`、`docker config` 目录；`.netrc`、`.git-credentials`、`.npmrc`、`.pypirc`、`kubeconfig` 凭据文件；`.env` 族；`*.pem` / `*.key` / `*.p12` / `*.pfx` / `*.jks` / `*.keystore` / `id_rsa` 族 / GCP `credentials.json` / service-account |
 
 - 复合命令（`;` `|` `&` 换行）按段词法分析；`run_code` 与引号内嵌命令另有整文本兜底。路径提取是保守超集（成对引号串、裸 token、`~/` 前缀、绝对路径子串四类），归一化时去引号、展开 `~` / `$HOME` / `${HOME}`、折叠 `//`。
@@ -135,13 +136,28 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 | `src/receipt.ts` | deny 回执文案（拦截原因 + 放行方式；命令 160 字预览） |
 | `scripts/tool-surface-check.mjs` | 宿主工具面差异检查（键集与 `TOOL_SURFACE` 同源） |
 | `smoke/smoke.mjs` | 真机 headless 会话拦截冒烟 |
-| `tests/*.test.ts` | 单测（135 例） |
+| `tests/*.test.ts` | 单测（142 例） |
 
 ## 边界与限制
 
-- **普通正则类规则对整段文本匹配**：`echo "sudo is a tool"` 会命中 `sudo` 规则；`run_code` 的 `code` 文本整体过黑名单，代码字符串里出现危险命令字样即拦。
+- **命令位规则只看命令位（2026-10-25 起，4 条）**：`sudo`、`mkfs`、`wipefs`、重启关机与 `systemctl` 关机类只匹配逐段第一词（跳过 `VAR=`、前缀词链、选项，并对 `bash -c` / `eval` / `$()` / 反引号递归 2 层）；`echo "sudo is a tool"`、`git commit -m 'use sudo'` 不再命中。
+- **其余正则规则仍对整段文本匹配**：`rm -rf /`、`curl | sh`、fork 炸弹、`dd`、`find -delete`、`kill 1` 等（含 heredoc 正文与引号内文本）按原文判定。
+- **代码文本（`run_code` 的 `code` / `program`）对命令位规则退化为整段判定**：代码里出现提权字样即拦（宁可误拦）。
 - 路径提取是保守超集（裸 token 也参与 basename 规则匹配），故可能比真实语义多拦。
 - 规则只覆盖显式列出的工具与参数键；其他工具、其他参数名不参与判定。
+
+**绕开形态（2026-10-25 口径）**
+
+| 形态 | 例子 | 结果 |
+| --- | --- | --- |
+| 变量间接 | `a=${"sudo"}; $a id` | 拦（`dynamic-command`） |
+| 命令替换 | `$(echo ${"sudo"}) id` | 拦（`dynamic-command`） |
+| 分词拼接 | `${"su"}do id` | 拦（命令位还原后命中 `sudo`） |
+| heredoc 喂 shell | `bash <<EOF` 正文含危险命令 | 拦（正文按黑名单扫） |
+| 解码后再执行 | `echo aGk= \| base64 -d \| sh` | 拦（`remote-pipe-shell`） |
+| 远端子命令 | `ssh host ${"sudo"} id` / `find -exec ${"sudo"} rm` | 放行（命令在远端或另一进程执行，本层不看） |
+| 别名 / 函数 | `alias s=${"sudo"}` 后再用 `s` | 放行（不解析 shell 别名与函数） |
+
 - `root` 类目录参数只按传入路径**本身**过敏感层，不扫描目录内容：`code_map` / `md_map` 的 `root` 指向普通目录时放行（即使该目录下含 `.env`），指向 `~/.ssh` 这类敏感目录本身则拦。
 - **命令不在工具入参里时：执行前复查（2026-10-02 收口；措辞与留痕同日硬化）**：`metric_loop` 的 `tick` 执行的命令取自状态文件
   （不在工具入参里），由 `metric_loop` 在**执行之前**经可选服务 `ctx.get("guard")` 复查 —— 走
