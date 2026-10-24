@@ -74,7 +74,7 @@
 | # | 类型 | 证据 | 现状与影响 |
 | --- | --- | --- | --- |
 | D1 | 参数不一致 | `session-channel/src/index.ts:1534-1536` | `to` 参数只写「目标会话 id，或 cwd:\<绝对路径>」，漏了别名；工具级描述 `:1523` 与实现 `resolveTarget`（`session-channel/src/broker.ts:436-447`）都支持别名。模型会以为别名不能用于 `send`。 |
-| D2 | 参数不一致 | `md-map/src/tools.ts:102`、`:64`、`md-map/src/indexer.ts:94` | `root` 参数写「缺省当前会话工作目录」，工具级写「当前工作目录」，实现回落 `process.cwd()`。会话 cwd 与进程 cwd 不同时，模型按描述省略 `root` 会索引到进程 cwd，而不是它以为的会话 cwd。 |
+| D2 | 参数不一致 | `md-map/src/tools.ts:102`、`:64`、`md-map/src/indexer.ts:94` | `root` 参数写「缺省当前会话工作目录」，工具级写「当前工作目录」，实现回落 `process.cwd()`。会话 cwd 与进程 cwd 不同时，模型按描述省略 `root` 会索引到进程 cwd，而不是它以为的会话 cwd。（2026-10-25 更正：查证实现 `md-map/src/tools.ts:29-32` 的 `resolveExecCwd` 早已是「会话 cwd 优先、回落进程 cwd」，`indexer.ts:94` 的进程 cwd 只是服务层缺省；本条原判定「实现回落 `process.cwd()`」有误，实际只需订正描述措辞。描述已在 `e10371d` 改为「缺省取会话 cwd，无会话上下文时回落进程 cwd」。） |
 | D3 | 漏下一步指路 | `hash-edit/src/main.ts:326-329`、`hash-edit/README.md:71`、`docs/ARCHITECTURE-REUSE.md:59` | `hash_edit` 只描述锚点机制，没有写「文件级版本守卫用 edit、按节改 Markdown 用 md_logic」；README 与架构文档却把「靠工具描述区分」当作边界成立的前提。模型容易拿 `hash_edit` 做整文件替换或 Markdown 整节替换。 |
 | D4 | 漏能力边界 | `task-engine/src/tools.ts:344`、`:306-309` | `task_implement` 全文只有 13 字「完成一个叶子任务并写入产出」，没有写「仅 model 后端 / 缺省叶子」；反向指路只在 `task_execute` 里。声明了 `subagent` / `workflow` / `command` executor 的叶子若直接调 `task_implement`，后端不会被执行，只写回产出。 |
 | D5 | 过时 / 漏指路 | `metric-loop/src/index.ts:561-562` | 描述让模型「用宿主 `schedule_create` 排下次自动唤醒」，但当前 profile 没有挂载 `dsh-schedule`（既有记录：`docs/archived/2026-10-02-host-upgrade-execution.md:61`）；本仓等价物是 `daemon_task`（`background-daemon/src/tools.ts:18`）。模型会调用不存在的工具，循环停摆。 |
@@ -287,7 +287,7 @@ P2：
 - 不改宿主官方工具（`bash` / `read` / `write` / `edit` / `glob` / `grep` 等）的描述。
 - 不改任何工具的 `name` / 参数 schema / 执行行为；只改 `description` 与 `aliases.ts`，外加测试。
 - 不合并或删除工具；`task_stop` 不改名（改名会破坏兼容，优先在描述里写清「不是取消」）。
-- D2 只改描述对齐现有 `md_map` 的 `process.cwd()` 默认；若要把实现改成会话 cwd，属行为变更，另开条目。
+- D2 只改描述：查证后实现本来就用「会话 cwd 优先、回落进程 cwd」（`md-map/src/tools.ts:29-32`），不存在「把实现改成会话 cwd」这条待办，原计划里的「另开条目」不成立。
 - 不审 TUI slash 命令描述（`TUI/src/app/commands.ts`）与 `command-template` 模板描述，它们不在模型工具面。
 
 ## 实现记录
