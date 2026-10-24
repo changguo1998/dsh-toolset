@@ -309,6 +309,11 @@ describe("工具描述：P0 事实与选择依据", () => {
     assert.match(d, /channel_task/);
   });
 
+  it("C8：task_stop 不写「跨会话」全短语，避免检索被交叉引用污染", () => {
+    // 真机验证发现的回归：「取消跨会话委托任务」曾把「跨会话委托」查询顶到本工具。
+    assert.doesNotMatch(descOf("task_stop"), /跨会话/);
+  });
+
   it("C2：task_status 写明与 channel_task 的数据源差异", () => {
     const d = descOf("task_status");
     assert.match(d, /channel_task/);

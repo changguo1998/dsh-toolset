@@ -352,7 +352,7 @@ export function createTools(
     decompose(
       "stop",
       "对任务执行 RET 验收（mechanical/human/semantic），通过则完成并向上 join，返回 accepted/next。" +
-        "本工具做验收与完成（不做取消）；取消跨会话委托任务用 channel_task（action=cancel）。",
+        "凭 task_id 指定任务；本工具只做验收与完成，取消委托用 channel_task（action=cancel）。",
     ),
     decompose(
       "status",

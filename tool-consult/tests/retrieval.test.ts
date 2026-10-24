@@ -29,7 +29,7 @@ const DOCS: ToolDoc[] = [
   {
     name: "task_stop",
     description:
-      "对任务执行 RET 验收，通过则完成并向上 join。取消跨会话委托用 channel_task。",
+      "对任务执行 RET 验收，通过则完成并向上 join。取消委托用 channel_task。",
   },
   {
     name: "task_execute",
@@ -265,8 +265,8 @@ const CASES: Case[] = [
   {
     query: "跨会话委托",
     want: "channel_delegate",
-    top1: false,
-    why: "正向例子：委托工具应稳定进前三",
+    top1: true,
+    why: "task_stop 描述里的「取消跨会话委托任务」曾把本查询顶到验收工具",
   },
   {
     query: "定时任务",

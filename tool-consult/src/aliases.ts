@@ -30,7 +30,13 @@ export const ALIASES: Readonly<Record<string, readonly string[]>> = {
   task_stop: ["验收", "停止任务"],
   // session-channel：跨会话消息与委托（数据源 = Redis 任务表）
   session_channel: ["跨会话", "发消息", "跨会话通知", "会话通道"],
-  channel_delegate: ["委托", "交给另一个会话", "委派", "跨会话任务"],
+  channel_delegate: [
+    "委托",
+    "交给另一个会话",
+    "委派",
+    "跨会话任务",
+    "跨会话委托",
+  ],
   channel_task: ["委托状态", "委托任务", "委托列表", "委托查询"],
   channel_task_result: ["回传结果", "委托结果", "任务结果回传"],
   rule_add: ["加规则", "注入规则"],
