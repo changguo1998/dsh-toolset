@@ -302,3 +302,52 @@ test("遮罩未生效：只回读告警一次，不重设", () => {
 
   host.dispose();
 });
+
+test("预览模式：命中项未全可见时不打「都已在可见集中」抬头", async () => {
+  const host = createFakeHost({ schemas: schemas() });
+  apply(host.ctx, {});
+  const agent = host.addAgent({ id: "t13-agent" });
+  host.emit("agent/created", { agent });
+  const execute = consultOf(host);
+
+  // "跨会话" 只命中未揭示工具（session_channel / channel_delegate）。
+  const preview = await execute({ query: "跨会话", reveal: false });
+  assert.equal(preview.text.includes("都已在可见集中"), false);
+  assert.ok(preview.text.includes("（预览，未揭示）"));
+  assert.equal(host.restrictCalls.length, 1, "预览不应揭示");
+
+  // 只命中已可见的工具时才打该抬头。
+  const visibleOnly = await execute({ query: "bash", reveal: false, limit: 1 });
+  assert.ok(visibleOnly.text.startsWith("命中的工具都已在可见集中"));
+
+  host.dispose();
+});
+
+test("turn 档配额不写成上限：文案明说不设新增上限", async () => {
+  const host = createFakeHost({ schemas: schemas() });
+  apply(host.ctx, { revealScope: "turn" });
+  const agent = host.addAgent({ id: "t14-agent" });
+  host.emit("agent/created", { agent });
+  const execute = consultOf(host);
+
+  const result = await execute({ names: ["task_decompose"] });
+  assert.ok(result.text.includes("turn 档不设新增上限"));
+  assert.equal(result.text.includes("turn 档 1 / 12"), false);
+
+  host.dispose();
+});
+
+test("按名咨询 consult_tools 自身：报「已在可见集」而不是未知工具", async () => {
+  const host = createFakeHost({ schemas: schemas() });
+  apply(host.ctx, {});
+  const agent = host.addAgent({ id: "t15-agent" });
+  host.emit("agent/created", { agent });
+  const execute = consultOf(host);
+
+  const result = await execute({ names: ["consult_tools"] });
+  assert.equal(result.text.includes("未知工具"), false);
+  assert.ok(result.text.includes("consult_tools"));
+  assert.ok(result.text.includes("已在可见集"));
+
+  host.dispose();
+});

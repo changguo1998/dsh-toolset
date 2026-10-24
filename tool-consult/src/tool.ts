@@ -103,7 +103,7 @@ function renderQuota(
   if (scope === "session") {
     return `名额：session 档已揭示 ${runtime.grants.sessionCount()} / ${config.maxRevealed}（新增上限）。授权只增不减，本会话内不会收回。`;
   }
-  return `容量：turn 档 ${runtime.grants.turnCount()} / ${config.maxRevealed}（钉住 ${runtime.grants.pinnedCount()} / ${config.maxPinned}）；本回合结束按最久未用收敛，闲置超 TTL 也会收回。`;
+  return `容量：turn 档已揭示 ${runtime.grants.turnCount()} 项（钉住 ${runtime.grants.pinnedCount()} / ${config.maxPinned}）；turn 档不设新增上限，回合末按最久未用收敛，闲置超 TTL 也会收回。`;
 }
 
 /** 单条揭示结果的一行。 */
@@ -197,15 +197,19 @@ export function createConsultTool(runtime: ConsultRuntime): {
       const sections: string[] = [];
       const granted: string[] = [];
       const notices: string[] = [];
+      /** 查询命中项是否全部已可见（决定是否打「都已在可见集中」抬头）。 */
+      let allHitsVisible = false;
 
       if (args.names !== undefined) {
         for (const name of args.names) {
-          if (runtime.matcher.get(name) === undefined) {
-            notices.push(`- ${name}：未知工具（不在当前工具面里）`);
-            continue;
-          }
+          // 可见性先判：`consult_tools` 自身不在检索索引里（刻意排除），但它常驻可见，
+          // 先判未知会把它错报成「不在当前工具面里」。
           if (runtime.isVisible(name)) {
             sections.push(describeVisible(runtime, name));
+            continue;
+          }
+          if (runtime.matcher.get(name) === undefined) {
+            notices.push(`- ${name}：未知工具（不在当前工具面里）`);
             continue;
           }
           if (!args.reveal) {
@@ -231,8 +235,10 @@ export function createConsultTool(runtime: ConsultRuntime): {
           };
         }
         const fresh: string[] = [];
+        let visibleHits = 0;
         for (const hit of hits) {
           if (runtime.isVisible(hit.name)) {
+            visibleHits += 1;
             sections.push(describeVisible(runtime, hit.name));
             continue;
           }
@@ -254,16 +260,12 @@ export function createConsultTool(runtime: ConsultRuntime): {
             granted.push(describeResult(runtime, outcome.name, outcome.result));
           }
         }
+        allHitsVisible = hits.length > 0 && visibleHits === hits.length;
       }
 
       const lines: string[] = [];
-      if (
-        args.names === undefined &&
-        args.query !== undefined &&
-        granted.length === 0 &&
-        notices.length === 0
-      ) {
-        // 全部命中项都已可见。
+      if (allHitsVisible) {
+        // 全部命中项都已可见（预览模式下命中集可能含未揭示项，故不能只看 granted）。
         lines.push("命中的工具都已在可见集中，直接调用即可。");
       }
       if (granted.length > 0) {
