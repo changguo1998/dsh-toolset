@@ -75,3 +75,9 @@
 
 - 不给别名补英文词（如 `run command` / `read screen`）：契约表与既有表都以中文口语词为主，英文名 `herdr_*` 本身已参与名称权重，无词汇鸿沟。
 - 不改 `matcher.ts` 的权重与分词；分键粒度按工具用途，不按 pane / tab / workspace 旧抽象。
+
+## 收尾（2026-10-24 归档）
+
+- 交割：代码 `aaaaddc`（`herdr_use` 别名删掉，10 个新工具别名加入），文档 `9465330`；随后合并进 main。
+- 无独立 BACKLOG 条目（属条目 7 的跨插件子项），随条目 7 一起关闭。
+- 遗留：工具咨询本体的 3 处工作流缺陷不在本任务范围，记在 `tool-consult/docs/implementation/2026-10-22-tool-consult.md`。
