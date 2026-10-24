@@ -17,6 +17,7 @@ import type {
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
+import { flatRows } from "./helpers/noticeText.ts";
 
 class FakeRenderer implements Renderer {
   renders = 0;
@@ -223,8 +224,10 @@ test("/group：服务未挂载 → warn（agentGroup 不可用）", async () => 
   await tick();
   const f = frames(renderer);
   assert.ok(
-    f.includes("agentGroup 服务不可用（未挂载 agent-group）"),
-    "warn 文案: " + f,
+    flatRows(renderer.lastRender).includes(
+      "agentGroup服务不可用（未挂载agent-group）",
+    ),
+    "warn 文案（折行后同样命中）: " + f,
   );
   app.dispose();
 });
@@ -308,7 +311,10 @@ test("/group 带组名：未命中 → warn（reason + 现有组清单）", asyn
   await tick();
   const f = frames(renderer);
   assert.ok(f.includes("组「beta」不存在"), "reason 文案: " + f);
-  assert.ok(f.includes("现有组：dev, release"), "next 带清单: " + f);
+  assert.ok(
+    flatRows(renderer.lastRender).includes("现有组：dev,release"),
+    "next 带清单（折行后同样命中）: " + f,
+  );
   assert.ok(!f.includes("group_not_found"), "不展示错误码: " + f);
   app.dispose();
 });
@@ -328,8 +334,10 @@ test("/group：服务查询 reject → warn（不可用）", async () => {
   await tick();
   const f = frames(renderer);
   assert.ok(
-    f.includes("agentGroup 服务不可用（未挂载 agent-group）"),
-    "warn 文案: " + f,
+    flatRows(renderer.lastRender).includes(
+      "agentGroup服务不可用（未挂载agent-group）",
+    ),
+    "warn 文案（折行后同样命中）: " + f,
   );
   app.dispose();
 });

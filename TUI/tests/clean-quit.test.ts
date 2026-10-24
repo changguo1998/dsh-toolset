@@ -19,6 +19,7 @@ import type { KeyEvent } from "../src/renderer/index.ts";
 import type { ShellRunner } from "../src/app/local-shell.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { flatRows } from "./helpers/noticeText.ts";
 
 class TrackedApp extends App {
   constructor(deps: ConstructorParameters<typeof App>[0]) {
@@ -66,6 +67,12 @@ const key = (name: string, ctrl = false): KeyEvent => ({
 const frameText = (renderer: FakeRenderer): string => {
   flushApp();
   return renderer.lastRender.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
+};
+
+/** 帧扁平文本（去 ANSI / 边框 / 空白）：长 notice 折行后逐字断言用 */
+const flatFrameText = (renderer: FakeRenderer): string => {
+  flushApp();
+  return flatRows(renderer.lastRender);
 };
 
 const ctrlD = (renderer: FakeRenderer): void => renderer.press(key("d", true));
@@ -200,7 +207,7 @@ test("宿主无会话服务（deleteSessionForExit 缺失）：只告警仍照�
   renderer.press(key("enter"));
   assert.equal(renderer.closed, 1, "照常退出");
   assert.ok(
-    frameText(renderer).includes("会话服务不可用，未删除本会话"),
+    flatFrameText(renderer).includes("会话服务不可用，未删除本会话"),
     "活动区给出告警",
   );
 });

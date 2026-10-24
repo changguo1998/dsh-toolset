@@ -11,6 +11,7 @@ import { App } from "../src/app/index.ts";
 import { routeSlashCommand } from "../src/app/commands.ts";
 import { renderCommandListPanel } from "../src/app/components/CommandListPanel.ts";
 import { rowAnsi, rowText } from "./helpers/rowText.ts";
+import { flatRows } from "./helpers/noticeText.ts";
 import type {
   CommandPanelRow,
   DshAdapter,
@@ -281,8 +282,11 @@ test("/agents：一次性条目不可中断 → 不调服务 + 原因说明", as
   );
   const f = frames(renderer);
   assert.ok(!f.includes("子代理（"), "关面板使说明可见: " + f);
+  // notice 前缀占宽后原因会折行 → 扁平化后逐字断言（见 helpers/noticeText.ts）
   assert.ok(
-    f.includes("一次性子代理不支持中断（宿主仅支持 continuable）"),
+    flatRows(renderer.lastRender).includes(
+      "一次性子代理不支持中断（宿主仅支持continuable）",
+    ),
     "给出不可中断原因: " + f,
   );
   app.dispose();

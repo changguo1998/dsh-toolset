@@ -17,6 +17,7 @@ import type {
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
+import { flatRows } from "./helpers/noticeText.ts";
 
 class FakeRenderer implements Renderer {
   renders = 0;
@@ -207,7 +208,10 @@ test("/contract：目标无契约 → info 说明（未附条款）", async () =
   await tick();
   const f = frames(renderer);
   assert.ok(f.includes("普通目标无契约"), "目标行: " + f);
-  assert.ok(f.includes("未附契约条款"), "说明: " + f);
+  assert.ok(
+    flatRows(renderer.lastRender).includes("未附契约条款"),
+    "说明（长 notice 折行后同样命中）: " + f,
+  );
   app.dispose();
 });
 

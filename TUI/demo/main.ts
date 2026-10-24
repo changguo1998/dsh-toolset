@@ -446,9 +446,9 @@ if (smoke) {
       );
       ok(
         "compaction-summary-toast",
-        // 整串会按 pane 宽折行、两半之间夹另一 pane 文本 → 同 preset-notice 口径断言可容纳片段
-        flatFrames().includes("压缩完成：已压缩") &&
-          flatFrames().includes("182条历史"),
+        // 带统一前缀且被活动区视口截断（`[hh:mm:ss tui] 压缩完成…`）→ 断言前缀 + 文案首部；
+        // flatFrames 已去空白与 pane 边框，跨帧折行也能匹配
+        flatFrames().includes("tui]压缩完成"),
         "no compaction-summary toast in frames",
       );
       ok(
@@ -555,7 +555,7 @@ if (smoke) {
       const aT = lineIdx("混合思考行");
       const aM = lineIdx("混合中间输出");
       const aTool = lineIdx("mixed-check");
-      const aN = lineIdx("混合 notice 提示");
+      const aN = lineIdx("混合 notice"); // notice 带 `[hh:mm:ss 来源]` 前缀，80 列下会折行
       const aSum = lineIdx("混合最终总结");
       // 只断言活动条目的**时间顺序**（行号递增）与总结可见。原先另有一条「总结在活动区
       // 分隔行之前」的判据，实测站不住：80×24 的 auto 排列是左右分栏、没有活动区分隔行，

@@ -383,6 +383,11 @@ test("端到端：`$` 命令执行后结果写入旁路日志并可读回", asyn
       () => readLocalLog("s1", { kind: "notice" }, [root]).length >= 1,
     );
     assert.equal(noticeOk, true, "notice 也应写入旁路日志");
+    // 旁路日志记原文：展示用的 `[hh:mm:ss 来源] ` 前缀只加在屏上（ts 字段另行成列）
+    assert.equal(
+      readLocalLog("s1", { kind: "notice" }, [root])[0]?.text,
+      "未知命令，输入 /help 查看可用命令。",
+    );
     app.dispose();
   } finally {
     clearLocalLogDirCache();

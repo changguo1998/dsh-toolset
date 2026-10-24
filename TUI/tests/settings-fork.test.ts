@@ -17,6 +17,7 @@ import type {
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
 import type { FrameRow, Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
+import { flatRows } from "./helpers/noticeText.ts";
 
 class FakeRenderer implements Renderer {
   keys: KeyEvent[] = [];
@@ -200,8 +201,9 @@ test("/fork：成功 → success + 新会话 id + /session 提示（id 与当前
   await tick();
   const f = frames(renderer);
   assert.equal(adapter.forkCalls, 1);
-  assert.ok(f.includes("已分叉新会话 child-s9"), "success 提示: " + f);
-  assert.ok(f.includes("可用 /session 查看或切换"), "切换提示: " + f);
+  const flat = flatRows(renderer.lastRender);
+  assert.ok(flat.includes("已分叉新会话child-s9"), "success 提示: " + f);
+  assert.ok(flat.includes("可用/session查看或切换"), "切换提示: " + f);
   app.dispose();
 });
 

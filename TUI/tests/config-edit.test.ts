@@ -472,7 +472,7 @@ test("/config set：宿主拒绝 → 文案透出（编辑失败：…）", asyn
   await tick();
   assert.ok(frames(renderer).includes("编辑失败："), frames(renderer));
   assert.ok(
-    frames(renderer).includes("overridden by a home patch"),
+    flatFrames(renderer).includes("overriddenbyahomepatch"),
     frames(renderer),
   );
   app.dispose();

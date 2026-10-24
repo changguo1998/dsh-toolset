@@ -49,6 +49,7 @@ import { THEMES, hexSgr, type ThemeId } from "../src/renderer/theme.ts";
 
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { flatRows, stripNoticePrefix } from "./helpers/noticeText.ts";
 import {
   sectionGroupCount,
   sectionsOf,
@@ -2247,11 +2248,10 @@ test("/theme 非法参数 → notice usage,不调用 renderer.setTheme", () => {
     renderer.lastRender.join("\n").includes("usage: /theme"),
     `应有 usage 提示，实际:\n${renderer.lastRender.join("\n")}`,
   );
-  // usage 提示按 info tone → 正常蓝
-  assert.ok(
-    renderer.lastRender
-      .join("\n")
-      .includes("\x1b[38;2;90;152;243musage: /theme"),
+  // usage 提示按 info tone → 正常蓝（notice 前缀 `[hh:mm:ss 来源] ` 夹在色码与正文之间）
+  assert.match(
+    renderer.lastRender.join("\n"),
+    /\x1b\[38;2;90;152;243m\[\d{2}:\d{2}:\d{2} tui\] usage: \/theme/,
     "usage notice 应着 info 蓝",
   );
 });
@@ -2297,8 +2297,9 @@ test("/help 内容完整折行（notice 不归压缩开关）", () => {
 test("App 本地 notice 按语义 tone 着色（/theme 成功 → success 绿）", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/theme light");
-  assert.ok(
-    renderer.lastRender.join("\n").includes("\x1b[38;2;0;123;58mtheme: light"),
+  assert.match(
+    renderer.lastRender.join("\n"),
+    /\x1b\[38;2;0;123;58m\[\d{2}:\d{2}:\d{2} tui\] theme: light/,
     "切换成功 notice 应着 success 绿（light 主题色板）",
   );
 });
@@ -3976,14 +3977,17 @@ test("notice tone → 4 级语义着色（log 灰 / info 蓝 / warn 黄 / result
   adapter.push({ type: "notice", text: "出错", error: true, tone: "error" });
   adapter.push({ type: "notice", text: "完成", tone: "success" });
   const joined = renderer.lastRender.join("\n");
+  /** 色码紧跟统一前缀（`[hh:mm:ss tui] `）再跟正文 */
+  const withColor = (rgb: string, text: string): RegExp =>
+    new RegExp(`\\x1b\\[38;2;${rgb}m\\[\\d{2}:\\d{2}:\\d{2} tui\\] ${text}`);
   assert.ok(
-    joined.includes("\x1b[38;2;128;135;142m日志"),
+    withColor("128;135;142", "日志").test(joined),
     "log tone → 次要灰(L2 #80878E)",
   );
-  assert.ok(joined.includes("\x1b[38;2;90;152;243m提示"), "info tone → 蓝");
-  assert.ok(joined.includes("\x1b[38;2;233;201;68m重试提示"), "warn tone → 黄");
-  assert.ok(joined.includes("\x1b[38;2;253;0;19m出错"), "error tone → 红");
-  assert.ok(joined.includes("\x1b[38;2;97;211;131m完成"), "success tone → 绿");
+  assert.ok(withColor("90;152;243", "提示").test(joined), "info tone → 蓝");
+  assert.ok(withColor("233;201;68", "重试提示").test(joined), "warn tone → 黄");
+  assert.ok(withColor("253;0;19", "出错").test(joined), "error tone → 红");
+  assert.ok(withColor("97;211;131", "完成").test(joined), "success tone → 绿");
 });
 
 test("本地 slash 分级：/help 内容普通前景（不再 info 蓝）、无效命令 error 红", () => {
@@ -4070,9 +4074,24 @@ test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
     plain.includes("重试 1/2 (1.5s): TRANSPORT 连接被重置"),
     "retry toast 文案",
   );
+  // 直落 toast 同样带统一前缀（`[hh:mm:ss tui] 正文`）
   assert.ok(
-    joined.includes("\x1b[38;2;233;201;68m重试 1/2"),
-    "retry toast warn 黄",
+    /\[\d{2}:\d{2}:\d{2} tui\] 正在压缩上下文\.\.\./.test(plain),
+    "compaction start toast 带前缀",
+  );
+  assert.ok(
+    /\[\d{2}:\d{2}:\d{2} tui\] 压缩完成/.test(plain),
+    "compaction end toast 带前缀",
+  );
+  assert.ok(
+    /\[\d{2}:\d{2}:\d{2} tui\] 重试 1\/2 \(1\.5s\): TRANSPORT 连接被重置/.test(
+      plain,
+    ),
+    "retry toast 带前缀",
+  );
+  assert.ok(
+    joined.includes("\x1b[38;2;233;201;68m["),
+    "retry toast warn 黄（整行着色，含前缀）",
   );
 });
 
@@ -4374,7 +4393,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     return (
       lines
         .slice(sep + 1, statusSep)
-        .map((l) => histBody(l, size.cols).trim())
+        .map((l) => stripNoticePrefix(histBody(l, size.cols).trim()))
         .filter((l) => l !== "")[0] ?? "(空)"
     );
   };
@@ -4441,7 +4460,7 @@ test("活动区滚动：上滚后新增内容不把视口推回最新", () => {
     return (
       lines
         .slice(sep + 1, statusSep)
-        .map((l) => histBody(l, size.cols).trim())
+        .map((l) => stripNoticePrefix(histBody(l, size.cols).trim()))
         .filter((l) => l !== "")[0] ?? "(空)"
     );
   };
@@ -5059,8 +5078,8 @@ test("ruleEngine 服务：onNotice 告警渲染进活动区；dispose 注销订�
     tone: "warn",
   });
   assert.ok(
-    renderer.lastRender.join("\n").includes("flush 失败"),
-    "总线告警渲染进活动区",
+    flatRows(renderer.lastRender).includes("flush失败"),
+    "总线告警渲染进活动区（折行后同样命中，前缀见 notice-format）",
   );
   app.dispose();
   assert.equal(fake.listenerCount(), 0, "dispose 注销订阅");
@@ -5072,6 +5091,40 @@ test("appendExternalLog：外部告警行进活动区；未挂载服务不抛错
   assert.ok(
     none.renderer.lastRender.join("\n").includes("桥兜底告警"),
     "外部行渲染进活动区",
+  );
+});
+
+// ---------- notice 行统一前缀（`[hh:mm:ss 来源] 正文`，见 app/notice-format.ts） ----------
+
+test("notice 前缀：外部行沿用自带来源，时间戳包住来源", () => {
+  const none = makeRuleEngineApp();
+  none.app.appendExternalLog("[session-channel] 已注入 alice ← bob", "log");
+  assert.match(
+    none.renderer.lastRender.join("\n"),
+    /\[\d{2}:\d{2}:\d{2} session-channel\] 已注入 alice ← bob/,
+    "来源取正文前缀，前缀不重复",
+  );
+});
+
+test("notice 前缀：无来源的短提示记 tui", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "notice", text: "已取消", tone: "info" });
+  assert.match(
+    renderer.lastRender.join("\n"),
+    /\[\d{2}:\d{2}:\d{2} tui\] 已取消/,
+    "adapter 短提示记 tui",
+  );
+});
+
+test("notice 前缀：多行提示（/help 双列表格）保持原样", () => {
+  const { renderer, adapter } = makeApp();
+  adapter.push({ type: "notice", text: "第一行说明\n第二行说明" });
+  const text = renderer.lastRender.join("\n");
+  assert.ok(text.includes("第一行说明"), "多行正文上屏");
+  assert.doesNotMatch(
+    text,
+    /\[\d{2}:\d{2}:\d{2} tui\] 第一行说明/,
+    "多行提示不加前缀",
   );
 });
 

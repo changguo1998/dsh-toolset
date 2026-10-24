@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { App } from "../src/app/index.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
+import { stripNoticePrefix } from "./helpers/noticeText.ts";
 import type { AppState } from "../src/app/state.ts";
 
 class TrackedApp extends App {
@@ -116,7 +117,9 @@ test("启动即恢复读取失败：给提示且不抛（不阻塞启动）", as
     const buf = st().local;
     assert.ok(
       buf.some(
-        (l) => l.kind === "notice" && l.text === "启动恢复：既有消息读取失败",
+        (l) =>
+          l.kind === "notice" &&
+          stripNoticePrefix(l.text) === "启动恢复：既有消息读取失败",
       ),
       "失败提示落入 buffer: " + JSON.stringify(buf),
     );
@@ -153,12 +156,18 @@ test("启动期外部日志：恢复启动时先挂起，折叠落定后补发�
     }
     const notice = st().local.find((l) => l.kind === "notice");
     assert.ok(notice, "折叠落定后补发进活动区: " + JSON.stringify(st().local));
-    assert.equal(notice?.text, "[rule-engine] warn: 装载期告警");
+    // 统一前缀在入列前就写好（时间取到达时刻，补发时不重算），补发只还原正文
+    assert.match(
+      notice?.text ?? "",
+      /^\[\d{2}:\d{2}:\d{2} rule-engine\] warn: 装载期告警$/,
+    );
     assert.equal(notice?.tone, "warn", "tone 保留");
     // 落定后新到的日志直接入 buffer
     app.appendExternalLog("后续日志");
     assert.ok(
-      st().local.some((l) => l.kind === "notice" && l.text === "后续日志"),
+      st().local.some(
+        (l) => l.kind === "notice" && stripNoticePrefix(l.text) === "后续日志",
+      ),
       "落定后直接入 buffer",
     );
   } finally {

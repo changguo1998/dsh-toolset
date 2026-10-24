@@ -20,6 +20,7 @@ import { initialState, reduceState, type AppState } from "../src/app/state.ts";
 import { metricsFor, TITLE_BAR_ROWS } from "../src/app/layout.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
+import { stripNoticePrefix } from "./helpers/noticeText.ts";
 import {
   withText,
   withToolCall,
@@ -337,20 +338,22 @@ test("App 端到端：运行中聚焦回合区后方向键可滚该区域，流�
     assert.ok(top >= 0, "回合区窗口存在");
     return top;
   };
-  /** 回合区当前可见的全部正文行（跳过顶/底边行与空行） */
+  /** 回合区当前可见的全部正文行（跳过顶/底边行与空行；notice 前缀归一后比较） */
   const actLines = (): string[] => {
     const out: string[] = [];
     for (const line of renderer.lastRender.slice(turnTopRow() + 1)) {
       const body = bodyOf(line);
-      if (body !== null && body.trim() !== "") out.push(body.trim());
+      if (body !== null && body.trim() !== "")
+        out.push(stripNoticePrefix(body.trim()));
     }
     return out;
   };
-  /** 回合区首行可见文本 */
+  /** 回合区首行可见文本（notice 前缀归一） */
   const actFirst = (): string => {
     for (const line of renderer.lastRender.slice(turnTopRow() + 1)) {
       const body = bodyOf(line);
-      if (body !== null && body.trim() !== "") return body.trim();
+      if (body !== null && body.trim() !== "")
+        return stripNoticePrefix(body.trim());
     }
     return "(空)";
   };

@@ -45,6 +45,7 @@ import type {
   RuleEngineLike,
 } from "./adapter/dsh.ts";
 import type { MemoryRowRef, NoticeTone } from "./adapter/types.ts";
+import { formatNoticeLine } from "./notice-format.ts";
 import {
   allSections,
   applyDelivery,
@@ -699,7 +700,15 @@ export class App {
       }
       const delivery = deliveryOfLine(line, scope, index);
       index += 1;
-      if (delivery !== undefined) this.deliverLocal(delivery);
+      if (delivery !== undefined)
+        this.deliverLocal(
+          // 事件驱动补块：reducer 直落 toast（compaction / retry / workflow 等）的
+          // notice 行同样补统一前缀（`[hh:mm:ss 来源] 正文`）。幂等：已带前缀
+          // （shortNotice / adapter 事件已格式化）或 /help 多行表格原样返回。
+          delivery.kind === "notice"
+            ? { ...delivery, text: formatNoticeLine(delivery.text, Date.now()) }
+            : delivery,
+        );
     }
     this.bufferTailIndex = index;
   }
@@ -1151,7 +1160,14 @@ export class App {
       this.sections = createSections();
       this.groupCount = null; // 会话切换（BACKLOG #24②）：窗口基线随会话重建
       this.sectionsSessionId = this.state.activeSessionId;
-      sink.current = (delivery) => this.ingestDelivery(delivery);
+      // 宿主 / adapter 的实时投递：notice 文本在此补统一前缀（`[hh:mm:ss 来源] 正文`）；
+      // 本地写入（App.notice / 恢复重放）自己已格式化或属历史记录，不再经过本口。
+      sink.current = (delivery) =>
+        this.ingestDelivery(
+          delivery.kind === "notice"
+            ? { ...delivery, text: formatNoticeLine(delivery.text, Date.now()) }
+            : delivery,
+        );
       const pipeline = this.sections;
       // 内容单源：注入节缓存（条目 16 段 C2 后这是唯一内容来源）
       this.apply((s) => reduceState(s, { type: "pipeline-state", pipeline }));
@@ -1338,16 +1354,17 @@ export class App {
    * 保证提示在 close() 前真实落屏。
    */
   private paintExitNotice(text: string, tone?: NoticeTone): void {
+    const shown = formatNoticeLine(text, Date.now());
     this.state = reduceState(this.state, {
       type: "notice",
-      text,
+      text: shown,
       ...(tone ? { tone } : {}),
     });
     // 双写：流水线节缓存（与 `notice()` 同口径）。缺了它，注册 sink 后内容不再写缓冲 →
     // 退出清理提示永远不上屏（条目 16 段 C1 暴露；生产 main.ts 恒注入 sink，真机同样中招）
     this.deliverLocal({
       kind: "notice",
-      text,
+      text: shown,
       ...(tone ? { tone } : {}),
     });
     const size = this.deps.renderer.getSize();
@@ -1963,24 +1980,12 @@ export class App {
         // 是「面板还开着，再按 y 却毫无反应」（settle 后 pending 已删，approve 静默丢失）
         if (this.state.approval?.id !== e.id) break;
         this.apply((s) => reduceState(s, { type: "approval", approval: null }));
-        this.apply((s) =>
-          reduceState(s, {
-            type: "notice",
-            text:
-              e.reason === "timeout"
-                ? "审批已超时（按默认拒绝处理）"
-                : "审批已取消（连接中断）",
-            tone: "warn",
-          }),
+        this.shortNotice(
+          e.reason === "timeout"
+            ? "审批已超时（按默认拒绝处理）"
+            : "审批已取消（连接中断）",
+          "warn",
         );
-        this.deliverLocal({
-          kind: "notice",
-          text:
-            e.reason === "timeout"
-              ? "审批已超时（按默认拒绝处理）"
-              : "审批已取消（连接中断）",
-          tone: "warn",
-        });
         break;
       }
       case "question":
@@ -2000,14 +2005,16 @@ export class App {
         // 需交互（问答）→ 立即响铃并起催促计时（BACKLOG 3.4.1 / 3.4.3）
         this.beginInteractiveBell();
         break;
-      case "notice":
+      case "notice": {
         // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史；
         // error 标记(如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
         // tone 标记（turn/end finish reason 等）→ 渲染层按红/黄/灰着色
+        // 展示文本补统一前缀（`[hh:mm:ss 来源] 正文`）；旁路日志记原文。
+        const shown = formatNoticeLine(e.text, Date.now());
         this.apply((s) =>
           reduceState(s, {
             type: "notice",
-            text: e.text,
+            text: shown,
             error: e.error,
             tone: e.tone,
           }),
@@ -2015,6 +2022,7 @@ export class App {
         // 旁路：adapter 事件态 notice 同样只给用户看 → 落本地日志供模型侧工具读
         this.recordLocalLog("notice", e.text);
         break;
+      }
       case "turn-start":
         // #3：把宿主回合号回填到本回合的分隔线（分隔线已在本地 turn-begin 落行、暂时无号）
         if (typeof e.turn === "number") {
@@ -2272,18 +2280,7 @@ export class App {
   private warnStrippedChars(): void {
     const n = this.state.strippedChars;
     if (n <= 0) return;
-    this.apply((s) =>
-      reduceState(s, {
-        type: "notice",
-        text: `已过滤 ${n} 个非打印控制字符（渲染保护）`,
-        tone: "warn",
-      }),
-    );
-    this.deliverLocal({
-      kind: "notice",
-      text: `已过滤 ${n} 个非打印控制字符（渲染保护）`,
-      tone: "warn",
-    });
+    this.shortNotice(`已过滤 ${n} 个非打印控制字符（渲染保护）`, "warn");
     this.apply((s) => reduceState(s, { type: "clear-stripped" }));
     this.paint();
   }
@@ -2324,13 +2321,16 @@ export class App {
   /**
    * 外部告警行入口（stderr 桥 / 插件 notice 总线）：进活动区、可回溯（tone 缺省 log）。
    * 接线见 main.ts（桥）与 ruleEngine()（总线）。
+   * 行文本在此补统一前缀（`[hh:mm:ss 来源] 正文`，见 app/notice-format.ts）：时间取
+   * 到达时刻，故启动挂起（bootLogPending）在入列前就格式化，补发时不再重算。
    */
   appendExternalLog(line: string, tone?: NoticeTone): void {
+    const text = formatNoticeLine(line, Date.now());
     if (this.bootLogPending !== null) {
-      this.bootLogPending.push({ text: line, tone });
+      this.bootLogPending.push({ text, tone });
       return;
     }
-    this.notice(line, tone ?? "log");
+    this.notice(text, tone ?? "log");
   }
 
   /**
@@ -3660,18 +3660,7 @@ export class App {
       }
       // 降级提示放在发送**之后**：发送路径可能开回合（turn-begin 清活动区），先提示会被清掉
       if (!canSteer) {
-        this.apply((s) =>
-          reduceState(s, {
-            type: "notice",
-            text: "宿主不支持 steer，已按 followup 投递",
-            tone: "warn",
-          }),
-        );
-        this.deliverLocal({
-          kind: "notice",
-          text: "宿主不支持 steer，已按 followup 投递",
-          tone: "warn",
-        });
+        this.shortNotice("宿主不支持 steer，已按 followup 投递", "warn");
       }
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
       this.apply((s) => reduceState(s, { type: "input-mode", mode: "steer" }));
@@ -3783,18 +3772,7 @@ export class App {
   private handleSlash(line: string): void {
     const name = parseSlashCommand(line);
     if (!name) {
-      this.apply((s) =>
-        reduceState(s, {
-          type: "notice",
-          text: "无效命令: " + line,
-          tone: "error",
-        }),
-      );
-      this.deliverLocal({
-        kind: "notice",
-        text: "无效命令: " + line,
-        tone: "error",
-      });
+      this.shortNotice("无效命令: " + line, "error");
       // 本地可检测的无效 slash 命令 → 失败色(红)
       this.apply((s) =>
         reduceState(s, { type: "input-status", status: "failure" }),
@@ -5753,18 +5731,34 @@ export class App {
     }
   }
 
-  /** 追加一条命令通知并重绘（/model 结果/错误统一入口） */
-  private notice(text: string, tone?: NoticeTone): void {
-    if (this.disposed) return;
+  /**
+   * 写一条短提示：缓冲 + 流水线双写，展示文本补统一前缀（`[hh:mm:ss 来源] 正文`，
+   * 见 app/notice-format.ts）。多行提示（/help 双列表格）不走这里——前缀只加单行短提示。
+   */
+  private shortNotice(text: string, tone?: NoticeTone): void {
+    const shown = formatNoticeLine(text, Date.now());
     this.apply((s) =>
-      reduceState(s, { type: "notice", text, ...(tone ? { tone } : {}) }),
+      reduceState(s, {
+        type: "notice",
+        text: shown,
+        ...(tone ? { tone } : {}),
+      }),
     );
     // 双写：流水线通知节（scope 由接收层取 lastScope；启动早期 → 回合 1）
     this.deliverLocal({
       kind: "notice",
-      text,
+      text: shown,
       ...(tone === undefined ? {} : { tone }),
     });
+  }
+
+  /**
+   * 追加一条命令通知并重绘（/model 结果/错误统一入口）。
+   * 展示文本补统一前缀；旁路日志记原文（ts / kind 另行成列）。
+   */
+  private notice(text: string, tone?: NoticeTone): void {
+    if (this.disposed) return;
+    this.shortNotice(text, tone);
     // 旁路：notice 只给用户看（不进模型上下文）→ 落本地日志供模型侧工具按需读
     this.recordLocalLog("notice", text, {
       ...(tone === undefined ? {} : { tone }),

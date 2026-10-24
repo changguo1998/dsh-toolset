@@ -264,6 +264,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 - **A · 运行期 stderr 桥**（`app/stderr-bridge.ts`）：`main()` 在 `App` 创建后、`start()` 前接管 `process.stderr.write`——按 `\n` 行缓冲，完整行交 `App.appendExternalLog(line, tone)`（`notice` 通道进**活动区**；tone 按 `error|fatal` / `warn(ing)|警告` 判定）；启动前写入与 `dispose()` 后照旧直写，桥内再写 stderr 直通原流防递归，多参调用（encoding / callback）透传。原因：渲染器是 delta 重绘且光标停在输入区，裸 stderr 字节会残留在输入区。
 - **B · rule-engine 告警总线**：`App` 经 `getRuleEngine`（`ctx.get('ruleEngine')` 懒读、`start()` 接线、`dispose()` 注销）订阅 `onNotice`，事件经同一 `appendExternalLog` 进活动区；插件侧有订阅者时不写 stderr（headless 兜底）。
+- **C · 行格式统一（2026-10-24 用户要求）**：用户可见的 notice 行统一成 `[hh:mm:ss <来源>] 正文`（`app/notice-format.ts` 的 `formatNoticeLine`）。时间取 TUI 收到该行的时间（本地时区、24 小时制，复用 `app/clock.ts` 的 `clockHms`）；来源取正文自带的 `[来源]` 前缀（插件 stderr 惯例，如 `[session-channel]`、`[rule-engine]`），无前缀的 TUI 自造提示记 `tui`。**边界**：`/help` 双列表格等多行 notice 原样输出（加前缀会破悬挂缩进与列对齐）；已带 `[hh:mm:ss …]` 前缀的行幂等返回（同一行会经缓冲与流水线两条交付路径）；分级词（`warn:` / `error:`）留在正文（`externalLogTone` 靠它们判 tone 色，stderr 原文同源）；本地旁路日志 `tui-local.jsonl` 记原文（`ts` / `kind` 另行成列）。接线点：`appendExternalLog`（stderr 桥 / 告警总线 / 配置提示，入挂起队列前格式化）、`App.notice`（自造短提示）、事件 `case "notice"`（adapter 事件进缓冲）与 `pipelineSink.current`（adapter 事件进流水线）、`shortNotice` / `paintExitNotice`（不经 `notice()` 的直接双写）。
 
 ### 审批：界面与审计（审计未接入）
 

@@ -9,6 +9,8 @@
 
 ## 待办
 
+> 2026-10-24 关闭：`#1` notice 行统一为 `[hh:mm:ss <来源>] 正文` 完成并移出清单（实现含 deliverBufferTail 补漏, 即 compaction/retry 等直落 toast 也带前缀; 追踪文档 `TUI/docs/archived/2026-10-24-notice-line-format.md`; 复验 1760 例 + 冒烟 42 PASS; demo 脚本不再内嵌 build）。
+
 > 2026-10-22 接取：全部 5 条标〔进行中: 2026-10-22〕，追踪文档 `TUI/docs/implementation/2026-10-22-*.md`（hmr-no-exit / config-editor-surface / code-block-tab / table-content-mismatch / user-block-right-gap）；本次只建文档，调研与实现未开始。
 
 > 历史（2026-10-13 至 2026-10-22）：本清单关闭过的 20 余条过程记录全在 `TUI/docs/archived/`（按日期命名，逐条对应），本文件不再保留逐条关闭注记。要点按档：`2026-10-13-*`（HMR 主题退出 / tui 配置重建 fiber）、`2026-10-14-*`（`@` 文件补全 / 焦点键与提示行）、`2026-10-15-*`（打断发送与 `!` 模式 / 焦点保持 / 相位抖动）、`2026-10-16-*`（提示键审计 / 审批超时 / 宽度探测 / 思考排版 / 干净退出 / 边界留白）、`2026-10-17-*`（字符格高宽比）、`2026-10-18-*`（活动区开关 / 用户块平衡 / 五项清单）、`2026-10-19-*`（notice 模型可见 / 列表类型）、`2026-10-21-help-align-4.md`（help 4 空格档位）。
