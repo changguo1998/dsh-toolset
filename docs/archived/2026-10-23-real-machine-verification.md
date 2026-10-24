@@ -1,6 +1,6 @@
 # 真机验证清单（herdr-use 终端面 / coagent / 三个适配插件 / TUI 表格）
 
-状态：14 项全部判读完成（#5 部分通过；#8 / #9 / #10 与 #11 运行时确认于 2026-10-24）　　开启：2026-10-23　　关闭：2026-10-24
+状态：14 项全部判读完成，现全部通过（#5 跨 lane 清理于 2026-10-24 补验；#8 前提不成立按通过记）　　开启：2026-10-23　　关闭：2026-10-24
 本文件是真机验证阶段的过程记录与落点；每验完一项就地补「结果」列与证据（工具回执 / 屏幕摘要 / 命令输出）。
 
 ## 前置
@@ -43,7 +43,7 @@
 | 2 | 通过（手动起 server + 自动拉起复核） | 首轮失败：`dshbg` 的 herdr server 未运行，`herdr session attach dshbg` 在 pane 内被拒（`nested herdr is disabled by default`）、去 TTY 则客户端立刻退出．**找到正解**：`herdr server` 是 headless server，`setsid herdr --session dshbg server >/tmp/dshbg-server.log 2>&1 < /dev/null &` 后 `herdr session list` 里 `dshbg` 变 `running`（log 打印 `herdr server running` 与 socket 路径）；随后 `herdr_create {foreground:false}` 回 `已建终端 w1:p2（后台 dshbg）`，`herdr_list` 同时列出前台 `wZ3:p4` 与后台 `w1:p2` 并各标 `[本插件]`．2026-10-24 复核自动拉起：先 `herdr session stop dshbg`，再 `herdr_create {foreground:false}` 回 `w2:p2`（新 workspace）；`herdr_list` 标 `[本插件]`，`herdr_run "echo autostart-ok"` 后 `herdr_read` 见 `autostart-ok`，`herdr_close` 注销，server 由 `ensure()` 自动拉起． |
 | 3 | 通过 | 后台终端 `w1:p2` 上 `herdr_run "sleep 2; echo bg-ok"` -> `herdr_wait {match:"bg-ok"}` 命中 -> `herdr_wait {stable:true}` 判稳（502 / 602 ms，走 socket）-> `herdr_read` 见 `bg-ok`．后台 lane 的 socket 解析正常． |
 | 4 | 通过 | `herdr_label {label:"verify-main-2"}` 成功，`herdr_list` 里该终端 label 随之变成 `verify-main-2`，且标 `[本插件]`． |
-| 5 | 部分通过 | `herdr_close` 后 `herdr_list` 只剩宿主 pane `wZ3:p1`；进程退出时跨 lane 清理未验（后台 lane 不可用）；workspace 自带 root pane 不登记 → 退出后 workspace 不自动关，按 README 已知边界，未另测． |
+| 5 | 通过（跨 lane 补验） | `herdr_close` 后 `herdr_list` 只剩宿主 pane `wZ3:p1`；2026-10-24 跨 lane 退出清理补验：建后台终端 `w2:p3`（label `verify-exit-bg`）后正常退出 dsh，`~/.config/herdr/sessions/dshbg/herdr-server.log` 于 14:09:55 记 `tab.close`，`sessions/dshbg/session.json` 里 workspace `w2` 只剩 root pane（tabs=1 / panes=1），server 仍在运行（socket 在，14:10 仍有客户端连入）；workspace 因自带 root pane 不关，按 README 已知边界． |
 | 6 | 通过 | `herdr_run "echo mkfs-probe"` 被 security-guard 拦下，回执明写「拦截来源：插件命令工具「herdr_run」的命令参数（command）」——改名后登记仍生效．另注：`rm -rf /tmp/...` 未被拦（黑名单不含通用 rm，属既有策略，与本改名无关）． |
 | 7 | 通过 | `bash` 里跑 `herdr status` 被拦，理由为「bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）」，已无 `herdr_use` / `pane_*`． |
 | 8 | 通过（前提不成立） | herdr 工具定义无审批元数据（`herdr-use/src/tools.ts:200` 的 `HerdrUseToolDef` 不含 ask / approval 字段），不发起 `approval/request`；2026-10-24 实测 `herdr_list` 未弹面板，2026-10-23 连续调用 `herdr_create` / `run` / `read` / `info` / `label` / `close` 同样无面板．只读名单是否收 herdr 读类（`auto-approve/src/config.ts:11` 的 `DEFAULT_READONLY_TOOLS` 不含）因此不影响体验． |
@@ -64,12 +64,12 @@
 - #8 / #9 / #10 / #11 运行时于 2026-10-24 判读完成（见上表）。
 - #12 至 #14 已完成（coagent 接线后重启验过，见上表）。
 - 接线过程中修掉一个真实缺陷：`coagent` 原先只把 `herdrUse` / `sessionChannel` 放在 `ctx.get` 里取，cordis 不保证对方先 `provide`，取到 `undefined` 就走「缺服务」分支直接 return，表现为重启后工具静默不出现；已改为静态 `inject`（`231f26a`）。
-- 本次验证过程中起的 `dshbg` headless server 仍在运行（detached，日志 `/tmp/dshbg-server.log`）；如需还原，`herdr session stop dshbg`。
+- 后台 lane 的 headless server 由 `ensure()` 拉起后仍在运行（日志 `~/.config/herdr/sessions/dshbg/herdr-server.log`）；要还原用 `herdr session stop dshbg`。
 
 ## 收尾
 
 - 关闭：2026-10-24；本文件由 `docs/implementation/` 移入 `docs/archived/`。
 - 引用回写：仓内 7 个文件共 9 处 `docs/implementation/2026-10-23-real-machine-verification.md` 改为 `docs/archived/` 路径（`docs/BACKLOG.md` 2 处、`docs/archived/2026-10-23-herdr-use-terminal-surface.md` 2 处，其余 4 个归档文档各 1 处）；DESIGN / README / ROADMAP 无相关内容，不改。
 - BACKLOG：本任务不对应条目，无需清理。
-- 遗留项（未验，不算通过）：#5 进程退出时跨 lane 清理（不在本次三条范围内，需要时另开条目）。
-- 范围外：`auto-approve/docs/implementation/2026-10-22-worktree-git-escalation.md` 的「待裁定」仍未关闭。
+- 遗留项：无（#5 跨 lane 清理已于 2026-10-24 补验通过）。
+- 范围外：`auto-approve/docs/archived/2026-10-22-worktree-git-escalation.md` 已于 2026-10-24 关闭（用户裁定规则保留）。
