@@ -22,13 +22,15 @@
 
 - 上下文报告：context-report（host-only 投影 `sessionContext` 只折 token 分桶；回合 / 步 / 墙钟读官方 `sessionStats` 投影，2026-10-06 去重 + `context_report` 三档报告）；
 
-- 安全与集成：security-guard 策略层、herdr-integration、herdr-use（把 herdr pane 当可控伪终端层驱动交互式命令：13 个动作（pane 类 `pane_` 前缀 + tab 三动作）与会话 ↔ workspace 内部绑定 + `herdr_use` 工具 + 库面，CLI 为主、`pane_read` / `stable` 走 socket；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`）；
+- 安全与集成：security-guard 策略层、herdr-integration、herdr-use（把 herdr 终端当可控伪终端层驱动交互式命令：**10 个模型侧工具** `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`（旧 `herdr_use` 与 `pane_*` / `tab_*` 动作已删），一个终端 = 一个 tab + 自带 root pane、严格一会话一 workspace、`foreground:false` 落 `dshbg` 后台 lane（缺会话时 `herdr server` 自动拉起），并与进程内 `herdrUse` 服务面共用同一份登记表与写锁；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`、本轮终端面重构 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）；
 
 - 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、注入消息呈现（**不带** `source.form:'notice'`：TUI 按用户输入块显示、正文以 `[RULE] ` 前缀标明自动注入）、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
 
 - TUI：/workflows 面板、/council、/search 多 provider 聚合、声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
 
 - 工程流程与文档：文档体系与变更规范落地（追踪文档 `docs/archived/2026-09-25-docs-workflow-rollout.md`）、`TUI/docs/IMPLEMENTATION.md` 拆分删除（命令/机制 → `TUI/docs/DESIGN.md`「实现要点（机制与命令）」、渲染/排版 → `TUI/docs/SPEC.md` §15、验证 → `TUI/README.md`；追踪文档 `docs/archived/2026-09-29-tui-implementation-doc-split.md`）、根 README 英文化（英文主档 `README.md` + 中文版 `README.zh.md`，`AGENTS.md` 语言约定例外与口径同步；追踪文档 `docs/archived/2026-09-30-readme-i18n.md`）。
+
+- 新包与根级接线：`coagent`（长驻 agent 拉起与收尾：经 `herdrUse` 建终端并发 `fffdsh`，用 `peers` 认领新会话；追踪文档 `coagent/docs/archived/2026-10-22-coagent.md`）、根级接线与 profile 挂载（根 `package.json` 四链、`AGENTS.md`、根 README 双侧、`scripts/*.sh` 枚举、profile 模板；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包 = 34 个 bundle；追踪文档 `docs/archived/2026-10-23-new-package-wiring.md`）。`tool-consult` 已实现并挂载，但真机工作流复核留了 3 处待修缺陷，尚在 §2 条目 4。
 
 - 运行时与宿主：宿主双栈兼容垫片清理（0.1.7-rc.2 单一形态；追踪文档 `docs/archived/2026-09-29-host-single-stack-cleanup.md`）、tmux 断连后 dsh 退出 → 退出前问题面板确认（追踪文档 `docs/archived/2026-09-29-exit-confirm-panel.md`）、跨会话消息通道 `session-channel` 插件（专用 Redis 实例 + unix socket；追踪文档 `docs/archived/2026-09-29-cross-session-intercom.md`）、跨会话共享 KV（session-channel 服务面扩展，last-value + 版本号；追踪文档 `session-channel/docs/archived/2026-09-29-shared-kv.md`）、会话标题参考窗口改为「最近一次 `git commit` 之后」（新包 `session-title-cutoff`，接管 `ctx.sessionTitle` 唯一 provider；追踪文档 `session-title-cutoff/docs/archived/2026-09-29-title-cutoff-provider.md`）、跨会话委托/协调（`session-channel` 任务语义：任务表 + 结果自动/显式回传 + `channel_delegate`/`channel_task`/`channel_task_result` 三工具；追踪文档 `docs/archived/2026-09-30-cross-session-delegation.md`）、模板体系（`command-template`：预案 `/playbook` 统一入口 + 五族模板 + 双源目录 + 模板级模型选择；追踪文档 `docs/archived/2026-09-30-template-system.md`）。
 
@@ -68,6 +70,9 @@
 > 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；过程记录 `docs/archived/2026-10-23-clock-base-rename.md`）。
 > 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；过程记录 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
 > 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；过程记录 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/implementation/2026-10-23-real-machine-verification.md` #12 至 #14）。
+> 2026-10-24 关闭：条目「6. 共享文档与根级接线」完成并移出清单（根四链、`AGENTS.md`、README 双侧、`scripts/*.sh` 枚举、profile 模板全部落地；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包 = 34 个 bundle；过程记录 `docs/archived/2026-10-23-new-package-wiring.md`）。
+> 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/implementation/2026-10-23-real-machine-verification.md`；过程记录 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
+> 2026-10-24 保留：条目「4. 工具咨询插件」不关闭 —— 实现与真机主链路已过，但真机工作流复核发现 3 处缺陷待修，见 `tool-consult/docs/implementation/2026-10-22-tool-consult.md` §8。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
 
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
@@ -79,11 +84,7 @@
 > - 跨会话与通知：`2026-09-30-cross-session-delegation.md`、`2026-10-20-notice-history-query.md`、`2026-10-20-agent-status-board.md`
 > - 文档与流程：`2026-10-18-plugin-docs-refresh.md`、`2026-10-22-docs-consistency.md`
 
-**4. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**〔进行中: 2026-10-22〕（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 未接取, 等用户指令继续设计。
-
-**6. 共享文档与根级接线（由主分支代理承接）**〔进行中: 2026-10-22〕（2026-10-22 登记, 来源: 用户约定「新包只改自己包目录内的文件, 项目级文件交给主分支上的代理」）：**现象 / 现状** —— 三个新包（`coagent` / `tool-consult`，以及形态待定的 MCP 若最终定为新包）若各自去改根级接线文件，会与并行开发的其它线在 `package.json`、`AGENTS.md`、根 README 双侧、`profiles/example/cordis.patch.yml` 上互相踩踏。**期望** —— 并行任务只写**自己范围内的文件**（新包写包内目录；TUI 任务写自己的 `src/` 与 `tests/`）外加**自己的追踪文档**；**共享文档**与**根级接线**一律由主分支代理统一回写。共享文档清单：`docs/BACKLOG.md`、`TUI/docs/BACKLOG.md`（状态与关闭注记）、`TUI/docs/SPEC.md`、`TUI/README.md`、`TUI/docs/COMMANDS.md` / `COMMANDS-SPEC.md`、根 `README.md` / `README.zh.md`。**接线清单（每个新包一份）** —— ① 根 `package.json`：`check` / `build` / `test` / `demo` 链加入新包；② `AGENTS.md`：包清单（30 → 31 …）与「结构与约定」一行说明；③ 根 `README.md` / `README.zh.md`：包数与功能行（双侧同构）；④ `profiles/example/cordis.patch.yml` 与用户 profile（工作区外，需明确授权）；⑤ `scripts/test-parallel.sh` 的包枚举（若为硬编码）。**优先级** —— P1（不接线则新包不进构建与测试链）。**状态** —— 由主分支代理承接；新包只负责在包内把 `package.json` 的 `dsh.bundle` 契约与 `cordis.patch.yml` 写好。
-
-**7. herdr-use 终端面重构（10 个工具）与共用服务面**〔进行中: 2026-10-23〕（2026-10-23 登记, 同日按用户裁定扩范围；原条目只做共用服务面，来源: coagent 的硬前置）：**现象 / 现状** —— 现有工具面把 pane 与 tab 分两层（单工具 `herdr_use` + 13 动作），调用方要自己判断「建 pane 还是建 tab、拿哪个 id 驱动」；`PaneRegistry` 与库面 `DispatchDeps` 绑死，外部插件自组装会得到**第二份登记表与第二把写锁**（`registry.serialize` 只在实例内生效），工具路径的退出清理不认外部建的对象，归属校验也对不上。**期望** —— ① **终端单层、十个工具**：一个终端 = 本插件 `herdr_create`（内部 `tab create`）建出的 tab + 自带 root pane；返回 root pane id 作 `terminal_id`，`herdr_close` 关整个 tab；工具面不再出现 pane / tab / workspace 概念（不出现 `tab_id`）；工具只留 10 个且无 `action` 参数：`herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`，旧 `herdr_use` 与旧动作不留别名；每工具独立 schema（`additionalProperties: false`）；② **会话模型**：严格一个 dsh 会话一个 workspace（按 session id 建绑定，不再进程内单例、子会话沿用）；`herdr_create` 增 `foreground`（缺省 `true`，落在父会话所在 herdr session；`false` 时该终端所有命令前置 `--session dshbg`，落在名为 `dshbg` 的 herdr 会话，herdr 语义为「使用或创建」）；③ **边界**：删 `allowForeignPanes` / `force` / `requireApproval` 与外来 pane 审批门，只留登记校验与 read-only 沙箱闸（读类放行，`herdr_create` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run` / `herdr_close` 拒）；④ **服务面**：`ctx.provide("herdrUse", …)` 与工具面共用同一 `dispatchDeps`（同 registry、同锁），方法用 camelCase 覆盖 10 个动作 + 通用 `dispatch`，末参会话上下文可以是工具 `exec` / `{session:{id,cwd}}` / `{id,cwd}`；只暴露 `isRegistered` 与 `config`、不暴露 registry；服务面不经 `tools/pre-execute`。**落点** —— `herdr-use/src/{types,tools,actions,registry,workspace,cli,main,index}.ts`、新增 `herdr-use/src/service.ts`、`herdr-use/tests/*`、`herdr-use/README.md`、`herdr-use/scripts/verify-herdr-use.mjs`。跨插件配合改动（`security-guard` / `behavior-correction` / `tool-consult` / `auto-approve`）已各自单独立项并建追踪文档，不在本条目落点内（2026-10-23 用户裁定：本任务只改 `herdr-use/` 包内与本文档）。**验收** —— 单测覆盖 10 个工具 schema 与注册数、argv（含 `--session dshbg` 前缀）、归属拒绝、`herdr_list` 双 lane 聚合与 `registered` 标记、`herdr_close` 关 tab、两个会话 workspace 隔离、退出清理跨 lane、服务面共享 registry/锁、context 三种形态；`cd herdr-use && npm run check && npm test` 全绿、根 check / build 全绿（跨包测试归各自条目）; README 与工具描述逐条一致；真机不跑（`dshbg` 建会话列入未验证项）。**优先级** —— P1（coagent 的硬前置，且是 herdr-use 对外契约变更）。**状态** —— 已接取（2026-10-23；追踪文档 `docs/implementation/2026-10-23-herdr-use-terminal-surface.md`，契约与计划已成文，待用户确认后动代码）。
+**4. 工具咨询插件（按需揭示工具, 避免模型记忆大量工具名）**〔进行中: 2026-10-22〕（2026-10-20 登记, 来源: 用户提出的新插件构想, 设计讨论中未定稿）：**现象 / 现状** —— 模型工具面全量暴露, 需记忆大量工具名且全程占用上下文; 没有「描述功能需求 → 返回可用工具」的按需发现入口。**期望** —— 新插件提供「工具咨询」: 模型描述要用的功能 → 插件返回匹配工具（名称 + 简述）并使其对当前会话可见（`tools.restrict` 遮罩 + 单条活动 mask 替换揭示）; 咨询工具本身常驻可见（own-layer 注册豁免 restrict）; 待定项: 初始可见集、匹配方式（关键词索引 vs LLM 语义）、揭示与收回语义。**优先级** —— 待定（设计未定稿）。**状态注记** —— 2026-10-22 接取并已实现；2026-10-24 真机主链路通过，但工作流复核留了 3 处缺陷（预览抬头自相矛盾、turn 档名额不设限、`consult_tools` 自报名报未知），修完才关闭，逐条见 `tool-consult/docs/implementation/2026-10-22-tool-consult.md` §8。
 
 **未立项观察项**：活动工具交互管理（暂不立项, 作为后续可选项）。
 
@@ -94,13 +95,10 @@
 | 组 | 顺位 | 条目 | 工作量 | 组内串行原因 |
 | --- | --- | --- | --- | --- |
 | F tool-consult | F1 | `4. 工具咨询插件`（项目级） | 约 3 至 5 天 | 单条; **只改 `tool-consult/`**（根级接线属 H 组） |
-| H 共享文档与接线 | H1 | `6. 共享文档与根级接线`（项目级, 主分支代理） | 约 1 天 | 单条; **独占两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`、根 `package.json`、`AGENTS.md`、profile 模板** |
-| I herdr-use 终端面 | I1 | `7. herdr-use 终端面重构与共用服务面`（项目级, 主分支承接） | 约 2 至 3 天 | 单条; 主要改 `herdr-use/`（`src/`、tests、README、验证脚本），另 `security-guard/` 命令登记与 `behavior-correction/` 一行文案 |
 
 **写入范围（2026-10-23 约定）**: 各组任务可写**自己的代码与测试**（新包：包内目录；TUI：自己的 `src/` 与 `tests/`）以及**自己的追踪文档**; 共享文档（两级 BACKLOG、`TUI/docs/SPEC.md`、两份 README、`COMMANDS*.md`）与根级接线（根 `package.json`、`AGENTS.md`、profile 模板）**只由 H 组（主分支代理）回写**。
-**可并行度**: 余下 F / H / I **三组互不重叠，理论可三路并行**; 实际受机器资源与评审带宽限制。
-**H 组前置**: 需对应新包的 `package.json`（`dsh.bundle`）与 `cordis.patch.yml` 就绪, 故通常在各新包编排提交后收尾; 但不与它们争文件。
-**组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（P1: 项目级 `6. 新包根级接线`、项目级 `7. herdr-use 终端面`；TUI `#3` 与项目级 `3. coagent` 已于 2026-10-23 关闭）。
+**可并行度**: 2026-10-24 起只剩 F 组（条目 4 的收尾修复）一条在跑; H / I 两组随条目关闭而解散, 不再有可并行轨道。
+**组内顺序不是优先级**: 优先级仍以各条目的 P 值为准（H 组条目 6、I 组条目 7 与 TUI `#3`、项目级 `3. coagent` 均已关闭；余 F 组条目 4 待修 3 处工作流缺陷）。
 
 ## 3. 里程碑
 

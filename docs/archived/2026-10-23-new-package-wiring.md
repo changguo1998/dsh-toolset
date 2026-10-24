@@ -1,6 +1,6 @@
 # 新包根级接线：coagent（接取条目：`docs/BACKLOG.md` §2「6. 共享文档与根级接线」）
 
-状态：进行中（2026-10-23；仓库内 5 处已改，profile 那一步待用户执行）　　开启：2026-10-23
+状态：已完成（2026-10-24；仓库 5 处接线 + profile 挂载均已完成，`~/.dsh/profiles/fff` 现挂 34 个 bundle = dsh-base + 33 包，`coagent` 与 `tool-consult` 都在；真机项 #12–#14 已验）　　开启：2026-10-23　　关闭：2026-10-24
 
 ## 目标
 
@@ -24,11 +24,18 @@
 1. `scripts/install.sh --profile fff --sync --skip-build` —— 关键在 `--sync`：已有 `package.json` 时该脚本默认**保留**不覆盖，只有 `--sync` 才按当前选择集合并刷新（输出「已更新 package.json（本仓库 bundle 32 个 + dsh-base）」）。
 2. 随后 `pnpm install`（脚本内的 install 步已在 `--sync` 同一次运行里完成），`node_modules/@dsh-toolset/coagent -> ../../../Projects/dsh-toolset/coagent`，`dsh.profile.bundles` 变成 33 项（dsh-base + 32 个包）。
 
-## 未做
+## 后续挂载（2026-10-24 完成）
 
-- 真机验证 #12 至 #14（`coagent spawn` / `close` / 服务面共享）：需重启 dsh 让新 bundle 生效后做，清单见 `docs/implementation/2026-10-23-real-machine-verification.md`。
+- `tool-consult` 同日挂上：同一套 `--sync` 流程，`dsh.profile.bundles` 由 33 项变 34 项（dsh-base + 33 个包）。
+- 真机验证 #12 至 #14（`coagent spawn` / `close` / 服务面共享）已在重启后跑完并通过，见 `docs/implementation/2026-10-23-real-machine-verification.md`。
 
 ## 验证
 
 - `npm run check`：通过（含 `npm --prefix coagent run check`）。
 - `npm run test`：全包 OK，其中 `coagent 31 pass / 0 fail`。
+
+## 收尾（2026-10-24 归档）
+
+- 接线完成：根 `package.json` 四链、`AGENTS.md` 包清单与描述、根 README 双侧、`scripts/{install,test-parallel}.sh` 枚举、`profiles/example` 与用户 profile 全部到位；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包（34 个 bundle）。
+- 真机：#12 至 #14 通过（`coagent` spawn / close / 服务面同源），证据在真机验证清单。
+- 关闭依据：条目 6 的接线清单五项全部落地，profile 侧不再有待执行步骤。
