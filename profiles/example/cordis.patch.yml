@@ -43,11 +43,12 @@
     defaultPreset: workspace-write
 
 # ── 插件条目配置（覆盖 bundle 层插入的同 id 条目）────────────────────────────
-# TUI：主题与布局。完整字段见 TUI/README.md「配置」。
+# TUI：主题与布局。完整字段见 TUI/README.md「配置」。默认与当前使用的 profile 一致取浅色；
+# 想要内置 BlueDark 深色就改成 dark。
 - id: tui
   name: '@dsh-toolset/tui'
   config:
-    theme: dark
+    theme: light
 
 # 会话目录编码服务（session-paths）：由 bundles 挂载，且排在 memory-base 之前，
 # 保证服务先注册（memory-base 的 S 库、output-compress 的 digest.db 都经它取会话目录）。
@@ -69,6 +70,22 @@
   name: '@deepseek-ai/dsh-compaction-basic'
   config:
     thresholdRatio: 0.5
+
+# goal 默认回合上限：宿主 dsh-goal 的 Config 默认 defaultMaxGoalRounds=256，这里抬到 999。
+# patch 按 id 整键替换 config，故只重述要改的字段；不可写 name（否则被当成新增行而整条跳过）。
+- id: goal
+  config:
+    defaultMaxGoalRounds: 999
+
+# ── 模块热重载（由 install.sh 生成，勿在此手写）──────────────────────────────
+# base 组合包以 `root: []` 启用 HMR —— 只监听 profile patch，插件代码改动要重启才生效。
+# install.sh 会在本文件末尾追加生成区（以 `# install.sh generated: hmr-root-begin` 开头）：
+# `hmr.base` 写安装时的仓库绝对路径，`root: ['.']` 相对 base 落回仓库；hmr 默认的 baseDir
+# 是 profile 目录（ctx.baseUrl 取 `<profile>/cordis.yml` 所在目录），只写 root 会停在 profile
+# 里，而且 ignored 按相对 baseDir 的路径匹配——带 `..` 前缀时 `**/node_modules` 全部失效。
+# 生成区同时忽略文档类文件（`**/*.md` / `**/docs/**`，不参与重载，只减事件）。
+# 要自定义就删掉生成区、手写 `- id: hmr`（脚本检测到手写行后不再追加）。
+# 删除生成区 = 回到「改代码后重启」。
 
 # ── 新增条目（insert）────────────────────────────────────────────────────────
 # 官方包随 dsh 安装分发，经 $DSH_HOME/profiles/node_modules 兜底解析，可直接挂载；
@@ -151,3 +168,9 @@
       name: '@deepseek-ai/dsh-invariants'
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
+
+# ── ponytail（默认停挂）────────────────────────────────────────────────────
+# 用 patch 层 disabled 关掉，而不是从 bundle 清单移除：bundle 清单由 install.sh 按
+# canonical_pkgs 维护（与 CI 一致），恢复只需删掉本块。
+- id: ponytail
+  disabled: true

@@ -594,6 +594,10 @@ else
         log "写入 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base）"
     fi
 fi
+# hmr 生成区的 begin/end 标记：资产复制路径也要用它识别「差异只在生成区」的情况。
+hmr_begin="# install.sh generated: hmr-root-begin v1"
+hmr_end="# install.sh generated: hmr-root-end v1"
+patch_copied=0
 for asset in pnpm-workspace.yaml cordis.patch.yml; do
     target="$pdir/$asset"
     if [ -f "$target" ] && [ "$force" != 1 ]; then
@@ -604,12 +608,30 @@ for asset in pnpm-workspace.yaml cordis.patch.yml; do
         log "内容未变，跳过备份与复制：$target"
         continue
     fi
+    # --force 覆盖 cordis.patch.yml 时，若与示例资产的差异只在 hmr 生成区，视为内容未变：
+    # 避免每次 --force 都因生成区追加而备份并丢弃生成区。
+    if [ -f "$target" ] && [ "$asset" = cordis.patch.yml ] &&
+        node -e '
+const fs = require("fs");
+const [asset, target, begin, end] = process.argv.slice(1);
+const lines = fs.readFileSync(target, "utf8").split(/\r?\n/);
+const bi = lines.indexOf(begin);
+const ei = lines.indexOf(end);
+const stripped = (bi >= 0 && ei > bi ? [...lines.slice(0, bi), ...lines.slice(ei + 1)] : lines)
+  .join("\n")
+  .replace(/\n*$/, "\n");
+process.exit(stripped === fs.readFileSync(asset, "utf8") ? 0 : 1);
+' "$profile_asset_dir/$asset" "$target" "$hmr_begin" "$hmr_end"; then
+        log "内容未变（仅 hmr 生成区随机器不同），跳过备份与复制：$target"
+        continue
+    fi
     if [ -f "$target" ] && [ "$force" = 1 ] &&
         grep -q -E '^# install\.sh (generated: title-takeover|title-takeover (route )?marker v1)' "$target"; then
         warn "--force 将用示例文件覆盖 $target：其中的标题接管生成区 / 标记会丢失（覆盖前会备份，恢复用 .bak；之后可重跑 --sync --take-over-title 重建）"
     fi
     backup "$target"
     run cp "$profile_asset_dir/$asset" "$target"
+    [ "$asset" = cordis.patch.yml ] && patch_copied=1
 done
 # --sync：标题 provider 接管是**显式开关**（--take-over-title）。
 # 文本判据分不清「宿主挂载的行」与「用户自己 insert 的行」，故 --sync 单独**绝不改写** patch
@@ -621,6 +643,92 @@ patch_file="$pdir/cordis.patch.yml"
 title_official_key="dsh-session-title-all-prompts-llm"
 title_disable_sentinel="# install.sh generated: title-takeover-disable v1"
 title_route_sentinel="# install.sh generated: title-takeover-route v1"
+
+# ── hmr 模块监听根（生成区）─────────────────────────────────────────────────
+# 必须同时给 base 与 root：hmr 的 baseDir 默认是 profile 目录（boot 时 ctx.baseUrl 取
+# `<profile>/cordis.yml` 所在目录），root/ignored 都相对它解析；把 base 指向仓库后，
+# root ['.'] 才落到仓库，默认 ignored（`**/node_modules` / `**/.*`）也才匹配得上
+# （ignored 收的是相对 baseDir 的路径，带 `..` 前缀时 picomatch 一律不命中）。
+# 文档类不参与重载，生成区里一并忽略以减少文件事件。
+# 生成区用 begin/end 标记维护（幂等）；检测到标记之外的手写 `- id: hmr` 时不写。
+render_hmr_block() {
+    printf '%s\n' "$hmr_begin"
+    printf '# 模块热重载：base 指向安装时的仓库，root 相对 base；文档类直接忽略减事件。\n'
+    printf -- '- id: hmr\n'
+    printf '  config:\n'
+    printf "    base: '%s'\n" "$(printf '%s' "$repo_root" | sed "s/'/''/g")"
+    printf "    root: ['.']\n"
+    printf '    ignored:\n'
+    printf "      - '**/node_modules'\n"
+    printf "      - '**/.*'\n"
+    printf "      - 'cache'\n"
+    printf "      - 'data'\n"
+    printf "      - '**/*.md'\n"
+    printf "      - '**/docs/**'\n"
+    printf '%s\n' "$hmr_end"
+}
+# 只在首次写入资产（patch_copied）或显式 --sync / --force 时维护生成区：
+# 既有的 cordis.patch.yml 在普通重跑里保持原样（脚本「已存在配置文件默认保留」的约定）。
+if [ -f "$patch_file" ] && { [ "$patch_copied" = 1 ] || [ "$sync" = 1 ] || [ "$force" = 1 ]; }; then
+    hmr_state="$(node -e '
+const fs = require("fs");
+const [file, begin, end] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const bi = lines.indexOf(begin);
+const ei = lines.indexOf(end);
+const manual = lines.some(
+  (l, i) =>
+    /^-\s*id:\s*hmr\s*$/.test(l) && !(bi >= 0 && i >= bi && (ei < 0 || i <= ei)),
+);
+const mode = bi >= 0 && ei > bi ? "update" : bi >= 0 || ei >= 0 ? "broken" : manual ? "manual" : "append";
+process.stdout.write(mode);
+' "$patch_file" "$hmr_begin" "$hmr_end")" || die "读取 hmr 生成区状态失败：$patch_file"
+    case "$hmr_state" in
+        manual) log "检测到手写 - id: hmr，保留其配置（不写模块热重载生成区）" ;;
+        update | append | broken)
+            if [ "$hmr_state" = broken ]; then
+                warn "$patch_file 的 hmr 生成区标记不完整（begin/end 缺一）：按追加重建，旧残块请手工清理"
+            fi
+            hmr_mode="$hmr_state"
+            [ "$hmr_mode" = broken ] && hmr_mode=append
+            if [ "$dry_run" = 1 ]; then
+                printf '[dry-run] 更新 hmr 生成区（root=%s）：%s\n' "$repo_root" "$patch_file"
+            else
+                hmr_block="$(mktemp "${TMPDIR:-/tmp}/dsh-install-hmr.XXXXXX")"
+                render_hmr_block > "$hmr_block"
+                if ! hmr_next="$(node -e '
+const fs = require("fs");
+const [file, begin, end, blockFile, mode] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const block = fs.readFileSync(blockFile, "utf8").replace(/\n$/, "").split("\n");
+let out;
+if (mode === "update") {
+  const bi = lines.indexOf(begin);
+  const ei = lines.indexOf(end);
+  out = [...lines.slice(0, bi), ...block, ...lines.slice(ei + 1)];
+} else {
+  const base = [...lines];
+  while (base.length > 0 && base[base.length - 1] === "") base.pop();
+  out = [...base, "", ...block];
+}
+process.stdout.write(out.join("\n").replace(/\n*$/, "\n"));
+' "$patch_file" "$hmr_begin" "$hmr_end" "$hmr_block" "$hmr_mode")"; then
+                    rm -f "$hmr_block"
+                    die "更新 hmr 生成区失败：$patch_file"
+                fi
+                rm -f "$hmr_block"
+                if [ "$hmr_next" = "$(cat "$patch_file")" ]; then
+                    log "hmr 生成区未变，跳过写入：$patch_file"
+                else
+                    # 本轮刚由示例资产写出 patch 时不必再备份（复制路径已备份 / 首次安装无旧内容）
+                    [ "$patch_copied" = 1 ] || backup "$patch_file"
+                    printf '%s\n' "$hmr_next" > "$patch_file"
+                    log "已写入 hmr 生成区（root=$repo_root）：$patch_file"
+                fi
+            fi
+            ;;
+    esac
+fi
 if [ "$sync" = 1 ] && [ -f "$patch_file" ]; then
     # 结构化读取（node；只读）：`id <id> <行>` / `disabled <id>` / `value <p> <m>` / `route <p> <m>` /
     # `generated-disable <id> <行>` / `generated-route <行>` / `legacy-marker`。

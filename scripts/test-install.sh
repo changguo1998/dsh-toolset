@@ -121,6 +121,27 @@ manifest="$pdir/package.json"
 # 1）首次安装：不产生备份
 install_ --plugins TUI
 assert_eq "$(count_glob "$pdir" '*.bak.*')" 0 "首次安装不产生备份"
+# 示例资产与当前使用的 profile 对齐（通用项）：浅色主题、goal 回合上限、ponytail 停挂
+assert_count_eq "$pdir/cordis.patch.yml" "theme: light" 1 "示例资产 TUI 主题为 light"
+assert_count_eq "$pdir/cordis.patch.yml" "defaultMaxGoalRounds: 999" 1 "示例资产 goal 回合上限 999"
+assert_count_eq "$pdir/cordis.patch.yml" "- id: ponytail" 1 "示例资产默认停挂 ponytail"
+# 模块热重载生成区：base 指仓库、root 相对 base、忽略文档类（只写 root 会停在 profile 目录）
+assert_count_eq "$pdir/cordis.patch.yml" "# install.sh generated: hmr-root-begin v1" 1 "生成区写入 hmr 监听根"
+assert_count_eq "$pdir/cordis.patch.yml" "    base: '$repo_root'" 1 "hmr base 为仓库绝对路径"
+assert_count_eq "$pdir/cordis.patch.yml" "    root: ['.']" 1 "hmr root 相对 base"
+assert_count_eq "$pdir/cordis.patch.yml" "      - '**/*.md'" 1 "hmr ignored 含 Markdown"
+assert_count_eq "$pdir/cordis.patch.yml" "      - '**/docs/**'" 1 "hmr ignored 含 docs 目录"
+
+# 1b）手写 hmr 行：不追加生成区，保留用户配置
+install_ --plugins TUI --profile hmanual
+hpatch="$home/profiles/hmanual/cordis.patch.yml"
+awk '/^# install\.sh generated: hmr-root-begin v1$/{skip=1} /^# install\.sh generated: hmr-root-end v1$/{skip=0; next} !skip' "$hpatch" > "$hpatch.tmp" &&
+    mv "$hpatch.tmp" "$hpatch"
+printf "\n- id: hmr\n  config:\n    root: ['/tmp/manual-hmr']\n" >> "$hpatch"
+install_ --plugins TUI --profile hmanual --sync
+assert_count_eq "$hpatch" "# install.sh generated: hmr-root-begin v1" 0 "手写 hmr 行时不追加生成区"
+assert_count_eq "$hpatch" "root: ['/tmp/manual-hmr']" 1 "手写 hmr 配置保留"
+assert_log_contains "检测到手写 - id: hmr" "手写 hmr 有提示"
 
 # 2）--sync 连跑两次：清单内容未变，不写、不备份
 install_ --plugins TUI --sync
