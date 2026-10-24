@@ -113,8 +113,14 @@ interface AgentRuntime {
   listeners: Array<() => void>;
   currentTurn: number;
   warnedUnmasked: boolean;
+  /** 已经就遮罩漂移告警过一次（避免每次广播都刷日志）。 */
+  warnedDrift: boolean;
   /** 初始可见名（按当前可限制名展开后）。 */
   initialNames: string[];
+  /** 当前这条遮罩允许的名单（回读校验用；未遮罩时为空）。 */
+  appliedAllow: string[];
+  /** 当前这条遮罩应挡住的名单（回读校验用；未遮罩时为空）。 */
+  appliedHidden: string[];
 }
 
 /** 跨 apply 保留的代理状态：配置热重载后仍能按「退休 / 降级」语义迁移。 */
@@ -189,6 +195,8 @@ function disposeMask(runtime: AgentRuntime): void {
   const dispose = runtime.maskDisposer;
   runtime.maskDisposer = undefined;
   runtime.masked = false;
+  runtime.appliedAllow = [];
+  runtime.appliedHidden = [];
   if (dispose === undefined) return;
   try {
     dispose();
@@ -277,6 +285,7 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
         try {
           runtime.maskDisposer = agentTools.restrict({ allow: filtered });
           runtime.masked = true;
+          recordMask(runtime, tools, filtered, [...restrictable]);
           return;
         } catch {
           // 落到下面的 unmasked。
@@ -284,7 +293,51 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
       }
     }
     degradeUnmasked(runtime, decision.message);
+    return;
   }
+  recordMask(runtime, tools, allow, [...restrictable]);
+}
+
+/** 记下本次遮罩的名单，并立刻回读校验。 */
+function recordMask(
+  runtime: AgentRuntime,
+  tools: HostTools,
+  allow: string[],
+  restrictable: string[],
+): void {
+  runtime.appliedAllow = [...allow];
+  const allowed = new Set(allow);
+  runtime.appliedHidden = restrictable.filter((name) => !allowed.has(name));
+  verifyMask(runtime, tools);
+}
+
+/**
+ * 回读宿主工具面，校验遮罩是否真的生效。
+ *
+ * `tools/change` 是宿主对「工具面变了」的广播：本插件只把它当**校验结果**用 ——
+ * 读到漂移就告警，绝不据此再调 `restrict`。`restrict` 自身也会触发同一条广播，
+ * 拿广播当动作输入会形成自我触发的死循环（CPU 打满、事件循环停摆）。
+ */
+function verifyMask(runtime: AgentRuntime, tools: HostTools): void {
+  if (!runtime.masked) return;
+  const visible = tools.schemas?.(runtime.agent);
+  if (visible === undefined) return; // 宿主不提供作用域视图：无从校验。
+  const names = new Set(visible.map((schema) => schema.name));
+  const missing = runtime.appliedAllow.filter((name) => !names.has(name));
+  const leaked = runtime.appliedHidden.filter((name) => names.has(name));
+  if (missing.length === 0 && leaked.length === 0) {
+    runtime.warnedDrift = false;
+    return;
+  }
+  if (runtime.warnedDrift) return;
+  runtime.warnedDrift = true;
+  log(
+    runtime.agent.ctx,
+    "warn",
+    `遮罩未按预期生效（该可见却缺：${missing.join(", ") || "无"}；` +
+      `该挡住却多：${leaked.join(", ") || "无"}）；` +
+      "本插件不会据此重设遮罩，仅告警。",
+  );
 }
 
 /** 授权上限（按运行时配置取）。 */
@@ -306,7 +359,10 @@ function consultRuntime(
   tools: HostTools,
 ): ConsultRuntime {
   return {
-    matcher: runtime.matcher,
+    // 取实时值：`tools/change` 刷新 `runtime.matcher` 后，已注册的咨询工具才能看到新索引。
+    get matcher() {
+      return runtime.matcher;
+    },
     config: runtime.config,
     grants: runtime.grants,
     currentTurn: () => runtime.currentTurn,
@@ -427,7 +483,10 @@ function setupAgent(
     listeners: [],
     currentTurn: 0,
     warnedUnmasked: false,
+    warnedDrift: false,
     initialNames: [],
+    appliedAllow: [],
+    appliedHidden: [],
   };
 
   if (existing !== undefined) {
@@ -491,11 +550,13 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
     owned.delete(runtime);
   });
 
+  // 宿主的工具面广播：只用来刷新检索索引（只读）与**回读校验**已有遮罩是否仍生效。
+  // 不在这里重设遮罩 —— `restrict()` 自身就会触发本广播，拿它当动作输入会自激成环。
   ctx.on?.("tools/change", () => {
     const matcher = buildMatcher(tools);
     for (const runtime of owned) {
       runtime.matcher = matcher;
-      applyMask(runtime, tools);
+      verifyMask(runtime, tools);
     }
   });
 

@@ -244,3 +244,61 @@ test("插件卸载：撤销遮罩并注销咨询工具", () => {
   assert.equal(host.activeMask(), undefined);
   assert.equal(host.registered.has("consult_tools"), false);
 });
+
+test("restrict 同步广播 tools/change：不自激，只应用一条遮罩", () => {
+  // 真实宿主：ScopedLayers 每次变化都同步 emit("tools/change")，
+  // 其中就包含 restrict() 自身。旧实现会据此再 applyMask，形成死循环。
+  const host = createFakeHost({ schemas: schemas(), emitOnRestrict: true });
+  apply(host.ctx, {});
+  const agent = host.addAgent({ id: "t10-agent" });
+  host.emit("agent/created", { agent });
+
+  assert.equal(host.restrictCalls.length, 1, "只应施加一条遮罩");
+  assert.deepEqual(host.activeMask(), CORE);
+  assert.equal(
+    host.logs.some((entry) => entry.message.includes("未按预期生效")),
+    false,
+    "遮罩生效时不应告警",
+  );
+
+  host.dispose();
+});
+
+test("tools/change 广播只复核：不重设遮罩", () => {
+  const host = createFakeHost({ schemas: schemas() });
+  apply(host.ctx, {});
+  const agent = host.addAgent({ id: "t11-agent" });
+  host.emit("agent/created", { agent });
+  const before = host.restrictCalls.length;
+
+  host.emit("tools/change");
+  host.emit("tools/change");
+
+  assert.equal(host.restrictCalls.length, before, "广播不应触发 restrict");
+  assert.deepEqual(host.activeMask(), CORE);
+
+  host.dispose();
+});
+
+test("遮罩未生效：只回读告警一次，不重设", () => {
+  const host = createFakeHost({ schemas: schemas(), ignoreRestrictions: true });
+  apply(host.ctx, {});
+  const agent = host.addAgent({ id: "t12-agent" });
+  host.emit("agent/created", { agent });
+
+  const drift = host.logs.filter((entry) =>
+    entry.message.includes("未按预期生效"),
+  );
+  assert.equal(drift.length, 1, "首次回读即告警一次");
+  assert.equal(host.restrictCalls.length, 1, "告警后不得重设遮罩");
+
+  host.emit("tools/change");
+  assert.equal(
+    host.logs.filter((entry) => entry.message.includes("未按预期生效")).length,
+    1,
+    "同一段漂移不重复刷日志",
+  );
+  assert.equal(host.restrictCalls.length, 1);
+
+  host.dispose();
+});
