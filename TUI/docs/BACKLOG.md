@@ -9,6 +9,14 @@
 
 ## 待办
 
+- **#1 排查表格排版修复（`61f63af`）后的副作用：思考与正文出现额外空行、竖线断掉**〔未实现〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 →（疑似范围）→ 落点 → 验收 → 优先级。
+  - 现象 / 现状：「正文表格与排版后展示不一致」修复（实现 `61f63af`，根因与修法见 `TUI/docs/archived/2026-10-22-table-content-mismatch.md`）落地后，**思考内容与正文有时**都会出现额外空行，表格竖线也会断掉；同一修复还顺带交付了「思考行识别 markdown 表格」（紫竖线），两侧都可能受牵连。
+  - 期望：排查根因并修复 —— 额外空行来源（疑似排版链重组 markdown 行时的空行残留 / 缺列按左对齐补齐后的空行生成）与竖线断点（表格栅格合并 / 思考行紫竖线）分别定位；补思考行与正文表格的渲染用例防回归。
+  - 疑似范围：TUI 渲染链 `TUI/src/renderer/` 与 `TUI/src/app/` 的表格排版 / 思考行识别 / 空行收敛路径。
+  - 落点：TUI 排版链（表格 build、思考行识别、空行收敛）。
+  - 验收：长文本多形态（表头后空行、缺列补齐、单元格内换行、思考行含表格）既无额外空行、竖线连续；复验 `2026-10-22-table-content-mismatch.md` 的既有用例与断言不回归。
+  - 优先级：P1。
+
 > 2026-10-24 关闭：`#1` notice 行统一为 `[hh:mm:ss <来源>] 正文` 完成并移出清单（实现含 deliverBufferTail 补漏, 即 compaction/retry 等直落 toast 也带前缀; 追踪文档 `TUI/docs/archived/2026-10-24-notice-line-format.md`; 复验 1760 例 + 冒烟 42 PASS; demo 脚本不再内嵌 build）。
 
 > 2026-10-22 接取：全部 5 条标〔进行中: 2026-10-22〕，追踪文档 `TUI/docs/implementation/2026-10-22-*.md`（hmr-no-exit / config-editor-surface / code-block-tab / table-content-mismatch / user-block-right-gap）；本次只建文档，调研与实现未开始。

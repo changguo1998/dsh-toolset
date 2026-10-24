@@ -64,6 +64,26 @@
 
 ## 2. 未完成项
 
+- **#1 审阅本项目各工具的描述是否准确合理**〔未实现〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+  - 现象 / 现状：本项目工具描述（工具级 + 参数级 `description`）由各包作者注册时手写，未做过系统性复核；工具间存在语义重叠（如 `task_status` / `channel_task` 同挂别名「任务状态」、`bash` / `herdr_run`、`edit` / `hash_edit` / `md_logic`），描述多未说明与相近工具的选择成本；描述与别名直接决定 `tool-consult` 的 BM25 检索命中率与模型侧可读性。
+  - 期望：逐包核对 `description` 与实现行为一致性，修正失真 / 误导 / 过时措辞；对重叠工具写明「与 X 的区别 / 何时选谁」；同步审阅 `tool-consult/src/aliases.ts` 别名表；改动后补 `tool-consult/tests/` 检索回归断言。
+  - 优先级：P2。
+
+- **#2 behavior-correction 增加规则: 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令并指路**〔未实现〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+  - 现象 / 现状：behavior-correction 内置两条规则（`no-herdr-in-bash` / `no-python-in-bash`），按「命令位 + 参数字符串」文本判定；模型仍会用 `bash` 直接跑 `sed` / `head` / `tail` 等命令查看文本，绕过 `read` / `grep` / `fs_digest` 等更合适的专用工具面。
+  - 期望：新增一条内置规则（`tool: bash`）：命令位出现**纯只读查看用途**的 `sed` / `head` / `tail`（及同类只读查看命令）时拦截，理由指出该改用哪个工具（读文件 `read` / 搜索 `grep` / 摘要 `fs_digest` 等）；需界定「纯只读」判定（如 `sed` 带 `-i` 等写参数不拦），沿用文本判定、不解析 shell 语义，宁漏不误伤；补 `tests/main.test.ts` 命中与放行用例。
+  - 优先级：P2。
+
+- **#3 security-guard 黑名单匹配增加命令拆分与命令/参数区分**〔未实现〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+  - 现象 / 现状：`blacklist.ts` 15 条默认规则中仅 rm / chmod 两条谓词做词法级命令/参数区分，其余 12 条对**整段命令文本**做正则子串匹配（不锚定、不分命令位与参数位），导致 `echo sudo` / `grep sudo file` / `grep shutdown file` 等纯查看或参数位提到关键词的**正常命令被误拦**；`splitCommandSegments` 已存在但只被两条谓词使用。
+  - 期望：给 `CommandRule` 增加可选 `scope: "command"`（缺省整段、完全向后兼容）—— 先按分隔符把复合命令拆成逐条简单命令（复用 `splitCommandSegments`），`scope: "command"` 的规则只对每条简单命令的**命令名**（段首词 basename，跳过前导 `VAR=` 赋值）做匹配，参数位出现关键词不算命中；默认规则中**纯命令名即可判定危险**的 `sudo` / `reboot-class` / `mkfs` / `wipefs` 改为 command scope（`echo sudo` / `grep sudo file` / `grep shutdown file` 放行，`sudo apt` / `reboot` 仍拦）；rm / chmod 谓词与 fork-bomb / remote-pipe-shell / 带参数约束类规则（`crontab -r` / `kill 1` / `find -delete` 等）保持整段语义不变，安全底线不降；补 `tests/blacklist.test.ts` 命中/放行用例与 README 规则表说明。
+  - 优先级：P1。
+
+- **#4 调研 worktree 内 git 提交的无人值守自动放行路径（越界写升级请求的发起）**〔未实现〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+  - 现象 / 现状：`auto-approve/docs/archived/2026-10-22-worktree-git-escalation.md` 已记录 —— worktree 会话的 git 写（`.git/worktrees/…` 与公共 objects/refs）被沙箱 **EROFS 硬拒、不发起沙箱升级请求**，故 `auto-approve` 已配好的 `git-worktree-commit` 升级白名单（`auto-approve/cordis.patch.yml:19-20`，升 `danger-full-access`）**空转**；人力面不可达，「无人值守放行」缺的是「升级请求被发出」这一环。
+  - 期望：调研并归档宿主侧为何「越界写=硬拒」而非「发起升级请求」（`permission-presets` 的 sandbox+approval 旋钮 / `sandboxPolicy` 的 resolve/check/approve/escalate 面 / `tool-bash` 的升级触发条件，宿主侧只读核实）；评估三条候选路径并给出结论 —— a) 调 permission / approval 旋钮把越界写改为「ask 升级」，让现有白名单生效（保隔离）；b) 自建 git 工具插件，在工具内显式调用 `ctx.sandboxPolicy.escalate()` 发起升级，经 auto-approve 白名单自动放行（代价需 security-guard 兜底 hook 风险）；c) 把 worktree 会话写根指到仓库根（放弃 worktree 隔离语义，最省事）。结论记入追踪文档并归档。
+  - 优先级：P2。
+
 > 2026-10-24 关闭：条目「示例 profile 资产对齐当前 fff 的通用配置（去个人化）」完成并移出清单（`profiles/example/cordis.patch.yml` 删 permission / schedule / invariants，补 fff 通用条目，`rule-engine` 只留启用的 `resumed-notice`，个人模型配置以 `PROVIDER` / `MODEL` 占位，`tui.theme` 改 `dark`；同步 `profiles/README.md`、`scripts/install.sh`（full-ask 提示）、`scripts/test-install.sh`（theme 断言）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-example-align-fff.md`）。
 
 > 2026-10-24 关闭：条目「安装脚本生成的 profile 与当前 fff 的通用配置对齐」完成并移出清单（实现 `a3f1e3b`：示例 patch 补 theme light / goal 999 / ponytail 停挂，`install.sh` 追加 hmr 生成区（`base` = 仓库根 + `root: ['.']` + 文档忽略，幂等且保留手写 hmr）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-install-profile-parity.md`；fff 已由用户执行 `--sync` 生效）。
