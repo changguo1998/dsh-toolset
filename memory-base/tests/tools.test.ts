@@ -239,7 +239,7 @@ function assertFirstSentence(text: string, name: string): void {
 }
 
 /**
- * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P1，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D10 fuzzy 与 mode=hybrid 的措辞对齐实现（hybrid 下 trigram 恒开，fuzzy 不再改变召回）。
  */
 test("工具描述：fuzzy 与 hybrid 的措辞对齐实现（D10）", () => {

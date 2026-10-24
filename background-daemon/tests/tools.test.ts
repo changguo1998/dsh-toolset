@@ -332,7 +332,7 @@ function assertFirstSentence(text: string, name: string): void {
 }
 
 /**
- * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P1，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D9 tier 解释 S / P / U 各落 session / project / user 层。
  */
 test("工具描述：tier 解释 S / P / U 的落点（D9）", async () => {

@@ -265,7 +265,7 @@ test("hash_edit：显式 Config.root 优先；未配置时按 exec 会话 cwd", 
 });
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D3 指路（文件级字面量替换用 edit、按节改 Markdown 用 md_logic）、C1 / C6 / C8 / C9。
  */
 test("工具描述：P0 事实与选择依据（D3 / C1 / C6 / C8 / C9）", async () => {

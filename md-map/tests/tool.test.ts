@@ -243,7 +243,7 @@ test("render 全函数且形参顺序为 (args, value)", () => {
 });
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D2 root 默认与实现一致（会话 cwd，非会话时为进程 cwd）、C2 与 code_map / md_logic 的分工、C1 / C9。
  */
 test("工具描述：P0 事实与选择依据（D2 / C2 / C1 / C9）", () => {

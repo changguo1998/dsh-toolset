@@ -399,7 +399,7 @@ function assertFirstSentence(text: string, name: string): void {
 }
 
 /**
- * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P1，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D11 rule_add 工具级补全 10 个匹配面；五个规则工具首句 ≤80 字符、整体 ≤400 字符。
  */
 test("工具描述：rule_add 列出全部 10 个匹配面，五个工具长度达标（D11 / C1 / C9）", async () => {

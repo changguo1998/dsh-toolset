@@ -64,23 +64,13 @@
 
 ## 2. 未完成项
 
-- **#1 审阅本项目各工具的描述是否准确合理**〔进行中: 2026-10-24〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+（当前无未完成项）
 
-  - 现象 / 现状：本项目工具描述（工具级 + 参数级 `description`）由各包作者注册时手写，未做过系统性复核；工具间存在语义重叠（如 `task_status` / `channel_task` 同挂别名「任务状态」、`bash` / `herdr_run`、`edit` / `hash_edit` / `md_logic`），描述多未说明与相近工具的选择成本；描述与别名直接决定 `tool-consult` 的 BM25 检索命中率与模型侧可读性。
-  - 期望：逐包核对 `description` 与实现行为一致性，修正失真 / 误导 / 过时措辞；对重叠工具写明「与 X 的区别 / 何时选谁」；同步审阅 `tool-consult/src/aliases.ts` 别名表；改动后补 `tool-consult/tests/` 检索回归断言。
-  - 优先级：P2。
+> 2026-10-25 关闭：条目「审阅本项目各工具的描述是否准确合理」完成并移出清单（提交 `e10371d`（46 个工具描述 + 别名表 + 回归测试）与 `30fe04f`（真机验证发现的检索排序回归）；真机 12 条查询预览均达标，过程记录 `docs/archived/2026-10-24-tool-description-review.md`）。
 
-- **#2 behavior-correction 增加规则: 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令并指路**〔进行中: 2026-10-24〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+> 2026-10-25 关闭：条目「behavior-correction 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令并指路」完成并移出清单（提交 `75c6efb`；真机：`head` / `cat` / `sed -n` 被拒并指路，`head -c` / `tail -f` / `sed -i` / 重定向 / 管道上游放行；过程记录 `docs/archived/2026-10-24-behavior-readonly-view-guard.md`）。
 
-  - 现象 / 现状：behavior-correction 内置两条规则（`no-herdr-in-bash` / `no-python-in-bash`），按「命令位 + 参数字符串」文本判定；模型仍会用 `bash` 直接跑 `sed` / `head` / `tail` 等命令查看文本，绕过 `read` / `grep` / `fs_digest` 等更合适的专用工具面。
-  - 期望：新增一条内置规则（`tool: bash`）：命令位出现**纯只读查看用途**的 `sed` / `head` / `tail`（及同类只读查看命令）时拦截，理由指出该改用哪个工具（读文件 `read` / 搜索 `grep` / 摘要 `fs_digest` 等）；需界定「纯只读」判定（如 `sed` 带 `-i` 等写参数不拦），沿用文本判定、不解析 shell 语义，宁漏不误伤；补 `tests/main.test.ts` 命中与放行用例。
-  - 优先级：P2。
-
-- **#3 security-guard 黑名单匹配增加命令拆分与命令/参数区分**〔进行中: 2026-10-24〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
-
-  - 现象 / 现状：`blacklist.ts` 15 条默认规则中仅 rm / chmod 两条谓词做词法级命令/参数区分，其余 12 条对**整段命令文本**做正则子串匹配（不锚定、不分命令位与参数位），导致 `echo sudo` / `grep sudo file` / `grep shutdown file` 等纯查看或参数位提到关键词的**正常命令被误拦**；`splitCommandSegments` 已存在但只被两条谓词使用。
-  - 期望：给 `CommandRule` 增加可选 `scope: "command"`（缺省整段、完全向后兼容）—— 先按分隔符把复合命令拆成逐条简单命令（复用 `splitCommandSegments`），`scope: "command"` 的规则只对每条简单命令的**命令名**（段首词 basename，跳过前导 `VAR=` 赋值）做匹配，参数位出现关键词不算命中；默认规则中**纯命令名即可判定危险**的 `sudo` / `reboot-class` / `mkfs` / `wipefs` 改为 command scope（`echo sudo` / `grep sudo file` / `grep shutdown file` 放行，`sudo apt` / `reboot` 仍拦）；rm / chmod 谓词与 fork-bomb / remote-pipe-shell / 带参数约束类规则（`crontab -r` / `kill 1` / `find -delete` 等）保持整段语义不变，安全底线不降；补 `tests/blacklist.test.ts` 命中/放行用例与 README 规则表说明。
-  - 优先级：P1。
+> 2026-10-25 关闭：条目「security-guard 黑名单匹配增加命令拆分与命令/参数区分」完成并移出清单（提交 `09e80da`；真机：`echo sudo` / `grep sudo` 放行，`sudo id` / heredoc 喂 shell / `base64 -d | sh` 拒绝；过程记录 `docs/archived/2026-10-24-security-guard-command-position.md`）。
 
 > 2026-10-25 关闭：条目「新增 `escalation-hint` 插件：补齐「沙箱拒绝但升级提示缺失」的一类问题」完成并移出清单（实现 + 根级接线已随 `031190b` 落地；误报收紧与补齐测试见后续提交；真机端到端：worktree 内 `git add` / `git commit` 被 EROFS 拒 → 同回合收到提示 → 带 `sandbox_permissions: danger-full-access` + `justification` 重试成功，审计两条 `outcome=allowed-once` / `ruleId=git-worktree-commit`，无审批面板；过程记录 `docs/archived/2026-10-24-escalation-hint-package.md`）。
 

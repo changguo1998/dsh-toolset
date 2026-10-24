@@ -438,7 +438,7 @@ astTest("ast_query：search 命中与 outline 骨架走真二进制", async () =
 });
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D12 否定句改写（不含「改文件」）；检索「改文件」不得再命中本工具。
  */
 test("工具描述：ast_replace 不再用「不改文件」否定句（D12）", () => {
@@ -468,7 +468,7 @@ function assertFirstSentence(text: string, name: string): void {
 }
 
 /**
- * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P1，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D7 把「文本 / 正则检索用 grep / glob」改为只写 grep，并说清 grep（内容）与 glob（路径）的分工。
  */
 test("工具描述：ast_query 只把内容检索指向 grep，并说清与 glob 的分工（D7）", () => {

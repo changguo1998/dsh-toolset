@@ -309,7 +309,7 @@ test("render 全函数且形参顺序为 (args, value)", () => {
 });
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D8 术语（注册名，不用「官方 edit」）、D12 / C8（不用「改文件」短语的否定句）、C1 / C9。
  */
 test("工具描述：P0 术语与选择依据（D8 / D12 / C1 / C9）", () => {

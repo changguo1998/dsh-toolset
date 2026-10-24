@@ -1,6 +1,6 @@
 # security-guard 黑名单匹配增加命令拆分与命令 / 参数区分（接取条目：`docs/BACKLOG.md`「security-guard 黑名单匹配增加命令拆分与命令 / 参数区分」）
 
-状态：决策　　开启：2026-10-24
+状态：已关闭　　开启：2026-10-24　　关闭：2026-10-25
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮范围只到**调研与决策**（实现待用户批准后另接），除本文件外任何文件都不改。
 
@@ -347,16 +347,39 @@
 
 ## 实现记录
 
-（本轮不做实现。）
+- 2026-10-25：`security-guard/src/blacklist.ts`
+  - `CommandRule` 新增可选 `scope: "text" | "command"`（缺省 `text`）。
+  - 新增命令词提取：`tokensOf`（剥引号 / 括号 / `!`）、`commandName`（basename）、`commandWords`（逐段跳过 `VAR=`、前缀词链与选项；对 shell 族 `-c`、`eval`、`$()`、反引号递归 2 层）、`substitutionBodies`。
+  - 新增谓词：`dynamicCommandHit`（命令位由展开产生）、`systemctlPowerHit`（关机 / 重启 / `kexec`）、`heredocFedShellHit`（shell + heredoc → 正文按现有规则扫一遍，排除自身）。
+  - `matchCommand(command, rules, kind)` 增加 `kind`：`command` 范围规则仅对 shell 文本按命令词判定；`kind === "code"` 时退化为整段判定。
+  - 4 条规则加 `scope: "command"`：`sudo`、`mkfs`、`wipefs`、`reboot-class`；新增 3 条规则：`dynamic-command`、`heredoc-fed-shell`（排在 `chmod-777-system` 前）、`systemctl-power`（排在 `reboot-class` 后）。
+  - `remotePipeShellHit` 增补解码 / 解压上游：`base64 -d|--decode|-D`、`xxd -r`、`uudecode`、`gunzip`、`zcat`、`openssl enc -d`。
+- 2026-10-25：`security-guard/src/index.ts` 的命令收集记录加 `kind`（shell 缺省、`run_code` 为 `code`），`matchCommand` 透传。
+- 2026-10-25：测试迁移与补齐 —— `CHECK_BLACKLIST_COMMAND` 去掉 `echo` 前缀（改为命令位）、`riskyCommand()` 改为命令位、两处 `allowPatterns: ["^echo "]` → `["^su"]`、一处注释位命中改为 `;` 分段；`tests/blacklist.test.ts` 新增 7 例（命令位 / 参数位 / 递归 / systemctl / 动态命令 / heredoc / 解码管道 / 代码文本退化）。
+- 2026-10-25：`security-guard/README.md` 能力表 15 → 18 条并补新规则，「边界与限制」改写命令位口径，新增「绕开形态」表；单测例数 135 → 142。
 
 ## 偏差
 
-（待实现阶段填写。）
+- `unknownToolPolicy` 的未登记工具扫描、插件命令工具与 `inspectCommand` 的命令文本未标 `kind`（缺省 `shell`），与决策 3 的「工具名决定 kind」在实现上等价（它们都是命令文本）。
+- 用户配置层仍复用 `CommandRule` 类型，`scope` 对用户规则可见（决策 9 的 P2 裁剪未做）。
+- 排除项（`sed -i` / `tail -f` / 重定向与 heredoc / 字节模式 / 负计数 / 批处理 / 管道上游）未建成独立规则，属命令位口径 + 整段规则的正向前提，不需要 exclude 机制。
+- `find -exec <cmd>` 与 `ssh host <cmd>` 明确放行（决策 8 接受的漏拦面）；`bash -c` 与 `eval` 只递归一层字符串实参。
 
 ## 测试与证据
 
-（待实现阶段填写。）
+- `cd security-guard && npm run check` → 通过。
+- `cd security-guard && npm test` → `tests 142 / pass 142 / fail 0`（原 135 例 + 新增 7 例；迁移的 fixture 与断言见实现记录）。
+- `cd security-guard && npm run build` → 通过。
+- 真机验证见「收尾」。
 
 ## 收尾
 
-（待关闭时填写。）
+已关闭（2026-10-25）。提交：`09e80da`。
+
+真机验证（会话已装载新构建）：
+
+- 参数位放行：`echo sudo`、`echo hi | grep sudo` 均执行成功。
+- 拒绝：`sudo id`（`sudo`）、`echo aGk= | base64 -d | sh`（`remote-pipe-shell`）、`bash <<'EOF'` 喂 `sudo -n true`（`heredoc-fed-shell`）。
+- 危险语义只对 dist 规则求值、不执行：`rm -rf /`、`reboot`、`mkfs.ext4 /dev/sda1`、`systemctl reboot`、`wipefs -a /dev/sdb`、`sudo apt update`、`rm -rf ~/x` 均拒绝；`echo sudo`、`grep shutdown README.md`、`rm -rf ./tmp/x` 放行（`~` 子树拒绝属预期保守口径）。
+
+命名：归档后本文件为 `docs/archived/2026-10-24-security-guard-command-position.md`。

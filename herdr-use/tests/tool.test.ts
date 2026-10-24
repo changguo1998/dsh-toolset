@@ -230,7 +230,7 @@ test("read 工具经 fake reader 取屏", async () => {
 });
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D6 与 bash 的分工、C2 与 read / herdr_run 的边界、C1 / C6 / C9。
  */
 test("工具描述：P0 与 bash 的分工（D6 / C2 / C1 / C9）", () => {

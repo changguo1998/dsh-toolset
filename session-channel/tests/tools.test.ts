@@ -350,7 +350,7 @@ redisTest(
 );
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * 注册四个工具后直接读定义文本断言事实，不依赖 Redis 连接。
  */
 test("工具描述：P0 事实与选择依据（D1 / C1 / C2 / C6）", () => {

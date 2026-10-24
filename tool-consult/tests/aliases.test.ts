@@ -1,5 +1,5 @@
 // tests/aliases.test.ts — 别名表数据断言（决策 4 / 决策 5，见
-// docs/implementation/2026-10-24-tool-description-review.md）。
+// docs/archived/2026-10-24-tool-description-review.md）。
 //
 // 别名权重 4，是仅次于名称的检索杠杆；重复别名会让同分排序把错的工具顶上来，
 // 别名等于另一个工具名会让名称短语加成同时命中两个文档。这里只查数据，

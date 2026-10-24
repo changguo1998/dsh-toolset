@@ -1,6 +1,6 @@
 # behavior-correction 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令（接取条目：`docs/BACKLOG.md`「behavior-correction 拦截纯只读查看文本的 sed / head / tail 等 bash 命令并指路」）
 
-状态：决策　　开启：2026-10-24
+状态：已关闭　　开启：2026-10-24　　关闭：2026-10-25
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮范围只到**调研与决策**（实现待用户批准后另接），除本文件外任何文件都不改。
 
@@ -232,16 +232,32 @@ Markdown 结构深查（章节 / 块 / 链接）另有 `md_logic`；文案暂不
 
 ## 实现记录
 
-（本轮不做实现。）
+- 2026-10-25：`behavior-correction/src/main.ts`
+  - `RuleSpec` 新增可选 `exclude`（与 `match` 同形：`keywords` / `regex` / `flags`）；`CompiledRule` 新增 `excludeKeywords` / `excludeRegexes`；`compileRule` 按与 `match` 同口径校验并编译（非法即整条跳过并告警）。
+  - `matchRule` 改为「命中后先看排除，命中即弃权并继续看后续规则」。
+  - 新增第三条内置规则 `no-view-text-in-bash`（排在 `no-python-in-bash` 之后）：命令位正则覆盖 `head` / `tail` / `cat` / `less` / `more` / `nl` 与「带 `-n` / `--quiet` / `--silent` 的 `sed`」；8 类排除项按决策 2 落地。
+- 2026-10-25：`behavior-correction/tests/main.test.ts` 补 4 例（命中 10 条 / 放行 10 条 / 参数位与其它命令不误拦 5 条 / 自定义规则表的 exclude 语义），并把缺省规则 id 断言更新为三条。
 
 ## 偏差
 
-（待实现阶段填写。）
+- 排除项实现为单条规则内的一个 `exclude`（决策 4 选 b），不是 8 条独立规则。
+- 命令位前缀只认行首与 `;` `&` 之后（不含管道与 `$(`），与决策 3 一致；因此 `cmd | head -40` 一律放行。
+- 文档写「8 类排除项」中的「重定向 / heredoc」合并为一条正则 `>>?(?!&)|<<-?`。
 
 ## 测试与证据
 
-（待实现阶段填写。）
+- `cd behavior-correction && npm run check` → 通过。
+- `cd behavior-correction && npm test` → `tests 33 / pass 32 / fail 0 / skipped 1`（跳过的是既有的「真实 rule-engine 契约」用例，本机不可解析 `@dsh-toolset/rule-engine`，与本次无关）。
+- `cd behavior-correction && npm run build` → 通过。
+- 真机验证见「收尾」。
 
 ## 收尾
 
-（待关闭时填写。）
+已关闭（2026-10-25）。提交：`75c6efb`。
+
+真机验证（会话已装载新构建）：
+
+- 拒绝：`head -1 package.json`、`cat package.json`、`sed -n '1,2p' package.json` 三条均被拦，回执指向 `read` / `grep` / `fs_digest`。
+- 放行：`head -c 20 package.json`（字节模式）、`timeout 1 tail -f /dev/null`（跟随）、`sed -i`（写模式，tmp 内实测改写生效）、`cat package.json > /dev/null`（重定向）、`npm run test 2>&1 | tail -40`（管道上游；全包 34 项仍全绿）。
+
+命名：归档后本文件为 `docs/archived/2026-10-24-behavior-readonly-view-guard.md`。

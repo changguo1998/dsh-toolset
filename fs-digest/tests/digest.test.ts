@@ -705,7 +705,7 @@ describe("工具注册（mock ctx）", () => {
 });
 
 /**
- * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D12 否定句改写（不含「改文件」）、C2 与 md_logic 的分工、C1 / C6 / C9。
  */
 describe("工具描述（P0）", () => {

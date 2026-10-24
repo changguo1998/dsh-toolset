@@ -1,5 +1,5 @@
 // tests/retrieval.test.ts — 重叠工具检索回归（决策 5，见
-// docs/implementation/2026-10-24-tool-description-review.md）。
+// docs/archived/2026-10-24-tool-description-review.md）。
 //
 // fixture 放七组重叠对的「目标措辞」短描述（不是完整源码副本）：它守的是
 // matcher + aliases + 措辞模式，复现已发现的 6 类排序错误（重复别名 / 否定句 /

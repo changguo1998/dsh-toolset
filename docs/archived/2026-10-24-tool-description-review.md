@@ -1,6 +1,6 @@
 # 审阅本项目各工具的描述是否准确合理（接取条目：`docs/BACKLOG.md`「审阅本项目各工具的描述是否准确合理」）
 
-状态：决策　　开启：2026-10-24
+状态：已关闭　　开启：2026-10-24　　关闭：2026-10-25
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮范围只到**调研与决策**（实现待用户批准后另接），除本文件外任何文件都不改。
 
@@ -292,23 +292,55 @@ P2：
 
 ## 实现记录
 
-（本轮不做实现；只修改本文件。）
+分三批落地（顺序：P0 → P1 → P2，每批独立验证）。
+
+### P0（20 个工具）
+
+- 改动 21 个文件（19 改 2 新增）：`task-engine/src/tools.ts`、`session-channel/src/index.ts`、`hash-edit/src/main.ts`、`md-logic/src/tools.ts`、`md-map/src/tools.ts`、`fs-digest/src/main.ts`、`metric-loop/src/index.ts`、`herdr-use/src/tools.ts`、`ast-tools/src/tools.ts`、`tool-consult/src/aliases.ts` + 9 个既有测试 + 新增 `tool-consult/tests/aliases.test.ts`、`tool-consult/tests/retrieval.test.ts`。
+- D 落点：D1 `session-channel/src/index.ts:1534`（`to` 补别名）；D2 `md-map/src/tools.ts:101`（`root` 缺省 = 会话 cwd，取不到回落进程 cwd）；D3 `hash-edit/src/main.ts:327`（指 `edit` / `md_logic`）；D4 `task-engine/src/tools.ts:344`（`model` 后端 / 缺省叶子）；D5 `metric-loop/src/index.ts:560`（改指 `daemon_task`，删 `schedule_create`）；D6 `herdr-use/src/tools.ts:450`（`bash` 分工）；D8 `md-logic/src/tools.ts:182`（去「官方」）；D12 `ast-tools/src/tools.ts:383` 与 `fs-digest/src/main.ts:206`（去否定句）。
+- aliases：修 4 组冲突（「任务状态」归 `task_status`、「通知」归 `notice_history`、「终端」归 `herdr_run`），补 12 个缺失工具的别名，另加 `code_map`「查找引用」与 `md_logic`「按节改写」。
+
+### P1（18 个工具）
+
+- `herdr-use/src/tools.ts:268-415`（剩余 6 个 herdr 工具）；`ast-tools/src/tools.ts:180`（D7：`grep` 与 `glob` 分工，删「glob 搜正文」）；`code-map/src/index.ts:338`；`memory-base/src/tools.ts:106`（D10：`fuzzy` 与 `mode=hybrid` 对齐实现）；`rule-engine/src/tools.ts:159`（D11：匹配面补全到 10 个 session 节点）；`background-daemon/src/tools.ts:110`（D9：`S` / `P` / `U` 各自落点）；`goal-contract/src/tool.ts:65`（补 `clauses_text` / `max_goal_rounds`）；`coagent/src/tools.ts` 与 `agent-group/src/main.ts`（去代称、用注册名）。
+
+### P2（8 个工具）
+
+- `context-report/src/main.ts:511`；`preference-analysis/src/tools.ts:77`；`script-interpreter/src/tools.ts:472`（与 `bash` 分工）；`TUI/src/app/adapter/notice-history-tool.ts:99` 与 `TUI/src/app/adapter/local-log-tool.ts:104`（互指边界）；`tool-consult/src/tool.ts:152`（咨询即授权 + 揭示只增不减）。
+
+### 测试
+
+- 新增 `tool-consult/tests/aliases.test.ts`（6 例：46 工具清单、至少 1 条别名、全局唯一、别名不等于工具名、三组冲突显式断言）。
+- 新增 `tool-consult/tests/retrieval.test.ts`：七组重叠对 + 12 条查询 fixture，按「必须 top-1 / 只要求 top-3」两档断言；P1/P2 又补 8 条（终端列表 / 终端读取 / 规则管理 / 规则测试 / 定时任务 / 契约 / 偏好 / 上下文用量 / 命令历史）。
+- 各包既有 `tests/tool.test.ts` 补源码关键词断言，覆盖 D1 至 D12。
 
 ## 偏差
 
-（本轮无实现，无偏差。调研中发现但本轮未改的问题已记入 §3 / §4；实现阶段若出现计划外文件，按条目规范先问用户。）
+- 决策 3 明确「保留现状」的四项未改：`bash` 零参数、`channel_task_result` 两分支、`hash_read` 缺省 200 行、`memory_query` 的 `topK` 缺省。
+- 工具级长度目标（120 至 300）为软约束：`md_logic` 330 字符、`coagent` 353 字符略超，均 \<400 上限。
+- 参数级描述只按失真项与 P2 收口修改，未逐条重写。
 
 ## 测试与证据
 
-本轮为只读调研与决策，未运行 `npm run build` / `test` / `format`，未改源码。证据来源：
-
-- 工具面盘点与描述长度：用内联 Node 脚本导入各包工具工厂读取 `description` 实际长度；`hash-edit` / `script-interpreter` / `fs-digest` / `code-map` / `metric-loop` 五个包因源码含参数属性或私有工厂，改用已构建 `dist`（当前源码无改动，`dist` 与源码一致；实现阶段仍以源码为准复核）。
-- 重叠与失真：逐文件阅读注册段与实现段，行号见各表。
-- 检索模拟：用真实 `createMatcher` / 真实 `ALIASES` / 57 条文档（46 个本仓工具 + 11 个宿主核心工具）跑 13 条查询；宿主工具描述为安装树原文或首段摘要，分数只用于同一次模拟内的相对排序，不作为生产绝对值。
-- 工作区检查：本轮开始与结束时各跑一次 `git status --short`，确认只改本文件；`docs/BACKLOG.md`、`TUI/docs/BACKLOG.md` 与 `docs/implementation/` 下其他文件由主会话持有，未触碰。
-
-未验证的部分：未在真实 TUI 会话里跑 `consult_tools` 的端到端揭示 / 遮罩；宿主工具描述取自当前安装树 `0.2.1-rc.2`，profile 组合变化后 D5 / D6 的判断需复核。
+- 根 `npm run check` → 全包通过（三批完成后各跑一次）。
+- P0：10 个受影响包 746 项全绿；tool-consult 67/67。
+- P1 + P2：14 个受影响包 1101 项全绿；tool-consult 74/74（新增 8 条检索断言）。
+- C1 / C9 自查：46 个工具首句 ≤80 字符，工具级最长 `coagent` 353 字符，无 >400 项。
+- 真机验证与人工预览确认见「收尾」。
 
 ## 收尾
 
-（待关闭时填写。）
+已关闭（2026-10-25）。提交：`e10371d`（46 个工具描述 + 别名表 + 回归测试）、`30fe04f`（真机验证发现的一处排序回归）。
+
+真机验证（会话已装载新构建，`consult_tools` 以 `reveal: false` 只预览不揭示，12 条查询）：
+
+- `任务状态` → `task_status` 首位（`channel_task` 退到第二，重复别名已修）。
+- `改文件` → `hash_edit` / `edit` 前列（`fs_digest` / `ast_replace` 不再抢先，否定句假阳性消除）。
+- `查找引用` → `code_map`；`谁引用了这个符号` → `code_map`。
+- `markdown 结构` → `md_logic`；`执行终端命令` → `herdr_run`（`bash` 退到第三）。
+- `读取终端输出` → `herdr_read`；`命令历史` → `tui_local_log`。
+- `定时任务` → `daemon_task`；`上下文用量` → `context_report`；`发通知` → `session_channel`；`停止任务` → `task_stop`。
+- 发现 1 处回归：`跨会话委托` 的 top-1 变成 `task_stop`（其描述含完整短语「取消跨会话委托任务」，属交叉引用污染）。已在 `30fe04f` 改措辞、给 `channel_delegate` 补别名、补源码断言并把该查询升为 top-1 断言。
+- 修复后的排序需重启会话再确认一次：当前进程仍装载修复前的描述（dist 已重建，内存未换）。
+
+命名：归档后本文件为 `docs/archived/2026-10-24-tool-description-review.md`。
