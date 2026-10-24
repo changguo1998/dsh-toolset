@@ -49,6 +49,22 @@ export const DENIAL_MARKER_PREFIX = "[sandbox: file access denied under ";
 /** 宿主文件沙箱拒绝的错误码。 */
 export const FS_DENIED_CODE = "FS_SANDBOX_DENIED";
 
+/** 归一化：去掉 `/dev/null` 重定向与 `2>&1`，避免把它们当成「写」。 */
+export function normalizeCommand(command: string): string {
+  return command
+    .replace(/\d*>>?\s*\/dev\/null/g, " ")
+    .replace(/\d*>&\d*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** 重定向形状（归一化后仍存在 `> 目标` 才算写）。 */
+const REDIRECT_SHAPE = /(?:^|[^>])>>?(?!&)\s*[^\s|;&]/;
+
+/** 沙箱拒绝的强特征文本（中英 + 常见内核口径）；第 3 层用它压误报。 */
+const DENIAL_TEXT =
+  /read-only file system|只读文件系统|permission denied|permissionerror|operation not permitted|eacces|eprem/i;
+
 /**
  * 第 3 层的命令形状表（首批，决策 4 选 b）：git 写 + 常见写操作。
  * 只在「沙箱模式 + 非零退出」两个前提都成立时才使用，误报面很小。
@@ -64,7 +80,7 @@ const WRITE_SHAPES: readonly RegExp[] = [
   /\brm\b/,
   /\bdd\b/,
   /\bsed\s+-i\b/,
-  /(?:^|[^>])>>?(?!&)/,
+  REDIRECT_SHAPE,
 ];
 
 /** 一元对象判定。 */
@@ -100,6 +116,15 @@ export function resultErrorCode(result: ToolResultLike): string | undefined {
   return typeof nested === "string" ? nested : undefined;
 }
 
+/** 结构化结果里的 stderr 文本（`{text}` 或字符串）。 */
+function stderrText(value: Record<string, unknown>): string {
+  const raw = value["stderr"];
+  if (typeof raw === "string") return raw;
+  const record = asRecord(raw);
+  const nested = record?.["text"];
+  return typeof nested === "string" ? nested : "";
+}
+
 /** 命令文本（命令类工具的 `command` 参数；没有则 undefined）。 */
 export function commandOf(exec: ToolExecLike): string | undefined {
   const args = asRecord(exec.arguments);
@@ -126,15 +151,25 @@ function structuredDenial(exec: ToolExecLike, result: ToolResultLike): boolean {
   if (sandbox === undefined) return false;
   const mode = sandbox["mode"];
   if (typeof mode !== "string" || mode.length === 0) return false;
+  // 沙箱执行器自己没起来（runnerFailed）= 不是「写越界被拒」，不能提示升级
+  if (sandbox["runnerFailed"] === true || value["runnerFailed"] === true) {
+    return false;
+  }
+  // 中断 / 超时不是拒绝：升级重试解决不了
+  if (value["aborted"] === true || value["timedOut"] === true) return false;
   // `denied` 不作判据（宿主按英文签名判定，本地化报错恒 false）
   const exitCode = value["exitCode"];
   const failed =
     (typeof exitCode === "number" && exitCode !== 0) ||
     (typeof value["signal"] === "string" && value["signal"].length > 0);
   if (!failed) return false;
+  // 失败必须像「沙箱拒绝」：stderr / 结果文本命中强特征，或宿主已判定 denied
+  const haystack = [stderrText(value), resultText(result)].join("\n");
+  if (sandbox["denied"] !== true && !DENIAL_TEXT.test(haystack)) return false;
   const command = commandOf(exec);
   if (command === undefined) return false;
-  return WRITE_SHAPES.some((shape) => shape.test(command));
+  const normalized = normalizeCommand(command);
+  return WRITE_SHAPES.some((shape) => shape.test(normalized));
 }
 
 /** 提示正文（按工具族分别措辞，决策 8 选 b）。 */

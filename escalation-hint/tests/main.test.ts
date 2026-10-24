@@ -191,3 +191,58 @@ test("hintMessage 形状", () => {
   assert.equal(typeof message.id, "string");
   assert.equal(message.content[0]!.text, "x");
 });
+
+test("maxHints 上限：最旧的 callId 被淘汰后可再次提示", async () => {
+  const { ctx, handlers } = fakeContext();
+  apply(ctx, { maxHints: 2 });
+  const handler = handlers[0]!;
+  const run = async (callId: string): Promise<number> => {
+    const decision = (await handler(
+      { name: "bash", callId, arguments: { command: "ls" } },
+      DENIED_RESULT,
+      async () => ({ kind: "accept" }),
+    )) as { additionalContexts?: unknown[] };
+    return decision.additionalContexts?.length ?? 0;
+  };
+  assert.equal(await run("a"), 1);
+  assert.equal(await run("b"), 1);
+  assert.equal(await run("a"), 0, "仍在表内 → 不重复");
+  assert.equal(await run("c"), 1, "插入 c 淘汰 a");
+  assert.equal(await run("a"), 1, "a 已被淘汰 → 可以再提示");
+});
+
+test("callId 缺失 → 每次都可提示（不做去重）", async () => {
+  const { ctx, handlers } = fakeContext();
+  apply(ctx);
+  const handler = handlers[0]!;
+  const run = async (): Promise<number> => {
+    const decision = (await handler(
+      { name: "bash", arguments: { command: "ls" } },
+      DENIED_RESULT,
+      async () => ({ kind: "accept" }),
+    )) as { additionalContexts?: unknown[] };
+    return decision.additionalContexts?.length ?? 0;
+  };
+  assert.equal(await run(), 1);
+  assert.equal(await run(), 1);
+});
+
+test("真实 tool-bash 返回值经 apply → 注入一条提示", async () => {
+  const { ctx, handlers } = fakeContext();
+  apply(ctx);
+  const handler = handlers[0]!;
+  const decision = (await handler(
+    { name: "bash", callId: "real", arguments: { command: "git commit -m x" } },
+    {
+      content: [{ type: "text", text: "fatal: 只读文件系统" }],
+      value: {
+        kind: "foreground",
+        exitCode: 128,
+        sandbox: { mode: "workspace-write", denied: false },
+      },
+    },
+    async () => ({ kind: "accept" }),
+  )) as { additionalContexts?: Array<{ content: Array<{ text: string }> }> };
+  assert.equal(decision.additionalContexts?.length, 1);
+  assert.match(decision.additionalContexts![0]!.content[0]!.text, /git|命令/);
+});

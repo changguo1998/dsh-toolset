@@ -20,7 +20,7 @@ DSH（DeepSeek Harness）进程内集成插件：在「工具调用被沙箱拒�
 | --- | --- | --- |
 | 1 | 结果里已有 `[sandbox: escalation available …`（宿主 `escalationHintMarker`） | 跳过，不重复提示 |
 | 2 | 结果里出现 `[sandbox: file access denied under <mode> mode]`（宿主 `sandboxDenialMarker`）或错误码 `FS_SANDBOX_DENIED` | 补提示（判据稳定，与文案本地化无关） |
-| 3 | 无 marker：结构化结果显示沙箱模式内非零退出 / 信号终止，且命令形状像越界写（`git add\|commit\|tag`、重定向、`tee` / `cp` / `mv` / `ln` / `mkdir` / `touch` / `rm` / `dd` / `sed -i`） | 补提示（首批形态，逐步扩） |
+| 3 | 无 marker：结构化结果显示沙箱模式内非零退出 / 信号终止、**结果文本命中拒绝特征**（`read-only file system` / `只读文件系统` / `permission denied` / `EACCES` 等，或宿主已判 `denied`）、且命令形状像越界写（`git add\|commit\|tag`、重定向、`tee` / `cp` / `mv` / `ln` / `mkdir` / `touch` / `rm` / `dd` / `sed -i`）。命令先归一化（去掉 `2>&1` 与 `>/dev/null`）；排除 `runnerFailed`（执行器没起来）、`timedOut`、`aborted` | 补提示（首批形态，逐步扩） |
 
 `sandbox.denied` **不作判据**：对本地化报错它恒为 `false`，用它等于回到文案依赖。
 
@@ -42,7 +42,8 @@ DSH（DeepSeek Harness）进程内集成插件：在「工具调用被沙箱拒�
 
 ## 已知限制
 
-- 第 3 层依赖「命令形状表」与「沙箱内非零退出」两个前提；不在表内的写形态不会提示（宁漏不误伤）。
+- 第 3 层依赖「拒绝特征文本（或宿主 `denied`）+ 命令形状表 + 沙箱内非零退出」三个前提；不在表内的写形态不会提示（宁漏不误伤）。
+- 第 3 层的否定式误报已用真机案例回归钉住：`grep -c … 2>/dev/null` 退出码 1（无匹配）曾误触发，现已由「归一化 /dev/null + 拒绝特征文本」两道前提挡住。
 - 只对配置名单内的工具生效；其它插件工具（`herdr_run` / `script_run` 等）当前不覆盖。
 - 提示文案固定为中文；宿主若改成结构化升级入口，本包的文案需同步。
 - 不监听 `fs` 写工具的 `value`（其拒绝已由第 2 层的错误码覆盖）。
@@ -52,7 +53,7 @@ DSH（DeepSeek Harness）进程内集成插件：在「工具调用被沙箱拒�
 ```sh
 cd escalation-hint
 npm run check   # tsc --noEmit（含 tests）
-npm test        # node --test：判据 10 例 + 挂载 11 例
+npm test        # node --test：判据 20 例 + 挂载 14 例（共 34 例）
 npm run build
 ```
 
