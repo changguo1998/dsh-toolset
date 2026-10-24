@@ -197,6 +197,16 @@ redisTest("委托端到端：注入 → 自动回收 → 通知委托方", async
     hostA.emitSession({ id: "sess-a", header: { cwd: "/tmp/proj" } });
     hostB.emitSession({ id: "sess-b", header: { cwd: "/tmp/proj" } });
     await waitUntil(async () => (await a.peers()).peers?.length === 2);
+    // 等自动别名落定后再设显式别名：否则自动别名可能后写、把 alice 覆盖掉
+    await waitUntil(async () => {
+      const [la, lb] = await Promise.all([a.aliasList(), b.aliasList()]);
+      return (
+        la.aliases?.some((x) => x.sessionId === "sess-a") === true &&
+        lb.aliases?.some((x) => x.sessionId === "sess-b") === true
+      );
+    });
+    await a.aliasSet("alice", "sess-a");
+    await b.aliasSet("bob", "sess-b");
 
     const res = await a.delegate({
       from: "sess-a",
@@ -207,11 +217,23 @@ redisTest("委托端到端：注入 → 自动回收 → 通知委托方", async
     assert.ok(res.task?.id);
     const taskId = res.task!.id;
     assert.equal(res.task?.status, "pending");
+    assert.ok(
+      hostA.logs.some((line) => line.includes(`已委托任务 ${taskId} → bob`)),
+      `委托日志用别名：${hostA.logs.join(" | ")}`,
+    );
 
     await waitUntil(async () => atB.length > 0);
     const injected = atB[0] as { content: Array<{ text: string }> };
     const injectedText = injected.content[0]!.text;
     assert.ok(injectedText.includes(`TASK ${taskId}:`), "注入正文带任务标记");
+    assert.ok(
+      hostB.logs.some((line) => line.includes("已注入 bob ← alice")),
+      `注入日志用别名：${hostB.logs.join(" | ")}`,
+    );
+    assert.ok(
+      !hostB.logs.some((line) => line.includes("已注入 sess-b ← sess-a")),
+      "注入日志不再显示会话 id",
+    );
 
     // worker 收到任务（user/message 对位）→ running
     const sessionB = { id: "sess-b", header: { cwd: "/tmp/proj" } };
@@ -250,6 +272,12 @@ redisTest("委托端到端：注入 → 自动回收 → 通知委托方", async
     await waitUntil(async () => atA.length > 0);
     const notice = atA[0] as { content: Array<{ text: string }> };
     assert.ok(notice.content[0]!.text.includes(`RESULT ${taskId}: 共 42 行`));
+    assert.ok(
+      hostB.logs.some((line) =>
+        line.includes(`已回传任务 ${taskId} 结果 → alice`),
+      ),
+      `回传日志用别名：${hostB.logs.join(" | ")}`,
+    );
   } finally {
     await a.stop();
     await b.stop();

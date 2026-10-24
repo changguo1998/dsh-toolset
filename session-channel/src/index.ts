@@ -845,7 +845,8 @@ export class SessionChannelService {
       const queue = this.#workerTasks.get(target.sessionId) ?? [];
       queue.push(record.id);
       this.#workerTasks.set(target.sessionId, queue);
-      this.#log(`已委托任务 ${record.id} → ${target.sessionId}`);
+      const targetLabel = await this.#labelOf(conn.main, target.sessionId);
+      this.#log(`已委托任务 ${record.id} → ${targetLabel}`);
       return {
         ok: true,
         task: updated,
@@ -1129,7 +1130,8 @@ export class SessionChannelService {
         { from: task.to, to: task.from, text },
         { maxTextBytes: DEFAULT_TASK_NOTIFY_MAX_BYTES * 2 },
       );
-      this.#log(`已回传任务 ${task.id} 结果 → ${task.from}`);
+      const fromLabel = await this.#labelOf(client, task.from);
+      this.#log(`已回传任务 ${task.id} 结果 → ${fromLabel}`);
     } catch (err) {
       this.#log(`结果通知未送达（${task.id}）：${describe(err)}`);
     }
@@ -1301,12 +1303,14 @@ export class SessionChannelService {
 
   /**
    * 投递单条：注入本进程会话（失败则留流中，不写回执）。
-   * 来源标签按「别名优先、其次会话 id」解析（D6：正文需可见来源）。
+   * 正文来源与日志标签均按「别名优先、其次会话 id」解析（D6：正文与活动区都需可读）。
    */
   async #deliver(sessionId: string, message: InboxMessage): Promise<boolean> {
     const conn = this.#conn;
     if (conn === undefined) return false;
-    const origin = await this.#originLabel(conn.main, message.from);
+    const labels = await this.#labelsOf(conn.main, [sessionId, message.from]);
+    const targetLabel = labels.get(sessionId) ?? sessionId;
+    const origin = labels.get(message.from) ?? message.from;
     const injected = injectUserMessage(
       this.#injection,
       sessionId,
@@ -1314,28 +1318,42 @@ export class SessionChannelService {
       (msg) => this.#log(msg),
     );
     if (!injected) {
-      this.#log(`注入失败（会话不在本进程）：${sessionId} ← ${message.from}`);
+      this.#log(`注入失败（会话不在本进程）：${targetLabel} ← ${origin}`);
       return false;
     }
     void ackMessage(conn.main, message.id, ACK_TTL_SEC).catch((err: unknown) =>
       this.#log(`回执写入失败：${describe(err)}`),
     );
-    this.#log(`已注入 ${sessionId} ← ${message.from}（${message.id}）`);
+    this.#log(`已注入 ${targetLabel} ← ${origin}`);
     return true;
   }
 
-  /** 注入正文的来源标签：别名优先，其次会话 id；空来源交给 buildInjectionMessage 显示「未知会话」。 */
-  async #originLabel(
+  /** 日志展示标签：别名优先（未设 / 反查失败 → 会话 id）；空串原样返回。 */
+  async #labelOf(
     client: SessionChannelConnection["main"],
-    from: string,
+    sessionId: string,
   ): Promise<string> {
-    if (from === "") return "";
+    const labels = await this.#labelsOf(client, [sessionId]);
+    return labels.get(sessionId) ?? sessionId;
+  }
+
+  /** 一次扫描解析多个会话的展示标签（`listAliases` 只走一趟，避免逐条往返）。 */
+  async #labelsOf(
+    client: SessionChannelConnection["main"],
+    sessionIds: readonly string[],
+  ): Promise<Map<string, string>> {
+    const labels = new Map<string, string>();
+    const wanted = new Set(sessionIds.filter((id) => id !== ""));
+    if (wanted.size === 0) return labels;
     try {
-      return (await aliasOfSession(client, from)) ?? from;
+      for (const { alias, sessionId } of await listAliases(client)) {
+        if (wanted.has(sessionId)) labels.set(sessionId, alias);
+      }
     } catch (err) {
       this.#log(`别名反查失败（回退会话 id）：${describe(err)}`);
-      return from;
     }
+    for (const id of wanted) if (!labels.has(id)) labels.set(id, id);
+    return labels;
   }
 
   /** 载入持久投递游标（无 TTL）；失败以 `"0"` 兜底并放行读取（宁可补投、不漏投）。 */
