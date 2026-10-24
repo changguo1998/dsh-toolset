@@ -40,7 +40,7 @@
 | # | 结果 | 证据 |
 | --- | --- | --- |
 | 1 | 通过 | `herdr_create` -> `wZ3:p2`; `herdr_run "echo hello-verify"`; `herdr_read` 见到 `hello-verify`; `herdr_info` 回 `running=true shell_pid=2586074`（进程为 zsh）; `herdr_close` 后 `herdr_list` 只剩宿主 pane． |
-| 2 | 通过（需先起 headless server） | 首轮失败：`dshbg` 的 herdr server 未运行，`herdr session attach dshbg` 在 pane 内被拒（`nested herdr is disabled by default`）、去 TTY 则客户端立刻退出．**找到正解**：`herdr server` 是 headless server，`setsid herdr --session dshbg server >/tmp/dshbg-server.log 2>&1 < /dev/null &` 后 `herdr session list` 里 `dshbg` 变 `running`（log 打印 `herdr server running` 与 socket 路径）；随后 `herdr_create {foreground:false}` 回 `已建终端 w1:p2（后台 dshbg）`，`herdr_list` 同时列出前台 `wZ3:p4` 与后台 `w1:p2` 并各标 `[本插件]`． |
+| 2 | 通过（手动起 server + 自动拉起复核） | 首轮失败：`dshbg` 的 herdr server 未运行，`herdr session attach dshbg` 在 pane 内被拒（`nested herdr is disabled by default`）、去 TTY 则客户端立刻退出．**找到正解**：`herdr server` 是 headless server，`setsid herdr --session dshbg server >/tmp/dshbg-server.log 2>&1 < /dev/null &` 后 `herdr session list` 里 `dshbg` 变 `running`（log 打印 `herdr server running` 与 socket 路径）；随后 `herdr_create {foreground:false}` 回 `已建终端 w1:p2（后台 dshbg）`，`herdr_list` 同时列出前台 `wZ3:p4` 与后台 `w1:p2` 并各标 `[本插件]`．2026-10-24 复核自动拉起：先 `herdr session stop dshbg`，再 `herdr_create {foreground:false}` 回 `w2:p2`（新 workspace）；`herdr_list` 标 `[本插件]`，`herdr_run "echo autostart-ok"` 后 `herdr_read` 见 `autostart-ok`，`herdr_close` 注销，server 由 `ensure()` 自动拉起． |
 | 3 | 通过 | 后台终端 `w1:p2` 上 `herdr_run "sleep 2; echo bg-ok"` -> `herdr_wait {match:"bg-ok"}` 命中 -> `herdr_wait {stable:true}` 判稳（502 / 602 ms，走 socket）-> `herdr_read` 见 `bg-ok`．后台 lane 的 socket 解析正常． |
 | 4 | 通过 | `herdr_label {label:"verify-main-2"}` 成功，`herdr_list` 里该终端 label 随之变成 `verify-main-2`，且标 `[本插件]`． |
 | 5 | 部分通过 | `herdr_close` 后 `herdr_list` 只剩宿主 pane `wZ3:p1`；进程退出时跨 lane 清理未验（后台 lane 不可用）；workspace 自带 root pane 不登记 → 退出后 workspace 不自动关，按 README 已知边界，未另测． |
@@ -60,7 +60,7 @@
   - 落地方式（用户 2026-10-23 裁定）：`herdr-use` 在后台命令前 `ensure()` —— 探测 `session list --json`，缺则 detached spawn `herdr --session dshbg server` 并轮询到 running（10 s / 250 ms），**只拉起不关闭**、不记「谁起的」；并发单飞、失败清缓存下次重探，失败返回 `background-session-unavailable` 不退化前台。实现见 `herdr-use/src/background.ts`（合并 `8de0816`，4 个提交 `bfdbea5` / `d4bfa4b` / `aa44c2c` / `e184ffe`，135 例单测全绿）。
   - **真机核过探测面**：`herdr session list --json` 的真实形态是**顶层 `{"sessions":[{"name":"default","running":true,…},{"name":"dshbg","running":true,…}]}`**（不是 `{result:{…}}` 信封、也不是裸数组）；实现里 `obj(root.result) ?? root` 的回落正好覆盖，字段取 `name` 与 `running: true`，与本机输出一致。
   - 附带发现：`herdr session attach <name>`（TUI 客户端）与 `herdr server`（headless）是两条不同入口；此前误以为只有 attach。
-  - 待真机：自动拉起本身（需重启 dsh 让新 dist 生效后，`herdr session stop dshbg` 再由后台工具触发一次）。
+  - 自动拉起已复核通过（2026-10-24：停掉 `dshbg` 后由后台工具触发，见 #2 结果补充）。
 - #8 / #9 / #10 / #11 运行时于 2026-10-24 判读完成（见上表）。
 - #12 至 #14 已完成（coagent 接线后重启验过，见上表）。
 - 接线过程中修掉一个真实缺陷：`coagent` 原先只把 `herdrUse` / `sessionChannel` 放在 `ctx.get` 里取，cordis 不保证对方先 `provide`，取到 `undefined` 就走「缺服务」分支直接 return，表现为重启后工具静默不出现；已改为静态 `inject`（`231f26a`）。
@@ -71,5 +71,5 @@
 - 关闭：2026-10-24；本文件由 `docs/implementation/` 移入 `docs/archived/`。
 - 引用回写：仓内 7 个文件共 9 处 `docs/implementation/2026-10-23-real-machine-verification.md` 改为 `docs/archived/` 路径（`docs/BACKLOG.md` 2 处、`docs/archived/2026-10-23-herdr-use-terminal-surface.md` 2 处，其余 4 个归档文档各 1 处）；DESIGN / README / ROADMAP 无相关内容，不改。
 - BACKLOG：本任务不对应条目，无需清理。
-- 遗留项（未验，不算通过）：#5 进程退出时跨 lane 清理；后台 lane 自动拉起本身的真机复核（停掉 `dshbg` 后由后台工具触发）。两项均不在本次三条范围内，需要时另开条目。
+- 遗留项（未验，不算通过）：#5 进程退出时跨 lane 清理（不在本次三条范围内，需要时另开条目）。
 - 范围外：`auto-approve/docs/implementation/2026-10-22-worktree-git-escalation.md` 的「待裁定」仍未关闭。
