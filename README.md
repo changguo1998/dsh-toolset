@@ -45,6 +45,7 @@ The repository contains the `TUI/` terminal UI package and 32 in-process plugins
 | **agent-group** | Cross-session group orchestration: groups, members, leader→follower links with levels, instructions and reports; lazy settlement on `check` (success / failure / blocked / timeout / removed), removal pushed down layer by layer, every refusal carries a reason + next step; depends on session-channel (transport) and session-paths (state location) |
 | **coagent** | Long-lived agent launcher: creates a terminal through the `herdrUse` service surface, submits `fffdsh` in its interactive shell, claims the new dsh session via session-channel `peers`, and returns `terminal_id` / `session_id`; scope is launch and shutdown only — task dispatch and orchestration stay in session-channel and agent-group; rolls back the terminal on launch failure and keeps `failed` records with a screen digest |
 | **tool-consult** | On-demand tool revelation: the model describes what it wants to do, `consult_tools` matches tools by keyword index and returns name plus one-line summary, and reveals the hits to the current session (host `tools.restrict` mask + single active-mask replacement); only 9 core tools stay visible by default; consultation is authorisation, revelation is monotonic within a session (`revealScope: session`) or bounded to one turn (`turn`, with `ttlTurns` / `pin`); calling a masked tool returns an actionable "consult first" message; any failure (no agent scope, `restrict` throws, name mismatch, empty intersection) degrades to "no mask" instead of breaking the session |
+| **escalation-hint** | Sandbox-escalation hint backfill: subscribes the host `tools/post-execute` waterfall and, when a call was denied by the sandbox but the host rendered no `[sandbox: escalation available …]` hint (the `denied` flag is computed from English stderr signatures, so localized errors miss it), appends one user-role message via `additionalContexts` telling the model to retry the same call once with `sandbox_permissions` + `justification`; three-layer predicate (existing hint → skip; host `[sandbox: file access denied under <mode> mode]` / `FS_SANDBOX_DENIED` → hint; otherwise structured `exitCode` + `sandbox.mode` + write-shaped command) covers `bash` / `pwsh` and `write` / `edit` / `str_replace_editor`; hints only, never blocks |
 Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
 ## Directory layout
@@ -84,6 +85,7 @@ dsh-toolset/
 ├── agent-group/          # group orchestration (groups / members / leader-follower links / instructions and reports)
 ├── coagent/              # long-lived agent launcher (herdrUse terminal + fffdsh + session claim; launch and shutdown only)
 ├── tool-consult/         # on-demand tool revelation (keyword index + tools.restrict mask; consult is authorisation)
+├── escalation-hint/      # sandbox-escalation hint backfill (tools/post-execute + additionalContexts; hints only)
 ├── profiles/             # profile config examples (example: manifest + user-layer patch + pnpm trio; see profiles/README.md)
 ├── scripts/              # install.sh (one-shot install on a new machine); test scheduler
 ├── docs/                 # status table, backlog, agent composition notes, architecture comparison and host package list
@@ -110,7 +112,7 @@ Inside a single subpackage you can run its own `npm run check / build / test / d
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 33 packages: TUI + 32 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 34 packages: TUI + 33 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset

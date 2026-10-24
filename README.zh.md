@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 32 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 33 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -45,6 +45,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时 / 已移除），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
 | **coagent** | 长驻 agent 拉起与收尾：经 `herdrUse` 服务面建终端、在其交互 shell 里发 `fffdsh`、用 session-channel 的 `peers` 认领新会话，回执 `terminal_id` / `session_id`；职责只到拉起与收尾，派任务与编排分别归 session-channel 与 agent-group；拉起失败回滚终端并落 `failed` 记录（含失败码与屏摘要） |
 | **tool-consult** | 工具咨询与按需揭示：模型描述要做什么，`consult_tools` 按关键词索引返回名称 + 一句话并揭示给当前会话（宿主 `tools.restrict` 遮罩 + 单条活动 mask 替换）；缺省只留 9 个核心工具；咨询即授权，揭示在会话内只增不减（`revealScope: session`）或仅本回合（`turn`，带 `ttlTurns` / `pin`）；调用被遮罩的工具返回「先咨询」的可行动文案；任一路径失败（无 agent 作用域 / `restrict` 抛错 / 名单失配 / 空交集）降级为「不遮罩」而不中断会话 |
+| **escalation-hint** | 沙箱升级提示补齐：订阅宿主 `tools/post-execute`，在「调用被沙箱拒绝、但宿主没有渲染 `[sandbox: escalation available …]` 提示」时（`denied` 由英文 stderr 签名判定，本地化报错必然漏判）经 `additionalContexts` 追加一条 user 消息，提示模型对同一调用加 `sandbox_permissions` + `justification` 重试一次；三层判据（已有提示 → 跳过；命中宿主 `[sandbox: file access denied under <mode> mode]` / `FS_SANDBOX_DENIED` → 补；否则用结构化 `exitCode` + `sandbox.mode` + 写形状命令兜底）覆盖 `bash` / `pwsh` 与 `write` / `edit` / `str_replace_editor`；只提示、不拦截 |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
 ## 目录结构
@@ -84,6 +85,7 @@ dsh-toolset/
 ├── agent-group/          # 群组编排（组 / 成员 / 主从连接 / 指令与回报）
 ├── coagent/              # 长驻 agent 拉起与收尾（herdrUse 终端 + fffdsh + 会话认领；只管拉起与收尾）
 ├── tool-consult/         # 工具咨询与按需揭示（关键词索引 + tools.restrict 遮罩；咨询即授权）
+├── escalation-hint/      # 沙箱升级提示补齐（tools/post-execute + additionalContexts；只提示不拦截）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
@@ -110,7 +112,7 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 33 个包：TUI + 32 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 34 个包：TUI + 33 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

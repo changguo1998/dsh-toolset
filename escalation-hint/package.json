@@ -1,0 +1,30 @@
+{
+  "name": "@dsh-toolset/escalation-hint",
+  "version": "0.1.0",
+  "description": "DSH（DeepSeek Harness）escalation-hint 插件：沙箱拒绝但宿主没给升级提示时，经 tools/post-execute 追加一条重试指引（只提示、不拦截）",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

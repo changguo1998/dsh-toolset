@@ -1,0 +1,7 @@
+# escalation-hint 插件的 dsh bundle 声明。
+# 本包默认开启；只订阅宿主 `tools/post-execute`，不需要其它服务。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段：
+#   enabled / commandTools / fileTools / maxHints（缺省见 src/main.ts 的 resolveConfig）。
+- insert:
+    - id: escalation-hint
+      name: '@dsh-toolset/escalation-hint'
