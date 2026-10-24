@@ -259,3 +259,65 @@ describe("task_status 多轮视图：当前轮完整 + 旧轮根摘要", () => {
     assert.equal(tree[1]?.children[0]?.id, "c2");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）
+// 首句长度与选择依据靠源码关键词盯住；只断言事实，不锁死全文措辞。
+// ---------------------------------------------------------------------------
+
+describe("工具描述：P0 事实与选择依据", () => {
+  const descOf = (name: string): string => bench().byName(name).description;
+
+  it("C1：工具级首句不超过 80 字符（oneLine 预览不被截断）", () => {
+    for (const tool of createTools(bench().engine)) {
+      const first = tool.description.replace(/\s+/g, " ").trim();
+      const cut = first.search(/[。！？.!?]/);
+      const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+      assert.ok(
+        sentence.length <= 80,
+        `${tool.name} 首句 ${sentence.length} 字符：${sentence}`,
+      );
+    }
+  });
+
+  it("C9：工具级描述不超过 400 字符，重叠对工具落在 120 至 300", () => {
+    for (const tool of createTools(bench().engine)) {
+      const length = [...tool.description].length;
+      assert.ok(length <= 400, `${tool.name} 描述 ${length} 字符`);
+    }
+    for (const name of ["task_stop", "task_status", "task_implement"]) {
+      const length = [...descOf(name)].length;
+      assert.ok(length >= 120 && length <= 300, `${name} 描述 ${length} 字符`);
+    }
+  });
+
+  it("D4：task_implement 写明仅 model 后端 / 缺省叶子，并指向 task_execute", () => {
+    const d = descOf("task_implement");
+    assert.match(d, /model/);
+    assert.match(d, /叶子/);
+    assert.match(d, /task_execute/);
+  });
+
+  it("C2：task_execute 反指 task_implement（model 后端）", () => {
+    assert.match(descOf("task_execute"), /task_implement/);
+  });
+
+  it("C2：task_stop 写明不是取消，取消委托指向 channel_task", () => {
+    const d = descOf("task_stop");
+    assert.doesNotMatch(d, /^.*不取消/, "否定句须改正面表述");
+    assert.match(d, /验收/);
+    assert.match(d, /channel_task/);
+  });
+
+  it("C2：task_status 写明与 channel_task 的数据源差异", () => {
+    const d = descOf("task_status");
+    assert.match(d, /channel_task/);
+    assert.match(d, /嵌套任务树/);
+  });
+
+  it("C6：描述只用注册名，不出现「宿主」「官方」代称", () => {
+    for (const tool of createTools(bench().engine)) {
+      assert.doesNotMatch(tool.description, /宿主|官方/, tool.name);
+    }
+  });
+});

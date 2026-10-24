@@ -263,3 +263,35 @@ test("hash_edit：显式 Config.root 优先；未配置时按 exec 会话 cwd", 
     await b.cleanup();
   }
 });
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D3 指路（文件级字面量替换用 edit、按节改 Markdown 用 md_logic）、C1 / C6 / C8 / C9。
+ */
+test("工具描述：P0 事实与选择依据（D3 / C1 / C6 / C8 / C9）", async () => {
+  const tools = await registerTools();
+  for (const name of ["hash_read", "hash_edit"]) {
+    const tool = tools.get(name);
+    assert.ok(tool !== undefined, `${name} 应已注册`);
+    const description = tool.description;
+    // C1：首句不超过 80 字符
+    const first = description.replace(/\s+/g, " ").trim();
+    const cut = first.search(/[。！？.!?]/);
+    const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+    assert.ok(sentence.length <= 80, `${name} 首句：${sentence}`);
+    // C9：工具级不超过 400 字符
+    assert.ok([...description].length <= 400, `${name} 描述过长`);
+    // C6：不用「宿主」「官方」代称
+    assert.doesNotMatch(description, /宿主|官方/, name);
+  }
+
+  // hash_read：缺省只读 200 行（与实现一致，不写「整文件」）
+  assert.match(tools.get("hash_read")!.description, /200/);
+
+  const edit = tools.get("hash_edit")!.description;
+  // D3：文件级字面量替换指向 edit，按节改 Markdown 指向 md_logic
+  assert.match(edit, /edit/);
+  assert.match(edit, /md_logic/);
+  // C8：正面表述，不用「不改文件」这类含目标动作短语的否定句
+  assert.doesNotMatch(edit, /不改文件/);
+});

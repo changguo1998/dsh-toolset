@@ -102,7 +102,10 @@ export function createTuiLocalLogTool(): unknown {
   return {
     name: "tui_local_log",
     description:
-      "读 TUI 本地输出旁路日志：`$` 模式执行的命令与结果（含退出码）、TUI 命令的提示行（notice）——这些内容默认不进模型上下文，需要时用本工具按需取最近 N 条。kind=shell/notice/all，limit 缺省 20（上限 200），session_id 缺省当前会话。",
+      "读 TUI 本地输出旁路日志：$ 模式执行的命令与结果（含退出码）、TUI 命令的提示行（notice）。" +
+      "这些内容默认不进模型上下文；要核对命令历史或某条 TUI 提示时，用本工具按需取最近 N 条。" +
+      "kind=shell / notice / all（缺省），limit 缺省 20（上限 200），session_id 缺省当前会话。" +
+      "一次性事件交代（subagent 收尾 / 后台任务 / 模型切换）在 notice_history。",
     parameters: {
       type: "object",
       additionalProperties: false,

@@ -158,18 +158,12 @@ export function toToolDef(
   return {
     name: "agent_group",
     description:
-      "同事模型群组的编排（跨会话协调层）：create_group 建组（管理者 = 调用方会话）；" +
-      "add_member 加成员（group / name / target，target = 会话 id 或别名，须在线）；" +
-      "link 建立主从连接（group / from / to；从方须是自由代理，等级 = 主方 + 1）；" +
-      "link_peer 建立平等连接（group / from / to；双向、无等级、每对这种连接各至多一条）；" +
-      "send 发指令（group / to / text / timeoutMs；每条主从连接同时只允许一条未结）；" +
-      "send_peer 经平等连接发消息（group / to / text；发完即走，无未结指令）；" +
-      "broadcast 广播（group / text / to?；按当前成员集合逐条发送并汇总送达与失败）；" +
-      "check 懒判定结算（group / to?；成功 / 失败 / 受阻 / 超时）；" +
-      "remove 移除成员（group / name；非叶子被拒并列出剩余从代理）；" +
-      "close_group 关闭组（group；仅组长可关，未结指令终止、连接关系关闭、不连带关成员）；" +
-      "status 只读查看（group）。所有拒绝都带原因与下一步；" +
-      "依赖（session-channel / session-paths）在调用时解析，服务缺失会返回带原因的错误。",
+      "同事模型群组的编排（跨会话协调层）：建组、加成员、建主从或平等连接、派指令、结算。" +
+      "create_group 建组（管理者 = 调用方会话）；add_member 加成员（name / target，target = 会话 id 或别名，须在线）；" +
+      "link 建主从连接（从方须是自由代理，等级 = 主方 + 1）；link_peer 建平等连接（双向、无等级）；" +
+      "send 发指令（每条主从连接同时只允许一条未结）；send_peer 经平等连接发消息；broadcast 按成员逐条发送并汇总；" +
+      "check 懒判定结算；remove 移除成员（非叶子被拒）；close_group 关闭组；status 只读查看。" +
+      "派任务给单个会话用 channel_delegate；拉起常驻会话用 coagent。拒绝都带原因与下一步。",
     parameters: {
       type: "object",
       additionalProperties: false,

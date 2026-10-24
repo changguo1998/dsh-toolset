@@ -63,12 +63,13 @@ export const TOOL_NAME = "goal_contract_draft";
 
 /** 工具描述（面向模型的调用指引）。 */
 export const TOOL_DESCRIPTION = [
-  "起草 goal 契约并落 dsh goal 事件源（goal/change）。",
-  "字段：objective（目标描述）、clauses（Done-when 验证条款，schema 对齐 task-engine Acceptance：",
-  "{id, check, level: mechanical|semantic|human, command?}，mechanical 必须带 command）。",
-  "objective 首行必须是一句话概括（≤40 显示列，约 20 个汉字；状态列只显示首个逻辑行并按列宽完整折行，全文经宿主 /goal 命令输出读）。",
-  "objective 与 clauses 齐备时直接创建；缺任一则经 ask_user 逐题访谈（目标→条款→确认）。",
-  "创建后回读当前 goal 视图并解析 Done-when 条款，返回往返比对结果（readback.match）。",
+  "起草 goal 契约并落到 goal 事件源（goal/change），用于开工前把目标与 Done-when 条款定下来。",
+  "字段：objective（目标描述）、clauses 或 clauses_text（Done-when 条款，二选一）；",
+  "clauses 的 schema 对齐 task-engine 的 Acceptance（id / check / level / command），mechanical 必须带 command。",
+  "objective 首行必须是一句话概括（≤40 显示列，约 20 个汉字）。",
+  "objective 与条款齐备时直接创建；缺任一则经 ask_user 逐题访谈（目标→条款→确认）。",
+  "max_goal_rounds 设 goal 回合上限（缺省取会话配置值）。",
+  "创建后回读 goal 视图并解析 Done-when 条款，返回往返比对结果（readback.match）。",
 ].join(" ");
 
 /** 工具依赖（apply 层注入；均可为 undefined，运行时降级）。 */
@@ -143,7 +144,8 @@ export function createGoalContractTool(deps: GoalContractDeps) {
       max_goal_rounds: {
         type: "integer",
         required: false,
-        description: "goal 回合上限（缺省用宿主默认值；自动化场景建议给小值）",
+        description:
+          "goal 回合上限（缺省取会话配置的默认值；自动化场景建议给小值）",
       },
     }),
     async execute(

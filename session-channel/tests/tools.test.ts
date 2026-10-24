@@ -29,6 +29,8 @@ import {
 /** 工具定义（测试用最小形态）。 */
 interface ToolDef {
   name?: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
   execute: (
     args: Record<string, unknown>,
     exec?: unknown,
@@ -346,3 +348,67 @@ redisTest(
     }
   },
 );
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * 注册四个工具后直接读定义文本断言事实，不依赖 Redis 连接。
+ */
+test("工具描述：P0 事实与选择依据（D1 / C1 / C2 / C6）", () => {
+  const tools = new Map<string, ToolDef>();
+  apply(
+    {
+      tools: {
+        register: (def: unknown) => {
+          const tool = def as ToolDef;
+          tools.set(String(tool.name), tool);
+        },
+      },
+    } as never,
+    { url: "redis://127.0.0.1:1", instanceId: "description-test" },
+  );
+  try {
+    for (const name of [
+      "session_channel",
+      "channel_delegate",
+      "channel_task",
+      "channel_task_result",
+    ]) {
+      const tool = tools.get(name);
+      assert.ok(tool !== undefined, `${name} 应已注册`);
+      const description = String(tool.description ?? "");
+      // C1：首句不超过 80 字符
+      const first = description.replace(/\s+/g, " ").trim();
+      const cut = first.search(/[。！？.!?]/);
+      const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+      assert.ok(sentence.length <= 80, `${name} 首句：${sentence}`);
+      // C9：工具级不超过 400 字符
+      assert.ok([...description].length <= 400, `${name} 描述过长`);
+      // C6：不用「宿主」「官方」代称
+      assert.doesNotMatch(description, /宿主|官方/, name);
+    }
+
+    // D1：send 的 to 支持「会话 id、别名或 cwd:<绝对路径>」，工具级与参数级一致
+    const channel = tools.get("session_channel")!;
+    const props = (channel.parameters ?? {})["properties"] as
+      Record<string, { description?: string }> | undefined;
+    const to = props?.["to"]?.description ?? "";
+    assert.match(to, /别名/);
+    assert.match(String(channel.description), /别名/);
+
+    // C2：session_channel 指着 channel_delegate 说清「委托任务」边界
+    assert.match(String(channel.description), /channel_delegate/);
+    // C2：channel_delegate 反指 session_channel（发消息）与 channel_task（查状态）
+    const delegate = String(tools.get("channel_delegate")!.description);
+    assert.match(delegate, /channel_task/);
+    assert.match(delegate, /session_channel/);
+    // C2：channel_task 说清它是跨会话委托任务，不是 task_status 的嵌套任务树
+    assert.match(String(tools.get("channel_task")!.description), /task_status/);
+    // C2：channel_task_result 反指 channel_delegate
+    assert.match(
+      String(tools.get("channel_task_result")!.description),
+      /channel_delegate/,
+    );
+  } finally {
+    void getSessionChannelService()?.stop();
+  }
+});

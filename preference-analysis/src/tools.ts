@@ -76,17 +76,17 @@ const STATUSES: readonly LedgerStatus[] = [
 
 const LIST_DESCRIPTION =
   "列出偏好账簿条目（id / 正文 / 状态 / 证据数 / 跨会话数 / 重要度 / 最近证据时间）。" +
-  "只读，不改任何状态；用户问「现在有哪些偏好」或确认某条是否存在时使用。状态：" +
-  "observe（观察中）/ candidate（候选待审）/ active（生效并注入）/ dormant（休眠）/ retired（已退休）。";
+  "用户问「现在有哪些偏好」或确认某条是否存在时用本工具；本工具只读，登记用 preference_add、撤销用 preference_remove。" +
+  "状态：observe（观察中）/ candidate（候选待审）/ active（生效并注入）/ dormant（休眠）/ retired（已退休）。";
 
 const ADD_DESCRIPTION =
-  "登记一条用户偏好建议。一律落候选待审（status = candidate），**不自动应用、不自动注入**；" +
-  "仅在用户明确表达一条持久偏好（而不是一次性要求）时调用。正文写成用户可读的一句约束，" +
-  "保留用户原话，不要自己概括成抽象规则。";
+  "登记一条用户偏好建议，一律落候选待审（status = candidate），等用户审核后才生效并注入。" +
+  "仅在用户明确表达一条持久偏好（而不是一次性要求）时调用；正文写成用户可读的一句约束，" +
+  "保留用户原话，不要自己概括成抽象规则。要核对已有偏好用 preference_list。";
 
 const REMOVE_DESCRIPTION =
-  "撤销一条偏好（按 id）。**仅在用户当次明确要求撤销时调用**；撤销后该模式记入抑制键，" +
-  "重放同一行为不会再被归纳出来。";
+  "撤销一条偏好（按 id），仅在用户当次明确要求撤销时调用。" +
+  "撤销后该模式记入抑制键，重放同一行为不会再被归纳出来；撤销前可用 preference_list 核对 id。";
 
 /** 构造三个工具定义。 */
 export function createTools(api: PreferenceApi): ToolDef[] {

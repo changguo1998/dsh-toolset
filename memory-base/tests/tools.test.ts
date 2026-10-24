@@ -225,3 +225,37 @@ test("output.render：畸形值也能渲染出文本（不抛）", () => {
     assert.ok((blocks[0]?.text.length ?? 0) > 0);
   }
 });
+
+/** C1 / C9：工具级首句不超过 80 字符、整体不超过 400 字符。 */
+function assertFirstSentence(text: string, name: string): void {
+  const first = text.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(
+    sentence.length <= 80,
+    `${name} 首句 ${sentence.length} 字符：${sentence}`,
+  );
+  assert.ok([...text].length <= 400, `${name} 描述 ${[...text].length} 字符`);
+}
+
+/**
+ * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D10 fuzzy 与 mode=hybrid 的措辞对齐实现（hybrid 下 trigram 恒开，fuzzy 不再改变召回）。
+ */
+test("工具描述：fuzzy 与 hybrid 的措辞对齐实现（D10）", () => {
+  const { executor } = makeExecutor([]);
+  const tool = memoryQueryTool(executor) as ToolDef;
+  const description = tool.description;
+  assert.doesNotMatch(description, /宿主|官方/);
+  const props = tool.parameters.properties as Record<
+    string,
+    { description?: string }
+  >;
+  const fuzzy = props["fuzzy"]?.description ?? "";
+  const mode = props["mode"]?.description ?? "";
+  // 两个参数描述都要写明「hybrid 下 fuzzy 不额外起作用」
+  assert.match(fuzzy, /hybrid/);
+  assert.match(mode, /fuzzy/);
+  assert.match(fuzzy, /(不起|不再|无额外|恒开)/);
+  assertFirstSentence(description, "memory_query");
+});

@@ -139,7 +139,9 @@ test("二进制缺失时注册降级工具：调用返回含安装指引的 erro
   );
   assert.ok(logs.join("\n").includes("降级"));
   for (const def of registered as ToolDef[]) {
-    const value = (await def.execute({ action: "search" })) as { error?: string };
+    const value = (await def.execute({ action: "search" })) as {
+      error?: string;
+    };
     assert.ok(
       value.error?.includes("npm install -g @ast-grep/cli"),
       `降级调用应给安装指引，实际：${JSON.stringify(value)}`,
@@ -169,26 +171,44 @@ test("render 是全函数：畸形值不抛，且形参顺序为 (args, value)",
   // ast_replace 的渲染按它自己的 value 形状（matches/written）读，故两个工具各给对应形状
   const probes: Array<[unknown, unknown]> = [
     [
-      { action: "outline", files: [{ path: "ARGS_MARKER_NOT_RENDERED", language: "ts", items: [] }] },
-      { action: "outline", files: [{ path: "SENTINEL_VALUE_MARKER", language: "ts", items: [] }] },
+      {
+        action: "outline",
+        files: [
+          { path: "ARGS_MARKER_NOT_RENDERED", language: "ts", items: [] },
+        ],
+      },
+      {
+        action: "outline",
+        files: [{ path: "SENTINEL_VALUE_MARKER", language: "ts", items: [] }],
+      },
     ],
     [
-      { action: "replace", matches: [{ file: "ARGS_MARKER_NOT_RENDERED", line: 1, text: "x" }], replacedCount: 1, written: false },
-      { action: "replace", matches: [{ file: "SENTINEL_VALUE_MARKER", line: 1, text: "x" }], replacedCount: 1, written: false },
+      {
+        action: "replace",
+        matches: [{ file: "ARGS_MARKER_NOT_RENDERED", line: 1, text: "x" }],
+        replacedCount: 1,
+        written: false,
+      },
+      {
+        action: "replace",
+        matches: [{ file: "SENTINEL_VALUE_MARKER", line: 1, text: "x" }],
+        replacedCount: 1,
+        written: false,
+      },
     ],
   ];
   for (const [index, tool] of [query, replace].entries()) {
-  const [probeArgs, probeValue] = probes[index] ?? [undefined, undefined];
-  const text = tool.output.render(probeArgs, probeValue)[0]?.text ?? "";
-  assert.equal(typeof text, "string");
-  assert.ok(
-    text.includes("SENTINEL_VALUE_MARKER"),
-    "渲染的必须是第二参（value）",
-  );
-  assert.ok(
-    !text.includes("ARGS_MARKER_NOT_RENDERED"),
-    "第一参（args）不该被当成 value 渲染",
-  );
+    const [probeArgs, probeValue] = probes[index] ?? [undefined, undefined];
+    const text = tool.output.render(probeArgs, probeValue)[0]?.text ?? "";
+    assert.equal(typeof text, "string");
+    assert.ok(
+      text.includes("SENTINEL_VALUE_MARKER"),
+      "渲染的必须是第二参（value）",
+    );
+    assert.ok(
+      !text.includes("ARGS_MARKER_NOT_RENDERED"),
+      "第一参（args）不该被当成 value 渲染",
+    );
   }
 });
 
@@ -415,4 +435,47 @@ astTest("ast_query：search 命中与 outline 骨架走真二进制", async () =
   } finally {
     cleanup();
   }
+});
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D12 否定句改写（不含「改文件」）；检索「改文件」不得再命中本工具。
+ */
+test("工具描述：ast_replace 不再用「不改文件」否定句（D12）", () => {
+  const [, replace] = toToolDefs(unavailableOps("x")) as ToolDef[];
+  assert.ok(replace !== undefined);
+  assert.doesNotMatch(replace.description, /不改文件/);
+  // 正面表述保留 dry-run 语义与写回方式
+  assert.match(replace.description, /dry-run/);
+  assert.match(replace.description, /write: ?true/);
+  // C1：首句不超过 80 字符
+  const first = replace.description.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(sentence.length <= 80, `ast_replace 首句：${sentence}`);
+});
+
+/** C1 / C9：工具级首句不超过 80 字符、整体不超过 400 字符。 */
+function assertFirstSentence(text: string, name: string): void {
+  const first = text.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(
+    sentence.length <= 80,
+    `${name} 首句 ${sentence.length} 字符：${sentence}`,
+  );
+  assert.ok([...text].length <= 400, `${name} 描述 ${[...text].length} 字符`);
+}
+
+/**
+ * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D7 把「文本 / 正则检索用 grep / glob」改为只写 grep，并说清 grep（内容）与 glob（路径）的分工。
+ */
+test("工具描述：ast_query 只把内容检索指向 grep，并说清与 glob 的分工（D7）", () => {
+  const { query } = defs();
+  const description = query.description;
+  assert.match(description, /grep/);
+  assert.match(description, /glob[^。；]*路径|路径[^。；]*glob/);
+  assert.doesNotMatch(description, /grep \/ glob/);
+  assertFirstSentence(description, "ast_query");
 });

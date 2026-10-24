@@ -260,7 +260,8 @@ const NO_PARAMS: HerdrUseToolDef["parameters"] = {
  * 描述里写明四件模型最容易踩的事：① 何时用本工具族（需要屏幕状态与按键时序）与何时不该
  * （一条命令能跑完的用 bash）；② 只作用于自己创建的终端；③ `herdr_create` 的
  * `foreground` 语义（前台继承父会话 / 后台落 dshbg）；④ 命令跑在 dsh 沙箱之外，要过
- * security-guard 复查与沙箱闸。
+ * security-guard 复查与沙箱闸。P0 已把 ① 写进 `herdr_run` / `herdr_read` / `herdr_text` /
+ * `herdr_key` 的工具级描述（D6），其余 6 个待 P1 批次。
  */
 export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
   return [
@@ -268,13 +269,15 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       deps,
       "list",
       "列本会话创建的终端（前台 + 后台 dshbg 两处），逐条标 foreground / registered / focused / pane_count。" +
-        "terminal_id 取自 herdr_create 回执；registered: false 的是残留终端，需人工在 herdr 里关闭。",
+        "先看有哪些终端再决定读或写哪一个；terminal_id 取自 herdr_create 回执。" +
+        "registered: false 的是残留终端，需人工在 herdr 里关闭。",
       NO_PARAMS,
     ),
     makeTool(
       deps,
       "read",
-      "取终端屏内容（走 socket，回执带 revision / truncated）。" +
+      "取终端当前屏幕内容，即读屏 / 看屏（走 socket，回执带 revision / truncated）。" +
+        "读文件用 read；要等程序输出、判稳再取用 herdr_wait。" +
         `缺省 source=${DEFAULT_READ_SOURCE}、lines=${DEFAULT_READ_LINES}、剥 ANSI；TUI 类程序用 visible。` +
         "只接受本插件登记的 terminal_id。",
       {
@@ -303,8 +306,8 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "info",
-      "终端进程探活：返回 running / shell_pid / foreground_processes（判断命令是否还在跑）。" +
-        "只接受本插件登记的 terminal_id。",
+      "终端进程探活：返回 running / shell_pid / foreground_processes，判断命令是否还在跑。" +
+        "只判存活与前台进程，不取屏；要屏内容用 herdr_read。只接受本插件登记的 terminal_id。",
       {
         type: "object",
         additionalProperties: false,
@@ -315,8 +318,8 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "wait",
-      "等终端输出：match 字面量 / regex 正则 / stable 静默判稳，三选一互斥。" +
-        "match / regex 走 CLI wait-output，stable 走 socket 判稳；到点返回结构化超时结果而非抛错。" +
+      "等终端输出：match 字面量 / regex 正则 / stable 静默判稳，三选一互斥；要立即取当前屏用 herdr_read。" +
+        "match / regex 走 CLI wait-output，stable 走 socket 判稳；到点返回结构化超时结果而不抛错。" +
         "只接受本插件登记的 terminal_id。",
       {
         type: "object",
@@ -360,9 +363,9 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "create",
-      "建一个终端（新 tab，自带 root pane；不抢焦点，自动打 label）。" +
+      "建一个终端（新 tab，自带 root pane；不抢焦点，自动打 label），后续命令用 herdr_run 提交。" +
         "foreground 缺省 true：落在父会话所在 herdr session；设 false 则落在名为 dshbg 的后台 session，" +
-        "该终端之后的所有命令自动带 --session dshbg。命令跑在 dsh 进程之外，不受文件沙箱约束。",
+        "该终端之后的所有命令自动带 --session dshbg。新终端的工作目录缺省取会话工作目录。",
       {
         type: "object",
         additionalProperties: false,
@@ -378,8 +381,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
           },
           label: {
             type: "string",
-            description:
-              "归属标记（缺省配置 label；写入新 tab 标题）",
+            description: "归属标记（缺省配置 label；写入新 tab 标题）",
           },
         },
       },
@@ -387,8 +389,8 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "close",
-      "关闭整个终端（关掉它的 tab，并注销登记）。只接受本插件登记的 terminal_id；" +
-        "继承 lane 下调用者自己所在的 tab 会被拒。",
+      "关闭整个终端（关掉它的 tab，并注销登记）；先 herdr_list 确认 terminal_id 再关。" +
+        "继承 lane 下调用者自己所在的 tab 会被拒。只接受本插件登记的 terminal_id。",
       {
         type: "object",
         additionalProperties: false,
@@ -399,7 +401,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "label",
-      "同时改终端标题（tab 标题）与归属标记（root pane label），label 必须非空。" +
+      "同时改终端标题（tab 标题）与归属标记（root pane label），label 必须非空；用于标记终端用途、便于 herdr_list 辨认。" +
         "只接受本插件登记的 terminal_id。",
       {
         type: "object",
@@ -414,7 +416,8 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "text",
-      "向终端注入字面量文本（不追加回车）；要提交命令用 herdr_run。只接受本插件登记的 terminal_id。",
+      "向终端注入字面量文本（不追加回车），用于回复提示或粘贴片段；要提交命令用 herdr_run。" +
+        "只接受本插件登记的 terminal_id。",
       {
         type: "object",
         additionalProperties: false,
@@ -428,7 +431,8 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "key",
-      '发送按键序列（如 ["ctrl+c"] / ["esc"] / ["up"]）。只接受本插件登记的 terminal_id。',
+      '发送按键序列（如 ["ctrl+c"] / ["esc"] / ["up"] / ["enter"]），用于中断程序、翻页、确认提示框。' +
+        "组合键与单键都走这里；注入字面量文本（输入文本）用 herdr_text。只接受本插件登记的 terminal_id。",
       {
         type: "object",
         additionalProperties: false,
@@ -446,8 +450,10 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
     makeTool(
       deps,
       "run",
-      "向终端提交命令（文本 + 回车一次完成）。只接受本插件登记的 terminal_id；" +
-        "命令跑在 dsh 进程之外，过 security-guard 复查。",
+      "向已创建的 herdr 终端提交命令（文本 + 回车一次完成），复用该终端的会话状态。" +
+        "一次性命令用 bash；要在交互式程序里连跑命令、依赖终端当前目录 / shell 变量、或看屏幕时序时用本工具。" +
+        "只输入不回车用 herdr_text。这是终端命令的提交口，跑在 dsh 进程之外（不经文件沙箱），过 security-guard 复查。" +
+        "只接受本插件登记的 terminal_id。",
       {
         type: "object",
         additionalProperties: false,

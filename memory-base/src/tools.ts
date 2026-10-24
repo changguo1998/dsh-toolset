@@ -104,12 +104,12 @@ export function memoryQueryTool(executor: MemoryQueryExecutor): unknown {
   return {
     name: "memory_query",
     description:
-      "只读查询跨会话记忆库（跨全部扩展的 kind，按层 / 项目过滤）。" +
-      "action=search（缺省）做全文检索（porter 词干 + CJK 子串兜底）；action=list 按 kind 结构化列举。" +
-      "search 可用 mode 选策略：缺省 bm25（单词面）；hybrid 叠加 trigram 与词项邻近并按 RRF 融合（长句 / 多词查询更稳）。" +
-      "选择成本：知道要查什么用 search，要「某类记忆都写了什么」用 list；" +
-      "结果多时用 kind / tier / project / limit 收窄（缺省 10 行，上限 100）；" +
-      "只读——写入与删除只经各扩展持有的句柄，本工具不提供写面。",
+      "只读查询跨会话记忆库（跨全部已注册 kind，可按层 / 项目过滤）。" +
+      "action=search（缺省）全文检索，action=list 按 kind 列举；知道查什么用 search，要看某类都写了什么用 list。" +
+      "search 的 mode 选策略：缺省 bm25（单词面）；hybrid 多路召回 + RRF 融合，长句 / 多词查询更稳，" +
+      "此时 trigram 恒开，fuzzy 不再额外改变召回。" +
+      "结果多时用 kind / tier / project / limit 收窄（缺省 10 行，上限 100）。本工具只读，写入与删除走各扩展。" +
+      "查偏好用 preference_list。",
     parameters: {
       type: "object",
       additionalProperties: true,
@@ -145,13 +145,13 @@ export function memoryQueryTool(executor: MemoryQueryExecutor): unknown {
         fuzzy: {
           type: "boolean",
           description:
-            "search 用：叠加 trigram 子串召回（无法召回 <3 字符的串）",
+            "search 用：叠加 trigram 子串召回（召回 <3 字符的串时无效）；mode=hybrid 下 trigram 恒开，本参数不再改变召回",
         },
         mode: {
           type: "string",
           enum: ["bm25", "hybrid"],
           description:
-            "search 用：检索策略（缺省 bm25 = 单词面；hybrid = 多路召回 + RRF 融合）",
+            "search 用：检索策略（缺省 bm25 = 单词面；hybrid = 多路召回 + RRF 融合，trigram 恒开、fuzzy 不再起作用）",
         },
         offset: {
           type: "integer",

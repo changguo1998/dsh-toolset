@@ -241,3 +241,35 @@ test("render 全函数且形参顺序为 (args, value)", () => {
     "第一参（args）不该被当成 value 渲染",
   );
 });
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D2 root 默认与实现一致（会话 cwd，非会话时为进程 cwd）、C2 与 code_map / md_logic 的分工、C1 / C9。
+ */
+test("工具描述：P0 事实与选择依据（D2 / C2 / C1 / C9）", () => {
+  const name = "md_map";
+  const description = tool.description;
+  // C1：首句不超过 80 字符
+  const first = description.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(sentence.length <= 80, `${name} 首句：${sentence}`);
+  // C9：工具级不超过 400 字符
+  assert.ok([...description].length <= 400, `${name} 描述过长`);
+  // C6：交叉引用只用注册名，不用「官方 edit」「宿主」代称
+  assert.doesNotMatch(description, /官方|宿主/, name);
+  // D2：root 缺省 = 会话工作目录（未提供会话时进程 cwd），工具级与参数级一致
+  const props = tool.parameters.properties as Record<
+    string,
+    { description?: string }
+  >;
+  const root = props["root"]?.description ?? "";
+  assert.match(description, /会话工作目录/);
+  assert.match(root, /会话工作目录/);
+  assert.match(root, /进程 cwd/);
+  // 相对路径以 root 为基准（path 描述与实现一致）
+  assert.match(props["path"]?.description ?? "", /相对 root/);
+  // C2：与 code_map（代码结构）/ md_logic（单文件结构）的分工
+  assert.match(description, /code_map/);
+  assert.match(description, /md_logic/);
+});

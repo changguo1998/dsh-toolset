@@ -157,9 +157,10 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const add: ToolDef = {
     name: "rule_add",
     description:
-      "新增一条注入规则：命中条件（关键词/正则/内置谓词）成立时，代替用户向下一个回合注入一条 user-role 消息。" +
-      "source=tool-call/tool-result 时命中即注入（落下一个回合）；assistant-text/turn-end 在回合结束时对整回合正文判定；compaction 在上下文压缩完成（compaction/end）时判定。" +
-      "id 已存在会报错（改用 rule_update）。",
+      "新增一条注入规则：命中条件（关键词 / 正则 / 内置谓词）成立时，代替用户向下一个回合注入一条 user-role 消息。" +
+      "source（匹配面，可挂多个）共 10 个会话节点：assistant-text / user-message / tool-call / tool-result / " +
+      "turn-start / turn-end / step-start / step-end / session-start / compaction；缺省 assistant-text。" +
+      "边界类节点（turn-* / step-* / session-start）文本为空，match 可省即无条件命中。id 已存在会报错，改用 rule_update。",
     parameters: {
       type: "object",
       properties: RULE_PARAMS,
@@ -200,8 +201,8 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const update: ToolDef = {
     name: "rule_update",
     description:
-      "更新一条规则（浅合并 patch：可只改 text / match / cooldownTurns 等；action.text 用 patch.action.text 或 patch.text 均可）。" +
-      "基线规则被更新后以运行时版本生效（原配置不改）。",
+      "更新一条规则（浅合并 patch：只改 text / match / cooldownTurns 等；patch.text 与 patch.action.text 等价）。" +
+      "基线规则被更新后以运行时版本生效（原配置保持原样）；规则不存在时先用 rule_add。",
     parameters: {
       type: "object",
       properties: {

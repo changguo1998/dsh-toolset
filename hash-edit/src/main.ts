@@ -295,7 +295,8 @@ function createTools(root: string | undefined): ToolDef[] {
   const hashRead: ToolDef = {
     name: "hash_read",
     description:
-      "读取文件的行内容并返回 LINE:HASH 锚点（每行: 1 基行号:sha256 前 8 位 hex）。编辑前先读取获取锚点。",
+      "读取文件的行内容并返回 LINE:HASH 锚点（每行: 1 基行号:sha256 前 8 位 hex），是 hash_edit 的输入。" +
+      "缺省从第 1 行起读 200 行，更长文件用 offset / limit 分段读取。",
     parameters: HASH_READ_PARAMS,
     async execute(args, exec) {
       const path = asString(args.path);
@@ -324,9 +325,9 @@ function createTools(root: string | undefined): ToolDef[] {
   const hashEdit: ToolDef = {
     name: "hash_edit",
     description:
-      "对文件应用 LINE:HASH 锚定编辑（set_line / replace_lines / insert_after / delete_line）。" +
-      "所有锚点针对同一次 hash_read 的原始内容校验；任一锚点失效（stale）则整批拒绝、文件不变，" +
-      "返回全部失效锚点供重新读取。",
+      "按 LINE:HASH 锚点改文件（set_line / replace_lines / insert_after / delete_line），精确改行。" +
+      "锚点都用同一次 hash_read 的内容校验，任一失效（stale）则整批拒绝、文件保持原样，返回失效锚点供重新读取。" +
+      "文件级字面量替换用 edit（带读后改前版本守卫）；按节改 Markdown 用 md_logic。",
     parameters: HASH_EDIT_PARAMS,
     async execute(args, exec) {
       const path = asString(args.path);

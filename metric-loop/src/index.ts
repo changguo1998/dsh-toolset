@@ -558,8 +558,9 @@ function toToolDef(controller: MetricLoopController) {
   return {
     name: "metric_loop",
     description:
-      "指标驱动自动循环：start 新建并跑第一轮（测量命令输出单个数字），tick 推进一轮（wake=auto 受 cadence 节流，explicit 紧急唤醒不受限），status 查状态，stop 手动停止。" +
-      "无测量命令时为 metricless（只按边界停止）。结果含 schedule 提示：运行中请用宿主 schedule_create 按提示参数排下次自动唤醒。",
+      "指标驱动自动循环：每轮跑测量命令取一个数字，按窗口与边界判定是否继续。" +
+      "start 新建并跑第一轮，tick 推进一轮（wake=auto 受 cadence 节流，explicit 紧急唤醒不受限），status 查状态，stop 手动停止。" +
+      "无测量命令时为 metricless（只按边界停止）。结果含唤醒提示：运行中按提示参数用 daemon_task 排下次自动唤醒。",
     parameters: {
       type: "object",
       properties: {

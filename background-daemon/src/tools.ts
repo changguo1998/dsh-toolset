@@ -58,11 +58,11 @@ export function createDaemonTaskTool(deps: DaemonToolDeps): object {
   return {
     name: TOOL_NAME,
     description:
-      "后台守护任务（定时执行；守护默认关闭, 需先 /daemon start 开启, 进程内状态）。" +
-      "create 新建（选择器 + 投递文本或 slash 命令）, list 列表, " +
-      "show 详情, pause / resume 暂停恢复, run 立即投递一次, cancel 删除, log 运行流水。" +
-      "选择器支持 after_seconds / at / every_seconds（≥60 s）/ daily / weekly（cron 不在首期）。" +
-      "投递只面向本进程已注册的活跃 agent：目标会话无活跃 agent 时记 skipped, 不重试。",
+      "面向会话投递的进程内定时调度：按选择器到点向目标会话投递提示文本或执行 slash 命令。" +
+      "create 新建, list 列表, show 详情, pause / resume 暂停恢复, run 立即投递一次, cancel 删除, log 运行流水。" +
+      "守护默认关闭, 需先 /daemon start 开启; 选择器支持 after_seconds / at / every_seconds（≥60 s）/ daily / weekly（无 cron）。" +
+      "投递只面向本进程已注册的活跃 agent：目标会话无活跃 agent 时记 skipped, 不重试。" +
+      "指标循环的到点唤醒用 metric_loop 的提示参数配合本工具。",
     parameters: {
       type: "object",
       properties: {
@@ -110,7 +110,8 @@ export function createDaemonTaskTool(deps: DaemonToolDeps): object {
         tier: {
           type: "string",
           enum: ["S", "P", "U"],
-          description: "分档（缺省 S）",
+          description:
+            "分档，决定任务记录落在记忆库的哪一层：S = session 层（只在本会话可见，缺省）、P = project 层（同项目共用）、U = user 层（本人所有会话共用）",
         },
         limit: { type: "number", description: "log 用，条数上限（缺省 20）" },
       },

@@ -97,7 +97,11 @@ export function createNoticeHistoryTool(): unknown {
   return {
     name: "notice_history",
     description:
-      "读宿主 notice 历史原文：compaction 压缩后可能已折叠出上下文、但日志里仍在的 source.form:'notice' 消息（subagent 收尾 / 后台任务 / 模型切换等一次性事件交代），按需取最近 N 条。参数：kind=生产者类别（source.kind，如 tool-jobs / subagent-settled / model-selection；缺省不过滤）、limit 缺省 20（上限 200）、session_id 缺省当前调用方会话。只读，不改任何内容。",
+      "读 notice 历史原文：已被 compaction 折叠出上下文、会话日志里仍在的一次性事件交代。" +
+      "这类事件含 subagent 收尾 / 后台任务 / 模型切换（source.form:'notice'），取回后按需读最近 N 条。" +
+      "kind=生产者类别（source.kind，如 tool-jobs / subagent-settled / model-selection；缺省不过滤）、" +
+      "limit 缺省 20（上限 200）、session_id 缺省当前调用方会话。本工具只读。" +
+      "TUI 命令提示与 $ 模式命令输出在 tui_local_log。",
     parameters: {
       type: "object",
       additionalProperties: false,

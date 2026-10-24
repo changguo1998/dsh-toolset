@@ -892,3 +892,35 @@ test("tick 复查不可用（未挂 guard 服务）：fail-open + 告警一次 +
     cleanup(dir);
   }
 });
+
+test("工具描述（P0）：不指向不存在的 schedule_create，改指 daemon_task（D5）", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-desc-"));
+  const registered: Array<Record<string, unknown>> = [];
+  try {
+    await apply(
+      {
+        tools: {
+          register: (def: unknown) =>
+            registered.push(def as Record<string, unknown>),
+        },
+      },
+      { stateDir: dir },
+    );
+    const def = registered[0];
+    assert.ok(def !== undefined);
+    const description = String(def["description"] ?? "");
+    assert.doesNotMatch(description, /schedule_create/);
+    assert.match(description, /daemon_task/);
+    // C1：首句不超过 80 字符
+    const first = description.replace(/\s+/g, " ").trim();
+    const cut = first.search(/[。！？.!?]/);
+    const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+    assert.ok(sentence.length <= 80, `metric_loop 首句：${sentence}`);
+    // C9：工具级不超过 400 字符
+    assert.ok([...description].length <= 400, "metric_loop 描述过长");
+    // C6：不用「宿主」「官方」代称
+    assert.doesNotMatch(description, /宿主|官方/);
+  } finally {
+    cleanup(dir);
+  }
+});

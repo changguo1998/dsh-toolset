@@ -178,14 +178,13 @@ export function astQueryTool(ops: AstOperations): unknown {
   return {
     name: "ast_query",
     description:
-      "语法级查询（ast-grep）：action=search 按 AST 模式找代码（$VAR 单节点、$$$VAR 序列元变量，" +
-      "结构化匹配——不会命中字符串或注释里的同名文本）；action=outline 出文件的语法骨架（类/函数/方法/导入）；" +
-      "action=rules 跑 YAML 规则（ast-grep 规则语法，可内联或用规则文件）。" +
-      "选择成本：**文本 / 正则检索用宿主的 grep / glob**（更快，但会匹配字符串与注释）；" +
-      "「某文件里有哪些符号 / 结构快览」用 fs_digest（outline 带行范围）；" +
-      "「谁引用了某符号 / 改动影响面」用 code_map；" +
-      "要「所有 foo( 调用点」「某语法形态」「按结构批量定位」时才用 search。" +
-      "输出行号是 **1 基**（与 read / grep 一致）。改代码用 ast_replace（默认 dry-run）。",
+      "语法级查询（ast-grep）——按 AST 结构找代码，字符串与注释里的同名文本不算命中。" +
+      "action=search 按模式匹配（$VAR 单节点、$$$VAR 序列元变量）；action=outline 出文件语法骨架" +
+      "（类 / 函数 / 方法 / 导入）；action=rules 跑 YAML 规则（可内联或用规则文件）。" +
+      "要「所有 foo( 调用点」「某语法形态」「按结构批量定位」时用 search；" +
+      "按文本 / 正则找内容用 grep（会匹配字符串与注释，更快）；按路径模式找文件用 glob。" +
+      "某文件有哪些符号 / 结构快览用 fs_digest；谁引用了某符号、改动影响面用 code_map。" +
+      "输出行号 1 基（与 read / grep 一致）。改代码用 ast_replace（默认 dry-run）。",
     parameters: {
       type: "object",
       required: ["action"],
@@ -380,7 +379,7 @@ export function astReplaceTool(ops: AstOperations): unknown {
     name: "ast_replace",
     description:
       "语法级结构化替换（ast-grep fix 语义）：按 AST 模式匹配并把命中替换为 replacement（可引用 $VAR）。" +
-      "**默认 dry-run**：只返回预览与命中，不改文件；确认无误后再用 write:true 写回。" +
+      "**默认 dry-run**：只返回预览与命中，文件保持原样；确认无误后再用 write:true 写回。" +
       "写回是**整文件重写、无读后改前版本守卫**（直接 node:fs 写），写前请自行确认文件未被并发修改。" +
       "单点精确改写优先用 hash_edit（LINE:HASH 行级锚点 + 漂移检测 + 整批原子拒绝）；" +
       "按语法形态批量改同一写法才用本工具。",

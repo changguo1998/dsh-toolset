@@ -204,10 +204,10 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
   tools.register({
     name: "fs_digest",
     description:
-      "上下文感知文件读取：outline（章节/符号大纲；Markdown 额外给每节行范围与块结构清单" +
-      "——列表/表格/代码块/引用，便于按节读而不是整篇读）、signatures（函数/方法签名）、" +
-      "pruned（大文件头尾裁剪）。Markdown 深查（链接 / 引用式定义 / 嵌套层数 / 表格维度）用 md_logic；" +
-      "相对路径相对会话 cwd；只读，不改文件。",
+      "上下文感知文件读取（只读，省 token 的结构概览）：出大纲 / 签名 / 裁剪，不改内容，改内容用 edit。" +
+      "mode=outline 出章节 / 符号大纲（Markdown 额外给每节行范围与块结构清单——列表 / 表格 / 代码块 / 引用，" +
+      "便于按节读而不是整篇读）；signatures 出函数 / 方法签名；pruned 裁大文件头尾。" +
+      "Markdown 深查（链接 / 引用式定义 / 嵌套层数 / 表格维度）用 md_logic；全文检索用 grep。相对路径相对会话 cwd。",
     parameters: {
       type: "object",
       required: ["path", "mode"],

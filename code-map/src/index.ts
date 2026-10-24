@@ -336,10 +336,12 @@ function toToolDef(service: CodeMapService) {
   return {
     name: "code_map",
     description:
-      "代码结构地图：index/refresh 建立项目结构索引（符号表 + import 图）；" +
-      "callers 查某符号的引用（宿主 LSP 可用时 findReferences 精确结果 precision=lsp；标准 profile 不挂 LSP 三件套 → 实际恒回落同名候选 precision=structural）；callees 查符号所在文件的直接 import 目标（文件级）；" +
-      "impact 查改动某文件的影响面（反向 import 闭包聚合到模块）；cycles 查文件级依赖环（不隐式建索引：未索引返回 not_indexed）；" +
-      "report 出项目/模块报告（统计/模块依赖/环/未引用导出）；summary 查索引就绪状态。",
+      "代码结构与引用地图：建符号表与 import 图，回答谁引用了某符号、改动波及哪些模块。" +
+      "index / refresh 建索引；callers 查符号引用（LSP 可用时 precision=lsp，否则回落同名候选 structural）；" +
+      "callees 查文件级 import 目标；impact 查改动某文件的影响面（反向 import 闭包）；cycles 查依赖环；" +
+      "report 出项目报告；summary 查索引状态。callers / callees / impact / report 会隐式建索引，cycles 不会" +
+      "（未索引返回 not_indexed）。按路径模式找文件用 glob；按文本检索用 grep。" +
+      "root 缺省取进程 cwd（process.cwd()）。",
     parameters: {
       type: "object",
       properties: {
@@ -364,7 +366,8 @@ function toToolDef(service: CodeMapService) {
         },
         root: {
           type: "string",
-          description: "index/refresh 用：仓库根（缺省当前工作目录）",
+          description:
+            "index / refresh 用：仓库根；缺省取进程 cwd（process.cwd()），不是会话工作目录时请显式传",
         },
       },
       required: ["action"],

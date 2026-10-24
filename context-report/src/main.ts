@@ -509,7 +509,10 @@ export function createContextReportTool(
   return {
     name: "context_report",
     description:
-      "会话累计用量报告：回合/步数、token 分桶（未缓存输入/缓存读/缓存写/输出，reasoning 为子集）、上下文占用（请求压力/模型容量）、模型与工具墙钟、首 token 与解码速率。action=report（缺省）渲染报告；action=state 出投影原始状态；action=list 列会话。",
+      "查看当前或指定会话的上下文用量报告：token 分桶、上下文占用比例、回合与工具耗时。" +
+      "action=report（缺省）渲染报告，可配 detail=summary / standard / full；action=state 出投影原始状态；" +
+      "action=list 列会话。report 含回合 / 步数、token 分桶（未缓存输入 / 缓存读 / 缓存写 / 输出，reasoning 为子集）、" +
+      "上下文占用（请求压力 / 模型容量）、模型与工具墙钟、首 token 与解码速率。",
     parameters: {
       type: "object",
       additionalProperties: false,

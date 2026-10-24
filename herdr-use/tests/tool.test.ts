@@ -228,3 +228,36 @@ test("read 工具经 fake reader 取屏", async () => {
   assert.equal(result.payload.text, "screen");
   assert.equal(result.payload.revision, 9);
 });
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D6 与 bash 的分工、C2 与 read / herdr_run 的边界、C1 / C6 / C9。
+ */
+test("工具描述：P0 与 bash 的分工（D6 / C2 / C1 / C9）", () => {
+  const description = (name: string): string => toolNamed(name).description;
+  for (const name of ["herdr_run", "herdr_read", "herdr_text", "herdr_key"]) {
+    const text = description(name);
+    // C1：首句不超过 80 字符
+    const first = text.replace(/\s+/g, " ").trim();
+    const cut = first.search(/[。！？.!?]/);
+    const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+    assert.ok(sentence.length <= 80, `${name} 首句：${sentence}`);
+    // C9：工具级不超过 400 字符
+    assert.ok([...text].length <= 400, `${name} 描述过长`);
+    // C6：不用「宿主」「官方」代称
+    assert.doesNotMatch(text, /宿主|官方/, name);
+  }
+  // D6：herdr_run 写明一次性命令用 bash、交互状态用本工具
+  const run = description("herdr_run");
+  assert.match(run, /bash/);
+  assert.match(run, /一次性/);
+  // C2：herdr_text 与 herdr_run 的分工；herdr_run 反指 herdr_text
+  assert.match(description("herdr_text"), /herdr_run/);
+  assert.match(run, /herdr_text/);
+  // C2：herdr_read 指向 read（文件内容）与 herdr_wait（等输出）
+  const read = description("herdr_read");
+  assert.match(read, /read/);
+  assert.match(read, /herdr_wait/);
+  // C2：herdr_key 与 herdr_text 的分工
+  assert.match(description("herdr_key"), /herdr_text/);
+});

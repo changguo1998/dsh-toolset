@@ -385,3 +385,52 @@ test("输出渲染：jsonText 遇循环引用 / BigInt / 连 String 都抛的值
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** C1 / C9：工具级首句不超过 80 字符、整体不超过 400 字符。 */
+function assertFirstSentence(text: string, name: string): void {
+  const first = text.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(
+    sentence.length <= 80,
+    `${name} 首句 ${sentence.length} 字符：${sentence}`,
+  );
+  assert.ok([...text].length <= 400, `${name} 描述 ${[...text].length} 字符`);
+}
+
+/**
+ * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D11 rule_add 工具级补全 10 个匹配面；五个规则工具首句 ≤80 字符、整体 ≤400 字符。
+ */
+test("工具描述：rule_add 列出全部 10 个匹配面，五个工具长度达标（D11 / C1 / C9）", async () => {
+  await withTools(async ({ tool }) => {
+    const add = tool("rule_add");
+    for (const source of [
+      "assistant-text",
+      "user-message",
+      "tool-call",
+      "tool-result",
+      "turn-start",
+      "turn-end",
+      "step-start",
+      "step-end",
+      "session-start",
+      "compaction",
+    ]) {
+      assert.ok(
+        add.description.includes(source),
+        `rule_add 工具级缺匹配面 ${source}`,
+      );
+    }
+    assert.doesNotMatch(add.description, /宿主|官方|session-channel 的/);
+    for (const name of [
+      "rule_add",
+      "rule_list",
+      "rule_update",
+      "rule_remove",
+      "rule_test",
+    ]) {
+      assertFirstSentence(tool(name).description, name);
+    }
+  });
+});

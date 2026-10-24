@@ -180,11 +180,12 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
   return {
     name: "md_logic",
     description:
-      "Markdown 逻辑结构（单文件，读 + 按节改写）：action=structure 出节树（标题层级 + 每节 `L{起}-{止}` 行范围 + 内容 hash `·#xxxxxxxx`），" +
-      "action=blocks 按类型 / 节 / 行范围列块（list / table / code / quote / frontmatter / html / hr，" +
-      "带列表条目数与嵌套层数、表格行列数、代码围栏语言），action=links 列链接、图片与引用式定义（[tag]: url）。" +
-      "选择成本：只要标题 + 块快览用 fs_digest（轻量、与三模式统一）；要节行范围配 read 按节读、" +
-      "要链接清单 / 块细节 / 嵌套信息用本工具；action=replace 按节**整节替换 / 删除**（edits 带 heading + start_line / end_line，均来自 structure；可选 section_hash = structure 的内容 hash，不符 → section_stale（同标题同范围但节体 / 层级已被外部改动的漂移盲区）；替换前重新解析校验「同标题 + 同范围」仍成立，漂移即拒；content 非空时必须以标题行开头（ATX / setext）且**层级与目标节一致**（标题文本可不同；首行之外只允许更深层级，否则 content_invalid——改层级会改动节树归属，顶层节请改用 hash_edit / 官方 edit；未闭合围栏 / HTML 注释同样 content_invalid——它们会吞掉其后全部节）；整批原子写、失败不落盘；读→写之间文件被外部改动 → file_changed）。改写分工：本工具 replace = 按节（标题 + 行范围 + 内容 hash 漂移检测）；hash_edit = 行级 LINE:HASH 锚点；官方 edit = 文件级字符串替换 + 版本守卫。" +
+      "单文件 Markdown 逻辑结构（读 + 按节改写）：出节树 / 块 / 链接，或按节整节替换、删除。" +
+      "structure 给节树（层级 + 行范围 + 内容 hash），blocks 给块清单，links 给链接定义；" +
+      "只要标题 + 块快览用 fs_digest。" +
+      "replace 的 edits 带 heading + start_line / end_line（取自 structure）与 content（整节新文本，须以标题行开头）；" +
+      "section_hash 不符则 section_stale。" +
+      "改写分工：按节改 Markdown 用本工具；按行号改行用 hash_edit；整文件替换或改标题层级用 edit。" +
       "行号 1 基；path 相对会话 cwd。",
     parameters: {
       type: "object",

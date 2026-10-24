@@ -318,3 +318,39 @@ test("create：S 档目标不可解析 → session_unresolvable, 不落任务", 
   assert.equal(p["ok"], true);
   assert.equal(h.store.list().length, 1);
 });
+
+/** C1 / C9：工具级首句不超过 80 字符、整体不超过 400 字符。 */
+function assertFirstSentence(text: string, name: string): void {
+  const first = text.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(
+    sentence.length <= 80,
+    `${name} 首句 ${sentence.length} 字符：${sentence}`,
+  );
+  assert.ok([...text].length <= 400, `${name} 描述 ${[...text].length} 字符`);
+}
+
+/**
+ * 工具描述回归（P1，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D9 tier 解释 S / P / U 各落 session / project / user 层。
+ */
+test("工具描述：tier 解释 S / P / U 的落点（D9）", async () => {
+  const h = harness({ start: false });
+  built.push(h);
+  const tool = createDaemonTaskTool({
+    store: h.store,
+    journal: h.journal,
+    scheduler: h.scheduler,
+    switcher: h.switcher,
+  }) as {
+    name: string;
+    description: string;
+    parameters: { properties: Record<string, { description?: string }> };
+  };
+  const tier = tool.parameters.properties["tier"]?.description ?? "";
+  assert.match(tier, /S[^。]*session/);
+  assert.match(tier, /P[^。]*project/);
+  assert.match(tier, /U[^。]*user/);
+  assertFirstSentence(tool.description, "daemon_task");
+});

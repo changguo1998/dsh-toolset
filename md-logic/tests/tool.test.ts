@@ -307,3 +307,27 @@ test("render 全函数且形参顺序为 (args, value)", () => {
     "第一参（args）不该被当成 value 渲染",
   );
 });
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D8 术语（注册名，不用「官方 edit」）、D12 / C8（不用「改文件」短语的否定句）、C1 / C9。
+ */
+test("工具描述：P0 术语与选择依据（D8 / D12 / C1 / C9）", () => {
+  const name = "md_logic";
+  const description = tool.description;
+  // C1：首句不超过 80 字符
+  const first = description.replace(/\s+/g, " ").trim();
+  const cut = first.search(/[。！？.!?]/);
+  const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+  assert.ok(sentence.length <= 80, `${name} 首句：${sentence}`);
+  // C9：工具级不超过 400 字符
+  assert.ok([...description].length <= 400, `${name} 描述过长`);
+  // C6：交叉引用只用注册名，不用「官方 edit」「宿主」代称
+  assert.doesNotMatch(description, /官方|宿主/, name);
+  // D8：改写分工用注册名 edit / hash_edit，并说清三者边界
+  assert.match(description, /hash_edit/);
+  assert.match(description, /用 edit/);
+  assert.match(description, /fs_digest/);
+  // D12 / C8：正面表述（只读 / 不带「改文件」否定句）
+  assert.doesNotMatch(description, /不改文件/);
+});

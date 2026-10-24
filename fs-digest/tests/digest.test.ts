@@ -703,3 +703,37 @@ describe("工具注册（mock ctx）", () => {
     assert.equal(renderOf({ ok: true, mode: "pruned", text: "" }), "");
   });
 });
+
+/**
+ * 工具描述回归（P0，见 docs/implementation/2026-10-24-tool-description-review.md）：
+ * D12 否定句改写（不含「改文件」）、C2 与 md_logic 的分工、C1 / C6 / C9。
+ */
+describe("工具描述（P0）", () => {
+  it("fs_digest：无「不改文件」否定句，分工指向 md_logic", () => {
+    const registered: Array<{ name: string; description: string }> = [];
+    apply(
+      {
+        tools: {
+          register: (t: { name: string; description: string }) =>
+            registered.push(t),
+        },
+      } as never,
+      {},
+    );
+    const tool = registered.find((t) => t.name === "fs_digest");
+    assert.ok(tool !== undefined, "fs_digest 应已注册");
+    const description = tool.description;
+    assert.doesNotMatch(description, /不改文件/);
+    assert.match(description, /只读/);
+    assert.match(description, /md_logic/);
+    // C6：不用「宿主」「官方」代称
+    assert.doesNotMatch(description, /宿主|官方/);
+    // C1：首句不超过 80 字符
+    const first = description.replace(/\s+/g, " ").trim();
+    const cut = first.search(/[。！？.!?]/);
+    const sentence = cut === -1 ? first : first.slice(0, cut + 1);
+    assert.ok(sentence.length <= 80, `fs_digest 首句：${sentence}`);
+    // C9：工具级不超过 400 字符
+    assert.ok([...description].length <= 400, "fs_digest 描述过长");
+  });
+});

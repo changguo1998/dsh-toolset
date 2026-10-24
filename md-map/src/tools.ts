@@ -60,13 +60,12 @@ export function mdMapTool(service: MdMapService): unknown {
   return {
     name: "md_map",
     description:
-      "Markdown 项目级结构与引用分析（对象是文档，对标 code_map）：action=index / refresh 建立索引" +
-      "（默认扫当前工作目录下的 `**/*.md`，跳过 node_modules / dist / tmp 等；也可用 root 指定），" +
-      'action=callers 查谁引用了某文档或某锚点（path + 可选 anchor + 可选 kind 过滤边种类，如 ["internal","wiki"] 排除 ref 噪声；默认口径含 ref），action=impact 查改这份文档会波及' +
-      "哪些文档（反向引用闭包，depth 缺省 2，kind 逐层过滤），（边含**行内代码路径引用** kind:ref：如 docs/BACKLOG.md，按候选序解析；未命中不计断链、仅计入 report 的未解析 token 计数）action=orphans 查零入边文档，action=report 出总览" +
-      "（文档 / 锚点 / 内部边 / 未解析 token 计数 / 断链 / 孤儿 / 被引最多），action=summary 查索引状态（含 ref 计数）。" +
-      "分工：**代码结构 → code_map；单文件 Markdown 结构（节树 / 块 / 链接清单）→ md_logic；" +
-      "项目级文档关系 / 影响面 / 断链 → 本工具**。行号 1 基；path 相对 root。",
+      "Markdown 项目级引用图（文档之间，非全文检索）：建索引，查谁引用某文档 / 锚点、影响面、断链。" +
+      "index / refresh 建索引（默认扫会话工作目录下的 `**/*.md`）；" +
+      "callers 查引用来源（path + 可选 anchor + 可选 kind）；impact 查影响面（反向闭包，depth 缺省 2）；" +
+      "orphans 查孤儿；report / summary 出总览与索引状态。" +
+      "行号 1 基；path 相对 root。分工：代码结构用 code_map；单文件结构用 md_logic；全文检索用 grep。" +
+      "除 index / refresh 外都依赖先前建立的索引。",
     parameters: {
       type: "object",
       required: ["action"],
@@ -99,7 +98,8 @@ export function mdMapTool(service: MdMapService): unknown {
         },
         root: {
           type: "string",
-          description: "index / refresh 用：仓库根（缺省当前会话工作目录）",
+          description:
+            "index / refresh 用：仓库根（相对路径以会话工作目录为基准）；缺省取会话工作目录，取不到会话时用进程 cwd（process.cwd()）",
         },
       },
     },
