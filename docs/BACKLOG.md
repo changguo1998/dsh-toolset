@@ -84,8 +84,6 @@
 > - 跨会话与通知：`2026-09-30-cross-session-delegation.md`、`2026-10-20-notice-history-query.md`、`2026-10-20-agent-status-board.md`
 > - 文档与流程：`2026-10-18-plugin-docs-refresh.md`、`2026-10-22-docs-consistency.md`
 
-**未立项观察项**：活动工具交互管理（暂不立项, 作为后续可选项）。
-
 ### 实现顺序与并行分组（2026-10-24 收束）
 
 2026-10-24 起**没有在跑的并行分组**：A 至 I 各组的条目已全部关闭（条目 4 / 6 / 7 与 TUI `#3`、项目级 `3. coagent` 均在 2026-10-23 至 2026-10-24 关闭）。分组口径与写入范围约定保留在 `docs/WORKFLOW-STANDARD.md`，将来有新条目再按「组内串行、组间并行」重新分组。
