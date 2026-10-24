@@ -52,7 +52,9 @@ usage() {
   --skip-verify         跳过收尾自检（dsh --profile <name> --dump-config；无 dsh / CI 场景）
   -h, --help            显示本帮助
 
-环境变量：DSH_HOME 覆盖 Harness home（默认 ~/.dsh）；请勿在 dsh 运行中执行
+环境变量：DSH_HOME 覆盖 Harness home（默认 ~/.dsh）；BUILD_JOBS 覆盖并行构建的并发数
+（默认 CPU 核数）；BUILD_RUNNER 选调度器（auto / parallel / xargs / serial，默认 auto：
+有 GNU parallel 用它、否则用 xargs、都没有则串行）；请勿在 dsh 运行中执行
 （脚本会改写 profile 目录，宿主可能在读它）。本脚本不写 settings.yaml，
 也不配置 agent preset——本项目只用 TUI，agent 面走 profile 全局组合。
 EOF
@@ -321,6 +323,7 @@ log "选中插件：$(printf '%s' "$final" | sed 's/^ //')"
 if [ "$skip_build" = 1 ]; then
     log "按 --skip-build 跳过 npm install / build（要求各包 dist/ 已存在）"
 else
+    # 依赖安装仍串行：npm/pnpm 并发会争同一份缓存与 lock 文件，失败定位也更难。
     for d in $final; do
         if [ ! -d "$repo_root/$d/node_modules" ]; then
             # npm 不支持 `link:` 协议（code-map → ast-tools、md-map → md-logic）：这些包改用 pnpm
@@ -336,12 +339,111 @@ else
                 run_in "$repo_root/$d" npm install --no-audit --no-fund
             fi
         fi
-        log "构建：$d"
-        run_in "$repo_root/$d" npm run build
-        if [ "$dry_run" != 1 ] && [ ! -d "$repo_root/$d/dist" ]; then
-            warn "$d 构建后仍无 dist/，挂载后可能加载失败"
-        fi
     done
+    # 构建并行。跨包源码依赖只有两处（code-map → ast-tools、md-map → md-logic），
+    # 依赖方放到第二批，保证全新环境（dist/ 尚不存在）也能一次构建成功。
+    if [ "$dry_run" = 1 ]; then
+        for d in $final; do
+            run_in "$repo_root/$d" npm run build
+        done
+    else
+        phase1=""
+        phase2=""
+        for d in $final; do
+            case "$d" in
+                code-map | md-map) phase2="$phase2 $d" ;;
+                *) phase1="$phase1 $d" ;;
+            esac
+        done
+        build_jobs="${BUILD_JOBS:-$(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 4)}"
+        build_runner="${BUILD_RUNNER:-auto}"
+        case "$build_runner" in
+            auto | parallel | xargs | serial) ;;
+            *) die "BUILD_RUNNER 只接受 auto / parallel / xargs / serial：$build_runner" ;;
+        esac
+        case "$build_jobs" in
+            "" | *[!0-9]*) die "BUILD_JOBS 必须是正整数：$build_jobs" ;;
+        esac
+        [ "$build_jobs" -ge 1 ] || die "BUILD_JOBS 必须 >= 1：$build_jobs"
+        log "并行构建：$(printf '%s' "$final" | wc -w | tr -d ' ') 个包，并发 $build_jobs（依赖方后置）"
+        build_log_dir="${TMPDIR:-/tmp}/dsh-install-build.$$"
+        mkdir -p "$build_log_dir"
+        build_worker="$build_log_dir/build-one.sh"
+        cat > "$build_worker" << 'EOS'
+#!/bin/sh
+# install.sh 的单包构建单元：日志 / 退出码 / 耗时各落一个文件，供宿主脚本汇总。
+set -u
+d="$1"
+root="${INSTALL_BUILD_ROOT:?}"
+lb="${INSTALL_BUILD_LOGDIR:?}"
+safe=$(printf '%s' "$d" | tr '/.' '__')
+start=$(date +%s%N 2> /dev/null || echo 0)
+case "$start" in
+    "" | *[!0-9]*) start=0 ;;
+esac
+if (cd "$root/$d" && npm run build) > "$lb/$safe.log" 2>&1; then
+    rc=0
+else
+    rc=$?
+fi
+end=$(date +%s%N 2> /dev/null || echo 0)
+case "$end" in
+    "" | *[!0-9]*) end=0 ;;
+esac
+printf '%s' "$rc" > "$lb/$safe.exit"
+if [ "$start" -gt 0 ] && [ "$end" -ge "$start" ]; then
+    printf '%s' $(((end - start) / 1000000)) > "$lb/$safe.ms"
+else
+    printf '0' > "$lb/$safe.ms"
+fi
+exit "$rc"
+EOS
+        chmod +x "$build_worker"
+        INSTALL_BUILD_ROOT="$repo_root"
+        INSTALL_BUILD_LOGDIR="$build_log_dir"
+        export INSTALL_BUILD_ROOT INSTALL_BUILD_LOGDIR
+        run_build_batch() { # run_build_batch <包列表>：parallel → xargs → 串行兜底
+            batch="$1"
+            [ -n "$batch" ] || return 0
+            if { [ "$build_runner" = "auto" ] || [ "$build_runner" = "parallel" ]; } && have parallel; then
+                # shellcheck disable=SC2086
+                printf '%s\n' $batch | parallel -j "$build_jobs" --will-cite "$build_worker" {} || true
+            elif { [ "$build_runner" = "auto" ] || [ "$build_runner" = "xargs" ]; } && have xargs; then
+                # shellcheck disable=SC2086
+                printf '%s\n' $batch | xargs -P "$build_jobs" -n 1 "$build_worker" || true
+            else
+                for d in $batch; do
+                    "$build_worker" "$d" || true
+                done
+            fi
+        }
+        run_build_batch "$phase1"
+        run_build_batch "$phase2"
+        failed=""
+        for d in $final; do
+            safe=$(printf '%s' "$d" | tr '/.' '__')
+            rc=$(cat "$build_log_dir/$safe.exit" 2> /dev/null || echo 1)
+            ms=$(cat "$build_log_dir/$safe.ms" 2> /dev/null || echo 0)
+            if [ "$rc" = 0 ]; then
+                printf '[install] OK   %-20s %6s ms\n' "$d" "$ms"
+                if [ ! -d "$repo_root/$d/dist" ]; then
+                    warn "$d 构建后仍无 dist/，挂载后可能加载失败"
+                fi
+            else
+                printf '[install] FAIL %-20s %6s ms\n' "$d" "$ms"
+                failed="$failed $d"
+            fi
+        done
+        if [ -n "$failed" ]; then
+            for d in $failed; do
+                safe=$(printf '%s' "$d" | tr '/.' '__')
+                printf '\n--- %s 构建日志尾部（完整日志：%s）---\n' "$d" "$build_log_dir/$safe.log" >&2
+                tail -n 30 "$build_log_dir/$safe.log" >&2 || true
+            done
+            die "并行构建失败：$(printf '%s' "$failed" | sed 's/^ //')（日志目录：$build_log_dir）"
+        fi
+        rm -rf "$build_log_dir"
+    fi
 fi
 
 # ── 4/5 配置 profile ────────────────────────────────────────────────────────

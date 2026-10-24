@@ -120,6 +120,8 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 
 脚本幂等：配置文件默认保留（`--force` 才覆盖），且仅在内容确有变化时写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` 按当前选择集刷新本仓库插件（已不在选择集的本仓库条目移除，用户自加条目保留），且不改写 `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。`--sync --force` 组合被拒（会覆盖 patch 并丢掉生成的接管片段）。生成片段按 patch 内容重建，带开关重跑只补缺；删除以 `# install.sh generated: title-takeover-` 开头的行即放弃接管。
 
+插件构建并行执行（GNU parallel，缺则 `xargs`，再退回串行）：`BUILD_JOBS` 覆盖并发数（默认 CPU 核数），`BUILD_RUNNER=parallel|xargs|serial` 强制调度器。依赖安装仍串行；`code-map` / `md-map` 因 import 对应包的构建产物，排在 `ast-tools` / `md-logic` 之后构建。
+
 手工配置时各插件以 cordis bundle 方式挂载到 DSH profile。示例（`~/.dsh/profiles/fff`，详见 `TUI/README.md`）：
 
 ```jsonc

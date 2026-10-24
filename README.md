@@ -120,6 +120,8 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 
 The script is idempotent: existing config files are kept unless `--force` is given, and it writes (plus a `.bak.<timestamp>` backup) only when the content actually differs, so repeated `--sync` runs do not pile up files. It touches only `$DSH_HOME` (default `~/.dsh`) and this repository. `--sync` refreshes the repository plugins to the current selection (unselected repository entries are removed, user-added ones kept) and never rewrites the title-provider part of `cordis.patch.yml`: disabling the official all-prompts provider is an explicit choice (`--sync --take-over-title`), otherwise a detected conflict is only warned. `--sync --force` is rejected (it would overwrite the patch and drop the generated takeover region). The generated region is rebuilt from the patch, so re-running with the flag only fills missing pieces; deleting the lines starting with `# install.sh generated: title-takeover-` opts out of the takeover.
 
+Plugin builds run in parallel (GNU parallel, falling back to `xargs`, then serial): `BUILD_JOBS` overrides the concurrency (default = CPU cores) and `BUILD_RUNNER=parallel|xargs|serial` forces a scheduler. Dependency installs stay serial, and `code-map` / `md-map` are built after `ast-tools` / `md-logic` because they import those packages' builds.
+
 For manual setup, mount each plugin into a DSH profile as a cordis bundle. Example (`~/.dsh/profiles/fff`, see `TUI/README.md` for details):
 
 ```jsonc

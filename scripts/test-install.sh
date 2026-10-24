@@ -461,6 +461,17 @@ assert_contains "$manifest" '"@deepseek-ai/dsh-session-title-all-prompts-llm"' "
 assert_contains "$manifest" '"some-third-party-bundle"' "--sync 收窄后非本仓库 bundle 仍保留"
 assert_log_contains "已按当前选择集移除本仓库条目：bundle [@dsh-toolset/ponytail]" "收窄时打移除日志并列明移除名单"
 
+# 10d）并行构建：帮助文案 + 非法 BUILD_JOBS 在构建前被拒（不真构建）
+sh "$repo_root/scripts/install.sh" --help > "$work/help.txt" 2>&1
+assert_contains "$work/help.txt" "BUILD_JOBS" "--help 说明 BUILD_JOBS"
+assert_contains "$work/help.txt" "BUILD_RUNNER" "--help 说明 BUILD_RUNNER"
+if PATH="$fakebin:$PATH" DSH_HOME="$home" BUILD_JOBS=abc sh "$repo_root/scripts/install.sh" \
+    --skip-dsh --skip-verify --profile buildjobs --plugins clock-base > "$lastlog" 2>&1; then
+    cat "$lastlog" >> "$log"
+    fail "非法 BUILD_JOBS 应退出非 0"
+fi
+assert_log_contains "BUILD_JOBS 必须是正整数" "非法 BUILD_JOBS 在构建前被拒"
+
 # 11）接线一致性：canonical_pkgs ←→ 根 check/build 链、test-parallel.sh default_pkgs
 canonical="$(sed -n 's/^canonical_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/install.sh")"
 [ -n "$canonical" ] || fail "无法从 install.sh 提取 canonical_pkgs（sed 模式失效？）"
