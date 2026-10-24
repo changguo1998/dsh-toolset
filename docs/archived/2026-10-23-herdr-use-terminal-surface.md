@@ -183,7 +183,7 @@ export interface HerdrUseService {
 
 ## 真机验证（2026-10-23，本会话内跑）
 
-清单与逐项证据见 `docs/implementation/2026-10-23-real-machine-verification.md`。已通过：
+清单与逐项证据见 `docs/archived/2026-10-23-real-machine-verification.md`。已通过：
 
 | 项 | 结论 |
 | --- | --- |
@@ -208,6 +208,6 @@ export interface HerdrUseService {
 
 - 交付：10 个模型侧工具 + 共用 `herdrUse` 服务面（同一 registry、同一把锁），旧 `herdr_use` 与 `pane_*` / `tab_*` 全删；`herdr --session dshbg server` 作后台 lane 的正解，自动拉起落地在 `herdr-use/src/background.ts`（合并 `8de0816`，135 例单测）。
 - 联动：`security-guard` 命令登记、`behavior-correction` 文案、`tool-consult` 别名、`auto-approve` 读类只读判定均随本轮改名同步。
-- 真机：见 `docs/implementation/2026-10-23-real-machine-verification.md` #1–#7；后台 lane 的自动拉起仍差一次「停掉 dshbg 后由后台工具触发」的复核。
+- 真机：见 `docs/archived/2026-10-23-real-machine-verification.md` #1–#7；后台 lane 的自动拉起仍差一次「停掉 dshbg 后由后台工具触发」的复核。
 - 未了：TUI 表格两项待人工目视（#9 / #10）；#8 审批面板未观察到。
 - 关闭依据：条目 7 的目标与验收已达成，未了项另记在真机验证清单，不留在本任务下。

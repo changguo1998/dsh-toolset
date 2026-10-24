@@ -28,6 +28,6 @@
 
 ## 未做 / 存疑
 
-- **真机验收（2026-10-23，合并后）通过**：`bash` 里跑 `herdr status` 被拦，理由为「bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）」，已无 `herdr_use` / `pane_*`。证据见 `docs/implementation/2026-10-23-real-machine-verification.md` #7。
+- **真机验收（2026-10-23，合并后）通过**：`bash` 里跑 `herdr status` 被拦，理由为「bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）」，已无 `herdr_use` / `pane_*`。证据见 `docs/archived/2026-10-23-real-machine-verification.md` #7。
 - 本包无 `docs/BACKLOG.md`，没有条目需要清理。
 - 本文件按仓库约定移入 `docs/archived/`；`docs/implementation/2026-10-23-herdr-use-terminal-surface.md`（另一个 worktree）里对旧路径的引用会失效。

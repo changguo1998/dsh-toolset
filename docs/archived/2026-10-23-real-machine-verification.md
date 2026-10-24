@@ -1,6 +1,6 @@
 # 真机验证清单（herdr-use 终端面 / coagent / 三个适配插件 / TUI 表格）
 
-状态：已完成 11 项（#1–#7、#11–#14，其中 #5 部分通过）；未了 3 项：#8 需真机看到审批面板、#9 / #10 需在 TUI 里目视；另后台 lane 自动拉起待重启后触发一次　　开启：2026-10-23　　修订：2026-10-24
+状态：14 项全部判读完成（#5 部分通过；#8 / #9 / #10 与 #11 运行时确认于 2026-10-24）　　开启：2026-10-23　　关闭：2026-10-24
 本文件是真机验证阶段的过程记录与落点；每验完一项就地补「结果」列与证据（工具回执 / 屏幕摘要 / 命令输出）。
 
 ## 前置
@@ -46,10 +46,10 @@
 | 5 | 部分通过 | `herdr_close` 后 `herdr_list` 只剩宿主 pane `wZ3:p1`；进程退出时跨 lane 清理未验（后台 lane 不可用）；workspace 自带 root pane 不登记 → 退出后 workspace 不自动关，按 README 已知边界，未另测． |
 | 6 | 通过 | `herdr_run "echo mkfs-probe"` 被 security-guard 拦下，回执明写「拦截来源：插件命令工具「herdr_run」的命令参数（command）」——改名后登记仍生效．另注：`rm -rf /tmp/...` 未被拦（黑名单不含通用 rm，属既有策略，与本改名无关）． |
 | 7 | 通过 | `bash` 里跑 `herdr status` 被拦，理由为「bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）」，已无 `herdr_use` / `pane_*`． |
-| 8 | 待判读 | 本次连续调用 `herdr_create` / `run` / `read` / `info` / `label` / `close` 均未弹审批请求；读类是否逐次确认无法从本会话观察（未出现审批面板）． |
-| 9 | 待用户目视 | 单测与 smoke 已覆盖（1748/1748、SMOKE_OK），真机需在 TUI 里看「3 列表头 + 2 列分隔行」是否成表． |
-| 10 | 待用户目视 | 同上；需在 TUI 里看思考行表格是否成表且左缘竖线为紫． |
-| 11 | 配置层面通过 | `~/.dsh/profiles/fff/cordis.patch.yml` 无 `md-table-check` 条目 → 走 bundle 默认（已改 `enabled: false`）；运行时「不再注入提醒」待一条列数不一致的回复确认． |
+| 8 | 通过（前提不成立） | herdr 工具定义无审批元数据（`herdr-use/src/tools.ts:200` 的 `HerdrUseToolDef` 不含 ask / approval 字段），不发起 `approval/request`；2026-10-24 实测 `herdr_list` 未弹面板，2026-10-23 连续调用 `herdr_create` / `run` / `read` / `info` / `label` / `close` 同样无面板．只读名单是否收 herdr 读类（`auto-approve/src/config.ts:11` 的 `DEFAULT_READONLY_TOOLS` 不含）因此不影响体验． |
+| 9 | 通过 | 2026-10-24 在 TUI 里发「3 列表头 + 2 列分隔行」的表格回复，目视成表（双线边框、无残留竖线），未退回原文． |
+| 10 | 通过 | 2026-10-24 思考行里放 markdown 表格，目视成表且左缘竖线为紫（`brightMagenta`）． |
+| 11 | 通过（配置 + 运行时） | `~/.dsh/profiles/fff/cordis.patch.yml` 无 `md-table-check` 条目 → 走 bundle 默认（已改 `enabled: false`）；2026-10-24 发列数不一致的表格回复（3 列表头 + 2 列分隔行），未出现 `[md-table-check]` 提示． |
 | 12 | 通过 | `coagent spawn {label:"verify-12", cwd:".../dsh-toolset"}` -> 回执 `coagent_id=c-44dc4f93` / `terminal_id=wZ3:p7` / `session_id=tui-294e7a43-...` / `state=ready`，认领耗时约 4.4 s（180 s 上限内）；`herdr_list` 里该终端标 `[本插件]`、label `coagent/c-44dc4f93`；`herdr_read` 读到子会话的 dsh 界面（工具提示行可见）；`session_channel peers` 里有该 session，`state` 回 `running`． |
 | 13 | 通过 | `coagent close {coagent_id}` -> `state=closed` / `closed_with=quit` / `removed_files=true`；`herdr_list` 只剩宿主 pane；`session_channel peers` 已无 `tui-294e7a43`（子会话确实退出）．注：`session_channel state` 对该 session 仍回 `running`（退出后的缓存），以 `peers` 为准． |
 | 14 | 通过 | 服务面与工具面同源：coagent 经 `herdrUse` 建的终端出现在 `herdr_list` 并同标 `[本插件]`，`herdr_read` 可直接读它的屏；`coagent close` 关掉后工具面也同步消失． |
@@ -61,7 +61,15 @@
   - **真机核过探测面**：`herdr session list --json` 的真实形态是**顶层 `{"sessions":[{"name":"default","running":true,…},{"name":"dshbg","running":true,…}]}`**（不是 `{result:{…}}` 信封、也不是裸数组）；实现里 `obj(root.result) ?? root` 的回落正好覆盖，字段取 `name` 与 `running: true`，与本机输出一致。
   - 附带发现：`herdr session attach <name>`（TUI 客户端）与 `herdr server`（headless）是两条不同入口；此前误以为只有 attach。
   - 待真机：自动拉起本身（需重启 dsh 让新 dist 生效后，`herdr session stop dshbg` 再由后台工具触发一次）。
-- #8 需要真机看到审批面板才能定；#9 / #10 需要用户在 TUI 里看一眼。
+- #8 / #9 / #10 / #11 运行时于 2026-10-24 判读完成（见上表）。
 - #12 至 #14 已完成（coagent 接线后重启验过，见上表）。
 - 接线过程中修掉一个真实缺陷：`coagent` 原先只把 `herdrUse` / `sessionChannel` 放在 `ctx.get` 里取，cordis 不保证对方先 `provide`，取到 `undefined` 就走「缺服务」分支直接 return，表现为重启后工具静默不出现；已改为静态 `inject`（`231f26a`）。
 - 本次验证过程中起的 `dshbg` headless server 仍在运行（detached，日志 `/tmp/dshbg-server.log`）；如需还原，`herdr session stop dshbg`。
+
+## 收尾
+
+- 关闭：2026-10-24；本文件由 `docs/implementation/` 移入 `docs/archived/`。
+- 引用回写：仓内 7 个文件共 9 处 `docs/implementation/2026-10-23-real-machine-verification.md` 改为 `docs/archived/` 路径（`docs/BACKLOG.md` 2 处、`docs/archived/2026-10-23-herdr-use-terminal-surface.md` 2 处，其余 4 个归档文档各 1 处）；DESIGN / README / ROADMAP 无相关内容，不改。
+- BACKLOG：本任务不对应条目，无需清理。
+- 遗留项（未验，不算通过）：#5 进程退出时跨 lane 清理；后台 lane 自动拉起本身的真机复核（停掉 `dshbg` 后由后台工具触发）。两项均不在本次三条范围内，需要时另开条目。
+- 范围外：`auto-approve/docs/implementation/2026-10-22-worktree-git-escalation.md` 的「待裁定」仍未关闭。

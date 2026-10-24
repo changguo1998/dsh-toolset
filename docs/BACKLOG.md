@@ -69,9 +69,9 @@
 > 2026-10-23 关闭：条目「MCP 脚本化（mcpScript）」按「不立项」关闭并移出清单（用户 2026-10-23 裁定: 本工作先不做, 等真正需要再做; 设计定稿见 `docs/archived/2026-10-22-mcp-script.md`，重开触发条件与两档预案在该文件）。
 > 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；过程记录 `docs/archived/2026-10-23-clock-base-rename.md`）。
 > 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；过程记录 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
-> 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；过程记录 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/implementation/2026-10-23-real-machine-verification.md` #12 至 #14）。
+> 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；过程记录 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/archived/2026-10-23-real-machine-verification.md` #12 至 #14）。
 > 2026-10-24 关闭：条目「6. 共享文档与根级接线」完成并移出清单（根四链、`AGENTS.md`、README 双侧、`scripts/*.sh` 枚举、profile 模板全部落地；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包 = 34 个 bundle；过程记录 `docs/archived/2026-10-23-new-package-wiring.md`）。
-> 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/implementation/2026-10-23-real-machine-verification.md`；过程记录 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
+> 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/archived/2026-10-23-real-machine-verification.md`；过程记录 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
 > 2026-10-24 关闭：条目「4. 工具咨询插件（按需揭示工具）」完成并移出清单（实现 + 遮罩接线合并；真机验证：9 核心 + `consult_tools` 生效、揭示链路可用、未揭示调用被拦并给可行动文案；期间修掉 `tools/change` 自激死循环与 3 处工作流文案缺陷，提交 `105bb23` / `4d68858`；包内 49 例通过；过程记录 `tool-consult/docs/archived/2026-10-22-tool-consult.md`）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
 

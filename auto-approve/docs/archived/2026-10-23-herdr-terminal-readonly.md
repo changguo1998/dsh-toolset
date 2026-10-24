@@ -58,5 +58,5 @@
 
 ## 未做 / 存疑
 
-- 真机未观察到 `herdr_*` 的审批请求（2026-10-23 连续调用 `herdr_create` / `run` / `read` / `info` / `label` / `close` 全程无审批面板）；裁定只表达「若收到，按非只读处理」，不改变「未收到就不裁定」。证据见 `docs/implementation/2026-10-23-real-machine-verification.md` #8。
+- 真机未观察到 `herdr_*` 的审批请求（2026-10-23 连续调用 `herdr_create` / `run` / `read` / `info` / `label` / `close` 全程无审批面板）；裁定只表达「若收到，按非只读处理」，不改变「未收到就不裁定」。证据见 `docs/archived/2026-10-23-real-machine-verification.md` #8。
 - 本文件已按标准流程关闭并移入 `docs/archived/`（2026-10-23）。

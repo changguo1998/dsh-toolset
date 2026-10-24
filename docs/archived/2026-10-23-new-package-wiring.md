@@ -27,7 +27,7 @@
 ## 后续挂载（2026-10-24 完成）
 
 - `tool-consult` 同日挂上：同一套 `--sync` 流程，`dsh.profile.bundles` 由 33 项变 34 项（dsh-base + 33 个包）。
-- 真机验证 #12 至 #14（`coagent spawn` / `close` / 服务面共享）已在重启后跑完并通过，见 `docs/implementation/2026-10-23-real-machine-verification.md`。
+- 真机验证 #12 至 #14（`coagent spawn` / `close` / 服务面共享）已在重启后跑完并通过，见 `docs/archived/2026-10-23-real-machine-verification.md`。
 
 ## 验证
 
