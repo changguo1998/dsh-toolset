@@ -1,6 +1,6 @@
 # 安装脚本生成的 profile 与当前 fff 的通用配置对齐（接取条目：`docs/BACKLOG.md`「安装脚本生成的 profile 与当前 fff 的通用配置对齐」）
 
-状态：进行中（实现与验证完成，待关闭）　　开启：2026-10-24
+状态：已关闭（实现提交 `a3f1e3b`）　　开启：2026-10-24　　关闭：2026-10-24
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -63,8 +63,9 @@
 
 ## 未做 / 后续
 
-- 当前 fff 的 patch 未同步（本会话沙箱对 `~/.dsh` 只读）：需在宿主侧跑
-  `scripts/install.sh --sync`（或手工加同样的 hmr 生成区）才生效。
+- fff 已由用户在宿主侧执行 `scripts/install.sh --sync`，生成区写入
+  `~/.dsh/profiles/fff/cordis.patch.yml`（`base` = 本仓路径、`root: ['.']`、文档忽略）；会话随后
+  重载一次（patch 变更触发行级重载），模块热重载自此生效。
 - 示例资产的 `permission` 预设表 / `schedule` / `invariants` 与 fff 不同，属「另行决定」项，本次未动。
 - fff 的 `rule-engine` 规则块、`llm-pi-ai` provider、`agent-default-model`、标题路由均为个人配置，
   不镜像；宿主版本按文档口径留给升级 dsh。

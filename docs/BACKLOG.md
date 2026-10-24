@@ -64,13 +64,7 @@
 
 ## 2. 未完成项
 
-### 安装脚本生成的 profile 与当前 fff 的通用配置对齐
-
-- 现象：`profiles/example/cordis.patch.yml` 与 fff 的 patch 在非个人项上不一致（示例 `theme: dark`、无 `goal` 上限 / `hmr` 模块监听 / `ponytail` 停挂）；`hmr` 若只写 `root: ['.']` 会监听 profile 目录，link: 包在 `node_modules` 下又被默认 `ignored` 剪枝，模块热重载实际不生效。
-- 期望：`install.sh` 生成的 profile 与当前 fff 的通用项一致——`theme: light`、`goal.defaultMaxGoalRounds: 999`、`ponytail` 停挂；`hmr` 生成区写 `base: <仓库绝对路径>` + `root: ['.']`，并忽略 `**/*.md` / `**/docs/**`；手写 hmr 行不被覆盖。
-- 落点：`scripts/install.sh`、`profiles/example/cordis.patch.yml`、`profiles/README.md`、`scripts/test-install.sh`。
-- 验收：`sh scripts/test-install.sh` 98 项通过；临时 profile 的 patch 可解析且 hmr 条目含 `base` + `root` + 文档忽略。
-- 来源：2026-10-24 用户要求　　状态：〔进行中: 2026-10-24〕（追踪文档 `docs/implementation/2026-10-24-install-profile-parity.md`）
+> 2026-10-24 关闭：条目「安装脚本生成的 profile 与当前 fff 的通用配置对齐」完成并移出清单（实现 `a3f1e3b`：示例 patch 补 theme light / goal 999 / ponytail 停挂，`install.sh` 追加 hmr 生成区（`base` = 仓库根 + `root: ['.']` + 文档忽略，幂等且保留手写 hmr）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-install-profile-parity.md`；fff 已由用户执行 `--sync` 生效）。
 
 > 2026-10-23 关闭：条目「`/memory` 的 `replace` 与 `remove` 子命令」完成并移出清单（实现 `02d79c0`、合并 `6ab5b43`；过程记录 `docs/archived/2026-10-22-memory-edit-subcommands.md`；复核：根 check 通过、memory-base 82/82、TUI 1745/1745；真机验收未做）。
 > 2026-10-23 关闭：条目「其余包接入定时器统一面 `clock`」完成并移出清单（实现 `190ee24`、假时钟与降级用例 `e40f5d0`；过程记录 `docs/archived/2026-10-22-clock-unified-timers.md`）。
