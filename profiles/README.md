@@ -1,6 +1,6 @@
 # profiles
 
-随仓库分发的 DSH **profile 配置示例**：`example/` 是可直接复制的 profile 三件套骨架，演示本项目插件如何挂进 profile，以及用户层如何覆盖宿主 / 插件配置（含权限预设表）。
+随仓库分发的 DSH **profile 配置示例**：`example/` 是可直接复制的 profile 三件套骨架，演示本项目插件如何挂进 profile，以及用户层如何覆盖宿主 / 插件配置（含个人模型配置的占位写法）。
 
 本目录是 **profile**（进程装配与插件挂载层，装到 `~/.dsh/profiles/`）：本项目只用 TUI，agent 面就由这里的 profile 全局组合提供，**不使用 agent preset**（说明与依据见 `../docs/host/AGENT-COMPOSITION.md`）。
 
@@ -9,7 +9,7 @@
 | 文件 | 作用 |
 |------|------|
 | `example/package.json` | profile 清单：`dsh.profile.bundles` 列出要加载的 bundle 层，`dependencies` 用 `link:` 指向本仓库包 |
-| `example/cordis.patch.yml` | 用户层 patch：`- id:` 覆盖既有条目、`- insert:` 新增条目；含权限预设表覆盖（自定义 `full-ask` 预设）与 `!!js` 表达式示例 |
+| `example/cordis.patch.yml` | 用户层 patch：`- id:` 覆盖既有条目、`- insert:` 新增条目；含个人模型配置的 `PROVIDER` / `MODEL` 占位写法 |
 | `example/pnpm-workspace.yaml` | profile 内 pnpm 行为（`nodeLinker: hoisted`），与宿主 `initProfile` 生成的默认内容一致 |
 
 ## 用法
@@ -44,8 +44,8 @@ dsh --profile myprofile
 
 ## 边界
 
-- 只放配置骨架，**不含凭据、令牌或私有端点**：模型 provider 名、访问凭据与端点由 profile patch 中的对应插件条目管理（如 `llm-pi-ai`），本目录不包含它们；示例里的 `link:` 路径一律用 `/path/to/...` 占位，需自行替换。
-- 用户层 patch 的 `config` 是**整键替换**（`dsh-app-boot` 的 `composeEntries` → `cordis-plugin-include` 的 `applyEntryPatches` 按顶层键赋值）：覆盖 `permission` 这类自带默认表的条目时，未重述的表项会回落到插件 schema 默认值，故示例把三项内置预设全量重述后再追加自定义项。
+- 只放配置骨架，**不含凭据、令牌、私有端点或真实模型名**：模型 provider 名、访问凭据与端点由 profile patch 中的对应插件条目管理（如 `llm-pi-ai`），本目录**不包含它们**，个人模型配置一律以 `PROVIDER` / `MODEL` 占位、复制后替换；示例里的 `link:` 路径一律用 `/path/to/...` 占位，需自行替换。
+- 用户层 patch 的 `config` 是**整键替换**（`dsh-app-boot` 的 `composeEntries` → `cordis-plugin-include` 的 `applyEntryPatches` 按顶层键赋值）：覆盖带默认表的条目（如 `compaction-basic` / `goal`）时，未重述的字段回落到插件 schema 默认值，故示例只重述要改的字段。
 - 行**缺 `config`** 时宿主按该包 `Config` schema 校验 `undefined`：只含带默认值 / 可选字段的包照常激活，但**含 `.required()` 字段**的包会激活失败并打 `N entry did not activate`（如 `message-feedback.maxNoteBytes`）——`--dump-config` **查不出来**（它不实例化插件），须真机启动看 stderr。新增 `- insert:` 官方行前先核对目标包 schema 的 `.required()` 字段。
-- 示例的条目 id 取自当前基线：宿主 `dsh-base` 的 `permission` / `compaction-basic` / `goal` / `hmr`，本仓的 `tui` / `memory-base` / `ponytail`，以及 `- insert:` 新增的 `schedule`；宿主升级后若 id 变化，`dsh --profile <p> --dump-config` 与启动日志里的 patch 告警是最快的核对手段。`hmr` 的模块监听根由 `install.sh` 写进生成区：`base` = 安装时的仓库绝对路径、`root: ['.']`（缺省 `[]` 只监听配置），并忽略 `**/*.md` / `**/docs/**`；hmr 的 baseDir 默认是 profile 目录，只写 root 会监听错位置，`..` 前缀还会让默认 `ignored` 失效。
+- 示例的条目 id 取自当前基线：宿主 `dsh-base` 的 `compaction-basic` / `goal` / `hmr` / `session-title-llm` / `agent-default-model` / `llm-pi-ai`，本仓的 `tui` / `memory-base` / `rule-engine` / `ponytail`，以及 `- insert:` 新增的 `behavior-correction`；宿主升级后若 id 变化，`dsh --profile <p> --dump-config` 与启动日志里的 patch 告警是最快的核对手段。`hmr` 的模块监听根由 `install.sh` 写进生成区：`base` = 安装时的仓库绝对路径、`root: ['.']`（缺省 `[]` 只监听配置），并忽略 `**/*.md` / `**/docs/**`；hmr 的 baseDir 默认是 profile 目录，只写 root 会监听错位置，`..` 前缀还会让默认 `ignored` 失效。
 - 示例不含 profile 根的 `cordis.yml`：它是宿主在**每次启动时重写**的空条目桩（只作 loader 的 anchor，手改无效），配置一律写在 `cordis.patch.yml`。同理 `node_modules/`、`.dsh-module-fallback/` 与 `$DSH_HOME/profiles/node_modules` 也由宿主每次启动自行维护。

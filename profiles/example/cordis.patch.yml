@@ -11,44 +11,48 @@
 #
 # 注意：config 是整键替换（dsh-app-boot 的 composeEntries → cordis-plugin-include 的
 # applyEntryPatches 里 `target[key] = value`），未重述的字段回落到插件 schema 默认值，
-# 而不是上一层 bundle 的值——覆盖带默认表的条目（如 permission 的 presets）时尤其要记住。
+# 而不是上一层 bundle 的值——覆盖带默认表的条目时尤其要记住。
+#
+# 隐私口径：本资产对齐当前 fff 的通用挂载形态，不含私有 provider / 模型名 / 端点 /
+# apiKeyEnv。模型相关的个人配置（agent-default-model / llm-pi-ai / 会话标题路由）一律用
+# `PROVIDER` / `MODEL` 占位，复制后替换成你自己的。
 #
 # LSP 会把本文件误按 JSON Patch schema 校验；`insert` 是 dsh 官方 patch DSL，
 # 下一行内联抑制该误报（与各插件包自带的 cordis.patch.yml 同一写法）。
 # pi-lens-ignore: yaml-schema: JSONPatch:0, yaml-schema: JSONPatch:513
 
-# ── 权限预设表（沙箱模式 + 审批策略的捆绑）───────────────────────────────────
-# dsh-base 默认三项：read-only→ask / workspace-write→ask / danger-full-access→never。
-# 这里全量重述三项并追加第四项 full-ask：全盘文件访问，但每次工具调用仍询问审批。
-# 预设名不能取保留字 `custom`——那个名字由宿主用于「两个旋钮不匹配任何表项」的派生态。
-- id: permission
-  name: '@deepseek-ai/dsh-permission-presets'
-  config:
-    presets:
-      read-only:
-        sandbox: read-only
-        approval: ask
-      workspace-write:
-        sandbox: workspace-write
-        approval: ask
-      danger-full-access:
-        sandbox: danger-full-access
-        approval: never
-      full-ask:
-        sandbox: danger-full-access
-        approval: ask
-        name: full-ask
-        description: 全盘文件访问，但每次工具调用仍需审批。
-    # 新会话默认预设；省略则用组合推导出的默认（本示例与 dsh-base 口径一致）。
-    defaultPreset: workspace-write
+# ── 本仓库插件通用条目（与 fff 一致；无个人配置）─────────────────────────
+- id: herdr-integration
+  name: '@dsh-toolset/herdr-integration'
 
-# ── 插件条目配置（覆盖 bundle 层插入的同 id 条目）────────────────────────────
-# TUI：主题与布局。完整字段见 TUI/README.md「配置」。默认与当前使用的 profile 一致取浅色；
-# 想要内置 BlueDark 深色就改成 dark。
 - id: tui
   name: '@dsh-toolset/tui'
   config:
-    theme: light
+    theme: dark
+
+- id: ast-tools
+  name: '@dsh-toolset/ast-tools'
+
+- id: fs-digest
+  name: '@dsh-toolset/fs-digest'
+
+- id: goal-contract
+  name: '@dsh-toolset/goal-contract'
+
+- id: hash-edit
+  name: '@dsh-toolset/hash-edit'
+
+- id: metric-loop
+  name: '@dsh-toolset/metric-loop'
+
+- id: output-compress
+  name: '@dsh-toolset/output-compress'
+
+- id: security-guard
+  name: '@dsh-toolset/security-guard'
+
+- id: code-map
+  name: '@dsh-toolset/code-map'
 
 # 会话目录编码服务（session-paths）：由 bundles 挂载，且排在 memory-base 之前，
 # 保证服务先注册（memory-base 的 S 库、output-compress 的 digest.db 都经它取会话目录）。
@@ -59,17 +63,11 @@
 #     root: /path/to/sessions
 
 # 分层记忆存储：库落点按层推导（U = dshHome 下、P = 项目根 `.dsh/`、S = 宿主会话目录），
-# 无单库 dbPath 配置；库在首次写入时才创建。这里只给缺省归属项目键。
+# 无单库 dbPath 配置（该键已随 2026-10-17 改制废弃）；库在首次写入时才创建。这里只给缺省归属项目键。
 - id: memory-base
   name: '@dsh-toolset/memory-base'
   config:
-    project: 'dsh-toolset'
-
-# 宿主官方插件同样可覆盖：压缩阈值提前到上下文窗口的 0.5。
-- id: compaction-basic
-  name: '@deepseek-ai/dsh-compaction-basic'
-  config:
-    thresholdRatio: 0.5
+    project: 'my-project'
 
 # goal 默认回合上限：宿主 dsh-goal 的 Config 默认 defaultMaxGoalRounds=256，这里抬到 999。
 # patch 按 id 整键替换 config，故只重述要改的字段；不可写 name（否则被当成新增行而整条跳过）。
@@ -87,46 +85,109 @@
 # 要自定义就删掉生成区、手写 `- id: hmr`（脚本检测到手写行后不再追加）。
 # 删除生成区 = 回到「改代码后重启」。
 
-# ── 新增条目（insert）────────────────────────────────────────────────────────
-# 官方包随 dsh 安装分发，经 $DSH_HOME/profiles/node_modules 兜底解析，可直接挂载；
-# 第三方包需先加进本 profile package.json 的 dependencies（本项目插件用 link:）。
-# 这里以官方 schedule（会话内持久提醒：schedule_create / schedule_list / schedule_delete）为例。
+# ── 规则触发（rule-engine）────────────────────────────────────────────────────
+# 只保留启用中的规则示例；停用的规则不写进资产。规则写在 patch 里随仓库追踪；
+# ~/.dsh/rule-engine/rules.json 是工具族增删改的运行时层（不入库），两层同 id 时运行时版
+# 就地替换基线，故基线要生效须先清掉同 id 条目。
+- id: rule-engine
+  config:
+    rules:
+      # 恢复 / 重载会话时注入提示。`predicates: [session-resumed]` 只命中「从记录恢复 /
+      # 重载」的会话（全新会话不命中，改用 session-fresh）；`directWrite: [session-start]`
+      # 跳过 dedupeInRecord 记录判断，故每次重载都注入（否则第二次重载会因记录里已有同
+      # summary 被拦）；`delivery: steer` 与符号规范消费者（symbol-normalizer，同为
+      # `session-start` + `steer`）同节点同组 → 同一次触发合并为一条注入。
+      - id: resumed-notice
+        source: session-start
+        match:
+          predicates:
+            - session-resumed
+        directWrite:
+          - session-start
+        delivery: steer
+        action:
+          type: inject
+          text: "看到这条消息代表会话被重新加载了"
+          summary: "会话重新加载提示"
+
+# behavior-correction：rule-engine 的 tools/pre-execute guard 消费者，拦「该用专用工具却
+# 走 shell」的调用（缺省：bash 里跑 herdr -> 拒绝并指向 herdr_use 族工具）。config.rules
+# 可整体替换缺省规则表，enabled: false 或 rules: [] 等于不拦；未配 config 时用内置缺省。
 - insert:
-    - id: schedule
-      name: '@deepseek-ai/dsh-schedule'
-    # - id: mcp-filesystem       # id 自定；一个插件实例连一个 MCP server，多 server 写多行
-    #   name: '@deepseek-ai/dsh-mcp-client'
-    #   config:
-    #     transport: stdio         # stdio | streamable-http
-    #     serverName: filesystem   # 工具注册名 = mcp__<serverName>__<原工具名>
-    #     command: npx
-    #     args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/dir']
-    # - id: session-title-all-prompts-llm
-    #   name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
-    #   config:
-    #     provider: <provider 名>  # 实际 profile 的 llm-pi-ai 条目中配置
-    #     model: <模型 id>         # 故本文件只写名字，不放凭据与私有端点
-    #
-    # 本仓库另有 @dsh-toolset/session-title-cutoff（all-prompts 触发不变，参考窗口改为
-    # 「最近一次 git commit 之后」的人类消息）。宿主只允许注册一个标题 provider，二选一；
-    # 挂本仓库实现时需禁用官方条目，并显式给出 provider/model（首条消息时通常尚无已记录路由）：
-    # - id: session-title-all-prompts-llm
-    #   disabled: true
-    # - id: session-title-cutoff
-    #   config:
-    #     provider: <provider 名>
-    #     model: <模型 id>
-    # （是否禁用取决于你是否挂了官方行：显式跑 `scripts/install.sh --sync --take-over-title`
-    # 会按 patch 内容补齐这两步并复制 provider/model；普通 --sync 不改写本文件，只在检测到冲突
-    # 时提示。生成片段以 `# install.sh generated: title-takeover-` 开头；删除即放弃接管。）
+    - id: behavior-correction
+      name: '@dsh-toolset/behavior-correction'
 
-# ── 其它方言（按需取消注释）──────────────────────────────────────────────────
-# 禁用某条 bundle 插入的条目，再用 insert 换成别的实现（如换掉首条消息生成标题的 provider）：
-# - id: session-title-llm
+# 自动会话压缩（compaction-basic）阈值：默认 0.8（已路由模型上下文窗口的比例），
+# 这里提前到 0.5 触发。patch 按 id 替换整行 config，故只重述要改的字段，
+# 其余保持插件默认：retainRatio 0.16 / maxTokens 8192 / compactionRetries 1 / auto true。
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.5
+
+# ── 会话标题：profile 的 patch 层语义（cordis-plugin-include）────────────────
+# 改已有条目用 `- id:` + config/disabled（不可改 name，否则整条跳过），新增用 `- insert:`。
+# 1) 禁用 dsh-base 挂载的 first-prompt provider：它只在首条人类消息时生成一次，且宿主
+#    配置未给 provider/model，首条消息时"已记录的请求路由"尚不存在 → 回落确定性 fallback，
+#    标题被 fallbackMaxBytes=40（UTF-8 字节）截断（中文约 13 字），看起来远短于标题栏宽度；
+#    ctx.sessionTitle 上只允许注册一个 provider（二次注册抛错），故必须先禁用。
+- id: session-title-llm
+  disabled: true
+
+# 2) 标题 provider 二选一（宿主只允许一个；下面的行默认**注释**，接入时取消注释并替换
+#    provider / model 为你的路由，依赖：profile 的 package.json 需含对应官方包）。带
+#    `scripts/install.sh --sync --take-over-title` 时脚本会按 patch 内容自动补齐生成区。
+# 2a) 官方 all-prompts 变体（每条用户消息后重算标题）：provider/model 必须成对提供；
+#     targetCjkCharacters 为中文目标字数。
+# - insert:
+#     - id: session-title-all-prompts-llm
+#       name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+#       config:
+#         provider: PROVIDER
+#         model: MODEL
+#         targetWords: 5
+#         targetCjkCharacters: 15
+#         maxInputBytes: 32768
+#         maxOutputTokens: 512
+#         timeoutMs: 60000
+# 2b) 本仓库实现 session-title-cutoff（all-prompts 触发不变，参考窗口改为「最近一次
+#     git commit 之后」）：接 2a 时需禁用官方行（二次注册会抛错），并显式给路由。
+# - id: session-title-all-prompts-llm
 #   disabled: true
+# - id: session-title-cutoff
+#   config:
+#     provider: PROVIDER
+#     model: MODEL
 
-# DeepSeek 账号登录链：本项目不挂载（2026-10-06 用户核实）。账号登录（浏览器 PKCE）
-# 仅**桌面版**支持，Linux web / CLI 只支持 API key；本项目是 TUI + Linux，两条都用不上：
+# ── 个人模型配置（占位骨架，复制后替换；不写真实值进仓库资产）────────────────
+# agent-default-model：会话默认模型。provider / model 必须成对且已在 llm-pi-ai 声明。
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: PROVIDER
+    model: MODEL
+    reasoningEffort: max
+
+# llm-pi-ai：私有 provider 定义。apiKeyEnv 指环境变量名，baseURL 为你的私有端点，
+# models 按需增删（这里只留一个 MODEL 示例）。
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      PROVIDER:
+        api: openai-completions
+        apiKeyEnv: PROVIDER_API_KEY   # 私有环境变量名，复制后替换
+        baseURL: https://PROVIDER.example/v1   # 私有端点，复制后替换
+        reasoning: max
+        compat:
+          supportsDeveloperRole: false
+        models:
+          - id: MODEL
+            contextWindow: 262144
+
+# ── DeepSeek 账号登录链：本项目不挂载（2026-10-06 用户核实）──────────────────
+# 账号登录（浏览器 PKCE）仅**桌面版**支持，Linux web / CLI 只支持 API key；本项目是
+# TUI + Linux，两条都用不上：
 #   deepseek-account     = dsh-deepseek-account-platform（PKCE 登录 + /oauth/callback）
 #   llm-deepseek-account = dsh-llm-deepseek-account（账号 LLM 路由，未登录恒空目录）
 # 影响面：ctx.deepseekAccount 的消费者只有上面第二条与 web-search-deepseek（仅当会话
@@ -140,7 +201,7 @@
 
 # ── 可挂官方行（2026-10-02 挂载面扩张：投影 / 服务 / 事件面扩展，不改模型工具面）──────
 # 新增行必须走 `- insert:`：直接写 `- id:/name:` 会被当成「覆盖既有行」，未命中时只打
-# `patch: entry "x" not found` 且退出码仍为 0（静默失败）。候选池、排除口径与第二批选题见
+# `patch: entry "x" not found` 且退出码仍为 0（静默失败）。候选池、排除口径见
 # `docs/archived/2026-10-02-profile-mount-expansion.md`。
 # 行缺 `config` 时宿主按该包 `Config` schema 校验 `undefined`：**含 `.required()` 字段**的行会
 # 「entry did not activate」激活失败（`--dump-config` 查不出来，它不实例化插件）——如
@@ -164,8 +225,6 @@
       name: '@deepseek-ai/dsh-terminal'
     - id: terminal-bash
       name: '@deepseek-ai/dsh-terminal-bash'
-    - id: invariants
-      name: '@deepseek-ai/dsh-invariants'
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 

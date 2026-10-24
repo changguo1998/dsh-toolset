@@ -1004,7 +1004,7 @@ cat << EOF
 后续步骤
   1) 核对组合树：dsh --profile $profile_name --dump-config
   2) 启动：      dsh --profile $profile_name
-  3) 会话内：    /permission 看权限预设（含 full-ask）
+  3) 会话内：    /permission 看权限预设
   4) 改插件后：  npm run build（无需重跑 pnpm install，link: 依赖经 symlink 实时生效）
 
 提示

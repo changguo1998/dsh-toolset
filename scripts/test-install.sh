@@ -121,8 +121,8 @@ manifest="$pdir/package.json"
 # 1）首次安装：不产生备份
 install_ --plugins TUI
 assert_eq "$(count_glob "$pdir" '*.bak.*')" 0 "首次安装不产生备份"
-# 示例资产与当前使用的 profile 对齐（通用项）：浅色主题、goal 回合上限、ponytail 停挂
-assert_count_eq "$pdir/cordis.patch.yml" "theme: light" 1 "示例资产 TUI 主题为 light"
+# 示例资产与当前使用的 profile 对齐（通用项）：深色主题、goal 回合上限、ponytail 停挂
+assert_count_eq "$pdir/cordis.patch.yml" "theme: dark" 1 "示例资产 TUI 主题为 dark"
 assert_count_eq "$pdir/cordis.patch.yml" "defaultMaxGoalRounds: 999" 1 "示例资产 goal 回合上限 999"
 assert_count_eq "$pdir/cordis.patch.yml" "- id: ponytail" 1 "示例资产默认停挂 ponytail"
 # 模块热重载生成区：base 指仓库、root 相对 base、忽略文档类（只写 root 会停在 profile 目录）
