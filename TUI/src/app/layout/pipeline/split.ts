@@ -152,10 +152,9 @@ function groupToSection(
     ...(old.history === true ? { history: true } : {}),
     ...(old.standalone === true ? { standalone: true } : {}),
     ...(old.steer === true ? { steer: true } : {}),
-    // 用户块运行时态（P1 符号素材）：仅 user 来源产（无则不给 user 字段）
-    ...(group.source === "user" && sourceUserInfo(group) !== undefined
-      ? { user: sourceUserInfo(group) }
-      : {}),
+    // 用户块运行时态（P1 符号素材）：user 来源恒挂（空态也挂 → 解析器回退 `?`，
+    // 与旧链路对每个用户行都调解析器并回退 `?` 的口径一致）
+    ...(group.source === "user" ? { user: sourceUserInfo(group) ?? {} } : {}),
   };
 }
 

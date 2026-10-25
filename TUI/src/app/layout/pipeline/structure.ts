@@ -283,19 +283,17 @@ export function toUser(
   }
   kids.push(body);
   const content: Node = { direction: "h", children: kids };
-  // 右缘保底留白：fill spacer 占左侧（gutter-1-(符号?2:0) 列），正文右对齐
+  // 右缘保底留白（gutter）+ 整块铺满 pane：fill spacer 恒在左侧（右对齐），
+  // widthMin = gutter-1-符号格(2)；正文经 balance 取自然宽，spacer 吃剩余。
   const fillMin = Math.max(0, gutter - 1 - (sym ? 2 : 0));
-  if (fillMin > 0) {
-    return {
-      direction: "h",
-      children: [
-        leaf([], {
-          widthStyle: "fill",
-          ...(fillMin ? { widthMin: fillMin } : {}),
-        }),
-        content,
-      ],
-    };
-  }
-  return content;
+  return {
+    direction: "h",
+    children: [
+      leaf([], {
+        widthStyle: "fill",
+        ...(fillMin ? { widthMin: fillMin } : {}),
+      }),
+      content,
+    ],
+  };
 }
