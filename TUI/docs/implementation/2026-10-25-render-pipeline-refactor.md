@@ -620,15 +620,39 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 
 ## 实现记录（进行中）
 
-（完成一项勾选一项，记录结果与证据。）
+> 2026-10-25 起实现。节奏调整：主代理直接实现（不再开子代理，用户裁定）。状态：阶段 0 完成，阶段 1 完成，阶段 2 未开始。
+
+### 阶段 0：基建（完成）
+
+- [x] T1-T13 `pipeline/ir.ts`（新建）：Section / StyledStr / StyledText / Block 五态闭集 / EventGroup / PaneItem 占位 / PaneId / NodeBase / Node / Leaf / LayoutTree / Row / Rect / FrameRow 重导出 + `freezeBlock` + `BLOCK_KINDS`/`BlockKind` + `isNode`/`isLeaf`。evidence：`npm run check` 通过。
+- [x] T14 wrap.ts（新建）：`wrapLeaf(text: StyledText, width, { prefixW, hanging, balance? }): FrameSegment[][]` 唯一折行入口 + `styledToSegments`（StyledStr→FrameSegment 映射）。折行口径对齐旧 `splitAndWrapSegments`+`wrapFrameSegments`：首行可用宽 = width−prefixW、续行 = width−hanging、`\n` 物理行切分、balance 复刻 `fill.balancedWidth`（内部折行核共用）。evidence：`npm run check` + 测试通过。
+- [x] T15 `tests/pipeline-wrap.test.ts`（新建，17 例全绿）：宽度/宽字符/prefixW/hanging/balance/物理行/空行/超宽单字符/样式映射/合并/行数=高度。
+- 额外的设计裁决（记入「偏差」）：ir.ts Section 在 T1 基础上扩展了 `final?`/`history?`/`standalone?`/`steer?`/`stepSummary?`（旧节归属字段透传，route 终态分流与 step 头/留白规则需要），`body.source` 扩为 `BlockSource`（含 notice/shell/tool 辅助行）并加 `tone?`/`hanging?`/`noCompact?`，新增 `results?: ToolResult[]` 槽（route 组 ToolBatch 显示），EventGroup 同步加 `results?`，Node 增加 `code?`/`table?` 载荷字段（表达代码/表格特殊内容，measure/flatten 分别消费）。`BLOCK_SOURCE` 含旧来源全集。
+
+### 阶段 1：前四段（宽无关）——完成
+
+主代理直接实现（用户裁定不开子代理）：
+
+- [x] T16 `pipeline/split.ts`（新建）`splitSections(SectionsState): Section[]`——旧节 items 按来源分组切一次模型交互（断点 = 文本来源更换；思考 / 工具批归属所在交互），stepSummary / 独立自足节各自成节；节上 final/history/standalone/steer/time/status 透传。
+- [x] T17 `replaySections(rows: HistoryRow[]): Section[]`——经 `sectionsFromBuffer`(history) + `splitSections` 复用边界判定（报告分隔线 / step 头由元数据经 route 产 TurnHeader / StepHeader）。
+- [x] T18-T21 `parse.ts`（既有文件，本轮修正编译 + span 按行计 + 语义色）：`parse(section) → Block[]`；块级分类（fence/table/quote/list/heading/rule/plain）+ 行内 → `StyledText` + 每块 `span` 指向所属槽位原文区间。修正：① `styledOf` 适配 FrameStyle 无 `code` 字段（inline code = `bg:"code"` 语义色）、`fg` 可为 hex（显式收窄到 ColorName）；② 分支 5 的 span 从「整段 run」改为「逐行」（`endOf` 剔除换行）。
+- [x] T23-T24 `pipeline/routeTable.ts`（新建，规则数据表）+ `pipeline/route.ts`（新建）`route(groups, view, …): { session, turn }`——规则全部落 `routeTable.ts`：`ruleFor(source, final)`（pane / category / constant / gapKind）、`TURN_BLANK` 间隔矩阵 + `turnBlankBetween`、`categoryVisible`（档位过滤）；route 只做对话一路（追加），step 头 / 回合分隔 / 间隔 Gap / steer 留白 / 工具批组合在此定位。
+- [x] T25 类型间隔：思考↔正文 1 行 Gap、工具重置不插、会话区 user→正文 1 行；step 头内容驱动（只对已声明 step）+ suppressFirstHead；回合分隔按 turnTimes（turn-start 交付）与 firstTurn 守卫。
+- [x] T27-T29 `pipeline/structure.ts`（新建）`buildTrees/buildTree` + 块映射：Paragraph（正文/思考左缘竖线前缀、用户块 balance、分隔线 tail 铺满）、Quote（v + `> ` 前缀 + 悬挂）、List（v + 标记 + 悬挂）、Code/Table/ToolBatch 载荷节点、StepHeader/TurnHeader/StepSummary（tail ╌）、Gap（空 Leaf）。
+- [x] `tests/pipeline-ir.test.ts`（新建，12 例全绿）：split（一次性推理并入同条 / 独立用户自成节）、parse（块类型快照 + 标题样式 + span 回引 + 来源标记 + 数字列右对齐）、route（pane 归属 / 间隔 Gap / 档位过滤 / 遮蔽打灰）、structure（竖线前缀 / 载荷 / 空 Leaf）。
+- [x] evidence：`npm run check` 通过；`tests/pipeline-ir.test.ts` 12 例全绿；TUI 全量 `npm test` 1789 例全绿（旧链路未受影响）。
 
 ## 偏差
 
-（待实现阶段填写。）
+（待实现阶段填写。已裁决项：① `Section`/`BlockSource`/`EventGroup` 的类型扩展（见上，spec 明细 vs 实现的必要细化）；② pane 终态分流保留现状（user→session、final/history 交互的正文+工具批→session、其余→turn），追踪文档 §3 一行「正文→session」是简写，以本实现为准；③ chrome 五 pane（tool/statusBar/statusCol/titleBar/input）不进 Node 树，由 layout 现状直接构图，structure 只处理 session/turn 两 pane，compose 合并——对「buildTopRegion 基本不动」的务实解读。）
+
+阶段 1 新增（实现即口径，回写下文）：④ 解析把多行正文按行产独立 `Paragraph` 块（旧 `textParts` 按整段 run 产一个 box）——段内空行在新模型为独立空 Paragraph，route/structure **保留**空 Paragraph（flatten 出空行），与旧「块内空行竖线连排」的行数一致；仅「整段纯空」时旧路径整体丢弃、新模型会出空行（边缘差异，记入阶段 2 flatten 的尾空裁剪）。⑤ `shadowedSeqs` 遮蔽不落 Block 字段（Block 冻结），由 `route.shadowedBlockIds(groups, shadowedSeqs)` 算块 id 集、structure 按块 id 打灰。⑥ 列表 / 引用 / 标题样式入 Structure 而非 parse 现造：`ruleFor`/`markerFor` 用块字段派生展示标记。⑦ 表格数字列右对齐沿用 table.ts 口径（parse 直接复用 `parseTableAt`）。⑧ 回合头/step 头文案（`stepHeaderLine`/`turnHeaderLine`）在 structure 生成（与旧 build-box tail 铺满同形制）。
 
 ## 测试与证据
 
-（待实现阶段填写。）
+- 阶段 1：`tests/pipeline-ir.test.ts` 12 例全绿；TUI 全量 `npm test` 1789 例全绿。
+- 阶段 0：`tests/pipeline-wrap.test.ts` 17 例全绿。
+- 阶段 2 起：未开始（measure / flatten / compose 尚未实现，旧链路仍在工作区面运行）。
 
 ## 收尾
 
