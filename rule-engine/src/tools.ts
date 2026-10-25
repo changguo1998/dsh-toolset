@@ -283,7 +283,9 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const test: ToolDef = {
     name: "rule_test",
     description:
-      "干跑：对给定文本按指定匹配面判定哪些规则会命中（不注入、不改状态），用于调试规则写法。",
+      "用途: 干跑判定哪些规则会命中。\n" +
+      "效果: 只返回命中判定, 不注入、不改状态。\n" +
+      "边界: 供调试规则写法。",
     parameters: {
       type: "object",
       properties: {

@@ -58,13 +58,11 @@ function jsonText(value: unknown): string {
 
 /** 工具描述（与 README「能力」一节逐条对应）。 */
 const DESCRIPTION =
-  "拉起 / 收尾独立进程的长驻 dsh 会话（上下文零继承），只管起停，不派任务。" +
-  "spawn 在 herdr 终端里前台发 fffdsh、轮询 peers 认领新会话，回执 terminal_id / session_id；" +
-  "list 列本会话的记录并按需探测终端与会话是否还在（清理与排障用）；" +
-  "close 发 /quit 等进程退出后关终端，失败可 force。" +
-  "spawn 只接受 cwd / label / claimTimeoutSec，不接受 task / text / target：" +
-  "派任务用 channel_delegate，编排多个会话用 agent_group，看屏 / 打字 / 按键用 " +
-  "herdr_read / herdr_text / herdr_key（同一 terminal_id）。";
+  "用途: 拉起/收尾独立进程的长驻 dsh 会话(上下文零继承), 只管起停不派任务。\n" +
+  "用法: spawn 在 herdr 终端里前台发 fffdsh、轮询 peers 认领新会话(回执 terminal_id / session_id); list 列本会话记录并按需探测终端与会话是否还在; close 发 /quit 等进程退出后关终端, 失败可 force。\n" +
+  "效果: 新会话经 peers 认领并回执 terminal_id / session_id; close 会退出进程并关终端。\n" +
+  "边界: 只接受 cwd / label / claimTimeoutSec, 不接受 task / text / target。\n" +
+  "相关: channel_delegate、agent_group、herdr_read、herdr_text、herdr_key。";
 
 /** 工具定义（注入动作实现；测试可直接 execute）。 */
 export function toToolDef(actions: CoagentActions): ToolDef {
