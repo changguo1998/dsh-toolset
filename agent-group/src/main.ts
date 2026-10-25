@@ -158,12 +158,11 @@ export function toToolDef(
   return {
     name: "agent_group",
     description:
-      "同事模型群组的编排（跨会话协调层）：建组、加成员、建主从或平等连接、派指令、结算。" +
-      "create_group 建组（管理者 = 调用方会话）；add_member 加成员（name / target，target = 会话 id 或别名，须在线）；" +
-      "link 建主从连接（从方须是自由代理，等级 = 主方 + 1）；link_peer 建平等连接（双向、无等级）；" +
-      "send 发指令（每条主从连接同时只允许一条未结）；send_peer 经平等连接发消息；broadcast 按成员逐条发送并汇总；" +
-      "check 懒判定结算；remove 移除成员（非叶子被拒）；close_group 关闭组；status 只读查看。" +
-      "派任务给单个会话用 channel_delegate；拉起常驻会话用 coagent。拒绝都带原因与下一步。",
+      "用途: 同事模型群组的编排(跨会话协调层), 建组、加成员、建主从或平等连接、派指令、结算。\n" +
+      "用法: create_group 建组(管理者 = 调用方会话); add_member 加成员(name / target, target = 会话 id 或别名, 须在线); link 建主从连接(从方须是自由代理, 等级 = 主方 + 1); link_peer 建平等连接(双向、无等级); send 发指令(每条主从连接同时只允许一条未结); send_peer 经平等连接发消息; broadcast 按成员逐条发送并汇总; check 懒判定结算; remove 移除成员(非叶子被拒); close_group 关闭组; status 只读查看。\n" +
+      "效果: 拒绝都带原因与下一步。\n" +
+      "边界: 派任务给单个会话用 channel_delegate; 拉起常驻会话用 coagent。\n" +
+      "相关: channel_delegate、coagent、session_channel。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -183,6 +182,8 @@ export function toToolDef(
             "close_group",
             "status",
           ],
+          description:
+            "create_group 建组; add_member 加成员; link 建主从连接; link_peer 建平等连接; send / send_peer / broadcast 发指令; check 结算; remove / close_group 移除与关闭; status 只读查看",
         },
         group: { type: "string", description: "组名（create_group 缺省自取）" },
         name: {

@@ -182,6 +182,7 @@ const EDIT_ITEM_PARAMS = {
   properties: {
     set_line: {
       type: "object",
+      description: "替换单行（anchor + new_text）",
       properties: {
         anchor: {
           type: "string",
@@ -197,6 +198,7 @@ const EDIT_ITEM_PARAMS = {
     },
     replace_lines: {
       type: "object",
+      description: "替换连续区间（start_anchor + end_anchor + new_text）",
       properties: {
         start_anchor: { type: "string", description: "区间起始行锚点" },
         end_anchor: {
@@ -213,6 +215,7 @@ const EDIT_ITEM_PARAMS = {
     },
     insert_after: {
       type: "object",
+      description: "在锚点行之后插入（anchor + new_text）",
       properties: {
         anchor: {
           type: "string",
@@ -228,6 +231,7 @@ const EDIT_ITEM_PARAMS = {
     },
     delete_line: {
       type: "object",
+      description: "删除单行（anchor）",
       properties: {
         anchor: { type: "string", description: "要删除的行锚点" },
       },
@@ -295,8 +299,10 @@ function createTools(root: string | undefined): ToolDef[] {
   const hashRead: ToolDef = {
     name: "hash_read",
     description:
-      "读取文件的行内容并返回 LINE:HASH 锚点（每行: 1 基行号:sha256 前 8 位 hex），是 hash_edit 的输入。" +
-      "缺省从第 1 行起读 200 行，更长文件用 offset / limit 分段读取。",
+      "用途: 读取文件的行内容并返回 LINE:HASH 锚点(每行: 1 基行号:sha256 前 8 位 hex), 是 hash_edit 的输入。\n" +
+      "用法: 缺省从第 1 行起读 200 行, 更长文件用 offset / limit 分段读取。\n" +
+      "边界: 只读。\n" +
+      "相关: hash_edit、read。",
     parameters: HASH_READ_PARAMS,
     async execute(args, exec) {
       const path = asString(args.path);
@@ -325,9 +331,11 @@ function createTools(root: string | undefined): ToolDef[] {
   const hashEdit: ToolDef = {
     name: "hash_edit",
     description:
-      "按 LINE:HASH 锚点改文件（set_line / replace_lines / insert_after / delete_line），精确改行。" +
-      "锚点都用同一次 hash_read 的内容校验，任一失效（stale）则整批拒绝、文件保持原样，返回失效锚点供重新读取。" +
-      "文件级字面量替换用 edit（带读后改前版本守卫）；按节改 Markdown 用 md_logic。",
+      "用途: 按 LINE:HASH 锚点精确改行(set_line / replace_lines / insert_after / delete_line)。\n" +
+      "用法: edits 每条恰好一个变体键; 行号锚定 hash_read 读取时的原始内容, 可一次提交多条。\n" +
+      "效果: 锚点都用同一次 hash_read 的内容校验, 任一失效(stale)则整批拒绝、文件保持原样, 返回失效锚点供重新读取。\n" +
+      "边界: 文件级字面量替换用 edit(带读后改前版本守卫); 按节改 Markdown 用 md_logic。\n" +
+      "相关: hash_read、edit、md_logic。",
     parameters: HASH_EDIT_PARAMS,
     async execute(args, exec) {
       const path = asString(args.path);

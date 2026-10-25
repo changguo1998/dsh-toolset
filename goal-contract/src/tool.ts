@@ -63,14 +63,12 @@ export const TOOL_NAME = "goal_contract_draft";
 
 /** 工具描述（面向模型的调用指引）。 */
 export const TOOL_DESCRIPTION = [
-  "起草 goal 契约并落到 goal 事件源（goal/change），用于开工前把目标与 Done-when 条款定下来。",
-  "字段：objective（目标描述）、clauses 或 clauses_text（Done-when 条款，二选一）；",
-  "clauses 的 schema 对齐 task-engine 的 Acceptance（id / check / level / command），mechanical 必须带 command。",
-  "objective 首行必须是一句话概括（≤40 显示列，约 20 个汉字）。",
-  "objective 与条款齐备时直接创建；缺任一则经 ask_user 逐题访谈（目标→条款→确认）。",
-  "max_goal_rounds 设 goal 回合上限（缺省取会话配置值）。",
-  "创建后回读 goal 视图并解析 Done-when 条款，返回往返比对结果（readback.match）。",
-].join(" ");
+  "用途: 起草 goal 契约并落到 goal 事件源(goal/change), 开工前把目标与 Done-when 条款定下来。",
+  "用法: objective 为目标描述; clauses 或 clauses_text 为 Done-when 条款(二选一); clauses 的 schema 对齐 task-engine 的 Acceptance(id / check / level / command), mechanical 必须带 command; max_goal_rounds 设 goal 回合上限(缺省取会话配置值)。",
+  "效果: objective 与条款齐备时直接创建; 缺任一则经 ask_user_question 逐题访谈(目标 -> 条款 -> 确认); 创建后回读 goal 视图并解析 Done-when 条款, 返回往返比对结果(readback.match)。",
+  "边界: objective 首行必须是一句话概括(≤40 显示列, 约 20 个汉字)。",
+  "相关: task_decompose、ask_user_question。",
+].join("\n");
 
 /** 工具依赖（apply 层注入；均可为 undefined，运行时降级）。 */
 export interface GoalContractDeps {

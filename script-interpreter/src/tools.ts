@@ -471,17 +471,15 @@ async function executeScript(
 /** 工具描述（模型可见；说明与 bash 的分工、回执口径与围栏语义）。 */
 function toolDescription(defaultLanguage: LanguageId | undefined): string {
   return (
-    "执行一段 Python 等已启用语言的脚本并返回 stdout / stderr，用于多行逻辑或需要解释器的计算。" +
-    "一条 shell 命令能跑完的事用 bash；本工具每次都是全新进程、不保留状态。" +
-    "语言按 language 选择（脚本正文经 stdin 交给解释器），换目录用 workdir，不要在脚本里 cd。" +
-    "非零退出码回执为 [exit code: N]，那是脚本自己的结果、不是工具错误；" +
-    "超时回执为 [timed out after Nms]；输出过长时保留尾部，全文落盘并在回执里给出路径。" +
-    "命令可能在文件沙箱下执行：被拦下的文件操作回执为 " +
-    "[sandbox: file access denied under <mode> mode]，不要换别的写法重试。" +
+    "用途: 执行一段 Python 等已启用语言的脚本并返回 stdout / stderr, 用于多行逻辑或需要解释器的计算。\n" +
+    "用法: 语言按 language 选择(脚本正文经 stdin 交给解释器), 换目录用 workdir, 不要在脚本里 cd" +
     (defaultLanguage === undefined
       ? ""
-      : `缺省语言 = ${defaultLanguage}；也可用 language 参数指定已启用的其它语言。`) +
-    " 解释器缺失时返回含安装指引的错误。"
+      : `; 缺省语言 = ${defaultLanguage}; 也可用 language 参数指定已启用的其它语言`) +
+    "。\n" +
+    "效果: 非零退出码回执为 [exit code: N], 那是脚本自己的结果、不是工具错误; 超时回执为 [timed out after Nms]; 输出过长时保留尾部, 全文落盘并在回执里给出路径。\n" +
+    "边界: 一条 shell 命令能跑完的事用 bash; 每次都是全新进程、不保留状态; 命令可能在文件沙箱下执行, 被拦下的文件操作回执为 [sandbox: file access denied under <mode> mode], 不要换别的写法重试; 解释器缺失时返回含安装指引的错误。\n" +
+    "相关: bash。"
   );
 }
 

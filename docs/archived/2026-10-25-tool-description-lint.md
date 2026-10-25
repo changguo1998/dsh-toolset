@@ -1,6 +1,6 @@
 # 全仓工具描述 lint（接取条目：`docs/BACKLOG.md`「全仓工具描述 lint」）
 
-状态：调研/规范定制　　开启：2026-10-25
+状态：实现完成 / 待人工确认　　开启：2026-10-25
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 任务口径（2026-10-25 与用户对齐后修订）：**不开发 linter / 插件**，改为「先定描述规范，再由模型/人工逐条审 46 个工具并按规范改进」的检查工作。本文先记录已定的规范条款与未决项，随后逐工具检查。
@@ -102,16 +102,31 @@
 
 ## 实现记录
 
-（待开工。）
+2026-10-25 按 S4 五字段格式改造全部 46 个工具（`coagent` / `rule_test` 两个试点已符合，保持原样），改动 21 个文件：
+
+- `herdr-use/src/tools.ts`（10 个）、`md-logic/src/tools.ts`、`md-map/src/tools.ts`、`session-channel/src/index.ts`（4 个）、`task-engine/src/tools.ts`（5 个）、`ast-tools/src/tools.ts`（2 个）、`agent-group/src/main.ts`、`rule-engine/src/tools.ts`（5 个）、`goal-contract/src/tool.ts`、`preference-analysis/src/tools.ts`（3 个）、`code-map/src/index.ts`、`memory-base/src/tools.ts`、`background-daemon/src/tools.ts`、`tool-consult/src/tool.ts`、`hash-edit/src/main.ts`（2 个）、`metric-loop/src/index.ts`、`fs-digest/src/main.ts`、`context-report/src/main.ts`、`script-interpreter/src/tools.ts`、`TUI/src/app/adapter/notice-history-tool.ts`、`TUI/src/app/adapter/local-log-tool.ts`。
+- S2：`goal_contract_draft` 的 `ask_user` 改为 `ask_user_question`；其余 `snake_case` token 逐个核对，均为参数名 / 动作名 / 枚举值 / 状态码，不是工具引用。
+- S3：补 7 个 `action` 参数描述（`session_channel` / `channel_task` / `md_map` / `agent_group` / `daemon_task` / `metric_loop` / `code_map`）；另递归检查发现 `hash_edit.edits[]` 的 4 个变体键（`set_line` / `replace_lines` / `insert_after` / `delete_line`）无描述，一并补齐。
+- S4：字段顺序统一为 `用途` / `用法` / `效果` / `边界` / `相关`，无实质内容的字段整行省略（如 `rule_list` 只有 `用途` + `相关`，`task_decompose` 无 `效果` / `边界`）。
+- 参数级描述除上述 S3 欠账外未逐条重写（维持 P0-P2 已校准的文本）。
 
 ## 偏差
 
-（待实现阶段填写。）
+- `coagent` / `rule_test` 试点保持原样，未二次改写。
+- 新写字段值沿用试点标点口径：逗号 / 分号 / 括号用 ASCII 并在标点后留空格，顿号 `、` 与句末 `。` 保留；既有工具的原中文标点随改写转为该口径（与试点一致）。
+- `goal_contract_draft` 481 字符、`agent_group` 439、`script_run` 429：均在 U1 的 512 以内，但超出上一轮审阅的 400 软约束；本轮不加改写，留待 U1 收紧时再看。
+- 未改任何工具行为 / schema 结构 / 测试；参数级描述只动 S3 欠账。
 
 ## 测试与证据
 
-（待实现阶段填写。）
+- 取数与复测脚本：`tmp/dump.mts`（导入各包源码构造 46 个工具定义，输出 `tmp/descs.json` / `tmp/measure.json`）、`tmp/check-fields.mts`（字段顺序 / 重复 / 首句 / 长度 / 参数非空）。两者为临时文件，收尾时删除。
+- 46 个工具复测：U1 最长 `goal_contract_draft` 481（上限 512）；S1 首句最长 `herdr_list` 90（上限 128）；S4 五字段顺序与去重检查 0 问题；S3 递归参数检查 0 缺失。
+- `npm run check` 全包通过（exit 0）。
+- `npm run build` 全包通过（exit 0）。
+- `npm run test` 全包通过（exit 0，34 包全绿；受影响包：TUI 1760 / herdr-use 136 / memory-base 83 / task-engine 150 / ast-tools 47 / md-logic 58 / md-map 50 / fs-digest 67 / goal-contract 41 / hash-edit 54 / metric-loop 47 / code-map 24 / context-report 41 / rule-engine 174 / session-channel 72 / background-daemon 166 / preference-analysis 68 / script-interpreter 94 / agent-group 63 / tool-consult 74）。
 
 ## 收尾
 
-（待关闭时填写。）
+2026-10-25 关闭。实现提交 `0a41f00`（46 个工具描述改为五字段 + S2 / S3 修正 + 本文件）；用户确认提交，check / build / test 全绿。收尾变更（归档本文件、清理 BACKLOG 条目）随后提交。
+
+命名：归档后本文件为 `docs/archived/2026-10-25-tool-description-lint.md`。
