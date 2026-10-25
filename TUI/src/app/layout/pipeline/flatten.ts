@@ -354,18 +354,25 @@ export function flatten(
     for (const child of tree.children) out.push(...flatten(child, width, opts));
     return out;
   }
-  // h：子项行按行号拼接（各子项已量好自身宽）
-  const subs: Row[][] = tree.children.map((c) => {
+  // h：子项行按行号拼接（各子项已量好自身宽；每行补白到该子分配宽，fill 空格可见）
+  const subMeta: { rows: Row[]; w: number }[] = tree.children.map((c) => {
     const cw = Math.max(1, c.width ?? width);
-    return flatten(c, cw, opts);
+    return { rows: flatten(c, cw, opts), w: cw };
   });
-  const h = Math.max(1, ...subs.map((r) => r.length));
+  const h = Math.max(1, ...subMeta.map((m) => m.rows.length));
   const out: Row[] = [];
   for (let ri = 0; ri < h; ri++) {
     const rowSegs: Seg[] = [];
-    for (const s of subs) {
-      const line = s[ri];
-      if (line) rowSegs.push(...line.segments);
+    for (const { rows, w } of subMeta) {
+      const line = rows[ri];
+      if (line) {
+        rowSegs.push(...line.segments);
+        const used = rowW(line.segments);
+        if (used < w) rowSegs.push(seg(" ".repeat(w - used)));
+      } else {
+        // 该子项此行不足（行高取 max）→ 空格补齐占用列，保持右对齐
+        rowSegs.push(seg(" ".repeat(w)));
+      }
     }
     out.push({ segments: rowSegs });
   }
