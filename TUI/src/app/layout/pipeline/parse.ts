@@ -117,7 +117,8 @@ export function parse(section: Section): Block[] {
   let n = 0;
   const idOf = (): string => `${section.id}:${n++}`;
   if (section.reasoning !== undefined && section.reasoning !== "") {
-    blocks.push(...classifyMarkdown("reasoning", section.reasoning, idOf));
+    const r = classifyMarkdown("reasoning", section.reasoning, idOf);
+    blocks.push(...dropTrailingEmpty(r));
   }
   const body = section.body;
   if (body !== undefined && body.text !== "") {
@@ -153,10 +154,25 @@ export function parse(section: Section): Block[] {
         }),
       );
     } else {
-      blocks.push(...classifyMarkdown(source, body.text, idOf));
+      const mb = classifyMarkdown(source, body.text, idOf);
+      blocks.push(...dropTrailingEmpty(mb));
     }
   }
   return withSeqs(blocks, section.seqs);
+}
+
+/** 去掉 markdown 槽位尾部的空 Paragraph（来自尾部换行锚点；整段内部空行保留） */
+function dropTrailingEmpty(blocks: Block[]): Block[] {
+  const out = [...blocks];
+  while (
+    out.length > 0 &&
+    out[out.length - 1]!.kind === "paragraph" &&
+    (out[out.length - 1] as Paragraph).rule !== true &&
+    (out[out.length - 1] as Paragraph).text.every((s) => s.text === "")
+  ) {
+    out.pop();
+  }
+  return out;
 }
 
 /** 给块树补宿主事件号（重建 + 重新冻结；seqs 供接线桥取行身份） */

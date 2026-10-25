@@ -266,6 +266,8 @@ function flattenTable(
 /** 工具批 → Row[]（名字 / 参数 / 结果行；参数值悬挂缩进） */
 function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
   const out: Row[] = [];
+  // 落单判定：批内无名字行（结果无对应调用可挂标记）→ 结果行行内自带 `✗`（决策 10）
+  const hasName = units.some((u) => u.role === "name");
   for (const unit of units) {
     if (unit.role === "name") {
       const glyph =
@@ -298,15 +300,23 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
         });
       });
     } else {
-      // 结果行：详情 + `(+N/-M)` 摘要（挂首行末尾）；静默（空详情且无摘要）整条省略
+      // 结果行：详情 + `(+N/-M)` 摘要（挂首行末尾）；静默（空详情且无摘要）整条省略；
+      // 落单结果（批内无名字行可挂标记）行首加 `✗ `；失败结果行整体红
       const text = toolResultText(unit.result);
       if (text === "") continue;
-      const rows = wrapLeaf([{ text }], Math.max(1, width - 2), {
+      const fail = unit.result.ok !== true;
+      const orphan = !hasName;
+      const body = orphan ? "✗ " + text : text;
+      const style = fail ? ({ fg: "red" } as const) : undefined;
+      const rows = wrapLeaf([{ text: body }], Math.max(1, width - 2), {
         prefixW: 0,
         hanging: 2,
       });
       rows.forEach((r) => {
-        out.push({ rowKind: "tool-result", segments: [seg("  " + plain(r))] });
+        out.push({
+          rowKind: "tool-result",
+          segments: [seg("  " + plain(r), style)],
+        });
       });
     }
   }
