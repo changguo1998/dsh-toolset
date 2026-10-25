@@ -33,7 +33,12 @@ import {
   suffixVisibleOf,
   codeHeight,
   tableHeight,
+  toolHeight,
 } from "../src/app/layout/pipeline/measure.ts";
+import { toUser, buildTrees } from "../src/app/layout/pipeline/structure.ts";
+import { isNode, type Node } from "../src/app/layout/pipeline/ir.ts";
+import { parse } from "../src/app/layout/pipeline/parse.ts";
+import type { ToolUnit } from "../src/app/layout/pipeline/boxes.ts";
 import { rowsToFrame } from "../src/app/layout/pipeline/compose.ts";
 import type { Row } from "../src/app/layout/pipeline/ir.ts";
 import type { HistoryRow } from "../src/app/state.ts";
@@ -226,4 +231,69 @@ test("rowsToFrame：Row.segments → FrameRow.segments 1:1 保序", () => {
   assert.equal(frames.length, 1);
   assert.equal(frames[0]!.segments[0]!.text, segText);
   assert.equal(frames[0]!.segments.length, 1);
+});
+
+// ---------------- §4 structure.toUser 直接单测 ----------------
+
+test("toUser：用户块 → h 容器 = [fill spacer, h(符号? + body 右缘竖线)]", () => {
+  const p: Paragraph = {
+    kind: "paragraph",
+    source: "user",
+    id: "u",
+    span: [0, 1],
+    text: [{ text: "hi" }],
+  };
+  const n = toUser(p, { text: "?" }, 4);
+  assert.equal(n.direction, "h");
+  assert.equal(n.children.length, 2, "fill spacer + content");
+  const spacer = n.children[0]!;
+  assert.equal(spacer.widthStyle, "fill", "左侧 fill spacer");
+  const content = n.children[1]!;
+  if (!isNode(content)) throw new Error("content 应为 Node");
+  assert.equal(content.direction, "h", "content 为 h(符号, body)");
+  // 无符号 → 仍铺满（fill spacer 恒在）
+  const n2 = toUser(p, undefined, 0);
+  assert.equal(n2.direction, "h", "无符号也铺满");
+  assert.equal(n2.children.length, 2);
+  // 符号格 fixed 2 列（有符号时）
+  const symCell = content.children[0]!;
+  assert.equal(symCell.widthStyle, "fixed");
+  assert.equal(symCell.widthFixed, 2);
+});
+
+test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户块以填充节点铺满", () => {
+  const p = parse({
+    id: "1:1:0",
+    turn: 1,
+    step: 1,
+    seqs: [],
+    user: {},
+    body: { source: "user", text: "hi" },
+  })[0] as Paragraph;
+  const { session } = buildTrees([p], [], {
+    userSym: () => ({ text: "?" }),
+    gutter: 3,
+  });
+  const root = session as Node;
+  assert.equal(root.direction, "v");
+  const userBlock = root.children[0]! as Node;
+  assert.equal(userBlock.direction, "h", "用户块为 h（含 fill）");
+  assert.equal(userBlock.children[0]!.widthStyle, "fill", "fill 铺满");
+});
+
+// ---------------- §5 measure.toolHeight 直接单测 ----------------
+
+test("toolHeight：名字 1 行；长结果折行增长；无单元兜底 1 行", () => {
+  const name = {
+    role: "name" as const,
+    call: { name: "bash" },
+  } as ToolUnit;
+  const long = {
+    role: "result" as const,
+    result: { ok: true, detail: "x".repeat(60) },
+  } as ToolUnit;
+  assert.equal(toolHeight([name], 20), 1, "单个名字行 = 1 行");
+  const longRows = toolHeight([long], 10);
+  assert.ok(longRows >= 2, "60 字符在 10 宽下折成多行");
+  assert.equal(toolHeight([], 20), 1, "空工具批兜底 1 行");
 });

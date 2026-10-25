@@ -22,8 +22,10 @@ import type {
   Node,
   Leaf,
   Section,
+  Paragraph,
 } from "../src/app/layout/pipeline/ir.ts";
 import { isNode } from "../src/app/layout/pipeline/ir.ts";
+import { displayWidth } from "../src/app/layout/markdown.ts";
 
 function section(partial: Partial<Section> & { id: string }): Section {
   return { turn: 1, step: 1, seqs: [], ...partial };
@@ -178,4 +180,81 @@ test("renderPane：一条龙（route→structure→measure→flatten）", () => 
   });
   assert.equal((rows.session ?? []).length, 1);
   assert.ok((rows.turn ?? []).length >= 0);
+});
+
+// ---------------- §5 measure h 容器宽分配（fixed/auto/fill）直接单测 ----------------
+
+test("measure h：fixed 先定值、auto 取自然、fill 吃剩余", () => {
+  const fixed = {
+    text: [{ text: "xx" }],
+    widthStyle: "fixed" as const,
+    widthFixed: 3,
+  } as Leaf;
+  const auto = { text: [{ text: "abc" }] } as Leaf;
+  const fill = { text: [], widthStyle: "fill" as const, widthMin: 2 } as Leaf;
+  const h: Node = { direction: "h", children: [fixed, auto, fill] };
+  measure(h, 20, { vw: 20 });
+  assert.equal(fixed.width, 3, "fixed 定值 3");
+  assert.ok((auto.width ?? 0) >= 3, "auto 至少其自然宽 3");
+  assert.ok((fill.width ?? 0) >= 2, "fill ≥ 其 minWidth 2");
+  assert.equal(
+    (fixed.width ?? 0) + (auto.width ?? 0) + (fill.width ?? 0),
+    20,
+    "三子宽之和 = 容器宽",
+  );
+});
+
+// ---------------- §6 flatten 摊平器形态直接单测 ----------------
+
+test("flattenLeaf：prefix + body + suffix 按列拼接；tail 铺满到 width", () => {
+  const leaf: Leaf = {
+    text: [{ text: "ab" }],
+    prefix: { text: ">" },
+    suffix: { text: "|" },
+    tail: { char: "·" },
+  };
+  const tree: Node = { direction: "v", children: [leaf] };
+  measure(tree, 8, { vw: 8 });
+  const rows = flatten(tree, 8, { vw: 8 });
+  const first = rows[0]!;
+  const t = first.segments.map((s) => s.text).join("");
+  // > a b | ··（prefix 1 + 正文 2 + suffix 1 = 4，tail 补到 8）
+  assert.equal(t, ">ab|····", "prefix+body+suffix+tail 拼满 8");
+});
+
+test("flatten h：fill 子项补白到分配宽（右对齐完好）", () => {
+  const body = { text: [{ text: "z" }] } as Leaf;
+  const fill = { text: [], widthStyle: "fill" as const } as Leaf;
+  const h: Node = { direction: "h", children: [fill, body] };
+  measure(h, 10, { vw: 10 });
+  const rows = flatten(h, 10, { vw: 10 });
+  assert.equal(rows.length, 1, "单行");
+  const t = rows[0]!.segments.map((s) => s.text).join("");
+  assert.equal(displayWidth(t), 10, "合行宽度 = 容器宽");
+  assert.ok(t.endsWith("z"), "body 在右（fill 左）");
+});
+
+test("flattenTable：左右缘竖线 + 列分隔 + 表头下横线（行结构）", () => {
+  const para = (txt: string): Paragraph => ({
+    kind: "paragraph",
+    source: "assistant",
+    id: "p" + txt,
+    span: [0, 1],
+    text: [{ text: txt }],
+  });
+  const node: Node = {
+    direction: "v",
+    children: [],
+    table: {
+      aligns: ["left", "left"],
+      header: [para("H1"), para("H2")],
+      rows: [[para("a"), para("b")]],
+    },
+  };
+  measure(node, 20, { vw: 20 });
+  const rows = flatten(node, 20, { vw: 20 });
+  assert.ok(rows.length >= 2, "表头 + 横线 + 数据行");
+  const headTxt = rows[0]!.segments.map((s) => s.text).join("");
+  assert.ok(headTxt.startsWith("┃"), "左缘竖线");
+  assert.ok(headTxt.includes("│"), "列分隔");
 });
