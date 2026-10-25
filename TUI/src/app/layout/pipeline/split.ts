@@ -24,7 +24,7 @@ import type {
   ToolCall,
   ToolResult,
 } from "./types.ts";
-import type { BlockSource, Section } from "./ir.ts";
+import type { BlockSource, Section, UserRowInfo } from "./ir.ts";
 
 /** 一次交互的累积单元：正文文本（单来源）+ 该交互的思考 / 工具批 */
 interface Group {
@@ -36,6 +36,8 @@ interface Group {
   noCompact?: boolean;
   userStatus?: "success" | "failure" | "aborted";
   steerContinued?: boolean;
+  queued?: "followup" | "steer";
+  userActive?: boolean;
   injected?: boolean;
   generation?: number;
   calls: ToolCall[];
@@ -95,6 +97,8 @@ function groupsOf(old: OldSection): Group[] {
       if (source === "user") {
         if (item.userStatus !== undefined) g.userStatus = item.userStatus;
         if (item.steerContinued === true) g.steerContinued = true;
+        if ("queued" in item)
+          g.queued = (item as { queued?: "followup" | "steer" }).queued;
         if (item.injected === true) g.injected = true;
         if (item.generation !== undefined) g.generation = item.generation;
       }
@@ -148,14 +152,46 @@ function groupToSection(
     ...(old.history === true ? { history: true } : {}),
     ...(old.standalone === true ? { standalone: true } : {}),
     ...(old.steer === true ? { steer: true } : {}),
+    // 用户块运行时态（P1 符号素材）：仅 user 来源产（无则不给 user 字段）
+    ...(group.source === "user" && sourceUserInfo(group) !== undefined
+      ? { user: sourceUserInfo(group) }
+      : {}),
   };
+}
+
+/** 从 user 来源的 group 提炼 UserRowInfo（全空 → undefined） */
+function sourceUserInfo(group: Group): UserRowInfo | undefined {
+  const out: UserRowInfo = {};
+  if (group.userStatus !== undefined) out.status = group.userStatus;
+  if (group.steerContinued === true) out.steerContinued = true;
+  if (group.queued !== undefined) out.queued = group.queued;
+  if (group.userActive === true) out.active = true;
+  // 至少一项才产（否则无状态）
+  if (
+    out.status === undefined &&
+    out.steerContinued !== true &&
+    out.queued === undefined &&
+    out.active !== true
+  )
+    return undefined;
+  return out;
 }
 
 /** §1 分节主入口：旧节缓存 → 新一次模型交互 Section[]（按到达顺序） */
 export function splitSections(state: SectionsState): Section[] {
+  return splitOldSections(allSections(state));
+}
+
+/**
+ * §1 分节（对旧节数组；接线桥在渐进窗口后只分保留段时用）。
+ * 含运行态 post-pass：最新「无终态、非排队、非续接」的用户节标记 active。
+ */
+export function splitOldSections(
+  oldSections: readonly OldSection[],
+): Section[] {
   const out: Section[] = [];
   const ordinal = new Map<string, number>();
-  for (const old of allSections(state)) {
+  for (const old of oldSections) {
     if (old.stepSummary !== undefined) {
       out.push({
         id: `${old.turn}:${old.step}:${ordinal.get(`${old.turn}:${old.step}`) ?? 0}`,
@@ -175,6 +211,21 @@ export function splitSections(state: SectionsState): Section[] {
       const section = groupToSection(group, old, `${key}:${n}`);
       if (section !== undefined) out.push(section);
     }
+  }
+  // 运行态 post-pass：最新一个「无终态、非排队、非续接」的用户节被标记为 active
+  // （正在被作答的用户块首行符号 ●/○）。从尾向前扫，只置最近者。
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    const s = out[i]!;
+    const u = s.user;
+    if (u === undefined) continue;
+    if (
+      u.status !== undefined ||
+      u.queued !== undefined ||
+      u.steerContinued === true
+    )
+      continue;
+    out[i] = { ...s, user: { ...u, active: true } };
+    break;
   }
   return out;
 }

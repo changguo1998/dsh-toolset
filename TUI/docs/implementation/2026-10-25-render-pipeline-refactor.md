@@ -620,7 +620,7 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 
 ## 实现记录（进行中）
 
-> 2026-10-25 起实现。节奏调整：主代理直接实现（不再开子代理，用户裁定）。状态：阶段 0/1/2（新模块 + 隔离测试）完成，阶段 3（接线 + 删旧链路）与阶段 4（测试迁移）未开始。
+> 2026-10-25 起实现。节奏调整：主代理直接实现（不再开子代理，用户裁定）。状态：阶段 0/1/2 完成；阶段 3 接线进行中（新链路已成为活动路径，`npm run check` 全绿；旧链路函数保留待阶段 4 测试迁移后删除），阶段 4（测试迁移 / 基线逐条审查）未开始。
 
 ### 阶段 0：基建（完成）
 
@@ -652,6 +652,20 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 - [x] T39 `pipeline/compose.ts`（新建）`renderPane(groups, opts)` 一条龙（route→structure→measure→flatten）+ `rowsToFrame`（Row → FrameRow）。chrome/视口/状态栏拼装仍由 layout 现状承担。
 - [x] `tests/pipeline-layout.test.ts`（新建, 8 例全绿）：叶子 height = wrapLeaf 行数、摊平总行数 = Σ高度（不变量 3）、prefix 竖线 / 思考紫、空行仅来自 Gap（统计断言）、tail 铺满、hanging 悬挂、renderPane 一条龙。
 - [x] evidence：`npm run check` 通过；`tests/pipeline-layout.test.ts` 8 例全绿；TUI 全量 `npm test` 1797 例全绿（旧链路未受影响, 新模块未接线）。
+
+### 阶段 3：接线（进行中，多提交推进）
+
+主代理直接实现（用户裁定：先实现、测试后置、多次提交，一次性迁齐五块再统一接线）：
+
+- [x] 桥基建：`flatten.ts` 加 `flattenAttributed(root, width, {vw})`——面板根 v 容器按顶层 child（= PaneItem）拆分摊平行，总行数与整树 flatten 逐字节一致，供桥取 counts/keys/userRows。（提交 ccc3e61）
+- [x] 五块迁入：
+  - ① 用户块符号/右对齐/右缘竖线/gutter：`structure.ts` 接 `toUser`（`paragraphLeaf`→`toUser`），`StructureOptions.userSym/gutter/normalize`；`ir.ts` 加 `UserRowInfo` + `Section.user` + `Paragraph.user`；`split.ts` 填 `user`（queued/steerContinued/status/active post-pass）；`layout.ts` `userBlockSymbolResolver` 改 `UserRowInfo` 签名并以顶层 `userSym` 传 `pipelineContent`。
+  - ② 工具行 in-flight/终态标记：`flattenTool` 名字行发 `●/✓/✗`（TOOL_PENDING/OK/FAIL_GLYPH）+ 截断，行标 `rowKind: tool-name/param/result`（`ir.Row.rowKind`）；frame 层 `markToolNameRows` 仍按 `kind==="tool-name"` 改写相位。
+  - ③ compact（/collapse）：`renderPaneNew` 对 activity 按类别（think/tool/reply）折叠单行（简化折行，逐像素对齐留人工 diff）。
+  - ④ kind 契约：`newItemKind` 映射 ContentRow.kind（user/thinking/assistant/notice/shell/separator/tool-name…带 rowKind 优先）；对话区分隔 `kind==="separator"`。
+  - ⑤ 宿主 seq 锚点：`ir.BlockBase.seqs`，`parse` 用 `withSeqs` 从 `section.seqs` 透传（重建 + 重冻结）；`newItemSeq` 行身份宿主优先、合成兜底。
+- [x] 接线：`frame.ts pipelineContent` 改走新链路（window→`splitOldSections`→`parse`→`route`→`renderPaneNew`→PipelineContent）；`renderPaneNew` 在 `rows.ts`（新七段桥, 输出 RenderedPane 契约）。旧 `renderPane`（六段）保留供测试（阶段 4 迁移后删）。
+- [x] evidence：`npm run check` 全绿；TUI 套件 1726/1799 通过（73 失败均为帧/布局端到端走新链路的视觉等价差异，属阶段 4 测试迁移 + 基线逐条人工审查，决策 2b）。
 
 ## 偏差
 

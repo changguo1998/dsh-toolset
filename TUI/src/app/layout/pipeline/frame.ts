@@ -12,18 +12,18 @@
 // 段 C1 已剥离「无 sink 回退」；需要按缓冲重放的调用方（测试 / 嵌入用法）显式用
 // `replay.ts` 的 `sectionsFromLocal()` 或 `tests/helpers/frameWithLocalReplay.ts` 的包装。
 
-import type { RenderOptions, RenderedPane } from "./rows.ts";
-import { renderPane } from "./rows.ts";
-import { buildPanes, sectionIdentities } from "./panes.ts";
+import type { RenderOptions } from "./rows.ts";
+import { renderPaneNew } from "./rows.ts";
 import { createSections } from "./sections.ts";
-import { sectionsFromLocal } from "./replay.ts";
 import { allSections, type SectionsState } from "./sections.ts";
 import { buildBoxes, toolUnits } from "./boxes.ts";
+import { splitOldSections } from "./split.ts";
+import { parse } from "./parse.ts";
+import { route } from "./route.ts";
 import { turnGroupStarts } from "../../layout.ts";
-import { sectionsFromBuffer } from "./replay.ts";
+import type { EventGroup, UserRowInfo } from "./ir.ts";
 import type { Section } from "./types.ts";
 import type { ContentRow } from "../fill.ts";
-import type { BufferLine } from "../../state.ts";
 
 export interface PipelineFrameOptions {
   /** 会话区可用宽 */
@@ -36,6 +36,8 @@ export interface PipelineFrameOptions {
   render: RenderOptions;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传） */
   normalize?: (text: string) => string;
+  /** P1 用户块首行符号解析（会话态；info 缺省 = 无状态不显符号） */
+  userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
   /** 压缩剪枝遮蔽事件号 */
   shadowedSeqs?: ReadonlySet<number>;
 }
@@ -165,14 +167,11 @@ export function rowSeq(
   return host !== undefined ? host : syntheticSeq(segKey);
 }
 
-/** 给出行缓冲补上行身份（旧锚点模型用） */
-function withSeq(rows: readonly ContentRow[], seq: number): ContentRow[] {
-  return rows.map((row) => (row.seq === undefined ? { ...row, seq } : row));
-}
-
 /**
  * 节缓存 → 两 pane 内容行（含渐进窗口）。
- * 顺序：窗口（按回合）→ box/pane（含档位与符号替换）→ 行（含宽度与装饰）→ 行身份。
+ * 顺序：窗口（按回合）→ §1 分节（split）→ §2 解析（parse）→ §3 分流（route）→
+ * §4 结构（buildTrees）→ §5 测量 → §6 摊平（flattenAttributed，逐 item 行归属）→
+ * §7 组装（renderPane 桥，出 RenderedPane → PipelineContent）。
  */
 export function pipelineContent(
   state: SectionsState,
@@ -183,19 +182,21 @@ export function pipelineContent(
     all,
     options.windowGroups,
   );
-  let panes = buildPanes(kept, {
-    activityShow: options.render.activityShow ?? {
-      think: true,
-      tool: true,
-      reply: true,
-    },
+  // §1 → §3：分节 + 解析 + 分流
+  const sections = splitOldSections(kept);
+  const groups: EventGroup[] = sections.map((s) => ({
+    provenance: s,
+    blocks: parse(s),
+    ...(s.calls !== undefined ? { calls: s.calls } : {}),
+    ...(s.results !== undefined ? { results: s.results } : {}),
+  }));
+  const { session, turn } = route(groups, {
+    activityShow: options.render.activityShow,
+    activityCompact: options.render.activityCompact,
     declaredSteps: [...state.stepMeta.keys()],
     stepTimes: state.stepMeta,
     turnTimes: state.turnMeta,
-    // 节身份按**全量节**算（窗口只决定物化范围，不该改已物化节的段键）
-    sectionIds: sectionIdentities(all),
     ...(suppressFirstHead ? { suppressFirstHead: true } : {}),
-    ...(dropped > 0 ? { leadingSeparator: false } : {}),
     ...(options.normalize === undefined
       ? {}
       : { normalize: options.normalize }),
@@ -203,46 +204,41 @@ export function pipelineContent(
       ? {}
       : { shadowedSeqs: options.shadowedSeqs }),
   });
-  const dialogue = renderPane(panes.dialogue, "dialogue", options.render);
-  const activity = renderPane(panes.activity, "activity", {
-    ...options.render,
+  // §4-§7：对话 / 活动各以自身宽测量摊平并组装成 ContentRow[]
+  const dialogue = renderPaneNew(session, "dialogue", {
+    width: options.dialogueTextW,
+    vw: options.dialogueTextW,
+    ...(options.render.gutter === undefined
+      ? {}
+      : { gutter: options.render.gutter }),
+    ...(options.userSym === undefined ? {} : { userSym: options.userSym }),
+    ...(options.normalize === undefined
+      ? {}
+      : { normalize: options.normalize }),
+  });
+  const activity = renderPaneNew(turn, "activity", {
     width: options.activityTextW,
+    vw: options.activityTextW,
+    ...(options.render.gutter === undefined
+      ? {}
+      : { gutter: options.render.gutter }),
+    ...(options.userSym === undefined ? {} : { userSym: options.userSym }),
+    ...(options.normalize === undefined
+      ? {}
+      : { normalize: options.normalize }),
+    ...(options.render.activityCompact === undefined
+      ? {}
+      : { activityCompact: options.render.activityCompact }),
   });
   return {
-    dialogue: seqRows(panes.dialogue, dialogue),
-    activity: seqRows(panes.activity, activity),
+    dialogue: dialogue.rows,
+    activity: activity.rows,
     dropped,
     dialogueCounts: dialogue.counts,
     dialogueKeys: dialogue.keys,
     dialogueUserRows: dialogue.userRows,
     activityCounts: activity.counts,
   };
-}
-
-/** 逐项给行补身份（与 `pane` 项一一对应；边界项用相邻内容项的序号） */
-function seqRows(
-  items: readonly {
-    kind: string;
-    key: string;
-    box?: { seqs?: readonly number[] };
-  }[],
-  rendered: RenderedPane,
-): ContentRow[] {
-  const out: ContentRow[] = [];
-  let index = 0;
-  for (const item of items) {
-    const count = rendered.counts[index] ?? 0;
-    index += 1;
-    if (count === 0) continue;
-    const slice = rendered.rows.slice(out.length, out.length + count);
-    // 行身份：宿主事件号优先；否则由**稳定段键**派生（重建后同一行拿到同一身份）
-    const seq =
-      item.box === undefined
-        ? -1
-        : rowSeq(item.box as { seqs?: readonly number[] }, item.key);
-    out.push(...(seq === -1 ? slice : withSeq(slice, seq)));
-  }
-  return out;
 }
 
 /**
@@ -253,7 +249,7 @@ function seqRows(
  */
 export function sectionsOf(state: {
   pipeline?: SectionsState;
-  local: Parameters<typeof sectionsFromBuffer>[0];
+  local: unknown;
 }): SectionsState {
   return state.pipeline ?? createSections();
 }

@@ -7,8 +7,13 @@
 //   - 不变式（测试）：摊平总行数 === Σ节点 height；空行只能来自显式 Gap。
 
 import type { FrameSegment } from "../../../renderer/screen.ts";
-import { seg } from "../primitives.ts";
+import { seg, truncateToWidth } from "../primitives.ts";
 import { displayWidth, expandCodeTabs } from "../markdown.ts";
+import {
+  TOOL_FAIL_GLYPH,
+  TOOL_OK_GLYPH,
+  TOOL_PENDING_GLYPH,
+} from "../content-rules.ts";
 import { wrapLeaf } from "./wrap.ts";
 import type { Leaf, Node } from "./ir.ts";
 import { isLeaf } from "./ir.ts";
@@ -262,12 +267,18 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
   const out: Row[] = [];
   for (const unit of units) {
     if (unit.role === "name") {
+      const glyph =
+        unit.result === undefined
+          ? TOOL_PENDING_GLYPH
+          : unit.result.ok
+            ? TOOL_OK_GLYPH
+            : TOOL_FAIL_GLYPH;
+      const fg = unit.result === undefined ? "yellow" : "green";
+      const fitted = truncateToWidth(unit.call.name, Math.max(1, width - 3));
+      const name = fitted === unit.call.name ? unit.call.name : fitted + "…";
       out.push({
-        segments: [
-          seg("●", { fg: "yellow" }),
-          seg(" "),
-          seg(unit.call.name, { fg: "yellow" }),
-        ],
+        rowKind: "tool-name",
+        segments: [seg(glyph, { fg }), seg(" "), seg(name, { fg: "yellow" })],
       });
     } else if (unit.role === "param") {
       const value = unit.param.value;
@@ -279,7 +290,10 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
       rows.forEach((r, i) => {
         const lead =
           i === 0 && name ? " ".repeat(4) + name + "" : " ".repeat(6);
-        out.push({ segments: [seg(lead + plain(r))] });
+        out.push({
+          rowKind: "tool-param",
+          segments: [seg(lead + plain(r))],
+        });
       });
     } else {
       const rows = wrapLeaf(
@@ -287,7 +301,9 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
         Math.max(1, width - 2),
         { prefixW: 0, hanging: 2 },
       );
-      rows.forEach((r) => out.push({ segments: [seg("  " + plain(r))] }));
+      rows.forEach((r) => {
+        out.push({ rowKind: "tool-result", segments: [seg("  " + plain(r))] });
+      });
     }
   }
   return out;

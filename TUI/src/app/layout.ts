@@ -60,6 +60,7 @@ import {
   noticeLinePresentation,
 } from "./layout/build-box.ts";
 import { pipelineContent, sectionsOf } from "./layout/pipeline/frame.ts";
+import type { UserRowInfo } from "./layout/pipeline/ir.ts";
 import {
   MARKER_KEY,
   createLineTable,
@@ -1090,6 +1091,7 @@ function buildTopRegion(
     dialogueTextW,
     activityTextW: activityWidth,
     windowGroups: state.windowGroups,
+    userSym: userBlockSymbolResolver(state),
     render: {
       gutter: state.messageGutter,
       // 活动区六开关（SPEC §6.8）：/collapse 管压缩（按类压 1 行）、/verbose 管显示（按类显隐）
@@ -1097,8 +1099,6 @@ function buildTopRegion(
       activityShow: state.activityShow,
       width: dialogueTextW,
       activityWidth,
-      // P1：用户块首行左侧状态符号（✓/✗/■/? 与活跃块 ●/○/△）
-      userStatus: userBlockSymbolResolver(state),
     },
   });
   const { dialogue, activity: activityRaw } = built;
@@ -1914,7 +1914,7 @@ const USER_BLOCK_SYMBOL: Record<
  *  - 排队块（布局层由 `state.queued` 单独渲染）不显示符号。 */
 function userBlockSymbolResolver(
   state: AppState,
-): (line: HistoryRow) => { text: string; fg?: ColorName } | undefined {
+): (info?: UserRowInfo) => { text: string; fg?: ColorName } | undefined {
   const waiting =
     state.approval !== null ||
     state.question !== null ||
@@ -1926,13 +1926,15 @@ function userBlockSymbolResolver(
       state.inputStatus === "running" ||
       isCompacting(state));
   const runSymbol = runningSymbol(state.runVirt.tokens);
-  return (line) => {
-    if (line.kind !== "user" || line.queued) return undefined;
-    // 终态 / 续接 / 活跃三个事实都由流水线行自带（批 B1：单源在节模型，
-    // 不再按 seq 回查 buffer）
-    if (line.steerContinued === true) return { text: "←" };
-    if (line.status) return USER_BLOCK_SYMBOL[line.status];
-    if (line.active === true) {
+  return (info) => {
+    // info 缺省 = 无状态（非用户块 / 排队块 / 无符号）
+    if (info === undefined) return undefined;
+    // 排队中的 followup/steer 用户消息：不显符号（旧口径）
+    if (info.queued !== undefined) return undefined;
+    // 终态 / 续接 / 活跃三个事实都由流水线条目自带（批 B1：单源在节模型）
+    if (info.steerContinued === true) return { text: "←" };
+    if (info.status) return USER_BLOCK_SYMBOL[info.status];
+    if (info.active === true) {
       if (waiting) return { text: "△", fg: "yellow" as ColorName };
       if (running) return { text: runSymbol, fg: "yellow" as ColorName };
     }

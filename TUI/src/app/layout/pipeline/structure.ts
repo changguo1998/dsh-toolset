@@ -22,10 +22,21 @@ import type {
   StyledStr,
   StyledText,
   ToolBatch,
+  UserRowInfo,
 } from "./ir.ts";
 
 export type PaneTrees = { session: LayoutTree; turn: LayoutTree };
 export type LayoutTree = Node | Leaf;
+
+/** §4 结构阶段的 width 无关选项（块形态按它决定；width 相关一律留给 measure/flatten） */
+export interface StructureOptions {
+  /** P1/P7：用户块首行左侧状态符号（会话态解析；传入块携带的 UserRowInfo；undefined = 不显示） */
+  userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
+  /** 用户/助手右缘留白（旧 `gutter` 口径；右缘竖线占 1 列） */
+  gutter?: number;
+  /** 符号替换（symbol-normalizer 服务；缺省原文透传，作用于正文文本） */
+  normalize?: (text: string) => string;
+}
 
 /** 左缘竖线（正文蓝 / 思考紫；窄窗降级阈值 = 最小留白 + 2） */
 function bar(source: Block["source"]): {
@@ -51,18 +62,6 @@ function leaf(text: StyledText, extra: Partial<Leaf> = {}): Leaf {
 }
 
 // ---------------- 块 → 节点 ----------------
-
-/** Paragraph → Leaf（正文 / 思考 / 用户 / notice / shell；分隔线 → 尾铺满） */
-function toParagraph(block: Paragraph): Leaf {
-  // 分隔线：不占文本，tail 铺满（flatten 据此产横线）
-  if (block.rule === true) {
-    return leaf([], { tail: { char: "─", style: { fg: "border" } } });
-  }
-  // 用户块：右对齐 + 右缘竖线（平衡折行，首行符号格见 toUser；正文普通处理）
-  if (block.source === "user") return leaf(block.text, { balance: true });
-  // 正文 / 思考：左缘竖线前缀
-  return leaf(block.text, { prefix: bar(block.source) });
-}
 
 /** Quote → v Node：每个子行 = 左缘竖线 + `> ` 前缀 + 行内（旧 wrapAssistantLine 引用分支） */
 function toQuote(block: Extract<Block, { kind: "quote" }>): Node {
@@ -158,10 +157,40 @@ function toGap(): Leaf {
 
 // ---------------- 入口 ----------------
 
-function toNodeItem(item: PaneItem): Node | Leaf | null {
+/** 段落级归一：主题符号替换（normalize）后转 Leaf（user 块归 toUser 特殊处理） */
+function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
+  // 用户块：符号格(h) + 右对齐 + 右缘竖线 + gutter（toUser）
+  if (block.source === "user") {
+    return toUser(block, opts?.userSym?.(block.user), opts?.gutter);
+  }
+  // 分隔线：不占文本，tail 铺满（flatten 据此产横线）
+  if (block.rule === true) {
+    return leaf([], { tail: { char: "─", style: { fg: "border" } } });
+  }
+  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）
+  const text = opts?.normalize
+    ? applyNormalize(block.text, opts.normalize)
+    : block.text;
+  return leaf(text, { prefix: bar(block.source) });
+}
+
+/** 对段落文本逐 StyledStr 应用文本替换（保留样式，仅改 text） */
+function applyNormalize(
+  text: StyledText,
+  normalize: (t: string) => string,
+): StyledText {
+  return text.map((s) =>
+    s.text === "" ? s : { ...s, text: normalize(s.text) },
+  );
+}
+
+function toNodeItem(
+  item: PaneItem,
+  opts?: StructureOptions,
+): Node | Leaf | null {
   switch (item.kind) {
     case "paragraph":
-      return toParagraph(item);
+      return paragraphLeaf(item, opts);
     case "quote":
       return toQuote(item);
     case "list":
@@ -184,12 +213,15 @@ function toNodeItem(item: PaneItem): Node | Leaf | null {
 }
 
 /** PaneItem[] → 单个 v 容器 Node（pane 的根；每个 PaneItem 一项） */
-function toPaneTree(items: readonly PaneItem[]): LayoutTree {
+function toPaneTree(
+  items: readonly PaneItem[],
+  opts?: StructureOptions,
+): LayoutTree {
   return {
     direction: "v",
     id: undefined,
     children: items.flatMap((item) => {
-      const node = toNodeItem(item);
+      const node = toNodeItem(item, opts);
       return node === null ? [] : [node];
     }),
   };
@@ -199,27 +231,32 @@ function toPaneTree(items: readonly PaneItem[]): LayoutTree {
 export function buildTrees(
   session: readonly PaneItem[],
   turn: readonly PaneItem[],
+  opts?: StructureOptions,
 ): PaneTrees {
-  return { session: toPaneTree(session), turn: toPaneTree(turn) };
+  return { session: toPaneTree(session, opts), turn: toPaneTree(turn, opts) };
 }
 
 /** 兼容口径：Record<PaneId, PaneItem[]> → 含 session / turn 的树 */
 export function buildTree(
   panes: Partial<Record<PaneId, PaneItem[]>>,
+  opts?: StructureOptions,
 ): PaneTrees {
-  return buildTrees(panes.session ?? [], panes.turn ?? []);
+  return buildTrees(panes.session ?? [], panes.turn ?? [], opts);
 }
 
 // ---------------- user 块：右对齐 + 状态符号格 ----------------
 
 /**
  * 用户块特殊构图：会话区根节点为 h([符号格, 正文])（符号格首行 2 列），块整体
- * 右对齐 + 右缘竖线。本层只定形态，符号内容由调用方（布局层）经 `userStatus`
- * 解析器注入；无符号时退化为 h([]) 的单行正文。
+ * 右对齐 + 右缘竖线。本层只定形态，符号内容由调用方（布局层）经 `userSym`
+ * 解析器注入；无符号时退化为 h([]) 的单行正文。`gutter` = 右缘保底留白列数
+ * （1 列已被右缘竖线占用 → 其余 gutter-1 留白；有符号时符号格占 2 列，左侧留白
+ * 再扣 2，使正文绝对起列与无符号时一致 —— 与旧 build-box 同口径）。
  */
 export function toUser(
   block: Paragraph,
   sym?: { text: string; fg?: string },
+  gutter = 0,
 ): Node {
   const body = leaf(block.text, {
     balance: true,
@@ -245,5 +282,20 @@ export function toUser(
     );
   }
   kids.push(body);
-  return { direction: "h", children: kids };
+  const content: Node = { direction: "h", children: kids };
+  // 右缘保底留白：fill spacer 占左侧（gutter-1-(符号?2:0) 列），正文右对齐
+  const fillMin = Math.max(0, gutter - 1 - (sym ? 2 : 0));
+  if (fillMin > 0) {
+    return {
+      direction: "h",
+      children: [
+        leaf([], {
+          widthStyle: "fill",
+          ...(fillMin ? { widthMin: fillMin } : {}),
+        }),
+        content,
+      ],
+    };
+  }
+  return content;
 }

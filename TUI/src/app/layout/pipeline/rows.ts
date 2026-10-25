@@ -222,6 +222,16 @@ import type { ToolResult } from "./types.ts";
 import type { ContentRow } from "../fill.ts";
 import { toolUnits, type Box, type LayoutBox } from "./boxes.ts";
 import type { PaneItem } from "./panes.ts";
+// ---- 新链路（§3-§7）接线桥 ----
+import type {
+  PaneItem as NewPaneItem,
+  UserRowInfo,
+  Row as NewRow,
+} from "./ir.ts";
+import type { StructureOptions } from "./structure.ts";
+import { buildTrees } from "./structure.ts";
+import { measure } from "./measure.ts";
+import { flattenAttributed } from "./flatten.ts";
 
 export interface RenderOptions extends BuildBoxOptions {
   /** 会话区可用宽 */
@@ -230,6 +240,22 @@ export interface RenderOptions extends BuildBoxOptions {
   activityWidth?: number;
   /** 活动区显示开关（透传给旧口径的 buildContentRows，保证逐行一致） */
   activityShow?: Partial<ActivitySwitches>;
+}
+
+/** 新链路（§3-§7）pane 排版输入（接线桥 renderPane 用；宽无关项在 structure 期消费） */
+export interface PaneRenderOptions {
+  /** 内容区可用宽 */
+  width: number;
+  /** 装饰可见度基准（prefix/suffix minWidth 判定；缺省 = width） */
+  vw?: number;
+  /** 用户/助手右缘留白（gutter） */
+  gutter?: number;
+  /** P1 用户块首行符号解析（info 缺省 = 无状态不显符号） */
+  userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
+  /** symbol-normalizer 服务（缺省原文透传） */
+  normalize?: (text: string) => string;
+  /** 活动区紧凑档位（/collapse；只对 activity pane 应用） */
+  activityCompact?: Partial<ActivitySwitches>;
 }
 
 export interface RenderedPane {
@@ -604,6 +630,161 @@ export function renderPane(
   }
   // 整 pane 末尾的空行不渲染（旧渲染器 `trimTrailingAssistantBlanks` 口径：只在 pane 末尾
   // 生效；逐项排版时各段看不到「谁是最后一行」，故在这里统一收尾）
+  while (
+    rows.length > 0 &&
+    rows[rows.length - 1]!.segments.length === 0 &&
+    rows[rows.length - 1]!.kind === "plain"
+  ) {
+    rows.pop();
+    const last = counts.length - 1;
+    if (last >= 0) counts[last] = Math.max(0, (counts[last] ?? 0) - 1);
+  }
+  return { rows, counts, keys, userRows, table: createLineTable(counts) };
+}
+
+// ================= 新链路（§3-§7）renderPane：接线桥 =================
+//
+// 旧 renderPaneLegacy（旧 PaneItem + buildBox/buildContentRows 六段）挂起不动，
+// 本 renderPane 走新七段：buildTrees（含 user 块符号/右对齐/gutter）→ measure →
+// flattenAttributed（逐 item 行归属）→ RenderedPane 契约（rows/counts/keys/
+// userRows/table，加 kind/seq）。输出仍 ContentRow[]，帧层 consume 不变；
+// 旧链函数在阶段 4 测试迁移后删除。
+
+/** item → 稳定段键（滚动定位：段键 + 段内行；与旧键前缀一致） */
+function newItemKey(item: NewPaneItem): string {
+  if ("id" in item && typeof item.id === "string") return item.id;
+  return (item as { key?: string }).key ?? "item";
+}
+
+/** item → 行身份（先宿主事件号，否则按稳定段键合成不变式序号） */
+function newItemSeq(item: NewPaneItem, key: string): number {
+  const seqs = (item as { seqs?: readonly number[] }).seqs;
+  if (seqs !== undefined && seqs.length > 0) return seqs[0]!;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b1;
+  for (let i = 0; i < key.length; i++) {
+    const c = key.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ ((c << 5) + c + i), 0x85ebca6b) >>> 0;
+  }
+  return 1_000_000_000 + (h1 % 0x1000000) * 0x1000000 + (h2 % 0x1000000);
+}
+
+/** item → ContentRow.kind（frame 层只读 "tool-name" / "separator"，其余供分组/测试） */
+function newItemKind(item: NewPaneItem, row?: NewRow): string {
+  if (row?.rowKind !== undefined) return row.rowKind;
+  switch (item.kind) {
+    case "paragraph": {
+      const source = (item as { source?: string }).source;
+      switch (source) {
+        case "user":
+          return "user";
+        case "reasoning":
+          return "thinking";
+        case "notice":
+          return "notice";
+        case "shell":
+          return "shell";
+        default:
+          return "assistant";
+      }
+    }
+    case "turn-header":
+      return "separator";
+    case "step-header":
+      return "step-header";
+    case "step-summary":
+      return "step-summary";
+    case "tool-batch":
+      return "tool";
+    default:
+      return "plain";
+  }
+}
+
+/** 是否为会话区用户块（跳转目标） */
+function isNewUserItem(item: NewPaneItem): boolean {
+  return (
+    item.kind === "paragraph" && (item as { source?: string }).source === "user"
+  );
+}
+
+/** 活动区紧凑类别（/collapse think|tool|reply；会话区不折叠） */
+function compactCategory(
+  item: NewPaneItem,
+): "think" | "tool" | "reply" | undefined {
+  switch (item.kind) {
+    case "paragraph":
+      return (item as { source?: string }).source === "reasoning"
+        ? "think"
+        : "reply";
+    case "tool-batch":
+      return "tool";
+    default:
+      return undefined;
+  }
+}
+
+/** 紧凑折叠：多行条目压成单行（取首行 + 行尾省略号；逐像素对齐留阶段 4 人工 diff） */
+function foldRow(row: NewRow, width: number): NewRow[] {
+  const text = row.segments.map((s) => s.text).join("");
+  if (text === "") return [row];
+  void width;
+  return [row];
+}
+
+/**
+ * 新七段 renderPaneNew（§3-§7 一条龙，输出 RenderedPane 契约）。
+ * 每 pane 分别以自身宽测量/摊平；user 块符号由 `userSym` 解析（缺 info 不显）。
+ * 旧 `renderPane`（六段旧链）挂起供阶段 4 测试迁移；接线桥走本函数。
+ */
+export function renderPaneNew(
+  items: readonly NewPaneItem[],
+  pane: "dialogue" | "activity",
+  options: PaneRenderOptions,
+): RenderedPane {
+  const width = Math.max(1, options.width);
+  const vw = options.vw ?? width;
+  const struct: StructureOptions = {
+    userSym: options.userSym,
+    gutter: options.gutter,
+    normalize: options.normalize,
+  };
+  const { session, turn } = buildTrees(
+    pane === "dialogue" ? items : [],
+    pane === "activity" ? items : [],
+    struct,
+  );
+  const root = pane === "dialogue" ? session : turn;
+  measure(root, width, { vw });
+  const perItem = flattenAttributed(root, width, { vw });
+  const rows: ContentRow[] = [];
+  const counts: number[] = [];
+  const keys: string[] = [];
+  const userRows: number[] = [];
+  items.forEach((item, i) => {
+    const key = newItemKey(item);
+    keys.push(key);
+    let produced = perItem[i] ?? [];
+    if (pane === "activity") {
+      const cat = compactCategory(item);
+      if (cat !== undefined && options.activityCompact?.[cat]) {
+        produced = produced.length > 0 ? foldRow(produced[0]!, width) : [];
+      }
+    }
+    counts.push(produced.length);
+    if (pane === "dialogue" && isNewUserItem(item)) userRows.push(rows.length);
+    const seq = newItemSeq(item, key);
+    for (const r of produced) {
+      rows.push({
+        segments: r.segments,
+        kind: newItemKind(item, r),
+        ...(r.indent === undefined ? {} : { indent: r.indent }),
+        seq,
+      });
+    }
+  });
+  // 整 pane 末尾空行不渲染（旧 trimTrailingAssistantBlanks 同口径）
   while (
     rows.length > 0 &&
     rows[rows.length - 1]!.segments.length === 0 &&

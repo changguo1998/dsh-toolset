@@ -146,13 +146,53 @@ export function parse(section: Section): Block[] {
           id: idOf(),
           span: [0, body.text.length],
           text: styled,
+          // 用户块的运行时态透传（P1 首行符号 / 排队竖线颜色素材）
+          ...(source === "user" && section.user !== undefined
+            ? { user: section.user }
+            : {}),
         }),
       );
     } else {
       blocks.push(...classifyMarkdown(source, body.text, idOf));
     }
   }
-  return blocks;
+  return withSeqs(blocks, section.seqs);
+}
+
+/** 给块树补宿主事件号（重建 + 重新冻结；seqs 供接线桥取行身份） */
+function withSeqs(blocks: Block[], seqs: readonly number[]): Block[] {
+  if (seqs.length === 0) return blocks;
+  const one = (b: Block): Block => {
+    switch (b.kind) {
+      case "paragraph":
+      case "code":
+        return freezeBlock({ ...b, seqs });
+      case "quote":
+        return freezeBlock({
+          ...(b as Extract<Block, { kind: "quote" }>),
+          seqs,
+          children: (b as Extract<Block, { kind: "quote" }>).children.map(one),
+        });
+      case "list":
+        return freezeBlock({
+          ...(b as Extract<Block, { kind: "list" }>),
+          seqs,
+          items: (b as Extract<Block, { kind: "list" }>).items.map(
+            one,
+          ) as Extract<Block, { kind: "list" }>["items"],
+        });
+      case "table": {
+        const t = b as Extract<Block, { kind: "table" }>;
+        return freezeBlock({
+          ...t,
+          seqs,
+          header: t.header.map(one) as unknown as typeof t.header,
+          rows: t.rows.map((r) => r.map(one)) as unknown as typeof t.rows,
+        });
+      }
+    }
+  };
+  return blocks.map(one);
 }
 
 /** markdown 槽位的块级分类（source = reasoning / assistant / system） */

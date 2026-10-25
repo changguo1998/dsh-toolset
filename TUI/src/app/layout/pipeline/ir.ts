@@ -64,6 +64,20 @@ export interface Section {
   steer?: boolean;
   /** P9 恢复的 step 概要行文本（会话区 `╌╌ <text> ` + 尾部 ╌ 铺满；无正文槽位） */
   stepSummary?: string;
+  /** 用户输入块的运行时态（P1 首行符号解析素材；无 = 无状态） */
+  user?: UserRowInfo;
+}
+
+/** 用户块首行状态符号所需素材（旧 `userBlockSymbolResolver` 输入的子集） */
+export interface UserRowInfo {
+  /** 排队中（未发出的 followup / steer 用户消息） */
+  queued?: "followup" | "steer";
+  /** steer 认领转入历史的续接块 */
+  steerContinued?: boolean;
+  /** 终态（成功 / 失败 / 中断） */
+  status?: "success" | "failure" | "aborted";
+  /** 当前正在运行中的用户块 */
+  active?: boolean;
 }
 
 // ================= §2 解析：行内段与块 =================
@@ -94,6 +108,8 @@ export type BlockSource =
 /** 块级来源标记（§3 route 分发用） */
 export interface BlockBase {
   source: BlockSource;
+  /** 覆盖的宿主事件号（§2 由 section.seqs 透传；接线桥取行身份 posix 锚点用） */
+  seqs?: readonly number[];
 }
 
 /** 段落块：行内内容（§2 解析产物；原文经 span 回引，不复制原文） */
@@ -105,6 +121,8 @@ export interface Paragraph extends BlockBase {
   text: StyledText;
   /** 分隔线（`---` 等）：flatten 据此铺满横向线（不占文本） */
   rule?: boolean;
+  /** 用户块的运行时态（§2 由 Section.user 透传；P1 符号与排队竖线颜色用） */
+  user?: UserRowInfo;
 }
 
 /** 引用块：子块嵌套（多为 Paragraph） */
@@ -401,6 +419,11 @@ export interface Row {
   prefix?: FrameSegment[];
   /** 行内对齐（缺省 left） */
   align?: "left" | "center" | "right";
+  /**
+   * 行语义标记（接线桥读取，映射 ContentRow.kind）：如工具名 / 参数 / 结果行。
+   * 仅需要让上层按行归属的摊平分支设置（现为 flattenTool 的 name / param / result）。
+   */
+  rowKind?: string;
 }
 
 /** 测量 / 摊平阶段的矩形（自旧 box.ts 迁入，供 measure / flatten 用） */
