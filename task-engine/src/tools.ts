@@ -305,9 +305,10 @@ export function createTools(
   const execute: TaskToolDef = {
     name: "task_execute",
     description:
-      "发起叶子任务声明的 executor 后端（subagent / workflow / command），把执行证据回填到该帧。" +
-      "model 后端（本会话自己执行）用 task_implement；回填后仍需 task_stop 做 RET 验收。" +
-      "叶子须已挂树且声明了非 model 后端，否则拒绝。",
+      "用途: 发起叶子任务声明的 executor 后端(subagent / workflow / command), 把执行证据回填到该帧。\n" +
+      "用法: 叶子须已挂树且声明了非 model 后端, 否则拒绝; 回填后仍需 task_stop 做 RET 验收。\n" +
+      "边界: model 后端(本会话自己执行)用 task_implement。\n" +
+      "相关: task_implement、task_stop、task_decompose。",
     parameters: {
       task_id: {
         type: "string",
@@ -339,27 +340,31 @@ export function createTools(
   return [
     decompose(
       "decompose",
-      "把一个待细化任务拆成子任务（每次只细化一层；机械+语义蕴含双门禁通过才挂树）。" +
-        '多轮：对**已完成的当前轮根**再分解会**自动开新一轮**（新根 `root-2` / `root-3…`，沿用同一根契约，旧轮只读保留；跨轮子帧 id 必须唯一）；`parent_id: "root"` 始终指当前轮根',
+      "用途: 把一个待细化任务拆成子任务, 每次只细化一层。\n" +
+        '用法: 机械 + 语义蕴含双门禁通过才挂树; 对已完成的当前轮根再分解会自动开新一轮(新根 `root-2` / `root-3…`, 沿用同一根契约, 旧轮只读保留; 跨轮子帧 id 必须唯一); `parent_id: "root"` 始终指当前轮根。\n' +
+        "相关: task_implement、task_execute、task_status。",
     ),
     decompose(
       "implement",
-      "完成一个叶子任务（写产出），仅限 model 后端（本会话自己执行）。" +
-        "声明了 subagent / workflow / command 后端的叶子用 task_execute 发起。" +
-        "叶子指 need_decompose=false 的帧，非叶子会被拒（先 task_decompose）；产出在 task_stop 验收通过后才算完成。",
+      "用途: 完成一个叶子任务并写产出, 仅限 model 后端(本会话自己执行)。\n" +
+        "用法: 叶子指 need_decompose=false 的帧; 产出在 task_stop 验收通过后才算完成。\n" +
+        "边界: 声明了 subagent / workflow / command 后端的叶子用 task_execute 发起; 非叶子会被拒(先 task_decompose)。\n" +
+        "相关: task_execute、task_stop、task_decompose。",
     ),
     execute,
     decompose(
       "stop",
-      "对任务执行 RET 验收（mechanical/human/semantic），通过则完成并向上 join，返回 accepted/next。" +
-        "凭 task_id 指定任务；本工具只做验收与完成，取消委托用 channel_task（action=cancel）。",
+      "用途: 对任务执行 RET 验收(mechanical/human/semantic), 通过则完成并向上 join。\n" +
+        "用法: 凭 task_id 指定任务; 返回 accepted / next。\n" +
+        "边界: 本工具只做验收与完成; 取消委托用 channel_task(action=cancel)。\n" +
+        "相关: task_status、task_implement、channel_task。",
     ),
     decompose(
       "status",
-      "查看本引擎的嵌套任务树（帧 / 轮次 / parent_id + order，先序，含 executorKind），跨会话委托任务查 channel_task。" +
-        "多轮会话返回**森林**：`rounds` = 已开启轮数（= 当前轮号），`tree` 每轮一棵（树根带 `round`）；" +
-        "只展开当前轮（末项），更早的轮折叠为根摘要（`children: []` + `descendantCount` + `truncated: true`），" +
-        "折叠后本工具不提供取回，细节在事件流里。",
+      "用途: 查看本引擎的嵌套任务树(帧 / 轮次 / parent_id + order, 先序, 含 executorKind)。\n" +
+        "用法: 无参数; 多轮会话返回森林: `rounds` = 已开启轮数, `tree` 每轮一棵(树根带 `round`); 只展开当前轮, 更早的轮折叠为根摘要(`children: []` + `descendantCount` + `truncated: true`)。\n" +
+        "边界: 折叠后不提供取回, 细节在事件流里; 跨会话委托任务查 channel_task。\n" +
+        "相关: channel_task、task_stop。",
     ),
   ];
 }

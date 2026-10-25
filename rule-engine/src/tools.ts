@@ -157,10 +157,10 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const add: ToolDef = {
     name: "rule_add",
     description:
-      "新增一条注入规则：命中条件（关键词 / 正则 / 内置谓词）成立时，代替用户向下一个回合注入一条 user-role 消息。" +
-      "source（匹配面，可挂多个）共 10 个会话节点：assistant-text / user-message / tool-call / tool-result / " +
-      "turn-start / turn-end / step-start / step-end / session-start / compaction；缺省 assistant-text。" +
-      "边界类节点（turn-* / step-* / session-start）文本为空，match 可省即无条件命中。id 已存在会报错，改用 rule_update。",
+      "用途: 新增一条注入规则, 命中条件(关键词 / 正则 / 内置谓词)成立时代替用户向下一个回合注入一条 user-role 消息。\n" +
+      "用法: source(匹配面, 可挂多个)共 10 个会话节点: assistant-text / user-message / tool-call / tool-result / turn-start / turn-end / step-start / step-end / session-start / compaction, 缺省 assistant-text。\n" +
+      "边界: 边界类节点(turn-* / step-* / session-start)文本为空, match 可省即无条件命中; id 已存在会报错, 改用 rule_update。\n" +
+      "相关: rule_update、rule_list、rule_test、rule_remove。",
     parameters: {
       type: "object",
       properties: RULE_PARAMS,
@@ -183,7 +183,8 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const list: ToolDef = {
     name: "rule_list",
     description:
-      "只读列出生效规则（配置基线 + 运行时层，含来源层 origin、送达路径 delivery 与节流参数）与引擎状态。",
+      "用途: 只读列出生效规则(配置基线 + 运行时层, 含来源层 origin、送达路径 delivery 与节流参数)与引擎状态。\n" +
+      "相关: rule_add、rule_update、rule_remove。",
     parameters: { type: "object", properties: {} },
     async execute() {
       try {
@@ -201,8 +202,11 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const update: ToolDef = {
     name: "rule_update",
     description:
-      "更新一条规则（浅合并 patch：只改 text / match / cooldownTurns 等；patch.text 与 patch.action.text 等价）。" +
-      "基线规则被更新后以运行时版本生效（原配置保持原样）；规则不存在时先用 rule_add。",
+      "用途: 更新一条规则, 用浅合并 patch 只改指定字段(patch.text 与 patch.action.text 等价)。\n" +
+      "用法: 传 id 指定目标; patch 可覆盖 text / summary / match / source / delivery / enabled / cooldownTurns / cooldownMs / dedupeInRecord / description / action。\n" +
+      "效果: 基线规则被更新后以运行时版本生效, 原配置保持原样。\n" +
+      "边界: 规则不存在时先用 rule_add。\n" +
+      "相关: rule_add、rule_remove、rule_list。",
     parameters: {
       type: "object",
       properties: {
@@ -260,7 +264,10 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const remove: ToolDef = {
     name: "rule_remove",
     description:
-      "删除一条规则：运行时规则直接移除；配置基线规则记入运行时层的屏蔽列表（配置文件本身不改）。",
+      "用途: 删除一条规则, 运行时规则直接移除, 配置基线规则记入运行时层的屏蔽列表。\n" +
+      "用法: 传 id 指定规则。\n" +
+      "效果: 配置文件本身不改。\n" +
+      "相关: rule_add、rule_update、rule_list。",
     parameters: {
       type: "object",
       properties: { id: { type: "string", description: "要删除的规则 id" } },
@@ -284,8 +291,10 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
     name: "rule_test",
     description:
       "用途: 干跑判定哪些规则会命中。\n" +
+      "用法: 传 text 与 source(source 缺省 assistant-text)。\n" +
       "效果: 只返回命中判定, 不注入、不改状态。\n" +
-      "边界: 供调试规则写法。",
+      "边界: 供调试规则写法。\n" +
+      "相关: rule_add、rule_update、rule_list。",
     parameters: {
       type: "object",
       properties: {

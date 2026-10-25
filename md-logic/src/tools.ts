@@ -180,13 +180,10 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
   return {
     name: "md_logic",
     description:
-      "单文件 Markdown 逻辑结构（读 + 按节改写）：出节树 / 块 / 链接，或按节整节替换、删除。" +
-      "structure 给节树（层级 + 行范围 + 内容 hash），blocks 给块清单，links 给链接定义；" +
-      "只要标题 + 块快览用 fs_digest。" +
-      "replace 的 edits 带 heading + start_line / end_line（取自 structure）与 content（整节新文本，须以标题行开头）；" +
-      "section_hash 不符则 section_stale。" +
-      "改写分工：按节改 Markdown 用本工具；按行号改行用 hash_edit；整文件替换或改标题层级用 edit。" +
-      "行号 1 基；path 相对会话 cwd。",
+      "用途: 单文件 Markdown 逻辑结构(读 + 按节改写), 出节树 / 块 / 链接, 或按节整节替换、删除。\n" +
+      "用法: structure 给节树(层级 + 行范围 + 内容 hash), blocks 给块清单, links 给链接定义; replace 的 edits 带 heading + start_line / end_line(取自 structure)与 content(整节新文本, 须以标题行开头); section_hash 不符则 section_stale。\n" +
+      "边界: 行号 1 基; path 相对会话 cwd; 只要标题 + 块快览用 fs_digest; 按行号改行用 hash_edit; 整文件替换或改标题层级用 edit。\n" +
+      "相关: fs_digest、hash_edit、md_map。",
     parameters: {
       type: "object",
       required: ["action", "path"],

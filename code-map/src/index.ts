@@ -336,12 +336,11 @@ function toToolDef(service: CodeMapService) {
   return {
     name: "code_map",
     description:
-      "代码结构与引用地图：建符号表与 import 图，回答谁引用了某符号、改动波及哪些模块。" +
-      "index / refresh 建索引；callers 查符号引用（LSP 可用时 precision=lsp，否则回落同名候选 structural）；" +
-      "callees 查文件级 import 目标；impact 查改动某文件的影响面（反向 import 闭包）；cycles 查依赖环；" +
-      "report 出项目报告；summary 查索引状态。callers / callees / impact / report 会隐式建索引，cycles 不会" +
-      "（未索引返回 not_indexed）。按路径模式找文件用 glob；按文本检索用 grep。" +
-      "root 缺省取进程 cwd（process.cwd()）。",
+      "用途: 代码结构与引用地图, 建符号表与 import 图, 回答谁引用了某符号、改动波及哪些模块。\n" +
+      "用法: index / refresh 建索引; callers 查符号引用(LSP 可用时 precision=lsp, 否则回落 structural); callees 查文件级 import 目标; impact 查改动某文件的影响面(反向 import 闭包); cycles 查依赖环; report 出报告; summary 查索引状态。\n" +
+      "效果: callers / callees / impact / report 会隐式建索引; cycles 不会(未索引返回 not_indexed)。\n" +
+      "边界: 按路径找文件用 glob; 按文本检索用 grep; root 缺省取进程 cwd(process.cwd())。\n" +
+      "相关: glob、grep、md_map、ast_query。",
     parameters: {
       type: "object",
       properties: {
@@ -357,6 +356,8 @@ function toToolDef(service: CodeMapService) {
             "report",
             "summary",
           ],
+          description:
+            "index / refresh 建索引; callers 查符号引用; callees 查 import 目标; impact 查影响面; cycles 查依赖环; report 出项目报告; summary 查索引状态",
         },
         symbol: { type: "string", description: "callers/callees 用：符号名" },
         file: {

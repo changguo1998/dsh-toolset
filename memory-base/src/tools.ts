@@ -104,12 +104,11 @@ export function memoryQueryTool(executor: MemoryQueryExecutor): unknown {
   return {
     name: "memory_query",
     description:
-      "只读查询跨会话记忆库（跨全部已注册 kind，可按层 / 项目过滤）。" +
-      "action=search（缺省）全文检索，action=list 按 kind 列举；知道查什么用 search，要看某类都写了什么用 list。" +
-      "search 的 mode 选策略：缺省 bm25（单词面）；hybrid 多路召回 + RRF 融合，长句 / 多词查询更稳，" +
-      "此时 trigram 恒开，fuzzy 不再额外改变召回。" +
-      "结果多时用 kind / tier / project / limit 收窄（缺省 10 行，上限 100）。本工具只读，写入与删除走各扩展。" +
-      "查偏好用 preference_list。",
+      "用途: 只读查询跨会话记忆库(跨全部已注册 kind, 可按层 / 项目过滤)。\n" +
+      "用法: action=search 全文检索(缺省), action=list 按 kind 列举; search 的 mode 选策略: 缺省 bm25(单词面), hybrid 多路召回 + RRF 融合(长句 / 多词查询更稳, trigram 恒开, fuzzy 不再额外改变召回); 结果多时用 kind / tier / project / limit 收窄(缺省 10 行, 上限 100)。\n" +
+      "效果: 返回匹配行, 不写库。\n" +
+      "边界: 只读, 写入与删除走各扩展; 查偏好用 preference_list。\n" +
+      "相关: preference_list。",
     parameters: {
       type: "object",
       additionalProperties: true,

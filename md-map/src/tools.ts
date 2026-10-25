@@ -60,12 +60,10 @@ export function mdMapTool(service: MdMapService): unknown {
   return {
     name: "md_map",
     description:
-      "Markdown 项目级引用图（文档之间，非全文检索）：建索引，查谁引用某文档 / 锚点、影响面、断链。" +
-      "index / refresh 建索引（默认扫会话工作目录下的 `**/*.md`）；" +
-      "callers 查引用来源（path + 可选 anchor + 可选 kind）；impact 查影响面（反向闭包，depth 缺省 2）；" +
-      "orphans 查孤儿；report / summary 出总览与索引状态。" +
-      "行号 1 基；path 相对 root。分工：代码结构用 code_map；单文件结构用 md_logic；全文检索用 grep。" +
-      "除 index / refresh 外都依赖先前建立的索引。",
+      "用途: Markdown 项目级引用图(文档之间, 非全文检索), 建索引, 查谁引用某文档 / 锚点、影响面、断链。\n" +
+      "用法: index / refresh 建索引(默认扫会话工作目录下的 `**/*.md`); callers 查引用来源(path + 可选 anchor + 可选 kind); impact 查影响面(反向闭包, depth 缺省 2); orphans 查孤儿; report / summary 出总览与索引状态。\n" +
+      "边界: 除 index / refresh 外都依赖先前建立的索引; 行号 1 基; path 相对 root; 代码结构用 code_map, 单文件结构用 md_logic, 全文检索用 grep。\n" +
+      "相关: code_map、md_logic、grep。",
     parameters: {
       type: "object",
       required: ["action"],
@@ -74,6 +72,8 @@ export function mdMapTool(service: MdMapService): unknown {
         action: {
           type: "string",
           enum: [...ACTIONS],
+          description:
+            "index / refresh 建索引; callers 查引用来源; impact 查影响面; orphans 查孤儿; report / summary 出总览与索引状态",
         },
         path: {
           type: "string",

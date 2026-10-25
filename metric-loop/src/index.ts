@@ -558,13 +558,19 @@ function toToolDef(controller: MetricLoopController) {
   return {
     name: "metric_loop",
     description:
-      "指标驱动自动循环：每轮跑测量命令取一个数字，按窗口与边界判定是否继续。" +
-      "start 新建并跑第一轮，tick 推进一轮（wake=auto 受 cadence 节流，explicit 紧急唤醒不受限），status 查状态，stop 手动停止。" +
-      "无测量命令时为 metricless（只按边界停止）。结果含唤醒提示：运行中按提示参数用 daemon_task 排下次自动唤醒。",
+      "用途: 指标驱动自动循环, 每轮跑测量命令取一个数字, 按窗口与边界判定是否继续。\n" +
+      "用法: start 新建并跑第一轮; tick 推进一轮(wake=auto 受 cadence 节流, explicit 紧急唤醒不受限); status 查状态; stop 手动停止; 无测量命令时为 metricless(只按边界停止)。\n" +
+      "效果: 结果含唤醒提示, 运行中按提示参数用 daemon_task 排下次自动唤醒。\n" +
+      "相关: daemon_task、goal_contract_draft。",
     parameters: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["start", "tick", "status", "stop"] },
+        action: {
+          type: "string",
+          enum: ["start", "tick", "status", "stop"],
+          description:
+            "start 新建并跑第一轮; tick 推进一轮; status 查状态; stop 手动停止",
+        },
         id: { type: "string", description: "循环标识（缺省 default）" },
         wake: {
           type: "string",

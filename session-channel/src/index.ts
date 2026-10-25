@@ -1519,17 +1519,18 @@ export function toToolDef(service: SessionChannelService) {
   return {
     name: "session_channel",
     description:
-      "跨会话消息通道（本机专用 Redis）：列会话、发消息、查收件箱、管别名。" +
-      "peers 列在线会话；send 发消息到目标会话；inbox 查某会话最近收到的消息（只读）；" +
-      "state 查某会话的 agent 忙闲（idle/running + 转换时刻 at，也可作为跨会话通知的派发通道）；" +
-      "alias 管会话别名（op=set/list/clear，name=别名，to 缺省为调用方所在会话）；status 查连接与已跟踪会话。" +
-      "发消息用本工具（action=send）；让另一个会话执行任务并回收结果用 channel_delegate。",
+      "用途: 跨会话消息通道(本机专用 Redis), 列会话、发消息、查收件箱、管别名。\n" +
+      "用法: peers 列在线会话; send 发消息到目标会话; inbox 查某会话最近收到的消息(只读); state 查某会话的 agent 忙闲(idle/running + 转换时刻 at, 也可作为跨会话通知的派发通道); alias 管会话别名(op=set/list/clear, name=别名, to 缺省为调用方所在会话); status 查连接与已跟踪会话。\n" +
+      "边界: 发消息用本工具(action=send); 让另一个会话执行任务并回收结果用 channel_delegate。\n" +
+      "相关: channel_delegate、channel_task、coagent。",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
           enum: ["peers", "send", "inbox", "state", "alias", "status"],
+          description:
+            "peers 列在线会话; send 发消息; inbox 查收件箱; state 查忙闲; alias 管别名; status 查连接与已跟踪会话",
         },
         to: {
           type: "string",
@@ -1652,10 +1653,11 @@ function toDelegateTool(service: SessionChannelService) {
   return {
     name: "channel_delegate",
     description:
-      "把一个任务委托给本机另一个会话执行并回收结果（planner-worker 语义）。" +
-      "任务正文作为一条 [CHANNEL] 消息注入目标会话的下一回合；worker 本轮结束时会自动回传最终回答" +
-      "（worker 也可调用 channel_task_result 显式回传，显式优先）。返回 task_id，用 channel_task 查状态 / 列任务 / 取消。" +
-      "只传话不委托执行用 session_channel（action=send）；在当前会话拉起常驻同事用 coagent。",
+      "用途: 把一个任务委托给本机另一个会话执行并回收结果(planner-worker 语义)。\n" +
+      "用法: 任务正文作为一条 [CHANNEL] 消息注入目标会话的下一回合; 返回 task_id, 用 channel_task 查状态 / 列任务 / 取消。\n" +
+      "效果: worker 本轮结束时会自动回传最终回答; worker 也可调用 channel_task_result 显式回传, 显式优先。\n" +
+      "边界: 只传话不委托执行用 session_channel(action=send); 在当前会话拉起常驻同事用 coagent。\n" +
+      "相关: channel_task、channel_task_result、session_channel、coagent。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1704,15 +1706,21 @@ function toTaskTool(service: SessionChannelService) {
   return {
     name: "channel_task",
     description:
-      "委托任务管理（channel_delegate 建的任务）：查委托状态、列委托任务、取消委托。" +
-      "action=status 查单个任务（taskId）；action=list 列任务（sessionId 缺省=调用方会话；可选 status / limit）；" +
-      "action=cancel 取消任务（taskId）。记录在 Redis 任务表（`task:<id>`，TTL 7 天），跨会话 / 跨进程共见；" +
-      "嵌套任务树查 task_status。",
+      "用途: 委托任务管理(channel_delegate 建的任务), 查委托状态、列委托任务、取消委托。\n" +
+      "用法: status 查单个任务(taskId); list 列任务(sessionId 缺省=调用方会话; 可选 status / limit); cancel 取消任务(taskId)。\n" +
+      "效果: 记录在 Redis 任务表(`task:<id>`, TTL 7 天), 跨会话 / 跨进程共见。\n" +
+      "边界: 嵌套任务树查 task_status。\n" +
+      "相关: channel_delegate、channel_task_result、task_status。",
     parameters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        action: { type: "string", enum: ["status", "list", "cancel"] },
+        action: {
+          type: "string",
+          enum: ["status", "list", "cancel"],
+          description:
+            "status 查单个委托任务; list 列委托任务; cancel 取消委托任务",
+        },
         taskId: { type: "string", description: "status / cancel 用：任务 id" },
         sessionId: {
           type: "string",
@@ -1761,9 +1769,10 @@ function toTaskResultTool(service: SessionChannelService) {
   return {
     name: "channel_task_result",
     description:
-      "回传委托任务的结果（worker 侧，任务由 channel_delegate 建立）。" +
-      "显式回传优先于轮末自动回收；taskId 取自注入正文的 `TASK <id>:`；" +
-      "text 为结果正文（≤ 64 KB，超出截断并标注）；failed=true 时标记失败（可带 error）。",
+      "用途: 回传委托任务的结果(worker 侧, 任务由 channel_delegate 建立)。\n" +
+      "用法: taskId 取自注入正文的 `TASK <id>:`; text 为结果正文(≤ 64 KB, 超出截断并标注); failed=true 时标记失败(可带 error)。\n" +
+      "效果: 显式回传优先于轮末自动回收。\n" +
+      "相关: channel_delegate、channel_task。",
     parameters: {
       type: "object",
       additionalProperties: false,
