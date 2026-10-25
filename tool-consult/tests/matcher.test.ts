@@ -78,3 +78,20 @@ test("oneLine 截断与句号", () => {
   assert.equal(oneLine(long, 20).length, 20);
   assert.ok(oneLine(long, 20).endsWith("…"));
 });
+
+test("oneLine 缺省上限 128（对齐 lint 首句规则）", () => {
+  const preview = oneLine("y".repeat(200));
+  assert.equal(preview.length, 128);
+  assert.ok(preview.endsWith("…"), "超限时应以省略号收尾");
+  const exact = `${"z".repeat(126)}。`;
+  assert.equal(oneLine(exact), exact, "128 以内的首句不截断");
+});
+
+test("oneLine 不把词内 ASCII 点当句尾", () => {
+  assert.equal(
+    oneLine("用 patch.text 改字段。下一句。"),
+    "用 patch.text 改字段。",
+  );
+  assert.equal(oneLine("扫 **/*.md 文件。"), "扫 **/*.md 文件。");
+  assert.equal(oneLine("Run a shell command."), "Run a shell command.");
+});

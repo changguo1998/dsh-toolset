@@ -177,16 +177,23 @@ function restrictableNames(tools: HostTools): string[] {
     .filter((toolName) => toolName !== CONSULT_TOOL_NAME);
 }
 
-/** 由当前工具面重建检索器。 */
+/**
+ * 由当前工具面重建检索器。
+ *
+ * `consult_tools` 是查询入口本身，不入检索索引（否则会作为候选混进结果；
+ * 按名咨询走 `isVisible` 分支，不依赖索引，见 tool.ts）。
+ */
 function buildMatcher(tools: HostTools): Matcher {
   const schemas = tools.schemas?.() ?? [];
   return createMatcher(
-    schemas.map((schema) => ({
-      name: schema.name,
-      description:
-        typeof schema.description === "string" ? schema.description : "",
-      parameters: schema.parameters,
-    })),
+    schemas
+      .filter((schema) => schema.name !== CONSULT_TOOL_NAME)
+      .map((schema) => ({
+        name: schema.name,
+        description:
+          typeof schema.description === "string" ? schema.description : "",
+        parameters: schema.parameters,
+      })),
   );
 }
 

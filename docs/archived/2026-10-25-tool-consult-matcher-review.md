@@ -1,6 +1,6 @@
 # 评估 tool-consult 的匹配算法与预览上限（接取条目：`docs/BACKLOG.md`「tool-consult matcher 评估」）
 
-状态：决策　　开启：2026-10-25
+状态：已关闭　　开启：2026-10-25　　关闭：2026-10-25
 本文件是本任务唯一的过程记录与文档变更落点; 计划外的文件不改。
 首轮只建立文档 (接取), 调研与实现均未开始; 2026-10-25 补调研轮: 只读实验, 未改代码, 仓库内只改本文件.
 
@@ -115,46 +115,74 @@
 
 ## 实现记录
 
-（待开工。）
+2026-10-25 实现（本批只做决策 3 与 5；决策 7 运行时层按分工不实现，见「偏差」第 6 条）。
+
+1. 决策 3 预览上限（`tool-consult/src/matcher.ts:95-110`）：`oneLine` 缺省上限 80 → 128（常量 `PREVIEW_MAX`），并把句尾判定对齐 lint S1——中文 `。！？` 直接断，ASCII `.` `!` `?` 需后接空白 / 句尾 / 非 ASCII 字符（避开 `patch.text`、`**/*.md` 这类词内点）。旧实现见句点即断，会把 `rule_update` 的预览切成 `…；patch.`。
+2. 决策 5 守护语料（新增 `tool-consult/tests/fixtures/real-descriptions.ts`）：`REAL_DESCRIPTIONS` 44 条（各包源码里工具级 `description` 的逐字提取，不含参数名——参数键名权重 1，不影响本语料要守的加成 / 长度参数）、`PLACEHOLDER_DESCRIPTIONS` 8 条（6 宿主核心 + `script_run` + `consult_tools`）、`CORPUS_DOCS` 52 条、`INDEXED_DOCS`（排除 `consult_tools`，与生产索引同口径）。
+   提取方式：按 `name: "<工具名>", description:` 取字符串拼接 / 模板 / 数组 `join`；`task-engine` 的 `decompose("<动作>", ...)`、`herdr-use` 的 `makeTool(deps, "<动作>", ...)`、`TOOL_NAME` 形态各自按工厂调用点取；标识符（`DESCRIPTION` / `TOOL_DESCRIPTION` 等）递归求值。一次性脚本放 `tmp/`，用完删除。
+3. 决策 5 测试对齐（`tool-consult/tests/retrieval.test.ts`）：语料换成 `INDEXED_DOCS`；断言结构改为 `want: readonly string[]` + `topN`（多候选取其一），query 与 `why` 保留并改写证据。「改文件」→ `edit` / `hash_edit` 进 top-2（源码里 `hash_edit` 描述含「按 LINE:HASH 锚点改文件」，吃 +4 加成排首位）。「规则管理」用例换成「加规则」→ `rule_add` top-1（源码规则族描述不含「规则管理」四字，检索入口是别名「加规则」）。新增「取消任务」→ `channel_task` top-1（停止 / 取消两半各守一条）。新增语料结构断言（52 条、描述非空、名称唯一）与索引排除断言。
+4. 决策 5 顺带项 consult_tools 索引排除：`tool-consult/src/main.ts:186-198` 的 `buildMatcher` 过滤 `CONSULT_TOOL_NAME`；`tool-consult/src/tool.ts:207-209` 的注释改为指向该实现；`tool-consult/tests/main.test.ts` 新增一条用例（工具面里带 `consult_tools` 时，按用途查询不再把它当候选）。
+5. `tool-consult/tests/matcher.test.ts`：新增 2 条——缺省上限 128（超限以省略号收尾、128 以内不截断）与「ASCII 词内点不断句」（`patch.text` / `**/*.md` / 英文句尾点）。
 
 ## 偏差
 
-（待实现阶段填写。）
+1. 决策 3 的落地范围略大于「80 → 128」字面：同时把 S1 的 ASCII 句号规则落地了。依据是任务书写的是「与 lint S1 首句规则同口径」；只改数字仍会在 `rule_update` 处切在 `patch.` 上，口径无从对齐。实测只影响 1 条预览（见「测试与证据」第 2 条），回退只需把 `SENTENCE_END` 换回 `/[。！？.!?]/` 并 `slice(0, cut + 1)`。
+2. 「规则管理」用例是替换，不是放宽：真实语料下该查询 `rule_test` 4.12 第一、`channel_task` 4.05 第三、`rule_add` 3.77 第六，规则族之间本就无区分度（四字短语在源码里不存在）；换成源码真实入口「加规则」（`rule_add` 9.56 top-1）比保留一条只能断言到前六的用例更有护栏价值。
+3. 「跨会话委托」top-1 断言以 `skip` 挂起（`retrieval.test.ts` 末尾）：真实语料下 `task_status` 14.97 仍压 `channel_delegate` 14.30，成因是 `task_status` 描述里的「跨会话委托任务查 channel_task」吃 +4 描述加成。该措辞归 lint 任务（决策 7 描述层），本任务不改描述；同时保留一条 top-2 的强制断言守住现网顺序。skip 的解除条件写在用例注释里。
+4. 守护语料是快照，不是源码派生：描述层改动（含 lint 任务将做的意图分界）之后需人工同步本文件，否则会重演「与源码漂移」。本批未引入自动提取 / 一致性检查（超出 matcher 任务范围），需要时另开条目。
+5. 未跑根 `npm run check`：本 worktree 各子包没有 `node_modules`，根 check 会在第一个子包报 `tsc: not found`。本次只在 `tool-consult` 内 `npm install --prefer-offline` 后跑包级 `check` / `build` / `test`。改动不出 `tool-consult`，其他包无类型面受影响。
+6. 决策 7 运行时层（查询精度不足时提示「请提供更多细节」）本批未实现，`tool-consult/src/tool.ts` 的提示逻辑未动（只改了第 207 行注释指向 `buildMatcher`），判定阈值仍待讨论。
 
 ## 测试与证据
 
-（待实现阶段填写。）
+验证命令（`tool-consult/` 下）：
+
+```sh
+npm install --prefer-offline --no-audit --no-fund   # 本 worktree 无 node_modules
+npm run check    # tsc --noEmit, exit 0
+npm run build    # tsc, exit 0
+npm test         # node --test: tests 81 / pass 80 / fail 0 / skipped 1
+```
+
+1. 检索断言：20 条 query 中 19 条按新断言通过，1 条（「跨会话委托」top-1）按偏差 3 挂 skip。实测名次（真实语料，含分数）：
+
+   | query | 首位 | 关键对照 |
+   | --- | --- | --- |
+   | 改文件 | `hash_edit` 10.21 | `edit` 8.86 第二（原断言要求 `edit` top-1） |
+   | 跨会话委托 | `task_status` 14.97 | `channel_delegate` 14.30 第二 |
+   | 加规则 | `rule_add` 9.56 | 第二 `rule_test` 4.12 |
+   | 停止任务 | `task_stop` 14.52 | — |
+   | 取消任务 | `channel_task` 15.90 | `task_stop` 6.73 第二 |
+   | 任务状态 | `task_status` 10.81 | `channel_task` 5.28 第二 |
+
+2. 预览前后对照（52 条语料，一次性脚本比对旧实现）：截断 0 → 0 条；预览总字符 2533 → 2562（+29）；预览有变化的仅 1 条——`rule_update` 由 `更新一条规则（浅合并 patch：只改 text / match / cooldownTurns 等；patch.` 变为 `…；patch.text 与 patch.action.text 等价）。`
+
+3. `consult_tools` 排除前后（同一 52 条语料模拟）：未过滤时「咨询工具」→ `consult_tools` 16.80 首位（「揭示工具」19.00 / 「工具咨询」9.92 同样首位）；过滤后检索结果不再含它，`main.test.ts` 的新用例覆盖这一行为。
+
+4. 语料结构：44 + 8 = 52 条，名称唯一，描述非空（`retrieval.test.ts` 首条用例断言）。
 
 ## 收尾
 
-（待关闭时填写。）
+2026-10-25 关闭。
+
+- 交付（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`）：决策 3 预览上限与 ASCII 句号对齐（`tool-consult/src/matcher.ts`）、决策 5 真实措辞守护语料与断言对齐（`tool-consult/tests/fixtures/real-descriptions.ts`、`tool-consult/tests/retrieval.test.ts`）、`consult_tools` 索引排除（`tool-consult/src/main.ts`、`tool-consult/tests/main.test.ts`）与 `oneLine` 单测（`tool-consult/tests/matcher.test.ts`）。
+- 验证：`tool-consult` 包级 `check` / `build` 通过；`npm test` 81 例（80 pass / 1 skip，见「测试与证据」）。
+- 归档：本文移入 `docs/archived/`；项目级 `docs/BACKLOG.md` 条目「#2 tool-consult matcher 评估」已移出。
+- 未带入后续：决策 7 运行时层阈值待定（见「待决策项」），随条目移交给 lint 任务（见下）。
+
+### 移交 lint 任务
+
+以下三项本任务**不实现**，随条目移出移交 lint 任务（其追踪文档 `docs/implementation/2026-10-25-tool-description-lint.md`）：
+
+1. `task_status` 描述里的「跨会话委托任务查 channel_task」措辞修正。改完后 `tool-consult/tests/retrieval.test.ts` 末尾的 skip 用例应解除，并把「跨会话委托」用例的 `topN` 从 2 收到 1。
+2. `tool-consult/tests/fixtures/real-descriptions.ts` 随 lint 的描述改动**重新同步**（该文件是快照、不是源码派生；提取方式见文件头注释）。若希望长期免手工，可另开条目做「守护语料与源码一致性」检查。
+3. 决策 7 运行时层「查询精度不足 → 提示请提供更多细节」的**判定阈值**（top-1 / top-2 分差、命中 token 数等）仍待定；描述层的意图分界归 lint，运行时层等阈值定下后再改 `tool-consult/src/tool.ts`。
 
 ## 待决策项
 
-当前独立决策项 3 项（以下为推荐; 其余原项已并入决策 7 / 5, 并记于「决策」节）:
+决策 3 与 5 已实现（见「实现记录」）。剩余一项：
 
-### 决策 3 预览上限
+### 决策 7 运行时层（阈值待定）
 
-- 问题: `oneLine` 预览上限现为 80, 与 lint 首句规则（句号或 128 先到）口径不一, 80-128 之间的合法首句会在预览里被截。
-- 备选:
-  - 3.1 维持 80（当前 0 条超限, 无观测差别）
-  - 3.2 对齐 lint 首句: `oneLine` 上限 80 → 128（推荐）
-  - 3.3 取前两句（回执约 2.5 倍, 带上指路句; 属产品取舍）
-- 推荐 3.2: 与已有 S1 用同一口径, 一致性优先。
-
-### 决策 7 功能重叠工具的意图分流（整类, 承接 1/4）
-
-- 问题: 同动作族的多个工具靠「操作意图」区分（读文件: 了解整体 → `fs_digest` / 看特定几行 → `read` / 为修改做准备 → `hash_read`）; 查询只到动作词（如「阅读文件」）时命中歧义, 插件只回候选列表无主动引导; 逐个补别名 / 措辞是碎片化处理。
-- 备选:
-  - 7.1 双层配套: 描述层（同族工具在 `边界`/`相关` 写意图分界, 与 lint S4 同一条）+ 运行时层（查询精度不足时返回「请提供更多细节」提示, 判定阈值如 top-1/top-2 分差、命中 token 数）（推荐）
-  - 7.2 仅描述层强化意图分界（改动小, 但查询泛时仍只回候选列表）
-  - 7.3 维持现状逐个补别名（碎片化, 不推荐）
-- 推荐 7.1: 一次覆盖整类, 输入端含 task_status、task_stop / channel_task 的交叉措辞修正, 输出端让模型补足意图维度后可正确分流。
-
-### 决策 5 真实措辞守护语料（新条目, 承接 2）
-
-- 问题: `retrieval.test.ts` 的 fixture 是手写「目标措辞」, 与源码真实描述漂移（改文件 / 规则管理两处）, 守护测试守的是假想措辞, 测不出参数影响。
-- 备选:
-  - 5.1 另开条目: 用真实 44 条描述 + 8 条占位（6 宿主 + script_run + consult_tools）分开维护成守护语料, 吸收「改文件」fixture 对齐, 断言改「`edit` 或 `hash_edit` 进 top-2」（推荐）
-  - 5.2 不做（fixture 继续只守目标措辞）
-- 推荐 5.1: 让守护测试反映源码现状, 给加成 / 长度参数真正护栏; 顺带处理 consult_tools 索引排除（原决策 6）。
+- 描述层（各动作族 `边界` / `相关` 的意图分界、`task_status` / `task_stop` 措辞）归 **lint 任务**；本任务不落笔，`retrieval.test.ts` 的「跨会话委托」top-1 用 skip 挂着等它。
+- 运行时层（查询精度不足时提示「请提供更多细节」）的**判断标准仍待讨论**（如 top-1 / top-2 分差、命中 token 数），定下后再改 `tool.ts`，本批未实现。

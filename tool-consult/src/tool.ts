@@ -204,8 +204,9 @@ export function createConsultTool(runtime: ConsultRuntime): {
 
       if (args.names !== undefined) {
         for (const name of args.names) {
-          // 可见性先判：`consult_tools` 自身不在检索索引里（刻意排除），但它常驻可见，
-          // 先判未知会把它错报成「不在当前工具面里」。
+          // 可见性先判：`consult_tools` 自身不在检索索引里（`src/main.ts` 的
+          // `buildMatcher` 刻意排除），但它常驻可见，先判未知会把它错报成
+          // 「不在当前工具面里」。
           if (runtime.isVisible(name)) {
             sections.push(describeVisible(runtime, name));
             continue;

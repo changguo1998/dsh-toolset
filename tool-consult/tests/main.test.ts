@@ -351,3 +351,32 @@ test("按名咨询 consult_tools 自身：报「已在可见集」而不是未�
 
   host.dispose();
 });
+
+test("检索索引排除 consult_tools 自身：按用途查询不把它当候选", async () => {
+  // 真实宿主里 `consult_tools` 由本插件注册，也会出现在 `tools.schemas()` 里；
+  // 这里把它放进工具面，验证 buildMatcher 的排除（否则它会占掉一个候选位）。
+  const host = createFakeHost({
+    schemas: [
+      ...schemas(),
+      {
+        name: "consult_tools",
+        description: "按用途查找并揭示工具，咨询即授权。",
+        parameters: { properties: { query: { type: "string" } } },
+      },
+    ],
+  });
+  apply(host.ctx, {});
+  const agent = host.addAgent({ id: "t16-agent" });
+  host.emit("agent/created", { agent });
+  const execute = consultOf(host);
+
+  const result = await execute({ query: "咨询工具", reveal: false });
+  assert.equal(
+    result.text.includes("consult_tools"),
+    false,
+    `检索结果不应含查询入口自身：${result.text}`,
+  );
+  assert.ok(result.text.includes("- bash"), "应命中其他工具（泛词「工具」）");
+
+  host.dispose();
+});
