@@ -1,0 +1,333 @@
+// src/app/layout/pipeline/flatten.ts — §6 摊平：已量好的 LayoutTree → Row[]
+//
+// 职责（追踪文档 T35-T38）：
+//   - 逐 Leaf 取 wrapLeaf 行，按 prefix / suffix / indent / hanging / align 展开成 Row；
+//   - 代码 / 表格 / 工具按各自网格 / 行模型铺行；
+//   - 空 Leaf（Gap）→ 空行（**空行唯一来源**）；step / 回合头 tail 铺满；
+//   - 不变式（测试）：摊平总行数 === Σ节点 height；空行只能来自显式 Gap。
+
+import type { FrameSegment } from "../../../renderer/screen.ts";
+import { seg } from "../primitives.ts";
+import { displayWidth, expandCodeTabs } from "../markdown.ts";
+import { wrapLeaf } from "./wrap.ts";
+import type { Leaf, Node } from "./ir.ts";
+import { isLeaf } from "./ir.ts";
+import { prefixVisibleOf, suffixVisibleOf } from "./measure.ts";
+import { fitCols, type TableAlign } from "../table.ts";
+import type { Paragraph, Row } from "./ir.ts";
+import type { ToolUnit } from "./boxes.ts";
+
+export interface FlattenOptions {
+  /** 视口宽（prefix/suffix 的 minWidth 降级判定基准） */
+  vw?: number;
+}
+
+type Seg = FrameSegment;
+
+function rowW(segs: readonly Seg[]): number {
+  return segs.reduce((s, x) => s + displayWidth(x.text), 0);
+}
+
+/** 单个文本叶 → Row[]（折行 + 前缀 / 后缀 / 悬挂 / 对齐 / tail） */
+function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
+  const prefixOn = prefixVisibleOf(node, opts.vw);
+  const suffixOn = suffixVisibleOf(node, opts.vw);
+  const prefixW = prefixOn ? displayWidth(node.prefix!.text) : 0;
+  const suffixW = suffixOn ? displayWidth(node.suffix!.text) : 0;
+  const bodyW = Math.max(1, width - prefixW - suffixW);
+  const hanging = node.hanging ?? 0;
+  // tail-only（空文本 + tail，如回合分隔线 / step 头空标签）
+  if (node.text.length === 0 && node.tail) {
+    return [
+      {
+        segments: [
+          seg(node.tail.char.repeat(Math.max(1, width)), node.tail.style),
+        ],
+      },
+    ];
+  }
+  const rows = wrapLeaf(node.text, bodyW, {
+    prefixW,
+    hanging,
+    ...(node.balance === true ? { balance: true } : {}),
+  });
+  const maxBodyW = suffixOn ? Math.max(0, ...rows.map(rowW)) : 0;
+  const indent = node.indent ?? 0;
+  const prefixSegs: Seg[] = prefixOn
+    ? [seg(node.prefix!.text, node.prefix!.style)]
+    : [];
+  const suffixSegs: Seg[] = suffixOn
+    ? [seg(node.suffix!.text, node.suffix!.style)]
+    : [];
+  const out: Row[] = rows.map((line, ri) => {
+    const padBody = suffixOn
+      ? " ".repeat(Math.max(0, maxBodyW - rowW(line)))
+      : "";
+    const rowSegs: Seg[] = [
+      ...prefixSegs,
+      ...line,
+      ...(padBody ? [seg(padBody)] : []),
+      ...suffixSegs,
+    ];
+    const lead = ri === 0 ? indent : hanging;
+    return {
+      segments: lead > 0 ? [seg(" ".repeat(lead)), ...rowSegs] : rowSegs,
+      indent: ri === 0 ? indent : hanging,
+    };
+  });
+  if (node.tail) {
+    for (const row of out) {
+      const pad = Math.max(0, width - rowW(row.segments));
+      if (pad > 0)
+        row.segments.push(seg(node.tail.char.repeat(pad), node.tail.style));
+    }
+  }
+  if (node.align && node.align !== "left") {
+    for (const row of out) {
+      const pad = width - rowW(row.segments);
+      if (pad <= 0) continue;
+      const leading = node.align === "right" ? pad : Math.floor(pad / 2);
+      row.segments = [seg(" ".repeat(leading)), ...row.segments];
+    }
+  }
+  return out;
+}
+
+/** 代码块 → Row[]（语言标记行 + 行号列 + 软折行，整行灰底补齐） */
+function flattenCode(
+  code: { lang: string; rows: readonly string[]; closed: boolean },
+  width: number,
+): Row[] {
+  const numW = width >= 23 ? 3 : 0;
+  const firstW = Math.max(4, width - numW);
+  const contW = Math.max(2, firstW - 4);
+  const bar: Seg = seg("┃", { fg: "brightBlue" });
+  const out: Row[] = [];
+  if (code.lang !== "") {
+    out.push({
+      segments: [bar, seg(" ".repeat(numW) + code.lang, { italic: true })],
+    });
+  }
+  code.rows.forEach((row, i) => {
+    const num =
+      numW === 0 ? "" : (i + 1 > 99 ? "99+" : String(i + 1)).padStart(2) + " ";
+    const src = expandCodeTabs(row);
+    const chunks = codeChunks(src, firstW, contW);
+    chunks.forEach(({ text, cont, lead }, k) => {
+      const rowWk = k === 0 ? firstW : contW;
+      const endMark = cont ? "↩" : "";
+      const leadMark = lead ? "↪" : "";
+      const pad = Math.max(
+        0,
+        rowWk -
+          displayWidth(text) -
+          displayWidth(leadMark) -
+          displayWidth(endMark),
+      );
+      const indent = k === 0 ? num : " ".repeat(numW + 4);
+      const padStr = k === 0 && !cont ? "" : " ".repeat(pad);
+      out.push({
+        segments: [
+          bar,
+          seg(indent + padStr + leadMark + text + endMark, { bg: "code" }),
+        ],
+      });
+    });
+  });
+  return out;
+}
+
+/** 代码行软折行（与 measure 同口径行数；返回分段与行首 / 行尾标记） */
+function codeChunks(
+  src: string,
+  firstW: number,
+  contW: number,
+): { text: string; cont: boolean; lead: boolean }[] {
+  const out: { text: string; cont: boolean; lead: boolean }[] = [];
+  let rest = src;
+  let first = true;
+  while (rest !== "") {
+    const rowWk = Math.max(2, first ? firstW : contW);
+    const leadW = first ? 0 : 1;
+    if (displayWidth(rest) <= rowWk - leadW) {
+      out.push({ text: rest, cont: false, lead: !first });
+      break;
+    }
+    let cut = "";
+    let cutW = 0;
+    for (const ch of rest) {
+      const w = displayWidth(ch);
+      if (cut !== "" && cutW + w > Math.max(1, rowWk - leadW - 1)) break;
+      cut += ch;
+      cutW += w;
+    }
+    out.push({ text: cut, cont: true, lead: !first });
+    rest = rest.slice(cut.length);
+    first = false;
+    if (cut === "") break;
+  }
+  if (out.length === 0) out.push({ text: "", cont: false, lead: false });
+  return out;
+}
+
+function styledPlain(cell: Paragraph): string {
+  return cell.text.map((s) => s.text).join("");
+}
+
+const CELL_PAD = 1;
+
+/** 表格一行（每格按列宽折行；行高取最大） → Row[] */
+function tableColSegs(
+  cells: readonly Paragraph[],
+  cols: number[],
+  bar: Seg,
+): Row[] {
+  const cellRows = cells.map((c, j) =>
+    wrapLeaf(c.text, Math.max(1, cols[j]!), { prefixW: 0, hanging: 0 }),
+  );
+  const h = Math.max(1, ...cellRows.map((r) => r.length));
+  const out: Row[] = [];
+  for (let ri = 0; ri < h; ri++) {
+    const rowSegs: Seg[] = [bar, seg(" ")];
+    for (let j = 0; j < cols.length; j++) {
+      rowSegs.push(seg(" ".repeat(CELL_PAD)));
+      const line = cellRows[j]![ri];
+      if (line) rowSegs.push(...line);
+      rowSegs.push(seg(" ".repeat(CELL_PAD)));
+      if (j < cols.length - 1) rowSegs.push(seg("│"));
+    }
+    out.push({ segments: rowSegs });
+  }
+  return out;
+}
+
+/** 表格横线行（表头下 ═ / 数据行间 ─；交叉处交叉字） */
+function tableRule(cols: number[], ch: string, cross: string, bar: Seg): Row {
+  const segs: Seg[] = [bar, seg(" ")];
+  cols.forEach((w, j) => {
+    segs.push(seg(ch.repeat(Math.max(1, w + CELL_PAD * 2))));
+    if (j < cols.length - 1) segs.push(seg(cross));
+  });
+  return { segments: segs };
+}
+
+/** 表格被宽度拒绝 → 退回普通文本行（内容完整、无表格线） */
+function tableFallback(
+  rows: readonly Paragraph[][],
+  header: readonly Paragraph[],
+): Row[] {
+  const out: Row[] = [];
+  for (const c of header) out.push({ segments: [{ text: styledPlain(c) }] });
+  for (const row of rows)
+    for (const c of row) out.push({ segments: [{ text: styledPlain(c) }] });
+  return out;
+}
+
+/** 表格 → Row[] */
+function flattenTable(
+  table: {
+    aligns: readonly TableAlign[];
+    header: readonly Paragraph[];
+    rows: readonly Paragraph[][];
+  },
+  width: number,
+): Row[] {
+  const ncols = table.header.length;
+  if (ncols === 0) return [];
+  const overhead = 1 + 1 + ncols + (ncols - 1);
+  if (width < overhead + ncols) return tableFallback(table.rows, table.header);
+  const natural = table.header.map((head, j) => {
+    let w = displayWidth(styledPlain(head));
+    for (const row of table.rows) {
+      const cell = row[j];
+      if (cell) w = Math.max(w, displayWidth(styledPlain(cell)));
+    }
+    return w;
+  });
+  const cols = fitCols(natural, width - overhead);
+  if (cols === null) return tableFallback(table.rows, table.header);
+  const bar: Seg = seg("┃", { fg: "brightBlue" });
+  const out: Row[] = [];
+  out.push(...tableColSegs(table.header, cols, bar));
+  out.push(tableRule(cols, "═", "╪", bar));
+  table.rows.forEach((row, i) => {
+    if (i > 0) out.push(tableRule(cols, "─", "┼", bar));
+    out.push(...tableColSegs(row, cols, bar));
+  });
+  return out;
+}
+
+/** 工具批 → Row[]（名字 / 参数 / 结果行；参数值悬挂缩进） */
+function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
+  const out: Row[] = [];
+  for (const unit of units) {
+    if (unit.role === "name") {
+      out.push({
+        segments: [
+          seg("●", { fg: "yellow" }),
+          seg(" "),
+          seg(unit.call.name, { fg: "yellow" }),
+        ],
+      });
+    } else if (unit.role === "param") {
+      const value = unit.param.value;
+      const name = unit.param.name;
+      const rows = wrapLeaf([{ text: value }], Math.max(1, width - 6), {
+        prefixW: 0,
+        hanging: 6,
+      });
+      rows.forEach((r, i) => {
+        const lead =
+          i === 0 && name ? " ".repeat(4) + name + "" : " ".repeat(6);
+        out.push({ segments: [seg(lead + plain(r))] });
+      });
+    } else {
+      const rows = wrapLeaf(
+        [{ text: unit.result.detail }],
+        Math.max(1, width - 2),
+        { prefixW: 0, hanging: 2 },
+      );
+      rows.forEach((r) => out.push({ segments: [seg("  " + plain(r))] }));
+    }
+  }
+  return out;
+}
+
+function plain(row: readonly { text: string }[]): string {
+  return row.map((s) => s.text).join("");
+}
+
+/** 递归摊平已量好的树 */
+export function flatten(
+  tree: Node | Leaf,
+  width: number,
+  opts: FlattenOptions = {},
+): Row[] {
+  if (isLeaf(tree)) return flattenLeaf(tree, width, opts);
+  if (tree.code !== undefined)
+    return flattenCode(tree.code, Math.max(1, width - 1));
+  if (tree.table !== undefined)
+    return flattenTable(tree.table, Math.max(1, width - 1));
+  if (tree.tool !== undefined) return flattenTool(tree.tool, width);
+  if (tree.direction === "v") {
+    const out: Row[] = [];
+    for (const child of tree.children) out.push(...flatten(child, width, opts));
+    return out;
+  }
+  // h：子项行按行号拼接（各子项已量好自身宽）
+  const subs: Row[][] = tree.children.map((c) => {
+    const cw = Math.max(1, c.width ?? width);
+    return flatten(c, cw, opts);
+  });
+  const h = Math.max(1, ...subs.map((r) => r.length));
+  const out: Row[] = [];
+  for (let ri = 0; ri < h; ri++) {
+    const rowSegs: Seg[] = [];
+    for (const s of subs) {
+      const line = s[ri];
+      if (line) rowSegs.push(...line.segments);
+    }
+    out.push({ segments: rowSegs });
+  }
+  return out;
+}

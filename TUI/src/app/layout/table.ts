@@ -263,7 +263,7 @@ function waterLevel(natural: number[], avail: number): number {
  * 连 minW 也放不下 → **放弃表格**（返回 null，调用方退回普通文本行渲染）。
  * #6：不再做「minW 比例分配 + 格内省略号截断」——内容一律不截断（用户 2026-10-01 裁定）。
  */
-function fitCols(natural: number[], avail: number): number[] | null {
+export function fitCols(natural: number[], avail: number): number[] | null {
   const sum = natural.reduce((a, b) => a + b, 0);
   if (sum <= avail) return natural;
   const min = natural.map(minColWidth);

@@ -620,7 +620,7 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 
 ## 实现记录（进行中）
 
-> 2026-10-25 起实现。节奏调整：主代理直接实现（不再开子代理，用户裁定）。状态：阶段 0 完成，阶段 1 完成，阶段 2 未开始。
+> 2026-10-25 起实现。节奏调整：主代理直接实现（不再开子代理，用户裁定）。状态：阶段 0/1/2（新模块 + 隔离测试）完成，阶段 3（接线 + 删旧链路）与阶段 4（测试迁移）未开始。
 
 ### 阶段 0：基建（完成）
 
@@ -642,6 +642,17 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 - [x] `tests/pipeline-ir.test.ts`（新建，12 例全绿）：split（一次性推理并入同条 / 独立用户自成节）、parse（块类型快照 + 标题样式 + span 回引 + 来源标记 + 数字列右对齐）、route（pane 归属 / 间隔 Gap / 档位过滤 / 遮蔽打灰）、structure（竖线前缀 / 载荷 / 空 Leaf）。
 - [x] evidence：`npm run check` 通过；`tests/pipeline-ir.test.ts` 12 例全绿；TUI 全量 `npm test` 1789 例全绿（旧链路未受影响）。
 
+### 阶段 2：后三段（宽相关）——完成（新模块 + 隔离测试，未接线）
+
+主代理直接实现：
+
+- [x] T31-T32 `pipeline/measure.ts`（新建）`measure(root, width, {vw?})`——后序填各节点 width/height：文本叶 height = `wrapLeaf(…).length`（不变量）；代码 / 表格 / 工具载荷各自行数模型（折行也走 wrapLeaf / fitCols / 代码软折行），v 高求和、h 高取 max（fixed 子项先定宽）。
+- [x] T33 表格：measure 用 `fitCols` 定列宽（已从 `table.ts` 导出 `fitCols`，原私有）、行高 = 单元格 wrapLeaf 行数最大；`tableHeight` 含横线行。
+- [x] T35-T37 `pipeline/flatten.ts`（新建）`flatten(root, width, {vw?})`——逐 Leaf 取 wrapLeaf 行按 prefix/suffix/indent/hanging/align 展开；代码行号列 + 软折行 + 灰底补齐、表格网格（左缘竖线 + 列分隔 + 横线交叉字 + 过窄回退普通行）、工具名字/参数/结果行；空 Leaf（Gap）→ 空行（空行唯一来源）；step/回合头 tail 铺满。
+- [x] T39 `pipeline/compose.ts`（新建）`renderPane(groups, opts)` 一条龙（route→structure→measure→flatten）+ `rowsToFrame`（Row → FrameRow）。chrome/视口/状态栏拼装仍由 layout 现状承担。
+- [x] `tests/pipeline-layout.test.ts`（新建, 8 例全绿）：叶子 height = wrapLeaf 行数、摊平总行数 = Σ高度（不变量 3）、prefix 竖线 / 思考紫、空行仅来自 Gap（统计断言）、tail 铺满、hanging 悬挂、renderPane 一条龙。
+- [x] evidence：`npm run check` 通过；`tests/pipeline-layout.test.ts` 8 例全绿；TUI 全量 `npm test` 1797 例全绿（旧链路未受影响, 新模块未接线）。
+
 ## 偏差
 
 （待实现阶段填写。已裁决项：① `Section`/`BlockSource`/`EventGroup` 的类型扩展（见上，spec 明细 vs 实现的必要细化）；② pane 终态分流保留现状（user→session、final/history 交互的正文+工具批→session、其余→turn），追踪文档 §3 一行「正文→session」是简写，以本实现为准；③ chrome 五 pane（tool/statusBar/statusCol/titleBar/input）不进 Node 树，由 layout 现状直接构图，structure 只处理 session/turn 两 pane，compose 合并——对「buildTopRegion 基本不动」的务实解读。）
@@ -652,7 +663,7 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 
 - 阶段 1：`tests/pipeline-ir.test.ts` 12 例全绿；TUI 全量 `npm test` 1789 例全绿。
 - 阶段 0：`tests/pipeline-wrap.test.ts` 17 例全绿。
-- 阶段 2 起：未开始（measure / flatten / compose 尚未实现，旧链路仍在工作区面运行）。
+- 阶段 2：`tests/pipeline-layout.test.ts` 8 例全绿；TUI 全量 `npm test` 1797 例全绿（新模块未接线, 旧链路不变）。
 
 ## 收尾
 
