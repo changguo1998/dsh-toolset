@@ -19,6 +19,7 @@ import type { Leaf, Node } from "./ir.ts";
 import { isLeaf } from "./ir.ts";
 import { prefixVisibleOf, suffixVisibleOf } from "./measure.ts";
 import { fitCols, type TableAlign } from "../table.ts";
+import { toolDiffSummary } from "../tool-line.ts";
 import type { Paragraph, Row } from "./ir.ts";
 import type { ToolUnit } from "./boxes.ts";
 
@@ -288,25 +289,38 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
         hanging: 6,
       });
       rows.forEach((r, i) => {
+        // 首行：缩进 4（具名附 `name ` 前缀）；续行悬挂 6 列
         const lead =
-          i === 0 && name ? " ".repeat(4) + name + "" : " ".repeat(6);
+          i === 0 ? " ".repeat(4) + (name ? name + " " : "") : " ".repeat(6);
         out.push({
           rowKind: "tool-param",
           segments: [seg(lead + plain(r))],
         });
       });
     } else {
-      const rows = wrapLeaf(
-        [{ text: unit.result.detail }],
-        Math.max(1, width - 2),
-        { prefixW: 0, hanging: 2 },
-      );
+      // 结果行：详情 + `(+N/-M)` 摘要（挂首行末尾）；静默（空详情且无摘要）整条省略
+      const text = toolResultText(unit.result);
+      if (text === "") continue;
+      const rows = wrapLeaf([{ text }], Math.max(1, width - 2), {
+        prefixW: 0,
+        hanging: 2,
+      });
       rows.forEach((r) => {
         out.push({ rowKind: "tool-result", segments: [seg("  " + plain(r))] });
       });
     }
   }
   return out;
+}
+
+/** 工具结果行文本：详情（去尾空白）+ `(+N/-M)` 摘要（挂**首行**末尾；详情为空时只出摘要） */
+function toolResultText(result: { detail: string; meta?: unknown }): string {
+  const detail = result.detail.replace(/\s+$/, "");
+  const diff = toolDiffSummary(result.meta);
+  if (diff === undefined) return detail;
+  const at = detail.indexOf("\n");
+  if (at < 0) return detail === "" ? diff : detail + " " + diff;
+  return detail.slice(0, at) + " " + diff + detail.slice(at);
 }
 
 function plain(row: readonly { text: string }[]): string {
