@@ -91,20 +91,21 @@
 | --- | --- |
 | 3 预览上限 | 对齐 lint 首句规则: `oneLine` 上限 80 → 128（句号或 128 先到）, 与 S1 同口径 |
 | 7 意图分流整类 | 双层配套: 描述层（各动作族在 `边界`/`相关` 写意图分界, 含 task_status、task_stop / channel_task 措辞）+ 运行时层（查询精度不足时提示「请提供更多细节」, 引导补足意图维度） |
-| 5 真实措辞守护语料 | 另开条目, 用真实 44 条 + 8 占位建守护语料, 并吸收「改文件」fixture 对齐（原决策 2） |
+| 5 真实措辞守护语料 | 在 matcher 任务内做（不另开条目）, 用真实 44 条 + 8 占位建守护语料, 并吸收「改文件」fixture 对齐（原决策 2） |
 | 4 停止任务 | 并入决策 7（与跨会话委托同属意图歧义整类）; 别名不迁移（保住 task_stop 召回）, 靠意图分界 + 提示分流 |
-| 6 consult_tools 排除 | 并入决策 5 的守护语料条目顺带处理 |
+| 6 consult_tools 排除 | 并入决策 5 的守护语料工作顺带处理 |
 
 归并说明: 原决策 1（跨会话委托）、4（停止任务）→ 7; 原决策 2（改文件 fixture 漂移）→ 5。当前独立决策项仅 3、5、7 三项, 见「待决策项」。
+职责分工（2026-10-25）: 决策 7 的**描述层**（各动作族 `边界`/`相关` 意图分界与 task_status / task_stop 措辞）由 **lint 任务**改; 本任务（matcher）**只做算法层**（`matcher.ts` / `tool.ts`）。决策 7 运行时层「查询精度不足」的**判断标准稍后讨论**, 不随本批实现。
 
 ## 规划
 
 计划改动文件清单（开工时定稿）:
 
 - `tool-consult/src/matcher.ts`: `oneLine` 上限 80 → 128（决策 3）
-- `tool-consult/src/tool.ts`: 查询精度不足时的「请提供更多细节」提示（决策 7 运行时层）
-- 描述层意图分界（决策 7）: 各动作族工具的 `边界`/`相关` 补意图分界句, 含 `task-engine/src/tools.ts` 的 `task_status` 交叉措辞修正（原决策 1）、`task_stop` / `channel_task` 取消 vs 验收措辞（原决策 4）
-- `tool-consult/tests/retrieval.test.ts` + 新守护语料（决策 5, 含原决策 2）: fixture 对齐源码, 断言改「`edit` 或 `hash_edit` 进 top-2」
+- `tool-consult/src/tool.ts`: 查询精度不足时的「请提供更多细节」提示（决策 7 运行时层, 判断标准待定后实现）
+- `tool-consult/tests/retrieval.test.ts` + 守护语料（决策 5, 含原决策 2）: 在 matcher 任务内做, fixture 对齐源码, 断言改「`edit` 或 `hash_edit` 进 top-2」; 顺带处理 consult_tools 索引排除
+- 描述层意图分界（决策 7）: 由 **lint 任务**改各工具描述, 本任务不落笔
 
 明确不做:
 
