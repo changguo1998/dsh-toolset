@@ -179,18 +179,39 @@ test("createTimers: schedule 到点触发一次，disposer 撤销后不触发", 
   assert.equal(fired, 1);
 });
 
-test("createTimers: interval 重复触发，disposer 后停", async () => {
+test("createTimers: interval 每个周期触发一次，撤销后停（假定时器）", (t) => {
+  // 用假定时器：时间推进由测试控制，断言与机器负载无关（真实时间下并行跑会偶发只触发一次）。
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const timers = createTimers();
   let ticks = 0;
   const dispose = timers.interval(10, () => {
     ticks += 1;
   });
-  await sleep(55);
-  assert.ok(ticks >= 2, `interval 至少触发两次（实际 ${ticks}）`);
+  t.mock.timers.tick(50);
+  assert.equal(ticks, 5, `50ms 内每个周期触发一次（实际 ${ticks}）`);
   dispose();
-  const frozen = ticks;
-  await sleep(40);
-  assert.equal(ticks, frozen);
+  t.mock.timers.tick(30);
+  assert.equal(ticks, 5, "撤销后不再触发");
+});
+
+test("createTimers: 忙时跳过——上一轮未结束时不再启动（假定时器）", (t) => {
+  // 语义：到点只做一次判定；任务未结束时跳过该轮，不排队、不补跑。
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const timers = createTimers();
+  let started = 0;
+  let skipped = 0;
+  let running = false;
+  timers.interval(10, () => {
+    if (running) {
+      skipped += 1;
+      return;
+    }
+    started += 1;
+    running = true; // 模拟一轮任务跨多个周期
+  });
+  t.mock.timers.tick(50);
+  assert.equal(started, 1, `只启动一次（实际 ${started}）`);
+  assert.equal(skipped, 4, `其余 4 轮记为跳过（实际 ${skipped}）`);
 });
 
 test("createTimers: 给了带 effect 的 ctx 时，排期随其撤销动作清理", async () => {
