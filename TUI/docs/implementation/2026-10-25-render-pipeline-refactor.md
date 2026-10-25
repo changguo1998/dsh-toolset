@@ -1,6 +1,6 @@
 # 重构 TUI 渲染流水线：结构分类在摊平阶段丢失，measure 与 fill 各自解析（接取条目：`TUI/docs/BACKLOG.md`「重构渲染流水线：结构分类在摊平阶段丢失，measure 与 fill 各自解析」）
 
-状态：调研　　开启：2026-10-25
+状态：决策　　开启：2026-10-25
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮只建立文档（接取），调研与实现均未开始。
 
@@ -75,84 +75,144 @@
   `{ id, source, turn, step, seqs, status?, time?, text: string }`。
 - 职责：把连续文本按事件边界切开（一条回复、一段思考、一组工具调用、一条 notice、一条用户输入、一个 shell 段）；不做行内解释，不删空行。
 - 契约：纯函数；与宽度无关；同输入同输出；`Section` 是后续所有阶段的稳定身份（缓存键、段键、跳转目标）。
-- 现状对应：沿用 `pipeline/sections.ts`，但把 step 头 / 回合分隔线 / 空行从「隐式事件」改成显式的块（见第 2 段）。
+- 现状对应：沿用 `pipeline/sections.ts`。step 头 / 回合分隔线 / 空行等**非 markdown 项**不由 §2 产出（§2 只处理 markdown），改由第 3 段 route 按来源事件边界生成。
 
-### 2. 解析 `parse(section) → Block[]`
+### 2. 解析 `parse(section) → Block[]`（类型定稿，2026-10-25）
 
-- 输入：`Section`。
-- 输出：块序列 `Block[]`（可嵌套：`Quote` 含子块，`List` 含 `ListItem` 含子块）。
-- 块类型（首版闭集）：
-  `Paragraph` / `Heading{level}` / `List{ordered, depth, items}` / `ListItem{marker, checked?, children}` / `Quote{children}` / `Code{lang, rows, closed}` / `Table{header, aligns, rows}` / `Rule` / `Gap{kind: "author"|"type"|"section"}` / `ToolBatch{units}` / `StepHead` / `TurnSeparator`。
-- 行内：每个文本块在这一步产出 `FrameSegment[]`（强调、行内代码、转义、符号归一后文本），块上同时保留 `text` 原文用于检索 / 复制 / 测试断言。
-- 唯一性：块级分类的正则、围栏状态机、表格解析、inline 解析全部收在这一段；`textParts`（`boxes.ts:205`）、`build-box.ts` 的 `inFence`、`markdown.ts:872` `assistantLineRows` 的块级分类在此合并为一处。
-- 表格：复用 `table.ts` 的 `parseTableAt` / `isTableStart` 产**结构**（表头、对齐、行），不做列宽、不做折行。
-- 不做：宽度、pane 归属、主题色、压缩。
-- 契约：`parse` 是纯函数；`Block` 一经产出不可变；每个块带稳定 `id`（section id + 块内序号）。
+- 定位：`parse` 纯函数，**只处理 markdown**；把格式控制字符（块级 `#` / `|` / `>` / `-` / 围栏，行内 `**` / `` ` `` / `\*`）在这一步消费成结构化类，不做宽度 / pane / 主题色 / 压缩。
+- 输出：块序列 `Block[]`（可嵌套）。**块级闭集仅 5 种**：
 
-### 3. 分流 `route(blocks, view) → PaneItem[]`
+```ts
+// 行内格式化段（格式控制字符已消费成类）
+interface StyledStr {
+  text: string;
+  color?: FrameColor;
+  bold?: boolean;
+  italic?: boolean;
+  code?: boolean;        // 行内代码
+  link?: string;         // 链接
+  // 需要更多行内样式（删除线 / 下划线 / 背景）时在此补充
+}
+type StyledText = StyledStr[];   // 行内内容一律此类型（数组：一段多格式）
 
-- 输入：`Block[]` + 视图状态（`activityShow` / `compact` / `collapse` / 折叠占位）。
-- 输出：`PaneItem[]`：`{ pane: "dialogue"|"activity", block: Block, decoration: Decoration, visible: boolean, key: string }`；另含显式 `Gap` 项。
-- 职责：**唯一**决定「去哪个 pane、是否显示、前后留几行空」的规则表：
-  - 来源 × 块类型 → pane（正文 final → 会话区；思考 / 工具 / notice → 活动区；用户块 → 会话区）。
-  - 类型间隔（思考 ↔ 正文 1 行、工具不插行）、step 头抑制、回合分隔线、折叠占位。
+// 块闭集（5 种，不可变、带 id；原文不复制，用 span 回引 Section.text）
+type Block = Paragraph | Quote | List | Code | Table;
+
+interface Paragraph { kind: "paragraph"; id: string; span: [number, number]; text: StyledText; }
+interface Quote      { kind: "quote";      id: string; span: [number, number]; children: Block[]; }
+interface List       { kind: "list";       id: string; span: [number, number]; ordered: boolean; depth: number; marker: string; items: Block[]; }
+interface Code       { kind: "code";       id: string; span: [number, number]; lang?: string; rows: string[]; closed: boolean; }
+interface Table      { kind: "table";      id: string; span: [number, number]; header: Paragraph[]; aligns: TableAlign[]; rows: Paragraph[][]; }
+type TableAlign = "left" | "center" | "right";
+```
+
+- 统一规则（2026-10-25 定）：**`StyledText` 只出现在 `Paragraph`；其它容器一律装 `Block`**。`Quote.children` / `List.items` 走子块 `Block[]`（多为 `Paragraph`）；表格格 = `Paragraph`（header 格 / 数据格都是 `Paragraph`）；代码行 `rows: string[]` 不参与行内格式化。
+- 原文来源唯一：Block **不复制原文**，用一个 `span: [start, end]` 回引它在 `Section.text` 里的区间；复制 / 检索 / 断言从 Section 切片取，单一来源、不重复存。这要求块始终与其源 Section 成组存活（见 §3 的 `EventGroup`），否则 span 悬空。
+- `Heading` / `Rule` 无独立块类型，归 `Paragraph`，用 `StyledStr` 样式表达（标题 = bold + 色，分隔线 = 特殊样式 / 铺满线）。
+- `List` 只记一个统一 `marker`（`•` / `-` / `*`）；有序编号在摊平期按 `items` 索引生成；任务复选框不设独立字段（如需，用条目 `Paragraph` 的 `StyledStr` 前缀段表达，否则记入 SPEC 已知限制）。
+- `Gap` / `StepHead` / `TurnSeparator` / `ToolBatch` **非 markdown，不由 §2 产出**，由 §3 route 按来源事件边界生成。
+- 表格：复用 `table.ts` 的 `parseTableAt` / `isTableStart` 产结构，不做列宽、不做折行。
+- 唯一性：块级分类正则、围栏状态机、表格解析、inline 解析全部收在这一段；`textParts`（`boxes.ts:205`）、`build-box.ts` 的 `inFence`、`markdown.ts:872` `assistantLineRows` 的块级分类在此合并为一处。
+- 契约：`parse` 纯函数；`Block` 不可变（`Object.freeze` / 只读）；每块稳定 `id`（section id + 块内序号）；原文经 `span` 回引 Section.text。
+
+### 3. 分流 `route(groups: EventGroup[], view) → PaneItem[]`（输入定稿，2026-10-25）
+
+- 输入：`groups: EventGroup[]` + 视图状态 `view`（`activityShow` / `compact` / `collapse` / 折叠占位）。**基本单位是分组，不是零散的 Block**：
+
+```ts
+// 每个事件（Section）一组：来源元数据 + 该事件解析出的 markdown 块
+interface EventGroup {
+  provenance: Section;   // 完整来源元数据（source / turn / step / seqs / status? / time?）
+  blocks: Block[];       // = parse(provenance)；纯事件型（notice / StepHead）可为 []
+}
+type PaneItem =
+  | Block        // markdown 块（5 种）
+  | StepHeader   // step 头（原 StepHead）
+  | TurnHeader   // turn 分隔（原 TurnSeparator）
+  | Gap          // 空行间隔
+  | ToolBatch    // 工具调用批
+  // … 其余原非 markdown 项
+function route(groups: EventGroup[], view: ViewState): {
+  session: PaneItem[];   // 会话区（对话正文）
+  turn:    PaneItem[];   // 回合区（思考 / 工具 / 回合内容）
+};
+```
+
+- 输入按 Section 分组（`EventGroup`），`provenance.source` 是 route 决定 pane 的依据；拼平会丢来源关联，且 Block 的 `span` 需要源 Section 在场。
+- 输出分**两路（不同更新语义）**：
+  - **对话一路（追加）**：`{ session, turn }` → 每个 pane 一串扁平 `PaneItem[]`。
+  - **chrome 一路（刷新）**：`tool` / `statusBar` / `statusCol` / `titleBar` / `input` → 各自一串 `PaneItem[]`，每帧整块重算。
+- 每个 pane 内的 `PaneItem` 为**扁平的单一序列**，不再保留 Section / 来源分组。
+- `PaneItem` 就是内容项联合（`Block` + 各非 markdown 项：`StepHeader` / `TurnHeader` / `Gap` / `ToolBatch` 等），无 `{item, decoration, visible, key}` 外壳。
+- 职责：**唯一**决定「去哪个 pane、顺序、前后留几行空」的规则表：
+  - 来源 × 块类型 → pane（正文 final → session；思考 / 工具 / notice → turn；用户块 → session）。
+  - 类型间隔（思考 ↔ 正文 1 行、工具不插行）在 route 生成显式 `Gap` 项（空行唯一来源）、step 头（`StepHeader`）、回合分隔（`TurnHeader`）、折叠占位。
   - 压缩开关按类别（think / tool / reply）。
 - 规则表要求：以数据表形式落在一个文件里（`routeTable.ts`），禁止散落在 `panes.push`、`noteActKind`、`absorbActivityBlank`、`trimTrailingAssistantBlanks` 等处。
-- 不做：宽度、折行、样式解析。
-- 契约：纯函数；同 `view` 下 `Block[]` 到 `PaneItem[]` 确定。
+- 不做：宽度、折行、样式解析（前缀 / 悬挂 / 配色放到 §4 结构）。
+- 契约：纯函数；同 `view` 下 `EventGroup[]` 到 `{ session, turn }` 确定。
 
-### 4. 结构 `structure(items) → PaneTree`
+### 4. 结构 `structure(items: PaneItem[]) → LayoutTree`
 
-- 输入：`PaneItem[]`。
-- 输出：每个 pane 一棵节点树（`leaf` / `h` / `v` / `spacer` 闭集）。叶子携带**结论性几何字段**：`prefix{text,style}` / `hanging` / `indent` / `align` / `valign` / `bg` / `wrap` / `compactable`。
-- 职责：把块与装饰落成节点属性：
-  - `List` → `prefix: "• "` + `hanging: 2`（与 `SPEC.md:148` 一致）；有序列表 → 原文编号 + `hanging`；任务 → `[x] ` / `[ ] ` + 删除线样式。
-  - `Quote` → `prefix: "│ "`；`Heading` → `bold + fg: cyan`；`Rule` → 铺满横线；`Code` → `bg` + 围栏行；`Table` → 表格容器节点（列宽留给第 5 段）。
-  - 思考行 / 工具行 / notice / 用户块的前缀与配色在这一步定死。
-- 不做：宽度、行数、列宽、补白。
-- 契约：`structure` 纯函数；同一 `PaneItem[]` 得到同构树；叶子 id 唯一。
+- 输入：各 pane 的**扁平 `PaneItem[]`**。
+- 输出：**一棵完整的 `Node/Leaf` 树**（把所有 pane 组织进同一棵树）。
+- 类型（§4 阶段；不叫 `Paragraph`，那是 §2 parse 用的名字，避免命名空间冲突）：
 
-### 5. 测量 `measure(tree, width, view) → Geometry`
+```ts
+type Node = { direction: "v" | "h"; children: (Node | Leaf)[]; separator?; id?: PaneId } & NodeBase;
+type Leaf = { text: StyledText } & NodeBase;   // = StyledStr[]
+type PaneId = "session"|"turn"|"tool"|"statusBar"|"statusCol"|"titleBar"|"input";
+type LayoutTree = Node | Leaf;
+```
 
-- 输入：节点树 + pane 内容宽。
-- 输出：`Geometry`：每节点 `Rect{x,y,w,h}`；表格的列宽与行高；`wrapLeaf` 结果缓存（键 = 叶子 id + 宽 + view 开关）。
-- 折行：叶子高度 = `wrapLeaf(leaf, w).length`，`wrapLeaf` 是唯一折行实现（处理 prefix / hanging / 首行与续行宽差 / 平衡折行 / 表格单元格 / 代码行）。
-- 表格：列宽在这一段用现有 `fitCols` 水位法算（跨行约束必须一次算死），行高 = 单元格 `wrapLeaf` 行数最大值。
-- 不变式（写成测试）：`geometry.h(leaf) === wrapLeaf(leaf, w).length`；任何叶子高度都不得来自估算或外部写入。
-- 不做：生成上屏行、补白、主题色。
-- 现状对应：重写 `measure.ts` 的 `measureLeaf` / `paragraphRowsNoSplit` / `wrapParagraph`；删除 `void contWidth`；`table.ts` 的 `measureLeafRows` 与 `rowBox` 的高度写死改为读 `wrapLeaf`。
+- 本质：**一组 `PaneItem → Node/Leaf` 的映射函数**，把每个扁平元素转成对应节点（`Leaf` 内 `StyledText`、`Node` 挂 direction / children / id / separator），再组合成树。块自带结构（List / Quote 的内容在 §2 已组好），此处只铺平。
+- `StepHeader` / `TurnHeader` / `Gap` / `ToolBatch` 在 route 添加时已定位置并转成节点内容，在此作为普通节点。
+- 不做：几何字段语义设计、不预设节点闭集、宽度 / 行数 / 列宽 / 补白。
+- 契约：同一 `PaneItem[]` 得同构树；节点尺寸字段由 §5 填入。
 
-### 6. 摊平 `flatten(tree, geometry) → ContentRow[]`
+### 5. 测量 `measure(root, screenSize, view)`
 
-- 输入：节点树 + `Geometry`。
-- 输出：每个 pane 的 `ContentRow[]`（唯一上屏内容来源）。
-- 职责：逐个叶子取 `wrapLeaf(leaf, w)` 的行，拼 `prefix` / `indent` / `hanging` / `align`；`valign` 仅在**显式高度**（表格行、面板行）时按 `Rect.h` 补白；表格按列宽出网格（左缘竖线 / 列分隔 / 横线规则行）。
-- 不变式（写成测试）：摊平产出行数 === 测量高度；**不存在**「测量说 2 行、摊平给 3 行」；空行只能来自 `Gap`。
-- 不做：决定留白位置、改文本内容。
-- 现状对应：重写 `fill.ts` 的 `fillParagraph` / `decorateRows` / `hasHeightDecl` 补白逻辑；删除 `wrapAssistantLine` 的块级分类与 `table.ts` 的行高二次写死。
+- 输入：`LayoutTree`（根） + 屏幕尺寸 + `view`。
+- 做法：**先把屏幕尺寸赋给根 Node**，再跑现有分配逻辑（**递归 + 循环**，参考 `measure.ts` / layout 分配，不重写算法）计算所有子节点尺寸并写回各节点的 `width` / `height`。
+- 折行：`wrapLeaf(leaf, w)` 是唯一折行实现；**Leaf 按 `StyledText` 展示长度计宽**（控制字符已在 §2 消费，长度按展示文本算）。
+- 表格：列宽用现有 `fitCols` 水位法一次算死（跨行约束），行高 = 单元格 `wrapLeaf` 行数最大值。
+- `wrapLeaf` 结果可缓存（键 = 叶子 + 宽 + view 开关），摊平复用。
+- 不变式（测试）：叶子 `height === wrapLeaf(leaf, w).length`；任何叶子高度不得估算或外部写死。
+- 不做：生成行 / 补白 / 主题色。
+- 现状对应：沿用 `measure.ts` 的分配逻辑；`measureLeaf` 改读 `StyledText`、删除 `void contWidth`；`table.ts` 的 `measureLeafRows` 与 `rowBox` 高度写死改读 `wrapLeaf`。
 
-### 7. 组装 `compose(panes, viewport, chrome) → FrameRow[]`
+### 6. 摊平 `flatten(tree) → Row[]`
 
-- 输入：两 pane 的 `ContentRow[]` + 视口（段键、段内行）+ chrome（状态栏、输入行、面板、折叠占位、在飞工具标记）。
+- 输入：一棵已量好的 `Node/Leaf` 树（宽高已在节点上）。
+- 输出：**扁平行序列 `Row[]`**（只是「展开成行」，不做屏幕定位 / 合成，上屏在 §7）。
+- 职责：逐 `Leaf` 取它的 `wrapLeaf` 行，照 `prefix` / `indent` / `hanging` / `align` 展开成若干 `Row`；表格按列宽铺成网格行（左缘竖线 / 列分隔 / 横线规则行）；空 `Leaf`（Gap）产空行；依据点顺序扁平铺出。
+- `valign` 仅在**显式高度**（表格行、面板行）时按已量高补白。
+- 不变式（测试）：摊平总行数 === 各节点 `height` 之和；空行只能来自显式 `Gap`（空 Leaf）。
+- 不做：决定留白位置 / 改文本 / 折行（已量好）。
+- 现状对应：沿用 `fill.ts` 的装饰与表格网格；删除 `decorateRows` 隐式补白、`hasHeightDecl`；`wrapAssistantLine` 的块级分类不再需要。
+
+### 7. 组装 `compose(panes: Record<PaneId, Row[]>, viewport, chrome) → FrameRow[]`
+
+- 输入：各 pane 展开的 `Row[]`（session / turn / tool / statusBar / statusCol / titleBar / input）+ 视口（段键 / 段内行）+ chrome。
 - 输出：`FrameRow[]` 交给 `renderer` 逐格上屏。
-- 职责：视口定位、折叠占位、step 头 / 回合分隔线的最终位置、状态栏与输入行合成。
-- 不做：内容排版、折行。
+- 职责（收窄）：**视口定位**（滚动到哪段哪行）、**折叠占位**、把各 pane 的行按屏上布局（状态列 / 主体区 / 标题 / 输入框）排布、**chrome 合成**（状态栏、输入行、在飞工具标记）并合成最终 `FrameRow[]`。
+- **不做**：step 头 / 回合分隔的定位（它们在 §3 route 添加 `StepHeader` / `TurnHeader` 时已定位置、转成节点内容，作为普通节点在树内排布）。
 - 现状对应：`layout.ts:1033` `buildTopRegion` + `renderer/` 基本不动，只改输入类型。
 
 ### 共享件与文件布局（建议）
 
 ```text
 TUI/src/app/layout/pipeline/
-  types.ts        Section / Block / PaneItem / Leaf / RenderRow / Rect / Geometry
+  types.ts        Section / Block / PaneItem / Node / Leaf / Row / FrameRow / NodeBase
   split.ts        §1 分节
   parse.ts        §2 解析（含表格结构、inline 解析调用、围栏状态机）
   route.ts        §3 分流
   routeTable.ts   §3 的规则表（来源 × 块类型 × pane × 可见性 × 间隔）
-  structure.ts    §4 结构
+  structure.ts    §4 结构（PaneItem → Node/Leaf 映射）
   wrap.ts         §5/§6 共用的唯一折行入口 wrapLeaf
-  measure.ts      §5 测量
-  flatten.ts      §6 摊平
-  compose.ts      §7 组装
+  measure.ts      §5 测量（根拿屏幕尺寸 → 递归+循环填各节点宽高）
+  flatten.ts      §6 摊平（树 → Row[]）
+  compose.ts      §7 组装（各 pane Row[] + 视口 + chrome → FrameRow[]）
   sections.ts     （保留）事件 → Section 的现有适配
 ```
 
@@ -160,10 +220,10 @@ TUI/src/app/layout/pipeline/
 
 1. `parse` 输出块数 × 行内解析次数：每块只解析一次（用调用计数断言）。
 2. `wrapLeaf` 是唯一折行实现：全仓不允许出现第二处逐字符折行（grep 守门）。
-3. `measure.h === flatten.rows.length`（同宽度下逐叶子断言）。
+3. 摊平总行数 === 各节点 `height` 之和（同宽度下逐叶子断言）。
 4. 块类型闭集：`parse` 产出的块类型必须在闭集内（`satisfies` + 测试）。
-5. 空行来源唯一：`ContentRow` 的空行只能由 `Gap` 项产生（统计断言）。
-6. `Block` 不可变：`Object.freeze`（开发期）或只读类型。
+5. 空行来源唯一：`Row` 的空行只能由显式 `Gap`（空 Leaf）产生（统计断言）。
+6. `Block` / `Node` 不可变：`Object.freeze`（开发期）或只读类型。
 
 ### 与旧链路的映射与删除清单
 
@@ -201,7 +261,7 @@ TUI/src/app/layout/pipeline/
 
 ## 决策
 
-（六项均待用户裁定；选定后在此写明字母与理由，不改历史。）
+2026-10-25 六项全部裁定（设计定稿后逐项核对，无需改动；见上「待审阅的取舍」）：
 
 ### 决策项 1：切换方式
 
@@ -209,7 +269,7 @@ TUI/src/app/layout/pipeline/
 - b. 先落地「单折行」过渡（measure / fill 共用 `wrapLeaf`），再整体切换。
 - c. 按段分批切换，每段删除对应的旧代码。
 
-推荐 **a**，前提是先把 IR 测试（`split` / `parse` / `route` / `measure` = `flatten`）写完并由测试守住各段行为；双路径并存会让两套空行与前缀逻辑互相污染。
+**选定 a**。理由：双路径并存会让两套空行与前缀逻辑互相污染；一次性切换，前提是先把 IR 测试（`split` / `parse` / `route` / `structure` / `measure` = `flatten`）写完并由测试守住各段行为。
 
 ### 决策项 2：帧基线重冻
 
@@ -217,7 +277,7 @@ TUI/src/app/layout/pipeline/
 - b. 授权重冻：逐条人工审查 diff 后重冻 `focus-frame-legacy` / `content-mapping-legacy`，过程逐场景记入本文件。
 - c. 混合：核心帧断言不重冻，其余重冻。
 
-推荐 **b**，但重冻必须逐条人工确认并留记录（项目禁止静默重冻）。
+**选定 b**。理由：项目禁止静默重冻；逐条人工确认 diff 后重冻并留记录。
 
 ### 决策项 3：表格的列宽与行高归属
 
@@ -225,7 +285,7 @@ TUI/src/app/layout/pipeline/
 - b. 结构段算（需要宽度，破坏宽无关分层）。
 - c. 摊平段算（违反跨行约束一次算死的要求）。
 
-推荐 **a**。
+**选定 a**。理由：与定稿 §5 一致（测量期 fitCols 一次算死，行高 = 单元格 wrapLeaf 最大）。
 
 ### 决策项 4：压缩（`compact`）的归属
 
@@ -233,14 +293,14 @@ TUI/src/app/layout/pipeline/
 - b. 结构期生成「普通 / 紧凑」两套节点。
 - c. 取消压缩功能（不推荐，属既有能力）。
 
-推荐 **a**。
+**选定 a**。理由：与定稿 §3（route 按类别压缩开关）+ §6（摊平按宽处理）一致；结构阶段不再生成两套节点。
 
 ### 决策项 5：`valign` 补白口径
 
 - a. 仅显式高度（表格行 / 面板行）补白，auto 高度不补（本设计）。
 - b. auto 高度也按 `Rect.h` 补白（会重新引入「多空行」）。
 
-推荐 **a**。
+**选定 a**。理由：auto 补白会重新引入多空行；与定稿 §6（valign 仅显式高度补白）一致。
 
 ### 决策项 6：迁移节奏
 
@@ -248,7 +308,7 @@ TUI/src/app/layout/pipeline/
 - b. 按段拆四次提交：① 分节 + 解析、② 分流 + 结构、③ 测量 + 摊平、④ 组装；每次跑全量测试与 demo。
 - c. 两段提交：宽无关（① 至 ④）与宽相关（⑤ 至 ⑦）。
 
-推荐 **b**；每次提交都必须保持可运行（旧链路在切换前仍编译通过）。
+**选定 a**（用户 2026-10-25 裁定一次性完成）。理由：配合决策 1 的一次性切换，一次提交到位；提交前先由 IR 测试守住各段行为。
 
 ## 规划
 
@@ -256,7 +316,7 @@ TUI/src/app/layout/pipeline/
 
 新增（`TUI/src/app/layout/pipeline/`）：
 
-- `types.ts`：`Section` / `Block` / `PaneItem` / `Leaf` / `RenderRow` / `Rect` / `Geometry`
+- `types.ts`：`Section` / `Block` / `PaneItem` / `Node` / `Leaf` / `Row` / `FrameRow` / `NodeBase`
 - `split.ts`、`parse.ts`、`route.ts`、`routeTable.ts`、`structure.ts`
 - `wrap.ts`（唯一折行入口）、`measure.ts`（新）、`flatten.ts`、`compose.ts`
 
