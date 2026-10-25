@@ -92,11 +92,23 @@ function indexDoc(
   return { tf, length };
 }
 
-/** 一段描述的「一句话」：首个换行 / 句号之前，最多 80 字符。 */
-export function oneLine(description: string, max = 80): string {
+/** 预览上限（与 lint 首句规则的 128 字符上限同口径，见决策 3）。 */
+const PREVIEW_MAX = 128;
+
+/**
+ * 首句边界：中文 `。！？` 直接断；ASCII `.` `!` `?` 需后接空白 / 句尾 /
+ * 非 ASCII 字符（避开 `patch.text`、`**\/*.md` 这类词内点）。
+ */
+const SENTENCE_END = /[。！？]|[.!?](?=\s|$|[^\x00-\x7F])/;
+
+/** 一段描述的「一句话」：首个句号边界之前，最多 `max` 字符（缺省 128）。 */
+export function oneLine(description: string, max = PREVIEW_MAX): string {
   const flat = description.replace(/\s+/g, " ").trim();
-  const cut = flat.search(/[。！？.!?]/);
-  const sentence = cut === -1 ? flat : flat.slice(0, cut + 1);
+  const boundary = SENTENCE_END.exec(flat);
+  const sentence =
+    boundary === null
+      ? flat
+      : flat.slice(0, boundary.index + boundary[0].length);
   return sentence.length <= max ? sentence : `${sentence.slice(0, max - 1)}…`;
 }
 
