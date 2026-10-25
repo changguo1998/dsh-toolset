@@ -331,3 +331,29 @@ export function flatten(
   }
   return out;
 }
+
+/**
+ * 逐项摊平：对面板根（v 容器，每个顶层 child 恰对应一个 PaneItem）返回**按 child
+ * 归属**的行数组——`result[i]` = 第 i 个 PaneItem 摊出的 Row[]（可为空）。
+ *
+ * 用途（§3 接线桥）：老渲染层按「段键 + 段内行」定位滚动 / 收集用户块首行号，新链路
+ * 的 `Row[]` 只有扁平段落。由于面板根 v 容器的每个顶层 child 与 `PaneItem` 一一对应
+ * （structure.toPaneTree 的构建方式），本函数把一次 `flatten` 拆成逐 child 的一次，
+ * 使**每个 item 的段落边界精确可读**，且总行数与整树 `flatten` 逐字节一致（不变量：
+ * Σ result[i].length === flatten(root).length）。
+ *
+ * - 对非 v 根（单 item 面板，或根即 item 子树）：返回 `[flatten(root)]` 单段；
+ * - 对 v 根：逐 child 在 `width` 下摊平（顶层 child 占满面板宽，tail 铺满 / 前缀一致）。
+ */
+export function flattenAttributed(
+  root: Node | Leaf,
+  width: number,
+  opts: FlattenOptions = {},
+): Row[][] {
+  if (isLeaf(root)) return [flatten(root, width, opts)];
+  if (root.direction === "v") {
+    return root.children.map((c) => flatten(c, width, opts));
+  }
+  // 根为 h 容器：整体作为一段（子项按各自宽水平并置，不可再按 child 归属）
+  return [flatten(root, width, opts)];
+}

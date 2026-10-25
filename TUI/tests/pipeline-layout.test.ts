@@ -12,7 +12,10 @@ import { parse } from "../src/app/layout/pipeline/parse.ts";
 import { route } from "../src/app/layout/pipeline/route.ts";
 import { buildTrees } from "../src/app/layout/pipeline/structure.ts";
 import { measure } from "../src/app/layout/pipeline/measure.ts";
-import { flatten } from "../src/app/layout/pipeline/flatten.ts";
+import {
+  flatten,
+  flattenAttributed,
+} from "../src/app/layout/pipeline/flatten.ts";
 import { renderPane } from "../src/app/layout/pipeline/compose.ts";
 import type {
   EventGroup,
@@ -135,6 +138,31 @@ test("flatten：hanging 悬挂缩进（续行缩进列）", () => {
   assert.ok(rows.length > 1);
   const second = rows[1]!.segments.map((s) => s.text).join("");
   assert.equal(second.startsWith("    "), true, "续行悬挂 4 列");
+});
+
+test("flattenAttributed：逐 item 行归属与整树摊平逐字节一致", () => {
+  // v 根（pane 形态）：3 个 item = 正文叶 / Gap / 正文长叶
+  const a = { text: [{ text: "a" }] } as Leaf;
+  const b = { text: [{ text: "bb" }] } as Leaf;
+  const gap = { text: [] } as Leaf;
+  const tree: Node = { direction: "v", children: [a, gap, b] };
+  measure(tree, 12, { vw: 12 });
+  const perItem = flattenAttributed(tree, 12, { vw: 12 });
+  assert.equal(perItem.length, 3, "顶层 child 数 === item 数");
+  // Σ 逐 item 行数 === 整树摊平行数（不变量）
+  const total = perItem.reduce((s, r) => s + r.length, 0);
+  assert.equal(total, flatten(tree, 12, { vw: 12 }).length);
+  // 第 2 个 item 是显式 Gap → 空行
+  assert.equal(perItem[1]!.length, 1);
+  assert.equal(perItem[1]![0]!.segments.length, 0);
+});
+
+test("flattenAttributed：单 item / 非 v 根 → 单段", () => {
+  const leaf: Leaf = { text: [{ text: "single" }] };
+  measure(leaf, 20, { vw: 20 });
+  const perItem = flattenAttributed(leaf, 20, { vw: 20 });
+  assert.equal(perItem.length, 1, "非 v 根整体一段");
+  assert.equal(perItem[0]!.length, flatten(leaf, 20, { vw: 20 }).length);
 });
 
 test("renderPane：一条龙（route→structure→measure→flatten）", () => {
