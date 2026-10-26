@@ -155,7 +155,7 @@ export type PanelMarkdownRows = FrameSegment[][];
  *
  * 分类（逐行，与历史区的行级路径一致）：
  *   - fence（``` / ~~~）标记行与其内部行 → `wrapCodeLine`（灰底、内部不解析）；
- *     fence 状态由本函数自持（面板不经过 build-box 的 fence 注解）；
+ *     fence 状态由本函数自持（面板不经过内容流水线的 fence 注解）；
  *   - 含 `|` 的行 → 普通文本折行（**表格退回纯文本**：BACKLOG TUI#6 裁定——表格列宽是
  *     构建期算死的跨行约束，而面板先折行再按窗口切片，会丢表头与行间横线）；
  *   - 其余 → `wrapAssistantLine`（行内样式 / 标题 / 列表 / 引用 / `---` 分隔线）。

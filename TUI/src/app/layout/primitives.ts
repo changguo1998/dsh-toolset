@@ -1,6 +1,6 @@
 // TUI/src/app/layout/primitives.ts — 排版中立基元（宽度/换行/段构造）
 //
-// 供 layout.ts / measure.ts / fill.ts / build-box.ts 共同依赖，模块间不
+// 供 layout.ts / measure.ts / fill.ts / 各 components 共同依赖，模块间不
 // 产生循环依赖。规范见 SPEC.md §6 与 TUI/docs/DESIGN.md §6。
 
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";

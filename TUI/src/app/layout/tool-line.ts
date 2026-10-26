@@ -75,7 +75,7 @@ export function toolDiffSummary(meta: unknown): string | undefined {
 
 /** step 分组头：`hh:mm:ss ⇆N #M`（**时间 → 回合号 → 步号**；任一片段缺失即省略：
  *  时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`）。
- *  渲染层在其前后补 `╌╌ ` 前缀与尾部 `╌` 铺满（build-box 的 step 分支）；
+ *  渲染层在其前后补 `╌╌ ` 前缀与尾部 `╌` 铺满（结构层 toStepHeader / toTurnHeader）；
  *  `N` / `M` 取事件的 turn / step 字段原样、不补零。回合号标记 `⇆` 与回合分隔线同款
  *  （`turnHeaderLine`），步号 `#M` 是 step 头独有标记。 */
 export function stepHeaderLine(

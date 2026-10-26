@@ -69,6 +69,9 @@ export function deliveryOfLine(
         kind: "notice",
         text,
         ...(line.tone === undefined ? {} : { tone: line.tone }),
+        // 悬挂缩进（/help 双列表格）与紧凑豁免随行透传
+        ...(line.hanging === undefined ? {} : { hanging: line.hanging }),
+        ...(line.noCompact === true ? { noCompact: true } : {}),
       };
     case "shell":
       return { kind: "shell", text };

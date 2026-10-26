@@ -54,7 +54,7 @@ import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { buildCompletionBox } from "./components/CommandCompletion.ts";
 import type { ColorName } from "../renderer/theme.ts";
 import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
-import { noticeLinePresentation } from "./layout/build-box.ts";
+import { noticeLinePresentation } from "./layout/notice-line.ts";
 import { pipelineContent, sectionsOf } from "./layout/pipeline/frame.ts";
 import type { UserRowInfo } from "./layout/pipeline/ir.ts";
 import {
@@ -1918,7 +1918,7 @@ const USER_BLOCK_SYMBOL: Record<
   aborted: { text: "■", fg: "gray" },
 };
 
-/** P1：用户块首行符号解析器——状态在 layout 侧算定，build-box 只负责画。
+/** P1：用户块首行符号解析器——状态在 layout 侧算定，结构层（pipeline/structure）只负责画。
  *  - 终态：取本行 `status`（`turn-end` 的原因经节 → 条目 → box 透传，批 B1）；
  *  - 活跃块（`line.active`：会话区最后一条终态未定的用户输入，由 `panes.ts` 打标）：
  *    等待交互（审批/问答面板打开）显示黄 △；运行中显示黄 ●/○（沿用虚拟 token 交替相位）；

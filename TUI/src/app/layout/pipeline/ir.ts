@@ -42,6 +42,8 @@ export interface Section {
     tone?: NoticeTone;
     /** 紧凑模式豁免（/help） */
     noCompact?: boolean;
+    /** 折行续行停靠列（/help 双列表格：续行缩进到描述列） */
+    hanging?: number;
   };
   /** 工具调用声明（结构化，非 markdown） */
   calls?: readonly ToolCall[];
@@ -121,6 +123,8 @@ export interface Paragraph extends BlockBase {
   rule?: boolean;
   /** 用户块的运行时态（§2 由 Section.user 透传；P1 符号与排队竖线颜色用） */
   user?: UserRowInfo;
+  /** 折行续行停靠列（notice 双列表格：续行缩进到描述列） */
+  hanging?: number;
 }
 
 /** 引用块：子块嵌套（多为 Paragraph） */
@@ -178,15 +182,6 @@ const _blockKindGuard: Record<Block["kind"], true> = {
   code: true,
   table: true,
 };
-
-/** 块级闭集清单（测试核对用） */
-export const BLOCK_KINDS = [
-  "paragraph",
-  "quote",
-  "list",
-  "code",
-  "table",
-] as const;
 
 /**
  * 深度冻结一棵块树（Block 不可变；parse 阶段对每棵块树调用一次）。
@@ -329,6 +324,8 @@ export interface NodeBase {
     /** 装饰可见度：视口宽低于此列数时不挂（窄列降级，如竖线） */
     minWidth?: number;
   };
+  /** 折行续行停靠列：续行缩进到该列（notice / /help 双列表格） */
+  hanging?: number;
   /** 压缩剪枝遮蔽：整块打灰（内容与行数不变；摊平时全部段颜色改 gray） */
   dim?: true;
   /** 行类型标记：透传到 `Row.rowKind`（帧层按它改写工具名相位字形等） */

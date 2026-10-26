@@ -39,9 +39,10 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
   const suffixOn = suffixVisibleOf(node, opts.vw);
   const suffixW = suffixOn ? displayWidth(node.suffix!.text) : 0;
   const bodyW = Math.max(1, width - prefixW - suffixW);
+  const hanging = Math.max(0, node.hanging ?? 0);
   const rows = wrapLeaf(node.text, bodyW, {
     prefixW: 0,
-    hanging: 0,
+    hanging,
     ...(node.balance === true ? { balance: true } : {}),
   });
   const maxBodyW = suffixOn ? Math.max(0, ...rows.map(rowW)) : 0;
@@ -51,12 +52,16 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
   const suffixSegs: Seg[] = suffixOn
     ? [seg(node.suffix!.text, node.suffix!.style)]
     : [];
-  const out: Row[] = rows.map((line) => {
-    const padN = suffixOn ? Math.max(0, maxBodyW - rowW(line)) : 0;
+  const out: Row[] = rows.map((line, index) => {
+    // 悬挂缩进：续行（第 0 行之后）前导补 hanging 列空白
+    const hangSegs: Seg[] =
+      hanging > 0 && index > 0 ? [seg(" ".repeat(hanging))] : [];
+    const padN = suffixOn ? Math.max(0, maxBodyW - rowW(line) - hanging) : 0;
     // 左缘装饰（prefix）每行同列；行级缩进交给「嵌套盒 + 展平补白」，不再用节点字段
     return {
       segments: [
         ...prefixSegs,
+        ...hangSegs,
         ...line,
         ...(padN > 0 ? [filledSeg(fillOf(node), padN)] : []),
         ...suffixSegs,

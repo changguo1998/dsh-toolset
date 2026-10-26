@@ -63,15 +63,6 @@ export const TOOL_INTERRUPTED_GLYPH = "■";
 export const TOOL_OK_GLYPH = "✓";
 export const TOOL_FAIL_GLYPH = "✗";
 
-/** 参数行缩进（决策 1 细节 03） */
-export const TOOL_PARAM_INDENT = 4;
-/** 参数值续行悬挂缩进（决策 8 第 02 条：固定 6 = 参数名缩进 + 2，不随名字宽度变化） */
-export const TOOL_PARAM_CONT_INDENT = 6;
-/** 结果行缩进（决策 1 细节 06 / 决策 8 第 02 条：总计 2 列，对齐工具名列） */
-export const TOOL_RESULT_INDENT = 2;
-/** 参数值与结果行的**折行上限**（决策 1 细节 05/06）：超出 → 前 2 + `…` + 后 2 */
-export const TOOL_LINE_CAP = 5;
-
 /**
  * 工具调用行折行（含续行缩进）：整体首行不缩进、可用全宽；其余行——同段软换行的
  * 续行、参数内显式换行后的各行——统一缩进 TOOL_CONT_INDENT 列，且折行宽度扣掉缩进，
@@ -136,11 +127,6 @@ export function isToolCall(text: string): boolean {
   );
 }
 
-/** 工具结果行判定（✓ 成功 / ✗ 失败前缀，按符号判、不依赖尾随空格）：结果行与调用行同规格折行缩进 */
-export function isToolResult(text: string): boolean {
-  return text.startsWith("✓") || text.startsWith("✗");
-}
-
 /** notice/tool 行 tone → 着色名（log 灰 / info 蓝 / warn 黄 / error 红 / success 绿） */
 export const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
   log: "gray",
@@ -149,21 +135,6 @@ export const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
   error: "red",
   success: "green",
 };
-
-/** 工具行前缀着色：✓ 前缀绿（按符号判，空 detail 行同样绿）；其余原样（✗ 由 tone 整体着红） */
-export function renderToolText(text: string): FrameSegment[] {
-  if (text.startsWith("✓")) {
-    return [seg("✓", { fg: "green" }), seg(text.slice(1))];
-  }
-  return [seg(text)];
-}
-
-/** 工具调用行渲染：首词（工具名）染黄，其余原色（无前缀图标） */
-export function renderToolNameLine(text: string): FrameSegment[] {
-  const sp = text.indexOf(" ");
-  if (sp < 0) return [seg(text, { fg: "yellow" })];
-  return [seg(text.slice(0, sp), { fg: "yellow" }), seg(text.slice(sp))];
-}
 
 /**
  * 横线交点字形：上/下是否都有竖线 → `┼`（贯通）、仅上 → `┴`、仅下 → `┬`。

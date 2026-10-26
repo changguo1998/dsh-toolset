@@ -33,6 +33,7 @@ interface Group {
   texts: string[];
   tone?: Item["tone"];
   noCompact?: boolean;
+  hanging?: number;
   userStatus?: "success" | "failure" | "aborted";
   steerContinued?: boolean;
   queued?: "followup" | "steer";
@@ -92,6 +93,7 @@ function groupsOf(old: OldSection): Group[] {
     if (g.texts.length === 0) {
       if (item.tone !== undefined) g.tone = item.tone;
       if (item.noCompact === true) g.noCompact = true;
+      if (item.hanging !== undefined) g.hanging = item.hanging;
       if (source === "user") {
         if (item.userStatus !== undefined) g.userStatus = item.userStatus;
         if (item.steerContinued === true) g.steerContinued = true;
@@ -140,6 +142,7 @@ function groupToSection(
             text: bodyText,
             ...(group.tone !== undefined ? { tone: group.tone } : {}),
             ...(group.noCompact === true ? { noCompact: true } : {}),
+            ...(group.hanging === undefined ? {} : { hanging: group.hanging }),
           },
         }),
     ...(calls.length > 0 ? { calls } : {}),

@@ -29,7 +29,7 @@ export interface HelpRow {
 
 /** 排好版的一行 /help 行：text = 缩进 + 命令 + 补白 + 描述；
  *  hanging = 悬垂缩进（该行描述列起点），渲染层折行时续行停靠在该列。
- *  noCompact：/help 内容无论紧凑模式与否都完整显示（build-box notice 分支豁免） */
+ *  noCompact：/help 内容无论紧凑模式与否都完整显示（新链 notice 段豁免紧凑） */
 export interface HelpTableLine {
   text: string;
   hanging: number;

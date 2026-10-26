@@ -168,17 +168,6 @@ const SYNTHETIC_BASE = 1_000_000_000;
  * 拿到同一身份，且与进程外的历史无关（旧实现用 WeakMap + 全局自增：节对象每次写入都被换成
  * 副本，段键与行号每帧都在换）。
  */
-export function syntheticSeq(segKey: string): number {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x9e3779b1;
-  for (let i = 0; i < segKey.length; i++) {
-    const c = segKey.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
-    h2 = Math.imul(h2 ^ ((c << 5) + c + i), 0x85ebca6b) >>> 0;
-  }
-  return SYNTHETIC_BASE + (h1 % 0x1000000) * 0x1000000 + (h2 % 0x1000000);
-}
-
 /**
  * 节缓存 → 两 pane 内容行（含渐进窗口）。
  * 顺序：窗口（按回合）→ §1 分节（split）→ §2 解析（parse）→ §3 分流（route）→

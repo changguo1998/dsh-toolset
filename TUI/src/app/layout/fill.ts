@@ -3,7 +3,7 @@
 // 通用摊平引擎：Paragraph/StyledText 折行→行内/式段→补白/对齐/valign，
 // Box 递归 + separator。矩形来自 allocate 输出（rects: Map<Node, Rect>），
 // 行内 markdown 复用 markdown.ts（wrapAssistantLine/wrapCodeLine），
-// 结构分类在 build-box.ts 完成。
+// 结构分类在 pipeline 各段（parse / structure）完成。
 
 import type { Box, Node, Paragraph, Rect, StyledText } from "./box.ts";
 import type {

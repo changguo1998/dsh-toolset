@@ -220,6 +220,8 @@ import { buildTrees, toUser } from "./structure.ts";
 import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
 import { memlogTick } from "./memlog.ts";
+import { displayWidth } from "../markdown.ts";
+import { seg, truncateToWidth } from "../primitives.ts";
 
 /**
  * 渲染选项（帧层透传）：宽相关项由 `renderPaneNew` 消费，宽无关项在 structure 期消费。
@@ -372,10 +374,12 @@ function compactCategory(
   item: NewPaneItem,
 ): "think" | "tool" | "reply" | undefined {
   switch (item.kind) {
-    case "paragraph":
-      return (item as { source?: string }).source === "reasoning"
-        ? "think"
-        : "reply";
+    case "paragraph": {
+      // 三类才折叠：思考 / 正文（assistant）。notice / shell / user 不归三类，恒完整折行
+      const source = (item as { source?: string }).source;
+      if (source === "reasoning") return "think";
+      return source === "assistant" ? "reply" : undefined;
+    }
     case "tool-batch":
       return "tool";
     default:
@@ -383,12 +387,26 @@ function compactCategory(
   }
 }
 
-/** 紧凑折叠：多行条目压成单行（取首行 + 行尾省略号；逐像素对齐留阶段 4 人工 diff） */
-function foldRow(row: NewRow, width: number): NewRow[] {
-  const text = row.segments.map((s) => s.text).join("");
-  if (text === "") return [row];
-  void width;
-  return [row];
+/**
+ * 紧凑折叠（`/collapse`）：多行条目压成**一行**——取首行前 `width − 1` 列 + 行尾 `…`。
+ * 超过一行才折叠；首行本身就放得下且只有一行时不加省略号（短条目不折叠）。
+ */
+function foldRows(rows: readonly NewRow[], width: number): NewRow[] {
+  if (rows.length === 0) return [];
+  const flat = (row: NewRow | undefined): string =>
+    (row?.segments ?? [])
+      .map((s) => s.text)
+      .join("")
+      .replace(/\s+$/, "");
+  // 单行且放得下 → 不折叠（短条目原样）
+  if (rows.length === 1 && displayWidth(flat(rows[0])) <= width - 1) {
+    return [rows[0]!];
+  }
+  // 多行 → 全部文本压成一行，取前 width − 1 列 + 行尾省略号
+  const text = rows.map(flat).join(" ").replace(/\s+/g, " ").trim();
+  if (text === "") return [rows[0]!];
+  const head = truncateToWidth(text, Math.max(1, width - 1));
+  return [{ segments: [seg(head), seg("…")] }];
 }
 
 /**
@@ -503,7 +521,7 @@ export function renderPaneNew(
     if (pane === "activity") {
       const cat = compactCategory(item);
       if (cat !== undefined && options.activityCompact?.[cat]) {
-        produced = produced.length > 0 ? foldRow(produced[0]!, width) : [];
+        produced = foldRows(produced, width);
       }
     }
     counts.push(produced.length);

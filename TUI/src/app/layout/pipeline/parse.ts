@@ -180,6 +180,7 @@ export function parse(section: Section): Block[] {
               id: idOf(),
               span: [0, body.text.length],
               text: styled,
+              ...(body.hanging === undefined ? {} : { hanging: body.hanging }),
             }),
           );
         }

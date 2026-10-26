@@ -506,7 +506,10 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
   const text = opts?.normalize
     ? applyNormalize(block.text, opts.normalize)
     : block.text;
-  return textNode(text);
+  const node = textNode(text);
+  // 悬挂缩进（/help 双列表格等）：续行停靠列交给 §6 摊平
+  if (block.hanging === undefined) return node;
+  return { ...node, hanging: block.hanging };
 }
 
 /** 对段落文本逐 StyledStr 应用文本替换（保留样式，仅改 text） */
