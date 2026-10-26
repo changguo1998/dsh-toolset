@@ -892,6 +892,133 @@ export class App {
     );
   }
 
+  /**
+   * 活动区按键滚动（`delta` 行：正 = 上滚看更早内容）。位置按**节键 + 行偏移**表达
+   * （与对话区同口径）：从当前视口顶行 `activityTopIdx` 加减 `delta` → clamp → 经
+   * `positionAt` 换成活动段表键 + 行, 写入 `activityTop`。滚回底部 → 恢复跟随最新。
+   * 内容按节键锚定, 上方插段 / 扩窗不动画面。
+   */
+  private scrollActivityBy(delta: number): void {
+    if (delta === 0) return;
+    const r = this.paneMaxes();
+    const topIdx = r.activityTopIdx ?? 0;
+    const max = Math.max(0, r.activityMaxScroll);
+    const cur = Math.max(0, Math.min(topIdx, max));
+    const target = Math.max(0, Math.min(cur + delta, max));
+    if (target >= max) {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "activity-scroll",
+          delta: 0,
+          top: null,
+          offset: 0,
+        }),
+      );
+      return;
+    }
+    this.apply((s) =>
+      reduceState(s, {
+        type: "activity-scroll",
+        delta: 0,
+        top: positionAt(
+          createLineTable(r.activityCounts ?? []),
+          r.activityKeys ?? [],
+          target,
+        ),
+        offset: max - target,
+      }),
+    );
+  }
+
+  /**
+   * 活动区按「Step」跳转页（PgUp/PgDn 等级错开：会话区整 Turn、回合区整 Step）。
+   * 从当前顶行所在段出发, 向 dir 找下一个 `turn:step` 前缀不同的段, 把视口钉到它首行。
+   */
+  private scrollActivityStep(dir: 1 | -1): void {
+    const r = this.paneMaxes();
+    const keys = r.activityKeys ?? [];
+    const counts = r.activityCounts ?? [];
+    if (keys.length === 0) return;
+    const max = Math.max(0, r.activityMaxScroll);
+    const table = createLineTable(counts);
+    const cur = Math.max(0, Math.min(r.activityTopIdx ?? 0, max));
+    // 当前所在段（按行号落段）
+    let seg = keys.length - 1;
+    for (let i = 0; i < keys.length; i++)
+      if (cur < (table.prefix[i] ?? 0)) {
+        seg = i - 1;
+        break;
+      }
+    seg = Math.max(0, seg);
+    const curPrefix = (keys[seg] ?? "").split(":").slice(0, 2).join(":");
+    let target: number | undefined;
+    if (dir === 1) {
+      for (let i = seg - 1; i >= 0; i--)
+        if ((keys[i] ?? "").split(":").slice(0, 2).join(":") !== curPrefix) {
+          target = table.prefix[i] ?? 0;
+          break;
+        }
+      if (target === undefined) target = 0; // 已在最旧 step → 顶部
+    } else {
+      for (let i = seg + 1; i < keys.length; i++)
+        if ((keys[i] ?? "").split(":").slice(0, 2).join(":") !== curPrefix) {
+          target = table.prefix[i] ?? 0;
+          break;
+        }
+      if (target === undefined) {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "activity-scroll",
+            delta: 0,
+            top: null,
+            offset: 0,
+          }),
+        );
+        return; // PgDn 无下一个 step → 跟随最新
+      }
+    }
+    if (target >= max) {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "activity-scroll",
+          delta: 0,
+          top: null,
+          offset: 0,
+        }),
+      );
+      return;
+    }
+    this.apply((s) =>
+      reduceState(s, {
+        type: "activity-scroll",
+        delta: 0,
+        top: positionAt(table, keys, target),
+        offset: max - target,
+      }),
+    );
+  }
+
+  /** 活动区 Home：一次 → 顶部（首行）；已到顶再按 → 无操作（回合区不加载更旧） */
+  private scrollActivityHome(): void {
+    const r = this.paneMaxes();
+    const max = Math.max(0, r.activityMaxScroll);
+    const cur = r.activityTopIdx ?? 0;
+    if (r.activityKeys === undefined || r.activityKeys.length === 0) return;
+    if (cur <= 0) return; // 已到顶: 二次 Home 无操作
+    this.apply((s) =>
+      reduceState(s, {
+        type: "activity-scroll",
+        delta: 0,
+        top: positionAt(
+          createLineTable(r.activityCounts ?? []),
+          r.activityKeys ?? [],
+          0,
+        ),
+        offset: max,
+      }),
+    );
+  }
+
   /** 按面板取可滚动上限（status 列不按行滚动，返回 undefined = 不设上限） */
   private paneScrollMaxOf(
     panel: AppState["focusedPanel"],
@@ -2872,7 +2999,7 @@ export class App {
         // 可滚动上限由渲染层按内容/窗口算好（上一帧回填或就地补算）：滚键据此收敛
         // 偏移，否则越界偏移（连续上滚越顶、End）会累积成"按了没反应"的假死
         const max = this.paneScrollMaxOf(panel);
-        if (panel === "activity" || panel === "status") {
+        if (panel === "activity") {
           const step =
             ctrl && panel === "activity"
               ? dialogueHalfPage(
@@ -2880,9 +3007,11 @@ export class App {
                     .activityH,
                 )
               : 1;
-          this.apply((s) =>
-            reduceState(s, focusedLineScroll(panel, dir * step, max)),
-          );
+          // 活动区按「节键 + 行偏移」滚动（与对话区同口径）: 位置锚在活动段键,
+          // 扩窗/上方插段不动画面
+          this.scrollActivityBy(dir * step);
+        } else if (panel === "status") {
+          this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
         } else {
           // 位移基准 = 本帧可视行数（缺省回落到几何口径）
           const vh =
@@ -2901,7 +3030,10 @@ export class App {
         // 对话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
         const dir: 1 | -1 = name === "pageup" ? 1 : -1;
         const panel = this.state.focusedPanel;
-        if (panel === "activity" || panel === "status") {
+        if (panel === "activity") {
+          // 回合区 PgUp/PgDn = 移一个 Step（等级错开: 会话区整 Turn、回合区整 Step）
+          this.scrollActivityStep(dir);
+        } else if (panel === "status") {
           const page = frameGeometry(this.state, this.deps.renderer.getSize());
           this.apply((s) =>
             reduceState(
@@ -2971,6 +3103,11 @@ export class App {
             reduceState(s, { type: "move-cursor", delta: -s.inputCursor }),
           );
           this.paint();
+          break;
+        }
+        // 回合区：Home 一次 → 顶部；再按已到顶 → 无操作（回合区不加载更旧历史）
+        if (this.state.focusedPanel === "activity") {
+          this.scrollActivityHome();
           break;
         }
         // Home = 往回翻到最旧「已加载」内容（2026-10-06 用户裁定；不一次性全量物化）；

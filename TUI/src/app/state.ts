@@ -2327,9 +2327,17 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         };
       }
       case "activity-scroll": {
-        // 活动区（流输出）滚动：偏移累加（距底部行数）；0=跟随最新。
-        // max = 上一帧回填的可滚动上限：先收敛越界偏移再叠加、结果不超上限，
-        // 避免越界累积后"按了没反应"（与对话区 scrollBy 同口径）
+        // 活动区（流输出）滚动。带 `top` 时按「节键 + 行」定位（App 先算好 positionAt）:
+        // 位置用内容段身份表达, 上方插段不改画面; `null` = 跟随最新。
+        // 缺 `top`(旧路径) 偏移累加(距底行数), 0=跟随最新; `max` = 上一帧回填的可滚动上限,
+        // 先收敛越界再叠加、不超上限(避免"按了没反应"的假死, 与对话区 scrollBy 同口径)。
+        if ("top" in action) {
+          return {
+            ...state,
+            activityTop: action.top ?? null,
+            activityScroll: Math.max(0, action.offset ?? 0),
+          };
+        }
         const max = Math.max(0, action.max ?? Number.MAX_SAFE_INTEGER);
         const cur = Math.min(state.activityScroll, max);
         return {
@@ -2671,7 +2679,13 @@ export type StateAction =
   | { type: "status-column-scroll"; delta: number }
   /** 聚焦指定面板（`Ctrl+E` 会话区 / `Ctrl+T` 回合区 / `Ctrl+S` 状态列）：已聚焦则收起 + 回会话区 */
   | { type: "focus-panel"; panel: PanelId }
-  | { type: "activity-scroll"; delta: number; max?: number }
+  | {
+      type: "activity-scroll";
+      delta: number;
+      max?: number;
+      top?: DialogueTop | null;
+      offset?: number;
+    }
   /** max = 可视候选数上界（App 按活动区行数给；超出可视区的候选不参与焦点导航） */
   | { type: "completion-move"; delta: number; max?: number }
   | { type: "completion-close" }

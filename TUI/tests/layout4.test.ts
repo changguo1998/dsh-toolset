@@ -2776,7 +2776,18 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
   const diaAfter = dia();
   s = old;
   assert.notDeepEqual(diaAfter, diaBase, "历史 pane 本身确实滚动了");
-  assert.deepEqual(actAfter, actBase, "活动 pane 不受历史滚动影响");
+  // 锚定语义（项目裁定）：活动区内容允许随历史窗口增长（新历史节 `1:1:1:calls` 从上方
+  // 长出）——**上部空白被新内容填充**是正常的; 要求的是**原有内容行不被挤到一边/位移**:
+  // 即 actAfter 的底部非空行 = actBase 的底部非空行（逐字节不变），且新内容只出现在其上。
+  const nonBlank = (arr: string[]): string[] => arr.filter((l) => l !== "");
+  const b = nonBlank(actBase);
+  const a = nonBlank(actAfter);
+  assert.ok(b.length > 0, "base 活动区应有内容");
+  assert.deepEqual(
+    a.slice(-b.length),
+    b,
+    "活动 pane 原有内容行不位移(底部逐字节不变), 只允许上部空白被填充",
+  );
 });
 
 /**
