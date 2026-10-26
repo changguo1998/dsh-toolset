@@ -44,6 +44,11 @@ export type { Size };
 const PASTE_ON = "\x1b[?2004h";
 const PASTE_OFF = "\x1b[?2004l";
 
+/** 备用屏（全屏）进出：进入后终端自身回滚缓冲不再参与，PgUp/PgDn 只归应用；
+ *  退出恢复原屏幕内容（2026-10-27 用户裁定：启动即全屏） */
+const ALT_SCREEN_ON = "\x1b[?1049h";
+const ALT_SCREEN_OFF = "\x1b[?1049l";
+
 /** 宽度探测的**块间静默期**（ms）：等上一块可能迟到的 CPR 应答落地并被丢弃，
  *  再注册下一块的等待者（应答不带请求标识，靠到达顺序配对 → 跨块会错位）。 */
 export const PROBE_SETTLE_MS = 20;
@@ -267,9 +272,18 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
     rawWrite(PASTE_OFF);
   };
 
+  // 备用屏：进入写一次、退出写一次（与 paste 同款幂等开关；退出路径都走 altOff）
+  let altScreenOn = false;
+  const altOff = (): void => {
+    if (!altScreenOn) return;
+    altScreenOn = false;
+    rawWrite(ALT_SCREEN_OFF);
+  };
+
   // 终端恢复
   const restore = (): void => {
     pasteOff();
+    altOff();
     if (!closed) terminal.rawMode(false);
   };
 
@@ -298,6 +312,9 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
   // 启动
   if (opts.rawMode !== false) {
     terminal.rawMode(true);
+    // 全屏：切到备用屏（终端回滚缓冲隔离；退出时还原原屏幕内容）
+    rawWrite(ALT_SCREEN_ON);
+    altScreenOn = true;
     // 粘贴协议只在真终端有意义（rawMode: false = 测试 / 无 TTY：不写模式序列）
     rawWrite(PASTE_ON);
     pasteModeOn = true;
@@ -484,6 +501,7 @@ export function createRenderer(opts: CreateRendererOptions = {}): Renderer {
       closed = true;
       detach(); // 移除退出钩子，防止 close 后再被信号触发
       pasteOff(); // 关闭 bracketed paste（还原终端粘贴行为）
+      altOff(); // 退出备用屏：还原进入前的屏幕内容
       stdio.removeListener("data", onData);
       stdio.pause(); // 对称：启动时 resume()，关闭时 pause() 释放事件循环持有
       process.stdout.removeListener("resize", onResizeEvt);
