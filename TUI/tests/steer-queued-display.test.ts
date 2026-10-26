@@ -19,7 +19,9 @@ import {
   applyDelivery,
   createSections,
 } from "../src/app/layout/pipeline/sections.ts";
-import { buildPanes } from "../src/app/layout/pipeline/panes.ts";
+import { splitSections } from "../src/app/layout/pipeline/split.ts";
+import { parse } from "../src/app/layout/pipeline/parse.ts";
+import { route } from "../src/app/layout/pipeline/route.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
 import { registerApp } from "./helpers/paintFlush.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
@@ -216,11 +218,18 @@ test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + st
     allSections(s.pipeline!)
       .flatMap((section) => section.items)
       .filter((item) => item.source === "user");
-  /** 会话区 pane 项类型序列（`blank` = 留白） */
-  const paneKinds = (s: AppState): string[] =>
-    buildPanes(allSections(s.pipeline!), {
-      activityShow: { think: true },
-    }).dialogue.map((item) => item.kind);
+  /** 会话区 pane 项类型序列（`gap` = 留白；新链 §1-§3 由 split / parse / route 产出） */
+  const paneKinds = (s: AppState): string[] => {
+    const groups = splitSections(s.pipeline!).map((section) => ({
+      provenance: section,
+      blocks: parse(section),
+      ...(section.calls === undefined ? {} : { calls: section.calls }),
+      ...(section.results === undefined ? {} : { results: section.results }),
+    }));
+    return route(groups, { activityShow: { think: true } }).session.map(
+      (item) => item.kind,
+    );
+  };
 
   // steer 认领：上一条输入 steerContinued + 认领块上方留白
   let s = withUser(initialState(), "第一条");
@@ -242,7 +251,7 @@ test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + st
   );
   assert.deepEqual(
     paneKinds(s),
-    ["line", "blank", "line"],
+    ["paragraph", "gap", "paragraph"],
     "steer 块与上一条输入之间留白",
   );
 
@@ -253,7 +262,11 @@ test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + st
     userItems(f).every((item) => item.steerContinued !== true),
     "followup 认领不加「被续接」标",
   );
-  assert.deepEqual(paneKinds(f), ["line", "line"], "followup 认领不留白");
+  assert.deepEqual(
+    paneKinds(f),
+    ["paragraph", "paragraph"],
+    "followup 认领不留白",
+  );
 
   // 会话首条即 steer：无参照物 → 不标不留白
   const empty = createSections();
@@ -273,7 +286,11 @@ test("#4 节缓存：steer 认领给上一条用户块打「被续接」标 + st
     userItems(first).every((item) => item.steerContinued !== true),
     "首条 steer 无参照物 → 不标符号",
   );
-  assert.deepEqual(paneKinds(first), ["line"], "首条 steer 前无内容 → 不留白");
+  assert.deepEqual(
+    paneKinds(first),
+    ["paragraph"],
+    "首条 steer 前无内容 → 不留白",
+  );
 });
 
 test("#4 渲染：被 steer 续接的用户块显示 ←，steer 块与上一条输入之间留空行", async () => {

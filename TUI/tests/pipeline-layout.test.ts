@@ -12,11 +12,7 @@ import { parse } from "../src/app/layout/pipeline/parse.ts";
 import { route } from "../src/app/layout/pipeline/route.ts";
 import { buildTrees } from "../src/app/layout/pipeline/structure.ts";
 import { measure } from "../src/app/layout/pipeline/measure.ts";
-import {
-  flatten,
-  flattenAttributed,
-} from "../src/app/layout/pipeline/flatten.ts";
-import { renderPane } from "../src/app/layout/pipeline/compose.ts";
+import { flatten } from "../src/app/layout/pipeline/flatten.ts";
 import type {
   EventGroup,
   Node,
@@ -118,57 +114,31 @@ test("flatten：空行只能来自显式 Gap（统计断言）", () => {
   assert.equal(rows.length, heightSum(tree), "Σ高度 === 摊平行数");
 });
 
-test("flatten：tail 铺满（step/回合头）", () => {
-  const leaf: Leaf = {
-    text: [{ text: "╌╌ #1 " }],
-    tail: { char: "╌" },
+test("flatten：分隔头 fillWith 铺满（step / 回合头）", () => {
+  // 生产形状（structure.toHeader）：`h[fill]` 里文本盒 + `╌` 填充盒
+  const tree: Node = {
+    direction: "v",
+    children: [
+      {
+        direction: "h",
+        widthStyle: "fill",
+        children: [
+          { direction: "v", children: [{ text: [{ text: "╌╌ #1 " }] }] },
+          {
+            direction: "v",
+            widthStyle: "fill",
+            fillWith: { text: "╌" },
+            children: [{ text: [] }],
+          },
+        ],
+      },
+    ],
   };
-  const tree: Node = { direction: "v", children: [leaf] };
   measure(tree, 10);
   const rows = flatten(tree, 10);
   const rowText = rows[0]!.segments.map((s) => s.text).join("");
   // text 6 列 + 尾部 ╌ 补齐到 10 列
   assert.equal(rowText, "╌╌ #1 ╌╌╌╌");
-});
-
-test("flattenAttributed：逐 item 行归属与整树摊平逐字节一致", () => {
-  // v 根（pane 形态）：3 个 item = 正文叶 / Gap / 正文长叶
-  const a = { text: [{ text: "a" }] } as Leaf;
-  const b = { text: [{ text: "bb" }] } as Leaf;
-  const gap = { text: [] } as Leaf;
-  const tree: Node = { direction: "v", children: [a, gap, b] };
-  measure(tree, 12, { vw: 12 });
-  const perItem = flattenAttributed(tree, 12, { vw: 12 });
-  assert.equal(perItem.length, 3, "顶层 child 数 === item 数");
-  // Σ 逐 item 行数 === 整树摊平行数（不变量）
-  const total = perItem.reduce((s, r) => s + r.length, 0);
-  assert.equal(total, flatten(tree, 12, { vw: 12 }).length);
-  // 第 2 个 item 是显式 Gap → 空行
-  assert.equal(perItem[1]!.length, 1);
-  assert.equal(perItem[1]![0]!.segments.length, 0);
-});
-
-test("flattenAttributed：单 item / 非 v 根 → 单段", () => {
-  const leaf: Leaf = { text: [{ text: "single" }] };
-  measure(leaf, 20, { vw: 20 });
-  const perItem = flattenAttributed(leaf, 20, { vw: 20 });
-  assert.equal(perItem.length, 1, "非 v 根整体一段");
-  assert.equal(perItem[0]!.length, flatten(leaf, 20, { vw: 20 }).length);
-});
-
-test("renderPane：一条龙（route→structure→measure→flatten）", () => {
-  const s = section({
-    id: "1:1:1",
-    final: true,
-    body: { source: "assistant", text: "正常正文" },
-  });
-  const { rows } = renderPane([groupFor(s)], {
-    sessionWidth: 30,
-    turnWidth: 30,
-    view: { declaredSteps: ["1:1"] },
-  });
-  assert.equal((rows.session ?? []).length, 1);
-  assert.ok((rows.turn ?? []).length >= 0);
 });
 
 // ---------------- §5 measure h 容器宽分配（fixed/auto/fill）直接单测 ----------------
@@ -195,20 +165,24 @@ test("measure h：fixed 先定值、auto 取自然、fill 吃剩余", () => {
 
 // ---------------- §6 flatten 摊平器形态直接单测 ----------------
 
-test("flattenLeaf：prefix + body + suffix 按列拼接；tail 铺满到 width", () => {
+test("flattenLeaf：prefix + body + suffix 按列拼接（fillWith 补满到 width）", () => {
   const leaf: Leaf = {
     text: [{ text: "ab" }],
     prefix: { text: ">" },
     suffix: { text: "|" },
-    tail: { char: "·" },
   };
-  const tree: Node = { direction: "v", children: [leaf] };
+  const tree: Node = {
+    direction: "v",
+    widthStyle: "fill",
+    fillWith: { text: "·" },
+    children: [leaf],
+  };
   measure(tree, 8, { vw: 8 });
   const rows = flatten(tree, 8, { vw: 8 });
   const first = rows[0]!;
   const t = first.segments.map((s) => s.text).join("");
-  // > a b | ··（prefix 1 + 正文 2 + suffix 1 = 4，tail 补到 8）
-  assert.equal(t, ">ab|····", "prefix+body+suffix+tail 拼满 8");
+  // 叶 = >ab|（4 列），容器 fillWith · 补到 8
+  assert.equal(t, ">ab|····", "prefix+body+suffix+fillWith 拼满 8");
 });
 
 test("flatten h：fill 子项补白到分配宽（右对齐完好）", () => {

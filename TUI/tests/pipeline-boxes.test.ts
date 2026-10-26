@@ -12,7 +12,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  applyShadowed,
   buildBoxes,
   type Box,
   type ContentBox,
@@ -234,30 +233,4 @@ test("⑤ assistant 细分：引用与列表各自成段（含缩进续行归属
     "  续行归属上一条",
   ]);
   assert.equal(parts[3]?.text, "> 引用内容");
-});
-
-test("⑥ 遮蔽：叶子覆盖事件号与 shadowedSeqs 有交集即整块打标（无交集 / 无号不打）", () => {
-  const blocks = [
-    ...buildBoxes(
-      section([{ source: "assistant", text: "被剪枝", seqs: [7, 8] }]),
-    ),
-    ...buildBoxes(section([{ source: "assistant", text: "保留", seqs: [9] }])),
-    ...buildBoxes(section([{ source: "assistant", text: "无事件号" }])),
-  ];
-  const marked = leaves(applyShadowed(blocks, new Set([8, 9])));
-  assert.deepEqual(
-    marked.map((box) => [box.text, box.shadowed === true]),
-    [
-      ["被剪枝", true],
-      ["保留", true],
-      ["无事件号", false],
-    ],
-  );
-  assert.deepEqual(
-    leaves(applyShadowed(blocks, new Set())).map(
-      (box) => box.shadowed === true,
-    ),
-    [false, false, false],
-    "空集合不打标",
-  );
 });

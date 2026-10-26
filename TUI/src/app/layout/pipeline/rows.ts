@@ -205,23 +205,8 @@ export function indexOfTop(
   return Math.max(0, Math.min(index, maxTop));
 }
 
-// ---------------- 第 4 步下半：pane 项 → 行（折行 + 装饰） ----------------
-//
-// 口径：**凡是要用宽度才能定的，都在这一步加**。行生成复用既有排版算法库
-// （`build-box.ts` 的 `buildContentRows` + `measure` / `allocate` / `fill` +
-// `markdown.ts` 折行 + `table.ts` 表格 + `primitives.ts` 截断），本层只负责
-// 「pane 项 → 旧口径的缓冲行」的映射与逐项行数记账，使结构 / 缓存 / 位置模型
-// 都在新流水线里，而字形与装饰与旧路径逐行一致（等价性由 `pipeline-equivalence`
-// 用例把关）。
-
-import type { ActivitySwitches, HistoryRow } from "../../state.ts";
-import { TURN_SEPARATOR } from "../../state.ts";
-import { buildContentRows, type BuildBoxOptions } from "../build-box.ts";
-import { stepHeaderLine, toolDiffSummary } from "../tool-line.ts";
-import type { ToolResult } from "./types.ts";
+import type { ActivitySwitches } from "../../state.ts";
 import type { ContentRow } from "../fill.ts";
-import { toolUnits, type Box, type LayoutBox } from "./boxes.ts";
-import type { PaneItem } from "./panes.ts";
 // ---- 新链路（§3-§7）接线桥 ----
 import { isLeaf } from "./ir.ts";
 import type {
@@ -235,13 +220,21 @@ import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
 import { memlogTick } from "./memlog.ts";
 
-export interface RenderOptions extends BuildBoxOptions {
+/**
+ * 渲染选项（帧层透传）：宽相关项由 `renderPaneNew` 消费，宽无关项在 structure 期消费。
+ * （旧的六段链路已删除，这里只保留帧层实际用到的字段。）
+ */
+export interface RenderOptions {
   /** 会话区可用宽 */
   width: number;
   /** 回合区可用宽（缺省 = width） */
   activityWidth?: number;
-  /** 活动区显示开关（透传给旧口径的 buildContentRows，保证逐行一致） */
+  /** 用户 / 助手右缘留白（gutter） */
+  gutter?: number;
+  /** 活动区显示档位（`/verbose`：按类显隐） */
   activityShow?: Partial<ActivitySwitches>;
+  /** 活动区紧凑档位（`/collapse`：按类折叠单行） */
+  activityCompact?: Partial<ActivitySwitches>;
 }
 
 /** 新链路（§3-§7）pane 排版输入（接线桥 renderPane 用；宽无关项在 structure 期消费） */
@@ -276,262 +269,6 @@ export interface RenderedPane {
   readonly table: LineTable;
 }
 
-/** 结果行文本：详情（去尾空白）+ `(+N/-M)` 摘要（挂**首行**末尾；详情为空时只出摘要） */
-function toolResultText(result: ToolResult): string {
-  const detail = result.detail.replace(/\s+$/, "");
-  const diff = toolDiffSummary(result.meta);
-  if (diff === undefined) return detail;
-  const at = detail.indexOf("\n");
-  if (at < 0) return detail === "" ? diff : detail + " " + diff;
-  return detail.slice(0, at) + " " + diff + detail.slice(at);
-}
-
-/**
- * 逻辑行 box → 旧口径缓冲行（原始形态，交给既有排版算法库）。
- * `dialogue` = 该 box 归会话区：旧口径按 `final` 分流（`assistant` 正文 final → 会话区），
- * 故会话区的正文行必须带 `final`，否则旧渲染器会把它排进回合区。
- */
-export function boxToLines(
-  box: Box,
-  dialogue = false,
-  active = false,
-): HistoryRow[] {
-  const scope = { step: box.step };
-  if (box.kind === "layout") {
-    // 表格容器 → 旧口径的原始表格行（表头 / 对齐分隔 / 数据行），表格渲染器重排；
-    // 其余容器（类型块）不直接产出行。会话区的表格行带 final（旧口径同源）
-    if (box.role === "table") return tableLines(box, dialogue);
-    return [];
-  }
-  if (box.shape === "tool") {
-    // 会话区只保留「历史行」（带 final）：恢复出来的工具批（`history` 盒）在会话区按
-    // 历史行上屏；实时路径的工具行不带 final → 照旧只在回合区
-    const hist = dialogue && box.history === true;
-    const lines: HistoryRow[] = [];
-    for (const unit of toolUnits(box.batch)) {
-      if (unit.role === "name") {
-        const result = unit.result;
-        // 名字行：只有工具名（标记由渲染层按 `toolOk` 定：✓ / ✗ / 在飞 ●）
-        lines.push({
-          text: unit.call.name,
-          kind: "tool",
-          toolRole: "name",
-          ...(result === undefined ? {} : { toolOk: result.ok }),
-          ...(hist ? { final: true } : {}),
-          ...scope,
-        });
-        continue;
-      }
-      if (unit.role === "param") {
-        // 参数行：每个参数一行（名灰 + 值原色；折行 / 悬挂 6 列 / 5 行上限在渲染层）
-        lines.push({
-          text: unit.param.value,
-          kind: "tool",
-          toolRole: "param",
-          toolParam: unit.param,
-          ...(hist ? { final: true } : {}),
-          ...scope,
-        });
-        continue;
-      }
-      // 结果行：只有详情（标记在名字行），**保留原始换行结构**（决策 8 第 7/8 条：按行拆、
-      // 不做 markdown 解析）；折行 / 5 行上限 / 失败整行红都在渲染层。
-      // 落单结果（无对应调用）没有名字行可挂标记 → 行内自带 `✓` / `✗`（决策 10 落单分支）
-      const result = unit.result;
-      const marker = unit.orphan === true ? (result.ok ? "✓ " : "✗ ") : "";
-      lines.push({
-        text: marker + toolResultText(result),
-        kind: "tool",
-        toolRole: "result",
-        toolOk: result.ok,
-        ...(!result.ok ? { tone: "error" as const } : {}),
-        ...(hist ? { final: true } : {}),
-        ...scope,
-      });
-    }
-    return lines;
-  }
-  // 会话区归属：旧渲染器按 `final` 把 assistant 内容分流到会话区——代码块 / 表格同样要带
-  const final = dialogue && box.source === "assistant";
-  if (box.shape === "code") {
-    const code = box.code ?? { lang: "", lines: [], closed: true };
-    const kind = kindOf(box);
-    return [
-      { text: "```" + code.lang, kind, ...(final ? { final: true } : {}) },
-      ...code.lines.map((line) => ({
-        text: line,
-        kind,
-        ...(final ? { final: true } : {}),
-      })),
-      ...(code.closed
-        ? [{ text: "```", kind, ...(final ? { final: true } : {}) }]
-        : []),
-    ];
-  }
-  if (box.shape === "cell") {
-    return [{ text: box.text ?? "", kind: kindOf(box), ...scope }];
-  }
-  // 会话区正文按物理行拆分交付：旧缓冲按物理行落行（keepLineBreaks），「块内空行
-  // 竖线连排」等后处理逐行生效——单条行内嵌 \n 会走「含显式换行」孤立分支，丢竖线。
-  // box 粒度不变（仍是一个结构段），只是行层展开与旧路径同粒度
-  if (final) {
-    return (box.text ?? "").split("\n").map((text) => ({
-      text,
-      kind: kindOf(box),
-      final: true,
-      ...scope,
-    }));
-  }
-  // 回合区文本同样按**物理行**落行：`box.text` 以 \n 作行分隔，整段当一行输出会让终端
-  // 把内嵌换行执行成真实换行、把后面内容顶到下面几行（真机 2026-10-09：回合区底行溢出，
-  // 状态栏上方出现正文碎片；差分账本认为那些行未变，残留一直留到 Ctrl+L）。
-  // **例外：user**——旧路径用户块整段入 buffer（state 的 keepLineBreaks 语义），物理行由
-  // 渲染层 StyledText 折行时拆；在这里拆会变成「每物理行一个用户块」，状态符号与整块
-  // 右对齐各来一次（真机 2026-10-09 复现：输入每行开头都多一个状态字符）。
-  const shared = {
-    kind: kindOf(box),
-    ...(box.tone === undefined ? {} : { tone: box.tone }),
-    // notice 排版参数（条目 7 选项 1）：/help 的悬挂缩进与紧凑豁免由节条目带到行上
-    ...(box.hanging === undefined ? {} : { hanging: box.hanging }),
-    ...(box.noCompact === true ? { noCompact: true } : {}),
-    ...scope,
-    // 用户块终态（条目 7 批 B1）：节上已定，行层直接带 `status`（解析器优先读它，
-    // 不再回查 buffer）；`seq` 仍在（活跃块判定与旧路径兜底），B3 删 buffer 时一并去掉
-    ...(box.userStatus === undefined ? {} : { status: box.userStatus }),
-    // 被 steer 续接（批 B1）：行层带 `steerContinued` → 解析器出永久 `←`，不回查 buffer
-    ...(box.steerContinued === true ? { steerContinued: true } : {}),
-    // 活跃用户块（批 B1）：终态未定的最后一条用户输入 → 运行 ●/○ / 等待 △
-    ...(active && box.source === "user" ? { active: true } : {}),
-    // 用户行带行号：布局层用户块符号解析按 seq 回查 buffer 同源行
-    ...(box.source === "user" && box.seqs?.[0] !== undefined
-      ? { seq: box.seqs[0] }
-      : {}),
-  };
-  const raw = box.text ?? "";
-  // user：整段一行（行拆分交渲染层折行，见上）；
-  if (box.source === "user") return [{ text: raw, ...shared }];
-  // 非 user 文本：剥掉**前导 / 拖尾空行**（旧渲染器 `absorbActivityBlank` 口径，2026-10-10
-  // 从 notice / shell 扩到全来源）——同源合并会把宿主补发的 "\n\n" 并进相邻正文（`sections.ts`
-  // 按 source 合并），边缘空行在回合区与会话区都会占行；整段全空则该 box 不产出行。
-  // 空白判定含零宽字符（U+200B/U+200C/U+2060/U+FEFF：`trim()` 不删但列宽为 0）。
-  const lines = raw.split("\n");
-  const blank = (text: string): boolean =>
-    /^[\s\u200b\u200c\u2060\ufeff]*$/.test(text);
-  let from = 0;
-  let to = lines.length;
-  while (from < to && blank(lines[from] ?? "")) from++;
-  while (to > from && blank(lines[to - 1] ?? "")) to--;
-  return lines.slice(from, to).map((text) => ({ text, ...shared }));
-}
-
-/** 表格容器 → 原始表格行（与旧缓冲的 markdown 形态逐字符一致）；会话区行带 final */
-function tableLines(box: LayoutBox, dialogue: boolean): HistoryRow[] {
-  const kind = kindOf(box);
-  const final = dialogue && box.source === "assistant";
-  const line = (text: string): HistoryRow => ({
-    text,
-    kind,
-    ...(final ? { final: true } : {}),
-  });
-  const row = (cells: readonly string[]): string =>
-    "| " + cells.join(" | ") + " |";
-  const rows = box.children.filter(
-    (child): child is LayoutBox =>
-      child.kind === "layout" && child.role === "row",
-  );
-  const cellsOf = (row0: LayoutBox): string[] =>
-    row0.children.map((cell) =>
-      cell.kind === "content" ? (cell.text ?? "") : "",
-    );
-  const header = rows.find((row0) => row0.header === true);
-  const out: HistoryRow[] = [];
-  if (header !== undefined) out.push(line(row(cellsOf(header))));
-  // 分隔行按**表头格数**生成（不是按 aligns 长度）：aligns 与表头格数一旦不一致
-  // （上游任何一处补 / 丢格），按 aligns 生成会让分隔行比表头少列 → 旧渲染器
-  // `isTableStart` 判不成表格 → 整表退回原样打印（真机实例：4 列表头 + 2 列分隔行）。
-  // 对齐只决定 `---` / `---:` / `:---:`，缺的列按左对齐。
-  const aligns = box.aligns ?? [];
-  const ncols =
-    header !== undefined
-      ? cellsOf(header).length
-      : rows[0] === undefined
-        ? 0
-        : cellsOf(rows[0]).length;
-  if (ncols > 0) {
-    out.push({
-      text: row(
-        Array.from({ length: ncols }, (_, j) => {
-          const align = aligns[j];
-          return align === "right"
-            ? "---:"
-            : align === "center"
-              ? ":---:"
-              : "---";
-        }),
-      ),
-      kind,
-      ...(final ? { final: true } : {}),
-    });
-  }
-  for (const row0 of rows) {
-    if (row0 === header) continue;
-    out.push(line(row(cellsOf(row0))));
-  }
-  return out;
-}
-
-/** 来源 → 状态层的行类型（与旧路径同一分类口径） */
-function kindOf(box: Box): HistoryRow["kind"] {
-  switch (box.source) {
-    case "reasoning":
-      return "thinking";
-    case "tool":
-      return "tool";
-    case "notice":
-      return "notice";
-    case "shell":
-      return "shell";
-    case "user":
-      return "user";
-    default:
-      return "assistant";
-  }
-}
-
-/** pane 项 → 旧口径缓冲行（边界项按既有线型：step 头 / 回合分隔线 / 空行） */
-function itemLines(item: PaneItem, dialogue: boolean): HistoryRow[] {
-  switch (item.kind) {
-    case "line":
-      return boxToLines(item.box, dialogue, item.active === true);
-    case "blank":
-      return [{ text: "", kind: "plain" }];
-    case "step-head":
-      // 旧口径：step 头由 `appendToolLine` 插入（kind = tool），渲染为 `╌╌ hh:mm:ss ⇆N #M ╌╌`
-      return [
-        {
-          text: stepHeaderLine(item.step, item.time, item.turn),
-          kind: "tool",
-        },
-      ];
-    case "turn-separator":
-      // `untitled`（时间未知）= 纯虚线：不带 turn / time，既有渲染器按 `turnHeaderLine` 得空标签
-      return [
-        item.untitled === true
-          ? { text: TURN_SEPARATOR, kind: "separator" }
-          : {
-              text: TURN_SEPARATOR,
-              kind: "separator",
-              ...(item.time === undefined ? {} : { time: item.time }),
-              turn: item.turn,
-            },
-      ];
-  }
-}
-
-// ---------------- 行缓冲缓存（键见追踪文档「行缓冲键的组成」） ----------------
-
-/** 每个 box 的行结果：键 = 区域宽 + 档位 + 紧凑（宽度不变的重复帧直接命中） */
-const rowCache = new WeakMap<Box, Map<string, ContentRow[]>>();
 let misses = 0;
 
 /**
@@ -558,116 +295,17 @@ export function resetRowRenderStats(): void {
   misses = 0;
 }
 
-function cacheKey(
-  width: number,
-  pane: "dialogue" | "activity",
-  options: RenderOptions,
-): string {
-  return [
-    pane,
-    width,
-    JSON.stringify(options.activityShow ?? {}),
-    JSON.stringify(options.activityCompact ?? {}),
-  ].join("|");
-}
-
 /**
  * 逐项出一行缓冲 + 行数表（宽度相关）。每一项独立走既有算法库：跨项的分隔与留白
  * 已由第 3 步的边界项表达，故此处不再做跨节点后处理。
  * 文本项按 (box 身份, 宽, 档位, 紧凑) 命中行缓存——宽度不变的重复帧不重排。
  */
-export function renderPane(
-  items: readonly PaneItem[],
-  pane: "dialogue" | "activity",
-  options: RenderOptions,
-): RenderedPane {
-  const width = Math.max(1, options.width);
-  const activityWidth = Math.max(1, options.activityWidth ?? width);
-  const rows: ContentRow[] = [];
-  const counts: number[] = [];
-  const keys: string[] = [];
-  const userRows: number[] = [];
-  for (const item of items) {
-    // 空行：直接出行，不经 `buildContentRows`——它会**裁掉首行空行**并把裸空 plain 行
-    // 路由到会话区（活动区的空行会整行消失）。形状与旧路径的空行一致：无段、缩进 0、
-    // kind plain（旧路径的空行节点同样只有这三个字段）。留白空行恒为**裸空行**：不继承
-    // 相邻正文行的前导竖线（2026-10-16 裁定，会话区与回合区同口径）；块内空行的竖线连排
-    // 仍归 `build-box.ts` 的 `lineUpBlockBars()`
-    if (item.kind === "blank") {
-      rows.push({ segments: [], indent: 0, kind: "plain" });
-      counts.push(1);
-      keys.push(item.key);
-      continue;
-    }
-    const lines = itemLines(item, pane === "dialogue");
-    if (lines.length === 0) {
-      counts.push(0);
-      keys.push(item.key);
-      continue;
-    }
-    // 跳转目标：用户块首行（在本 pane 行缓冲里的绝对行号）
-    if (
-      pane === "dialogue" &&
-      item.kind === "line" &&
-      item.box.source === "user"
-    )
-      userRows.push(rows.length);
-    // 用户块不走行缓存：其首行符号随回合状态变化（运行 ●/○ → 终态 ✓/✗/■，
-    // 经 seq 回查 buffer 解析），缓存会渲染出上一状态的旧符号
-    const cacheable =
-      item.kind === "line" && item.box.source !== "user" ? item.box : undefined;
-    const key = cacheKey(
-      pane === "dialogue" ? width : activityWidth,
-      pane,
-      options,
-    );
-    let slot = cacheable === undefined ? undefined : rowCache.get(cacheable);
-    const hit = slot?.get(key);
-    if (hit !== undefined) {
-      rows.push(...hit);
-      counts.push(hit.length);
-      keys.push(item.key);
-      continue;
-    }
-    // 只计内容项的排版次数：边界项（空行 / step 头 / 分隔线）是常量开销，不进计数
-    if (cacheable !== undefined) misses += 1;
-    const built = buildContentRows(
-      lines,
-      { ...options, width, activityWidth },
-      width,
-      activityWidth,
-    );
-    const produced = pane === "dialogue" ? built.dialogue : built.activity;
-    if (cacheable !== undefined) {
-      slot ??= new Map<string, ContentRow[]>();
-      slot.set(key, produced);
-      rowCache.set(cacheable, slot);
-    }
-    rows.push(...produced);
-    counts.push(produced.length);
-    keys.push(item.key);
-  }
-  // 整 pane 末尾的空行不渲染（旧渲染器 `trimTrailingAssistantBlanks` 口径：只在 pane 末尾
-  // 生效；逐项排版时各段看不到「谁是最后一行」，故在这里统一收尾）
-  while (
-    rows.length > 0 &&
-    rows[rows.length - 1]!.segments.length === 0 &&
-    rows[rows.length - 1]!.kind === "plain"
-  ) {
-    rows.pop();
-    const last = counts.length - 1;
-    if (last >= 0) counts[last] = Math.max(0, (counts[last] ?? 0) - 1);
-  }
-  return { rows, counts, keys, userRows, table: createLineTable(counts) };
-}
 
 // ================= 新链路（§3-§7）renderPane：接线桥 =================
 //
-// 旧 renderPaneLegacy（旧 PaneItem + buildBox/buildContentRows 六段）挂起不动，
-// 本 renderPane 走新七段：buildTrees（含 user 块符号/右对齐/gutter）→ measure →
-// flattenAttributed（逐 item 行归属）→ RenderedPane 契约（rows/counts/keys/
-// userRows/table，加 kind/seq）。输出仍 ContentRow[]，帧层 consume 不变；
-// 旧链函数在阶段 4 测试迁移后删除。
+// 新七段：buildTrees（含 user 块符号/右对齐/gutter）→ measure → flatten（逐槽位
+// 摊平 + 按成员实测高度切片归行）→ RenderedPane 契约（rows/counts/keys/userRows/
+// table，加 kind/seq）。输出 ContentRow[]，帧层 consume 不变。
 
 /** item → 稳定段键（滚动定位：段键 + 段内行；与旧键前缀一致） */
 function newItemKey(item: NewPaneItem): string {
@@ -753,7 +391,7 @@ function foldRow(row: NewRow, width: number): NewRow[] {
 /**
  * 新七段 renderPaneNew（§3-§7 一条龙，输出 RenderedPane 契约）。
  * 每 pane 分别以自身宽测量/摊平；user 块符号由 `userSym` 解析（缺 info 不显）。
- * 旧 `renderPane`（六段旧链）挂起供阶段 4 测试迁移；接线桥走本函数。
+ * 生产唯一入口（`frame.pipelineContent` 调用）。
  */
 export function renderPaneNew(
   items: readonly NewPaneItem[],
@@ -861,7 +499,6 @@ export function renderPaneNew(
       rows.push({
         segments: r.segments,
         kind: newItemKind(item, r),
-        ...(r.indent === undefined ? {} : { indent: r.indent }),
         seq,
       });
     }

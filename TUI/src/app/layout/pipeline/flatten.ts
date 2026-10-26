@@ -1,7 +1,7 @@
 // src/app/layout/pipeline/flatten.ts — §6 摊平：已量好的 LayoutTree → Row[]
 //
 // 职责（追踪文档 T35-T38）：
-//   - 逐 Leaf 取 wrapLeaf 行，按 prefix / suffix / indent / hanging / align 展开成 Row；
+//   - 逐 Leaf 取 wrapLeaf 行，按 prefix / suffix / align 展开成 Row；
 //   - 代码 / 表格 / 工具按各自网格 / 行模型铺行；
 //   - 空 Leaf（Gap）→ 空行（**空行唯一来源**）；step / 回合头 tail 铺满；
 //   - 不变式（测试）：摊平总行数 === Σ节点 height；空行只能来自显式 Gap。
@@ -39,16 +39,6 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
   const suffixOn = suffixVisibleOf(node, opts.vw);
   const suffixW = suffixOn ? displayWidth(node.suffix!.text) : 0;
   const bodyW = Math.max(1, width - prefixW - suffixW);
-  // tail-only（空文本 + tail，如回合分隔线 / step 头空标签）
-  if (node.text.length === 0 && node.tail) {
-    return [
-      {
-        segments: [
-          seg(node.tail.char.repeat(Math.max(1, width)), node.tail.style),
-        ],
-      },
-    ];
-  }
   const rows = wrapLeaf(node.text, bodyW, {
     prefixW: 0,
     hanging: 0,
@@ -74,13 +64,6 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
       ...(node.rowKind === undefined ? {} : { rowKind: node.rowKind }),
     };
   });
-  if (node.tail) {
-    for (const row of out) {
-      const pad = Math.max(0, width - rowW(row.segments));
-      if (pad > 0)
-        row.segments.push(seg(node.tail.char.repeat(pad), node.tail.style));
-    }
-  }
   if (node.align && node.align !== "left") {
     for (const row of out) {
       const pad = width - rowW(row.segments);
@@ -91,12 +74,6 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
   }
   return out;
 }
-
-function styledPlain(cell: Paragraph): string {
-  return cell.text.map((s) => s.text).join("");
-}
-
-const CELL_PAD = 1;
 
 /** 递归摊平已量好的树 */
 export function flatten(
@@ -227,15 +204,3 @@ function flattenH(tree: Node, width: number, opts: FlattenOptions): Row[] {
  * - 对非 v 根（单 item 面板，或根即 item 子树）：返回 `[flatten(root)]` 单段；
  * - 对 v 根：逐 child 在 `width` 下摊平（顶层 child 占满面板宽，tail 铺满 / 前缀一致）。
  */
-export function flattenAttributed(
-  root: Node | Leaf,
-  width: number,
-  opts: FlattenOptions = {},
-): Row[][] {
-  if (isLeaf(root)) return [flatten(root, width, opts)];
-  if (root.direction === "v") {
-    return root.children.map((c) => flatten(c, width, opts));
-  }
-  // 根为 h 容器：整体作为一段（子项按各自宽水平并置，不可再按 child 归属）
-  return [flatten(root, width, opts)];
-}

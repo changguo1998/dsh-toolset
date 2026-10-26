@@ -648,14 +648,6 @@ export function buildTrees(
   };
 }
 
-/** 兼容口径：Record<PaneId, PaneItem[]> → 含 session / turn 的树 */
-export function buildTree(
-  panes: Partial<Record<PaneId, PaneItem[]>>,
-  opts?: StructureOptions,
-): PaneTrees {
-  return buildTrees(panes.session ?? [], panes.turn ?? [], opts);
-}
-
 // ---------------- user 块：h(spacer, 符号, 内容 v) + 右缘后缀 ----------------
 
 /**

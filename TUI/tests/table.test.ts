@@ -17,7 +17,6 @@ import {
 } from "../src/app/layout/table.ts";
 import type { TableSpec } from "../src/app/layout/table.ts";
 import { fillBoxTree } from "../src/app/layout/fill.ts";
-import { boxToLines } from "../src/app/layout/pipeline/rows.ts";
 import { buildBox, buildContentRows } from "../src/app/layout/build-box.ts";
 import { displayWidth } from "../src/app/layout/markdown.ts";
 import { rowText } from "./helpers/rowText.ts";
@@ -607,49 +606,5 @@ test("集成: 分隔行短于表头（4 列表头 + 2 列分隔行）照样成 4
   assert.ok(
     seps.length > 0 && seps.every((n) => n === 3),
     "4 列 → 每行 3 个列分隔：" + JSON.stringify(seps),
-  );
-});
-
-test("表格往返: 分隔行按表头格数生成（aligns 短于表头也不丢列）", () => {
-  const cell = (text: string) => ({
-    kind: "content" as const,
-    turn: 1,
-    step: 1,
-    source: "assistant" as const,
-    shape: "cell" as const,
-    text,
-  });
-  const rowBox = (cells: string[], header = false) => ({
-    kind: "layout" as const,
-    turn: 1,
-    step: 1,
-    source: "assistant" as const,
-    role: "row" as const,
-    ...(header ? { header: true } : {}),
-    children: cells.map(cell),
-  });
-  const table = {
-    kind: "layout" as const,
-    turn: 1,
-    step: 1,
-    source: "assistant" as const,
-    role: "table" as const,
-    // 上游只给了 2 个对齐（少于表头 4 列）：分隔行仍须按表头 4 列生成
-    aligns: ["left", "left"],
-    children: [
-      rowBox(["a", "b", "c", "d"], true),
-      rowBox(["1", "2", "3", "4"]),
-    ],
-  };
-  const rows = boxToLines(
-    table as unknown as Parameters<typeof boxToLines>[0],
-    true,
-  );
-  const delim = rows.find((r) => r.text.includes("---"));
-  assert.ok(delim, "有分隔行：" + rows.map((r) => r.text).join(" / "));
-  assert.equal(
-    delim!.text.split("|").length - 2,
-    4,
-    "分隔行格数 = 表头格数：" + delim!.text,
   );
 });

@@ -5,7 +5,6 @@
 //  - ir：freezeBlock 深度冻结（T13）
 //  - split.splitOldSections / replaySections：分节边界与用户 active post-pass（T16/T17）
 //  - measure：prefix/suffix 可见性、code/table/tool 高度模型（T31-T33）
-//  - compose.rowsToFrame：Row → FrameRow 映射（T39）
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -36,7 +35,6 @@ import { toUser, buildTrees } from "../src/app/layout/pipeline/structure.ts";
 import { isNode, type Node } from "../src/app/layout/pipeline/ir.ts";
 import { parse } from "../src/app/layout/pipeline/parse.ts";
 import type { ToolUnit } from "../src/app/layout/pipeline/boxes.ts";
-import { rowsToFrame } from "../src/app/layout/pipeline/compose.ts";
 import type { Row } from "../src/app/layout/pipeline/ir.ts";
 import type { HistoryRow } from "../src/app/state.ts";
 
@@ -241,17 +239,6 @@ test("measure 高度模型：code / table 在 §5 展开成结构（先拆行后
   assert.equal(tblNode.direction, "v", "先拆行：外层 v");
   assert.equal((tblNode.children[0] as Node).direction, "h", "再分列：行盒 h");
   assert.equal(tblNode.table, undefined, "载荷已消费");
-});
-
-// ---------------- compose.rowsToFrame ----------------
-
-test("rowsToFrame：Row.segments → FrameRow.segments 1:1 保序", () => {
-  const segText = "ab";
-  const rows: Row[] = [{ segments: [{ text: segText }], indent: 0 }];
-  const frames = rowsToFrame(rows);
-  assert.equal(frames.length, 1);
-  assert.equal(frames[0]!.segments[0]!.text, segText);
-  assert.equal(frames[0]!.segments.length, 1);
 });
 
 // ---------------- §4 structure.toUser 直接单测 ----------------

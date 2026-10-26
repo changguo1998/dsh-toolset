@@ -187,7 +187,6 @@ export const BLOCK_KINDS = [
   "code",
   "table",
 ] as const;
-export type BlockKind = (typeof BLOCK_KINDS)[number];
 
 /**
  * 深度冻结一棵块树（Block 不可变；parse 阶段对每棵块树调用一次）。
@@ -337,12 +336,6 @@ export interface NodeBase {
   /** 补白字符（带样式）：设置后本节点每行补到自身宽（缺省不补）。空格即普通留白，
    *  `╌` / `─` 等可当分隔线填充；样式随补白段一起下发 */
   fillWith?: StyledStr;
-  /** 行尾铺满字符（不占测量宽；fill 补到分配宽，如 step 虚线 / turn 分隔） */
-  tail?: {
-    char: string;
-    /** 缺省无样式（默认前景） */
-    style?: FrameStyle;
-  };
   /** 底色铺满分配宽度（代码块用；行内代码只在文字上着色） */
   fillBg?: boolean;
   /** 默认 true；false = 单行截断不换行 */
@@ -405,15 +398,9 @@ export function isLeaf(tree: LayoutTree): tree is Leaf {
 /** 摊平行（§6 flatten 输出；pane 归属由 Record<PaneId, Row[]> 承载，行内不重复带） */
 export interface Row {
   segments: FrameSegment[];
-  /** 行级缩进（已并入 segments；冗余供快速读取） */
-  indent?: number;
-  /** 行前缀段（装饰：列表符 / 引用竖线等；缺省并入 segments） */
-  prefix?: FrameSegment[];
-  /** 行内对齐（缺省 left） */
-  align?: "left" | "center" | "right";
   /**
    * 行语义标记（接线桥读取，映射 ContentRow.kind）：如工具名 / 参数 / 结果行。
-   * 仅需要让上层按行归属的摊平分支设置（现为 flattenTool 的 name / param / result）。
+   * 由需要让上层按行归属的摊平分支设置（工具名 / 参数 / 结果行）。
    */
   rowKind?: string;
 }

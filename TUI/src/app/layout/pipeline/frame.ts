@@ -172,20 +172,11 @@ export function syntheticSeq(segKey: string): number {
   return SYNTHETIC_BASE + (h1 % 0x1000000) * 0x1000000 + (h2 % 0x1000000);
 }
 
-/** 行身份：优先宿主事件号，否则按稳定段键合成 */
-export function rowSeq(
-  box: { seqs?: readonly number[] },
-  segKey: string,
-): number {
-  const host = box.seqs?.[0];
-  return host !== undefined ? host : syntheticSeq(segKey);
-}
-
 /**
  * 节缓存 → 两 pane 内容行（含渐进窗口）。
  * 顺序：窗口（按回合）→ §1 分节（split）→ §2 解析（parse）→ §3 分流（route）→
- * §4 结构（buildTrees）→ §5 测量 → §6 摊平（flattenAttributed，逐 item 行归属）→
- * §7 组装（renderPane 桥，出 RenderedPane → PipelineContent）。
+ * §4 结构（buildTrees）→ §5 测量 → §6 摊平（flatten）→
+ * 逐 item 行归属（renderPaneNew 的槽位切片）→ 帧层 ContentRow[]。
  */
 export function pipelineContent(
   state: SectionsState,

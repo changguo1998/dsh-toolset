@@ -133,15 +133,11 @@ export function toolUnits(batch: ToolBatch | undefined): ToolUnit[] {
   return units;
 }
 
-/** 共同字段：归属 + 宿主事件号 + 遮蔽标记 */
+/** 共同字段：归属 + steer / 用户块终态标记 */
 interface BoxBase {
   turn: number;
   step: number;
   source: Source;
-  /** 该节点覆盖的宿主事件号（来自条目账；压缩剪枝遮蔽判定用） */
-  seqs?: readonly number[];
-  /** 压缩剪枝遮蔽（`compaction/prune`）：整块渲染成灰，内容与行数不变 */
-  shadowed?: boolean;
   /** steer 插队送达的用户块（第 3 步据此在它之前留空行） */
   steer?: boolean;
   /** 用户块终态（节上的 `userStatus` 透传）：行层写 `status`，符号不再回查 buffer */
@@ -218,7 +214,6 @@ function textParts(item: Item, turn: number, step: number): Box[] {
         ...(item.tone === undefined ? {} : { tone: item.tone }),
         ...(item.hanging === undefined ? {} : { hanging: item.hanging }),
         ...(item.noCompact === true ? { noCompact: true } : {}),
-        ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
         ...(item.userStatus === undefined
           ? {}
           : { userStatus: item.userStatus }),
@@ -239,7 +234,6 @@ function textParts(item: Item, turn: number, step: number): Box[] {
     shape,
     text: lines0.join("\n"),
     ...(item.tone === undefined ? {} : { tone: item.tone }),
-    ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
   });
   const flushText = (): void => {
     if (run.length === 0) return;
@@ -287,7 +281,6 @@ function textParts(item: Item, turn: number, step: number): Box[] {
         source: item.source,
         shape: "code",
         code: { lang, lines: code, closed },
-        ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
       });
       // 未闭合 = 本条目文本用尽：游标停在文本末尾，**不吞**后续条目 / box
       i = closed ? j : lines.length;
@@ -302,7 +295,7 @@ function textParts(item: Item, turn: number, step: number): Box[] {
       const parsed = parseTableAt(lines, i);
       if (parsed !== null && parsed.table.rows.length >= 0) {
         flushAll();
-        parts.push(tableTree(parsed.table, turn, step, item.source, item.seqs));
+        parts.push(tableTree(parsed.table, turn, step, item.source));
         i = parsed.end - 1;
         continue;
       }
@@ -341,7 +334,6 @@ function tableTree(
   turn: number,
   step: number,
   source: Source,
-  seqs: readonly number[] | undefined,
 ): LayoutBox {
   const rowBox = (cells: string[], header: boolean): LayoutBox => ({
     kind: "layout",
@@ -350,7 +342,6 @@ function tableTree(
     source,
     role: "row",
     ...(header ? { header: true } : {}),
-    ...(seqs === undefined ? {} : { seqs }),
     children: cells.map((cell) => ({
       kind: "content",
       turn,
@@ -358,7 +349,6 @@ function tableTree(
       source,
       shape: "cell" as const,
       text: cell,
-      ...(seqs === undefined ? {} : { seqs }),
     })),
   });
   return {
@@ -368,7 +358,6 @@ function tableTree(
     source,
     role: "table",
     aligns: spec.aligns,
-    ...(seqs === undefined ? {} : { seqs }),
     children: [
       rowBox(spec.header, true),
       ...spec.rows.map((cells) => rowBox(cells, false)),
@@ -392,7 +381,6 @@ function toolBox(
     source: "tool",
     shape: "tool",
     batch: { calls, results },
-    ...(item.seqs === undefined ? {} : { seqs: item.seqs }),
   };
 }
 
@@ -472,45 +460,4 @@ function computeBoxes(section: Section): LayoutBox[] {
   }
   flush();
   return markSteer(blocks);
-}
-
-/** 该节点覆盖的事件号与 `shadowedSeqs` 是否有交集 */
-function seqHit(node: Box, shadowedSeqs: ReadonlySet<number>): boolean {
-  return (
-    node.seqs !== undefined && node.seqs.some((seq) => shadowedSeqs.has(seq))
-  );
-}
-
-/**
- * 压缩剪枝遮蔽标记：节点覆盖的事件号与 `shadowedSeqs` **有交集即整棵子树打标**
- * （宽无关；只在 box 层置位，颜色落第 4 步 / 渲染层）。容器命中 → 子树整标。
- */
-export function applyShadowed<T extends Box>(
-  blocks: readonly T[],
-  shadowedSeqs: ReadonlySet<number>,
-): readonly T[] {
-  if (shadowedSeqs.size === 0) return blocks;
-  let changed = false;
-  const walk = (node: Box): Box => {
-    const hit = seqHit(node, shadowedSeqs);
-    if (node.kind === "layout") {
-      const children = node.children.map(walk);
-      const childChanged = children.some(
-        (child, index) => child !== node.children[index],
-      );
-      if (!hit && !childChanged) return node;
-      changed = true;
-      return {
-        ...node,
-        ...(hit ? { shadowed: true } : {}),
-        children,
-      };
-    }
-    if (!hit && node.shadowed !== true) return node;
-    if (node.shadowed === true) return node;
-    changed = true;
-    return { ...node, shadowed: true };
-  };
-  const next = blocks.map((node) => walk(node) as T);
-  return changed ? next : blocks;
 }

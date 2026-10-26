@@ -113,25 +113,3 @@ export function memlogTick(rows: number): void {
 
 /** 工具段落渲染前打点（不节流，每个 tool 段落一次）：记录将渲染的工具名 + 当前内存。
  * 用于对齐「渲染哪个工具时内存爬升 / 崩溃」。 */
-export function memlogTool(tools: readonly string[]): void {
-  if (!enabled || path === "") return;
-  let text = "";
-  try {
-    text = [
-      new Date(Date.now()).toISOString(),
-      "TOOL",
-      `heap=${heap()}MB`,
-      `rss=${rss()}MB`,
-      "names=" + (tools.length > 0 ? tools.join(",") : "<none>"),
-    ].join(" ");
-  } catch {
-    return;
-  }
-  try {
-    const dir = dirname(path);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    appendFileSync(path, text + "\n", "utf8");
-  } catch {
-    // 落盘失败不阻断渲染
-  }
-}

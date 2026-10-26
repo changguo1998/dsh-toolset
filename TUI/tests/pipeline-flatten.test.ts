@@ -27,17 +27,22 @@ function text(rows: ReturnType<typeof flatten>): string {
   return rows.map((r) => r.segments.map((s) => s.text).join("")).join("\n");
 }
 
-test("flatten：正文叶 prefix+body+suffix+tail 拼满 width", () => {
+test("flatten：正文叶 prefix+body+suffix 按列拼接（fillWith 补白到自身宽）", () => {
   const leaf: Leaf = {
     text: [{ text: "ab" }],
     prefix: { text: ">" },
     suffix: { text: "|" },
-    tail: { char: "." },
   };
-  const v: Node = { direction: "v", children: [leaf] };
+  const v: Node = {
+    direction: "v",
+    widthStyle: "fill",
+    fillWith: { text: "." },
+    children: [leaf],
+  };
   measure(v, 8, { vw: 8 });
   const rows = flatten(v, 8, { vw: 8 });
-  assert.equal(text(rows), ">ab|....", "prefix+body+suffix+tail");
+  // 叶自身 = >ab|（4 列），容器 fillWith 补到 8 列
+  assert.equal(text(rows), ">ab|....", "prefix+body+suffix+fillWith 补满");
 });
 
 test("flatten：Gap 空叶 → 裸空行（空行唯一来源）", () => {

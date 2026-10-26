@@ -138,8 +138,9 @@ export function route(
     for (const block of group.blocks) {
       const rule = ruleFor(block.source, final);
       if (rule.pane === "session") {
-        // steer 插队送达的用户块：与上一条输入之间留白
-        if (block.source === "user" && p.steer === true) {
+        // steer 插队送达的用户块：与**上一条输入**之间留白；会话区还没有内容（首条即 steer）
+        // 时不留——旧类径靠渲染器裁首行空行，新链不裁，故此处直接不产 Gap
+        if (block.source === "user" && p.steer === true && session.length > 0) {
           session.push({ kind: "gap", key: "blank@" + block.id } satisfies Gap);
         }
         // 会话区 user → 正文（assistant）之间留 1 行（旧 `spaceUserAssistant`）

@@ -85,9 +85,6 @@ export function turnBlankBetween(
   return TURN_BLANK[last]?.[current] === true;
 }
 
-/** 会话区留白：user 块之后接正文排 1 行（旧 `spaceUserAssistant`） */
-export const SESSION_BLANK_AFTER_USER = true;
-
 // ---------------- 类别开关 ----------------
 
 /** 网关：turn pane 的类别在显示档下是否可见（恒显项恒可见） */
