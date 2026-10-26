@@ -101,7 +101,7 @@ function renderQuota(
   config: ResolvedConfig,
 ): string {
   if (scope === "session") {
-    return `名额：session 档已揭示 ${runtime.grants.sessionCount()} / ${config.maxRevealed}（新增上限）。授权只增不减，本会话内不会收回。`;
+    return `session 档已揭示 ${runtime.grants.sessionCount()} 项，不设上限（授权只增不减，本会话内不会收回）。`;
   }
   return `容量：turn 档已揭示 ${runtime.grants.turnCount()} 项（钉住 ${runtime.grants.pinnedCount()} / ${config.maxPinned}）；turn 档不设新增上限，回合末按最久未用收敛，闲置超 TTL 也会收回。`;
 }
@@ -221,10 +221,6 @@ export function createConsultTool(runtime: ConsultRuntime): {
           }
           const [outcome] = runtime.reveal([name], args.scope, args.pin);
           if (outcome === undefined) continue;
-          if (outcome.result.status === "rejected-cap") {
-            notices.push("cap");
-            continue;
-          }
           granted.push(describeResult(runtime, name, outcome.result));
         }
       } else if (args.query !== undefined) {
@@ -253,10 +249,6 @@ export function createConsultTool(runtime: ConsultRuntime): {
         }
         if (fresh.length > 0) {
           for (const outcome of runtime.reveal(fresh, args.scope, args.pin)) {
-            if (outcome.result.status === "rejected-cap") {
-              notices.push("cap");
-              continue;
-            }
             granted.push(describeResult(runtime, outcome.name, outcome.result));
           }
         }
@@ -279,16 +271,9 @@ export function createConsultTool(runtime: ConsultRuntime): {
         if (lines.length > 0) lines.push("");
         lines.push(...sections);
       }
-      if (notices.includes("cap")) {
+      if (notices.length > 0) {
         if (lines.length > 0) lines.push("");
-        lines.push(
-          `已达新增揭示上限（${runtime.config.maxRevealed} / ${runtime.config.maxRevealed}），本次未揭示新工具。`,
-          '已授权的工具不受影响；如确需更多，可逐次改用 scope: "turn" 揭示，或结束会话重开。',
-        );
-      }
-      if (notices.some((item) => item !== "cap")) {
-        if (lines.length > 0) lines.push("");
-        lines.push(...notices.filter((item) => item !== "cap"));
+        lines.push(...notices);
       }
       if (lines.length === 0) lines.push(renderGroups(runtime.matcher));
       lines.push("", renderQuota(runtime, args.scope, runtime.config));

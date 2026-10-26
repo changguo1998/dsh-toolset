@@ -91,7 +91,7 @@ test("session 档：初始遮罩 9 核心 + 揭示替换 + 拦截文案", async 
   host.dispose();
 });
 
-test("session 档：超上限拒绝新增且不抽走已授权", async () => {
+test("session 档：不设新增上限，超过 maxRevealed 仍继续揭示且不抽走已授权", async () => {
   const host = createFakeHost({ schemas: schemas() });
   apply(host.ctx, { maxRevealed: 1 });
   const agent = host.addAgent({ id: "t2-agent" });
@@ -100,13 +100,17 @@ test("session 档：超上限拒绝新增且不抽走已授权", async () => {
   const execute = consultOf(host);
   const first = await execute({ names: ["task_decompose"] });
   assert.match(first.text, /已揭示/);
-  const before = host.activeMask();
 
   const second = await execute({ names: ["task_status"] });
-  assert.match(second.text, /已达新增揭示上限/);
-  assert.deepEqual(host.activeMask(), before);
-  assert.ok(!(host.activeMask() ?? []).includes("task_status"));
-  assert.ok((host.activeMask() ?? []).includes("task_decompose"));
+  assert.match(second.text, /已揭示/);
+  assert.ok(
+    (host.activeMask() ?? []).includes("task_status"),
+    "超出 maxRevealed 仍揭示",
+  );
+  assert.ok(
+    (host.activeMask() ?? []).includes("task_decompose"),
+    "已授权的未被抽走",
+  );
 
   host.dispose();
 });

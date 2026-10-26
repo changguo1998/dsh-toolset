@@ -2,8 +2,8 @@
  * state.ts — 每代理的授权状态机（纯数据 + 纯函数式方法，无宿主依赖）。
  *
  * 两档语义（见 DESIGN D3）：
- * - `session`：一次揭示在整个会话内可见，`turn/end` 不收回；`maxRevealed` 是
- *   新增揭示的硬上限，超限拒绝新增（不抽走已授权）。
+ * - `session`：一次揭示在整个会话内可见，`turn/end` 不收回；**不设新增上限**
+ *   （2026-10-27 用户裁定：咨询即授权，会话内只增不减，配额只会挡住后续需要的工具）。
  * - `turn`：揭示项在本回合有效，`turn/end` 按 LRU 收敛到 `maxRevealed` 容量，
  *   并支持 `ttlTurns` 闲置收回；`pin` 的项不参与收敛，受 `maxPinned` 限制。
  *
@@ -26,10 +26,10 @@ export interface GrantEntry {
 
 /** 一次揭示的结果。 */
 export interface GrantResult {
-  /** 是否新增了授权（false 表示已存在或被上限拒绝）。 */
+  /** 是否新增了授权（false 表示已存在）。 */
   granted: boolean;
-  /** 状态：新增 / 已存在 / session 超上限拒绝。 */
-  status: "granted" | "already" | "rejected-cap";
+  /** 状态：新增 / 已存在。 */
+  status: "granted" | "already";
   /** 请求了 pin 且确实生效。 */
   pinApplied: boolean;
   /** 请求了 pin 但未生效（session 档无意义，或 turn 档钉住名额已满）。 */
@@ -82,7 +82,7 @@ export class AgentGrants {
     return [...this.entries.keys()].sort((a, b) => a.localeCompare(b));
   }
 
-  /** session 项数量（`maxRevealed` 在 session 档的口径）。 */
+  /** session 项数量（仅用于展示，session 档不设上限）。 */
   sessionCount(): number {
     let count = 0;
     for (const entry of this.entries.values())
@@ -90,7 +90,7 @@ export class AgentGrants {
     return count;
   }
 
-  /** turn 项数量（`maxRevealed` 在 turn 档的口径，含钉住项）。 */
+  /** turn 项数量（`maxRevealed` 的唯一口径，含钉住项）。 */
   turnCount(): number {
     let count = 0;
     for (const entry of this.entries.values())
@@ -129,14 +129,6 @@ export class AgentGrants {
       return {
         granted: false,
         status: "already",
-        pinApplied: false,
-        pinIgnored: undefined,
-      };
-    }
-    if (scope === "session" && this.sessionCount() >= limits.maxRevealed) {
-      return {
-        granted: false,
-        status: "rejected-cap",
         pinApplied: false,
         pinIgnored: undefined,
       };

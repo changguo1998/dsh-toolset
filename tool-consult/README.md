@@ -20,7 +20,7 @@ DSH（DeepSeek Harness）工具咨询插件：模型用一句话描述「要做�
 | `maskMode` | `allowlist` | `allowlist` / `denylist` / `off` |
 | `initialTools` | 9 个核心工具 | 支持 `*` / `?` 通配 |
 | `applyTo` | `roots` | `roots`（只遮根代理）/ `all` |
-| `maxRevealed` | `12` | `session` 档新增揭示硬上限；`turn` 档回合内容量上限 |
+| `maxRevealed` | `12` | 仅 `turn` 档：回合内容量上限（`session` 档**不设上限**，2026-10-27 裁定） |
 | `revealScope` | `session` | 揭示作用域缺省档 |
 | `ttlTurns` | `0` | 仅 `turn` 档：闲置多少回合后收回（0 = 关闭） |
 | `maxPinned` | `3` | 仅 `turn` 档：同时钉住的上限 |

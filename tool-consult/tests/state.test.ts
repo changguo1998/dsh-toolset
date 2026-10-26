@@ -5,17 +5,24 @@ import { AgentGrants, type GrantLimits } from "../src/state.ts";
 
 const LIMITS: GrantLimits = { maxRevealed: 12, ttlTurns: 0, maxPinned: 3 };
 
-test("session 档：只增不减，超上限拒绝新增", () => {
+test("session 档：只增不减，且不设新增上限（maxRevealed 只管 turn 档）", () => {
   const grants = new AgentGrants("session");
   const limits = { ...LIMITS, maxRevealed: 1 };
   const first = grants.grant("a", "session", false, 1, limits);
   assert.equal(first.status, "granted");
   const again = grants.grant("a", "session", false, 2, limits);
   assert.equal(again.status, "already");
-  const second = grants.grant("b", "session", false, 2, limits);
-  assert.equal(second.status, "rejected-cap");
-  assert.deepEqual(grants.allowedNames(), ["a"]);
-  assert.equal(grants.sessionCount(), 1);
+  // 超 maxRevealed 也照常授权：2026-10-27 用户裁定取消会话揭示上限
+  for (let i = 0; i < 15; i += 1) {
+    assert.equal(
+      grants.grant(`b${i}`, "session", false, 2, limits).status,
+      "granted",
+    );
+  }
+  assert.equal(grants.sessionCount(), 16);
+  const names = grants.allowedNames();
+  assert.equal(names.length, 16);
+  assert.ok(names.includes("b14"), "第 16 个 session 揭示仍应授权");
 });
 
 test("session 档传 pin 被忽略", () => {

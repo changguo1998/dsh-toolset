@@ -26,7 +26,7 @@ export interface Config {
   initialTools?: string[];
   /** 遮罩范围（缺省 `roots`：只遮根代理，子代理不动）。 */
   applyTo?: ApplyTo;
-  /** session 档：新增揭示硬上限；turn 档：回合内容量上限（缺省 12）。 */
+  /** 仅 turn 档：回合内容量上限（缺省 12）。session 档不设上限（2026-10-27 裁定）。 */
   maxRevealed?: number;
   /** 揭示作用域缺省档（缺省 `session`）。 */
   revealScope?: RevealScope;
