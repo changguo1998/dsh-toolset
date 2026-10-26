@@ -62,7 +62,7 @@ const pipeline = (script: BlockDelivery[]): string[] =>
     },
   )
     .activity.map((row) => rowText(row))
-    .map((text) => text.replace(/^┃+/, ""))
+    .map((text) => text.replace(/^┃+/, "").replace(/ +$/, ""))
     .filter((text) => !text.startsWith("╌╌"));
 
 /** 去掉 turn / step 的交付类型（分布式 Omit：保留联合各分支的判别字段） */
@@ -217,13 +217,14 @@ test("配对：callId 优先（结果乱序到达也能对上成败标记）", (
       { kind: "tool-result", callId: "a", ok: true, detail: "ok1" },
     ),
   );
+  // 结果紧跟各自的调用（ToolBatch 产序：名字行 → 参数行 → 该调用的结果行）
   assert.deepEqual(out, [
     "✓ read",
     "    path p1",
+    "  ok1",
     "✗ grep",
     "    pattern p2",
     "  no match",
-    "  ok1",
   ]);
 });
 
@@ -236,7 +237,8 @@ test("配对：缺 callId → 按到达顺序；并发多调用各出一行标�
       { kind: "tool-result", ok: false, detail: "r2" },
     ),
   );
-  assert.deepEqual(out, ["✓ read", "    a", "✗ grep", "    b", "  r1", "  r2"]);
+  // 缺 callId 的结果按到达顺序配给未配对调用，配对后仍紧跟各自调用
+  assert.deepEqual(out, ["✓ read", "    a", "  r1", "✗ grep", "    b", "  r2"]);
   // 三个在飞调用 → 三行名字行（各带独立标记）
   const pending = pipeline(
     step(

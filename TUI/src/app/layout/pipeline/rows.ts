@@ -776,16 +776,18 @@ export function renderPaneNew(
     // 按树锁定，这里不再重复传
     normalize: options.normalize,
   };
-  const { session, turn } = buildTrees(
+  const trees = buildTrees(
     pane === "dialogue" ? items : [],
     pane === "activity" ? items : [],
     struct,
   );
-  const root = pane === "dialogue" ? session : turn;
+  const root = pane === "dialogue" ? trees.session : trees.turn;
+  const slots = pane === "dialogue" ? trees.sessionSlots : trees.turnSlots;
   measure(root, width, { vw });
-  // 逐 item 摊平 + 缓存：**只缓存「已定型历史」里静态渲染的 item**（非流活节、非用户块，
-  // 用户块符号 / 工具相位为刷新型每帧重算）。键 = pane/宽/紧凑 + 保留编号 + 内容签名。
-  const rootChildren = isLeaf(root) ? [root] : root.children;
+  // 逐槽位摊平 + 缓存（槽位 = pane 根的一个顶层子节点，可能覆盖多个条目——分组合并时
+  // 槽位数少于条目数）：**只缓存「已定型历史」里静态渲染的槽位**（非流活节、非用户块，
+  // 用户块符号 / 工具相位为刷新型每帧重算）。键 = pane/宽/紧凑 + 成员键与内容签名。
+  // 行归属 = 槽位行按各成员节点的实测高度切片（摊平行数 = Σ节点高度的不变式）。
   const keyHead = [
     pane,
     width,
@@ -794,32 +796,49 @@ export function renderPaneNew(
     JSON.stringify(options.activityCompact ?? {}),
   ].join("|");
   const liveIds = options.liveSectionIds;
-  const perItem: ContentRow[][] = [];
-  for (let i = 0; i < items.length; i++) {
-    const node = rootChildren[i];
-    const item = items[i]!;
-    const id = newItemKey(item);
+  const perItem: ContentRow[][] = items.map(() => []);
+  for (const slot of slots) {
     // 刷新型：流活节成员、用户块（符号实时）→ 不入缓存、每帧重算
-    const isLive =
-      (item as { source?: string }).source === "user" ||
-      (liveIds !== undefined &&
-        liveIds.size > 0 &&
-        [...liveIds].some((p) => id.startsWith(p + ":")));
-    if (isLive) {
-      perItem[i] = node ? flatten(node, width, { vw }) : [];
-      continue;
+    const isLive = slot.members.some((m) => {
+      const item = items[m.index]!;
+      const id = newItemKey(item);
+      return (
+        (item as { source?: string }).source === "user" ||
+        (liveIds !== undefined &&
+          liveIds.size > 0 &&
+          [...liveIds].some((p) => id.startsWith(p + ":")))
+      );
+    });
+    const ck =
+      keyHead +
+      "|" +
+      slot.members
+        .map((m) => {
+          const item = items[m.index]!;
+          return newItemKey(item) + "|" + JSON.stringify(item);
+        })
+        .join("\u0000");
+    const cached = isLive ? undefined : newRowCache.get(ck);
+    let produced = cached;
+    if (produced === undefined) {
+      if (!isLive) misses += 1;
+      produced = flatten(slot.node, width, { vw });
+      if (!isLive) {
+        if (newRowCache.size > 8192) newRowCache.clear(); // 兜底防膨胀
+        newRowCache.set(ck, produced);
+      }
     }
-    const ck = keyHead + "|" + id + "|" + JSON.stringify(item);
-    const hit = newRowCache.get(ck);
-    if (hit !== undefined) {
-      perItem[i] = hit;
-      continue;
-    }
-    misses += 1;
-    const produced = node ? flatten(node, width, { vw }) : [];
-    if (newRowCache.size > 8192) newRowCache.clear(); // 兜底防膨胀
-    newRowCache.set(ck, produced);
-    perItem[i] = produced;
+    // 按成员实测高度切片；末成员吃掉余量（高度与实产行数不符时也不丢行）
+    let offset = 0;
+    slot.members.forEach((m, k) => {
+      const isLast = k === slot.members.length - 1;
+      const measured = Math.max(0, m.node.height ?? 0);
+      const take = isLast
+        ? Math.max(0, produced!.length - offset)
+        : Math.min(measured, Math.max(0, produced!.length - offset));
+      perItem[m.index] = produced!.slice(offset, offset + take);
+      offset += take;
+    });
   }
   const rows: ContentRow[] = [];
   const counts: number[] = [];

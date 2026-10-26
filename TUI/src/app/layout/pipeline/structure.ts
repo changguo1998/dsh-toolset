@@ -34,7 +34,31 @@ import type {
 } from "./ir.ts";
 import { isNode } from "./ir.ts";
 
-export type PaneTrees = { session: LayoutTree; turn: LayoutTree };
+/** 槽位成员：一个 PaneItem 与它在树里的节点（measure 后带 height） */
+export interface SlotMember {
+  /** items[] 里的下标 */
+  index: number;
+  node: Node | Leaf;
+}
+
+/**
+ * 摊平槽位：pane 根的一个顶层子节点（一段可独立摊平的行来源）及其覆盖的条目。
+ *
+ * 分组合并（同一 section 的 user / assistant / reasoning 块共用一个盒）使槽位数可能
+ * 少于条目数——行归属必须按本表切片，不能用 `items[i]` 对齐根 `children[i]`（早前正是
+ * 按下标对齐，导致 counts / kind 错位、分隔线丢 ╌ 补白）。
+ */
+export interface PaneSlot {
+  node: Node | Leaf;
+  members: SlotMember[];
+}
+
+export type PaneTrees = {
+  session: LayoutTree;
+  turn: LayoutTree;
+  sessionSlots: PaneSlot[];
+  turnSlots: PaneSlot[];
+};
 export type LayoutTree = Node | Leaf;
 
 /** §4 结构阶段的 width 无关选项（块形态按它决定；width 相关一律留给 measure/flatten） */
@@ -148,34 +172,26 @@ function toList(
   block: Extract<Block, { kind: "list" }>,
   opts?: StructureOptions,
 ): Node {
-  // 逐条目标记（有序编号 / 任务复选框走 order，普通无序走 marker）；标记列宽 = 最宽标记的
-  // 显示宽 —— 纯字符串度量，与可用宽无关，故在 §4 定死
+  // 逐条目标记（有序编号 / 任务复选框走 order，普通无序走 marker）。标记列宽 = **该条目
+  // 自身标记的显示宽**（用户裁定：不统一列宽）；纯字符串度量，与可用宽无关，故在 §4 定死
   const marks = block.items.map(
     (_, i) => block.order?.[i] ?? block.marker ?? "• ",
   );
-  const markW = Math.max(1, ...marks.map((m) => displayWidth(m)));
   return {
     direction: "v",
-    children: block.items.map((item, i) =>
-      listItemBox(item, marks[i]!, markW, opts),
-    ),
+    children: block.items.map((item, i) => listItemBox(item, marks[i]!, opts)),
   };
 }
 
 /** 列表条目 → `h[标记盒, 条目盒]`，两个子项都是 Box（容器层 children 恒为 Box）。
  *  标记取条目文本首段（parse 产出保证：`• ` / `1. ` / `[x] ` / `[ ] ` 各条目自带），
  *  其余文本按行拆叶进条目盒；非文本条目（嵌套块）直接成盒，没有标记列。 */
-function listItemBox(
-  item: Block,
-  mark: string,
-  markW: number,
-  opts?: StructureOptions,
-): Node {
-  // 标记格定宽：同一列表所有条目共用，正文列因此对齐；非段落条目也补空标记格
+function listItemBox(item: Block, mark: string, opts?: StructureOptions): Node {
+  // 标记格按条目自身标记宽定宽（不统一列宽 → 同层正文列不齐，属用户裁定口径）
   const markBox: Node = {
     direction: "v",
     widthStyle: "fixed",
-    widthFixed: markW,
+    widthFixed: Math.max(1, displayWidth(mark)),
     children: [mark === "" ? leaf([]) : leaf([{ text: mark }])],
   };
   const content =
@@ -335,12 +351,17 @@ function toToolBatch(batch: ToolBatch): Node {
       const fail = unit.result.ok !== true;
       const orphan = unit.orphan === true;
       const marker = orphan ? (fail ? "✗ " : "✓ ") : "";
+      const markerColor = fail ? ("red" as const) : ("green" as const);
       children.push(
-        rowBox(2, leaf(marker === "" ? [] : [{ text: marker }]), [
-          leaf([{ text, ...(fail ? { color: "red" as const } : {}) }], {
-            rowKind: "tool-result",
-          }),
-        ]),
+        rowBox(
+          2,
+          leaf(marker === "" ? [] : [{ text: marker, color: markerColor }]),
+          [
+            leaf([{ text, ...(fail ? { color: "red" as const } : {}) }], {
+              rowKind: "tool-result",
+            }),
+          ],
+        ),
       );
     }
   }
@@ -421,10 +442,26 @@ function toStepHeader(item: Extract<PaneItem, { kind: "step-header" }>): Node {
   ]);
 }
 
+/** 回合分隔线：无标签（untitled / 缺时间）时**不出文本盒**——空叶会占 1 列空白，
+ *  把纯虚线挤成「空格 + ╌」（`/^╌+$/` 这类整行断言因此失败）。 */
 function toTurnHeader(item: Extract<PaneItem, { kind: "turn-header" }>): Node {
   const label =
     item.untitled === true ? "" : turnHeaderLine(item.turn, item.time);
-  return toHeader(label === "" ? [] : [{ text: `╌╌ ${label} ` }]);
+  if (label === "") {
+    return {
+      direction: "h",
+      widthStyle: "fill",
+      children: [
+        {
+          direction: "v",
+          widthStyle: "fill",
+          fillWith: { text: "╌" },
+          children: [leaf([])],
+        },
+      ],
+    };
+  }
+  return toHeader([{ text: `╌╌ ${label} ` }]);
 }
 
 /** 空行（Gap）：与头部同形但不带 tail——`Box(h)[空文本盒]`，摊平出一行空行 */
@@ -498,40 +535,51 @@ function toNodeItem(
   }
 }
 
-/** PaneItem[] → 单个 v 容器 Node（pane 的根；每个 PaneItem 一项，
- *  同一 section 的用户输入块合并成一个用户盒） */
+/**
+ * PaneItem[] → pane 根（单个 v 容器）+ 槽位表（每个顶层子节点 → 它覆盖的条目）。
+ * 同一 section 的 user / assistant / reasoning 块合并进同一个盒，故槽位数可能少于条目数。
+ */
 function toPaneTree(
   items: readonly PaneItem[],
   opts?: StructureOptions,
-): LayoutTree {
+): { root: LayoutTree; slots: PaneSlot[] } {
   const out: (Node | Leaf)[] = [];
+  const slots: PaneSlot[] = [];
   for (let i = 0; i < items.length; i++) {
     const key = groupKeyOf(items[i]!);
     // 不属于 {user, assistant, reasoning} 的条目（gap / 工具批 / 头 / 分隔）各自独立成项
     if (key === undefined) {
       const node = toNodeItem(items[i]!, opts);
-      if (node !== null) out.push(node);
+      if (node !== null) {
+        out.push(node);
+        slots.push({ node, members: [{ index: i, node }] });
+      }
       continue;
     }
     const inner: (Node | Leaf)[] = [];
+    const members: SlotMember[] = [];
     let j = i;
     for (; j < items.length && groupKeyOf(items[j]!) === key; j++) {
       const node = toNodeItem(items[j]!, opts);
-      if (node !== null) inner.push(node);
+      if (node !== null) {
+        inner.push(node);
+        members.push({ index: j, node });
+      }
     }
     const src = sourceOf(items[i]!) ?? "assistant";
-    out.push(
+    const wrapper =
       src === "user"
         ? toUserBox(
             opts?.userSym?.(userOf(items[i]!)),
             inner,
             opts?.gutter ?? 0,
           )
-        : toBarBox(bar(src), inner, opts),
-    );
+        : toBarBox(bar(src), inner, opts);
+    out.push(wrapper);
+    slots.push({ node: wrapper, members });
     i = j - 1;
   }
-  return { direction: "v", id: undefined, children: out };
+  return { root: { direction: "v", id: undefined, children: out }, slots };
 }
 
 /**
@@ -556,10 +604,10 @@ function sourceOf(item: PaneItem): BlockSource | undefined {
 
 /** 正文 / 思考盒：盒形按 pane 区分。
  *
- *  - **会话区**（形状已定）：`h[prefix "┃ ", 内容 v, suffix 右缘空格]`——prefix 自带尾随空格
- *    （竖线 + 空格 = 2 列）并计宽；右缘留白由空格 suffix 承担
- *    （原 `rightGutter` 已删），逐行绘制；空格数待细调（现取 `gutter`）。
- *  - **活动区**（形状未定）：暂维持单竖线 `┃`、无右缘留白。
+ *  - **会话区**（形状已定）：`h[prefix "┃", 内容 v, suffix 空格]`——竖线后**不带空格**，
+ *    正文直接接在竖线之后（前缀计 1 列）；右缘留白 = `gutter − 1` 个空格（gutter 记左右
+ *    合计：gutter=4 → 3 个空格），逐行绘制。
+ *  - **活动区**（形状未定）：单竖线 `┃`、无右缘留白。
  *  整节一条竖线，不逐段重复。 */
 function toBarBox(
   barP: { text: string; style?: FrameStyle; minWidth?: number },
@@ -572,11 +620,12 @@ function toBarBox(
   if (opts?.pane === "turn") {
     return { direction: "h", prefix: barP, children: [inner] };
   }
+  // 右缘留白 = gutter − 1 列（gutter 记左右合计；竖线占 1 列）：gutter=4 → 3 个空格 suffix
   const gutter = Math.max(0, opts?.gutter ?? 0);
   return {
     direction: "h",
-    prefix: { ...barP, text: barP.text + " " },
-    ...(gutter > 0 ? { suffix: { text: " ".repeat(gutter) } } : {}),
+    prefix: barP,
+    ...(gutter > 1 ? { suffix: { text: " ".repeat(gutter - 1) } } : {}),
     children: [inner],
   };
 }
@@ -589,9 +638,13 @@ export function buildTrees(
 ): PaneTrees {
   // 每棵树锁定自己的 pane 形状：会话区 prefix "┃ " + 右缘留白，活动区单竖线无留白
   // （此前调用方漏传 pane 时活动区会被套成会话壳）
+  const sess = toPaneTree(session, { ...opts, pane: "session" });
+  const turnTree = toPaneTree(turn, { ...opts, pane: "turn" });
   return {
-    session: toPaneTree(session, { ...opts, pane: "session" }),
-    turn: toPaneTree(turn, { ...opts, pane: "turn" }),
+    session: sess.root,
+    turn: turnTree.root,
+    sessionSlots: sess.slots,
+    turnSlots: turnTree.slots,
   };
 }
 

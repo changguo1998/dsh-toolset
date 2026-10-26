@@ -52,7 +52,7 @@ function activity(s: AppState): string[] {
     activityTextW: 60,
     windowGroups: 10,
     render: { width: 60 },
-  }).activity.map((row) => rowText(row).replace(/^┃+/, ""));
+  }).activity.map((row) => rowText(row).replace(/^┃+/, "").replace(/ +$/, ""));
 }
 
 /** 依次投交付 → 回合区渲染行文本 */
@@ -157,8 +157,9 @@ test("B3 失败工具结果也参与分组：分组头先行", () => {
     (s) => withStep(s, 2, T0),
     (s) => withToolResult(s, false, "EACCES: 13", "c1"),
   ]);
-  // 落单结果（无对应调用）没有名字行可挂标记 → 行内自带 `✗`（决策 10 落单分支）
-  assert.deepEqual(rows.map(plain), [head(2), "  ✗ EACCES: 13"]);
+  // 落单结果（无对应调用）没有名字行可挂标记 → 行内自带 `✗`，标记列落第 0 列
+  // （与 ToolBatch 配对结果行同形制：标记列 0、详情列 2）
+  assert.deepEqual(rows.map(plain), [head(2), "✗ EACCES: 13"]);
 });
 
 test("B3 每步一条线：线随 step 声明出，落在未声明 step 上的工具行不产线", () => {

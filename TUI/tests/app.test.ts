@@ -3941,11 +3941,13 @@ test("tool-result 落单（无对应调用）→ 行内自带 ✓ / ✗ 且失�
   });
   const joined = renderer.lastRender.join("\n");
   const plain = joined.replace(/\u001b\[[0-9;]*m/g, "");
-  assert.ok(plain.includes("  ✓ done: 0"), "成功落单结果行（缩进 2 + ✓）");
-  assert.ok(plain.includes("  ✗ EACCES: 13"), "失败落单结果行（缩进 2 + ✗）");
+  // 标记列第 0 列（与 ToolBatch 配对结果行同形制：标记在 0、详情在 2）
+  assert.ok(plain.includes("✓ done: 0"), "成功落单结果行（标记列 0 + ✓）");
+  assert.ok(plain.includes("✗ EACCES: 13"), "失败落单结果行（标记列 0 + ✗）");
   assert.ok(
-    joined.includes("\x1b[38;2;253;0;19m  ✗ EACCES: 13"),
-    "失败结果行着红(253;0;19)",
+    joined.includes("\x1b[38;2;253;0;19m✗ ") &&
+      joined.includes("\x1b[38;2;253;0;19mEACCES: 13"),
+    "失败结果标记与详情着红(253;0;19)",
   );
 });
 
@@ -3970,8 +3972,8 @@ test("tool-result 落单 + 空 detail → 不挂结果行（静默工具口径�
   });
   const withDetail = renderer.lastRender.join("\n");
   assert.ok(
-    withDetail.replace(/\u001b\[[0-9;]*m/g, "").includes("  ✓ done"),
-    "有 detail 的落单结果照常渲染",
+    withDetail.replace(/\u001b\[[0-9;]*m/g, "").includes("✓ done"),
+    "有 detail 的落单结果照常渲染（标记列 0）",
   );
 });
 

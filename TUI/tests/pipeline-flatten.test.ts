@@ -127,7 +127,7 @@ test("flatten：用户块（结构树）摊平 → 首行含符号 + 右缘竖�
   assert.ok(t.trimEnd().endsWith("┃"), "右缘竖线");
 });
 
-test("flatten：会话外壳 prefix ┃␠ + gutter 空格 → 首行铺满视口宽", () => {
+test("flatten：会话外壳 prefix ┃ + 右缘 suffix → 首行铺满视口宽", () => {
   const para = parse(
     sec({ id: "1:1:0", body: { source: "assistant", text: "0".repeat(40) } }),
   )[0] as Paragraph;
@@ -137,8 +137,8 @@ test("flatten：会话外壳 prefix ┃␠ + gutter 空格 → 首行铺满视�
   measure(tree, width, { vw: width });
   const rows = flatten(tree, width, { vw: width });
   const first = text(rows).split("\n")[0]!;
-  // 会话外壳 = prefix "┃ "（2 列）+ 正文 + suffix gutter 空格；首行铺满视口宽，
-  // 正文宽 = width − 2 − gutter
-  assert.ok(first.startsWith("┃ "), "左缘竖线 + 空格");
+  // 会话外壳 = prefix "┃"（1 列，竖线后直接接正文）+ 正文 + suffix（gutter − 1 = 3 空格）；
+  // 正文宽 = width − 1 − (gutter − 1)
+  assert.ok(first.startsWith("┃0"), "竖线后直接接正文（无空格）");
   assert.equal(displayWidth(first), width, "首行 = 视口宽");
 });

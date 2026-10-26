@@ -1179,6 +1179,7 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   assert.ok(
     visible.some(
       (line) =>
+        // 会话区外壳 prefix = `┃`（竖线后直接接正文，不带空格）
         line.includes("模型回答") && histBody(line, 40).startsWith("┃模型"),
     ),
   );
@@ -1589,6 +1590,8 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   // cols=40 → historyWidth 依 metricsFor；文字排版宽再扣文字右缘留白（纵向 2 列）
   const m = metricsFor({ rows: 16, cols: 40 });
   const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
+  // 会话区外壳 prefix = `┃`（1 列，竖线后直接接正文）；右缘 suffix = gutter − 1 个空格
+  const BODY_BAR = 1;
   const bodyW = textW - DEFAULT_MESSAGE_GUTTER;
   let s = initialState();
   s = withText(s, "0123456789012345678901234567890123456789");
@@ -1600,17 +1603,17 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   assert.ok(rows.length >= 2, "超 gutter 宽的正文应软换行");
   for (const l of rows) {
     const body = histContent(l, 40);
-    // 助手行含左侧绿色竖线前缀（"│ " 2 列），正文本身仍 ≤ bodyW
+    // 助手行含左侧竖线（`┃` 1 列），正文本身仍 ≤ bodyW
     assert.ok(
-      body.length <= bodyW + 1,
+      body.length <= bodyW + BODY_BAR,
       `正文行右侧保留 gutter，不顶满右缘: ${l}`,
     );
   }
   const first = histContent(rows[0]!, 40);
   assert.equal(
     first.length,
-    bodyW + 1,
-    `默认 gutter=4：正文(含左侧竖线) = 文字排版宽 − gutter + 1（右缘留文字留白 + 焦点框列）`,
+    bodyW + BODY_BAR,
+    `默认 gutter=4：正文(含左侧竖线) = 排版宽 − gutter（右缘留 3 列文字留白）`,
   );
   // 用户块铺满宽度：右缘竖线贴历史区右缘（不随内容宽收缩）
   let u = initialState();
@@ -1876,9 +1879,9 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   assert.ok(rowAnsi(raw[thinkIdx]!).includes("\x1b[1m"), "thinking 粗体 SGR");
 });
 
-test("markdown 列表长项折行：续行不加缩进", () => {
-  // 集成：对话区真实渲染——续行在 assistant 左竖线之后直接接排，不留悬挂缩进
-  // （竖线为 UI 既有装饰字符，此处用码点转义书写）。
+test("markdown 列表长项折行：续行悬挂对齐到条目正文列", () => {
+  // 集成：对话区真实渲染——续行在 assistant 左竖线壳（`┃ `）之后按**标记宽度悬挂**
+  // 对齐到条目正文列（2026-10-26 口径：悬挂不再靠文本前导空格，而由标记盒定宽产生）
   let s = initialState();
   s = withText(s, "- ".concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(3)) + "\n");
   const raw = buildFrame(s, { rows: 24, cols: 80 });
@@ -1889,10 +1892,15 @@ test("markdown 列表长项折行：续行不加缩进", () => {
   // 取历史区正文段：最后一个框线竖线 `│` 之后；首行正文段再越过左缘 `┃`
   const body = (t: string): string => t.slice(t.lastIndexOf("\u2502") + 1);
   const cont0 = body(lines[0]!).replace(/^\u2503/, "");
-  // 续行没有竖线段，但 chrome 列仍占位 1 列；去掉这一列后正文应顶格（无悬挂缩进）
+  // 续行：`┃` 之后是标记宽度的空白（悬挂缩进 2 列），正文因此与条目首行同列
   const cont1 = body(lines[1]!).slice(1);
   assert.ok(cont0.startsWith("• "), "首行子弹前缀: " + JSON.stringify(cont0));
-  assert.ok(!cont1.startsWith(" "), "续行不加缩进: " + JSON.stringify(cont1));
+  const indent = (cont1.match(/^ */) ?? [""])[0].length;
+  assert.equal(
+    indent,
+    2,
+    "续行悬挂 = 标记宽（2 列）: " + JSON.stringify(cont1),
+  );
 });
 
 // ===== 阶段 2：usage 状态栏槽位 + 工具行/notice tone 着色 =====
@@ -1975,11 +1983,16 @@ test("buildFrame: 工具调用/结果行（*/+/x，失败着红）", () => {
     plain.includes("bash") && plain.includes("ls"),
     "工具块名字行 + 参数行（新形制）",
   );
-  assert.ok(plain.includes("总用量 0"), "成功结果行（缩进 2 的 detail）");
+  assert.ok(plain.includes("总用量 0"), "成功结果行（标记列 2 + detail）");
   assert.ok(plain.includes("EACCES: 13"), "失败结果行（整行红）");
+  // 落单结果自带 ✗，标记列落第 0 列；标记与详情各自成段，因此分开断言着色
   assert.ok(
-    joined.includes("\x1b[38;2;253;0;19m  ✗ EACCES: 13"),
-    "失败结果行着红(253;0;19)（落单结果自带 ✗）",
+    joined.includes("\x1b[38;2;253;0;19m✗ "),
+    "落单结果标记 ✗ 着红(253;0;19)",
+  );
+  assert.ok(
+    joined.includes("\x1b[38;2;253;0;19mEACCES: 13"),
+    "失败结果详情着红(253;0;19)",
   );
 });
 
@@ -2201,9 +2214,11 @@ test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行�
     "工具名着黄（无前缀图标）",
   );
   assert.ok(joined.includes("\x1b[38;2;97;211;131m✓"), "✓ 前缀着绿");
+  // 落单结果标记列第 0 列；标记与详情各自成段，分开断言着色
   assert.ok(
-    joined.includes("\x1b[38;2;253;0;19m  ✗ EACCES"),
-    "✗ 失败结果整行着红（落单结果自带 ✗，缩进 2）",
+    joined.includes("\x1b[38;2;253;0;19m✗ ") &&
+      joined.includes("\x1b[38;2;253;0;19mEACCES"),
+    "✗ 与失败详情均着红（落单结果自带 ✗，标记列第 0 列）",
   );
 });
 
