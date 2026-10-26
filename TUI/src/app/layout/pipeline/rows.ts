@@ -208,20 +208,20 @@ export function indexOfTop(
 import type { ActivitySwitches } from "../../state.ts";
 import type { ContentRow } from "../fill.ts";
 // ---- 新链路（§3-§7）接线桥 ----
-import { isLeaf } from "./ir.ts";
+import { isLeaf, sourceOf } from "./ir.ts";
 import type {
-  Node,
   PaneItem as NewPaneItem,
   UserRowInfo,
   Row as NewRow,
 } from "./ir.ts";
 import type { StructureOptions } from "./structure.ts";
-import { buildTrees, toUser } from "./structure.ts";
+import { buildTrees } from "./structure.ts";
 import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
 import { memlogTick } from "./memlog.ts";
 import { displayWidth } from "../markdown.ts";
 import { seg, truncateToWidth } from "../primitives.ts";
+import type { FrameSegment } from "../../../renderer/screen.ts";
 
 /**
  * 渲染选项（帧层透传）：宽相关项由 `renderPaneNew` 消费，宽无关项在 structure 期消费。
@@ -337,8 +337,7 @@ function newItemKind(item: NewPaneItem, row?: NewRow): string {
   if (row?.rowKind !== undefined) return row.rowKind;
   switch (item.kind) {
     case "paragraph": {
-      const source = (item as { source?: string }).source;
-      switch (source) {
+      switch (sourceOf(item)) {
         case "user":
           return "user";
         case "reasoning":
@@ -364,9 +363,7 @@ function newItemKind(item: NewPaneItem, row?: NewRow): string {
 
 /** 是否为会话区用户块（跳转目标） */
 function isNewUserItem(item: NewPaneItem): boolean {
-  return (
-    item.kind === "paragraph" && (item as { source?: string }).source === "user"
-  );
+  return item.kind === "paragraph" && sourceOf(item) === "user";
 }
 
 /** 活动区紧凑类别（/collapse think|tool|reply；会话区不折叠） */
@@ -376,7 +373,7 @@ function compactCategory(
   switch (item.kind) {
     case "paragraph": {
       // 三类才折叠：思考 / 正文（assistant）。notice / shell / user 不归三类，恒完整折行
-      const source = (item as { source?: string }).source;
+      const source = sourceOf(item);
       if (source === "reasoning") return "think";
       return source === "assistant" ? "reply" : undefined;
     }
@@ -391,22 +388,55 @@ function compactCategory(
  * 紧凑折叠（`/collapse`）：多行条目压成**一行**——取首行前 `width − 1` 列 + 行尾 `…`。
  * 超过一行才折叠；首行本身就放得下且只有一行时不加省略号（短条目不折叠）。
  */
+/** 段序列的可见文本（不含样式） */
+function segsText(segs: readonly FrameSegment[]): string {
+  return segs.map((s) => s.text).join("");
+}
+
+/** 去掉尾部空白段与末段的尾部空格（折行补白不入文本） */
+function trimTail(segs: readonly FrameSegment[]): FrameSegment[] {
+  const out = segs.filter((s) => s.text !== "");
+  while (out.length > 0 && out[out.length - 1]!.text.trim() === "") out.pop();
+  const last = out[out.length - 1];
+  if (last !== undefined && /\s+$/.test(last.text)) {
+    out[out.length - 1] = { ...last, text: last.text.replace(/\s+$/, "") };
+  }
+  return out;
+}
+
+/** 按显示宽度截断段序列（逐段保留样式；宽字符按列宽切） */
+function cutSegs(segs: readonly FrameSegment[], cols: number): FrameSegment[] {
+  const out: FrameSegment[] = [];
+  let left = cols;
+  for (const s of segs) {
+    if (left <= 0) break;
+    const w = displayWidth(s.text);
+    if (w <= left) {
+      out.push(s);
+      left -= w;
+      continue;
+    }
+    const head = truncateToWidth(s.text, left);
+    if (head !== "") out.push({ ...s, text: head });
+    left = 0;
+  }
+  return trimTail(out);
+}
+
+/**
+ * 紧凑折叠：多行条目压成首行 + 行尾省略号（`/collapse`）。
+ *
+ * 只取首行（单行放得下就原样），不把整块文本压平重排——首行已自带前缀（活动区的 `┃ `）
+ * 与各类样式，压平会让前缀降级成纯文本、颜色全丢。宽预算 = `width − 1`（给省略号留 1 列）。
+ */
 function foldRows(rows: readonly NewRow[], width: number): NewRow[] {
   if (rows.length === 0) return [];
-  const flat = (row: NewRow | undefined): string =>
-    (row?.segments ?? [])
-      .map((s) => s.text)
-      .join("")
-      .replace(/\s+$/, "");
-  // 单行且放得下 → 不折叠（短条目原样）
-  if (rows.length === 1 && displayWidth(flat(rows[0])) <= width - 1) {
-    return [rows[0]!];
-  }
-  // 多行 → 全部文本压成一行，取前 width − 1 列 + 行尾省略号
-  const text = rows.map(flat).join(" ").replace(/\s+/g, " ").trim();
-  if (text === "") return [rows[0]!];
-  const head = truncateToWidth(text, Math.max(1, width - 1));
-  return [{ segments: [seg(head), seg("…")] }];
+  const budget = Math.max(1, width - 1);
+  const first = rows[0]!;
+  const head = trimTail(first.segments);
+  if (rows.length === 1 && displayWidth(segsText(head)) <= budget)
+    return [first];
+  return [{ segments: [...cutSegs(head, budget), seg("…")] }];
 }
 
 /**
@@ -465,22 +495,17 @@ export function renderPaneNew(
       const item = items[m.index]!;
       const id = newItemKey(item);
       return (
-        (item as { source?: string }).source === "user" ||
+        sourceOf(item) === "user" ||
         (liveIds !== undefined &&
           liveIds.size > 0 &&
           [...liveIds].some((p) => id.startsWith(p + ":")))
       );
     });
-    // 遮蔽状态进键：同一块在「被剪枝 / 未剪枝」下产出的行不同（打灰），不能互相复用
-    const dimmed =
-      options.shadowedIds !== undefined &&
-      slot.members.some((m) => {
-        const id = (items[m.index] as { id?: string }).id;
-        return id !== undefined && options.shadowedIds!.has(id);
-      });
+    // 遮蔽状态进键：同一块在「被剪枝 / 未剪枝」下产出的行不同（打灰），不能互相复用。
+    // 判定直接读结构期打在节点上的 `dim`（structure 是唯一判定处），不在这里重算一遍。
     const ck =
       keyHead +
-      (dimmed ? "|dim" : "") +
+      (slot.node.dim === true ? "|dim" : "") +
       "|" +
       slot.members
         .map((m) => {
@@ -559,31 +584,20 @@ export function renderQueuedBlocks(
   options: { width: number; gutter?: number; vw?: number },
 ): ContentRow[] {
   if (entries.length === 0) return [];
-  const width = Math.max(1, options.width);
-  const vw = options.vw ?? width;
-  const gutter = Math.max(0, options.gutter ?? 0);
-  // 每条排队消息 = 一个用户段块 → 用户盒（右对齐 + 右缘竖线按排队类型着色）
-  const nodes = entries.map((entry) =>
-    toUser(
-      {
-        kind: "paragraph",
-        source: "user",
-        id: "queued",
-        span: [0, entry.text.length],
-        text: [{ text: entry.text }],
-        user: { queued: entry.kind },
-      },
-      undefined,
-      gutter,
-    ),
-  );
-  const root: Node = { direction: "v", children: nodes };
-  measure(root, width, { vw });
-  return nodes.flatMap((node) =>
-    flatten(node, width, { vw }).map((row) => ({
-      segments: row.segments,
-      kind: "user",
-      seq: 1_000_000_000,
-    })),
-  );
+  // 每条排队消息独立成节 → 各自一个用户盒（右对齐 + 右缘竖线按排队类型着色）。
+  // 走通用 pane 渲染：分组、盒形、行身份（seq）都由既有链路给，不另设一套。
+  const items: NewPaneItem[] = entries.map((entry, index) => ({
+    kind: "paragraph",
+    source: "user",
+    section: `queued:${index}`,
+    id: `queued:${index}`,
+    span: [0, entry.text.length],
+    text: [{ text: entry.text }],
+    user: { queued: entry.kind },
+  }));
+  return renderPaneNew(items, "dialogue", {
+    width: options.width,
+    ...(options.gutter === undefined ? {} : { gutter: options.gutter }),
+    ...(options.vw === undefined ? {} : { vw: options.vw }),
+  }).rows;
 }

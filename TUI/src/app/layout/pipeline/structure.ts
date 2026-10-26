@@ -32,7 +32,7 @@ import type {
   ToolBatch,
   UserRowInfo,
 } from "./ir.ts";
-import { isNode } from "./ir.ts";
+import { isNode, sourceOf } from "./ir.ts";
 
 /** 槽位成员：一个 PaneItem 与它在树里的节点（measure 后带 height） */
 export interface SlotMember {
@@ -221,7 +221,8 @@ function userRightEdge(fg: StyledStr["color"] = "brightRed"): {
   };
 }
 
-/** 排队块的右缘竖线颜色（旧口径 `build-box` 同款）：steer 黄 / followup 灰 / 已发出亮红 */
+/** 排队块的右缘竖线颜色（旧口径同款）：steer 黄 / followup 灰；非排队（已发出）返回
+ *  undefined → 由 `userRightEdge` 的默认值给亮红 */
 function queuedEdgeFg(
   user: UserRowInfo | undefined,
 ): StyledStr["color"] | undefined {
@@ -238,7 +239,9 @@ function queuedEdgeFg(
  *  内容 v 的子节点是这条输入解析出的全部块（段落 / 列表 / 代码）；摊平后各行同宽，
  *  故块与块左缘、右缘都对齐。spacer(fill) 吃剩余列 → 整块右对齐，`align: right`
  *  让摊平阶段的补白落在内容左侧，与 spacer 同侧。 */
-function toUserBox(
+/** 用户盒外壳（用户给定结构）：spacer + 状态符号格 + 内容 v + 右缘竖线。
+ *  导出供单测直接验形态；生产路径只经 `toPaneTree` 调用。 */
+export function toUserBox(
   sym: { text: string; fg?: string } | undefined,
   children: (Node | Leaf)[],
   gutter: number,
@@ -432,19 +435,21 @@ function rowBox(
  * - tail 盒：`widthStyle: "fill"` 吃满剩余列，内空叶带 `tail: ╌` → 逐格铺满
  *   颜色 / 宽度都由 flatten 读节点字段得出，不在本节现造。
  */
+/** 头行：左侧标签 + 右侧填充线占满整行（标签为空则整行只有填充线） */
 function toHeader(label: StyledText): Node {
+  const fill: Node = {
+    direction: "v",
+    widthStyle: "fill",
+    fillWith: { text: "╌" },
+    children: [leaf([])],
+  };
   return {
     direction: "h",
     widthStyle: "fill",
-    children: [
-      { direction: "v", children: [leaf(label)] },
-      {
-        direction: "v",
-        widthStyle: "fill",
-        fillWith: { text: "╌" },
-        children: [leaf([])],
-      },
-    ],
+    children:
+      label.length === 0
+        ? [fill]
+        : [{ direction: "v", children: [leaf(label)] }, fill],
   };
 }
 
@@ -454,26 +459,10 @@ function toStepHeader(item: Extract<PaneItem, { kind: "step-header" }>): Node {
   ]);
 }
 
-/** 回合分隔线：无标签（untitled / 缺时间）时**不出文本盒**——空叶会占 1 列空白，
- *  把纯虚线挤成「空格 + ╌」（`/^╌+$/` 这类整行断言因此失败）。 */
 function toTurnHeader(item: Extract<PaneItem, { kind: "turn-header" }>): Node {
   const label =
     item.untitled === true ? "" : turnHeaderLine(item.turn, item.time);
-  if (label === "") {
-    return {
-      direction: "h",
-      widthStyle: "fill",
-      children: [
-        {
-          direction: "v",
-          widthStyle: "fill",
-          fillWith: { text: "╌" },
-          children: [leaf([])],
-        },
-      ],
-    };
-  }
-  return toHeader([{ text: `╌╌ ${label} ` }]);
+  return toHeader(label === "" ? [] : [{ text: `╌╌ ${label} ` }]);
 }
 
 /** 空行（Gap）：与头部同形但不带 tail——`Box(h)[空文本盒]`，摊平出一行空行 */
@@ -523,15 +512,12 @@ function applyNormalize(
 }
 
 /** 块 → 节点（命中遮蔽集合时打 `dim` 标记，颜色落 §6 摊平） */
+/** 条目 → 节点（不打灰：打灰标记统一由 `toPaneTree` 打在 slot 的最外层盒上） */
 function toNodeItem(
   item: PaneItem,
   opts?: StructureOptions,
 ): Node | Leaf | null {
-  const node = toNodeItemRaw(item, opts);
-  if (node === null) return null;
-  const id = (item as { id?: string }).id;
-  if (id === undefined || opts?.shadowedIds?.has(id) !== true) return node;
-  return { ...node, dim: true };
+  return toNodeItemRaw(item, opts);
 }
 
 function toNodeItemRaw(
@@ -576,8 +562,11 @@ function toPaneTree(
     const key = groupKeyOf(items[i]!);
     // 不属于 {user, assistant, reasoning} 的条目（gap / 工具批 / 头 / 分隔）各自独立成项
     if (key === undefined) {
-      const node = toNodeItem(items[i]!, opts);
-      if (node !== null) {
+      const built = toNodeItem(items[i]!, opts);
+      if (built !== null) {
+        const node: Node | Leaf = shadowed(items[i]!, opts)
+          ? { ...built, dim: true }
+          : built;
         out.push(node);
         slots.push({ node, members: [{ index: i, node }] });
       }
@@ -594,7 +583,7 @@ function toPaneTree(
       }
     }
     const src = sourceOf(items[i]!) ?? "assistant";
-    const wrapper =
+    const built =
       src === "user"
         ? toUserBox(
             opts?.userSym?.(userOf(items[i]!)),
@@ -603,6 +592,9 @@ function toPaneTree(
             queuedEdgeFg(userOf(items[i]!)),
           )
         : toBarBox(bar(src), inner, opts);
+    // 打灰标记顶到盒外层：§6 摊平只认一个入口（盒节点），缓存键也读这一处
+    const dimmed = members.some((m) => shadowed(items[m.index]!, opts));
+    const wrapper: Node = dimmed ? { ...built, dim: true } : built;
     out.push(wrapper);
     slots.push({ node: wrapper, members });
     i = j - 1;
@@ -625,9 +617,10 @@ function groupKeyOf(item: PaneItem): string | undefined {
   return source + "\u0000" + section;
 }
 
-/** 条目来源（只有块带；头 / gap / 工具批返回 undefined） */
-function sourceOf(item: PaneItem): BlockSource | undefined {
-  return (item as { source?: BlockSource }).source;
+/** 该条目是否命中压缩剪枝遮蔽集合（打灰判定的唯一出处） */
+function shadowed(item: PaneItem, opts?: StructureOptions): boolean {
+  const id = (item as { id?: string }).id;
+  return id !== undefined && opts?.shadowedIds?.has(id) === true;
 }
 
 /** 正文 / 思考盒：盒形按 pane 区分。
@@ -677,21 +670,3 @@ export function buildTrees(
 }
 
 // ---------------- user 块：h(spacer, 符号, 内容 v) + 右缘后缀 ----------------
-
-/**
- * 一条用户输入 → 用户盒（结构见 `toUserBox`）：外层 `h` 铺满父宽、右缘 `┃`、
- * spacer 吃剩余列实现右对齐；内容 `v` 收这条输入解析出的全部块，同宽故块间左右缘
- * 都对齐。本层只定形态，符号内容由调用方（布局层）经 `userSym` 解析器注入。
- */
-export function toUser(
-  block: Paragraph,
-  sym?: { text: string; fg?: string },
-  gutter = 0,
-): Node {
-  return toUserBox(
-    sym,
-    [leaf(block.text, { balance: true })],
-    gutter,
-    queuedEdgeFg(block.user),
-  );
-}

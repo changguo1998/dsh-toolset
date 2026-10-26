@@ -31,7 +31,7 @@ import {
   prefixVisibleOf,
   suffixVisibleOf,
 } from "../src/app/layout/pipeline/measure.ts";
-import { toUser, buildTrees } from "../src/app/layout/pipeline/structure.ts";
+import { toUserBox, buildTrees } from "../src/app/layout/pipeline/structure.ts";
 import { isNode, type Node } from "../src/app/layout/pipeline/ir.ts";
 import { parse } from "../src/app/layout/pipeline/parse.ts";
 import type { ToolUnit } from "../src/app/layout/pipeline/tool-units.ts";
@@ -241,17 +241,11 @@ test("measure 高度模型：code / table 在 §5 展开成结构（先拆行后
   assert.equal(tblNode.table, undefined, "载荷已消费");
 });
 
-// ---------------- §4 structure.toUser 直接单测 ----------------
+// ---------------- §4 structure.toUserBox 直接单测 ----------------
 
-test("toUser：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () => {
-  const p: Paragraph = {
-    kind: "paragraph",
-    source: "user",
-    id: "u",
-    span: [0, 1],
-    text: [{ text: "hi" }],
-  };
-  const n = toUser(p, { text: "?" }, 4);
+test("toUserBox：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () => {
+  const inner = [{ direction: "v" as const, children: [] }];
+  const n = toUserBox({ text: "?" }, inner, 4);
   assert.equal(n.direction, "h", "外壳为 h");
   assert.equal(n.suffix?.text, "┃", "右缘竖线");
   assert.equal(n.align, undefined, "无块级对齐（补白只由 spacer 承担）");
@@ -261,7 +255,7 @@ test("toUser：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () => {
   assert.equal(symCell!.widthFixed, 2, "状态符号格 2 列");
   assert.equal(content!.direction, "v", "内容为 v 容器");
   // 无符号：只剩 spacer + 内容
-  const n2 = toUser(p, undefined, 4);
+  const n2 = toUserBox(undefined, inner, 4);
   assert.equal(n2.children.length, 2, "无符号时无符号格");
   assert.equal(n2.suffix?.text, "┃", "右缘竖线仍在");
 });

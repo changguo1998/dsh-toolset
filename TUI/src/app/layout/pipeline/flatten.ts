@@ -54,9 +54,10 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
     : [];
   const out: Row[] = rows.map((line, index) => {
     // 悬挂缩进：续行（第 0 行之后）前导补 hanging 列空白
-    const hangSegs: Seg[] =
-      hanging > 0 && index > 0 ? [seg(" ".repeat(hanging))] : [];
-    const padN = suffixOn ? Math.max(0, maxBodyW - rowW(line) - hanging) : 0;
+    const hangW = hanging > 0 && index > 0 ? hanging : 0;
+    const hangSegs: Seg[] = hangW > 0 ? [seg(" ".repeat(hangW))] : [];
+    // 后缀对齐：该行占宽（含悬挂缩进）补到最宽行，后缀才落在同一列
+    const padN = suffixOn ? Math.max(0, maxBodyW - hangW - rowW(line)) : 0;
     // 左缘装饰（prefix）每行同列；行级缩进交给「嵌套盒 + 展平补白」，不再用节点字段
     return {
       segments: [

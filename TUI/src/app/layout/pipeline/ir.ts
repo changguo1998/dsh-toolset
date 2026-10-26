@@ -67,6 +67,11 @@ export interface Section {
 }
 
 /** 用户块首行状态符号所需素材（旧 `userBlockSymbolResolver` 输入的子集） */
+/** 条目来源（只有块带；头 / gap / 工具批返回 undefined）——`(item as ...)` 转型的收口处 */
+export function sourceOf(item: PaneItem): BlockSource | undefined {
+  return (item as { source?: BlockSource }).source;
+}
+
 export interface UserRowInfo {
   /** 排队中（未发出的 followup / steer 用户消息） */
   queued?: "followup" | "steer";
