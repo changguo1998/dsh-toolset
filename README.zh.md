@@ -116,9 +116,18 @@ npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/�
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
-scripts/install.sh                 # profile 名默认 fff
-scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
+scripts/install.sh                 # profile 名默认 fff；同时生成 fff-test
+scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/--mode/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
 ```
+
+一次运行生成**两个** profile，只有插件链接方式不同：
+
+| profile | 依赖 | 是否跟仓库改动 | 用途 |
+| --- | --- | --- | --- |
+| `fff`（主） | `file:` 快照 | 不跟；重跑 `scripts/install.sh --profile fff --sync` 才刷新 | 正在跑的会话 / 验收 |
+| `fff-test` | `link:` 符号链接 | `npm run build` 后立即生效 | 新窗口实时开发 |
+
+主 profile 是真实副本：pnpm 对 `file:` 目录依赖默认用硬链接，脚本会再整包复制一次断开这些链接（否则仓库里的原地改写——如 `tsc` 输出——会顺着同一个 inode 串到 profile）。刷新靠脚本在安装前删掉 pnpm 的「已是最新」标记（pnpm 不跟踪 `file:` 目录的内容变化，已实测）。伴随 profile 直接复用主 profile 的成品 `dsh.profile.bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml`（逐字节相同），只把依赖值改成 `link:`。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
 
 脚本幂等：配置文件默认保留（`--force` 才覆盖），且仅在内容确有变化时写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` 按当前选择集刷新本仓库插件（已不在选择集的本仓库条目移除，用户自加条目保留），且不改写 `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。`--sync --force` 组合被拒（会覆盖 patch 并丢掉生成的接管片段）。生成片段按 patch 内容重建，带开关重跑只补缺；删除以 `# install.sh generated: title-takeover-` 开头的行即放弃接管。
 
@@ -129,12 +138,12 @@ scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-ds
 ```jsonc
 // <profile>/package.json
 {
-  "dependencies": { "@dsh-toolset/tui": "link:<本包路径>" },
+  "dependencies": { "@dsh-toolset/tui": "file:<本包路径>" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/tui"] } }
 }
 ```
 
-本地开发期使用 `link:` 依赖，构建产物经 symlink 实时可见，无需重新安装；正式发布形态为 `dsh plugin --profile <p> add <包名>`。核对组合树用 `dsh --profile <p> --dump-config`，启动用 `dsh --profile <p>`。
+依赖值二选一：`file:` 为稳定安装（安装时留副本，重跑安装才刷新），`link:` 为实时开发（构建产物经 symlink 立即可见）。正式发布形态为 `dsh plugin --profile <p> add <包名>`。核对组合树用 `dsh --profile <p> --dump-config`，启动用 `dsh --profile <p>`。
 
 仓库内 `profiles/example/` 是可直接复制的 profile 三件套示例（清单 + 用户层 patch + pnpm 配置），演示 `- id:` 覆盖与 `- insert:` 新增两种方言、`!!js` 表达式，以及权限预设表覆盖（自定义沙箱 + 审批捆绑预设）；部署步骤与边界见 `profiles/README.md`。
 

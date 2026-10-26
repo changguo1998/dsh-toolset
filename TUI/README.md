@@ -79,7 +79,7 @@ done
 ```jsonc
 // <profile>/package.json
 {
-  "dependencies": { "@dsh-toolset/tui": "link:<本包路径>" },
+  "dependencies": { "@dsh-toolset/tui": "file:<本包路径>" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/tui"] } }
 }
 ```
@@ -89,7 +89,7 @@ dsh --profile <p> --dump-config        # 应出现 - id: tui 行
 dsh --profile <p>                      # 启动（需要真实终端；真实链路还需模型凭据）
 ```
 
-本地开发用 `link:` 依赖：构建产物经 symlink 实时可见，源码变更后无需重新安装（勿用 `file:`——install 时复制快照且不跟踪目录内容变化）。从 npm 分发的正式安装形态为 `dsh plugin --profile <p> add <包名>`。
+依赖值二选一：`file:` 为稳定安装（安装时留副本，重跑安装才刷新；pnpm 对 `file:` 目录依赖用硬链接，需再复制一次才与仓库解耦），`link:` 为实时开发（构建产物经 symlink 立即生效，源码变更后无需重装）。`scripts/install.sh` 默认两者都建：主 profile 用 `file:`、伴随 `<名>-test` 用 `link:`。从 npm 分发的正式安装形态为 `dsh plugin --profile <p> add <包名>`。
 
 ## 界面布局
 

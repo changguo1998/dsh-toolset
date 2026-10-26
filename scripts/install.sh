@@ -4,6 +4,15 @@
 # 默认值：profile 名 fff、dsh 版本 0.2.1-rc.2、插件取 canonical_pkgs 全部包。
 # 本项目只用 TUI：agent 面由 profile 全局组合提供，脚本不配置 agent preset
 # （说明见 docs/host/AGENT-COMPOSITION.md）。
+#
+# 两个 profile（2026-10-27 起）：
+#   主 profile（默认 fff）      —— 依赖值 `file:`：pnpm 把插件按包内容落成 node_modules
+#                                  里的真实副本（快照）。改仓库源码不影响已在跑的会话，
+#                                  要生效须重跑本脚本（--sync）或在该 profile 里 pnpm install。
+#   伴随 profile（默认 fff-test）—— 依赖值 `link:`：符号链接指向仓库，改完 npm run build
+#                                  即在新窗口生效，供实时开发 / 验证。
+# 两者除依赖协议外完全一致：bundles、cordis.patch.yml、pnpm-workspace.yaml 及其它顶层
+# 字段都按主 profile 的最终产物复制。--no-test-profile 可只装主 profile。
 # 幂等：已存在的 profile 配置文件默认原样保留（--force 才覆盖）；写入与备份只发生
 # 在内容确有变化时（--sync 可反复执行；内容未变不写、不备份），确有变化时先备份
 # `.bak.<时间戳>`；只写 $DSH_HOME（默认 ~/.dsh）下的 profile 目录与本仓库，
@@ -15,6 +24,9 @@ set -eu
 dsh_version_default="0.2.1-rc.2"
 profile_name="fff"
 plugins_sel="all"
+dep_mode="copy"
+test_profile_opt=""
+enable_test_profile=1
 skip_dsh=0
 skip_build=0
 force=0
@@ -35,6 +47,12 @@ usage() {
 用法：scripts/install.sh [选项]
 
   --profile <名字>      dsh profile 名（默认 fff）
+  --mode <copy|link>    主 profile 的依赖形态（默认 copy）：
+                          copy = `file:`，pnpm 落快照副本，改仓库不影响已装内容（稳）；
+                          link = `link:`，符号链接指向仓库，改完 build 即生效（开发期）
+  --profile-test <名字> 伴随 profile 名（默认 <主名>-test，即 fff-test）：依赖一律 `link:`，
+                        其余内容按主 profile 最终产物复制，供新窗口实时开发
+  --no-test-profile     不生成伴随 profile（只装主 profile）
   --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = canonical_pkgs 全部包）
   --dsh-version <版本>  安装的 dsh 版本（默认 0.2.1-rc.2）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
@@ -122,6 +140,28 @@ while [ $# -gt 0 ]; do
             profile_name="${1#*=}"
             shift
             ;;
+        --mode)
+            [ $# -ge 2 ] || die "--mode 需要 copy 或 link"
+            dep_mode="$2"
+            shift 2
+            ;;
+        --mode=*)
+            dep_mode="${1#*=}"
+            shift
+            ;;
+        --profile-test)
+            [ $# -ge 2 ] || die "--profile-test 需要一个名字"
+            test_profile_opt="$2"
+            shift 2
+            ;;
+        --profile-test=*)
+            test_profile_opt="${1#*=}"
+            shift
+            ;;
+        --no-test-profile)
+            enable_test_profile=0
+            shift
+            ;;
         --plugins)
             [ $# -ge 2 ] || die "--plugins 需要列表或 all"
             plugins_sel="$2"
@@ -177,6 +217,16 @@ while [ $# -gt 0 ]; do
 done
 
 check_name "$profile_name" "profile 名"
+case "$dep_mode" in
+    copy | link) ;;
+    *) die "--mode 只接受 copy（file: 快照）或 link（符号链接）：$dep_mode" ;;
+esac
+test_profile=""
+if [ "$enable_test_profile" = 1 ]; then
+    test_profile="${test_profile_opt:-${profile_name}-test}"
+    check_name "$test_profile" "伴随 profile 名"
+    [ "$test_profile" != "$profile_name" ] || die "伴随 profile 名不能与主 profile 相同：$test_profile（用 --profile-test 换一个，或 --no-test-profile 关掉）"
+fi
 if [ "$take_over_title" = 1 ] && [ "$sync" != 1 ]; then
     die "--take-over-title 需要与 --sync 一起用（它更新已存在的 profile 的 cordis.patch.yml）"
 fi
@@ -454,7 +504,10 @@ if [ -e "$pdir" ] && [ ! -d "$pdir" ]; then
 fi
 run mkdir -p "$pdir"
 manifest="$pdir/package.json"
-# 生成 profile 清单：dependencies 用 link: 指向本仓库，bundles 声明要加载的层。
+# 主 profile 的依赖协议：copy → `file:`（pnpm 落快照副本），link → `link:`（符号链接）
+dep_proto="link"
+[ "$dep_mode" = "copy" ] && dep_proto="file"
+# 生成 profile 清单：dependencies 按 dep_proto 指向本仓库，bundles 声明要加载的层。
 render_manifest() {
     printf '{\n'
     printf '  "name": "dsh-profile-%s",\n' "$profile_name"
@@ -463,7 +516,7 @@ render_manifest() {
     # 键序与合并路径（--sync）一致：两条路径共用 node 默认排序（包名全 ASCII，等价于字节序）
     node -e '
 const fs = require("fs");
-const [root, ...dirs] = process.argv.slice(1);
+const [root, proto, ...dirs] = process.argv.slice(1);
 const rows = dirs
   .map((dir) => [
     JSON.parse(fs.readFileSync(`${root}/${dir}/package.json`, "utf8")).name,
@@ -474,11 +527,11 @@ process.stdout.write(
   rows
     .map(
       ([name, dir], i) =>
-        `    "${name}": "link:${root}/${dir}"${i === rows.length - 1 ? "" : ","}`,
+        `    "${name}": "${proto}:${root}/${dir}"${i === rows.length - 1 ? "" : ","}`,
     )
     .join("\n") + "\n",
 );
-' "$repo_root" $final
+' "$repo_root" "$dep_proto" $final
     printf '  },\n'
     printf '  "dsh": {\n    "profile": {\n      "bundles": [\n        "@deepseek-ai/dsh-base"'
     for d in $final; do
@@ -504,7 +557,8 @@ const argv = process.argv.slice(1);
 const split = argv.indexOf("--all");
 const head = split < 0 ? argv : argv.slice(0, split);
 const allDirs = split < 0 ? [] : argv.slice(split + 1);
-const [file, repoRoot, prefix, ...dirs] = head;
+const [file, repoRoot, proto, ...dirs] = head;
+const protoName = proto === "copy" ? "file" : "link";
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
 const readName = (dir) => {
   try {
@@ -517,12 +571,17 @@ const ours = new Set();
 // 仓库内全部插件名（canonical_pkgs）——用来区分「本仓库已移出选择集」与「用户自加」
 const repoNames = new Set(allDirs.map(readName).filter((name) => typeof name === "string"));
 manifest.dependencies ??= {};
-// 依赖值仍 link: 指向本仓库的既有条目也算「本仓库条目」：包改名后旧名已不在仓库目录列表里
-// （repoNames 取的是**当前**目录），只按名字判会被当成「用户自加」永久残留——依赖与 bundles
-// 各留一条、dsh 收尾自检只 WARN。改名时唯一没变的是 link 目标，故以它补判。
+// 依赖值仍 link: / file: 指向本仓库的既有条目也算「本仓库条目」：包改名后旧名已不在仓库
+// 目录列表里（repoNames 取的是**当前**目录），只按名字判会被当成「用户自加」永久残留——
+// 依赖与 bundles 各留一条、dsh 收尾自检只 WARN。改名时唯一没变的是链接目标，故以它补判；
+// 两种协议都认（主 profile 从 link: 切到 file: 时不留旧条目）。
 const linkedRepo = new Set(
   Object.entries(manifest.dependencies)
-    .filter(([, value]) => typeof value === "string" && value.startsWith(`${prefix}:${repoRoot}/`))
+    .filter(
+      ([, value]) =>
+        typeof value === "string" &&
+        [`link:${repoRoot}/`, `file:${repoRoot}/`].some((p) => value.startsWith(p)),
+    )
     .map(([name]) => name),
 );
 const isRepoEntry = (name) => repoNames.has(name) || linkedRepo.has(name);
@@ -530,7 +589,7 @@ for (const dir of dirs) {
   const name = readName(dir);
   if (name === undefined) continue;
   ours.add(name);
-  manifest.dependencies[name] = `link:${repoRoot}/${dir}`;
+  manifest.dependencies[name] = `${protoName}:${repoRoot}/${dir}`;
 }
 manifest.dsh ??= {};
 manifest.dsh.profile ??= {};
@@ -555,7 +614,7 @@ const extras = existing.filter(
 manifest.dsh.profile.bundles = ["@deepseek-ai/dsh-base", ...dirs.map(readName).filter((name) => name !== undefined), ...extras];
 process.stderr.write(`REMOVED_BUNDLES=${removedBundles.join(",")}\nREMOVED_DEPS=${removedDeps.join(",")}\nKEPT_EXTRAS=${extras.length}\n`);
 process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
-' "$manifest" "$repo_root" link $final --all $discovered 2> "$merge_err")"; then
+' "$manifest" "$repo_root" "$dep_mode" $final --all $discovered 2> "$merge_err")"; then
             # 排障信息（node 的报错）先回显，再清理并退出
             cat "$merge_err" >&2 2> /dev/null || true
             rm -f "$merge_err"
@@ -957,62 +1016,190 @@ case " $final " in
     *" memory-base "*) ;;
     *) warn "未选中 memory-base：profiles/example/cordis.patch.yml 里针对 - id: memory-base 的配置会被跳过" ;;
 esac
-log "profile 依赖：pnpm install（全部为 link: 本地包，无需联网下载本项目插件）"
+log "profile 依赖：pnpm install（依赖协议：$dep_proto；本地包，无需联网下载本项目插件）"
+# copy 模式要拿到**当前**仓库内容：pnpm 对 `file:` 目录依赖不跟踪内容变化（lockfile +
+# node_modules 标记为 up-to-date 时直接跳过），删掉它的「已是最新」标记逼它重建（幂等、无需联网）
+if [ "$dep_mode" = "copy" ] && [ "$dry_run" != 1 ]; then
+    rm -f "$pdir/node_modules/.modules.yaml" "$pdir/node_modules/.pnpm-workspace-state-v1.json"
+fi
 run_in "$pdir" pnpm install
+# 断开硬链接（copy 模式的关键一步）：pnpm 对 `file:` 目录依赖是把仓库文件**硬链接**进
+# profile，原地改写（tsc 重编译、`>>` 追加）会顺着同一个 inode 传到运行中的 profile。
+# 这里逐包整体复制一份再替换目录，让 profile 与新仓库内容彻底解耦（内容不变，只换 inode）。
+break_hardlinks() { # break_hardlinks <包目录>：有共享 inode 时整目录复制替换
+    entry="$1"
+    [ -d "$entry" ] && [ ! -L "$entry" ] || return 0
+    # 没有链接数 > 1 的文件 = 已是独立副本，跳过（保持幂等、不产生无谓 IO）
+    [ -n "$(find "$entry" -type f -links +1 -print -quit 2> /dev/null)" ] || return 0
+    stage="$entry.snapshot.$$"
+    rm -rf "$stage"
+    cp -R "$entry" "$stage" || {
+        rm -rf "$stage"
+        warn "复制快照失败：$entry（profile 仍与仓库共享文件，改代码可能影响运行中的会话）"
+        return 0
+    }
+    rm -rf "$entry" && mv "$stage" "$entry" ||
+        warn "替换快照目录失败：$entry（请手动删掉该目录后重跑 pnpm install）"
+}
 if [ "$dry_run" != 1 ]; then
+    if [ "$dep_mode" = "copy" ]; then
+        for d in $final; do
+            break_hardlinks "$pdir/node_modules/$(pkg_name "$d")"
+        done
+    fi
     for d in $final; do
-        [ -e "$pdir/node_modules/$(pkg_name "$d")" ] || warn "$pdir/node_modules 下缺少 $(pkg_name "$d")，启动前请手动 pnpm install"
+        pkg_entry="$pdir/node_modules/$(pkg_name "$d")"
+        [ -e "$pkg_entry" ] || warn "$pdir/node_modules 下缺少 $(pkg_name "$d")，启动前请手动 pnpm install"
+        # 形态自检：主 profile 应为真实目录（快照），不该还是指向仓库的符号链接
+        if [ "$dep_mode" = "copy" ] && [ -L "$pkg_entry" ]; then
+            warn "$pkg_entry 仍是符号链接（应为 file: 快照副本）：请在该 profile 里重跑 pnpm install，或先删掉 node_modules 再重跑本次安装"
+        fi
+        if [ "$dep_mode" = "copy" ] && [ -d "$pkg_entry" ] && [ -n "$(find "$pkg_entry" -type f -links +1 -print -quit 2> /dev/null)" ]; then
+            warn "$pkg_entry 内仍有与仓库共享的文件（硬链接），改代码可能影响运行中的会话"
+        fi
+        if [ "$dep_mode" = "link" ] && [ -d "$pkg_entry" ] && [ ! -L "$pkg_entry" ]; then
+            warn "$pkg_entry 是真实目录（--mode link 期望符号链接）：请先删掉 $pdir/node_modules 再重跑本次安装"
+        fi
     done
+fi
+
+# ── 4b/5 生成伴随 profile（软链接，默认 <主名>-test）────────────────────────
+# 派生规则：除依赖协议改为 link: 外，与主 profile 完全一致——bundles 与原样顶层字段取自
+# 主 profile 的最终 package.json，cordis.patch.yml / pnpm-workspace.yaml 直接复制主 profile
+# 的成品（不二次渲染，避免两条渲染路径漂移）。
+if [ -n "$test_profile" ]; then
+    # 前置：伴随 profile 是主 profile 的派生品，主清单不可读时不生成（也不 die——主 profile
+    # 的既有流程照旧，例如清单被外部写坏时用户只需修好再重跑）。
+    if [ ! -f "$manifest" ] || ! node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$manifest" 2> /dev/null; then
+        warn "主 profile 清单缺失或无法解析，跳过伴随 profile（$test_profile）生成：$manifest"
+        test_profile=""
+    fi
+fi
+if [ -n "$test_profile" ]; then
+    log "4b/5 生成伴随 profile（$test_profile，依赖 link: 指向本仓库）"
+    tpdir="$dsh_home/profiles/$test_profile"
+    if [ -e "$tpdir" ] && [ ! -d "$tpdir" ]; then
+        die "$tpdir 已存在且不是目录，请先移走或换一个伴随 profile 名（--profile-test）"
+    fi
+    if [ "$dry_run" = 1 ]; then
+        printf '[dry-run] 生成 %s（清单=%s 的 link: 版；资产复制自 %s）\n' "$tpdir" "$manifest" "$pdir"
+        printf '[dry-run] (cd %s && pnpm install)\n' "$tpdir"
+    else
+        run mkdir -p "$tpdir"
+        tmanifest="$tpdir/package.json"
+        tname="dsh-profile-$test_profile"
+        if ! tmanifest_next="$(node -e '
+const fs = require("fs");
+const [mainFile, name, repoRoot] = process.argv.slice(1);
+const main = JSON.parse(fs.readFileSync(mainFile, "utf8"));
+const out = JSON.parse(JSON.stringify(main));
+out.name = name;
+if (out.dependencies) {
+  // 本仓库的依赖一律改成 link:（其余依赖原样保留，保证两 profile 依赖清单同集）
+  out.dependencies = Object.fromEntries(
+    Object.entries(out.dependencies).map(([pkg, spec]) => {
+      const value = typeof spec === "string" ? spec : "";
+      const ours = [`file:${repoRoot}/`, `link:${repoRoot}/`].some((p) => value.startsWith(p));
+      return [pkg, ours ? `link:${value.slice(value.indexOf(":") + 1)}` : spec];
+    }),
+  );
+}
+process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+' "$manifest" "$tname" "$repo_root")"; then
+            die "生成伴随 profile 清单失败：$manifest -> $tmanifest"
+        fi
+        if [ -f "$tmanifest" ] && [ "$tmanifest_next" = "$(cat "$tmanifest")" ]; then
+            log "伴随清单内容未变，跳过备份与写入：$tmanifest"
+        else
+            backup "$tmanifest"
+            printf '%s\n' "$tmanifest_next" > "$tmanifest"
+            log "写入 $tmanifest（依赖 link: 指向本仓库，其余与主 profile 一致）"
+        fi
+        for asset in pnpm-workspace.yaml cordis.patch.yml; do
+            [ -f "$pdir/$asset" ] || continue
+            if [ -f "$tpdir/$asset" ] && cmp -s "$pdir/$asset" "$tpdir/$asset"; then
+                log "伴随 profile 的 $asset 与主 profile 一致，跳过复制"
+                continue
+            fi
+            backup "$tpdir/$asset"
+            run cp "$pdir/$asset" "$tpdir/$asset"
+        done
+        log "伴随 profile 依赖：pnpm install（依赖协议：link）"
+        run_in "$tpdir" pnpm install
+        for d in $final; do
+            pkg_name_d="$(pkg_name "$d")"
+            if [ ! -e "$tpdir/node_modules/$pkg_name_d" ]; then
+                warn "$tpdir/node_modules 下缺少 $pkg_name_d，启动前请手动 pnpm install"
+            elif [ ! -L "$tpdir/node_modules/$pkg_name_d" ]; then
+                warn "$tpdir/node_modules/$pkg_name_d 不是符号链接（伴随 profile 应为 link:）：请先删掉 $tpdir/node_modules 再重跑本次安装"
+            fi
+        done
+    fi
 fi
 
 # ── 5/5 完成 ────────────────────────────────────────────────────────────────
 # 收尾自检：代跑一次 --dump-config，捕捉「未命中条目 id」等 patch 告警（dsh 会顺带在
 # profile 目录物化 cordis.yml 等派生文件，仍在 $DSH_HOME 内）。告警不改变脚本退出码。
-if [ "$skip_verify" = 1 ]; then
-    log "按 --skip-verify 跳过收尾自检（--dump-config）"
-elif [ "$dry_run" = 1 ]; then
-    printf '[dry-run] DSH_HOME=%s dsh --profile %s --dump-config（收尾自检）\n' "$dsh_home" "$profile_name"
-elif ! have dsh; then
-    log "未找到 dsh，跳过收尾自检（--dump-config）"
-else
+verify_profile() { # verify_profile <profile 名>：代跑 --dump-config 并回显 stderr 前 20 行
+    vname="$1"
     # 2>&1 > /dev/null：stderr 进变量（先接到命令替换管道）、stdout 丢弃；< /dev/null 防交互挂起
-    if dump_err="$(DSH_HOME="$dsh_home" dsh --profile "$profile_name" --dump-config < /dev/null 2>&1 > /dev/null)"; then
+    if dump_err="$(DSH_HOME="$dsh_home" dsh --profile "$vname" --dump-config < /dev/null 2>&1 > /dev/null)"; then
         dump_rc=0
     else
         dump_rc=$?
     fi
     if [ "$dump_rc" = 0 ] && [ -z "$dump_err" ]; then
-        log "收尾自检通过：--dump-config 解析无告警（不实例化插件）"
-    else
-        warn "收尾自检未通过：dsh --profile $profile_name --dump-config（退出码 $dump_rc）"
-        warn "以下为 dsh stderr 原文（若与 profile patch 无关可忽略）："
-        if [ -n "$dump_err" ]; then
-            dump_lines="$(printf '%s\n' "$dump_err" | wc -l | tr -d ' ')"
-            printf '%s\n' "$dump_err" | sed -e 's/^/    /' -e '20q' >&2
-            [ "$dump_lines" -le 20 ] || warn "…（stderr 共 $dump_lines 行，仅显示前 20 行）"
-        fi
-        warn "排查提示：多为 profile 的 cordis.patch.yml 引用了未安装/不存在的条目 id；修正后重跑（或加 --skip-verify 跳过自检）"
+        log "收尾自检通过（$vname）：--dump-config 解析无告警（不实例化插件）"
+        return 0
     fi
+    warn "收尾自检未通过：dsh --profile $vname --dump-config（退出码 $dump_rc）"
+    warn "以下为 dsh stderr 原文（若与 profile patch 无关可忽略）："
+    if [ -n "$dump_err" ]; then
+        dump_lines="$(printf '%s\n' "$dump_err" | wc -l | tr -d ' ')"
+        printf '%s\n' "$dump_err" | sed -e 's/^/    /' -e '20q' >&2
+        [ "$dump_lines" -le 20 ] || warn "…（stderr 共 $dump_lines 行，仅显示前 20 行）"
+    fi
+    warn "排查提示：多为 profile 的 cordis.patch.yml 引用了未安装/不存在的条目 id；修正后重跑（或加 --skip-verify 跳过自检）"
+    return 1
+}
+if [ "$skip_verify" = 1 ]; then
+    log "按 --skip-verify 跳过收尾自检（--dump-config）"
+elif [ "$dry_run" = 1 ]; then
+    printf '[dry-run] DSH_HOME=%s dsh --profile %s --dump-config（收尾自检）\n' "$dsh_home" "$profile_name"
+    if [ -n "$test_profile" ]; then
+        printf '[dry-run] DSH_HOME=%s dsh --profile %s --dump-config（收尾自检）\n' "$dsh_home" "$test_profile"
+    fi
+elif ! have dsh; then
+    log "未找到 dsh，跳过收尾自检（--dump-config）"
+else
+    verify_profile "$profile_name" || true
+    [ -z "$test_profile" ] || verify_profile "$test_profile" || true
 fi
 log "5/5 完成"
 cat << EOF
 
 安装结果
   dsh           $(if have dsh; then dsh --version 2> /dev/null || echo "已装"; else echo "需重开终端"; fi)（目标 $dsh_version_default）
-  profile       $pdir（$(printf '%s' "$final" | wc -w) 个插件 + dsh-base；插件以 link: 指向本仓库）
-
+  profile       $pdir（$(printf '%s' "$final" | wc -w) 个插件 + dsh-base；依赖 ${dep_proto}: 快照副本，改仓库不影响已装内容）
+$(if [ -n "$test_profile" ]; then
+    printf '  profile-test  %s（同一套插件 / bundles / patch；依赖 link: 指向本仓库，改完 build 即生效）\n' "$tpdir"
+fi)
 后续步骤
   1) 核对组合树：dsh --profile $profile_name --dump-config
   2) 启动：      dsh --profile $profile_name
   3) 会话内：    /permission 看权限预设
-  4) 改插件后：  npm run build（无需重跑 pnpm install，link: 依赖经 symlink 实时生效）
-
+$(if [ -n "$test_profile" ]; then
+    printf '  4) 开发验证：  dsh --profile %s（改完 npm run build 即生效，无需重装）\n' "$test_profile"
+    printf '  5) 同步到主 profile：sh scripts/install.sh --profile %s --sync（重跑 pnpm install 刷新快照）\n' "$profile_name"
+else
+    printf '  4) 改插件后：  npm run build，然后重跑 sh scripts/install.sh --profile %s --sync 刷新快照\n' "$profile_name"
+fi)
 提示
   - 配置（provider/凭据/插件配置）由宿主按「profile 插件条目 id」命名空间写入 profile 的
     cordis.patch.yml；0.1.7 起 $dsh_home/settings.yaml 仅作一次性导入（自动改名 .imported）。
     本脚本不动这两处文件。
   - 本项目只用 TUI：agent 面走 profile 全局组合，不配置 agent preset；TUI 的 /preset
     提示「agent 预设服务不可用」属正常（依据见 docs/host/AGENT-COMPOSITION.md）。
-  - 收尾自检代跑 dsh --profile $profile_name --dump-config（dsh 会物化 cordis.yml 等派生文件）；
+  - 收尾自检代跑 dsh --profile <名字> --dump-config（dsh 会物化 cordis.yml 等派生文件）；
     「未命中条目 id」等 patch 告警见上方输出，修正后重跑；--skip-verify 可跳过自检。
 EOF

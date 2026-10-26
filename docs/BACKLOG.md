@@ -66,7 +66,6 @@
 
 > 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`npm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；过程记录 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
 
-
 > 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；过程记录 `docs/archived/2026-10-25-tool-description-lint.md`）。
 
 > 2026-10-25 关闭：条目「定位 clock-base 测试在并行负载下的偶发失败」完成并移出清单（提交 `97b655d`；失败用例为 `clock-base/tests/timers.test.ts:182`，改为假定时器并补「忙时跳过」语义用例，连跑 10 次 25/25 稳定；全仓 93 处等待类用例已排查，无其他同类隐患；过程记录 `docs/archived/2026-10-25-clock-base-parallel-flake.md`）。
@@ -97,6 +96,8 @@
 > 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/archived/2026-10-23-real-machine-verification.md`；过程记录 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
 > 2026-10-24 关闭：条目「4. 工具咨询插件（按需揭示工具）」完成并移出清单（实现 + 遮罩接线合并；真机验证：9 核心 + `consult_tools` 生效、揭示链路可用、未揭示调用被拦并给可行动文案；期间修掉 `tools/change` 自激死循环与 3 处工作流文案缺陷，提交 `105bb23` / `4d68858`；包内 49 例通过；过程记录 `tool-consult/docs/archived/2026-10-22-tool-consult.md`）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
+
+- **安装脚本双 profile：主 profile 走快照安装（`file:`），伴随 `<名>-test` 走软链接**〔进行中: 2026-10-27〕（登记 2026-10-27，来源 用户）：现状 `scripts/install.sh` 生成的 profile 依赖一律 `link:` 指向本仓库，改代码即对运行中的会话生效（正在跑的 agent 不稳）→ 期望主 profile（默认 `fff`）按正常安装落快照副本（`file:`，改仓库不影响已装内容），另生成 `<profiles>-test`（默认 `fff-test`）用 `link:` 做实时开发；两者除依赖协议外内容完全一致。优先级 P1。
 
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）过程记录全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。

@@ -46,10 +46,17 @@ scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使
 
 ## 构建 → 部署到 profile（本地迭代）
 
+`scripts/install.sh` 一次生成**两个** profile（`--profile fff` 即可，无需额外参数）：
+
+| profile | 依赖协议 | 生效方式 | 用途 |
+| --- | --- | --- | --- |
+| `fff`（主） | `file:` 快照 | 改仓库不影响；需重跑 `scripts/install.sh --profile fff --sync` 刷新 | 正在跑的会话 / 验收 |
+| `fff-test` | `link:` 符号链接 | 改完 `npm run build` 即生效 | 新窗口实时开发 |
+
 1. `npm run build` 编译到 `dist/`（产物性改动后按下方「变更流程」同步构建）。
-2. profile（`~/.dsh/profiles/fff`，参见 `TUI/README.md` 挂载示例）以 `link:` 依赖指向本 TUI 包，构建产物经 symlink 实时可见，**无需** `pnpm install`——直接 `dsh --profile fff` 即生效。
-3. 迭代回合：改代码 → `npm run build` → 重启 `dsh --profile fff`。
-4. 勿用 `file:` 依赖：install 时复制快照且 pnpm v11 不跟踪目录内容变化，源码变更后 profile 报 `ERR_MODULE_NOT_FOUND`（已实测踩坑）。
+2. 开发迭代走 `fff-test`：`dsh --profile fff-test`，改代码 → `npm run build` → 重启即看到新行为。
+3. 想让它进主 profile：`scripts/install.sh --profile fff --sync`——脚本会删掉 pnpm 的「已是最新」标记重新装、并在装完后断开 pnpm 建的硬链接（`file:` 目录依赖默认硬链接，原地改写会串到 profile；脚本逐包复制一份替换，使主 profile 与仓库彻底解耦）。只重跑 `pnpm install` 不刷新快照（pnpm 不跟踪目录内容变化，已实测）。
+4. 两个 profile 除依赖协议外内容一致（`dsh.profile.bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml` 由脚本按主 profile 成品复制）；`--no-test-profile` 可只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
 
 ## 变更流程
 

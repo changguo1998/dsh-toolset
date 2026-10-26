@@ -8,7 +8,7 @@
 
 | 文件 | 作用 |
 |------|------|
-| `example/package.json` | profile 清单：`dsh.profile.bundles` 列出要加载的 bundle 层，`dependencies` 用 `link:` 指向本仓库包 |
+| `example/package.json` | profile 清单：`dsh.profile.bundles` 列出要加载的 bundle 层，`dependencies` 指向本仓库包（`link:` 实时开发 / `file:` 稳定快照，见下方「用法」） |
 | `example/cordis.patch.yml` | 用户层 patch：`- id:` 覆盖既有条目、`- insert:` 新增条目；含个人模型配置的 `PROVIDER` / `MODEL` 占位写法 |
 | `example/pnpm-workspace.yaml` | profile 内 pnpm 行为（`nodeLinker: hoisted`），与宿主 `initProfile` 生成的默认内容一致 |
 
@@ -17,12 +17,14 @@
 一键安装（推荐，含 dsh、全部插件构建与 profile 挂载）：
 
 ```sh
-scripts/install.sh                 # profile 名默认 fff
-scripts/install.sh --profile dev   # 换 profile 名；--plugins 可只选哪些插件
+scripts/install.sh                 # profile 名默认 fff；同时生成 fff-test（软链接版）
+scripts/install.sh --profile dev   # 换 profile 名（伴随名 dev-test）；--plugins 可只选哪些插件
 scripts/install.sh --help          # 全部选项
 ```
 
-profile 侧脚本写下的都是**副本**（`package.json` / `cordis.patch.yml` / `pnpm-workspace.yaml`），只有 `package.json` 的 `link:` 依赖指向仓库里的插件包（插件代码，本地开发期靠它实时生效）；想让插件也不依赖仓库路径，用 `dsh plugin --profile <p> add <包名或 tarball>` 换成快照式安装。
+一次运行生成两个 profile，只有插件链接方式不同：主 profile（默认 `fff`）依赖值用 `file:`，pnpm 把插件内容落成 `node_modules` 下的真实副本并在装完后断开与仓库的硬链接（仓库改动不影响它，重跑安装才刷新）；伴随 profile（默认 `fff-test`）依赖值用 `link:`，改完 `npm run build` 即生效。两者除依赖协议外一致（`bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml` 都按主 profile 成品复制）。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
+
+profile 侧脚本写下的都是**副本**（`package.json` / `cordis.patch.yml` / `pnpm-workspace.yaml`）；插件本身按上面的协议指向仓库或留快照。想让插件彻底不依赖仓库路径，用 `dsh plugin --profile <p> add <包名或 tarball>` 换成发布式安装。
 
 手工复制（等价于脚本的 profile 步骤）：
 
@@ -30,11 +32,13 @@ profile 侧脚本写下的都是**副本**（`package.json` / `cordis.patch.yml`
 # 1) 复制示例到宿主 profile 目录（目录名 = `dsh --profile <名字>` 的名字）
 cp -r profiles/example ~/.dsh/profiles/myprofile
 
-# 2) 把 package.json 里的 link: 占位路径改成本仓库真实路径
-#    "link:/path/to/dsh-toolset/TUI" → "link:$PWD/TUI"，其余同理。
-#    勿改成 file:：pnpm v11 不跟踪目录内容变化，源码改动后 profile 会报 ERR_MODULE_NOT_FOUND。
+# 2) 把 package.json 里的依赖占位路径改成本仓库真实路径
+#    "link:/path/to/dsh-toolset/TUI" → "link:$PWD/TUI"（实时开发）
+#    或 "file:$PWD/TUI"（稳定快照；装完后再整包复制一份断开 pnpm 建的硬链接）。
+#    注意 pnpm v11 不跟踪 file: 目录的内容变化：改源码后要重装才生效
+#    （删掉 node_modules/.modules.yaml 再 pnpm install，scripts/install.sh 已代劳）。
 
-# 3) 装依赖：link: 指向本仓库包时可跳过；含第三方包时必须装
+# 3) 装依赖：全部指向本仓库包时可跳过（link:）或不联网（file:）；含第三方包时必须装
 cd ~/.dsh/profiles/myprofile && pnpm install
 
 # 4) 核对组合树后启动
@@ -44,7 +48,7 @@ dsh --profile myprofile
 
 ## 边界
 
-- 只放配置骨架，**不含凭据、令牌、私有端点或真实模型名**：模型 provider 名、访问凭据与端点由 profile patch 中的对应插件条目管理（如 `llm-pi-ai`），本目录**不包含它们**，个人模型配置一律以 `PROVIDER` / `MODEL` 占位、复制后替换；示例里的 `link:` 路径一律用 `/path/to/...` 占位，需自行替换。
+- 只放配置骨架，**不含凭据、令牌、私有端点或真实模型名**：模型 provider 名、访问凭据与端点由 profile patch 中的对应插件条目管理（如 `llm-pi-ai`），本目录**不包含它们**，个人模型配置一律以 `PROVIDER` / `MODEL` 占位、复制后替换；示例里的依赖路径一律用 `/path/to/...` 占位（`link:` / `file:` 两种写法见「用法」），需自行替换。
 - 用户层 patch 的 `config` 是**整键替换**（`dsh-app-boot` 的 `composeEntries` → `cordis-plugin-include` 的 `applyEntryPatches` 按顶层键赋值）：覆盖带默认表的条目（如 `compaction-basic` / `goal`）时，未重述的字段回落到插件 schema 默认值，故示例只重述要改的字段。
 - 行**缺 `config`** 时宿主按该包 `Config` schema 校验 `undefined`：只含带默认值 / 可选字段的包照常激活，但**含 `.required()` 字段**的包会激活失败并打 `N entry did not activate`（如 `message-feedback.maxNoteBytes`）——`--dump-config` **查不出来**（它不实例化插件），须真机启动看 stderr。新增 `- insert:` 官方行前先核对目标包 schema 的 `.required()` 字段。
 - 示例的条目 id 取自当前基线：宿主 `dsh-base` 的 `compaction-basic` / `goal` / `hmr` / `session-title-llm` / `agent-default-model` / `llm-pi-ai`，本仓的 `tui` / `memory-base` / `rule-engine` / `ponytail`，以及 `- insert:` 新增的 `behavior-correction`；宿主升级后若 id 变化，`dsh --profile <p> --dump-config` 与启动日志里的 patch 告警是最快的核对手段。`hmr` 的模块监听根由 `install.sh` 写进生成区：`base` = 安装时的仓库绝对路径、`root: ['.']`（缺省 `[]` 只监听配置），并忽略 `**/*.md` / `**/docs/**`；hmr 的 baseDir 默认是 profile 目录，只写 root 会监听错位置，`..` 前缀还会让默认 `ignored` 失效。

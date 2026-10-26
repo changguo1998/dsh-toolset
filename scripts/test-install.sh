@@ -493,6 +493,52 @@ if PATH="$fakebin:$PATH" DSH_HOME="$home" BUILD_JOBS=abc sh "$repo_root/scripts/
 fi
 assert_log_contains "BUILD_JOBS 必须是正整数" "非法 BUILD_JOBS 在构建前被拒"
 
+# 12）双 profile：主 profile 走 file: 快照、伴随 <主名>-test 走 link:，其余内容一致
+dmain="$home/profiles/dual"
+dtest="$home/profiles/dual-test"
+install_ --plugins "TUI ponytail" --profile dual
+assert_contains "$dmain/package.json" '"@dsh-toolset/tui": "file:' "主 profile 依赖用 file:（快照安装）"
+assert_not_contains "$dmain/package.json" '"@dsh-toolset/tui": "link:' "主 profile 不再用 link:"
+assert_contains "$dtest/package.json" '"@dsh-toolset/tui": "link:' "伴随 profile 依赖用 link:"
+assert_contains "$dtest/package.json" '"name": "dsh-profile-dual-test"' "伴随 profile 清单名带 -test"
+assert_eq "$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).name)' "$dtest/package.json")" "dsh-profile-dual-test" "伴随清单 name 正确"
+assert_eq \
+    "$(node -e 'const fs=require("fs");const r=(f)=>Object.keys(JSON.parse(fs.readFileSync(f,"utf8")).dependencies).sort().join(",");process.stdout.write(r(process.argv[1])===r(process.argv[2])?"same":r(process.argv[1])+" != "+r(process.argv[2]))' "$dmain/package.json" "$dtest/package.json")" \
+    "same" "两 profile 依赖键集相同"
+assert_eq \
+    "$(node -e 'const fs=require("fs");const r=(f)=>JSON.stringify(JSON.parse(fs.readFileSync(f,"utf8")).dsh);process.stdout.write(r(process.argv[1])===r(process.argv[2])?"same":"diff")' "$dmain/package.json" "$dtest/package.json")" \
+    "same" "两 profile 的 dsh.profile.bundles 一致"
+assert_same_file "$dmain/cordis.patch.yml" "$dtest/cordis.patch.yml" "两 profile 的 cordis.patch.yml 逐字节相同"
+assert_same_file "$dmain/pnpm-workspace.yaml" "$dtest/pnpm-workspace.yaml" "两 profile 的 pnpm-workspace.yaml 逐字节相同"
+assert_log_contains "4b/5 生成伴随 profile（dual-test" "日志报出伴随 profile"
+
+# 12a）幂等：重跑不产生新备份、内容不变
+before_bak="$(count_glob "$dmain" '*.bak.*')"
+install_ --plugins "TUI ponytail" --profile dual --sync
+assert_eq "$(count_glob "$dmain" '*.bak.*')" "$before_bak" "重跑 --sync 不新增主 profile 备份"
+assert_eq "$(count_glob "$dtest" '*.bak.*')" 0 "伴随 profile 内容未变时不产生备份"
+
+# 12b）--no-test-profile：只装主 profile
+install_ --plugins "TUI ponytail" --profile solo --no-test-profile
+assert_eq "$([ -d "$home/profiles/solo" ] && echo yes || echo no)" "yes" "--no-test-profile 仍装主 profile"
+assert_eq "$([ -e "$home/profiles/solo-test" ] && echo yes || echo no)" "no" "--no-test-profile 不生成伴随 profile"
+
+# 12c）--profile-test：自定义伴随名
+install_ --plugins "TUI ponytail" --profile named --profile-test named-dev
+assert_eq "$([ -d "$home/profiles/named-dev" ] && echo yes || echo no)" "yes" "--profile-test 用自定义名"
+
+# 12d）--mode link：主 profile 也用软链接（开发期形态）
+install_ --plugins "TUI ponytail" --profile devlink --mode link
+assert_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "link:' "--mode link 时主 profile 用 link:"
+
+# 12e）协议切换：已有 link: 清单 → 默认 copy 的 --sync 改成 file:（旧 link 条目按本仓库条目处理）
+install_ --plugins "TUI ponytail" --profile devlink --sync
+assert_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "file:' "--sync 把 link: 切成 file:"
+assert_not_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "link:' "切换后不残留 link:"
+
+# 12f）非法 --mode：写盘前被拒
+install_expect_fail "--mode 只接受 copy" --plugins TUI --profile badmode --mode tarball
+
 # 11）接线一致性：canonical_pkgs ←→ 根 check/build 链、test-parallel.sh default_pkgs
 canonical="$(sed -n 's/^canonical_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/install.sh")"
 [ -n "$canonical" ] || fail "无法从 install.sh 提取 canonical_pkgs（sed 模式失效？）"

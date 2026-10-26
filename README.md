@@ -116,9 +116,18 @@ One-shot install on a new machine (install dsh → build all plugins → create 
 
 ```sh
 git clone <this repo> && cd dsh-toolset
-scripts/install.sh                 # profile name defaults to fff
-scripts/install.sh --help          # --profile/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
+scripts/install.sh                 # profile name defaults to fff; also creates fff-test
+scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/--mode/--plugins/--dsh-version/--skip-dsh/--skip-build/--force/--sync/--take-over-title/--dry-run/--skip-verify
 ```
+
+One run produces **two** profiles that differ only in how plugins are linked:
+
+| profile | dependency | picks up repo changes | use |
+| --- | --- | --- | --- |
+| `fff` (main) | `file:` snapshot | no; rerun `scripts/install.sh --profile fff --sync` | running sessions, acceptance runs |
+| `fff-test` | `link:` symlink | immediately after `npm run build` | live development in a new window |
+
+The main profile is installed as a real copy: pnpm would hard-link `file:` directory dependencies, so the script copies each plugin once more to break those links (in-place rewrites in the repository, e.g. `tsc` output, would otherwise leak into the profile through the shared inode). Refreshing it works because the script drops pnpm's "already up to date" markers before installing — pnpm does not track the content of `file:` directories (measured). The companion profile reuses the main profile's finished `dsh.profile.bundles`, `cordis.patch.yml` and `pnpm-workspace.yaml` byte for byte, with dependency values rewritten to `link:`. `--no-test-profile` installs the main profile only, `--profile-test <name>` renames the companion, and `--mode link` makes the main profile symlink-based too.
 
 The script is idempotent: existing config files are kept unless `--force` is given, and it writes (plus a `.bak.<timestamp>` backup) only when the content actually differs, so repeated `--sync` runs do not pile up files. It touches only `$DSH_HOME` (default `~/.dsh`) and this repository. `--sync` refreshes the repository plugins to the current selection (unselected repository entries are removed, user-added ones kept) and never rewrites the title-provider part of `cordis.patch.yml`: disabling the official all-prompts provider is an explicit choice (`--sync --take-over-title`), otherwise a detected conflict is only warned. `--sync --force` is rejected (it would overwrite the patch and drop the generated takeover region). The generated region is rebuilt from the patch, so re-running with the flag only fills missing pieces; deleting the lines starting with `# install.sh generated: title-takeover-` opts out of the takeover.
 
@@ -129,12 +138,12 @@ For manual setup, mount each plugin into a DSH profile as a cordis bundle. Examp
 ```jsonc
 // <profile>/package.json
 {
-  "dependencies": { "@dsh-toolset/tui": "link:<package path>" },
+  "dependencies": { "@dsh-toolset/tui": "file:<package path>" },
   "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@dsh-toolset/tui"] } }
 }
 ```
 
-During local development, use `link:` dependencies: build artifacts are visible through the symlink immediately, with no reinstall. The release form is `dsh plugin --profile <p> add <package>`. Inspect the composition tree with `dsh --profile <p> --dump-config`, and start with `dsh --profile <p>`.
+Pick `file:` for a stable install (a copy at install time, refreshed by re-running the install) or `link:` for live development (build artifacts are visible through the symlink immediately). The release form is `dsh plugin --profile <p> add <package>`. Inspect the composition tree with `dsh --profile <p> --dump-config`, and start with `dsh --profile <p>`.
 
 `profiles/example/` in this repository is a ready-to-copy three-file profile example (manifest + user-layer patch + pnpm config); it demonstrates both dialects — `- id:` overriding and `- insert:` adding — as well as `!!js` expressions and permission preset table overrides (custom sandbox + approval-bundled presets). For deployment steps and boundaries, see `profiles/README.md`.
 
