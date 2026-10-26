@@ -69,7 +69,7 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 
 ## 边界与限制
 
-- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。**字段已对齐官方入参校验**（`dsh-schedule` 0.2.1-rc.2 的 `validateCreateArgs`：键白名单、恰好一个选择器、`prompt` / `title` trim 后非空且 `title` ≤120 字符、`after_seconds` 为正安全整数；`title` 为 `[metric-loop] <id>`），照提示调用即可成功。该提示的**可执行性仍取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。回归背景见 `docs/archived/2026-10-06-metric-loop-schedule-hint.md`。
+- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。**字段已对齐官方入参校验**（`dsh-schedule` 0.2.1-rc.3 的 `validateCreateArgs`：键白名单、恰好一个选择器、`prompt` / `title` trim 后非空且 `title` ≤120 字符、`after_seconds` 为正安全整数；`title` 为 `[metric-loop] <id>`），照提示调用即可成功。该提示的**可执行性仍取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。回归背景见 `docs/archived/2026-10-06-metric-loop-schedule-hint.md`。
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
@@ -82,7 +82,7 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
 ## 相关文档
 
 - 宿主 bundle 契约（`name` / `inject` / `provide` / `Config` / `apply`）：`docs/host/DSH-CTX-API.md` §0；本包与 `task-engine` 同款——零 DSH 运行时依赖、以结构面访问 ctx。
-- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.1-rc.2.md`。
+- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.1-rc.3.md`。
 - `metric_loop` 的模型侧参数 schema 以 `src/index.ts` 的 `toToolDef()` 为唯一来源（本 README 的表格与其保持一致）；复查分工的实现见 `src/index.ts` 的 `makeCommandGuard` / `runRound`。
 
 ## 测试
@@ -94,4 +94,4 @@ npm run test    # node --test（45 例：engine / persist / controller，注入�
 npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 
-`npm run smoke` 需本机可用 dsh 0.2.1-rc.2 与模型凭据。
+`npm run smoke` 需本机可用 dsh 0.2.1-rc.3 与模型凭据。

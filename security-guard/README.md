@@ -237,4 +237,4 @@ npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证�
 **参数面含顶层展开**（`...`）保守计入门禁，以及**深度漂移反例**（正则字面量 / 表达式取值 / 审阅四反例 + 前缀洞）。
 仓库内无 `dist` 时键集走 `src` 回退，故测试**不依赖**是否已构建（dist 存在时发布形态用例才运行）。
 
-`smoke` 需要本机 dsh 0.2.1-rc.2、可用的模型 API 与 `zstd` CLI：建/复用 profile `dsh-toolset-security-guard`（`link:` 指向本包），在 `DSH_PERMISSION_MODE=danger-full-access` 下让权限层放行、由本插件独立拦截；headless 会话依次执行 `echo sg-smoke-ok` 与 `sudo ls /`，再解压 `session*.jsonl.zstd` 断言：`sudo ls /` 的结果 `isError` 且回执含 `[security-guard]` / `sudo ls /` / `放行方式`，`echo` 的结果 `isError: false`。模型自行改写或拒绝执行时，兜底为对 `dist/src/index.js` 的引擎直调断言。
+`smoke` 需要本机 dsh 0.2.1-rc.3、可用的模型 API 与 `zstd` CLI：建/复用 profile `dsh-toolset-security-guard`（`link:` 指向本包），在 `DSH_PERMISSION_MODE=danger-full-access` 下让权限层放行、由本插件独立拦截；headless 会话依次执行 `echo sg-smoke-ok` 与 `sudo ls /`，再解压 `session*.jsonl.zstd` 断言：`sudo ls /` 的结果 `isError` 且回执含 `[security-guard]` / `sudo ls /` / `放行方式`，`echo` 的结果 `isError: false`。模型自行改写或拒绝执行时，兜底为对 `dist/src/index.js` 的引擎直调断言。
