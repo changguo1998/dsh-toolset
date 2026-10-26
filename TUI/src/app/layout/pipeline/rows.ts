@@ -223,6 +223,7 @@ import type { ContentRow } from "../fill.ts";
 import { toolUnits, type Box, type LayoutBox } from "./boxes.ts";
 import type { PaneItem } from "./panes.ts";
 // ---- 新链路（§3-§7）接线桥 ----
+import { isLeaf } from "./ir.ts";
 import type {
   PaneItem as NewPaneItem,
   UserRowInfo,
@@ -231,7 +232,7 @@ import type {
 import type { StructureOptions } from "./structure.ts";
 import { buildTrees } from "./structure.ts";
 import { measure } from "./measure.ts";
-import { flattenAttributed } from "./flatten.ts";
+import { flatten } from "./flatten.ts";
 
 export interface RenderOptions extends BuildBoxOptions {
   /** 会话区可用宽 */
@@ -256,6 +257,11 @@ export interface PaneRenderOptions {
   normalize?: (text: string) => string;
   /** 活动区紧凑档位（/collapse；只对 activity pane 应用） */
   activityCompact?: Partial<ActivitySwitches>;
+  /**
+   * 流活节 id 集合（来自 `state.current`）：这些节每帧重算、不入缓存（刷新型）。
+   * 缓存只给「已定型历史」里**静态渲染**的 item（用户块符号仍实时，也重算）。
+   */
+  liveSectionIds?: ReadonlySet<string>;
 }
 
 export interface RenderedPane {
@@ -530,6 +536,20 @@ function itemLines(item: PaneItem, dialogue: boolean): HistoryRow[] {
 const rowCache = new WeakMap<Box, Map<string, ContentRow[]>>();
 let misses = 0;
 
+/**
+ * 新链 renderPaneNew 的摊平行缓存（**只缓存已定型历史的静态 item**；内容寻址键 =
+ * pane/宽/紧凑 + 保留编号 + 内容签名，跨会话/内容变不串行）。会话与窗口（宽度）边界清场。
+ */
+const newRowCache = new Map<string, ContentRow[]>();
+
+/** 每个 pane 上次排版宽度：窗口（宽度）一变 → 清空摊平缓存，measure 之后全部重算、不复用旧结果 */
+const lastPaneWidth = new Map<string, number>();
+
+/** 清空新链摊平行缓存（窗口 resize / 会话边界调用：measure 之后全部重算、不复用旧结果） */
+export function clearNewRowCache(): void {
+  newRowCache.clear();
+}
+
 /** 缓存未命中次数（计数断言用：宽度不变时同段不重复排版） */
 export function rowRenderMisses(): number {
   return misses;
@@ -745,6 +765,11 @@ export function renderPaneNew(
 ): RenderedPane {
   const width = Math.max(1, options.width);
   const vw = options.vw ?? width;
+  if (lastPaneWidth.get(pane) !== width) {
+    // 窗口（宽度）变化：measure 之后全部重算——清空摊平缓存，绝不复用旧宽度的行
+    clearNewRowCache();
+    lastPaneWidth.set(pane, width);
+  }
   const struct: StructureOptions = {
     userSym: options.userSym,
     // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
@@ -760,7 +785,44 @@ export function renderPaneNew(
   );
   const root = pane === "dialogue" ? session : turn;
   measure(root, width, { vw });
-  const perItem = flattenAttributed(root, width, { vw });
+  // 逐 item 摊平 + 缓存：**只缓存「已定型历史」里静态渲染的 item**（非流活节、非用户块，
+  // 用户块符号 / 工具相位为刷新型每帧重算）。键 = pane/宽/紧凑 + 保留编号 + 内容签名。
+  const rootChildren = isLeaf(root) ? [root] : root.children;
+  const keyHead = [
+    pane,
+    width,
+    vw,
+    options.gutter ?? "",
+    JSON.stringify(options.activityCompact ?? {}),
+  ].join("|");
+  const liveIds = options.liveSectionIds;
+  const perItem: ContentRow[][] = [];
+  for (let i = 0; i < items.length; i++) {
+    const node = rootChildren[i];
+    const item = items[i]!;
+    const id = newItemKey(item);
+    // 刷新型：流活节成员、用户块（符号实时）→ 不入缓存、每帧重算
+    const isLive =
+      (item as { source?: string }).source === "user" ||
+      (liveIds !== undefined &&
+        liveIds.size > 0 &&
+        [...liveIds].some((p) => id.startsWith(p + ":")));
+    if (isLive) {
+      perItem[i] = node ? flatten(node, width, { vw }) : [];
+      continue;
+    }
+    const ck = keyHead + "|" + id + "|" + JSON.stringify(item);
+    const hit = newRowCache.get(ck);
+    if (hit !== undefined) {
+      perItem[i] = hit;
+      continue;
+    }
+    misses += 1;
+    const produced = node ? flatten(node, width, { vw }) : [];
+    if (newRowCache.size > 8192) newRowCache.clear(); // 兜底防膨胀
+    newRowCache.set(ck, produced);
+    perItem[i] = produced;
+  }
   const rows: ContentRow[] = [];
   const counts: number[] = [];
   const keys: string[] = [];

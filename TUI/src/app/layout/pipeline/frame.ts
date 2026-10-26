@@ -190,14 +190,25 @@ export function pipelineContent(
   options: PipelineFrameOptions,
 ): PipelineContent {
   const all = allSections(state);
+  // 窗口**只切历史** `state.sections`；`state.current`（流活节）无条件保留——否则当前回合
+  // 内容随历史窗口/滚动被裁。`liveSectionIds` = 来自 current 的分节 id（每帧重排、不入缓存）。
   const { dropped, suppressFirstHead, from } = windowSections(
-    all,
+    state.sections,
     options.windowGroups,
   );
-  // §1 分节：**对全量 split 得稳定 id**（段键跨窗口内容不重编号），再按旧节窗口边界
-  // `from` 过滤保留段——扩窗只多物化、不改变已保留节的 id/键。
+  // §1 分节：**对全量 split 得稳定 id**（段键跨窗口内容不重编号）；过滤 = 历史节按旧节窗口
+  // 边界 `from` 保留、current（历史数组之后）恒保留。扩窗只多物化、不改已保留节 id。
+  const historyLen = state.sections.length;
+  const liveSectionIds = new Set<string>();
   const sections = splitOldSectionsIndexed(all)
-    .filter(({ old }) => all.indexOf(old) >= from)
+    .filter(({ old, section }) => {
+      const idx = all.indexOf(old);
+      if (idx >= historyLen) {
+        liveSectionIds.add(section.id);
+        return true;
+      }
+      return idx >= from;
+    })
     .map(({ section }) => section);
   const groups: EventGroup[] = sections.map((s) => ({
     provenance: s,
@@ -230,6 +241,7 @@ export function pipelineContent(
     ...(options.normalize === undefined
       ? {}
       : { normalize: options.normalize }),
+    liveSectionIds,
   });
   const activity = renderPaneNew(turn, "activity", {
     width: options.activityTextW,
@@ -244,6 +256,7 @@ export function pipelineContent(
     ...(options.render.activityCompact === undefined
       ? {}
       : { activityCompact: options.render.activityCompact }),
+    liveSectionIds,
   });
   return {
     dialogue: dialogue.rows,
