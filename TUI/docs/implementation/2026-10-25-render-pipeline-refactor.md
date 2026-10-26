@@ -696,6 +696,8 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 
 **滚动根因（第 9/10 轮已铁证）**：段键跨窗口内容不稳定。`splitOldSections` 对 `kept`（窗口切片）重编号 `${turn}:${step}:${ordinal}`（ordinal 每 (turn:step) 从 0 重数）；扩窗后窗口边界前移，同名同 (turn:step) 的共享节被重编号（`1:1:5`↔`1:1:0`），存量视口顶键 `indexOfTop` 找不到 → 退化为 fallback → HALF 位移断言差 scrollOffset。修复方向：**先 split 全量（稳定 id）再按新节组窗口**；新旧节组映射（`sectionGroupStarts` 旧口径 vs 新 Section）非 1:1，需同步改造组语义，属高风险重架构，滚动独立/渐进窗口与段D×2、c5 一并留待独立设计轮次。
 
+**摊平行缓存（后续轮次，已落地）**：`a7a8e61` 以「先 split 全量得稳定 id、窗口只切历史、current 恒保留」修复渐进窗口（suite 5→4 fail，零回归）。`f542cdf` 再落地按会话历史缓存语义：**只有已定型历史的静态 item 缓存其摊平行**（键 = pane/宽/紧凑 + 保留编号 + 内容签名，同内容命中、内容/跨会话变则 miss，不串旧行）；流活节（`state.current`，记入 `liveSectionIds`）与用户块符号每帧重算不入缓存；窗口（宽度）变化 `clearNewRowCache()`，measure 之后全部重算、不复用旧宽度行。全量 suite 仍 4 fail（同基线，零新增回归）。
+
 ## 收尾
 
 （待关闭时填写。）
