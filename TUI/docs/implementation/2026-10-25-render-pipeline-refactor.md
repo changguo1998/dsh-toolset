@@ -1227,9 +1227,47 @@ kind 恒相同**（都取条目 `source`）。所以按条目计 kind 与原实�
 
 ### 剩下的（不再属重构主线）
 
-`build-box.ts` 的 `buildContentRows` / `buildBox` 现在**生产零调用**（仅 10 个测试文件当
-渲染工具用）；`build-box.ts` 只剩 `noticeLinePresentation` 还在生产（notice 文案）。
-彻底删 `build-box.ts` 需把那 10 个测试文件迁到新链（或随旧口径断言一起删），属独立的
-**测试迁移**任务，建议单开一轮。
+~~`build-box.ts` 的 `buildContentRows` / `buildBox` 生产零调用，彻底删需迁移测试~~
+**已完成（第九轮，见下节）**。
 
-（待关闭时填写。）
+## 第九轮：删 `build-box.ts` + 旧栈残留死代码（2026-10-26）
+
+### 源码
+
+| 位置 | 处理 |
+| --- | --- |
+| `layout/build-box.ts`（1331 行） | **整文件删除**；唯一仍在生产的 `noticeLinePresentation` 迁到新文件 `layout/notice-line.ts` |
+| `layout/content-rules.ts` | 删 build-box 专用：`TOOL_PARAM_INDENT` / `TOOL_PARAM_CONT_INDENT` / `TOOL_RESULT_INDENT` / `TOOL_LINE_CAP` / `renderToolText` / `renderToolNameLine` / `isToolResult` |
+| `layout/table.ts`（463 → 273 行） | 删旧盒构建器：`tableBox` / `cellLeaf` / `vLineLeaf` / `hRuleLeaf` / `gridRow` / `rowBox` / `ruleRow` / `TableBoxOptions` / `hasCellPipe` 与配套字形常量（解析 `splitCells` / `isTableStart` / `parseTableAt` 与算法 `fitCols` / `waterLevel` / `fitTo` / `minColWidth` 保留）|
+| `pipeline/ir.ts` | 删 `BLOCK_KINDS`（`BlockKind` 类型上一轮已删）|
+| `pipeline/frame.ts` | 删已无引用的 `syntheticSeq` |
+
+### 顺带补回两个**真实功能缺口**（迁移测试时暴露）
+
+1. **`/collapse` 紧凑折叠原本是空实现**：`rows.foldRow` 是 stub（返回原行），`activityCompact`
+   实际无效。现按新链口径实现 `foldRows`——多行条目压 1 行（全部文本压平后取 `width − 1`
+   列 + 行尾 `…`），单行且放得下则原样；类别只认 `thinking` / `assistant` / 工具批
+   （notice / shell 恒完整折行——`compactCategory` 此前把 notice 误判成 reply 一并折叠）。
+2. **notice 的悬挂缩进（`/help` 双列表格）在新链里丢失**：`hanging` 从未进新 IR。现贯通
+   `Item.hanging` →（`replay` / `split`）→ `Section.body.hanging` → `Paragraph.hanging` →
+   节点 `hanging` → §6 摊平（续行缩进 `hanging` 列、折行宽扣 `hanging`）。
+
+### 测试迁移（16 个文件）
+
+- **新增桥** `tests/helpers/renderBuffer.ts`：`HistoryRow[]` →（`sectionsFromBuffer` 重放）→
+  `pipelineContent` → 两 pane `ContentRow[]`，替代旧 `buildContentRows` 在测试里的角色。
+- **删除**（主题即已删实现）：`content-mapping.test.ts` + `fixtures/content-mapping-legacy.json`
+  （「双轨对照」的前提消失）、`code-block-gutter.test.ts`（旧代码块版式：语言行/行号/软折行箭头）。
+- **迁移并改断言**：`activity-bar` / `activity-level` / `activity-type-gap` / `activity-verbose` /
+  `code-block-tab` / `help` / `layout-horizontal` / `thinking-markdown` / `tool-block` /
+  `tool-call-wrap` / `table`（只留解析与 `fitCols` 算法用例）/ `content-rules` / `layout-cache` /
+  `layout4`（去未用 import）。
+- **`test.todo` 4 例**：`thinking-markdown` 的四条**嵌套列表**用例——新链 §2 parse 尚不按缩进
+  产真子列表（追踪文档已登记的待办「结构层遗留：嵌套列表」），标 todo 保持可见、不计失败。
+- `docs/SPEC.md`：删去指向已删测试文件的回归引用。
+
+### 证据
+
+`npm run check` 绿；`npm run build` 通过；`npm run test:tui` **1783 pass / 0 fail / 4 todo**
+（总 1787，较上一轮 1844 少 57：旧栈形制用例删除 + todo 化）；`npm run demo -- --smoke`
+42 条 `SMOKE_PASS`。源码净删约 1.2k 行（含 `build-box.ts` 1331 行、`table.ts` 190 行）。
