@@ -32,6 +32,7 @@ import {
 import type { SectionsState } from "./layout/pipeline/sections.ts";
 import type { ActiveAtToken, FileMentionCandidate } from "./file-mention.ts";
 import { activeAtToken } from "./file-mention.ts";
+import { displayWidth } from "./layout/markdown.ts";
 import { createSections } from "./layout/pipeline/sections.ts";
 import type { ActivityPlacement } from "./config.ts";
 import {
@@ -1183,6 +1184,48 @@ export function setSessions(
 }
 
 /** 针对 buffer 做一次只读操作（Reducer 模式入口），返回新的不改动原对象 */
+/** 输入区光标所在行的起止下标（PgUp = 行首、PgDn = 行尾；无换行时即整串首尾） */
+export function inputLineBounds(
+  text: string,
+  cursor: number,
+): { start: number; end: number } {
+  const c = Math.max(0, Math.min(cursor, text.length));
+  const start = c === 0 ? 0 : text.lastIndexOf("\n", c - 1) + 1;
+  const nl = text.indexOf("\n", c);
+  return { start, end: nl < 0 ? text.length : nl };
+}
+
+/** 输入区上/下移一行（↑/↓）：尽量落在同一**显示列**（宽字符按列宽算） */
+export function inputLineMove(
+  text: string,
+  cursor: number,
+  dir: 1 | -1,
+): number {
+  const c = Math.max(0, Math.min(cursor, text.length));
+  const { start } = inputLineBounds(text, c);
+  const col = displayWidth(text.slice(start, c));
+  let tStart: number;
+  let tEnd: number;
+  if (dir < 0) {
+    if (start === 0) return c; // 首行：不动
+    tEnd = start - 1; // 上一行的行尾（换行符位置）
+    tStart = tEnd === 0 ? 0 : text.lastIndexOf("\n", tEnd - 1) + 1;
+  } else {
+    const nl = text.indexOf("\n", c);
+    if (nl < 0) return c; // 末行：不动
+    tStart = nl + 1;
+    const nl2 = text.indexOf("\n", tStart);
+    tEnd = nl2 < 0 ? text.length : nl2;
+  }
+  let i = tStart;
+  let w = 0;
+  while (i < tEnd && w < col) {
+    w += displayWidth(text[i]!);
+    i += 1;
+  }
+  return i;
+}
+
 /** 焦点复位 action 集合：处理完自动回到无焦点（focusedPanel=null）。
  *  **只剩「用户提交输入」两项**（2026-10-15 用户裁定 + 条目验收①：运行中派发 `append` /
  *  `thinking` / `tool-call` / `notice` 等后 `focusedPanel` 保持不变，见 BACKLOG

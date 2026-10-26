@@ -503,6 +503,8 @@ test("PgUp 逐条走到最旧回合（折叠窗口里先扩窗再跳，此前按
   app.start();
   // 恢复读取是异步链路：等表面读取落定
   await new Promise((resolve) => setTimeout(resolve, 0));
+  // 翻页键只在会话 / 回合区聚焦时生效（2026-10-27）：先 Ctrl+E 聚焦会话区
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
   // 恢复出的历史只物化最近 N 组：PgUp 必须自己扩窗，否则卡在窗口顶（真机：翻页无反应）
   for (let i = 0; i < 12; i++)
     renderer.press({ name: "pageup", ctrl: false, meta: false, shift: false });

@@ -4304,7 +4304,7 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
   renderer.press(key("escape"));
 });
 
-test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
+test("history 焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
   const { app, renderer, adapter } = makeApp();
   // 标题栏占对话区 2 行（rows=24 → dialogueH=5），折叠占位 + 最近
   // 3 组回复（7 行）需加高终端才完整可见：rows=28 → dialogueH=7
@@ -4318,7 +4318,8 @@ test("无焦点空输入：↑ 上滚对话区，展开折叠的更早回复", (
   // 跟随底部：折叠占位可见、最早回复不可见
   assert.ok(joined().includes("更早回复已折叠"), "跟底显示折叠占位");
   assert.ok(!joined().includes("回复正文行1"), "最早回复初始不可见");
-  // 无焦点（默认）空输入：↑ 上滚 → 展开全量（滚到顶后最早回复可见）
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false }); // Ctrl+E → history 焦点（翻页键只在面板聚焦时生效）
+  // 会话区聚焦后空输入：↑ 上滚 → 展开全量（滚到顶后最早回复可见）
   for (let i = 0; i < 12 && !joined().includes("回复正文行1"); i++) {
     renderer.press({ name: "up", ctrl: false, meta: false, shift: false });
   }
@@ -4520,6 +4521,8 @@ test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收�
       .map((l) => histBody(l.replace(/\u001b\[[0-9;]*m/g, ""), 100))
       .join("\n");
 
+  // 翻页键只在面板聚焦时生效（2026-10-27）：先 Ctrl+E 聚焦会话区
+  renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
   // 连续上滚 40 次（远超可滚范围）：偏移收敛到上限，画面钳在最早一行
   for (let i = 0; i < 40; i++) renderer.press(key("up"));
   const atTop = scrollOffset();
@@ -4532,9 +4535,7 @@ test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收�
   );
   assert.notEqual(view(), topView, "↓ 画面立即变化（修复前纹丝不动）");
 
-  // 无面板焦点时 Home 改跳输入光标；先聚焦历史区再验历史滚动
-  renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
-  // Home（翻到最旧已加载）：偏移取真实上限，不是 MAX_SAFE_INTEGER
+  // Home（翻到最旧已加载；会话区已聚焦）：偏移取真实上限，不是 MAX_SAFE_INTEGER
   renderer.press(key("home"));
   const endOffset = scrollOffset();
   const endView = view();
@@ -4762,6 +4763,8 @@ test("对话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进�
     r0.dialogueTopIdx,
   );
   let grew = false;
+  // 翻页键只在面板聚焦时生效（2026-10-27）：先 Ctrl+E 聚焦会话区
+  renderer.press(key("e", { ctrl: true }));
   for (let i = 0; i < 40; i++) {
     const groupsBefore = st().windowGroups;
     renderer.press(key("up", { ctrl: true }));

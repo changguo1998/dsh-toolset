@@ -25,6 +25,8 @@ import {
   cleanableSessionIds,
   historyVisibleRecords,
   initialState,
+  inputLineBounds,
+  inputLineMove,
   isCompacting,
   markableSessionIds,
   reduceState,
@@ -2997,6 +2999,21 @@ export class App {
         // Turn 面板按 Ctrl+↑ 与裸 ↑ 同效（用户真机缺陷）
         const dir: 1 | -1 = name === "up" ? 1 : -1;
         const panel = this.state.focusedPanel;
+        // 无面板焦点 = 正在编辑输入：↑/↓ 在输入区上下移一行（同显示列），不翻页
+        // （2026-10-27 用户裁定：翻页键只在会话 / 回合区聚焦时生效）
+        if (panel === null) {
+          // 注意方向口径与翻页相反：翻页 +1 = 上滚，输入区 -1 = 上一行
+          const cur = inputLineMove(
+            this.state.inputText,
+            this.state.inputCursor,
+            name === "up" ? -1 : 1,
+          );
+          this.apply((s) =>
+            reduceState(s, { type: "move-cursor", delta: cur - s.inputCursor }),
+          );
+          this.paint();
+          break;
+        }
         // 可滚动上限由渲染层按内容/窗口算好（上一帧回填或就地补算）：滚键据此收敛
         // 偏移，否则越界偏移（连续上滚越顶、End）会累积成"按了没反应"的假死
         const max = this.paneScrollMaxOf(panel);
@@ -3031,6 +3048,22 @@ export class App {
         // 对话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
         const dir: 1 | -1 = name === "pageup" ? 1 : -1;
         const panel = this.state.focusedPanel;
+        // 无面板焦点 = 编辑输入：PgUp = 行首、PgDn = 行尾（不翻页）
+        if (panel === null) {
+          const bounds = inputLineBounds(
+            this.state.inputText,
+            this.state.inputCursor,
+          );
+          const target = name === "pageup" ? bounds.start : bounds.end;
+          this.apply((s) =>
+            reduceState(s, {
+              type: "move-cursor",
+              delta: target - s.inputCursor,
+            }),
+          );
+          this.paint();
+          break;
+        }
         if (panel === "activity") {
           // 回合区 PgUp/PgDn = 移一个 Step（等级错开: 会话区整 Turn、回合区整 Step）
           this.scrollActivityStep(dir);

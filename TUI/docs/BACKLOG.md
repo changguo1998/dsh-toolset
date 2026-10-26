@@ -9,6 +9,8 @@
 
 ## 待办
 
+- **翻页键只在会话 / 回合区聚焦时生效，否则在输入区移动光标**〔进行中: 2026-10-27〕（登记 2026-10-27，来源 用户）：现状 → 无焦点（默认）时 ↑/↓、PgUp/PgDn 直接滚面板，Home/End 已分派；期望 → 只有 history / activity 聚焦时这些键才当翻页，否则是输入区光标移动：↑/↓ 一次一行（落同显示列）、←/→ 一次一格、Home/End = 整串首尾、PgUp/PgDn = 光标所在行的行首/行尾。落点 → `state.ts` 新增 `inputLineBounds` / `inputLineMove`、`index.ts` 的 up/down 与 pageup/pagedown 分支。验收 → 新增 `tests/input-cursor-keys.test.ts`；原滚动用例改为先 Ctrl+E 聚焦。追踪文档 `TUI/docs/implementation/2026-10-27-input-cursor-keys.md`。优先级 P1。
+
 （当前无未完成项）
 
 > 2026-10-27 关闭：`回合分隔线与 step 头的宽度收到正文右缘` 完成并移出清单（提交 `6501379`：分隔行补白改空格 + 右缘框列留空，线右端与正文右缘同列；头行并入紧随其后的段（正文/思考段塞进内容 v 与各块平级，用户段提到段盒外层同槽），不画左竖线；TUI 全量 1799 例全绿；追踪文档 `TUI/docs/archived/2026-10-27-separator-width.md`）。
