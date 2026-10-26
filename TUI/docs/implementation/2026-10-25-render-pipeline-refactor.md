@@ -922,6 +922,28 @@ v
 - 测试：`pipeline-structure` / `pipeline-flatten` / `pipeline-fn` 20 pass / 6 fail，失败项均为早前形状
   改造的旧断言（代码网格、表格 `│` 段、chrome 竖线、`Gap` 空叶、`userSym/gutter`），与本改动无关。
 
+### `grid` pass：表格列宽落地
+
+- `measure.ts` 新增 `alignGridColumns(tree, width, opts)`：`tree.grid === true` 时先按列序号
+  取各行格的自然宽最大值（`fill` 盒是横线段，不参与），再 `fitCols(自然宽, 可用宽 − separator 列宽)`
+  定列宽，最后写回每个行子项的 `widthFixed` / `widthStyle: "fixed"`（横线行的 `fill` 盒也照写同宽，
+  `fillWith` 铺出的线段因此与列边界严丝合缝）。
+- 时机：`measure` 入口展开载荷后、按 prefix/suffix 缩窄前跑，保证子项按列宽而非各自自然宽测量。
+- `expandTable` 随之简化为纯出结构：删掉未使用的 `cols` / `natural` / `plainOf` 与 `fitCols` 调用，
+  以及 `expandCode` / `expandTable` 已无用的 `width` 参数。
+- 实测（W=40，`:--` / `:-:` / `--:` 三列）：列边界、横线段长（`══╪══╪═══`）、交叉字三者对齐；
+  `center` / `right` 正常；窄宽 W=16 压列后仍对齐、格内折行。
+
+### §5 收尾：separator 计入自然宽 + 删死能力
+
+- `naturalHWidth` 的 h 分支补上 `separator` 列宽（`decor + sepW + fixedSum + autoMax`，内部预算也扣 `sepW`），
+  与 `measureH` 的 `separatorWidth` 同口径——此前带 separator 的 h 容器作为 auto 子项会少算列宽、
+  内容提前折行。
+- 删 `heightStyle` / `heightFixed`：pipeline 内已无消费者（原用途是 `vGlyph` 铺竖线，随表格改造删除），
+  `ir.ts` 的 `HeightStyle` 类型与两字段、`measure.leafRows` 的短路分支一并删除
+  （`layout/fill.ts` 与 `layout/box.ts` 用的是另一套类型，不受影响）。
+- 测试：`pipeline-{structure,flatten,fn,measure}` 25 pass / 6 fail，失败项仍是早前形状改造的旧断言。
+
 ### 本轮验证与遗留
 
 - `npm run check`（`tsc --noEmit`）绿；`pipeline-{ir,fn,structure,flatten,measure}` 35 pass / 8 fail、
