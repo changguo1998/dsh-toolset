@@ -1123,8 +1123,48 @@ L14-L16 / L11-L15），7 个面板场景逐行零差异（含 ansi）。无字�
    `layout.ts` 的 `queuedBlockRows`（排队块）与 chrome 面板（approval / picker / statusPanel …）
    仍走这套；删除需先把排队块迁到新链（需新增「排队块右缘竖线按 steer / followup 着色」能力），
    面板渲染不在本轮范围（明确不做：不改状态栏 / 面板布局）。
-3. **`route.shadowedBlockIds` 生产未接线**：有实现与测试，但结构 / 摊平都不消费遮蔽集合——
-   压缩剪枝的「整块打灰」能力实际未生效，属功能缺口（非本轮死代码）。
+3. ~~`route.shadowedBlockIds` 生产未接线~~ **已完成（第六轮，见下节）**。
+
+## 第六轮：压缩剪枝「遮蔽打灰」接线（2026-10-26）
+
+背景：`shadowedBlockIds` 从阶段 1 就写好了，但结构 / 摊平都不消费遮蔽集合——旧六段链也从未
+消费过 `shadowed` 标记，所以「压缩剪枝内容整块打灰」一直是**从未生效**的能力（不是本次重构弄丢的）。
+本轮把它接完。
+
+### 链路（真源 → 颜色）
+
+```text
+state.shadowedSeqs（`shadow` 交付写入，adapter 把 compaction/prune 的 shadowedSeqs 转交付）
+  └─ frame.pipelineContent: shadowedBlockIds(groups, state.shadowedSeqs) → Set<块 id>
+       └─ renderPaneNew(shadowedIds) → structure（：命中块打 `dim: true` 标记）
+            └─ flatten 出口：dim 节点的所有段前景色改 `gray`（内容与行数不变）
+```
+
+### 三条口径（实现即裁定）
+
+1. **打灰在摊平出口，不在结构期逐叶改色**：code / table / tool 的子节点是 §5 measure 期由载荷
+   展开的，结构期逐叶改色覆盖不到它们；改用节点 `dim` 标记 + 摊平出口统一改前景色，展开子树
+   自动继承。
+2. **只改前景色**：字形 / 粗体 / 底纹等其它样式保留；**pane 外壳竖线 `┃` 不灰**（它属于祖先
+   包装盒，不在遮蔽块内）。
+3. **遮蔽状态进摊平行缓存键**：同一块在「被剪枝 / 未剪枝」下的产出行不同，不同互相复用
+   （键尾加 `|dim`）；不加会出现「先渲染未剪枝帧、后渲染剪枝帧仍是旧颜色」。
+
+### 顺带删除的控件
+
+`PipelineFrameOptions.shadowedSeqs`（改由 `state.shadowedSeqs` 单一真源）与
+`RouteOptions.shadowedSeqs`（route 不再消费）。
+
+### 测试
+
+- `pipeline-structure`：遮蔽块打 `dim` 标记、结构期不改行内样式。
+- `pipeline-flatten`：`dim` 块整块打灰（含 measure 期展开的代码子树），行数与文本不变，
+  外壳竖线不灰。
+- `pipeline-frame`：`shadow` 交付 → 会话区该节正文段 `fg=gray`，未遮蔽帧不着 gray，文本逐行相同。
+
+### 证据
+
+`npm run check` 绿；`npm run test:tui` **1854 例全绿**（+3 新用例）。
 
 ## 收尾
 
