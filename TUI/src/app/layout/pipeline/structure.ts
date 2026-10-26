@@ -172,11 +172,12 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
   if (block.rule === true) {
     return leaf([], { tail: { char: "─", style: { fg: "border" } } });
   }
-  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）；右缘预留 gutter
+  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）；右缘预留 gutter。
+  // notice（toast 等瞬态系统行）不挂会话左缘竖线（裸文本，不挤占宽）
   const text = opts?.normalize
     ? applyNormalize(block.text, opts.normalize)
     : block.text;
-  const barP = bar(block.source);
+  const barP = block.source === "notice" ? undefined : bar(block.source);
   return leaf(text, {
     ...(barP ? { prefix: barP } : {}),
     ...(barP ? { prefixChrome: opts?.barChrome === true } : {}),
