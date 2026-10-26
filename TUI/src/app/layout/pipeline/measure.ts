@@ -92,6 +92,17 @@ function naturalHWidth(
       : 0;
     const avail = Math.max(1, budget - prefixW - suffixW);
     if (child.balance === true) {
+      // 自然宽优先取「内容自身宽」：短文本单行 → 其内容宽（fill spacer 吃剩余，
+      // 不会因 balancedWidth 对单行返回 maxWidth 而把整宽占掉）；需折行才用平衡宽。
+      const unwrapped = wrapLeaf(child.text, avail, {
+        prefixW: 0,
+        hanging: child.hanging ?? 0,
+      });
+      const contentW = unwrapped.reduce(
+        (m, r) => Math.max(m, displayWidth(r.map((s) => s.text).join(""))),
+        0,
+      );
+      if (contentW <= avail) return contentW + prefixW + suffixW;
       return (
         balancedWidth(styledToSegments(child.text), avail, child.hanging ?? 0) +
         prefixW +

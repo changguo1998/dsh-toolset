@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { parse } from "../src/app/layout/pipeline/parse.ts";
 import { route } from "../src/app/layout/pipeline/route.ts";
 import { renderPaneNew } from "../src/app/layout/pipeline/rows.ts";
+import { displayWidth } from "../src/app/layout/markdown.ts";
 import type {
   EventGroup,
   PaneItem,
@@ -184,3 +185,46 @@ test("桥：counts 与 keys 与 item 一一对应（滚动段键契约）", () =
   assert.equal(r.counts.length, items.length, "每 item 一段计数");
   assert.equal(r.keys.length, items.length, "每 item 一段键");
 });
+
+// ---------------- 宽度契约（低层：先确认实现是否达标，再决定是否改） ----------------
+
+const LONG =
+  "回复正文：这是一段足够长的中文内容，用来把历史 pane 的文字行铺满到排版右缘，看最右可见字符落在哪一列（末尾还有 ABCdef）。";
+
+test("宽度契约：终态正文行铺满 dialogueTextW（前缀+正文到右缘）", () => {
+  const s = section({
+    id: "1:1:0",
+    final: true,
+    body: { source: "assistant", text: LONG },
+  });
+  const items = paneOf([s], "session");
+  const W = 78;
+  const r = renderPaneNew(items, "dialogue", { width: W, vw: W });
+  const first = r.rows[0]!;
+  const w = first.segments.reduce((m, x) => m + displayW(x.text), 0);
+  // 前缀 1 + 正文：正文 bodyW = W-1；CJK 宽字符边界最多留 1 列 → 行宽 ∈ {W-1, W}
+  assert.ok(w >= W - 1, `终态正文首行铺满文本宽（实际 ${w}，目标 ≥ ${W - 1}）`);
+});
+
+test("宽度契约：用户块右对齐铺满 pane（首行宽 = W），符号可见", () => {
+  const s = section({
+    id: "1:1:1",
+    user: { status: "success" },
+    body: { source: "user", text: "问" },
+  });
+  const items = paneOf([s], "session");
+  const W = 40;
+  const r = renderPaneNew(items, "dialogue", {
+    width: W,
+    vw: W,
+    userSym: (info) => (info === undefined ? undefined : { text: "✓" }),
+  });
+  const first = r.rows[0]!;
+  const w = first.segments.reduce((m, x) => m + displayW(x.text), 0);
+  assert.equal(w, W, `用户块行宽 = ${W}`);
+});
+
+/** 段显示宽（真实 EAW 口径，与渲染同一函数） */
+function displayW(rowText2: string): number {
+  return displayWidth(rowText2);
+}

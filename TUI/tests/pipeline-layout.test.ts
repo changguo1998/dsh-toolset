@@ -258,3 +258,38 @@ test("flattenTable：左右缘竖线 + 列分隔 + 表头下横线（行结构�
   assert.ok(headTxt.startsWith("┃"), "左缘竖线");
   assert.ok(headTxt.includes("│"), "列分隔");
 });
+
+// ---------------- 最低层契约：measure h 分派（auto 内容宽 / fill 吃剩余） ----------------
+
+test("measure h 分派：auto 取内容宽、fill 吃剩余（右对齐，非整宽塌陷）", () => {
+  const body = { text: [{ text: "z" }] } as Leaf; // auto，内容宽 1
+  const fill = { text: [], widthStyle: "fill" as const } as Leaf;
+  const h: Node = { direction: "h", children: [fill, body] };
+  measure(h, 10, { vw: 10 });
+  assert.equal(body.width, 1, "auto 取内容宽 1");
+  assert.equal(fill.width, 9, "fill 吃剩余 9");
+  // 二者之和 = 容器
+  assert.equal((body.width ?? 0) + (fill.width ?? 0), 10);
+});
+
+test("measure h 分派：短 balance 正文不吞整宽（用户块右对齐的前提）", () => {
+  // 模拟用户块：fill spacer + 内容(h[符号格2 + balance正文+右缘竖线])
+  const sym = {
+    text: [{ text: "✓ " }],
+    widthStyle: "fixed" as const,
+    widthFixed: 2,
+  } as Leaf;
+  const body = {
+    text: [{ text: "问" }],
+    balance: true as const,
+    suffix: { text: "┃" },
+  } as Leaf;
+  const content: Node = { direction: "h", children: [sym, body] };
+  const fill = { text: [], widthStyle: "fill" as const } as Leaf;
+  const user: Node = { direction: "h", children: [fill, content] };
+  measure(user, 40, { vw: 40 });
+  const sum = (fill.width ?? 0) + (content.width ?? 0);
+  assert.equal(sum, 40, "fill+content = 容器");
+  // 关键：content（符号2+正文"问"2+竖线1 = 5 内容）不应吞到 40，fill 应吃剩余
+  assert.ok((fill.width ?? 0) >= 20, `fill 吃大部分剩余（实际 ${fill.width}）`);
+});
