@@ -56,6 +56,8 @@ export interface PipelineContent {
   dialogueUserRows: readonly number[];
   /** 回合区每段行数（页滚上限用） */
   activityCounts: readonly number[];
+  /** 回合区段键（与 `activityCounts` 齐——活动区「节键 + 行偏移」视口定位用） */
+  activityKeys: readonly string[];
 }
 
 /**
@@ -266,6 +268,7 @@ export function pipelineContent(
     dialogueKeys: dialogue.keys,
     dialogueUserRows: dialogue.userRows,
     activityCounts: activity.counts,
+    activityKeys: activity.keys,
   };
 }
 

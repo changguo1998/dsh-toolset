@@ -1223,13 +1223,33 @@ function buildTopRegion(
   // 内容行（0..contentTopH-1）：标题栏 → 对话区 → 活动区分隔 → 活动区。
   // 中间分隔竖线（状态列右缘/历史区左缘）随焦点面板只亮其垂直边界：
   // status=全行、history=仅对话区、activity=仅分隔行+活动区；模态态全回流边框色。
-  const actMaxOffset = Math.max(0, activity.length - activityH);
+  const actAllLen = activity.length;
+  const actMaxOffset = Math.max(0, actAllLen - activityH);
   if (report) report.activityMaxScroll = actMaxOffset;
-  const actOffset = Math.min(state.activityScroll, actMaxOffset);
-  const act = activity.slice(
-    actMaxOffset - actOffset,
-    actMaxOffset - actOffset + activityH,
-  );
+  // 活动区视口改用「节键 + 行偏移」（与对话区同口径）：`activityTop`(顶键+行)≠null 时日
+  // 据此定位、位置按内容段身份表达（上方插段不动画面）；null = 跟随底部。`activityScroll`
+  // 作段键失配时的回落偏移（距底）。
+  const actCounts = [...built.activityCounts];
+  const actKeys = [...built.activityKeys];
+  const actTable = createLineTable(actCounts);
+  // `activityTop`(节键+行) 非 null → 按段键解析定位（扩窗不动画面，滑动时重设顶键）；
+  // null = 跟随底部，沿用原「距底行数切片」口径（`activityScroll`）。
+  const actTopIdx =
+    state.activityTop === null
+      ? actMaxOffset - Math.min(state.activityScroll, actMaxOffset)
+      : indexOfTop(
+          actTable,
+          actKeys,
+          state.activityTop,
+          state.activityScroll,
+          actMaxOffset,
+        );
+  const act = activity.slice(actTopIdx, actTopIdx + activityH);
+  if (report) {
+    report.activityTopIdx = actTopIdx;
+    report.activityKeys = actKeys;
+    report.activityCounts = actCounts;
+  }
   // 内容不足一屏时底部对齐（两种排列一致）：流从 pane 底部往上长，最新一行贴 pane 底边，
   // 逐渐填满整块 pane 后才开始折叠最早内容——折叠点恒为「pane 高」而不是「一半」
   const topPad = activityH - act.length;
@@ -2079,6 +2099,11 @@ export interface FrameScrollReport {
   /** 对话区可滚动上限（总行数 − 可视行数） */
   dialogueMaxScroll: number;
   activityMaxScroll: number;
+  /** 活动区段表（每段行数）与段键——位置 = 段键 + 段内行，App 据此换算按键位移 */
+  activityCounts?: readonly number[];
+  activityKeys?: readonly string[];
+  /** 本帧实际渲染的活动区视口顶行号（段键解析 + clamp 后的结果） */
+  activityTopIdx?: number;
   /** 对话区总行数（含占位行） */
   dialogueTotal: number;
   /** 对话区段表（每段行数）与段键——位置 = 段键 + 段内行，App 据此换算按键位移 */

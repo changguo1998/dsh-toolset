@@ -472,6 +472,8 @@ export interface AppState {
    * 段消失时回落 `scrollOffset`（距底偏移）。
    */
   dialogueTop: DialogueTop | null;
+  /** 回合(活动)区视口顶位置（段键 + 段内行；`null` = 跟随底部/最新；语义同 `dialogueTop`） */
+  activityTop: DialogueTop | null;
   /** 渐进窗口：物化的尾部回合组数（上滚接近窗口顶部时增大；回到最新时复位默认） */
   windowGroups: number;
   /**
@@ -819,6 +821,7 @@ export function initialState(
     followBottom: true,
     scrollOffset: 0,
     dialogueTop: null,
+    activityTop: null,
     windowGroups: DIALOGUE_KEEP_REPLIES,
     inputText: "",
     inputCursor: 0,
@@ -1582,6 +1585,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           followBottom: true,
           // 会话切换：清掉上一会话的阅读位置，回到跟随底部（段键跨会话无意义）
           dialogueTop: null,
+          activityTop: null,
           scrollOffset: 0,
           activityScroll: 0,
           // TUI#9：会话恢复/切换 → 本会话累计清零（与 buffer 同步换会话）
@@ -1606,6 +1610,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           local: [],
           followBottom: true,
           dialogueTop: null,
+          activityTop: null,
           scrollOffset: 0,
           activityScroll: 0,
         };
@@ -1627,6 +1632,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           followBottom: true,
           scrollOffset: 0,
           dialogueTop: null,
+          activityTop: null,
           activityScroll: 0,
           windowGroups: DIALOGUE_KEEP_REPLIES,
           focusedPanel: null,
@@ -1786,6 +1792,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
           followBottom: true,
           scrollOffset: 0,
           dialogueTop: null,
+          activityTop: null,
           windowGroups: DIALOGUE_KEEP_REPLIES,
         };
       case "window-grow":
