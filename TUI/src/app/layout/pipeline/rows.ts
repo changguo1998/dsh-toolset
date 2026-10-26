@@ -772,9 +772,8 @@ export function renderPaneNew(
     userSym: options.userSym,
     // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
     gutter: pane === "dialogue" ? options.gutter : undefined,
-    // 竖线两面板都画，但盒形按面板区分（会话区已定：prefix "┃ " + 右缘空格 suffix；
-    // 活动区形状未定，暂维持单竖线无右缘留白）
-    pane: pane === "dialogue" ? "session" : "turn",
+    // pane 形状（会话区 prefix "┃ " + 右缘留白 / 活动区单竖线无留白）由 buildTrees
+    // 按树锁定，这里不再重复传
     normalize: options.normalize,
   };
   const { session, turn } = buildTrees(
