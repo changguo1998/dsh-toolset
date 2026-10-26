@@ -327,10 +327,13 @@ function classifyMarkdown(
           ordered = false;
           const checked = task[1]!.toLowerCase() === "x";
           const bodyText = styledOf(task[2]!);
-          // 勾选：正文删除线
-          const text0: StyledText = checked
-            ? bodyText.map((s) => ({ ...s, strike: true }))
-            : bodyText;
+          // 复选框保留在条目文本（`[x] ` / `[ ] `，不参与删除线）；勾选正文删除线
+          const text0: StyledText = [
+            { text: checked ? "[x] " : "[ ] " },
+            ...(checked
+              ? bodyText.map((s) => ({ ...s, strike: true }))
+              : bodyText),
+          ];
           items.push(paragraph(spanOf(startL, i), text0));
           i += 1;
           // 后续缩进续行并入上一项
@@ -348,9 +351,14 @@ function classifyMarkdown(
           const marker = listItem[1]!;
           ordered = /^\d|^[a-zA-Z]/.test(marker.trimStart());
           const bodyText = styledOf(listItem[2]!);
-          items.push(paragraph(spanOf(startL, i), bodyText));
-          const itemMarker = marker.replace(/[ \t]+$/, "");
-          void itemMarker;
+          // 显示标记直接前缀进条目文本：有序保留编号、无序变 `• `（混合列表每个条目
+          // 各带自己的标记，结构层不再用单一 ordered 标志派生）
+          const finalMarker = ordered
+            ? marker.replace(/[ \t]+$/, "") + " "
+            : "• ";
+          items.push(
+            paragraph(spanOf(startL, i), [{ text: finalMarker }, ...bodyText]),
+          );
           i += 1;
           while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
             appendToParagraph(

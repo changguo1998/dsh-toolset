@@ -84,6 +84,7 @@ export function styledToSegments(text: StyledText): FrameSegment[] {
     if (s.color !== undefined) style.fg = s.color;
     if (s.bold === true) style.bold = true;
     if (s.italic === true) style.italic = true;
+    if (s.strike === true) style.strike = true;
     if (s.code === true) style.bg = "code";
     if (s.link !== undefined) {
       style.fg = "blue";

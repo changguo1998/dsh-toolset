@@ -81,25 +81,17 @@ function toQuote(block: Extract<Block, { kind: "quote" }>): Node {
   };
 }
 
-/** List → v Node：每个子项 = 左缘竖线 + 列表标记 + 行内（有序编号 / 任务框在 render 派生） */
+/** List → v Node：每个子项 = 左缘竖线 + 行内（显示标记已在条目文本：有序编号 /
+ *  任务框 / 无序子弹）；悬挂对齐正文（标记后） */
 function toList(block: Extract<Block, { kind: "list" }>): Node {
   const barP = bar(block.source);
-  const children: Leaf[] = (block.items as Paragraph[]).map((item, index) => {
-    const marker = markerFor(block, index);
-    return leaf([{ text: marker }, ...item.text], {
+  const children: Leaf[] = (block.items as Paragraph[]).map((item) =>
+    leaf(item.text, {
       prefix: barP,
-      hanging: barP.text.length + displayW(marker),
-    });
-  });
+      hanging: barP.text.length + displayW(item.text[0]?.text ?? ""),
+    }),
+  );
   return { direction: "v", children };
-}
-
-/** 列表项标记（有序按 items 索引生成的编号；无序 `• `；任务框由子段表达） */
-function markerFor(
-  block: Extract<Block, { kind: "list" }>,
-  index: number,
-): string {
-  return block.ordered ? `${index + 1}. ` : "• ";
 }
 
 /** 显示宽（装饰占列需要） */
