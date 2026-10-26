@@ -66,19 +66,20 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
     ? [seg(node.suffix!.text, node.suffix!.style)]
     : [];
   const out: Row[] = rows.map((line, ri) => {
+    const lead = ri === 0 ? indent : hanging;
     const padBody = suffixOn
       ? " ".repeat(Math.max(0, maxBodyW - rowW(line)))
       : "";
-    const rowSegs: Seg[] = [
-      ...prefixSegs,
-      ...line,
-      ...(padBody ? [seg(padBody)] : []),
-      ...suffixSegs,
-    ];
-    const lead = ri === 0 ? indent : hanging;
+    // 竖线为面板左缘 chrome，每行同列（第一）；缩进/悬挂空格在竖线之后对齐正文
     return {
-      segments: lead > 0 ? [seg(" ".repeat(lead)), ...rowSegs] : rowSegs,
-      indent: ri === 0 ? indent : hanging,
+      segments: [
+        ...prefixSegs,
+        ...(lead > 0 ? [seg(" ".repeat(lead))] : []),
+        ...line,
+        ...(padBody ? [seg(padBody)] : []),
+        ...suffixSegs,
+      ],
+      indent: lead,
     };
   });
   if (node.tail) {

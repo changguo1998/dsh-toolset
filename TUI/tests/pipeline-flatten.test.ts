@@ -149,3 +149,24 @@ test("flatten：顶段助手段 ┃ 为左缘 chrome 列不吃正文宽（正文
   // 两者合计首行 = width−gutter+1（布局 history 区 bodyW+1 契约）
   assert.equal(displayWidth(first), width - gutter + 1);
 });
+
+test("flatten：列表续行 竖线 chrome 在前、悬挂空格在后（对齐正文）", () => {
+  // 列表项叶：prefix=┃（chrome）+ marker 已在正文、悬挂 hanging=4（对齐正文列）
+  const leaf: Leaf = {
+    text: [{ text: "• " + "A".repeat(40) }],
+    prefix: { text: "┃" },
+    hanging: 4,
+  };
+  const v: Node = { direction: "v", children: [leaf] };
+  const width = 16;
+  measure(v, width, { vw: width });
+  const rows = flatten(v, width, { vw: width });
+  assert.ok(rows.length >= 2, "长列表项折多行");
+  const first = rows[0]!.segments.map((s) => s.text).join("");
+  assert.ok(first.startsWith("┃• "), "首行=竖线+子弹前缀");
+  const cont = rows[1]!.segments.map((s) => s.text).join("");
+  assert.ok(
+    cont.startsWith("┃    "),
+    "续行=竖线在列、悬挂 4 空格对齐正文: " + JSON.stringify(cont),
+  );
+});
