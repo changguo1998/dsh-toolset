@@ -126,3 +126,25 @@ test("parse：多行正文按行产独立 Paragraph（同 source 连续段）", 
     .join("|");
   assert.equal(t, "第一段|第二段");
 });
+
+test("parse：notice 尾部换行吸收——全空/纯换行不产出段落", () => {
+  // legacy absorbActivityBlank：notice 文本尾部 \n 只起空行锚点，剥离后不留空行
+  const s = sec({
+    id: "1:1:0",
+    body: { source: "notice", text: "中间提示\n" },
+  });
+  const paras = parse(s).filter(plain);
+  assert.equal(paras.length, 1, "尾部换行剥离后仍一个段落");
+  const p = paras[0] as Extract<Block, { kind: "paragraph" }>;
+  assert.equal(
+    p.text.map((x) => x.text).join(""),
+    "中间提示",
+    "尾部 \\n 被吸收",
+  );
+  const blank = sec({ id: "1:1:1", body: { source: "notice", text: "\n" } });
+  assert.equal(
+    parse(blank).filter(plain).length,
+    0,
+    "纯换行 notice 不产出段落（不留空行）",
+  );
+});

@@ -129,30 +129,36 @@ export function parse(section: Section): Block[] {
       source === "shell" ||
       source === "tool"
     ) {
-      // 整段原文，不做 markdown 分类；notice/工具辅助行按 tone 着色
-      const toneColor =
-        body.tone !== undefined && source !== "user"
-          ? (NOTICE_TONE_COLOR[body.tone as NoticeTone] as StyledStr["color"])
-          : undefined;
-      const styled: StyledText = [
-        {
-          text: body.text,
-          ...(toneColor === undefined ? {} : { color: toneColor }),
-        },
-      ];
-      blocks.push(
-        freezeBlock<Paragraph>({
-          kind: "paragraph",
-          source,
-          id: idOf(),
-          span: [0, body.text.length],
-          text: styled,
-          // 用户块的运行时态透传（P1 首行符号 / 排队竖线颜色素材）
-          ...(source === "user" && section.user !== undefined
-            ? { user: section.user }
-            : {}),
-        }),
-      );
+      // 整段原文，不做 markdown 分类；notice/工具辅助行按 tone 着色。
+      // 尾部换行吸收（legacy absorbActivityBlank）：非 user 剥离尾随 \n 的空物理行，
+      // 全换行正文 → 整段不产出（不留视觉空行）
+      const trimmed =
+        source === "user" ? body.text : body.text.replace(/(?:\r?\n)+$/, "");
+      if (trimmed !== "") {
+        const toneColor =
+          body.tone !== undefined && source !== "user"
+            ? (NOTICE_TONE_COLOR[body.tone as NoticeTone] as StyledStr["color"])
+            : undefined;
+        const styled: StyledText = [
+          {
+            text: trimmed,
+            ...(toneColor === undefined ? {} : { color: toneColor }),
+          },
+        ];
+        blocks.push(
+          freezeBlock<Paragraph>({
+            kind: "paragraph",
+            source,
+            id: idOf(),
+            span: [0, body.text.length],
+            text: styled,
+            // 用户块的运行时态透传（P1 首行符号 / 排队竖线颜色素材）
+            ...(source === "user" && section.user !== undefined
+              ? { user: section.user }
+              : {}),
+          }),
+        );
+      }
     } else {
       const mb = classifyMarkdown(source, body.text, idOf);
       blocks.push(...dropTrailingEmpty(mb));
