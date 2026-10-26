@@ -219,8 +219,9 @@ function tableRow(
   sep: string,
 ): Node {
   return {
+    // 列分隔线用默认前景色（不染色）：表格属于正文内容，边框色只留给面板外框
     direction: "h",
-    separator: { char: sep },
+    separator: { char: sep, color: "plain" },
     children: cells.map((cell, j) => {
       const text = header
         ? cell.text.map((s) => ({ ...s, bold: true }))
@@ -233,8 +234,9 @@ function tableRow(
 /** 表格横线行：每列一个 `fill` 盒，靠 `fillWith` 铺满该列分配宽；交叉字由 separator 给 */
 function tableRuleRow(ncols: number, ch: string, cross: string): Node {
   return {
+    // 交叉字同列分隔线口径：默认前景色
     direction: "h",
-    separator: { char: cross },
+    separator: { char: cross, color: "plain" },
     children: Array.from({ length: Math.max(1, ncols) }, (): Node => ({
       direction: "v",
       widthStyle: "fill",

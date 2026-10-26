@@ -102,6 +102,11 @@ test("flatten：表格网格 → 表头行含列分隔（│）", () => {
   const body = rows[2]!.segments.map((s) => s.text).join("");
   assert.equal(rule.indexOf("╪"), head.indexOf("│"), "交叉字落在列边界");
   assert.equal(body.indexOf("│"), head.indexOf("│"), "数据行列边界对齐");
+  // 列分隔线 / 交叉字用默认前景色（不染色）：边框色只留给面板外框
+  for (const seg of rows[0]!.segments.filter((s) => s.text === "│"))
+    assert.equal(seg.style, undefined, "列分隔不着色");
+  for (const seg of rows[1]!.segments.filter((s) => s.text === "╪"))
+    assert.equal(seg.style, undefined, "交叉字不着色");
 });
 
 test("flatten：h 容器 fill 补白 → 行宽 = 容器宽（右对齐）", () => {
