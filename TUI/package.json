@@ -27,7 +27,8 @@
     "bin",
     "LICENSE",
     "README.md",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "tui.config.json"
   ],
   "engines": {
     "node": ">=22.19.0"

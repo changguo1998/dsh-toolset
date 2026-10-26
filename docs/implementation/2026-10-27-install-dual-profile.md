@@ -36,6 +36,16 @@
 - 伴随 profile 是派生品：清单按主 profile 最终 `package.json` 深拷贝（`name` 换名、指向本仓库的依赖值改 `link:`，其余字段与依赖原样），`cordis.patch.yml` / `pnpm-workspace.yaml` 直接复制主 profile 成品（`cmp` 相同则跳过），随后 `pnpm install` 并逐个校验是符号链接。主清单缺失/坏掉时只告警跳过伴随 profile，不 die。
 - 收尾工作：`verify_profile()` 对两个 profile 各代跑一次 `--dump-config`；结果输出列出两个 profile 与各自生效方式。
 
+## 真机反馈与修复（2026-10-27）
+
+- 现象：按新脚本装完 fff 后，会话区 / 回合区该水平排列时仍纵向排列。
+- 根因：`tui.config.json` 不在 TUI 包的 `files` 字段里 → `file:` 快照安装不会带上它；
+  `config.ts` 的 `resolveConfigPath` 从模块目录向上找该文件，快照里找不到 → `layout.activityPlacement`
+  取不到（`auto`）→ 回落纵向。link: 安装时读的是仓库里的配置文件，所以此前没暴露。
+- 修法：`TUI/package.json` 的 `files` 增加 `tui.config.json`（`npm pack --dry-run` 已确认进包）。
+- 验证：临时 `DSH_HOME` 真 pnpm 装 TUI（`--no-test-profile`），快照
+  `node_modules/@dsh-toolset/tui/tui.config.json` 存在且 `activityPlacement: "auto"`。
+
 ## 测试与证据
 
 - `sh -n scripts/install.sh` 语法通过。
