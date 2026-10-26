@@ -97,7 +97,7 @@
 > 2026-10-24 关闭：条目「4. 工具咨询插件（按需揭示工具）」完成并移出清单（实现 + 遮罩接线合并；真机验证：9 核心 + `consult_tools` 生效、揭示链路可用、未揭示调用被拦并给可行动文案；期间修掉 `tools/change` 自激死循环与 3 处工作流文案缺陷，提交 `105bb23` / `4d68858`；包内 49 例通过；过程记录 `tool-consult/docs/archived/2026-10-22-tool-consult.md`）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
 
-- **安装脚本双 profile：主 profile 走快照安装（`file:`），伴随 `<名>-test` 走软链接**〔进行中: 2026-10-27〕（登记 2026-10-27，来源 用户）：现状 `scripts/install.sh` 生成的 profile 依赖一律 `link:` 指向本仓库，改代码即对运行中的会话生效（正在跑的 agent 不稳）→ 期望主 profile（默认 `fff`）按正常安装落快照副本（`file:`，改仓库不影响已装内容），另生成 `<profiles>-test`（默认 `fff-test`）用 `link:` 做实时开发；两者除依赖协议外内容完全一致。优先级 P1。
+> 2026-10-27 关闭：条目「安装脚本双 profile：主 profile 走快照安装（`file:`），伴随 `<名>-test` 走软链接」完成并移出清单（提交 `1edb9b2`：主 profile 依赖 `file:` 快照 + 断开 pnpm 硬链接 + 删 up-to-date 标记刷新，伴随 `<名>-test` 依赖 `link:`，两者除协议外内容一致，`--mode` / `--profile-test` / `--no-test-profile`；`scripts/test-install.sh` 117 项通过。真机反馈修复 `4b98016`：`tui.config.json` 补进 TUI `files`，否则快照读不到配置、排列方式回落纵向。追踪文档 `docs/archived/2026-10-27-install-dual-profile.md`；正跑会话仍待用户按需 `install.sh --profile fff --sync` 后重启生效）。
 
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）过程记录全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。

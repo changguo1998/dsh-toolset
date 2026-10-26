@@ -60,4 +60,4 @@
 
 ## 收尾
 
-（待关闭时填写。）
+- 提交 `1edb9b2`（双 profile 安装）+ `4b98016`（`tui.config.json` 进 files 修复）；`scripts/test-install.sh` 117 项通过。

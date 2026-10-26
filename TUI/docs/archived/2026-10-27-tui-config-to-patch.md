@@ -1,6 +1,6 @@
 # TUI 配置迁到 profile patch（`tui.config.json` → `- id: tui` config）
 
-状态：待提交　　开启：2026-10-27
+状态：完成　　开启：2026-10-27
 接取条目：`TUI/docs/BACKLOG.md`「TUI 配置迁到 profile patch」。
 本文件是本任务唯一的过程记录与文档变更落点。
 
@@ -50,4 +50,4 @@
 
 ## 收尾
 
-（待关闭时填写。）
+- 提交 `41b2d44`；TUI 全量 1809 例全绿。真机效果需重装 profile（`scripts/install.sh --profile fff --sync`）并重启 dsh。

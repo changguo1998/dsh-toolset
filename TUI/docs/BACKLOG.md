@@ -9,9 +9,9 @@
 
 ## 待办
 
-- **TUI 配置迁到 profile patch（`tui.config.json` → `- id: tui` config）**〔进行中: 2026-10-27〕（登记 2026-10-27，来源 用户）：现象 → 包内 `tui.config.json` 是 `file:` 快照安装的盲区（漏进 `files` 时配置丢失, 已致排列方式回落纵向）；期望 → 同一组配置以 profile patch 为正式口径, 包内文件只作开发期兜底。落点 → `DshTuiConfig` 扁平展开 `layout` / `notify` / `session` / `approval` / `localLog` + 主题段改名 `colorschema`；`config.ts` 新增 `mergeTuiConfig`（patch > 文件 > 默认, 段内逐键）；`profiles/example/cordis.patch.yml` 与 `~/.dsh/profiles/fff`、`fff.bak` 同步写入。验收 → `tests/tui-config-merge.test.ts`；全量 1809 例绿。追踪文档 `TUI/docs/implementation/2026-10-27-tui-config-to-patch.md`。优先级 P1。
-
 （当前无未完成项）
+
+> 2026-10-27 关闭：`TUI 配置迁到 profile patch` 完成并移出清单（提交 `41b2d44`：`DshTuiConfig` 扁平展开 `layout` / `notify` / `session` / `approval` / `localLog`、主题段改名 `colorschema`、`mergeTuiConfig`（patch > 文件 > 默认，段内逐键）；示例 patch 与 `~/.dsh/profiles/fff`、`fff.bak` 同步写入；新增 `tests/tui-config-merge.test.ts`，全量 1809 例绿；追踪文档 `TUI/docs/archived/2026-10-27-tui-config-to-patch.md`）。
 
 > 2026-10-27 关闭：`全屏（备用屏）模式` 完成并移出清单（提交 `89f2cf8`：启动写 `ESC[?1049h`、退出与异常恢复写 `ESC[?1049l`，幂等开关 `altOff`，按裁定不写回帧内容；新增 `tests/fullscreen-alt-screen.test.ts`；TUI 全量 1806 例全绿；追踪文档 `TUI/docs/archived/2026-10-27-fullscreen-alt-screen.md`）。
 
