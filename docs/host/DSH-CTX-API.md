@@ -7,6 +7,8 @@
 > 来源：官方 `deepseek-harness` clone（`~/GithubRepos/deepseek-harness`），当前研读基线 `dsh-v0.1.7-rc.2` = commit `477b4f42`（2026-09-25 逐条复核；旧基线 `dsh-v0.1.5-rc.3` = commit `a4c74a91e0`，两版接口差异与判定见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`）。
 > 用途：供 dsh-toolset 各插件（TUI、herdr-integration、knowledge-base、task-engine）在与 DSH 宿主集成时对齐契约；本文件为研读沉淀，只读参考，非实现。
 > 版本口径：以 `dsh-v0.1.7-rc.2` 为准。源码若演进，以仓库为准。
+> 2026-10-27 rc.3 复核：`dsh-v0.2.1-rc.2..dsh-v0.2.1-rc.3` 对进程内接口面（ctx 服务 / 事件 / patch DSL / 启动契约 / 我们挂载的官方配置 schema）**零变更**——`packages/core` / `host` / `session` / `boot` / `interaction` / `compaction` 只有版本号变化，`bundle/base` patch 未变；唯一行为变更在 LLM 路由（官方 `/models` 列表，见 `HOST-UPGRADE-0.2.1-rc.3.md`）。故本文正文未改版，仍以 `dsh-v0.1.7-rc.2` 为逐条研读基线。
+>
 > 复核范围：正文宿主事实已按 rc.2 逐条核对；§6 的 TUI 实现建议与 §8 表的 TUI 列属本仓内部契约，不在宿主核对范围内。
 
 ## 0. 运行时总览

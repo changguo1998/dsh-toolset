@@ -1,12 +1,13 @@
-# 可用官方包清单（DSH 0.2.1-rc.2）
+# 可用官方包清单（DSH 0.2.1-rc.3 口径；计数仍为 rc.2 安装树实测）
 
 > 职责：宿主官方包与服务字典（由已安装 dsh 生成）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）
 > 过期条件：**升宿主后必须重新生成**
 
-> 来源：本地安装的官方 deepseek-harness（全局 dsh `0.2.1-rc.2`（2026-10-21 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`，下文称**安装树口径**）；源码 clone（`~/GithubRepos/deepseek-harness`）checkout = tag `dsh-v0.2.0-rc.2`（commit `639ed015`）。两处同版本。
+> 来源：本地安装的官方 deepseek-harness（全局 dsh `0.2.1-rc.2`（2026-10-21 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`，下文称**安装树口径**）；源码 clone（`~/GithubRepos/deepseek-harness`）已 checkout 到 tag `dsh-v0.2.1-rc.3`。**0.2.1-rc.3 增量**（2026-10-27 复核）：
+> 包目录 342 → 343，仅新增 web 专用 `@deepseek-ai/dsh-client-ui-entry-customization`；其余包只有版本号变化，接口面与 `dsh-base` patch 无变更（详见 `HOST-UPGRADE-0.2.1-rc.3.md`）。本文件的包计数仍为 rc.2 安装树实测，升级本机后重生成。
 > 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
-> 版本口径：**以 `0.2.1-rc.2` 实际随包分发的安装树为准**——`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **306** 个包（其中 `dsh-*` 294 个；0.2.0-rc.2 时为 288 / 277），§2 的行清单与之一一对应。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。宿主升级后需整体重生成。
+> 版本口径：**以 `0.2.1-rc.3` 实际随包分发的安装树为准**——`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **306** 个包（其中 `dsh-*` **295** 个；rc.2 时为 306 / 294，rc.3 新增 web 专用 `dsh-client-ui-entry-customization`），§2 的行清单与之一一对应。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。宿主升级后需整体重生成。
 > 采集时间：**2026-10-21**（宿主 `dsh --version` = `0.2.1-rc.2`；随包分发 306 包、fff 活跃挂载 100 个名字项（`--dump-config` 排除无条件 `disabled: true` 后），另树外加装 `session-title-all-prompts-llm`（disabled），其中 92 个计入 §1、1 个是 TUI 自插的 `tool-ask-user`。△ 该名字项计数**含被 `disabled` 关掉的行**，按 §0 判定细则修正后见 §1 与 §6）。接口与包增删的逐项对照：本次见同目录 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`，上一次见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
 > 与上一版清单（`0.1.5-rc.3`）的差异（历史记录，0.1.5-rc.3 → 0.1.7-rc.2 当时）：随包分发包 240 → 283、fff 已挂载 82 → 91；分类结构沿用旧版，逐行按新数据重写。
 > 与 `0.1.7-rc.2` 的差异（2026-10-02 实测）：源码包 321 → 325（public 312 → 316），新增 4 个——`otel`、`client-product-analytics`、`client-ui-settings-session-log`、`experimental-schedule-bundle`，无删除 / 改名 / 移目录；随包分发 283 → 288（多出的第 5 个是转为分发的 `host-product-telemetry-otel`）；fff 挂载 91 → 92（`dsh-base` 新增 `otel` 行）；服务面 +2、工具面与事件面零增删、会话格式仍 V4，**本仓 17 包无需改代码**。
@@ -24,7 +25,7 @@
 - **归类与计数口径**：分组沿用旧版 12 个分类，按宿主源码目录（`packages/` 下路径）归口，少数跨面包沿用旧版口径（`command-*` 归「技能 / 命令 / Web / 集成」；编排类 `tool-*`（goal / jobs / subagent / workflow / agent-team）归「agent 与编排」；`client-*` 全部归「客户端 UI」；`util-*` 与 vendor 归「插件 / 启动 / 基础设施」）；`experimental-` 前缀包剥掉前缀后按同一规则落位。
 - **小计自洽性**：各分类包数之和 = **306**（= 随包分发实测 306；其中 305 个在安装树内、1 个是树外加装包 `session-title-all-prompts-llm`，后者归入「会话 / 上下文 / 存储」且不占该分类名额）；各分类「已挂载」之和 = **99**（2026-10-02 两步实测：`dsh-base` 新行 `otel` → 92，同日挂载面扩张再 +10 → 102；**2026-10-06 修正**——原 101 的分类和含 2 行被无条件 `disabled: true` 关掉的行 `tool-ralph` / `skill-badge`，按 §0 判定细则不计，101 → 99），另加 1 个树外加装包 `session-title-all-prompts-llm`（§1 合计 99 + 1 = **100**）。
 
-## 1. 现成可用（fff 已挂载，100 个，2026-10-21 按 §0 判定细则实测）
+## 1. 现成可用（fff 已挂载，100 个，2026-10-21 rc.2 按 §0 判定细则实测；rc.3 升级后未按细则复算）
 
 ```
 agent agent-default-model agent-instructions agent-loop api-gateway api-remote-access attachment-local authorization
@@ -47,7 +48,7 @@ workflow-ptc working-directory workspace workspace-changes
 > 2026-10-02 已升级到 `0.2.0-rc.2` 并实测：比 0.1.7 多出的正是 `otel`（`dsh-base` 新增 `- id: otel`，服务 `ctx.otel`），其余 91 个逐项不变。
 > 同日挂载面扩张（`~/.dsh/profiles/fff/cordis.patch.yml` 追加一个 `- insert:` 块）再 +10 个：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`（全部为投影 / 服务 / 事件面扩展，不改模型工具面；健康检查：dump 124 行、0 条 `patch: entry` 告警）。**注（2026-10-04 更正）**：当时「PTY 真机启动无激活告警」是**假通过**——`message-feedback` 的 `Config.maxNoteBytes` 自 0.1.7-rc.2 起即 `.required()`，缺 `config` 必报 `1 entry did not activate`；该行现补 `config: maxNoteBytes: 8192`（对齐上游 `dsh-web-app` 同款行），隔离 `DSH_HOME` 克隆真机 A/B 已复现并确认修复（A：告警 1 条；B：0 条）。该服务当前无消费者（Web bundle 的浏览器对话框才用它），本仓 TUI-only 下按「尽量挂」保留。
 
-## 2. 全部分组清单（306 个）
+## 2. 全部分组清单（306 个；rc.3 安装树实测）
 
 ### agent 与编排（28，已挂载 17）
 

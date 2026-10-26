@@ -1,10 +1,10 @@
-# 本仓插件与官方包的复用审计（基线 DSH 0.2.1-rc.2）
+# 本仓插件与官方包的复用审计（基线 DSH 0.2.1-rc.3）
 
 > 职责：回答「本仓 31 个包（TUI + 30 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（已审计 31 个全量：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`）
-> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）
+> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.1-rc.2`（安装树 294 个 `dsh-*`；fff 活跃挂载 100 个官方行，2026-10-21 实测）；本仓 **31 个包 = TUI + 30 个插件**（清单见 `AGENTS.md`「结构与约定」）。
+> 口径：官方基线 `dsh 0.2.1-rc.3`（源码 tag 口径 343 个包目录；安装树 294 个 `dsh-*` 与 fff 活跃挂载 100 个官方行是 2026-10-21 的 rc.2 实测，升级后需复测）；本仓 **31 个包 = TUI + 30 个插件**（清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
 > 结论分布：**改用 0 / 保留 22 / 并存 9**（总表 31 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
