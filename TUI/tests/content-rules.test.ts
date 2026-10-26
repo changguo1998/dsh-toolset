@@ -12,11 +12,8 @@ import {
   ACTIVITY_SEPARATOR,
   SEPARATOR,
   isToolCall,
-  isToolResult,
   isStepHeader,
   NOTICE_TONE_COLOR,
-  renderToolText,
-  renderToolNameLine,
   userMaxBodyWidth,
   wrapToolCallText,
   USER_MIN_LEFT_GUTTER,
@@ -74,9 +71,6 @@ test("分组判定：无状态前缀=调用，状态前缀=辅助行", () => {
   assert.ok(!isStepHeader("03:04:05 ⇆3"), "回合分隔线标签不是分组头");
   assert.ok(!isStepHeader("step 2"), "旧格式不再识别为分组头");
   assert.ok(!isToolCall("#2"), "缺时间的分组头同样非调用行");
-  assert.ok(isToolResult("✓ done"));
-  assert.ok(isToolResult("✗ fail"));
-  assert.ok(!isToolResult("bash run"));
   // 前缀集合齐全
   for (const p of TOOL_STATUS_PREFIXES)
     assert.ok(!isToolCall(p + "x"), `前缀 ${p} 应判非调用`);
@@ -95,17 +89,6 @@ test("tone 映射覆盖全部 NoticeTone", () => {
     error: "red",
     success: "green",
   });
-});
-
-test("工具渲染：✓ 前缀绿分离、工具名染黄", () => {
-  const ok = renderToolText("✓ done");
-  assert.equal(ok[0]!.text, "✓");
-  assert.equal(ok[0]!.style?.fg, "green");
-  const call = renderToolNameLine("bash -c x");
-  assert.equal(call[0]!.text, "bash");
-  assert.equal(call[0]!.style?.fg, "yellow");
-  const solo = renderToolNameLine("bash");
-  assert.equal(solo[0]!.style?.fg, "yellow");
 });
 
 test("常量齐全", () => {

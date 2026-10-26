@@ -15,7 +15,7 @@ import {
   topPaneSplit,
   type FrameScrollReport,
 } from "../src/app/layout.ts";
-import { buildContentRows } from "../src/app/layout/build-box.ts";
+import { renderBuffer } from "./helpers/renderBuffer.ts";
 import { sectionsFromLocal } from "../src/app/layout/pipeline/replay.ts";
 
 /**
@@ -230,8 +230,8 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
     },
     { kind: "assistant", text: "最终回复内容".repeat(12), final: true },
   ];
-  const narrow = buildContentRows(buffer, {}, 20, 20);
-  const wide = buildContentRows(buffer, {}, 60, 60);
+  const narrow = renderBuffer(buffer, { dialogueTextW: 20, activityTextW: 20 });
+  const wide = renderBuffer(buffer, { dialogueTextW: 60, activityTextW: 60 });
   const actWidth = (rows: { segments: { text: string }[] }[]): number =>
     Math.max(
       ...rows.map((r) => displayWidth(r.segments.map((s) => s.text).join(""))),
@@ -250,9 +250,9 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
   );
 });
 
-test("横向排列：活动 pane 的围栏代码块按活动 pane 宽预折（行归属取宽，2026-10-16）", () => {
-  // 回归：代码块分支曾用 `opts.width`（对话 pane 宽）算可用宽 → 横向排列下预折行超出活动
-  // pane，fill 二次折行：行号列该省未省、`↪` 缩进丢失、靠右补白被当成正文换行（多出纯空行）。
+test("横向排列：活动 pane 的围栏代码块按活动 pane 宽折行", () => {
+  // 回归：代码块曾用 `opts.width`（对话 pane 宽）算可用宽 → 横向排列下折行超出活动 pane。
+  // 新链口径：每 pane 用自己的宽测量/摊平；行号列**恒在**（2 列），续行不做 `↪` 箭头。
   const long = "const value = " + "x".repeat(60) + ";";
   const codeRows = (final: boolean): HistoryRow[] => [
     { kind: "assistant", text: "```ts", ...(final ? { final: true } : {}) },
@@ -264,30 +264,31 @@ test("横向排列：活动 pane 的围栏代码块按活动 pane 宽预折（�
   const maxW = (rows: { segments: { text: string }[] }[]): number =>
     Math.max(...rows.map((r) => displayWidth(textOf(r))));
   // 对话 pane 60 列 / 活动 pane 20 列（同一次横向排列下的两个 pane）
-  const act = buildContentRows(codeRows(false), {}, 60, 20);
-  const dia = buildContentRows(codeRows(true), {}, 60, 20);
-  const wide = buildContentRows(codeRows(false), {}, 80, 70);
+  const act = renderBuffer(codeRows(false), {
+    dialogueTextW: 60,
+    activityTextW: 20,
+  });
+  const dia = renderBuffer(codeRows(true), {
+    dialogueTextW: 60,
+    activityTextW: 20,
+  });
+  const wide = renderBuffer(codeRows(false), {
+    dialogueTextW: 80,
+    activityTextW: 70,
+  });
   const lines = act.activity.map(textOf);
   assert.ok(
     maxW(act.activity) <= 20,
-    "活动 pane 代码块每行总宽 ≤ 活动 pane 文字宽（不再按对话 pane 宽预折）",
+    "活动 pane 代码块每行总宽 ≤ 活动 pane 文字宽（不按对话 pane 宽折行）",
   );
   assert.ok(
-    !lines.some((t) => /^┃\s*\d+ /.test(t)),
-    "可用宽 < 23 列时不出现行号列（判据用的是活动 pane 宽，不是对话 pane 宽）",
+    lines.some((t) => /\d┃/.test(t)),
+    "代码行带行号列 + 列分隔（新链行号列恒在）",
   );
   assert.equal(
-    lines.filter((t) => /^┃\s*$/.test(t)).length,
+    lines.filter((t) => t.includes("↪")).length,
     0,
-    "不出现纯补白行（靠右补白不再被 fill 当成正文换行）",
-  );
-  assert.ok(
-    lines.every((t) => t === t.replace(/\s+$/, "")),
-    "行尾不带补白（预折行的靠右补白原地保留，不再被 fill 二次折行挤出）",
-  );
-  assert.ok(
-    lines.filter((t) => t.includes("↪")).length > 0,
-    "长行确实被预折（存在带 ↪ 的续行）",
+    "续行不做 ↪ 箭头（新链口径）",
   );
   assert.ok(
     maxW(dia.dialogue) <= 60 && maxW(dia.dialogue) > 20,
@@ -295,10 +296,9 @@ test("横向排列：活动 pane 的围栏代码块按活动 pane 宽预折（�
   );
   assert.ok(
     act.activity.length > wide.activity.length,
-    "活动 pane 越窄预折出的物理行越多（宽度确实生效）",
+    "活动 pane 越窄折出的物理行越多（宽度确实生效）",
   );
 });
-
 test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴ 同列（两 pane 不等宽时也不偏）", () => {
   // 100 列（状态列 33）→ 区域正文宽 66 → 历史 pane 32 / 活动 pane 33：两 pane
   // 不等宽，正是「交汇字形取错了 pane 宽」会偏一列的情形

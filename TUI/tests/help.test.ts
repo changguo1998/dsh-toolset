@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { displayWidth } from "../src/app/layout.ts";
-import { buildContentRows } from "../src/app/layout/build-box.ts";
+import { renderBuffer } from "./helpers/renderBuffer.ts";
 import type { HistoryRow } from "../src/app/state.ts";
 import {
   helpTableLines,
@@ -250,7 +250,10 @@ test("渲染层折行：help notice 续行停靠该行描述列（不穿回第�
     })),
   ];
   // 窄活动 pane（40 列）强制 /jobs 描述折行
-  const { activity } = buildContentRows(buffer, {}, 40, 40);
+  const { activity } = renderBuffer(buffer, {
+    dialogueTextW: 40,
+    activityTextW: 40,
+  });
   const texts = activity.map((r) => r.segments.map((s) => s.text).join(""));
   const jobsLine = lines[ROWS.findIndex((r) => r.cmd === "/jobs")]!;
   const descIndent = jobsLine.hanging;
@@ -290,7 +293,10 @@ test("渲染层：超宽命令描述另起一行，行首缩进 = 封顶档位 1
       hanging: l.hanging,
     })),
   ];
-  const { activity } = buildContentRows(buffer, {}, 90, 90);
+  const { activity } = renderBuffer(buffer, {
+    dialogueTextW: 90,
+    activityTextW: 90,
+  });
   const texts = activity.map((r) => r.segments.map((s) => s.text).join(""));
   const descIndent = lines[0]!.hanging;
   assert.equal(descIndent, 14, "封顶档位绝对列 14");

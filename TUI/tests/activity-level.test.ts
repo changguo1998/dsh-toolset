@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 
 import { App } from "../src/app/index.ts";
 import { rowText } from "../src/app/layout.ts";
-import { buildContentRows } from "../src/app/layout/build-box.ts";
+import { renderBuffer } from "./helpers/renderBuffer.ts";
 import type { HistoryRow } from "../src/app/state.ts";
 import type { KeyEvent } from "../src/renderer/index.ts";
 import { FakeAdapter, FakeRenderer } from "./helpers/appFakes.ts";
@@ -25,12 +25,11 @@ const act = (
   buf: HistoryRow[],
   show?: { think?: boolean; tool?: boolean; reply?: boolean },
 ): string[] =>
-  buildContentRows(
-    buf,
-    show === undefined ? {} : { activityShow: show },
-    W,
-    W,
-  ).activity.map(rowText);
+  renderBuffer(buf, {
+    dialogueTextW: W,
+    activityTextW: W,
+    ...(show === undefined ? {} : { activityShow: show }),
+  }).activity.map((r) => rowText(r));
 
 const MIXED: HistoryRow[] = [
   L("思考一段", "thinking"),
@@ -43,22 +42,23 @@ const MIXED: HistoryRow[] = [
 
 test("缺省（三项全开）：思考 / 正文 / 工具块 / notice 全显示", () => {
   const joined = act(MIXED).join("\n");
-  for (const t of ["思考一段", "正文一段", "○ bash ls", "✓ ok", "提示行"])
+  // 新链工具行形制：名字行（名字着黄）+ 参数行 + 结果行
+  for (const t of ["思考一段", "正文一段", "bash", "ls", "ok", "提示行"])
     assert.ok(joined.includes(t), `缺省应含「${t}」：${joined}`);
 });
 
 test("显示开关 think off：只隐藏思考行", () => {
   const joined = act(MIXED, { think: false }).join("\n");
   assert.ok(!joined.includes("思考一段"), "思考行隐藏");
-  for (const t of ["正文一段", "○ bash ls", "✓ ok", "提示行"])
+  for (const t of ["正文一段", "bash", "ok", "提示行"])
     assert.ok(joined.includes(t), `think off 仍应含「${t}」：${joined}`);
 });
 
 test("显示开关 tool off：隐藏工具块，step 分隔头恒显", () => {
   const joined = act(MIXED, { tool: false }).join("\n");
-  assert.ok(!joined.includes("○ bash ls"), "工具名字行隐藏");
-  assert.ok(!joined.includes("✓ ok"), "工具结果行隐藏");
-  assert.ok(joined.includes("22:31:05 #1"), "step 分隔头恒显");
+  assert.ok(!joined.includes("bash"), "工具名字行隐藏");
+  assert.ok(!joined.includes("ok"), "工具结果行隐藏");
+  assert.ok(joined.includes("⇆1 #1"), "step 分隔头恒显");
   for (const t of ["思考一段", "正文一段", "提示行"])
     assert.ok(joined.includes(t), `tool off 仍应含「${t}」：${joined}`);
 });

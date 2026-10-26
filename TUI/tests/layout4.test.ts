@@ -79,7 +79,6 @@ const STEP_TIME = new Date(2026, 0, 2, 3, 4, 5).getTime();
 /** 期望的 step 分组头前缀（`╌╌ hh:mm:ss ⇆N #M `；回合号缺省 1——本文件的场景都在回合 1） */
 const stepHead = (n: number, turn = 1): string => `╌╌ 03:04:05 ⇆${turn} #${n} `;
 import { wrapAssistantLine } from "../src/app/layout/markdown.ts";
-import { buildContentRows } from "../src/app/layout/build-box.ts";
 import type {
   InputMode,
   InputStatus,

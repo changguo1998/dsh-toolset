@@ -6,8 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildBox } from "../src/app/layout/build-box.ts";
-import { fillBoxTree } from "../src/app/layout/fill.ts";
+import { renderBuffer } from "./helpers/renderBuffer.ts";
+import { rowText } from "./helpers/rowText.ts";
 import type { HistoryRow } from "../src/app/state.ts";
 
 const a = (text: string, final = false): HistoryRow => ({
@@ -16,10 +16,10 @@ const a = (text: string, final = false): HistoryRow => ({
   final,
 });
 
+/** 活动区渲染行文本（新链：缓冲行 → 节缓存 → pipelineContent） */
 function activityRows(buf: HistoryRow[], width = 40): string[] {
-  const built = buildBox(buf, {});
-  return fillBoxTree(built.panes.activity, 20, width).map((r) =>
-    r.segments.map((g) => g.text).join(""),
+  return renderBuffer(buf, { dialogueTextW: width }).activity.map((r) =>
+    rowText(r),
   );
 }
 

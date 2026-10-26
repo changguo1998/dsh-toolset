@@ -10,7 +10,7 @@ import {
   frameGeometry,
   rowText,
 } from "../src/app/layout.ts";
-import { buildContentRows } from "../src/app/layout/build-box.ts";
+import { renderBuffer } from "./helpers/renderBuffer.ts";
 import {
   initialState,
   reduceState,
@@ -55,7 +55,7 @@ const buf: HistoryRow[] = [
 const W = 40;
 
 test("活动区完整模式（缺省）：长条目折行成多行", () => {
-  const panes = buildContentRows(buf, {}, W, W);
+  const panes = renderBuffer(buf, { dialogueTextW: W, activityTextW: W });
   assert.ok(
     panes.activity.length > buf.length,
     `折行后行数应多于条目数（实际 ${panes.activity.length}）`,
@@ -66,16 +66,18 @@ test("活动区完整模式（缺省）：长条目折行成多行", () => {
 });
 
 test("压缩开关 reply：正文条目压 1 行 + 行尾省略号，思考与工具不受影响", () => {
-  const panes = buildContentRows(
-    buf,
-    { activityCompact: { reply: true } },
-    W,
-    W,
-  );
-  const texts = panes.activity.map(rowText).filter((t) => t.trim() !== "");
+  const panes = renderBuffer(buf, {
+    dialogueTextW: W,
+    activityTextW: W,
+    activityCompact: { reply: true },
+  });
+  const texts = panes.activity
+    .map((r) => rowText(r).trimEnd())
+    .filter((t) => t.trim() !== "");
   const compacted = texts.filter((t) => t.includes("…"));
   assert.equal(compacted.length, 1, `只有正文被压缩：${JSON.stringify(texts)}`);
-  assert.ok(compacted[0]!.startsWith("┃…"), "省略号在前、正文保留前缀");
+  assert.ok(compacted[0]!.startsWith("┃"), "正文保留左缘竖线前缀");
+  assert.ok(compacted[0]!.endsWith("…"), "压 1 行 + 行尾省略号");
   for (const t of texts) {
     assert.ok(
       displayWidth(t) <= W,
@@ -98,13 +100,12 @@ test("压缩开关 tool：工具组压 1 行（名字行 + 行尾省略号）", 
     },
     { text: "✓ 结果首行\n结果第二行", kind: "tool", toolRole: "result" },
   ];
-  const full = buildContentRows(multi, {}, W, W);
-  const compact = buildContentRows(
-    multi,
-    { activityCompact: { tool: true } },
-    W,
-    W,
-  );
+  const full = renderBuffer(multi, { dialogueTextW: W, activityTextW: W });
+  const compact = renderBuffer(multi, {
+    dialogueTextW: W,
+    activityTextW: W,
+    activityCompact: { tool: true },
+  });
   assert.ok(full.activity.length > 1, "完整模式保留换行（多行）");
   assert.equal(compact.activity.length, 1, "工具组压成 1 行");
   assert.ok(
@@ -115,13 +116,12 @@ test("压缩开关 tool：工具组压 1 行（名字行 + 行尾省略号）", 
 
 test("活动区紧凑模式：短条目不加省略号（原样）", () => {
   const short: HistoryRow[] = [{ text: "短", kind: "thinking" }];
-  const panes = buildContentRows(
-    short,
-    { activityCompact: { think: true } },
-    W,
-    W,
-  );
-  assert.equal(rowText(panes.activity[0]!), "┃短");
+  const panes = renderBuffer(short, {
+    dialogueTextW: W,
+    activityTextW: W,
+    activityCompact: { think: true },
+  });
+  assert.equal(rowText(panes.activity[0]!).trimEnd(), "┃短");
 });
 
 test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽", () => {
@@ -213,12 +213,19 @@ test("notice 与 step 头不归三类：压缩开关全开也不压", () => {
     },
   ];
   const all = { think: true, tool: true, reply: true };
-  const panes = buildContentRows(buf, { activityCompact: all }, W, W);
-  const texts = panes.activity.map(rowText);
+  const panes = renderBuffer(buf, {
+    dialogueTextW: W,
+    activityTextW: W,
+    activityCompact: all,
+  });
+  const texts = panes.activity.map((r) => rowText(r).trimEnd());
   const noticeTexts = texts.slice(1);
   assert.ok(noticeTexts.length > 1, "notice 保持完整折行（不压 1 行）");
   assert.ok(!noticeTexts.some((t) => t.endsWith("…")), "notice 不带行尾省略号");
-  assert.ok(texts[0]!.includes("…"), "thinking 按开关压 1 行（省略号在前）");
+  assert.ok(
+    texts[0]!.includes("…") && texts[0]!.endsWith("…"),
+    "thinking 按开关压 1 行（行尾省略号）",
+  );
 });
 
 test("命令面：/collapse tool on|off 切换对应类别并提示", () => {

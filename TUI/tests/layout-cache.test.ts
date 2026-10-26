@@ -164,7 +164,7 @@ const FRAME_DELIVERIES: (ScriptStep | undefined)[] = [
       step: 1,
       index: 0,
       source: "reasoning",
-      text: "先看 buildFrame 与 buildContentRows 的分工",
+      text: "先看 buildFrame 与 pipelineContent 的分工",
     },
   },
   {

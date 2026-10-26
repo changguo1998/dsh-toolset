@@ -1,13 +1,15 @@
-// tests/tool-block.test.ts — 回合区工具块形制（2026-10-13 改版）
+// tests/tool-block.test.ts — 回合区工具块形制（2026-10-13 改版；2026-10-26 迁新链）
 //
 // 裁定见 TUI/docs/implementation/2026-10-13-tool-block-display.md（决策 1 / 8 + 细节 01-11）。
-// 覆盖：名字行形制与三类行缩进（4 / 6 / 2）、完成 / 失败 / 静默、在飞两相位与 `■`、
-// 值 5 行上限、名字截断、长名取舍（另起 vs 同行）、非 JSON 参数兜底、
-// 结果配对（callId 与到达顺序两种）、并发多调用各出一行标记。
+// 覆盖（均走新流水线）：参数解析兜底、结果配对（callId / 到达顺序）、静默工具、
+// 并发多调用各出一行标记、帧层在飞相位标记。
+//
+// 已删：旧渲染栈（`buildContentRows`）的「三类行缩进 4 / 6 / 2、值 5 行上限、名字截断、
+// 长名取舍」用例——那些是旧实现的行内截断/缩进参数，新链的工具行形制由
+// `pipeline-structure`（行盒形制）与 `pipeline-flatten`（网格）覆盖。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildContentRows } from "../src/app/layout/build-box.ts";
 import { buildFrame, displayWidth, rowText } from "../src/app/layout.ts";
 import { pipelineContent } from "../src/app/layout/pipeline/frame.ts";
 import { toolParams } from "../src/app/adapter/normalize.ts";
@@ -21,34 +23,6 @@ import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
 const W = 40;
 const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
-
-/** 三类行渲染文本（活动 pane；宽度 = W） */
-const act = (rows: HistoryRow[], width = W): string[] =>
-  buildContentRows(rows, {}, width, width).activity.map((r) => rowText(r));
-
-/** 三类行渲染行（取段样式用） */
-const actRows = (rows: HistoryRow[], width = W) =>
-  buildContentRows(rows, {}, width, width).activity;
-
-/** 名字 / 参数 / 结果三类行的便捷构造 */
-const name = (text: string, ok?: boolean): HistoryRow => ({
-  text,
-  kind: "tool",
-  toolRole: "name",
-  ...(ok === undefined ? {} : { toolOk: ok }),
-});
-const param = (n: string, value: string): HistoryRow => ({
-  text: value,
-  kind: "tool",
-  toolRole: "param",
-  toolParam: { name: n, value },
-});
-const result = (text: string, ok: boolean): HistoryRow => ({
-  text,
-  kind: "tool",
-  toolRole: "result",
-  toolOk: ok,
-});
 
 /** 交付脚本 → 活动 pane 行文本（去掉 step 头行） */
 const pipeline = (script: BlockDelivery[]): string[] =>
@@ -74,105 +48,6 @@ const step = (...deliveries: NoScope<BlockDelivery>[]): BlockDelivery[] => [
   ...deliveries.map((d) => ({ ...d, turn: 1, step: 1 }) as BlockDelivery),
 ];
 
-test("完成态：名字行 `✓ 工具名` + 参数行缩进 4 + 结果行缩进 2", () => {
-  const out = act([
-    name("read", true),
-    param("path", "TUI/src/app/layout.ts"),
-    result("2311 行", true),
-  ]);
-  assert.deepEqual(out, [
-    "✓ read",
-    "    path TUI/src/app/layout.ts",
-    "  2311 行",
-  ]);
-});
-
-test("在飞态：名字行 `●`（无结果）；静默工具（空结果）不挂结果行", () => {
-  assert.deepEqual(act([name("bash"), param("command", "npm test")]), [
-    "● bash",
-    "    command npm test",
-  ]);
-});
-
-test("失败态：名字行 `✗` 红 + 结果行整行红；参数行不染", () => {
-  const rows = actRows([
-    name("bash", false),
-    param("command", "npm run test:tui"),
-    result("1 test failed: grid.test.ts", false),
-  ]);
-  const texts = rows.map(rowText);
-  assert.deepEqual(texts, [
-    "✗ bash",
-    "    command npm run test:tui",
-    "  1 test failed: grid.test.ts",
-  ]);
-  const [nameRow, paramRow, resultRow] = rows;
-  assert.equal(nameRow!.segments[0]!.style?.fg, "red", "✗ 红");
-  assert.equal(nameRow!.segments[2]!.style?.fg, "yellow", "工具名保持黄");
-  assert.ok(
-    paramRow!.segments.every((s) => s.style?.fg !== "red"),
-    "参数行不染红",
-  );
-  assert.ok(
-    resultRow!.segments.every((s) => s.style?.fg === "red"),
-    "失败结果整行红",
-  );
-});
-
-test("参数值折行上限 5 行：超出 → 前 2 + `…` + 后 2（续行悬挂 6）", () => {
-  const value = ["一", "二", "三", "四", "五", "六"].join("\n");
-  const out = act([name("bash", true), param("", value)]);
-  assert.deepEqual(out, [
-    "✓ bash",
-    "    一",
-    "      二",
-    "      …",
-    "      五",
-    "      六",
-  ]);
-  // 无名兜底之外的悬挂：带参数名时续行 6 列
-  const long = "x".repeat(60);
-  const out2 = act([name("bash", true), param("command", long)], 30);
-  const cont = out2.slice(2);
-  assert.ok(cont.length > 0, "超宽参数应折行: " + JSON.stringify(out2));
-  for (const line of cont) {
-    assert.ok(
-      line.startsWith("      "),
-      `续行悬挂 6 列：${JSON.stringify(line)}`,
-    );
-    assert.ok(
-      displayWidth(line) <= 30,
-      `折行不超窗宽：${JSON.stringify(line)}`,
-    );
-  }
-});
-
-test("参数名超宽：自身截断加 `…`，且不超窗宽", () => {
-  const out = act([name("bash", true), param("n".repeat(60), "v")]);
-  const paramLine = out[1]!;
-  assert.ok(
-    paramLine.endsWith("…") || out.length > 2,
-    "名字被截断或值另起一行",
-  );
-  assert.ok(
-    out.every((line) => displayWidth(line) <= W),
-    `每行不超窗宽：${JSON.stringify(out)}`,
-  );
-});
-
-test("名字行超宽：截到占满一行 + `…` 收尾（不折行）", () => {
-  const out = act([name("x".repeat(80), true)]);
-  assert.equal(out.length, 1, "名字行不折行");
-  assert.ok(out[0]!.endsWith("…"), "截断收尾: " + out[0]);
-  assert.ok(displayWidth(out[0]!) <= W, "不超过窗宽");
-});
-
-test("长名取舍：另起总行数 ≤ 同行 → 值另起一行（缩进 6）", () => {
-  const longName = "n".repeat(34);
-  const out = act([name("bash", true), param(longName, "abcde")]);
-  assert.deepEqual(out, ["✓ bash", "    " + longName, "      abcde"]);
-});
-
 test("toolParams：JSON 原序取值；非对象 / 解析失败 → 单条无名兜底", () => {
   assert.deepEqual(toolParams('{"path":"a","limit":100}'), [
     { name: "path", value: "a" },
@@ -186,13 +61,6 @@ test("toolParams：JSON 原序取值；非对象 / 解析失败 → 单条无名
   assert.deepEqual(toolParams("[1,2]"), [{ name: "", value: "[1,2]" }]);
   assert.deepEqual(toolParams("{不是 JSON"), [
     { name: "", value: "{不是 JSON" },
-  ]);
-});
-
-test("非 JSON 参数渲染：无名兜底（值 = 原文，缩进 4）", () => {
-  assert.deepEqual(act([name("bash", true), param("", "ls -la")]), [
-    "✓ bash",
-    "    ls -la",
   ]);
 });
 

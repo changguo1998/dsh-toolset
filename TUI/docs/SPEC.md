@@ -722,7 +722,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 4 时两侧文本上限对称各收 4 列（宽 60 时：正文区 39 列 → 回复正文 35 列、用户文本 35 列）。
 - **只作用于历史 pane**：这套左右对称收窄不落在回合区（活动 pane）——活动区内容左缘贴 pane 第 0 列（逐行的 `┃` 前缀或工具行自身缩进），右侧只让 `PANE_TEXT_MARGIN_COLS=1`，且行尾不补空格、不画右边框。故思考 / 非 final 正文的折行宽 = 活动 pane 文字宽 − 左竖线 1 列（默认比历史区正文宽 4 列；横向排列下两 pane 各自取宽）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）——该常量是**窄列降级用的最小左缘留白**，与 `DEFAULT_MESSAGE_GUTTER` 各自独立（仍为 6，不随本条改动）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 4。
-- **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）」+ `tests/content-mapping.test.ts` 竖线阈值边界（w=6/7 关闭、w=8 开启）+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
+- **回归**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）」+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
 
 #### 多行用户输入 = 一块
 
@@ -762,7 +762,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **不算边界**：notice / shell / 已有空行既不引发间隔也不阻断判断。
 - **正文分片连排**：只被 thinking / notice 行隔开的**相邻非 final 正文分片**合并为**一段**——文本**直接相接**（不插换行 / 空格），渲染顺序为「思考块 … → 整段正文」（合并叶取该 run 最后一个分片的位置）；两处切点的间隔空行**收敛为恰 1 行、置于该段正前方**。**直接相邻的正文分片不合并**（同一 delta 含 `\n` 时本就产相邻行：列表 / 代码块分片各成一行）；工具 / step / 用户行 / 分隔线 / `final` / 空正文行 / fence / 表格仍是硬边界（不穿透、不合并）。
 - **实现**：`build-box.ts` 活动区叶子组装期的 `noteActKind()`（思考 / 正文 / 工具各一处调用；仅新类与旧类同属 `{思考, 正文}` 且不同时插间隔空行，空行取新类型行的 meta、`kind:"plain"`）。**正文合并**同层实现：`bodyRun` 记账（候选叶 + 自它以来的穿透行计数 + 本 run 插入的间隔空行按节点引用），命中「穿透行 ≥1 后再来普通正文分片」时**摘叶 → 文本相接 → 移到穿透行之后 → 间隔空行收敛 1 行置叶前**；正文**不缓冲**（未发生合并的路径与改动前逐字节相同），合并文本仍走 `actText(...,1)`（紧凑模式口径不变）。活动 pane 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），间隔空行自动计入。
-- **回归**：`tests/activity-type-gap.test.ts`（思考↔正文双向 / 同类连续 / 工具互切不插 / notice 与 step 不新增 / 开头不插 / **正文分片连排**：`正文→思考→正文` 并成一段、间隔空行恰 1 行、notice 穿透、工具与结构分片为硬边界、二次合并不丢空行）+ `tests/activity-verbose.test.ts`（紧凑模式行数 = 条目数）+ `tests/layout4.test.ts`（思考与下一个 step 分割行紧排）+ `tests/content-mapping.test.ts`（已偏离项：只多空行）。
+- **回归**：`tests/activity-type-gap.test.ts`（思考↔正文双向 / 同类连续 / 工具互切不插 / notice 与 step 不新增 / 开头不插）+ `tests/activity-verbose.test.ts`（紧凑模式按条目压 1 行）+ `tests/layout4.test.ts`（思考与下一个 step 分割行紧排）。
 
 #### 活动区六开关（`/verbose` 显示 + `/collapse` 压缩，各按三类）
 
@@ -780,7 +780,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **口径**：思考行与正文走**同一套** markdown 解析（`markdown.ts` 的 `wrapAssistantLine`）——块级元素（标题 / 列表 / 引用 / 分隔线 / 任务列表）与行内（粗体 / 斜体 / 行内代码 / 链接 / 图片占位 / 删除线 / 下划线 / 转义）逐项同规格。列表支持面：无序 `-` / `*` / `+`（统一渲染 `• `）、有序编号风格 `1.` / `1)` / `a.` / `A.` / `a)` / `(1)`（编号 + 分隔符**原样保留**）、**嵌套层级缩进**（前导空白每 2 列 = 一层, 前缀补 `2 * depth` 空格；任务列表 `- [ ]` / `- [x]` 同为无序前缀, 嵌套缩进随层级一致生效；逐行独立判定, 无父子校验, 不做 `1. [ ]` 有序任务前缀 / 定义列表）；列表项折行同样悬挂缩进对齐**该层正文起列**（含嵌套缩进）。**围栏代码块**走正文与思考共用的构建器（`build-box.ts` 的 `codeBlockRows`）：fence 开关行隐藏、语言标记行斜体（与代码列对齐、不占行号）、代码行 `行号 2 列 + 空白 1 列 + 代码`、续行再缩进 4 列并靠右对齐正文右缘、灰底补齐到内容区宽；围栏内 `\t` 先展开为固定 4 空格（不按 tab stop）再参与计宽与折行；窄窗（可用正文宽 < 23 列）省略行号列，宽未知时退化为交给 fill 折行的单节点形态。
 - **差异**：左缘竖线配色（思考紫 `brightMagenta` / 正文蓝 `brightBlue`）；**markdown 表格 2026-10-23 起同样识别**（列宽同正文构建期计算，表格左缘竖线取紫，不再退回普通行）；折行宽 = 活动 pane 文字宽 − 左竖线 1 列（回合区没有历史区的对称留白，见 §15.4「只作用于历史 pane」）。
 - **实现**：`build-box.ts` 思考分支——非紧凑路径建 `Paragraph`（前缀 `┃` + `minWidth`）→ `fillParagraph` → `wrapAssistantLine`；围栏开关行隐藏并逐行前瞻收取围栏内代码行（遇闭栅或非 thinking 行停止，闭栅行被收录消费）。**紧凑路径（`/collapse`）保持单行压缩**（`StyledText` + `actText`，不解析 markdown）；空思考行跳过、`/verbose` 档位过滤、思考 ↔ 正文类型间隔（1 行空行）、正文分片连排的穿透记账均不变。
-- **回归**：`tests/thinking-markdown.test.ts`（块级逐行 / 行内 / 列表折行缩进 / 围栏代码块与未闭栅 / 档位与紧凑与类型间隔）+ `tests/layout4.test.ts`（原「thinking 不渲染」断言改为同口径渲染）+ `tests/content-mapping.test.ts`（纯文本思考行与冻结基线逐行等价）。
+- **回归**：`tests/thinking-markdown.test.ts`（块级逐行 / 行内 / 列表折行缩进 / 围栏代码块与未闭栅 / 档位与紧凑与类型间隔）+ `tests/layout4.test.ts`（原「thinking 不渲染」断言改为同口径渲染）。
 
 #### 活动区排列：按视觉宽高比与黄金分割比自动选上下 / 左右
 
