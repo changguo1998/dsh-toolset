@@ -692,7 +692,9 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 > - `c0fff41` notice/toast 不挂会话竖线 → 清 toast 截断 + 滚动/小窗/Ctrl+T 级联
 > - （另有 P1 活跃块 post-pass 修复于 `eac250b`，含在 later 更新；连同前述级联共读到 6 fail。）
 
-本轮实现口径（回写）：`Leaf.prefixChrome` 表达竖线是否 chrome（对话真/活动假）；notice/toast 源段落不挂竖线；工具行（名/参数/结果）挂会话 `┃` chrome（`d5806cf`，修复 /collapse 收敛，帧层相位覆写改按段定位字形）。当前 suite 5 fail：c5 行缓存（阶段 4 再基线）、段D 重放/Home（阶段 4 迁移）、渐进窗口 / 滚动独立（滚动子系统：实测**活动区内容依赖历史窗口**——base 仅物化当前回合 step1，扩窗后才物化后续步骤，需设计级处理）。
+本轮实现口径（回写）：`Leaf.prefixChrome` 表达竖线是否 chrome（对话真/活动假）；notice/toast 源段落不挂竖线；工具行（名/参数/结果）挂会话 `┃` chrome（`d5806cf`，修复 /collapse 收敛，帧层相位覆写改按段定位字形）。当前 suite 5 fail。
+
+**滚动根因（第 9/10 轮已铁证）**：段键跨窗口内容不稳定。`splitOldSections` 对 `kept`（窗口切片）重编号 `${turn}:${step}:${ordinal}`（ordinal 每 (turn:step) 从 0 重数）；扩窗后窗口边界前移，同名同 (turn:step) 的共享节被重编号（`1:1:5`↔`1:1:0`），存量视口顶键 `indexOfTop` 找不到 → 退化为 fallback → HALF 位移断言差 scrollOffset。修复方向：**先 split 全量（稳定 id）再按新节组窗口**；新旧节组映射（`sectionGroupStarts` 旧口径 vs 新 Section）非 1:1，需同步改造组语义，属高风险重架构，滚动独立/渐进窗口与段D×2、c5 一并留待独立设计轮次。
 
 ## 收尾
 
