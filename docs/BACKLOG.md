@@ -99,6 +99,8 @@
 
 > 2026-10-27 关闭：条目「安装脚本双 profile：主 profile 走快照安装（`file:`），伴随 `<名>-test` 走软链接」完成并移出清单（提交 `1edb9b2`：主 profile 依赖 `file:` 快照 + 断开 pnpm 硬链接 + 删 up-to-date 标记刷新，伴随 `<名>-test` 依赖 `link:`，两者除协议外内容一致，`--mode` / `--profile-test` / `--no-test-profile`；`scripts/test-install.sh` 117 项通过。真机反馈修复 `4b98016`：`tui.config.json` 补进 TUI `files`，否则快照读不到配置、排列方式回落纵向。追踪文档 `docs/archived/2026-10-27-install-dual-profile.md`；正跑会话仍待用户按需 `install.sh --profile fff --sync` 后重启生效）。
 
+> 2026-10-27 关闭：条目「宿主升级复核：dsh 0.2.1-rc.3 相对 rc.2 的接口变更」完成并移出清单（对比 `dsh-v0.2.1-rc.2..dsh-v0.2.1-rc.3` 6 提交 / 640 文件：进程内接口面零变更，`bundle/base` patch 未变，唯一行为变更是 LLM 官方路由改跟 `/models` 列表；包目录 342 → 343 仅新增 web 专用包。已同步版本口径（`install.sh` 默认版本、`test-install.sh` 7 处、4 个 smoke `REQUIRED_VERSION`、各 README、`TUI/docs/COMMANDS.md`）与宿主面文档（新增 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md`、`HOST-PACKAGES.md` 计数改 rc.3 实测 306 / 295、`DSH-CTX-API.md` rc.3 复核注记、`STATUS.md` / `ARCHITECTURE-REUSE.md` 基线）；真机 rc.3 已生效，`--dump-config` 退出 0 / stderr 空；本仓无代码适配项。`scripts/test-install.sh` 117 项通过。追踪文档 `docs/archived/2026-10-27-host-upgrade-0.2.1-rc.3.md`）。
+
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）过程记录全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >
