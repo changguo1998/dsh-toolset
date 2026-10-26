@@ -230,6 +230,59 @@ export function splitOldSections(
   return out;
 }
 
+/**
+ * indexed 变体：还返回每条新节的**来源旧节**，供接线桥「split 全量定稳定 id 后再按旧节
+ * 窗口边界过滤」——解决段键跨窗口内容不稳定（共享节扩窗后不再被重编号）。
+ * id 基于**全量**顺序的 ordinal（每 (turn:step) 从 0 数），扩窗不改变其值。
+ */
+export function splitOldSectionsIndexed(
+  oldSections: readonly OldSection[],
+): { section: Section; old: OldSection }[] {
+  const out: { section: Section; old: OldSection }[] = [];
+  const ordinal = new Map<string, number>();
+  const push = (section: Section | undefined, old: OldSection): void => {
+    if (section !== undefined) out.push({ section, old });
+  };
+  for (const old of oldSections) {
+    if (old.stepSummary !== undefined) {
+      push(
+        {
+          id: `${old.turn}:${old.step}:${ordinal.get(`${old.turn}:${old.step}`) ?? 0}`,
+          turn: old.turn,
+          step: old.step,
+          ...(old.time === undefined ? {} : { time: old.time }),
+          seqs: [],
+          stepSummary: old.stepSummary,
+          standalone: true,
+        },
+        old,
+      );
+      continue;
+    }
+    for (const group of groupsOf(old)) {
+      const key = `${old.turn}:${old.step}`;
+      const n = ordinal.get(key) ?? 0;
+      ordinal.set(key, n + 1);
+      push(groupToSection(group, old, `${key}:${n}`), old);
+    }
+  }
+  // 活跃块 post-pass（与 splitOldSections 同口径，作用于 .section）
+  for (let i = out.length - 1; i >= 0; i -= 1) {
+    const s = out[i]!.section;
+    const u = s.user;
+    if (u === undefined) continue;
+    if (
+      u.status !== undefined ||
+      u.queued !== undefined ||
+      u.steerContinued === true
+    )
+      break;
+    out[i] = { ...out[i]!, section: { ...s, user: { ...u, active: true } } };
+    break;
+  }
+  return out;
+}
+
 /** §1 恢复路径：历史行 → 新一次模型交互 Section[]（经旧节缓存重放，历史节带 `history`） */
 export function replaySections(rows: readonly HistoryRow[]): Section[] {
   return splitSections(sectionsFromBuffer(rows, { history: true }));

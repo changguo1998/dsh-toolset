@@ -17,7 +17,7 @@ import { renderPaneNew } from "./rows.ts";
 import { createSections } from "./sections.ts";
 import { allSections, type SectionsState } from "./sections.ts";
 import { buildBoxes, toolUnits } from "./boxes.ts";
-import { splitOldSections } from "./split.ts";
+import { splitOldSectionsIndexed } from "./split.ts";
 import { parse } from "./parse.ts";
 import { route } from "./route.ts";
 import { turnGroupStarts } from "../../layout.ts";
@@ -122,11 +122,22 @@ export function sectionGroupStarts(sections: readonly Section[]): {
 export function windowSections(
   sections: readonly Section[],
   groups: number,
-): { kept: Section[]; dropped: number; suppressFirstHead: boolean } {
+): {
+  kept: Section[];
+  dropped: number;
+  suppressFirstHead: boolean;
+  /** 首保留旧节的原始下标（供 split 全量后的窗口过滤） */
+  from: number;
+} {
   const keep = Math.max(1, Math.floor(groups));
   const { starts, midSection } = sectionGroupStarts(sections);
   if (starts.length <= keep) {
-    return { kept: [...sections], dropped: 0, suppressFirstHead: false };
+    return {
+      kept: [...sections],
+      dropped: 0,
+      suppressFirstHead: false,
+      from: 0,
+    };
   }
   const at = starts.length - keep;
   const from = starts[at]!;
@@ -135,6 +146,7 @@ export function windowSections(
     dropped: from,
     // 窗口起点落在节中间（旧路径按行切）：该节的 step 头已被切掉，不能再补
     suppressFirstHead: midSection[at] === true,
+    from,
   };
 }
 
@@ -178,12 +190,15 @@ export function pipelineContent(
   options: PipelineFrameOptions,
 ): PipelineContent {
   const all = allSections(state);
-  const { kept, dropped, suppressFirstHead } = windowSections(
+  const { dropped, suppressFirstHead, from } = windowSections(
     all,
     options.windowGroups,
   );
-  // §1 → §3：分节 + 解析 + 分流
-  const sections = splitOldSections(kept);
+  // §1 分节：**对全量 split 得稳定 id**（段键跨窗口内容不重编号），再按旧节窗口边界
+  // `from` 过滤保留段——扩窗只多物化、不改变已保留节的 id/键。
+  const sections = splitOldSectionsIndexed(all)
+    .filter(({ old }) => all.indexOf(old) >= from)
+    .map(({ section }) => section);
   const groups: EventGroup[] = sections.map((s) => ({
     provenance: s,
     blocks: parse(s),
