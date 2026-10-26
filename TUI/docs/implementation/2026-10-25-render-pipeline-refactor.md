@@ -952,6 +952,75 @@ v
 - 遗留：① `grid` pass（列宽算法 + 写回格宽，表格网格因此暂时列不对齐）；② 嵌套列表仍被
   `LIST_CONT_RE` 并进父条目正文，不是真子列表；③ 表格单元格内 `<br>` 换行未支持。
 
+## 第三轮：§5 收尾 / §6 摊平审查 / §7 组装口径（2026-10-26 续）
+
+### §5 测量收尾
+
+- `grid` pass 落地：`alignGridColumns` 先按列序号取各行格自然宽最大值（`fill` 盒是横线段、不参与），
+  再 `fitCols` 定列宽，写回每行子项 `widthFixed`；横线行的 `fill` 盒同宽，`fillWith` 铺出的线段与
+  列边界严丝合缝。实测 W=40 三列（`:--` / `:-:` / `--:`）列边界、横线段长、交叉字三者对齐。
+- `naturalHWidth` 的 h 分支补上 `separator` 列宽（`decor + sepW + fixedSum + autoMax`），
+  修正带分隔符容器作为 auto 子项时少算列宽、内容提前折行。
+- `expandTable` 简化为纯出结构（删 `cols` / `natural` / `plainOf` / `fitCols` 调用与无用 `width` 参数）；
+  删 `heightStyle` / `heightFixed` 死能力。
+- `measureH` 的分配由 `Map<Node | Leaf, number>`（对象身份）改为 `widths[i]` 按下标记录 ——
+  同一叶对象出现在多个槽位时不再互相覆盖。
+- 补 3 个单测：grid pass 列宽（含宽字符、横线盒同宽）、窄宽压缩后「列宽合计 + 分隔 ≤ 可用宽」、
+  `separator` 计入 h 容器自然宽。
+- **极窄宽不处理**（用户裁定）：`fitCols` 返 null 时每列兜底 1 列，网格可能超出 `contentW`，
+  由外层裁补，不定新口径。
+
+### §6 摊平审查：新形状全靠既有 5 个能力
+
+| flatten 能力 | 被哪些新形状使用 |
+| --- | --- |
+| `separator` 逐行插入 | 代码「行号 │ 代码」、表格列分隔与交叉字 |
+| `fillWith` 容器补白 | 分隔头 `╌`、Gap 空格、表格横线 `═` / `─` |
+| `prefix` 逐行绘制（不向子项传播） | 会话 / 活动外壳竖线 |
+| `align` | 表格列左 / 中 / 右对齐 |
+| `flattenH` 按已量好的 `width` 拼列 + 缺行补白 | 行号列与表格格的对齐；空容器占一行让横线盒成立 |
+
+`prefix` 语义确认：子项先按「宽 − prefix − suffix」摊平（子项看不到 prefix），再由本节点**逐行**
+拼装 `[对齐补白, prefix, 内容, 尾部补白, suffix]`；对齐补白插在 prefix 之前，故 `align: right`
+时 prefix 随内容一起右移。
+
+**已识别的死代码（待清理）**：`flatten.ts` 的 `styledPlain` / `CELL_PAD`、`tail` 字段与
+`flattenLeaf` 的两条 tail 分支（pipeline 内无生产者）、`flattenAttributed`（生产零调用，仅测试在用）；
+`ir.Row` 的 `indent` / `prefix` / `align` 三个字段（flatten 从不产出）。
+
+### §7 组装：生产唯一入口与新链路契约
+
+```text
+layout.ts:1088 → frame.pipelineContent()
+  ├─ windowSections（渐进窗口，只切历史）→ splitOldSectionsIndexed（稳定 id）
+  ├─ parse → route → buildTrees（§1-§4）
+  └─ renderPaneNew(session / turn)（rows.ts）← §5 测量 + §6 摊平 + 逐 item 缓存 + RenderedPane
+```
+
+- `RenderedPane` 契约：`rows` / `counts`（每项行数，行数表的段）/ `keys`（稳定段键）/
+  `userRows`（PgUp 跳转目标）/ `table`（`LineTable` 行数表，滚动数学全在其中）。
+- 缓存：只缓存「已定型历史里静态渲染的 item」（流活节成员与用户块每帧重算）；键 = pane / 宽 / 紧凑档
+  - 保留编号 + 内容签名；宽度变化或缓存超 8192 条时全清。
+- `compose.renderPane`（§1→§7 一条龙窄接口）与 `rowsToFrame` 生产零调用，仅测试在用；
+  旧口径桥 `itemLines` → `boxToLines` → `HistoryRow[]` 与 `renderPaneNew` 并存（给 layout.ts 旧缓冲行路径）。
+
+### 三条口径裁定（本轮）
+
+1. **用户块保持无左 `prefix`**：`toUserBox` 不套会话外壳，形状仍是 `h[suffix ┃][spacer(fill), 符号格(fixed), 内容 Box(v)]`；旧渲染器里「会话区竖线逐行画、用户块也有」的观感不再恢复。
+   用户块 = 一个用户输入 section 的全部块合进的一个盒（多行 / 多段都在同一内容盒内）。
+2. **Gap 维持现状、不折叠**：Gap 仍产出「整行空格」（`fillWith " "`），因此 `renderPaneNew` 末尾空行
+   trim 的判据（`segments.length === 0`）对其不成立 → 以 Gap 结尾的条目会在尾部留一行空白、`counts`
+   多 1 行，这是**允许保留**的行为；相应断言按「有 Gap 就有空白行」改。
+3. **`foldRow` 折叠不做**：`activityCompact` 折叠档位继续保持无效（函数是空实现，且调用处只喂首行）。
+
+### 下一步待办
+
+1. 37 条基线失败：16 条 `focus-frame` 黄金帧需按新形状重冻，21 条旧路径断言（B3 分组头 8、
+   工具行 7、会话流 / 交错布局 / markdown 5、P6 1）
+2. 结构层遗留：嵌套列表（`LIST_CONT_RE` 现把缩进子列表并进父条目正文，需 parse 按缩进产出真子列表）、
+   表格单元格 `<br>` 换行
+3. §6 死代码清理（上表所列四项）
+
 ## 收尾
 
 （待关闭时填写。）
