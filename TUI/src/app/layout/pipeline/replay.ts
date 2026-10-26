@@ -275,16 +275,8 @@ export function sectionsFromBuffer(
       });
       continue;
     }
-    if (line.kind === "step") {
-      // P9：概要行（`22:31:05 #3 ╌╌ read ×2`）——`stepOf` 认不出（`#N` 不在行尾）
-      state = applyDelivery(state, {
-        kind: "step-summary",
-        turn: scope.turn,
-        step: scope.step,
-        text: line.text,
-      });
-      continue;
-    }
+    // step 行只作 step 头（`#N`）解读；认不出的 step 行不再产交付（旧版 P9 概要行已下线）
+    if (line.kind === "step") continue;
     if (isTextKind(line.kind)) {
       if (run !== undefined && run.kind === line.kind) {
         run.text.push(line.text);

@@ -266,18 +266,19 @@ function classifyUserText(
     if (LIST_RE.test(line)) {
       const startL = i;
       const items: Block[] = [];
+      const marks: string[] = [];
       while (i < N) {
-        const cur = lines[i]!.text;
-        const listItem = LIST_ITEM_RE.exec(cur);
-        if (listItem !== null) {
-          const marker = listItem[1]!;
-          const ordered = /^\d|^[a-zA-Z]/.test(marker.trimStart());
-          const bodyText = styledUserOf(listItem[2]!);
-          const finalMarker = ordered
-            ? marker.replace(/[ \t]+$/, "") + " "
-            : "• ";
+        const li = listItemMark(lines[i]!.text);
+        if (li !== null) {
+          marks.push(li.mark);
+          const body = styledUserOf(li.body);
           items.push(
-            paragraph(spanOf(startL, i), [{ text: finalMarker }, ...bodyText]),
+            paragraph(
+              spanOf(startL, i),
+              li.strike === true
+                ? body.map((s) => ({ ...s, strike: true }))
+                : body,
+            ),
           );
           i += 1;
           while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
@@ -299,8 +300,7 @@ function classifyUserText(
             section,
             id: idOf(),
             span: spanOf(startL, i - 1),
-            ordered: false,
-            marker: "",
+            ...listMarks(marks),
             items,
             ...(user === undefined ? {} : { user }),
           }),
@@ -485,22 +485,20 @@ function classifyMarkdown(
     if (LIST_RE.test(line)) {
       const startL = i;
       const items: Block[] = [];
-      let ordered = false;
+      const marks: string[] = [];
       while (i < N) {
-        const cur = lines[i]!.text;
-        const task = TASK_RE.exec(cur);
-        if (task !== null) {
-          ordered = false;
-          const checked = task[1]!.toLowerCase() === "x";
-          const bodyText = styledOf(task[2]!);
-          // 复选框保留在条目文本（`[x] ` / `[ ] `，不参与删除线）；勾选正文删除线
-          const text0: StyledText = [
-            { text: checked ? "[x] " : "[ ] " },
-            ...(checked
-              ? bodyText.map((s) => ({ ...s, strike: true }))
-              : bodyText),
-          ];
-          items.push(paragraph(spanOf(startL, i), text0));
+        const li = listItemMark(lines[i]!.text);
+        if (li !== null) {
+          marks.push(li.mark);
+          const body = styledOf(li.body);
+          items.push(
+            paragraph(
+              spanOf(startL, i),
+              li.strike === true
+                ? body.map((s) => ({ ...s, strike: true }))
+                : body,
+            ),
+          );
           i += 1;
           // 后续缩进续行并入上一项
           while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
@@ -512,41 +510,20 @@ function classifyMarkdown(
           }
           continue;
         }
-        const listItem = LIST_ITEM_RE.exec(cur);
-        if (listItem !== null) {
-          const marker = listItem[1]!;
-          ordered = /^\d|^[a-zA-Z]/.test(marker.trimStart());
-          const bodyText = styledOf(listItem[2]!);
-          // 显示标记直接前缀进条目文本：有序保留编号、无序变 `• `（混合列表每个条目
-          // 各带自己的标记，结构层不再用单一 ordered 标志派生）
-          const finalMarker = ordered
-            ? marker.replace(/[ \t]+$/, "") + " "
-            : "• ";
-          items.push(
-            paragraph(spanOf(startL, i), [{ text: finalMarker }, ...bodyText]),
-          );
-          i += 1;
-          while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
-            appendToParagraph(
-              items[items.length - 1] as Paragraph,
-              "\n" + lines[i]!.text.trimStart(),
-            );
-            i += 1;
-          }
-          continue;
-        }
         break;
       }
-      const list: List = {
-        kind: "list",
-        source,
-        id: idOf(),
-        span: spanOf(startL, i - 1),
-        ordered,
-        marker: "",
-        items,
-      };
-      blocks.push(freezeBlock(list));
+      if (items.length > 0) {
+        blocks.push(
+          freezeBlock<List>({
+            kind: "list",
+            source,
+            id: idOf(),
+            span: spanOf(startL, i - 1),
+            ...listMarks(marks),
+            items,
+          }),
+        );
+      }
       continue;
     }
     // 5) 标题 / 分隔线 / 普通段（收集连续非结构行）
@@ -595,6 +572,41 @@ function classifyMarkdown(
 /** 单元格段落：行内解析（header/数据格都是 Paragraph；列宽/加粗在测量/摊平做） */
 function styledHeadingNormal_cell(cellText: string): StyledText {
   return styledOf(cellText);
+}
+
+/** 列表项标记：从原文行拆出显示标记与正文（标记不再拼进条目正文）。
+ *  任务复选框 → `[x] ` / `[ ] `；有序 → 编号原文 + 空格；无序 → 归一 `• `。 */
+function listItemMark(
+  text: string,
+): { mark: string; body: string; strike?: true } | null {
+  const task = TASK_RE.exec(text);
+  if (task !== null) {
+    const checked = task[1]!.toLowerCase() === "x";
+    return {
+      mark: checked ? "[x] " : "[ ] ",
+      body: task[2]!,
+      ...(checked ? { strike: true as const } : {}),
+    };
+  }
+  const listItem = LIST_ITEM_RE.exec(text);
+  if (listItem === null) return null;
+  const marker = listItem[1]!;
+  const ordered = /^\d|^[a-zA-Z]/.test(marker.trimStart());
+  return {
+    mark: ordered ? marker.replace(/[ \t]+$/, "") + " " : "• ",
+    body: listItem[2]!,
+  };
+}
+
+/** 列表标记字段：所有条目同一标记 → `marker`；各不相同 → 逐条目 `order` */
+function listMarks(marks: readonly string[]): {
+  marker?: string;
+  order?: string[];
+} {
+  if (marks.length === 0) return { marker: "" };
+  return marks.every((m) => m === marks[0])
+    ? { marker: marks[0]! }
+    : { order: [...marks] };
 }
 
 /** 往现有 Paragraph 的文本末尾追加内容（缩进续行并入上一列表项正文） */

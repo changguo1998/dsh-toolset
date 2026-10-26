@@ -131,16 +131,6 @@ test("flatten：tail 铺满（step/回合头）", () => {
   assert.equal(rowText, "╌╌ #1 ╌╌╌╌");
 });
 
-test("flatten：hanging 悬挂缩进（续行缩进列）", () => {
-  const long = "abcdefghijklmnop"; // 16 字
-  const leaf: Leaf = { text: [{ text: long }], hanging: 4 };
-  const tree: Node = { direction: "v", children: [leaf] };
-  measure(tree, 8);
-  const rows = flatten(tree, 8);
-  assert.ok(rows.length > 1);
-  const second = rows[1]!.segments.map((s) => s.text).join("");
-  assert.equal(second.startsWith("    "), true, "续行悬挂 4 列");
-});
 
 test("flattenAttributed：逐 item 行归属与整树摊平逐字节一致", () => {
   // v 根（pane 形态）：3 个 item = 正文叶 / Gap / 正文长叶

@@ -32,7 +32,6 @@ interface Group {
   reasoning: string[];
   texts: string[];
   tone?: Item["tone"];
-  hanging?: number;
   noCompact?: boolean;
   userStatus?: "success" | "failure" | "aborted";
   steerContinued?: boolean;
@@ -92,7 +91,6 @@ function groupsOf(old: OldSection): Group[] {
     g.source = source;
     if (g.texts.length === 0) {
       if (item.tone !== undefined) g.tone = item.tone;
-      if (item.hanging !== undefined) g.hanging = item.hanging;
       if (item.noCompact === true) g.noCompact = true;
       if (source === "user") {
         if (item.userStatus !== undefined) g.userStatus = item.userStatus;
@@ -141,7 +139,6 @@ function groupToSection(
             source: group.source,
             text: bodyText,
             ...(group.tone !== undefined ? { tone: group.tone } : {}),
-            ...(group.hanging !== undefined ? { hanging: group.hanging } : {}),
             ...(group.noCompact === true ? { noCompact: true } : {}),
           },
         }),
@@ -191,18 +188,6 @@ export function splitOldSections(
   const out: Section[] = [];
   const ordinal = new Map<string, number>();
   for (const old of oldSections) {
-    if (old.stepSummary !== undefined) {
-      out.push({
-        id: `${old.turn}:${old.step}:${ordinal.get(`${old.turn}:${old.step}`) ?? 0}`,
-        turn: old.turn,
-        step: old.step,
-        ...(old.time === undefined ? {} : { time: old.time }),
-        seqs: [],
-        stepSummary: old.stepSummary,
-        standalone: true,
-      });
-      continue;
-    }
     for (const group of groupsOf(old)) {
       const key = `${old.turn}:${old.step}`;
       const n = ordinal.get(key) ?? 0;
@@ -244,21 +229,6 @@ export function splitOldSectionsIndexed(
     if (section !== undefined) out.push({ section, old });
   };
   for (const old of oldSections) {
-    if (old.stepSummary !== undefined) {
-      push(
-        {
-          id: `${old.turn}:${old.step}:${ordinal.get(`${old.turn}:${old.step}`) ?? 0}`,
-          turn: old.turn,
-          step: old.step,
-          ...(old.time === undefined ? {} : { time: old.time }),
-          seqs: [],
-          stepSummary: old.stepSummary,
-          standalone: true,
-        },
-        old,
-      );
-      continue;
-    }
     for (const group of groupsOf(old)) {
       const key = `${old.turn}:${old.step}`;
       const n = ordinal.get(key) ?? 0;

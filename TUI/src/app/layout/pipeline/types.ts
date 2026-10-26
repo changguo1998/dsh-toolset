@@ -96,8 +96,6 @@ export interface Section {
   readonly standalone?: boolean;
   /** steer 插队送达的用户输入（与上一条输入之间留空行；旧口径由 `markSteerClaim` 加） */
   readonly steer?: boolean;
-  /** P9 恢复会话的 step 概要行文本（会话区 `╌╌ <text> ` + 尾部 ╌ 铺满；无条目） */
-  readonly stepSummary?: string;
 }
 
 /** 交付公共字段（`seq` = 宿主持久线事件号，接收层据此去重；实时线增量不带） */
@@ -140,13 +138,6 @@ export type BlockDelivery =
     })
   /** 本地 shell 输出（`$` 模式）：与 notice 同族，独立成节 */
   | (Delivery & { kind: "shell"; text: string })
-  /** P9 恢复会话的 step 概要行（`╌╌ hh:mm:ss #N ╌╌ read ×2 …`；独立成节） */
-  | (Delivery & {
-      kind: "step-summary";
-      turn: number;
-      step: number;
-      text: string;
-    })
   /** step 开始：节边界（本身不开节——无内容不建节；同 (turn, step) 重复 / 迟到不切节） */
   | (Delivery & {
       kind: "step-start";

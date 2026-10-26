@@ -137,7 +137,15 @@ test("parse：reasoning 与 body 各分类一次，摊成一条 Block[]", () => 
   const list = blocks[3]!;
   if (list.kind !== "list") throw new Error("expect list");
   assert.equal(list.items.length, 2);
-  assert.equal(list.ordered, false);
+  // 无序列表：所有条目共用标记，标记不进条目正文
+  assert.equal(list.marker, "• ");
+  assert.equal(list.order, undefined);
+  assert.equal(
+    (list.items[0] as { text: { text: string }[] }).text[0]?.text.startsWith(
+      "•",
+    ),
+    false,
+  );
   // 引用：子块正文不含 `>` 标记
   const quote = blocks[5]!;
   if (quote.kind !== "quote") throw new Error("expect quote");

@@ -117,6 +117,11 @@ test("structure：工具批 → 节点带 tool 载荷（名字单元）", () => 
   };
   const root = sessTree([batch]);
   const node = root.children[0] as Node;
-  assert.equal(node.tool !== undefined, true, "tool 载荷");
-  assert.equal(node.tool![0]!.role, "name", "名字单元");
+  assert.equal(node.direction, "v", "工具批为 v 容器");
+  const nameRow = node.children[0] as Node;
+  assert.equal(nameRow.direction, "h", "名字行是 h 行盒");
+  const [glyphBox, nameBox] = nameRow.children as Node[];
+  assert.equal(glyphBox!.widthFixed, 2, "字形标记盒固定 2 列");
+  const nameLeaf = nameBox!.children[0] as Leaf;
+  assert.equal(nameLeaf.rowKind, "tool-name", "名字行带 rowKind");
 });

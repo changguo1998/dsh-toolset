@@ -1058,16 +1058,6 @@ export function buildBox(
       activityLeaves.push(node);
       continue;
     }
-    if (line.kind === "step") {
-      // P9：恢复会话的 step 概要行（`╌╌ 22:31:05 #3 ╌╌ read ×2, bash ×1`）——
-      // 形制与 P6 实时 step 头一致：`╌╌ ` 前缀 + 文本 + 1 空格，尾部 `╌` 铺满
-      const node = styled([{ text: `╌╌ ${line.text} ` }], {
-        tail: { char: "╌" },
-      });
-      meta.set(node, rowMeta);
-      dialogueLeaves.push(node);
-      continue;
-    }
     if (line.kind === "shell") {
       // `$` 模式本地 shell 输出（BACKLOG TUI#37）：活动区本地行（不走对话区/模型历史）。
       // 配色复用 notice 的 tone 语义（命令回显 info / 成功绿 / 非零与 stderr 红 / 超时黄）；

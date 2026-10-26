@@ -1,7 +1,8 @@
-// tests/resume-summary.test.ts — P9：恢复会话的 step 概要行（映射 + 渲染）
+// tests/resume-summary.test.ts — 恢复会话的行还原（映射 + 渲染）
 //
-// 口径（docs/PENDING-FIXES.md P9）：恢复行形态与实时 step 头同族——
-//   `╌╌ 22:31:05 #3 ╌╌ read ×2, bash ✗1 ╌╌╌…`；
+// 口径：恢复只加载历史缓冲里已有的行与少量辅助，**不自行计算总结**——
+//   旧版 P9 的 `╌╌ read ×2, bash ×1` 概要行已下线（生成端更早删除，消费端本轮删除）；
+//   历史缓冲里的 step 行只作 step 头（`#N`）解读，认不出的直接丢弃。
 // 空文本不产行（宿主每步补发的纯换行文本块不再变成空行）。
 
 import { test } from "node:test";
@@ -24,50 +25,6 @@ test("P9 surfaceToBuffer：step 行原样成行；整条空文本不产行", () 
   assert.deepEqual(
     rows.map((r) => `${r.kind}:${r.text}`),
     ["user:问题", "step:22:31:05 #3 ╌╌ read ×2, bash ✗1", "assistant:回复正文"],
-  );
-});
-
-test("P9 渲染：step 行 = `╌╌ <文本> ` + 尾部 ╌ 铺满，且位于历史区", () => {
-  // 条目 16 段 C1：内容走交付流（不再经历史行 + sectionsOf 回退重放）
-  const s = {
-    ...initialState(),
-    activeSessionId: "s1",
-    pipeline: sectionsFromScript([
-      { delivery: { kind: "turn-start", turn: 1 } },
-      { delivery: { kind: "user", turn: 1, step: 0, text: "问题" } },
-      {
-        delivery: {
-          kind: "step-summary",
-          turn: 1,
-          step: 1,
-          text: "22:31:05 #3 ╌╌ read ×2",
-        },
-      },
-      {
-        delivery: {
-          kind: "text",
-          turn: 1,
-          step: 1,
-          index: 0,
-          source: "assistant",
-          text: "回复正文",
-        },
-      },
-    ]),
-  };
-  const lines = buildFrame(s, { rows: 24, cols: 100 }).map((r) => rowText(r));
-  const step = lines.find((t) => t.includes("read ×2"));
-  assert.ok(step, `step 概要行应可见: ${lines.join("|")}`);
-  assert.ok(
-    step.includes("╌╌ 22:31:05 #3 ╌╌ read ×2 "),
-    `` + `前缀与内部分隔: ${step}`,
-  );
-  assert.ok(/read ×2 ╌+/.test(step), `尾部用 ╌ 铺满: ${step}`);
-  // 原「恢复后的 buffer 不能出现纯空行」断言在迁移后失效（s.local 不再承载会话内容，
-  // 该断言会平凡为真）→ 改断渲染结果：step 行前后不留空行
-  assert.ok(
-    absenceOfBlankAround(lines, step),
-    `step 行前后不留空行: ${lines.join("|")}`,
   );
 });
 

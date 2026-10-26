@@ -88,21 +88,6 @@ test("flatten：表格网格 → 表头行含列分隔（│）", () => {
   assert.ok(head.startsWith("┃"), "左缘竖线");
 });
 
-test("flatten：工具名字行带相位字形 + 参数/结果行", () => {
-  const batch: Node = {
-    direction: "v",
-    children: [],
-    tool: [
-      { role: "name", call: { name: "bash" } },
-      { role: "result", result: { ok: true, detail: "out" } },
-    ] as never,
-  };
-  measure(batch, 30, { vw: 30 });
-  const rows = flatten(batch, 30, { vw: 30 });
-  const t = text(rows);
-  assert.ok(t.includes("bash"), "工具名");
-  assert.ok(rows[0]!.segments[0]!.text.length > 0, "名字行有字形");
-});
 
 test("flatten：h 容器 fill 补白 → 行宽 = 容器宽（右对齐）", () => {
   const fill: Leaf = { text: [], widthStyle: "fill" };
@@ -141,7 +126,7 @@ test("flatten：顶段助手段 ┃ 为左缘 chrome 列不吃正文宽（正文
   )[0] as Paragraph;
   const gutter = 4;
   const width = 18;
-  const tree = buildTrees([para], [], { gutter, barChrome: true }).session;
+  const tree = buildTrees([para], [], { gutter }).session;
   measure(tree, width, { vw: width });
   const rows = flatten(tree, width, { vw: width });
   const first = text(rows).split("\n")[0]!;
@@ -150,23 +135,3 @@ test("flatten：顶段助手段 ┃ 为左缘 chrome 列不吃正文宽（正文
   assert.equal(displayWidth(first), width - gutter + 1);
 });
 
-test("flatten：列表续行 竖线 chrome 在前、悬挂空格在后（对齐正文）", () => {
-  // 列表项叶：prefix=┃（chrome）+ marker 已在正文、悬挂 hanging=4（对齐正文列）
-  const leaf: Leaf = {
-    text: [{ text: "• " + "A".repeat(40) }],
-    prefix: { text: "┃" },
-    hanging: 4,
-  };
-  const v: Node = { direction: "v", children: [leaf] };
-  const width = 16;
-  measure(v, width, { vw: width });
-  const rows = flatten(v, width, { vw: width });
-  assert.ok(rows.length >= 2, "长列表项折多行");
-  const first = rows[0]!.segments.map((s) => s.text).join("");
-  assert.ok(first.startsWith("┃• "), "首行=竖线+子弹前缀");
-  const cont = rows[1]!.segments.map((s) => s.text).join("");
-  assert.ok(
-    cont.startsWith("┃    "),
-    "续行=竖线在列、悬挂 4 空格对齐正文: " + JSON.stringify(cont),
-  );
-});

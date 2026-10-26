@@ -31,9 +31,6 @@ import {
   measure,
   prefixVisibleOf,
   suffixVisibleOf,
-  codeHeight,
-  tableHeight,
-  toolHeight,
 } from "../src/app/layout/pipeline/measure.ts";
 import { toUser, buildTrees } from "../src/app/layout/pipeline/structure.ts";
 import { isNode, type Node } from "../src/app/layout/pipeline/ir.ts";
@@ -111,8 +108,7 @@ test("freezeBlock：5 种块闭集均深度冻结（quote/list/table 递归）",
     source: "assistant",
     id: "l",
     span: [0, 1],
-    ordered: false,
-    marker: "- ",
+    marker: "• ",
     items: [p],
   };
   const tbl: Block = {
@@ -170,9 +166,7 @@ test("replaySections：历史行复原（经 sectionsFromBuffer）产 Section[]"
   ];
   const st = sectionsFromBuffer(h, { history: true });
   const secs = splitOldSections(allSections(st));
-  const join = secs
-    .map((s) => ((s.body?.source ?? s.stepSummary) ? "s" : "?"))
-    .join(",");
+  const join = secs.map((s) => (s.body?.source ? "s" : "?")).join(",");
   assert.ok(join.includes("user") || secs.length >= 1, "持有节");
   assert.equal(secs.length >= 1, true);
 });
@@ -187,22 +181,39 @@ test("prefixVisibleOf / suffixVisibleOf：minWidth 门控", () => {
   assert.equal(suffixVisibleOf({ suffix: { minWidth: 3 } }, 2), false);
 });
 
-test("measure 高度模型：code/table 至少 1 行且随内容增长", () => {
-  assert.ok(codeHeight({ lang: "", rows: ["a", "b"], closed: true }, 40) >= 2);
-  assert.ok(
-    codeHeight({ lang: "ts", rows: ["a"], closed: true }, 40) >= 2,
-    "语言标记行",
-  );
-  const tb = tableHeight(
-    {
+test("measure 高度模型：code / table 在 §5 展开成结构（先拆行后分列）", () => {
+  // 代码块：外层 v（每物理行一个行盒），行盒内 h（分行号列 / 代码列）
+  const codeNode: Node = {
+    direction: "v",
+    children: [],
+    code: { lang: "ts", rows: ["a", "b"], closed: true },
+  };
+  assert.equal(measure(codeNode, 40, { vw: 40 }), 3, "语言行 + 2 行代码");
+  assert.equal(codeNode.direction, "v", "先拆行：外层 v");
+  assert.equal(codeNode.children.length, 3, "语言行 + 2 行");
+  assert.equal((codeNode.children[0] as Node).direction, "h", "再分列：行盒 h");
+  assert.equal(codeNode.code, undefined, "载荷已消费");
+
+  // 表格：外层 v（表头行 / 横线行 / 数据行…），每个行盒 h
+  const tblNode: Node = {
+    direction: "v",
+    children: [],
+    table: {
       aligns: ["left", "left"],
       header: [
         {
           kind: "paragraph",
           source: "assistant",
-          id: "h",
+          id: "h1",
           span: [0, 1],
           text: [{ text: "a" }],
+        },
+        {
+          kind: "paragraph",
+          source: "assistant",
+          id: "h2",
+          span: [0, 1],
+          text: [{ text: "b" }],
         },
       ],
       rows: [
@@ -210,16 +221,26 @@ test("measure 高度模型：code/table 至少 1 行且随内容增长", () => {
           {
             kind: "paragraph",
             source: "assistant",
-            id: "d",
+            id: "d1",
             span: [0, 1],
-            text: [{ text: "b" }],
+            text: [{ text: "c" }],
+          },
+          {
+            kind: "paragraph",
+            source: "assistant",
+            id: "d2",
+            span: [0, 1],
+            text: [{ text: "d" }],
           },
         ],
       ],
     },
-    60,
-  );
-  assert.ok(tb >= 1, "表格高度");
+  };
+  const h = measure(tblNode, 60, { vw: 60 });
+  assert.ok(h >= 3, "表头 + 横线 + 数据行");
+  assert.equal(tblNode.direction, "v", "先拆行：外层 v");
+  assert.equal((tblNode.children[0] as Node).direction, "h", "再分列：行盒 h");
+  assert.equal(tblNode.table, undefined, "载荷已消费");
 });
 
 // ---------------- compose.rowsToFrame ----------------
@@ -284,21 +305,4 @@ test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户盒 h[space
     "状态符号透传",
   );
   assert.equal(content!.direction, "v", "内容为 v");
-});
-
-// ---------------- §5 measure.toolHeight 直接单测 ----------------
-
-test("toolHeight：名字 1 行；长结果折行增长；无单元兜底 1 行", () => {
-  const name = {
-    role: "name" as const,
-    call: { name: "bash" },
-  } as ToolUnit;
-  const long = {
-    role: "result" as const,
-    result: { ok: true, detail: "x".repeat(60) },
-  } as ToolUnit;
-  assert.equal(toolHeight([name], 20), 1, "单个名字行 = 1 行");
-  const longRows = toolHeight([long], 10);
-  assert.ok(longRows >= 2, "60 字符在 10 宽下折成多行");
-  assert.equal(toolHeight([], 20), 1, "空工具批兜底 1 行");
 });

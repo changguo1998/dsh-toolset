@@ -20,7 +20,6 @@ import { stepKey, type Section } from "./types.ts";
  * 会随流式增量与迟到回写变化，入身份会让段键每帧换号。
  */
 function roleOf(section: Section): string {
-  if (section.stepSummary !== undefined) return "ss";
   if (section.standalone === true) {
     const source = section.items[0]?.source;
     return source === "notice"
@@ -69,11 +68,6 @@ export type PaneItem =
       readonly active?: boolean;
     }
   | { readonly kind: "blank"; readonly key: string }
-  | {
-      readonly kind: "step-summary";
-      readonly text: string;
-      readonly key: string;
-    }
   | {
       readonly kind: "step-head";
       readonly turn: number;
@@ -319,9 +313,7 @@ export function buildPanes(
     .sort((a, b) => a - b);
   // 窗口保留的是**整回合组**（前几组整体丢弃）：被丢回合的线随内容一起没有，
   // 窗口内各回合的线照画（旧路径的 separator 行就落在组的开头）
-  const firstTurn = sections.find(
-    (section) => section.items.length > 0 || section.stepSummary !== undefined,
-  )?.turn;
+  const firstTurn = sections.find((section) => section.items.length > 0)?.turn;
   let markerAt = 0;
   const emittedTurns = new Set<number>();
   /** 画一条回合分隔线（同一回合只画一次；被窗口丢掉的回合不画） */
@@ -348,14 +340,6 @@ export function buildPanes(
   };
   for (const section of sections) {
     emitMarkersUpTo(section.turn);
-    // P9 恢复会话的 step 概要行：先于该节内容落进会话区（无条目也照样出这一行）
-    if (section.stepSummary !== undefined) {
-      dialogue.items.push({
-        kind: "step-summary",
-        text: section.stepSummary,
-        key: "summary@" + sectionId(section),
-      });
-    }
     const blocks = applyShadowed(buildBoxes(section), shadowed);
     if (blocks.length === 0) continue;
     // 段键：节身份 + 节内 box 序号（跨窗口扩缩、宽度变化都稳定）

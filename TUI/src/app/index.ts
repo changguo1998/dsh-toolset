@@ -2352,20 +2352,18 @@ export class App {
       // 画线判据（条目 7 选项 1：改读节模型 / 交付事实，不再回查缓冲）：与旧路径
       // appendTurnSeparator 镜像——「活动区清理后仍有内容」才算有历史，首回合空历史不画
       // （frame 层不预置重复线）；末尾刚投过 turn-start（其后无内容）也不重复画。
-      // 清理活动区的回合（用户输入开启）只看会留下的内容（用户块 / 最终总结 / shell /
-      // step 概要——思考、工具、notice、非 final 正文随后会被清掉，不算）；
+      // 清理活动区的回合（用户输入开启）只看会留下的内容（用户块 / 最终总结 / shell——
+      // 思考、工具、notice、非 final 正文随后会被清掉，不算）；
       // 核心自发回合不清活动区 → 任何内容交付都算（旧口径「缓冲非空」）。
       const all = allSections(this.sections);
       const hasContent = clearActivity
-        ? all.some(
-            (section) =>
-              section.stepSummary !== undefined ||
-              section.items.some(
-                (item) =>
-                  item.source === "user" ||
-                  item.source === "shell" ||
-                  (item.source === "assistant" && section.final === true),
-              ),
+        ? all.some((section) =>
+            section.items.some(
+              (item) =>
+                item.source === "user" ||
+                item.source === "shell" ||
+                (item.source === "assistant" && section.final === true),
+            ),
           )
         : this.pipelineAnyContent;
       const drawsSeparator = hasContent && this.pipelineSepPending !== true;

@@ -233,7 +233,7 @@ import type { StructureOptions } from "./structure.ts";
 import { buildTrees } from "./structure.ts";
 import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
-import { memlogTick, memlogTool } from "./memlog.ts";
+import { memlogTick } from "./memlog.ts";
 
 export interface RenderOptions extends BuildBoxOptions {
   /** 会话区可用宽 */
@@ -513,9 +513,6 @@ function itemLines(item: PaneItem, dialogue: boolean): HistoryRow[] {
           kind: "tool",
         },
       ];
-    case "step-summary":
-      // P9 概要行：`kind: "step"` 由既有渲染器画成 `╌╌ <text> ` + 尾部 ╌ 铺满（会话区）
-      return [{ text: item.text, kind: "step" }];
     case "turn-separator":
       // `untitled`（时间未知）= 纯虚线：不带 turn / time，既有渲染器按 `turnHeaderLine` 得空标签
       return [
@@ -715,8 +712,6 @@ function newItemKind(item: NewPaneItem, row?: NewRow): string {
       return "separator";
     case "step-header":
       return "step-header";
-    case "step-summary":
-      return "step-summary";
     case "tool-batch":
       return "tool";
     default:
@@ -777,8 +772,9 @@ export function renderPaneNew(
     userSym: options.userSym,
     // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
     gutter: pane === "dialogue" ? options.gutter : undefined,
-    // 竖线两面板都画：对话为 chrome 列（不吃正文宽），活动计宽
-    barChrome: pane === "dialogue",
+    // 竖线两面板都画，但盒形按面板区分（会话区已定：prefix "┃ " + 右缘空格 suffix；
+    // 活动区形状未定，暂维持单竖线无右缘留白）
+    pane: pane === "dialogue" ? "session" : "turn",
     normalize: options.normalize,
   };
   const { session, turn } = buildTrees(
@@ -804,16 +800,6 @@ export function renderPaneNew(
     const node = rootChildren[i];
     const item = items[i]!;
     const id = newItemKey(item);
-    // 工具段落渲染前记录工具名（排版内存排查）——只对工具节点打点
-    if (
-      node !== undefined &&
-      "tool" in node &&
-      (node as { tool?: readonly unknown[] }).tool !== undefined
-    ) {
-      const t = (node as unknown as { tool: { call?: { name?: string } }[] })
-        .tool;
-      memlogTool(t.map((u) => u.call?.name ?? "").filter((s) => s !== ""));
-    }
     // 刷新型：流活节成员、用户块（符号实时）→ 不入缓存、每帧重算
     const isLive =
       (item as { source?: string }).source === "user" ||

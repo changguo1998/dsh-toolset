@@ -1026,7 +1026,7 @@ export type SessionDeleteResult = { ok: true } | { ok: false; reason: string };
 /** 历史会话只读表面的归一化消息。
  *  - `user` / `assistant`：正文消息；
  *  - `step`（P9）：按 step 折叠的**工具概要行**，text 形如
- *    `22:31:05 #3 ╌╌ read ×2, bash ×1`（渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；
+ *    `22:31:05 #3`（旧版折叠成 `read ×2, bash ×1` 概要行的做法已下线）；
  *    无工具调用的 step 不产出行，参数摘要/结果详情/thinking 均不还原；
  *  - `notice`（TUI#17）：插件注入消息 `source.form:'notice'` 的**一行摘要**（summary，
  *    缺失时取正文首行）——渲染为单行提示，不展开、不占用户消息块。 */

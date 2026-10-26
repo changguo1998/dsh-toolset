@@ -634,24 +634,6 @@ export function applyDelivery(
       }
       return sealedOf(next, current);
     }
-    case "step-summary": {
-      // P9：恢复会话的 step 概要行——独立成节、不带条目（渲染只看 `stepSummary`）
-      const sealed =
-        state.current === undefined ? state : sealedOf(state, state.current);
-      const section: Section = {
-        turn: delivery.turn,
-        step: delivery.step,
-        items: [],
-        frozen: false,
-        standalone: true,
-        stepSummary: delivery.text,
-      };
-      return {
-        ...sealed,
-        sections: [...sealed.sections, section],
-        lastScope: { turn: delivery.turn, step: delivery.step },
-      };
-    }
     case "user":
     case "notice":
     case "shell": {

@@ -101,7 +101,8 @@ export function isEmptyToolResult(result: ToolResult): boolean {
 /**
  * 工具批 → 逻辑行单元序列：`rows.ts` 按它产行、`frame.ts` 按它推 kinds / owner ——
  * 两处共用**同一函数**，避免「行数模型」与「实产行」错位（错位会让窗口分组与滚动错行）。
- * 顺序（决策 1）：每个调用 = 名字行 + 各参数行（JSON 原序）；随后各结果行按到达顺序。
+ * 顺序（决策 2）：每个调用 = 名字行 + 各参数行（JSON 原序）+ 该调用的结果行（若已配对）；
+ * 配不上调用的落单结果按到达顺序排在批尾。结果紧跟自己的调用，配对关系不靠推断。
  */
 export function toolUnits(batch: ToolBatch | undefined): ToolUnit[] {
   const calls = batch?.calls ?? [];
@@ -117,17 +118,17 @@ export function toolUnits(batch: ToolBatch | undefined): ToolUnit[] {
     });
     for (const param of toolParams(call.args))
       units.push({ role: "param", param });
+    // 结果紧跟自己的调用（空结果不出行，与落单结果同口径）
+    if (result !== undefined && !isEmptyToolResult(result))
+      units.push({ role: "result", result });
   });
+  // 配不上调用的落单结果：按到达顺序排批尾
   const matched = new Set(
     paired.filter((r): r is ToolResult => r !== undefined),
   );
   for (const result of results) {
-    if (isEmptyToolResult(result)) continue;
-    units.push({
-      role: "result",
-      result,
-      ...(matched.has(result) ? {} : { orphan: true }),
-    });
+    if (isEmptyToolResult(result) || matched.has(result)) continue;
+    units.push({ role: "result", result, orphan: true });
   }
   return units;
 }

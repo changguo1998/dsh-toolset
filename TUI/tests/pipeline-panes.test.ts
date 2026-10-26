@@ -42,7 +42,6 @@ const shape = (items: readonly PaneItem[]): string[] =>
     if (item.kind === "blank") return "(blank)";
     if (item.kind === "step-head") return `#step ${item.step}`;
     if (item.kind === "turn-separator") return `-- turn ${item.turn}`;
-    if (item.kind === "step-summary") return `summary:${item.text}`;
     const box = item.box;
     if (box.kind === "layout") return box.role === "table" ? "table" : box.role;
     if (box.shape === "code") return "code:" + box.code?.lines.join("|");

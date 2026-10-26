@@ -35,13 +35,11 @@ export interface Section {
   reasoning?: string;
   /** 正文 / 本地行，markdown 纯文本（未解析）。
    *  source 含旧节条目来源全集（含 notice / shell / 工具辅助行——它们不是 markdown 槽位，
-   *  但经 §2 parse 统一产 Paragraph 块；tone / hanging / noCompact 为 notice 与辅助行透传）。 */
+   *  但经 §2 parse 统一产 Paragraph 块；tone / noCompact 为 notice 与辅助行透传）。 */
   body?: {
     source: BlockSource;
     text: string;
     tone?: NoticeTone;
-    /** notice 折行续行停靠列（/help 双列表格） */
-    hanging?: number;
     /** 紧凑模式豁免（/help） */
     noCompact?: boolean;
   };
@@ -62,8 +60,6 @@ export interface Section {
   standalone?: boolean;
   /** steer 插队送达的用户输入 → §3 在其前留一个 Gap */
   steer?: boolean;
-  /** P9 恢复的 step 概要行文本（会话区 `╌╌ <text> ` + 尾部 ╌ 铺满；无正文槽位） */
-  stepSummary?: string;
   /** 用户输入块的运行时态（P1 首行符号解析素材；无 = 无状态） */
   user?: UserRowInfo;
 }
@@ -135,14 +131,16 @@ export interface Quote extends BlockBase {
   children: Block[];
 }
 
-/** 列表块：不记 depth（嵌套靠 items 递归）；有序编号在递归展开时按 items 索引生成 */
+/** 列表块：不记 depth（嵌套靠 items 递归）。标记与条目正文分离：
+ *  `marker`（所有条目同一个标记）与 `order`（逐条目标记）**二选一**。 */
 export interface List extends BlockBase {
   kind: "list";
   id: string;
   span: [number, number];
-  ordered: boolean;
-  /** 原文中的列表标记（如 `- ` / `1. `），展示形态由此派生 */
-  marker: string;
+  /** 条目共用的显示标记（普通无序列表，如 `• `）；与 order 互斥 */
+  marker?: string;
+  /** 逐条目显示标记（有序编号 `1. ` / `10. `、任务复选框 `[x] ` / `[ ] `）；与 marker 互斥 */
+  order?: string[];
   items: Block[];
 }
 
@@ -271,16 +269,8 @@ export interface ToolBatch {
   results: readonly { callId?: string; ok: boolean; detail: string }[];
 }
 
-/** P9 恢复的 step 概要行 */
-export interface StepSummary {
-  kind: "step-summary";
-  key: string;
-  text: string;
-}
-
 /** pane 项：块（成品）或 route 生成的结构项 */
-export type PaneItem =
-  Block | StepHeader | TurnHeader | Gap | ToolBatch | StepSummary;
+export type PaneItem = Block | StepHeader | TurnHeader | Gap | ToolBatch;
 
 // ================= §4 结构：PaneId / NodeBase / Node / Leaf =================
 
@@ -312,8 +302,6 @@ export interface NodeBase {
   widthFixed?: number;
   /** 容器分数（ratio） */
   widthRatio?: number;
-  /** true = 左缘竖线为面板 chrome 列，不吃正文宽（对话/session 面板；活动面板计宽） */
-  prefixChrome?: boolean;
   /** 实际宽度：measure 写自然宽，allocate 写最终宽；widthLocked 时冻结 */
   width?: number;
   /** true = width 不再被测量 / 分配改写 */
@@ -328,16 +316,8 @@ export interface NodeBase {
   heightLocked?: boolean;
   /** 行级对齐（缺省 left）；仅宽度为 fixed/fill 时有效 */
   align?: "left" | "right" | "center";
-  /** 垂直对齐：fill 补白位置（缺省 top） */
-  valign?: "top" | "center" | "bottom";
   /** 默认样式（行内解析可覆盖） */
   style?: FrameStyle;
-  /** 首行左缩进列数（整段基准） */
-  indent?: number;
-  /** 右缘预留留白列数（宽度无关的固定配置，如 messageGutter；正文/思考右缘不顶满） */
-  rightGutter?: number;
-  /** 续行缩进列数；缺省 = indent（工具行的悬挂缩进） */
-  hanging?: number;
   /** 段前缀（占列，正文缩进自前缀后起算） */
   prefix?: {
     /** 如思考 ┃ / 引用 │ / 列表 • / 任务 [x] */
@@ -353,6 +333,13 @@ export interface NodeBase {
     /** 装饰可见度：视口宽低于此列数时不挂（窄列降级，如竖线） */
     minWidth?: number;
   };
+  /** 行类型标记：透传到 `Row.rowKind`（帧层按它改写工具名相位字形等） */
+  rowKind?: string;
+  /** 表格网格标记：本容器的各 h 子行按列对齐宽度（列宽在后续步骤算） */
+  grid?: true;
+  /** 补白字符（带样式）：设置后本节点每行补到自身宽（缺省不补）。空格即普通留白，
+   *  `╌` / `─` 等可当分隔线填充；样式随补白段一起下发 */
+  fillWith?: StyledStr;
   /** 行尾铺满字符（不占测量宽；fill 补到分配宽，如 step 虚线 / turn 分隔） */
   tail?: {
     char: string;
@@ -392,8 +379,6 @@ export interface Node extends NodeBase {
     header: readonly Paragraph[];
     rows: readonly Paragraph[][];
   };
-  /** 工具批节点载荷（structure 由 ToolBatch 产出；toolUnits 配对后的逻辑行单元） */
-  tool?: readonly ToolUnit[];
   /** box 左缘符号（如用户状态 `?`；仅首行显示，续行补等宽空白）；不传给子级 */
   prefix?: { text: string; style?: FrameStyle; minWidth?: number };
   /** box 右缘后缀（如用户块右侧 `┃`）；flatten 展平子内容后给每行补满到宽 + 挂此符 */

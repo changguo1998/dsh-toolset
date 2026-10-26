@@ -15,7 +15,6 @@ import type {
   Gap,
   PaneItem,
   StepHeader,
-  StepSummary,
   ToolBatch,
   TurnHeader,
 } from "./ir.ts";
@@ -107,9 +106,7 @@ export function route(
   // 回合分隔线来自 turn-start 交付（turnTimes 时间真源）；与内容按 turn 号交错，
   // 尾部剩余追加到末尾。窗口起点之前的回合线随内容一起没有（见 `firstTurn` 守卫）。
   const emittedTurns = new Set<number>();
-  const firstTurn = groups.find(
-    (g) => g.blocks.length > 0 || g.provenance.stepSummary !== undefined,
-  )?.provenance.turn;
+  const firstTurn = groups.find((g) => g.blocks.length > 0)?.provenance.turn;
   const pushSeparator = (n: number): void => {
     if (emittedTurns.has(n)) return;
     emittedTurns.add(n);
@@ -137,15 +134,6 @@ export function route(
   for (const group of groups) {
     const p = group.provenance;
     emitMarkersUpTo(p.turn);
-    if (p.stepSummary !== undefined) {
-      session.push({
-        kind: "step-summary",
-        key: "summary@" + p.id,
-        text: p.stepSummary,
-      } satisfies StepSummary);
-      lastSessionUser = false;
-      continue;
-    }
     const final = finalOf(group);
     for (const block of group.blocks) {
       const rule = ruleFor(block.source, final);

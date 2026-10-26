@@ -8,7 +8,14 @@
 // chrome 五 pane（tool / statusBar / statusCol / titleBar / input）由 layout 直接构图
 // （追踪文档「偏差 ③」），本层只处理 session / turn 两 pane。
 
-import { USER_MIN_LEFT_GUTTER } from "../content-rules.ts";
+import {
+  TOOL_FAIL_GLYPH,
+  TOOL_OK_GLYPH,
+  TOOL_PENDING_GLYPH,
+  USER_MIN_LEFT_GUTTER,
+} from "../content-rules.ts";
+import { toolDiffSummary } from "../tool-line.ts";
+import { displayWidth } from "../markdown.ts";
 import { toolUnits } from "./boxes.ts";
 import { stepHeaderLine, turnHeaderLine } from "../tool-line.ts";
 import type { FrameStyle } from "../../../renderer/screen.ts";
@@ -25,6 +32,7 @@ import type {
   ToolBatch,
   UserRowInfo,
 } from "./ir.ts";
+import { isNode } from "./ir.ts";
 
 export type PaneTrees = { session: LayoutTree; turn: LayoutTree };
 export type LayoutTree = Node | Leaf;
@@ -40,8 +48,8 @@ export interface StructureOptions {
   /** 左缘 chrome 竖线（┃）开关：只属于对话(session)面板；活动(turn)面板不画
    *  （思考/流式正文为裸文本，legacy 同口径）。缺省 true。 */
   bar?: boolean;
-  /** 竖线是否 chrome 列（不吃正文宽）：对话面板 true、活动面板 false（计宽）。 */
-  barChrome?: boolean;
+  /** 目标 pane：盒形按面板区分（会话区形状已定，活动区未定） */
+  pane?: "session" | "turn";
 }
 
 /** 左缘竖线（正文蓝 / 思考紫；窄窗降级阈值 = 最小留白 + 2） */
@@ -110,37 +118,71 @@ function textNode(
 
 // ---------------- 块 → 节点 ----------------
 
-/** Quote → v Node：`> ` 标记提为节点 `prefix`（每行装饰，与 `suffix` 同口径），
- *  正文按物理行拆成行叶；非文本子块递归转换。左缘竖线（┃）由外层 toBarBox 统一承担。 */
+/** Quote → v Node：`> ` 标记提为节点 `prefix`（每行装饰，与 `suffix` 同口径）；
+ *  子块一律转成 **Box（Node）**，一块一盒——文本块的行叶在盒内，不直接铺到引用层。
+ *  左缘竖线（┃）由外层 toBarBox 统一承担。 */
 function toQuote(
   block: Extract<Block, { kind: "quote" }>,
   opts?: StructureOptions,
 ): Node {
-  const children = block.children.flatMap((child): (Node | Leaf)[] =>
-    child.kind === "paragraph"
-      ? textLeaves(child.text)
-      : [blockNode(child, opts)],
-  );
-  return { direction: "v", prefix: { text: "> " }, children };
+  return {
+    direction: "v",
+    prefix: { text: "> " },
+    children: block.children.map((child) => childBox(child, opts)),
+  };
 }
 
-/** List → v Node：条目文本自带显示标记（有序编号 / 任务框 / 无序子弹），续行不加
- *  悬挂缩进（竖线 chrome 列之后正文顶格，见 layout4「续行不加缩进」）；嵌套条目块递归转换。
- *  左缘竖线由外层 toBarBox 承担。 */
+/** 子块 → 盒子（引用子块 / 列表条目共用）：文本块包成 `v`（行叶在盒内），
+ *  其余块递归；叶级结果也垫一层 `v`——容器层的 children 因此恒为 Box。 */
+function childBox(child: Block, opts?: StructureOptions): Node {
+  if (child.kind === "paragraph")
+    return { direction: "v", children: textLeaves(child.text) };
+  const node = blockNode(child, opts);
+  return isNode(node) ? node : { direction: "v", children: [node] };
+}
+
+/** List → v Node：**每条目一盒** `h[标记, 内容 v]`——标记单独占一列（不是文本前缘，
+ *  也不是节点 `prefix`：`prefix` 是逐行装饰会重复标记），内容在标记右侧成盒。
+ *  折行续行落在内容列下（悬挂 = 标记宽）。左缘竖线由外层 toBarBox 承担。 */
 function toList(
   block: Extract<Block, { kind: "list" }>,
   opts?: StructureOptions,
 ): Node {
+  // 逐条目标记（有序编号 / 任务复选框走 order，普通无序走 marker）；标记列宽 = 最宽标记的
+  // 显示宽 —— 纯字符串度量，与可用宽无关，故在 §4 定死
+  const marks = block.items.map(
+    (_, i) => block.order?.[i] ?? block.marker ?? "• ",
+  );
+  const markW = Math.max(1, ...marks.map((m) => displayWidth(m)));
   return {
     direction: "v",
-    children: block.items.map((item) => listItemNode(item, opts)),
+    children: block.items.map((item, i) =>
+      listItemBox(item, marks[i]!, markW, opts),
+    ),
   };
 }
 
-/** 列表条目：文本条目 = 行叶（多物理行拆多叶）；其余块递归转换 */
-function listItemNode(item: Block, opts?: StructureOptions): Node | Leaf {
-  if (item.kind !== "paragraph") return blockNode(item, opts);
-  return textNode(item.text);
+/** 列表条目 → `h[标记盒, 条目盒]`，两个子项都是 Box（容器层 children 恒为 Box）。
+ *  标记取条目文本首段（parse 产出保证：`• ` / `1. ` / `[x] ` / `[ ] ` 各条目自带），
+ *  其余文本按行拆叶进条目盒；非文本条目（嵌套块）直接成盒，没有标记列。 */
+function listItemBox(
+  item: Block,
+  mark: string,
+  markW: number,
+  opts?: StructureOptions,
+): Node {
+  // 标记格定宽：同一列表所有条目共用，正文列因此对齐；非段落条目也补空标记格
+  const markBox: Node = {
+    direction: "v",
+    widthStyle: "fixed",
+    widthFixed: markW,
+    children: [mark === "" ? leaf([]) : leaf([{ text: mark }])],
+  };
+  const content =
+    item.kind === "paragraph"
+      ? { direction: "v" as const, children: textLeaves(item.text) }
+      : childBox(item, opts);
+  return { direction: "h", children: [markBox, content] };
 }
 
 /** 子块 → 节点（递归入口；任何块都必有节点，null 只对空项成立） */
@@ -179,25 +221,28 @@ function toUserBox(
     suffix: userRightEdge(),
     children: [],
   };
-  box.children.push(
-    leaf([], {
-      widthStyle: "fill",
-      ...(gutter > 0 ? { widthMin: Math.max(0, gutter - 1) } : {}),
-    }),
-  );
+  // spacer = Box(fill, "")：吃掉剩余列，把内容推到右侧
+  box.children.push({
+    direction: "v",
+    widthStyle: "fill",
+    ...(gutter > 0 ? { widthMin: Math.max(0, gutter - 1) } : {}),
+    children: [leaf([])],
+  });
   if (sym !== undefined) {
-    box.children.push(
-      leaf(
-        [
+    // 符号格 = Box(width: 标记宽 + 1, 标记)：多出的 1 列由展平补白成空格
+    box.children.push({
+      direction: "v",
+      widthStyle: "fixed",
+      widthFixed: displayWidth(sym.text) + 1,
+      children: [
+        leaf([
           {
             text: sym.text,
             ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
           },
-          { text: " " },
-        ],
-        { widthStyle: "fixed", widthFixed: 2 },
-      ),
-    );
+        ]),
+      ],
+    });
   }
   // 内容 v 取自然宽（auto）；spacer(fill) 吃剩余 → 整块右对齐
   box.children.push({ direction: "v", children });
@@ -227,34 +272,169 @@ function toTable(block: Extract<Block, { kind: "table" }>): Node {
   };
 }
 
-/** ToolBatch → Node（载荷 tool：toolUnits 配对后的逻辑行单元；flatten 按宽折行渲染） */
+/**
+ * ToolBatch → `v` 容器，每条逻辑行一个 `h` 盒：
+ *
+ *   Box(v)[
+ *     Box(h)[Box(v,fixed 2)[Leaf(相位字形)],  Box(v,fill)[Leaf(名字, 黄)]],         // 名字行
+ *     Box(h)[Box(v,fixed 4)[Leaf("")],        Box(v,fill)[Leaf("name value")]],     // 参数行
+ *     Box(h)[Box(v,fixed 2)[Leaf(✓/✗ 或空)],  Box(v,fill)[Leaf(结果, 失败红)]],      // 结果行
+ *   ]
+ *
+ * 固定宽标记盒提供首行缩进，`flattenH` 给缺行补同宽空白 → 续行自动悬挂；
+ * 行类型挂在叶子的 `rowKind` 上（帧层据此改写工具名相位字形）。
+ * 长名字的收束 / 折行由全局折叠档位（`activityCompact.tool`）在帧层控制，不在节点上截断。
+ */
 function toToolBatch(batch: ToolBatch): Node {
-  return { direction: "v", children: [], tool: toolUnits(batch) };
+  const children: Node[] = [];
+  for (const unit of toolUnits(batch)) {
+    if (unit.role === "name") {
+      const pending = unit.result === undefined;
+      const glyph = pending
+        ? TOOL_PENDING_GLYPH
+        : unit.result.ok
+          ? TOOL_OK_GLYPH
+          : TOOL_FAIL_GLYPH;
+      const glyphColor = pending ? "yellow" : unit.result.ok ? "green" : "red";
+      children.push(
+        rowBox(2, leaf([{ text: glyph, color: glyphColor }]), [
+          leaf([{ text: unit.call.name, color: "yellow" }], {
+            rowKind: "tool-name",
+          }),
+        ]),
+      );
+    } else if (unit.role === "param") {
+      // 参数行：`h[缩进 4, h[标记 2, 剩余文本]]`
+      // 标记盒装「变量名前两个字符」而不是空白 —— 名字因此起于第 4 列，折行续行落在
+      // 标记盒之后（第 6 列），相对名字 +2。
+      const name = unit.param.name;
+      const text =
+        name === "" ? unit.param.value : name + " " + unit.param.value;
+      const { head, rest } = splitHead(text, 2);
+      const body = rowBox(2, leaf(head === "" ? [] : [{ text: head }]), [
+        leaf(rest === "" ? [] : [{ text: rest }], { rowKind: "tool-param" }),
+      ]);
+      // 内层 h 取 fill：否则其自然宽只算到标记盒宽（fill 子项自然宽按 widthMin 计），
+      // 会把文本压成每行 1 列
+      body.widthStyle = "fill";
+      children.push({
+        direction: "h",
+        children: [
+          {
+            direction: "v",
+            widthStyle: "fixed",
+            widthFixed: 4,
+            children: [leaf([])],
+          },
+          body,
+        ],
+      });
+    } else {
+      const text = toolResultText(unit.result);
+      if (text === "") continue;
+      const fail = unit.result.ok !== true;
+      const orphan = unit.orphan === true;
+      const marker = orphan ? (fail ? "✗ " : "✓ ") : "";
+      children.push(
+        rowBox(2, leaf(marker === "" ? [] : [{ text: marker }]), [
+          leaf([{ text, ...(fail ? { color: "red" as const } : {}) }], {
+            rowKind: "tool-result",
+          }),
+        ]),
+      );
+    }
+  }
+  return { direction: "v", children };
 }
 
-function toStepHeader(item: Extract<PaneItem, { kind: "step-header" }>): Leaf {
-  return leaf(
-    [{ text: `╌╌ ${stepHeaderLine(item.step, item.time, item.turn)} ` }],
-    { tail: { char: "╌" } },
-  );
+/** 按显示宽切出前 `w` 列（首段给标记盒，余下进文本盒） */
+function splitHead(text: string, w: number): { head: string; rest: string } {
+  let head = "";
+  let used = 0;
+  let i = 0;
+  for (const ch of text) {
+    const cw = displayWidth(ch);
+    if (used + cw > w) break;
+    head += ch;
+    used += cw;
+    i += 1;
+  }
+  return { head, rest: text.slice(i) };
 }
 
-function toTurnHeader(item: Extract<PaneItem, { kind: "turn-header" }>): Leaf {
+/** 工具结果一行的文本：去尾空白 + 行级 diff 摘要（与旧 `flattenTool` 同口径） */
+function toolResultText(result: { detail: string; meta?: unknown }): string {
+  const detail = result.detail.replace(/\s+$/, "");
+  const diff = toolDiffSummary(result.meta);
+  if (diff === undefined) return detail;
+  const at = detail.indexOf("\n");
+  if (at < 0) return detail === "" ? diff : detail + " " + diff;
+  return detail.slice(0, at) + " " + diff + detail.slice(at);
+}
+
+/** 行盒：固定宽标记列 + 填满剩余列的内容盒 */
+function rowBox(
+  markW: number,
+  mark: Node | Leaf,
+  content: (Node | Leaf)[],
+): Node {
+  return {
+    direction: "h",
+    children: [
+      {
+        direction: "v",
+        widthStyle: "fixed",
+        widthFixed: markW,
+        children: [mark],
+      },
+      { direction: "v", widthStyle: "fill", children: content },
+    ],
+  };
+}
+
+/**
+ * 分隔头统一形状：`Box(h, [文本盒, tail 填充盒])`
+ *
+ * - 文本盒：`Box(v)[Leaf(label)]`（标签原文，含首尾 `╌╌ ` / 空格）
+ * - tail 盒：`widthStyle: "fill"` 吃满剩余列，内空叶带 `tail: ╌` → 逐格铺满
+ *   颜色 / 宽度都由 flatten 读节点字段得出，不在本节现造。
+ */
+function toHeader(label: StyledText): Node {
+  return {
+    direction: "h",
+    widthStyle: "fill",
+    children: [
+      { direction: "v", children: [leaf(label)] },
+      {
+        direction: "v",
+        widthStyle: "fill",
+        fillWith: { text: "╌" },
+        children: [leaf([])],
+      },
+    ],
+  };
+}
+
+function toStepHeader(item: Extract<PaneItem, { kind: "step-header" }>): Node {
+  return toHeader([
+    { text: `╌╌ ${stepHeaderLine(item.step, item.time, item.turn)} ` },
+  ]);
+}
+
+function toTurnHeader(item: Extract<PaneItem, { kind: "turn-header" }>): Node {
   const label =
     item.untitled === true ? "" : turnHeaderLine(item.turn, item.time);
-  return leaf(label === "" ? [] : [{ text: `╌╌ ${label} ` }], {
-    tail: { char: "╌" },
-  });
+  return toHeader(label === "" ? [] : [{ text: `╌╌ ${label} ` }]);
 }
 
-function toStepSummary(
-  item: Extract<PaneItem, { kind: "step-summary" }>,
-): Leaf {
-  return leaf([{ text: `╌╌ ${item.text} ` }], { tail: { char: "╌" } });
-}
-
-function toGap(): Leaf {
-  return { text: [] };
+/** 空行（Gap）：与头部同形但不带 tail——`Box(h)[空文本盒]`，摊平出一行空行 */
+function toGap(): Node {
+  return {
+    direction: "h",
+    widthStyle: "fill",
+    fillWith: { text: " " },
+    children: [{ direction: "v", children: [leaf([])] }],
+  };
 }
 
 // ---------------- 入口 ----------------
@@ -265,7 +445,13 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
   if (block.source === "user") return textNode(block.text, { balance: true });
   // 分隔线：不占文本，tail 铺满（flatten 据此产横线）
   if (block.rule === true) {
-    return leaf([], { tail: { char: "─", style: { fg: "border" } } });
+    // 分隔线：一个 fill 盒，用 `─` 补满整宽（不再借 tail 字段）
+    return {
+      direction: "v",
+      widthStyle: "fill",
+      fillWith: { text: "─", color: "border" },
+      children: [leaf([])],
+    };
   }
   // 其它段落：normalize 作用于文本的实际字符（分段样式保留）；右缘 gutter / 竖线由外层 toBarBox 承担
   const text = opts?.normalize
@@ -305,10 +491,10 @@ function toNodeItem(
       return toStepHeader(item);
     case "turn-header":
       return toTurnHeader(item);
-    case "step-summary":
-      return toStepSummary(item);
     case "gap":
       return toGap();
+    default:
+      return null;
   }
 }
 
@@ -368,19 +554,30 @@ function sourceOf(item: PaneItem): BlockSource | undefined {
   return (item as { source?: BlockSource }).source;
 }
 
-/** 正文 / 思考盒：h[ 内容 v ] + 左缘竖线前缀（整节一条，不逐段重复）。
- *  右缘留白由 rightGutter 承担。 */
+/** 正文 / 思考盒：盒形按 pane 区分。
+ *
+ *  - **会话区**（形状已定）：`h[prefix "┃ ", 内容 v, suffix 右缘空格]`——prefix 自带尾随空格
+ *    （竖线 + 空格 = 2 列）并计宽；右缘留白由空格 suffix 承担
+ *    （原 `rightGutter` 已删），逐行绘制；空格数待细调（现取 `gutter`）。
+ *  - **活动区**（形状未定）：暂维持单竖线 `┃`、无右缘留白。
+ *  整节一条竖线，不逐段重复。 */
 function toBarBox(
   barP: { text: string; style?: FrameStyle; minWidth?: number },
   children: (Node | Leaf)[],
   opts?: StructureOptions,
 ): Node {
+  // 内容盒取 fill：占据左侧装饰之后的全部剩余列（auto 会被自然宽收紧——分隔线 / 空行这类
+  // 无文本内容自然宽为 1，会退化成 1 列）
+  const inner: Node = { direction: "v", widthStyle: "fill", children };
+  if (opts?.pane === "turn") {
+    return { direction: "h", prefix: barP, children: [inner] };
+  }
+  const gutter = Math.max(0, opts?.gutter ?? 0);
   return {
     direction: "h",
-    prefix: barP,
-    prefixChrome: opts?.barChrome === true,
-    ...(opts?.gutter ? { rightGutter: opts.gutter } : {}),
-    children: [{ direction: "v", children }],
+    prefix: { ...barP, text: barP.text + " " },
+    ...(gutter > 0 ? { suffix: { text: " ".repeat(gutter) } } : {}),
+    children: [inner],
   };
 }
 

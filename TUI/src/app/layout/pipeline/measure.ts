@@ -6,12 +6,13 @@
 //   - v 容器高 = 子高之和；h 容器高 = 子高之最（宽度按声明分配）。
 //   - 不变式（测试）：叶子 height === wrapLeaf(…).length；摊平总行数 === Σ节点 height。
 
-import type { TableAlign } from "../table.ts";
-import { fitCols } from "../table.ts";
+import { fitCols, type TableAlign } from "../table.ts";
 import { expandCodeTabs, displayWidth, charWidth } from "../markdown.ts";
+import type { ColorName } from "../../../renderer/theme.ts";
+import type { FrameStyle } from "../../../renderer/screen.ts";
 import { balancedWidth } from "../fill.ts";
 import { wrapLeaf, styledToSegments } from "./wrap.ts";
-import type { Leaf, Node, Paragraph } from "./ir.ts";
+import type { Leaf, Node, Paragraph, StyledText } from "./ir.ts";
 import { isLeaf } from "./ir.ts";
 import type { ToolUnit } from "./boxes.ts";
 
@@ -62,16 +63,12 @@ export function leafRows(
 ): number {
   const prefixW = prefixWidthOf(node, opts.vw);
   const suffixW = suffixWidthOf(node, opts.vw);
-  // 左缘 chrome 列（┃，对话面板）不吃正文宽、不做首行前缀扣减；活动面板竖线计宽。
-  const chrome = node.prefixChrome === true;
-  const bodyW = Math.max(
-    1,
-    width - (chrome ? 0 : prefixW) - suffixW - (node.rightGutter ?? 0),
-  );
-  const hanging = node.hanging ?? 0;
+  if (node.heightStyle === "fixed" && node.heightFixed !== undefined)
+    return Math.max(1, node.heightFixed);
+  const bodyW = Math.max(1, width - prefixW - suffixW);
   return wrapLeaf(node.text, bodyW, {
     prefixW: 0,
-    hanging,
+    hanging: 0,
     ...(node.balance === true ? { balance: true } : {}),
   }).length;
 }
@@ -101,7 +98,7 @@ function naturalHWidth(
       // 不会因 balancedWidth 对单行返回 maxWidth 而把整宽占掉）；需折行才用平衡宽。
       const unwrapped = wrapLeaf(child.text, avail, {
         prefixW: 0,
-        hanging: child.hanging ?? 0,
+        hanging: 0,
       });
       const contentW = unwrapped.reduce(
         (m, r) => Math.max(m, displayWidth(r.map((s) => s.text).join(""))),
@@ -109,14 +106,14 @@ function naturalHWidth(
       );
       if (contentW <= avail) return contentW + prefixW + suffixW;
       return (
-        balancedWidth(styledToSegments(child.text), avail, child.hanging ?? 0) +
+        balancedWidth(styledToSegments(child.text), avail, 0) +
         prefixW +
         suffixW
       );
     }
     const rows = wrapLeaf(child.text, avail, {
       prefixW: 0,
-      hanging: child.hanging ?? 0,
+      hanging: 0,
     });
     const used = rows.reduce(
       (m, r) => Math.max(m, displayWidth(r.map((s) => s.text).join(""))),
@@ -132,7 +129,7 @@ function naturalHWidth(
   const suffixW = suffixVisibleOf(child, opts.vw)
     ? displayWidth(child.suffix?.text ?? "")
     : 0;
-  const decor = prefixW + suffixW + (child.rightGutter ?? 0);
+  const decor = prefixW + suffixW;
   const inner = Math.max(1, budget - decor);
   if (child.direction === "h") {
     let fixedSum = 0;
@@ -157,122 +154,125 @@ function naturalHWidth(
   return Math.min(budget, decor + Math.max(1, widest));
 }
 
-/** 代码块行数模型：行号列 + 每物理行软折行（与 flatten 同源） */
-export function codeHeight(
-  code: { lang: string; rows: readonly string[]; closed: boolean },
-  avail: number,
-): number {
-  const numW = avail >= 23 ? 3 : 0;
-  const firstW = Math.max(4, avail - numW);
-  const contW = Math.max(2, firstW - 4);
-  let h = 0;
-  if (code.lang !== "") h += 1;
-  for (const row of code.rows) {
-    const src = expandCodeTabs(row);
-    h += codeScreenRows(src, firstW, contW);
-  }
-  return h;
+/**
+ * 代码列：**先拆行、再分列** —— 每个物理行一个 `Box(h, separator ┃)`，
+ * 行内左列是行号格、右列是代码填充盒。
+ * 折行续行由代码填充盒自己做，行号列在续行上自动留空、分隔竖线照画。
+ * 不做窄宽特判：行号列恒在（2 列，≥ 100 行时 3 列）。
+ */
+function codeLines(code: {
+  lang: string;
+  rows: readonly string[];
+  closed: boolean;
+}): Node[] {
+  const numW = code.rows.length >= 100 ? 3 : 2;
+  const line = (
+    num: string,
+    text: string,
+    style: { code?: boolean; italic?: boolean },
+  ): Node => ({
+    direction: "h",
+    separator: { char: "┃", color: "brightBlue" },
+    children: [
+      {
+        direction: "v",
+        widthStyle: "fixed",
+        widthFixed: numW,
+        children: [{ text: num === "" ? [] : [{ text: num }] }],
+      },
+      {
+        direction: "v",
+        widthStyle: "fill",
+        children: [{ text: text === "" ? [] : [{ text, ...style }] }],
+      },
+    ],
+  });
+  const out: Node[] = [];
+  if (code.lang !== "") out.push(line("", code.lang, { italic: true }));
+  code.rows.forEach((row, i) => {
+    const num = i + 1 > 999 ? "999" : String(i + 1).padStart(numW);
+    out.push(line(num, expandCodeTabs(row), { code: true }));
+  });
+  return out;
 }
 
-/** 代码行软折行行数（步进式切段；与 flatten 共用同一折行口径） */
-function codeScreenRows(src: string, firstW: number, contW: number): number {
-  if (src === "") return 1;
-  let n = 0;
-  let rest = src;
-  let first = true;
-  while (rest !== "") {
-    const rowW = first ? firstW : contW;
-    const leadW = first ? 0 : 1;
-    if (displayWidth(rest) <= rowW - leadW) {
-      n += 1;
-      break;
-    }
-    let cut = "";
-    let cutW = 0;
-    for (const ch of rest) {
-      const w = charWidth(ch);
-      if (cut !== "" && cutW + w > Math.max(1, rowW - leadW - 1)) break;
-      cut += ch;
-      cutW += w;
-    }
-    rest = rest.slice(cut.length);
-    n += 1;
-    first = false;
-    if (cut === "") break; // 防死循环（首字符超宽）
-  }
-  return n;
+/** §5 展开代码块：`Box(v)[ 每个物理行一个行盒 ]`（行盒内再用 separator 分行号列 / 代码列） */
+function expandCode(tree: Node, width: number): void {
+  const code = tree.code!;
+  tree.code = undefined;
+  tree.direction = "v";
+  tree.separator = undefined;
+  tree.children = codeLines(code);
 }
 
-/** 单元格高度（行内折行行数；格无 prefix） */
-function cellRows(cell: Paragraph, colW: number): number {
-  return wrapLeaf(cell.text, Math.max(1, colW), { prefixW: 0, hanging: 0 })
-    .length;
-}
-
-function styledPlain(cell: Paragraph): string {
+/** 表格格距 / 左缘竖线与表格内容之间的间隔（与旧渲染同口径） */
+/** 单元格纯文本（自然宽口径） */
+function plainOf(cell: Paragraph): string {
   return cell.text.map((s) => s.text).join("");
 }
 
-/** 表格高度：fitCols 定列宽 → 各行高 = 格 wrapLeaf 行数最大 → 求和（含横线行） */
-export function tableHeight(
-  table: {
-    aligns: readonly TableAlign[];
-    header: readonly Paragraph[];
-    rows: readonly Paragraph[][];
-  },
-  width: number,
-): number {
+/** 表格数据行：行盒只带 `separator`（列竖线），格本身不带留白与宽度 */
+function tableRow(
+  cells: readonly Paragraph[],
+  aligns: readonly TableAlign[],
+  header: boolean,
+  sep: string,
+): Node {
+  return {
+    direction: "h",
+    separator: { char: sep },
+    children: cells.map((cell, j) => {
+      const text = header
+        ? cell.text.map((s) => ({ ...s, bold: true }))
+        : cell.text;
+      return { text, align: aligns[j] ?? "left" } as Leaf;
+    }),
+  };
+}
+
+/** 表格横线行：每列一个 `fill` 盒，靠 `fillWith` 铺满该列分配宽；交叉字由 separator 给 */
+function tableRuleRow(ncols: number, ch: string, cross: string): Node {
+  return {
+    direction: "h",
+    separator: { char: cross },
+    children: Array.from({ length: Math.max(1, ncols) }, (): Node => ({
+      direction: "v",
+      widthStyle: "fill",
+      fillWith: { text: ch },
+      children: [],
+    })),
+  };
+}
+
+/** §5 展开表格：`Box(v, grid)[表头行, ═ 横线, 数据行…]`；过窄退回逐格文本行 */
+function expandTable(tree: Node, width: number): void {
+  const table = tree.table!;
+  tree.table = undefined;
+  tree.direction = "v";
+  tree.grid = true;
   const ncols = table.header.length;
-  if (ncols === 0) return 1;
-  const overhead = 1 + 1 + ncols + (ncols - 1);
-  if (width < overhead + ncols) return 1;
   const natural = table.header.map((head, j) => {
-    let w = displayWidth(styledPlain(head));
+    let w = displayWidth(plainOf(head));
     for (const row of table.rows) {
       const cell = row[j];
-      if (cell) w = Math.max(w, displayWidth(styledPlain(cell)));
+      if (cell) w = Math.max(w, displayWidth(plainOf(cell)));
     }
     return w;
   });
-  const cols = fitCols(natural, width - overhead);
-  if (cols === null) return 1;
-  const rows: Paragraph[][] = [table.header as Paragraph[], ...table.rows];
-  let h = 0;
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]!;
-    let rh = 1;
-    for (let j = 0; j < row.length; j++)
-      rh = Math.max(rh, cellRows(row[j]!, cols[j]!));
-    h += rh;
-    if (i < rows.length - 1) h += 1; // 表头下 / 数据行间横线
-  }
-  return h;
-}
-
-/** 工具批高度：每逻辑行单元按宽折行行数之和 */
-export function toolHeight(units: readonly ToolUnit[], width: number): number {
-  let h = 0;
-  for (const unit of units) {
-    const indent = unit.role === "param" ? 6 : unit.role === "result" ? 2 : 0;
-    const hang = unit.role === "param" ? 6 : 2;
-    const rows = wrapLeaf(
-      [{ text: unitText(unit) }],
-      Math.max(1, width - indent),
-      {
-        prefixW: 0,
-        hanging: hang,
-      },
-    );
-    h += rows.length;
-  }
-  return Math.max(1, h);
-}
-
-function unitText(unit: ToolUnit): string {
-  if (unit.role === "name") return unit.call.name;
-  if (unit.role === "param")
-    return (unit.param.name ? unit.param.name + ": " : "") + unit.param.value;
-  return unit.result.detail;
+  // 不做窄宽退化：列宽压不下时每列兜底 1 列，结构始终是 grid（列宽算法下一步挪进 grid pass）
+  const cols =
+    ncols === 0
+      ? []
+      : (fitCols(natural, Math.max(1, width - ncols)) ?? natural.map(() => 1));
+  const body: (Node | Leaf)[] = [
+    tableRow(table.header, table.aligns, true, "│"),
+    tableRuleRow(ncols, "═", "╪"),
+  ];
+  table.rows.forEach((row, i) => {
+    if (i > 0) body.push(tableRuleRow(ncols, "─", "┼"));
+    body.push(tableRow(row, table.aligns, false, "│"));
+  });
+  tree.children = body;
 }
 
 /** 测量主入口：写各节点 width / height，返回树高 */
@@ -288,22 +288,16 @@ export function measure(
     return tree.height;
   }
   tree.width = w;
+  if (tree.code !== undefined) expandCode(tree, w); // §5 展开：载荷 → 结构
+  if (tree.table !== undefined) expandTable(tree, w);
   // 带 prefix / suffix 的 Node：符号占列，子项按缩窄后的宽测量（与 flatten 同口径）。
   // 左缘 chrome 列（对话/session 面板竖线）不吃正文宽。
   if (tree.prefix !== undefined || tree.suffix !== undefined) {
     const boxW = Math.max(
       1,
-      w -
-        (tree.prefixChrome === true ? 0 : prefixWidthOf(tree, opts.vw)) -
-        suffixWidthOf(tree, opts.vw) -
-        (tree.rightGutter ?? 0),
+      w - prefixWidthOf(tree, opts.vw) - suffixWidthOf(tree, opts.vw),
     );
-    if (tree.code !== undefined)
-      tree.height = codeHeight(tree.code, Math.max(1, boxW - 1));
-    else if (tree.table !== undefined)
-      tree.height = tableHeight(tree.table, Math.max(1, boxW - 1));
-    else if (tree.tool !== undefined) tree.height = toolHeight(tree.tool, boxW);
-    else if (tree.direction === "h") {
+    if (tree.direction === "h") {
       // h：按 h 的 fixed/auto/fill 规则在缩窄后的 boxW 内分配（不能把 boxW 平铺给每个子项）
       tree.height = measureH(tree, boxW, opts);
     } else {
@@ -313,28 +307,39 @@ export function measure(
     }
     return tree.height;
   }
-  if (tree.code !== undefined) {
-    tree.height = codeHeight(tree.code, Math.max(1, w - 1));
-    return tree.height;
-  }
-  if (tree.table !== undefined) {
-    tree.height = tableHeight(tree.table, Math.max(1, w - 1));
-    return tree.height;
-  }
-  if (tree.tool !== undefined) {
-    tree.height = toolHeight(tree.tool, w);
-    return tree.height;
-  }
   if (tree.direction === "h") return measureH(tree, w, opts);
-  // v：子项同宽，高求和
+  // v：子项同宽，高求和；空容器也占一行（与 flatten 的「空容器产一行」同口径）
   let h = 0;
   for (const child of tree.children) h += measure(child, w, opts);
-  tree.height = h;
-  return h;
+  tree.height = Math.max(1, h);
+  return tree.height;
+}
+
+/** h 容器的分隔竖线总宽（相邻子项之间各一条；< 2 个子项不插） */
+function separatorWidth(node: Node): number {
+  const sep = node.separator;
+  if (sep === undefined || node.children.length < 2) return 0;
+  return displayWidth(sepChar(sep)) * (node.children.length - 1);
+}
+
+/** 分隔符字符（缺省横向用 `│`，与 Separator 注释同口径） */
+export function sepChar(sep: { char?: string }): string {
+  return sep.char ?? "│";
+}
+
+/** 分隔符样式：`plain` = 不染色，缺省 border 灰 */
+export function sepStyle(sep: {
+  color?: ColorName | "plain";
+}): FrameStyle | undefined {
+  const color = sep.color;
+  if (color === "plain") return undefined;
+  return { fg: color ?? "border" };
 }
 
 /** h 容器测量：fixed 先定值 → auto 取自然宽 → fill 均分剩余；返回最大子高 */
 function measureH(tree: Node, w: number, opts: MeasureOptions): number {
+  // 分隔竖线占列：先从可用宽扣掉，剩余再按 fixed / auto / fill 分配
+  const avail = Math.max(1, w - separatorWidth(tree));
   const fixed = new Map<Node | Leaf, number>();
   const autos: (Node | Leaf)[] = [];
   const fills: (Node | Leaf)[] = [];
@@ -354,7 +359,7 @@ function measureH(tree: Node, w: number, opts: MeasureOptions): number {
   // 否则 auto 的自然宽会连同保底一起吃掉，合计超过容器宽（用户块正文曾因此超 2 列）
   const fillMin = fills.reduce((a, c) => a + Math.max(0, c.widthMin ?? 0), 0);
   // auto 自然宽：文本叶 = min(展示宽 + 前缀/后缀, 剩余)；带 balance 的叶取剩余（尽力均摊）
-  let remaining = Math.max(0, w - fixedSum - fillMin);
+  let remaining = Math.max(0, avail - fixedSum - fillMin);
   const autoW = new Map<Node | Leaf, number>();
   for (const child of autos) {
     const natural = naturalHWidth(child, remaining, opts);
@@ -369,9 +374,13 @@ function measureH(tree: Node, w: number, opts: MeasureOptions): number {
     const mins = fills.map((c) => Math.max(0, c.widthMin ?? 0));
     const minSum = mins.reduce((a, b) => a + b, 0);
     const rest = Math.max(0, fillSpace);
+    // 剩余列在多个 fill 之间均分（余数给靠前的）；只有一个 fill 时即「吃下全部剩余」
+    const share = Math.floor(rest / fills.length);
+    let extra = rest - share * fills.length;
     fills.forEach((child, idx) => {
-      const first = idx === 0;
-      fillW.set(child, Math.max(1, (mins[idx] ?? 0) + (first ? rest : 0)));
+      const add = share + (extra > 0 ? 1 : 0);
+      if (extra > 0) extra -= 1;
+      fillW.set(child, Math.max(1, (mins[idx] ?? 0) + add));
     });
   }
   let h = 0;

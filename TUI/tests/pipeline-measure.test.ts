@@ -74,14 +74,6 @@ test("measure：代码/表格/工具载荷节点高度模型", () => {
   measure(codeNode as never, 20, { vw: 20 });
   assert.equal(codeNode.direction, "v");
   assert.ok((codeNode.height ?? 0) >= 2, "代码 ≥ 2 行（两行内容）");
-  // 工具批
-  const batch: Node = {
-    direction: "v",
-    children: [],
-    tool: [{ role: "name", call: { name: "bash" } } as never],
-  };
-  measure(batch, 20, { vw: 20 });
-  assert.ok((batch.height ?? 0) >= 1, "工具批高度");
   // 表格
   const tblNode: Node = {
     direction: "v",
