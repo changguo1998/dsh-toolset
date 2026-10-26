@@ -48,13 +48,13 @@ dsh:session-channel:meta                String  schema 版本（不兼容 → �
 - **读数面**：`statusOf(sessionId)` 服务方法（无牌 → `{ok:true}` 且 `state` 缺省）+ `session_channel` 工具 `action=state`。**不做** `peers()` 增量（避免动 `PeerInfo` 落盘形状与既有消费方；组内成员是小集合，逐成员单读廉价）。
 - **消费判据（归 agent-group）**：alive 过期 / pid 死 = 离线；`status='idle'` = 待机；`='running'` 且 `now-at <= stuckAfterMs` = 工作；`='running'` 且 `now-at > stuckAfterMs` = 疑似卡死；在线但无牌按待机（发布端未就绪的短窗，不误报卡死）。全程旁观者只读判定：不依赖目标应答、无模型推理、不要求目标进程协作。
 
-### 3.1 自动别名（2026-10-17 改版）
+### 3.1 自动别名（2026-10-27 改版）
 
-- **命名**：`<前缀><词>-<4 位 hex>`，前缀 `ui-`（用户启动）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）。词与后缀同出自 `sha256(sessionId)`：词 = 前 2 字节对词表规模取模，后缀 = 第 2-4 字节 hex（`alias-words.ts` 的 `autoAliasCandidate`）。词表 578 词 → 命名空间 ≈ 3800 万。
+- **命名**：默认 `<前缀><词>`（纯词名），**仅当该前缀的纯词名全部被占用时**才拼 `-<4 位 hex>` 兜底；前缀 `ui-`（用户启动）/ `sub-`（`header.origin === "subagent"` 或 `delegationDepth > 0`）。词取自 `sha256(sessionId)` 前 2 字节对词表规模取模（`alias-words.ts` 的 `autoAliasCandidate` / `autoAliasFallbackCandidate`），后缀 = `sha256(sessionId)` 前 4 位 hex。词表 818 词（含 2026-10-27 新增的 240 个自然科学类词）→ 纯词名每前缀 ≤ 818，兜底后容量 ≈ 818 × 65536。
 - **生成时机**：`noteSession` 的**首见分支**（`session/event` 驱动），本进程首次观察到该会话时尝试一次；已有别名（含显式设置）直接跳过。故「启动即分配」与「首次用到才分配」都不对，准确表述是「本进程首次见到该会话」。
 - **持久性**：别名键**无 TTL**（Redis `appendonly yes`）；宿主 resume 复用同一 `sessionId`（`agents.resume({resumeSessionId})`），同 id 再出现时因已有别名跳过重命名 → **恢复后不漂移**（有代码依据，非设计推断）。
-- **碰撞与失败**：候选按 `(base + attempt) % 词表规模` 顺序推进（`AUTO_ALIAS_TRIES = 8`），候选间必不重复；重试耗尽或抛错**不再静默** —— 一条日志 + `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计 `aliasesAuto`）。原实现（随机词、静默失败）在 148 词耗尽后使自动别名事实上不可用（本机实测 `sub-` 已满），见 `docs/archived/2026-10-17-group-transport-surface.md` 调研 9（原缺陷条目已随该项修复从 BACKLOG 移除）。
-- 既有旧格式别名（`ui-clover` 等 295 条）保持原样，不做迁移；占用冲突耗尽后不保证一定拿到别名，成员登记勿依赖它（用 sessionId 或显式 `alias set`）。
+- **碰撞与失败**：纯词名阶段按 `(base + attempt) % 词表规模` 顺序推进并**走完整词表**（全部被占 = 纯词名已满）；随后兜底阶段最多试 `AUTO_ALIAS_TRIES = 8` 个带 hex 后缀的候选。两阶段都失败或抛错**不再静默** —— 一条日志 + `status()` 的 `aliasesFailed` / `aliasesLastError`（成功计 `aliasesAuto`）。原实现（随机词、静默失败）在 148 词耗尽后使自动别名事实上不可用（本机实测 `sub-` 已满），见 `docs/archived/2026-10-17-group-transport-surface.md` 调研 9（原缺陷条目已随该项修复从 BACKLOG 移除）。
+- 既有旧格式别名（`ui-clover` 等 295 条，含 2026-10-17 起带 hex 后缀的形态）保持原样，不做迁移、不重命名；纯词名全占满且兜底也失败时不保证一定拿到别名，成员登记勿依赖它（用 sessionId 或显式 `alias set`）。
 - **游标语义**：投递位置记在**无 TTL** 的 `cursor:<sessionId>`（值 `{id, ts}`）里——接收方跟踪会话或重启时读该键作为读取起点（**读不到才退化为 `0`**：发送方可能先入队、接收方后启动），且**只在注入成功后推进**（失败不推进 → 重启补投）。读取完成前该会话不进 reader 读取集合（`cursorReady` 门），避免「先用 `0` 读一次」的重复窗口面。`start()` 时按 `ts` 懒清理超过 7 天（`CURSOR_TTL_MS`）的游标键；被清理后该会话若再来会从邮箱流起点重读，历史消息可能重投（可接受：宁可重投不漏投）。
 - **回执**：接收方注入成功才写回执（`ack:<messageId>`，TTL 60s），**只服务发送方 `send` 的 `waitMs` 等待窗口**（100ms 轮询）——**不作为去重依据**（去重靠游标，回执过期不影响去重）。注入失败（会话不在本进程）不写回执，消息留在流里（`inbox` 可查）。
 - **共享 KV**（#55）：`kv:<key>` 存 last-value（JSON 可序列化，UTF-8 上限取 `maxTextBytes`），`kvver:<key>` 用 `INCR` 提供**单调版本号**；写入在单条 Lua 脚本内完成「读旧版本 → CAS 校验 → 版本 +1 → SET」，`expectedVersion` 不匹配返回 `kv_conflict` + 当前值（供合并重试）；`ttlSec > 0` 时带过期；`kvDelete` 同时删两个键（版本归零）。键名 `[A-Za-z0-9_.-]{1,64}`。语义：last-value + 版本号，供插件跨会话 / 跨进程同步状态；不做订阅 / 通知（拉取式）。

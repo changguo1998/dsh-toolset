@@ -147,10 +147,10 @@ redisTest(
         content?: { text: string }[];
         source?: { kind?: string };
       };
-      // F1 起：会话首见自动生成别名（ui- 前缀 + 4 位哈希后缀）→ 来源标签用别名而非会话 id
+      // F1 起：会话首见自动生成别名（ui- 前缀；后缀仅兜底）→ 来源标签用别名而非会话 id
       assert.match(
         injected.content?.[0]?.text ?? "",
-        /^\[CHANNEL\]\(ui-[a-z]{2,8}-[0-9a-f]{4}\) 自测$/,
+        /^\[CHANNEL\]\(ui-[a-z]{2,8}\) 自测$/,
       );
       assert.equal(injected.source?.kind, "session-channel");
 
@@ -175,7 +175,7 @@ redisTest(
       const injected2 = received[1] as { source?: { summary?: string } };
       assert.match(
         String(injected2.source?.summary ?? ""),
-        /来自 ui-[a-z]{2,8}-[0-9a-f]{4}$/,
+        /来自 ui-[a-z]{2,8}$/,
         "接收侧注入应带发送方别名（F1 起为自动别名）",
       );
       const inboxD4 = (await channelTool.execute({

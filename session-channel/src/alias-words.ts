@@ -1,10 +1,10 @@
 /**
  * 自动别名词表与取名（F1「会话别名自动生成」）：内置 ≤8 字符 ASCII 名词 / 名字 +
- * 类型前缀（ui- / sub-）+ 随机取词 + 4 位 sessionId 哈希后缀。与插件实现（index.ts）
- * 分开，便于换风格 / 扩表。
+ * 类型前缀（ui- / sub-）+ 确定性取词。与插件实现（index.ts）分开，便于换风格 / 扩表。
  *
- * 命名规则（2026-10-17 裁定）：`<前缀><词>-<hex4>`，`hex4 = sha256(sessionId)` 前 4 位
- * 小写 hex（确定性、可复现）。总长 ≤ 16，仍在 `[A-Za-z0-9_-]{1,32}` 校验内。
+ * 命名规则（2026-10-27 裁定改版）：默认 `<前缀><词>`；仅当该前缀的纯词名全部被占用时，
+ * 才拼 `-<hex4>` 兜底（`hex4 = sha256(sessionId)` 前 4 位小写 hex，确定性、可复现）。
+ * 纯词名总长 ≤ 11、兜底名总长 ≤ 16，都在 `[A-Za-z0-9_-]{1,32}` 校验内。
  * 测试强制：词长 ≤8、`[A-Za-z]`、非保留字、无重复。
  */
 
@@ -805,14 +805,272 @@ export const AUTO_ALIAS_WORDS_EXTRA = [
 ] as const;
 
 /**
- * 自动别名词表全集（原表 + 扩容表）：仍须满足「名词、`[A-Za-z]{2,8}`、非保留字、无重复」，
- * 由 `tests/alias.test.ts` 守卫。
+ * 自然科学词表（2026-10-27 扩表，用户裁定「自然科学范围内的词也都可以」）：物理 / 化学 /
+ * 生物 / 地学 / 天文 / 数学的名词，约束同前（≤8 字符、`[A-Za-z]`、非保留字、无重复；
+ * 音节数不设限）。只增不减。
+ */
+export const AUTO_ALIAS_WORDS_SCIENCE = [
+  // 物理
+  "atom",
+  "ion",
+  "wave",
+  "flux",
+  "laser",
+  "optics",
+  "prism",
+  "lens",
+  "mass",
+  "spin",
+  "charge",
+  "proton",
+  "photon",
+  "neutron",
+  "quark",
+  "gluon",
+  "boson",
+  "meson",
+  "baryon",
+  "lepton",
+  "hadron",
+  "fermion",
+  "plasma",
+  "entropy",
+  "enthalpy",
+  "kinetic",
+  "static",
+  "torque",
+  "inertia",
+  "friction",
+  "density",
+  "pressure",
+  "volume",
+  "fluid",
+  "vacuum",
+  "anode",
+  "cathode",
+  "diode",
+  "circuit",
+  "current",
+  "voltage",
+  "resistor",
+  "kelvin",
+  "joule",
+  "watt",
+  "hertz",
+  "tesla",
+  "weber",
+  "pascal",
+  "coulomb",
+  "ampere",
+  "volt",
+  "ohm",
+  "lux",
+  "lumen",
+  "candela",
+  "radian",
+  // 化学
+  "molecule",
+  "polymer",
+  "monomer",
+  "isotope",
+  "oxide",
+  "halide",
+  "ester",
+  "amide",
+  "amine",
+  "lipid",
+  "ketone",
+  "phenol",
+  "solute",
+  "solvent",
+  "molar",
+  "anion",
+  "cation",
+  "alkane",
+  "alkene",
+  "alkyne",
+  "carbon",
+  "oxygen",
+  "ozone",
+  "helium",
+  "neon",
+  "argon",
+  "krypton",
+  "xenon",
+  "radon",
+  "methane",
+  "ethane",
+  "propane",
+  "butane",
+  "nitrate",
+  "nitrite",
+  "sulfate",
+  // 生物
+  "cell",
+  "gene",
+  "enzyme",
+  "neuron",
+  "retina",
+  "cortex",
+  "synapse",
+  "mitosis",
+  "meiosis",
+  "gamete",
+  "zygote",
+  "embryo",
+  "larva",
+  "nymph",
+  "cocoon",
+  "spore",
+  "pollen",
+  "stamen",
+  "pistil",
+  "sepal",
+  "xylem",
+  "phloem",
+  "cambium",
+  "bark",
+  "root",
+  "shoot",
+  "stem",
+  "bud",
+  "seed",
+  "fruit",
+  "berry",
+  "drupe",
+  "pome",
+  "alga",
+  "fungus",
+  "amoeba",
+  "diatom",
+  "krill",
+  "plankton",
+  "barnacle",
+  "copepod",
+  "helix",
+  "codon",
+  "exon",
+  "genome",
+  "allele",
+  "tissue",
+  "organ",
+  "gland",
+  "hormone",
+  "insulin",
+  "glucose",
+  "protein",
+  "peptide",
+  "ribose",
+  "sterol",
+  "cochlea",
+  "pupil",
+  "lobe",
+  "axon",
+  "glia",
+  "colony",
+  // 地学
+  "magma",
+  "lava",
+  "strata",
+  "stratum",
+  "fault",
+  "fold",
+  "gravel",
+  "pebble",
+  "loess",
+  "esker",
+  "kettle",
+  "cinder",
+  "scoria",
+  "vein",
+  "lode",
+  "slag",
+  "shard",
+  "silt",
+  "clay",
+  "humus",
+  "topsoil",
+  "bedrock",
+  "aquifer",
+  "levee",
+  "runoff",
+  "sediment",
+  "erosion",
+  "drumlin",
+  "varve",
+  "climate",
+  "weather",
+  "climatic",
+  "arid",
+  "front",
+  "isobar",
+  "isotherm",
+  "biome",
+  "habitat",
+  "ecology",
+  "biomass",
+  // 天文
+  "equator",
+  "tidal",
+  "lunar",
+  "solar",
+  "redshift",
+  "sunspot",
+  "parsec",
+  "azimuth",
+  "albedo",
+  // 数学
+  "algebra",
+  "vector",
+  "scalar",
+  "matrix",
+  "tensor",
+  "factor",
+  "prime",
+  "theorem",
+  "axiom",
+  "lemma",
+  "proof",
+  "graph",
+  "node",
+  "vertex",
+  "angle",
+  "radius",
+  "tangent",
+  "cosine",
+  "sine",
+  "secant",
+  "limit",
+  "integral",
+  "gradient",
+  "fractal",
+  "kernel",
+  "digit",
+  "ratio",
+  "decimal",
+  "polygon",
+  "circle",
+  "sphere",
+  "cube",
+  "axis",
+  "curve",
+  "plane",
+  "chord",
+] as const;
+
+/**
+ * 自动别名词表全集（原表 + 扩容表 + 自然科学表）：仍须满足「名词、`[A-Za-z]{2,8}`、
+ * 非保留字、无重复」，由 `tests/alias.test.ts` 守卫。
  */
 export const AUTO_ALIAS_POOL: readonly string[] = [
-  ...new Set([...AUTO_ALIAS_WORDS, ...AUTO_ALIAS_WORDS_EXTRA]),
+  ...new Set([
+    ...AUTO_ALIAS_WORDS,
+    ...AUTO_ALIAS_WORDS_EXTRA,
+    ...AUTO_ALIAS_WORDS_SCIENCE,
+  ]),
 ];
 
-/** 自动别名重试上限（仅 `alias_taken` 重试）。 */
+/** 兜底候选（带 4 位 hex 后缀）的重试上限（仅 `alias_taken` 重试；纯词名阶段走完整词表）。 */
 export const AUTO_ALIAS_TRIES = 8;
 
 /**
@@ -845,7 +1103,7 @@ export function autoAliasSuffix(sessionId: string): string {
     .slice(0, 4);
 }
 
-/** 取一个自动别名（`<前缀><词>-<4 位 hex>`；随机源可注入，便于测试）。 */
+/** 取一个纯词名自动别名（`<前缀><词>`；随机源可注入，便于测试）。 */
 export function pickAutoAlias(
   prefix: "ui-" | "sub-",
   sessionId: string,
@@ -855,31 +1113,43 @@ export function pickAutoAlias(
     AUTO_ALIAS_POOL.length - 1,
     Math.max(0, Math.floor(random() * AUTO_ALIAS_POOL.length)),
   );
-  return `${prefix}${AUTO_ALIAS_POOL.at(idx)}-${autoAliasSuffix(sessionId)}`;
+  return `${prefix}${AUTO_ALIAS_POOL.at(idx)}`;
+}
+
+/** 第 `attempt` 个候选词（`(base + attempt) % 词表规模`，`base = sha256(sessionId)` 前 2 字节）。 */
+function aliasWord(sessionId: string, attempt: number): string {
+  const size = AUTO_ALIAS_POOL.length;
+  const step = Math.max(0, Math.floor(attempt));
+  const digest = createHash("sha256").update(sessionId, "utf8").digest();
+  return AUTO_ALIAS_POOL.at((digest.readUInt16BE(0) + step) % size) ?? "";
 }
 
 /**
- * 自动别名的候选序列（确定性 + 候选间不重复）：第 `attempt` 个候选取第
- * `(base + attempt) % 词表规模` 个词（`base = sha256(sessionId)` 前 2 字节取模），
- * 后缀取 `sha256(sessionId:attempt)` 的前 4 位 hex —— 词不同则候选必不同，
- * 故 `attempt < 词表规模` 时重试不会重复撞同一个名字。
+ * 自动别名的纯词名候选序列（确定性 + 候选间不重复）：第 `attempt` 个候选取第
+ * `(base + attempt) % 词表规模` 个词。词不同则候选必不同，故 `attempt < 词表规模` 时
+ * 重试不会重复撞同一个名字。
  *
  * `attempt = 0` 即该会话的确定性名字：同一 sessionId 永远得到同一个别名
- * （宿主 resume 复用 id → 恢复后不漂移），不同会话落在 `词表规模 × 65536`
- * 的组合里（578 词 → 三千八百万），跨机也不易撞。
+ * （宿主 resume 复用 id → 恢复后不漂移）。
  */
 export function autoAliasCandidate(
   prefix: "ui-" | "sub-",
   sessionId: string,
   attempt: number,
 ): string {
-  const size = AUTO_ALIAS_POOL.length;
-  const step = Math.max(0, Math.floor(attempt));
-  const digest = createHash("sha256").update(sessionId, "utf8").digest();
-  const word = AUTO_ALIAS_POOL.at((digest.readUInt16BE(0) + step) % size);
-  // 后缀统一取 `autoAliasSuffix(sessionId)`（= sha256(sessionId) 前 4 位 hex）：
-  // 同一会话的候选只换词不换后缀，命名规则与文档口径保持一致。
-  return `${prefix}${word}-${autoAliasSuffix(sessionId)}`;
+  return `${prefix}${aliasWord(sessionId, attempt)}`;
+}
+
+/**
+ * 兜底候选：`<前缀><词>-<4 位 hex>`。仅在该前缀的纯词名全部被占用后才使用；
+ * 后缀统一取 `autoAliasSuffix(sessionId)`（同一会话的候选只换词不换后缀）。
+ */
+export function autoAliasFallbackCandidate(
+  prefix: "ui-" | "sub-",
+  sessionId: string,
+  attempt: number,
+): string {
+  return `${prefix}${aliasWord(sessionId, attempt)}-${autoAliasSuffix(sessionId)}`;
 }
 
 /** 该会话的确定性自动别名（= `autoAliasCandidate(prefix, sessionId, 0)`）。 */

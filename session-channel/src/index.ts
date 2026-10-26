@@ -15,8 +15,10 @@
 import { randomUUID } from "node:crypto";
 import {
   aliasPrefixFor,
+  AUTO_ALIAS_POOL,
   AUTO_ALIAS_TRIES,
   autoAliasCandidate,
+  autoAliasFallbackCandidate,
 } from "./alias-words.ts";
 import {
   closeConnection,
@@ -224,8 +226,14 @@ export interface SessionChannelDeps {
   now?: () => number;
   /** 自动别名的随机源（缺省 `Math.random`；保留给 `pickAutoAlias` 的测试路径）。 */
   random?: () => number;
-  /** 自动别名的候选生成器（缺省 `autoAliasCandidate`；测试注入碰撞用）。 */
+  /** 自动别名的候选生成器（缺省 `autoAliasCandidate`，纯词名；测试注入碰撞用）。 */
   aliasCandidate?: (
+    prefix: "ui-" | "sub-",
+    sessionId: string,
+    attempt: number,
+  ) => string;
+  /** 自动别名的兜底候选生成器（缺省 `autoAliasFallbackCandidate`，带 4 位 hex 后缀；纯词名全占满后才用）。 */
+  aliasFallbackCandidate?: (
     prefix: "ui-" | "sub-",
     sessionId: string,
     attempt: number,
@@ -484,12 +492,15 @@ export class SessionChannelService {
   }
 
   /**
-   * 自动别名（F1）：会话**首次见到**且尚无别名时写入 `<前缀><词>-<4 位 hex>`。
+   * 自动别名（F1）：会话**首次见到**且尚无别名时分配。
    *
-   * 候选由 `sha256(sessionId)` 决定（`autoAliasCandidate`）：同一会话得同名，
-   * 重试取下一个词，故 `AUTO_ALIAS_TRIES` 次内候选互不重复。失败不再静默：
-   * 重试耗尽或抛错都写日志并累加 `status().aliasesFailed` / `aliasesLastError`
-   * （2026-10-17：原实现静默返回，导致「自动别名不可用」长期不可观测）。
+   * 两阶段（2026-10-27 裁定）：
+   * 1) 纯词名 `<前缀><词>`：候选由 `sha256(sessionId)` 决定（`autoAliasCandidate`），
+   *    同一会话得同名；撞名按候选序列推进并**走完整词表**（全部被占 = 纯词名已满）。
+   * 2) 兜底 `<前缀><词>-<4 位 hex>`：仅当纯词名全占满后启用，最多试 `AUTO_ALIAS_TRIES` 次。
+   *
+   * 失败不再静默：两阶段都失败或抛错都写日志并累加 `status().aliasesFailed` /
+   * `aliasesLastError`（2026-10-17：原实现静默返回，导致「自动别名不可用」长期不可观测）。
    */
   async #autoAlias(session: unknown, sessionId: string): Promise<void> {
     const prefix = aliasPrefixFor(session);
@@ -498,16 +509,38 @@ export class SessionChannelService {
       if (conn === undefined) return;
       if ((await aliasOfSession(conn.main, sessionId)) !== undefined) return;
       let lastError = "";
-      const candidateOf = this.#deps.aliasCandidate ?? autoAliasCandidate;
-      for (let i = 0; i < AUTO_ALIAS_TRIES; i++) {
-        const candidate = candidateOf(prefix, sessionId, i);
-        const result = await setAlias(conn.main, candidate, sessionId);
+      // 阶段 1：纯词名，走完整词表才判定「全占满」。
+      const wordOf = this.#deps.aliasCandidate ?? autoAliasCandidate;
+      for (let i = 0; i < AUTO_ALIAS_POOL.length; i++) {
+        const result = await setAlias(
+          conn.main,
+          wordOf(prefix, sessionId, i),
+          sessionId,
+        );
         if (result.ok) {
           this.#status.aliasesAuto += 1;
           return;
         }
         lastError = result.error ?? "unknown";
         if (result.error !== "alias_taken") break;
+      }
+      // 阶段 2：纯词名全占满 → 带 4 位 hex 后缀兜底。
+      if (lastError === "alias_taken") {
+        const suffixedOf =
+          this.#deps.aliasFallbackCandidate ?? autoAliasFallbackCandidate;
+        for (let i = 0; i < AUTO_ALIAS_TRIES; i++) {
+          const result = await setAlias(
+            conn.main,
+            suffixedOf(prefix, sessionId, i),
+            sessionId,
+          );
+          if (result.ok) {
+            this.#status.aliasesAuto += 1;
+            return;
+          }
+          lastError = result.error ?? "unknown";
+          if (result.error !== "alias_taken") break;
+        }
       }
       this.#failAutoAlias(sessionId, lastError, prefix);
     } catch (err) {
@@ -519,9 +552,7 @@ export class SessionChannelService {
   #failAutoAlias(sessionId: string, reason: string, prefix: string): void {
     this.#status.aliasesFailed += 1;
     this.#status.aliasesLastError = reason;
-    this.#log(
-      `自动别名分配失败（${sessionId} / ${prefix}，已试 ${AUTO_ALIAS_TRIES} 次）：${reason}`,
-    );
+    this.#log(`自动别名分配失败（${sessionId} / ${prefix}）：${reason}`);
   }
 
   /** 记录（或刷新）一个活跃会话；首次见到立即写在线键。 */

@@ -26,7 +26,9 @@ import {
   aliasPrefixFor,
   AUTO_ALIAS_POOL,
   AUTO_ALIAS_WORDS,
+  AUTO_ALIAS_WORDS_SCIENCE,
   autoAliasCandidate,
+  autoAliasFallbackCandidate,
   autoAliasFor,
   autoAliasSuffix,
   pickAutoAlias,
@@ -189,7 +191,7 @@ redisTest("clearAliasesOf：按会话清空其全部别名", async () => {
   });
 });
 
-// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀 + 4 位哈希后缀） ----------
+// ---------- F1：会话别名自动生成（≤8 字符名词 / 名字 + 类型前缀；后缀仅兜底） ----------
 
 test("F1 词表：≥ 256 词、≤8 字符 ASCII 名词 / 名字，无重复、不与保留字冲突", () => {
   assert.ok(
@@ -218,6 +220,11 @@ test("F1 词表：≥ 256 词、≤8 字符 ASCII 名词 / 名字，无重复、
     assert.ok(!seen.has(word), `词重复: ${word}`);
     assert.ok(!reserved.has(word), `与保留字冲突: ${word}`);
     seen.add(word);
+  }
+  // 自然科学词表已并入全集（2026-10-27 扩表口径）
+  assert.ok(AUTO_ALIAS_WORDS_SCIENCE.length > 0, "自然科学词表不应为空");
+  for (const word of AUTO_ALIAS_WORDS_SCIENCE) {
+    assert.ok(AUTO_ALIAS_POOL.includes(word), `自然科学词未并入全集: ${word}`);
   }
 });
 
@@ -253,50 +260,69 @@ test("F1 后缀：sha256(sessionId) 前 4 位小写 hex（确定性、可复现�
   assert.notEqual(autoAliasSuffix("s-user"), autoAliasSuffix("s-sub"));
 });
 
-test("F1 取词：`<前缀><词>-<4 位 hex>`（随机源注入；越界 clamp）", () => {
+test("F1 取词：`<前缀><词>`（纯词名，随机源注入；越界 clamp）", () => {
   assert.equal(
     pickAutoAlias("ui-", "s1", () => 0),
-    `ui-${AUTO_ALIAS_POOL[0]}-${autoAliasSuffix("s1")}`,
+    `ui-${AUTO_ALIAS_POOL[0]}`,
   );
   assert.equal(
     pickAutoAlias("sub-", "s1", () => 0.999999),
-    `sub-${AUTO_ALIAS_POOL.at(-1)}-${autoAliasSuffix("s1")}`,
+    `sub-${AUTO_ALIAS_POOL.at(-1)}`,
   );
   assert.equal(
     pickAutoAlias("ui-", "s1", () => 1),
-    `ui-${AUTO_ALIAS_POOL.at(-1)}-${autoAliasSuffix("s1")}`,
+    `ui-${AUTO_ALIAS_POOL.at(-1)}`,
     "随机源返回 1 不越界",
   );
-  // 形态与总长（≤ 16）守 2026-10-17 的命名规则
+  // 形态与总长（≤ 11）守 2026-10-27 的命名规则
   const alias = pickAutoAlias("ui-", "session-a");
-  assert.match(alias, /^ui-[a-z]{2,8}-[0-9a-f]{4}$/);
-  assert.ok(alias.length <= 16, `总长: ${alias.length}`);
+  assert.match(alias, /^ui-[a-z]{2,8}$/);
+  assert.ok(alias.length <= 11, `总长: ${alias.length}`);
 });
 
-test("F1 确定性：同一 sessionId 恒得同一别名，词与后缀都在词表 / hex 内", () => {
+test("F1 确定性：同一 sessionId 恒得同一纯词名，词来自词表", () => {
   const first = autoAliasFor("ui-", "sess-a");
-  assert.equal(first, autoAliasFor("ui-", "sess-a"), "同 id 同名（恢复后不漂移）");
+  assert.equal(
+    first,
+    autoAliasFor("ui-", "sess-a"),
+    "同 id 同名（恢复后不漂移）",
+  );
   assert.notEqual(first, autoAliasFor("ui-", "sess-b"), "不同 id 不同名");
-  assert.match(first, /^ui-[a-z]+-[0-9a-f]{4}$/, `形态: ${first}`);
-  const word = first.slice(3, first.lastIndexOf("-"));
+  assert.match(first, /^ui-[a-z]{2,8}$/, `形态: ${first}`);
+  const word = first.slice(3);
   assert.ok(
     (AUTO_ALIAS_POOL as readonly string[]).includes(word),
     `词来自词表: ${word}`,
   );
-  // 前缀只换前缀，词与后缀不变
+  // 前缀只换前缀，词不变
   assert.equal(
     autoAliasFor("sub-", "sess-a"),
     `sub-${first.slice(3)}`,
-    "前缀不影响词与后缀",
+    "前缀不影响词",
   );
 });
 
-test("F1 候选序列：attempt 递增给出互不相同的候选，且 0 = 确定性名字", () => {
-  assert.equal(autoAliasCandidate("ui-", "sess-a", 0), autoAliasFor("ui-", "sess-a"));
+test("F1 兜底候选：带 4 位 hex 后缀，仅纯词名全占满后使用", () => {
+  const plain = autoAliasFor("ui-", "sess-a");
+  const fallback = autoAliasFallbackCandidate("ui-", "sess-a", 0);
+  assert.equal(fallback, `${plain}-${autoAliasSuffix("sess-a")}`);
+  assert.match(fallback, /^ui-[a-z]{2,8}-[0-9a-f]{4}$/);
+  assert.equal(
+    autoAliasFallbackCandidate("ui-", "sess-a", 0),
+    fallback,
+    "兜底候选可复现",
+  );
+});
+
+test("F1 候选序列：attempt 递增给出互不相同的纯词名候选，且 0 = 确定性名字", () => {
+  assert.equal(
+    autoAliasCandidate("ui-", "sess-a", 0),
+    autoAliasFor("ui-", "sess-a"),
+  );
   const seen = new Set<string>();
   for (let i = 0; i < 8; i += 1) {
     const candidate = autoAliasCandidate("ui-", "sess-a", i);
-    assert.match(candidate, /^ui-[a-z]+-[0-9a-f]{4}$/, `候选 ${i}: ${candidate}`);
+    assert.match(candidate, /^ui-[a-z]{2,8}$/, `候选 ${i}: ${candidate}`);
     assert.ok(!seen.has(candidate), `候选重复: ${candidate}`);
     seen.add(candidate);
   }
@@ -329,25 +355,12 @@ redisTest(
       );
       const userAlias = byId.get("s-user") ?? "";
       const subAlias = byId.get("s-sub") ?? "";
-      assert.match(
-        userAlias,
-        /^ui-[a-z]{2,8}-[0-9a-f]{4}$/,
-        `用户会话别名: ${userAlias}`,
-      );
-      assert.match(
-        subAlias,
-        /^sub-[a-z]{2,8}-[0-9a-f]{4}$/,
-        `子代理别名: ${subAlias}`,
-      );
+      assert.match(userAlias, /^ui-[a-z]{2,8}$/, `用户会话别名: ${userAlias}`);
+      assert.match(subAlias, /^sub-[a-z]{2,8}$/, `子代理别名: ${subAlias}`);
       assert.ok(
-        (AUTO_ALIAS_POOL as readonly string[]).includes(
-          userAlias.slice(3, -5),
-        ),
+        (AUTO_ALIAS_POOL as readonly string[]).includes(userAlias.slice(3)),
         `词来自内置词表: ${userAlias}`,
       );
-      // 后缀可复现：等于该 sessionId 的哈希前 4 位
-      assert.equal(userAlias.slice(-4), autoAliasSuffix("s-user"));
-      assert.equal(subAlias.slice(-4), autoAliasSuffix("s-sub"));
       // 别名键与 sessionId 绑定，且无 TTL（恢复会话后名字不变的前提）
       assert.equal(await conn.main.get(aliasKey(userAlias)), "s-user");
       assert.equal(
@@ -408,8 +421,7 @@ redisTest(
       await waitUntil(() => service.status().connected === true, 5000);
       service.noteSession({ id: "s-target", header: { cwd: "/tmp/x" } });
       await waitUntil(
-        async () =>
-          (await resolveAlias(conn.main, "taken-3")) === "s-target",
+        async () => (await resolveAlias(conn.main, "taken-3")) === "s-target",
         3000,
       );
       const status = service.status();
@@ -428,21 +440,54 @@ redisTest(
   },
 );
 
+redisTest("F1 兜底：纯词名全占满后改用带 4 位 hex 后缀的候选", async () => {
+  const redis = await startTempRedis();
+  const conn = await connectSessionChannel({ url: redis.socketPath });
+  const fake = makeFakeHost();
+  // 纯词名阶段恒撞一个被占的名字；兜底阶段给出唯一候选。
+  await setAlias(conn.main, "taken-word", "s-other");
+  const service = createSessionChannelService(
+    { url: redis.socketPath, heartbeatMs: 60_000, presenceTtlSec: 60 },
+    fake.host as never,
+    {
+      aliasCandidate: () => "taken-word",
+      aliasFallbackCandidate: (_prefix, sessionId, attempt) =>
+        `fallback-${attempt}-${autoAliasSuffix(sessionId)}`,
+    },
+  );
+  try {
+    await service.start();
+    await waitUntil(() => service.status().connected === true, 5000);
+    service.noteSession({ id: "s-fallback", header: { cwd: "/tmp/x" } });
+    const expected = `fallback-0-${autoAliasSuffix("s-fallback")}`;
+    await waitUntil(
+      async () => (await resolveAlias(conn.main, expected)) === "s-fallback",
+      3000,
+    );
+    const status = service.status();
+    assert.equal(status.aliasesAuto, 1, "兜底成功后计数 +1");
+    assert.equal(status.aliasesFailed, 0);
+  } finally {
+    await service.stop();
+    await closeConnection(conn);
+    await redis.stop();
+  }
+});
+
 redisTest(
-  "F1 失败可见：候选全被占 → 记 aliasesFailed / aliasesLastError + 一条日志",
+  "F1 失败可见：纯词名与兜底候选全被占 → 记 aliasesFailed / aliasesLastError + 一条日志",
   async () => {
     const redis = await startTempRedis();
     const conn = await connectSessionChannel({ url: redis.socketPath });
     const fake = makeFakeHost();
-    for (let i = 0; i < 8; i += 1) {
-      await setAlias(conn.main, `blocked-${i}`, `s-other-${i}`);
-    }
+    // 纯词名与兜底候选都恒撞同一个被占的名字。
+    await setAlias(conn.main, "blocked", "s-other");
     const service = createSessionChannelService(
       { url: redis.socketPath, heartbeatMs: 60_000, presenceTtlSec: 60 },
       fake.host as never,
       {
-        aliasCandidate: (_prefix, _sessionId, attempt) =>
-          `blocked-${attempt}`,
+        aliasCandidate: () => "blocked",
+        aliasFallbackCandidate: () => "blocked",
       },
     );
     try {
