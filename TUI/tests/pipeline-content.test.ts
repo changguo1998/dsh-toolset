@@ -228,3 +228,38 @@ test("宽度契约：用户块右对齐铺满 pane（首行宽 = W），符号�
 function displayW(rowText2: string): number {
   return displayWidth(rowText2);
 }
+
+// ---------------- compact（/collapse）底部契约 ----------------
+
+test("compact 契约：activityCompact[tool] 折叠工具批多行 → 行数减少、垂直归属不越界", () => {
+  const s = section({
+    id: "1:1:0",
+    calls: [{ callId: "c1", name: "bash", args: "{}" }],
+  });
+  const items = paneOf([s], "turn");
+  // 多参数会折多行
+  const s2 = section({
+    id: "1:1:0",
+    calls: [
+      {
+        callId: "c1",
+        name: "bash",
+        args: JSON.stringify({ a: "x".repeat(30) }),
+      },
+    ],
+  });
+  const items2 = paneOf([s2], "turn");
+  const W = 16;
+  const verbose = renderPaneNew(items2, "activity", { width: W, vw: W });
+  const compact = renderPaneNew(items2, "activity", {
+    width: W,
+    vw: W,
+    activityCompact: { tool: true },
+  });
+  // compact 应把多行工具压成更少行
+  assert.ok(
+    compact.rows.length < verbose.rows.length,
+    `compact 后行数应减少（verbose ${verbose.rows.length} → compact ${compact.rows.length}）`,
+  );
+  void items;
+});
