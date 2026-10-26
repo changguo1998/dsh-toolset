@@ -216,7 +216,34 @@ agent 工作中提交的消息经官方流程立即交给核心（默认模式�
 
 引导生效且会话**未解锁**时（新建 / 未解锁的恢复会话），TUI 在启动时自动替用户发一条以 `[AUTO]` 开头的自检消息，驱动模型发起首个工具调用完成解锁（`rule-engine` 的 skill 自动加载随之在启动阶段命中），不必等用户先输入。该消息按用户输入显示、不参与任务模式分类——模式仍由首个真实用户消息落定；已解锁会话不发送。**（2026-10-05 用户裁定关掉 kickoff：`main.ts` 启动与 `/new` 两处门控已注释停用、实现保留，不再自动发送。）** **（2026-10-05 用户裁定不要锁定：`installToolBootstrap` 挂载已注释停用，首请求恢复原样透传（全量目录）；实现保留，恢复 = 取消注释。）**
 
-### `TUI/tui.config.json`
+### 配置来源：profile patch 优先，包内 `tui.config.json` 兜底
+
+**2026-10-27 起**：同一组配置有两处来源，优先级为 **profile 的 `cordis.patch.yml`（`- id: tui` 的
+`config`）> 包内 `TUI/tui.config.json` > 内置默认**，段内逐键浅合并（patch 只重述要改的键，
+其余沿用文件值）。正式口径写进 profile patch——这样 `file:` 快照安装下配置不依赖包内文件，
+换机器 / 重建 profile 也不会丢。
+
+各段在 patch 里的键名与文件一致，只有主题段改名 `colorschema`（避免与既有的
+`config.theme`(ThemeId) 撞名）：
+
+```yaml
+- id: tui
+  name: '@dsh-toolset/tui'
+  config:
+    theme: dark              # 启动主题 id（ThemeId；可热应用）
+    layout: { activityHeightDivisor: 2, activityTopRow: half, activityPlacement: auto, statusColumnDivisor: 5 }
+    approval: { timeoutMs: 60000 }
+    notify: { enabled: true, idleThresholdMs: 8000 }
+    session: { autoCleanEmpty: true }
+    localLog: { enabled: true, maxBytes: 262144, maxTextChars: 8192 }
+    colorschema: { active: dark }   # 原 tui.config.json 的 theme 段（paletteDir / palettes 同键名）
+```
+
+合并粒度是**段内逐键**：patch 给了某段时，该段里 patch 未重述的键仍沿用文件值；
+patch 完全没给某段时整段取文件值；文件里也没有的键才回落内置默认。（宿主层的
+「整键替换」只作用于 `config` 这一整块，插件内部再与文件做上述合并。）
+
+### `TUI/tui.config.json`（开发期兜底）
 
 ```jsonc
 {

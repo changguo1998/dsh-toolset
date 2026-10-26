@@ -16,7 +16,18 @@ import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { resolveThemes } from "./renderer/theme-config.ts";
 import { App } from "./app/index.ts";
 import { installStderrBridge } from "./app/stderr-bridge.ts";
-import { loadTuiConfig } from "./app/config.ts";
+import {
+  loadTuiConfig,
+  mergeTuiConfig,
+  type TuiConfig,
+  type TuiConfigPatch,
+  type TuiLayoutConfig,
+  type TuiLocalLogConfig,
+  type TuiNotifyConfig,
+  type TuiSessionConfig,
+  type TuiThemeConfig,
+  type TuiApprovalConfig,
+} from "./app/config.ts";
 import {
   LOCAL_LOG_MAX_BYTES,
   LOCAL_LOG_MAX_TEXT_CHARS,
@@ -135,9 +146,12 @@ export function main(opts: {
   /** profile 目录（`ctx.get('profileContext').dir`）：符号列表落盘位置；缺省不落盘
    *  （不落盘时仍按需实测，只是不跨会话复用；见 layout/width-symbols.ts） */
   profileDir?: string;
+  /** 合并后的 TUI 配置（patch > 配置文件 > 默认；apply 侧算好传入）。
+   *  缺省 = 只读配置文件（测试 / demo 路径保持原行为） */
+  tuiConfig?: TuiConfig;
 }): (options?: TuiTeardownOptions) => void {
-  // 主题调色板配置解析（tui.config.json theme 段；告警经 logger 输出，避免"改了未生效"）
-  const tuiConfig = loadTuiConfig();
+  // 主题调色板配置解析（patch 的 colorschema 段 > tui.config.json theme 段；告警经 logger 输出）
+  const tuiConfig = opts.tuiConfig ?? loadTuiConfig();
   // 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源）：缺省开启，可配置关闭与上限
   const localLog: LocalLogWriteOptions = {
     enabled: tuiConfig.localLog?.enabled ?? true,
@@ -236,8 +250,20 @@ export const inject = ["agents"];
 export interface DshTuiConfig {
   /** 创建会话时的 cwd(默认 process.cwd()) */
   cwd?: string;
-  /** 审批弹窗超时(ms，默认 1 min；tui.config.json 的 approval.timeoutMs 优先) */
+  /** 审批弹窗超时(ms，默认 1 min；被下面的 `approval.timeoutMs` 覆盖，保留兼容) */
   approvalTimeoutMs?: number;
+  /** 布局段（原 tui.config.json 的 layout；patch 值优先于配置文件） */
+  layout?: TuiLayoutConfig;
+  /** 声音提醒段（原 notify） */
+  notify?: TuiNotifyConfig;
+  /** 会话维护段（原 session） */
+  session?: TuiSessionConfig;
+  /** 审批段（原 approval；`timeoutMs` 优先于 `approvalTimeoutMs`） */
+  approval?: TuiApprovalConfig;
+  /** 本地输出旁路日志段（原 localLog） */
+  localLog?: TuiLocalLogConfig;
+  /** 主题调色板段（原 theme；改名避免与上面的 `theme`(ThemeId) 撞名） */
+  colorschema?: TuiThemeConfig;
   /** 备用模型 route(config 提供了就用它；否则取 agentDefaultModel 选择) */
   provider?: string;
   model?: string;
@@ -510,6 +536,12 @@ export async function apply(
   ctx: unknown,
   config?: DshTuiConfig,
 ): Promise<void> {
+  // 配置优先级（2026-10-27 用户裁定）：profile patch（本函数的 config）> tui.config.json
+  // > 内置默认。段内逐键浅合并，故 patch 只重述要改的键。
+  const tuiConfig = mergeTuiConfig(
+    loadTuiConfig(),
+    config as TuiConfigPatch | undefined,
+  );
   // 六步流水线：App 注册 sink 后 adapter 才投递（开关关闭时 sink 恒空、零开销）
   const pipelineSink: { current?: (delivery: BlockDelivery) => void } = {};
   // 配置热更新出口：main() 在 App 就绪后挂上实现（apply / notice）
@@ -733,7 +765,7 @@ export async function apply(
     // 审批超时优先级（BACKLOG 3.3.7）：TUI 配置文件 > 宿主插件 config > 缺省 1 min
     // （此处与插件装配不在同一作用域，故就地读取一次配置文件；启动期一次 IO，代价可忽略）
     approvalTimeoutMs: resolveApprovalTimeoutMs(
-      loadTuiConfig().approval?.timeoutMs,
+      tuiConfig.approval?.timeoutMs,
       config?.approvalTimeoutMs,
     ),
     // 历史会话查询服务（ctx.get('sessionQuery')；缺失时 /session 提示不可用）。
@@ -913,6 +945,7 @@ export async function apply(
   //   });
   const kickoffForNewSession = (): string | undefined => undefined;
   const disposeApp = main({
+    tuiConfig,
     adapter,
     pipelineSink,
     configSink,

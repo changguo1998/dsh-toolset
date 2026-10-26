@@ -27,8 +27,28 @@
 
 - id: tui
   name: '@dsh-toolset/tui'
+  # 配置来源（2026-10-27 起）：这里的 config 优先于包内 tui.config.json（段内逐键）：
+  # 本文件未重述的键沿用 tui.config.json 的值，两边都没有才用插件默认。
   config:
     theme: dark
+    # 布局：活动区高分母 / 分隔行锚定（half = 屏幕中线）/ 排列方式（auto = 按黄金比自动选
+    # 上下或左右）/ 状态列宽分母
+    layout:
+      activityHeightDivisor: 2
+      activityTopRow: half
+      activityPlacement: auto
+      statusColumnDivisor: 5
+    # 审批面板无操作超时（ms）
+    approval:
+      timeoutMs: 60000
+    # 会话维护：启动 / 优雅退出时清理空会话
+    session:
+      autoCleanEmpty: true
+    # 主题调色板段（原 tui.config.json 的 theme；改名避免与上面的 theme(ThemeId) 撞名）
+    # 调色板目录与文件是个人配置，资产里不写死：缺省按 $FFF_HOME → ~/fff 默认链查找；
+    # 需要指定时在此加 paletteDir / palettes（写法见 TUI/README.md）。
+    colorschema:
+      active: dark
 
 - id: ast-tools
   name: '@dsh-toolset/ast-tools'

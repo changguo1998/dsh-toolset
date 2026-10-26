@@ -276,6 +276,53 @@ function normalizeLocalLogSection(v: unknown): TuiLocalLogConfig | undefined {
 }
 
 /** 载入配置文件：缺失/读取失败/JSON 非法 → 默认（空配置） */
+/** patch 侧（cordis.patch.yml 的 `- id: tui` config）可覆盖的段：与 `TuiConfig` 同构，
+ *  但主题段叫 `colorschema`（避免与 `DshTuiConfig.theme`(ThemeId) 撞名）。 */
+export type TuiConfigPatch = Partial<{
+  layout: TuiLayoutConfig;
+  notify: TuiNotifyConfig;
+  session: TuiSessionConfig;
+  approval: TuiApprovalConfig;
+  localLog: TuiLocalLogConfig;
+  colorschema: TuiThemeConfig;
+}>;
+
+/**
+ * 合并配置：**patch > 配置文件 > 内置默认**（段内逐键浅合并）。
+ * 配置文件只作开发期兜底（link: 安装时读仓库那份）；正式口径写进 profile patch。
+ */
+export function mergeTuiConfig(
+  file: TuiConfig,
+  patch?: TuiConfigPatch | undefined,
+): TuiConfig {
+  const merge = <T extends object>(a: T | undefined, b: unknown): T | undefined => {
+    if (b === undefined) return a;
+    if (b === null || typeof b !== "object") return a;
+    return { ...(a ?? ({} as T)), ...(b as T) } as T;
+  };
+  // 主题段同口径合并：patch 的 colorschema 只覆盖它重述的键（如 active），
+  // 文件里的 paletteDir / palettes 继续生效，直到 patch 也给出同名键。
+  const colorschema = merge(file.theme, patch?.colorschema);
+  return {
+    ...(merge(file.layout, patch?.layout) === undefined
+      ? {}
+      : { layout: merge(file.layout, patch?.layout)! }),
+    ...(merge(file.notify, patch?.notify) === undefined
+      ? {}
+      : { notify: merge(file.notify, patch?.notify)! }),
+    ...(merge(file.session, patch?.session) === undefined
+      ? {}
+      : { session: merge(file.session, patch?.session)! }),
+    ...(merge(file.approval, patch?.approval) === undefined
+      ? {}
+      : { approval: merge(file.approval, patch?.approval)! }),
+    ...(merge(file.localLog, patch?.localLog) === undefined
+      ? {}
+      : { localLog: merge(file.localLog, patch?.localLog)! }),
+    ...(colorschema === undefined ? {} : { theme: colorschema }),
+  };
+}
+
 export function loadTuiConfig(path = DEFAULT_CFG_PATH): TuiConfig {
   try {
     return normalizeConfig(JSON.parse(readFileSync(path, "utf8")) as unknown);
