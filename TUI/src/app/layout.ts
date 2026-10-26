@@ -30,7 +30,6 @@ import {
 } from "./state.ts";
 import type { ActivityPlacement } from "./config.ts";
 
-import type { HistoryRow } from "./state.ts";
 import type {
   JobInfo,
   TodoItemLike,
@@ -55,16 +54,14 @@ import { buildStatusPanelBox } from "./components/StatusPanel.ts";
 import { buildCompletionBox } from "./components/CommandCompletion.ts";
 import type { ColorName } from "../renderer/theme.ts";
 import { buildApprovalBox } from "./components/ApprovalPrompt.ts";
-import {
-  buildContentRows,
-  noticeLinePresentation,
-} from "./layout/build-box.ts";
+import { noticeLinePresentation } from "./layout/build-box.ts";
 import { pipelineContent, sectionsOf } from "./layout/pipeline/frame.ts";
 import type { UserRowInfo } from "./layout/pipeline/ir.ts";
 import {
   MARKER_KEY,
   createLineTable,
   indexOfTop,
+  renderQueuedBlocks,
 } from "./layout/pipeline/rows.ts";
 import { layout } from "./layout/measure.ts";
 import { fillToList, fillBoxTree } from "./layout/fill.ts";
@@ -602,13 +599,10 @@ function queuedBlockRows(state: AppState, width: number): ContentRow[] {
     ...state.queued.filter((q) => q.kind === "steer"),
     ...state.queued.filter((q) => q.kind !== "steer"),
   ];
-  const lines: HistoryRow[] = ordered.map((item) => ({
-    text: item.text,
-    kind: "user",
-    queued: item.kind,
-  }));
-  return buildContentRows(lines, { gutter: state.messageGutter }, width)
-    .dialogue;
+  return renderQueuedBlocks(
+    ordered.map((item) => ({ text: item.text, kind: item.kind })),
+    { width, gutter: state.messageGutter },
+  );
 }
 
 /** 单帧几何（纯函数）：终端尺寸 + state 的布局/模态/排队信息 → FrameGeometry */

@@ -209,16 +209,25 @@ function blockNode(child: Block, opts?: StructureOptions): Node | Leaf {
 }
 
 /** 用户块的右缘竖线后缀（整块外壳的后缀；brightRed） */
-function userRightEdge(): {
+function userRightEdge(fg: StyledStr["color"] = "brightRed"): {
   text: string;
   style: FrameStyle;
   minWidth: number;
 } {
   return {
     text: "┃",
-    style: { fg: "brightRed" },
+    style: { fg },
     minWidth: USER_MIN_LEFT_GUTTER + 2,
   };
+}
+
+/** 排队块的右缘竖线颜色（旧口径 `build-box` 同款）：steer 黄 / followup 灰 / 已发出亮红 */
+function queuedEdgeFg(
+  user: UserRowInfo | undefined,
+): StyledStr["color"] | undefined {
+  if (user?.queued === "steer") return "brightYellow";
+  if (user?.queued !== undefined) return "gray";
+  return undefined;
 }
 
 /** 用户块外壳（用户给定结构）：一条用户输入 = 一个 h 节点
@@ -233,10 +242,11 @@ function toUserBox(
   sym: { text: string; fg?: string } | undefined,
   children: (Node | Leaf)[],
   gutter: number,
+  edgeFg?: StyledStr["color"],
 ): Node {
   const box: Node = {
     direction: "h",
-    suffix: userRightEdge(),
+    suffix: userRightEdge(edgeFg),
     children: [],
   };
   // spacer = Box(fill, "")：吃掉剩余列，把内容推到右侧
@@ -587,6 +597,7 @@ function toPaneTree(
             opts?.userSym?.(userOf(items[i]!)),
             inner,
             opts?.gutter ?? 0,
+            queuedEdgeFg(userOf(items[i]!)),
           )
         : toBarBox(bar(src), inner, opts);
     out.push(wrapper);
@@ -674,5 +685,10 @@ export function toUser(
   sym?: { text: string; fg?: string },
   gutter = 0,
 ): Node {
-  return toUserBox(sym, [leaf(block.text, { balance: true })], gutter);
+  return toUserBox(
+    sym,
+    [leaf(block.text, { balance: true })],
+    gutter,
+    queuedEdgeFg(block.user),
+  );
 }

@@ -210,12 +210,13 @@ import type { ContentRow } from "../fill.ts";
 // ---- 新链路（§3-§7）接线桥 ----
 import { isLeaf } from "./ir.ts";
 import type {
+  Node,
   PaneItem as NewPaneItem,
   UserRowInfo,
   Row as NewRow,
 } from "./ir.ts";
 import type { StructureOptions } from "./structure.ts";
-import { buildTrees } from "./structure.ts";
+import { buildTrees, toUser } from "./structure.ts";
 import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
 import { memlogTick } from "./memlog.ts";
@@ -528,4 +529,43 @@ export function renderPaneNew(
   }
   memlogTick(rows.length);
   return { rows, counts, keys, userRows, table: createLineTable(counts) };
+}
+
+/**
+ * 排队块渲染（UI 本地状态 `state.queued`，不在节缓存里）：每条排队消息 = 一个用户段落块，
+ * 右对齐收缩成块、右缘竖线按排队类型着色（steer 黄 / followup 灰，旧 `queuedBlockRows` 口径）。
+ * 走新链 §4-§6（structure → measure → flatten），产出会话区 ContentRow[]。
+ */
+export function renderQueuedBlocks(
+  entries: readonly { text: string; kind: "followup" | "steer" }[],
+  options: { width: number; gutter?: number; vw?: number },
+): ContentRow[] {
+  if (entries.length === 0) return [];
+  const width = Math.max(1, options.width);
+  const vw = options.vw ?? width;
+  const gutter = Math.max(0, options.gutter ?? 0);
+  // 每条排队消息 = 一个用户段块 → 用户盒（右对齐 + 右缘竖线按排队类型着色）
+  const nodes = entries.map((entry) =>
+    toUser(
+      {
+        kind: "paragraph",
+        source: "user",
+        id: "queued",
+        span: [0, entry.text.length],
+        text: [{ text: entry.text }],
+        user: { queued: entry.kind },
+      },
+      undefined,
+      gutter,
+    ),
+  );
+  const root: Node = { direction: "v", children: nodes };
+  measure(root, width, { vw });
+  return nodes.flatMap((node) =>
+    flatten(node, width, { vw }).map((row) => ({
+      segments: row.segments,
+      kind: "user",
+      seq: 1_000_000_000,
+    })),
+  );
 }
