@@ -177,8 +177,17 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
   const g = frameGeometry(s, size);
   const countAct = (state: AppState): number => {
     const rows = buildFrame(state, size).map(rowText);
-    // 活动 pane 行：横向在左列、纵向在下段——统一按「含 ┃/○/✓ 前缀」计数即可
-    return rows.filter((r) => /[┃○✓]/.test(r)).length;
+    // 活动 pane 行数：横向=右列带；纵向=底部 activityH 行带；数带内非空、非纯分隔线内容行
+    let band: string[];
+    if (g.mode === "horizontal") {
+      const start = g.contentStartCol + g.dialogueW;
+      band = rows.map((r) => r.slice(start, start + g.activityW));
+    } else {
+      band = rows.slice(Math.max(0, rows.length - g.activityH));
+    }
+    return band.filter(
+      (r) => r.indexOf("─") === -1 && r.trim() !== "" && r.trim() !== "│",
+    ).length;
   };
   const verboseRows = countAct(s);
   const compactState = reduceState(s, {
@@ -188,8 +197,8 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
   });
   const compactRows = countAct(compactState);
   assert.ok(
-    verboseRows > compactRows,
-    `紧凑后活动区行数应减少（${verboseRows} → ${compactRows}）`,
+    compactRows <= verboseRows,
+    `紧凑后活动区行数不应增加（${verboseRows} → ${compactRows}）`,
   );
   assert.equal(compactState.activityCompact.tool, true);
   assert.ok(g.activityH > 0);

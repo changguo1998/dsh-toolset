@@ -272,7 +272,6 @@ function flattenTable(
 /** 工具批 → Row[]（名字 / 参数 / 结果行；参数值悬挂缩进） */
 function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
   const out: Row[] = [];
-  const barChrome = seg("┃", { fg: "brightBlue" });
   for (const unit of units) {
     if (unit.role === "name") {
       const glyph =
@@ -286,12 +285,7 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
       const name = fitted === unit.call.name ? unit.call.name : fitted + "…";
       out.push({
         rowKind: "tool-name",
-        segments: [
-          barChrome,
-          seg(glyph, { fg }),
-          seg(" "),
-          seg(name, { fg: "yellow" }),
-        ],
+        segments: [seg(glyph, { fg }), seg(" "), seg(name, { fg: "yellow" })],
       });
     } else if (unit.role === "param") {
       const value = unit.param.value;
@@ -306,7 +300,7 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
           i === 0 ? " ".repeat(4) + (name ? name + " " : "") : " ".repeat(6);
         out.push({
           rowKind: "tool-param",
-          segments: [barChrome, seg(lead + plain(r))],
+          segments: [seg(lead + plain(r))],
         });
       });
     } else {
@@ -326,7 +320,7 @@ function flattenTool(units: readonly ToolUnit[], width: number): Row[] {
       rows.forEach((r) => {
         out.push({
           rowKind: "tool-result",
-          segments: [barChrome, seg("  " + plain(r), style)],
+          segments: [seg("  " + plain(r), style)],
         });
       });
     }
