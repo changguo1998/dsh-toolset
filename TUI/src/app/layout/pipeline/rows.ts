@@ -233,6 +233,7 @@ import type { StructureOptions } from "./structure.ts";
 import { buildTrees } from "./structure.ts";
 import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
+import { memlogTick, memlogTool } from "./memlog.ts";
 
 export interface RenderOptions extends BuildBoxOptions {
   /** 会话区可用宽 */
@@ -803,6 +804,16 @@ export function renderPaneNew(
     const node = rootChildren[i];
     const item = items[i]!;
     const id = newItemKey(item);
+    // 工具段落渲染前记录工具名（排版内存排查）——只对工具节点打点
+    if (
+      node !== undefined &&
+      "tool" in node &&
+      (node as { tool?: readonly unknown[] }).tool !== undefined
+    ) {
+      const t = (node as unknown as { tool: { call?: { name?: string } }[] })
+        .tool;
+      memlogTool(t.map((u) => u.call?.name ?? "").filter((s) => s !== ""));
+    }
     // 刷新型：流活节成员、用户块（符号实时）→ 不入缓存、每帧重算
     const isLive =
       (item as { source?: string }).source === "user" ||
@@ -861,5 +872,6 @@ export function renderPaneNew(
     const last = counts.length - 1;
     if (last >= 0) counts[last] = Math.max(0, (counts[last] ?? 0) - 1);
   }
+  memlogTick(rows.length);
   return { rows, counts, keys, userRows, table: createLineTable(counts) };
 }
