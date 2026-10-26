@@ -51,16 +51,19 @@ DSH 适配层接口以**官方源码研读与升级对照**为准（`docs/host/D
 | 控制 | 副作用编排（adapter / notice / paint / 异步） | `index.ts`（App） |
 | 外部边界 | DSH 事件归一化与回调 | `adapter/*` |
 
-排版内部的分层（2026-10-09 起）：**六步流水线**——`layout/pipeline/` 依次承担
-接收（`sections.ts`，宿主块 → 节）、结构（`boxes.ts`，节 → box）、显示准备（`panes.ts`，
-box → 两 pane 缓存）、出行（`rows.ts`，pane 项 → 行 + 行数表 + 位置模型）、装配
-（`frame.ts` + `layout.ts` 的构帧）；`replay.ts` 负责恢复时的「已有行 → 节」重放。
-宽无关与吃宽度的分界在第 3/4 步之间；主题只决定色值（渲染层）。**这是唯一渲染路径**：
-旧管线（`dialogueWindow` + 逐帧全量 `buildContentRows`）与回落开关已于 2026-10-09 移除；
-滚动位置按「段键 + 段内行」表达（`rows.ts` 的 `positionAt` / `indexOfTop`），扩窗只在视口
-上方插段、画面不动。契约见 `SPEC.md` §9.1。
+排版内部的分层（2026-10-26 七段重构）：**内容（会话区 / 回合区）由 `layout/pipeline/` 按七段产出**，每段一个纯函数 + 显式 IR：
 
-样式链路已收敛：样式序列化由渲染层 `renderer/theme.ts` 独占，排版层仅持有 `ColorName` 语义；Box 排版管线（`layout/box|measure|fill|build-box|focus-frame|panel`）落地，面板组件改为 Box 生成器，焦点框线为全局 `focusFrame` 覆写。契约见 `SPEC.md`。
+1. **分节**：`sections.ts`（宿主块 → 节缓存）+ `split.ts`（`splitOldSectionsIndexed`：旧节 → 一次模型交互 `Section[]`）；恢复走 `replay.ts`。
+2. **解析**：`parse.ts` 把 `Section` 的纯文本槽位消费成块闭集 `Block[]`（Paragraph / Quote / List / Code / Table，各带 `source` 与 `span`）；块级分类与行内解析只此一次。
+3. **分流**：`route.ts` + `routeTable.ts`（规则表）按来源 / 终态把块分到会话区与回合区（`PaneItem[]`），留白一律出显式 `Gap`（空行唯一来源）。
+4. **结构**：`structure.ts` 把 `PaneItem[]` 映射成 `Node/Leaf` 布局树（宽无关；前缀 / 悬挂 / 缩进 / 尾部铺满等装饰是节点声明）。
+5. **测量**：`measure.ts` 递归填各节点宽高；折行只有一个入口 `wrap.ts` 的 `wrapLeaf`（行数 = 折行结果长度，禁止估算）。
+6. **摊平**：`flatten.ts` 把已量好的树逐叶展开为 `Row[]`（表格网格、代码底色、空 `Leaf` → 空行）。
+7. **组装**：`rows.ts` 的 `renderPaneNew`（槽位行归属 + 行数表 + 视口定位 + 逐 pane `ContentRow[]`）与 `frame.ts` 的 `pipelineContent`（窗口 → 七段），最后由 `layout.ts` 的 `buildTopRegion` 拼帧。
+
+宽无关与宽相关的分界在第 4/5 段之间；主题只决定色值（渲染层）。**边界**：内容区走七段链，面板（`components/*`）与 chrome（状态列 / 状态栏 / 标题栏 / 输入区）仍走旧 Box 链（`box.ts` 类型 + `layout/measure.ts` 分配 + `fill.ts` 的 `fillBoxTree` 摊平）。滚动位置按「段键 + 段内行」表达（`rows.ts` 的 `positionAt` / `indexOfTop`），扩窗只在视口上方插段、画面不动。契约见 `SPEC.md` §9。
+
+样式链路已收敛：样式序列化由渲染层 `renderer/theme.ts` 独占，排版层仅持有 `ColorName` 语义；焦点框线为全局 `focusFrame` 覆写。契约见 `SPEC.md`。
 
 ## 文件结构（单包分目录）
 
@@ -81,9 +84,16 @@ TUI/
     app/                 # 应用层：只依赖 renderer 公共 API
       state.ts           # 状态模型 + reducer（会话/缓冲/审批/系统状态/滚动/面板）
       layout.ts          # 几何唯一来源 frameGeometry + 四区域帧组装
-      layout/            # Box 排版管线：box/measure/fill/build-box/focus-frame/panel/
-                         #   table/markdown/tool-line/content-rules/primitives/cache/help/
-                         #   width-table（实测宽度落盘）+ eaw-table（宽度静态表，生成物）
+      layout/            # 排版：内容走 pipeline/ 七段；面板 / chrome 仍走旧 Box 链
+        pipeline/        # 七段：sections|split → parse → route|routeTable → structure
+                         #   → measure|wrap → flatten → rows|frame（+ ir/types/replay/tool-units/memlog）
+        box.ts           # 旧 Box 类型（面板 / chrome）
+        measure.ts       # 旧 Box 宽高分配（面板 / chrome）
+        fill.ts          # 旧 Box 摊平 fillBoxTree（面板 / chrome；另导出 ContentRow 类型）
+        table.ts         # markdown 表格结构解析（parse 用）+ 列宽 fitCols（measure 用）
+        markdown.ts      # 行内解析、宽度原语、代码行折叠
+        notice-line.ts / focus-frame.ts / panel.ts / grid.ts / tool-line.ts / help.ts /
+        hints.ts / primitives.ts / cache.ts / content-rules.ts / width-symbols.ts / eaw-table.ts
       status.ts          # 系统状态区数据源：StatusTicker 合并节流读取 cwd/git/time
       commands.ts        # 纯函数：本地命令目录/路由/补全/决策
       clock.ts           # 时间格式化叶子（tool-line / status 共用）
@@ -110,11 +120,9 @@ TUI/
 
 ## Box 排版模型
 
-Box 统一承担两件事——**屏幕分区**与**内容元素**：屏幕 = 顶区（状态列 ‖ 历史 ‖ 活动）/ 状态区 / 输入区 / 提示区的 Box 嵌套；每一条用户输入、每一条模型回复、一个段落、一个 markdown 表格、一条工具调用记录，各自也是一棵 Box 子树。两者是同一模型、同一套布局算法，只是层级不同：pane 树的叶子挂内容树，内容树的叶子是**缩进段落**。
+屏幕分区（顶区 / 状态区 / 输入区 / 提示区）与面板（`components/*`）用 **Box 模型**：Box 统一承担屏幕分区与内容元素，是纯数据结构（可穷举的代数类型），无生命周期、无样式继承、无测量回环、无回调。内容区（会话 / 回合）另用七段流水线的 **`Node/Leaf` 模型**（`pipeline/ir.ts`）：`Node` = v/h 容器、`Leaf` = 一行文本；两者同属「布局代数」，只是两条路径（见「术语」节的边界）。
 
 **核心不变量（叶子语义）**：一个叶子的文字属于同一个缩进段落——叶子内部所有文字（含软换行续行）共享同一缩进基准；缩进不同就是不同叶子。几何属性（`indent`/`hanging`/`prefix`/`wrap`）叶内必须一致，外观属性（fg/bg/bold/…）允许段内变化。**改几何就拆叶子，改样式就用 `FrameSegment`**（理由与例外见 `SPEC.md` §5）。
-
-Box 不是组件树：它是纯数据结构（可穷举的代数类型），无生命周期、无样式继承、无测量回环、无回调——砍的是带行为与继承的引擎，Box 只是「布局代数」。
 
 ### 4. 层级：pane 树挂内容树
 
@@ -127,35 +135,39 @@ screen = v([
   statusBar, input, hint,
 ])
 
-history 的内容 = v( 消息 Box … )      // 由节缓存派生（生产路径）；缺 pipeline 时按 state.buffer 重放
-activity 的内容 = v( 瞬态行 Box … )    // 思考/工具/notice；面板打开时整体替换
+history 的内容 = 七段流水线产物（会话区 ContentRow[]）   // 由节缓存派生（state.pipeline）
+activity 的内容 = 七段流水线产物（回合区 ContentRow[]）  // 思考/工具/notice；面板打开时整体替换
 ```
 
-- **pane 树**结构固定（四区域）：分区层硬编码于 `layout.ts`（`frameGeometry` 唯一尺寸来源 + `buildTopRegion` / `buildFrame` 分区拼帧），尺寸由 `metricsFor` 预算转成 `Width`/`Height` 意图；`buildBox` 只产两 pane 内容树 + 行元数据，内容层走「内容元素类型 → Box 构建函数」映射表，新增内容类型 = 加一条映射、不改布局主体（`SPEC.md` §3）。
-- **内容树**每帧从 state 派生（纯函数），挂在 pane 的叶子上；在 pane 的 fill 阶段摊平为 `FrameRow[]`，滚动 / 裁剪在行级进行。
-- 排版管线：`state --buildFrame(layout.ts 分区拼帧 + buildBox 两 pane 内容树)--> Box 树 --measure/allocate--> rects --fill--> FrameRow[] --renderer--> 终端`（每帧全量重建，纯函数、可复现，见 `SPEC.md` §9）。
+- **pane 树**结构固定（四区域）：分区层硬编码于 `layout.ts`（`frameGeometry` 唯一尺寸来源 + `buildTopRegion` / `buildFrame` 分区拼帧），尺寸由 `metricsFor` 预算转成 `Width`/`Height` 意图；内容层由 `pipeline/structure.ts` 把 `PaneItem[]` 映射成 `Node/Leaf` 树，新增内容类型 = 加一条映射、不改布局主体（`SPEC.md` §3）。
+- **内容树**每帧从 state 派生（纯函数）：`pipelineContent` 先按回合窗口切节，再走七段；`Node/Leaf` 树在测量期填宽高、在摊平期展开为 `Row[]`，滚动 / 裁剪在行级进行。
+- 排版管线（内容路径）：`state --pipelineContent(窗口 → split → parse → route → structure → measure → flatten → rows)--> ContentRow[] --buildTopRegion(视口 + chrome)--> FrameRow[] --renderer--> 终端`（每帧全量重建，纯函数、可复现，见 `SPEC.md` §9）；面板 / chrome 另走旧 Box 链（`box.ts` → `measure.ts` → `fill.ts`）。
 
 ### 6. 模块归属
 
 | 文件 | 职责 |
 |---|---|
-| `layout/box.ts` | 类型：`NodeBase`/`Box`/`Paragraph`/`Width`/`Height`/`Separator`/`PaneId`（纯类型，无行为） |
-| `layout/measure.ts` | `measure(node, constraint) -> SizeTable` + `allocate(SizeTable, rect) -> Map<Node, Rect>`（`SPEC.md` §6） |
-| `layout/fill.ts` | `fill(ctx, rect)` 摊平：Paragraph 折行 → 行内解析 → 补白 / valign；Box 递归 + separator；`setCell` 切段 |
-| `layout/build-box.ts` | `buildBox(buffer, opts) -> BuildBoxResult`：两 pane 内容树（dialogue / activity）+ 行元数据映射 |
+| `layout/pipeline/ir.ts` | 七段共享 IR：`Section` / `Block`（5 种闭集）/ `PaneItem` / `Node` / `Leaf` / `Row` |
+| `layout/pipeline/sections.ts` + `split.ts` | 接收：宿主块 → 节缓存；旧节 → 一次模型交互 `Section[]`（`replay.ts` 负责恢复行重放） |
+| `layout/pipeline/parse.ts` | 解析：`Section` 的 reasoning / body 文本 → `Block[]`（块级分类 + 行内解析唯一处；表格结构复用 `layout/table.ts`） |
+| `layout/pipeline/route.ts` + `routeTable.ts` | 分流：`EventGroup[]` → 会话区 / 回合区 `PaneItem[]`；规则以数据表承载；空行 = 显式 `Gap` |
+| `layout/pipeline/structure.ts` | 结构：`PaneItem[]` → `Node/Leaf` 树（宽无关；装饰声明；工具批 `pipeline/tool-units.ts`） |
+| `layout/pipeline/wrap.ts` + `measure.ts` + `flatten.ts` | 测量与摊平：唯一折行 `wrapLeaf`；节点宽高；`Row[]`（表格网格 / 代码底色 / 空 Leaf） |
+| `layout/pipeline/rows.ts` + `frame.ts` | 组装：槽位行归属 + 行数表 + 视口定位（`renderPaneNew`）；窗口 + 七段入口（`pipelineContent`） |
+| `layout/box.ts` + `layout/measure.ts` + `layout/fill.ts` | 旧 Box 链（**面板 / chrome 专用**）：类型、宽高分配、`fillBoxTree` 摊平（`ContentRow` 类型也在此） |
 | `layout/focus-frame.ts` | `FocusFrame(ctx, rects)` 段级覆写（整帧一次扫描） |
-| `layout/table.ts` | 表格构建器（解析 + 列宽求解 + 压缩/分隔/对齐），产出 Box 子树（`SPEC.md` §3.2） |
+| `layout/table.ts` | 表格结构解析（`parseTableAt` / `isTableStart`）与列宽求解（`fitCols`） |
 | `layout/panel.ts` | 面板场景原语 `panelTitle`/`panelQuestion`/`panelExplanation`/`panelOptions` |
-| `layout/markdown.ts` | 块识别 + 行内解析，产出 `FrameSegment[]` |
 | `layout/grid.ts` | 框线网格：行角色（`border` / `rule` / `activity` / `body`）→ 框线字形（D 列 `├`/`│`、右缘框列 `─`/`╌`/不落/空白占位）；行内取值（不做整帧基线 pass，见该文件头注） |
+| `layout/markdown.ts` | 行内解析、宽度原语、代码行折叠（`wrapCodeLine` / `expandCodeTabs`） |
 | `layout/tool-line.ts` | 工具行文本组装（summary/detail 启发式在 adapter 归一化时产出）；展示期 `shortenWorkspacePath` 省掉工作区根前缀（工具行 + 审批文案，只改显示） |
-| 工具块三类行（2026-10-13 改版） | 工具 box（`pipeline/boxes.ts` 的 `ToolBatch`）在行层展开为**名字 / 参数 / 结果**三类逻辑行（`toolUnits()` 是行数模型与实产行的**单一来源**，`frame.ts` 与 `rows.ts` 共用）；参数提取在 `adapter/normalize.ts` 的 `toolParams()`（JSON 原序，非 JSON 无名兜底），逐行排版（缩进 4 / 悬挂 6 / 结果缩进 2、值 5 行上限、失败整行红）在 `build-box.ts`；**在飞标记由帧层写**（`layout.ts` 的 `markToolNameRows`：行按稳定字形排版并缓存，帧层按 1 toggle/s 相位整格改写首列，不新增定时器） |
+| 工具块三类行（2026-10-13 改版） | 工具批（`pipeline/tool-units.ts` 的 `ToolBatch`）在行层展开为**名字 / 参数 / 结果**三类逻辑行（`toolUnits()` 是行数模型与实产行的**单一来源**，`frame.ts` 与 `rows.ts` 共用）；参数提取在 `adapter/normalize.ts` 的 `toolParams()`（JSON 原序，非 JSON 无名兜底），逐行排版（缩进 4 / 悬挂 6 / 结果缩进 2、值 5 行上限、失败整行红）在 `pipeline/structure.ts`；**在飞标记由帧层写**（`layout.ts` 的 `markToolNameRows`：行按稳定字形排版并缓存，帧层按 1 toggle/s 相位整格改写首列，不新增定时器） |
 
 `layout.ts` 保留几何唯一来源 `frameGeometry` 与四区域帧组装：行带与焦点矩形由 `frameBands`（唯一来源，`frameSections` 取其中的 `bands`，渲染层口径**不带语义**——决策 6）给出，框线字形由 `layout/grid.ts` 按**行角色**（`border` / `rule` / `activity` / `body`）在行内取值（D 列 `├`/`│`、右缘框列 `─`/`╌`/不落/空白占位；事后整帧 pass 会让 cache off 档 4× 慢，故不做）；渲染层 `renderer/index.ts` 按序列化文本逐行比较取变化行游程（先按帧段收敛范围，段内不连续处各自成区间）、`screen.ts` 负责报文组装；`components/*` 为 Box 生成器。模块拆分原则与触发标准见 `TUI/docs/design/REFACTOR.md`。
 
 ### 7. 面板：activity 内容树整体替换
 
-面板（审批 / 问答 / 模型选择 / 状态选项 / 各列表族 / 历史会话 / 命令补全）是 activity 的**内容树整体替换**，不是叠加层——不需要 Overlay 构造子。面板组件用 `layout/panel.ts` 的场景原语（`panelTitle` / `panelQuestion` / `panelExplanation` / `panelOptions` / `windowStart`）组合成 Box 子树，与正文排版走同一套 fill 摊平，输出统一为段级 `FrameRow[]`。协议与接线点见 `COMMANDS-SPEC.md` §4，原语签名见 `SPEC.md` §7。
+面板（审批 / 问答 / 模型选择 / 状态选项 / 各列表族 / 历史会话 / 命令补全）是 activity 的**内容树整体替换**，不是叠加层——不需要 Overlay 构造子。面板组件用 `layout/panel.ts` 的场景原语（`panelTitle` / `panelQuestion` / `panelExplanation` / `panelOptions` / `windowStart`）组合成 Box 子树，**仍走旧 Box 链**（`fill.ts` 的 `fillBoxTree` 摊平），与正文七段链分属两条路径；输出统一为段级 `FrameRow[]`。协议与接线点见 `COMMANDS-SPEC.md` §4，原语签名见 `SPEC.md` §7。
 
 **两窗与焦点窗**：问答面板把面板体拆成「描述窗」（题干 + detail）与「选项窗」（选项 + 自定义兜底项）两段各自的滚动窗口，`Tab` 在 `state.question.items[i].focus`（`desc` / `options`）间切焦点，`↑/↓` 语义随焦点窗分派（描述窗滚行 / 选项窗移项）；窗口起点统一由 `windowStart` 计算，选项窗恒保证焦点项与已标记项可见。面板内文本编辑（「自定义回答」）时渲染行带 `caret`，渲染器据此把硬件光标定位回面板编辑位置（契约见 `SPEC.md` §7.1 / §13）；caret 仅当 `customCaret > 0` 产出——光标在答案串首（`customCaret === 0`）时无 caret、硬件光标保持隐藏。**编辑光标**：`item.customCaret`（`null` = 未编辑态）标记编辑态——编辑态下 `←/→` 在答案串内移动光标、插入与退格发生在光标处（列 = 该行内前缀的显示宽度，含 CJK），右端到头不切题；未编辑态（含空串 / 移项后）`←/→` 仍是切题导航，退格把串删空即回未编辑态。
 
@@ -409,7 +421,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 - raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `npm run check` 失败）。
 - tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time, turn)` → `hh:mm:ss ⇆N #M`（顺序固定；片段缺失即省略；本地时区 24 小时制逐段补零）；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。结果行 = `✓ <detail>` / `✗ <detail>`，**detail 为空按上表省略**（成功只出 `✓ `，行尾空格是前缀契约）；分组 / 着色按**符号**判定（`content-rules.ts` 的 `TOOL_STATUS_PREFIXES` / `renderToolText` 不依赖尾随空格，勿 trimEnd 结果行）。
 - **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `index.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（打断自 2026-10-15 起走 `!` 模式，`Esc` 不打断）。回归：`tests/p8-compaction-active.test.ts`。
-- **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`build-box` 只负责把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态栏不再有符号段。回归：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
+- **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`pipeline/structure.ts` 用 `userSym` 把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态栏不再有符号段。回归：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。
 
 ### 会话状态恢复（模式与策略 / 模型 / goal / todo / TUI 本地开关）
@@ -459,7 +471,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - **发送完全走官方流程**：`App.submit` 在 agent 忙（`agentStatus !== "idle"` 或本地 `inputStatus === "running"`，覆盖「刚提交、核心状态事件未到」窗口）时仍立即 `adapter.sendMessage(text)` → 核心 `followup`（`next-turn` 队列，durable）——逐条、不合并、不由 TUI 积压；空闲时走 `sendUserText`（本地回显 + 直接发送）。两条路径发送语义一致，**差别只在显示**。
 - **显示登记**：`state.queued: string[]`（按提交顺序）+ action `queued-push` / `queued-claim`（弹出最早一条并落入历史）/ `queued-clear`。登记只用于渲染，不代表 TUI 持有消息（消息已在核心队列里）。
 - **认领时机**：`beginTurnIfNeeded()` 在 `turn-begin` 之后 `queued-claim`——核心每开一个新回合从 `next-turn` 认领一条，UI 因此「每回合转正一条」；转正后按普通用户行渲染（亮红右缘竖线）。
-- **渲染**：`queuedBlockRows` 以 `BufferLine{kind:"user", queued:true}` 走同一套 `buildContentRows`（右对齐 + 竖线着色按类型：`followup` 灰 / `steer` 浅黄 `brightYellow`），得 `geom.queuedRows`；对话 pane 最后 `queuedRows.length` 行渲染排队块（钉在右下角、不随历史滚动），历史视口高 = `dialogueH − queuedRows.length`（至少留 1 行历史；超长取尾部）。
+- **渲染**：`queuedBlockRows` 把排队项交给 `pipeline/rows.ts` 的 `renderQueuedBlocks`（新链 `renderPaneNew`：右对齐 + 竖线着色按类型：`followup` 灰 / `steer` 浅黄 `brightYellow`），得 `geom.queuedRows`；对话 pane 最后 `queuedRows.length` 行渲染排队块（钉在右下角、不随历史滚动），历史视口高 = `dialogueH − queuedRows.length`（至少留 1 行历史；超长取尾部）。
 - **`!` 模式 / Esc（2026-10-15 起）**：`!` 模式提交先 `restoreQueued()`（登记按顺序并回输入框，核心 `cancel` 会清自己的队列，本机留底不丢输入）再仅忙时 `interrupt()`，然后整条直发（避免「新文本先发、排队内容后发」顺序颠倒；空输入且无登记时 = 只打断）。`Esc` 两者都不做：不打断、不退回排队（消息留在核心 `next-turn` 队列等下一回合认领，退回会重复发送）。切换会话（`history-resume-ok`）时 `queued-clear`。
 - **回归**：`tests/app.test.ts`（运行中 Enter 立即发送且逐条不合并、登记不写 buffer、新回合认领一条转正、`!` 模式按序并入 + 忙时打断并发送 + 空输入只打断、Esc 不退回不清登记不打断、Alt+Enter 等效普通 Enter）+ `tests/interrupt-mode.test.ts`（模式键 / 提示符 / 幂等 / Backspace 回退 / 空闲直发 / 忙时直发 / 历史回溯恢复模式）+ `tests/layout-horizontal.test.ts`（排队块位置 / 灰竖线 / 视口高收缩）。
 

@@ -9,32 +9,12 @@
 
 ## 待办
 
-- **#1 新会话跑一会儿后整机卡死（CPU 接近 100%，回合区输出到一半停、会话区状态符号闪烁同停）**〔已修复待真机复验: 2026-10-27〕（登记 2026-10-27，来源 用户真机）：现象 / 根因 → 修法 → 验收 → 优先级。
+（当前无未完成项）
 
-  - 现象：打开新会话、输入命令、模型开始回复后一会儿，画面停在回合区输出中途，250ms 相位闪烁（`virtTimer`）也一起停；dsh 进程 CPU 接近 100%；无 OOM。
-  - **根因（2026-10-27 现场抓栈确认）**：`pipeline/parse.ts` 的列表起始判定与解析口径分叉——`LIST_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/` 认「只有标记、后接行尾」的行（裸 `-` / `*` / `+` / `1.` / `1)`，以及标记后接 NBSP），而 `listItemMark` 的 `LIST_ITEM_RE` 要求标记后必须跟 `[ \t]+`。分叉后果 = **死循环**：外层 `while (i < N)` 由 `LIST_RE` 命中进入列表分支，内层 `while` 因 `listItemMark` 返回 null 立刻 break，`items` 为空 → `continue` 却不推进 `i` → 同一行反复重入。用户槽与 markdown 槽两处列表分支同病。流式输出「一行刚好只到 `-`」即命中，故表现为回复到一半卡死。
-  - 现场取证手段（留档）：`kill -USR1 <pid>` 打开 inspector → `TUI/tmp/inspect-stack.mjs` 发 `Debugger.pause` 打断死循环检查点，拿到 `flushPaint ← renderFrame ← layoutFrame ← buildFrame ← buildTopRegion ← pipelineContent ← parse ← classifyMarkdown ← listItemMark`；`/proc/<pid>/stat` 显示主线程吃满单核、`/proc/<pid>/syscall` 为空（纯用户态计算）。
-  - 修法：删除 `LIST_RE`，新增唯一判定 `isListItemStart(line)`（= `listItemMark(line) !== null`），三处判定（两个列表分支 + 普通段收集的 break 条件）全部改用它；列表分支再加「空产出必 `i += 1`」兜底，禁止原地 `continue`。
-  - 回归：`tests/pipeline-parse.test.ts` 补裸 `-`/`*`/`+`/`1.`/`1)`/NBSP 六形态（各断言 1s 内产出块）；`tests/layout-hang-guard.test.ts` 语料加 `bareBullet` 形态。全套 1789 通过 / 0 失败 / 4 todo。
-  - 验收：重启 `dsh --profile fff`（已 `npm run build`）跑一段含 `-` 列表与 `---` 分隔线的回复，确认不再卡死。
-  - 优先级：P0。
+> 2026-10-27 关闭：「文档回写：`DESIGN.md` / `SPEC.md` 按七段链路重写」完成并移出清单（DESIGN 的术语 / 文件树 / Box 模型 / 模块归属表 / 状态符号与排队块落点，SPEC 的 §2 边界注 / §3 / §3.1 / §3.2 / §6.7 / §6.8 / §9 / §9.1 / §11.3 / §15.5 / §15.6 全部改到七段链；旧符号 grep 零命中；追踪文档 `TUI/docs/archived/2026-10-27-doc-rewrite-seven-stage.md`）。
 
-- **#2 表格单元格内 `<br>` 换行未支持**（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
-
-  - 现象 / 现状：单元格文本里的 `<br>` 原样输出，不换行（新链 §2 parse 表格段只按 `|` 切格，格内不解析换行标记）。
-  - 期望：格内 `<br>`（含 `<br/>`、`<br />`）切成多个物理行，行高按格内行数取最大值。
-  - 落点：`pipeline/parse.ts` 表格段（格文本 → 行数组）+ `pipeline/measure.ts` 的 `expandTable`（行高取最大）。
-  - 验收：单格多行、多格不同行数、含行内标记的格三类用例通过，列边界与横线段长保持对齐。
-  - 优先级：P2。
-
-- **#3 文档回写：`DESIGN.md` / `SPEC.md` 按七段链路重写**（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
-
-  - 现象 / 现状：`DESIGN.md` 仍描述六段链路与已删文件（`:63` / `:84` 文件清单含 `layout/build-box`，`:134`-`:136` 的 `buildBox` 内容树与 `measure/allocate/fill` 管线描述，`:145` 的 `build-box.ts` 职责行，`:152` / `:412` 的工具块与状态符号落点）；`SPEC.md` §3 / §6 / §9 仍是旧 `fill` / `measure` 口径，部分回归段落引用已删测试文件。
-  - 期望：`DESIGN.md` 的链路图、模块职责表、文件清单改按 §1-§7 七段（`pipeline/` 各阶段 + `notice-line` + 只留解析的 `table.ts`）；`SPEC.md` 的排版章节标出「面板仍走旧链」的边界，删净失效引用。
-  - 落点：`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md`。
-  - 验收：两份文档内不再出现 `build-box` / `buildBox` / `buildContentRows` 等已删符号；链路描述与 `pipelineContent` 实际调用顺序一致。
-  - 优先级：P2。
-
+> 2026-10-27 关闭（不立项）：「表格单元格内 `<br>` 换行未支持」不做并移出清单 —— 用户裁定表格不做单元格换行。
+> 2026-10-27 关闭：「新会话跑一会儿后整机卡死」真机复验通过（用户确认目前无问题）并移出清单 —— 根因 = 列表起始判定与解析口径分叉（`LIST_RE` 认裸标记、`listItemMark` 不认）导致的解析死循环；修法 = 删除 `LIST_RE`、统一 `isListItemStart` + 空产出必推进兜底，提交 `5070fe4`，回归 `tests/pipeline-parse.test.ts` 六形态与 `tests/layout-hang-guard.test.ts`。
 > 2026-10-27 关闭：`嵌套列表按缩进产真子列表` 完成并移出清单（§2 parse 按前导缩进每 2 列一层产层级、§4 structure 按条目缩进列数排版；四条 `test.todo` 全部转正；`npm run test:tui` 1798 例全绿 / 0 todo；追踪文档 `TUI/docs/archived/2026-10-27-nested-list.md`）。
 
 > 2026-10-26 关闭：`排查表格排版修复后的副作用（额外空行 / 竖线断掉）` 完成并移出清单（本任务只到决策，未单独实现修法：两个根因——表格行高二次解析、measure 与 fill 折行口径分叉——已由渲染流水线重构从结构上消除；追踪文档 `TUI/docs/archived/2026-10-24-table-layout-side-effects.md`）。
