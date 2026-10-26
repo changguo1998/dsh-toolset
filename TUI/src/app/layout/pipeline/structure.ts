@@ -117,51 +117,37 @@ function userRightEdge(): {
   };
 }
 
-/** 用户行内样式以外的 markdown 块(列表/代码)外壳: `h(spacer(fill), sym?, content)` ——
- * 右对齐 via 空白块, 符号在前, 右侧竖线为整块后缀(列表项逐行带) */
+/** 用户行内样式以外的 markdown 块(列表/代码)外壳: `h(spacer(fill), statusMarker?, content)` ——
+ * 空白块右对齐、状态符号(如 `?`)独立一格、内容(v)自成一格; 右缘竖线在内容各行的 leaf 上
+ * (见列表项), 不给 spacer/符号加竖线。 */
 function toUserBlock(
   sym: { text: string; fg?: string } | undefined,
   content: Node,
-  perLineEdge: boolean,
-): Node {
-  const kids: (Node | Leaf)[] = [
-    leaf([], { widthStyle: "fill" }),
-    ...(sym === undefined
-      ? []
-      : [
-          leaf(
-            [
-              {
-                text: sym.text,
-                ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
-              },
-              { text: " " },
-            ],
-            { widthStyle: "fixed", widthFixed: 2 },
-          ),
-        ]),
-    content,
-  ];
-  const out: Node = { direction: "h", children: kids };
-  return perLineEdge ? addRightEdge(out, userRightEdge()) : out;
-}
-
-/** 给容器内每个 Leaf 挂右缘竖线后缀（用户块内容的整块右缘 `┃`） */
-function addRightEdge(
-  node: Node,
-  edge: { text: string; style: FrameStyle; minWidth: number },
 ): Node {
   return {
-    ...node,
-    children: node.children.map((c) =>
-      "direction" in c
-        ? addRightEdge(c, edge)
-        : ({ ...c, suffix: edge } as Leaf),
-    ),
+    direction: "h",
+    children: [
+      leaf([], { widthStyle: "fill" }),
+      ...(sym === undefined
+        ? []
+        : [
+            leaf(
+              [
+                {
+                  text: sym.text,
+                  ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
+                },
+                { text: " " },
+              ],
+              { widthStyle: "fixed", widthFixed: 2 },
+            ),
+          ]),
+      content,
+    ],
   };
 }
 
-/** 用户列表内容: 条目文本(显示标记已在文本内), 不挂左栏(外壳统一右缘 ┃) */
+/** 用户列表内容: 条目文本(显示标记已在文本内); 每个条目 leaf 带右缘竖线后缀 */
 function userOf(block: PaneItem): UserRowInfo | undefined {
   return (block as { user?: UserRowInfo }).user;
 }
@@ -169,7 +155,9 @@ function userOf(block: PaneItem): UserRowInfo | undefined {
 function toUserListContent(block: Extract<Block, { kind: "list" }>): Node {
   return {
     direction: "v",
-    children: (block.items as Paragraph[]).map((item) => leaf([...item.text])),
+    children: (block.items as Paragraph[]).map((item) =>
+      leaf([...item.text], { suffix: userRightEdge() }),
+    ),
   };
 }
 
@@ -274,18 +262,17 @@ function toNodeItem(
     case "quote":
       return toQuote(item, opts);
     case "list":
-      // 用户列表: 套用户外壳(右对齐 + 符号 + 右缘 ┃), 否则普通列表
+      // 用户列表: 套用户外壳(右对齐 + 符号 + 每行右缘 ┃), 否则普通列表
       if (item.source === "user")
         return toUserBlock(
           opts?.userSym?.(userOf(item)),
           toUserListContent(item),
-          true,
         );
       return toList(item, opts);
     case "code":
-      // 用户代码: 套用户外壳(右对齐 + 符号); 代码行右缘 ┃ 由代码渲染自身承担
+      // 用户代码: 套用户外壳(右对齐 + 符号)
       if (item.source === "user")
-        return toUserBlock(opts?.userSym?.(userOf(item)), toCode(item), false);
+        return toUserBlock(opts?.userSym?.(userOf(item)), toCode(item));
       return toCode(item);
     case "table":
       return toTable(item);
