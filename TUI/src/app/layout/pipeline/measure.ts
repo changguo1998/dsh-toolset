@@ -63,8 +63,6 @@ export function leafRows(
 ): number {
   const prefixW = prefixWidthOf(node, opts.vw);
   const suffixW = suffixWidthOf(node, opts.vw);
-  if (node.heightStyle === "fixed" && node.heightFixed !== undefined)
-    return Math.max(1, node.heightFixed);
   const bodyW = Math.max(1, width - prefixW - suffixW);
   return wrapLeaf(node.text, bodyW, {
     prefixW: 0,
@@ -130,7 +128,13 @@ function naturalHWidth(
     ? displayWidth(child.suffix?.text ?? "")
     : 0;
   const decor = prefixW + suffixW;
-  const inner = Math.max(1, budget - decor);
+  // h 容器相邻子项之间的分隔符同样占列（与 measureH 的 separatorWidth 同口径）
+  const sepW =
+    child.direction === "h" && child.separator !== undefined
+      ? displayWidth(sepChar(child.separator)) *
+        Math.max(0, child.children.length - 1)
+      : 0;
+  const inner = Math.max(1, budget - decor - sepW);
   if (child.direction === "h") {
     let fixedSum = 0;
     let autoMax = 0;
@@ -144,7 +148,7 @@ function naturalHWidth(
         autoMax = Math.max(autoMax, naturalHWidth(sub, inner, opts));
       }
     }
-    return Math.min(budget, decor + fixedSum + autoMax);
+    return Math.min(budget, decor + sepW + fixedSum + autoMax);
   }
   // v 容器自然宽 = 子项自然宽的最大值（子项同宽，取最宽者）
   let widest = 0;
@@ -197,7 +201,7 @@ function codeLines(code: {
 }
 
 /** §5 展开代码块：`Box(v)[ 每个物理行一个行盒 ]`（行盒内再用 separator 分行号列 / 代码列） */
-function expandCode(tree: Node, width: number): void {
+function expandCode(tree: Node): void {
   const code = tree.code!;
   tree.code = undefined;
   tree.direction = "v";
@@ -205,13 +209,7 @@ function expandCode(tree: Node, width: number): void {
   tree.children = codeLines(code);
 }
 
-/** 表格格距 / 左缘竖线与表格内容之间的间隔（与旧渲染同口径） */
-/** 单元格纯文本（自然宽口径） */
-function plainOf(cell: Paragraph): string {
-  return cell.text.map((s) => s.text).join("");
-}
-
-/** 表格数据行：行盒只带 `separator`（列竖线），格本身不带留白与宽度 */
+/** 表格数据行：行盒只带 `separator`（列竖线），格本身先不带宽度（列宽由 grid pass 写） */
 function tableRow(
   cells: readonly Paragraph[],
   aligns: readonly TableAlign[],
@@ -244,26 +242,13 @@ function tableRuleRow(ncols: number, ch: string, cross: string): Node {
   };
 }
 
-/** §5 展开表格：`Box(v, grid)[表头行, ═ 横线, 数据行…]`；过窄退回逐格文本行 */
-function expandTable(tree: Node, width: number): void {
+/** §5 展开表格：`Box(v, grid)[表头行, ═ 横线, 数据行…]`（列宽由 grid pass 定） */
+function expandTable(tree: Node): void {
   const table = tree.table!;
   tree.table = undefined;
   tree.direction = "v";
   tree.grid = true;
   const ncols = table.header.length;
-  const natural = table.header.map((head, j) => {
-    let w = displayWidth(plainOf(head));
-    for (const row of table.rows) {
-      const cell = row[j];
-      if (cell) w = Math.max(w, displayWidth(plainOf(cell)));
-    }
-    return w;
-  });
-  // 不做窄宽退化：列宽压不下时每列兜底 1 列，结构始终是 grid（列宽算法下一步挪进 grid pass）
-  const cols =
-    ncols === 0
-      ? []
-      : (fitCols(natural, Math.max(1, width - ncols)) ?? natural.map(() => 1));
   const body: (Node | Leaf)[] = [
     tableRow(table.header, table.aligns, true, "│"),
     tableRuleRow(ncols, "═", "╪"),
@@ -273,6 +258,43 @@ function expandTable(tree: Node, width: number): void {
     body.push(tableRow(row, table.aligns, false, "│"));
   });
   tree.children = body;
+}
+
+/**
+ * 网格列对齐（`grid: true`）：先按列序号取各行格的**自然宽**最大值，再用 `fitCols`
+ * 定列宽，最后写回每个行子项的 `widthFixed`。横线行的 `fill` 盒也照写同宽，
+ * 使 `fillWith` 铺出的线段与列边界严丝合缝。
+ */
+function alignGridColumns(
+  tree: Node,
+  width: number,
+  opts: MeasureOptions,
+): void {
+  const rows = tree.children.filter(
+    (c): c is Node => !isLeaf(c) && c.direction === "h",
+  );
+  if (rows.length === 0) return;
+  const ncols = rows.reduce((m, r) => Math.max(m, r.children.length), 0);
+  if (ncols === 0) return;
+  const sepW = Math.max(...rows.map((r) => separatorWidth(r)));
+  const natural = Array.from({ length: ncols }, () => 1);
+  for (const row of rows) {
+    row.children.forEach((cell, j) => {
+      // `fill` 盒是横线段，不参与自然宽
+      if ((cell.widthStyle ?? "auto") === "fill") return;
+      natural[j] = Math.max(natural[j]!, naturalHWidth(cell, width, opts));
+    });
+  }
+  const cols = fitCols(natural, Math.max(1, width - sepW));
+  const widths = cols ?? natural.map(() => 1);
+  for (const row of rows) {
+    row.children.forEach((cell, j) => {
+      const wj = widths[j];
+      if (wj === undefined) return;
+      cell.widthStyle = "fixed";
+      cell.widthFixed = wj;
+    });
+  }
 }
 
 /** 测量主入口：写各节点 width / height，返回树高 */
@@ -288,8 +310,18 @@ export function measure(
     return tree.height;
   }
   tree.width = w;
-  if (tree.code !== undefined) expandCode(tree, w); // §5 展开：载荷 → 结构
-  if (tree.table !== undefined) expandTable(tree, w);
+  if (tree.code !== undefined) expandCode(tree); // §5 展开：载荷 → 结构
+  if (tree.table !== undefined) expandTable(tree);
+  // 表格网格：列宽必须先定，再按列宽量子项（否则各行的格宽度互不相同）
+  if (tree.grid === true)
+    alignGridColumns(
+      tree,
+      Math.max(
+        1,
+        w - prefixWidthOf(tree, opts.vw) - suffixWidthOf(tree, opts.vw),
+      ),
+      opts,
+    );
   // 带 prefix / suffix 的 Node：符号占列，子项按缩窄后的宽测量（与 flatten 同口径）。
   // 左缘 chrome 列（对话/session 面板竖线）不吃正文宽。
   if (tree.prefix !== undefined || tree.suffix !== undefined) {

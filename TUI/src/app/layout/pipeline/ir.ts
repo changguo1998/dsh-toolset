@@ -288,7 +288,6 @@ export type PaneId =
 export type WidthStyle = "auto" | "fill" | "fixed" | "ratio";
 
 /** 高度类型：auto = 内容折行决定 */
-export type HeightStyle = "auto" | "fixed" | "fill";
 
 /** 节点公共属性（Node 与 Leaf 共享；自旧 box.ts 字段全集迁入，含 width 族 / height 族） */
 export interface NodeBase {
@@ -307,9 +306,7 @@ export interface NodeBase {
   /** true = width 不再被测量 / 分配改写 */
   widthLocked?: boolean;
   /** 高度类型（缺省 auto = 内容折行决定） */
-  heightStyle?: HeightStyle;
   /** 固定行数（fixed） */
-  heightFixed?: number;
   /** 实际高度：measure / allocate 写入；heightLocked 时冻结 */
   height?: number;
   /** true = height 不再被测量 / 分配改写 */
