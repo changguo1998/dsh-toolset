@@ -141,7 +141,7 @@ test("flatten：顶段助手段 ┃ 为左缘 chrome 列不吃正文宽（正文
   )[0] as Paragraph;
   const gutter = 4;
   const width = 18;
-  const tree = buildTrees([para], [], { gutter }).session;
+  const tree = buildTrees([para], [], { gutter, barChrome: true }).session;
   measure(tree, width, { vw: width });
   const rows = flatten(tree, width, { vw: width });
   const first = text(rows).split("\n")[0]!;

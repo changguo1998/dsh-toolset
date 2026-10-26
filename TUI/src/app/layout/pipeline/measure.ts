@@ -60,10 +60,14 @@ export function leafRows(
   width: number,
   opts: MeasureOptions,
 ): number {
+  const prefixW = prefixWidthOf(node, opts.vw);
   const suffixW = suffixWidthOf(node, opts.vw);
-  // 左缘 chrome 列（段落/引用/列表的 ┃）不吃正文宽、不做首行前缀扣减：正文宽 =
-  // 分配宽 − suffix −gutter，首行 = 正文宽（竖线另占列，样式同代码/表格竖线）
-  const bodyW = Math.max(1, width - suffixW - (node.rightGutter ?? 0));
+  // 左缘 chrome 列（┃，对话面板）不吃正文宽、不做首行前缀扣减；活动面板竖线计宽。
+  const chrome = node.prefixChrome === true;
+  const bodyW = Math.max(
+    1,
+    width - (chrome ? 0 : prefixW) - suffixW - (node.rightGutter ?? 0),
+  );
   const hanging = node.hanging ?? 0;
   return wrapLeaf(node.text, bodyW, {
     prefixW: 0,

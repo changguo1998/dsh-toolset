@@ -37,10 +37,15 @@ function rowW(segs: readonly Seg[]): number {
 /** 单个文本叶 → Row[]（折行 + 前缀 / 后缀 / 悬挂 / 对齐 / tail） */
 function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
   const prefixOn = prefixVisibleOf(node, opts.vw);
+  const prefixW = prefixOn ? displayWidth(node.prefix!.text) : 0;
   const suffixOn = suffixVisibleOf(node, opts.vw);
   const suffixW = suffixOn ? displayWidth(node.suffix!.text) : 0;
-  // 左缘 chrome 列（┃）不吃正文宽：正文宽 = 分配宽 − suffix − gutter，首行 = 正文宽
-  const bodyW = Math.max(1, width - suffixW - (node.rightGutter ?? 0));
+  // 左缘 chrome 列（┃，对话面板）不吃正文宽；活动面板竖线计宽
+  const chrome = node.prefixChrome === true;
+  const bodyW = Math.max(
+    1,
+    width - (chrome ? 0 : prefixW) - suffixW - (node.rightGutter ?? 0),
+  );
   const hanging = node.hanging ?? 0;
   // tail-only（空文本 + tail，如回合分隔线 / step 头空标签）
   if (node.text.length === 0 && node.tail) {

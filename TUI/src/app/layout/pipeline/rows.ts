@@ -749,8 +749,8 @@ export function renderPaneNew(
     userSym: options.userSym,
     // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
     gutter: pane === "dialogue" ? options.gutter : undefined,
-    // 左缘 chrome 竖线只属于对话(session)面板；活动面板不画（裸文本）
-    bar: pane === "dialogue",
+    // 竖线两面板都画：对话为 chrome 列（不吃正文宽），活动计宽
+    barChrome: pane === "dialogue",
     normalize: options.normalize,
   };
   const { session, turn } = buildTrees(

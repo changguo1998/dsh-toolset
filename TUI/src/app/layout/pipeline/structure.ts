@@ -39,6 +39,8 @@ export interface StructureOptions {
   /** 左缘 chrome 竖线（┃）开关：只属于对话(session)面板；活动(turn)面板不画
    *  （思考/流式正文为裸文本，legacy 同口径）。缺省 true。 */
   bar?: boolean;
+  /** 竖线是否 chrome 列（不吃正文宽）：对话面板 true、活动面板 false（计宽）。 */
+  barChrome?: boolean;
 }
 
 /** 左缘竖线（正文蓝 / 思考紫；窄窗降级阈值 = 最小留白 + 2） */
@@ -67,13 +69,17 @@ function leaf(text: StyledText, extra: Partial<Leaf> = {}): Leaf {
 // ---------------- 块 → 节点 ----------------
 
 /** Quote → v Node：每个子行 = 左缘竖线 + `> ` 前缀 + 行内（旧 wrapAssistantLine 引用分支） */
-function toQuote(block: Extract<Block, { kind: "quote" }>): Node {
+function toQuote(
+  block: Extract<Block, { kind: "quote" }>,
+  opts?: StructureOptions,
+): Node {
   const barP = bar(block.source);
   return {
     direction: "v",
     children: (block.children as Paragraph[]).map((child) =>
       leaf([{ text: "> " }, ...child.text], {
         prefix: barP,
+        prefixChrome: opts?.barChrome === true,
         // 续行悬挂对齐正文起列（> 之后的列）
         hanging: barP.text.length + 2,
       }),
@@ -83,11 +89,15 @@ function toQuote(block: Extract<Block, { kind: "quote" }>): Node {
 
 /** List → v Node：每个子项 = 左缘竖线 + 行内（显示标记已在条目文本：有序编号 /
  *  任务框 / 无序子弹）；悬挂对齐正文（标记后） */
-function toList(block: Extract<Block, { kind: "list" }>): Node {
+function toList(
+  block: Extract<Block, { kind: "list" }>,
+  opts?: StructureOptions,
+): Node {
   const barP = bar(block.source);
   const children: Leaf[] = (block.items as Paragraph[]).map((item) =>
     leaf(item.text, {
       prefix: barP,
+      prefixChrome: opts?.barChrome === true,
       hanging: barP.text.length + displayW(item.text[0]?.text ?? ""),
     }),
   );
@@ -166,9 +176,10 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
   const text = opts?.normalize
     ? applyNormalize(block.text, opts.normalize)
     : block.text;
-  const barP = opts?.bar === false ? undefined : bar(block.source);
+  const barP = bar(block.source);
   return leaf(text, {
     ...(barP ? { prefix: barP } : {}),
+    ...(barP ? { prefixChrome: opts?.barChrome === true } : {}),
     ...(opts?.gutter ? { rightGutter: opts.gutter } : {}),
   });
 }
@@ -191,9 +202,9 @@ function toNodeItem(
     case "paragraph":
       return paragraphLeaf(item, opts);
     case "quote":
-      return toQuote(item);
+      return toQuote(item, opts);
     case "list":
-      return toList(item);
+      return toList(item, opts);
     case "code":
       return toCode(item);
     case "table":

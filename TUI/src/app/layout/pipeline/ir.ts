@@ -395,6 +395,8 @@ export interface Node extends NodeBase {
 /** 叶子节点：不设 kind 判别字段（靠 text）；measure 原地写宽高 */
 export interface Leaf extends NodeBase {
   text: StyledText;
+  /** true = 左缘竖线为面板 chrome 列，不吃正文宽（对话/session 面板；活动面板计宽） */
+  prefixChrome?: boolean;
 }
 
 /** 布局树：根为 Node 或 Leaf */

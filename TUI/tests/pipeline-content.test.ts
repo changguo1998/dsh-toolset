@@ -104,7 +104,7 @@ test("桥：用户块 → dialogue kind=user、右对齐 + ? 符号、记入 use
   assert.ok(t.trimEnd().endsWith("┃"), "右缘竖线");
 });
 
-test("桥：思考 → activity kind=thinking（活动面板无左缘 chrome 竖线）", () => {
+test("桥：思考 → activity kind=thinking（活动面板竖线计宽、保留紫前缀）", () => {
   const s = section({
     id: "1:1:0",
     reasoning: "想",
@@ -113,7 +113,8 @@ test("桥：思考 → activity kind=thinking（活动面板无左缘 chrome 竖
   const r = renderPaneNew(items, "activity", PREFIX);
   assert.equal(r.rows[0]!.kind, "thinking");
   const first = r.rows[0]!.segments[0]!;
-  assert.notEqual(first.text, "┃", "活动面板思考不画左缘竖线（裸文本）");
+  assert.equal(first.text, "┃");
+  assert.deepEqual(first.style, { fg: "brightMagenta" }, "思考紫前缀");
 });
 
 test("桥：回合分隔 → dialogue kind=separator（tail 铺满）", () => {
