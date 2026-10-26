@@ -1,6 +1,6 @@
 # 重构 TUI 渲染流水线：结构分类在摊平阶段丢失，measure 与 fill 各自解析（接取条目：`TUI/docs/BACKLOG.md`「重构渲染流水线：结构分类在摊平阶段丢失，measure 与 fill 各自解析」）
 
-状态：决策　　开启：2026-10-25
+状态：完成　　开启：2026-10-25　　关闭：2026-10-26
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 本轮只建立文档（接取），调研与实现均未开始。
 
@@ -1271,3 +1271,52 @@ kind 恒相同**（都取条目 `source`）。所以按条目计 kind 与原实�
 `npm run check` 绿；`npm run build` 通过；`npm run test:tui` **1783 pass / 0 fail / 4 todo**
 （总 1787，较上一轮 1844 少 57：旧栈形制用例删除 + todo 化）；`npm run demo -- --smoke`
 42 条 `SMOKE_PASS`。源码净删约 1.2k 行（含 `build-box.ts` 1331 行、`table.ts` 190 行）。
+
+## 收尾（2026-10-26 关闭）
+
+### 交付形态
+
+内容渲染的生产链路只剩一条：
+
+```text
+layout.ts → frame.pipelineContent
+  ├─ §1 split（节缓存 → Section[]，渐进窗口）
+  ├─ §2 parse（Section → Block[]，markdown 在这里被消费成结构）
+  ├─ §3 route（Block[] → 两 pane 的 PaneItem[]，含 step / 回合头 / Gap）
+  ├─ §4 structure（PaneItem[] → 树，盒形 / 前缀 / 悬挂 / 打灰全在这里定）
+  ├─ §5 measure（树 → 宽高，表格列宽与行高在此一次算定）
+  ├─ §6 flatten（树 + 宽 → Row[]，唯一折行入口）
+  └─ §7 rows.renderPaneNew（逐槽位摊平 + 逐 item 缓存 → RenderedPane：rows/counts/keys/userRows/table）
+```
+
+旧链路（`buildBoxes` → `boxToLines` → `buildBox` 二次分类 → `fill` 二次解析）整条删除：
+`pipeline/boxes.ts` 改名 `tool-units.ts`、`build-box.ts` 整文件删除、`table.ts` 只剩解析与
+列宽算法、`content-rules` 只剩内容判定。七个阶段各自是纯函数 + 明确 IR，上一阶段的结论
+（分类、盒形、宽高）不再被下一阶段重判——这正是本条目的目标。
+
+### 规模与验证
+
+- 源码净删约 1.2k 行（`build-box.ts` 1331 行 + `table.ts` 190 行 + `content-rules` 工具行渲染），
+  新增 `pipeline/` 七个阶段模块与一份 IR。
+- `npm run check` / `npm run build` 绿；`npm run test:tui` **1783 pass / 0 fail / 4 todo**（总 1787）；
+  `npm run demo -- --smoke` 42 条 `SMOKE_PASS`。
+- 基线口径：`pipeline-frame` / `pipeline-equivalence` 的行数断言按「决策 2b」逐条人工确认后重冻，
+  未静默重冻（每轮的偏差与理由记在上文各轮）。
+- 顺带修掉的真缺陷（迁移测试时暴露，均已补用例）：行归属按槽位而非按下标对齐（行数表错位 /
+  跨帧污染）、`/collapse` 折叠是空实现、notice 悬挂缩进丢失、纯虚线分隔行多一列空白、
+  落单工具结果标记不着色。
+
+### 遗留（不在本轮范围，已登记 BACKLOG）
+
+1. **嵌套列表**：§2 parse 仍不按缩进产真子列表（缩进行并进父条目正文）——
+   `tests/thinking-markdown.test.ts` 四条用例以 `test.todo` 挂着，`parse` 补齐后还原。
+2. **表格单元格内 `<br>` 换行**未支持。
+3. **chrome 面板**（approval / picker / statusPanel）仍走旧 `fill` / `measure` / `box.ts`——面板
+   渲染明确不在重构范围，将来要么独立重构、要么长期共存。
+4. **`DESIGN.md` / `SPEC.md` 未随七段链路重写**（仍描述六段链路与已删的 `build-box.ts`）。
+
+### 不做
+
+- 不改 `SPEC.md` 的表格 / 排版篇幅（见遗留 4）。
+- 不为「极窄宽」立新口径（`fitCols` 返 null 时每列兜底 1 列，由外层裁补）。
+- 不恢复「续行 `↪` / `↩` 箭头」与 `valign` 纵向补白（第三轮裁定的新口径）。

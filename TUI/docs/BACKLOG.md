@@ -9,20 +9,33 @@
 
 ## 待办
 
-- **#1 排查表格排版修复（`61f63af`）后的副作用：思考与正文出现额外空行、竖线断掉**〔进行中: 2026-10-24〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 →（疑似范围）→ 落点 → 验收 → 优先级。
+- **#1 结构层遗留：嵌套列表按缩进产真子列表**（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
 
-  - 现象 / 现状：「正文表格与排版后展示不一致」修复（实现 `61f63af`，根因与修法见 `TUI/docs/archived/2026-10-22-table-content-mismatch.md`）落地后，**思考内容与正文有时**都会出现额外空行，表格竖线也会断掉；同一修复还顺带交付了「思考行识别 markdown 表格」（紫竖线），两侧都可能受牵连。
-  - 期望：排查根因并修复 —— 额外空行来源（疑似排版链重组 markdown 行时的空行残留 / 缺列按左对齐补齐后的空行生成）与竖线断点（表格栅格合并 / 思考行紫竖线）分别定位；补思考行与正文表格的渲染用例防回归。
-  - 疑似范围：TUI 渲染链 `TUI/src/renderer/` 与 `TUI/src/app/` 的表格排版 / 思考行识别 / 空行收敛路径。
-  - 落点：TUI 排版链（表格 build、思考行识别、空行收敛）。
-  - 验收：长文本多形态（表头后空行、缺列补齐、单元格内换行、思考行含表格）既无额外空行、竖线连续；复验 `2026-10-22-table-content-mismatch.md` 的既有用例与断言不回归。
-  - 优先级：P1。
+  - 现象 / 现状：新链 §2 `parse`（`src/app/layout/pipeline/parse.ts`）的列表段不按缩进区分子层，缩进子项被并进父条目正文；`tests/thinking-markdown.test.ts` 的四条嵌套列表用例（列表两层缩进 / 有序与无序混排 / 任务框子项 / 子项长句悬挂对齐）暂以 `test.todo` 挂着。
+  - 期望：按 2 列一层产出真子列表（子层标记按自身宽占列，长句续行悬挂对齐该层正文起列），结构层列表节点递归表达层级。
+  - 落点：`pipeline/parse.ts` 列表段 + `pipeline/structure.ts` 列表节点（必要时 §6 摊平递归缩进）。
+  - 验收：四条 `test.todo` 还原为正式用例并通过；现有列表用例（标记列宽按各自标记宽、缩进 2 列一层）不回归。
+  - 优先级：P2。
 
-- **#2 重构渲染流水线：结构分类在摊平阶段丢失，measure 与 fill 各自解析**〔进行中: 2026-10-25〕（登记 2026-10-24，来源 用户）：现象 / 现状 → 期望 → 优先级。
+- **#2 表格单元格内 `<br>` 换行未支持**（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
 
-  - 现象 / 现状：第 3 段（`pipeline/boxes.ts` + `pipeline/panes.ts`）已按 text / quote / list / code / table / tool 分类，但第 4 段 `boxToLines`（`pipeline/rows.ts:261`）把内容压回纯行文本，`buildBox`（`build-box.ts:369`）只能按文本**二次分类**；列表符 / 标题井号 / 引用竖线 / 任务框全部由 fill 现造（`markdown.ts:935-941`）。几何因此两套：measure 用原文（`wrapLine`）且只认节点字段（正文仅 `prefix: ┃`），对 `kind === "text"` 直接 `void contWidth`（`measure.ts:502`）；fill 用行内解析后 + 块级前缀 + 悬挂。两边行数不等时 `decorateRows` 按高度补空格行，表现为「多余空行 + 该行无竖线」，列表与正文均可见。另 `SPEC.md:148` 声明列表项为 `Paragraph(prefix:{"• "}, hanging:2)`，与实现（`wrapListRows` 内联，见 `SPEC.md:805-810`）不一致。
-  - 期望：分类单一源（结构层分类随节点进入摊平阶段，不再按文本二次分类）+ 折行单一入口（measure 与 fill 共用同一实现，前缀 / 悬挂回到节点字段，修正 `void contWidth`）；保持不变项：表格仍构建期算列宽、折叠基线不许静默重冻、`pipeline-frame` / `pipeline-equivalence` 行数断言逐条人工确认。六段链路与症结记录见 `TUI/docs/implementation/2026-10-24-table-layout-side-effects.md`「流程梳理」。
-  - 优先级：P1。
+  - 现象 / 现状：单元格文本里的 `<br>` 原样输出，不换行（新链 §2 parse 表格段只按 `|` 切格，格内不解析换行标记）。
+  - 期望：格内 `<br>`（含 `<br/>`、`<br />`）切成多个物理行，行高按格内行数取最大值。
+  - 落点：`pipeline/parse.ts` 表格段（格文本 → 行数组）+ `pipeline/measure.ts` 的 `expandTable`（行高取最大）。
+  - 验收：单格多行、多格不同行数、含行内标记的格三类用例通过，列边界与横线段长保持对齐。
+  - 优先级：P2。
+
+- **#3 文档回写：`DESIGN.md` / `SPEC.md` 按七段链路重写**（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
+
+  - 现象 / 现状：`DESIGN.md` 仍描述六段链路与已删文件（`:63` / `:84` 文件清单含 `layout/build-box`，`:134`-`:136` 的 `buildBox` 内容树与 `measure/allocate/fill` 管线描述，`:145` 的 `build-box.ts` 职责行，`:152` / `:412` 的工具块与状态符号落点）；`SPEC.md` §3 / §6 / §9 仍是旧 `fill` / `measure` 口径，部分回归段落引用已删测试文件。
+  - 期望：`DESIGN.md` 的链路图、模块职责表、文件清单改按 §1-§7 七段（`pipeline/` 各阶段 + `notice-line` + 只留解析的 `table.ts`）；`SPEC.md` 的排版章节标出「面板仍走旧链」的边界，删净失效引用。
+  - 落点：`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md`。
+  - 验收：两份文档内不再出现 `build-box` / `buildBox` / `buildContentRows` 等已删符号；链路描述与 `pipelineContent` 实际调用顺序一致。
+  - 优先级：P2。
+
+> 2026-10-26 关闭：`排查表格排版修复后的副作用（额外空行 / 竖线断掉）` 完成并移出清单（本任务只到决策，未单独实现修法：两个根因——表格行高二次解析、measure 与 fill 折行口径分叉——已由渲染流水线重构从结构上消除；追踪文档 `TUI/docs/archived/2026-10-24-table-layout-side-effects.md`）。
+
+> 2026-10-26 关闭：`重构渲染流水线：结构分类在摊平阶段丢失，measure 与 fill 各自解析` 完成并移出清单（七段链路落地：`layout.ts → pipelineContent → split/parse/route/structure/measure/flatten → renderPaneNew`；旧链路 `buildBoxes`/`boxToLines`/`buildBox`/`build-box.ts` 整条删除，源码净删约 1.2k 行；复验 1783 例 + 4 todo + 冒烟 42 PASS；追踪文档 `TUI/docs/archived/2026-10-25-render-pipeline-refactor.md`；遗留转入新条目 #1 / #2 / #3）。
 
 > 2026-10-24 关闭：`#1` notice 行统一为 `[hh:mm:ss <来源>] 正文` 完成并移出清单（实现含 deliverBufferTail 补漏, 即 compaction/retry 等直落 toast 也带前缀; 追踪文档 `TUI/docs/archived/2026-10-24-notice-line-format.md`; 复验 1760 例 + 冒烟 42 PASS; demo 脚本不再内嵌 build）。
 
