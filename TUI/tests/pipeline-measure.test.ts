@@ -96,7 +96,7 @@ test("measure：代码/表格/工具载荷节点高度模型", () => {
   assert.ok((tblNode.height ?? 0) >= 3, "表格高度（表头+横线+数据）");
 });
 
-test("measure：用户块（fill 铺满）经平衡折行定 body 宽并写高", () => {
+test("measure：用户块（box 铺满）按缩窄后的正文宽折行并写高", () => {
   const u = parse(
     sec({
       id: "1:1:0",
@@ -108,9 +108,10 @@ test("measure：用户块（fill 铺满）经平衡折行定 body 宽并写高",
     .session as Node;
   measure(tree, 30, { vw: 30 });
   const block = tree.children[0] as Node;
-  assert.equal(block.direction, "h");
+  assert.equal(block.direction, "v");
   assert.equal(block.width, 30, "用户块铺满 pane 宽");
-  assert.ok((block.height ?? 0) >= 1);
+  // 正文可用宽 = 30 - 符号 2 - 竖线 1 = 27；12 个全宽字 → 1 行
+  assert.equal(block.height, 1, "12 个全宽字在 27 列内单行");
 });
 
 function para(txt: string): Paragraph {

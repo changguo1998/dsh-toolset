@@ -349,6 +349,43 @@ export function flatten(
   opts: FlattenOptions = {},
 ): Row[] {
   if (isLeaf(tree)) return flattenLeaf(tree, width, opts);
+  // box：整块容器在 flatten 内部直接给每行两侧加符号并补满宽（不向下传递 prefix/suffix）
+  if (tree.suffix !== undefined) {
+    const pfx = tree.prefix;
+    const pfxSegs = pfx ? [seg(pfx.text, pfx.style)] : [];
+    const pfxW = pfx ? displayWidth(pfx.text) : 0;
+    const sffxSegs = [seg(tree.suffix.text, tree.suffix.style)];
+    const sffxW = displayWidth(tree.suffix.text);
+    const padL = tree.padLeft ?? 0;
+    const padR = tree.padRight ?? 0;
+    const contentW = Math.max(1, width - padL - padR - pfxW - sffxW);
+    let inner: Row[];
+    if (tree.code !== undefined)
+      inner = flattenCode(tree.code, Math.max(1, contentW - 1));
+    else if (tree.table !== undefined)
+      inner = flattenTable(tree.table, Math.max(1, contentW - 1));
+    else if (tree.tool !== undefined) inner = flattenTool(tree.tool, contentW);
+    else {
+      inner = [];
+      for (const ch of tree.children)
+        inner.push(...flatten(ch, contentW, opts));
+    }
+    return inner.map((r, ri) => {
+      const used = rowW(r.segments);
+      const leftPad = padL > 0 ? [seg(" ".repeat(padL))] : [];
+      const rightPad = padR > 0 ? [seg(" ".repeat(padR))] : [];
+      return {
+        segments: [
+          ...leftPad,
+          ...(ri === 0 ? pfxSegs : pfxW > 0 ? [seg(" ".repeat(pfxW))] : []),
+          ...r.segments,
+          ...(used < contentW ? [seg(" ".repeat(contentW - used))] : []),
+          ...rightPad,
+          ...sffxSegs,
+        ],
+      };
+    });
+  }
   if (tree.code !== undefined)
     return flattenCode(tree.code, Math.max(1, width - 1));
   if (tree.table !== undefined)

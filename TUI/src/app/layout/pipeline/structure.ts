@@ -117,36 +117,43 @@ function userRightEdge(): {
   };
 }
 
-/** 用户行内样式以外的 markdown 块(列表/代码)外壳: `h(statusMarker?, content)` ——
- * 状态符号独立一格、内容(v) 自成一格, 二者**左对齐**成一块(不右推, 避免"两小块各自
- * 右对齐"观感); 右缘竖线在内容各行的 leaf 上(见列表项)。 */
+/** 用户行内样式以外的 markdown 块(列表/代码)外壳: 内容 Node 直接带 box 边 ——
+ * `prefix`(状态符号, 首行) + `suffix`(右缘 `┃`, 每行)。flatten 展平子内容后给每行
+ * 两侧加符号并补满宽, 不向下传 prefix/suffix。 */
 function toUserBlock(
   sym: { text: string; fg?: string } | undefined,
   content: Node,
 ): Node {
-  return {
-    direction: "h",
-    children: [
-      ...(sym === undefined
-        ? []
-        : [
-            leaf(
-              [
-                {
-                  text: sym.text,
-                  ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
-                },
-                { text: " " },
-              ],
-              { widthStyle: "fixed", widthFixed: 2 },
-            ),
-          ]),
-      content,
-    ],
+  const out: Node = {
+    ...content,
+    suffix: userRightEdge(),
   };
+  if (sym !== undefined) {
+    out.prefix = {
+      text: sym.text + " ",
+      ...(sym.fg ? { style: { fg: sym.fg as StyledStr["color"] } } : {}),
+    };
+  }
+  return out;
 }
 
-/** 用户列表内容: 条目文本(显示标记已在文本内); 每个条目 leaf 带右缘竖线后缀 */
+/** 用户块统一外壳: box(左留白 gutter + 首行符号 + 内容 + 右缘 `┃`) 铺满整行宽。
+ *  三种用户块（段落 / 列表 / 代码）都走这一层 → 左缘同列（gutter）、右缘同列（pane
+ *  右缘），分块之间不会出现「段落靠右、列表靠左」的错开。`gutter` = 左侧留白列数
+ *  （1 列已由右缘竖线占用，故左留白取 gutter-1，与旧口径一致）。 */
+function userShell(
+  sym: { text: string; fg?: string } | undefined,
+  content: Node,
+  gutter: number,
+): Node {
+  const box = toUserBlock(sym, content);
+  // 1 列由右缘竖线占用；符号格占 2 列时左留白再扣 2 → 正文始终起于 gutter-1 列
+  const padLeft = Math.max(0, gutter - 1 - (sym !== undefined ? 2 : 0));
+  if (padLeft > 0) box.padLeft = padLeft;
+  return box;
+}
+
+/** 用户列表内容: 条目文本(显示标记已在文本内); 右缘由外层 box 统一承担, 条目本身不带 */
 function userOf(block: PaneItem): UserRowInfo | undefined {
   return (block as { user?: UserRowInfo }).user;
 }
@@ -154,9 +161,7 @@ function userOf(block: PaneItem): UserRowInfo | undefined {
 function toUserListContent(block: Extract<Block, { kind: "list" }>): Node {
   return {
     direction: "v",
-    children: (block.items as Paragraph[]).map((item) =>
-      leaf([...item.text], { suffix: userRightEdge() }),
-    ),
+    children: (block.items as Paragraph[]).map((item) => leaf([...item.text])),
   };
 }
 
@@ -263,15 +268,20 @@ function toNodeItem(
     case "list":
       // 用户列表: 套用户外壳(右对齐 + 符号 + 每行右缘 ┃), 否则普通列表
       if (item.source === "user")
-        return toUserBlock(
+        return userShell(
           opts?.userSym?.(userOf(item)),
           toUserListContent(item),
+          opts?.gutter ?? 0,
         );
       return toList(item, opts);
     case "code":
       // 用户代码: 套用户外壳(右对齐 + 符号)
       if (item.source === "user")
-        return toUserBlock(opts?.userSym?.(userOf(item)), toCode(item));
+        return userShell(
+          opts?.userSym?.(userOf(item)),
+          toCode(item),
+          opts?.gutter ?? 0,
+        );
       return toCode(item);
     case "table":
       return toTable(item);
@@ -334,42 +344,9 @@ export function toUser(
   sym?: { text: string; fg?: string },
   gutter = 0,
 ): Node {
-  const body = leaf(block.text, {
-    balance: true,
-    suffix: {
-      text: "┃",
-      style: { fg: "brightRed" },
-      minWidth: USER_MIN_LEFT_GUTTER + 2,
-    },
-  });
-  const kids: (Node | Leaf)[] = [];
-  if (sym !== undefined) {
-    kids.push(
-      leaf(
-        [
-          {
-            text: sym.text,
-            ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
-          },
-          { text: " " },
-        ],
-        { widthStyle: "fixed", widthFixed: 2 },
-      ),
-    );
-  }
-  kids.push(body);
-  const content: Node = { direction: "h", children: kids };
-  // 右缘保底留白（gutter）+ 整块铺满 pane：fill spacer 恒在左侧（右对齐），
-  // widthMin = gutter-1-符号格(2)；正文经 balance 取自然宽，spacer 吃剩余。
-  const fillMin = Math.max(0, gutter - 1 - (sym ? 2 : 0));
-  return {
-    direction: "h",
-    children: [
-      leaf([], {
-        widthStyle: "fill",
-        ...(fillMin ? { widthMin: fillMin } : {}),
-      }),
-      content,
-    ],
-  };
+  return userShell(
+    sym,
+    { direction: "v", children: [leaf(block.text, { balance: true })] },
+    gutter,
+  );
 }

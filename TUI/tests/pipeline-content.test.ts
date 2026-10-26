@@ -83,7 +83,7 @@ test("桥：无宿主 seq → 合成稳定序号（同一 key 幂等且非 1e9 �
   assert.ok(seq >= 1_000_000_000, "落在合成基区");
 });
 
-test("桥：用户块 → dialogue kind=user、右对齐 + ? 符号、记入 userRows", () => {
+test("桥：用户块 → dialogue kind=user、左留白 + ? 符号、记入 userRows", () => {
   const s = section({
     id: "1:1:1",
     user: {},
@@ -92,6 +92,7 @@ test("桥：用户块 → dialogue kind=user、右对齐 + ? 符号、记入 use
   const items = paneOf([s], "session");
   const r = renderPaneNew(items, "dialogue", {
     ...PREFIX,
+    gutter: 4,
     userSym: (info?: UserRowInfo) =>
       info === undefined ? undefined : { text: "?" },
   });
@@ -100,7 +101,7 @@ test("桥：用户块 → dialogue kind=user、右对齐 + ? 符号、记入 use
   const t = textOf(r.rows[0]!);
   assert.ok(t.includes("?"), "含状态符号");
   assert.ok(t.includes("您好"), "含正文");
-  assert.ok(t.startsWith(" "), "右对齐（左侧留白）");
+  assert.ok(t.startsWith(" "), "左侧留白（gutter 扣符号与竖线后 1 列）");
   assert.ok(t.trimEnd().endsWith("┃"), "右缘竖线");
 });
 

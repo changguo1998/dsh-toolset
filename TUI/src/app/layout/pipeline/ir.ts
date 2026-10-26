@@ -390,6 +390,14 @@ export interface Node extends NodeBase {
   };
   /** 工具批节点载荷（structure 由 ToolBatch 产出；toolUnits 配对后的逻辑行单元） */
   tool?: readonly ToolUnit[];
+  /** box 左缘符号（如用户状态 `?`；仅首行显示，续行补等宽空白）；不传给子级 */
+  prefix?: { text: string; style?: FrameStyle; minWidth?: number };
+  /** box 右缘后缀（如用户块右侧 `┃`）；flatten 展平子内容后给每行补满到宽 + 挂此符 */
+  suffix?: { text: string; style?: FrameStyle; minWidth?: number };
+  /** box 左缘固定留白列数（如用户块左侧 gutter；每行在 prefix 之前补空白） */
+  padLeft?: number;
+  /** box 右缘固定留白列数（如用户块右侧 gutter；每行在 suffix 之前补空白） */
+  padRight?: number;
 }
 
 /** 叶子节点：不设 kind 判别字段（靠 text）；measure 原地写宽高 */

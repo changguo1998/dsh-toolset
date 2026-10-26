@@ -975,16 +975,22 @@ test("P1：活跃块只看最后一条用户输入——更早的未终态块不
   typeAndEnter(renderer, "第二条");
   adapter.push({ type: "turn-end", reason: "completed" }); // 第二条落终态
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" }); // 忙
-  const mark = (text: string): string =>
-    userBlockMark(renderer.lastRender, cols, text).sym;
+  // 直接读整行：文字改为贴左缘后，`histBody` 的固定列切片（按 rows=24 算）会落到文字右侧
+  const plain = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
+  const rowOf = (text: string): string | undefined =>
+    renderer.lastRender.find((l) => plain(l).includes(text));
+  const mark = (text: string): string => {
+    const row = rowOf(text);
+    if (row === undefined) return "";
+    const p = plain(row);
+    return p.slice(0, p.indexOf(text)).trimEnd().slice(-1);
+  };
   assert.equal(mark("第一条"), "?", "更早的未终态块保持 `?`（不因会话忙而变）");
   assert.equal(mark("第二条"), "✓", "最后一条已落终态 → 不再显示运行中");
   // 会话仍在忙时，更早的未终态块也不得闪 ●/○/△：该块行里除 `?` 外不应出现这些符号
-  const olderRow = renderer.lastRender.find((l) =>
-    histBody(l, cols).includes("第一条"),
-  );
+  const olderRow = rowOf("第一条");
   assert.ok(olderRow, "第一条所在行存在");
-  const olderText = histBody(olderRow!, cols);
+  const olderText = plain(olderRow!);
   assert.ok(
     !/[●○△]/.test(olderText),
     `更早的未终态块只带 ? 不带运行中/等待符号: ${JSON.stringify(olderText.trimEnd())}`,

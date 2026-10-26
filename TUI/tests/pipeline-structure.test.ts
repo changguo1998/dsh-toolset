@@ -54,18 +54,17 @@ test("structure：思考段落 → 紫前缀", () => {
   assert.equal(leaf.prefix!.style?.fg, "brightMagenta");
 });
 
-test("structure：用户块 → h [fill spacer, content]（toUser + userSym）", () => {
+test("structure：用户块 → box（v 正文 + 首行符号 + 右缘竖线）", () => {
   const u = parse(
     sec({ id: "1:1:0", user: {}, body: { source: "user", text: "问" } }),
   )[0] as Paragraph;
   const root = buildTrees([u], [], { userSym: () => ({ text: "?" }) })
     .session as Node;
   const block = root.children[0] as Node;
-  assert.equal(block.direction, "h");
-  assert.equal(block.children[0]!.widthStyle, "fill", "左 fill spacer");
-  const content = block.children[1] as Node;
-  assert.equal(content.direction, "h");
-  assert.equal(content.children[0]!.widthStyle, "fixed", "符号格 fixed");
+  assert.equal(block.direction, "v", "正文 v 容器");
+  assert.equal(block.children.length, 1, "单正文叶");
+  assert.equal(block.prefix?.text, "? ", "首行状态符号");
+  assert.equal(block.suffix?.text, "┃", "右缘竖线");
 });
 
 test("structure：回合头 → 叶带 tail（分隔线铺满）", () => {

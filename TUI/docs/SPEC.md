@@ -718,7 +718,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 - **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 3 个字符同列。
 - **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`，P3）**：留白只作用于**右缘贴着外框列**的文字——横向历史 pane **不留白**（用户块右缘 `┃` 紧贴内部分隔竖线）、横向活动 pane 与纵向两 pane 各让 1 列（`paneTextWidth(paneW, reserve)`：`frameGeometry.dialogueTextW/activityTextW`，`reserve` 只在右缘是外框列时为真；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态栏上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。回归：`tests/pane-text-margin.test.ts`。
-- **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块整体右对齐，左缘留白 `gutter−1` 列（`spacer(fill, min)`）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 3 字符所在列（正文区第 3 列）解得 **`gutter = 4`**。
+- **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块铺满正文区，左缘留白 `gutter−1` 列（box 的 `padLeft`，符号格占其中 2 列）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 3 字符所在列（正文区第 3 列）解得 **`gutter = 4`**。
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 4 时两侧文本上限对称各收 4 列（宽 60 时：正文区 39 列 → 回复正文 35 列、用户文本 35 列）。
 - **只作用于历史 pane**：这套左右对称收窄不落在回合区（活动 pane）——活动区内容左缘贴 pane 第 0 列（逐行的 `┃` 前缀或工具行自身缩进），右侧只让 `PANE_TEXT_MARGIN_COLS=1`，且行尾不补空格、不画右边框。故思考 / 非 final 正文的折行宽 = 活动 pane 文字宽 − 左竖线 1 列（默认比历史区正文宽 4 列；横向排列下两 pane 各自取宽）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）——该常量是**窄列降级用的最小左缘留白**，与 `DEFAULT_MESSAGE_GUTTER` 各自独立（仍为 6，不随本条改动）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 4。
@@ -726,8 +726,8 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 #### 多行用户输入 = 一块
 
-- **口径**：一次输入（含 `Ctrl+J` 显式换行）视为**一个块**——块内行首左对齐（各行共享左边界）、块宽 = 该块折行后最长行宽、整块右对齐（右缘 `┃` 贴正文区最后一列，短行右侧补白）。
-- **实现**：`appendStream` 对 `kind="user"` 不按 `\n` 拆行（整段 = 一条 buffer 行、一个 `seq`）；折行 / 补白交给渲染层——`fill.decorateRows` 按 `maxBodyW` 给每行右侧补白到块宽，故块内各行天然左对齐、`┃` 同列。配套：`queuedBlockRows`（排队消息同语义）；`surfaceToBuffer` 的 user 消息也不拆（恢复的历史输入同样一块）。
+- **口径**：一次输入（含 `Ctrl+J` 显式换行）视为**一个块**——块内行首左对齐（各行共享左边界）、块宽**铺满正文区**（不按最长行收缩：段落 / 列表 / 代码三类用户块左缘恒为 `gutter−1` 列、右缘 `┃` 恒贴正文区最后一列，短行右侧补白）。块宽随内容收缩会让不同宽度的块左缘参差（段落靠右、列表靠左），故取消。
+- **实现**：`appendStream` 对 `kind="user"` 不按 `\n` 拆行（整段 = 一条 buffer 行、一个 `seq`）；折行 / 补白交给渲染层——新管线 `structure.ts` 的 `userShell` 给三类用户块套同一 box 外壳（`padLeft` = `gutter−1` 扣符号 2 列与右缘竖线 1 列、首行 `prefix` 状态符号、每行 `suffix` `┃`），`flatten` 的 box 分支按缩窄后的正文宽折行并补满到 pane 宽，故块内各行天然左对齐、`┃` 同列。配套：`queuedBlockRows`（排队消息同语义）；`surfaceToBuffer` 的 user 消息也不拆（恢复的历史输入同样一块）。
 - **assistant 仍逐行拆**：正文流式逐行到达，且 fence 开合、尾部空行清理、回复组折叠都按 buffer 行粒度工作。
 - **回归**：`tests/layout4.test.ts`「多行输入为一块」+ `tests/app.test.ts`（`user-line` 保留换行 / `append` 仍拆行 / `surfaceToBuffer` user 整段保留）。
 

@@ -235,7 +235,7 @@ test("rowsToFrame：Row.segments → FrameRow.segments 1:1 保序", () => {
 
 // ---------------- §4 structure.toUser 直接单测 ----------------
 
-test("toUser：用户块 → h 容器 = [fill spacer, h(符号? + body 右缘竖线)]", () => {
+test("toUser：用户块 → box(v[body]) + 左留白 + 首行符号 + 右缘竖线", () => {
   const p: Paragraph = {
     kind: "paragraph",
     source: "user",
@@ -244,24 +244,20 @@ test("toUser：用户块 → h 容器 = [fill spacer, h(符号? + body 右缘竖
     text: [{ text: "hi" }],
   };
   const n = toUser(p, { text: "?" }, 4);
-  assert.equal(n.direction, "h");
-  assert.equal(n.children.length, 2, "fill spacer + content");
-  const spacer = n.children[0]!;
-  assert.equal(spacer.widthStyle, "fill", "左侧 fill spacer");
-  const content = n.children[1]!;
-  if (!isNode(content)) throw new Error("content 应为 Node");
-  assert.equal(content.direction, "h", "content 为 h(符号, body)");
-  // 无符号 → 仍铺满（fill spacer 恒在）
-  const n2 = toUser(p, undefined, 0);
-  assert.equal(n2.direction, "h", "无符号也铺满");
-  assert.equal(n2.children.length, 2);
-  // 符号格 fixed 2 列（有符号时）
-  const symCell = content.children[0]!;
-  assert.equal(symCell.widthStyle, "fixed");
-  assert.equal(symCell.widthFixed, 2);
+  assert.equal(n.direction, "v", "内容为 v 容器");
+  assert.equal(n.children.length, 1, "单个正文叶");
+  assert.equal(n.suffix?.text, "┃", "右缘竖线");
+  assert.equal(n.prefix?.text, "? ", "首行状态符号占 2 列");
+  // gutter=4、符号占 2 列 → 左留白 = 4-1-2 = 1（正文起于 gutter-1 列，┃ 贴右缘）
+  assert.equal(n.padLeft, 1, "左留白按 gutter 扣符号与竖线");
+  // 无符号：左留白 = gutter-1
+  const n2 = toUser(p, undefined, 4);
+  assert.equal(n2.padLeft, 3, "无符号时左留白 = gutter-1");
+  assert.equal(n2.prefix, undefined, "无符号不挂前缀");
+  assert.equal(n2.suffix?.text, "┃", "右缘竖线仍在");
 });
 
-test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户块以填充节点铺满", () => {
+test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户块外壳铺满并左留白", () => {
   const p = parse({
     id: "1:1:0",
     turn: 1,
@@ -277,8 +273,13 @@ test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户块以填�
   const root = session as Node;
   assert.equal(root.direction, "v");
   const userBlock = root.children[0]! as Node;
-  assert.equal(userBlock.direction, "h", "用户块为 h（含 fill）");
-  assert.equal(userBlock.children[0]!.widthStyle, "fill", "fill 铺满");
+  assert.equal(userBlock.suffix?.text, "┃", "右缘竖线透传");
+  assert.equal(userBlock.prefix?.text, "? ", "状态符号透传");
+  assert.equal(
+    userBlock.padLeft ?? 0,
+    0,
+    "gutter=3 扣符号 2 与竖线 1 → 左留白 0",
+  );
 });
 
 // ---------------- §5 measure.toolHeight 直接单测 ----------------

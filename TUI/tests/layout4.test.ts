@@ -1304,7 +1304,7 @@ test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
   }
 });
 
-test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，块内左对齐", () => {
+test("会话流：短用户消息块铺满宽度，左缘固定 gutter、右缘竖线贴历史区右缘", () => {
   let s = initialState();
   s = withUser(s, "你好");
   const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
@@ -1314,14 +1314,16 @@ test("会话流：短用户消息块整体靠右，右缘贴历史区右缘，�
   assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
   assert.equal(displayWidth(row), 40, "短消息整行铺满");
   const hc = histContent(row, 40);
-  assert.ok(
-    hc.trimEnd().endsWith("你好┃"),
-    "文本靠右（右缘预留焦点框列；末尾青色竖线）",
-  );
+  assert.ok(hc.trimEnd().endsWith("┃"), "右缘为青色竖线");
+  // 左缘固定：正文起于 gutter-1 列（块铺满宽度，不再随内容宽右推）
   assert.equal(
-    hc.trimEnd().indexOf("你好") + 3,
-    hc.trimEnd().length,
-    "块内结尾即 文本+竖线（内部左对齐、右缘竖线）",
+    hc.indexOf("你好"),
+    DEFAULT_MESSAGE_GUTTER - 1,
+    "正文左缘 = gutter-1（符号占左侧留白）",
+  );
+  assert.ok(
+    hc.trimEnd().indexOf("┃") > hc.indexOf("你好") + 1,
+    "短文本不顶满时竖线仍贴右缘（补白拉开，非紧跟文字）",
   );
 });
 
@@ -1610,15 +1612,15 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     bodyW + 1,
     `默认 gutter=4：正文(含左侧竖线) = 文字排版宽 − gutter + 1（右缘留文字留白 + 焦点框列）`,
   );
-  // 用户块整体靠右（右缘预留焦点框列）
+  // 用户块铺满宽度：右缘竖线贴历史区右缘（不随内容宽收缩）
   let u = initialState();
   u = withUser(u, "hi");
   const uf = buildFrame(u, { rows: 11, cols: 40 })
     .map((l) => strip(rowAnsi(l)))
     .find((l) => l.includes("hi"));
   assert.ok(
-    uf !== undefined && histContent(uf, 40).endsWith("hi┃"),
-    "用户块贴右缘（右缘为青色竖线）",
+    uf !== undefined && histContent(uf, 40).trimEnd().endsWith("┃"),
+    "用户块右缘为青色竖线",
   );
 });
 
@@ -1676,7 +1678,7 @@ test("交错布局：用户块平衡折行后各行等宽且右缘对齐（gutte
   assert.equal(new Set(ends).size, 1, `右缘对齐: ${JSON.stringify(ends)}`);
 });
 
-test("交错布局：多行输入为一块——块内行首左对齐、块宽 = 最长行、右缘竖线同列", () => {
+test("交错布局：多行输入为一块——块内行首左对齐、块铺满宽度、右缘竖线同列", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   const cols = 60;
   // 三行显式换行（最长行 24 列 < 上限 33 → 块不顶左边界，左缘由块宽决定）
@@ -1717,15 +1719,20 @@ test("交错布局：多行输入为一块——块内行首左对齐、块宽 =
     [barCol(rows[0]!), barCol(rows[0]!)],
     "块右缘竖线同列",
   );
-  // 块宽 = 最长行（24）+ 竖线 1 列 → 左缘 = 文字排版宽 − 25
+  // 块宽铺满 pane：正文各行行首固定在 gutter-1 列（与最长行无关），竖线贴右缘
   const textW = paneTextWidth(
     regionColumnWidth(metricsFor({ rows: 24, cols }).historyWidth),
     true,
   );
   assert.equal(
     lead(rows[2]!),
-    textW - 25,
-    "块宽取决于最长行（右对齐贴文字右缘）",
+    DEFAULT_MESSAGE_GUTTER - 1,
+    "正文左缘 = gutter-1（块铺满宽度，不随最长行右推）",
+  );
+  assert.equal(
+    barCol(rows[2]!),
+    textW - 1,
+    "右缘竖线贴文字右缘（块宽 = 文字排版宽）",
   );
 });
 

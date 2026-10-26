@@ -273,6 +273,33 @@ export function measure(
     return tree.height;
   }
   tree.width = w;
+  // box 外壳：prefix / suffix / 左右留白占列，子内容按缩窄后的宽测量（与 flatten 同口径）
+  if (tree.suffix !== undefined) {
+    const boxW = Math.max(
+      1,
+      w -
+        (tree.padLeft ?? 0) -
+        (tree.padRight ?? 0) -
+        prefixWidthOf(tree, opts.vw) -
+        suffixWidthOf(tree, opts.vw),
+    );
+    if (tree.code !== undefined)
+      tree.height = codeHeight(tree.code, Math.max(1, boxW - 1));
+    else if (tree.table !== undefined)
+      tree.height = tableHeight(tree.table, Math.max(1, boxW - 1));
+    else if (tree.tool !== undefined) tree.height = toolHeight(tree.tool, boxW);
+    else if (tree.direction === "h") {
+      let h = 0;
+      for (const child of tree.children)
+        h = Math.max(h, measure(child, boxW, opts));
+      tree.height = h;
+    } else {
+      let h = 0;
+      for (const child of tree.children) h += measure(child, boxW, opts);
+      tree.height = h;
+    }
+    return tree.height;
+  }
   if (tree.code !== undefined) {
     tree.height = codeHeight(tree.code, Math.max(1, w - 1));
     return tree.height;
