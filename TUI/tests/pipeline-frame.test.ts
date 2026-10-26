@@ -365,10 +365,11 @@ test("边界空行不带竖线：留白空行恒为裸空行（会话区与回�
   const blank = dialogue[userAt + 1];
   const reply = dialogue[userAt + 2];
   assert.ok(userAt >= 0 && blank !== undefined && reply !== undefined);
+  // Gap 补齐整行空格（fillWith " "）：不再是空串，但必须只有空白、不带竖线
   assert.equal(
-    texts(dialogue)[userAt + 1],
+    texts(dialogue)[userAt + 1]!.trim(),
     "",
-    "会话区边界空行不带竖线（裸空行）",
+    "会话区边界空行不带竖线（整行空白）",
   );
   assert.equal(
     texts(dialogue)[userAt]!.endsWith("┃"),
@@ -380,10 +381,14 @@ test("边界空行不带竖线：留白空行恒为裸空行（会话区与回�
     true,
     "下一行（正文首行）仍是带前导竖线的正文行",
   );
-  assert.deepEqual(
-    blank.segments,
-    [],
-    "边界空行不带任何段（无 prefix / suffix；reply 与它不同形）",
+  // Gap 补齐整行空格（fillWith " "）：段不再是空数组，但整行只有空白、无 prefix / suffix
+  assert.equal(
+    blank.segments
+      .map((seg) => seg.text)
+      .join("")
+      .trim(),
+    "",
+    "边界空行只有空白（无 prefix / suffix；reply 与它不同形）",
   );
 
   // ② 回合区「思考 ↔ 正文」：同上（正文非 final 才留回合区）
@@ -415,7 +420,15 @@ test("边界空行不带竖线：留白空行恒为裸空行（会话区与回�
     ["<step>", "┃（先想）", "", "┃中间正文"],
     "回合区边界空行不带竖线（裸空行）",
   );
-  assert.deepEqual(activity[2]!.segments, []);
+  // Gap 现在补齐整行空格（fillWith " "）：段不再是空数组，但整行只有空白
+  assert.equal(
+    activity[2]!.segments
+      .map((seg) => seg.text)
+      .join("")
+      .trim(),
+    "",
+    "回合区边界空行只有空白",
+  );
   // ③ 一侧是 step 头（无竖线）：仍为裸空行（不误挂）
   const twoSteps: BlockDelivery[] = [
     { kind: "step-start", turn: 1, step: 1, time: T },
@@ -442,10 +455,12 @@ test("边界空行不带竖线：留白空行恒为裸空行（会话区与回�
     row.segments.some((segment) => segment.text.includes("正文")),
   );
   assert.equal(bodyAt > 0, true);
-  assert.deepEqual(
-    stepped[bodyAt - 1]!.segments,
-    [],
-    "上一行是 step 头（无竖线）→ 空行保持裸空行",
+  assert.equal(
+    stepped[bodyAt - 1]!.segments.map((seg) => seg.text)
+      .join("")
+      .trim(),
+    "",
+    "上一行是 step 头（无竖线）→ 空行只有空白、不带竖线",
   );
 
   // ④ 两侧竖线都在行尾（steer 留白两侧都是用户块右缘竖线）：仍为裸空行
@@ -458,10 +473,12 @@ test("边界空行不带竖线：留白空行恒为裸空行（会话区与回�
     row.segments.some((segment) => segment.text.includes("插队")),
   );
   assert.equal(steerAt > 0, true);
-  assert.deepEqual(
-    steeredRows[steerAt - 1]!.segments,
-    [],
-    "下一行竖线在行尾 → 空行保持裸空行",
+  assert.equal(
+    steeredRows[steerAt - 1]!.segments.map((seg) => seg.text)
+      .join("")
+      .trim(),
+    "",
+    "下一行竖线在行尾 → 空行只有空白、不带竖线",
   );
 });
 

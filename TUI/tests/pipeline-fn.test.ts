@@ -299,10 +299,10 @@ test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户盒 h[space
   assert.equal(userBlock.suffix?.text, "┃", "右缘竖线透传");
   const [spacer, symCell, content] = userBlock.children as Node[];
   assert.equal(spacer!.widthMin, 2, "gutter=3 → spacer 保底 2 列");
-  assert.equal(
-    (symCell as unknown as { text: { text: string }[] }).text[0]!.text,
-    "?",
-    "状态符号透传",
-  );
+  // 符号格现在是 v 盒，符号在盒内叶上
+  const symLeaf = (
+    symCell as unknown as { children: { text: { text: string }[] }[] }
+  ).children[0]!;
+  assert.equal(symLeaf.text[0]!.text, "?", "状态符号透传");
   assert.equal(content!.direction, "v", "内容为 v");
 });

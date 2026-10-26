@@ -167,7 +167,9 @@ test("桥：Gap → dialogue 裸空行 kind=plain（空行唯一来源）", () =
   const kinds = r.rows.map((x) => x.kind);
   assert.ok(kinds.includes("plain"), "Gap 产出 plain 空行");
   const blankRow = r.rows.find((x) => x.kind === "plain")!;
-  assert.equal(blankRow.segments.length, 0, "空行无段");
+  // Gap 现在补齐成整行空格（fillWith " "）：不再是 0 段，但必须只有空白、没有竖线
+  const blankText = blankRow.segments.map((x) => x.text).join("");
+  assert.equal(blankText.trim(), "", "空行只有空白、无竖线");
 });
 
 test("桥：counts 与 keys 与 item 一一对应（滚动段键契约）", () => {
@@ -292,10 +294,10 @@ test("gutter 契约：助理正文右缘保留 gutter 空位（W - gutter）", (
       r.segments.reduce((m, x) => m + displayW(x.text), 0),
     ),
   );
-  // 左缘 chrome 竖线占 1 列（不计入正文宽）：无 gutter → 正文 = 宽 W，行总宽 = W+1；
-  // 有 gutter=g → 正文 = W−g，右缘留白恰为 g 列。
-  assert.equal(maxPlain, W + 1, "无 gutter 时正文顶满（+竖线共 contentW 列）");
-  assert.equal(maxWith, W - g + 1, `gutter=${g} 时正文右缘留白 = ${g} 列`);
+  // 外壳 prefix「┃ 」（2 列）计入行宽：无 gutter → 正文 = W−2；有 gutter=g → 正文 = W−2−g，
+  // 两种情形行总宽都恒为 W（右缘留白由 suffix 承担）。
+  assert.equal(maxPlain, W, "无 gutter 时行宽 = W（prefix 计入）");
+  assert.equal(maxWith, W, `gutter=${g} 时行宽仍 = W（右缘留白 = ${g} 列）`);
 });
 
 test("gutter 契约：用户块仍贴右缘（右缘不因 gutter 内缩）", () => {

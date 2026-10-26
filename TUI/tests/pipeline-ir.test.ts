@@ -375,9 +375,22 @@ test("structure：列表/引用/代码/表格载荷", () => {
   );
 });
 
-test("structure：Gap → 空 Leaf（空行唯一来源）", () => {
+test("structure：Gap → 空格补齐行盒（空行唯一来源）", () => {
   const trees = buildTrees([{ kind: "gap", key: "g" } as PaneItem], []);
-  const root = trees.session as { children: { text: unknown }[] };
+  const root = trees.session as {
+    children: {
+      direction?: string;
+      fillWith?: { text: string };
+      children: unknown[];
+    }[];
+  };
   assert.equal(root.children.length, 1);
-  assert.deepEqual(root.children[0]!.text, []);
+  const box = root.children[0]!;
+  assert.equal(box.fillWith?.text, " ", "以空格补满整行");
+  const inner = box.children[0] as { children: { text: unknown }[] };
+  assert.deepEqual(
+    (inner.children[0] as { text: unknown }).text,
+    [],
+    "内容为空叶",
+  );
 });

@@ -587,7 +587,12 @@ export function buildTrees(
   turn: readonly PaneItem[],
   opts?: StructureOptions,
 ): PaneTrees {
-  return { session: toPaneTree(session, opts), turn: toPaneTree(turn, opts) };
+  // 每棵树锁定自己的 pane 形状：会话区 prefix "┃ " + 右缘留白，活动区单竖线无留白
+  // （此前调用方漏传 pane 时活动区会被套成会话壳）
+  return {
+    session: toPaneTree(session, { ...opts, pane: "session" }),
+    turn: toPaneTree(turn, { ...opts, pane: "turn" }),
+  };
 }
 
 /** 兼容口径：Record<PaneId, PaneItem[]> → 含 session / turn 的树 */

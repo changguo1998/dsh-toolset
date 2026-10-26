@@ -131,7 +131,6 @@ test("flatten：tail 铺满（step/回合头）", () => {
   assert.equal(rowText, "╌╌ #1 ╌╌╌╌");
 });
 
-
 test("flattenAttributed：逐 item 行归属与整树摊平逐字节一致", () => {
   // v 根（pane 形态）：3 个 item = 正文叶 / Gap / 正文长叶
   const a = { text: [{ text: "a" }] } as Leaf;
@@ -224,7 +223,7 @@ test("flatten h：fill 子项补白到分配宽（右对齐完好）", () => {
   assert.ok(t.endsWith("z"), "body 在右（fill 左）");
 });
 
-test("flattenTable：左右缘竖线 + 列分隔 + 表头下横线（行结构）", () => {
+test("flattenTable：列分隔 + 表头下横线 + 列边界对齐（无左缘竖线）", () => {
   const para = (txt: string): Paragraph => ({
     kind: "paragraph",
     source: "assistant",
@@ -245,8 +244,13 @@ test("flattenTable：左右缘竖线 + 列分隔 + 表头下横线（行结构�
   const rows = flatten(node, 20, { vw: 20 });
   assert.ok(rows.length >= 2, "表头 + 横线 + 数据行");
   const headTxt = rows[0]!.segments.map((s) => s.text).join("");
-  assert.ok(headTxt.startsWith("┃"), "左缘竖线");
+  // 表格不自画来源竖线（交外层会话盒）；│ 是列分隔，grid pass 保证各行同列
   assert.ok(headTxt.includes("│"), "列分隔");
+  assert.ok(!headTxt.startsWith("┃"), "无左缘竖线");
+  const ruleTxt = rows[1]!.segments.map((s) => s.text).join("");
+  const bodyTxt = rows[2]!.segments.map((s) => s.text).join("");
+  assert.equal(ruleTxt.indexOf("╪"), headTxt.indexOf("│"), "交叉字落在列边界");
+  assert.equal(bodyTxt.indexOf("│"), headTxt.indexOf("│"), "数据行列边界对齐");
 });
 
 // ---------------- 最低层契约：measure h 分派（auto 内容宽 / fill 吃剩余） ----------------

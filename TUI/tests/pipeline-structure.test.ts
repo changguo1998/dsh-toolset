@@ -74,18 +74,24 @@ test("structure：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () =
   assert.equal(kids[2]!.direction, "v", "内容 v 容器");
 });
 
-test("structure：回合头 → 叶带 tail（分隔线铺满）", () => {
+test("structure：回合头 → 分隔头盒 h[文本盒, fill 盒(fillWith ╌)]", () => {
   const th: TurnHeader = { kind: "turn-header", key: "sep@1", turn: 1 };
   const root = sessTree([th]);
-  const leaf = root.children[0] as Leaf;
-  assert.equal(leaf.tail?.char, "╌", "回合头 tail ╌");
+  const box = root.children[0] as Node;
+  assert.equal(box.direction, "h", "分隔头为 h 盒");
+  const kids = box.children as Node[];
+  assert.equal(kids.length, 2, "文本盒 + 填充盒");
+  assert.equal(kids[1]!.fillWith?.text, "╌", "填充盒以 ╌ 铺满");
 });
 
-test("structure：Gap → 空 Leaf（空行唯一来源）", () => {
+test("structure：Gap → 空格补齐行盒（空行唯一来源）", () => {
   const gap: Gap = { kind: "gap", key: "blank@x" };
   const root = sessTree([gap]);
-  const leaf = root.children[0] as Leaf;
-  assert.deepEqual(leaf.text, [], "Gap 为空文本叶");
+  const box = root.children[0] as Node;
+  assert.equal(box.direction, "h", "Gap 为 h 盒");
+  assert.equal(box.fillWith?.text, " ", "以空格补满整行");
+  const inner = box.children[0] as Node;
+  assert.deepEqual((inner.children[0] as Leaf).text, [], "内容为空叶");
 });
 
 test("structure：代码块 → v 节点带 code 载荷", () => {
