@@ -211,8 +211,9 @@ export function splitOldSections(
       if (section !== undefined) out.push(section);
     }
   }
-  // 运行态 post-pass：最新一个「无终态、非排队、非续接」的用户节被标记为 active
-  // （正在被作答的用户块首行符号 ●/○）。从尾向前扫，只置最近者。
+  // 运行态 post-pass：活跃块只看「最后一条用户输入」——从尾向前找**最后一个用户节**，
+  // 仅当它未终态/未排队/未续接时置 active；否则（已有更晚用户节或最后节已终态）不置，
+  // 更早的未终态节永不跟随运行状态。
   for (let i = out.length - 1; i >= 0; i -= 1) {
     const s = out[i]!;
     const u = s.user;
@@ -222,7 +223,7 @@ export function splitOldSections(
       u.queued !== undefined ||
       u.steerContinued === true
     )
-      continue;
+      break;
     out[i] = { ...s, user: { ...u, active: true } };
     break;
   }
