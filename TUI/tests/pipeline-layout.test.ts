@@ -261,3 +261,33 @@ test("measure h 分派：短 balance 正文不吞整宽（用户块右对齐的�
   // 关键：content（符号2+正文"问"2+竖线1 = 5 内容）不应吞到 40，fill 应吃剩余
   assert.ok((fill.width ?? 0) >= 20, `fill 吃大部分剩余（实际 ${fill.width}）`);
 });
+
+test("measure h 分派：balance 多行正文取平衡宽（容器不按折行前最长行留白）", () => {
+  // 60 列文本在可用宽 55 下折成 2 行（54 + 6）；平衡宽 = ceil(60 / 2) = 30。
+  // 自然宽若仍取折行前最长行 54，容器会按 54 排版 → 右缘与平衡后的正文之间留 24 列空隙。
+  const body = {
+    text: [{ text: "甲".repeat(30) }],
+    balance: true as const,
+  } as Leaf;
+  const content: Node = { direction: "v", children: [body] };
+  const fill = {
+    text: [],
+    widthStyle: "fill" as const,
+    widthMin: 3,
+  } as Leaf;
+  const sym = {
+    text: [{ text: "✓ " }],
+    widthStyle: "fixed" as const,
+    widthFixed: 2,
+  } as Leaf;
+  const user: Node = { direction: "h", children: [fill, sym, content] };
+  measure(user, 60, { vw: 60 });
+  assert.equal(content.width, 30, "content 取平衡宽 30");
+  assert.equal(fill.width, 28, "fill 吃剩余（3 保底 + 25）");
+  const rows = flatten(content, content.width ?? 1, { vw: 60 });
+  assert.deepEqual(
+    rows.map((r) => r.segments.map((s) => s.text).join("").length),
+    [15, 15],
+    "两行各 15 个宽字符（平衡）",
+  );
+});

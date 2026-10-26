@@ -70,6 +70,9 @@ test("flatten：代码网格含行号列 + 行号与代码之间的列分隔（�
   // 代码块本身不画来源竖线（交外层会话盒）；┃ 是行号列与代码列之间的列分隔
   assert.ok(first.startsWith(" 1┃"), "行号列 + 列分隔 ┃");
   assert.ok(!first.startsWith("┃"), "无左缘竖线");
+  // 行号与代码之间的分隔线用默认前景色（不染 brightBlue）
+  const sepSeg = rows[0]!.segments.find((s) => s.text === "┃");
+  assert.equal(sepSeg?.style, undefined, "列分隔不着色（默认前景）");
 });
 
 test("flatten：表格网格 → 表头行含列分隔（│）", () => {
