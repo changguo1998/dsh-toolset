@@ -58,7 +58,7 @@ scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主�
 - `human`：`ctx.approval.request`，仅 `allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律视为未批准；
 - `semantic`：注入式 `audit` hook 的独立 run；缺 hook、或声明了 `outputSchema` 却没拿到 `structured`，一律 fail-closed 打回。
 
-不通过 → `rejectFrame` 打回重做（带反馈），达 `maxRetries = 3` 置 `failed`；`failed` 帧使父帧 join 失败，避免「局部失败被静默吞掉」。
+不通过 → `rejectFrame` 打回重做（带反馈），达 `maxRetries = 3` 置 `failed`。**失败向上传播（2026-10-27）**：父帧只在全部子帧 `done` 时才 join，子帧 `failed` 永远等不到 join，祖先会停在 `pending`——既不能再分解（已展开过）、根也非终态故不能开新一轮，就绪池空即卡死；因此 `failFrame` 沿 `parentId` 链把仍在进行中的祖先一并转 `failed`（各自过终态钩子回收现场），根进终态后自动获得「开新一轮」出口。
 
 ### 4. join 是逐级合取复核，不是「子帧全 done 就完事」
 

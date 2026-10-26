@@ -930,6 +930,27 @@ describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / �
     assert.equal(e.root().id, "root-2");
   });
 
+  it("子帧失败向上传播：祖先与根一起 failed，随后仍能开新一轮（不卡死）", async () => {
+    const e = mkEngine();
+    const d = await e.decompose("root", [
+      leafChild("c1", "做 C1", { "r-q": ["c1"] }, [mech("c1-q", "false")]),
+      leafChild("c2", "做 C2", { "r-q": ["c2"] }),
+    ]);
+    assert.ok(d.ok, JSON.stringify(d));
+    // c1 的机械验收恒失败 → 重试耗尽转 failed；c2 仍 pending，但根必须一并 failed
+    assert.ok(e.implement("c1", "产物").ok);
+    for (let i = 0; i < 3; i += 1) await e.stop("c1");
+    assert.equal(e.frames().get("c1")?.status, "failed");
+    assert.equal(e.frames().get("root")?.status, "failed", "根随子树失败一起终态");
+    assert.equal(e.isComplete(), false, "isComplete 只认 done（failed 不算完成）");
+    // 根终态 → 再分解走「开新一轮」，不会卡在已展开的旧根上
+    const round2 = await e.decompose("root", [
+      leafChild("c3", "做 C3", { "r-q": ["c3"] }),
+    ]);
+    assert.ok(round2.ok, `失败后仍应能开新一轮: ${JSON.stringify(round2)}`);
+    assert.equal(e.root().id, "root-2");
+  });
+
   it("根契约本身是叶子（needDecompose:false）→ 明确拒绝，不建轮", async () => {
     const e = mkEngine({ needDecompose: false });
     // 叶子根先自行跑完（implement + stop），此时根终态 → 再分解会走「开新一轮」分支

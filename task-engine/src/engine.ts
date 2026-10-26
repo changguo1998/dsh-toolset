@@ -780,17 +780,45 @@ export class TaskEngine {
     this.recompute();
     const f = this.tree.frames.get(frameId);
     if (f !== undefined && f.retryCount >= this.config.maxRetries) {
-      const notice = await this.terminalNotice(frameId, "failed");
-      this.append({
-        type: "plan/frame-failed",
-        frame: frameId,
-        ...(notice === undefined ? {} : { notice }),
-      });
-      this.recompute();
+      await this.failFrame(frameId);
     } else {
       // 打回后放回就绪池顶部等待重新处理（带反馈）
       this.pushPoolFront(frameId);
     }
+  }
+
+  /**
+   * 转 failed 并**向上传播**。
+   * 父帧只在全部子帧 done 时才被 join（tryJoinParent），子帧 failed 永远等不到 join →
+   * 祖先会停在 pending：既不能再分解（已展开过），根也非终态故不能开新一轮，就绪池空 = 卡死。
+   * 因此这里沿 parentId 链把仍在进行中的祖先一并转 failed（各自过终态钩子回收现场），
+   * 根进终态后自然获得「开新一轮」出口。
+   */
+  private async failFrame(frameId: FrameId): Promise<void> {
+    await this.markFailed(frameId);
+    let cursor = this.tree.frames.get(frameId)?.parentId ?? null;
+    while (cursor !== null) {
+      const parent = this.tree.frames.get(cursor);
+      if (
+        parent === undefined ||
+        parent.status === "done" ||
+        parent.status === "failed"
+      )
+        break;
+      await this.markFailed(cursor);
+      cursor = this.tree.frames.get(cursor)?.parentId ?? null;
+    }
+  }
+
+  /** 单帧落地 failed：先取终态注记（回收 worktree 等），再记事件并重算 */
+  private async markFailed(frameId: FrameId): Promise<void> {
+    const notice = await this.terminalNotice(frameId, "failed");
+    this.append({
+      type: "plan/frame-failed",
+      frame: frameId,
+      ...(notice === undefined ? {} : { notice }),
+    });
+    this.recompute();
   }
 
   /**

@@ -8,4 +8,10 @@
 
 ## 待办
 
+（当前无未完成项）
+
+## 记录
+
+> 2026-10-27 关闭：「子帧 failed 后整棵树卡死」已修（`failFrame` 失败向上传播，祖先与根一并 failed，根进终态后可开新一轮）；`npm test` 151 例全绿，追踪文档 `task-engine/docs/archived/2026-10-27-task-engine-failure-cascade.md`。
+
 （当前无未完成项；TUI 任务面板多轮标识已按落点移入 TUI，并已于 2026-10-05 完成归档——见 `TUI/docs/archived/2026-10-05-task-panel-rounds.md`）
