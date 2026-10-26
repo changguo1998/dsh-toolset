@@ -22,6 +22,7 @@ import { initialState, reduceState } from "../src/app/state.ts";
 import {
   sectionsFromScript,
   turnScript,
+  type ScriptStep,
 } from "./helpers/deliveriesFromScript.ts";
 
 test("集成：交付流 → 两 pane 内容 + counts/keys/userRows 结构一致", () => {
@@ -166,7 +167,7 @@ test("集成：多回合 → 会话区出现回合分隔、counts 仍一致、�
 
 test("集成：工具批进活动区（名字/结果行 kind 可读）", () => {
   let s = initialState(undefined, { activityPlacement: "vertical" });
-  const steps = [
+  const steps: ScriptStep[] = [
     { delivery: { kind: "turn-start", turn: 1 } },
     { delivery: { kind: "user", turn: 1, step: 0, text: "跑一下" } },
     {
