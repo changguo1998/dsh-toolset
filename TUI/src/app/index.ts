@@ -904,7 +904,8 @@ export class App {
     const topIdx = r.activityTopIdx ?? 0;
     const max = Math.max(0, r.activityMaxScroll);
     const cur = Math.max(0, Math.min(topIdx, max));
-    const target = Math.max(0, Math.min(cur + delta, max));
+    // 正 = 上滚（看更早）→ topIdx 减小（同 scrollDialogueBy: target = topIdx - delta）
+    const target = Math.max(0, Math.min(cur - delta, max));
     if (target >= max) {
       this.apply((s) =>
         reduceState(s, {

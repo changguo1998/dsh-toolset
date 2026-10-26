@@ -1823,6 +1823,7 @@ export function reduceState(state: AppState, action: StateAction): AppState {
                   (l) => l.kind !== "notice" && l.kind !== "tool",
                 ),
                 activityScroll: 0,
+                activityTop: null,
               }
             : {}),
         };
