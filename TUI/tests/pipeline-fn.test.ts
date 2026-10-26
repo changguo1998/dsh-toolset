@@ -235,7 +235,7 @@ test("rowsToFrame：Row.segments → FrameRow.segments 1:1 保序", () => {
 
 // ---------------- §4 structure.toUser 直接单测 ----------------
 
-test("toUser：用户块 → box(v[body]) + 左留白 + 首行符号 + 右缘竖线", () => {
+test("toUser：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () => {
   const p: Paragraph = {
     kind: "paragraph",
     source: "user",
@@ -244,20 +244,21 @@ test("toUser：用户块 → box(v[body]) + 左留白 + 首行符号 + 右缘竖
     text: [{ text: "hi" }],
   };
   const n = toUser(p, { text: "?" }, 4);
-  assert.equal(n.direction, "v", "内容为 v 容器");
-  assert.equal(n.children.length, 1, "单个正文叶");
+  assert.equal(n.direction, "h", "外壳为 h");
   assert.equal(n.suffix?.text, "┃", "右缘竖线");
-  assert.equal(n.prefix?.text, "? ", "首行状态符号占 2 列");
-  // gutter=4、符号占 2 列 → 左留白 = 4-1-2 = 1（正文起于 gutter-1 列，┃ 贴右缘）
-  assert.equal(n.padLeft, 1, "左留白按 gutter 扣符号与竖线");
-  // 无符号：左留白 = gutter-1
+  assert.equal(n.align, undefined, "无块级对齐（补白只由 spacer 承担）");
+  const [spacer, symCell, content] = n.children as Node[];
+  assert.equal(spacer!.widthStyle, "fill", "首子项为 spacer(fill)");
+  assert.equal(spacer!.widthMin, 3, "spacer 保底 gutter-1 列");
+  assert.equal(symCell!.widthFixed, 2, "状态符号格 2 列");
+  assert.equal(content!.direction, "v", "内容为 v 容器");
+  // 无符号：只剩 spacer + 内容
   const n2 = toUser(p, undefined, 4);
-  assert.equal(n2.padLeft, 3, "无符号时左留白 = gutter-1");
-  assert.equal(n2.prefix, undefined, "无符号不挂前缀");
+  assert.equal(n2.children.length, 2, "无符号时无符号格");
   assert.equal(n2.suffix?.text, "┃", "右缘竖线仍在");
 });
 
-test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户块外壳铺满并左留白", () => {
+test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户盒 h[spacer, 符号, 内容v]", () => {
   const p = parse({
     id: "1:1:0",
     turn: 1,
@@ -273,13 +274,16 @@ test("buildTrees(StructureOptions)：userSym/gutter 透传 → 用户块外壳�
   const root = session as Node;
   assert.equal(root.direction, "v");
   const userBlock = root.children[0]! as Node;
+  assert.equal(userBlock.direction, "h", "用户盒为 h");
   assert.equal(userBlock.suffix?.text, "┃", "右缘竖线透传");
-  assert.equal(userBlock.prefix?.text, "? ", "状态符号透传");
+  const [spacer, symCell, content] = userBlock.children as Node[];
+  assert.equal(spacer!.widthMin, 2, "gutter=3 → spacer 保底 2 列");
   assert.equal(
-    userBlock.padLeft ?? 0,
-    0,
-    "gutter=3 扣符号 2 与竖线 1 → 左留白 0",
+    (symCell as unknown as { text: { text: string }[] }).text[0]!.text,
+    "?",
+    "状态符号透传",
   );
+  assert.equal(content!.direction, "v", "内容为 v");
 });
 
 // ---------------- §5 measure.toolHeight 直接单测 ----------------

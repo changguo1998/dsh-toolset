@@ -1304,7 +1304,7 @@ test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
   }
 });
 
-test("会话流：短用户消息块铺满宽度，左缘固定 gutter、右缘竖线贴历史区右缘", () => {
+test("会话流：短用户消息为右对齐收缩块，右缘竖线贴历史区右缘", () => {
   let s = initialState();
   s = withUser(s, "你好");
   const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
@@ -1315,15 +1315,15 @@ test("会话流：短用户消息块铺满宽度，左缘固定 gutter、右缘�
   assert.equal(displayWidth(row), 40, "短消息整行铺满");
   const hc = histContent(row, 40);
   assert.ok(hc.trimEnd().endsWith("┃"), "右缘为青色竖线");
-  // 左缘固定：正文起于 gutter-1 列（块铺满宽度，不再随内容宽右推）
-  assert.equal(
-    hc.indexOf("你好"),
-    DEFAULT_MESSAGE_GUTTER - 1,
-    "正文左缘 = gutter-1（符号占左侧留白）",
-  );
+  // 收缩块：块宽 = 符号 2 + 正文 4 + 竖线 1，整块靠右 → 正文左侧留白由面板宽决定
   assert.ok(
-    hc.trimEnd().indexOf("┃") > hc.indexOf("你好") + 1,
-    "短文本不顶满时竖线仍贴右缘（补白拉开，非紧跟文字）",
+    hc.indexOf("你好") > DEFAULT_MESSAGE_GUTTER,
+    "收缩块整体靠右（正文左缘远离 gutter）",
+  );
+  assert.equal(
+    hc.trimEnd().indexOf("┃"),
+    hc.trimEnd().length - 1,
+    "竖线贴块右缘（即贴面板右缘）",
   );
 });
 
@@ -1719,20 +1719,19 @@ test("交错布局：多行输入为一块——块内行首左对齐、块铺�
     [barCol(rows[0]!), barCol(rows[0]!)],
     "块右缘竖线同列",
   );
-  // 块宽铺满 pane：正文各行行首固定在 gutter-1 列（与最长行无关），竖线贴右缘
+  // 收缩块：块宽 = 最长行 + 符号 2 + 竖线 1，整块靠右 → 正文左缘随最长行推左，竖线贴右缘
   const textW = paneTextWidth(
     regionColumnWidth(metricsFor({ rows: 24, cols }).historyWidth),
     true,
   );
-  assert.equal(
-    lead(rows[2]!),
-    DEFAULT_MESSAGE_GUTTER - 1,
-    "正文左缘 = gutter-1（块铺满宽度，不随最长行右推）",
+  assert.ok(
+    lead(rows[2]!) > DEFAULT_MESSAGE_GUTTER,
+    "收缩块整体靠右（正文左缘远离 gutter）",
   );
   assert.equal(
     barCol(rows[2]!),
     textW - 1,
-    "右缘竖线贴文字右缘（块宽 = 文字排版宽）",
+    "右缘竖线贴文字右缘（块宽 = 最长行 + 符号 + 竖线）",
   );
 });
 
@@ -1766,10 +1765,9 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
     1,
     `正文各行同列: ${bodyCols.join(",")}`,
   );
-  assert.equal(
-    bodyCols[0]!,
-    DEFAULT_MESSAGE_GUTTER - 1,
-    "正文左缘 = gutter−1（不受符号影响）",
+  assert.ok(
+    bodyCols[0]! > DEFAULT_MESSAGE_GUTTER,
+    "收缩块整体靠右（正文左缘远离 gutter）",
   );
   // 符号落在正文左侧 2 列（左侧留白内），且只在块首行出现
   assert.equal(colOf(rows[0]!, SYM_RE), bodyCols[0]! - 2, "符号占留白 2 列");
@@ -1878,37 +1876,9 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
   assert.ok(rowAnsi(raw[thinkIdx]!).includes("\x1b[1m"), "thinking 粗体 SGR");
 });
 
-test("markdown 列表长项折行：悬挂缩进对齐正文、续行不顶满", () => {
-  // 单元：wrapAssistantLine——首行前缀 + 续行同宽空格缩进（正文对齐、不重复前缀）
-  const unit = (input: string, width: number, prefixWidth: number): void => {
-    const rows = wrapAssistantLine(input, width);
-    assert.ok(rows.length >= 2, "长列表项应折出多行");
-    const first = rows[0]!.map((s) => s.text).join("");
-    assert.ok(
-      !first.startsWith(" "),
-      "首行以前缀开头（无前导缩进）: " + JSON.stringify(first),
-    );
-    for (const row of rows.slice(1)) {
-      const text = row.map((s) => s.text).join("");
-      assert.ok(
-        text.startsWith(" ".repeat(prefixWidth)),
-        `续行缩进 ${prefixWidth} 列对齐正文: ${JSON.stringify(text.slice(0, prefixWidth + 4))}`,
-      );
-      assert.ok(!text.startsWith("• "), "续行不重复子弹前缀");
-      assert.ok(
-        displayWidth(text) <= width,
-        `续行总宽不超 ${width}: ${JSON.stringify(text)}`,
-      );
-    }
-  };
-  // 无序 •（2 列）/ 有序 1. 与 10. + 全角数字前缀（3/4 列）/ 任务 [x] [ ]（4 列）
-  unit("- ".concat("标".repeat(60)), 20, 2);
-  unit("1. ".concat("标".repeat(60)), 22, 3);
-  unit("10. ".concat("标".repeat(60)), 23, 4);
-  unit("- [x] ".concat("标".repeat(60)), 24, 4);
-  unit("- [ ] ".concat("标".repeat(60)), 24, 4);
-  // 集成：对话区真实渲染——续行在 assistant 左竖线（U+2503）后缩进到正文列
-  // （不顶满第一列）。竖线为 UI 既有装饰字符，此处用码点转义书写。
+test("markdown 列表长项折行：续行不加缩进", () => {
+  // 集成：对话区真实渲染——续行在 assistant 左竖线之后直接接排，不留悬挂缩进
+  // （竖线为 UI 既有装饰字符，此处用码点转义书写）。
   let s = initialState();
   s = withText(s, "- ".concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(3)) + "\n");
   const raw = buildFrame(s, { rows: 24, cols: 80 });
@@ -1916,17 +1886,13 @@ test("markdown 列表长项折行：悬挂缩进对齐正文、续行不顶满",
     .map((l) => stripAnsi(rowText(l)))
     .filter((l) => l.includes("ABCDEFG"));
   assert.ok(lines.length >= 2, "列表项在对话区折出多行");
-  const body = (t: string): string => {
-    const i = t.indexOf("\u2503");
-    return i >= 0 ? t.slice(i + 1) : t;
-  };
-  const cont0 = body(lines[0]!);
-  const cont1 = body(lines[1]!);
+  // 取历史区正文段：最后一个框线竖线 `│` 之后；首行正文段再越过左缘 `┃`
+  const body = (t: string): string => t.slice(t.lastIndexOf("\u2502") + 1);
+  const cont0 = body(lines[0]!).replace(/^\u2503/, "");
+  // 续行没有竖线段，但 chrome 列仍占位 1 列；去掉这一列后正文应顶格（无悬挂缩进）
+  const cont1 = body(lines[1]!).slice(1);
   assert.ok(cont0.startsWith("• "), "首行子弹前缀: " + JSON.stringify(cont0));
-  assert.ok(
-    cont1.startsWith("  ") && !cont1.startsWith("• "),
-    "续行悬挂缩进对齐正文: " + JSON.stringify(cont1),
-  );
+  assert.ok(!cont1.startsWith(" "), "续行不加缩进: " + JSON.stringify(cont1));
 });
 
 // ===== 阶段 2：usage 状态栏槽位 + 工具行/notice tone 着色 =====

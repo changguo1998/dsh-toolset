@@ -407,8 +407,11 @@ test("边界空行不带竖线：留白空行恒为裸空行（会话区与回�
     },
   ];
   const activity = content(midTurn).activity;
+  // 正文行后不足整宽的部分补空格留白（右缘留空），空行本身不带任何段
   assert.deepEqual(
-    texts(activity).map((text) => text.replace(/^╌+.*╌+$/, "<step>")),
+    texts(activity).map((text) =>
+      text.replace(/^╌+.*╌+$/, "<step>").replace(/\s+$/, ""),
+    ),
     ["<step>", "┃（先想）", "", "┃中间正文"],
     "回合区边界空行不带竖线（裸空行）",
   );

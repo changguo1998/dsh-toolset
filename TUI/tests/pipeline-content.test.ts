@@ -292,8 +292,8 @@ test("gutter 契约：助理正文右缘保留 gutter 空位（W - gutter）", (
       r.segments.reduce((m, x) => m + displayW(x.text), 0),
     ),
   );
-  // 左缘 chrome 竖线占 1 列（不计入正文宽）：无 gutter → 正文 = 宽 W，行总宽 = W+1
-  // （= 区域宽 contentW）；有 gutter=g → 正文 = W−g，右缘留白恰为 g 列。
+  // 左缘 chrome 竖线占 1 列（不计入正文宽）：无 gutter → 正文 = 宽 W，行总宽 = W+1；
+  // 有 gutter=g → 正文 = W−g，右缘留白恰为 g 列。
   assert.equal(maxPlain, W + 1, "无 gutter 时正文顶满（+竖线共 contentW 列）");
   assert.equal(maxWith, W - g + 1, `gutter=${g} 时正文右缘留白 = ${g} 列`);
 });

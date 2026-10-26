@@ -139,7 +139,12 @@ function naturalHWidth(
     }
     return Math.min(budget, fixedSum + autoMax);
   }
-  return budget;
+  // v 容器自然宽 = 子项自然宽的最大值（子项同宽，取最宽者）
+  let widest = 0;
+  for (const sub of child.children) {
+    widest = Math.max(widest, naturalHWidth(sub, budget, opts));
+  }
+  return Math.min(budget, Math.max(1, widest));
 }
 
 /** 代码块行数模型：行号列 + 每物理行软折行（与 flatten 同源） */
@@ -273,15 +278,15 @@ export function measure(
     return tree.height;
   }
   tree.width = w;
-  // box 外壳：prefix / suffix / 左右留白占列，子内容按缩窄后的宽测量（与 flatten 同口径）
-  if (tree.suffix !== undefined) {
+  // 带 prefix / suffix 的 Node：符号占列，子项按缩窄后的宽测量（与 flatten 同口径）。
+  // 左缘 chrome 列（对话/session 面板竖线）不吃正文宽。
+  if (tree.prefix !== undefined || tree.suffix !== undefined) {
     const boxW = Math.max(
       1,
       w -
-        (tree.padLeft ?? 0) -
-        (tree.padRight ?? 0) -
-        prefixWidthOf(tree, opts.vw) -
-        suffixWidthOf(tree, opts.vw),
+        (tree.prefixChrome === true ? 0 : prefixWidthOf(tree, opts.vw)) -
+        suffixWidthOf(tree, opts.vw) -
+        (tree.rightGutter ?? 0),
     );
     if (tree.code !== undefined)
       tree.height = codeHeight(tree.code, Math.max(1, boxW - 1));
@@ -289,10 +294,8 @@ export function measure(
       tree.height = tableHeight(tree.table, Math.max(1, boxW - 1));
     else if (tree.tool !== undefined) tree.height = toolHeight(tree.tool, boxW);
     else if (tree.direction === "h") {
-      let h = 0;
-      for (const child of tree.children)
-        h = Math.max(h, measure(child, boxW, opts));
-      tree.height = h;
+      // h：按 h 的 fixed/auto/fill 规则在缩窄后的 boxW 内分配（不能把 boxW 平铺给每个子项）
+      tree.height = measureH(tree, boxW, opts);
     } else {
       let h = 0;
       for (const child of tree.children) h += measure(child, boxW, opts);
@@ -312,55 +315,61 @@ export function measure(
     tree.height = toolHeight(tree.tool, w);
     return tree.height;
   }
-  if (tree.direction === "h") {
-    // h：固定宽子项先定值；其余按「fill 占剩余、auto 占自然」分派，高 = max 子高。
-    // 与旧 measure 同口径：fixed > auto > fill（fill 只吃固定/自然之后剩余，不压 auto）。
-    const fixed = new Map<Node | Leaf, number>();
-    const autos: (Node | Leaf)[] = [];
-    const fills: (Node | Leaf)[] = [];
-    for (const child of tree.children) {
-      const style = child.widthStyle ?? "auto";
-      if (style === "fixed" || (child.widthFixed ?? 0) > 0) {
-        fixed.set(child, Math.max(1, child.widthFixed ?? 1));
-      } else if (style === "fill") {
-        fills.push(child);
-      } else {
-        autos.push(child);
-      }
-    }
-    let fixedSum = 0;
-    for (const cw of fixed.values()) fixedSum += cw;
-    // auto 自然宽：文本叶 = min(展示宽 + 前缀/后缀, 剩余)；带 balance 的叶取剩余（尽力均摊）
-    let remaining = Math.max(0, w - fixedSum);
-    const autoW = new Map<Node | Leaf, number>();
-    for (const child of autos) {
-      const natural = naturalHWidth(child, remaining, opts);
-      autoW.set(child, Math.max(1, Math.min(natural, Math.max(1, remaining))));
-      remaining = Math.max(0, remaining - autoW.get(child)!);
-    }
-    // fill：均分剩余（不止一个则平摊）
-    const fillW = new Map<Node | Leaf, number>();
-    if (fills.length > 0 && remaining > 0) {
-      const share = Math.floor(remaining / fills.length);
-      let carry = remaining - share * fills.length;
-      for (const child of fills) {
-        const w2 = Math.max(child.widthMin ?? 0, share + (carry > 0 ? 1 : 0));
-        carry -= carry > 0 ? 1 : 0;
-        fillW.set(child, Math.max(1, w2));
-      }
-    }
-    let h = 0;
-    for (const [child, cw] of fixed) h = Math.max(h, measure(child, cw, opts));
-    for (const child of autos)
-      h = Math.max(h, measure(child, autoW.get(child) ?? 1, opts));
-    for (const child of fills)
-      h = Math.max(h, measure(child, fillW.get(child) ?? 1, opts));
-    tree.height = h;
-    return h;
-  }
+  if (tree.direction === "h") return measureH(tree, w, opts);
   // v：子项同宽，高求和
   let h = 0;
   for (const child of tree.children) h += measure(child, w, opts);
+  tree.height = h;
+  return h;
+}
+
+/** h 容器测量：fixed 先定值 → auto 取自然宽 → fill 均分剩余；返回最大子高 */
+function measureH(tree: Node, w: number, opts: MeasureOptions): number {
+  const fixed = new Map<Node | Leaf, number>();
+  const autos: (Node | Leaf)[] = [];
+  const fills: (Node | Leaf)[] = [];
+  for (const child of tree.children) {
+    const style = child.widthStyle ?? "auto";
+    if (style === "fixed" || (child.widthFixed ?? 0) > 0) {
+      fixed.set(child, Math.max(1, child.widthFixed ?? 1));
+    } else if (style === "fill") {
+      fills.push(child);
+    } else {
+      autos.push(child);
+    }
+  }
+  let fixedSum = 0;
+  for (const cw of fixed.values()) fixedSum += cw;
+  // fill 的 widthMin 是先占位的保底：auto 只能分配 fixed 与 fill 保底之外的剩余列，
+  // 否则 auto 的自然宽会连同保底一起吃掉，合计超过容器宽（用户块正文曾因此超 2 列）
+  const fillMin = fills.reduce((a, c) => a + Math.max(0, c.widthMin ?? 0), 0);
+  // auto 自然宽：文本叶 = min(展示宽 + 前缀/后缀, 剩余)；带 balance 的叶取剩余（尽力均摊）
+  let remaining = Math.max(0, w - fixedSum - fillMin);
+  const autoW = new Map<Node | Leaf, number>();
+  for (const child of autos) {
+    const natural = naturalHWidth(child, remaining, opts);
+    autoW.set(child, Math.max(1, Math.min(natural, Math.max(1, remaining))));
+    remaining = Math.max(0, remaining - autoW.get(child)!);
+  }
+  // 有 fill 保底时，auto 分完后把保底列加回到可分配空间（fill 要吃「剩余 + 保底」）
+  const fillSpace = Math.max(0, remaining);
+  // fill：各给 widthMin 保底；剩余列给**第一个** fill（左侧 spacer 吃剩余 → 内容贴右）。
+  const fillW = new Map<Node | Leaf, number>();
+  if (fills.length > 0) {
+    const mins = fills.map((c) => Math.max(0, c.widthMin ?? 0));
+    const minSum = mins.reduce((a, b) => a + b, 0);
+    const rest = Math.max(0, fillSpace);
+    fills.forEach((child, idx) => {
+      const first = idx === 0;
+      fillW.set(child, Math.max(1, (mins[idx] ?? 0) + (first ? rest : 0)));
+    });
+  }
+  let h = 0;
+  for (const [child, cw] of fixed) h = Math.max(h, measure(child, cw, opts));
+  for (const child of autos)
+    h = Math.max(h, measure(child, autoW.get(child) ?? 1, opts));
+  for (const child of fills)
+    h = Math.max(h, measure(child, fillW.get(child) ?? 1, opts));
   tree.height = h;
   return h;
 }

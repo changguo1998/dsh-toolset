@@ -700,6 +700,20 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 
 **阶段 3 清完（0 fail）**：`ec4b548` 活动(回合)区滚动改用节键锚定(镜像对话区)——上下=1 行、PgUp/PgDn 移一个 Step(会话区整 Turn/回合区整 Step 等级错开)、Home 一次到顶/二次无操作、End 回底，`activityTop` 顶键跨扩窗稳定；滚动独立按锚定语义转绿（内容随历史窗口从上方长出、空白被填正常，原有内容行底部逐字节不位移）。`8a28d5c` 修正滚动方向 + turn-begin 重置锚点，活动区滚动测试按新语义转绿。`8891446` 修缓存首帧跨 pane 清光 + 会话边界全量重置，c5 断言改「扩窗同宽幂等零重排」。`d2a05fa` 段D 助手对齐新链稳定键格式（contentIdentity/contentSeq 改匹配数字内容键、重放首回合 step 位移钉住），段D×2 转绿。**全量 suite 1884/1884 通过、0 fail、check 绿、工作区干净。**
 
+### 阶段 4（提前）：§4 结构转换函数按类型重写（2026-10-26）
+
+现状：§4 的 10 个类型级转换函数收敛为一类型一函数，Block → 纯 Box 嵌套；同时清掉两处结构性缺陷。
+
+- **死循环（阻塞项）**：`groupKeyOf` 返回 `{ source, section }` 对象字面量却用 `===` 比较——两次调用永不相等，收集循环 `j` 不前进、`i = j - 1` 让外层原地打转 → 死循环 + 无界 push（实测：单条带 `section` 的 user 项 1.3s 打满 512MB；真实 3585 节会话 OOM 于 `buildTrees`）。改为值语义字符串键 `source + "\u0000" + section`。
+- **一行一叶**：新增 `splitTextLines` / `textNode`——段落文本按 `\n` 切物理行，单行产 `Leaf`、多行产 `v` 容器（一行一叶）。叶子内不再含换行，measure / flatten 不必再走 `wrapLeaf` 的物理行分支。
+- **递归不丢结构**：`toQuote` / `toList` 不再 `as Paragraph[]` 强转——非文本子块经 `blockNode` 递归，嵌套列表 / 引用 / 代码按自身类型成节点。
+- **收敛与清理**：`toUserListContent` 并入 `toList`（两者仅差一次拷贝）；删死代码 `toUserBlock`（早前外壳，已被 `toUserBox` 取代）；`paragraphLeaf` 走 `textNode`。
+- **口径保持**：列表 / 引用续行**不加悬挂缩进**（与 `layout4`「markdown 列表长项折行：续行不加缩进」一致，竖线 chrome 列之后正文顶格）；`Code` / `Table` / `ToolBatch` 继续作载荷节点（§5/§6 展开），本次未动。
+
+evidence：`npm run check` 全绿；`npm run build` 通过；`pipeline-structure` / `pipeline-ir` / `pipeline-layout` 35 例全绿（改动前 `pipeline-structure` 直接 OOM）；全量 1885 例 **1875 pass / 10 fail**。
+
+**剩余 10 fail 全在 §6 盒路径（非 §4，属未提交的外壳改造）**：① box 的 `prefix` 只在首行画、续行补空格 → 竖线断（8 例 focus-frame 基线期望逐行 `┃`；2 例 B3 期望续行无前导空格）；② box 每行都补白到 `contentW` → 多尾随空格（B3 两例、基线 w60）。修法方向：`prefix` 逐行绘制、仅 `align=right/center` 或带 `suffix` 时补尾随白——待下一轮处理（用户裁定：先提交 §4）。
+
 ## 收尾
 
 （待关闭时填写。）

@@ -148,7 +148,15 @@ export function parse(section: Section): Block[] {
         // 运行时态 user 透传留 P1 符号/排队竖线素材
         const trimmed = body.text.replace(/(?:\r?\n)+$/, "");
         if (trimmed !== "")
-          blocks.push(...classifyUserText(source, trimmed, idOf, section.user));
+          blocks.push(
+            ...classifyUserText(
+              source,
+              trimmed,
+              idOf,
+              section.user,
+              section.id,
+            ),
+          );
       } else {
         // notice/shell/工具辅助行: 整段原文、按 tone 着色、尾部换行吸收
         const trimmed = body.text.replace(/(?:\r?\n)+$/, "");
@@ -181,7 +189,12 @@ export function parse(section: Section): Block[] {
       blocks.push(...dropTrailingEmpty(mb));
     }
   }
-  return withSeqs(blocks, section.seqs);
+  // 所有块统一补所属 section（用户块 / 正文块 / 思考块一致，structure 据此把同一节的块
+  // 收进一个外壳，左缘竖线只挂一次）
+  return withSeqs(
+    blocks.map((b) => ({ ...b, section: section.id }) as Block),
+    section.seqs,
+  );
 }
 
 /**
@@ -195,6 +208,7 @@ function classifyUserText(
   text: string,
   idOf: () => string,
   user: UserRowInfo | undefined,
+  section: string,
 ): Block[] {
   const lines = linesOf(text);
   const N = lines.length;
@@ -208,6 +222,7 @@ function classifyUserText(
     freezeBlock<Paragraph>({
       kind: "paragraph",
       source,
+      section,
       id: idOf(),
       span,
       text: text0,
@@ -235,6 +250,7 @@ function classifyUserText(
         freezeBlock<Code>({
           kind: "code",
           source,
+          section,
           id: idOf(),
           span: spanOf(i, closed ? j : N - 1),
           lang: fence[2] ?? "",
@@ -280,6 +296,7 @@ function classifyUserText(
           freezeBlock<List>({
             kind: "list",
             source,
+            section,
             id: idOf(),
             span: spanOf(startL, i - 1),
             ordered: false,

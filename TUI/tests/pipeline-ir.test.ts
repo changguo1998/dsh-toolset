@@ -330,7 +330,23 @@ test("structure：列表/引用/代码/表格载荷", () => {
       prefix?: { text: string };
     })[];
   };
-  const kinds = turnRoot.children.map((c) =>
+  // 同一节的块收进外层 h 盒（左缘竖线挂一层），载荷在盒内内容 v 里
+  const boxes = turnRoot.children as unknown as {
+    children: {
+      code?: unknown;
+      table?: unknown;
+      direction?: string;
+      children: { code?: unknown; table?: unknown; direction?: string }[];
+    }[];
+  }[];
+  const items = boxes
+    .flatMap((b) => (Array.isArray(b.children) ? b.children : []))
+    .flatMap((c) =>
+      Array.isArray((c as { children?: unknown[] }).children)
+        ? [...((c as { children: unknown[] }).children as never[]), c]
+        : [c],
+    );
+  const kinds = items.map((c) =>
     c.code !== undefined
       ? "code"
       : c.table !== undefined
@@ -339,10 +355,16 @@ test("structure：列表/引用/代码/表格载荷", () => {
           ? "list-or-quote"
           : "leaf",
   );
-  // 列表 / 引用是 v 容器；代码 / 表格是带载荷的 v 节点
-  assert.ok(kinds.includes("list-or-quote"));
-  assert.ok(turnRoot.children.some((c) => c.code !== undefined));
-  assert.ok(turnRoot.children.some((c) => c.table !== undefined));
+  // 列表 / 引用是 v 容器；代码 / 表格是带载荷的节点
+  assert.ok(kinds.includes("list-or-quote"), `含列表/引用: ${kinds.join(",")}`);
+  assert.ok(
+    items.some((c) => c.code !== undefined),
+    "含代码载荷",
+  );
+  assert.ok(
+    items.some((c) => c.table !== undefined),
+    "含表格载荷",
+  );
 });
 
 test("structure：Gap → 空 Leaf（空行唯一来源）", () => {

@@ -30,7 +30,7 @@ function sessTree(items: PaneItem[], opts?: Parameters<typeof buildTrees>[2]) {
   return buildTrees(items, [], opts).session as Node;
 }
 
-test("structure：正文段落 → 叶带左缘竖线前缀（蓝）", () => {
+test("structure：正文段落 → 外层 h 带左缘竖线前缀（蓝）", () => {
   const b = parse(
     sec({
       id: "1:1:0",
@@ -40,31 +40,38 @@ test("structure：正文段落 → 叶带左缘竖线前缀（蓝）", () => {
   )[0]!;
   const root = sessTree([b]);
   assert.equal(root.direction, "v");
-  const child = root.children[0]!;
-  assert.ok(isNode(child) === false, "段落为叶");
-  const leaf = child as Leaf;
-  assert.ok(leaf.prefix, "带前缀");
-  assert.equal(leaf.prefix!.style?.fg, "brightBlue");
+  const box = root.children[0]!;
+  assert.ok(isNode(box), "整节为一个 h 盒");
+  assert.equal(box.direction, "h");
+  assert.ok(box.prefix, "盒带前缀");
+  assert.equal(box.prefix!.style?.fg, "brightBlue");
+  const content = box.children[0]! as Node;
+  assert.equal(content.direction, "v", "盒内为内容 v");
+  assert.equal(isNode(content.children[0]!), false, "内容里是段落叶");
 });
 
 test("structure：思考段落 → 紫前缀", () => {
   const r = parse(sec({ id: "1:1:0", reasoning: "想" }))[0]!;
   const root = sessTree([r]);
-  const leaf = root.children[0] as Leaf;
-  assert.equal(leaf.prefix!.style?.fg, "brightMagenta");
+  const box = root.children[0] as Node;
+  assert.equal(box.direction, "h", "思考也走外层盒");
+  assert.equal(box.prefix!.style?.fg, "brightMagenta");
 });
 
-test("structure：用户块 → box（v 正文 + 首行符号 + 右缘竖线）", () => {
+test("structure：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () => {
   const u = parse(
     sec({ id: "1:1:0", user: {}, body: { source: "user", text: "问" } }),
   )[0] as Paragraph;
   const root = buildTrees([u], [], { userSym: () => ({ text: "?" }) })
     .session as Node;
   const block = root.children[0] as Node;
-  assert.equal(block.direction, "v", "正文 v 容器");
-  assert.equal(block.children.length, 1, "单正文叶");
-  assert.equal(block.prefix?.text, "? ", "首行状态符号");
+  assert.equal(block.direction, "h", "外壳为 h");
   assert.equal(block.suffix?.text, "┃", "右缘竖线");
+  const kids = block.children as Node[];
+  assert.equal(kids.length, 3, "spacer + 符号格 + 内容");
+  assert.equal(kids[0]!.widthStyle, "fill", "spacer 吃剩余");
+  assert.equal(kids[1]!.widthFixed, 2, "符号格 fixed 2");
+  assert.equal(kids[2]!.direction, "v", "内容 v 容器");
 });
 
 test("structure：回合头 → 叶带 tail（分隔线铺满）", () => {
@@ -89,7 +96,10 @@ test("structure：代码块 → v 节点带 code 载荷", () => {
     }),
   )[0]!;
   const root = sessTree([code]);
-  const node = root.children[0] as Node;
+  // 代码块现在位于外层 h 盒的内容 v 内
+  const box = root.children[0] as Node;
+  const content = box.children[0] as Node;
+  const node = content.children[0] as Node;
   assert.equal(node.code !== undefined, true);
   assert.deepEqual(node.code!.rows, ["let a=1;"]);
 });

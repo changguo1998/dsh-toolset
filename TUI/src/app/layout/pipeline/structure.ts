@@ -14,6 +14,7 @@ import { stepHeaderLine, turnHeaderLine } from "../tool-line.ts";
 import type { FrameStyle } from "../../../renderer/screen.ts";
 import type {
   Block,
+  BlockSource,
   Leaf,
   Node,
   Paragraph,
@@ -65,43 +66,82 @@ function bar(source: Block["source"]): {
 function leaf(text: StyledText, extra: Partial<Leaf> = {}): Leaf {
   return { text, ...extra };
 }
+/**
+ * 一段 StyledText → 物理行数组（按 `\n` 切，样式随段保留；空行 = 空数组）。
+ * §4 起叶子内不再含换行：一行 = 一叶，measure / flatten 不必再处理物理换行。
+ */
+function splitTextLines(text: StyledText): StyledText[] {
+  const out: StyledText[] = [[]];
+  for (const s of text) {
+    const parts = s.text.split("\n");
+    parts.forEach((part, i) => {
+      if (i > 0) out.push([]);
+      if (part !== "") out[out.length - 1]!.push({ ...s, text: part });
+    });
+  }
+  return out;
+}
 
-// ---------------- 块 → 节点 ----------------
-
-/** Quote → v Node：每个子行 = 左缘竖线 + `> ` 前缀 + 行内（旧 wrapAssistantLine 引用分支） */
-function toQuote(
-  block: Extract<Block, { kind: "quote" }>,
-  opts?: StructureOptions,
-): Node {
-  const barP = bar(block.source);
+/**
+ * 文本 → 单叶（单行）或多行 `v` 容器（一行一叶）。
+ * `extra` 作用于每个叶（balance / hanging 等），`lineExtra(i)` 按行补充（列表 / 引用的
+ * 续行缩进：首行不缩、后续行缩进到标记之后）。
+ */
+function textNode(
+  text: StyledText,
+  extra: Partial<Leaf> = {},
+  lineExtra?: (index: number) => Partial<Leaf>,
+): Node | Leaf {
+  const lines = splitTextLines(text);
+  const first = lines[0] ?? [];
+  if (lines.length <= 1) return leaf(first, { ...extra, ...lineExtra?.(0) });
   return {
     direction: "v",
-    children: (block.children as Paragraph[]).map((child) =>
-      leaf([{ text: "> " }, ...child.text], {
-        prefix: barP,
-        prefixChrome: opts?.barChrome === true,
-        // 续行悬挂对齐正文起列（> 之后的列）
-        hanging: barP.text.length + 2,
-      }),
+    children: lines.map((line, i) =>
+      leaf(line, { ...extra, ...lineExtra?.(i) }),
     ),
   };
 }
 
-/** List → v Node：每个子项 = 左缘竖线 + 行内（显示标记已在条目文本：有序编号 /
- *  任务框 / 无序子弹）；悬挂对齐正文（标记后） */
+// ---------------- 块 → 节点 ----------------
+
+/** Quote → v Node：文本子块加 `> ` 标记（续行不加悬挂缩进，与列表同口径）；
+ *  非文本子块递归转换。左缘竖线（┃）由外层 toBarBox 统一承担。 */
+function toQuote(
+  block: Extract<Block, { kind: "quote" }>,
+  opts?: StructureOptions,
+): Node {
+  const marker = "> ";
+  const children = block.children.map((child): Node | Leaf =>
+    child.kind === "paragraph"
+      ? textNode([{ text: marker }, ...child.text])
+      : blockNode(child, opts),
+  );
+  return { direction: "v", children };
+}
+
+/** List → v Node：条目文本自带显示标记（有序编号 / 任务框 / 无序子弹），续行不加
+ *  悬挂缩进（竖线 chrome 列之后正文顶格，见 layout4「续行不加缩进」）；嵌套条目块递归转换。
+ *  左缘竖线由外层 toBarBox 承担。 */
 function toList(
   block: Extract<Block, { kind: "list" }>,
   opts?: StructureOptions,
 ): Node {
-  const barP = bar(block.source);
-  const children: Leaf[] = (block.items as Paragraph[]).map((item) =>
-    leaf(item.text, {
-      prefix: barP,
-      prefixChrome: opts?.barChrome === true,
-      hanging: barP.text.length + displayW(item.text[0]?.text ?? ""),
-    }),
-  );
-  return { direction: "v", children };
+  return {
+    direction: "v",
+    children: block.items.map((item) => listItemNode(item, opts)),
+  };
+}
+
+/** 列表条目：文本条目 = 行叶（多物理行拆多叶）；其余块递归转换 */
+function listItemNode(item: Block, opts?: StructureOptions): Node | Leaf {
+  if (item.kind !== "paragraph") return blockNode(item, opts);
+  return textNode(item.text);
+}
+
+/** 子块 → 节点（递归入口；任何块都必有节点，null 只对空项成立） */
+function blockNode(child: Block, opts?: StructureOptions): Node | Leaf {
+  return toNodeItem(child, opts) ?? leaf([]);
 }
 
 /** 用户块的右缘竖线后缀（整块外壳的后缀；brightRed） */
@@ -117,60 +157,52 @@ function userRightEdge(): {
   };
 }
 
-/** 用户行内样式以外的 markdown 块(列表/代码)外壳: 内容 Node 直接带 box 边 ——
- * `prefix`(状态符号, 首行) + `suffix`(右缘 `┃`, 每行)。flatten 展平子内容后给每行
- * 两侧加符号并补满宽, 不向下传 prefix/suffix。 */
-function toUserBlock(
+/** 用户块外壳（用户给定结构）：一条用户输入 = 一个 h 节点
+ *
+ *   { direction: h, width: 父宽, suffix: "┃", align: right,
+ *     children: [ spacer, 状态符号 "* ", 内容 { direction: v } ] }
+ *
+ *  内容 v 的子节点是这条输入解析出的全部块（段落 / 列表 / 代码）；摊平后各行同宽，
+ *  故块与块左缘、右缘都对齐。spacer(fill) 吃剩余列 → 整块右对齐，`align: right`
+ *  让摊平阶段的补白落在内容左侧，与 spacer 同侧。 */
+function toUserBox(
   sym: { text: string; fg?: string } | undefined,
-  content: Node,
-): Node {
-  const out: Node = {
-    ...content,
-    suffix: userRightEdge(),
-  };
-  if (sym !== undefined) {
-    out.prefix = {
-      text: sym.text + " ",
-      ...(sym.fg ? { style: { fg: sym.fg as StyledStr["color"] } } : {}),
-    };
-  }
-  return out;
-}
-
-/** 用户块统一外壳: box(左留白 gutter + 首行符号 + 内容 + 右缘 `┃`) 铺满整行宽。
- *  三种用户块（段落 / 列表 / 代码）都走这一层 → 左缘同列（gutter）、右缘同列（pane
- *  右缘），分块之间不会出现「段落靠右、列表靠左」的错开。`gutter` = 左侧留白列数
- *  （1 列已由右缘竖线占用，故左留白取 gutter-1，与旧口径一致）。 */
-function userShell(
-  sym: { text: string; fg?: string } | undefined,
-  content: Node,
+  children: (Node | Leaf)[],
   gutter: number,
 ): Node {
-  const box = toUserBlock(sym, content);
-  // 1 列由右缘竖线占用；符号格占 2 列时左留白再扣 2 → 正文始终起于 gutter-1 列
-  const padLeft = Math.max(0, gutter - 1 - (sym !== undefined ? 2 : 0));
-  if (padLeft > 0) box.padLeft = padLeft;
+  const box: Node = {
+    direction: "h",
+    suffix: userRightEdge(),
+    children: [],
+  };
+  box.children.push(
+    leaf([], {
+      widthStyle: "fill",
+      ...(gutter > 0 ? { widthMin: Math.max(0, gutter - 1) } : {}),
+    }),
+  );
+  if (sym !== undefined) {
+    box.children.push(
+      leaf(
+        [
+          {
+            text: sym.text,
+            ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
+          },
+          { text: " " },
+        ],
+        { widthStyle: "fixed", widthFixed: 2 },
+      ),
+    );
+  }
+  // 内容 v 取自然宽（auto）；spacer(fill) 吃剩余 → 整块右对齐
+  box.children.push({ direction: "v", children });
   return box;
 }
 
-/** 用户列表内容: 条目文本(显示标记已在文本内); 右缘由外层 box 统一承担, 条目本身不带 */
+/** 条目上的用户运行时态（用户块首行状态符号的素材；非用户条目返回 undefined） */
 function userOf(block: PaneItem): UserRowInfo | undefined {
   return (block as { user?: UserRowInfo }).user;
-}
-
-function toUserListContent(block: Extract<Block, { kind: "list" }>): Node {
-  return {
-    direction: "v",
-    children: (block.items as Paragraph[]).map((item) => leaf([...item.text])),
-  };
-}
-
-/** 显示宽（装饰占列需要） */
-function displayW(text: string): number {
-  // 宽度计算在 markdown.ts；此处引避免循环——列表 / 引用前缀都是半宽 ASCII
-  let w = 0;
-  for (const ch of text) w += ch.charCodeAt(0) > 0x2ff ? 2 : 1;
-  return w;
 }
 
 /** Code → Node（载荷 code；measure / flatten 各自消费） */
@@ -223,27 +255,19 @@ function toGap(): Leaf {
 
 // ---------------- 入口 ----------------
 
-/** 段落级归一：主题符号替换（normalize）后转 Leaf（user 块归 toUser 特殊处理） */
+/** 段落 → 叶（单行）或多行 v 容器（一行一叶）；用户段落 balance（自然宽取内容宽，
+ *  配合用户盒 spacer 右对齐）。盒子与竖线由 toPaneTree 统一生成 */
 function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
-  // 用户块：符号格(h) + 右对齐 + 右缘竖线 + gutter（toUser）
-  if (block.source === "user") {
-    return toUser(block, opts?.userSym?.(block.user), opts?.gutter);
-  }
+  if (block.source === "user") return textNode(block.text, { balance: true });
   // 分隔线：不占文本，tail 铺满（flatten 据此产横线）
   if (block.rule === true) {
     return leaf([], { tail: { char: "─", style: { fg: "border" } } });
   }
-  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）；右缘预留 gutter。
-  // notice（toast 等瞬态系统行）不挂会话左缘竖线（裸文本，不挤占宽）
+  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）；右缘 gutter / 竖线由外层 toBarBox 承担
   const text = opts?.normalize
     ? applyNormalize(block.text, opts.normalize)
     : block.text;
-  const barP = block.source === "notice" ? undefined : bar(block.source);
-  return leaf(text, {
-    ...(barP ? { prefix: barP } : {}),
-    ...(barP ? { prefixChrome: opts?.barChrome === true } : {}),
-    ...(opts?.gutter ? { rightGutter: opts.gutter } : {}),
-  });
+  return textNode(text);
 }
 
 /** 对段落文本逐 StyledStr 应用文本替换（保留样式，仅改 text） */
@@ -266,22 +290,8 @@ function toNodeItem(
     case "quote":
       return toQuote(item, opts);
     case "list":
-      // 用户列表: 套用户外壳(右对齐 + 符号 + 每行右缘 ┃), 否则普通列表
-      if (item.source === "user")
-        return userShell(
-          opts?.userSym?.(userOf(item)),
-          toUserListContent(item),
-          opts?.gutter ?? 0,
-        );
       return toList(item, opts);
     case "code":
-      // 用户代码: 套用户外壳(右对齐 + 符号)
-      if (item.source === "user")
-        return userShell(
-          opts?.userSym?.(userOf(item)),
-          toCode(item),
-          opts?.gutter ?? 0,
-        );
       return toCode(item);
     case "table":
       return toTable(item);
@@ -298,18 +308,75 @@ function toNodeItem(
   }
 }
 
-/** PaneItem[] → 单个 v 容器 Node（pane 的根；每个 PaneItem 一项） */
+/** PaneItem[] → 单个 v 容器 Node（pane 的根；每个 PaneItem 一项，
+ *  同一 section 的用户输入块合并成一个用户盒） */
 function toPaneTree(
   items: readonly PaneItem[],
   opts?: StructureOptions,
 ): LayoutTree {
+  const out: (Node | Leaf)[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const key = groupKeyOf(items[i]!);
+    // 不属于 {user, assistant, reasoning} 的条目（gap / 工具批 / 头 / 分隔）各自独立成项
+    if (key === undefined) {
+      const node = toNodeItem(items[i]!, opts);
+      if (node !== null) out.push(node);
+      continue;
+    }
+    const inner: (Node | Leaf)[] = [];
+    let j = i;
+    for (; j < items.length && groupKeyOf(items[j]!) === key; j++) {
+      const node = toNodeItem(items[j]!, opts);
+      if (node !== null) inner.push(node);
+    }
+    const src = sourceOf(items[i]!) ?? "assistant";
+    out.push(
+      src === "user"
+        ? toUserBox(
+            opts?.userSym?.(userOf(items[i]!)),
+            inner,
+            opts?.gutter ?? 0,
+          )
+        : toBarBox(bar(src), inner, opts),
+    );
+    i = j - 1;
+  }
+  return { direction: "v", id: undefined, children: out };
+}
+
+/**
+ * 分组键：同一条输入 / 同一个正文或思考节（不参与分组的条目返回 undefined）。
+ *
+ * **必须是值语义**：早前返回 `{ source, section }` 对象字面量又用 `===` 比较——两次调用
+ * 永不相等，收集循环的 `j` 不前进、`i = j - 1` 使外层原地打转 → 死循环 + 无界堆积（OOM）。
+ */
+function groupKeyOf(item: PaneItem): string | undefined {
+  const source = sourceOf(item);
+  const section = (item as { section?: string }).section;
+  if (section === undefined) return undefined;
+  if (source !== "user" && source !== "assistant" && source !== "reasoning")
+    return undefined;
+  return source + "\u0000" + section;
+}
+
+/** 条目来源（只有块带；头 / gap / 工具批返回 undefined） */
+function sourceOf(item: PaneItem): BlockSource | undefined {
+  return (item as { source?: BlockSource }).source;
+}
+
+/** 正文 / 思考盒：h[ 内容 v ] + 左缘竖线前缀（整节一条，不逐段重复）。
+ *  右缘留白由 rightGutter 承担。 */
+function toBarBox(
+  barP: { text: string; style?: FrameStyle; minWidth?: number },
+  children: (Node | Leaf)[],
+  opts?: StructureOptions,
+): Node {
   return {
-    direction: "v",
-    id: undefined,
-    children: items.flatMap((item) => {
-      const node = toNodeItem(item, opts);
-      return node === null ? [] : [node];
-    }),
+    direction: "h",
+    prefix: barP,
+    prefixChrome: opts?.barChrome === true,
+    ...(opts?.gutter ? { rightGutter: opts.gutter } : {}),
+    children: [{ direction: "v", children }],
   };
 }
 
@@ -330,23 +397,17 @@ export function buildTree(
   return buildTrees(panes.session ?? [], panes.turn ?? [], opts);
 }
 
-// ---------------- user 块：右对齐 + 状态符号格 ----------------
+// ---------------- user 块：h(spacer, 符号, 内容 v) + 右缘后缀 ----------------
 
 /**
- * 用户块特殊构图：会话区根节点为 h([符号格, 正文])（符号格首行 2 列），块整体
- * 右对齐 + 右缘竖线。本层只定形态，符号内容由调用方（布局层）经 `userSym`
- * 解析器注入；无符号时退化为 h([]) 的单行正文。`gutter` = 右缘保底留白列数
- * （1 列已被右缘竖线占用 → 其余 gutter-1 留白；有符号时符号格占 2 列，左侧留白
- * 再扣 2，使正文绝对起列与无符号时一致 —— 与旧 build-box 同口径）。
+ * 一条用户输入 → 用户盒（结构见 `toUserBox`）：外层 `h` 铺满父宽、右缘 `┃`、
+ * spacer 吃剩余列实现右对齐；内容 `v` 收这条输入解析出的全部块，同宽故块间左右缘
+ * 都对齐。本层只定形态，符号内容由调用方（布局层）经 `userSym` 解析器注入。
  */
 export function toUser(
   block: Paragraph,
   sym?: { text: string; fg?: string },
   gutter = 0,
 ): Node {
-  return userShell(
-    sym,
-    { direction: "v", children: [leaf(block.text, { balance: true })] },
-    gutter,
-  );
+  return toUserBox(sym, [leaf(block.text, { balance: true })], gutter);
 }

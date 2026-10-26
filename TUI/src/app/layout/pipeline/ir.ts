@@ -108,6 +108,8 @@ export type BlockSource =
 /** 块级来源标记（§3 route 分发用） */
 export interface BlockBase {
   source: BlockSource;
+  /** 所属 section id（用户输入一次成节 → 同节块合进同一个用户盒的外壳） */
+  section?: string;
   /** 覆盖的宿主事件号（§2 由 section.seqs 透传；接线桥取行身份 posix 锚点用） */
   seqs?: readonly number[];
 }
@@ -310,6 +312,8 @@ export interface NodeBase {
   widthFixed?: number;
   /** 容器分数（ratio） */
   widthRatio?: number;
+  /** true = 左缘竖线为面板 chrome 列，不吃正文宽（对话/session 面板；活动面板计宽） */
+  prefixChrome?: boolean;
   /** 实际宽度：measure 写自然宽，allocate 写最终宽；widthLocked 时冻结 */
   width?: number;
   /** true = width 不再被测量 / 分配改写 */
@@ -394,17 +398,11 @@ export interface Node extends NodeBase {
   prefix?: { text: string; style?: FrameStyle; minWidth?: number };
   /** box 右缘后缀（如用户块右侧 `┃`）；flatten 展平子内容后给每行补满到宽 + 挂此符 */
   suffix?: { text: string; style?: FrameStyle; minWidth?: number };
-  /** box 左缘固定留白列数（如用户块左侧 gutter；每行在 prefix 之前补空白） */
-  padLeft?: number;
-  /** box 右缘固定留白列数（如用户块右侧 gutter；每行在 suffix 之前补空白） */
-  padRight?: number;
 }
 
 /** 叶子节点：不设 kind 判别字段（靠 text）；measure 原地写宽高 */
 export interface Leaf extends NodeBase {
   text: StyledText;
-  /** true = 左缘竖线为面板 chrome 列，不吃正文宽（对话/session 面板；活动面板计宽） */
-  prefixChrome?: boolean;
 }
 
 /** 布局树：根为 Node 或 Leaf */

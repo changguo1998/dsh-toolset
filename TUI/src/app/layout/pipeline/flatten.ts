@@ -349,39 +349,50 @@ export function flatten(
   opts: FlattenOptions = {},
 ): Row[] {
   if (isLeaf(tree)) return flattenLeaf(tree, width, opts);
-  // box：整块容器在 flatten 内部直接给每行两侧加符号并补满宽（不向下传递 prefix/suffix）
-  if (tree.suffix !== undefined) {
-    const pfx = tree.prefix;
-    const pfxSegs = pfx ? [seg(pfx.text, pfx.style)] : [];
+  // 带 prefix / suffix 的 Node：先递归摊平子项（拿到 width 统一的内容行），每行按本节点
+  // 的 align 补空格到 width，再在前后加符号。符号**不向下继承**——子项各自摊平自身内容。
+  if (tree.prefix !== undefined || tree.suffix !== undefined) {
+    const pfx = prefixVisibleOf(tree, opts.vw) ? tree.prefix : undefined;
+    const sffx = suffixVisibleOf(tree, opts.vw) ? tree.suffix : undefined;
     const pfxW = pfx ? displayWidth(pfx.text) : 0;
-    const sffxSegs = [seg(tree.suffix.text, tree.suffix.style)];
-    const sffxW = displayWidth(tree.suffix.text);
-    const padL = tree.padLeft ?? 0;
-    const padR = tree.padRight ?? 0;
-    const contentW = Math.max(1, width - padL - padR - pfxW - sffxW);
+    const sffxW = sffx ? displayWidth(sffx.text) : 0;
+    // 左缘 chrome 列（对话/session 面板竖线）不吃正文宽；活动面板竖线计宽
+    const contentW = Math.max(
+      1,
+      width -
+        (tree.prefixChrome === true ? 0 : pfxW) -
+        sffxW -
+        (tree.rightGutter ?? 0),
+    );
     let inner: Row[];
     if (tree.code !== undefined)
       inner = flattenCode(tree.code, Math.max(1, contentW - 1));
     else if (tree.table !== undefined)
       inner = flattenTable(tree.table, Math.max(1, contentW - 1));
     else if (tree.tool !== undefined) inner = flattenTool(tree.tool, contentW);
-    else {
+    else if (tree.direction === "v") {
       inner = [];
       for (const ch of tree.children)
         inner.push(...flatten(ch, contentW, opts));
+    } else {
+      // h：子项按分配宽各摊一行区，逐行拼接
+      inner = flattenH(tree, contentW, opts);
     }
     return inner.map((r, ri) => {
       const used = rowW(r.segments);
-      const leftPad = padL > 0 ? [seg(" ".repeat(padL))] : [];
-      const rightPad = padR > 0 ? [seg(" ".repeat(padR))] : [];
+      const gap = Math.max(0, contentW - used);
+      // 补白位置由本节点对齐决定：right → 补前面；center → 两侧均分；left → 补后面
+      const lead =
+        tree.align === "right" ? gap : tree.align === "center" ? gap >> 1 : 0;
+      const trail = gap - lead;
       return {
         segments: [
-          ...leftPad,
-          ...(ri === 0 ? pfxSegs : pfxW > 0 ? [seg(" ".repeat(pfxW))] : []),
+          ...(lead > 0 ? [seg(" ".repeat(lead))] : []),
+          ...(ri === 0 && pfx ? [seg(pfx.text, pfx.style)] : []),
+          ...(ri > 0 && pfxW > 0 ? [seg(" ".repeat(pfxW))] : []),
           ...r.segments,
-          ...(used < contentW ? [seg(" ".repeat(contentW - used))] : []),
-          ...rightPad,
-          ...sffxSegs,
+          ...(trail > 0 ? [seg(" ".repeat(trail))] : []),
+          ...(sffx ? [seg(sffx.text, sffx.style)] : []),
         ],
       };
     });
@@ -397,6 +408,11 @@ export function flatten(
     return out;
   }
   // h：子项行按行号拼接（各子项已量好自身宽；每行补白到该子分配宽，fill 空格可见）
+  return flattenH(tree, width, opts);
+}
+
+/** h 容器摊平：逐子项按分配宽摊平，再按行号横向拼接，每子项补白到自身分配宽 */
+function flattenH(tree: Node, width: number, opts: FlattenOptions): Row[] {
   const subMeta: { rows: Row[]; w: number }[] = tree.children.map((c) => {
     const cw = Math.max(1, c.width ?? width);
     return { rows: flatten(c, cw, opts), w: cw };

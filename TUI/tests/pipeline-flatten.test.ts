@@ -145,7 +145,7 @@ test("flatten：顶段助手段 ┃ 为左缘 chrome 列不吃正文宽（正文
   measure(tree, width, { vw: width });
   const rows = flatten(tree, width, { vw: width });
   const first = text(rows).split("\n")[0]!;
-  // ┃ 是面板左缘 chrome 列（如代码/表格的竖线），正文宽应为 width−gutter；
+  // ┃ 是面板左缘 chrome 列（如代码/表格的竖线），正文宽 = width−gutter；
   // 两者合计首行 = width−gutter+1（布局 history 区 bodyW+1 契约）
   assert.equal(displayWidth(first), width - gutter + 1);
 });
