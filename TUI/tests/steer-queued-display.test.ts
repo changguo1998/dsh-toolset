@@ -128,6 +128,43 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
   );
 });
 
+test("step 边界认领整批 steer：全部出队（宿主一次摘走整批 next-step）", () => {
+  let s = initialState();
+  s = reduceState(s, { type: "queued-push", text: "排队一", kind: "steer" });
+  s = reduceState(s, { type: "queued-push", text: "普通", kind: "followup" });
+  s = reduceState(s, { type: "queued-push", text: "排队二", kind: "steer" });
+  const claimed = reduceState(s, { type: "queued-claim-steer" });
+  assert.deepEqual(
+    claimed.queued.map((q) => q.text),
+    ["普通"],
+    "全部 steer 出队，followup 不受影响",
+  );
+  // 没有 steer 可认领 → no-op（不误吃别的类型）
+  assert.equal(reduceState(claimed, { type: "queued-claim-steer" }), claimed);
+});
+
+test("step 边界认领整批 steer：合成一个用户块，多条原文只换行不加空行", async () => {
+  const { renderer, adapter, st, app } = makeApp();
+  typeAndEnter(renderer, "先发一条");
+  typeAndEnter(renderer, "插话一");
+  typeAndEnter(renderer, "插话二");
+  try {
+    assert.equal(st().queued.length, 2, "两条 steer 各自排队");
+    adapter.push({ type: "inbox-claim", target: "next-step" });
+    await tick();
+    assert.deepEqual(st().queued, [], "一次认领清空全部 steer");
+    const dumped = JSON.stringify(
+      ((app as unknown as { sections: unknown }).sections ?? []) as unknown,
+    );
+    assert.ok(
+      dumped.includes("插话一\\n插话二"),
+      "节缓存里合成一个用户块，原文只换行连接",
+    );
+  } finally {
+    app.dispose();
+  }
+});
+
 test("忙时提交：进排队块（不写 buffer）、steer 排在 followup 之上、右缘竖线浅黄 vs 灰", () => {
   const { renderer, adapter, st, app } = makeApp();
   typeAndEnter(renderer, "先发一条"); // 默认模式=steer；空闲 → 直发并进入 running

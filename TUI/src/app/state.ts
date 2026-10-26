@@ -1227,11 +1227,21 @@ export function reduceState(state: AppState, action: StateAction): AppState {
         };
       case "queued-claim":
       case "queued-claim-steer": {
-        // TUI#43：按类型认领（各自取**最早**一条）——回合开始认领 followup、
-        // 中途 step 边界认领 steer；认领即转入历史流（与既有口径一致）
-        const kind =
-          action.type === "queued-claim-steer" ? "steer" : "followup";
-        const idx = state.queued.findIndex((q) => q.kind === kind);
+        // TUI#43：按类型认领——回合开始认领**最早一条** followup；step 边界认领**全部**
+        // steer（宿主 `inbox.claim("next-step")` 一次摘走整批 pending，见
+        // `dsh-agent-loop` 的 claim）。这一批在界面上合成**一个**用户块（原文用换行连接，
+        // 不加空行），与宿主一次注入的整批内容对齐。
+        if (action.type === "queued-claim-steer") {
+          const steers = state.queued.filter((q) => q.kind === "steer");
+          if (steers.length === 0) return state;
+          const rest = state.queued.filter((q) => q.kind !== "steer");
+          return appendStream(
+            { ...state, queued: rest },
+            steers.map((q) => q.text).join("\n"),
+            "user",
+          );
+        }
+        const idx = state.queued.findIndex((q) => q.kind === "followup");
         if (idx < 0) return state;
         const item = state.queued[idx]!;
         const rest = [

@@ -2255,11 +2255,13 @@ export class App {
         // next-turn 的认领仍走回合开始路径（beginTurnIfNeeded → queued-claim），
         // 这里只处理 steer，避免同一条被认领两次
         if (e.target === "next-step") {
-          const claimed = this.state.queued.find((q) => q.kind === "steer");
+          // 宿主一次摘走**整批** next-step（`inbox.claim("next-step")`），故这里认领队列里
+          // 全部 steer：合成一个用户块（原文换行连接），与宿主该步注入的整批内容对齐
+          const claimed = this.state.queued.filter((q) => q.kind === "steer");
           this.apply((s) => reduceState(s, { type: "queued-claim-steer" }));
           // steer 认领转入历史流 → 当前步用户节（与旧路径同组；`queued: "steer"`
           // 让节带 steer 标记 → 第 3 步在它与上一条输入之间留空行）
-          if (claimed !== undefined) {
+          if (claimed.length > 0) {
             const scope = this.sections?.lastScope;
             if (scope !== undefined) {
               const turn =
@@ -2271,7 +2273,7 @@ export class App {
                 kind: "user",
                 turn,
                 step: scope.step,
-                text: claimed.text,
+                text: claimed.map((q) => q.text).join("\n"),
                 queued: "steer",
               });
             }
