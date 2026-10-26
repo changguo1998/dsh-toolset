@@ -734,6 +734,202 @@ evidence：`check` / `build` 绿；`renderer-diff` 11 例全绿；全量 1885 �
 缺 `┃` 与续行前导空格两项已随 prefix 逐行绘制消失。候选修法（待裁定）：把「补到 pane 宽」
 下沉到 §7 装帧（flatten 只在 align/suffix 时补），或保留补白改断言 + 重冻基线。
 
+## 已实现：载荷节点转真子树（code / table / tool）
+
+用户裁定（2026-10-26）：三者只是格式特殊，最好也用 Node 嵌套表示。形状经逐结构定稿后已落地，
+`Node` 上不再有 `code` / `table` / `tool` 载荷，§6 只剩「叶子展开 + 容器拼接」两条通用路径。
+
+### 口径（不变）
+
+- **§4 保持宽无关**：只出占位节点（`v` + `children: []` + 载荷字段 + 语义键）。
+- **展开放在 §5 measure**：三者内部几何都依赖宽度（code 行号列 < 23 列不排、table 列宽由
+  `fitCols` 跟行约束、tool 列宽随内容宽）；§5 量到宽后原地把占位节点换成真子树，并同步清掉载荷字段。
+- **悬挂不靠行级字段**：`indent` / `hanging` 已从 `NodeBase` 删除；嵌套 + `flattenH` 的缺行补白自动产生缩进。
+
+### 定稿形状
+
+三者同构：**外层 `Box(v)`，每条逻辑行一个 `Box(h)` 行盒，行内用「固定宽格 + fill 盒」分列。**
+
+**tool**（`rowKind` 挂内容叶）
+
+```text
+v
+  h[ v(fixed w=2)[Leaf(●/✓/✗)], v(fill)[Leaf(名字, rowKind:"tool-name")] ]        名字行
+  h[ v(fixed w=4)[Leaf("")],
+     h(fill)[ v(fixed w=2)[Leaf(名字前 2 列)],
+              v(fill)[Leaf(余下, rowKind:"tool-param")] ] ]                        参数行
+  h[ v(fixed w=2)[Leaf("✓ "|"✗ "|"")],
+     v(fill)[Leaf(detail, rowKind:"tool-result")] ]                                结果行
+```
+
+- 参数行的 2 列盒装**变量名前两个真实字符**（不是空白）：名字起于第 4 列，折行续行落在第 6 列
+  （相对名字 +2）。
+- 参数行内层 `h` 必须 `fill`：否则其自然宽只算到标记盒宽，文本被压成每行 1 列（实测踩过）。
+- 名字不截断；收束交给帧层折叠档位 `activityCompact.tool`。
+
+**code**（可用宽 < 23 时无行号列）
+
+```text
+v
+  h, separator ┃[ v(fixed w=numW)[Leaf(行号)], v(fill)[Leaf(代码行, code)] ]   ← 每个物理行一个
+```
+
+- **先拆行、再分列**：每物理行一个 `Box(h, separator {char:"┃", color:"brightBlue"})`，行内左列行号、
+  右列代码；行号列宽 ≥ 23 才出（2 列，≥ 100 行改 3 列）。
+- 折行续行由代码填充盒自己折，行号列在续行上自然留空，分隔竖线由 `flattenH` 逐行重画。
+- 窄宽（< 23）没有行号列，此时竖线改挂行盒 `prefix`，视觉与旧渲染一致（`┃code`）。
+- 续行**不做** `↪` / `↩` 箭头（要箭头就得预切屏幕行，形状不再是行盒嵌套）；行首两列字符盒一并取消。
+
+**table**
+
+```text
+v
+  h[ ┃, " ", " ", Leaf{widthFixed: colW, align, heightFixed: rowH}, " ", │, … ]   表头行（bold）
+  h[ ┃, " ", Leaf("═" × (colW + 2)), ╪, … ]                                       表头下双横线
+  h[ … ]                                                                          数据行
+  h[ ┃, " ", Leaf("─" × (colW + 2)), ┼, … ]                                       数据行间单横线
+```
+
+- 同样是**先拆行后分列**；列宽 `fitCols(自然宽, 可用宽)` 在 §5 算死写进每格 `widthFixed`。
+- 行高 = 该行各格折行行数最大值，写进每格 `heightFixed`；格内容默认**顶端对齐**，不做纵向对齐。
+- 左缘 `┃` 与列竖线 `│` 由 `vGlyph` 按行高重复，逐行连续。
+- 窄宽回退（`width < overhead + ncols` 或 `fitCols` 返 null）→ §5 直接产逐格文本叶（等价旧 `tableFallback`）。
+- 顺带修掉旧载荷路径的缺陷：格未补到列宽导致列竖线错位（`a │` 与 `名称 │` 不齐），现为真网格。
+
+### 节点能力变更
+
+- 新增 `rowKind`：§6 透传到 `Row.rowKind`，帧层 `markToolNameRows` 靠它定位工具名行做相位覆写（`●`/`○`/`■`）。
+- 新增 `separator`（`Node.separator?: Separator`，`char` / `color`）：h 容器相邻子项之间逐行插入分隔符，占容器宽。
+- `heightStyle` / `heightFixed` 由「声明未用」变为生效（表格格与竖线字形靠它铺行）。
+- **不做** h 容器纵向补白（`valign` 已删，默认顶端对齐）；**不做** `wrapLeaf` 续行标记。
+
+### 已删除
+
+`ir.Node.code` / `table` / `tool`；`measure.codeHeight` / `codeScreenRows` / `codeChunks` / `tableHeight` /
+`cellRows` / `styledPlain` / `toolHeight` / `unitText`；`flatten.flattenCode` / `flattenTable` /
+`tableColSegs` / `tableRule` / `tableFallback` / `flattenTool` / `toolResultText` 与盒路径里的对应分支；
+`rows.ts` 里依赖 `tool` 载荷的 memlog 打点。`boxes.toolUnits` 保留（§4 组叶仍要用）。
+
+### 验收状态
+
+`npm run check`（`tsc --noEmit`）绿；code / table / tool 的宽窄两档渲染已实测。**全量套件未跑**：
+`layout4.test.ts:1879` 等断言仍是旧口径，与下节「待统一修」一并处理。
+
+## 结构收敛记录与待统一修的测试（暂缓，用户裁定）
+
+### 已按用户口径定稿的结构形状
+
+- `Quote`：`v(prefix "> ")`，children 恒为 **Box**（子块一块一盒，文本块的行叶在盒内）
+- `List`：`v` → 每条目一个 `Box(h)` = `[Box(v)[标记叶], Box(v)[条目行叶…]]`；标记单占一列，
+  不是文本前缘也不是节点 `prefix`（`prefix` 逐行重复会重复标记）
+- 悬挂**不靠行级字段**：标记盒 1 行、条目盒 N 行，`flattenH` 对缺行补「子项宽度」空白 → 自动悬挂
+  （列表路径无任何 `indent` / `hanging`）
+- `Paragraph`：单行 `Leaf`；多行 `Box(v)`（一行一叶）；用户段 `balance`；分隔线 `Leaf + tail ─`
+- 会话区外壳：`Box(h, prefix "┃ ", suffix 空格)` → `[Box(v)内容]`（竖线 + 空格 2 列计宽；右缘空格数待细调）
+- 活动区外壳：`Box(h, prefix "┃")` → `[Box(v)内容]`——**无 suffix**，思考 / 正文**只差 prefix 颜色**
+  （紫 / 蓝），且 prefix 不带尾随空格
+- 用户块外壳：`Box(h, suffix ┃)` → `[spacer(fill), 符号格(fixed 2), Box(v)内容]`
+- `List` 非文本条目：**自然嵌套**（不补空标记盒）；嵌套列表由 `parse` 产出后落在父条目内容盒内，
+  自身的 `h[标记, 内容]` 提供缩进与符号
+- 分隔头 / `Gap` / 概要：统一 `Box(h, fill)[文本盒, tail 填充盒]`（`fillWith: {text:"╌"}`）；
+  `Gap` 无 tail 盒、以空格补满整行；`rule` 段落 = `Box(v, fill, fillWith {text:"─",color:"border"})`
+- `Code`：先拆行后分列 —— `v[ h, separator ┃[v(fixed numW)[行号], v(fill)[代码行]] ]`（每物理行一个行盒；
+  行号列**恒在**（2 列，≥100 行 3 列），不做窄宽特判）
+- `Table`：先拆行后分列 —— `v(grid)[ h, separator │[格, 格], h, separator ╪[fill ═, fill ═], … ]`
+  （无左缘 `┃`、无留白叶；列宽算法待 `grid` pass，见下节）
+- `ToolBatch`：`v[ 名字行 h[2 列字形格, fill 名字], 参数行 h[4 列缩进盒, h(fill)[2 列名字头, fill 余下]], 结果行 h[2 列标记格, fill 详情] ]`（行类型靠叶子的 `rowKind` 透传给帧层）
+- `fillWith` 为 `StyledStr`（带样式补白）；`toBarBox` 内容盒取 `fill`（否则无文本节点自然宽为 1）
+- `separator`（`Separator`：`char` / `color`）为 h 容器相邻子项之间的逐行分隔符，占容器宽
+- `NodeBase` 现有装饰字段只剩 `prefix` / `suffix` / `tail` / `fillWith` / `align` / 宽高族；
+  `prefixChrome` / `rightGutter` / `indent` / `hanging` / `valign` 已删
+
+### 待统一修（测试暂缓，本次未跑全量）
+
+1. `tests/layout4.test.ts:1879`「markdown 列表长项折行：**续行不加缩进**」——断言方向反了：
+   那是在「标记混在文本里」时期写的；正确行为是折行续行**悬挂对齐到条目正文列**。应改为断言
+   续行前导空格 = 标记宽。
+2. 10 例尾随空格（8 例 focus-frame 基线 + 2 例 B3）——补白归属未定（下沉 §7 或改断言 + 重冻）。
+3. 结构形状变更后的断言：`pipeline-structure` / `pipeline-ir` 若断言 Quote / List 直接持有叶，
+   需改成「容器层 children 恒为 Box」。本轮改动后只跑了 `tsc --noEmit`，未跑套件。
+4. 载荷转子树后的测试同步：已删/改写 4 处（`pipeline-flatten` 工具行用例、`pipeline-measure` 工具批高度、
+   `pipeline-fn` 的 `codeHeight` / `toolHeight` / `tableHeight` 单测、`pipeline-structure` 的 `tool 载荷` 断言）；
+   三者新形状断言已改为「外层 `v` + 行盒 `h` + 载荷已消费」。其余套件（含 layout4 / focus-frame 基线）
+   仍待统一修后跑一次全量。
+5. 已知渲染副作用：空代码行的行盒无灰底（叶文本为空）；`Code` 在可用宽 < 23 时无行号列，竖线改挂
+   `prefix`（视觉与旧渲染一致，形状上不再是 `separator`）。
+
+## 第二轮收敛：表格/代码形状定稿 + `step-summary` 下线（2026-10-26 续）
+
+### List：`marker` 与 `order` 二选一
+
+- `ir.ts` `List` 删 `ordered: boolean` 与 `marker: string`，改为 `marker?: string`（所有条目同一标记）
+  与 `order?: string[]`（逐条目标记）**二选一**；任务复选框 `[x] ` / `[ ] ` 归 `order` 一支。
+- `parse.ts` 抽 `listItemMark()`（任务/有序/无序统一产出 mark + body）与 `listMarks()`（全同 → `marker`，
+  不同 → `order`）；顶层（用户块）与嵌套两处列表构造合并成同一套逻辑，**标记不再拼进条目正文**。
+- `structure.ts` `toList` 先算 `marks[i] = order?.[i] ?? marker ?? "• "`、`markW = max(displayWidth(mark))`
+  （纯字符串度量，与可用宽无关，故 §4 可定），每个标记格 `widthStyle: fixed / widthFixed: markW`；
+  非段落条目也补一个空标记格 → 同层正文列统一。
+
+### Code：去掉窄宽特判 + 行号列恒在
+
+- `codeLines` 删 `numW === 0` 整条分支（含窄宽时挂在行盒上的 `prefix ┃`）与 `width >= 23` 阈值：
+  行号列恒在（2 列，≥ 100 行 3 列），`separator ┃` 恒画（它是行号列与代码列之间的**列分隔**，
+  不是来源竖线）。
+- `expandCode` 不再需要宽度参数。
+
+### Table：只用 `separator` + `fill`，不留白叶
+
+- 形状：`v(grid)[ h, separator │[格, 格], h, separator ╪[fill ═, fill ═], … ]`
+  （表头行 → `═` 双横线 → 数据行…，数据行之间 `─` 单横线，交叉字由该行的 `separator` 给）。
+- 删除：表格自带的左缘 `┃`（交外层会话盒，工具批同理本就不带外壳）、行盒 `prefix`、`CELL_PAD` /
+  `BAR_GAP`、所有留白叶、`vGlyph` 竖线叶、预算好的 `"═"×n`、格上的 `widthFixed` / `heightFixed`。
+- 不做窄宽退化（原 `fitCols` 返 null → 逐格文本行、`grid` 标记撤掉）：返 null 时每列兜底 1 列，
+  结构始终是网格；窄终端靠列宽压缩 + 格内折行硬扛。
+- `NodeBase` 新增 `grid?: true`：表格根盒的语义标记，列宽算法下一步收进 `grid` pass。
+
+### 两条容器不变量（表格横线盒依赖）
+
+1. `measure` v 分支高度 = `Math.max(1, Σ子高)`；`flatten` v 分支空容器产一个空行 —— 「空 Box 也占一行」。
+2. `measureH` 的 fill 分配由「第一个 fill 吃全部剩余」改为**多个 fill 均分剩余**（余数给靠前的）；
+   否则横线行的第一个 `═` 盒会吃满整宽、第二个只剩 1 列（实测出过 45 列超宽）。
+
+### `step-summary` 全链路下线（含旧渲染死分支）
+
+口径（用户裁定）：重放只加载历史会话文件里已有的行与少量辅助，**不自行计算总结**。
+
+- 证据一：旧版 P9 的 `read ×2, bash ×1` 概要行由 TUI 在读事件时算出（`beb4f7e` 里
+  `count > 1 ? name + " ×" + count : name`），生成端已在 `36d6b3c`（恢复改为逐条还原工具批）删除。
+- 证据二：本机 1189 个会话文件里，`"kind":"step"` / `"role":"step"` / `╌╌…×N` 形态串均为 **0 处**；
+  含 `×N` 的字符串共 9 处，全是普通对话内容（turnOutline 回复、任务描述、todo 文本）。
+- 删除：`ir.StepSummary` 类型与 `PaneItem` 成员、`ir.Section.stepSummary`、`types.ts` 的 delivery
+  与 `Section.stepSummary`、`sections.ts` 分支、`split.ts` 两处、`panes.ts`（`PaneItem` 成员 /
+  `roleOf` 的 `"ss"` / `firstTurn` 过滤 / 插入块）、`route.ts`（导入 / 产出 / 过滤）、
+  `structure.toStepSummary` 与分支、`rows.ts` 两个 case、`replay.ts` 的「认不出 → step-summary」
+  分支（改为 `if (line.kind === "step") continue;`）、`index.ts` 活动区判定条件、
+  `layout/build-box.ts` 里渲染 `line.kind === "step"` 的死分支。
+- 测试：删 P9 渲染用例；`pipeline-panes` 去掉 `summary:` 断言分支；`pipeline-fn` 去掉 `s.stepSummary`；
+  `resume-summary` 文件头口径注释改写。
+
+### ToolBatch：结果紧跟各自的调用
+
+- 产序函数是 `boxes.ts` 的 `toolUnits()`——`rows.ts`（旧路径产行）与 `frame.ts`（推 kinds / owner）
+  共用同一份产序，改这里才不会让「行数模型」与「实产行」错位。
+- 由「先全部调用行、再全部结果行」改为：**每个调用 = 名字行 + 各参数行 + 该调用的结果行（已配对时）**；
+  配不上调用的落单结果仍按到达顺序排批尾。`unit.result` 本来就挂在名字单元上（`pairToolResults` 按
+  `callId` 配对），所以结果不必等整批收尾。
+- 空结果不出行（与落单结果同口径）。
+- 实测：`✓ read / 参数 / ok1 / ✗ bash / 参数 / 错了 / ✓ 落单`。
+- 测试：`pipeline-structure` / `pipeline-flatten` / `pipeline-fn` 20 pass / 6 fail，失败项均为早前形状
+  改造的旧断言（代码网格、表格 `│` 段、chrome 竖线、`Gap` 空叶、`userSym/gutter`），与本改动无关。
+
+### 本轮验证与遗留
+
+- `npm run check`（`tsc --noEmit`）绿；`pipeline-{ir,fn,structure,flatten,measure}` 35 pass / 8 fail、
+  `resume-summary`+`pipeline-panes`+`pipeline-fn` 32 pass / 1 fail —— 失败项均为早前形状改造的旧断言
+  （`Gap` 空叶、回合头 tail、用户盒、代码网格、表格 `│` 段、`userSym/gutter` 透传），与本次改动无关。
+- 遗留：① `grid` pass（列宽算法 + 写回格宽，表格网格因此暂时列不对齐）；② 嵌套列表仍被
+  `LIST_CONT_RE` 并进父条目正文，不是真子列表；③ 表格单元格内 `<br>` 换行未支持。
+
 ## 收尾
 
 （待关闭时填写。）
