@@ -544,6 +544,9 @@ function computeCharWidth(cp: number): number {
   // 终端实测覆盖（实测值最权威，优先于所有静态判定；未实测时表为空）
   const probed = WIDTH_OVERRIDES.get(cp);
   if (probed !== undefined) return probed;
+  // 控制字符（\0 \t \n \r 等, cp<0x20）非打印、不前进列, 计 0——否则 displayWidth 对
+  // 含换行的多行文本会把每个 \n 多算 1 列（输入/正文总宽虚高）; 实测覆盖优先于本判定
+  if (cp < 0x20) return 0;
   // 零宽字符：组合附加符/变体选择符/ZWJ 等（占 0 列，避免提前换行与总宽虚高）
   if (isZeroWidthChar(cp)) return 0;
   // 呈现不确定（EAW 歧义 / emoji 呈现 / 符号块）→ 登记待实测：App 在本帧写屏前

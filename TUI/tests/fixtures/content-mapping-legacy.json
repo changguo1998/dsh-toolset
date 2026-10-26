@@ -726,8 +726,8 @@
         "kind": "assistant"
       },
       {
-        "text": "┃```ts\nconst x = 1;\n```       ",
-        "ansi": "\u001b[38;2;167;203;255m┃\u001b[38;2;201;220;222m```ts\nconst x = 1;\n```       ",
+        "text": "┃```ts\nconst x = 1;\n```         ",
+        "ansi": "\u001b[38;2;167;203;255m┃\u001b[38;2;201;220;222m```ts\nconst x = 1;\n```         ",
         "kind": "assistant"
       },
       {
@@ -761,8 +761,8 @@
         "kind": "plain"
       },
       {
-        "text": "┃answer\n                                ",
-        "ansi": "\u001b[38;2;167;203;255m┃\u001b[38;2;201;220;222manswer\n                                ",
+        "text": "┃answer\n                                 ",
+        "ansi": "\u001b[38;2;167;203;255m┃\u001b[38;2;201;220;222manswer\n                                 ",
         "kind": "assistant"
       }
     ],

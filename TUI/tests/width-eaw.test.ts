@@ -65,3 +65,12 @@ test("displayWidth：逐字符求和（emoji 序列保守累加，不低估）",
   assert.equal(displayWidth("a\u2B24b"), 3);
   assert.equal(displayWidth("\u6C49\u2B24"), 3);
 });
+
+test("控制字符计 0 列：换行/回车不前进列（displayWidth 不把多行文本撑高）", () => {
+  assert.equal(charWidth("\n"), 0, "LF 不占列");
+  assert.equal(charWidth("\r"), 0, "CR 不占列");
+  assert.equal(charWidth("\t"), 0, "Tab 不占列");
+  assert.equal(charWidth("\0"), 0, "NUL 不占列");
+  assert.equal(displayWidth("aa\nbb"), 4, "换行不虚高 (2+2)");
+  assert.equal(displayWidth("ab\ncd\n"), 4, "行尾换行也不虚高");
+});
