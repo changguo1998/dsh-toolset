@@ -18,11 +18,68 @@ const CONSUMED = Symbol("consumed"); // 已消费但无输出 → 继续循环
 
 type StepResult = KeyEvent | typeof NEED_MORE | typeof CONSUMED | undefined; // undefined = 无可消费字节
 
+/** bracketed paste 单次累积上限（字节）：超出即按「结束标记丢失」处理，见 stepPaste */
+export const PASTE_MAX_BYTES_DEFAULT = 8 * 1024 * 1024;
+
+/** 单次 append 的分批大小（避免 `push(...arr)` 的参数个数上限） */
+const APPEND_BATCH = 4096;
+
 export class KeyDecoder {
-  /** 待消费字节队列（普通模式） */
+  /**
+   * 待消费字节队列（普通模式）。**消费用 head 游标推进、不做 shift/splice**：
+   * 大块粘贴 / 整块 read 时逐字节搬移是 O(N²)（实测 100KB 516ms、500KB 直接栈溢出），
+   * 只在积压过半时才压缩一次。
+   */
   private pending: number[] = [];
+  private head = 0;
   /** bracketed paste 累积原始字节；null = 不在 paste 模式 */
   private pasteRaw: number[] | null = null;
+  /** paste 结束标记的扫描游标（已确认无匹配的位置，避免每块重扫全量） */
+  private pasteScan = 0;
+  /** paste 累积上限（字节，超出按结束标记丢失处理） */
+  private readonly pasteMaxBytes: number;
+
+  constructor(opts: { pasteMaxBytes?: number } = {}) {
+    this.pasteMaxBytes = Math.max(
+      64,
+      Math.floor(opts.pasteMaxBytes ?? PASTE_MAX_BYTES_DEFAULT),
+    );
+  }
+
+  /** 未消费字节数 */
+  private get size(): number {
+    return this.pending.length - this.head;
+  }
+
+  /** 第 i 个未消费字节（越界 undefined） */
+  private at(i: number): number | undefined {
+    return this.pending[this.head + i];
+  }
+
+  /** 消费 n 个未消费字节（游标推进；积压过半时压缩数组） */
+  private take(n: number): void {
+    this.head = Math.min(this.pending.length, this.head + n);
+    if (this.head > APPEND_BATCH && this.head * 2 >= this.pending.length) {
+      this.pending = this.pending.slice(this.head);
+      this.head = 0;
+    }
+  }
+
+  /** 未消费字节的切片（只读副本） */
+  private slice(offset: number, end?: number): number[] {
+    return this.pending.slice(
+      this.head + offset,
+      end === undefined ? undefined : this.head + end,
+    );
+  }
+
+  /** 追加字节（分批，规避 `push(...large)` 的参数上限） */
+  private append(bytes: readonly number[]): void {
+    for (let i = 0; i < bytes.length; i += APPEND_BATCH) {
+      const batch = bytes.slice(i, i + APPEND_BATCH);
+      this.pending.push(...batch);
+    }
+  }
   /**
    * CPR（Cursor Position Report，`CSI row ; col R`）响应回调。
    * 终端对 `CSI 6n` 的应答经此上报（字符宽度探测用），**不作为按键事件**产出。
@@ -37,7 +94,7 @@ export class KeyDecoder {
    * 是则把批内 CR 归一为 LF（`\n` = 换行插入，与 Ctrl+J 同义）。
    */
   feed(bytes: ArrayLike<number> | null | undefined): KeyEvent[] {
-    if (bytes) this.pending.push(...normalizePastedCr(Array.from(bytes)));
+    if (bytes) this.append(normalizePastedCr(Array.from(bytes)));
     const out: KeyEvent[] = [];
     for (;;) {
       const step = this.step();
@@ -51,71 +108,84 @@ export class KeyDecoder {
   /** 消费队首一个完整输入；不足时返回 NEED_MORE（保持待处理状态，等下次 feed） */
   private step(): StepResult {
     if (this.pasteRaw !== null) return this.stepPaste();
-    const b = this.pending[0];
+    const b = this.at(0);
     if (b === undefined) return undefined;
 
     if (b === ESC) return this.stepEscape();
 
     if (b < 0x20 || b === 0x7f) {
       // CR LF（\r\n）合并为一个 enter，避免双触发（Linux 终端典型发送 \r）
-      if (b === 0x0d && this.pending[1] === 0x0a) {
-        this.pending.splice(0, 2);
+      if (b === 0x0d && this.at(1) === 0x0a) {
+        this.take(2);
         return { name: "enter", ctrl: false, meta: false, shift: false };
       }
-      this.pending.shift();
+      this.take(1);
       return decodeControl(b) ?? undefined;
     }
     // 可打印字符 / UTF-8 多字节
-    const cp = decodeCodepoint(this.pending);
+    const cp = decodeCodepoint(this.pending, this.head);
     if (!cp) return NEED_MORE;
-    this.pending.splice(0, cp.len);
+    this.take(cp.len);
     return { name: cp.ch, ctrl: false, meta: false, shift: false };
   }
 
+  /** paste 结束标记 ESC [ 201 ~ */
+  private static readonly PASTE_END = [ESC, 0x5b, 0x32, 0x30, 0x31, 0x7e];
+
   private stepPaste(): StepResult {
     const raw = this.pasteRaw!;
-    // 把本段 pending 并入 paste 累积
-    if (this.pending.length) {
-      raw.push(...this.pending);
-      this.pending.length = 0;
+    // 把本段未消费字节并入 paste 累积（一次性腾空，不做逐字节搬移）
+    if (this.size > 0) {
+      raw.push(...this.slice(0));
+      this.take(this.size);
     }
-    // 在累积中查找结束标记 ESC [ 201 ~
-    const marker = [ESC, 0x5b, 0x32, 0x30, 0x31, 0x7e];
+    // 从上次扫到的位置继续找结束标记（回退 marker-1 字节覆盖跨块边界）
+    const marker = KeyDecoder.PASTE_END;
     let found = -1;
-    outer: for (let i = 0; i + marker.length <= raw.length; i++) {
+    outer: for (
+      let i = Math.max(0, this.pasteScan);
+      i + marker.length <= raw.length;
+      i++
+    ) {
       for (let k = 0; k < marker.length; k++) {
         if (raw[i + k] !== marker[k]) continue outer;
       }
       found = i;
       break;
     }
-    if (found === -1) return NEED_MORE; // 仍在粘贴中
-    // 载荷行尾归一：剪贴板常带 CRLF（浏览器 / GUI），输入框的行分隔符是 `\n`
-    // （与 Ctrl+J 同源）；不归一会把 `\r` 当可打印字符插进正文
-    const text = new TextDecoder("utf-8")
-      .decode(Uint8Array.from(raw.slice(0, found)))
-      .replace(/\r\n?/g, "\n");
+    if (found === -1) {
+      this.pasteScan = Math.max(0, raw.length - (marker.length - 1));
+      // 结束标记丢失的护栏（终端不再发 201~ / 报文被截断）：累积超上限即把这批字节
+      // 当一次完整粘贴交出并退出 paste 模式——否则后续所有按键都会被永久吞掉。
+      if (raw.length <= this.pasteMaxBytes) return NEED_MORE; // 仍在粘贴中
+      const text = decodePasteText(raw);
+      this.pasteRaw = null;
+      this.pasteScan = 0;
+      return { name: "paste", ctrl: false, meta: false, shift: false, text };
+    }
+    const text = decodePasteText(raw.slice(0, found));
     this.pasteRaw = null;
-    this.pending.push(...raw.slice(found + marker.length));
+    this.pasteScan = 0;
+    this.append(raw.slice(found + marker.length));
     return { name: "paste", ctrl: false, meta: false, shift: false, text };
   }
 
   private stepEscape(): StepResult {
-    const second = this.pending[1];
+    const second = this.at(1);
     if (second === undefined) {
       // ESC 后无更多字节：视为独立 ESC 键
-      this.pending.shift();
+      this.take(1);
       return { name: "escape", ctrl: false, meta: false, shift: false };
     }
     if (second === 0x5b /* '[' */) return this.stepCsi();
     if (second === 0x4f /* 'O' */) return this.stepSs3();
     // ESC CR / ESC LF = Alt+Enter（Alt 前缀 + 回车）：合并为单个 meta+enter
     if (second === 0x0d || second === 0x0a) {
-      this.pending.splice(0, 2);
+      this.take(2);
       return { name: "enter", ctrl: false, meta: true, shift: false };
     }
     if (second >= 0x20 && second < 0x7f) {
-      this.pending.splice(0, 2);
+      this.take(2);
       return {
         name: String.fromCharCode(second),
         ctrl: false,
@@ -124,36 +194,36 @@ export class KeyDecoder {
       };
     }
     // ESC + 控制字节：双 ESC 等 → 只发独立 ESC，控制字节留到下一轮
-    this.pending.shift();
+    this.take(1);
     return { name: "escape", ctrl: false, meta: false, shift: false };
   }
 
   private stepCsi(): StepResult {
-    const p = this.pending;
-    // 找到终态字节（0x40-0x7e）
+    // 找到终态字节（0x40-0x7e）；下标相对队列头
     let finalIdx = -1;
-    for (let j = 2; j < p.length; j++) {
-      const c = p[j]!;
+    for (let j = 2; j < this.size; j++) {
+      const c = this.at(j)!;
       if (c >= 0x40 && c <= 0x7e) {
         finalIdx = j;
         break;
       }
     }
     if (finalIdx === -1) return NEED_MORE;
-    const params = p.slice(2, finalIdx); // 参数（不含终态）
-    const fin = p[finalIdx]!;
+    const params = this.slice(2, finalIdx); // 参数（不含终态）
+    const fin = this.at(finalIdx)!;
     const seqLen = finalIdx + 1;
 
     // bracketed paste 起始/结束
     if (fin === 0x7e) {
       const digits = String.fromCharCode(...params);
       if (digits === "200") {
-        this.pending.splice(0, seqLen);
+        this.take(seqLen);
         this.pasteRaw = [];
+        this.pasteScan = 0;
         return CONSUMED; // 进入 paste 模式，继续消费本 chunk 剩余字节
       }
       if (digits === "201") {
-        this.pending.splice(0, seqLen);
+        this.take(seqLen);
         return CONSUMED; // 孤立的 paste-end 标记，忽略
       }
       // '~' 型功能键
@@ -166,7 +236,7 @@ export class KeyDecoder {
         "6": "pagedown",
       } as const;
       const key = tilde[digits.split(";")[0] as keyof typeof tilde];
-      this.pending.splice(0, seqLen);
+      this.take(seqLen);
       return key
         ? { name: key, ctrl: false, meta: false, shift: false }
         : undefined;
@@ -175,7 +245,7 @@ export class KeyDecoder {
     if (fin === 0x52 /* 'R' */ && params.length > 0) {
       const digits = String.fromCharCode(...params);
       const m = /^(\d+);(\d+)$/.exec(digits);
-      this.pending.splice(0, seqLen);
+      this.take(seqLen);
       if (m) this.onCpr?.(Number(m[1]), Number(m[2]));
       return CONSUMED;
     }
@@ -193,17 +263,16 @@ export class KeyDecoder {
       void sepAt;
     }
     const base = CSI_LETTERS[fin];
-    this.pending.splice(0, seqLen);
+    this.take(seqLen);
     if (!base) return undefined;
     return { name: base, ctrl, meta, shift };
   }
 
   private stepSs3(): StepResult {
-    const p = this.pending;
-    const third = p[2];
+    const third = this.at(2);
     if (third === undefined) return NEED_MORE;
     const name = SS3_NAMES[third];
-    this.pending.splice(0, 3);
+    this.take(3);
     return name ? { name, ctrl: false, meta: false, shift: false } : undefined;
   }
 }
@@ -301,9 +370,12 @@ function decodeControl(b: number): KeyEvent | null {
   }
 }
 
-/** 从队列头部解码一个 UTF-8 码点；字节不足返回 null */
-function decodeCodepoint(buf: number[]): { ch: string; len: number } | null {
-  const b0 = buf[0];
+/** 从队列 `start` 处解码一个 UTF-8 码点；字节不足返回 null */
+function decodeCodepoint(
+  buf: number[],
+  start: number,
+): { ch: string; len: number } | null {
+  const b0 = buf[start];
   if (b0 === undefined) return null;
   let len = 1;
   if (b0 < 0x80) return { ch: String.fromCharCode(b0), len: 1 };
@@ -311,10 +383,20 @@ function decodeCodepoint(buf: number[]): { ch: string; len: number } | null {
   else if (b0 >= 0xe0 && b0 <= 0xef) len = 3;
   else if (b0 >= 0xf0 && b0 <= 0xf7) len = 4;
   else return { ch: "", len: 1 }; // 非法起始字节 → 跳过
-  if (buf.length < len) return null;
-  const bytes = buf.slice(0, len);
+  if (buf.length - start < len) return null;
+  const bytes = buf.slice(start, start + len);
   const str = new TextDecoder("utf-8", { fatal: false }).decode(
     Uint8Array.from(bytes),
   );
   return { ch: str, len };
+}
+
+/**
+ * paste 载荷 → 文本：行尾归一（剪贴板常带 CRLF，输入框行分隔符是 `\n`，与 Ctrl+J 同源；
+ * 不归一会把 `\r` 当可打印字符插进正文）。
+ */
+function decodePasteText(bytes: readonly number[]): string {
+  return new TextDecoder("utf-8")
+    .decode(Uint8Array.from(bytes))
+    .replace(/\r\n?/g, "\n");
 }

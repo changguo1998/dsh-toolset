@@ -4,13 +4,11 @@
  * 每次渲染调用 `memlogTick()` 会以节流频率(默认 1000ms)向目标文件**追加**一行:
  *   时间 ISO | heapUsed MB | rss MB | 本次渲染调用累计次数 | 最近一次 buildFrame 行数
  *
- * 目标文件取 `process.env.DSH_LAYOUT_MEMLOG`; 未设置时回退到
- * `<仓库根>/tmp/layout-mem.log`（repo 根 tmp/ 不存在则用 os.tmpdir()）。
- *
- * 关闭方式: 设 `DSH_LAYOUT_MEMLOG=off` 则完全禁用（零开销）。
+ * 目标文件取 `process.env.DSH_LAYOUT_MEMLOG`（**默认关闭**：未设置时零开销、不落盘）。
+ * 排查时显式指定：`DSH_LAYOUT_MEMLOG=/tmp/layout-mem.log dsh --profile fff`。
+ * 设 `off` 与不设等价（都关闭）。
  */
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const rss = (): string => {
@@ -29,16 +27,16 @@ const heap = (): string => {
   }
 };
 
-let enabled = true;
+// **默认关闭**（2026-10-27 改）：只在显式设了 DSH_LAYOUT_MEMLOG 时才落盘。原实现未设变量
+// 时默认写 `<cwd>/tmp/layout-mem.log`，等于把诊断设施开在所有人的生产路径上——每帧热路径
+// 里同步 appendFileSync（还带 existsSync + mkdirSync），且会在用户工作目录里堆出上百 MB
+// 的日志文件（本仓库实测 113MB / 171 万行）。
+let enabled = false;
 let path = "";
 try {
   const env = process.env.DSH_LAYOUT_MEMLOG;
-  if (env === undefined) {
-    const fallback = join(process.cwd(), "tmp", "layout-mem.log");
-    path = fallback;
-  } else if (env === "off") {
-    enabled = false;
-  } else {
+  if (env !== undefined && env !== "" && env !== "off") {
+    enabled = true;
     path = env;
   }
 } catch {

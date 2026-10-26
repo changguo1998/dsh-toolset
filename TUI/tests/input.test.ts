@@ -238,3 +238,45 @@ test("非 ASCII 与 ASCII 混合 + 分片共存", () => {
     ["a", "s", "中", "d", "f"],
   );
 });
+
+test("大批量字节线性解码（不抛 RangeError、不做 O(N²) 搬移）", () => {
+  // 回归：原实现 feed 用 `pending.push(...arr)`（≥50 万字节直接
+  // Maximum call stack size exceeded）且逐字节 shift/splice（100KB 实测 516ms）。
+  const d = new KeyDecoder();
+  const bytes = Array.from({ length: 500_000 }, (_, i) => 0x61 + (i % 26));
+  const t0 = performance.now();
+  const evs = d.feed(bytes);
+  const ms = performance.now() - t0;
+  assert.equal(evs.length, 500_000, "每个字节一个按键事件，不丢不卡");
+  assert.ok(ms < 2000, `50 万字节应在 2s 内解完（实测 ${ms.toFixed(0)}ms）`);
+});
+
+test("paste 结束标记丢失：超上限即按一次粘贴交出，后续按键恢复", () => {
+  // 终端不再发 ESC[201~ / 报文被截断时，原实现会永久停在 paste 模式把后续所有按键吞掉
+  const d = new KeyDecoder({ pasteMaxBytes: 64 });
+  const start = [0x1b, 0x5b, 0x32, 0x30, 0x30, 0x7e]; // ESC[200~
+  assert.deepEqual(d.feed(start), [], "进入 paste 模式，暂不产出");
+  const body = enc("x".repeat(100));
+  const evs = d.feed(body);
+  assert.equal(evs.length, 1, "超上限 → 交出一次 paste");
+  assert.equal(evs[0]!.name, "paste");
+  assert.equal(evs[0]!.text, "x".repeat(100), "已收到的载荷不丢");
+  // 退出 paste 模式后，普通按键恢复正常（不再被吞）
+  assert.deepEqual(
+    d.feed(enc("ok")).map((e) => e.name),
+    ["o", "k"],
+  );
+});
+
+test("paste 载荷跨多块：结束标记跨块边界仍能识别", () => {
+  const d = new KeyDecoder();
+  const start = [0x1b, 0x5b, 0x32, 0x30, 0x30, 0x7e];
+  const end = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e];
+  assert.deepEqual(d.feed([...start, ...enc("abc")]), []);
+  assert.deepEqual(d.feed(end.slice(0, 3)), [], "半个结束标记");
+  const evs = d.feed([...end.slice(3), ...enc("z")]);
+  assert.equal(evs.length, 2, "paste + 其后的按键");
+  assert.equal(evs[0]!.name, "paste");
+  assert.equal(evs[0]!.text, "abc");
+  assert.equal(evs[1]!.name, "z");
+});
