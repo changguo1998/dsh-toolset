@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { buildFrame } from "./helpers/frameWithLocalReplay.ts";
 import { pipelineContent } from "../src/app/layout/pipeline/frame.ts";
 import {
+  clearNewRowCache,
   resetRowRenderStats,
   rowRenderMisses,
 } from "../src/app/layout/pipeline/rows.ts";
@@ -204,6 +205,8 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
   const { newState } = states(5);
   const pipeline = newState.pipeline;
   assert.ok(pipeline, "注入节缓存");
+  // 独立会话边界：清空摊平缓存（真实单会话语义）, 避免跨测试模块级缓存残留
+  clearNewRowCache();
   resetRowRenderStats();
   const first = pipelineContent(pipeline, {
     dialogueTextW: 80,
@@ -234,10 +237,17 @@ test("c5 扩窗只排版新增段：已渲染的节命中行缓存（查表不�
   });
   const grown = rowRenderMisses();
   assert.ok(grown > 0, "扩窗纳入的新段要排一次");
-  assert.ok(
-    grown < initial + grown && grown <= initial,
-    "扩窗不重排已缓存的内容",
-  );
+  // 扩窗后同样宽再出一帧：全部命中（新纳入的也已入缓存）——缓存幂等 = 不重排已缓存内容。
+  // （旧的 `grown <= initial` 是数据相关启发: 增宽 2 组的项数可多于首窗 3 组, 正确缓存下
+  //   并不恒成立, 故以「同窗重复出帧零重排」这一稳健断言代替。）
+  resetRowRenderStats();
+  pipelineContent(pipeline, {
+    dialogueTextW: 80,
+    activityTextW: 80,
+    windowGroups: 6,
+    render: { width: 80 },
+  });
+  assert.equal(rowRenderMisses(), 0, "扩窗后同样宽重复出帧零重排");
   assert.ok(
     wider.dialogue.length >= first.dialogue.length,
     "扩窗后内容不少于原窗口",

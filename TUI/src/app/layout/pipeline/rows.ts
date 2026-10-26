@@ -548,6 +548,7 @@ const lastPaneWidth = new Map<string, number>();
 /** 清空新链摊平行缓存（窗口 resize / 会话边界调用：measure 之后全部重算、不复用旧结果） */
 export function clearNewRowCache(): void {
   newRowCache.clear();
+  lastPaneWidth.clear();
 }
 
 /** 缓存未命中次数（计数断言用：宽度不变时同段不重复排版） */
@@ -765,11 +766,12 @@ export function renderPaneNew(
 ): RenderedPane {
   const width = Math.max(1, options.width);
   const vw = options.vw ?? width;
-  if (lastPaneWidth.get(pane) !== width) {
-    // 窗口（宽度）变化：measure 之后全部重算——清空摊平缓存，绝不复用旧宽度的行
+  const prevPaneWidth = lastPaneWidth.get(pane);
+  if (prevPaneWidth !== undefined && prevPaneWidth !== width) {
+    // 该 pane 宽度真的变了(resize): 清空摊平缓存(宽已在键里, 变宽每个 item 键自然 miss)
     clearNewRowCache();
-    lastPaneWidth.set(pane, width);
   }
+  lastPaneWidth.set(pane, width);
   const struct: StructureOptions = {
     userSym: options.userSym,
     // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
