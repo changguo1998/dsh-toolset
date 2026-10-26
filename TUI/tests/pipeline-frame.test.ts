@@ -659,7 +659,14 @@ function contentIdentity(v: {
 }): Map<string, string> {
   return new Map(
     v.rows
-      .filter((row) => row.key.includes(":c#") || row.key.includes(":u#"))
+      // 新链段键: 内容=数字键 `${turn}:${step}:${序}:${块}`(或含 `:u#` 的用户块);
+      // 边界项以字母前缀开头(sep@/blank@/step@/summary@gap@turn@)
+      .filter(
+        (row) =>
+          /^\d/.test(row.key) ||
+          row.key.includes(":u#") ||
+          row.key.includes(":c#"),
+      )
       .map((row) => [row.key, row.seq]),
   );
 }
@@ -826,9 +833,12 @@ test("段 D · 重放 vs 实时交付：同内容整帧逐字节一致（差异�
     );
   }
   // 行身份跨路径一致：内容节逐项相同（用户节的差异见下一条断言）
+  // 行身份跨路径一致：非首回合内容节逐项相同（用户节与首回合 step 位移见下一条断言）
   const contentSeq = (v: { rows: { key: string; seq: string }[] }): string[] =>
     v.rows
-      .filter((row) => row.key.includes(":c#"))
+      // 新链内容键 = 数字键 `${turn}:${step}:${序}:${块}`（排除 `@` 边界项）；首回合键在
+      // 重放下整体位移(用户落 step0), 不在比较之列
+      .filter((row) => /^[2-9]\d*:/.test(row.key) || row.key.includes(":c#"))
       .map((row) => `${row.key}:${row.seq}`);
   assert.deepEqual(
     contentSeq(identityOf(replayState, 99)),
@@ -836,13 +846,13 @@ test("段 D · 重放 vs 实时交付：同内容整帧逐字节一致（差异�
     "内容节的行身份逐项一致",
   );
   // 既定差异（钉住，不隐藏）：重放按**行序**还原作用域——历史行序里用户行在 step 头之前，
-  // 故首回合用户节落在 step 0（`1:0:u#0`）；实时交付的用户交付自带 step（`1:1:u#0`）。
-  // 该差异只体现在段键字符串上（渲染内容与行数完全一致，故上面的整帧比较仍逐字节相等）。
+  // 故首回合用户节落在 step 0，后续首回合键整体位移一步；实时交付按自带 step 编号。
+  // 该差异只体现在段键字符串上（渲染内容与行数完全一致，上面的整帧比较仍逐字节相等）。
   const liveKeys = identityOf(liveState, 99).keys;
   const replayKeys = identityOf(replayState, 99).keys;
   assert.deepEqual(
     liveKeys.filter((key, index) => key !== replayKeys[index]),
-    ["1:1:u#0:0"],
-    "唯一差异 = 首回合用户节的 step 口径（重放按行序还原作用域）",
+    ["1:1:0:0", "blank@1:1:1:0", "1:1:1:0"],
+    "唯一差异 = 首回合键的整体 step 位移（重放按行序还原作用域：用户落 step0）",
   );
 });
