@@ -134,3 +134,18 @@ test("flatten：用户块（结构树）摊平 → 首行含符号 + 右缘竖�
   assert.ok(t.includes("?"), "含符号");
   assert.ok(t.trimEnd().endsWith("┃"), "右缘竖线");
 });
+
+test("flatten：顶段助手段 ┃ 为左缘 chrome 列不吃正文宽（正文=宽−gutter，竖线另占1列）", () => {
+  const para = parse(
+    sec({ id: "1:1:0", body: { source: "assistant", text: "0".repeat(40) } }),
+  )[0] as Paragraph;
+  const gutter = 4;
+  const width = 18;
+  const tree = buildTrees([para], [], { gutter }).session;
+  measure(tree, width, { vw: width });
+  const rows = flatten(tree, width, { vw: width });
+  const first = text(rows).split("\n")[0]!;
+  // ┃ 是面板左缘 chrome 列（如代码/表格的竖线），正文宽应为 width−gutter；
+  // 两者合计首行 = width−gutter+1（布局 history 区 bodyW+1 契约）
+  assert.equal(displayWidth(first), width - gutter + 1);
+});

@@ -36,6 +36,9 @@ export interface StructureOptions {
   gutter?: number;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传，作用于正文文本） */
   normalize?: (text: string) => string;
+  /** 左缘 chrome 竖线（┃）开关：只属于对话(session)面板；活动(turn)面板不画
+   *  （思考/流式正文为裸文本，legacy 同口径）。缺省 true。 */
+  bar?: boolean;
 }
 
 /** 左缘竖线（正文蓝 / 思考紫；窄窗降级阈值 = 最小留白 + 2） */
@@ -171,8 +174,9 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
   const text = opts?.normalize
     ? applyNormalize(block.text, opts.normalize)
     : block.text;
+  const barP = opts?.bar === false ? undefined : bar(block.source);
   return leaf(text, {
-    prefix: bar(block.source),
+    ...(barP ? { prefix: barP } : {}),
     ...(opts?.gutter ? { rightGutter: opts.gutter } : {}),
   });
 }

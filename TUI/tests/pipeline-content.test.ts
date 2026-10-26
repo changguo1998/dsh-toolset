@@ -104,7 +104,7 @@ test("桥：用户块 → dialogue kind=user、右对齐 + ? 符号、记入 use
   assert.ok(t.trimEnd().endsWith("┃"), "右缘竖线");
 });
 
-test("桥：思考 → activity kind=thinking（紫前缀）", () => {
+test("桥：思考 → activity kind=thinking（活动面板无左缘 chrome 竖线）", () => {
   const s = section({
     id: "1:1:0",
     reasoning: "想",
@@ -113,8 +113,7 @@ test("桥：思考 → activity kind=thinking（紫前缀）", () => {
   const r = renderPaneNew(items, "activity", PREFIX);
   assert.equal(r.rows[0]!.kind, "thinking");
   const first = r.rows[0]!.segments[0]!;
-  assert.equal(first.text, "┃");
-  assert.deepEqual(first.style, { fg: "brightMagenta" }, "思考紫前缀");
+  assert.notEqual(first.text, "┃", "活动面板思考不画左缘竖线（裸文本）");
 });
 
 test("桥：回合分隔 → dialogue kind=separator（tail 铺满）", () => {
@@ -291,8 +290,10 @@ test("gutter 契约：助理正文右缘保留 gutter 空位（W - gutter）", (
       r.segments.reduce((m, x) => m + displayW(x.text), 0),
     ),
   );
-  assert.equal(maxPlain, W, "无 gutter 时正文顶满");
-  assert.equal(maxWith, W - g, `gutter=${g} 时正文右缘 = ${W - g}`);
+  // 左缘 chrome 竖线占 1 列（不计入正文宽）：无 gutter → 正文 = 宽 W，行总宽 = W+1
+  // （= 区域宽 contentW）；有 gutter=g → 正文 = W−g，右缘留白恰为 g 列。
+  assert.equal(maxPlain, W + 1, "无 gutter 时正文顶满（+竖线共 contentW 列）");
+  assert.equal(maxWith, W - g + 1, `gutter=${g} 时正文右缘留白 = ${g} 列`);
 });
 
 test("gutter 契约：用户块仍贴右缘（右缘不因 gutter 内缩）", () => {

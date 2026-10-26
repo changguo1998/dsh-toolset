@@ -279,7 +279,11 @@ test("接缝：pipelineContent 的 dialogue 行铺满 dialogueTextW（多宽度�
       maxW >= W - 1,
       `W=${W}: dialogue 最宽行 ${maxW} 应 ≥ ${W - 1}（铺满文本宽）`,
     );
-    assert.ok(maxW <= W, `W=${W}: dialogue 最宽行 ${maxW} 不越界`);
+    // 左缘 chrome 竖线占 1 列 → 首行可达 W+1 = 区域宽 contentW（正文恰好铺满）
+    assert.ok(
+      maxW <= W + 1,
+      `W=${W}: dialogue 最宽行 ${maxW} 不越出区域宽 ${W + 1}`,
+    );
   }
 });
 
