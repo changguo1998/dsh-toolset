@@ -1078,6 +1078,54 @@ L14-L16 / L11-L15），7 个面板场景逐行零差异（含 ansi）。无字�
 `npm run demo -- --smoke` 输出 `SMOKE_PASS` ×10 + `SMOKE_OK`；跨帧复现探针（A 帧 → B 帧）
 分隔线恒为 1 条（修复前 2 条）。临时探针文件已删除。
 
+## 第五轮：旧六段链路拆除（死代码清理，2026-10-26）
+
+用户裁定范围：“连旧六段链路一起拆”。本轮删掉对话渲染的整条旧链（净 −717 行）：
+
+### 删除清单
+
+| 位置 | 删除内容 |
+| --- | --- |
+| `pipeline/panes.ts` | 整文件（`buildPanes` / `sectionIdentities` / 旧 `PaneItem` 类型）|
+| `pipeline/rows.ts` | 旧 `renderPane`（六段）、`itemLines`、`boxToLines`、`tableLines`、`kindOf`、`toolResultText`（旧）、`rowCache` / `cacheKey`；`RenderOptions` 不再 `extends BuildBoxOptions` |
+| `pipeline/compose.ts` | 整文件（`renderPane` / `rowsToFrame`：生产零调用，仅测试在用）|
+| `pipeline/flatten.ts` | `flattenAttributed`、`styledPlain`、`CELL_PAD`、`flattenLeaf` 的两条 `tail` 分支 |
+| `pipeline/ir.ts` | `NodeBase.tail`、`Row.indent` / `prefix` / `align`、`BlockKind` |
+| `pipeline/boxes.ts` | `applyShadowed` / `seqHit`、`Box.seqs` / `Box.shadowed` |
+| 其余零引用导出的清理 | `frame.rowSeq`、`memlog.memlogTool`、`routeTable.SESSION_BLANK_AFTER_USER`、`structure.buildTree` |
+
+### 顺带修复
+
+会话**首条即 steer** 时不再产前导 `Gap`：旧链靠渲染器裁首行空行，新链不裁，故 `route` 加
+`session.length > 0` 守卫（`steer-queued-display` 用例守住）。
+
+### 测试调整
+
+- 删除三个以已删模块为主题的用例文件：`pipeline-panes`（505 行）、`pipeline-equivalence`（412 行，
+  新旧等价对照——前提已不存在）、`pipeline-compose`；共 −24 例。
+- `steer-queued-display`：pane 断言从 `buildPanes` 迁到新链（`splitSections` → `parse` → `route`），
+  `["line","blank","line"]` → `["paragraph","gap","paragraph"]`。
+- `table.test`：删旧 `boxToLines` 的往返用例（被删模块主题）；`pipeline-boxes`：删 `applyShadowed` 用例；
+  `pipeline-layout` / `pipeline-fn` / `pipeline-flatten`：删 `flattenAttributed` / `rowsToFrame` / `renderPane`
+  用例，`tail` 两例改写为生产形状（`fillWith` 容器铺满）。
+
+### 证据
+
+`npm run check` 绿；`npm run build` 通过；`npm run test:tui` **1851 例全绿（0 fail）**（较前 1883 例
+少 32：删 24 例旧链主题 + 其余改写合并）；`npm run demo -- --smoke` 输出 42 条 `SMOKE_PASS`。
+
+### 未完成（需独立一轮，已记入待办）
+
+1. **`boxes.buildBoxes` 仍是生产依赖**：`frame.sectionGroupStarts` 用它把节还原成旧口径「行类型序列」
+   来算渐进窗口分组；新链 `parse` 的块切分与旧 `textParts` 不同（前者按物理行、后者按结构 run），
+   行数不通用，删除需先在新模型上重写分组边界。
+2. **`build-box.ts` 的 `buildContentRows` + `fill` / `measure`（旧）/ `box.ts` 仍在用**：
+   `layout.ts` 的 `queuedBlockRows`（排队块）与 chrome 面板（approval / picker / statusPanel …）
+   仍走这套；删除需先把排队块迁到新链（需新增「排队块右缘竖线按 steer / followup 着色」能力），
+   面板渲染不在本轮范围（明确不做：不改状态栏 / 面板布局）。
+3. **`route.shadowedBlockIds` 生产未接线**：有实现与测试，但结构 / 摊平都不消费遮蔽集合——
+   压缩剪枝的「整块打灰」能力实际未生效，属功能缺口（非本轮死代码）。
+
 ## 收尾
 
 （待关闭时填写。）
