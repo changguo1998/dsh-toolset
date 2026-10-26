@@ -108,6 +108,70 @@ test("measure：用户块外壳 h 铺满 pane，符号格 fixed 2，内容按剩
   assert.equal(block.height, 1, "12 个全宽字单行");
 });
 
+test("measure grid pass：列宽 = 各列自然宽最大值（含宽字符），横线行同宽", () => {
+  const node: Node = {
+    direction: "v",
+    children: [],
+    table: {
+      aligns: ["left", "left"],
+      header: [para("名"), para("说明")],
+      rows: [[para("a"), para("b")]],
+    },
+  };
+  measure(node, 40, { vw: 40 });
+  const [head, rule, body] = node.children as Node[];
+  // 「名」是宽字符 = 2 列；第二列取最长内容（说明 = 4 列）
+  assert.equal(head!.children[0]!.widthFixed, 2, "第一列 = 宽字符自然宽");
+  assert.equal(head!.children[1]!.widthFixed, 4, "第二列 = 该列最长内容");
+  assert.equal(head!.children[0]!.widthStyle, "fixed", "格改判固定宽");
+  // 横线行的 fill 盒照写同宽，线段才能与列边界严丝合缝
+  assert.deepEqual(
+    rule!.children.map((c) => c.widthFixed),
+    [2, 4],
+    "横线盒与列同宽",
+  );
+  assert.deepEqual(
+    body!.children.map((c) => c.widthFixed),
+    [2, 4],
+    "数据行同宽",
+  );
+});
+
+test("measure grid pass：可用宽不足时压缩列宽，列宽合计 + 分隔不超过可用宽", () => {
+  const node: Node = {
+    direction: "v",
+    children: [],
+    table: {
+      aligns: ["left", "left"],
+      header: [para("aaaa"), para("bbbb")],
+      rows: [[para("1"), para("2")]],
+    },
+  };
+  measure(node, 8, { vw: 8 });
+  const head = node.children[0] as Node;
+  const sum = head.children.reduce((a, c) => a + (c.widthFixed ?? 0), 0) + 1; // +1 = 列分隔
+  assert.ok(sum <= 8, `列宽合计 ${sum} ≤ 可用宽 8`);
+});
+
+test("measure：h 容器自然宽含 separator 列（作为 auto 子项不再少算）", () => {
+  const cell = (): Leaf => ({
+    text: [{ text: "ab" }],
+    widthStyle: "fixed",
+    widthFixed: 2,
+  });
+  const inner: Node = {
+    direction: "h",
+    separator: { char: "│" },
+    children: [cell(), cell()],
+  };
+  const filler: Leaf = { text: [], widthStyle: "fill" };
+  const root: Node = { direction: "h", children: [inner, filler] };
+  measure(root, 20, { vw: 20 });
+  // 自然宽 = 2 + 1（分隔）+ 2 = 5；剩余 15 列归 fill
+  assert.equal(inner.width, 5, "自然宽含分隔列");
+  assert.equal(filler.width, 15, "fill 吃掉剩余列");
+});
+
 function para(txt: string): Paragraph {
   return {
     kind: "paragraph",

@@ -372,55 +372,54 @@ export function sepStyle(sep: {
 function measureH(tree: Node, w: number, opts: MeasureOptions): number {
   // 分隔竖线占列：先从可用宽扣掉，剩余再按 fixed / auto / fill 分配
   const avail = Math.max(1, w - separatorWidth(tree));
-  const fixed = new Map<Node | Leaf, number>();
-  const autos: (Node | Leaf)[] = [];
-  const fills: (Node | Leaf)[] = [];
-  for (const child of tree.children) {
+  const children = tree.children;
+  // 宽度按**子项下标**记录（同一叶对象出现在多个槽位时也不会互相覆盖）
+  const widths = new Array<number>(children.length).fill(1);
+  const autos: number[] = [];
+  const fills: number[] = [];
+  let fixedSum = 0;
+  children.forEach((child, i) => {
     const style = child.widthStyle ?? "auto";
     if (style === "fixed" || (child.widthFixed ?? 0) > 0) {
-      fixed.set(child, Math.max(1, child.widthFixed ?? 1));
+      const cw = Math.max(1, child.widthFixed ?? 1);
+      widths[i] = cw;
+      fixedSum += cw;
     } else if (style === "fill") {
-      fills.push(child);
+      fills.push(i);
     } else {
-      autos.push(child);
+      autos.push(i);
     }
-  }
-  let fixedSum = 0;
-  for (const cw of fixed.values()) fixedSum += cw;
+  });
   // fill 的 widthMin 是先占位的保底：auto 只能分配 fixed 与 fill 保底之外的剩余列，
   // 否则 auto 的自然宽会连同保底一起吃掉，合计超过容器宽（用户块正文曾因此超 2 列）
-  const fillMin = fills.reduce((a, c) => a + Math.max(0, c.widthMin ?? 0), 0);
+  const fillMin = fills.reduce(
+    (a, i) => a + Math.max(0, children[i]!.widthMin ?? 0),
+    0,
+  );
   // auto 自然宽：文本叶 = min(展示宽 + 前缀/后缀, 剩余)；带 balance 的叶取剩余（尽力均摊）
   let remaining = Math.max(0, avail - fixedSum - fillMin);
-  const autoW = new Map<Node | Leaf, number>();
-  for (const child of autos) {
-    const natural = naturalHWidth(child, remaining, opts);
-    autoW.set(child, Math.max(1, Math.min(natural, Math.max(1, remaining))));
-    remaining = Math.max(0, remaining - autoW.get(child)!);
+  for (const i of autos) {
+    const natural = naturalHWidth(children[i]!, remaining, opts);
+    const cw = Math.max(1, Math.min(natural, Math.max(1, remaining)));
+    widths[i] = cw;
+    remaining = Math.max(0, remaining - cw);
   }
-  // 有 fill 保底时，auto 分完后把保底列加回到可分配空间（fill 要吃「剩余 + 保底」）
-  const fillSpace = Math.max(0, remaining);
-  // fill：各给 widthMin 保底；剩余列给**第一个** fill（左侧 spacer 吃剩余 → 内容贴右）。
-  const fillW = new Map<Node | Leaf, number>();
+  // fill：各给 widthMin 保底；剩余列在多个 fill 之间均分（余数给靠前的），
+  // 只有一个 fill 时即「吃下全部剩余」
   if (fills.length > 0) {
-    const mins = fills.map((c) => Math.max(0, c.widthMin ?? 0));
-    const minSum = mins.reduce((a, b) => a + b, 0);
-    const rest = Math.max(0, fillSpace);
-    // 剩余列在多个 fill 之间均分（余数给靠前的）；只有一个 fill 时即「吃下全部剩余」
+    const rest = Math.max(0, remaining);
     const share = Math.floor(rest / fills.length);
     let extra = rest - share * fills.length;
-    fills.forEach((child, idx) => {
+    fills.forEach((i) => {
       const add = share + (extra > 0 ? 1 : 0);
       if (extra > 0) extra -= 1;
-      fillW.set(child, Math.max(1, (mins[idx] ?? 0) + add));
+      widths[i] = Math.max(1, Math.max(0, children[i]!.widthMin ?? 0) + add);
     });
   }
   let h = 0;
-  for (const [child, cw] of fixed) h = Math.max(h, measure(child, cw, opts));
-  for (const child of autos)
-    h = Math.max(h, measure(child, autoW.get(child) ?? 1, opts));
-  for (const child of fills)
-    h = Math.max(h, measure(child, fillW.get(child) ?? 1, opts));
+  children.forEach((child, i) => {
+    h = Math.max(h, measure(child, widths[i] ?? 1, opts));
+  });
   tree.height = h;
   return h;
 }
