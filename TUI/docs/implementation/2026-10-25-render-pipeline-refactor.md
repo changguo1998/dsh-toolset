@@ -692,7 +692,7 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 > - `c0fff41` notice/toast 不挂会话竖线 → 清 toast 截断 + 滚动/小窗/Ctrl+T 级联
 > - （另有 P1 活跃块 post-pass 修复于 `eac250b`，含在 later 更新；连同前述级联共读到 6 fail。）
 
-本轮实现口径（回写）：`Leaf.prefixChrome` 表达竖线是否 chrome（对话真/活动假）；notice/toast 源段落不挂竖线。剩余 6 fail：c5 行缓存（新链无 rowCache，id 键缓存会吞流式更新，属阶段 4 再基线）、段D 重放/Home（逐字节一致，阶段 4 迁移）、渐进窗口 / 滚动独立 / /collapse off（滚动子系统深层交互，需设计级处理）。
+本轮实现口径（回写）：`Leaf.prefixChrome` 表达竖线是否 chrome（对话真/活动假）；notice/toast 源段落不挂竖线；工具行（名/参数/结果）挂会话 `┃` chrome（`d5806cf`，修复 /collapse 收敛，帧层相位覆写改按段定位字形）。当前 suite 5 fail：c5 行缓存（阶段 4 再基线）、段D 重放/Home（阶段 4 迁移）、渐进窗口 / 滚动独立（滚动子系统：实测**活动区内容依赖历史窗口**——base 仅物化当前回合 step1，扩窗后才物化后续步骤，需设计级处理）。
 
 ## 收尾
 
