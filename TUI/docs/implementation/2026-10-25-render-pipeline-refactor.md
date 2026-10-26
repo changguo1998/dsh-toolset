@@ -714,6 +714,26 @@ evidence：`npm run check` 全绿；`npm run build` 通过；`pipeline-structure
 
 **剩余 10 fail 全在 §6 盒路径（非 §4，属未提交的外壳改造）**：① box 的 `prefix` 只在首行画、续行补空格 → 竖线断（8 例 focus-frame 基线期望逐行 `┃`；2 例 B3 期望续行无前导空格）；② box 每行都补白到 `contentW` → 多尾随空格（B3 两例、基线 w60）。修法方向：`prefix` 逐行绘制、仅 `align=right/center` 或带 `suffix` 时补尾随白——待下一轮处理（用户裁定：先提交 §4）。
 
+### 阶段 4（续）：`Quote` 改节点 prefix + 容器 prefix 逐行绘制（2026-10-26）
+
+- **`Quote` 形状**（`structure.ts`）：由「把 `> ` 拼进每行正文文本」改为
+  `{ direction: "v", prefix: { text: "> " }, children: [leaf, ...] }`——标记提为节点 `prefix`，
+  正文按物理行拆成行叶，非文本子块递归。
+- **§5 连带修**（`measure.ts` `naturalHWidth`）：容器分支原来不计自身装饰列 → auto 子项
+  少给 2 列，正文在真实宽下提前折行（实测 40 列下 `残留引|用` 断在 8 列）。现容器自然宽
+  含 `prefix` / `suffix` / `rightGutter`，与叶子同口径。
+- **§6 容器 prefix 逐行绘制**（`flatten.ts`）：原来只在第 0 行画真符号、续行补等宽空格 →
+  竖线断与引用标记续行丢失。现与 `suffix` 同为每行装饰。
+- **补白保持每行补到 `contentW`**：试过只在 `align=right/center` 或带 `suffix` 时补，结果
+  `renderer-diff` 回归用例报 `rowsWritten 8 > 4`——正文追加一个字就抬高整块 auto 宽、
+  整段行变宽 → 区间 diff 退化为整块重写。已回退并注记原因。
+
+evidence：`check` / `build` 绿；`renderer-diff` 11 例全绿；全量 1885 例 **1875 pass / 10 fail**。
+
+**剩余 10 fail 收窄为单一原因**：断言期望「行无尾随空格」（8 例 focus-frame 基线 + 2 例 B3）；
+缺 `┃` 与续行前导空格两项已随 prefix 逐行绘制消失。候选修法（待裁定）：把「补到 pane 宽」
+下沉到 §7 装帧（flatten 只在 align/suffix 时补），或保留补白改断言 + 重冻基线。
+
 ## 收尾
 
 （待关闭时填写。）

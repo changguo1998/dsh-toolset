@@ -82,6 +82,11 @@ function splitTextLines(text: StyledText): StyledText[] {
   return out;
 }
 
+/** 文本 → 行叶数组（一行一叶）；用于「标记提为节点 prefix」的容器（引用） */
+function textLeaves(text: StyledText): Leaf[] {
+  return splitTextLines(text).map((line) => leaf(line));
+}
+
 /**
  * 文本 → 单叶（单行）或多行 `v` 容器（一行一叶）。
  * `extra` 作用于每个叶（balance / hanging 等），`lineExtra(i)` 按行补充（列表 / 引用的
@@ -105,19 +110,18 @@ function textNode(
 
 // ---------------- 块 → 节点 ----------------
 
-/** Quote → v Node：文本子块加 `> ` 标记（续行不加悬挂缩进，与列表同口径）；
- *  非文本子块递归转换。左缘竖线（┃）由外层 toBarBox 统一承担。 */
+/** Quote → v Node：`> ` 标记提为节点 `prefix`（每行装饰，与 `suffix` 同口径），
+ *  正文按物理行拆成行叶；非文本子块递归转换。左缘竖线（┃）由外层 toBarBox 统一承担。 */
 function toQuote(
   block: Extract<Block, { kind: "quote" }>,
   opts?: StructureOptions,
 ): Node {
-  const marker = "> ";
-  const children = block.children.map((child): Node | Leaf =>
+  const children = block.children.flatMap((child): (Node | Leaf)[] =>
     child.kind === "paragraph"
-      ? textNode([{ text: marker }, ...child.text])
-      : blockNode(child, opts),
+      ? textLeaves(child.text)
+      : [blockNode(child, opts)],
   );
-  return { direction: "v", children };
+  return { direction: "v", prefix: { text: "> " }, children };
 }
 
 /** List → v Node：条目文本自带显示标记（有序编号 / 任务框 / 无序子弹），续行不加

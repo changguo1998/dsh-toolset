@@ -378,7 +378,10 @@ export function flatten(
       // h：子项按分配宽各摊一行区，逐行拼接
       inner = flattenH(tree, contentW, opts);
     }
-    return inner.map((r, ri) => {
+    // 补白到 contentW：右/居中靠它定位，带 suffix 时靠它把右缘符号推到列尾；
+    // 纯左对齐也要补——行宽稳定是渲染层区间 diff 的前提（不加会出现：正文追加一个字
+    // 就抬高整块 auto 宽，令该块每一行都变宽、整段重写；见 renderer-diff 回归用例）
+    return inner.map((r) => {
       const used = rowW(r.segments);
       const gap = Math.max(0, contentW - used);
       // 补白位置由本节点对齐决定：right → 补前面；center → 两侧均分；left → 补后面
@@ -388,8 +391,9 @@ export function flatten(
       return {
         segments: [
           ...(lead > 0 ? [seg(" ".repeat(lead))] : []),
-          ...(ri === 0 && pfx ? [seg(pfx.text, pfx.style)] : []),
-          ...(ri > 0 && pfxW > 0 ? [seg(" ".repeat(pfxW))] : []),
+          // prefix 与 suffix 同为「每行装饰」：容器逐行绘制（续行留空会让竖线断 /
+          // 引用标记丢失），与 flattenLeaf 口径一致
+          ...(pfx ? [seg(pfx.text, pfx.style)] : []),
           ...r.segments,
           ...(trail > 0 ? [seg(" ".repeat(trail))] : []),
           ...(sffx ? [seg(sffx.text, sffx.style)] : []),

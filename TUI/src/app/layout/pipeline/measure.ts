@@ -124,6 +124,16 @@ function naturalHWidth(
     );
     return Math.min(avail, used) + prefixW + suffixW;
   }
+  // 容器：自身装饰列（prefix / suffix / 右缘留白）同样占宽——与叶子同口径，
+  // 否则 auto 分配会少给装饰列，子内容在真实宽下提前折行
+  const prefixW = prefixVisibleOf(child, opts.vw)
+    ? displayWidth(child.prefix?.text ?? "")
+    : 0;
+  const suffixW = suffixVisibleOf(child, opts.vw)
+    ? displayWidth(child.suffix?.text ?? "")
+    : 0;
+  const decor = prefixW + suffixW + (child.rightGutter ?? 0);
+  const inner = Math.max(1, budget - decor);
   if (child.direction === "h") {
     let fixedSum = 0;
     let autoMax = 0;
@@ -134,17 +144,17 @@ function naturalHWidth(
       } else if (style === "fill") {
         autoMax = Math.max(autoMax, sub.widthMin ?? 0);
       } else {
-        autoMax = Math.max(autoMax, naturalHWidth(sub, budget, opts));
+        autoMax = Math.max(autoMax, naturalHWidth(sub, inner, opts));
       }
     }
-    return Math.min(budget, fixedSum + autoMax);
+    return Math.min(budget, decor + fixedSum + autoMax);
   }
   // v 容器自然宽 = 子项自然宽的最大值（子项同宽，取最宽者）
   let widest = 0;
   for (const sub of child.children) {
-    widest = Math.max(widest, naturalHWidth(sub, budget, opts));
+    widest = Math.max(widest, naturalHWidth(sub, inner, opts));
   }
-  return Math.min(budget, Math.max(1, widest));
+  return Math.min(budget, decor + Math.max(1, widest));
 }
 
 /** 代码块行数模型：行号列 + 每物理行软折行（与 flatten 同源） */
