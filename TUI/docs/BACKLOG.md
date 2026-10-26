@@ -9,9 +9,9 @@
 
 ## 待办
 
-- **全屏（备用屏）模式：启动切备用屏、退出还原**〔进行中: 2026-10-27〕（登记 2026-10-27，来源 用户）：现象 → 现状渲染器只在普通屏幕缓冲区重绘，终端回滚缓冲仍在，PgUp/PgDn 被终端 / 复用器当成翻自己的历史；期望 → 像 pi-agent 一样启动即切备用屏（`ESC[?1049h`）、退出还原（`ESC[?1049l`），**不把当前帧内容写回普通屏幕**。落点 → `renderer/index.ts` 进/出序列与幂等开关（`restore` / `close` 都走 altOff）。验收 → 新增 `tests/fullscreen-alt-screen.test.ts`；全量绿。追踪文档 `TUI/docs/implementation/2026-10-27-fullscreen-alt-screen.md`。优先级 P1。
-
 （当前无未完成项）
+
+> 2026-10-27 关闭：`全屏（备用屏）模式` 完成并移出清单（提交 `89f2cf8`：启动写 `ESC[?1049h`、退出与异常恢复写 `ESC[?1049l`，幂等开关 `altOff`，按裁定不写回帧内容；新增 `tests/fullscreen-alt-screen.test.ts`；TUI 全量 1806 例全绿；追踪文档 `TUI/docs/archived/2026-10-27-fullscreen-alt-screen.md`）。
 
 > 2026-10-27 关闭：`翻页键只在会话 / 回合区聚焦时生效，否则在输入区移动光标` 完成并移出清单（提交 `5109d34`：无焦点时 ↑/↓ 上下移一行并落同显示列、←/→ 一格、Home/End 整串首尾、PgUp/PgDn 行首/行尾；聚焦会话/回合区才翻页；新增 `tests/input-cursor-keys.test.ts` 3 例，旧滚动用例改为先 Ctrl+E 聚焦；TUI 全量 1804 例全绿；追踪文档 `TUI/docs/archived/2026-10-27-input-cursor-keys.md`）。
 
