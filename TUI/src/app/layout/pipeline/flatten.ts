@@ -40,7 +40,10 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
   const suffixOn = suffixVisibleOf(node, opts.vw);
   const prefixW = prefixOn ? displayWidth(node.prefix!.text) : 0;
   const suffixW = suffixOn ? displayWidth(node.suffix!.text) : 0;
-  const bodyW = Math.max(1, width - prefixW - suffixW);
+  const bodyW = Math.max(
+    1,
+    width - prefixW - suffixW - (node.rightGutter ?? 0),
+  );
   const hanging = node.hanging ?? 0;
   // tail-only（空文本 + tail，如回合分隔线 / step 头空标签）
   if (node.text.length === 0 && node.tail) {

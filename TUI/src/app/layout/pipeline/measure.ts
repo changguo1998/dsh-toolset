@@ -62,7 +62,10 @@ export function leafRows(
 ): number {
   const prefixW = prefixWidthOf(node, opts.vw);
   const suffixW = suffixWidthOf(node, opts.vw);
-  const bodyW = Math.max(1, width - prefixW - suffixW);
+  const bodyW = Math.max(
+    1,
+    width - prefixW - suffixW - (node.rightGutter ?? 0),
+  );
   const hanging = node.hanging ?? 0;
   return wrapLeaf(node.text, bodyW, {
     prefixW,

@@ -747,7 +747,8 @@ export function renderPaneNew(
   const vw = options.vw ?? width;
   const struct: StructureOptions = {
     userSym: options.userSym,
-    gutter: options.gutter,
+    // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
+    gutter: pane === "dialogue" ? options.gutter : undefined,
     normalize: options.normalize,
   };
   const { session, turn } = buildTrees(

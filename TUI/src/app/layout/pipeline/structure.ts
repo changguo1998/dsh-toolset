@@ -167,11 +167,14 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
   if (block.rule === true) {
     return leaf([], { tail: { char: "─", style: { fg: "border" } } });
   }
-  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）
+  // 其它段落：normalize 作用于文本的实际字符（分段样式保留）；右缘预留 gutter
   const text = opts?.normalize
     ? applyNormalize(block.text, opts.normalize)
     : block.text;
-  return leaf(text, { prefix: bar(block.source) });
+  return leaf(text, {
+    prefix: bar(block.source),
+    ...(opts?.gutter ? { rightGutter: opts.gutter } : {}),
+  });
 }
 
 /** 对段落文本逐 StyledStr 应用文本替换（保留样式，仅改 text） */

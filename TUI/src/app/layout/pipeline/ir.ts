@@ -330,6 +330,8 @@ export interface NodeBase {
   style?: FrameStyle;
   /** 首行左缩进列数（整段基准） */
   indent?: number;
+  /** 右缘预留留白列数（宽度无关的固定配置，如 messageGutter；正文/思考右缘不顶满） */
+  rightGutter?: number;
   /** 续行缩进列数；缺省 = indent（工具行的悬挂缩进） */
   hanging?: number;
   /** 段前缀（占列，正文缩进自前缀后起算） */

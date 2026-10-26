@@ -263,3 +263,53 @@ test("compact 契约：activityCompact[tool] 折叠工具批多行 → 行数减
   );
   void items;
 });
+
+// ---------------- gutter 契约（交织布局：正文右缘保留 gutter，对称用户块左） ----------------
+
+test("gutter 契约：助理正文右缘保留 gutter 空位（W - gutter）", () => {
+  const W = 40;
+  const g = 4;
+  const asst = section({
+    id: "1:1:0",
+    final: true,
+    body: { source: "assistant", text: "x".repeat(80) },
+  });
+  const items = paneOf([asst], "session");
+  const withGut = renderPaneNew(items, "dialogue", {
+    width: W,
+    vw: W,
+    gutter: g,
+  });
+  const without = renderPaneNew(items, "dialogue", { width: W, vw: W });
+  const maxWith = Math.max(
+    ...withGut.rows.map((r) =>
+      r.segments.reduce((m, x) => m + displayW(x.text), 0),
+    ),
+  );
+  const maxPlain = Math.max(
+    ...without.rows.map((r) =>
+      r.segments.reduce((m, x) => m + displayW(x.text), 0),
+    ),
+  );
+  assert.equal(maxPlain, W, "无 gutter 时正文顶满");
+  assert.equal(maxWith, W - g, `gutter=${g} 时正文右缘 = ${W - g}`);
+});
+
+test("gutter 契约：用户块仍贴右缘（右缘不因 gutter 内缩）", () => {
+  const W = 40;
+  const g = 4;
+  const u = section({
+    id: "1:1:1",
+    user: { status: "success" },
+    body: { source: "user", text: "问" },
+  });
+  const items = paneOf([u], "session");
+  const r = renderPaneNew(items, "dialogue", {
+    width: W,
+    vw: W,
+    gutter: g,
+    userSym: (info) => (info === undefined ? undefined : { text: "✓" }),
+  });
+  const w = r.rows[0]!.segments.reduce((m, x) => m + displayW(x.text), 0);
+  assert.equal(w, W, "用户块贴右缘铺满 W（gutter 只影响其左缩进）");
+});
