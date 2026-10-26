@@ -117,9 +117,9 @@ function userRightEdge(): {
   };
 }
 
-/** 用户行内样式以外的 markdown 块(列表/代码)外壳: `h(spacer(fill), statusMarker?, content)` ——
- * 空白块右对齐、状态符号(如 `?`)独立一格、内容(v)自成一格; 右缘竖线在内容各行的 leaf 上
- * (见列表项), 不给 spacer/符号加竖线。 */
+/** 用户行内样式以外的 markdown 块(列表/代码)外壳: `h(statusMarker?, content)` ——
+ * 状态符号独立一格、内容(v) 自成一格, 二者**左对齐**成一块(不右推, 避免"两小块各自
+ * 右对齐"观感); 右缘竖线在内容各行的 leaf 上(见列表项)。 */
 function toUserBlock(
   sym: { text: string; fg?: string } | undefined,
   content: Node,
@@ -127,7 +127,6 @@ function toUserBlock(
   return {
     direction: "h",
     children: [
-      leaf([], { widthStyle: "fill" }),
       ...(sym === undefined
         ? []
         : [
