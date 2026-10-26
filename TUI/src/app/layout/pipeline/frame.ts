@@ -16,7 +16,7 @@ import type { RenderOptions } from "./rows.ts";
 import { renderPaneNew } from "./rows.ts";
 import { createSections } from "./sections.ts";
 import { allSections, type SectionsState } from "./sections.ts";
-import { buildBoxes, toolUnits } from "./boxes.ts";
+import { toolUnits } from "./tool-units.ts";
 import { splitOldSectionsIndexed } from "./split.ts";
 import { parse } from "./parse.ts";
 import { route, shadowedBlockIds } from "./route.ts";
@@ -60,8 +60,12 @@ export interface PipelineContent {
 
 /**
  * 回合组起点（节下标）。分组口径与旧路径**同一个函数**（`turnGroupStarts`）：
- * 先把节序列还原成「旧口径的缓冲行类型序列」（每节 = step 头 + 条目行），
- * 再套用既有分组算法——这样窗口粒度与旧路径逐组一致，不会各解释一套。
+ * 先把节序列还原成「旧口径的缓冲行类型序列」（每节 = step 头 + 条目行），再套用既有分组
+ * 算法——这样窗口粒度与旧路径逐组一致，不会各解释一套。
+ *
+ * 行类型序列直接由 `section.items` 推导（旧实现走 `boxes.buildBoxes` 的细分盒子，但同一
+ * 条目的各细分块 kind 恒相同，故「一细分块一行」与「一条目一行」给出**同一 kind 序列**，
+ * 分组边界因此不变；工具批仍按 `toolUnits` 计行，保持与摊平产行同口径）。
  */
 export function sectionGroupStarts(sections: readonly Section[]): {
   starts: number[];
@@ -73,35 +77,40 @@ export function sectionGroupStarts(sections: readonly Section[]): {
   sections.forEach((section, index) => {
     if (section.items.length === 0) return;
     firstLine[index] = kinds.length;
+    const final = section.final === true;
     // step 头（旧口径是工具行）；独立自足节（用户 / notice / shell）没有 step 头
     if (section.standalone !== true) {
       kinds.push({ kind: "tool" });
       owner.push(index);
     }
-    for (const block of buildBoxes(section)) {
-      const final = section.final === true;
-      for (const box of block.children) {
-        if (box.kind === "content" && box.shape === "tool") {
-          // 工具块逻辑行 = 名字 / 参数 / 结果（工具块改版决策 1）——与 `rows.ts` 产行
-          // 共用 `toolUnits`，两处行数必须一致（否则 kinds / owner 与行错位）
-          for (const _unit of toolUnits(box.batch)) {
-            kinds.push({ kind: "tool" });
-            owner.push(index);
-          }
-          continue;
+    for (const item of section.items) {
+      // 工具批：逻辑行 = 名字 / 参数 / 结果，逐行计 kind（与摊平产行同口径，否则窗口错行）
+      if (
+        item.source === "tool" &&
+        (item.calls !== undefined || item.results !== undefined)
+      ) {
+        for (const _unit of toolUnits({
+          calls: item.calls ?? [],
+          results: item.results ?? [],
+        })) {
+          kinds.push({ kind: "tool" });
+          owner.push(index);
         }
-        const kind =
-          box.source === "reasoning"
-            ? "thinking"
-            : box.source === "user"
-              ? "user"
-              : "assistant";
-        kinds.push({
-          kind,
-          ...(kind === "assistant" && final ? { final: true } : {}),
-        });
-        owner.push(index);
+        continue;
       }
+      // 空文本条目本就不产行（旧 `textParts` 同口径）
+      if ((item.text ?? "") === "") continue;
+      const kind =
+        item.source === "reasoning"
+          ? "thinking"
+          : item.source === "user"
+            ? "user"
+            : "assistant";
+      kinds.push({
+        kind,
+        ...(kind === "assistant" && final ? { final: true } : {}),
+      });
+      owner.push(index);
     }
   });
   const starts: number[] = [];

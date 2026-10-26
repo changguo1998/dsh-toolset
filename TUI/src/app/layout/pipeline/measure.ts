@@ -14,7 +14,7 @@ import { balancedWidth } from "../fill.ts";
 import { wrapLeaf, styledToSegments } from "./wrap.ts";
 import type { Leaf, Node, Paragraph, StyledText } from "./ir.ts";
 import { isLeaf } from "./ir.ts";
-import type { ToolUnit } from "./boxes.ts";
+import type { ToolUnit } from "./tool-units.ts";
 
 export interface MeasureOptions {
   /** 视口宽（prefix/suffix 的 minWidth 降级判定基准） */

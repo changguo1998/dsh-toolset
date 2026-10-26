@@ -16,7 +16,7 @@ import type { FrameSegment, FrameStyle } from "../../../renderer/screen.ts";
 import type { ColorName } from "../../../renderer/theme.ts";
 import type { NoticeTone } from "../../adapter/types.ts";
 import type { ToolCall, ToolResult } from "./types.ts";
-import type { ToolUnit } from "./boxes.ts";
+import type { ToolUnit } from "./tool-units.ts";
 
 // ================= §1 分节：一次模型交互 =================
 
@@ -233,7 +233,7 @@ export interface EventGroup {
   results?: readonly ToolResult[];
 }
 
-// ---- 占位类型（字段沿用旧 panes.ts / boxes.ts 语义，均带稳定段键 key） ----
+// ---- 占位类型（字段沿用旧 pane / box 语义，均带稳定段键 key） ----
 
 /** step 头（route 生成；对应旧 step-head） */
 export interface StepHeader {

@@ -16,7 +16,7 @@ import {
 } from "../content-rules.ts";
 import { toolDiffSummary } from "../tool-line.ts";
 import { displayWidth } from "../markdown.ts";
-import { toolUnits } from "./boxes.ts";
+import { toolUnits } from "./tool-units.ts";
 import { stepHeaderLine, turnHeaderLine } from "../tool-line.ts";
 import type { FrameStyle } from "../../../renderer/screen.ts";
 import type {

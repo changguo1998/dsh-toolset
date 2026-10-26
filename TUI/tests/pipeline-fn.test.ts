@@ -34,7 +34,7 @@ import {
 import { toUser, buildTrees } from "../src/app/layout/pipeline/structure.ts";
 import { isNode, type Node } from "../src/app/layout/pipeline/ir.ts";
 import { parse } from "../src/app/layout/pipeline/parse.ts";
-import type { ToolUnit } from "../src/app/layout/pipeline/boxes.ts";
+import type { ToolUnit } from "../src/app/layout/pipeline/tool-units.ts";
 import type { Row } from "../src/app/layout/pipeline/ir.ts";
 import type { HistoryRow } from "../src/app/state.ts";
 
