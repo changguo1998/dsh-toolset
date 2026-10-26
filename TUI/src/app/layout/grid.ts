@@ -2,7 +2,7 @@
 //
 // 分区层的框线字形**逐行不同**：分隔竖线列（状态列右缘/历史区左缘）在内容行是
 // `│`（竖线贯穿）、在横线行是 `├`（横线自右接入）；右缘框列在横线行是 `─`、
-// 在回合分隔行是 `╌`、在活动区行**不落字形**（内容到正文右缘为止）、其余行是空白
+// 在活动区行**不落字形**（内容到正文右缘为止）、其余行（含回合分隔行）是空白
 // 占位（供 focusFrame 覆写）。Box 库的 `separator` / `suffix` 只能挂**单个固定字符**，
 // 故字形由本模块按**行角色**统一给出，拼帧层在行内取字形（不做事后整帧扫描）。
 //
@@ -13,12 +13,12 @@
 // focus-frame 的 setCell 逐格改写），一行一列各一次改写即让 buildFrame 的 cache off
 // 档从 0.47ms 涨到 1.90ms（4×）——故改为纯映射函数，行内取字形，零额外遍历。
 
-import { ACTIVITY_SEPARATOR, TURN_SEPARATOR_CHAR } from "./content-rules.ts";
+import { ACTIVITY_SEPARATOR } from "./content-rules.ts";
 
 /**
  * 顶部区域行角色（决策 10：先 4 类，阶段 2 按需追加状态栏 / 输入区 / 提示区角色）。
  * - `border`：横线行——标题栏下划线、活动区分隔行（横线铺满，竖线列出 `├`）
- * - `rule`：回合分隔行（内容层 kind=separator；右缘补 `╌` 使横线连到框列）
+ * - `rule`：回合分隔行（内容层 kind=separator）——只铺到**正文文字宽**，右缘框列留空
  * - `activity`：活动区行（纵向活动 pane / 横向右 pane）——不补白、右缘不落字形
  * - `body`：普通内容行
  */
@@ -48,6 +48,5 @@ export function dividerGlyph(role: GridRole): string {
 export function rightEdgeGlyph(role: GridRole): string | null {
   if (role === "activity") return null;
   if (role === "border") return ACTIVITY_SEPARATOR;
-  if (role === "rule") return TURN_SEPARATOR_CHAR;
   return " ";
 }

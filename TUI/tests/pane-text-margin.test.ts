@@ -144,7 +144,7 @@ test("文字右缘留白：横向历史不留白 / 横向活动让 1 列 / 纵�
   }
 });
 
-test("文字右缘留白：横线（边框 + 回合分隔线）一律铺到屏幕最右列", () => {
+test("文字右缘留白：横线中的回合分隔线只铺到正文右缘（边框行仍满宽）", () => {
   for (const size of SIZES) {
     for (const placement of ["vertical", "horizontal"] as const) {
       const g = frameGeometry(state(placement), size);
@@ -177,18 +177,19 @@ test("文字右缘留白：横线（边框 + 回合分隔线）一律铺到屏�
           `${tag}: 活动区分隔线铺满到屏幕最右列`,
         );
       }
-      // 回合分隔线（╌）：横线铺满 pane（纵向含外缘框列 → 顶到屏幕最右列；
-      // 横向到历史 pane 右缘 = 内部分隔竖线前一列）
+      // 回合分隔线（╌）：与正文同宽——右端停在正文排版右缘（不再是 pane/屏幕右缘）
       const ruleRow = rows.find((t) => t.includes("╌"))!;
       assert.ok(ruleRow !== undefined, `${tag}: 回合分隔线可见`);
-      const ruleTarget =
-        g.mode === "vertical" ? size.cols - 1 : (g.innerDividerCol ?? 0) - 1;
       const ruleInk = rightMostInk(
         ruleRow.replace(/[^╌]/gu, " "),
         0,
         size.cols,
       );
-      assert.equal(ruleInk, ruleTarget, `${tag}: 回合分隔线铺满 pane`);
+      assert.equal(
+        ruleInk,
+        r.histFrom + g.dialogueTextW - 1,
+        `${tag}: 回合分隔线右端与正文右缘对齐`,
+      );
     }
   }
 });

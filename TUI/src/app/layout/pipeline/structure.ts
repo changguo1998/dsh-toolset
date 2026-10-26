@@ -247,14 +247,15 @@ function queuedEdgeFg(
 
 /** 用户块外壳（用户给定结构）：一条用户输入 = 一个 h 节点
  *
- *   { direction: h, width: 父宽, suffix: "┃", align: right,
- *     children: [ spacer, 状态符号 "* ", 内容 { direction: v } ] }
+ *   { direction: h, suffix: "┃",
+ *     children: [ spacer, 状态符号格, 内容 { direction: v } ] }
+ *
+ *  状态符号格是 `widthFixed = 符号显示宽 + 1` 的固定宽盒，盒内叶**只放符号本身**（不带
+ *  尾随空格）；差的 1 列由摊平（`flattenH` 按子项宽补白）补成符号与正文之间的间隙。
  *
  *  内容 v 的子节点是这条输入解析出的全部块（段落 / 列表 / 代码）；摊平后各行同宽，
- *  故块与块左缘、右缘都对齐。spacer(fill) 吃剩余列 → 整块右对齐，`align: right`
- *  让摊平阶段的补白落在内容左侧，与 spacer 同侧。 */
-/** 用户盒外壳（用户给定结构）：spacer + 状态符号格 + 内容 v + 右缘竖线。
- *  导出供单测直接验形态；生产路径只经 `toPaneTree` 调用。 */
+ *  故块与块左缘、右缘都对齐。右对齐只靠 spacer(fill) 吃剩余列（节点不带 `align`），
+ *  补白因此落在内容左侧。导出供单测直接验形态；生产路径只经 `toPaneTree` 调用。 */
 export function toUserBox(
   sym: { text: string; fg?: string } | undefined,
   children: (Node | Leaf)[],
@@ -274,7 +275,7 @@ export function toUserBox(
     children: [leaf([])],
   });
   if (sym !== undefined) {
-    // 符号格 = Box(width: 标记宽 + 1, 标记)：多出的 1 列由展平补白成空格
+    // 符号格 = Box(widthFixed: 符号宽 + 1)：叶里只放符号，间隙的 1 列交给摊平补白
     box.children.push({
       direction: "v",
       widthStyle: "fixed",
@@ -572,10 +573,28 @@ function toPaneTree(
 ): { root: LayoutTree; slots: PaneSlot[] } {
   const out: (Node | Leaf)[] = [];
   const slots: PaneSlot[] = [];
+  // 层级：pane 根 → 每段一个盒（同 `source + section` 的条目并进同一盒）。回合分隔线 /
+  // step 头属于紧随其后的那一段（排在各块之前、同一槽位）：行内不画段盒的左竖线，
+  // 右端停在正文右缘（见 headerRowBox）；攒不到后续段时按独立槽位收尾。
+  const pending: { node: Node | Leaf; index: number }[] = [];
+  const flushPending = (): void => {
+    while (pending.length > 0) {
+      const head = pending.shift()!;
+      const node = headerRowBox(head.node as Node | Leaf);
+      out.push(node);
+      slots.push({ node, members: [{ index: head.index, node }] });
+    }
+  };
   for (let i = 0; i < items.length; i++) {
     const key = groupKeyOf(items[i]!);
-    // 不属于 {user, assistant, reasoning} 的条目（gap / 工具批 / 头 / 分隔）各自独立成项
     if (key === undefined) {
+      // 头类条目：攒进紧随其后的段（找不到后续段时按独立槽位收尾，不丢行）
+      if (isHeaderItem(items[i]!)) {
+        const built = toNodeItem(items[i]!, opts);
+        if (built !== null) pending.push({ node: built, index: i });
+        continue;
+      }
+      flushPending();
       const built = toNodeItem(items[i]!, opts);
       if (built !== null) {
         const node: Node | Leaf = shadowed(items[i]!, opts)
@@ -588,6 +607,19 @@ function toPaneTree(
     }
     const inner: (Node | Leaf)[] = [];
     const members: SlotMember[] = [];
+    const src = sourceOf(items[i]!) ?? "assistant";
+    // 头行（回合分隔线 / step 头）与段内各块平级：正文 / 思考段直接塞进内容 v（标裸行，
+    // 由 toBarBox 提到装饰盒之外、段盒之内，从而不画左竖线）；用户段是右对齐盒
+    // （spacer + 符号 + 内容），头行进不去它的内容列，一并提到段盒外层（v[头行, 用户盒]）。
+    const heads = [...pending];
+    pending.length = 0;
+    const inline = src === "user" ? [] : heads;
+    const hoisted = src === "user" ? heads : [];
+    for (const p of inline) {
+      const node = bareNode(p.node);
+      inner.push(node);
+      members.push({ index: p.index, node });
+    }
     let j = i;
     for (; j < items.length && groupKeyOf(items[j]!) === key; j++) {
       const node = toNodeItem(items[j]!, opts);
@@ -596,7 +628,6 @@ function toPaneTree(
         members.push({ index: j, node });
       }
     }
-    const src = sourceOf(items[i]!) ?? "assistant";
     const built =
       src === "user"
         ? toUserBox(
@@ -608,12 +639,41 @@ function toPaneTree(
         : toBarBox(bar(src), inner, opts);
     // 打灰标记顶到盒外层：§6 摊平只认一个入口（盒节点），缓存键也读这一处
     const dimmed = members.some((m) => shadowed(items[m.index]!, opts));
-    const wrapper: Node = dimmed ? { ...built, dim: true } : built;
-    out.push(wrapper);
-    slots.push({ node: wrapper, members });
+    const boxNode: Node = dimmed ? { ...built, dim: true } : built;
+    // 用户段：槽位 = v[头行盒…, 用户盒]（头行整行铺满 pane，右端与用户块右缘对齐）
+    const headNodes = hoisted.map((p) => p.node as Node);
+    const node: Node =
+      headNodes.length === 0
+        ? boxNode
+        : { direction: "v", children: [...headNodes, boxNode] };
+    out.push(node);
+    slots.push({
+      node,
+      members: [
+        ...hoisted.map((p, k) => ({ index: p.index, node: headNodes[k]! })),
+        ...members,
+      ],
+    });
     i = j - 1;
   }
+  flushPending();
   return { root: { direction: "v", id: undefined, children: out }, slots };
+}
+
+/** 分隔线类条目（回合分隔线 / step 头）：与 reason / assistant / user / call 平级的行 */
+function isHeaderItem(item: PaneItem): boolean {
+  return item.kind === "step-header" || item.kind === "turn-header";
+}
+
+/** 分隔线头行盒：`v fill[头内容]`——不画左竖线，横向铺满整个 pane，
+ *  右端停在 pane 文字右缘（与用户块右竖线同列）。 */
+function headerRowBox(child: Node | Leaf): Node {
+  return { direction: "v", widthStyle: "fill", children: [child] };
+}
+
+/** 标裸行：交给 toBarBox 提到装饰盒之外（不画段盒左竖线 / 右缘留白），只占正文列 */
+function bareNode<T extends Node | Leaf>(node: T): T {
+  return { ...node, bare: true };
 }
 
 /**
@@ -637,32 +697,45 @@ function shadowed(item: PaneItem, opts?: StructureOptions): boolean {
   return id !== undefined && opts?.shadowedIds?.has(id) === true;
 }
 
+/** 会话区右缘留白（`gutter − 1` 个空格；gutter 记左右合计、竖线占 1 列）：正文盒与
+ *  分隔线头共用同一份，保证两者的右缘落在同一列。活动区无右缘留白。 */
+function edgeSuffix(opts?: StructureOptions): { text: string } | undefined {
+  if (opts?.pane === "turn") return undefined;
+  const gutter = Math.max(0, opts?.gutter ?? 0);
+  return gutter > 1 ? { text: " ".repeat(gutter - 1) } : undefined;
+}
+
 /** 正文 / 思考盒：盒形按 pane 区分。
  *
  *  - **会话区**（形状已定）：`h[prefix "┃", 内容 v, suffix 空格]`——竖线后**不带空格**，
  *    正文直接接在竖线之后（前缀计 1 列）；右缘留白 = `gutter − 1` 个空格（gutter 记左右
  *    合计：gutter=4 → 3 个空格），逐行绘制。
- *  - **活动区**（形状未定）：单竖线 `┃`、无右缘留白。
- *  整节一条竖线，不逐段重复。 */
+ *  - **活动区**（形状未定）：单竖线 `┃`、无右缘留白。 */
 function toBarBox(
   barP: { text: string; style?: FrameStyle; minWidth?: number },
   children: (Node | Leaf)[],
   opts?: StructureOptions,
 ): Node {
+  // 分隔线头（裸行）与段内各块平级，但不画竖线、只占正文列：提到装饰盒之外、段盒之内
+  const heads = children.filter((c) => (c as { bare?: true }).bare === true);
+  const body = children.filter((c) => (c as { bare?: true }).bare !== true);
   // 内容盒取 fill：占据左侧装饰之后的全部剩余列（auto 会被自然宽收紧——分隔线 / 空行这类
   // 无文本内容自然宽为 1，会退化成 1 列）
-  const inner: Node = { direction: "v", widthStyle: "fill", children };
-  if (opts?.pane === "turn") {
-    return { direction: "h", prefix: barP, children: [inner] };
-  }
-  // 右缘留白 = gutter − 1 列（gutter 记左右合计；竖线占 1 列）：gutter=4 → 3 个空格 suffix
-  const gutter = Math.max(0, opts?.gutter ?? 0);
-  return {
-    direction: "h",
-    prefix: barP,
-    ...(gutter > 1 ? { suffix: { text: " ".repeat(gutter - 1) } } : {}),
-    children: [inner],
-  };
+  const inner: Node = { direction: "v", widthStyle: "fill", children: body };
+  const suffix = edgeSuffix(opts);
+  const box: Node =
+    opts?.pane === "turn"
+      ? { direction: "h", prefix: barP, children: [inner] }
+      : {
+          direction: "h",
+          prefix: barP,
+          ...(suffix === undefined ? {} : { suffix }),
+          children: [inner],
+        };
+  if (heads.length === 0) return box;
+  // 头行盒：与段盒同款右缘留白（不带左竖线），右端因此与正文右缘同列
+  const headBoxes = heads.map((child) => headerRowBox(child));
+  return { direction: "v", children: [...headBoxes, box] };
 }
 
 /** 由 route 输出（或直接给定的两 pane 项）→ 两棵子树 */

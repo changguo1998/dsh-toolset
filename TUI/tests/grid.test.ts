@@ -43,9 +43,13 @@ test("分隔竖线列字形：横线行 ├（连接），其余 │（竖线贯
   assert.deepEqual(glyphs, ["├", "│", "│", "│"]);
 });
 
-test("右缘框列字形：─ / ╌ / 不落字形（null）/ 空白占位", () => {
+test("右缘框列字形：─ / 不落字形（null）/ 空白占位（含回合分隔行）", () => {
   assert.equal(rightEdgeGlyph("border"), "─", "横线行铺到框列");
-  assert.equal(rightEdgeGlyph("rule"), "╌", "回合分隔行补 ╌ 连到框列");
+  assert.equal(
+    rightEdgeGlyph("rule"),
+    " ",
+    "回合分隔行只到正文右缘，不补 ╌ 到框列",
+  );
   assert.equal(rightEdgeGlyph("activity"), null, "活动区行右缘不落字形");
   assert.equal(rightEdgeGlyph("body"), " ", "普通行空白占位");
 });

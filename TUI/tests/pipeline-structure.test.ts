@@ -74,14 +74,26 @@ test("structure：用户块 → h[spacer, 符号, 内容v] + 右缘竖线", () =
   assert.equal(kids[2]!.direction, "v", "内容 v 容器");
 });
 
-test("structure：回合头 → 分隔头盒 h[文本盒, fill 盒(fillWith ╌)]", () => {
+test("structure：回合头 → v fill[分隔头 h[文本盒 + fill 盒(╌)]]，不画左竖线", () => {
   const th: TurnHeader = { kind: "turn-header", key: "sep@1", turn: 1 };
-  const root = sessTree([th]);
+  const root = sessTree([th], { gutter: 4 });
   const box = root.children[0] as Node;
-  assert.equal(box.direction, "h", "分隔头为 h 盒");
-  const kids = box.children as Node[];
-  assert.equal(kids.length, 2, "文本盒 + 填充盒");
-  assert.equal(kids[1]!.fillWith?.text, "╌", "填充盒以 ╌ 铺满");
+  assert.equal(box.direction, "v", "头行盒为 v（整行铺满 pane）");
+  assert.equal(box.widthStyle, "fill", "取 fill：横向铺满 pane 文字宽");
+  assert.equal(box.prefix, undefined, "分隔行不画左竖线 ┃");
+  assert.equal(
+    box.suffix,
+    undefined,
+    "分隔行不带右缘留白（铺到 pane 文字右缘）",
+  );
+  const head = box.children[0] as Node;
+  assert.equal(head.direction, "h", "头部为 h 盒");
+  assert.equal(head.children.length, 2, "文本盒 + 填充盒");
+  assert.equal(
+    (head.children[1] as Node).fillWith?.text,
+    "╌",
+    "填充盒以 ╌ 铺满",
+  );
 });
 
 test("structure：Gap → 空格补齐行盒（空行唯一来源）", () => {

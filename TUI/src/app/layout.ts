@@ -1398,20 +1398,15 @@ function buildTopRegion(
     // 例外：**活动区行**不补空格、也不画外缘框列（行到活动区文字右缘为止，
     // 右侧留白列不落任何字形；焦点框同样不画活动区右边框）。
     const actRow = horizontal ? rc >= diaStart : activityH > 0 && rc > diaEnd;
-    // 回合分隔线行（kind=separator）属「横线」：铺满区域正文宽、外缘框列补 ╌，
-    // 与边框行同口径（文字右缘留白只作用于文本行，横线一律顶到屏幕最右列）
+    // 回合分隔线行（kind=separator）：与正文同宽——内容层已铺到文字排版宽
+    // （contentW − PANE_TEXT_MARGIN_COLS），这里按空格补到 contentW，右缘框列留空，
+    // 不再用 ╌ 顶到屏幕最右列（2026-10-27 用户裁定：分隔线宽度 = 文本宽度）
     const ruleRow =
       !actRow && dialogueRowAt(rc - diaStart)?.kind === "separator";
     const contentW2 = rowWidth2(contentSegs);
     const padSegs: FrameSegment[] =
       !actRow && contentW2 < contentW
-        ? [
-            seg(
-              (ruleRow ? TURN_SEPARATOR_CHAR : " ").repeat(
-                contentW - contentW2,
-              ),
-            ),
-          ]
+        ? [seg(" ".repeat(contentW - contentW2))]
         : [];
     // 右缘框列（历史/活动区外缘）：焦点中性基线恒空白占位（history/activity 焦点
     // 由 focusFrame 覆写 ┐/│/┘）；**水平边框行**（标题栏下划线 / 活动区分隔行）
