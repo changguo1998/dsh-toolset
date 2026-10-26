@@ -610,6 +610,12 @@ export function displayWidth(text: string): number {
 const INLINE_RE =
   /(\\(?:[\\*_~`#+.!\->|()[\]{}]))|(`[^`\n]+`)|(\*\*\*[^*]+\*\*\*)|(\*\*[^*]+\*\*)|(~~[^~\n]+~~)|(__[^_\n]+__)|((?<!\*)\*[^*\s][^*]*\*)|(!\[[^\]\n]*\]\([^)\s]*\))|(\[[^\]\n]+\]\([^)\s]*\))|(<https?:\/\/[^\s<>]+>)/g;
 
+/** 用户行内（受限）：只识别 `code` / `***粗斜***` / `**粗体**` / `*斜体*`。
+ *  链接 / 删除线 / 下划线 / 图片 / 标题 `#` 一律**不**触发（原文保留）——用户输入刻意与
+ *  assistant 区分（用户侧只这几种按 markdown 排, 见追踪口径）。 */
+const USER_INLINE_RE =
+  /(`[^`\n]+`)|(\*\*\*[^*]+\*\*\*)|(\*\*[^*\s][^*]*\*\*)|((?<!\*)\*[^*\s][^*]*\*)/g;
+
 /** 从 `[alt](url)` / `[text](url)` 提取方括号内文本 */
 function bracketText(full: string): string {
   const m = /\[([^\]]*)\]/.exec(full);
@@ -696,6 +702,38 @@ function inlineSegments(text: string): FrameSegment[] {
   }
   if (last < text.length) segs.push({ text: text.slice(last) });
   return segs;
+}
+
+const parseUserInlineCache = createTextCache<FrameSegment[]>();
+
+/** 用户行内：仅 `code` / `***粗斜***` / `**粗体**` / `*斜体*` 触发, 其余(链接/删除线/
+ *  下划线/图片/标题)原文保留。见 USER_INLINE_RE 口径。 */
+export function parseUserInline(text: string): FrameSegment[] {
+  return memo(parseUserInlineCache, sizedKey(text, 0), () => {
+    const segs: FrameSegment[] = [];
+    let last = 0;
+    for (const m of text.matchAll(USER_INLINE_RE)) {
+      const idx = m.index!;
+      if (idx > last) segs.push({ text: text.slice(last, idx) });
+      const [full, code, boldIt, bold] = m;
+      const fullText = full!;
+      if (code) {
+        segs.push({ text: fullText.slice(1, -1), style: { bg: "code" } });
+      } else if (boldIt) {
+        segs.push({
+          text: fullText.slice(3, -3),
+          style: { bold: true, italic: true },
+        });
+      } else if (bold) {
+        segs.push({ text: fullText.slice(2, -2), style: { bold: true } });
+      } else {
+        segs.push({ text: fullText.slice(1, -1), style: { italic: true } });
+      }
+      last = idx + fullText.length;
+    }
+    if (last < text.length) segs.push({ text: text.slice(last) });
+    return segs;
+  });
 }
 
 /** 样式叠加（块级前缀样式 + 行内 token 样式），冲突时后者（b）胜 */

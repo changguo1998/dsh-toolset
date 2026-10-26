@@ -104,6 +104,75 @@ function toList(
   return { direction: "v", children };
 }
 
+/** 用户块的右缘竖线后缀（整块外壳的后缀；brightRed） */
+function userRightEdge(): {
+  text: string;
+  style: FrameStyle;
+  minWidth: number;
+} {
+  return {
+    text: "┃",
+    style: { fg: "brightRed" },
+    minWidth: USER_MIN_LEFT_GUTTER + 2,
+  };
+}
+
+/** 用户行内样式以外的 markdown 块(列表/代码)外壳: `h(spacer(fill), sym?, content)` ——
+ * 右对齐 via 空白块, 符号在前, 右侧竖线为整块后缀(列表项逐行带) */
+function toUserBlock(
+  sym: { text: string; fg?: string } | undefined,
+  content: Node,
+  perLineEdge: boolean,
+): Node {
+  const kids: (Node | Leaf)[] = [
+    leaf([], { widthStyle: "fill" }),
+    ...(sym === undefined
+      ? []
+      : [
+          leaf(
+            [
+              {
+                text: sym.text,
+                ...(sym.fg ? { color: sym.fg as StyledStr["color"] } : {}),
+              },
+              { text: " " },
+            ],
+            { widthStyle: "fixed", widthFixed: 2 },
+          ),
+        ]),
+    content,
+  ];
+  const out: Node = { direction: "h", children: kids };
+  return perLineEdge ? addRightEdge(out, userRightEdge()) : out;
+}
+
+/** 给容器内每个 Leaf 挂右缘竖线后缀（用户块内容的整块右缘 `┃`） */
+function addRightEdge(
+  node: Node,
+  edge: { text: string; style: FrameStyle; minWidth: number },
+): Node {
+  return {
+    ...node,
+    children: node.children.map((c) =>
+      "direction" in c
+        ? addRightEdge(c, edge)
+        : ({ ...c, suffix: edge } as Leaf),
+    ),
+  };
+}
+
+/** 用户列表内容: 条目文本(显示标记已在文本内), 不挂左栏(外壳统一右缘 ┃) */
+function userOf(block: PaneItem): UserRowInfo | undefined {
+  return (block as { user?: UserRowInfo }).user;
+}
+
+function toUserListContent(block: Extract<Block, { kind: "list" }>): Node {
+  return {
+    direction: "v",
+    children: (block.items as Paragraph[]).map((item) => leaf([...item.text])),
+  };
+}
+
 /** 显示宽（装饰占列需要） */
 function displayW(text: string): number {
   // 宽度计算在 markdown.ts；此处引避免循环——列表 / 引用前缀都是半宽 ASCII
@@ -205,8 +274,18 @@ function toNodeItem(
     case "quote":
       return toQuote(item, opts);
     case "list":
+      // 用户列表: 套用户外壳(右对齐 + 符号 + 右缘 ┃), 否则普通列表
+      if (item.source === "user")
+        return toUserBlock(
+          opts?.userSym?.(userOf(item)),
+          toUserListContent(item),
+          true,
+        );
       return toList(item, opts);
     case "code":
+      // 用户代码: 套用户外壳(右对齐 + 符号); 代码行右缘 ┃ 由代码渲染自身承担
+      if (item.source === "user")
+        return toUserBlock(opts?.userSym?.(userOf(item)), toCode(item), false);
       return toCode(item);
     case "table":
       return toTable(item);

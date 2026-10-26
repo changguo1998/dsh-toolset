@@ -22,7 +22,7 @@
 //   - 分隔线显示 `┃────…`（rule 在 flatten 铺满；本层产一个尾随铺满标记的 Paragraph）。
 
 import { isTableStart, parseTableAt, type TableAlign } from "../table.ts";
-import { parseInlineMarkdown } from "../markdown.ts";
+import { parseInlineMarkdown, parseUserInline } from "../markdown.ts";
 import { NOTICE_TONE_COLOR } from "../content-rules.ts";
 import type { NoticeTone } from "../../adapter/types.ts";
 import type {
@@ -36,6 +36,7 @@ import type {
   StyledStr,
   StyledText,
   Table,
+  UserRowInfo,
 } from "./ir.ts";
 import { freezeBlock } from "./ir.ts";
 
@@ -108,6 +109,19 @@ function styledOf(text: string): StyledText {
   });
 }
 
+/** 用户行内（仅 code/bold/italic; 链接/删除线/下划线/标题不触发）→ StyledStr */
+function styledUserOf(text: string): StyledText {
+  return parseUserInline(text).map((s): StyledStr => {
+    const out: StyledStr = { text: s.text };
+    const st = s.style;
+    if (st === undefined) return out;
+    if (st.bold === true) out.bold = true;
+    if (st.italic === true) out.italic = true;
+    if (st.bg === "code") out.code = true;
+    return out;
+  });
+}
+
 /**
  * 解析主入口：reasoning 与 body 槽位各分类一次，全部摊成一条 Block[]。
  * 工具调用（calls）是结构化数据，不经此解析器（显示形态由 route/structure 组合）。
@@ -129,35 +143,38 @@ export function parse(section: Section): Block[] {
       source === "shell" ||
       source === "tool"
     ) {
-      // 整段原文，不做 markdown 分类；notice/工具辅助行按 tone 着色。
-      // 尾部换行吸收（legacy absorbActivityBlank）：非 user 剥离尾随 \n 的空物理行，
-      // 全换行正文 → 整段不产出（不留视觉空行）
-      const trimmed =
-        source === "user" ? body.text : body.text.replace(/(?:\r?\n)+$/, "");
-      if (trimmed !== "") {
-        const toneColor =
-          body.tone !== undefined && source !== "user"
-            ? (NOTICE_TONE_COLOR[body.tone as NoticeTone] as StyledStr["color"])
-            : undefined;
-        const styled: StyledText = [
-          {
-            text: trimmed,
-            ...(toneColor === undefined ? {} : { color: toneColor }),
-          },
-        ];
-        blocks.push(
-          freezeBlock<Paragraph>({
-            kind: "paragraph",
-            source,
-            id: idOf(),
-            span: [0, body.text.length],
-            text: styled,
-            // 用户块的运行时态透传（P1 首行符号 / 排队竖线颜色素材）
-            ...(source === "user" && section.user !== undefined
-              ? { user: section.user }
-              : {}),
-          }),
-        );
+      if (source === "user") {
+        // 用户块: 列表/代码/行内(code·bold·italic)按 markdown, 其余(标题#等)原样;
+        // 运行时态 user 透传留 P1 符号/排队竖线素材
+        const trimmed = body.text.replace(/(?:\r?\n)+$/, "");
+        if (trimmed !== "")
+          blocks.push(...classifyUserText(source, trimmed, idOf, section.user));
+      } else {
+        // notice/shell/工具辅助行: 整段原文、按 tone 着色、尾部换行吸收
+        const trimmed = body.text.replace(/(?:\r?\n)+$/, "");
+        if (trimmed !== "") {
+          const toneColor =
+            body.tone !== undefined
+              ? (NOTICE_TONE_COLOR[
+                  body.tone as NoticeTone
+                ] as StyledStr["color"])
+              : undefined;
+          const styled: StyledText = [
+            {
+              text: trimmed,
+              ...(toneColor === undefined ? {} : { color: toneColor }),
+            },
+          ];
+          blocks.push(
+            freezeBlock<Paragraph>({
+              kind: "paragraph",
+              source,
+              id: idOf(),
+              span: [0, body.text.length],
+              text: styled,
+            }),
+          );
+        }
       }
     } else {
       const mb = classifyMarkdown(source, body.text, idOf);
@@ -165,6 +182,132 @@ export function parse(section: Section): Block[] {
     }
   }
   return withSeqs(blocks, section.seqs);
+}
+
+/**
+ * 用户块「受限 markdown」分类：**只有** 代码围栏 / 列表(`- ` `* ` `1. `) / 行内
+ * (code·bold·italic) 触发; 标题 `#` / 引用 / 分隔线 / 表格 / 链接 / 删除线 / 下划线等
+ * 一律原样成段(用户侧刻意与 assistant 区分)。产出的块都带上运行时态 `user`(P1 符号 /
+ * 排队竖线素材)。
+ */
+function classifyUserText(
+  source: BlockSource,
+  text: string,
+  idOf: () => string,
+  user: UserRowInfo | undefined,
+): Block[] {
+  const lines = linesOf(text);
+  const N = lines.length;
+  const blocks: Block[] = [];
+  let i = 0;
+  const spanOf = (l0: number, l1: number): [number, number] => [
+    lines[l0]!.start,
+    endOf(lines, l1, text),
+  ];
+  const paragraph = (span: [number, number], text0: StyledText): Paragraph =>
+    freezeBlock<Paragraph>({
+      kind: "paragraph",
+      source,
+      id: idOf(),
+      span,
+      text: text0,
+      ...(user === undefined ? {} : { user }),
+    });
+  while (i < N) {
+    const line = lines[i]!.text;
+    // 1) 代码围栏
+    const fence = FENCE_RE.exec(line);
+    if (fence !== null) {
+      const open = line.trimStart().startsWith("~") ? "~" : "`";
+      const rows: string[] = [];
+      let j = i + 1;
+      let closed = false;
+      for (; j < N; j++) {
+        const inner = lines[j]!.text;
+        const innerLang = FENCE_RE.exec(inner);
+        if (innerLang !== null && inner.trimStart().startsWith(open)) {
+          closed = true;
+          break;
+        }
+        rows.push(inner);
+      }
+      blocks.push(
+        freezeBlock<Code>({
+          kind: "code",
+          source,
+          id: idOf(),
+          span: spanOf(i, closed ? j : N - 1),
+          lang: fence[2] ?? "",
+          rows,
+          closed,
+          ...(user === undefined ? {} : { user }),
+        }),
+      );
+      i = closed ? j + 1 : N;
+      continue;
+    }
+    // 2) 列表（连续列表项 + 缩进续行）
+    if (LIST_RE.test(line)) {
+      const startL = i;
+      const items: Block[] = [];
+      while (i < N) {
+        const cur = lines[i]!.text;
+        const listItem = LIST_ITEM_RE.exec(cur);
+        if (listItem !== null) {
+          const marker = listItem[1]!;
+          const ordered = /^\d|^[a-zA-Z]/.test(marker.trimStart());
+          const bodyText = styledUserOf(listItem[2]!);
+          const finalMarker = ordered
+            ? marker.replace(/[ \t]+$/, "") + " "
+            : "• ";
+          items.push(
+            paragraph(spanOf(startL, i), [{ text: finalMarker }, ...bodyText]),
+          );
+          i += 1;
+          while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
+            appendToParagraph(
+              items[items.length - 1] as Paragraph,
+              "\n" + lines[i]!.text.trimStart(),
+            );
+            i += 1;
+          }
+          continue;
+        }
+        break;
+      }
+      if (items.length > 0) {
+        blocks.push(
+          freezeBlock<List>({
+            kind: "list",
+            source,
+            id: idOf(),
+            span: spanOf(startL, i - 1),
+            ordered: false,
+            marker: "",
+            items,
+            ...(user === undefined ? {} : { user }),
+          }),
+        );
+      }
+      continue;
+    }
+    // 3) 其余(含标题 #/引用等): 连续收集原样成段, 仅行内 code/bold/italic
+    const startL = i;
+    const run: string[] = [];
+    while (
+      i < N &&
+      !LIST_RE.test(lines[i]!.text) &&
+      FENCE_RE.exec(lines[i]!.text) === null
+    ) {
+      run.push(lines[i]!.text);
+      i += 1;
+    }
+    if (run.length > 0)
+      blocks.push(
+        paragraph(spanOf(startL, i - 1), styledUserOf(run.join("\n"))),
+      );
+  }
+  return blocks;
 }
 
 /** 去掉 markdown 槽位尾部的空 Paragraph（来自尾部换行锚点；整段内部空行保留） */
