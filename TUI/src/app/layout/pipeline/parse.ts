@@ -59,10 +59,15 @@ const LIST_CONT_RE = /^\s{2,}\S/;
 const HEADING_RE = /^[ \t]*(#{1,6})[ \t]+(.+)$/;
 /** 分隔线：三个以上 - / * / _ */
 const RULE_RE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
-/** 任务列表项：`- [ ]` / `- [x]`（捕获 勾选态 与 正文） */
-const TASK_RE = /^ {0,3}[-*+][ \t]+\[([ xX])\][ \t]+(.+)$/;
-/** 普通列表项（捕获 完整前缀含尾随空白 与 正文） */
-const LIST_ITEM_RE = /^ {0,3}((?:[-*+]|\d{1,9}[.)])[ \t]+)(.*)$/;
+/** 每层嵌套的缩进列数（前导缩进 / 2 → 层级；见 `listIndentOf`） */
+const LIST_INDENT_COLS = 2;
+
+/** 任务列表项：`- [ ]` / `- [x]`（捕获 前导空白、勾选态、正文） */
+const TASK_RE = /^([ \t]*)[-*+][ \t]+\[([ xX])\][ \t]+(.+)$/;
+/** 普通列表项（捕获 前导空白、完整标记含尾随空白、正文）。
+ *  前导缩进不再设上限——层级由缩进量折算（`listIndentOf`），嵌套靠它表达。
+ *  标记三种：无序 `-`/`*`/`+`、有序 `1.`/`1)`、圆括号编号 `(1)`。 */
+const LIST_ITEM_RE = /^([ \t]*)((?:[-*+]|\d{1,9}[.)]|\(\d{1,9}\))[ \t]+)(.*)$/;
 
 /** 标题强调色（与正文同口径） */
 const HEADING_FG = "brightCyan" as const;
@@ -273,10 +278,12 @@ function classifyUserText(
       const startL = i;
       const items: Block[] = [];
       const marks: string[] = [];
+      const indents: number[] = [];
       while (i < N) {
         const li = listItemMark(lines[i]!.text);
         if (li !== null) {
           marks.push(li.mark);
+          indents.push(li.indent);
           const body = styledUserOf(li.body);
           items.push(
             paragraph(
@@ -287,7 +294,7 @@ function classifyUserText(
             ),
           );
           i += 1;
-          while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
+          while (i < N && isListContinuation(lines[i]!.text)) {
             appendToParagraph(
               items[items.length - 1] as Paragraph,
               "\n" + lines[i]!.text.trimStart(),
@@ -307,6 +314,7 @@ function classifyUserText(
             id: idOf(),
             span: spanOf(startL, i - 1),
             ...listMarks(marks),
+            ...(indents.some((v) => v > 0) ? { indents } : {}),
             items,
             ...(user === undefined ? {} : { user }),
           }),
@@ -494,10 +502,12 @@ function classifyMarkdown(
       const startL = i;
       const items: Block[] = [];
       const marks: string[] = [];
+      const indents: number[] = [];
       while (i < N) {
         const li = listItemMark(lines[i]!.text);
         if (li !== null) {
           marks.push(li.mark);
+          indents.push(li.indent);
           const body = styledOf(li.body);
           items.push(
             paragraph(
@@ -509,7 +519,7 @@ function classifyMarkdown(
           );
           i += 1;
           // 后续缩进续行并入上一项
-          while (i < N && LIST_CONT_RE.test(lines[i]!.text)) {
+          while (i < N && isListContinuation(lines[i]!.text)) {
             appendToParagraph(
               items[items.length - 1] as Paragraph,
               "\n" + lines[i]!.text.trimStart(),
@@ -528,6 +538,7 @@ function classifyMarkdown(
             id: idOf(),
             span: spanOf(startL, i - 1),
             ...listMarks(marks),
+            ...(indents.some((v) => v > 0) ? { indents } : {}),
             items,
           }),
         );
@@ -594,27 +605,53 @@ function isListItemStart(text: string): boolean {
   return listItemMark(text) !== null;
 }
 
+/**
+ * 列表项的续行判定：缩进够深（`LIST_CONT_RE`）**且本身不是列表项**。
+ * 后者必不可少——嵌套子项同样以 ≥2 空白开头，若先按续行吞掉就永远读不到层级
+ * （开工前实测：`- 甲` / `  - 乙` / `    - 丙` 三行曾只产 1 个条目）。
+ */
+function isListContinuation(text: string): boolean {
+  return LIST_CONT_RE.test(text) && !isListItemStart(text);
+}
 
-function listItemMark(
-  text: string,
-): { mark: string; body: string; strike?: true } | null {
+function listItemMark(text: string): {
+  mark: string;
+  body: string;
+  /** 条目缩进列数（嵌套层级 → 显示缩进，见 `listIndentOf`） */
+  indent: number;
+  strike?: true;
+} | null {
   const task = TASK_RE.exec(text);
   if (task !== null) {
-    const checked = task[1]!.toLowerCase() === "x";
+    const checked = task[2]!.toLowerCase() === "x";
     return {
       mark: checked ? "[x] " : "[ ] ",
-      body: task[2]!,
+      body: task[3]!,
+      indent: listIndentOf(task[1]!),
       ...(checked ? { strike: true as const } : {}),
     };
   }
   const listItem = LIST_ITEM_RE.exec(text);
   if (listItem === null) return null;
-  const marker = listItem[1]!;
-  const ordered = /^\d|^[a-zA-Z]/.test(marker.trimStart());
+  const marker = listItem[2]!;
+  const ordered = /^\d|^\(|^[a-zA-Z]/.test(marker.trimStart());
   return {
     mark: ordered ? marker.replace(/[ \t]+$/, "") + " " : "• ",
-    body: listItem[2]!,
+    body: listItem[3]!,
+    indent: listIndentOf(listItem[1]!),
   };
+}
+
+/**
+ * 前导空白 → 条目缩进列数（**每 2 列一层**，Tab 记 4 列）。
+ *
+ * 口径：`indents` 取整层后的列数，`floor(列 / 2) * 2`——1 空格仍算顶层（0），2 空格算子层
+ * （2 列），4 空格算孙层（4 列）。结构层按该列数缩进排版（`structure.listItemBox`）。
+ */
+function listIndentOf(lead: string): number {
+  let cols = 0;
+  for (const ch of lead) cols += ch === "\t" ? 4 : 1;
+  return Math.floor(cols / LIST_INDENT_COLS) * LIST_INDENT_COLS;
 }
 
 /** 列表标记字段：所有条目同一标记 → `marker`；各不相同 → 逐条目 `order` */

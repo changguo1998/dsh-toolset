@@ -169,32 +169,46 @@ function childBox(child: Block, opts?: StructureOptions): Node {
 
 /** List → v Node：**每条目一盒** `h[标记, 内容 v]`——标记单独占一列（不是文本前缘，
  *  也不是节点 `prefix`：`prefix` 是逐行装饰会重复标记），内容在标记右侧成盒。
- *  折行续行落在内容列下（悬挂 = 标记宽）。左缘竖线由外层 toBarBox 承担。 */
+ *  折行续行落在内容列下（悬挂 = 缩进 + 标记宽）。左缘竖线由外层 toBarBox 承担。 */
 function toList(
   block: Extract<Block, { kind: "list" }>,
   opts?: StructureOptions,
 ): Node {
   // 逐条目标记（有序编号 / 任务复选框走 order，普通无序走 marker）。标记列宽 = **该条目
-  // 自身标记的显示宽**（用户裁定：不统一列宽）；纯字符串度量，与可用宽无关，故在 §4 定死
+  // 自身标记的显示宽**（用户裁定：不统一列宽）；纯字符串度量，与可用宽无关，故在 §4 定死。
+  // 嵌套层级同在本层落定：`indents[i]` = 该条目缩进列数（§2 parse 由前导缩进折算）。
   const marks = block.items.map(
     (_, i) => block.order?.[i] ?? block.marker ?? "• ",
   );
+  const indents = block.items.map((_, i) => block.indents?.[i] ?? 0);
   return {
     direction: "v",
-    children: block.items.map((item, i) => listItemBox(item, marks[i]!, opts)),
+    children: block.items.map((item, i) =>
+      listItemBox(item, marks[i]!, opts, indents[i]!),
+    ),
   };
 }
 
 /** 列表条目 → `h[标记盒, 条目盒]`，两个子项都是 Box（容器层 children 恒为 Box）。
  *  标记取条目文本首段（parse 产出保证：`• ` / `1. ` / `[x] ` / `[ ] ` 各条目自带），
  *  其余文本按行拆叶进条目盒；非文本条目（嵌套块）直接成盒，没有标记列。 */
-function listItemBox(item: Block, mark: string, opts?: StructureOptions): Node {
-  // 标记格按条目自身标记宽定宽（不统一列宽 → 同层正文列不齐，属用户裁定口径）
+function listItemBox(
+  item: Block,
+  mark: string,
+  opts?: StructureOptions,
+  indent = 0,
+): Node {
+  // 标记格列宽 = 缩进 + 条目自身标记宽（不统一列宽 → 同层正文列不齐，属用户裁定口径）；
+  // 缩进直接前置空格写进格内，续行折行因此悬挂到「缩进 + 标记宽」列。
   const markBox: Node = {
     direction: "v",
     widthStyle: "fixed",
-    widthFixed: Math.max(1, displayWidth(mark)),
-    children: [mark === "" ? leaf([]) : leaf([{ text: mark }])],
+    widthFixed: indent + Math.max(1, displayWidth(mark)),
+    children: [
+      mark === "" && indent === 0
+        ? leaf([])
+        : leaf([{ text: " ".repeat(indent) + mark }]),
+    ],
   };
   const content =
     item.kind === "paragraph"

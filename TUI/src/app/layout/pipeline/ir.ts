@@ -150,6 +150,12 @@ export interface List extends BlockBase {
   marker?: string;
   /** 逐条目显示标记（有序编号 `1. ` / `10. `、任务复选框 `[x] ` / `[ ] `）；与 marker 互斥 */
   order?: string[];
+  /**
+   * 逐条目缩进列数（与 `items` 等长；缺省/越界取 0）。嵌套列表按**前导缩进每 2 列一层**
+   * 折算成列数：条目顺序即源顺序，父子关系由缩进列表达（不引入递归条目容器）。
+   * 全 0 时 parse 不写该字段，故扁平列表的块形状与既有断言保持稳定。
+   */
+  indents?: readonly number[];
   items: Block[];
 }
 

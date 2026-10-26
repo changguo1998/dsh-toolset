@@ -187,3 +187,86 @@ test("parse：列表分支的判定与解析同源（含标记行一律并入 Li
   const tail = blocks[blocks.length - 1]!;
   assert.equal(tail.kind, "paragraph");
 });
+
+test("parse：嵌套列表按前导缩进每 2 列一层（indents 逐条目记录）", () => {
+  const s = sec({
+    id: "1:1:0",
+    body: {
+      source: "assistant",
+      text: "- 父项\n  - 子项\n    - 孙项\n- 回到顶层",
+    },
+  });
+  const lists = parse(s).filter((b) => b.kind === "list");
+  assert.equal(
+    lists.length,
+    1,
+    "跨层连续项仍属同一个 List 块（父子靠 indents 表达）",
+  );
+  const list = lists[0] as Extract<Block, { kind: "list" }>;
+  assert.deepEqual(
+    list.items.map((it) =>
+      it.kind === "paragraph" ? it.text.map((x) => x.text).join("") : it.kind,
+    ),
+    ["父项", "子项", "孙项", "回到顶层"],
+    "每个缩进行都是独立条目，不再并进父项正文",
+  );
+  assert.deepEqual(
+    list.indents,
+    [0, 2, 4, 0],
+    "缩进列数：每层 2 列，回到顶层归 0",
+  );
+});
+
+test("parse：扁平列表不写 indents（块形状与既有断言一致）", () => {
+  const s = sec({
+    id: "1:1:0",
+    body: { source: "assistant", text: "- 甲\n- 乙" },
+  });
+  const list = parse(s)[0] as Extract<Block, { kind: "list" }>;
+  assert.equal(list.kind, "list");
+  assert.equal(list.indents, undefined, "全 0 缩进时省略字段");
+  assert.equal(list.marker, "• ");
+});
+
+test("parse：嵌套层级不影响有序/任务标记（`1)` 与 `[x]` 按各自条目保留）", () => {
+  const s = sec({
+    id: "1:1:0",
+    body: {
+      source: "assistant",
+      text: "1) 父\n  1) 子\n    (1) 孙\n  - [x] 子任务",
+    },
+  });
+  const list = parse(s)[0] as Extract<Block, { kind: "list" }>;
+  assert.deepEqual(
+    list.order,
+    ["1) ", "1) ", "(1) ", "[x] "],
+    "逐条目保留自身标记",
+  );
+  assert.deepEqual(list.indents, [0, 2, 4, 2]);
+});
+
+test("parse：缩进续行仍并入上一项（真正的续行 vs 子项的分界）", () => {
+  const s = sec({
+    id: "1:1:0",
+    body: { source: "assistant", text: "- 父项\n  续行文字\n  - 子项" },
+  });
+  const list = parse(s)[0] as Extract<Block, { kind: "list" }>;
+  const bodies = list.items.map((it) =>
+    it.kind === "paragraph" ? it.text.map((x) => x.text).join("") : it.kind,
+  );
+  assert.deepEqual(
+    bodies,
+    ["父项\n续行文字", "子项"],
+    "无标记的缩进行 = 续行；有标记 = 子项",
+  );
+  assert.deepEqual(list.indents, [0, 2]);
+});
+
+test("parse：Tab 缩进按 4 列折算（层级 = floor(列/2)）", () => {
+  const s = sec({
+    id: "1:1:0",
+    body: { source: "assistant", text: "- 甲\n\t- 乙" },
+  });
+  const list = parse(s)[0] as Extract<Block, { kind: "list" }>;
+  assert.deepEqual(list.indents, [0, 4], "Tab 记 4 列 → 缩进 4 列");
+});

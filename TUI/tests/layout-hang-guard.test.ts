@@ -40,6 +40,8 @@ const FORMS = {
   longToken: () => "x".repeat(5000),
   // 回归（2026-10-27 真机卡死）：只有标记没有正文的行曾让 parse 列表分支原地打转
   bareBullet: () => "- 项一\\n-\\n*\\n1.\\n-\\u00a0\\n尾",
+  // 嵌套列表（2026-10-27 起按缩进产层级）：深缩进 + 长项折行 + 标记混排
+  nestedList: () => Array.from({ length: 8 }, (_, i) => "  ".repeat(i) + "- 第 " + i + " 层" + "字".repeat(12)).join("\\n"),
   quote: () => "> ".repeat(30) + "嵌套引用文本",
 };
 

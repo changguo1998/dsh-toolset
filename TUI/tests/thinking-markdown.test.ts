@@ -5,9 +5,8 @@
 //   - 围栏代码块走正文 / 思考共用构建器（fence 开关行隐藏、语言标记行斜体、行号 + 右缩进、
 //     灰底补齐）；未闭栅（流式）后续行按代码底色直出；
 //
-// 待补：四条「嵌套列表」用例标为 `test.todo` —— 新流水线的 §2 parse 目前**不按缩进产
-// 真子列表**（缩进行按普通文本行成段）。这是追踪文档里已登记的待办项「结构层遗留：
-// 嵌套列表」，不是回归；parse 补齐缩进嵌套后把 todo 还原成正式用例。
+// 四条「嵌套列表」用例（2026-10-27 起转正式用例）：§2 parse 已按前导缩进每 2 列一层产
+// 真子列表，§4 structure 按条目缩进列数排版（见 `docs/archived/` 的嵌套列表追踪文档）。
 //   - 思考特有形制不变：紫 ┃ 前缀、空行跳过、档位过滤、紧凑压单行、与正文互切 1 行间隔。
 
 import { test } from "node:test";
@@ -264,7 +263,7 @@ test("思考行列表编号风格：`1)` / `a.` / `a)` / `(1)` 原样保留", ()
   }
 });
 
-test.todo("思考行列表嵌套：前导缩进每 2 列一层（两级）", () => {
+test("思考行列表嵌套：前导缩进每 2 列一层（两级）", () => {
   const { text } = act([
     L("- 父项", "thinking"),
     L("  - 子项", "thinking"),
@@ -284,30 +283,27 @@ test.todo("思考行列表嵌套：前导缩进每 2 列一层（两级）", () 
   );
 });
 
-test.todo(
-  "思考行有序嵌套：编号与缩进同存（`  -` 子层 bullet, `  1)` 子层编号）",
-  () => {
-    const { text } = act([
-      L("1) 父编号", "thinking"),
-      L("  1) 子编号", "thinking"),
-      L("    (1) 孙编号", "thinking"),
-    ]);
-    assert.ok(
-      text[0]!.startsWith("┃1) 父编号"),
-      `顶层编号: ${JSON.stringify(text[0])}`,
-    );
-    assert.ok(
-      text[1]!.startsWith("┃  1) 子编号"),
-      `子层缩进 2 + 编号: ${JSON.stringify(text[1])}`,
-    );
-    assert.ok(
-      text[2]!.startsWith("┃    (1) 孙编号"),
-      `孙层缩进 4 + 圆括号编号: ${JSON.stringify(text[2])}`,
-    );
-  },
-);
+test("思考行有序嵌套：编号与缩进同存（`  -` 子层 bullet, `  1)` 子层编号）", () => {
+  const { text } = act([
+    L("1) 父编号", "thinking"),
+    L("  1) 子编号", "thinking"),
+    L("    (1) 孙编号", "thinking"),
+  ]);
+  assert.ok(
+    text[0]!.startsWith("┃1) 父编号"),
+    `顶层编号: ${JSON.stringify(text[0])}`,
+  );
+  assert.ok(
+    text[1]!.startsWith("┃  1) 子编号"),
+    `子层缩进 2 + 编号: ${JSON.stringify(text[1])}`,
+  );
+  assert.ok(
+    text[2]!.startsWith("┃    (1) 孙编号"),
+    `孙层缩进 4 + 圆括号编号: ${JSON.stringify(text[2])}`,
+  );
+});
 
-test.todo("思考行嵌套任务：子任务随层级缩进（`  - [x]`）", () => {
+test("思考行嵌套任务：子任务随层级缩进（`  - [x]`）", () => {
   const { text } = act([
     L("- 父任务", "thinking"),
     L("  - [x] 子任务完成", "thinking"),
@@ -327,7 +323,7 @@ test.todo("思考行嵌套任务：子任务随层级缩进（`  - [x]`）", () 
   );
 });
 
-test.todo("思考行嵌套内长项折行：续行悬挂对齐该层正文起列", () => {
+test("思考行嵌套内长项折行：续行悬挂对齐该层正文起列", () => {
   const { rows, text } = act([
     L("- 父项", "thinking"),
     L("  - 子项" + "字".repeat(50), "thinking"),
