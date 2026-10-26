@@ -29,8 +29,6 @@ export interface RouteOptions {
   activityCompact?: Partial<ActivitySwitches>;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传） */
   normalize?: (text: string) => string;
-  /** 压缩剪枝遮蔽的宿主事件号（按 EventGroup 交集打灰，结构层消费） */
-  shadowedSeqs?: ReadonlySet<number>;
   /** 抑制首个内容节的 step 头（渐进窗口起点落在节中间时） */
   suppressFirstHead?: boolean;
   /** 已声明的 step（`SectionsState.stepMeta` 键，按到达顺序）：step 头按此发放 */

@@ -876,3 +876,39 @@ test("段 D · 重放 vs 实时交付：同内容整帧逐字节一致（差异�
     "唯一差异 = 首回合键的整体 step 位移（重放按行序还原作用域：用户落 step0）",
   );
 });
+
+test("压缩剪枝遮蔽：shadow 交付命中的节整块打灰（内容与行数不变）", () => {
+  // 遮蔽真源 = 节缓存的 `shadowedSeqs`（`shadow` 交付写入），frame 侧换算成块 id 集交给结构层。
+  const deliver = (shadow: boolean): BlockDelivery[] => [
+    {
+      kind: "text",
+      turn: 1,
+      step: 1,
+      index: 0,
+      source: "assistant",
+      text: "被剪枝的正文",
+      seq: 7,
+      ...({ final: true } as object),
+    },
+    { kind: "turn-end", turn: 1, step: 1, reason: "completed" },
+    ...(shadow ? [{ kind: "shadow" as const, seqs: [7] }] : []),
+  ];
+  const content = (deliveries: BlockDelivery[]) =>
+    pipelineContent(applyAll(createSections(), deliveries), {
+      dialogueTextW: 60,
+      activityTextW: 60,
+      windowGroups: 3,
+      render: { width: 60 },
+    });
+  const plain = content(deliver(false));
+  const dim = content(deliver(true));
+  const textOf = (rows: readonly { segments: readonly { text: string }[] }[]) =>
+    rows.map((row) => row.segments.map((segment) => segment.text).join(""));
+  assert.deepEqual(textOf(dim.dialogue), textOf(plain.dialogue), "文本不变");
+  // 命中的正文段颜色 = gray（dark 主题 #80878E）；未遮蔽时是默认前景
+  const colors = (
+    rows: readonly { segments: readonly { style?: { fg?: string } }[] }[],
+  ) => rows.flatMap((row) => row.segments.map((segment) => segment.style?.fg));
+  assert.ok(colors(dim.dialogue).includes("gray"), "遮蔽后正文着 gray");
+  assert.ok(!colors(plain.dialogue).includes("gray"), "未遮蔽不着 gray");
+});

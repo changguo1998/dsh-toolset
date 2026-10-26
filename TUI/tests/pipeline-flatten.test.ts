@@ -147,3 +147,39 @@ test("flatten：会话外壳 prefix ┃ + 右缘 suffix → 首行铺满视口�
   assert.ok(first.startsWith("┃0"), "竖线后直接接正文（无空格）");
   assert.equal(displayWidth(first), width, "首行 = 视口宽");
 });
+
+test("flatten：dim 块整块打灰（含 measure 期展开的代码子树），内容与行数不变", () => {
+  // 遮蔽打灰放在摊平出口：code / table / tool 的子节点在 §5 measure 期才由载荷展开，
+  // 结构期逐叶改色覆盖不到它们，故用节点 `dim` 标记 + 摊平出口统一改前景色。
+  const b = parse(
+    sec({
+      id: "1:1:0",
+      final: true,
+      body: { source: "assistant", text: "```ts\nconst a = 1;\n```" },
+    }),
+  )[0]!;
+  /** 各行「正文段」前景色（左缘 pane 竖线 `┃` 属外壳 chrome，不在打灰范围内） */
+  const colors = (dim: boolean): string[] => {
+    const tree = buildTrees([b], [], {
+      ...(dim ? { shadowedIds: new Set([b.id]) } : {}),
+    }).session;
+    measure(tree, 40, { vw: 40 });
+    return flatten(tree, 40, { vw: 40 }).flatMap((row) =>
+      row.segments
+        .filter((s) => s.text !== "┃")
+        .map((s) => String(s.style?.fg ?? "")),
+    );
+  };
+  const plainRows = colors(false);
+  const dimRows = colors(true);
+  assert.equal(dimRows.length, plainRows.length, "行数不变");
+  assert.ok(
+    dimRows.every((fg) => fg === "gray"),
+    "所有段（含代码行 / 行号列）统一 gray: " +
+      JSON.stringify([...new Set(dimRows)]),
+  );
+  assert.ok(
+    plainRows.some((fg) => fg !== "gray"),
+    "未遮蔽时保留原样式",
+  );
+});

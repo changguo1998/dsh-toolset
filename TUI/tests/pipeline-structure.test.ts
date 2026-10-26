@@ -131,3 +131,41 @@ test("structure：工具批 → 节点带 tool 载荷（名字单元）", () => 
   const nameLeaf = nameBox!.children[0] as Leaf;
   assert.equal(nameLeaf.rowKind, "tool-name", "名字行带 rowKind");
 });
+
+test("structure：遮蔽集合命中的块打 dim 标记（颜色落摊平，结构期不改样式）", () => {
+  const b = parse(
+    sec({
+      id: "1:1:0",
+      final: true,
+      body: { source: "assistant", text: "**粗** 被剪枝" },
+    }),
+  )[0]!;
+  const plain = sessTree([b]);
+  const dimmed = sessTree([b], { shadowedIds: new Set([b.id]) });
+  assert.equal(collectDimmed(plain).length, 0, "未遮蔽不打标记");
+  assert.equal(
+    collectDimmed(dimmed).length,
+    1,
+    "遮蔽块（叶或容器）打 dim 标记",
+  );
+  // 结构期保留原始行内样式（打灰在摊平出口统一处理，覆盖 measure 期展开的子树）
+  assert.ok(
+    collectLeaves(dimmed).some((l) => l.text.some((s) => s.bold === true)),
+    "结构期不改行内样式",
+  );
+});
+
+/** 树里所有叶子（深度优先） */
+function collectLeaves(tree: Node | Leaf): Leaf[] {
+  if (!isNode(tree)) return [tree];
+  return tree.children.flatMap((c) => collectLeaves(c));
+}
+
+/** 树里所有带 dim 标记的节点 / 叶子（深度优先） */
+function collectDimmed(tree: Node | Leaf): (Node | Leaf)[] {
+  if (!isNode(tree)) return tree.dim === true ? [tree] : [];
+  return [
+    ...(tree.dim === true ? [tree] : []),
+    ...tree.children.flatMap((c) => collectDimmed(c)),
+  ];
+}

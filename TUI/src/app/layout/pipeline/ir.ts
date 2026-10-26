@@ -329,6 +329,8 @@ export interface NodeBase {
     /** 装饰可见度：视口宽低于此列数时不挂（窄列降级，如竖线） */
     minWidth?: number;
   };
+  /** 压缩剪枝遮蔽：整块打灰（内容与行数不变；摊平时全部段颜色改 gray） */
+  dim?: true;
   /** 行类型标记：透传到 `Row.rowKind`（帧层按它改写工具名相位字形等） */
   rowKind?: string;
   /** 表格网格标记：本容器的各 h 子行按列对齐宽度（列宽在后续步骤算） */

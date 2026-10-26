@@ -67,6 +67,8 @@ export interface StructureOptions {
   userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
   /** 用户/助手右缘留白（旧 `gutter` 口径；右缘竖线占 1 列） */
   gutter?: number;
+  /** 压缩剪枝遮蔽的块 id（`route.shadowedBlockIds`）：命中的块整块打灰（颜色 → gray） */
+  shadowedIds?: ReadonlySet<string>;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传，作用于正文文本） */
   normalize?: (text: string) => string;
   /** 左缘 chrome 竖线（┃）开关：只属于对话(session)面板；活动(turn)面板不画
@@ -507,7 +509,19 @@ function applyNormalize(
   );
 }
 
+/** 块 → 节点（命中遮蔽集合时打 `dim` 标记，颜色落 §6 摊平） */
 function toNodeItem(
+  item: PaneItem,
+  opts?: StructureOptions,
+): Node | Leaf | null {
+  const node = toNodeItemRaw(item, opts);
+  if (node === null) return null;
+  const id = (item as { id?: string }).id;
+  if (id === undefined || opts?.shadowedIds?.has(id) !== true) return node;
+  return { ...node, dim: true };
+}
+
+function toNodeItemRaw(
   item: PaneItem,
   opts?: StructureOptions,
 ): Node | Leaf | null {

@@ -81,6 +81,29 @@ export function flatten(
   width: number,
   opts: FlattenOptions = {},
 ): Row[] {
+  const rows = flattenRaw(tree, width, opts);
+  // 压缩剪枝遮蔽：整块打灰。颜色统一改 `gray`（内容与行数不变）；code / table / tool
+  // 的子树在 §5 measure 期才展开，故打灰放在摊平出口而不是结构期逐叶改色。
+  if (tree.dim !== true) return rows;
+  return rows.map((row) => ({
+    ...row,
+    segments: row.segments.map((segment) => dimSegment(segment)),
+  }));
+}
+
+/** 段 → 打灰段（只改前景色，字形与其它样式保留） */
+function dimSegment(segment: Seg): Seg {
+  return {
+    ...segment,
+    style: { ...(segment.style ?? {}), fg: "gray" },
+  };
+}
+
+function flattenRaw(
+  tree: Node | Leaf,
+  width: number,
+  opts: FlattenOptions = {},
+): Row[] {
   if (isLeaf(tree)) return flattenLeaf(tree, width, opts);
   // 带 prefix / suffix 的 Node：先递归摊平子项（拿到 width 统一的内容行），每行按本节点
   // 的 align 补空格到 width，再在前后加符号。符号**不向下继承**——子项各自摊平自身内容。

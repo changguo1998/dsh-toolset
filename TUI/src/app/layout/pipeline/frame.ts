@@ -19,7 +19,7 @@ import { allSections, type SectionsState } from "./sections.ts";
 import { buildBoxes, toolUnits } from "./boxes.ts";
 import { splitOldSectionsIndexed } from "./split.ts";
 import { parse } from "./parse.ts";
-import { route } from "./route.ts";
+import { route, shadowedBlockIds } from "./route.ts";
 import { turnGroupStarts } from "../../layout.ts";
 import type { EventGroup, UserRowInfo } from "./ir.ts";
 import type { Section } from "./types.ts";
@@ -38,8 +38,6 @@ export interface PipelineFrameOptions {
   normalize?: (text: string) => string;
   /** P1 用户块首行符号解析（会话态；info 缺省 = 无状态不显符号） */
   userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
-  /** 压缩剪枝遮蔽事件号 */
-  shadowedSeqs?: ReadonlySet<number>;
 }
 
 export interface PipelineContent {
@@ -219,10 +217,9 @@ export function pipelineContent(
     ...(options.normalize === undefined
       ? {}
       : { normalize: options.normalize }),
-    ...(options.shadowedSeqs === undefined
-      ? {}
-      : { shadowedSeqs: options.shadowedSeqs }),
   });
+  // 压缩剪枝遮蔽（`state.shadowedSeqs` 是唯一真源）：命中的节 → 块 id 集 → 结构层整块打灰
+  const shadowedIds = shadowedBlockIds(groups, state.shadowedSeqs);
   // §4-§7：对话 / 活动各以自身宽测量摊平并组装成 ContentRow[]
   const dialogue = renderPaneNew(session, "dialogue", {
     width: options.dialogueTextW,
@@ -234,6 +231,7 @@ export function pipelineContent(
     ...(options.normalize === undefined
       ? {}
       : { normalize: options.normalize }),
+    ...(shadowedIds.size === 0 ? {} : { shadowedIds }),
     liveSectionIds,
   });
   const activity = renderPaneNew(turn, "activity", {
@@ -249,6 +247,7 @@ export function pipelineContent(
     ...(options.render.activityCompact === undefined
       ? {}
       : { activityCompact: options.render.activityCompact }),
+    ...(shadowedIds.size === 0 ? {} : { shadowedIds }),
     liveSectionIds,
   });
   return {

@@ -251,6 +251,8 @@ export interface PaneRenderOptions {
   normalize?: (text: string) => string;
   /** 活动区紧凑档位（/collapse；只对 activity pane 应用） */
   activityCompact?: Partial<ActivitySwitches>;
+  /** 压缩剪枝遮蔽的块 id（整块打灰；来自 `route.shadowedBlockIds`） */
+  shadowedIds?: ReadonlySet<string>;
   /**
    * 流活节 id 集合（来自 `state.current`）：这些节每帧重算、不入缓存（刷新型）。
    * 缓存只给「已定型历史」里**静态渲染**的 item（用户块符号仍实时，也重算）。
@@ -413,6 +415,9 @@ export function renderPaneNew(
     // pane 形状（会话区 prefix "┃ " + 右缘留白 / 活动区单竖线无留白）由 buildTrees
     // 按树锁定，这里不再重复传
     normalize: options.normalize,
+    ...(options.shadowedIds === undefined
+      ? {}
+      : { shadowedIds: options.shadowedIds }),
   };
   const trees = buildTrees(
     pane === "dialogue" ? items : [],
@@ -447,8 +452,16 @@ export function renderPaneNew(
           [...liveIds].some((p) => id.startsWith(p + ":")))
       );
     });
+    // 遮蔽状态进键：同一块在「被剪枝 / 未剪枝」下产出的行不同（打灰），不能互相复用
+    const dimmed =
+      options.shadowedIds !== undefined &&
+      slot.members.some((m) => {
+        const id = (items[m.index] as { id?: string }).id;
+        return id !== undefined && options.shadowedIds!.has(id);
+      });
     const ck =
       keyHead +
+      (dimmed ? "|dim" : "") +
       "|" +
       slot.members
         .map((m) => {
