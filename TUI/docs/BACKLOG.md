@@ -9,17 +9,17 @@
 
 ## 待办
 
-- **#1 新会话跑一会儿后整机卡死（CPU 接近 100%，回合区输出到一半停、会话区状态符号闪烁同停）**〔进行中: 2026-10-27〕（登记 2026-10-27，来源 用户真机）：现象 / 现状 → 已排除 → 待办 → 验收 → 优先级。
+- **#1 新会话跑一会儿后整机卡死（CPU 接近 100%，回合区输出到一半停、会话区状态符号闪烁同停）**〔已修复待真机复验: 2026-10-27〕（登记 2026-10-27，来源 用户真机）：现象 / 根因 → 修法 → 验收 → 优先级。
 
-  - 现象 / 现状：打开新会话、输入命令、模型开始回复后一会儿，画面停在回合区输出中途，250ms 相位闪烁（`virtTimer`）也一起停；dsh 进程 CPU 接近 100%；无 OOM 报错。
-  - 已排除（2026-10-27 实测）：排版链无超线性——`buildFrame` 400 节 0.6ms、10 万字输入 2.5ms、`pipelineContent` 400 节 5.8ms、流式增量 4KB 每帧 0.2ms；表格（800 列）/超长单行/多代码围栏/多列表项均线性；`table.ts` 的 `fitTo` / `waterLevel` 循环有界；宽度探测每码点最多重试 3 次（`WIDTH_PROBE_MAX_TRIES`），非无限自喂。
-  - 判据：闪烁定时器同停 = 主线程被**同步**占住（排除「慢」与阻塞写；阻塞写会是 CPU 0%），故要么是纯 JS 同步长跑/死循环，要么是微任务自喂循环。
-  - 待办：按现场抓一次 CPU 剖面定位函数——`node --cpu-prof --cpu-prof-dir=/tmp/tui-prof "$(command -v dsh)" --profile fff` 复现 → 结束进程 → `node TUI/tmp/cpuprof-summary.mjs /tmp/tui-prof`（脚本给出 self time top25 + 「TUI 源码 / node_modules / 原生」责任面占比）。顶部落在 `TUI/src/**` 则按文件:行修；落在宿主/原生则改判责任面。
-  - 已配套（2026-10-27，防同类问题复发）：`tests/layout-hang-guard.test.ts` 用生成语料 × 窄宽（1/2/3/5/17/40/80）× 十种内容形态，在子进程里跑并用 spawnSync 超时兜底，任何内容触发的同步死循环会在测试里炸出来。
-  - 验收：真机复现不再卡死；或剖面定位到具体函数并修掉，同时 `layout-hang-guard` 保持通过。
+  - 现象：打开新会话、输入命令、模型开始回复后一会儿，画面停在回合区输出中途，250ms 相位闪烁（`virtTimer`）也一起停；dsh 进程 CPU 接近 100%；无 OOM。
+  - **根因（2026-10-27 现场抓栈确认）**：`pipeline/parse.ts` 的列表起始判定与解析口径分叉——`LIST_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/` 认「只有标记、后接行尾」的行（裸 `-` / `*` / `+` / `1.` / `1)`，以及标记后接 NBSP），而 `listItemMark` 的 `LIST_ITEM_RE` 要求标记后必须跟 `[ \t]+`。分叉后果 = **死循环**：外层 `while (i < N)` 由 `LIST_RE` 命中进入列表分支，内层 `while` 因 `listItemMark` 返回 null 立刻 break，`items` 为空 → `continue` 却不推进 `i` → 同一行反复重入。用户槽与 markdown 槽两处列表分支同病。流式输出「一行刚好只到 `-`」即命中，故表现为回复到一半卡死。
+  - 现场取证手段（留档）：`kill -USR1 <pid>` 打开 inspector → `TUI/tmp/inspect-stack.mjs` 发 `Debugger.pause` 打断死循环检查点，拿到 `flushPaint ← renderFrame ← layoutFrame ← buildFrame ← buildTopRegion ← pipelineContent ← parse ← classifyMarkdown ← listItemMark`；`/proc/<pid>/stat` 显示主线程吃满单核、`/proc/<pid>/syscall` 为空（纯用户态计算）。
+  - 修法：删除 `LIST_RE`，新增唯一判定 `isListItemStart(line)`（= `listItemMark(line) !== null`），三处判定（两个列表分支 + 普通段收集的 break 条件）全部改用它；列表分支再加「空产出必 `i += 1`」兜底，禁止原地 `continue`。
+  - 回归：`tests/pipeline-parse.test.ts` 补裸 `-`/`*`/`+`/`1.`/`1)`/NBSP 六形态（各断言 1s 内产出块）；`tests/layout-hang-guard.test.ts` 语料加 `bareBullet` 形态。全套 1789 通过 / 0 失败 / 4 todo。
+  - 验收：重启 `dsh --profile fff`（已 `npm run build`）跑一段含 `-` 列表与 `---` 分隔线的回复，确认不再卡死。
   - 优先级：P0。
 
-- **#2 结构层遗留：嵌套列表按缩进产真子列表**（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
+- **#2 结构层遗留：嵌套列表按缩进产真子列表**〔进行中: 2026-10-27〕（登记 2026-10-26，来源 渲染流水线重构遗留）：现象 / 现状 → 期望 → 落点 → 验收 → 优先级。
 
   - 现象 / 现状：新链 §2 `parse`（`src/app/layout/pipeline/parse.ts`）的列表段不按缩进区分子层，缩进子项被并进父条目正文；`tests/thinking-markdown.test.ts` 的四条嵌套列表用例（列表两层缩进 / 有序与无序混排 / 任务框子项 / 子项长句悬挂对齐）暂以 `test.todo` 挂着。
   - 期望：按 2 列一层产出真子列表（子层标记按自身宽占列，长句续行悬挂对齐该层正文起列），结构层列表节点递归表达层级。

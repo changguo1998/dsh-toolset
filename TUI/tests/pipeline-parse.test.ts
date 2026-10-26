@@ -148,3 +148,42 @@ test("parse：notice 尾部换行吸收——全空/纯换行不产出段落", (
     "纯换行 notice 不产出段落（不留空行）",
   );
 });
+
+test("parse：只有标记没有正文的行（裸 `-` / `*` / `1.` / NBSP）不死循环", () => {
+  // 回归（2026-10-27 真机卡死）：列表起始判定曾用独立的 LIST_RE（认「标记 + 行尾」），
+  // 与 listItemMark 的 LIST_ITEM_RE（要求标记后跟 [ \t]+）分叉 → 外层进列表分支、
+  // 内层立刻 break、items 为空却不推进下标 → 无限循环（模型流式输出「一行刚好只到 -」
+  // 即命中：整机 CPU 100%、画面与闪烁定时器同停）。
+  const cases: Array<[string, string]> = [
+    ["裸 -", "回复：\n- 第一项\n-\n结束"],
+    ["裸 *", "回复：\n* 项\n*"],
+    ["裸 1.", "列表：\n1. 项\n2."],
+    ["裸 1)", "列表：\n1) 项\n2)"],
+    ["裸 +", "+"],
+    ["标记后是 NBSP", "-\u00a0"],
+  ];
+  for (const [name, text] of cases) {
+    const s = sec({ id: "1:1:0", body: { source: "assistant", text } });
+    const t0 = performance.now();
+    const blocks = parse(s);
+    const ms = performance.now() - t0;
+    assert.ok(blocks.length > 0, `${name}：应产出块（不是死循环/空产物）`);
+    assert.ok(
+      ms < 1000,
+      `${name}：应在 1s 内解析完（实测 ${ms.toFixed(0)}ms）`,
+    );
+  }
+});
+
+test("parse：列表分支的判定与解析同源（含标记行一律并入 List 块）", () => {
+  const s = sec({
+    id: "1:1:0",
+    body: { source: "assistant", text: "- 甲\n- 乙\n-" },
+  });
+  const blocks = parse(s);
+  const lists = blocks.filter((b) => b.kind === "list");
+  assert.equal(lists.length, 1, "连续列表项合成一个 List 块");
+  // 末行裸 `-` 不再被当成列表项（listItemMark 认不出正文）→ 单独成段，不吞行
+  const tail = blocks[blocks.length - 1]!;
+  assert.equal(tail.kind, "paragraph");
+});

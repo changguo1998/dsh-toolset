@@ -38,6 +38,8 @@ const FORMS = {
     return [head, sep, head].join("\\n");
   },
   longToken: () => "x".repeat(5000),
+  // 回归（2026-10-27 真机卡死）：只有标记没有正文的行曾让 parse 列表分支原地打转
+  bareBullet: () => "- 项一\\n-\\n*\\n1.\\n-\\u00a0\\n尾",
   quote: () => "> ".repeat(30) + "嵌套引用文本",
 };
 

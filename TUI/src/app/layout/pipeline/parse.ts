@@ -46,8 +46,13 @@ import { freezeBlock } from "./ir.ts";
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*([\w.+-]*)[ \t]*$/;
 /** 引用行（最多 3 空格缩进 + `>`） */
 const QUOTE_RE = /^ {0,3}>/;
-/** 列表项行（`-`/`*`/`+` 或有序 `1.`/`1)`，后接空白或行尾） */
-const LIST_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/;
+// **列表项起始判定只有一处**（`isListItemStart`，与 `listItemMark` 同源）：
+// 曾有独立的 `LIST_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)/`，它认「只有标记、后接行尾」的行
+// （裸 `-` / `*` / `1.` / `-`+NBSP），而 `listItemMark` 的 `LIST_ITEM_RE` 要求标记后必须跟
+// `[ \t]+`。两者分叉的后果是**死循环**：外层 `while (i < N)` 判 `LIST_RE` 命中进入列表分支，
+// 内层 `while` 因 `listItemMark` 返回 null 立刻 break，`items` 为空 → `continue` 却不推进 `i`
+// → 再次进入同一行，永远出不来（真机症状：模型回复到一半整机卡死、CPU 100%、闪烁定时器同停；
+// 流式输出「一行刚好只到 `-`」即命中）。现统一由 `isListItemStart` 判定，禁止再引第二套口径。
 /** 列表项的缩进续行（更深的空白开头的非空行，归属上一个列表项） */
 const LIST_CONT_RE = /^\s{2,}\S/;
 /** 标题：行首 1-6 个 `#` 后跟空格 */
@@ -264,7 +269,7 @@ function classifyUserText(
       continue;
     }
     // 2) 列表（连续列表项 + 缩进续行）
-    if (LIST_RE.test(line)) {
+    if (isListItemStart(line)) {
       const startL = i;
       const items: Block[] = [];
       const marks: string[] = [];
@@ -306,6 +311,8 @@ function classifyUserText(
             ...(user === undefined ? {} : { user }),
           }),
         );
+      } else {
+        i += 1; // 兜底：判定与解析若再分叉，至少保证下标前进（不允许原地 continue）
       }
       continue;
     }
@@ -314,7 +321,7 @@ function classifyUserText(
     const run: string[] = [];
     while (
       i < N &&
-      !LIST_RE.test(lines[i]!.text) &&
+      !isListItemStart(lines[i]!.text) &&
       FENCE_RE.exec(lines[i]!.text) === null
     ) {
       run.push(lines[i]!.text);
@@ -483,7 +490,7 @@ function classifyMarkdown(
       continue;
     }
     // 4) 列表（连续列表项 + 缩进续行）
-    if (LIST_RE.test(line)) {
+    if (isListItemStart(line)) {
       const startL = i;
       const items: Block[] = [];
       const marks: string[] = [];
@@ -524,6 +531,8 @@ function classifyMarkdown(
             items,
           }),
         );
+      } else {
+        i += 1; // 兜底：判定与解析若再分叉，至少保证下标前进（不允许原地 continue）
       }
       continue;
     }
@@ -536,7 +545,7 @@ function classifyMarkdown(
           FENCE_RE.test(cur) ||
           (i + 1 < N && isTableStart(cur, lines[i + 1]!.text)) ||
           QUOTE_RE.test(cur) ||
-          LIST_RE.test(cur)
+          isListItemStart(cur)
         )
           break;
         run.push({ idx: i, text: cur });
@@ -577,6 +586,15 @@ function styledHeadingNormal_cell(cellText: string): StyledText {
 
 /** 列表项标记：从原文行拆出显示标记与正文（标记不再拼进条目正文）。
  *  任务复选框 → `[x] ` / `[ ] `；有序 → 编号原文 + 空格；无序 → 归一 `• `。 */
+/**
+ * 列表项起始判定（**唯一口径**）：与 `listItemMark` 同源，不允许另立正则——
+ * 判定与解析分叉会造成「分支命中但解析为空 → 不推进下标 → 死循环」（见文件头注释）。
+ */
+function isListItemStart(text: string): boolean {
+  return listItemMark(text) !== null;
+}
+
+
 function listItemMark(
   text: string,
 ): { mark: string; body: string; strike?: true } | null {
