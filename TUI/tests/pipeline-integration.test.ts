@@ -242,3 +242,54 @@ test("集成：窗口不足 → 丢弃更早、dropped > 0（渐进窗口结构�
   });
   assert.ok(built.dropped > 0, "窗口小丢更早回合");
 });
+
+// ---------------- 接缝契约（新链路 → buildTopRegion 的输入） ----------------
+
+test("接缝：pipelineContent 的 dialogue 行铺满 dialogueTextW（多宽度）", () => {
+  let s = initialState(undefined, { activityPlacement: "vertical" });
+  s = reduceState(s, {
+    type: "status",
+    status: { time: "12:00:00", cwd: "/w", git: "main" },
+  });
+  const LONG =
+    "回复正文：这是一段足够长的中文内容，用来把历史 pane 的文字行铺满到排版右缘，看最右可见字符。";
+  const steps = [
+    ...turnScript({
+      turn: 1,
+      time: 1_700_000_000_000,
+      user: "问",
+      assistant: LONG,
+      reason: "completed",
+    }),
+  ];
+  s = { ...s, pipeline: sectionsFromScript(steps) };
+  for (const W of [40, 60, 78]) {
+    const built = pipelineContent(sectionsOf(s), {
+      dialogueTextW: W,
+      activityTextW: W,
+      windowGroups: s.windowGroups,
+      render: { width: W, activityWidth: W },
+    });
+    // 找最宽的对话行（正文行应铺满 W-1..W）
+    const maxW = built.dialogue.reduce((m, r) => {
+      const w = r.segments.reduce((x, seg) => x + displayW2(seg.text), 0);
+      return Math.max(m, w);
+    }, 0);
+    assert.ok(
+      maxW >= W - 1,
+      `W=${W}: dialogue 最宽行 ${maxW} 应 ≥ ${W - 1}（铺满文本宽）`,
+    );
+    assert.ok(maxW <= W, `W=${W}: dialogue 最宽行 ${maxW} 不越界`);
+  }
+});
+
+/** 段显示宽（EAW，与渲染一致） */
+function displayW2(text: string): number {
+  let w = 0;
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    // 东亚全角区间粗判；这里主要需要与 layout 的 displayWidth 同量级即可
+    w += c > 0x2fff ? 2 : 1;
+  }
+  return w;
+}
