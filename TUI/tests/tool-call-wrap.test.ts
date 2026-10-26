@@ -90,9 +90,9 @@ test("buildFrame：工具结果行长 detail 折行后续行同样缩进且不�
     const grid = frame.map((l) => stripAnsi(rowText(l)));
     // 长 detail 必然折行：结果行首行之后应存在缩进 ≥4 列的续行
     // （行首可能有左框格/占位空格，故 `/^[│ ]* {4,}\S/` 兼容）
-    const headIdx = grid.findIndex((l) => /^[│ ]*[✓✗] /.test(l));
+    const headIdx = grid.findIndex((l) => /^[│┃ ]*[✓✗] /.test(l));
     assert.ok(headIdx >= 0, "应渲染出结果行首行");
-    const cont = grid.slice(headIdx + 1).find((l) => /^[│ ]* {4,}\S/.test(l));
+    const cont = grid.slice(headIdx + 1).find((l) => /^[│┃ ]* {4,}\S/.test(l));
     assert.ok(cont, "结果行续行应以 ≥4 空格缩进");
   }
 });

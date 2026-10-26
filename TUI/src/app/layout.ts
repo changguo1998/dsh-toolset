@@ -1007,26 +1007,24 @@ function markToolNameRows(
   let changed = false;
   const out = rows.map((row) => {
     if (row.kind !== "tool-name") return row;
-    const first = row.segments[0];
-    if (first === undefined || first.text[0] !== TOOL_PENDING_GLYPH) return row;
+    // 字形段可能在左缘竖线之后（工具行挂会话 chrome ┃）——按段定位，不假设首段
+    const idx = row.segments.findIndex((s) => s.text[0] === TOOL_PENDING_GLYPH);
+    if (idx < 0) return row;
+    const first = row.segments[idx]!;
     const glyph = active
       ? phase === 0
         ? TOOL_PENDING_GLYPH
         : TOOL_PENDING_GLYPH_ALT
       : TOOL_INTERRUPTED_GLYPH;
     const fg: ColorName = active ? "yellow" : "gray";
+    const segments = [...row.segments];
     changed = true;
-    return {
-      ...row,
-      segments: [
-        {
-          ...first,
-          text: glyph + first.text.slice(1),
-          style: { ...first.style, fg },
-        },
-        ...row.segments.slice(1),
-      ],
+    segments[idx] = {
+      ...first,
+      text: glyph + first.text.slice(1),
+      style: { ...first.style, fg },
     };
+    return { ...row, segments };
   });
   return changed ? out : rows;
 }

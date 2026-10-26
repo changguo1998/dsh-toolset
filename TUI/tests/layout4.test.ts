@@ -2260,8 +2260,8 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
     .slice(start + 1, start + block.length)
     .filter((l) => l.replace(/\x1b\[[0-9;]*m/g, "") !== "");
   assert.ok(
-    histBody(firstRow, 60).trimStart().startsWith("■ bash"),
-    "首行为工具名字行（无结果 + 回合未活跃 → ■）",
+    histBody(firstRow, 60).trimStart().replace(/^┃/, "").startsWith("■ bash"),
+    "首行为工具名字行（无结果 + 回合未活跃 → ■；会话竖线 chrome 在前）",
   );
   assert.ok(firstRow.includes(YELLOW), "首行工具名着黄");
   for (let i = 0; i < restRows.length; i++) {
