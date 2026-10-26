@@ -1116,9 +1116,7 @@ L14-L16 / L11-L15），7 个面板场景逐行零差异（含 ansi）。无字�
 
 ### 未完成（需独立一轮，已记入待办）
 
-1. **`boxes.buildBoxes` 仍是生产依赖**：`frame.sectionGroupStarts` 用它把节还原成旧口径「行类型序列」
-   来算渐进窗口分组；新链 `parse` 的块切分与旧 `textParts` 不同（前者按物理行、后者按结构 run），
-   行数不通用，删除需先在新模型上重写分组边界。
+1. ~~`boxes.buildBoxes` 仍是生产依赖~~ **已完成（第七轮，见下节）**。
 2. **`build-box.ts` 的 `buildContentRows` + `fill` / `measure`（旧）/ `box.ts` 仍在用**：
    `layout.ts` 的 `queuedBlockRows`（排队块）与 chrome 面板（approval / picker / statusPanel …）
    仍走这套；删除需先把排队块迁到新链（需新增「排队块右缘竖线按 steer / followup 着色」能力），
@@ -1167,5 +1165,44 @@ state.shadowedSeqs（`shadow` 交付写入，adapter 把 compaction/prune 的 sh
 `npm run check` 绿；`npm run test:tui` **1854 例全绿**（+3 新用例）。
 
 ## 收尾
+
+## 第七轮：拆 `boxes.buildBoxes`（渐进窗口分组改新模型，2026-10-26）
+
+最后一块旧 §2 依赖：`frame.sectionGroupStarts` 原来用 `buildBoxes` 把节还原成「旧口径行类型
+序列」（每节 = step 头 + 细分盒一行），再套 `turnGroupStarts` 算渐进窗口组边界。
+
+### 为什么可以“一细分盒一行 → 一条目一行”
+
+`turnGroupStarts` 只看**相邻 kind 的跳变**（`user` 起始 / final `assistant` 起始）与 `final` 标志；
+而旧 `textParts` 把一个条目拆成多个细分盒（text / quote / list / code / table）时，**各细分盒
+kind 恒相同**（都取条目 `source`）。所以按条目计 kind 与原实现给出**同一 kind 序列**，
+分组边界不变（全套滚动 / 渐进窗口 / 段 D 用例未改一行断言即全绿）。
+
+工具批仍按 `toolUnits` 计行（保持与摊平产行同口径），空文本条目仍不产行（旧 `textParts` 同口径）。
+
+### 删除
+
+- `buildBoxes` / `computeBoxes` / `textParts` / `tableTree` / `toolBox` / `boxCache`（含其
+  `registerCacheReset` 注册）与配套围栏 / 引用 / 列表正则。
+- 旧盒类型 `Shape` / `CodeBox` / `BoxBase` / `ContentBox` / `LayoutBox` / `Box`（旧布局树整族从此消失）。
+- `pipeline/boxes.ts` → 改名 **`pipeline/tool-units.ts`**：文件只剩 `toolUnits` / `ToolUnit` /
+  `ToolBatch` / `pairToolResults` / `isEmptyToolResult`（后者降为非导出）。
+
+### 测试
+
+- 删 `tests/pipeline-boxes.test.ts`（整文件以 `buildBoxes` 为主题，−10 例）：其围栏 / 表格 / 列表
+  解析断言已由 `pipeline-parse` 覆盖。
+- 删 `layout-cache` 的「盒缓存随宽度覆盖失效」用例（缓存本体已不存在；
+  `setWidthOverrides` 仍在生产用，由 `width-probe` 覆盖）。
+
+### 证据
+
+`npm run check` 绿；`npm run test:tui` **1844 例全绿**（删 10 例旧盒主题用例）。
+
+### 剩下最后一项
+
+`build-box.ts` 的 `buildContentRows` + 旧 `fill` / `measure` / `box.ts` 仍服务：
+① `layout.ts` 的 `queuedBlockRows`（排队块）；② chrome 面板（approval / picker / statusPanel …）。
+面板渲染明确不在重构范围，排队块迁移需新增「右缘竖线按 steer / followup 着色」能力。
 
 （待关闭时填写。）
