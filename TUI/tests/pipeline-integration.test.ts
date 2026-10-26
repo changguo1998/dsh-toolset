@@ -120,3 +120,124 @@ test("集成：整帧 buildFrame 可跑通（各段组合 → FrameRow[]，含�
   assert.ok(txt.includes("一行正文"), "正文上屏");
   assert.ok(txt.includes("╌"), "回合/步分隔线存在");
 });
+
+test("集成：多回合 → 会话区出现回合分隔、counts 仍一致、正文段可排序", () => {
+  let s = initialState(undefined, { activityPlacement: "vertical" });
+  s = reduceState(s, {
+    type: "status",
+    status: { time: "12:00:00", cwd: "/w", git: "main" },
+  });
+  const T = 1_700_000_000_000;
+  const steps = [
+    ...turnScript({
+      turn: 1,
+      time: T,
+      user: "问一",
+      assistant: "答一",
+      reason: "completed",
+    }),
+    ...turnScript({
+      turn: 2,
+      time: T + 60_000,
+      user: "问二",
+      assistant: "答二",
+      reason: "completed",
+    }),
+  ];
+  s = { ...s, pipeline: sectionsFromScript(steps) };
+  const built = pipelineContent(sectionsOf(s), {
+    dialogueTextW: 60,
+    activityTextW: 60,
+    windowGroups: s.windowGroups,
+    render: { width: 60, activityWidth: 60 },
+  });
+  assert.equal(
+    built.dialogueCounts.reduce((a, b) => a + b, 0),
+    built.dialogue.length,
+    "multi counts",
+  );
+  const sep = built.dialogue.filter((r) => r.kind === "separator").length;
+  assert.ok(sep >= 1, "多回合有回合分隔行");
+  const txt = built.dialogue
+    .map((r) => r.segments.map((x) => x.text).join(""))
+    .join("");
+  assert.ok(txt.includes("答二"), "最新正文在");
+});
+
+test("集成：工具批进活动区（名字/结果行 kind 可读）", () => {
+  let s = initialState(undefined, { activityPlacement: "vertical" });
+  const steps = [
+    { delivery: { kind: "turn-start", turn: 1 } },
+    { delivery: { kind: "user", turn: 1, step: 0, text: "跑一下" } },
+    {
+      delivery: {
+        kind: "tool-call",
+        turn: 1,
+        step: 1,
+        callId: "c1",
+        name: "bash",
+        args: "{}",
+      },
+    },
+    {
+      delivery: {
+        kind: "tool-result",
+        turn: 1,
+        step: 1,
+        callId: "c1",
+        ok: true,
+        detail: "ok out",
+      },
+    },
+  ];
+  s = { ...s, pipeline: sectionsFromScript(steps) };
+  const built = pipelineContent(sectionsOf(s), {
+    dialogueTextW: 60,
+    activityTextW: 60,
+    windowGroups: s.windowGroups,
+    render: { width: 60, activityWidth: 60 },
+  });
+  assert.ok(
+    built.activity.some((r) => r.kind === "tool-name"),
+    "活动区有工具名行",
+  );
+  assert.ok(
+    built.activity.some((r) => r.kind === "tool-result"),
+    "活动区有结果行",
+  );
+});
+
+test("集成：窗口不足 → 丢弃更早、dropped > 0（渐进窗口结构成立）", () => {
+  let s = initialState();
+  const steps = [
+    ...turnScript({
+      turn: 1,
+      time: 1,
+      user: "问一",
+      assistant: "答一",
+      reason: "completed",
+    }),
+    ...turnScript({
+      turn: 2,
+      time: 2,
+      user: "问二",
+      assistant: "答二",
+      reason: "completed",
+    }),
+    ...turnScript({
+      turn: 3,
+      time: 3,
+      user: "问三",
+      assistant: "答三",
+      reason: "completed",
+    }),
+  ];
+  s = { ...s, pipeline: sectionsFromScript(steps) };
+  const built = pipelineContent(sectionsOf(s), {
+    dialogueTextW: 60,
+    activityTextW: 60,
+    windowGroups: 1, // 只留最近 1 组
+    render: { width: 60, activityWidth: 60 },
+  });
+  assert.ok(built.dropped > 0, "窗口小丢更早回合");
+});
