@@ -1201,8 +1201,35 @@ kind 恒相同**（都取条目 `source`）。所以按条目计 kind 与原实�
 
 ### 剩下最后一项
 
-`build-box.ts` 的 `buildContentRows` + 旧 `fill` / `measure` / `box.ts` 仍服务：
-① `layout.ts` 的 `queuedBlockRows`（排队块）；② chrome 面板（approval / picker / statusPanel …）。
-面板渲染明确不在重构范围，排队块迁移需新增「右缘竖线按 steer / followup 着色」能力。
+① ~~`layout.ts` 的 `queuedBlockRows`（排队块）~~ **已完成（第八轮，见下节）**；
+② chrome 面板（approval / picker / statusPanel …）仍走旧 `fill` / `measure` / `box.ts`——
+面板渲染明确不在重构范围。
+
+## 第八轮：排队块迁到新链（2026-10-26）
+
+`layout.queuedBlockRows`（UI 本地 `state.queued`，不在节缓存里）不再走
+`buildContentRows(lines, { gutter }, width)`，改走新链：
+
+1. **`structure.toUser` 旗标化右缘竖线颜色**：`toUserBox` 新增 `edgeFg`，由块上的
+   `user.queued` 派生——`steer` → `brightYellow` / `followup` → `gray` / 无排队 → `brightRed`
+   （与旧 `build-box` 同口径）。`toPaneTree` 组装用户盒时直接读首条目的 `queued`，
+   因此历史流里的排队节（`queued: "steer"`）也自动同色。
+2. **新入口 `rows.renderQueuedBlocks`**：每条排队消息 = 一个用户段块 → `toUser`（右对齐 +
+   右缘竖线）→ 逐个 measure / flatten，产出会话区 `ContentRow[]`（kind `user`）。
+   `layout.ts` 只保留「steer 在前 / followup 在后」的排序，其余全部交给新链。
+3. **`buildContentRows` 从生产清零**：`layout.ts` 的 import 与已无用的 `HistoryRow` 导入一并删除。
+
+### 证据
+
+`npm run check` 绿；`npm run test:tui` **1844 例全绿**（零测试改动即过：排队块的右缘颜色 /
+右对齐 / 历史 pane 右下角定位由 `steer-queued-display` 与 `layout-horizontal` 现有用例抦住）；
+`npm run demo -- --smoke` 42 条 `SMOKE_PASS`。
+
+### 剩下的（不再属重构主线）
+
+`build-box.ts` 的 `buildContentRows` / `buildBox` 现在**生产零调用**（仅 10 个测试文件当
+渲染工具用）；`build-box.ts` 只剩 `noticeLinePresentation` 还在生产（notice 文案）。
+彻底删 `build-box.ts` 需把那 10 个测试文件迁到新链（或随旧口径断言一起删），属独立的
+**测试迁移**任务，建议单开一轮。
 
 （待关闭时填写。）
