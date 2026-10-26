@@ -679,6 +679,21 @@ renderPane(items: PaneItem[], pane: "dialogue"|"activity", options): FrameRow[] 
 - 阶段 0：`tests/pipeline-wrap.test.ts` 17 例全绿。
 - 阶段 2：`tests/pipeline-layout.test.ts` 8 例全绿；TUI 全量 `npm test` 1797 例全绿（新模块未接线, 旧链路不变）。
 
+### 阶段 3 后续：新链渲染保真清障（实现记录补充）
+
+> 2026-10-25 之后按「先补底部契约测试确认 FAIL → 改实现 → 全量回归 → 提交」逐项清新链 E2E 渲染保真失败：全量 30 → 6 fail。已提交（Conventional Commits 中文）：
+>
+> - `cc17b43` 左缘 `┃` chrome 列不占正文宽, 修复 gutter 几何（layout4 两处）
+> - `f0139df` 列表续行竖线在前、悬挂缩进在后（列表悬挂对齐）
+> - `a25fdbd` markdown 子集：任务复选框保留 / 有序编号 / 删除线 / 混合列表
+> - `ac061c7` 工具落单结果自带 ✓/✗（per-result orphan 取代批量 hasName）
+> - `e0b893f` notice/工具辅助尾部换行吸收（legacy absorbActivityBlank）
+> - `574e8d0` 竖线按面板分 chrome/计宽（`Leaf.prefixChrome`）：对话 chrome/活动计宽, 恢复活动竖线 → 清 focus-frame 基线 8 项 + 边界空行
+> - `c0fff41` notice/toast 不挂会话竖线 → 清 toast 截断 + 滚动/小窗/Ctrl+T 级联
+> - （另有 P1 活跃块 post-pass 修复于 `eac250b`，含在 later 更新；连同前述级联共读到 6 fail。）
+
+本轮实现口径（回写）：`Leaf.prefixChrome` 表达竖线是否 chrome（对话真/活动假）；notice/toast 源段落不挂竖线。剩余 6 fail：c5 行缓存（新链无 rowCache，id 键缓存会吞流式更新，属阶段 4 再基线）、段D 重放/Home（逐字节一致，阶段 4 迁移）、渐进窗口 / 滚动独立 / /collapse off（滚动子系统深层交互，需设计级处理）。
+
 ## 收尾
 
 （待关闭时填写。）
