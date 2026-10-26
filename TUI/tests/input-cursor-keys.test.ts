@@ -13,6 +13,14 @@ import { registerApp } from "./helpers/paintFlush.ts";
 import type { AppState } from "../src/app/state.ts";
 import type { KeyEvent } from "../src/renderer/index.ts";
 
+/** 单字符键事件 */
+const ch = (text: string): KeyEvent => ({
+  name: text,
+  ctrl: false,
+  meta: false,
+  shift: false,
+});
+
 const key = (name: string, mods: { ctrl?: boolean } = {}): KeyEvent => ({
   name,
   ctrl: mods.ctrl === true,
@@ -94,5 +102,24 @@ test("会话区聚焦时：↑/PgUp/Home 走翻页、不动输入光标", () => 
   for (const name of ["up", "pageup", "home"] as const)
     renderer.press(key(name));
   assert.equal(st().inputCursor, cursor, "翻页键不动输入光标");
+  app.dispose();
+});
+
+test("光标在整个输入开头时可按模式键切换模式（有内容也不吞内容）", () => {
+  const { renderer, st, app } = makeApp();
+  typeMultiline(renderer, "abc");
+  // 光标在末尾：模式键当普通字符插入
+  renderer.press(ch("$"));
+  assert.equal(st().inputText, "abc$", "末尾按 $ = 插入字符");
+  assert.equal(st().inputMode, "steer", "模式未变");
+  // 光标移到最前：模式键切模式并吞键
+  renderer.press(key("home"));
+  renderer.press(ch("$"));
+  assert.equal(st().inputMode, "shell", "开头按 $ = 切到 shell 模式");
+  assert.equal(st().inputText, "abc$", "内容保留、模式键不插入");
+  // 开头 Backspace 回退默认模式（内容保留）
+  renderer.press(key("backspace"));
+  assert.equal(st().inputMode, "steer", "开头 Backspace 回退默认模式");
+  assert.equal(st().inputText, "abc$", "回退模式不动内容");
   app.dispose();
 });

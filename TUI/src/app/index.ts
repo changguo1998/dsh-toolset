@@ -3229,8 +3229,9 @@ export class App {
         this.apply((s) => reduceState(s, { type: "move-cursor", delta: 1 }));
         break;
       case "backspace":
-        // 输入为空时 Backspace 回退模式（$ / < 切了模式但没输入，用 Backspace 回 >）
-        if (this.state.inputText === "" && this.state.inputMode !== "steer") {
+        // 光标在开头（含输入为空）时 Backspace 回退模式：切了模式但还没输入时用 Backspace
+        // 回 >；有内容时把光标移到最前按 Backspace 同样能回退（2026-10-27 用户裁定）
+        if (this.state.inputCursor === 0 && this.state.inputMode !== "steer") {
           this.apply((s) =>
             reduceState(s, { type: "input-mode", mode: "steer" }),
           );
@@ -3261,12 +3262,14 @@ export class App {
         }
         break;
       default:
-        // 模式键：输入框为空时按 $ / / / < / ! 切换模式并吞键（$ shell / / slash / < followup /
-        // ! interrupt（打断并发送）；同符号幂等；提交后自动回退默认 >）
+        // 模式键：光标在**整个输入的开头**时按 $ / / / < / ! 切换模式并吞键（$ shell /
+        // / slash / < followup / ! interrupt（打断并发送）；同符号幂等；提交后自动回退默认 >）。
+        // 判据是「光标在开头」而非「输入为空」：已有内容时把光标移到最前也能切模式，
+        // 切完再打字即带模式提交（2026-10-27 用户裁定）。
         if (
           name.length === 1 &&
           !ctrl &&
-          this.state.inputText === "" &&
+          this.state.inputCursor === 0 &&
           (name === "$" || name === "/" || name === "<" || name === "!")
         ) {
           const mode: InputMode =
