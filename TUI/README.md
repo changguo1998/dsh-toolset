@@ -20,7 +20,7 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心�
 `bin/tui.js` 是零第三方依赖的 delegating launcher：
 
 - **真实链路**：目标 profile（默认 `fff`，可用 `DSH_TUI_PROFILE` 覆盖）已安装本 bundle 时，委托 `dsh --profile <p>` 启动——profile 树内 cordis 以插件方式调用 `main.ts` 的 `apply(ctx)`，创建会话、拉起 agent 并组装 renderer + app + real adapter；argv 与退出码原样透传。
-- **TUI 自有启动参数**（宿主启动器 flag 之后的内层参数，经 `ctx.cmdlineArgs` 读取）：`--resume <id>`（启动即恢复指定会话并折叠既有历史到历史区，id 无效 → stderr 提示并回落新建）与 `-c` / `--continue`（启动即加载**当前目录下最近退出的会话**，无匹配 → 静默新建）；`--resume` 优先于 `-c`，未知参数忽略。用法：`dsh --profile fff --continue` / `dsh --profile fff --resume <id>`。
+- **TUI 自有启动参数**（宿主启动器 flag 之后的内层参数，经 `ctx.cmdlineArgs` 读取）：`--resume <id>`（启动即恢复指定会话并折叠既有历史到历史区，id 无效 → stderr 提示并回落新建）与 `-c` / `--continue`（启动即加载**当前目录下最近退出的会话**，无匹配 → 静默新建）；`--provider <name>` / `--model <provider>/<model>[:<effort>]`（也接受裸 `<model>[:<effort>]`）/ `--effort <level>` 在会话启动后按目录校验并覆盖本次启动的模型路由（组合不存在 → 警告并保持原路由；effort 未命中 → 回退该模型最低等级；裸 model 用当前 provider）；均支持 `--flag value` 与 `--flag=value`。`--resume` 优先于 `-c`，未知参数忽略。用法：`dsh --profile fff --continue` / `dsh --profile fff --model tollgate/ds41f:max`。
 - **无 DSH 退化**：无可用 profile 或传 `--demo` 时运行 mock demo（renderer + app + mock adapter 全栈走通，不触碰 DSH）。
 
 ```sh
@@ -307,8 +307,8 @@ patch 完全没给某段时整段取文件值；文件里也没有的键才回�
 | `/symbol-unify on\|off` | 模型输出符号规范化开关（默认 on；随会话状态快照保存，切回该会话时恢复） |
 | `/detect-char-width` | 重新实测终端字符宽度（符号列宽随终端 / 字体 / tmux 客户端而变）：重置尝试额度 → 已实测字符 + 本会话符号列表重新实测 → 完成时 notice 回报测得数量；**窗口尺寸变化时自动同样重测**（怀疑排版错位时用） |
 | `/theme [dark\|light\|toggle]` | 切换调色板（仅当前会话，不落盘） |
-| `/model [provider/]model` | 无参打开模型选择面板（provider / model / effort 三列同屏，`←/→` 换列、键入筛选当前列、空格选中、Enter 提交）；带参直接切换（会话内生效并记入该会话的状态快照，切回时恢复） |
-| `/provider`、`/effort`（`/thinking`） | 打开同一模型选择面板并预置焦点列；带参只提示用法 |
+| `/model [provider/]model[:effort]` | 无参打开模型选择面板（provider / model / effort 三列同屏，`←/→` 换列、键入筛选当前列、空格选中、Enter 提交）；带参直接切换（会话内生效并记入该会话的状态快照，切回时恢复）；`:effort` 后缀设置思考等级，`provider/model` 必须命中目录 |
+| `/provider <name>`、`/effort <level>`（`/thinking`） | 带参只改对应字段（provider 保留当前 model / effort、effort 保留当前 provider / model），组合不存在则警告并保持；无参打开同一模型选择面板并预置焦点列 |
 | `/policy [ask\|never]` | 审批策略：无参打开状态选项面板，带参直接设置（写宿主 `approval.setPolicy`） |
 | `/permission [预设名]` | 权限预设（sandbox mode + 审批策略捆绑）：无参打开面板，带参转发宿主命令 |
 | `/goal [<目标>\|edit <目标>\|pause\|resume\|clear]` | TUI 无本地行为（2026-10-06 起）：全形态转发宿主 `dsh-command-goal`——无参看状态与可用命令，`/goal <目标>` 新建、`edit`/`pause`/`resume`/`clear` 改／暂停／恢复／清除；goal / todo 详情同时常驻左侧状态列 |

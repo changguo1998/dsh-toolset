@@ -104,6 +104,45 @@ test("parseTuiStartupArgs：--resume 两种写法、-c/--continue、优先级与
   );
 });
 
+test("parseTuiStartupArgs：--provider/--model/--effort 两种写法与空值忽略", () => {
+  assert.deepEqual(
+    parseTuiStartupArgs([
+      "--provider",
+      "p1",
+      "--model",
+      "p1/m1:high",
+      "--effort",
+      "max",
+    ]),
+    {
+      continueLatest: false,
+      provider: "p1",
+      model: "p1/m1:high",
+      effort: "max",
+    },
+  );
+  assert.deepEqual(
+    parseTuiStartupArgs([
+      "--provider=p1",
+      "--model=m1",
+      "--effort=low",
+      "--resume=s1",
+    ]),
+    {
+      resume: "s1",
+      continueLatest: false,
+      provider: "p1",
+      model: "m1",
+      effort: "low",
+    },
+  );
+  assert.deepEqual(
+    parseTuiStartupArgs(["--provider=", "--model", "--effort"]),
+    { continueLatest: false },
+    "空值 / 缺值忽略",
+  );
+});
+
 // --- 服务就绪等待（回归：「历史会话不可用（宿主未挂载 sessionQuery）」根因修复） ---
 //
 // 宿主服务随插件树并发装载，apply 早期 ctx.get('sessionQuery') 可能为空；

@@ -1,6 +1,6 @@
 # 启动参数指定 provider / model / effort（接取条目：TUI/docs/BACKLOG.md「启动参数指定 provider / model / effort」）
 
-状态：调研　　开启：2026-10-27　　关闭：—
+状态：关闭　　开启：2026-10-27　　关闭：2026-10-27
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -36,16 +36,22 @@
 
 ## 实现记录
 
-未开始（等用户放行后按规划实现）。
+- `src/main.ts`：`TuiStartupArgs` 增加 `provider` / `model` / `effort`；`parseTuiStartupArgs` 支持 `--flag value` 与 `--flag=value`（缺值 / 空值忽略）；`main()` 新增 `startupModel` 选项，并在 `app.start()` 后调用 `App.applyStartupModel`。
+- `src/app/index.ts`：新增 `applyStartupModel`（adapter 就绪后取目录校验；`--provider` 单给保留 model / effort；`--model` 支持 `[provider/]model[:effort]`，裸 model 用当前 provider；组合不存在 → warn + 保持启动路由；effort 未命中 → 回退该模型最低等级）。
+- 解析复用 `parseModelSpecArg` / `modelRouteError` / `matchEffort`；`README.md` 启动参数说明已同步。
 
 ## 偏差
 
-无。
+- 按用户 2026-10-27 修订：`--effort` 失败改为「回退最低等级」；裸 model「用默认 provider，失败回退默认模型」（实现为组合校验失败保持启动路由）。
+- 校验时机按裁定放在 App 启动后（adapter 就绪），不在参数解析期。
 
 ## 测试与证据
 
-未开始。
+- `npm run check` 退出 0；`npm test` 1821/1821 通过。
+- 新增用例：解析两种写法与空值忽略；`applyStartupModel` 的 provider 单给 / 组合未命中、裸 model 用当前 provider 与回退、effort 未命中回退最低等级。
+- `npm run build` 成功，dist 已同步到 live profile；重启后可用 `dsh --profile fff --model <spec>` 真机验证。
 
 ## 收尾
 
-未开始。
+- 追踪文档归档到 `TUI/docs/archived/2026-10-27-startup-model-flags.md`。
+- BACKLOG 条目已从 `TUI/docs/BACKLOG.md` 移除。

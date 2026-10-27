@@ -1,6 +1,6 @@
 # `/{provider,model,effort} name` 不在目录内时警告并保持原设置（接取条目：TUI/docs/BACKLOG.md「/{provider,model,effort} name 不在目录内时警告并保持原设置」）
 
-状态：调研　　开启：2026-10-27　　关闭：—
+状态：关闭　　开启：2026-10-27　　关闭：2026-10-27
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -34,7 +34,8 @@
 
 ## 实现记录
 
-未开始（等用户放行后按规划实现）。
+- `src/app/commands.ts`：`modelRouteError` 严格校验 provider 与 `(provider, model)`；`resolveModelSpec` 对裸 model 保持跨 provider 唯一匹配、显式 `provider/model` 必须命中；`matchEffort` 供 effort 校验；advisory 目录下设置到当前值按 already-on。
+- `src/app/index.ts`：三条命令未命中统一 warn（不列候选）；`/effort` / `/thinking` 未命中保持原设置；`/provider` 保留 model / effort 并校验组合。
 
 ## 偏差
 
@@ -42,8 +43,10 @@
 
 ## 测试与证据
 
-未开始。
+- `npm run check` 退出 0；`npm test` 1821/1821 通过。
+- 覆盖：裸 id 未命中 / 多 provider 歧义、显式 `provider/model` 未命中、effort 未命中、advisory 当前路由 already-on。
 
 ## 收尾
 
-未开始。
+- 追踪文档归档到 `TUI/docs/archived/2026-10-27-model-name-validation.md`。
+- BACKLOG 条目已从 `TUI/docs/BACKLOG.md` 移除。

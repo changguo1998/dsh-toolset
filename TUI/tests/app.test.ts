@@ -1736,7 +1736,7 @@ test("/model 无参: 面板初始焦点在 model 列", async () => {
   );
 });
 
-test("/provider、/effort、/thinking 别名: 无参直达面板并定位焦点列, 带参提示 usage", async () => {
+test("/provider、/effort、/thinking 无参: 直达面板并定位焦点列", async () => {
   const { renderer } = makeApp();
   // 三条别名 → 焦点列（/thinking 与 /effort 同义，都指向思考等级列）
   for (const [cmd, focus] of [
@@ -1754,12 +1754,75 @@ test("/provider、/effort、/thinking 别名: 无参直达面板并定位焦点�
     );
     renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
   }
-  // 带参 → usage 提示，不开面板（不把参数当模型名切换）
+});
+
+test("/effort、/thinking 带参: 直接设置思考等级, 不开面板", async () => {
+  const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/effort high");
   await flush();
-  const f = plainFrame(renderer);
-  assert.ok(f.includes("usage: /effort"), `带参应提示 usage: ${f}`);
-  assert.ok(!f.includes("[ effort"), `带参不应打开面板: ${f}`);
+  assert.deepEqual(adapter.savedSelections, [
+    { provider: "deepseek", model: "deepseek-test-a", reasoningEffort: "high" },
+  ]);
+  assert.ok(!plainFrame(renderer).includes("[ effort"), "带参不应打开面板");
+
+  const second = makeApp();
+  typeAndEnter(second.renderer, "/thinking MAX"); // 显示名不区分大小写
+  await flush();
+  assert.deepEqual(second.adapter.savedSelections, [
+    { provider: "deepseek", model: "deepseek-test-a", reasoningEffort: "max" },
+  ]);
+});
+
+test("/effort 未命中: 警告并保持原设置", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/effort bogus");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.match(
+    plainFrame(renderer).replace(/\s+/g, " "),
+    /effort "bogus" not available/,
+  );
+});
+
+test("/provider 带参: 只改 provider, 保留 model 与 effort", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek" }, { provider: "other" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-test-a", name: "Test A" },
+      { provider: "deepseek", id: "deepseek-test-b", name: "Test B" },
+      { provider: "other", id: "deepseek-test-a", name: "Test A" },
+    ],
+    current: {
+      provider: "deepseek",
+      model: "deepseek-test-a",
+      reasoningEffort: "high",
+    },
+  };
+  typeAndEnter(renderer, "/provider other");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, [
+    { provider: "other", model: "deepseek-test-a", reasoningEffort: "high" },
+  ]);
+});
+
+test("/provider 目标 provider 无同名 model: 警告且不操作", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek" }, { provider: "other" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-test-a", name: "Test A" },
+      { provider: "other", id: "other-only", name: "Other" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-test-a" },
+  };
+  typeAndEnter(renderer, "/provider other");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.match(
+    plainFrame(renderer).replace(/\s+/g, " "),
+    /model "deepseek-test-a" not found for/,
+  );
 });
 
 test("/model 面板: 空格(真实字符)记录选中不提交, 方向键移动焦点, Enter 提交", async () => {
@@ -2028,15 +2091,92 @@ test("/model 面板: 同模型改等级不触发 already-on, 应用 max", async 
   });
 });
 
-test("resolveModelSpec provider/model 显式直通（无需目录命中）", () => {
+test("resolveModelSpec: provider/model 需命中目录, :effort 后缀拆分", () => {
   const catalog: ModelCatalog = {
-    providers: [],
-    models: [],
+    providers: [{ provider: "p1", name: "p1" }],
+    models: [{ provider: "p1", id: "m1", name: "m1" }],
     current: undefined,
   };
-  const r = resolveModelSpec(catalog, "custom/deepseek-v3");
-  assert.ok(!("error" in r));
-  assert.deepEqual(r.selection, { provider: "custom", model: "deepseek-v3" });
+  const plain = resolveModelSpec(catalog, "p1/m1");
+  assert.ok(!("error" in plain));
+  assert.deepEqual(plain.selection, { provider: "p1", model: "m1" });
+
+  const withEffort = resolveModelSpec(catalog, "p1/m1:high");
+  assert.ok(!("error" in withEffort));
+  assert.deepEqual(withEffort.selection, {
+    provider: "p1",
+    model: "m1",
+    reasoningEffort: "high",
+  });
+
+  const bareWithEffort = resolveModelSpec(catalog, "m1:max");
+  assert.ok(!("error" in bareWithEffort));
+  assert.deepEqual(bareWithEffort.selection, {
+    provider: "p1",
+    model: "m1",
+    reasoningEffort: "max",
+  });
+
+  const missProvider = resolveModelSpec(catalog, "custom/deepseek-v3");
+  assert.ok("error" in missProvider, "显式 provider 不再直通");
+  assert.match(missProvider.error, /provider "custom" not found/);
+
+  const missModel = resolveModelSpec(catalog, "p1/nope");
+  assert.ok("error" in missModel);
+  assert.match(missModel.error, /model "nope" not found for provider "p1"/);
+
+  const badSuffix = resolveModelSpec(catalog, "p1/m1:");
+  assert.ok("error" in badSuffix);
+  assert.match(badSuffix.error, /usage: \/model/);
+});
+
+test("/model provider/model:effort 后缀生效; 非法后缀警告且不切换", async () => {
+  const ok = makeApp();
+  typeAndEnter(ok.renderer, "/model deepseek/deepseek-test-b:max");
+  await flush();
+  assert.deepEqual(ok.adapter.savedSelections, [
+    {
+      provider: "deepseek",
+      model: "deepseek-test-b",
+      reasoningEffort: "max",
+    },
+  ]);
+
+  const bad = makeApp();
+  typeAndEnter(bad.renderer, "/model deepseek-test-b:bogus");
+  await flush();
+  assert.deepEqual(bad.adapter.savedSelections, []);
+  assert.match(
+    plainFrame(bad.renderer).replace(/\s+/g, " "),
+    /effort "bogus" not available/,
+  );
+});
+
+test("/model 显式 provider/model 未命中: 警告且不切换", async () => {
+  const { renderer, adapter } = makeApp();
+  typeAndEnter(renderer, "/model deepseek/nope");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.match(
+    plainFrame(renderer).replace(/\s+/g, " "),
+    /model "nope" not found for provider/,
+  );
+});
+
+test("advisory 目录不含当前路由: 设置到当前值按 already-on 处理", async () => {
+  const { renderer, adapter } = makeApp();
+  adapter.modelCatalogData = {
+    providers: [],
+    models: [],
+    current: { provider: "custom", model: "m1" },
+  };
+  typeAndEnter(renderer, "/model custom/m1");
+  await flush();
+  assert.deepEqual(adapter.savedSelections, []);
+  assert.match(
+    plainFrame(renderer).replace(/\s+/g, " "),
+    /already on current model/,
+  );
 });
 
 test("/model 无参 → 调用 modelCatalog（不经 sendMessage）", async () => {
@@ -2084,6 +2224,83 @@ test("/model 当前模型 → 不重复切换", async () => {
   await flush();
   assert.deepEqual(adapter.savedSelections, []);
   assert.deepEqual(adapter.sent, []);
+});
+
+// ---------- 启动参数模型覆盖（--provider / --model / --effort） ----------
+
+test("applyStartupModel: provider 单给只改 provider；组合不存在警告并保持", async () => {
+  const ok = makeApp();
+  ok.adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek" }, { provider: "other" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-test-a", name: "A" },
+      { provider: "other", id: "deepseek-test-a", name: "A" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-test-a" },
+  };
+  await ok.app.applyStartupModel({ provider: "other" });
+  assert.deepEqual(ok.adapter.savedSelections, [
+    { provider: "other", model: "deepseek-test-a" },
+  ]);
+
+  const bad = makeApp();
+  bad.adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek" }, { provider: "other" }],
+    models: [{ provider: "deepseek", id: "deepseek-test-a", name: "A" }],
+    current: { provider: "deepseek", model: "deepseek-test-a" },
+  };
+  await bad.app.applyStartupModel({ provider: "other" });
+  assert.deepEqual(bad.adapter.savedSelections, [], "组合不存在不切换");
+  assert.match(plainFrame(bad.renderer).replace(/\s+/g, " "), /startup model:/);
+});
+
+test("applyStartupModel: 裸 model 用当前 provider；失败保持默认模型", async () => {
+  const ok = makeApp();
+  ok.adapter.modelCatalogData = {
+    providers: [{ provider: "p1" }, { provider: "p2" }],
+    models: [
+      { provider: "p1", id: "m1a", name: "m1a" },
+      { provider: "p1", id: "m1b", name: "m1b" },
+      { provider: "p2", id: "m2a", name: "m2a" },
+    ],
+    current: { provider: "p1", model: "m1a" },
+  };
+  await ok.app.applyStartupModel({ model: "m1b" });
+  assert.deepEqual(ok.adapter.savedSelections, [
+    { provider: "p1", model: "m1b" },
+  ]);
+
+  const bad = makeApp();
+  bad.adapter.modelCatalogData = {
+    providers: [{ provider: "p1" }, { provider: "p2" }],
+    models: [
+      { provider: "p1", id: "m1a", name: "m1a" },
+      { provider: "p2", id: "m2a", name: "m2a" },
+    ],
+    current: { provider: "p1", model: "m1a" },
+  };
+  await bad.app.applyStartupModel({ model: "m2a" });
+  assert.deepEqual(
+    bad.adapter.savedSelections,
+    [],
+    "裸 model 不跨 provider 匹配，回退默认模型",
+  );
+});
+
+test("applyStartupModel: effort 未命中回退最低等级", async () => {
+  const { app, renderer, adapter } = makeApp();
+  await app.applyStartupModel({ effort: "bogus" });
+  assert.deepEqual(adapter.savedSelections, [
+    {
+      provider: "deepseek",
+      model: "deepseek-test-a",
+      reasoningEffort: "low",
+    },
+  ]);
+  assert.match(
+    plainFrame(renderer).replace(/\s+/g, " "),
+    /startup effort "bogus" not available/,
+  );
 });
 
 // ---------- /model 交互选择模式 ----------

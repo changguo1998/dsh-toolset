@@ -120,38 +120,157 @@ export function formatModelCatalog(catalog: ModelCatalog): string {
   return lines.join("\n");
 }
 
-/** 解析 /model <spec>：显式 provider/model 直通；裸 model id 需跨 provider 唯一匹配 */
+/** 目录里是否存在某 provider（providers 列表或 models 列表任一命中；两者可能不同步）。 */
+function catalogHasProvider(catalog: ModelCatalog, provider: string): boolean {
+  return (
+    catalog.providers.some((p) => p.provider === provider) ||
+    catalog.models.some((m) => m.provider === provider)
+  );
+}
+
+/**
+ * 组合校验：provider 存在、且该 provider 下存在该 model。
+ * 命中返回 undefined，否则返回可直接展示的未命中原因（不列候选、不指路）。
+ */
+export function modelRouteError(
+  catalog: ModelCatalog,
+  provider: string,
+  model: string,
+): string | undefined {
+  if (!catalogHasProvider(catalog, provider)) {
+    return `provider "${provider}" not found`;
+  }
+  if (!catalog.models.some((m) => m.provider === provider && m.id === model)) {
+    return `model "${model}" not found for provider "${provider}"`;
+  }
+  return undefined;
+}
+
+/**
+ * 思考等级匹配：id 精确优先，其次显示名（不区分大小写）；未命中返回 undefined。
+ * 只做匹配，不读目录（调用方按 `adapter.modelEfforts` 取列表）。
+ */
+export function matchEffort(
+  efforts: readonly { id: string; name: string }[] | undefined,
+  level: string,
+): string | undefined {
+  if (!efforts || efforts.length === 0) return undefined;
+  const byId = efforts.find((e) => e.id === level);
+  if (byId !== undefined) return byId.id;
+  const lower = level.toLowerCase();
+  return efforts.find((e) => e.name.toLowerCase() === lower)?.id;
+}
+
+/**
+ * 解析 `/model <spec>`：`<provider>/<model>[:<effort>]` 或 `<model>[:<effort>]`。
+ *
+ * - `provider/model` 必须命中目录（不再直通）；裸 model 需跨 provider 唯一命中；
+ * - `:effort` 后缀只拆分，有效性由调用方按 `efforts` 校验（命令侧是异步的）；
+ * - 模型 id 不含冒号（用户 2026-10-27 确认），故按最后一个 `:` 拆分无歧义；
+ * - 未命中只返回原因，不列候选。
+ */
+/**
+ * 解析 `<provider>/<model>[:<effort>]` 或 `<model>[:<effort>]`（纯拆分，不校验目录）。
+ * 空段 / 空后缀返回 undefined；模型 id 不含冒号（用户 2026-10-27 确认），按最后一个 `:` 拆。
+ */
+export function parseModelSpecArg(
+  spec: string,
+): { provider?: string; model: string; effort?: string } | undefined {
+  const colon = spec.lastIndexOf(":");
+  let base = spec;
+  let effort: string | undefined;
+  if (colon >= 0) {
+    effort = spec.slice(colon + 1).trim();
+    base = spec.slice(0, colon).trim();
+    if (effort === "" || base === "") return undefined;
+  }
+  const slash = base.indexOf("/");
+  if (slash >= 0) {
+    const provider = base.slice(0, slash).trim();
+    const model = base.slice(slash + 1).trim();
+    if (provider === "" || model === "") return undefined;
+    return { provider, model, ...(effort === undefined ? {} : { effort }) };
+  }
+  return { model: base, ...(effort === undefined ? {} : { effort }) };
+}
+
+/**
+ * 解析 `/model <spec>`：`<provider>/<model>[:<effort>]` 或 `<model>[:<effort>]`。
+ *
+ * - `provider/model` 必须命中目录（不再直通）；裸 model 需跨 provider 唯一命中；
+ * - `:effort` 后缀只拆分，有效性由调用方按 `efforts` 校验（命令侧是异步的）；
+ * - 未命中只返回原因，不列候选。
+ */
 export function resolveModelSpec(
   catalog: ModelCatalog,
   spec: string,
 ): { error: string } | { selection: ModelSelection; same: boolean } {
+  const usage =
+    "usage: /model <provider>/<model>[:<effort>] or /model <model>[:<effort>]";
+  const parsed = parseModelSpecArg(spec);
+  if (parsed === undefined) return { error: usage };
   const current = catalog.current;
-  const same = (p: string, m: string): boolean =>
-    current?.provider === p && current?.model === m;
-  const slash = spec.indexOf("/");
-  if (slash >= 0) {
-    const provider = spec.slice(0, slash);
-    const model = spec.slice(slash + 1);
-    if (!provider || !model)
-      return {
-        error: "usage: /model <provider>/<model> or /model <modelId>",
-      };
-    return { selection: { provider, model }, same: same(provider, model) };
+  const same = (provider: string, model: string): boolean => {
+    const wanted = parsed.effort ?? current?.reasoningEffort;
+    return (
+      current?.provider === provider &&
+      current?.model === model &&
+      (current?.reasoningEffort ?? "") === (wanted ?? "")
+    );
+  };
+  if (parsed.provider !== undefined) {
+    const error = modelRouteError(catalog, parsed.provider, parsed.model);
+    if (error !== undefined) {
+      // advisory 目录可能不含当前路由：设置到当前值按「already on」处理，不报未命中。
+      if (
+        current?.provider === parsed.provider &&
+        current?.model === parsed.model
+      ) {
+        return {
+          selection: {
+            provider: parsed.provider,
+            model: parsed.model,
+            ...(parsed.effort ? { reasoningEffort: parsed.effort } : {}),
+          },
+          same: true,
+        };
+      }
+      return { error };
+    }
+    return {
+      selection: {
+        provider: parsed.provider,
+        model: parsed.model,
+        ...(parsed.effort ? { reasoningEffort: parsed.effort } : {}),
+      },
+      same: same(parsed.provider, parsed.model),
+    };
   }
-  const matches = catalog.models.filter((m) => m.id === spec);
-  if (matches.length === 0)
-    return {
-      error: `model "${spec}" not found in available models. Use /model to list.`,
-    };
+  const matches = catalog.models.filter((m) => m.id === parsed.model);
+  if (matches.length === 0) {
+    // 同 provider 的当前模型不在目录里（advisory）：设置到当前值按 already-on 处理。
+    if (current?.provider && current?.model === parsed.model) {
+      return {
+        selection: {
+          provider: current.provider,
+          model: current.model,
+          ...(parsed.effort ? { reasoningEffort: parsed.effort } : {}),
+        },
+        same: true,
+      };
+    }
+    return { error: `model "${parsed.model}" not found` };
+  }
   if (matches.length > 1) {
-    const ps = matches.map((m) => m.provider).join(", ");
-    return {
-      error: `model "${spec}" exists in multiple providers (${ps}). Use /model <provider>/<model>.`,
-    };
+    return { error: `model "${parsed.model}" exists in multiple providers` };
   }
   const m = matches[0]!;
   return {
-    selection: { provider: m.provider, model: m.id },
+    selection: {
+      provider: m.provider,
+      model: m.id,
+      ...(parsed.effort ? { reasoningEffort: parsed.effort } : {}),
+    },
     same: same(m.provider, m.id),
   };
 }
@@ -225,17 +344,25 @@ export const LOCAL_COMMANDS: readonly {
     route: "restart",
     desc: "重启 dsh（保留会话；需由启动器启动）",
   },
-  { name: "model", route: "model", desc: "切换模型：无参打开选择面板" },
+  {
+    name: "model",
+    route: "model",
+    desc: "切换模型：无参打开选择面板；带参 <provider>/<model>[:<effort>] 或 <model>[:<effort>]",
+  },
   {
     name: "provider",
     route: "provider",
-    desc: "打开模型面板的 provider 列",
+    desc: "切换 provider：带参只改 provider（组合不存在则警告并保持）；无参打开模型面板的 provider 列",
   },
-  { name: "effort", route: "effort", desc: "打开模型面板的 effort 列" },
+  {
+    name: "effort",
+    route: "effort",
+    desc: "设置思考等级：带参直接设置（未命中警告并保持）；无参打开模型面板的 effort 列",
+  },
   {
     name: "thinking",
     route: "effort",
-    desc: "打开模型面板的 effort 列（同 /effort）",
+    desc: "同 /effort：带参设置思考等级；无参打开模型面板的 effort 列",
   },
   { name: "theme", route: "theme", desc: "主题切换 dark/light" },
   {

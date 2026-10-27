@@ -149,6 +149,9 @@ export function main(opts: {
   /** 合并后的 TUI 配置（patch > 配置文件 > 默认；apply 侧算好传入）。
    *  缺省 = 只读配置文件（测试 / demo 路径保持原行为） */
   tuiConfig?: TuiConfig;
+  /** 启动参数模型覆盖（apply 解析 `--provider` / `--model` / `--effort` 后传入；
+   *  App 启动后按目录校验并落地，见 App.applyStartupModel） */
+  startupModel?: { provider?: string; model?: string; effort?: string };
 }): (options?: TuiTeardownOptions) => void {
   // 主题调色板配置解析（patch 的 colorschema 段 > tui.config.json theme 段；告警经 logger 输出）
   const tuiConfig = opts.tuiConfig ?? loadTuiConfig();
@@ -221,6 +224,10 @@ export function main(opts: {
     app.appendExternalLog(line, tone),
   );
   app.start();
+  if (opts.startupModel !== undefined) {
+    // 启动参数模型覆盖：adapter 就绪后校验并落地（组合不存在 / effort 未命中按裁定警告与回退）
+    void app.applyStartupModel(opts.startupModel);
+  }
   void renderer;
   // 返回 disposer：Cordis pause/unload 与信号/退出均经它释放 App/adapter
   // （adapter.dispose 释放当前活跃 handle，含 resume 后由 adapter 持有的新 handle）。
@@ -432,6 +439,12 @@ export interface TuiStartupArgs {
   resume?: string;
   /** `-c` / `--continue`：启动即加载当前目录下最近退出的会话 */
   continueLatest: boolean;
+  /** `--provider <name>`：启动后只改 provider（保留当前 model / effort） */
+  provider?: string;
+  /** `--model <provider>/<model>[:<effort>]` 或 `<model>[:<effort>]` */
+  model?: string;
+  /** `--effort <level>`：启动后设置思考等级（未命中回退最低等级） */
+  effort?: string;
 }
 
 /**
@@ -439,27 +452,59 @@ export interface TuiStartupArgs {
  * 不消费**，未知参数一律忽略：
  *  - `--resume <id>` / `--resume=<id>`（缺值 / 空值视为未提供）；
  *  - `-c` / `--continue`；
- *  - 两者同时给出时 `--resume` 优先（更具体）。
+ *  - `--provider <name>` / `--model <spec>` / `--effort <level>`（两种写法，空值忽略）；
+ *  - `--resume` 与 `-c` 同时给出时 `--resume` 优先（更具体）。
  */
 export function parseTuiStartupArgs(args: readonly string[]): TuiStartupArgs {
   let resume: string | undefined;
   let continueLatest = false;
+  let provider: string | undefined;
+  let model: string | undefined;
+  let effort: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
-    if (a === "--resume") {
-      const v = args[i + 1];
-      if (v !== undefined && v !== "" && !v.startsWith("-")) {
-        resume = v;
-        i++;
+    const eq = a.indexOf("=");
+    const flag = eq > 0 ? a.slice(0, eq) : a;
+    const inline = eq > 0 ? a.slice(eq + 1) : undefined;
+    switch (flag) {
+      case "--resume": {
+        const v = inline ?? args[i + 1];
+        if (v !== undefined && v !== "" && !v.startsWith("-")) {
+          resume = v;
+          if (inline === undefined) i++;
+        }
+        break;
       }
-    } else if (a.startsWith("--resume=")) {
-      const v = a.slice("--resume=".length);
-      if (v !== "") resume = v;
-    } else if (a === "-c" || a === "--continue") {
-      continueLatest = true;
+      case "-c":
+      case "--continue":
+        continueLatest = true;
+        break;
+      case "--provider":
+      case "--model":
+      case "--effort": {
+        const v = inline ?? args[i + 1];
+        if (v !== undefined && v !== "" && !v.startsWith("-")) {
+          const trimmed = v.trim();
+          if (trimmed !== "") {
+            if (flag === "--provider") provider = trimmed;
+            else if (flag === "--model") model = trimmed;
+            else effort = trimmed;
+          }
+          if (inline === undefined) i++;
+        }
+        break;
+      }
+      default:
+        break;
     }
   }
-  return { ...(resume === undefined ? {} : { resume }), continueLatest };
+  return {
+    ...(resume === undefined ? {} : { resume }),
+    continueLatest,
+    ...(provider === undefined ? {} : { provider }),
+    ...(model === undefined ? {} : { model }),
+    ...(effort === undefined ? {} : { effort }),
+  };
 }
 
 /** 审批超时缺省值（ms）：1 min，与 app 侧 `APPROVAL_TIMEOUT_FALLBACK_MS` 同口径 */
@@ -965,6 +1010,18 @@ export async function apply(
       config?.theme === undefined ? undefined : normalizeThemeId(config.theme),
     logger: (msg) => process.stderr.write("[tui] " + msg + "\n"),
     messageGutter: display.messageGutter,
+    startupModel:
+      startup.provider === undefined &&
+      startup.model === undefined &&
+      startup.effort === undefined
+        ? undefined
+        : {
+            ...(startup.provider === undefined
+              ? {}
+              : { provider: startup.provider }),
+            ...(startup.model === undefined ? {} : { model: startup.model }),
+            ...(startup.effort === undefined ? {} : { effort: startup.effort }),
+          },
     getSymbols: getSymbolNormalizer,
     getSessionChannel,
     getRuleEngine,

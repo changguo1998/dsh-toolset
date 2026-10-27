@@ -1,6 +1,6 @@
 # `/model`、`/provider`、`/effort` 支持带参直接切换（含 `/model provider/model:effort`）（接取条目：TUI/docs/BACKLOG.md「/model、/provider、/effort 支持带参直接切换（含 /model provider/model:effort）」）
 
-状态：调研　　开启：2026-10-27　　关闭：—
+状态：关闭　　开启：2026-10-27　　关闭：2026-10-27
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -38,16 +38,21 @@
 
 ## 实现记录
 
-未开始（等用户放行后按规划实现）。
+- `src/app/commands.ts`：新增 `parseModelSpecArg`（`[provider/]model[:effort]` 拆分）、`modelRouteError`（provider/model 组合校验）、`matchEffort`（id 优先、显示名次之）；`resolveModelSpec` 改为严格目录校验并返回 `reasoningEffort`；advisory 目录下设置到当前值按 already-on（不报未命中）。
+- `src/app/index.ts`：`handleModelCommand` 支持 `:effort` 后缀（异步校验 efforts，未命中 warn + 不操作）；新增 `handleProviderSwitch` / `handleEffortSwitch`（只改对应字段，组合不存在警告 + 不操作）；`handleModelFocus` 无参仍打开面板；`LOCAL_COMMANDS` 与 `/help` 文案同步。
+- 校验复用 `adapter.modelEfforts`；`matchEffort` 同时服务三条命令与启动参数。
 
 ## 偏差
 
-无。
+无（与规划一致；提示统一为 warn、不列候选，符合 2026-10-27 裁定）。
 
 ## 测试与证据
 
-未开始。
+- `npm run check` 退出 0；`npm test` 1821/1821 通过。
+- 新增/改写用例：`/effort`、`/thinking` 带参；`/provider` 组合切换与未命中；`:effort` 后缀与非法后缀；显式 `provider/model` 未命中；`resolveModelSpec` 后缀拆分；advisory 目录 already-on。
+- `npm run build` 成功，dist 已同步到 live profile（`~/.dsh/profiles/fff/node_modules/@dsh-toolset/tui`）；重启 dsh 后可真机验证。
 
 ## 收尾
 
-未开始。
+- 追踪文档归档到 `TUI/docs/archived/2026-10-27-provider-effort-args.md`。
+- BACKLOG 条目已从 `TUI/docs/BACKLOG.md` 移除；README 命令表已同步。

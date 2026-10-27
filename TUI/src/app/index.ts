@@ -119,7 +119,10 @@ import {
   INIT_PROMPT,
   buildOsc52,
   deriveTitle,
+  matchEffort,
   modelCommandSpec,
+  modelRouteError,
+  parseModelSpecArg,
   renameCommandDecision,
   resolveModelSpec,
   routeSlashCommand,
@@ -4019,7 +4022,7 @@ export class App {
         return;
       case "provider":
       case "effort":
-        // 直达别名：打开 /model 面板并把焦点列预置到 provider / effort
+        // 带参直接切换对应字段（provider / effort）；无参打开 /model 面板并把焦点列预置
         void this.handleModelFocus(name, line);
         return;
       case "theme":
@@ -4135,7 +4138,8 @@ export class App {
     }
   }
 
-  /** /model 命令：无参进入交互选择；带参切换当前会话模型（保留当前 reasoningEffort） */
+  /** /model 命令：无参进入交互选择；带参切换当前会话模型
+   *  （`<provider>/<model>[:<effort>]` 或 `<model>[:<effort>]`，无后缀保留当前 effort） */
   private async handleModelCommand(line: string): Promise<void> {
     const spec = modelCommandSpec(line);
     try {
@@ -4147,21 +4151,135 @@ export class App {
       const catalog = await this.deps.adapter.modelCatalog();
       const resolved = resolveModelSpec(catalog, spec);
       if ("error" in resolved) {
-        this.notice(resolved.error, "error");
+        this.notice(resolved.error, "warn");
         return;
       }
-      await this.applyModelSelection(resolved.selection);
+      const selection = resolved.selection;
+      if (selection.reasoningEffort !== undefined) {
+        const efforts = await this.deps.adapter.modelEfforts(
+          selection.provider,
+          selection.model,
+        );
+        let hit = matchEffort(efforts, selection.reasoningEffort);
+        if (
+          hit === undefined &&
+          catalog.current?.reasoningEffort !== undefined &&
+          catalog.current.reasoningEffort.toLowerCase() ===
+            selection.reasoningEffort.toLowerCase()
+        ) {
+          hit = catalog.current.reasoningEffort;
+        }
+        if (hit === undefined) {
+          this.notice(
+            `effort "${selection.reasoningEffort}" not available for ${selection.provider}/${selection.model}`,
+            "warn",
+          );
+          return;
+        }
+        selection.reasoningEffort = hit;
+      }
+      await this.applyModelSelection(selection);
     } catch (err) {
       this.notice("model command failed: " + String(err), "error");
     }
   }
 
-  /** /provider | /effort | /thinking：无参打开 /model 面板并预置焦点列
-   *  （0=provider、2=effort），不做隐式切换；带参提示 usage，避免把
-   *  `/effort high` 误当模型名去切模型。 */
+  /** /provider <name>：只改 provider，保留当前 model 与 effort；组合不存在 → 警告 + 不操作 */
+  private async handleProviderSwitch(provider: string): Promise<void> {
+    try {
+      const catalog = await this.deps.adapter.modelCatalog();
+      const cur = catalog.current;
+      if (!cur?.provider || !cur?.model) {
+        this.notice("no current model; use /model first", "warn");
+        return;
+      }
+      if (provider === cur.provider) {
+        // 设置到当前 provider：按 already-on 处理（不依赖 advisory 目录是否收录当前路由）。
+        await this.applyModelSelection({
+          provider: cur.provider,
+          model: cur.model,
+          ...(cur.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: cur.reasoningEffort }),
+        });
+        return;
+      }
+      const error = modelRouteError(catalog, provider, cur.model);
+      if (error !== undefined) {
+        this.notice(error, "warn");
+        return;
+      }
+      if (cur.reasoningEffort !== undefined) {
+        const efforts = await this.deps.adapter.modelEfforts(
+          provider,
+          cur.model,
+        );
+        const hit = matchEffort(efforts, cur.reasoningEffort);
+        if (hit === undefined) {
+          this.notice(
+            `effort "${cur.reasoningEffort}" not available for ${provider}/${cur.model}`,
+            "warn",
+          );
+          return;
+        }
+        await this.applyModelSelection({
+          provider,
+          model: cur.model,
+          reasoningEffort: hit,
+        });
+        return;
+      }
+      await this.applyModelSelection({ provider, model: cur.model });
+    } catch (err) {
+      this.notice("model command failed: " + String(err), "error");
+    }
+  }
+
+  /** /effort <level>（含 /thinking）：只改思考等级；未命中 → 警告 + 不操作 */
+  private async handleEffortSwitch(level: string): Promise<void> {
+    try {
+      const catalog = await this.deps.adapter.modelCatalog();
+      const cur = catalog.current;
+      if (!cur?.provider || !cur?.model) {
+        this.notice("no current model; use /model first", "warn");
+        return;
+      }
+      const efforts = await this.deps.adapter.modelEfforts(
+        cur.provider,
+        cur.model,
+      );
+      let hit = matchEffort(efforts, level);
+      if (
+        hit === undefined &&
+        cur.reasoningEffort !== undefined &&
+        cur.reasoningEffort.toLowerCase() === level.toLowerCase()
+      ) {
+        hit = cur.reasoningEffort;
+      }
+      if (hit === undefined) {
+        this.notice(
+          `effort "${level}" not available for ${cur.provider}/${cur.model}`,
+          "warn",
+        );
+        return;
+      }
+      await this.applyModelSelection({
+        provider: cur.provider,
+        model: cur.model,
+        reasoningEffort: hit,
+      });
+    } catch (err) {
+      this.notice("model command failed: " + String(err), "error");
+    }
+  }
+
+  /** /provider | /effort | /thinking：无参打开 /model 面板并预置焦点列（0=provider、2=effort）；
+   *  带参走对应字段的直接切换（只改该字段，其余保持）。 */
   private async handleModelFocus(name: string, line: string): Promise<void> {
-    if (slashCommandArg(line) !== "") {
-      this.notice(`usage: /${name} (no argument; opens the picker)`, "info");
+    const arg = slashCommandArg(line);
+    if (arg !== "") {
+      if (name === "provider") await this.handleProviderSwitch(arg);
+      else await this.handleEffortSwitch(arg);
       return;
     }
     try {
@@ -4826,6 +4944,63 @@ export class App {
     );
     this.scheduleSessionStateSave();
     this.notice(`current model -> ${label}`, "success");
+  }
+
+  /**
+   * 启动参数模型覆盖（`--provider` / `--model` / `--effort`）：adapter 就绪后按目录校验并落地。
+   * 只改指定字段：provider 保留当前 model / effort；`--model` 带 provider 段时同时改 provider；
+   * 裸 model 用当前（默认）provider。组合不存在 → 警告并保持启动路由；
+   * effort 未命中 → 回退该模型最低等级（用户 2026-10-27 裁定）。
+   */
+  async applyStartupModel(args: {
+    provider?: string;
+    model?: string;
+    effort?: string;
+  }): Promise<void> {
+    try {
+      const catalog = await this.deps.adapter.modelCatalog();
+      const current = catalog.current;
+      if (!current?.provider || !current?.model) {
+        this.notice("startup model: no current model route", "warn");
+        return;
+      }
+      const parsed =
+        args.model === undefined ? undefined : parseModelSpecArg(args.model);
+      if (args.model !== undefined && parsed === undefined) {
+        this.notice(`startup model: invalid --model "${args.model}"`, "warn");
+        return;
+      }
+      const provider = parsed?.provider ?? args.provider ?? current.provider;
+      const model = parsed?.model ?? current.model;
+      const error = modelRouteError(catalog, provider, model);
+      if (error !== undefined) {
+        this.notice(`startup model: ${error}; keeping current route`, "warn");
+        return;
+      }
+      const efforts = await this.deps.adapter.modelEfforts(provider, model);
+      const requested =
+        parsed?.effort ?? args.effort ?? current.reasoningEffort;
+      let effort: string | undefined;
+      if (requested !== undefined) {
+        const hit = matchEffort(efforts, requested);
+        if (hit !== undefined) {
+          effort = hit;
+        } else {
+          effort = efforts?.[0]?.id;
+          this.notice(
+            `startup effort "${requested}" not available for ${provider}/${model}; using ${effort ?? "default"}`,
+            "warn",
+          );
+        }
+      }
+      await this.applyModelSelection({
+        provider,
+        model,
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
+      });
+    } catch (err) {
+      this.notice("startup model failed: " + String(err), "error");
+    }
   }
 
   /**
@@ -6019,12 +6194,12 @@ export class App {
       },
       { cmd: "/copy", desc: "复制最后一条模型回复到剪贴板(OSC52)" },
       {
-        cmd: "/model [provider/]model",
-        desc: "切换当前会话模型；无参打开交互选择面板",
+        cmd: "/model [provider/]model[:effort]",
+        desc: "切换当前会话模型（可带思考等级后缀）；无参打开交互选择面板",
       },
       {
-        cmd: "/provider、/effort (/thinking)",
-        desc: "无参直达 /model 面板并定位到 provider / effort 列",
+        cmd: "/provider <name>、/effort <level> (/thinking)",
+        desc: "带参直接切换 provider / 思考等级（组合不存在则警告并保持）；无参打开 /model 面板并定位到对应列",
       },
       {
         cmd: "/policy [ask|never]",
