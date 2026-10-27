@@ -12,11 +12,6 @@
 
 ## 已知边界（不打算在本模块解决）
 
-- **跨包登记（闸②）不在本包**：`security-guard` 的 `PLUGIN_COMMAND_TOOLS.herdr_use` 由条目
-  「登记两个新插件工具的命令参数面（`script_run` / `herdr_use`）」在 `security-guard` 侧落地；
-  本包只保证参数面与登记形态一致（`commandKeys: ["command", "text"]` +
-  `commandPaths: ["keys[]"]`），并在 `README.md` 写明。
-- **抽 tmux / herdr 公共底床层**：与 tmux 条目只约定动作语义（本包动作名按对象分组：pane 类 `pane_` 前缀、tab 类 `tab_` 前缀），不建公共层；两条目都落地后另立条目。
 - **残留 pane 的后台清理守护**：属「后台常驻守护机制」条目范围；本包只在正常退出时尽力关闭，
   崩溃残留靠 label（缺省 `dsh-pane`）识别 + `list` 查看 + 显式 `close`。
 - **`format=ansi` 的颜色语义**：首期不验（socket 侧 `strip_ansi: false` 与 CLI `--format ansi`

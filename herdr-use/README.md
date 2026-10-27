@@ -109,6 +109,8 @@ socket 路径解析顺序：foreground 用 `HERDR_SOCKET_PATH` → 探活报出�
 
 外来 pane 审批门与 `allowForeignPanes` / `force` / `requireApproval` 已随终端抽象删除：工具面只有本插件登记的终端，没有「对别人对象动输入」这回事。归属拒绝与 guard 拒绝都给**结构化回执 + 放行方式**；错误码统一为 terminal 口径（`terminal-required` / `terminal-not-registered` / `ambiguous-terminal` 等）。
 
+跨包登记（不在本包实现）：`security-guard` 的 `PLUGIN_COMMAND_TOOLS` 按本包真实参数面登记 `herdr_run` 的 `command` / `herdr_text` 的 `text` / `herdr_key` 的 `keys[]`，由守卫的命令黑名单层检查；登记表在 `security-guard` 维护，本包只承诺这三处参数面稳定。
+
 ## 库面
 
 ```ts

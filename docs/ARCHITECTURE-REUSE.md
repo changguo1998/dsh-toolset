@@ -44,7 +44,7 @@
 | `script-interpreter`（2026-10-20 补审） | `tool-bash`（命令执行面） | 中 | **并存** | 官方 bash 覆盖通用命令执行；本包做**语言探测驱动的解释器执行**（python / node / sh、venv/uv 探测、回执带解释器路径），bash 保留显式启用；两执行面按语言与意图区分 |
 | `agent-group`（2026-10-20 补审） | `experimental-agent-team`（未挂，实验） | 低 | **保留** | 群组协议（组 / 成员 / 主从与平等连接 / 广播 / 懒判定结算 / 状态面），自建 session-channel 分层；官方 team 为实验且未挂，无等价交付物 |
 | `clock-base`（原名 `timer`, 2026-10-22 补审） | `cordis-plugin-timer`（宿主定时器面） | 高（同诉求） | **并存** | 本包只把 `now()` / `schedule()` / `interval()` 与手控假时钟 `ManualClock` 包成服务 `clock` 供本仓共用（provide `clock`，不 inject 官方面）；与宿主 `cordis-plugin-timer` **并存、不包装**，排期随调用方 fiber 卸载撤销 |
-| `behavior-correction`（2026-10-22 补审） | `agent-instructions`、`hook-protocol` / `hooks-*` | 低 | **保留** | rule-engine 的 `tools/pre-execute` guard 消费者：拦「该用专用工具却走 shell」并指路（现为 bash 里跑 herdr → 指向 `herdr_use`）；官方 hooks / 静态指令无这类「意图错位」判定 |
+| `behavior-correction`（2026-10-22 补审） | `agent-instructions`、`hook-protocol` / `hooks-*` | 低 | **保留** | rule-engine 的 `tools/pre-execute` guard 消费者：拦「该用专用工具却走 shell」并指路（现为 bash 里跑 herdr → 指向 `herdr_run` / `herdr_text` / `herdr_key`（写类）与 `herdr_read` / `herdr_list`（查看类））；官方 hooks / 静态指令无这类「意图错位」判定 |
 
 ## 1. 保留项（22）的共同理由
 
