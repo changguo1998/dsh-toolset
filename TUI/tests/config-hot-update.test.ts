@@ -53,6 +53,19 @@ test("theme 非法值：按默认归一化（dark）", () => {
   assert.deepEqual(h.applied, [{ theme: "dark" }]);
 });
 
+test("连续切换：第二次切回启动值仍生效（accepted 基线自持）", () => {
+  const h = harness({ theme: "dark" });
+  h.run({ theme: "light" });
+  h.run({ theme: "dark" });
+  assert.deepEqual(
+    h.applied,
+    [{ theme: "light" }, { theme: "dark" }],
+    "每次切换都要相对上次生效值判定，而不是启动值",
+  );
+  assert.deepEqual(h.notices, []);
+  assert.equal(h.nextCalls(), 0);
+});
+
 test("只改非热应用键：不重建（不问 next）、提示需重启、会话保留", () => {
   const h = harness({ theme: "dark", messageGutter: 4 });
   assert.equal(h.run({ theme: "dark", messageGutter: 8 }), undefined);

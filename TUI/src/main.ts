@@ -400,6 +400,9 @@ export interface LiveConfigSink {
  *
  * 注：`ctx.on('internal/update', …)` 不带 `global` 即注册到本 fiber 的专属钩子表，只会收到
  * 本 fiber 的更新。
+ *
+ * 比较基准必须在本函数内自持（`accepted`）：钩子否决了重启，cordis 不会把 `next` 回写进
+ * fiber 的 config，若始终拿启动值比较，第二次切回启动值时会被误判为「无变化」而漏应用。
  */
 export function makeConfigHotUpdateHandler(
   current: DshTuiConfig | undefined,
@@ -409,14 +412,16 @@ export function makeConfigHotUpdateHandler(
   noSave: unknown,
   nextStep: () => unknown,
 ) => unknown {
+  let accepted = current;
   return (next, _noSave, _nextStep) => {
-    const { patch, restartKeys } = planConfigUpdate(current, next);
+    const { patch, restartKeys } = planConfigUpdate(accepted, next);
     if (patch.theme !== undefined) sink.apply?.(patch);
     if (restartKeys.length > 0) {
       sink.notice?.(
         `profile 配置变更需重启 dsh 才生效: ${restartKeys.join(", ")}（会话保留）`,
       );
     }
+    accepted = next;
     return undefined;
   };
 }
