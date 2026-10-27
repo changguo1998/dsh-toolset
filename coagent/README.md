@@ -12,7 +12,7 @@ DSH（DeepSeek Harness）进程内集成插件：在 herdr **终端**的交互 s
 
 | 动作 | 参数 | 语义 |
 | --- | --- | --- |
-| `spawn` | `cwd?` · `label?` · `claimTimeoutSec?` | 经 herdr-use 服务面 `create` 新建终端（前台、新 tab）→ `run` 一行 `fffdsh` → 轮询 `peers` 认领新会话。成功回执 `terminal_id` / `session_id` / `cmd:"fffdsh"`；失败即 `close(terminal_id)` 回滚并落 `failed` 记录 |
+| `spawn` | `cwd?` · `label?` · `claimTimeoutSec?` · `provider?` · `model?` · `effort?` | 经 herdr-use 服务面 `create` 新建终端（前台、新 tab）→ `run` 一行 `fffdsh`（带 `--provider` / `--model` / `--effort` 参数时拼在命令后）→ 轮询 `peers` 认领新会话。成功回执 `terminal_id` / `session_id` / `cmd`（完整命令行）；失败即 `close(terminal_id)` 回滚并落 `failed` 记录 |
 | `list` | `coagent_id?` · `state?` · `probe?` · `limit?` | 列本会话的记录（清理与排障用）。`probe=live`（缺省）对非终态记录做一次 `info` / `peers` 核对并推进状态；不返回任务态与忙闲 |
 | `close` | `coagent_id` · `force?` · `keep?` | `/quit` → 等进程退出（`graceSec`）→ `close(terminal_id)`；`force` 直接关。幂等 |
 

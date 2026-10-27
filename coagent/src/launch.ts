@@ -9,8 +9,11 @@
 import { isAbsolute } from "node:path";
 import { stat } from "node:fs/promises";
 
-/** 提交给终端的唯一命令（白名单；`spawn` 回执的 `cmd` 也是它）。 */
+/** 提交给终端的唯一命令前缀（白名单；`spawn` 回执的 `cmd` 以它开头）。 */
 export const LAUNCH_COMMAND = "fffdsh";
+
+/** 启动参数值字符集与长度（provider / model / effort；防命令拼装注入）。 */
+const LAUNCH_VALUE_RE = /^[A-Za-z0-9._/:/-]{1,64}$/;
 
 /** 脱管痕迹（词边界匹配，避免 `background` 之类误伤）。 */
 const FORBIDDEN_PATTERNS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
@@ -59,13 +62,42 @@ export async function checkCwd(
 }
 
 /** `spawn` 的合法参数（`target` 已随终端单层契约删除；`task` / `text` / `env` 从未存在）。 */
-const SPAWN_KEYS: readonly string[] = ["cwd", "label", "claimTimeoutSec"];
+const SPAWN_KEYS: readonly string[] = [
+  "cwd",
+  "label",
+  "claimTimeoutSec",
+  "provider",
+  "model",
+  "effort",
+];
 
 /** 解析后的 `spawn` 参数。 */
 export interface SpawnArgs {
   cwd?: string;
   label?: string;
   claimTimeoutSec?: number;
+  /** 转发为 `fffdsh --provider <value>` */
+  provider?: string;
+  /** 转发为 `fffdsh --model <value>`（裸 id 或 provider/model，可带 `:effort`） */
+  model?: string;
+  /** 转发为 `fffdsh --effort <value>` */
+  effort?: string;
+}
+
+/**
+ * 由 spawn 参数构造提交给终端的命令。值已按 `LAUNCH_VALUE_RE` 校验（无空格 / 引号 /
+ * shell 元字符），直接拼接即可；无参数时返回常量 `fffdsh`。
+ */
+export function buildLaunchCommand(args: {
+  provider?: string;
+  model?: string;
+  effort?: string;
+}): string {
+  const parts = [LAUNCH_COMMAND];
+  if (args.provider !== undefined) parts.push("--provider", args.provider);
+  if (args.model !== undefined) parts.push("--model", args.model);
+  if (args.effort !== undefined) parts.push("--effort", args.effort);
+  return parts.join(" ");
 }
 
 /** 参数面解析结果（`invalid` 由动作层转 `invalid_params`）。 */
@@ -136,6 +168,27 @@ export function rejectUnknownKeys(
   };
 }
 
+/** 校验启动参数值（provider / model / effort）：字符集与长度见 `LAUNCH_VALUE_RE`。 */
+export function launchValueArg(
+  args: Record<string, unknown>,
+  key: "provider" | "model" | "effort",
+): ParsedArgs<string | undefined> {
+  const value = args[key];
+  if (value === undefined) return { ok: true, value: undefined };
+  if (typeof value !== "string") {
+    return { ok: false, reason: `${key} 必须是字符串` };
+  }
+  const trimmed = value.trim();
+  if (trimmed === "") return { ok: true, value: undefined };
+  if (!LAUNCH_VALUE_RE.test(trimmed)) {
+    return {
+      ok: false,
+      reason: `${key} 只允许字母 / 数字与 . _ : / -，且不超过 64 字符`,
+    };
+  }
+  return { ok: true, value: trimmed };
+}
+
 /** 解析 `spawn` 参数面（未知键、类型、cwd 由调用方另行校验）。 */
 export function parseSpawnArgs(
   args: Record<string, unknown>,
@@ -149,6 +202,12 @@ export function parseSpawnArgs(
   if (!label.ok) return label;
   const claimTimeoutSec = positiveInt(args, "claimTimeoutSec");
   if (!claimTimeoutSec.ok) return claimTimeoutSec;
+  const provider = launchValueArg(args, "provider");
+  if (!provider.ok) return provider;
+  const model = launchValueArg(args, "model");
+  if (!model.ok) return model;
+  const effort = launchValueArg(args, "effort");
+  if (!effort.ok) return effort;
 
   if (label.value !== undefined && label.value.length > 80) {
     return { ok: false, reason: "label 最长 80 个字符" };
@@ -160,6 +219,9 @@ export function parseSpawnArgs(
       cwd: cwd.value,
       label: label.value,
       claimTimeoutSec: claimTimeoutSec.value,
+      provider: provider.value,
+      model: model.value,
+      effort: effort.value,
     },
   };
 }

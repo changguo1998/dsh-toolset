@@ -61,7 +61,7 @@ const DESCRIPTION =
   "用途: 拉起/收尾独立进程的长驻 dsh 会话(上下文零继承), 只管起停不派任务。\n" +
   "用法: spawn 在 herdr 终端里前台发 fffdsh、轮询 peers 认领新会话(回执 terminal_id / session_id); list 列本会话记录并按需探测终端与会话是否还在; close 发 /quit 等进程退出后关终端, 失败可 force。\n" +
   "效果: 新会话经 peers 认领并回执 terminal_id / session_id; close 会退出进程并关终端。\n" +
-  "边界: 只接受 cwd / label / claimTimeoutSec, 不接受 task / text / target。\n" +
+  "边界: 只接受 cwd / label / claimTimeoutSec / provider / model / effort, 不接受 task / text / target。\n" +
   "相关: channel_delegate、agent_group、herdr_read、herdr_text、herdr_key。";
 
 /** 工具定义（注入动作实现；测试可直接 execute）。 */
@@ -93,6 +93,21 @@ export function toToolDef(actions: CoagentActions): ToolDef {
           type: "number",
           description:
             "spawn 用：认领新会话的上限秒数（缺省 180；fffdsh 首次可能触发构建）",
+        },
+        provider: {
+          type: "string",
+          description:
+            "spawn 用：转发为 fffdsh --provider <name>（只允许字母 / 数字与 . _ : / -，≤64 字符）",
+        },
+        model: {
+          type: "string",
+          description:
+            "spawn 用：转发为 fffdsh --model <spec>，spec 为 <model> 或 <provider>/<model>，可带 :effort 后缀（字符集限制同上）",
+        },
+        effort: {
+          type: "string",
+          description:
+            "spawn 用：转发为 fffdsh --effort <level>（字符集限制同上；未命中由子会话回退最低等级）",
         },
         coagent_id: {
           type: "string",

@@ -8,7 +8,7 @@
 
 一段生命周期里的**两段**：把长驻 dsh 会话拉起来，和把它收掉。
 
-- 拉起：`herdrUse.create`（新终端、前台）→ `herdrUse.run("fffdsh")` → `sessionChannel.peers` 认领。
+- 拉起：`herdrUse.create`（新终端、前台）→ `herdrUse.run(cmd)`（`fffdsh`，可带受控的 `--provider` / `--model` / `--effort`）→ `sessionChannel.peers` 认领。
 - 收尾：`herdrUse.run("/quit")` → 等进程退出 → `herdrUse.close(terminal_id)`。
 
 中间的一切不实现：派任务 / 收结果（session-channel）、编排与等级（agent-group）、看屏 / 插话 /
@@ -89,7 +89,7 @@
 
 | 层 | 手段 |
 | --- | --- |
-| 命令面 | 提交给终端的命令是常量 `fffdsh`（`LAUNCH_COMMAND`），没有透传入口 |
+| 命令面 | 提交给终端的命令以常量 `fffdsh`（`LAUNCH_COMMAND`）为前缀，仅允许追加受控的 `--provider` / `--model` / `--effort`（值过字符集与长度校验），没有任意命令透传入口 |
 | 文本自检 | `checkForegroundText` 拒绝 `nohup` / `setsid` / `&` / `disown` / `bg` / `screen` / `tmux`（词边界） |
 | 终端落点 | `create` 固定 `foreground: true`，不使用 `foreground: false` 的后台 lane |
 | 对象归属 | 只操作 `create` 回执返回的 `terminal_id`，不接受调用方传入 |

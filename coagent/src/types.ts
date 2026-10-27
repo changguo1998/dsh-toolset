@@ -114,8 +114,8 @@ export interface CoagentRecord {
   label: string;
   /** herdr 终端的 label（固定 `coagent/<id>`，tab 标题与 root pane label 同值）。 */
   terminal_label: string;
-  /** 拉起命令（白名单唯一值）。 */
-  cmd: "fffdsh";
+  /** 拉起命令（`fffdsh` 或其带 provider / model / effort 参数的形态）。 */
+  cmd: string;
   /** 建记录时刻（epoch ms）。 */
   started_at: number;
   /** 最近一次推进时刻（epoch ms；配额裁剪按它排序）。 */

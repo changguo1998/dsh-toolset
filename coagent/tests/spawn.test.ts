@@ -160,6 +160,42 @@ test("T3 前台约束：已删除的 target / task 被拒，脱管痕迹被守�
   }
 });
 
+test("spawn 带 provider/model/effort：命令与记录 / 回执存完整命令行", async () => {
+  const h = await harness();
+  schedulePeer(h);
+  const reply = await h.spawn({
+    cwd: h.parentCwd,
+    provider: "p1",
+    model: "p1/m1:high",
+    effort: "max",
+  });
+  const expected = "fffdsh --provider p1 --model p1/m1:high --effort max";
+  assert.equal(reply["ok"], true);
+  assert.equal(reply["cmd"], expected);
+  assert.equal(h.herdr.lastCall("run")?.args[1], expected);
+  const record = recordsOf(await indexOf(h))[String(reply["coagent_id"])];
+  assert.equal(record?.["cmd"], expected);
+});
+
+test("spawn 启动参数值非法（字符集 / 长度）：invalid_params 且不建终端", async () => {
+  const h = await harness();
+  const badChar = await h.spawn({
+    cwd: h.parentCwd,
+    model: "p1/m1; rm -rf /",
+  });
+  assert.equal(badChar["ok"], false);
+  assert.equal(badChar["error"], "invalid_params");
+  assert.match(String(badChar["reason"]), /model 只允许/);
+
+  const tooLong = await h.spawn({
+    cwd: h.parentCwd,
+    provider: "a".repeat(65),
+  });
+  assert.equal(tooLong["ok"], false);
+  assert.equal(tooLong["error"], "invalid_params");
+  assert.equal(h.herdr.countOf("create"), 0);
+});
+
 test("T4 建终端失败（F2）：terminal_create_failed、不调 close、落 failed 记录", async () => {
   const h = await harness();
   h.herdr.createError = {

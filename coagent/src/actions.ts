@@ -26,9 +26,9 @@ import {
 } from "./herdr.ts";
 import {
   booleanArg,
+  buildLaunchCommand,
   checkCwd,
   checkForegroundText,
-  LAUNCH_COMMAND,
   optionalString,
   parseSpawnArgs,
   positiveInt,
@@ -329,6 +329,7 @@ export class CoagentActions {
     if (!parsed.ok) {
       return failWith("invalid_params", parsed.reason, parsed.next, "");
     }
+    const cmd = buildLaunchCommand(parsed.value);
     const store = this.#store(caller);
     const cwd = parsed.value.cwd ?? caller.cwd;
     if (cwd === "") {
@@ -369,7 +370,7 @@ export class CoagentActions {
       cwd,
       label,
       terminal_label: `coagent/${coagentId}`,
-      cmd: LAUNCH_COMMAND,
+      cmd,
       started_at: startedAt,
       updated_at: startedAt,
     };
@@ -378,7 +379,7 @@ export class CoagentActions {
     };
 
     // 前台约束（F10）：不建终端、不提交命令，但按裁定落 failed 记录。
-    const guard = checkForegroundText(LAUNCH_COMMAND);
+    const guard = checkForegroundText(cmd);
     if (!guard.ok) {
       return this.#archive(store, record, {
         state: "failed",
@@ -431,14 +432,14 @@ export class CoagentActions {
 
     // 提交 `fffdsh`（F3）：失败即回滚一次 close。
     const ran = await this.#invoke(() =>
-      this.#deps.herdr.run(terminalId, LAUNCH_COMMAND, context),
+      this.#deps.herdr.run(terminalId, cmd, context),
     );
     if (!ran.ok) {
       const rollback = await this.#safeClose(terminalId, context);
       return this.#archive(store, record, {
         state: "failed",
         failCode: "launch_failed",
-        failReason: `提交 ${LAUNCH_COMMAND} 失败：${errorTextOf(ran)}`,
+        failReason: `提交 ${cmd} 失败：${errorTextOf(ran)}`,
         terminalClosed: rollback.ok,
         rollbackFailed: !rollback.ok,
       });
@@ -514,7 +515,7 @@ export class CoagentActions {
         state: "ready",
         cwd: record.cwd,
         label: record.label,
-        cmd: LAUNCH_COMMAND,
+        cmd: record.cmd,
         terminal_label: record.terminal_label,
         started_at: record.started_at,
         claimed_at: record.claimed_at,

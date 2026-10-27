@@ -1,6 +1,6 @@
 # coagent 传递启动模型参数（provider / model / effort）（接取条目：coagent/docs/BACKLOG.md「coagent 传递启动模型参数（provider / model / effort）」）
 
-状态：调研　　开启：2026-10-27　　关闭：—
+状态：关闭　　开启：2026-10-27　　关闭：2026-10-27
 
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
@@ -39,16 +39,20 @@
 
 ## 实现记录
 
-未开始（等用户放行后按规划实现）。
+- `src/launch.ts`：`SPAWN_KEYS` / `SpawnArgs` 增加 `provider` / `model` / `effort`；新增 `launchValueArg`（字符集 `^[A-Za-z0-9._:/-]{1,64}$`）与 `buildLaunchCommand`（`fffdsh` + 受控参数）。
+- `src/actions.ts`：`spawn` 使用构造出的完整命令；`checkForegroundText` 对完整命令复查；记录与回执存完整命令行。
+- `src/types.ts`：`cmd` 由字面量放宽为 `string`；`src/tools.ts` 参数 schema / 描述同步；README 与 DESIGN 已回写。
 
 ## 偏差
 
-无。
+- 计划外无；已知限制（用户 2026-10-27 接受）：子会话组合不存在时的警告只出现在被拉起的 TUI，spawn 回执仍为成功。
 
 ## 测试与证据
 
-未开始。
+- `npm run check` 退出 0；`npm test` 33/33 通过（新增：带参命令 / 记录 / 回执断言；非法值 `invalid_params` 且不建终端）。
+- `npm run build` 成功，dist 已同步到 live profile（`~/.dsh/profiles/fff/node_modules/@dsh-toolset/coagent`）。
 
 ## 收尾
 
-未开始。
+- 追踪文档归档到 `coagent/docs/archived/2026-10-27-coagent-launch-model-args.md`。
+- 条目已从 `coagent/docs/BACKLOG.md` 移除。
