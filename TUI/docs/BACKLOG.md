@@ -9,7 +9,61 @@
 
 ## 待办
 
-（当前无未完成项）
+### #1 `/model`、`/provider`、`/effort` 支持带参直接切换（含 `/model provider/model:effort`）〔进行中: 2026-10-27〕
+
+**现状**：`/model <spec>` 带参直接切换 (`src/app/index.ts:4138`)：`resolveModelSpec` 解析 → `applyModelSelection` 落地，保留当前 `reasoningEffort`；spec 只支持 `provider/model` 与裸 model id，**没有** `:effort` 后缀形式（`resolveModelSpec` 按第一个 `/` 切分，model 段原样使用）。用户 2026-10-27 确认模型 id 本身不含冒号。`/provider`、`/effort`（含别名 `/thinking`）走 `handleModelFocus` (`src/app/index.ts:4162`)：无参打开 `/model` 面板并预置焦点列，带参只提示 `usage: /<name> (no argument; opens the picker)`。
+
+**期望**：把 `/model name` 的直接切换形态复制到这两条命令；`/model` 新增 `:effort` 后缀；无参行为不变（仍开面板、预置焦点列）。
+
+- `/model <provider>/<model>:<effort>`（`provider/model` 可换成裸 model id；后缀可省）：`provider` 与 `model` 按第一个 `/` 切分，`effort` 按最后一个 `:` 切分；不带后缀时沿用当前 effort；后缀与组合校验口径同下，未命中警告 + 不操作。模型 id 不含冒号，故无拆分歧义。
+- `/effort <level>`（含 `/thinking`）：id 优先、显示名次之（不区分大小写）；按当前 provider/model 的 `efforts` 校验组合存在性，未命中警告 + 保持原设置，不列可选档位。
+- `/provider <name>`：只改 provider、保留当前 model 与 effort，校验组合（当前 `pA/m1:t1`、`/provider pB` → 校验 `pB/m1:t1`）是否存在；存在则整套切换，不存在则警告 + 不操作（用户 2026-10-27 裁定）。
+- 判定见 `TUI/docs/implementation/2026-10-27-provider-effort-args.md`「决策」；三条命令的提示文案、`/help` 与 `LOCAL_COMMANDS` 描述同步（现描述只写「打开面板」）。
+
+**落点**：`src/app/index.ts`（分派 4017-4024、`handleModelCommand` 4138、`handleModelFocus` 4162-4173、`applyModelSelection` 4792）；`src/app/commands.ts`（`resolveModelSpec` 123-157 的 `:effort` 解析、参数解析 helper 442-449 一带、`LOCAL_COMMANDS` 228-239）；`/help` 文案（`index.ts:6026` 附近）。
+
+**验收**：单测覆盖带参生效 / 非法值 / 无参仍开面板 / `/thinking` 同义 / provider 切换各分支 / `/model` 的 `:effort` 后缀（带 / 不带 / 裸 model / 未命中）；`tests/app.test.ts:1739` 现断言「带参提示 usage」，按新行为改写；TUI 测试全绿。
+
+**来源·状态·优先级**：用户 2026-10-27 提出（`/model name` 的形态复制到 `/provider`、`/effort`），同日追加 `/model provider/model:effort` 形式；〔进行中: 2026-10-27〕；P2。
+
+### #2 `/{provider,model,effort} name` 不在目录内时警告并保持原设置〔进行中: 2026-10-27〕
+
+**现状**：`resolveModelSpec` 对 `provider/model` 显式形态**不做目录命中校验**（`src/app/commands.ts:131-139`；`tests/app.test.ts:2031` 明确锁定「显式直通，无需目录命中」）。裸 model id 已校验：查无 → error notice，多 provider 同名 → 歧义提示。`/provider`、`/effort` 的带参形态见「/model、/provider、/effort 支持带参直接切换（含 /model provider/model:effort）」条目，落地后需同等校验。
+
+**期望**：`/model`、`/provider`、`/effort`（含 `/thinking`）带参设置时，名字必须命中对应列表；未命中 → notice 警告并**保持原设置**（provider / model / effort 均不变），不列可选值、不指路；不做隐式猜测、不回落默认（用户 2026-10-27 裁定）。校验口径：
+
+- model：裸 id 在 `catalog.models` 内唯一；`provider/model` 的 provider 在 `catalog.providers` 内，且该 provider 的模型列表含此 model（与「/model、/provider、/effort 支持带参直接切换（含 /model provider/model:effort）」条目的 provider 分支同口径）。
+- provider：在 `catalog.providers` 内。
+- effort：在 `adapter.resolveModelInfo(provider, model).efforts` 内（id 或 name 匹配）。
+- 设置值等于当前值：按「already on ...」提示，不改状态。
+
+**决策（2026-10-27 裁定）**：一律严格校验改动后的完整组合；advisory 目录下设置到当前值按「already on」处理，改到目录外的新值警告 + 保持，不列候选（理由见 `TUI/docs/implementation/2026-10-27-model-name-validation.md`「决策」）。
+
+**落点**：`src/app/commands.ts`（`resolveModelSpec` 123-157、新增 provider / effort 校验 helper）；`src/app/index.ts`（`handleModelCommand` 4138、「/model、/provider、/effort 支持带参直接切换（含 /model provider/model:effort）」新增的 provider / effort 带参分支、notice 文案）；`tests/app.test.ts:2031`、`:1498` 一带旧断言按新行为改写。
+
+**验收**：单测覆盖三个命令各自「未知名字 → 警告 + 状态不变」「已知名字仍切换」「已是当前值」；显式 `provider/model` 未命中用例；TUI 测试全绿。
+
+**来源·状态·优先级**：用户 2026-10-27 提出；前置「/model、/provider、/effort 支持带参直接切换（含 /model provider/model:effort）」（`/provider`、`/effort` 需先有带参形态，`/model` 部分可独立做）；〔进行中: 2026-10-27〕；P2。
+
+### #3 启动参数指定 provider / model / effort〔进行中: 2026-10-27〕
+
+**现状**：TUI 自有启动参数只有 `--resume <id>` / `-c` / `--continue`（解析 `src/main.ts:444-463`，使用 662-720）。初始路由来自 profile patch config 的 `provider` / `model` / `reasoningEffort`，其次宿主 `agentDefaultModel.currentSelection()`（`src/main.ts:576-604`）；`route` 作为 `agentOptions` 传给 create / resume，`sessionModel.current` 供会话内选择（`src/main.ts:606-617`、636-660）。命令行没有覆盖入口。宿主 `dsh --help` 无 `--provider` / `--model` / `--effort`，启动器 flag 之后的参数原样进 `ctx.cmdlineArgs`，可新增。
+
+**期望**：新增 TUI 启动参数 `--provider <name>`、`--model <provider>/<model>`（也接受裸 `<model>`）、`--effort <level>`，均支持 `--flag value` 与 `--flag=value`；一个都不给 → 行为完全不变。
+
+- 优先级：命令行 > profile patch config > 宿主默认；只给 `--effort` 时沿用现有 provider / model；`--model` 带 provider 段时同时覆盖 provider；裸 model 用默认 provider 解析，失败回退到默认模型。
+- 只给 `--provider`：保留现有 model / effort，校验组合；不存在 → 警告 + 保持原路由（与命令侧同语义）。
+- 校验：显式名字不在目录 → stderr / 启动提示警告并保持 config / 默认路由；`--effort` 失败回退到该模型最低等级；均不阻止启动。
+- 与 `--resume` / `-c` 正交：恢复会话时参数作为该会话下一 step 的路由覆盖（沿用现有 route → agentOptions 传递），会话内 `/model` 仍可再改。
+- 文档：`README.md:23`「TUI 自有启动参数」补三条；`/help` 若无启动参数段则不加。
+
+**落点**：`src/main.ts`（`TuiStartupArgs` 429-437、`parseTuiStartupArgs` 444-463、route / sessionModel 组装 576-617、create / resume 636-660、启动提示）；校验 helper 与「/{provider,model,effort} name 不在目录内时警告并保持原设置」共用；`tests/main.config.test.ts:66` 补解析用例，另补路由叠加用例；`README.md:23`。
+
+**验收**：单测覆盖两种写法 / 未知参数忽略 / 优先级叠加 / 仅 effort 失败回退最低等级 / 裸 model 用默认 provider 与回退默认模型 / 显式未知名警告且默认路由不变 / 与 `--resume` 组合；TUI 测试全绿。真机：启动参数生效后状态栏显示目标 provider/model/effort。
+
+**决策（2026-10-27 用户确认）**：a) `--provider` 单给同命令侧（保留 model / effort，校验组合，未命中警告 + 保持原路由）；b) effort 校验在 adapter 就绪后做，失败回退该模型最低等级；c) 裸 model 用默认 provider 解析，失败回退默认模型；d) 显式名字查无 → 警告 + 保持原路由。详见 `TUI/docs/implementation/2026-10-27-startup-model-flags.md`「决策」。
+
+**来源·状态·优先级**：用户 2026-10-27 提出；〔进行中: 2026-10-27〕；P2。
 
 > 2026-10-27 关闭：`TUI 配置迁到 profile patch` 完成并移出清单（提交 `41b2d44`：`DshTuiConfig` 扁平展开 `layout` / `notify` / `session` / `approval` / `localLog`、主题段改名 `colorschema`、`mergeTuiConfig`（patch > 文件 > 默认，段内逐键）；示例 patch 与 `~/.dsh/profiles/fff`、`fff.bak` 同步写入；新增 `tests/tui-config-merge.test.ts`，全量 1809 例绿；追踪文档 `TUI/docs/archived/2026-10-27-tui-config-to-patch.md`）。
 
