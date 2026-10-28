@@ -64,6 +64,8 @@
 
 ## 2. 未完成项
 
+**#1 整理历史代码和文档**〔进行中: 2026-10-28〕（登记: 2026-10-28）：仓库累计 494 个 Markdown，其中已归档 378 个；实测 106 条引用指向不存在的归档路径（`docs/implementation/` 43、`TUI/docs/` 25、`herdr-pane` 改名残留 3 等）；代码侧另有 `TODO` / `FIXME` 与疑似遗留垫片待核，根 `tmp/` 有 110M 未跟踪临时产物 → 期望盘出一份带「保留 / 归档 / 删除 / 改口径」判定的清单，分批清理，让历史资产有单一可信来源 → 优先级 P2 → 来源: 用户 2026-10-28 指示。
+
 > 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`npm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；过程记录 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
 
 > 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；过程记录 `docs/archived/2026-10-25-tool-description-lint.md`）。
