@@ -1,6 +1,6 @@
 # 整理历史代码和文档（接取条目：`docs/BACKLOG.md`「整理历史代码和文档」）
 
-状态：调研　　开启：2026-10-28　　关闭：
+状态：决策　　开启：2026-10-28　　关闭：
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
@@ -9,7 +9,7 @@
 
 ## 调研
 
-> 来源：第 1 至 3 节为本仓实测（2026-10-28，脚本 `tmp/scan-*.mjs`，输出 `tmp/*.txt`，未入 git）；第 4 节为官方文档检索，来源链接随条目给出。
+> 来源：第 1 至 3 节为本仓实测（2026-10-28，脚本 `tmp/scan-*.mjs`，输出 `tmp/*.txt`，未入 git）；本节是当时的实测快照, 后续规范与工具变更不回填。第 4 节为官方文档检索，来源链接随条目给出。
 
 ### 1. 代码存在的问题
 
@@ -432,6 +432,155 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 本仓与四项行业做法有直接差距:tsconfig 未开四个未使用符号选项、无 lint、无死代码检查、无断链检查入口。changesets 与 npm workspaces 两项在本仓没有对应场景:无发布流程, 包间依赖走宿主 profile 的 `file:` / `link:`。
 
 ## 决策
+
+### 1. 总体顺序
+
+本轮分四步推进, 后一步以前一步的产物为准。
+
+1. 开发规范与辅助工具:先定规则 —— 符号与标点口径、注释与文档的写法、`export` 的约定、`package.json` 与 `tsconfig.json` 模板、目录与归档的引用规则、格式化与检查入口。后面三步的每一处改动都照这套规则做。
+2. 测试锚定:确认要改的代码已被测试覆盖住现有行为;覆盖不到的先把测试补上, 补不了的记条目并调整改法, 不让改动落在没有锚定的行为上。
+3. 改代码:死导出、跨包重复、超长文件、判断散落等按第 1 步的规范改;每处改动跑 `pnpm run check` 与 `pnpm run test`, 保证行为不变。
+4. 更新注释与文档:以改完的代码为准, 处理注释里的简写路径与过期计数、文档断链、包数口径、符号与术语, 按最终状态一次改完, 避免二次返工。
+
+### 2. 辅助工具
+
+#### 2.1 工具清单
+
+| 工具 | 状态 | 功能 | 接入位置 |
+| --- | --- | --- | --- |
+| `typescript`(每包 `devDependencies`) | 已有 | `tsc --noEmit` 查类型, `tsc -p` 出 `dist/` 与 `.d.ts` | 各包 `check` / `build` |
+| `node --test` | 已有 | 跑 `tests/*.test.ts`, 靠 `--experimental-transform-types` 直接执行 TS | 各包 `test` |
+| `scripts/test-parallel.sh` | 已有 | 34 包测试并行, GNU parallel 为主、xargs 兜底 | 根 `test` |
+| `TUI/scripts/test.sh` | 已有 | TUI 单包测试, 把 `--test-name-pattern` 插到文件参数之前 | 根 `test:tui` |
+| `scripts/install.sh` | 已有 | 构建 34 包并生成 `fff` / `fff-test` 两个 profile | 部署, 不属日常检查 |
+| `format`(仓库外脚本) | 已有 | 按扩展名分派 prettier / mdformat / yq / jq | 提交前对改动文件跑 |
+| `pnpm` | 本机已有 | 装依赖、跑脚本;profile 侧本来就用它 | 迁移后所有安装与脚本 |
+| `symbol-normalizer`(插件) | 已有 | 回复侧符号归一与回合审查 | 只管对话, 不管仓库文件 |
+| `md-table-check`(插件) | 已有 | 检查回复正文的表格列数是否一致 | 同上 |
+| `knip` | 待加, 本轮不装 | 报未使用导出、未使用依赖、`package.json` 未列的 import | 根 `devDependencies`, 跑 `lint:dead` |
+| `dev/standard/` 检查器 | 待写, 本轮不做 | 符号与标点、术语与旧名、断链、表格列数、注释路径与计数、两个 JSON 的字段与路径 | 挂 `check:docs` |
+
+#### 2.2 命令清单
+
+| 命令 | 状态 | 作用 | 何时跑 |
+| --- | --- | --- | --- |
+| `pnpm run check` | 已有, 写法从 npm 改过来 | 34 包依次 `tsc --noEmit` | 每次改代码后 |
+| `pnpm run build` | 同上 | 34 包编译到 `dist/` | 产物性改动后 |
+| `pnpm run test` | 同上 | 34 包测试并行 | 改逻辑后 |
+| `pnpm install`(在包目录) | 新增写法 | 安装单包依赖并生成 `pnpm-lock.yaml` | 依赖变动时 |
+| `pnpm run check:docs` | 待加 | 跑 `dev/standard/` 检查器 | 改文档后, 与 `check` 一起 |
+| `pnpm run lint:dead` | 待加 | 跑 knip | 清理死代码时, 稳定后并入 `check` |
+| `format <文件...>` | 已有 | 格式化改动文件 | 改动完成与提交前各一次 |
+| `pnpm run test:tui` | 已有, 写法改 | TUI 单包测试 | TUI 迭代 |
+| `sh scripts/install.sh` | 已有 | 构建并挂进 profile | 需要真机验收时 |
+
+没有钩子与 CI:检查全靠这几条命令由人或 agent 手动跑。
+
+#### 2.3 待加的两项检查
+
+死代码检查采用 knip, 本轮不安装, 只记条目。落地要定的三件事及取向:作为根 `devDependencies` 安装并提交 `pnpm-lock.yaml`;在 `knip.json` 里按目录声明每包入口(各包 `src/index.ts`, `TUI` 另加 `src/main.ts` 与 `bin`), `dist/` 一律忽略;先以独立脚本 `pnpm run lint:dead` 供清理存量, 稳定后再并入 `pnpm run check`。
+
+预期:knip 的清单会比人工扫出的 21 个多(它连未使用依赖、测试内没用的导出一起报), 清理以它的清单为准;报错里会有一类误报 —— `cordis.patch.yml` 按包名装配的入口, 需要列进 `ignore`, 不能照着报错删代码。
+
+文档与注释检查器自己写, 不引依赖, 放在 `dev/standard/`, 本轮只记决定、不实现。
+
+覆盖范围按文件分四类:Markdown 查符号变体与全角标点、术语与旧名、断链、表格列数 —— 符号查全部 496 篇(归档一并归一), 术语与断链只查 109 篇现行;`.ts` 注释查仓内路径是否写成完整路径、过期计数、已删工具名;`package.json` 查 `main` 与 `types` 是否配套、`files` 里的路径是否真实存在;`tsconfig.json` 查 `exclude` 路径是否存在、基线选项是否齐全。
+
+文本范围:标题、段落、列表、表格单元格在内;行内代码、围栏代码块、链接地址、HTML 注释与 front-matter 不在内。
+
+豁免:`docs/host/` 整目录、`symbol-normalizer/README.md` 的变体表、带「原名」「旧称」的行。死导出与测试断言里的旧名不进自动检查 —— 前者要引用图, 后者要人判断该不该保留。
+
+### 3. 已定的规范
+
+按开发活动分组, 每条只写规则本身;支撑这些规则的实测数据在「调研」一节。
+
+#### 3.1 流程、记录与提交
+
+- 标准流程与快速流程沿用 `AGENTS.md` 与 `docs/WORKFLOW-STANDARD.md`;本轮只把命令写法从 `npm` 换成 `pnpm`, 四个提交检查点与「答否则合并到关闭后」的规则不动。
+- 提交信息按 Conventional Commits 写中文;scope 用包名(`fix(session-channel): …`), 跨包改动按类型省略 scope。
+- 一次提交对应一个逻辑改动, 不把格式重排与行为改动混在同一提交。
+- 改本节任一条规范时, 在同一次提交里改 `AGENTS.md` 的对应段与本节, 并在追踪文档记一句改因。
+
+#### 3.2 代码
+
+- 入口: `src/index.ts` 是每个包唯一出口, 放 `name` / `Config` / `apply`, 需要时再 re-export 对外符号, 不再套一层根 `index.ts`。`TUI` 是可执行包, 入口为 `src/main.ts`, `main` 与 `bin` 同指一份。现状三种形状(根 `index.ts` 13 个、`src/index.ts` 15 个、`src/main.ts` 6 个)按此统一, 产物仍是 `dist/src/`, 不引第二份 tsconfig。
+- `export` 面: 除入口外的模块只 `export` 同包内部用的符号;新增导出在同一次提交里要有调用方;无人引用的导出按 knip 清单删除。
+- 文件命名: kebab-case 名词短语;只固定 `index.ts`(入口)、`tools.ts`(工具定义)、`types.ts`(对外类型)三个名;不设 `utils.ts` / `helpers.ts` / `common.ts`;职责相近按领域词分(`engine.ts` / `match.ts` / `rules.ts`);`TUI` 组件文件保持 PascalCase(`components/StatusColumn.ts`)。
+- 失败: 工具失败抛错, 不返回 `isError`(`isError` 与 `content` 由宿主的 registry 生成);错误类照宿主 `HarnessError` 的做法带稳定 `code`(大写字母加下划线), 上层据 `{ name, code }` 分支而不解析文案;131 处 `throw new Error` 与 4 类包内错误类按此补齐;不引入宿主包 import。
+- 包间引用: 只从对方 `src/index.ts` 引, 不 import 对方内部模块;引入方在 `dependencies` 写 `link:../<包>`;被引包必须有 `types` 字段;`TUI` 与插件包之间不互相 import, 插件包之间不形成环。
+- 文件长度: 暂不设行数上限, 按职责边界拆(状态与纯函数 / 渲染 / 适配, 副作用与纯函数分开), 一次拆一个文件, 拆完跑该包的 `check` 与 `test`;全部拆完再按实际分布定上限, 候选值 800 与 1000。
+
+#### 3.3 工具面
+
+- 每个包一份 `toToolDef`(单工具)或 `toToolDefs`(多工具), 字段对齐宿主 `ToolDefinition`: `name` / `description` / `parameters` / `output.schema` / `output.render` / `execute`, 不另立形状。
+- `description` 写中文, 按「用途 / 用法 / 效果 / 边界 / 相关」五段、每段一行;参数说明写「动作 用: 说明」。
+- 文案允许中文标点, 符号仍按 3.9 的白名单。
+
+#### 3.4 配置读取
+
+- 配置形状以宿主契约为准(`docs/host/DSH-CTX-API.md`), 宿主给什么就读什么, 不自行加一层包装。
+- 宿主未规定的部分, 每包一份 `resolveConfig(config)`, 缺省值写成同文件顶部的常量, 调用处不再散落 `??` 兜底。
+- 配置字段改名时, `resolveConfig` 同时接受旧名并标 deprecated, 下个版本再删;`README.md` 的「配置」节写明旧名与退役版本。
+
+#### 3.5 测试
+
+- 改逻辑的提交必须带用例;断言指路文案时引用导出的常量, 不写字面量。
+- `skip` 与 `todo` 必须写明原因与对应条目, 不留无主跳过。
+- 测试与真实环境隔离: 时间走 `clock-base` 的 `ManualClock`, 不读真实时钟;网络与子进程打桩;临时文件落 `os.tmpdir()`;不读仓库外的固定路径。
+
+#### 3.6 构建、检查与格式化
+
+- `package.json` 必填 `name` / `version` / `private` / `main` / `types` / `files` / `engines` / `dsh.bundle`;`main` 为 `dist/src/index.js`, `types` 为 `./dist/src/index.d.ts`, `TUI` 取 `dist/src/main.js` 与 `./dist/src/main.d.ts`;`files` 固定列 `dist` / `README.md` / `cordis.patch.yml`, 仓库里有 `LICENSE` 文件时才列;`scripts` 至少 `build` / `check` / `test` 三项;额外脚本按用途起名 —— 验收类 `demo` / `smoke` / `smoke:<对象>` / `bench`, 开发辅助类 `watch` / `verify` / `inspect` / `gen:<产物>` / `example:<动作>`, 专属检查写 `check:<对象>`, 不新造同义词。
+- `tsconfig.json` 34 份保持同构, 不引 `@tsconfig/bases`;`noUnusedLocals` 等四项检查另立条目分阶段开;`tests/tsconfig.json` 只在测试需要不同的 `lib` 或 `types` 时添加;`include` 只列真实存在的路径 —— 固定 `src` 与 `tests`, 有执行入口的加该入口文件, 有 `demo` 或 `examples` 的加该目录, 不用 `tests/*.test.ts` 一类 glob 代替目录;`exclude` 不列不存在的文件。
+- 格式化仍由仓库外的 `format` 命令承担, 不引入仓内 Prettier / mdformat 配置;`AGENTS.md` 补全它的绝对路径与三类跳过文件(`cordis.patch.yml` 与 `profiles/**`、带 front-matter 的 Markdown、`tests/fixtures/*.json`)。
+- 根 `package.json` 只放开发期工具, 不装运行期依赖;包内 `devDependencies` 保持 `@types/node` 与 `typescript`;新增运行期依赖须说明理由。
+- 第三方运行期依赖(现为 `marked`、`redis`, 另两条是包间 `link:`)升级后跑该包的 `check` 与 `test`, 并在追踪文档记版本变化与理由;只升补丁级版本。
+- 安装与 lockfile 统一用 pnpm: 34 个包各一份 `pnpm-lock.yaml` 并纳入版本控制(`TUI` / `code-map` / `md-map` 已有的保留, `task-engine` 删掉并存的 `package-lock.json`, 27 个换, `behavior-correction` / `command-template` / `session-title-cutoff` 补齐);34 份 `typescript` 由 pnpm 全局仓库硬链接共享。
+- 根 `check` 与 `build` 链改成 `pnpm -C <包> run <脚本>`;`scripts/install.sh` 只保留 `npm i -g` 与 `npm root -g` 两处 npm;文档与追踪模板里的命令统一写 `pnpm run check` 一类, 归档文档不改。
+- `tmp/` 与各包 `dist/` 继续忽略, `tmp/` 的清理另行决定。
+
+#### 3.7 加包与删包
+
+- 新增一个包时, 同一次提交里备齐九项: `package.json`(3.6 的字段加 `private: true` 与 `dsh.bundle`)、`tsconfig.json`(照抄基线)、`cordis.patch.yml`(3.8 的形态)、`README.md`(3.9 的六节)、`src/index.ts`(契约符号)、`tests/`、按 DESIGN 口径决定有无 `docs/`、根 `package.json` 的脚本链、`AGENTS.md` 的包清单与 `scripts/install.sh:44` 的 `canonical_pkgs`。
+- 删包反向做, 并确认除 `archive/` 外没有引用残留。
+
+#### 3.8 集成与部署
+
+- `cordis.patch.yml` 照宿主的 patch 语义写(`@deepseek-ai/dsh-app-boot` 的 profile 文档): 文件是操作列表, 本仓每个包一条 `insert`, 行写 `id` 与 `name`, 需要缺省配置时在该行写 `config`;行字段可用 `id` / `name` / `config` / `disabled` / `inject`, 动态值用 `!!js`;`dsh.bundle.patch` 支持单文件或有序数组, 本仓统一单文件。
+- patch 按 id 覆盖整行 `config` 而不合并, 所以文档里不能写「按 id 追加同名字段」(`agent-group/cordis.patch.yml:8` 待改)。
+- 行顺序不带加载语义、激活由服务可用性驱动, 所以注释里不能写「要排在使用方之前」(`clock-base/cordis.patch.yml:5` 待改)。
+- 开发用 `fff-test`(`link:`), 验收用 `fff` 加 `scripts/install.sh --sync` 刷新;产物性改动先 `pnpm run build` 再重启。
+- 改 `TUI` 先 `pnpm run demo` 看 mock 效果, 排版类加 `pnpm run demo -- --smoke`, 真机再进 `TUI/` 跑 `pnpm run smoke:pty` 并用 `fff-test` 验收。
+
+#### 3.9 文档
+
+- 符号: 36 个符号的白名单与 20 条变体映射写进 `AGENTS.md`, 管仓库文档、`.ts` 注释与工具描述一类面向模型的字符串;「中文标点改成 ASCII 标点并在其后留空格」只约束模型回复, 文档、注释与工具文案里的中文标点照写, 检查器不查标点;行内代码与围栏代码块内的符号不参与审查;唯一豁免是 `symbol-normalizer/README.md` 里作为规则示例的变体表。
+- 注释: 用中文, 以项目现状为准;引用仓内文件时写从仓库根算起的完整路径;数量紧跟导出常量, 或写成「见 `X`」;不写「供测试 / 诊断用」却没有任何测试或调用方。
+- 术语: 模块 / 包 / 插件包 用「包」, 过程记录 / 追踪文档 用「追踪文档」, 符号规范 / 符号规则 用「符号规范」, 工具面 / 工具集 用「工具面」, 决策项 / 决策点 用「决策项」;「回归」指行为时写「退化」、指测试时写「回归测试」;「收口」写「收尾」;「影子」写「另一份」;旧名只在首次出现处写一次「原名 `x`」。
+- 引用与归档: 移动或重命名文档时, 在同一次提交里改完全部指向它的引用, 引用保持相对路径;归档文档(387 篇)只做符号归一, 不合并、不改写、不修断链;新追踪文档按 `YYYY-MM-DD-slug.md` 命名, 根 `archive/` 下 13 篇旧名保留;`docs/implementation/` 与 4 个包内空的 `docs/implementation/` 保留作占位。
+- 数量与版本断言: 包数一律写「34 个包(TUI 与 33 个插件)」;根 `README.md` 与 `README.zh.md` 的宿主升级索引只写最新一份, 升宿主时在同一次提交里改两份;文档不写死工具数量, 需要时指向代码;增删包时在同一次提交里更新 `AGENTS.md` 的包清单与根 `package.json` 的脚本链。
+- 模板: 包 `README.md` 固定六节 `## 定位`、`## 能力`、`## 配置`、`## 用法`、`## 边界`、`## 测试`, 无配置项的包可省 `## 配置`;`DESIGN.md` 固定四节 `## 背景`、`## 结构`、`## 机制`、`## 取舍`;34 份 README 首节 14 种写法归并时只改节名, 内容不动。
+
+#### 3.10 宿主升级
+
+- 四步一起收尾: 复核 `docs/host/` 各篇的「过期条件」段、跑 `pnpm run check` 与 `pnpm run test`、`scripts/install.sh --sync` 后在 `fff` 真机验收、更新根 `README.md` 与 `README.zh.md` 的升级索引。
+
+#### 3.11 版本与发布
+
+- 不发布: 34 个包统一 `0.1.0` 不动, 不引 changesets;`private: true` 34 处补齐(现在 0 处), 防误发;将来要发布再补发布字段(3.6 的 `files`, 必要时加 `exports`)。
+
+#### 3.12 持久化与迁移
+
+- 持久化用 Node 自带的 `node:sqlite`, 不引 ORM 或 `better-sqlite3`(`memory-base`、`output-compress` 已在用);建表与迁移集中在各包 `src/schema.ts`, 建表走 `CREATE TABLE IF NOT EXISTS`, 版本写 `PRAGMA user_version`, 字段变更按版本号递增追加迁移函数, 与建表语句同文件。
+
+#### 3.13 脚本
+
+- `scripts/*.sh` 用 `#!/usr/bin/env sh`;默认 `set -eu`, 需要跑完全部再汇总的脚本(如 `test-parallel.sh`)用 `set -u` 并在末尾按累计结果退出;外部工具先 `command -v` 探测再降级(`install.sh` 的 `have()`, `test-parallel.sh` 的 parallel 与 xargs 两路);脚本里出现包清单时做双向校验, 与仓库目录对不上就告警。
+
+#### 3.14 目录与忽略
+
+- 忽略规则收进根 `.gitignore`, 用 `node_modules` / `dist` / `.pnpm-store` / `.pnpm-cache` 四条覆盖所有层级, 原来单独的 `TUI/dist/` 由 `dist` 取代;34 个包内的 `.gitignore` 删除。
+- `dev/` 存放开发期的辅助工具与配套规范(如 `dev/standard/` 下的检查器与规则表), 不参与构建、不发布, 也不出现在任何包的 `files` 里;放在这里的工具只用 Node 标准库, 不引入依赖;新增顶层目录时在 `AGENTS.md` 的目录清单里补一行定位说明。
 
 ## 规划
 
