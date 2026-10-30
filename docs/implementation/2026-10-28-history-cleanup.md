@@ -531,7 +531,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 #### 3.6 构建、检查与格式化
 
 - `package.json` 必填 `name` / `version` / `private` / `main` / `types` / `files` / `engines` / `dsh.bundle`;`main` 为 `dist/src/index.js`, `types` 为 `./dist/src/index.d.ts`, `TUI` 取 `dist/src/main.js` 与 `./dist/src/main.d.ts`;`files` 固定列 `dist` / `README.md` / `cordis.patch.yml`, 仓库里有 `LICENSE` 文件时才列;`scripts` 至少 `build` / `check` / `test` 三项;额外脚本按用途起名 —— 验收类 `demo` / `smoke` / `smoke:<对象>` / `bench`, 开发辅助类 `watch` / `verify` / `inspect` / `gen:<产物>` / `example:<动作>`, 专属检查写 `check:<对象>`, 不新造同义词。
-- `tsconfig.json` 34 份保持同构, 不引 `@tsconfig/bases`;`noUnusedLocals` 等四项检查另立条目分阶段开;`tests/tsconfig.json` 只在测试需要不同的 `lib` 或 `types` 时添加;`include` 只列真实存在的路径 —— 固定 `src` 与 `tests`, 有执行入口的加该入口文件, 有 `demo` 或 `examples` 的加该目录, 不用 `tests/*.test.ts` 一类 glob 代替目录;`exclude` 不列不存在的文件。
+- `tsconfig.json` 34 份保持同构, 不引 `@tsconfig/bases`;`noUnusedLocals` 等五项严格检查另立条目分阶段开;`tests/tsconfig.json` 只在测试需要不同的 `lib` 或 `types` 时添加;`include` 只列真实存在的路径 —— 固定 `src` 与 `tests`, 有执行入口的加该入口文件, 有 `demo` 或 `examples` 的加该目录, 不用 `tests/*.test.ts` 一类 glob 代替目录;`exclude` 不列不存在的文件。
 - 格式化仍由仓库外的 `format` 命令承担, 不引入仓内 Prettier / mdformat 配置;`AGENTS.md` 补全它的绝对路径与三类跳过文件(`cordis.patch.yml` 与 `profiles/**`、带 front-matter 的 Markdown、`tests/fixtures/*.json`)。
 - 根 `package.json` 只放开发期工具, 不装运行期依赖;包内 `devDependencies` 保持 `@types/node` 与 `typescript`;新增运行期依赖须说明理由。
 - 第三方运行期依赖(现为 `marked`、`redis`, 另两条是包间 `link:`)升级后跑该包的 `check` 与 `test`, 并在追踪文档记版本变化与理由;只升补丁级版本。
@@ -673,6 +673,182 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 记录: 全部落追踪文档「测试与证据」节, 一包一行, 不另开文档;删掉的用例与夹具在那里记一句;每包 `README.md` 的「测试」节写清跑哪几层、三条命令与缺层原因, 缺层只对纯函数包允许。
 - 提交: 只含 `tests/` 下的用例与装配器;为可测性动了 `src` 的并入代码阶段的提交。
 - 不做: 不接第三方覆盖率服务, 不为数字补用例, 33 个插件的端到端留「后续意向」。
+
+### 5. 代码整理
+
+逐条回应调研 1.1、1.2、1.4、1.7、1.8 五项, 每项先列可选方案, 写清选中哪个、为什么。1.3 的注释与代码不一致归第 6 章, 1.5 与 1.6 的测试问题归第 4 章。
+
+#### 5.1 顺序与边界
+
+- 五步: 删失效 → 补元数据 → 合并重复 → 拆长文件 → 收拢判断;每步做完跑一次全量 `check`、`build`、`test`。
+- 元数据排在合并之前: 跨包引用只走对方入口, 入口要对端 `types` 指得到;`types` 不到位, 合并只能继续复制。
+- 行为不变: 工具名、参数面、`output.render` 投影、配置键、注入文案、帧内容都不动, 只动内部组织。
+- 一个提交只覆盖一个包(或一组同形改动), 提交信息写 `refactor(<包>): <动作>`;文档改动不混进来。
+- 判定规则: 对外可见的一律不动(工具面 / `dsh.bundle` / 消费者协议 / 帧);拿不准的留在原处, 在追踪文档记一句。
+- 不做: 不改注释里的路径与计数(第 6 章)、不补测试(第 4 章)、不开五项严格检查(另立条目)、不改 `cordis.patch.yml` 里的注释(第 6 章)、不动归档文档。
+- 边界: 3.2 的 `src/index.ts` 入口与 3.6 的 lockfile 属规范落地, 不由调研问题驱动, 文件清单写进「规划」, 不进本章的整改项。
+- 记账: 每步做完在「实现记录」按包记一行(删了什么 / 并了什么 / 拆成哪些文件), 不另开文档。
+
+#### 5.2 代码失效(1.1)
+
+问题: `src` 里 21 个导出(7 个类型、3 个常量、11 个函数)在全仓含测试没有任何引用, 孤立模块 0 个。
+
+| 方案 | 做法 | 结论 |
+| --- | --- | --- |
+| 删掉 | 逐个确认零引用后删符号, 连带删只服务它的私有代码 | ✓ 选它 |
+| 标 `@internal` 留着 | 导出不动, 注释加内部标记 | ✗ 标记不减少阅读与维护成本, 也没有工具会因此拦住新用法 |
+| 挪进内部目录 | 移到 `src/internal/` 一类位置 | ✗ 只是换位置, 引用数仍是 0, 还多一层目录 |
+
+理由: 这些符号没有调用方, 也不对外发布(3.11 已定不发布, 版本停在 `0.1.0`), 留着的唯一效果是让后来的人以为有人在用;删干净后由 2.3 的 knip 拦住新的零引用导出。
+
+执行口径:
+
+- 删前重扫全仓引用(`src`、`tests`、`scripts`, 以及 `docs` 里是否拿它当 API 举例);只在 `dist/` 的 `.d.ts` 里出现不算引用;删完 `pnpm -C <包> run build` 重建 `dist/`, 再跑 `check` 与 `test`。
+- 连带删: 只服务它的私有常量、类型与注释;函数体里还有别处调用的分支保留。
+- 不删: 工具名与参数键(`TOOL_SURFACE`)、`dsh.bundle` 的补丁行、消费者协议里的字符串常量、`cordis.patch.yml` 按名装配的入口 —— 它们对外可见。
+- 一个包一提交;21 个符号按包列举:
+
+| 包 | 删除的符号 |
+| --- | --- |
+| `TUI` | `ToolResultMetaLike`、`PickerOption`(类型), `isInputHistoryBrowse`(函数) |
+| `auto-approve` | `AuditRecent`、`RuleInput`(类型), `allowedByRisk`(函数) |
+| `background-daemon` | `Subcommand`(类型), `daysBetween`(函数) |
+| `coagent` | `notesOf`(函数) |
+| `command-template` | `declaredModels`、`availableProviders`(函数) |
+| `goal-contract` | `GoalContract`(类型) |
+| `herdr-use` | `defaultConfig`(函数) |
+| `md-map` | `toPosix`(函数) |
+| `memory-base` | `SEARCH_MODES`(常量) |
+| `output-compress` | `DigestPutOutcome`(类型) |
+| `session-channel` | `STATE_PATTERN`、`TASK_INDEX_PATTERN`(常量), `countTasks`、`sessionIdFromStateKey`、`sessionIdFromTaskIndexKey`(函数) |
+
+#### 5.3 代码重复(1.2)
+
+问题: 19 组同名函数被复制进多个包。最重的一组是定时器: 8 个包里各有一份 205 行、内容一致的 `src/timers.ts`, `agent-group` 与 `session-channel` 又在自己的入口里内联了同名的 `systemTimers`;而 `clock-base` 本来就是提供时钟服务的包。
+
+| 方案 | 做法 | 结论 |
+| --- | --- | --- |
+| 全部挪进一个新公共包 | 新建第 35 个包放这些函数 | ✗ 每个用到它的包都要加依赖, 34 个包连成网状;新包要备齐 3.7 的九项, 长期没人负责 |
+| 只并定时器族, 其余同名同签名后保留 | 8 个函数与 4 个类型挪进 `clock-base`;其余 11 组留在各包, 只统一签名 | ✓ 选它 |
+| 全部保留, 只登记 | 靠 2.3 的检查器报「同名不同实现」 | ✗ 检查器只报不改, 19 组会长期停在报告里;同名不同实现容易被后人当成同一件事 |
+
+理由: 定时器族是一整块实现且八份内容一致, `clock-base` 已经是这件事的服务方, 挪进去不新增依赖方向;其余 11 组多是几行到十几行的取值与转换, 挪动的运输成本(每包一条 `link:`、每处 import 改路径)高于重复本身。
+
+定时器族的执行口径:
+
+- 8 个函数(`systemTimers`、`isTimers`、`readClock`、`resolveClock`、`createDeadline`、`delayOf`、`runDisposer`、`attachEffect`)与 4 个类型(`TimersLike`、`ClockTimers`、`Deadline`、`DeadlineReason`)写进 `clock-base/src/timers.ts`, 从它的入口导出(入口名按 3.2 统一, 迁移前是 `src/main.ts`)。
+- 不新建文件: 这几个函数与已有的 `createTimers` / `ManualClock` 是同一件事, 追加进同一个 `src/timers.ts`, 约 430 行, 仍在 3.2 的按职责拆分范围内。
+- 服务缺席时的行为不变: 没有 `clock` 服务时仍回落到系统定时器, 这层判断收进 `clock-base` 的 `resolveClock` 与 `systemTimers`, 调用方只调函数, 不再各自探测能力。
+- 引用改法: 8 个包删本地 `src/timers.ts`, 加 `@dsh-toolset/clock-base` 的 `link:../clock-base`;包内 `import type { Deadline }` 一类改指 `clock-base`;8 个包的 `tests/clock.test.ts` 现在直接 import `../../clock-base/src/timers.ts`(跨包引内部模块, 违反 3.2), 一并改成从 `clock-base` 入口引。
+- `agent-group` 与 `session-channel` 内联的 `systemTimers` 也换成 `clock-base` 的导出;`session-channel` 从入口 export 的这个名字保留, 改成 re-export, 免得测试与调用点跟着改。
+- 顺序: 先在 `clock-base` 补齐导出与用例(手控时钟、服务缺席两条), 再逐包替换引用, 最后删本地文件;一个包一提交, 每笔跑该包 `check` 与 `test`。
+- 语义逐包核对: 八份内容一致, 预计不需要适配层;若某包合并后出现差异, 说明它的副本已被改过, 按差异逐条记进追踪文档, 不保留副本、不写兼容分支。
+- `link:` 只影响构建期取代码, 不代表运行时必须加载 `clock-base`。
+- 加依赖后按 3.6 装依赖并更新该包 `pnpm-lock.yaml`;lockfile 的整体迁移(27 个换 pnpm)仍按 3.6 在「规划」里做。
+
+其余 11 组逐组处置:
+
+| 函数 | 包数 | 处置与理由 |
+| --- | --- | --- |
+| `apply` | 25 | 保留。3.2 定的入口名, 每个包本来都要有 |
+| `jsonText` | 13 | 保留, 统一签名。两行序列化, 挪进公共包要 13 条 `link:` |
+| `resolveConfig` | 11 | 保留。3.4 要求每包自己解配置, 形状随包不同 |
+| `readService` | 10 | 保留, 统一成「取不到服务就抛带 `code` 的错误」。取的是各自的服务类型 |
+| `str` | 6 | 保留, 统一签名。三行取值封装 |
+| `describe` | 6 | 保留, 统一签名。同理 |
+| `toToolDef` | 5 | 保留。3.3 每包自建工具定义, 字段随工具不同 |
+| `failure` | 5 | 保留。与 `fail` 同义不同名, 本轮不改名 —— 改名要动全部调用点, 收益只是名字统一 |
+| `fail` | 4 | 同上 |
+| `sessionIdOf` | 4 | 保留。解析规则随包不同 |
+| `resolveExecCwd` | 4 | 保留。各自读的执行参数不同 |
+
+- 统一签名的含义: 同名函数的参数个数与返回形状一致, 实现各自写;不为统一而改名或改调用点。
+- 合并与统一后由 2.3 的检查器扫「同名不同实现」, 扫不干净即算未完成。
+
+#### 5.4 规范不统一(1.4)
+
+问题: 元数据与配置口径不齐 —— 26 个包缺 `types`、5 个包缺 `LICENSE`、`exports` 只有 1 个包有、`bin` 只有 `TUI` 有、脚本 11 种组合、8 处指向不存在文件的 `exclude`、6 份 `tests/tsconfig.json`、5 个严格检查选项在 34 个包上全为 0(其中 4 项管未使用符号)。
+
+| 方案 | 做法 | 结论 |
+| --- | --- | --- |
+| 逐包补齐到同一套字段与脚本 | 照 3.6 的模板补 `types`、`LICENSE`、脚本, 清掉假的 `exclude` | ✓ 选它 |
+| 按需添加, 维持现状 | 只在有跨包引用时写 `types` | ✗ 现在能跑是靠 TypeScript 从 `main` 旁找 `.d.ts` 的隐式规则, 换构建布局就断;口径只能靠人记 |
+| 用工具统一 | 根 `tsconfig.base.json`、pnpm catalog、脚本生成器 | ✗ 3.6 已定 34 份 `tsconfig.json` 同构手写、不引 `@tsconfig/bases`;生成器要多维护一层模板, 收益只在依赖版本 |
+
+理由: 这些项都靠人记、靠「用到才加」维持, 新增包与换人接手时必然漏;统一写进模板后, 2.3 的检查器能按 `package.json` 与 `tsconfig.json` 直接核对。
+
+逐项处置与理由:
+
+| 项 | 处置 | 理由 |
+| --- | --- | --- |
+| `types` | 26 个包补 `./dist/src/index.d.ts`, `TUI` 补 `./dist/src/main.d.ts` | 3.6 的必填字段;把隐式推断写成显式约定, 跨包引用才有稳定入口 |
+| `LICENSE` | 5 个包(`coagent`、`code-map`、`command-template`、`herdr-integration`、`session-channel`)复制根 `LICENSE` | 这 5 个包的 `files` 已列 `LICENSE`, 列了却不存在等于声明一个不存在的文件 |
+| `exports` | 只留 `goal-contract` | 不发布, 加了反而限制内部路径解析;只有它已有使用方 |
+| `bin` | 只留 `TUI` | 34 个包里只有 `TUI` 是可执行程序 |
+| 脚本 | 11 种组合按 3.6 归四类(三项基础 / 加 `demo` / 加 `smoke` / 加专属), 测试三条按 4.2 补齐 | 名字统一后根脚本链、`install.sh`、文档与模板只需一套写法;专属脚本按 3.6 的命名分层保留, 不改用途 |
+| `exclude` | 删 8 处 `"exclude": ["tests/clock.test.ts"]` | 那个文件在 8 个包里都不存在;留着让人以为它被刻意排除过 |
+| `tests/tsconfig.json` | 只留 `md-table-check`(跨包 `rootDir` 需要), 其余 5 份删除, 把 `tests` 并进主 `tsconfig.json` | 那 5 份与主配置没有差别, 留着要同步改两处;`md-table-check` 引了别的包, 需要单独 `rootDir` |
+| 5 个严格检查选项 | 本轮不开, 另立条目分阶段开 | 一次开会在 311 个源文件上摊出大量未使用变量与返回路径改动, 与「行为不变」「一包一提交」冲突;分阶段每包单独提交才核对得清 |
+
+3.6 的同一句按本表改成「五项严格检查」, 与本表对齐。
+
+#### 5.5 代码文件过长(1.7)
+
+问题: 311 个 `src` 文件里 15 个超过 1000 行, 最长 `TUI/src/app/index.ts` 6601 行;超长文件里状态、渲染、适配、协议混在一起。
+
+| 方案 | 做法 | 结论 |
+| --- | --- | --- |
+| 按行数阈值统一拆 | 超过 1000 行的一律拆到 1000 行以下 | ✗ 阈值不管职责, 会把一件事劈成两半, 读的时候要来回跳;还会引出「为了行数把循环挪走」这类无意义改动 |
+| 按职责拆, 先拆最长的 | 一个文件只放一层;先拆 11 个超过 1200 行的, 4 个 1000 至 1200 行的看职责再定 | ✓ 选它 |
+| 不拆, 只加分区注释 | 用注释分段 | ✗ 6601 行的文件里搜索与跳转成本挡不住;状态与渲染混在一处也没法单测 |
+
+理由: 行数只是发现问题的信号, 不是拆的标准。拆的目标是「一个文件一层职责」, 拆完自然变短;先动最长的 11 个, 是因为它们同时混了多层, 拆的收益最大。
+
+执行口径:
+
+- 先拆 11 个超过 1200 行的: `TUI` 的 `app/index.ts`、`app/adapter/dsh.ts`、`app/state.ts`、`app/layout.ts`、`app/adapter/types.ts`, 与 `session-channel/src/index.ts`、`task-engine/src/main.ts`、`security-guard/src/index.ts`、`rule-engine/src/engine.ts`、`agent-group/src/core.ts`、`auto-approve/src/learn.ts`。
+- 4 个 1000 至 1200 行的(`session-channel/src/alias-words.ts`、`TUI/src/main.ts`、`herdr-use/src/actions.ts`、`task-engine/src/engine.ts`)先看职责能不能分开;能分就分, 不能就在追踪文档写一句为什么, 不凑行数。
+- 切法: 状态与纯函数 / 渲染 / 适配 / 协议 / 工具面, 一个文件只放一层;拆出的文件只从包入口 re-export, 不新增对外入口, 也不被别的包引。
+- 拆完仍超过 1000 行的, 写一句这层为什么不能再分;3.2 的行数上限等全部拆完再按实际分布定(候选 800 与 1000)。
+- `TUI` 跟着 4.1 的 P1 顺序走: 排版与宽度 → 状态 → 适配 → 类型;每拆一步跑一次帧基线, 逐字节比对;`TUI/src/main.ts` 的启动顺序不在拆分里改。
+- 新文件按 3.2 的 kebab-case 命名;不顺手改名、不顺手改逻辑。
+- 一个文件一提交, 每笔跑该包 `check` 与 `test`;`TUI` 另跑 `demo -- --smoke`。
+
+#### 5.6 判断散落(1.8)
+
+问题: 同一语义的判断出现在多个文件或包里, 较集中的 6 组;条件不在它该在的那一步, 而在调用方或渲染层。
+
+| 方案 | 做法 | 结论 |
+| --- | --- | --- |
+| 全收进一个新公共包 | 新建条件与谓词包 | ✗ 又是第 35 个包;这些判断各自依赖本包类型, 抽出去要先抽类型;也没有服务面可挂 |
+| 就近合并 | 每个文件内部去重 | ✗ 不解决跨层重复: 用户消息识别 34 处分布在 `app/index.ts`、`commands.ts`、`adapter/*`, 不在一个文件里 |
+| 按语义归属收进最小的持有者 | 谁定义这个语义就放谁那里 | ✓ 选它 |
+
+理由: 判断要有唯一出口, 否则下次改动还会分叉;但出口只能放在本来就拥有这个语义的包或层里, 不然就是把依赖方向倒过来。
+
+| 语义 | 收到哪 | 做法与理由 |
+| --- | --- | --- |
+| 沙箱模式枚举 | `herdr-use/src/types.ts` | 定义与判定(`policy.ts`)都在 `herdr-use`, `script-interpreter` 里那份是复制;`TUI` 只留展示映射, 不自判 |
+| 时钟能力探测 | `clock-base` | 探测的就是 `clock-base` 的服务面, 随 5.3 一起收 |
+| 用户消息识别 | `TUI/src/app/state.ts` | 状态层是唯一知道消息从哪来的地方;34 处 `role === "user"` 与 `kind === "user"` 收成一个谓词, 适配层与渲染层都调它 |
+| 按键分派 | `TUI/src/app/keys.ts` | 72 处 `name === "…"` 是同一张表的不同写法, 收成 `Record<string, Action>`;表按现有 `if` 链的顺序排, 命中即停, 保证先到先得的行为不变 |
+| 上下文对象守卫 | 各包入口 | 只有三行, 收进公共包要新增依赖;每包入口算一次就够, 不跨包 |
+| 记忆层级判定 | `memory-base` | 层级由 `memory-base` 定义, `TUI` 里的 `tier === "session"` 是第二份定义;`TUI` 改为读注入值 |
+
+执行口径:
+
+- 唯一出口要有名字与签名, 写进追踪文档;`script-interpreter` 走 `link:../herdr-use`。
+- 收拢后原位置的判断删干净, 不留兼容分支。
+- 行为不变靠现有用例与帧基线: `TUI` 的三项(用户消息、按键、记忆层级)每项改完跑一次 `demo -- --smoke`;按键另跑 `smoke:pty` 走一遍上下键与斜杠命令。
+- 一组一提交。
+
+#### 5.7 验证与提交
+
+- 每步验证: 包级 `pnpm -C <包> run check` → 根 `pnpm run check` → `pnpm run test`;`TUI` 另跑 `demo -- --smoke` 与 `smoke:pty`。
+- 行为不变的证据: 拆分与收拢前后跑同一批用例, 断言一条不改;帧基线逐字节比较, 有差异逐条确认。
+- 提交顺序与粒度: 五步各成一组;每组最后一笔带该组的全量结果;不把文档改动混进代码提交。
+- 回退判据: 用例变红且组织层面的原因定位不到, 就撤回该包改动并记进追踪文档, 不硬推;回退过的包在「偏差」写一句原因。
+- 记账: 每包每步在「实现记录」记一行;「测试与证据」只放命令输出与覆盖率表, 不混实现说明。
 
 ## 规划
 
