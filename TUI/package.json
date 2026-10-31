@@ -17,6 +17,9 @@
     "gen:width-table": "node scripts/gen-width-table.mts",
     "smoke:pty": "node demo/smokePty.mjs",
     "test": "sh scripts/test.sh",
+    "test:coverage": "rm -rf ../tmp/cov-tui && mkdir -p ../tmp/cov-tui && NODE_V8_COVERAGE=../tmp/cov-tui node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-tui tmp/cov-tui/report.json",
+    "test:e2e": "pnpm run demo:build -- --smoke && pnpm run smoke:pty",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
     "watch": "tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
