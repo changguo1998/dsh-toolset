@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-coagent && mkdir -p ../tmp/cov-coagent && NODE_V8_COVERAGE=../tmp/cov-coagent node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-coagent tmp/cov-coagent/report.json",
     "verify": "node scripts/verify-coagent.mjs",
     "watch": "tsc -p tsconfig.json --watch"
   },
