@@ -24,13 +24,24 @@ import {
   type MemoryServiceLike,
   type OutputCompressConfig,
 } from "../src/index.ts";
-import type { SessionEventLike, SessionPathsLike } from "../src/hooks.ts";
+import {
+  type CompressOptions,
+  extractText,
+  type SessionEventLike,
+  type SessionPathsLike,
+} from "../src/hooks.ts";
+import { OutputCompressHooks } from "../src/hooks.ts";
 import {
   type CodeRuntimeLike,
   type RuntimeRunRequest,
+  type SandboxRunner,
   VmSandbox,
 } from "../src/sandbox.ts";
-import { SUMMARY_PROGRAM, validateSummary } from "../src/summary-program.ts";
+import {
+  SUMMARY_PROGRAM,
+  type SummaryJson,
+  validateSummary,
+} from "../src/summary-program.ts";
 
 const HINT =
   "Use read with offset/limit, or grep this path to search within it.";
@@ -1029,4 +1040,222 @@ test("mkdirSync 供 sessionDir（宿主语义）:存在目录才可用", () => {
   mkdirSync(sub);
   assert.ok(existsSync(sub));
   rmSync(dir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// 以下为阶段 2 补的单元锚点: 逐项盖未被现有用例走到的分支与错误路径
+// (tracing 文档「实现记录」记了来源)。日志与临时目录都随用例清理。
+// ---------------------------------------------------------------------------
+
+/** 最小合法摘要: 假沙箱直接返回, 免去每条用例跑一遍 vm。 */
+const STUB_SUMMARY: SummaryJson = {
+  version: 1,
+  textFnv: "deadbeef",
+  stats: { bytes: 200, chars: 200, lines: 1, maxLineLen: 200, avgLineLen: 200 },
+  headings: [],
+  keyLines: [],
+  slices: [],
+};
+
+/** 同步即返回的假沙箱 (或按需抛错的版本)。 */
+function stubSandbox(error?: Error): SandboxRunner {
+  return {
+    run: async () => {
+      if (error !== undefined) throw error;
+      return STUB_SUMMARY;
+    },
+  };
+}
+
+/** 直接构造事件钩子 (不经 bundle), 返回钩子与日志。 */
+function makeHooks(options: Partial<CompressOptions> = {}): {
+  hooks: OutputCompressHooks;
+  logs: string[];
+} {
+  const logs: string[] = [];
+  const hooks = new OutputCompressHooks({
+    minBytes: 100,
+    maxSourceBytes: 1024,
+    sandbox: stubSandbox(),
+    logger: { info: (message: string) => logs.push(message) },
+    ...options,
+  });
+  return { hooks, logs };
+}
+
+/** 等钩子处理完一条事件 (20 ms 轮询, 上限 2 s)。 */
+async function waitFor(predicate: () => boolean, hint: string): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(predicate(), `等待超时: ${hint}`);
+}
+
+test("extractText：字符串 / 数组 / {text} / {content} / {message} 各自取证，其余为空串", () => {
+  assert.equal(extractText("abc"), "abc");
+  assert.equal(extractText(["a", "", "b"]), "a\nb", "数组逐项取证并丢空串");
+  assert.equal(extractText([{ text: "x" }, "y"]), "x\ny");
+  assert.equal(extractText({ text: "直接文本" }), "直接文本");
+  assert.equal(extractText({ content: [{ text: "块文本" }] }), "块文本");
+  assert.equal(extractText({ message: { content: "消息文本" } }), "消息文本");
+  assert.equal(extractText(42), "", "非字符串 / 数组 / 对象给空串");
+  assert.equal(extractText(null), "");
+  assert.equal(extractText({}), "");
+});
+
+test("事件钩子：沙箱抛普通错误时按 compress-failed 跳过，不向宿主抛错", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-unit-"));
+  try {
+    const { hooks, logs } = makeHooks({
+      digestDbPath: path.join(dir, "digest.db"),
+      sandbox: stubSandbox(new Error("派生失败")),
+    });
+    try {
+      const outcome = await hooks.process(
+        "s1",
+        toolResultEvent(1, longText(200)),
+      );
+      assert.equal(outcome.status, "skipped");
+      assert.match(
+        outcome.status === "skipped" ? outcome.reason : "",
+        /^compress-failed: Error: 派生失败$/,
+      );
+      assert.ok(logs.some((line) => line.includes("跳过: compress-failed")));
+      assert.ok(
+        !existsSync(path.join(dir, "digest.db")),
+        "派生失败不建库、不入库",
+      );
+    } finally {
+      hooks.closeDatabases();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("事件钩子：digest.db 打开失败只告警一次，后续事件不再逐条重试", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-unit-"));
+  try {
+    const { hooks, logs } = makeHooks({
+      digestDbPath: path.join(dir, "no-such-dir", "digest.db"),
+    });
+    try {
+      const first = await hooks.process(
+        "s1",
+        toolResultEvent(1, longText(200)),
+      );
+      assert.deepEqual(first, {
+        status: "skipped",
+        reason: "digest-db-open-failed",
+      });
+      const second = await hooks.process(
+        "s1",
+        toolResultEvent(2, longText(240)),
+      );
+      assert.equal(second.status, "skipped");
+      const opened = logs.filter((line) => line.includes("digest.db 打开失败"));
+      assert.equal(opened.length, 1, "开失败只记一次");
+      assert.ok(!existsSync(path.join(dir, "no-such-dir")), "不补建父目录");
+    } finally {
+      hooks.closeDatabases();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("事件钩子：sessionDirFor 返回空路径 → 跳过该会话并一次性告警", async () => {
+  const { hooks, logs } = makeHooks({
+    sessionPaths: { sessionDirFor: () => "" },
+  });
+  try {
+    const outcome = await hooks.process(
+      "s1",
+      toolResultEvent(1, longText(200)),
+    );
+    assert.deepEqual(outcome, {
+      status: "skipped",
+      reason: "session-dir-missing",
+    });
+    assert.ok(logs.some((line) => line.includes("sessionDirFor 返回空路径")));
+    const again = await hooks.process("s1", toolResultEvent(2, longText(240)));
+    assert.equal(again.status, "skipped");
+    assert.equal(
+      logs.filter((line) => line.includes("返回空路径")).length,
+      1,
+      "同一会话的重试不刷屏",
+    );
+  } finally {
+    hooks.closeDatabases();
+  }
+});
+
+test("事件钩子：句柄写入未返回行 id → 按拒写记 rejected，不进入巩固重推", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-unit-"));
+  try {
+    const { hooks, logs } = makeHooks({
+      digestDbPath: path.join(dir, "digest.db"),
+      scope: { put: async () => ({ ids: [] }) },
+    });
+    try {
+      const outcome = await hooks.process("s1", errorEvent(1, longText(200)));
+      assert.equal(outcome.status, "written", "digest 行本身已入库");
+      const rows = digestRows(path.join(dir, "digest.db"));
+      assert.equal(rows[0]?.push_state, "rejected", "空 id 视为拒写");
+      assert.equal(hooks.pendingPushCount(), 0, "拒写行不再重推");
+      assert.ok(logs.some((line) => line.includes("未返回行 id")));
+    } finally {
+      hooks.closeDatabases();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("事件钩子：宿主 on 返回非函数时 detach 幂等且不抛错", () => {
+  const { hooks } = makeHooks();
+  const detach = hooks.attach({ on: () => undefined });
+  hooks.attach({ on: () => undefined });
+  assert.equal(typeof detach, "function", "attach 一律返回解绑函数");
+  assert.doesNotThrow(() => {
+    detach();
+    detach();
+    hooks.detach();
+  });
+});
+
+test("事件钩子：凭据形态命中底线闸 → 拒写并跳过，不入库也不推送", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "oc-unit-"));
+  try {
+    const dbPath = path.join(dir, "digest.db");
+    const { hooks, logs } = makeHooks({
+      digestDbPath: dbPath,
+      // 底线闸查的是「标题 + 投影预览」，需要真实派生把源文本带进切片预览。
+      sandbox: new VmSandbox(),
+      scope: { put: async () => ({ ids: [1] }) },
+    });
+    try {
+      const outcome = await hooks.process(
+        "s1",
+        errorEvent(1, `password: supersecretvalue\n${"x".repeat(200)}`),
+      );
+      assert.equal(outcome.status, "skipped");
+      assert.match(
+        outcome.status === "skipped" ? outcome.reason : "",
+        /^deny-pattern: /,
+        "拒绝原因带模式源串",
+      );
+      assert.equal(countDigests(dbPath), 0, "底线闸拦下的行不入库");
+      assert.equal(hooks.pendingPushCount(), 0, "拒写行不进入巩固重推");
+      assert.ok(
+        logs.some((line) => line.includes("拒写（隐私底线 deny-pattern）")),
+      );
+    } finally {
+      hooks.closeDatabases();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
