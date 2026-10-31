@@ -1,7 +1,7 @@
 # 整理历史代码和文档（接取条目：`docs/BACKLOG.md`「整理历史代码和文档」）
 
-状态：决策　　开启：2026-10-28　　关闭：
-本文件是本任务唯一的过程记录与文档改动位置；计划外的文件不改。
+状态：规划　　开启：2026-10-28　　关闭：
+本文件是总追踪文档，记录阶段边界、合并提交与最终验收；各阶段细节见阶段追踪文档。计划外的文件不改。
 
 ## 目标
 
@@ -1063,13 +1063,294 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 
 ## 规划
 
+采用「标准先行、按包分支、分阶段合并、主分支收口」: 阶段 1 在 `main` 完成标准与工具; 阶段 2 至 4 按「测试 → 代码 → 包文档」推进, 每个阶段内部一个包一个 worktree 与一个分支, 同阶段按包并行; 阶段 5 回 `main` 做项目级文档与收尾. 每阶段一份阶段追踪文档, 每个包一份包追踪文档; 总追踪只记阶段边界、包分支合并与验收结论.
+
+包追踪文档的正文分工固定: 主分支写「目标 / 现状 / 实现规划」, 提交后交给对应包分支的 agent 实现; 分支 agent 只追加「实现记录 / 偏差 / 测试与证据」, 不改实现规划. 实现规划要改时由主分支改并提交, 分支 `rebase` 后继续.
+
+### 阶段与追踪文档
+
+| 阶段 | 内容 | 执行位置 | 阶段追踪文档 |
+| --- | --- | --- | --- |
+| 1 | 标准与工具 | `main` | `docs/implementation/2026-10-28-history-cleanup-01-standards.md` |
+| 2 | 测试锚定 | 按包: `.worktree/02-tests/<包>`, 分支 `history-cleanup/02-tests-<包>` | `...-02-tests.md` |
+| 3 | 代码整理 | 按包: `.worktree/03-code/<包>`, 分支 `history-cleanup/03-code-<包>` | `...-03-code.md` |
+| 4 | 包文档 | 按包: `.worktree/04-package-docs/<包>`, 分支 `history-cleanup/04-package-docs-<包>` | `...-04-package-docs.md` |
+| 5 | 项目文档与收尾 | `main` | `...-05-project-docs.md` |
+
+- 总追踪是 `docs/implementation/2026-10-28-history-cleanup.md`; 阶段追踪由主分支写, 分支 agent 不改.
+- 同阶段一个包一个 worktree 与一个分支; 同阶段并发数按机器资源定, 建议 4 至 6 个包一批, 其余排队.
+- 建分支用 `git worktree add .worktree/02-tests/<包> -b history-cleanup/02-tests-<包> main`; 阶段 3 / 4 只换目录与分支名. 每个分支从当时的 `main` 开, 不挂上游分支.
+- 每个包分支只改本包文件与本包包追踪文档; 总追踪、阶段追踪、其它包的文件都不碰. 同一包内按逻辑改动分笔提交, 不混入其它包.
+- 阶段 2 覆盖 34 个包; 阶段 3 只给有代码改动的 24 个包开分支; 阶段 4 覆盖 34 个包; 三阶段合计 92 个包分支, 分批开, 不一次全开.
+- 阶段追踪与包追踪在总任务关闭前留在 `docs/implementation/`; 关闭时与总追踪一并移入 `docs/archived/`.
+
+### 分支与包追踪文档清单
+
+| 包 | 阶段 2 分支 | 阶段 3 分支 | 阶段 4 分支 | 包追踪文档 |
+| --- | --- | --- | --- | --- |
+| `TUI` | `history-cleanup/02-tests-tui` | `history-cleanup/03-code-tui` | `history-cleanup/04-package-docs-tui` | `docs/implementation/2026-10-28-history-cleanup-tui.md` |
+| `agent-group` | `history-cleanup/02-tests-agent-group` | `history-cleanup/03-code-agent-group` | `history-cleanup/04-package-docs-agent-group` | `docs/implementation/2026-10-28-history-cleanup-agent-group.md` |
+| `ast-tools` | `history-cleanup/02-tests-ast-tools` | `history-cleanup/03-code-ast-tools` | `history-cleanup/04-package-docs-ast-tools` | `docs/implementation/2026-10-28-history-cleanup-ast-tools.md` |
+| `auto-approve` | `history-cleanup/02-tests-auto-approve` | `history-cleanup/03-code-auto-approve` | `history-cleanup/04-package-docs-auto-approve` | `docs/implementation/2026-10-28-history-cleanup-auto-approve.md` |
+| `background-daemon` | `history-cleanup/02-tests-background-daemon` | `history-cleanup/03-code-background-daemon` | `history-cleanup/04-package-docs-background-daemon` | `docs/implementation/2026-10-28-history-cleanup-background-daemon.md` |
+| `behavior-correction` | `history-cleanup/02-tests-behavior-correction` | - | `history-cleanup/04-package-docs-behavior-correction` | `docs/implementation/2026-10-28-history-cleanup-behavior-correction.md` |
+| `clock-base` | `history-cleanup/02-tests-clock-base` | `history-cleanup/03-code-clock-base` | `history-cleanup/04-package-docs-clock-base` | `docs/implementation/2026-10-28-history-cleanup-clock-base.md` |
+| `coagent` | `history-cleanup/02-tests-coagent` | `history-cleanup/03-code-coagent` | `history-cleanup/04-package-docs-coagent` | `docs/implementation/2026-10-28-history-cleanup-coagent.md` |
+| `code-map` | `history-cleanup/02-tests-code-map` | `history-cleanup/03-code-code-map` | `history-cleanup/04-package-docs-code-map` | `docs/implementation/2026-10-28-history-cleanup-code-map.md` |
+| `command-template` | `history-cleanup/02-tests-command-template` | `history-cleanup/03-code-command-template` | `history-cleanup/04-package-docs-command-template` | `docs/implementation/2026-10-28-history-cleanup-command-template.md` |
+| `context-report` | `history-cleanup/02-tests-context-report` | - | `history-cleanup/04-package-docs-context-report` | `docs/implementation/2026-10-28-history-cleanup-context-report.md` |
+| `escalation-hint` | `history-cleanup/02-tests-escalation-hint` | - | `history-cleanup/04-package-docs-escalation-hint` | `docs/implementation/2026-10-28-history-cleanup-escalation-hint.md` |
+| `fs-digest` | `history-cleanup/02-tests-fs-digest` | `history-cleanup/03-code-fs-digest` | `history-cleanup/04-package-docs-fs-digest` | `docs/implementation/2026-10-28-history-cleanup-fs-digest.md` |
+| `goal-contract` | `history-cleanup/02-tests-goal-contract` | `history-cleanup/03-code-goal-contract` | `history-cleanup/04-package-docs-goal-contract` | `docs/implementation/2026-10-28-history-cleanup-goal-contract.md` |
+| `hash-edit` | `history-cleanup/02-tests-hash-edit` | `history-cleanup/03-code-hash-edit` | `history-cleanup/04-package-docs-hash-edit` | `docs/implementation/2026-10-28-history-cleanup-hash-edit.md` |
+| `herdr-integration` | `history-cleanup/02-tests-herdr-integration` | `history-cleanup/03-code-herdr-integration` | `history-cleanup/04-package-docs-herdr-integration` | `docs/implementation/2026-10-28-history-cleanup-herdr-integration.md` |
+| `herdr-use` | `history-cleanup/02-tests-herdr-use` | `history-cleanup/03-code-herdr-use` | `history-cleanup/04-package-docs-herdr-use` | `docs/implementation/2026-10-28-history-cleanup-herdr-use.md` |
+| `md-logic` | `history-cleanup/02-tests-md-logic` | - | `history-cleanup/04-package-docs-md-logic` | `docs/implementation/2026-10-28-history-cleanup-md-logic.md` |
+| `md-map` | `history-cleanup/02-tests-md-map` | `history-cleanup/03-code-md-map` | `history-cleanup/04-package-docs-md-map` | `docs/implementation/2026-10-28-history-cleanup-md-map.md` |
+| `md-table-check` | `history-cleanup/02-tests-md-table-check` | - | `history-cleanup/04-package-docs-md-table-check` | `docs/implementation/2026-10-28-history-cleanup-md-table-check.md` |
+| `memory-base` | `history-cleanup/02-tests-memory-base` | `history-cleanup/03-code-memory-base` | `history-cleanup/04-package-docs-memory-base` | `docs/implementation/2026-10-28-history-cleanup-memory-base.md` |
+| `metric-loop` | `history-cleanup/02-tests-metric-loop` | - | `history-cleanup/04-package-docs-metric-loop` | `docs/implementation/2026-10-28-history-cleanup-metric-loop.md` |
+| `output-compress` | `history-cleanup/02-tests-output-compress` | `history-cleanup/03-code-output-compress` | `history-cleanup/04-package-docs-output-compress` | `docs/implementation/2026-10-28-history-cleanup-output-compress.md` |
+| `ponytail` | `history-cleanup/02-tests-ponytail` | - | `history-cleanup/04-package-docs-ponytail` | `docs/implementation/2026-10-28-history-cleanup-ponytail.md` |
+| `preference-analysis` | `history-cleanup/02-tests-preference-analysis` | `history-cleanup/03-code-preference-analysis` | `history-cleanup/04-package-docs-preference-analysis` | `docs/implementation/2026-10-28-history-cleanup-preference-analysis.md` |
+| `rule-engine` | `history-cleanup/02-tests-rule-engine` | `history-cleanup/03-code-rule-engine` | `history-cleanup/04-package-docs-rule-engine` | `docs/implementation/2026-10-28-history-cleanup-rule-engine.md` |
+| `script-interpreter` | `history-cleanup/02-tests-script-interpreter` | `history-cleanup/03-code-script-interpreter` | `history-cleanup/04-package-docs-script-interpreter` | `docs/implementation/2026-10-28-history-cleanup-script-interpreter.md` |
+| `security-guard` | `history-cleanup/02-tests-security-guard` | `history-cleanup/03-code-security-guard` | `history-cleanup/04-package-docs-security-guard` | `docs/implementation/2026-10-28-history-cleanup-security-guard.md` |
+| `session-channel` | `history-cleanup/02-tests-session-channel` | `history-cleanup/03-code-session-channel` | `history-cleanup/04-package-docs-session-channel` | `docs/implementation/2026-10-28-history-cleanup-session-channel.md` |
+| `session-paths` | `history-cleanup/02-tests-session-paths` | `history-cleanup/03-code-session-paths` | `history-cleanup/04-package-docs-session-paths` | `docs/implementation/2026-10-28-history-cleanup-session-paths.md` |
+| `session-title-cutoff` | `history-cleanup/02-tests-session-title-cutoff` | - | `history-cleanup/04-package-docs-session-title-cutoff` | `docs/implementation/2026-10-28-history-cleanup-session-title-cutoff.md` |
+| `symbol-normalizer` | `history-cleanup/02-tests-symbol-normalizer` | - | `history-cleanup/04-package-docs-symbol-normalizer` | `docs/implementation/2026-10-28-history-cleanup-symbol-normalizer.md` |
+| `task-engine` | `history-cleanup/02-tests-task-engine` | `history-cleanup/03-code-task-engine` | `history-cleanup/04-package-docs-task-engine` | `docs/implementation/2026-10-28-history-cleanup-task-engine.md` |
+| `tool-consult` | `history-cleanup/02-tests-tool-consult` | - | `history-cleanup/04-package-docs-tool-consult` | `docs/implementation/2026-10-28-history-cleanup-tool-consult.md` |
+
+### 包追踪文档的编写与交接
+
+- 34 份包追踪文档由主分支创建, 统一放在 `docs/implementation/2026-10-28-history-cleanup-<包>.md`; `TUI` 用 `-tui.md`.
+- 主分支写文件头 / 目标 / 包现状 / 实现规划: 实现规划分 `### 测试` / `### 代码` / `### 包文档`, 每节写清本包要改的文件、任务、验收命令. 实现记录 / 偏差 / 测试与证据留空给分支 agent.
+- 阶段 2 开工前, 主分支一次写完 34 份的测试实现规划并提交; 阶段 3 开工前补代码实现规划; 阶段 4 开工前补包文档实现规划. 每次补实现规划都在 `main` 提交, 分支从新提交开.
+- 分支 agent 只实现本阶段那一节, 并把结果追加到同一份文档的 `## 实现记录` / `## 测试与证据`; 不改实现规划、不改其它阶段、不改总追踪与阶段追踪.
+- 阶段 3 无代码改动的 10 个包在 `### 代码` 写「无代码改动, 不建分支」, 不占 worktree.
+- 实现中发现实现规划要改, 分支 agent 在 `## 偏差` 记现状并回报主分支; 主分支改实现规划并提交, 分支 `rebase` 后继续. 实现规划变更的提交单独一笔.
+- 包追踪文档在阶段 2 / 3 / 4 各追加一段实现记录; 总任务关闭时才标完成并归档.
+
+包追踪文档骨架:
+
+```markdown
+# <包> 整理（所属总追踪：`docs/implementation/2026-10-28-history-cleanup.md`）
+
+状态：规划
+## 目标
+## 现状
+## 实现规划
+### 测试
+### 代码
+### 包文档
+## 实现记录
+## 偏差
+## 测试与证据
+```
+
+- 主分支写文件头 / 目标 / 现状 / 实现规划; 分支 agent 从 `## 实现记录` 开始写.
+
+### 阶段同步与合并
+
+1. 阶段 1 直接提交到 `main`; 完成后跑全量 `pnpm run check` 与 `pnpm run test`, 在总追踪记「阶段 1 完成」.
+2. 主分支写 34 份包追踪文档的测试实现规划并提交; 开 `.worktree/02-tests/<包>` 与对应分支; 每包跑基线测试、补本包用例, 通过后合并回 `main`.
+3. 阶段 2 全部包合并后跑全量 `test` 与 `test:coverage`; 主分支补 34 份包追踪文档的代码实现规划, 提交后开阶段 3 分支.
+4. 阶段 3 先合基础包 `clock-base` / `herdr-use` / `memory-base`, 再合依赖包, 其余包并行; 每包通过后合并回 `main`; 全部合并后跑全量 `check` / `build` / `test`.
+5. 阶段 3 全部合并后, 主分支补 34 份包追踪文档的包文档实现规划, 提交后开阶段 4 分支; 每包 `format` 与复扫通过后合并; 全部合并后跑断链 / 符号 / 术语复扫.
+6. 阶段 5 在 `main` 做项目级文档、归档符号归一与收尾; 全量验证通过后移追踪文档、清 `BACKLOG`, 关闭提交是本次最后一次提交.
+7. 每个包合并后删除对应 worktree(`git worktree remove`); 分支保留到总任务关闭后再删.
+8. 合并冲突只在包分支 `rebase` 解决; 冲突涉及另一包已合并内容时, 以先合并包的结论为准, 改因记包追踪文档与总追踪「偏差」.
+9. 总追踪「实现记录」按阶段记汇总, 并列出本阶段全部包分支与合并提交; 包追踪文档记每包验证细节, 阶段追踪记阶段门禁.
+
 ### 计划改动文件清单
+
+#### 1. 标准与工具 (main)
+
+| 组 | 文件 | 动作 | 依据 |
+| --- | --- | --- | --- |
+| 规范入口 | `AGENTS.md` | 命令由 `npm` 改 `pnpm`; 补 36 个符号的白名单与 20 条变体映射; 补术语规则与 `docs/GLOSSARY.md` 链接; `模块 = TUI 与 33 个包` 改 `本仓 34 个包 = TUI 与 33 个插件`; 轻量包名单补 `tool-consult`; 目录清单补 `dev/` 与 `GLOSSARY.md`; 格式化跳过三类文件 | 3.1 / 3.6 / 3.9 / 6.3 / 6.6.1 |
+| 术语表初稿 | `docs/GLOSSARY.md` | 新建; 中文; 开头三行写职责 / 不负责 / 过期条件; 三张表 `场景 → 应当使用` / `需要替换` / `保留`; 不写用量; 阶段 5 校最终版 | 6.6.1 |
+| 流程文档 | `docs/WORKFLOW-STANDARD.md` / `docs/WORKFLOW-FAST.md` | `npm` 命令改 `pnpm`; 包数改 34; 追踪模板命令同改 | 3.1 / 3.6 / 6.3 |
+| 根脚本 | `package.json` | `check` / `build` 改 `pnpm -C <包> run <脚本>`; 新增 `test:integration` / `test:e2e` / `test:coverage` | 3.6 / 4.2 |
+| 包元数据 | 34 个 `*/package.json` | 补 `private: true` / `types` / `files`; 现有脚本按 3.6 归四类, `test:*` 三条留到阶段 2; `main` / `types` 随入口迁移; 需要 `link:` 的写 `dependencies`; `TUI` 例外保留 `bin` 与 `tui.config.json` | 3.2 / 3.6 / 5.4 / 5.7 |
+| lockfile | 4 个已有 `pnpm-lock.yaml`(`TUI` / `code-map` / `md-map` / `task-engine`)更新; 27 个 `package-lock.json` 换成 `pnpm-lock.yaml`; `task-engine/package-lock.json` 删除; `behavior-correction` / `command-template` / `session-title-cutoff` 新增 `pnpm-lock.yaml` | 统一 pnpm, 每包一份 lockfile 纳入版本控制 | 3.6 |
+| 测试工具 | `dev/coverage/collect.mjs` / `dev/coverage/report.mjs`; `scripts/test-parallel.sh` / `TUI/scripts/test.sh` | 新建覆盖率聚合器, 只用 Node 标准库, `NODE_V8_COVERAGE` 出原始 JSON 后按文件聚合; 测试脚本按层传目录与 glob; 注释里的 npm 改 pnpm | 4.2 / 4.3 / 3.13 |
+| 部署脚本 | `scripts/install.sh` | 包安装与 build 改 pnpm, 只留 `npm i -g` 与 `npm root -g` 两处 npm | 3.6 / 3.13 |
+| 许可证 | `coagent/LICENSE` / `code-map/LICENSE` / `command-template/LICENSE` / `herdr-integration/LICENSE` / `session-channel/LICENSE` | 复制根 `LICENSE` | 5.4 |
+| tsconfig | 34 个 `tsconfig.json`; 删除 5 个 `tests/tsconfig.json`(`agent-group` / `behavior-correction` / `clock-base` / `escalation-hint` / `session-paths`); 保留 `md-table-check/tests/tsconfig.json` | `include` 固定 `src` 与 `tests`, 有执行入口的加该入口, 有 `demo` / `examples` / `bench` 的加该目录; 删 8 处不存在的 `exclude`; 不再列根 `index.ts` | 3.6 / 5.4 |
+| 忽略规则 | 根 `.gitignore`; 34 个 `*/.gitignore` | 根补 `node_modules` / `dist` / `.pnpm-store` / `.pnpm-cache`, 删 `TUI/dist/` 单条, 并合并各包独有规则(`.pi-glla` / `*.db*` / `.npm-cache` / `__pycache__` / `smoke/.tmp`); 删 34 份包内 `.gitignore` | 3.14 |
+| patch 注释 | `agent-group/cordis.patch.yml` / `clock-base/cordis.patch.yml` | `config` 按 id 整行替换而非合并; 行顺序不带加载语义 | 3.8 |
+| 入口迁移 | 13 个根 `index.ts` 删除, 同包 `src/main.ts` 改 `src/index.ts`: `agent-group` / `auto-approve` / `command-template` / `escalation-hint` / `fs-digest` / `md-table-check` / `ponytail` / `preference-analysis` / `rule-engine` / `session-title-cutoff` / `symbol-normalizer` / `task-engine` / `tool-consult` | 根 `index.ts` 只做 re-export, 统一由 `src/index.ts` 出口 | 3.2 |
+| 入口迁移 | 5 个 `src/main.ts` 改 `src/index.ts`: `behavior-correction` / `clock-base` / `hash-edit` / `herdr-integration` / `session-paths`; `TUI/src/main.ts` 保留 | 非 TUI 包入口统一为 `src/index.ts`, TUI 是可执行包 | 3.2 |
+| 入口引用 | 13 + 5 个包的源码与测试; 13 + 5 个 `package.json`; 其余 15 个已用 `src/index.ts` 的包只核对 | `./main.ts` / `../src/main.ts` 改 `./index.ts` / `../src/index.ts`; `main` 改 `dist/src/index.js`, `types` 改 `./dist/src/index.d.ts`; 现行 README / DESIGN 的路径留到阶段 4 | 3.2 / 6.7 |
+| 阶段文档 | `docs/implementation/2026-10-28-history-cleanup-01-standards.md` | 新建; 写本阶段文件清单 / 实现记录 / 偏差 / 验证 | 流程 |
+
+#### 2. 测试锚定 (按包)
+
+每包都改 `package.json`(`test:integration` / `test:coverage`) 与本包包追踪文档; 除 `session-paths` 外都新增 `tests/integration/*.test.ts` 与 `tests/` 下的装配器, 并给单元层补锚点; 每包先跑基线再改, 改后记覆盖率. 下表只列专项.
+
+| 包 | 专项测试任务 |
+| --- | --- |
+| `TUI` | `TUI/tests/integration/`; `TUI/tests/app.test.ts:354` 的 `skip` 按 4.4 处理; `TUI/tests/fixtures/` 2 个夹具复核; `TUI/package.json` 补 `test:e2e`; `demo -- --smoke` / `smoke:pty` |
+| `agent-group` | - |
+| `ast-tools` | - |
+| `auto-approve` | - |
+| `background-daemon` | - |
+| `behavior-correction` | `tests/contract.test.ts` 删除对 `@dsh-toolset/rule-engine` 的契约探针; `tests/main.test.ts` 旧名改 `herdr_run` |
+| `clock-base` | - |
+| `coagent` | - |
+| `code-map` | - |
+| `command-template` | - |
+| `context-report` | - |
+| `escalation-hint` | - |
+| `fs-digest` | `tests/fixtures/` 5 个夹具复核, 无引用删除 |
+| `goal-contract` | - |
+| `hash-edit` | - |
+| `herdr-integration` | - |
+| `herdr-use` | - |
+| `md-logic` | - |
+| `md-map` | - |
+| `md-table-check` | - |
+| `memory-base` | - |
+| `metric-loop` | - |
+| `output-compress` | - |
+| `ponytail` | - |
+| `preference-analysis` | - |
+| `rule-engine` | `tests/main.test.ts` / `tests/consumerGuard.test.ts` 旧名改 `herdr_run` |
+| `script-interpreter` | - |
+| `security-guard` | `tests/script.test.ts:509` 条件式 `skip` 复核; `tests/guard.test.ts` 的 `herdr_use` 负断言保留 |
+| `session-channel` | - |
+| `session-paths` | 不新增集成层; `package.json` 的 `test:integration` 打印缺层原因并退出 0; 单元层补锚点 |
+| `session-title-cutoff` | `tests/main.test.ts:553` 的 `skip` 按 4.4 处理 |
+| `symbol-normalizer` | - |
+| `task-engine` | - |
+| `tool-consult` | `tests/retrieval.test.ts:209` 的 `skip` 收窄为「`channel_delegate` 进前二」; `tests/fixtures/` 1 个夹具复核 |
+
+#### 3. 代码整理 (按包)
+
+按依赖分三波: 先 `clock-base` / `herdr-use` / `memory-base`, 合并后再开依赖包, 其余独立包并行. 每包只改本包源码、本包测试的 import、本包 `package.json` / `pnpm-lock.yaml` 与本包包追踪文档; 顺序为删失效 → 并定时器 → 拆长文件 → 收判断 → 改注释.
+
+| 包 | 代码任务与文件 |
+| --- | --- |
+| `TUI` | 删 `ToolResultMetaLike` / `PickerOption` / `isInputHistoryBrowse`; 拆 `src/app/index.ts` / `src/app/adapter/dsh.ts` / `src/app/state.ts` / `src/app/layout.ts` / `src/app/adapter/types.ts`; 用户消息谓词收进 `state.ts`; 按键收进 `src/app/keys.ts`; 沙箱展示映射跟 `herdr-use` 类型; 记忆层级改读注入值; 按 1.3 表改 TUI 的路径注释; `.ts` 符号扫描; 不清 `src/main.ts` 的启动顺序 |
+| `agent-group` | `src/index.ts` 内联 `systemTimers` 换 `clock-base` 导出并处理 `:18` 计数注释; 拆 `src/core.ts`; `package.json` / `pnpm-lock.yaml` 加 `link:../clock-base` |
+| `ast-tools` | 删 `src/timers.ts`; `src/index.ts` / `src/types.ts` / `src/binary.ts` 改 import; `tests/clock.test.ts` 改从 `clock-base` 入口引; `package.json` / lock 加 `link:../clock-base`; `src/tools.ts:467` 计数注释 |
+| `auto-approve` | 删 `AuditRecent` / `allowedByRisk` / `RuleInput`; 删 `src/timers.ts`; `src/main.ts` 改 import; 拆 `src/learn.ts`; `tests/clock.test.ts`; `package.json` / lock |
+| `background-daemon` | 删 `src/commands.ts` 的 `Subcommand` 与 `src/tz.ts` 的 `daysBetween`; 上下文守卫收进 `src/main.ts` / `src/services.ts` |
+| `clock-base` | `src/timers.ts` 追加 8 函数与 4 类型; `src/index.ts` 导出; `src/timers.ts` / `src/index.ts` 的上下文守卫; `package.json` / lock |
+| `coagent` | 删 `src/herdr.ts` 的 `notesOf` |
+| `code-map` | `src/semantic/lsp.ts` 的上下文守卫收进本包入口 |
+| `command-template` | 删 `src/steps.ts` 的 `declaredModels` 与 `src/subagent.ts` 的 `availableProviders`; 删 `src/timers.ts`; `src/host.ts` 上下文守卫; `src/main.ts` import; `package.json` / lock |
+| `fs-digest` | `src/lsp.ts` 的上下文守卫收进本包入口 |
+| `goal-contract` | 删 `src/types.ts` 的 `GoalContract`; `src/index.ts:5` 路径注释补成 `task-engine/src/main.ts` |
+| `hash-edit` | `src/index.ts:294` 计数注释改指向常量; `.ts` 符号扫描 |
+| `herdr-integration` | 删 `src/timers.ts`; import 改 `clock-base`; `tests/clock.test.ts`; `package.json` / lock |
+| `herdr-use` | 删 `src/workspace.ts` 的 `defaultConfig`; 删 `src/timers.ts`; 沙箱枚举与判定留 `src/types.ts` / `src/policy.ts`; `src/tools.ts:2` / `:258` 计数注释; `package.json` / lock |
+| `md-map` | 删 `src/indexer.ts` 的 `toPosix` |
+| `memory-base` | 删 `src/hybrid.ts` 的 `SEARCH_MODES`; 层级判定收进 `src/scope.ts` / `src/index.ts` / `src/tiers.ts`; `TUI` 只读注入值 |
+| `output-compress` | 删 `src/digest-db.ts` 的 `DigestPutOutcome` |
+| `preference-analysis` | `src/main.ts` 上下文守卫; `src/tools.ts:97` 计数注释 |
+| `rule-engine` | 删 `src/timers.ts`; 拆 `src/engine.ts`; import 改 `clock-base`; `tests/clock.test.ts`; `package.json` / lock |
+| `script-interpreter` | 删 `src/timers.ts`; 沙箱枚举改引 `herdr-use`; `src/types.ts`; `package.json` / lock 加 `link:../clock-base` 与 `link:../herdr-use` |
+| `security-guard` | 拆 `src/index.ts` |
+| `session-channel` | 删 `src/broker.ts` 的 `countTasks` 与 `src/keys.ts` 的 3 个符号; `src/index.ts` 内联 `systemTimers` 换 `clock-base` 并拆长文件; `src/inject.ts` 上下文守卫; `package.json` / lock |
+| `session-paths` | `src/index.ts` 上下文守卫收进入口 |
+| `task-engine` | 删 `src/timers.ts`; 拆 `src/index.ts` 与 `src/engine.ts`; import 改 `clock-base`; `tests/clock.test.ts`; `package.json` / lock |
+
+#### 4. 包文档 (按包)
+
+每包都改本包 `README.md`(六节) 与本包包追踪文档; `TUI` 与 15 个有 `DESIGN.md` 的包按四节归并; 命令统一 `pnpm`; 有 `docs/BACKLOG.md` 的包同步术语与命令. 下表只列专项.
+
+| 包 | 专项文档任务与文件 |
+| --- | --- |
+| `TUI` | `TUI/README.md` / `TUI/docs/DESIGN.md` / `TUI/docs/SPEC.md` / `TUI/docs/COMMANDS.md` / `TUI/docs/COMMANDS-SPEC.md` / `TUI/docs/BACKLOG.md` / `TUI/docs/design/`: 六节 / 四节, 界面四组术语, 命令, 测试节 |
+| `agent-group` | `README.md` / `docs/DESIGN.md`; 7 条断链中的 `docs/DESIGN.md` 改归档; 工具/动作数量去数字; `README.md` 的 `:9` / `:131` |
+| `ast-tools` | `README.md`: 「注册上表的两个模型侧工具」改「注册上表的模型侧工具」 |
+| `auto-approve` | `README.md`: `:32` herdr 十个工具改「herdr 终端工具」; 7 条断链中的 README 改归档; `docs/BACKLOG.md` 命令/术语 |
+| `background-daemon` | `README.md`; 命令/术语 |
+| `behavior-correction` | `README.md`; 命令/术语 |
+| `clock-base` | `README.md`; 命令/术语 |
+| `coagent` | `README.md` / `docs/DESIGN.md`: 「herdr-use 的十个工具」改「终端工具」; 7 条断链两处; `docs/BACKLOG.md` 命令/术语 |
+| `code-map` | `README.md` / `docs/DESIGN.md`; 命令/术语 |
+| `command-template` | `README.md` / `docs/DESIGN.md`; `templates/adversarial-review.md` / `templates/code-review.md` 的「评审」改「审阅」; 命令/术语 |
+| `context-report` | `README.md`; 命令/术语 |
+| `escalation-hint` | `README.md`; 命令/术语 |
+| `fs-digest` | `README.md`; 命令/术语 |
+| `goal-contract` | `README.md`; 命令/术语 |
+| `hash-edit` | `README.md`: 「注册两个模型侧工具」与「注册两个工具」去数字 |
+| `herdr-integration` | `README.md`; 命令/术语 |
+| `herdr-use` | `README.md`: `:24` 能力标题去数字、`:41` / `:93` / `:143` 去数字; 7 条断链; `docs/BACKLOG.md` 命令/术语 |
+| `md-logic` | `README.md`: `:55` 包数改 34; 命令/术语 |
+| `md-map` | `README.md` / `docs/DESIGN.md`; 命令/术语 |
+| `md-table-check` | `README.md`; `docs/BACKLOG.md` 命令/术语 |
+| `memory-base` | `README.md` / `docs/DESIGN.md`; `docs/BACKLOG.md` 命令/术语 |
+| `metric-loop` | `README.md`; 命令/术语 |
+| `output-compress` | `README.md` / `docs/DESIGN.md`; 命令/术语 |
+| `ponytail` | `README.md` / `docs/DESIGN.md`; 命令/术语 |
+| `preference-analysis` | `README.md` / `docs/DESIGN.md`; `docs/BACKLOG.md` 命令/术语 |
+| `rule-engine` | `README.md` / `docs/DESIGN.md`; 7 条断链; `docs/BACKLOG.md` 命令/术语 |
+| `script-interpreter` | `README.md`; 命令/术语 |
+| `security-guard` | `README.md`: `状态栏` 改「状态列」; 命令/术语 |
+| `session-channel` | `README.md` / `docs/DESIGN.md`: `回执` / `返回体` 统一「回执」, 命令改 pnpm; 7 条断链中的 README |
+| `session-paths` | `README.md`; 命令/术语 |
+| `session-title-cutoff` | `README.md`; 命令/术语 |
+| `symbol-normalizer` | `README.md`; 命令/术语 |
+| `task-engine` | `README.md` / `docs/DESIGN.md`; `docs/BACKLOG.md` 命令/术语 |
+| `tool-consult` | `README.md`: 7 条断链; `docs/BACKLOG.md` 命令/术语 |
+
+#### 5. 项目文档与收尾 (main)
+
+| 组 | 文件 | 动作 | 依据 |
+| --- | --- | --- | --- |
+| 阶段文档 | `docs/implementation/2026-10-28-history-cleanup-05-project-docs.md` | 新建; 写本阶段文件清单 / 实现记录 / 偏差 / 最终证据 | 流程 |
+| 根文档 | `README.md` / `README.zh.md` | 审计口径改「31 包审计快照(2026-10-22; 3 包未审)」; 宿主索引最新 `rc.3`, 上一份 `rc.2`; DESIGN 名单补 `coagent` 成 15 个; Documentation 加 `docs/GLOSSARY.md`; 命令改 pnpm; 两侧同改 | 6.3 / 6.6.1 |
+| 项目事实 | `docs/ROADMAP.md` / `docs/ARCHITECTURE-REUSE.md` | 包数改「34 个包(TUI 与 33 个插件)」; 审计加 31 包快照与 3 包未审说明, 总表 31 行保留 | 6.3 |
+| 术语表终稿 | `docs/GLOSSARY.md` | 按阶段 4 的最终术语表与 6.6 结果校一遍; 三张表与链接同步; 差异记偏差 | 6.6.1 |
+| 项目术语 | `README.md` / `README.zh.md` / `docs/ROADMAP.md` / `docs/ARCHITECTURE-REUSE.md` / `docs/BACKLOG.md` / `docs/WORKFLOW-*` | 按 6.6 处理未归包文档的术语; `docs/STATUS.md` / `docs/host` 不改 | 6.6 |
+| 宿主链接 | `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` | 只改指向本仓追踪文档的导航链接到 `docs/archived/`; 宿主结论与包数快照不动 | 6.2 / 6.3 |
+| 归档符号 | 8 个归档文件: `TUI/docs/archived/2026-09-28-init-cwd-resolution.md` / `TUI/docs/archived/2026-10-01-lazy-width-table.md` / `TUI/docs/archived/2026-10-16-width-probe-timing.md` / `archive/TUI-COMMANDS-TASKS.md` / `archive/TUI-REFACTOR-TASKS.md` / `docs/archived/2026-10-02-command-layer-residuals.md` / `hash-edit/docs/archived/2026-10-02-render-arg-order.md` / `md-table-check/docs/archived/2026-10-16-test-coverage-and-tsconfig.md` | 39 处正文按 20 条映射替换; 代码内 97 处不替换; 单独一笔, 出问题整笔回退 | 6.5 |
+| 项目命令 | 根 `README.md` / `README.zh.md` / `docs/BACKLOG.md` / 本追踪 | `npm` 命令改 `pnpm`; `AGENTS.md` / `docs/WORKFLOW-*` 已在阶段 1 改; `docs/host` / `docs/STATUS.md` / 归档不改 | 3.6 / 6.8 |
+| 总追踪 | 本文件 | 每阶段合并后追加同步记录与包合并清单; 最终写全实现记录 / 偏差 / 测试与证据 / 收尾 | 流程 |
+| 关闭 | `docs/BACKLOG.md`; 本文件 / 5 份阶段追踪 / 34 份包追踪 | 移除已完成 `#1`, 保留 `#2` 与未完成项; 全部追踪文档移入 `docs/archived/` | 流程 |
 
 ### 明确不做
 
+- 不装 `knip`, 不写 `dev/standard/`, 不加 `check:docs` / `lint:dead`; 记入「后续意向」.
+- 不开 `noUnusedLocals` / `noUnusedParameters` / `noImplicitReturns` / `exactOptionalPropertyTypes` / `noFallthroughCasesInSwitch`; 另立条目.
+- 不做 33 个插件的端到端, 不引真宿主, 不做变异测试, 不接第三方覆盖率服务.
+- 不合并归档, 不改写归档, 不修归档里的 98 条断链, 不改归档文件名与结构; 归档只做 6.5 的符号归一.
+- 不改 `docs/host` 的宿主结论与包数快照, 只改阶段 5 那一条导航链接; 不改 `docs/STATUS.md`.
+- 不归一中文标点(361 处), 不调表格列宽、空行、标题层级; 只做 2.4 的 20 种符号变体.
+- 不逐包重写工具描述与 `resolveConfig`; 3.3 / 3.4 只约束新写与本次改到的代码.
+- 不发布, 不引 changesets, 34 个包版本保持 `0.1.0`; 不扩 `exports`(只留 `goal-contract`), 不扩 `bin`(只留 `TUI`).
+- 不做全仓文件名重命名; 除入口迁移外不改包名、目录名与归档名.
+- 不清理根 `tmp/` 的 110M 未跟踪产物; 5 个空目录保留作占位.
+- 不补 `docs/ARCHITECTURE-REUSE.md` 缺的 3 个包, 只标 31 包快照与未审范围.
+- 不加 CI、钩子、ESLint、markdownlint、`.editorconfig`; 不引格式化配置.
+- 不把多个包并进一个分支; 不让包分支改实现规划、总追踪或阶段追踪; 不自动 push.
+
+### 执行顺序与门禁
+
+1. 规划确认后先提交本文件; 在 `main` 建阶段 1 追踪文档, 按「pnpm 与元数据 → 测试工具 → 入口迁移 → 规范入口」推进; 每组跑 `pnpm run check`, 入口迁移后跑全量 `pnpm run check` 与 `pnpm run test`; 入口迁移按 13 / 5 两批提交.
+2. 阶段 1 全绿后, 主分支一次写 34 份包追踪文档的测试实现规划并提交; 按包开 `.worktree/02-tests/<包>` 与 `history-cleanup/02-tests-<包>`, 每批 4 至 6 个包并行; 每包先跑基线, 再补本包用例, 通过后合并; 全部包合并后跑全量 `test` 与 `test:coverage`.
+3. 阶段 2 全绿后, 主分支补 34 份包追踪文档的代码实现规划并提交; 阶段 3 先合 `clock-base` / `herdr-use` / `memory-base`, 再合依赖包, 其余包并行; 每包按「删失效 → 并定时器 → 拆长文件 → 收判断 → 改注释」推进, 通过后合并; 全部合并后跑 `check` / `build` / `test`.
+4. 阶段 3 全绿后, 主分支补 34 份包追踪文档的包文档实现规划并提交; 按包开 `.worktree/04-package-docs/<包>` 与对应分支; 每包 `format` 与复扫通过后合并; 全部合并后跑断链 / 符号 / 术语复扫.
+5. 阶段 5 在 `main` 做根文档、项目事实、术语表终稿、宿主链接、归档符号与关闭; 全量 `check` / `build` / `test` / `test:coverage`, TUI `demo -- --smoke` 与 `smoke:pty` 通过后移追踪文档、清 `BACKLOG`; 关闭提交是本次最后一次提交.
+6. 提交点按流程阻塞询问: 决策后只提交文档, 代码实现后先 `pnpm run check` + `pnpm run build` 再提交代码, 测试通过且人工确认后提交代码与用例, 关闭后提交剩余全部. 未获同意不提交.
+
+### 验收标准
+
+- 34 个包 `check` / `build` / `test` 全绿; 覆盖率不低于基线; TUI `demo -- --smoke` 与 `smoke:pty` 通过.
+- 21 个死导出删除; 定时器只剩 `clock-base` 一份; 11 个长文件完成拆分; 6 组判断各只剩一个出口.
+- 34 份 README 六节、15 份 DESIGN 四节; 非归档断链为 0; 正文符号变体为 0; 包数统一 34.
+- 5 份阶段追踪、34 份包追踪与总追踪都有实现规划 / 实现记录 / 合并提交; 关闭后全部移入 `docs/archived/`; `docs/BACKLOG.md` 只剩未完成项.
+- `docs/STATUS.md` 未改; 交付说明交回「补 `escalation-hint` 一行, 32 个插件改 33」.
+
 ### 后续意向
 
-- 插件端到端: 34 个包各一条端到端用例, 形态为进程内起真宿主 —— 根 `devDependencies` 引 `@deepseek-ai/dsh/profile-boot` 的 `runProfile()`, 用只挂 `dsh-base` 必需子集加被测包的独立测试 profile, 经 `ctx` 的工具面执行工具、注入事件并断言落盘结果。用例放仓库根 `e2e/<包>.test.ts`, 由 `pnpm run test:e2e` 单独跑, 不进 `pnpm run test`;宿主版本随 `engines` 钉住。本轮不做, 待此任务关闭后另开条目。
+- 插件端到端: 33 个插件各一条端到端用例, 形态为进程内起真宿主 —— 根 `devDependencies` 引 `@deepseek-ai/dsh/profile-boot` 的 `runProfile()`, 用只挂 `dsh-base` 必需子集加被测包的独立测试 profile, 经 `ctx` 的工具面执行工具、注入事件并断言落盘结果。用例放仓库根 `e2e/<包>.test.ts`, 由 `pnpm run test:e2e` 单独跑, 不进 `pnpm run test`;宿主版本随 `engines` 钉住。本轮不做, 待此任务关闭后另开条目。
 - 复用审计补审: `docs/ARCHITECTURE-REUSE.md` 的 31 包快照缺 `coagent` / `tool-consult` / `escalation-hint`;按 3.9 的过期条件补 3 行并重算分布, 本轮不做。
 
 ## 实现记录
