@@ -15,7 +15,7 @@
 ## 2. 流程
 
 1. 入口询问通过后开工：改 → 验证 → 硬阈值复核 → 完成询问 → 提交（中间不设询问点）。
-2. 验证按类型：文档 / 注释类 = `format` 改动文件 + 自查 `git diff`；代码 / 配置类 = `npm run check` + `npm run build` + `npm run test`（免 demo / 真机人工确认）。
+2. 验证按类型：文档 / 注释类 = `format` 改动文件 + 自查 `git diff`；代码 / 配置类 = `pnpm run check` + `pnpm run build` + `pnpm run test`（免 demo / 真机人工确认）。
 3. **硬阈值复核**（提交前）：对本次改动范围用 `git diff --numstat` 统计——**文件数 ≤ 3 且增删行合计 ≤ 50**。不达标即停下，问用户「是否转为标准流程？」（提问方式见 `docs/WORKFLOW-STANDARD.md` §5），三选一：
    - **转标准流程**：补 BACKLOG 条目 + 追踪文档，已有改动并入，按 `docs/WORKFLOW-STANDARD.md` 继续；
    - **维持快速流程**：继续完成询问；
