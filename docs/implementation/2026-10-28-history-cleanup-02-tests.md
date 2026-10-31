@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `md-table-check` 合并, 分支 `history-cleanup/02-tests-md-table-check` (`fcb2ae0`), 合并提交 `1627c3f`; 单元 74 条, 集成 13 条, 覆盖率 100.0% / 99.0% 与改前一致; 无 `output.render`, 以 rule-engine 注入消息做投影断言; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `md-logic` 合并, 分支 `history-cleanup/02-tests-md-logic` (`cf1e931`), 合并提交 `574e8ac`; 单元 76 条, 集成 10 条, 覆盖率同命令 89.4%→95.2% / 79.5%→88.5% (阶段 1 基线分母不同, 只做同命令对比); `file_changed` 竞态与 root 下 `write_failed` 入豁免台账; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `herdr-use` 合并, 分支 `history-cleanup/02-tests-herdr-use` (`760a593`), 合并提交 `7f8c569`; 单元 136→143 条, 集成 22 条, 覆盖率 84.5%→88.6% / 71.3%→75.1%; `tests/clock.test.ts` 的 exclude 与跨包 import 按计划未动; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `herdr-integration` 合并, 分支 `history-cleanup/02-tests-herdr-integration` (`c851c4e`), 合并提交 `659a0ba`; 单元 57→60 条, 集成 11 条 (连跑 3 次全绿), 覆盖率 86.7%→91.7% / 67.2%→73.2%; win32 命名管道分支不可达, 入豁免台账; worktree 已删, coagent 已关.
