@@ -11,6 +11,7 @@ import {
   sensitiveReason,
   type KindSpec,
   type MemoryFace,
+  type MemoryPort,
   type PutResult,
   type ScopePutInput,
   type StoreRow,
@@ -293,4 +294,212 @@ test("renderInjection：空集返回 null；按重要度排序；条数 / 字符
 test("renderInjection：首条超长时整体不注入（不截断偏好正文）", () => {
   const long = entry({ text: "不要".padEnd(700, "啊") });
   assert.equal(renderInjection([long], { maxItems: 5, maxChars: 600 }), null);
+});
+
+/** 造一个可用端口，按需替换 induction / explicit / checkPrivacy。 */
+function stubPort(
+  overrides: {
+    induction?: Partial<MemoryPort["induction"]>;
+    explicit?: Partial<MemoryPort["explicit"]>;
+    checkPrivacy?: MemoryPort["checkPrivacy"];
+  } = {},
+): MemoryPort {
+  const memory = fakeMemory();
+  const created = createMemoryPort(memory.face);
+  assert.equal(created.ok, true);
+  if (!created.ok) throw new Error("unreachable");
+  return {
+    ...created.port,
+    ...(overrides.induction === undefined
+      ? {}
+      : { induction: { ...created.port.induction, ...overrides.induction } }),
+    ...(overrides.explicit === undefined
+      ? {}
+      : { explicit: { ...created.port.explicit, ...overrides.explicit } }),
+    ...(overrides.checkPrivacy === undefined
+      ? {}
+      : { checkPrivacy: overrides.checkPrivacy }),
+  };
+}
+
+test("applyEntry：句柄 skipped / 抛错都收敛为 ok:false 带原因", async () => {
+  const skipped = stubPort({
+    induction: {
+      async put(): Promise<PutResult> {
+        return {
+          ids: [],
+          sourceId: 0,
+          created: 0,
+          skipped: { reason: "闸门拒绝" },
+        };
+      },
+    },
+  });
+  assert.deepEqual(await applyEntry(skipped, entry()), {
+    ok: false,
+    ids: [],
+    reason: "闸门拒绝",
+  });
+  const noReason = stubPort({
+    induction: {
+      async put(): Promise<PutResult> {
+        return { ids: [], sourceId: 0, created: 0 };
+      },
+    },
+  });
+  assert.equal((await applyEntry(noReason, entry())).reason, "skipped");
+  const throwing = stubPort({
+    induction: {
+      async put(): Promise<PutResult> {
+        throw new Error("库只读");
+      },
+    },
+  });
+  assert.deepEqual(await applyEntry(throwing, entry()), {
+    ok: false,
+    ids: [],
+    reason: "库只读",
+  });
+  // 列举接口抛错不影响写入（幂等查询只是优化）
+  const memory = fakeMemory();
+  const created = createMemoryPort(memory.face);
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const listThrows: MemoryPort = {
+    ...created.port,
+    face: {
+      ...created.port.face,
+      async list() {
+        throw new Error("list 不可用");
+      },
+    },
+  };
+  assert.equal((await applyEntry(listThrows, entry())).ok, true);
+});
+
+test("applyExplicit：隐私拦截 / skipped / 抛错", async () => {
+  assert.deepEqual(
+    await applyExplicit(
+      stubPort({ checkPrivacy: () => "疑似凭据文件" }),
+      entry(),
+    ),
+    { ok: false, ids: [], reason: "疑似凭据文件" },
+  );
+  assert.deepEqual(
+    await applyExplicit(
+      stubPort({
+        explicit: {
+          async put(): Promise<PutResult> {
+            return { ids: [], sourceId: 0, created: 0 };
+          },
+        },
+      }),
+      entry(),
+    ),
+    { ok: false, ids: [], reason: "skipped" },
+  );
+  assert.deepEqual(
+    await applyExplicit(
+      stubPort({
+        explicit: {
+          async put(): Promise<PutResult> {
+            throw new Error("用户层不可写");
+          },
+        },
+      }),
+      entry(),
+    ),
+    { ok: false, ids: [], reason: "用户层不可写" },
+  );
+});
+
+test("retireEntry：forget 抛错 -> ok:false 且 removed 0", async () => {
+  const port = stubPort({
+    induction: {
+      async forget(): Promise<number> {
+        throw new Error("forget 失败");
+      },
+    },
+  });
+  assert.deepEqual(
+    await retireEntry(
+      port,
+      entry({ memory: { scope: "induction", tier: "project", id: 3 } }),
+    ),
+    { ok: false, removed: 0, reason: "forget 失败" },
+  );
+});
+
+test("createMemoryPort：隐私闸抛错 / 可写层不一致 / registerKind 抛错都明确失败", () => {
+  const privacyThrows = fakeMemory();
+  privacyThrows.face.checkPrivacy = () => {
+    throw new Error("闸门崩溃");
+  };
+  const port = createMemoryPort(privacyThrows.face);
+  assert.equal(port.ok, true);
+  if (port.ok) {
+    assert.equal(port.port.checkPrivacy("普通偏好"), "隐私预检失败: 闸门崩溃");
+  }
+
+  const mismatched: MemoryFace = {
+    registerKind(spec: KindSpec) {
+      // 返回句柄形状正确、但可写层与注册值不符
+      return {
+        kind: spec.kind,
+        writableTiers: ["session"],
+        async put(): Promise<PutResult> {
+          return { ids: [], sourceId: 0, created: 0 };
+        },
+        async forget() {
+          return 0;
+        },
+      };
+    },
+    checkPrivacy() {
+      return null;
+    },
+  };
+  const mismatch = createMemoryPort(mismatched);
+  assert.equal(mismatch.ok, false);
+  assert.ok(mismatch.ok === false && mismatch.reason.includes("可写层"));
+
+  const registerThrows: MemoryFace = {
+    registerKind() {
+      throw new Error("注册表已满");
+    },
+    checkPrivacy() {
+      return null;
+    },
+  };
+  const failed = createMemoryPort(registerThrows);
+  assert.deepEqual(failed, {
+    ok: false,
+    reason: "registerKind 失败: 注册表已满",
+  });
+});
+
+test("renderInjection：重要度相同时按最近证据倒序", () => {
+  const rendered = renderInjection(
+    [
+      entry({
+        id: "old",
+        text: "旧证据",
+        importance: 4,
+        lastSeen: 1,
+        key: "a",
+      }),
+      entry({
+        id: "new",
+        text: "新证据",
+        importance: 4,
+        lastSeen: 9,
+        key: "b",
+      }),
+    ],
+    { maxItems: 5, maxChars: 600 },
+  );
+  assert.ok(rendered !== null);
+  assert.ok(
+    rendered.text.indexOf("- 新证据") < rendered.text.indexOf("- 旧证据"),
+  );
 });

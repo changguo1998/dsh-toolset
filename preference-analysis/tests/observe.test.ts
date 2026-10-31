@@ -218,3 +218,130 @@ test("事件时间优先于注入时钟；畸形事件安全跳过", () => {
   assert.deepEqual(observer.handle("s1", "/p", null), []);
   assert.deepEqual(observer.handle("s1", "/p", { type: 42 }), []);
 });
+
+test("回合状态：turn/start 显式回合号、turn/end 字符串 reason 同样标记打断", () => {
+  const observer = new Observer();
+  observer.handle("s1", "/p", { type: "turn/start", data: { turn: 5 } });
+  observer.handle("s1", "/p", {
+    type: "turn/end",
+    data: { reason: "interrupted" },
+  });
+  const out = evidences(observer.handle("s1", "/p", userEvent("不要用 emoji")));
+  assert.equal(out[0]?.weight, 1.5);
+  // 打断标记已消费：下一条回到普通权重
+  assert.equal(
+    evidences(observer.handle("s1", "/p", userEvent("不要用 emoji")))[0]
+      ?.weight,
+    1,
+  );
+});
+
+test("自定义标记与上限：不命中即 null，上限按码点算", () => {
+  const observer = new Observer({
+    markers: ["请用"],
+    correctionMarkers: ["重来"],
+    maxConstraintChars: 6,
+  });
+  assert.deepEqual(observer.handle("s1", "/p", userEvent("不要用 emoji")), []);
+  assert.deepEqual(
+    observer.handle("s1", "/p", userEvent("请用 tab 缩进")),
+    [],
+    "超上限的句子不算约束",
+  );
+  const out = evidences(observer.handle("s1", "/p", userEvent("请用 tab")));
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.text, "请用 tab");
+});
+
+test("审批事件缺字段：asked 缺 id / toolName、tool/call 缺 name / callId、decided 缺 id 都不入账", () => {
+  const observer = new Observer();
+  assert.deepEqual(
+    observer.handle("s1", "/p", {
+      type: "approval/asked",
+      data: { toolName: "bash" },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    observer.handle("s1", "/p", {
+      type: "approval/asked",
+      data: { id: "ap_x" },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    observer.handle("s1", "/p", {
+      type: "tool/call",
+      data: { callId: "c1" },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    observer.handle("s1", "/p", {
+      type: "approval/decided",
+      data: { outcome: "rejected" },
+    }),
+    [],
+  );
+  // 配对表为空时 decided 只计忽略
+  assert.deepEqual(
+    observer.handle("s1", "/p", {
+      type: "approval/decided",
+      data: { id: "missing", outcome: "rejected" },
+    }),
+    [],
+  );
+  assert.equal(observer.stats.ignoredApprovals, 1);
+});
+
+test("paramHead：非 JSON 字符串退化为命令首段、数字参数与非法 URL 的边界", () => {
+  assert.equal(paramHead("not-json --flag"), "not-json");
+  assert.equal(paramHead(42), undefined);
+  assert.equal(paramHead({ url: "not a url" }), "not a url");
+  assert.equal(paramHead({ command: "   " }), undefined);
+  assert.equal(paramHead({ file_path: '"quoted path/file.txt"' }), "file.txt");
+  assert.equal(paramHead({ cmd: "command env FOO=1 ls" }), "ls");
+  assert.equal(paramHead({ script: "python3 scripts/run.py" }), "python3");
+});
+
+test("messageText：非对象内容块与空内容跳过", () => {
+  assert.equal(
+    messageText({ content: ["裸字符串", { type: "text", text: "正文" }] }),
+    "正文",
+  );
+  assert.equal(messageText({ content: [] }), "");
+});
+
+test("审批配对表上限：超过 500 条丢最早者，最新一条仍可配对", () => {
+  const observer = new Observer();
+  for (let index = 0; index <= 500; index += 1) {
+    observer.handle("s1", "/p", {
+      type: "tool/call",
+      data: {
+        name: "bash",
+        callId: `c${index}`,
+        arguments: JSON.stringify({ command: "rm -rf /tmp/x" }),
+      },
+    });
+    observer.handle("s1", "/p", {
+      type: "approval/asked",
+      data: { id: `a${index}`, toolName: "bash", callId: `c${index}` },
+    });
+  }
+  // 最早的一条已被挤出配对表
+  assert.deepEqual(
+    observer.handle("s1", "/p", {
+      type: "approval/decided",
+      data: { id: "a0", outcome: "rejected" },
+    }),
+    [],
+  );
+  const latest = evidences(
+    observer.handle("s1", "/p", {
+      type: "approval/decided",
+      data: { id: "a500", outcome: "rejected" },
+    }),
+  );
+  assert.equal(latest.length, 1);
+  assert.equal(latest[0]?.key, normalizeKey("bash:rm"));
+});

@@ -20,6 +20,7 @@ import {
   ledgerPathFor,
   planAging,
   touchSession,
+  writeLedger,
   type LedgerEntry,
 } from "../src/ledger.ts";
 
@@ -203,4 +204,190 @@ test("suppressed 去重且保留最近者；sessions 去重且有上限", () => 
   touchSession(target, "s10");
   assert.equal(target.sessions[19], "s10");
   assert.equal(target.sessions.filter((id) => id === "s10").length, 1);
+});
+
+test("snapshot：尚未载入时返回空账簿（不读盘、不抛错）", () => {
+  const store = new LedgerStore("/nonexistent", { now: () => 777 });
+  const snapshot = store.snapshot();
+  assert.equal(snapshot.revision, 0);
+  assert.deepEqual(snapshot.entries, []);
+  assert.equal(snapshot.updatedAt, 777);
+});
+
+test("async load：坏文件改名留档，版本不符进只读并拒绝", async () => {
+  const home = await tempHome();
+  const path = ledgerPathFor(home);
+  await mkdir(join(home, "preference-analysis"), { recursive: true });
+  await writeFile(path, "{ 坏 JSON", "utf8");
+  const store = new LedgerStore(home, { now: () => 909 });
+  const ledger = await store.load();
+  assert.equal(ledger.revision, 0);
+  assert.ok(
+    store.warnings.some((line) => line.includes("已改名为")),
+    `实际：${store.warnings.join(" | ")}`,
+  );
+  const names = await readdir(join(home, "preference-analysis"));
+  assert.ok(names.some((name) => name === "ledger.json.corrupt-909"));
+
+  const futurePath = ledgerPathFor(home);
+  await writeFile(futurePath, `${JSON.stringify({ version: 7 })}\n`, "utf8");
+  const readOnly = new LedgerStore(home);
+  await assert.rejects(() => readOnly.load(), LedgerReadOnlyError);
+  assert.equal(readOnly.readOnly, true);
+  assert.ok(readOnly.warnings.some((line) => line.includes("版本 7")));
+});
+
+test("解析：条目级畸形字段按缺省收敛，坏条目直接丢", async () => {
+  const home = await tempHome();
+  const path = ledgerPathFor(home);
+  await mkdir(join(home, "preference-analysis"), { recursive: true });
+  await writeFile(
+    path,
+    `${JSON.stringify({
+      version: 1,
+      revision: -2,
+      unformed: "x",
+      updatedAt: "bad",
+      entries: [
+        null,
+        "字符串条目",
+        { id: "", key: "k", text: "t" },
+        {
+          id: "e1",
+          key: "k1",
+          text: "坏字段条目",
+          status: "bogus",
+          origin: "bogus",
+          evidence: "x",
+          importance: 99,
+          sessions: ["s1", 3, "", "s1"],
+          title: "T",
+          activatedAt: "no",
+          retiredReason: "bogus",
+          memory: { scope: "x", tier: "project", id: 1 },
+          project: 7,
+          firstSeen: "x",
+          lastSeen: "y",
+        },
+        {
+          id: "e2",
+          key: "k2",
+          text: "完整条目",
+          status: "retired",
+          origin: "approval",
+          evidence: 2,
+          importance: 1,
+          sessions: ["s2"],
+          retiredReason: "rejected",
+          activatedAt: 5,
+          memory: { scope: "explicit", tier: "user", id: 9 },
+        },
+      ],
+      suppressed: ["a", 2, "", null],
+    })}\n`,
+    "utf8",
+  );
+  const store = new LedgerStore(home, { now: () => 1 });
+  const ledger = store.loadSync();
+  assert.equal(ledger.revision, 0, "负 revision 归 0");
+  assert.equal(ledger.unformed, 0, "非数字 unformed 归 0");
+  assert.equal(ledger.updatedAt, 0, "非数字 updatedAt 归 0");
+  assert.deepEqual(
+    ledger.entries.map((entry) => entry.id),
+    ["e1", "e2"],
+  );
+  const broken = ledger.entries[0]!;
+  assert.equal(broken.status, "observe");
+  assert.equal(broken.origin, "user");
+  assert.equal(broken.evidence, 0);
+  assert.equal(broken.importance, 5, "importance 收紧到 1..5");
+  assert.deepEqual(broken.sessions, ["s1"], "去重且丢非字符串");
+  assert.equal(broken.title, "T");
+  assert.equal(broken.activatedAt, undefined);
+  assert.equal(broken.retiredReason, undefined);
+  assert.equal(broken.memory, undefined, "非法库行引用丢弃");
+  assert.equal(broken.project, "");
+  const complete = ledger.entries[1]!;
+  assert.deepEqual(complete.memory, { scope: "explicit", tier: "user", id: 9 });
+  assert.equal(complete.activatedAt, 5);
+  assert.equal(complete.retiredReason, "rejected");
+  assert.deepEqual(ledger.suppressed, ["a"], "抑制键只收非空字符串");
+});
+
+test("pruneEntries：超过 500 条先淘汰退休 / 观察中与最久未见的条目", async () => {
+  const home = await tempHome();
+  const store = new LedgerStore(home, { now: () => 1_000 });
+  await store.update((draft) => {
+    for (let index = 0; index < 3; index += 1) {
+      draft.entries.push(
+        entry({
+          id: `retired-${index}`,
+          key: `r${index}`,
+          status: "retired",
+          lastSeen: 1,
+        }),
+      );
+    }
+    for (let index = 0; index < 2; index += 1) {
+      draft.entries.push(
+        entry({
+          id: `observe-${index}`,
+          key: `o${index}`,
+          status: "observe",
+          lastSeen: 2,
+        }),
+      );
+    }
+    for (let index = 0; index < 500; index += 1) {
+      draft.entries.push(
+        entry({
+          id: `active-${index}`,
+          key: `a${index}`,
+          status: "active",
+          lastSeen: 100 + index,
+        }),
+      );
+    }
+  });
+  const onDisk = JSON.parse(await readFile(ledgerPathFor(home), "utf8")) as {
+    entries: LedgerEntry[];
+  };
+  assert.equal(onDisk.entries.length, 500);
+  const ids = new Set(onDisk.entries.map((item) => item.id));
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal(ids.has(`retired-${index}`), false, "退休条目先淘汰");
+  }
+  for (let index = 0; index < 2; index += 1) {
+    assert.equal(ids.has(`observe-${index}`), false, "观察中条目次之");
+  }
+  assert.equal(ids.has("active-0"), true, "生效条目保留");
+});
+
+test("writeLedger：rename 失败时清理临时文件并抛出原错误", async () => {
+  const home = await tempHome();
+  const path = join(home, "as-directory", "ledger.json");
+  await mkdir(path, { recursive: true });
+  await assert.rejects(() => writeLedger(path, emptyLedger(1)));
+  const names = await readdir(join(home, "as-directory"));
+  assert.deepEqual(names, ["ledger.json"], "不留 .tmp- 临时文件");
+});
+
+test("update：读盘遇到非 ENOENT 错误照原样抛出，不写入", async () => {
+  const home = await tempHome();
+  const path = join(home, "as-directory", "ledger.json");
+  await mkdir(path, { recursive: true });
+  const store = new LedgerStore(home, { path, now: () => 1 });
+  store.loadSync();
+  assert.ok(
+    store.warnings.some((line) => line.includes("账簿读取失败")),
+    `实际：${store.warnings.join(" | ")}`,
+  );
+  await assert.rejects(() => store.update(() => {}));
+  assert.deepEqual(await readdir(join(home, "as-directory")), ["ledger.json"]);
+});
+
+test("addSuppressed：空 key 忽略", () => {
+  const ledger = emptyLedger();
+  addSuppressed(ledger, "");
+  assert.deepEqual(ledger.suppressed, []);
 });
