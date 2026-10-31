@@ -9,9 +9,11 @@ import { test } from "node:test";
 import {
   GroupService,
   judgeAgentState,
+  memberStatesOf,
   readGroupStatus,
   resolveConfig,
   verdictOf,
+  type MemberStateLookup,
 } from "../src/core.ts";
 import { failure, isFailure } from "../src/model.ts";
 import { MemoryBookStore } from "../src/store.ts";
@@ -1068,4 +1070,131 @@ test("状态巡查（2b）：statusPollMs=0 不注册轮询 interval", () => {
   });
   assert.equal(service.cachedStateEntries, 0);
   assert.equal(pollCallbacks.length, 0, "statusPollMs=0 不轮询");
+});
+
+// ---------- 配置边界与成员状态判定降级 ----------
+
+test("resolveConfig：缺省值、非法值回落、状态文件名白名单与 statusPollMs=0", () => {
+  const defaults = resolveConfig();
+  assert.deepEqual(defaults, {
+    enabled: true,
+    defaultTimeoutMs: 30 * 60 * 1000,
+    maxInstructionRecords: 50,
+    mirror: true,
+    stateFileName: "agent-group.json",
+    stuckAfterMs: 5 * 60 * 1000,
+    statusPollMs: 20 * 1000,
+  });
+
+  // 显式关闭 / 合法值原样（向下取整）
+  const explicit = resolveConfig({
+    enabled: false,
+    defaultTimeoutMs: 1234.9,
+    maxInstructionRecords: 7,
+    mirror: false,
+    stuckAfterMs: 60_000,
+  });
+  assert.equal(explicit.enabled, false);
+  assert.equal(explicit.defaultTimeoutMs, 1234);
+  assert.equal(explicit.maxInstructionRecords, 7);
+  assert.equal(explicit.mirror, false);
+  assert.equal(explicit.stuckAfterMs, 60_000);
+
+  // 非法值回落缺省（0 / 负数 / 非有限数都不是合法上限）
+  for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const config = resolveConfig({ defaultTimeoutMs: bad, stuckAfterMs: bad });
+    assert.equal(config.defaultTimeoutMs, 30 * 60 * 1000, String(bad));
+    assert.equal(config.stuckAfterMs, 5 * 60 * 1000, String(bad));
+  }
+
+  // 状态文件名只认 [A-Za-z0-9._-]，且禁止路径穿越
+  assert.equal(
+    resolveConfig({ stateFileName: "groups.json" }).stateFileName,
+    "groups.json",
+  );
+  for (const bad of ["../x.json", "a/b.json", "..", ".", "", "带空格.json"]) {
+    assert.equal(
+      resolveConfig({ stateFileName: bad }).stateFileName,
+      "agent-group.json",
+      `应回落缺省：${JSON.stringify(bad)}`,
+    );
+  }
+
+  // statusPollMs 允许 0（不轮询），负数与非数字回落缺省
+  assert.equal(resolveConfig({ statusPollMs: 0 }).statusPollMs, 0);
+  assert.equal(resolveConfig({ statusPollMs: -5 }).statusPollMs, 20 * 1000);
+  assert.equal(
+    resolveConfig({ statusPollMs: Number.NaN }).statusPollMs,
+    20 * 1000,
+  );
+});
+
+test("memberStatesOf：缺 lookup / 在线集读失败 / 单成员读失败 / 抛错都按缺省处理", async () => {
+  const group = {
+    id: "g-1",
+    name: "team",
+    managerSessionId: MANAGER,
+    createdAt: 1,
+    members: {
+      manager: {
+        name: "manager",
+        target: MANAGER,
+        sessionId: MANAGER,
+        level: 0,
+        role: "manager" as const,
+        addedAt: 1,
+      },
+      alice: {
+        name: "alice",
+        target: "sess-alice",
+        sessionId: "sess-alice",
+        level: 0,
+        role: "member" as const,
+        addedAt: 1,
+      },
+    },
+    links: {},
+    peerLinks: {},
+    instructions: [],
+  };
+
+  assert.equal(
+    await memberStatesOf(group, undefined, 1_000_000, 300_000),
+    undefined,
+  );
+
+  const peersFail = new FakeTransport();
+  peersFail.peersFailure = failure("transport_error", "断连", "重启");
+  assert.equal(
+    await memberStatesOf(group, peersFail, 1_000_000, 300_000),
+    undefined,
+    "在线集读失败 → 状态不可用，不阻塞只读",
+  );
+
+  // 单成员状态牌读失败：按「在线无牌」处理，其余成员照常判定
+  const memberFail = new FakeTransport();
+  memberFail.online.add("sess-alice");
+  memberFail.statusOfFailure = failure("transport_error", "读超时", "重试");
+  const states = await memberStatesOf(group, memberFail, 1_000_000, 300_000);
+  assert.deepEqual(
+    states?.map((state) => [state.name, state.state]),
+    [
+      ["manager", "offline"],
+      ["alice", "idle"],
+    ],
+  );
+
+  // 端口抛错（不是返回失败信封）→ 整体按不可用
+  const throwing: MemberStateLookup = {
+    async peers() {
+      throw new Error("连接被重置");
+    },
+    async statusOf() {
+      return { ok: true };
+    },
+  };
+  assert.equal(
+    await memberStatesOf(group, throwing, 1_000_000, 300_000),
+    undefined,
+  );
 });
