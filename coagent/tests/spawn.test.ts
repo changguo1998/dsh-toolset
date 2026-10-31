@@ -361,3 +361,29 @@ test("未挂 sessionPaths 时降级到 $DSH_HOME/coagent/<会话 id>/", async ()
   >;
   assert.equal(recordsOf(index)[coagentId]?.["state"], "ready");
 });
+
+test("服务面调用抛错：不裸抛给宿主，按失败码与回滚口径收尾", async () => {
+  const h = await harness();
+
+  // create 抛错：没有可回滚对象，回执给 terminal_create_failed。
+  h.herdr.create = async () => {
+    throw new Error("herdr 服务面断开");
+  };
+  const created = await h.spawn();
+  assert.equal(created["ok"], false);
+  assert.equal(created["error"], "terminal_create_failed");
+  assert.match(String(created["reason"]), /服务面调用抛错：herdr 服务面断开/);
+  assert.equal(h.herdr.countOf("close"), 0);
+
+  // run 抛错：仍按失败回滚一次 close。
+  const second = await harness();
+  second.herdr.run = async () => {
+    throw new Error("send-text 通道关闭");
+  };
+  const ran = await second.spawn();
+  assert.equal(ran["ok"], false);
+  assert.equal(ran["error"], "launch_failed");
+  assert.match(String(ran["reason"]), /提交 fffdsh 失败/);
+  assert.match(String(ran["reason"]), /服务面调用抛错/);
+  assert.equal(second.herdr.countOf("close"), 1);
+});

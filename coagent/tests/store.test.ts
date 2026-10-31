@@ -6,7 +6,14 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -219,4 +226,150 @@ test("父进程退出：非 closed 记录标 closed(reason=parent-exit) 并写�
   } finally {
     await h.cleanup();
   }
+});
+
+test("索引形状校验: 记录缺必需字段或不是对象时按形状不符拒绝", async () => {
+  const root = await tempRoot();
+  const store = new FileCoagentStore(root, { maxRecords: 10 });
+
+  await store.update((index) => {
+    index.records["c-00000000"] = {
+      coagent_id: "c-00000000",
+      state: "ready",
+      cwd: "/tmp/work",
+      label: "x",
+      terminal_label: "coagent/x",
+      cmd: "fffdsh",
+      started_at: 1,
+      updated_at: 1,
+    };
+  });
+  const raw = JSON.parse(await readFile(store.indexPath, "utf8")) as {
+    records: Record<string, unknown>;
+  };
+
+  for (const broken of [
+    { ...raw, records: { "c-00000000": null } },
+    { ...raw, records: { "c-00000000": { state: "ready" } } },
+    {
+      ...raw,
+      records: { "c-00000000": { coagent_id: "c-1", state: "ready" } },
+    },
+    { version: 1 },
+    { version: 1, records: { "c-1": "不是对象" } },
+  ]) {
+    await writeFile(store.indexPath, JSON.stringify(broken), "utf8");
+    await assert.rejects(
+      () => store.read(),
+      (error: unknown) => {
+        assert.ok(
+          error instanceof StoreError,
+          `应抛 StoreError：${JSON.stringify(broken)}`,
+        );
+        assert.match(String(error.message), /形状不符/);
+        return true;
+      },
+    );
+  }
+});
+
+test("索引读取: 文件不可读（EACCES 之外的 IO 错误）与同步读的坏 JSON 都转 StoreError", async () => {
+  const root = await tempRoot();
+  const store = new FileCoagentStore(root, { maxRecords: 10 });
+  // 把索引路径做成目录：读的时候报 EISDIR，不是 ENOENT，故按 StoreError 处理。
+  await mkdir(store.indexPath, { recursive: true });
+
+  await assert.rejects(
+    () => store.read(),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.match(String(error.message), /读取索引失败/);
+      return true;
+    },
+  );
+  assert.throws(() => store.readSync(), StoreError);
+
+  await rm(store.indexPath, { recursive: true, force: true });
+  await writeFile(store.indexPath, "{ 坏 JSON", "utf8");
+  assert.throws(
+    () => store.readSync(),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.match(String(error.message), /不是合法 JSON/);
+      return true;
+    },
+  );
+});
+
+test("记录目录: 写失败转 StoreError；删除幂等；文件占位不当目录", async () => {
+  const root = await tempRoot();
+  const store = new FileCoagentStore(root, { maxRecords: 10 });
+  const record = recordAt(0);
+  await store.update((index) => {
+    index.records[record.coagent_id] = record;
+  });
+
+  // 记录目录被同名文件占位 → mkdir 失败 → StoreError。
+  await mkdir(root, { recursive: true });
+  await writeFile(store.recordDir(record.coagent_id), "占位", "utf8");
+  await assert.rejects(
+    () => store.writeArtifacts(record.coagent_id, { meta: record }),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.match(String(error.message), /写记录目录失败/);
+      return true;
+    },
+  );
+  assert.equal(await store.hasRecordDir(record.coagent_id), false);
+
+  const removed = await store.removeRecordDir(record.coagent_id);
+  assert.equal(removed, false, "文件不是目录：不算删掉了记录目录");
+  assert.equal(await store.hasRecordDir(record.coagent_id), false);
+
+  // 真目录：第一次删掉返回 true，第二次幂等返回 false。
+  await store.writeArtifacts(record.coagent_id, { meta: record });
+  assert.equal(await store.removeRecordDir(record.coagent_id), true);
+  assert.equal(await store.removeRecordDir(record.coagent_id), false);
+});
+
+test("saveSync: 根目录被文件占位时抛 StoreError", async () => {
+  const dir = await tempRoot();
+  const root = join(dir, "not-a-dir");
+  await writeFile(root, "x", "utf8");
+  const store = new FileCoagentStore(root, { maxRecords: 10 });
+
+  assert.throws(
+    () =>
+      store.saveSync({
+        version: 1,
+        records: { "c-00000000": recordAt(0) },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof StoreError);
+      assert.match(String(error.message), /写索引失败/);
+      return true;
+    },
+  );
+});
+
+test("update: 并发读改写串行，两条记录都不丢", async () => {
+  const root = await tempRoot();
+  const store = new FileCoagentStore(root, { maxRecords: 10 });
+  const first = recordAt(1);
+  const second = recordAt(2);
+
+  await Promise.all([
+    store.update((index) => {
+      index.records[first.coagent_id] = first;
+    }),
+    store.update((index) => {
+      index.records[second.coagent_id] = second;
+    }),
+  ]);
+
+  const index = await store.read();
+  assert.deepEqual(Object.keys(index.records).sort(), [
+    first.coagent_id,
+    second.coagent_id,
+  ]);
 });
