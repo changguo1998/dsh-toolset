@@ -316,6 +316,67 @@ test("全局面 list / search：跨层合并并按 kind 与层过滤", async () 
   }
 });
 
+test("句柄：非法层名在 put / forget 都抛错（区别于越权层）", async () => {
+  const ws = await workspace();
+  try {
+    const bundle = createMemoryBundle({
+      config: ws.config,
+      sessionPaths: ws.sessionPaths,
+    });
+    const memory = createGlobalService(bundle, ws.config);
+    try {
+      const kind = memory.registerKind({ kind: "note" });
+      await assert.rejects(
+        () => kind.put({ content: "层名打错", tier: "bogus" as never }),
+        /不是合法层/,
+      );
+      await assert.rejects(
+        () => kind.forget([{ tier: "bogus" as never, ids: [1] }]),
+        /不是合法层/,
+      );
+    } finally {
+      bundle.dispose();
+    }
+  } finally {
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
+test("全局面 list：listLimit 缺省生效、limit 超上限收窄、offset 负数归零", async () => {
+  const ws = await workspace();
+  try {
+    const bundle = createMemoryBundle({
+      config: { ...ws.config, listLimit: 2 },
+      sessionPaths: ws.sessionPaths,
+    });
+    const memory = createGlobalService(bundle, { ...ws.config, listLimit: 2 });
+    try {
+      const kind = memory.registerKind({
+        kind: "note",
+        writableTiers: ["user"],
+      });
+      for (const text of ["第一条", "第二条", "第三条"]) {
+        await kind.put({ content: `${text}条目`, tier: "user" });
+      }
+      assert.equal((await memory.list()).length, 2, "listLimit 缺省生效");
+      assert.equal(
+        (await memory.list({ limit: 1000 })).length,
+        3,
+        "上限不抛错",
+      );
+      assert.equal(
+        (await memory.list({ limit: 2, offset: -5 })).length,
+        2,
+        "负 offset 归零",
+      );
+    } finally {
+      bundle.dispose();
+    }
+  } finally {
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
 test("apply：暴露 memory 面并注册 memory_query，日志报 session-paths 是否挂载", async () => {
   const ws = await workspace();
   const logs: string[] = [];

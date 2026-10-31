@@ -116,6 +116,15 @@ test("proximitySpan：覆盖词项数与最小窗口跨度（含 CJK 与覆盖�
     covered: 2,
     span: 2,
   });
+  // 同一词项多次出现时取最小窗口；空词项跳过、未出现的词项不计覆盖。
+  assert.deepEqual(proximitySpan("alpha beta alpha", ["alpha", "beta"]), {
+    covered: 2,
+    span: 5,
+  });
+  assert.deepEqual(proximitySpan("nothing here", ["", "absent"]), {
+    covered: 0,
+    span: -1,
+  });
 });
 
 test("hybridPoolSize：倍数 + 下限 20 + 上限 200", () => {

@@ -260,6 +260,57 @@ test("listRows：按 kind 列举（created_at 倒序）+ 项目过滤 + 分页",
   }
 });
 
+test("缺省构造：tier=session、空注册表拒写、隐私闸仍生效", async () => {
+  const db = await openKnowledgeDatabase(":memory:");
+  const kb = new KnowledgeService(db);
+  try {
+    assert.equal(kb.tier, "session");
+    assert.deepEqual(kb.kinds(), []);
+    assert.equal(kb.countAll(), 0);
+    assert.deepEqual(kb.search({ query: "任意" }), []);
+    assert.deepEqual(
+      await kb.put({ kind: "note", project: "p", content: "未注册即拒" }),
+      { ids: [], sourceId: 0, created: 0, skipped: "kind" },
+      "缺省空注册表：任何分类都未注册",
+    );
+    assert.equal(
+      (
+        await kb.put({
+          kind: "note",
+          project: "p",
+          content: "password: supersecretvalue",
+        })
+      ).skipped,
+      "pattern",
+      "缺省闸门仍走内置隐私底线（先于注册校验）",
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("updateRow：未注册 kind / 未建表都按 skipped 拒，不抛", async () => {
+  const { db, kb } = await makeService();
+  try {
+    assert.deepEqual(
+      await kb.updateRow({ kind: "nope", id: 1 }, { content: "x" }),
+      {
+        ok: false,
+        skipped: "kind",
+      },
+    );
+    assert.deepEqual(
+      await kb.updateRow({ kind: "note", id: 1 }, { content: "x" }),
+      {
+        ok: false,
+        skipped: "missing",
+      },
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("kinds / tableFor：只报已注册分类与物理表名", async () => {
   const { db, kb, registry } = await makeService();
   try {
