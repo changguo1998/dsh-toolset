@@ -259,6 +259,57 @@ test("createTimers: now 注入后读写同一时钟源", () => {
   assert.equal(timers.now(), 1234);
 });
 
+test("createTimers: unref 关掉时排期照常触发", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const timers = createTimers({ unref: false });
+  let fired = 0;
+  let ticks = 0;
+  timers.schedule(10, () => {
+    fired += 1;
+  });
+  const dispose = timers.interval(10, () => {
+    ticks += 1;
+  });
+  t.mock.timers.tick(37);
+  assert.equal(fired, 1);
+  assert.equal(ticks, 3);
+  dispose();
+  t.mock.timers.tick(30);
+  assert.equal(ticks, 3, "撤销后不再触发");
+});
+
+test("createTimers: ctx 为 null / 非对象 / effect 非函数时不登记、排期照常", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  for (const ctx of [null, "ctx", 42, { effect: 42 }]) {
+    const timers = createTimers({ ctx });
+    let fired = 0;
+    timers.schedule(5, () => {
+      fired += 1;
+    });
+    t.mock.timers.tick(10);
+    assert.equal(fired, 1, `ctx=${String(ctx)} 时排期照常触发`);
+  }
+});
+
+test("createTimers: 读 effect 抛错时静默跳过，排期照常", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const ctx: Record<string, unknown> = {};
+  Object.defineProperty(ctx, "effect", {
+    get() {
+      throw new Error("getter 抛错");
+    },
+    configurable: true,
+  });
+  const timers = createTimers({ ctx });
+  let fired = 0;
+  const dispose = timers.schedule(5, () => {
+    fired += 1;
+  });
+  t.mock.timers.tick(10);
+  assert.equal(fired, 1);
+  dispose();
+});
+
 test("resolveDelay: 负数归零，非有限数报错", () => {
   assert.equal(resolveDelay(-1), 0);
   assert.equal(resolveDelay(0), 0);
