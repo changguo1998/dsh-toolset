@@ -68,7 +68,7 @@ test("接线三处：根 check/build 链、test-parallel default_pkgs、install 
     join(repoRoot, "package.json"),
   );
   for (const script of ["check", "build"]) {
-    assert.match(root.scripts[script] ?? "", /npm --prefix auto-approve run/);
+    assert.match(root.scripts[script] ?? "", /pnpm -C auto-approve run/);
   }
   const parallel = readFileSync(
     join(repoRoot, "scripts", "test-parallel.sh"),

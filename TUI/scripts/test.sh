@@ -1,19 +1,19 @@
 #!/usr/bin/env sh
-# TUI 本地测试快捷入口（根 `npm run test:tui -- <过滤> [文件]` 与 TUI 的 `npm test` 都转发至此）。
+# TUI 本地测试快捷入口（根 `pnpm run test:tui -- <过滤> [文件]` 与 TUI 的 `pnpm test` 都转发至此）。
 #
 # 用法：
-#   scripts/test.sh                     # TUI 全量测试（即 TUI 的 `npm test`）
+#   scripts/test.sh                     # TUI 全量测试（即 TUI 的 `pnpm test`）
 #   scripts/test.sh <name>              # 按测试名过滤（--test-name-pattern 正则，跨全部文件）
 #   scripts/test.sh <file.test.ts>      # 指定单个测试文件（裸文件名自动补 tests/ 前缀）
 #   scripts/test.sh <name> <file>       # 单文件内按名过滤
 #
 # 为什么用包装脚本：node --test 的 --test-name-pattern 必须放在文件参数 **之前**，
-# 而 `npm run x -- <arg>` 只会把参数追加到命令末尾（放末尾会被当成文件路径、过滤失效）。
+# 而 `pnpm run x -- <arg>` 只会把参数追加到命令末尾（放末尾会被当成文件路径、过滤失效）。
 # 本脚本把「含 .test.ts 的参数当作文件、其余当作名字正则」安插到正确位置。
 #
 # 不要加 --test-force-exit（BACKLOG 3.5.3 / 3.5.4 实测）：node v24.16.0 在并行文件模式下
 # force-exit 会**静默丢尾部结果**（本套件报数在 1006~1091 间浮动、真值 1115，0 失败——
-# 即「全绿」可能是漏跑出来的；输出重定向到文件时同样丢，故根 `npm test` 汇总也会偏低）。
+# 即「全绿」可能是漏跑出来的；输出重定向到文件时同样丢，故根 `pnpm test` 汇总也会偏低）。
 # 整轮挂死的真因是**测试侧句柄泄漏**：tests/focus-cursor.test.ts 建 renderer 后不 close，
 # 而 renderer 按设计持有 stdin（stdio.resume()）→ 该文件子进程永不退出，父 runner 卡死。
 # 已在测试侧用 `t.after(() => renderer.close())` 根治，故此处保持默认并发 + 自然退出

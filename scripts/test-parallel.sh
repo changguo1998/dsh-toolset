@@ -1,13 +1,15 @@
 #!/usr/bin/env sh
-# 全部子包测试并行入口（根 `npm test` 委托本脚本）。
+# 全部子包测试并行入口（根 `pnpm test` 委托本脚本）。
 #
 # 调度：优先 GNU parallel（-j 并发，默认核数，TEST_JOBS 可覆盖），缺失时退回
 # xargs -P（TEST_RUNNER=auto|parallel|xargs 可强制）。单包执行单元
 # scripts/test-one.sh 写 <logdir>/<pkg>.{log,exit,ms}，全部结束后统一聚合。
+# 脚本由 TEST_SCRIPT 指定（缺省 test，可传 test:integration / test:e2e），
+# 包内没有该脚本时记 SKIP。
 #
 # 为什么并行：30 个包各自独立（node --test 各自进程），串行 `&&` 只是顺序
 # 等待；并行后墙钟 ≈ 最慢包（当前 TUI ~8.6s）。
-# 输出：每包 OK/FAIL + 耗时 + pass/fail 计数；FAIL 的包附日志。
+# 输出：每包 OK/SKIP/FAIL + 耗时 + pass/fail 计数；FAIL 的包附日志。
 # 退出码：任一包失败即非零（不 fail-fast——等全部跑完，便于一次看到所有失败）。
 #
 # 用法：scripts/test-parallel.sh [包名...]   # 缺省 = 全部子包
@@ -52,6 +54,10 @@ for p in $runpkgs; do
     safe=$(printf '%s' "$p" | tr '/.' '__')
     ms=$(cat "$logbase/$safe.ms" 2> /dev/null || echo 0)
     if [ "$(cat "$logbase/$safe.exit" 2> /dev/null || echo 1)" = "0" ]; then
+        if grep -q "^SKIP " "$logbase/$safe.log" 2> /dev/null; then
+            printf "SKIP %-20s %4s ms\n" "$p" "$ms"
+            continue
+        fi
         summary=$(grep -oE "pass [0-9]+|fail [0-9]+" "$logbase/$safe.log" 2> /dev/null | tr '\n' ' ')
         printf "OK   %-20s %4s ms   %s\n" "$p" "$ms" "$summary"
     else
