@@ -139,6 +139,22 @@ test("schema：合法状态 round-trip、缺省补全、非法行拒绝", () => 
   assert.throws(() => schema.parse({ asOfSeq: Number.NaN }), /必须是有限数/);
 });
 
+test("schema：数组拒绝、asOfSeq 负数放行、可选路由可缺可置空", () => {
+  const schema = sessionContextSchema();
+  assert.throws(() => schema.parse([]), /必须是对象/);
+  assert.equal(
+    schema.parse({ asOfSeq: -1 }).asOfSeq,
+    -1,
+    "asOfSeq 允许 -1（空日志水位）",
+  );
+  const routed = schema.parse({
+    model: "v4",
+    provider: null,
+  }) as SessionContextState;
+  assert.equal(routed.model, "v4", "model 合法即收下");
+  assert.equal(routed.provider, undefined, "null 视为缺省");
+});
+
 test("routeOf：只接受非空字符串的 provider/model", () => {
   assert.deepEqual(routeOf({ provider: "p", model: "m" }), {
     provider: "p",
@@ -163,6 +179,35 @@ test("pressureFromMeasure：直接字段优先，退回 totalTokens", () => {
   });
   assert.equal(pressureFromMeasure({ totalTokens: 0 }), undefined);
   assert.equal(pressureFromMeasure(undefined), undefined);
+});
+
+test("pressureFromMeasure：逐字段丢弃非正与非有限读数", () => {
+  assert.deepEqual(
+    pressureFromMeasure({ pressureTokens: 5, projectedTokens: "x" }),
+    {
+      pressureTokens: 5,
+    },
+  );
+  assert.equal(
+    pressureFromMeasure({
+      pressureTokens: 0,
+      projectedTokens: -1,
+      contextWindow: Number.NaN,
+    }),
+    undefined,
+    "全部字段非法即视为无读数",
+  );
+  assert.equal(
+    pressureFromMeasure({ totalTokens: Number.POSITIVE_INFINITY }),
+    undefined,
+  );
+  assert.equal(pressureFromMeasure(null), undefined);
+});
+
+test("routeOf：model 缺失、非字符串或空串时不给路由", () => {
+  assert.equal(routeOf({ provider: "p", model: "" }), undefined);
+  assert.equal(routeOf({ provider: "p", model: 7 }), undefined);
+  assert.equal(routeOf("x"), undefined);
 });
 
 test("apply：注册投影 + provide 服务 + 注册工具（三面齐备）", () => {
