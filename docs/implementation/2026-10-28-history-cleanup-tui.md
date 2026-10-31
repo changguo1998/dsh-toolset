@@ -46,13 +46,14 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 - 集成层: 新增 `TUI/tests/assemble.ts`（装配器, 不以 `.test.ts` 结尾）与 `TUI/tests/integration/app.test.ts`（12 条）。装配器用真实 `App` + 真实 `createRenderer`（注入 `write` 捕获报文, `rawMode: false` 不写模式序列, `exitOnClose: false` 不结束进程）+ 假适配器 `FakeAdapter` + 可选假状态查询; 唯一被替换的终端能力是 CPR 宽度实测（立即回空表, App 走「终端不支持 CPR」分支沿用静态宽度表, 真探测归 `smoke:pty` 与 `width-probe` 单测）。断言分三类: 命令分派（未知 `/` 命令进宿主注册表、`/help`、`/theme`、`/new`）、视图投影（用户块、思考 / 正文 / 工具调用与结果、审批面板、问答面板、交付直灌）、帧文本（首帧 80x24 骨架、状态栏时间 / 分支 / cwd、底部提示行、面板提示行）。
 - 起始态: 装配器在 `start()` 之后推一条 `session-title` 事件确立活跃会话（生产适配器同为接线后时序）。少了它 `activeSessionId` 停在 null, `/new` 走 `sectionsSessionId === null` 的「会话建立过渡」分支, 旧会话内容不会随切换重建节缓存。
 - 单元锚点: 新增 `TUI/tests/terminal.test.ts`（7 条）, 覆盖 `src/renderer/terminal.ts` 的 `setRawMode` 三种判定（非 TTY 静默失败 / TTY 成功 / 底层抛错回落 `isRaw`）与 `createTerminal` 的 raw 开关、`close`、尺寸回落（TTY 读数、非 TTY 与零尺寸回 80x24）、`onResize` 订阅。
-- 脚本: `TUI/package.json` 增 `test:integration`（`node --experimental-transform-types --test 'tests/integration/*.test.ts'`）、`test:coverage`（单元 + 集成两轮 glob, 落 `../tmp/cov-TUI`, 出 JSON 与表格）、`test:e2e`（`pnpm run demo:build -- --smoke` 与 `pnpm run smoke:pty` 串联）。
+- 脚本: `TUI/package.json` 增 `test:integration`（`node --experimental-transform-types --test 'tests/integration/*.test.ts'`）、`test:coverage`（单元 + 集成两轮 glob; 覆盖率原始 JSON 落 `../tmp/cov-tui`（相对 `TUI/`）, 报告落 `tmp/cov-tui/report.json`（相对仓库根））、`test:e2e`（`pnpm run demo:build -- --smoke` 与 `pnpm run smoke:pty` 串联）。
 - 专项复核: `tests/app.test.ts:354` 的条件 `skip` 属 4.4 允许的「仓库不在家目录」一类, 保留不动; 本机仓库在家目录下, 本轮实测 `skipped` 为 0。`tests/fixtures/` 两个夹具均在用: `focus-frame-legacy.json` 由 `tests/focus-frame.test.ts` 读取（冻结基线）, `status-column-old.ts` 由 `tests/status-column-equivalence.test.ts` 导入（旧实现快照）, 都保留。
 - 缺口取舍: `src/main.ts` 仍是最大未覆盖面（行 47.1%）, 其 `apply()` 属宿主接线, 留代码阶段与包文档阶段; 按「少量缺口锚点」本次只补 `renderer/terminal.ts`。
 
 ## 偏差
 
-- 覆盖率命令路径: 包文档给的 `node ../dev/coverage/report.mjs ../tmp/cov-TUI ...` 里, `report.mjs` 把参数按**仓库根**解析（`resolve(root, argv)`）, 从 `TUI/` 传 `../tmp` 会落到仓库外。脚本改为传绝对路径 `$(pwd)/../tmp/cov-TUI`; 统计口径与产物位置未变。
+- 覆盖率命令路径: `report.mjs` 把两个参数按**仓库根**解析（`resolve(root, argv)`）, 而 `NODE_V8_COVERAGE` 由 node 按**当前目录**解析。脚本据此分工: `NODE_V8_COVERAGE=../tmp/cov-tui`（相对 `TUI/`）、报告参数 `tmp/cov-tui` / `tmp/cov-tui/report.json`（相对仓库根）, 两者指向同一目录; 包文档原写法 `node ../dev/coverage/report.mjs ../tmp/cov-TUI ...` 会把产物解析到仓库外, 故按上述分工落地。
+- 报告生成前加 `sleep 1`: 首次按新路径实跑时, 报告读到的是尚未落齐的覆盖率 JSON（行 60.05% / 分支 63.72%, 与同目录重算的 87.48% / 78.41% 不一致）, 等 1 秒后连续两次实跑均稳定为 87.48% / 78.41%。属取证稳健性, 不改统计口径。
 - `smoke:pty` 本机不绿: 真机会话启动后即报 `MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route "tollgate"`, 环境无 provider 凭据, 工具回合跑不起来, 3 次尝试均未同时出现 `✓` 工具结果行与 `ctx/cache`。属 4.5 的「真 LLM 不进 `test`」与「真机验证留人工验收」, 触发条件 = 有可用模型凭据; 交人工验收。`test:e2e` 的 `demo:build -- --smoke` 段通过（`SMOKE_OK`）。
 - 覆盖率分母: 分支分母由 7976 涨到 7996（新跑到的 V8 block range 计入分母）, 比率 78.42% → 78.41%; 用**原测试集**重跑一次得 78.413%, 证明该量级属统计方法噪声。包级行覆盖 87.39% → 87.48%, 只升不降。
 - 观察（未改 `src`）: `createTerminal().rawMode(false)` 之后 `rawEnabled` 仍为 `true`（`if (setRawMode(...))` 在关闭时返回 falsy 不再赋值）, 该字段全仓无消费方, 行为无影响, 留给代码阶段。集成层里 `/new` 后旧内容不残留依赖活跃会话已确立, 已在装配器按生产时序补 `session-title`（见实现记录）。
@@ -67,7 +68,7 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 | `pnpm -C TUI run check` | ✓ 0 error（`tsc --noEmit`, 含 `tests/` / `demo/` / `bench/`） |
 | `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo, 8.3s |
 | `pnpm -C TUI run test:integration` | ✓ 12 pass / 0 fail |
-| `pnpm -C TUI run test:coverage` | ✓ 1840 pass / 0 fail, 产物 `tmp/cov-TUI/report.json` |
+| `pnpm -C TUI run test:coverage` | ✓ 1840 pass / 0 fail, 产物 `tmp/cov-tui/report.json` |
 | `pnpm -C TUI run test:e2e` | ✗ `demo:build -- --smoke` ✓（`SMOKE_OK`）; `smoke:pty` ✗（缺凭据, 见偏差） |
 
 覆盖率（只统 `src`）:
