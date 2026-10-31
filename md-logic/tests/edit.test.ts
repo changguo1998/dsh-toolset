@@ -7,7 +7,13 @@
 // （漂移 / 缺失 / 越界必须先于 content_invalid 返回），勿改成标题文本。
 
 import assert from "node:assert/strict";
-import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
@@ -837,16 +843,13 @@ test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉�
   }
   // 判据文本 ≡ 落盘文本（审阅实测的漏拦形态）：content 以**空行终止的 HTML 块**结尾、且目标节
   // 之后的第一个节标题**紧贴**时，落盘会因 ③ 剥掉单个尾随换行而真吞其后节 → 必须拒
-  const tightHtmlTail = replaceSections(
-    "## 乙\n乙正文\n## 丙\n丙正文\n",
-    [
-      {
-        heading: "乙",
-        ...rangeOf("## 乙\n乙正文\n## 丙\n丙正文\n", "乙"),
-        content: "## 乙\n\n<div>\n",
-      },
-    ],
-  );
+  const tightHtmlTail = replaceSections("## 乙\n乙正文\n## 丙\n丙正文\n", [
+    {
+      heading: "乙",
+      ...rangeOf("## 乙\n乙正文\n## 丙\n丙正文\n", "乙"),
+      content: "## 乙\n\n<div>\n",
+    },
+  ]);
   assert.equal(
     tightHtmlTail.ok,
     false,
@@ -955,5 +958,73 @@ test("replaceSections：content 内未闭合围栏 / 注释 → 拒（会吞掉�
       true,
       "应放行: " + JSON.stringify(content) + " → " + JSON.stringify(ok),
     );
+  }
+});
+
+test("replaceSectionsFile：目录 / 二进制 / 不存在 一律 read_failed，且不改动原文件", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const edit = { heading: "A", startLine: 1, endLine: 1, content: "# A\n" };
+
+    const directory = await replaceSectionsFile(dir, [edit]);
+    assert.equal(directory.ok, false);
+    if (!directory.ok) {
+      assert.equal(directory.code, "read_failed");
+      assert.match(directory.error, /目标不是常规文件/);
+    }
+
+    const binary = writeFixture(dir, "bin.md", "# A\n\u0000\u0001\n");
+    const before = readFileSync(binary);
+    const refused = await replaceSectionsFile(binary, [edit]);
+    assert.equal(refused.ok, false);
+    if (!refused.ok) {
+      assert.equal(refused.code, "read_failed");
+      assert.match(refused.error, /疑似二进制文件/);
+    }
+    assert.deepEqual(readFileSync(binary), before, "拒写必须字节不变");
+
+    const missing = await replaceSectionsFile(join(dir, "nope.md"), [edit]);
+    assert.equal(missing.ok, false);
+    if (!missing.ok) {
+      assert.equal(missing.code, "read_failed");
+      assert.match(missing.error, /读取失败/);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("replaceSectionsFile：目录不可写时回写 write_failed，原文件不变且不留临时文件", async (t) => {
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    t.skip("root 下 chmod 不阻止写入");
+    return;
+  }
+  const { dir, cleanup } = withTempDir();
+  try {
+    const file = writeFixture(dir, "a.md", DOC);
+    const range = rangeOf(DOC, "乙节");
+    chmodSync(dir, 0o500);
+    const failed = await replaceSectionsFile(file, [
+      { heading: "乙节", ...range, content: "## 乙节\n\n写不进去。" },
+    ]);
+    chmodSync(dir, 0o700);
+    assert.equal(failed.ok, false);
+    if (!failed.ok) {
+      assert.equal(failed.code, "write_failed");
+      assert.match(failed.error, /写入失败/);
+    }
+    assert.equal(readFileSync(file, "utf8"), DOC, "写入失败不得改动原文件");
+    assert.deepEqual(
+      readdirSync(dir).filter((name) => name.endsWith(".tmp")),
+      [],
+      "失败后不得残留临时文件",
+    );
+  } finally {
+    try {
+      chmodSync(dir, 0o700);
+    } catch {
+      // 目录已可写 / 已删除
+    }
+    cleanup();
   }
 });

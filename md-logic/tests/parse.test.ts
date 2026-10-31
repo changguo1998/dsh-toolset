@@ -43,6 +43,25 @@ describe("frontmatter", () => {
     assert.equal(doc.frontmatter, undefined);
     assert.ok(doc.blocks.some((block) => block.kind === "hr"));
   });
+
+  it("配对搜索受 maxLines 限制；空 frontmatter 不算", () => {
+    // 首行 + maxLines 行内找不到收尾 `---` → 不识别
+    assert.equal(detectFrontmatter(["---", "a: 1", "---"], 1), undefined);
+    assert.deepEqual(detectFrontmatter(["---", "a: 1", "---"]), {
+      line: 1,
+      endLine: 3,
+      keys: ["a"],
+    });
+    // 首尾之间没有任何键 / 注释 / 空行 → 视为空 frontmatter
+    assert.equal(detectFrontmatter(["---", "---"]), undefined);
+    // 选项经 parseMarkdownDocument 透传
+    assert.equal(
+      parseMarkdownDocument("---\na: 1\n---\n\n# T\n", {
+        frontmatterMaxLines: 1,
+      }).frontmatter,
+      undefined,
+    );
+  });
 });
 
 describe("节树与行范围", () => {
@@ -204,14 +223,15 @@ describe("口径锁定（与 fs-digest 的已知差异）", () => {
 
   it("懒续行计入 list / quote 的范围（fs-digest 会切成两段）", () => {
     const list = parseMarkdownDocument("- a\nlazy\n- b\n").blocks[0];
-    assert.deepEqual([list?.kind, list?.line, list?.endLine, list?.count], [
-      "list",
-      1,
-      3,
-      2,
-    ]);
+    assert.deepEqual(
+      [list?.kind, list?.line, list?.endLine, list?.count],
+      ["list", 1, 3, 2],
+    );
     const quote = parseMarkdownDocument("> q\nlazy\n").blocks[0];
-    assert.deepEqual([quote?.kind, quote?.line, quote?.endLine], ["quote", 1, 2]);
+    assert.deepEqual(
+      [quote?.kind, quote?.line, quote?.endLine],
+      ["quote", 1, 2],
+    );
   });
 
   it("表格边角：单列无首管道、单元格内转义管道、未闭合围栏", () => {

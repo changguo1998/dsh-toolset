@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { apply, inject, mdLogicTool, name } from "../src/index.ts";
+import {
+  apply,
+  inject,
+  mdLogicTool,
+  name,
+  resolveExecCwd,
+} from "../src/index.ts";
 import { SAMPLE, withTempDir, writeFixture } from "./helpers.ts";
 
 /** 工具定义的最小结构面（与 tools.ts 产出一致）。 */
@@ -312,6 +318,110 @@ test("render 全函数且形参顺序为 (args, value)", () => {
  * 工具描述回归（P0，见 docs/archived/2026-10-24-tool-description-review.md）：
  * D8 术语（注册名，不用「官方 edit」）、D12 / C8（不用「改文件」短语的否定句）、C1 / C9。
  */
+test("edits 校验：结构 / 字段 / hash 的非法值一律 edits_invalid 且不触盘", async () => {
+  const cases: Array<[unknown, string]> = [
+    ["x", "需非空数组"],
+    [[], "需非空数组"],
+    [[42], "每项需是对象"],
+    [[{ heading: "", start_line: 1, end_line: 1, content: "x" }], "heading"],
+    [
+      [{ heading: "A", start_line: 0, end_line: 1, content: "x" }],
+      "start_line",
+    ],
+    [
+      [{ heading: "A", start_line: 1.5, end_line: 2, content: "x" }],
+      "start_line",
+    ],
+    [[{ heading: "A", start_line: 2, end_line: 1, content: "x" }], "end_line"],
+    [[{ heading: "A", start_line: 1, end_line: 1, content: 3 }], "content"],
+    [
+      [
+        {
+          heading: "A",
+          start_line: 1,
+          end_line: 1,
+          content: "x",
+          section_hash: 5,
+        },
+      ],
+      "section_hash 需是字符串",
+    ],
+    [
+      [
+        {
+          heading: "A",
+          start_line: 1,
+          end_line: 1,
+          content: "x",
+          section_hash: "not-hex",
+        },
+      ],
+      "8 位 hex",
+    ],
+  ];
+  for (const [edits, needle] of cases) {
+    // 路径故意不存在：参数校验必须先于 IO，报的应是 edits_invalid 而不是「文件不存在」
+    const value = (await tool.execute({
+      action: "replace",
+      path: "/nonexistent/md-logic/a.md",
+      edits,
+    })) as { code?: string; error?: string };
+    assert.equal(value.code, "edits_invalid", JSON.stringify(edits));
+    assert.ok(
+      typeof value.error === "string" && value.error.includes(needle),
+      `edits=${JSON.stringify(edits)} 应报含「${needle}」的错误，实际：${JSON.stringify(value)}`,
+    );
+    assert.match(textOf(value), /replace 失败（edits_invalid）/);
+  }
+});
+
+test("edits 校验：section_hash 大小写与引号归一后放行", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const file = writeFixture(dir, "h.md", SAMPLE);
+    const structure = (await tool.execute({
+      action: "structure",
+      path: file,
+    })) as { sections?: Array<{ title: string; hash: string }> };
+    const target = structure.sections?.[1];
+    assert.ok(target, JSON.stringify(structure));
+    const value = await tool.execute({
+      action: "replace",
+      path: file,
+      edits: [
+        {
+          heading: target.title,
+          start_line: 10,
+          end_line: 28,
+          content: `## ${target.title}\n\n大写 hash 放行。`,
+          section_hash: `\"${target.hash.toUpperCase()}\"`,
+        },
+      ],
+    });
+    assert.equal((value as { ok?: boolean }).ok, true, JSON.stringify(value));
+    assert.match(readFileSync(file, "utf8"), /大写 hash 放行。/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("resolveExecCwd：会话 cwd 优先，缺失 / 空串 / 非字符串回落进程 cwd", () => {
+  assert.equal(resolveExecCwd(undefined), process.cwd());
+  assert.equal(resolveExecCwd({}), process.cwd());
+  assert.equal(
+    resolveExecCwd({ agent: { session: { header: { cwd: "" } } } }),
+    process.cwd(),
+  );
+  assert.equal(
+    resolveExecCwd({ agent: { session: { header: { cwd: 42 } } } }),
+    process.cwd(),
+  );
+  assert.equal(
+    resolveExecCwd({ agent: { session: { header: { cwd: "/x" } } } }),
+    "/x",
+  );
+});
+
 test("工具描述：P0 术语与选择依据（D8 / D12 / C1 / C9）", () => {
   const name = "md_logic";
   const description = tool.description;
