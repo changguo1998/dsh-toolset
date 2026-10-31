@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `fs-digest` 合并, 分支 `history-cleanup/02-tests-fs-digest` (`d4a7249`), 合并提交 `a8a24a1`; 单元 75 条, 集成 12 条, 覆盖率 89.3%→91.5% / 79.4%→80.4%; 5 个夹具均被测试与 demo 引用, 未删; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `escalation-hint` 合并, 分支 `history-cleanup/02-tests-escalation-hint` (`06703bd`), 合并提交 `17eb813`; 单元 34→50 条, 集成 17 条, 覆盖率 92.1%→99.3% / 79.4%→96.0%; 无工具面, 集成只覆盖事件消费者; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `command-template` 合并, 分支 `history-cleanup/02-tests-command-template` (`abe2daa`), 合并提交 `361e5ef`; 单元 33→48 条, 集成 12 条, 覆盖率 72.6%→84.6% / 58.9%→73.5%; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `context-report` 合并, 分支 `history-cleanup/02-tests-context-report` (`1b51f16`), 合并提交 `549e295`; 单元 51 条, 集成 16 条, 覆盖率 93.3%→95.8% / 87.3%→90.3%; `ctx.logger.info` 与类型声明不一致, 留阶段 3; worktree 已删, coagent 已关.
