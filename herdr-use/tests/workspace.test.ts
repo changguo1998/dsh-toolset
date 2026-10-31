@@ -43,6 +43,34 @@ test("workspaceLabel / shortSessionId 约定", () => {
   assert.equal(workspaceLabel(fakeSession), "proj/abcd1234");
 });
 
+test("readSessionContext：cwd 依次取 header / meta / session / process.cwd", () => {
+  const id = "session-cwd";
+  assert.equal(
+    readSessionContext({
+      agent: { session: { id, header: { cwd: "/h" }, cwd: "/ignored" } },
+    })?.cwd,
+    "/h",
+  );
+  assert.equal(readSessionContext({ id, meta: { cwd: "/m" } })?.cwd, "/m");
+  assert.equal(readSessionContext({ id, cwd: "/c" })?.cwd, "/c");
+  // 宿主会话 header 允许无 cwd：回退到进程工作目录
+  assert.equal(readSessionContext({ id })?.cwd, process.cwd());
+  // id 缺失即无会话（cwd 再全也不猜）
+  assert.equal(readSessionContext({ cwd: "/c" }), undefined);
+});
+
+test("workspaceLabel：目录名归一空白与斜杠，取不到回退 dsh", () => {
+  assert.equal(
+    workspaceLabel({ id: "session-abcd1234", cwd: "/tmp/a b/c" }),
+    "c/abcd1234",
+  );
+  assert.equal(
+    workspaceLabel({ id: "session-abcd1234", cwd: "/tmp/ a b " }),
+    "a-b/abcd1234",
+  );
+  assert.equal(workspaceLabel({ id: "!!!", cwd: "/" }), "dsh/session");
+});
+
 test("laneArgs：后台加 --session dshbg，前台不加", () => {
   assert.deepEqual(laneArgs("foreground"), []);
   assert.deepEqual(laneArgs("background"), ["--session", "dshbg"]);

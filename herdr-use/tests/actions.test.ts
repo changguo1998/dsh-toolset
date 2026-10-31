@@ -15,6 +15,7 @@ import {
   fakeSession,
   isBackgroundCall,
   makeDeps,
+  okEnvelope,
   readError,
   readOk,
   registerTerminal,
@@ -571,4 +572,81 @@ test("list 有后台绑定：查询前 ensure 后台会话", async () => {
   const result = await dispatchAction("list", {}, deps, fakeExec());
   assert.equal(result.ok, true);
   assert.equal(background.ensured, 1);
+});
+
+test("create：tab 响应缺 tab_id / root_pane.pane_id → herdr-bad-response", async () => {
+  const noTab = fakeHerdr({
+    override: (args) =>
+      args[0] === "tab" && args[1] === "create"
+        ? okEnvelope({ tab: {}, root_pane: { pane_id: "wT9:p1" } })
+        : undefined,
+  });
+  const missingTab = await dispatchAction(
+    "create",
+    {},
+    depsFor(noTab.runner),
+    fakeExec(),
+  );
+  assert.equal(missingTab.ok, false);
+  if (missingTab.ok) return;
+  assert.equal(missingTab.error.code, "herdr-bad-response");
+  assert.match(missingTab.error.message, /tab\.tab_id/);
+
+  const noRoot = fakeHerdr({
+    override: (args) =>
+      args[0] === "tab" && args[1] === "create"
+        ? okEnvelope({ tab: { tab_id: "wT9:t1" }, root_pane: {} })
+        : undefined,
+  });
+  const noRootDeps = depsFor(noRoot.runner);
+  const missingRoot = await dispatchAction(
+    "create",
+    {},
+    noRootDeps,
+    fakeExec(),
+  );
+  assert.equal(missingRoot.ok, false);
+  if (missingRoot.ok) return;
+  assert.equal(missingRoot.error.code, "herdr-bad-response");
+  assert.match(missingRoot.error.message, /root_pane\.pane_id/);
+  assert.match(missingRoot.error.hint ?? "", /响应形状可能已漂移/);
+  // 取不到 root pane 就不登记（避免登记一个假 id）
+  assert.equal(noRootDeps.registry.terminals.length, 0);
+});
+
+test("label：tab 标题已改、pane 标记失败 → 失败回执带 notes", async () => {
+  const { runner } = fakeHerdr({
+    override: (args) =>
+      args[0] === "pane" && args[1] === "rename"
+        ? errorEnvelope("pane_not_found", "no such pane")
+        : undefined,
+  });
+  const deps = depsFor(runner);
+  registerTerminal(deps.registry);
+  const result = await dispatchAction(
+    "label",
+    { terminal_id: "wT1:p10", label: "new-name" },
+    deps,
+  );
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "herdr-cli-error");
+  assert.match(result.notes?.[0] ?? "", /pane 归属标记未改/);
+  // 失败时登记表的 label 保持原值
+  assert.equal(deps.registry.find("wT1:p10").record?.label, "dsh-pane");
+});
+
+test("wait（stable）：读通道失败 → socket-error", async () => {
+  const deps = depsFor(fakeHerdr().runner);
+  registerTerminal(deps.registry);
+  deps.readerFor = () => fakeReader([readError("pane 不存在", "socket-error")]);
+  const result = await dispatchAction(
+    "wait",
+    { terminal_id: "wT1:p10", stable: true },
+    deps,
+  );
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "socket-error");
+  assert.match(result.error.message, /pane 不存在/);
 });

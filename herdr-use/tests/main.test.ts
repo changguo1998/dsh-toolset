@@ -122,6 +122,29 @@ test("preExecuteVerdict：可写模式 / 模式不可判 → 放行", () => {
   );
 });
 
+test("preExecuteVerdict：参数非对象 / 缺 name 时按空参数与放行处理", () => {
+  const options = { sandboxMode: sandboxOf("read-only") };
+  assert.deepEqual(preExecuteVerdict({}, options), { kind: "allow" });
+  const verdict = preExecuteVerdict(
+    { name: "herdr_key", arguments: "not-an-object" },
+    options,
+  );
+  assert.equal(verdict.kind, "deny");
+  if (verdict.kind === "deny") {
+    assert.match(verdict.reason, /herdr_key/);
+    // 非对象参数取不到 terminal_id，回执不虚构目标
+    assert.doesNotMatch(verdict.reason, /目标终端/);
+  }
+  const targeted = preExecuteVerdict(
+    { name: "herdr_text", arguments: { terminal_id: "wT1:p2" } },
+    options,
+  );
+  assert.equal(targeted.kind, "deny");
+  if (targeted.kind === "deny") {
+    assert.match(targeted.reason, /目标终端 wT1:p2/);
+  }
+});
+
 test("插件注册 10 个工具、提供服务面、共用同一 registry", () => {
   const harness = fakeCtx();
   const deps = pluginDeps();
@@ -246,6 +269,26 @@ test("二进制缺失 / 探活失败 → 不注册", () => {
   );
   assert.equal(second.tools.length, 0);
   assert.equal(warnings.length >= 2, true);
+});
+
+test("探活抛错 → 不注册并告警", () => {
+  const harness = fakeCtx();
+  const warnings: string[] = [];
+  const handle = createHerdrPlugin(
+    harness.ctx,
+    {},
+    pluginDeps({
+      probe: () => {
+        throw new Error("status 起不来");
+      },
+      warn: (m) => warnings.push(m),
+    }),
+  );
+  assert.equal(handle, undefined);
+  assert.equal(harness.tools.length, 0);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /探活抛错/);
+  assert.match(warnings[0] ?? "", /status 起不来/);
 });
 
 test("插件装配：注入的后台会话控制器进入 dispatchDeps", () => {
