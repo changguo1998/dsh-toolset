@@ -535,3 +535,35 @@ test("上限为 0 = 不设上限（三个上限参数统一; 缺省与非法值�
     /：`\| a \| b \|` 期望 2 列/,
   );
 });
+
+test("边界: 空单元格行(单个竖线)不成表, 非有限上限回退缺省", () => {
+  assert.deepEqual(splitCells("|"), [], "单个竖线剥除首尾空单元格后为空");
+  assert.deepEqual(splitCells(" | "), [], "纯空白单元格全部剥除后为空");
+  // 表头解析为空 / 分隔行解析为空 / 表头在末尾(无分隔行) → 都不成表
+  assert.equal(
+    checkTables(lines("|", "| --- |")).tableTotal,
+    0,
+    "空表头不成表",
+  );
+  assert.equal(
+    checkTables(lines("| a |", "|", "| 1 |")).tableTotal,
+    0,
+    "空分隔行不成表",
+  );
+  assert.equal(checkTables("| a | b |").tableTotal, 0, "缺分隔行不成表");
+  // 非有限上限(Infinity) 视为非法 → 回退缺省 3 行
+  const rows = lines(
+    "| a | b |",
+    "| --- | --- |",
+    "| 1 |",
+    "| 2 |",
+    "| 3 |",
+    "| 4 |",
+  );
+  assert.equal(
+    checkTables(rows, { maxRowsPerTable: Number.POSITIVE_INFINITY }).tables[0]!
+      .mismatches.length,
+    3,
+    "Infinity 回退缺省 3 行",
+  );
+});

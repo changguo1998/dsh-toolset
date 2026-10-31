@@ -9,7 +9,9 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
     "check:no-cross-emit": "test -z \"$(git status --porcelain -- ../rule-engine/src ../TUI/src)\"",
-    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-md-table-check && mkdir -p ../tmp/cov-md-table-check && NODE_V8_COVERAGE=../tmp/cov-md-table-check node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-md-table-check tmp/cov-md-table-check/report.json"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
