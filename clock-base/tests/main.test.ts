@@ -89,6 +89,51 @@ test("apply: 重复注册时告警、不掀翻宿主启动", () => {
   assert.match(lines[0] ?? "", /clock 注册失败/);
 });
 
+test("apply: provide 不是函数时退回属性挂载", () => {
+  const ctx: Record<string, unknown> = { provide: 42 };
+  const lines = captureStderr(() => apply(ctx));
+  assert.deepEqual(lines, []);
+  assert.ok(ctx["clock"] instanceof ClockService);
+});
+
+test("apply: 读 provide 抛错时退回属性挂载", () => {
+  const ctx: Record<string, unknown> = {};
+  Object.defineProperty(ctx, "provide", {
+    get() {
+      throw new Error("getter 抛错");
+    },
+    configurable: true,
+  });
+  const lines = captureStderr(() => apply(ctx));
+  assert.deepEqual(lines, []);
+  assert.ok(ctx["clock"] instanceof ClockService);
+});
+
+test("apply: 属性挂载失败时告警、不抛", () => {
+  const ctx = Object.freeze({});
+  const lines = captureStderr(() => apply(ctx));
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /clock 注册失败/);
+});
+
+test("apply: ctx 为 null 时只告警、不抛", () => {
+  const lines = captureStderr(() => apply(null));
+  assert.equal(lines.length, 1);
+  assert.match(lines[0] ?? "", /ctx 无 provide/);
+});
+
+test("ClockService: 缺省 now 读系统时钟，返回值落在此刻区间内", () => {
+  const clock = new ClockService();
+  const before = Date.now();
+  const now = clock.now();
+  const after = Date.now();
+  assert.ok(Number.isFinite(now));
+  assert.ok(
+    now >= before && now <= after,
+    `now=${now} 应在 [${before}, ${after}]`,
+  );
+});
+
 test("ClockService: now 可注入；scope 的 now 与 service 同源", () => {
   let current = 7_000;
   const clock = new ClockService(() => current);

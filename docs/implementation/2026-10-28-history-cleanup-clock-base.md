@@ -42,12 +42,59 @@ rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERA
 
 ## 实现记录
 
-(待填)
+- 阶段 2 测试锚定（分支 `history-cleanup/02-tests-clock-base`）:
+  - 基线: 单元 25 例全通过, 0 skip; 覆盖率 行 94.6% (209/221), 分支 83.0% (39/47); `check` 通过.
+  - 单元锚点: 新增 8 例 —— `apply` 的降级与失败路径（`provide` 非函数 / 读 `provide` 抛错 / 属性挂载失败 / `ctx` 为 null）、`ClockService` 缺省时钟区间, 以及 `createTimers` 的 `unref: false`、`attachEffect` 四类形状退化（`ctx` 为 null / 非对象 / `effect` 非函数 / 读 `effect` 抛错）.
+  - 集成层: 新增 `tests/assemble.ts`（假工具面 / 假事件面 / 假服务面 + `ctx.effect` 卸载登记 + stderr 捕获, 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（12 例）: 经 `provide` 注册与重复注册、工具面零注册与事件面零订阅、两种降级装配、`clock.now` 区间、`scope` 的 `schedule` / `interval` 与 `ctx` 卸载撤销、`ManualClock` 的到期序与回调内再排期.
+  - 脚本: `package.json` 加 `test:integration` 与 `test:coverage`.
+  - 结果: 单元 33 例 + 集成 12 例全通过; 覆盖率 行 98.2% (217/221), 分支 94.4% (51/54).
 
 ## 偏差
 
-无
+- 无 `src` 改动.
+- 分支基线: 规划记 84.0% (42/50), 本分支实测 83.0% (39/47)（分母较规划少 3 个分支, 判定为阶段 1 收尾后 V8 range 统计差异）; 以本分支实测为改前基线.
+- 覆盖率脚本的两套路径基准: `report.mjs` 的两个路径参数按仓库根解析, 故 `test:coverage` 传 `tmp/cov-clock-base` / `tmp/cov-clock-base/report.json`; `NODE_V8_COVERAGE` 由 node 按包目录解析, 仍用 `../tmp/cov-clock-base`; 两者指向同一目录. 与规划的命令等价, 只是显式分开写.
+- 集成层的真实时间: `apply` 产出的 `ClockService` 缺省读系统时钟, 装配器不替换 `Date.now`（不 mock 全局时钟）; 故 `schedule` / `interval` 用例等真实时间 10 至 45ms, 在用例旁注明; 需要确定时间的断言改用本包导出的 `ManualClock`（3.5 口径）.
+- 余 4 行未覆盖: V8 range 的落点与 types 剥离后的源码行存在对齐误差（`clock-base/src/timers.ts` 的 61 / 62 / 78 / 85, 报告按 0 基写出 60 / 61 / 77 / 84）, 行内副作用已由用例断言间接证明执行, 不按 4.3 补用例; 明细见「豁免台账」.
 
 ## 测试与证据
 
-(待填)
+### 四个入口实跑
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C clock-base run check` | 通过（tsc --noEmit, 无输出） |
+| `pnpm -C clock-base run test` | 33 例, pass 33, fail 0, skipped 0 |
+| `pnpm -C clock-base run test:integration` | 12 例, pass 12, fail 0, skipped 0 |
+| `pnpm -C clock-base run test:coverage` | 45 例全通过, 报告见下 |
+
+### 覆盖率（改前 / 改后）
+
+只统 `clock-base/src`.
+
+| 文件 | 行（改前） | 行（改后） | 分支（改前） | 分支（改后） |
+| --- | --- | --- | --- | --- |
+| `src/index.ts` | 89.7% (52/58) | 100.0% (58/58) | 77.8% (7/9) | 100.0% (13/13) |
+| `src/timers.ts` | 96.3% (157/163) | 97.5% (159/163) | 84.2% (32/38) | 92.7% (38/41) |
+| 合计 | 94.6% (209/221) | 98.2% (217/221) | 83.0% (39/47) | 94.4% (51/54) |
+
+分层贡献（两轮跑）: 只跑单元层 行 98.2% (217/221) / 分支 94.2% (49/52); 单元加集成 行 98.2% / 分支 94.4%, 集成层贡献 +2 分支 / +0 行（单元层已走完可执行行, 集成层补的是装配路径的分支块）.
+
+### 用例增减
+
+| 类别 | 改前 | 改后 | 增减 |
+| --- | --- | --- | --- |
+| 单元（`tests/*.test.ts`） | 25 | 33 | +8 |
+| 集成（`tests/integration/*.test.ts`） | 0 | 12 | +12 |
+| skip | 0 | 0 | 0 |
+| todo | 0 | 0 | 0 |
+| 删除用例 | - | 0 | 0 |
+
+### 豁免台账
+
+| 位置 | 缺什么 | 为什么补不了 | 触发条件 | 交给谁 |
+| --- | --- | --- | --- | --- |
+| `src/timers.ts:61` `effect = (ctx as { effect?: unknown }).effect` | 可定位的命中行 | V8 range 在该片段的落点为零命中; 同一行的副作用已由「两个排期各登记一次 effect」断言证明执行 | 无 | 阶段 3 代码整理复核 |
+| `src/timers.ts:62` `} catch {` | 同上 | 块头行, 无独立可执行语义 | 无 | 同上 |
+| `src/timers.ts:78` `createTimers(options = {})` 默认参数 | 同上 | 默认参数初始化器被 V8 记为独立 range | 无 | 同上 |
+| `src/timers.ts:85` `let handle: ReturnType<typeof setTimeout> \| undefined` | 同上 | 声明行, 无独立可执行语义 | 无 | 同上 |
