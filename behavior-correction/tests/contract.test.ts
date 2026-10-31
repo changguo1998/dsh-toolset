@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GUARD_SOURCE, name } from "../src/main.ts";
+import { GUARD_SOURCE, name } from "../src/index.ts";
 
 /**
  * 真包契约探针（并行任务的对端漂移报警）：本包**不依赖** `@dsh-toolset/rule-engine`，

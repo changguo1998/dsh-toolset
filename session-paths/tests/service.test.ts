@@ -22,7 +22,7 @@ import {
   resolveRoot,
   SessionPathsService,
   type SessionPaths,
-} from "../src/main.ts";
+} from "../src/index.ts";
 
 /** 假宿主 ctx：`get` 读服务表，`provide` 记录挂载。 */
 function fakeCtx(services: Record<string, unknown> = {}) {

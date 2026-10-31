@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { apply } from "../src/main.ts";
+import { apply } from "../src/index.ts";
 
 /** 建临时文件（与 fs.test.ts 同款，自建不自引 helpers）。 */
 async function makeTmp(

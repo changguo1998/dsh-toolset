@@ -12,7 +12,7 @@ import {
   type HerdrPluginHandle,
   type PluginCtxLike,
   type RootAgentLike,
-} from "../src/main.ts";
+} from "../src/index.ts";
 import type {
   AgentState,
   HerdrClientOptions,

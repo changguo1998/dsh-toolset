@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成 LINE:HASH 锚定编辑插件（行:内容哈希校验，stale 整体拒绝，防脏写）",
   "type": "module",
-  "main": "dist/src/main.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -28,5 +28,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

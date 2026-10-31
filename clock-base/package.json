@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成插件：定时器统一面（服务 clock：now + 随调用方 fiber 释放的 schedule / interval，带可手控假时钟）",
   "type": "module",
-  "main": "dist/src/main.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -27,5 +27,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

@@ -13,7 +13,7 @@ import {
   type RuleSpec,
   type ToolGuardContext,
   type ToolGuardDecision,
-} from "../src/main.ts";
+} from "../src/index.ts";
 
 /** rule-engine 消费者注册项的结构面（与 src/main.ts 的声明对齐） */
 interface Registered {

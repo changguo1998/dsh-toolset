@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { apply, ClockService, name, provide } from "../src/main.ts";
+import { apply, ClockService, name, provide } from "../src/index.ts";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

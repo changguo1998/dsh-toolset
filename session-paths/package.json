@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）会话目录编码插件：复刻宿主的 projectKey / encodeSegment 并以服务 sessionPaths 供其他插件共用",
   "type": "module",
-  "main": "dist/src/main.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -27,5 +27,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

@@ -30,5 +30,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

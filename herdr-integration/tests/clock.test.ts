@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
-import { createHerdrPlugin } from "../src/main.ts";
-import type { HerdrPluginDeps } from "../src/main.ts";
+import { createHerdrPlugin } from "../src/index.ts";
+import type { HerdrPluginDeps } from "../src/index.ts";
 import { HerdrClient } from "../src/herdr.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";
 import { ManualClock } from "../../clock-base/src/timers.ts";
