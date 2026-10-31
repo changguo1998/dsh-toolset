@@ -131,3 +131,35 @@ test("statePathFor：id 归一化后拼接，前缀 metric-loop-", () => {
     assert.equal(p, path.join(dir, "metric-loop-a_b.json"));
   });
 });
+
+test("loadState：缺少必填字段 → 报字段名与路径", () => {
+  withTmpDir((dir) => {
+    const state = createInitialState({ id: "miss", measureCmd: "echo 1" }, 1);
+    const { best: _dropped, ...partial } = state;
+    writeFileSync(
+      statePathFor(dir, "miss"),
+      JSON.stringify({ version: STATE_VERSION, state: partial }),
+    );
+    assert.throws(() => loadState(dir, "miss"), /缺少字段 best/);
+  });
+});
+
+test("saveState：历史超过 500 轮只留最近 500 条（防状态膨胀）", () => {
+  withTmpDir((dir) => {
+    const state = createInitialState({ id: "trim", measureCmd: "echo 1" }, 1);
+    state.history = Array.from({ length: 505 }, (_, i) => ({
+      round: i + 1,
+      value: i,
+      improved: false,
+      at: i,
+      tokensUsed: 0,
+    }));
+    saveState(dir, state);
+    const loaded = loadState(dir, "trim");
+    assert.ok(loaded !== null);
+    assert.equal(loaded.history.length, 500);
+    // 保留的是尾部: 第 6 轮到第 505 轮
+    assert.equal(loaded.history[0]?.round, 6);
+    assert.equal(loaded.history.at(-1)?.round, 505);
+  });
+});

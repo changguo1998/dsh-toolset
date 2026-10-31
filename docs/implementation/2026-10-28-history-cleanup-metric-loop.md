@@ -42,12 +42,46 @@ rm -rf ../tmp/cov-metric-loop && mkdir -p ../tmp/cov-metric-loop && NODE_V8_COVE
 
 ## 实现记录
 
-(待填)
+- 阶段 2 测试锚定（分支 `history-cleanup/02-tests-metric-loop`）:
+  - 基线（改前, 本 worktree 实测）: `pnpm -C metric-loop run test` 47 条全过（116ms）; `check` 绿; 覆盖率行 90.5% (801/885) / 分支 83.3% (174/209).
+  - 单元层: 新增 `tests/measure.test.ts`（7 条: 单数字解析的正负例 / stdout+stderr 合并输出 / 成功 / 无数字 / 非零退出 / 50ms 超时 / 尾部 500 字符截断 / `cwd` 透传）; `tests/persist.test.ts` 追加 2 条（缺必填字段报字段名、历史超 500 轮只留尾部）。既有用例语义未改.
+  - 集成层: 新增 `tests/assemble.ts`（假工具面 / 假事件面 / 假服务面 + 假时钟, 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（17 条, 6 个 describe）:
+    - 注册与元数据: `metric_loop` 单工具、四动作与枚举、`output.schema` 为 object; 导出 `name` / `inject` / `provide`; 事件面零订阅、服务面出现 `clock` 与 `metricLoop`; `ctx` 缺 `tools` 时降级告警.
+    - `execute` canonical 值: `start` 的完整 `TickResult`（round / state / schedule / summary / `guardScope=tool-args`）与落盘一致; `start` 缺省 id / metricless; `tick` 的 cadence 节流（`deferred`、`nextWakeSec=40`、state 不变）与 explicit 紧急唤醒（累计 token、`nextWakeSec=60`）; `tick` 未知 id 转结构化错误; `status` / `stop` / 未知 action.
+    - 停止与超时（假时钟拨表, 无真实等待）: `maxRounds` 到顶、时间边界到点（轮前停止、`round=null`、`schedule=null`）、已停止再 tick 不增轮、测量失败记无改进.
+    - `output.render`: 对象投影为缩进 JSON、字符串原样、`undefined` 给占位.
+    - 服务面: `metricLoop` 的 `list` / `status` 与状态文件一致; 读钟走 `ctx.get('clock').now()`, `clock` 缺席回落 `Date.now`; `security-guard` 复查按 `guardScope` 分工（`start` 不复查、`tick` 复查并记录来源）、拦截回执转结构化错误且状态文件不变、无可达性依赖.
+  - 脚本: `metric-loop/package.json` 增 `test:integration` 与 `test:coverage`（命令与规划一致, 报告写 `tmp/cov-metric-loop`）.
+  - `skip` / `todo`: 本包 0 处; 无夹具, 无豁免台账条目; 4.4 专项无需处置.
 
 ## 偏差
 
-无
+1. `tests/assemble.ts` 取 `ManualClock` 用**非字面量 URL 动态 import**（`new URL("../../clock-base/src/index.ts", import.meta.url)`）, 不是静态 import: 静态写法会把对端源码拉进本包 `tsconfig` 的编译范围, 越出 `rootDir` 触发 TS6059（阶段 1 偏差 1 记录的同类问题）。运行时用的仍是 `clock-base` 导出的同一个 `ManualClock` 类, 形状由装配器内的结构接口 `ManualClockLike`（`now` / `advance`）兜住.
+2. 覆盖率报告里会出现 `clock-base/src/*` 两行: 来自偏差 1 的跨包 import, 不属本包口径, 不计入本包合计（与 `ast-tools` 追踪文档同一处理口径）.
 
 ## 测试与证据
 
-(待填)
+改前 / 改后覆盖率（只统本包 `src`; 报告行号为 0 基, 照报告原样转述）:
+
+| 文件 | 改前行 | 改后行 | 改前分支 | 改后分支 |
+| --- | --- | --- | --- | --- |
+| `metric-loop/src/engine.ts` | 96.8% (213/220) | 97.3% (214/220) | 93.2% (82/88) | 95.6% (86/90) |
+| `metric-loop/src/index.ts` | 92.4% (495/536) | 94.0% (504/536) | 79.8% (75/94) | 89.6% (95/106) |
+| `metric-loop/src/measure.ts` | 50.0% (28/56) | 87.5% (49/56) | 0.0% (0/7) | 81.0% (17/21) |
+| `metric-loop/src/persist.ts` | 89.0% (65/73) | 98.6% (72/73) | 85.0% (17/20) | 95.5% (21/22) |
+| 合计 | 90.5% (801/885) | 94.8% (839/885) | 83.3% (174/209) | 91.6% (219/239) |
+
+未覆盖行（改后, 报告原样）: `engine.ts` 49,50,51,115,255,267; `index.ts` 224-226, 244-250, 404-407, 460-465, 474, 487, 606-609, 621-622, 635-637, 642; `measure.ts` 59-62, 71-73; `persist.ts` 47。这些行多为 `??` 默认值 / 对象展开的未选分支与函数声明行（报告把零命中 block range 记成未覆盖行）, 不是未执行的业务路径（如 `engine.ts` 的非法 `maxRounds` 已有 `normalizeSpec` 用例、`nextWakeMs` 停止态已有用例）。
+
+分层贡献（两轮取差, 改后）: 只跑单元层 93.6% (828/885) / 86.4% (191/221); 单元加集成 94.8% (839/885) / 91.6% (219/239) → 集成层贡献行 +1.2pp、分支 +5.2pp。
+
+四条命令实跑（本 worktree）:
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C metric-loop run check` | 退出 0（无诊断） |
+| `pnpm -C metric-loop run test` | 56 tests / 56 pass / 0 fail / 0 skipped / 0 todo（约 200ms） |
+| `pnpm -C metric-loop run test:integration` | 17 tests / 17 pass / 0 fail / 0 skipped / 0 todo（约 110ms） |
+| `pnpm -C metric-loop run test:coverage` | 绿; 合计行 94.8% (839/885) / 91.6% (219/239); 报告 `tmp/cov-metric-loop/report.json` |
+
+用例增减: 单元 47 → 56（新增 9, 删 0）; 集成 0 → 17（新增 17, 删 0）。`skip` 计数 0（本机未触发环境探测类跳过）; 豁免台账空。端到端不适用（本轮只 `TUI` 做端到端, 见总追踪「后续意向」）。
