@@ -213,6 +213,55 @@ test("root 参数显式指定（绝对路径）优先于会话 cwd", async () =>
   }
 });
 
+test("root 相对路径以会话 cwd 为基准, 缺会话时回落进程 cwd", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "docs/a.md", "# A\n");
+    const viaSession = (await tool.execute(
+      { action: "index", root: "." },
+      { agent: { session: { header: { cwd: dir } } } },
+    )) as { action?: string };
+    assert.equal(viaSession.action, "index");
+    const text = textOf(
+      await tool.execute(
+        { action: "index", root: "docs" },
+        { agent: { session: { header: { cwd: dir } } } },
+      ),
+    );
+    assert.ok(text.includes(`${dir}/docs`), text);
+
+    // 无会话上下文（exec 缺省）时以进程 cwd 为基准, root "." 至少能建索引
+    const noSession = (await tool.execute({ action: "index", root: "." })) as {
+      action?: string;
+      error?: string;
+    };
+    assert.equal(noSession.action, "index", JSON.stringify(noSession));
+  } finally {
+    cleanup();
+  }
+});
+
+test("root 不存在 / 不是目录时返回 error, 不建立索引", async () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    writeFile(dir, "file.md", "# 不是目录\n");
+    const exec = { agent: { session: { header: { cwd: dir } } } };
+    const missing = (await tool.execute(
+      { action: "index", root: "nope" },
+      exec,
+    )) as { error?: string };
+    assert.match(missing.error ?? "", /^root 不存在或不是目录：/);
+    const notDir = (await tool.execute(
+      { action: "index", root: "file.md" },
+      exec,
+    )) as { error?: string };
+    assert.match(notDir.error ?? "", /^root 不存在或不是目录：/);
+    assert.equal(textOf(notDir), `md_map 失败：${notDir.error ?? ""}`);
+  } finally {
+    cleanup();
+  }
+});
+
 test("render 全函数且形参顺序为 (args, value)", () => {
   for (const bad of [undefined, null, {}, 42, "text", []]) {
     const blocks = tool.output.render({}, bad);
