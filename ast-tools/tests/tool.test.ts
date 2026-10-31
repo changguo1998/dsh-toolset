@@ -479,3 +479,348 @@ test("工具描述：ast_query 只把内容检索指向 grep，并说清与 glob
   assert.doesNotMatch(description, /grep \/ glob/);
   assertFirstSentence(description, "ast_query");
 });
+
+// ---- 补锚点：execute canonical 入参 / 渲染兜底分支（无需二进制）----
+
+/** 记录调用入参的桩 ops；返回值形状按宿主契约给最小结构。 */
+function recordingOps(): {
+  ops: AstOperations;
+  calls: Array<{ op: string; params: unknown }>;
+} {
+  const calls: Array<{ op: string; params: unknown }> = [];
+  const ops: AstOperations = {
+    search: async (params) => {
+      calls.push({ op: "search", params });
+      return [];
+    },
+    replace: async (params) => {
+      calls.push({ op: "replace", params });
+      return {
+        updatedSource: "",
+        replacedCount: 0,
+        written: params.write === true,
+        matches: [],
+      };
+    },
+    outline: async (params) => {
+      calls.push({ op: "outline", params });
+      return [];
+    },
+    rules: async (params) => {
+      calls.push({ op: "rules", params });
+      return [];
+    },
+  };
+  return { ops, calls };
+}
+
+test("ast_query: search 透传 canonical 入参，空串按缺省（不触达子进程）", async () => {
+  const { ops, calls } = recordingOps();
+  const [query] = toToolDefs(ops) as ToolDef[];
+  assert.ok(query !== undefined);
+
+  const value = await query.execute({
+    action: "search",
+    pattern: "console.log($ARG)",
+    language: "ts",
+    path: "a.ts",
+    strictness: "ast",
+    ignored: "",
+  });
+  assert.deepEqual(value, { action: "search", matches: [] });
+  assert.deepEqual(calls, [
+    {
+      op: "search",
+      params: {
+        pattern: "console.log($ARG)",
+        language: "ts",
+        path: "a.ts",
+        strictness: "ast",
+      },
+    },
+  ]);
+
+  // 空串按缺省处理 → 仍走参数校验错误，不调用 ops
+  const missing = (await query.execute({
+    action: "search",
+    pattern: "",
+    language: "ts",
+    path: "a.ts",
+  })) as { error?: string };
+  assert.ok(missing.error?.includes("pattern"));
+  assert.equal(calls.length, 1, "非法入参不应触达操作");
+});
+
+test("ast_query: outline 的 language / items / types 透传，非字符串 types 被过滤", async () => {
+  const { ops, calls } = recordingOps();
+  const [query] = toToolDefs(ops) as ToolDef[];
+  assert.ok(query !== undefined);
+
+  const value = await query.execute({
+    action: "outline",
+    path: "src",
+    language: "ts",
+    items: "all",
+    types: ["class", 42, "enum"],
+  });
+  assert.deepEqual(value, { action: "outline", files: [] });
+  assert.deepEqual(calls, [
+    {
+      op: "outline",
+      params: {
+        path: "src",
+        language: "ts",
+        items: "all",
+        types: ["class", "enum"],
+      },
+    },
+  ]);
+
+  // types 全非法 → 空数组当作缺省，不传该字段
+  await query.execute({ action: "outline", path: "src", types: [1, null] });
+  assert.deepEqual(calls[1]?.params, { path: "src" });
+});
+
+test("ast_query: rules 的 rulePath / rules 两种形态与 includeMetadata / minSeverity 透传", async () => {
+  const { ops, calls } = recordingOps();
+  const [query] = toToolDefs(ops) as ToolDef[];
+  assert.ok(query !== undefined);
+
+  const file = await query.execute({
+    action: "rules",
+    rulePath: "rules/no-console.yml",
+    paths: ["src/a.ts", 7, "src/b.ts"],
+    includeMetadata: true,
+    minSeverity: "warning",
+  });
+  assert.deepEqual(file, { action: "rules", hits: [] });
+  assert.deepEqual(calls[0], {
+    op: "rules",
+    params: {
+      rule: { kind: "file", rulePath: "rules/no-console.yml" },
+      paths: ["src/a.ts", "src/b.ts"],
+      includeMetadata: true,
+      minSeverity: "warning",
+    },
+  });
+
+  const inline = await query.execute({
+    action: "rules",
+    rules: "id: no-console\nlanguage: TypeScript",
+    paths: ["src"],
+  });
+  assert.deepEqual(inline, { action: "rules", hits: [] });
+  assert.deepEqual(calls[1], {
+    op: "rules",
+    params: {
+      rule: {
+        kind: "inline",
+        rules: "id: no-console\nlanguage: TypeScript",
+      },
+      paths: ["src"],
+    },
+  });
+
+  // includeMetadata 只认 true（字符串 "true" 不传）
+  await query.execute({
+    action: "rules",
+    rules: "id: x",
+    paths: ["a.ts"],
+    includeMetadata: "true",
+    minSeverity: "",
+  });
+  assert.deepEqual(calls[2]?.params, {
+    rule: { kind: "inline", rules: "id: x" },
+    paths: ["a.ts"],
+  });
+});
+
+test("ast_replace: canonical 入参（write 只认 true）与结果原样返回", async () => {
+  const { ops, calls } = recordingOps();
+  const [, replace] = toToolDefs(ops) as ToolDef[];
+  assert.ok(replace !== undefined);
+
+  const value = await replace.execute({
+    pattern: "console.log($ARG)",
+    replacement: "logger.info($ARG)",
+    language: "ts",
+    path: "a.ts",
+    strictness: "smart",
+    write: true,
+  });
+  assert.deepEqual(value, {
+    updatedSource: "",
+    replacedCount: 0,
+    written: true,
+    matches: [],
+  });
+  assert.deepEqual(calls, [
+    {
+      op: "replace",
+      params: {
+        pattern: "console.log($ARG)",
+        replacement: "logger.info($ARG)",
+        language: "ts",
+        path: "a.ts",
+        write: true,
+        strictness: "smart",
+      },
+    },
+  ]);
+
+  await replace.execute({
+    pattern: "f()",
+    replacement: "g()",
+    language: "ts",
+    path: "a.ts",
+    write: "true",
+  });
+  assert.equal((calls[1]?.params as { write?: unknown }).write, false);
+});
+
+test("ast_query 渲染兜底：无 range 坐标按 1:1，长文本截断，空签名不留空位", () => {
+  const { query } = defs();
+  const longText = "x".repeat(150);
+  const text = textOf(query, {
+    action: "search",
+    matches: [
+      { text: longText, file: "a.ts" },
+      {
+        ...matchAt(0, 0),
+        metaVariables: { single: { LONG: { text: longText } } },
+      },
+    ],
+  });
+  const [first, second] = text.split("\n");
+  assert.equal(first, `a.ts:1:1  ${"x".repeat(100)}…`);
+  assert.ok(second?.includes(`$LONG=${"x".repeat(24)}…`), second ?? "");
+
+  const outline = textOf(query, {
+    action: "outline",
+    files: [
+      {
+        path: "a.ts",
+        language: "TypeScript",
+        items: [
+          {
+            symbolType: "variable",
+            name: "x",
+            signature: "",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(outline, "a.ts（TypeScript）\n  L1 variable x");
+});
+
+test("ast_query 渲染兜底：命中缺 severity / ruleId / message / range 时给缺省", () => {
+  const { query } = defs();
+  const text = textOf(query, {
+    action: "rules",
+    hits: [{ text: "x", file: "a.ts" }],
+  });
+  assert.equal(text, "a.ts:1:1 info (anonymous)");
+
+  const withMessage = textOf(query, {
+    action: "rules",
+    hits: [
+      {
+        text: "x",
+        file: "a.ts",
+        range: { start: { line: 1, column: 2 } },
+        ruleId: "r",
+        severity: "error",
+        message: "m",
+      },
+    ],
+  });
+  assert.equal(withMessage, "a.ts:2:3 error r: m");
+});
+
+test("ast_query 渲染：search / outline / rules 超预算都截断并补省略行", () => {
+  const { query } = defs();
+  const matches = Array.from({ length: RENDER_LIMIT + 2 }, (_, i) =>
+    matchAt(i, 0),
+  );
+  const search = textOf(query, { action: "search", matches });
+  assert.ok(search.endsWith("…（其余 2 条略）"));
+
+  const hits = Array.from({ length: RENDER_LIMIT + 3 }, (_, i) => ({
+    ...matchAt(i, 0),
+    ruleId: "r",
+  }));
+  const rules = textOf(query, { action: "rules", hits });
+  assert.ok(rules.endsWith("…（其余 3 条略）"));
+
+  const files = [
+    {
+      path: "a.ts",
+      language: "TypeScript",
+      items: Array.from({ length: RENDER_LIMIT + 1 }, (_, i) => ({
+        symbolType: "variable",
+        name: `v${i}`,
+        signature: "",
+      })),
+    },
+  ];
+  const outline = textOf(query, { action: "outline", files });
+  assert.ok(outline.endsWith("…（其余 2 条略）"), outline.slice(-40));
+});
+
+test("ast_query 渲染兜底：无 error / 结果字段时输出 action 占位", () => {
+  const { query } = defs();
+  assert.equal(textOf(query, { action: "search" }), "(空结果：search)");
+  assert.equal(textOf(query, {}), "(空结果：unknown)");
+});
+
+test("ast_replace 渲染兜底：error 前缀、无 matches 空结果、缺 replacement 不画箭头", () => {
+  const { replace } = defs();
+  assert.equal(textOf(replace, { error: "缺参" }), "ast_replace 失败：缺参");
+  assert.equal(textOf(replace, {}), "(空结果)");
+
+  const text = textOf(replace, {
+    replacedCount: 1,
+    written: false,
+    matches: [
+      { ...matchAt(0, 0, "a"), replacement: undefined },
+      { ...matchAt(0, 0, "b"), replacement: "c" },
+    ],
+  });
+  const lines = text.split("\n");
+  assert.equal(lines[1], "/tmp/a.ts:1  a");
+  assert.equal(lines[2], "/tmp/a.ts:1  b → c");
+});
+
+test("ast_replace 渲染：命中超预算截断", () => {
+  const { replace } = defs();
+  const matches = Array.from({ length: RENDER_LIMIT + 4 }, (_, i) =>
+    matchAt(i, 0),
+  );
+  const text = textOf(replace, {
+    replacedCount: matches.length,
+    written: true,
+    matches,
+  });
+  assert.equal(text.split("\n").length, RENDER_LIMIT + 1);
+  assert.ok(text.endsWith("…（其余 5 条略）"));
+});
+
+test("unavailableOps: 四个操作不应被调用，调用即抛", async () => {
+  const stub = unavailableOps("ast-grep 不可用");
+  await assert.rejects(
+    stub.search({ pattern: "f()", language: "ts", path: "a.ts" }),
+  );
+  await assert.rejects(
+    stub.replace({
+      pattern: "f()",
+      replacement: "g()",
+      language: "ts",
+      path: "a.ts",
+    }),
+  );
+  await assert.rejects(stub.outline({ path: "a.ts" }));
+  await assert.rejects(
+    stub.rules({ rule: { kind: "inline", rules: "id: x" }, paths: ["a.ts"] }),
+  );
+});

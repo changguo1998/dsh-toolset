@@ -42,12 +42,63 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 
 ## 实现记录
 
-(待填)
+- 阶段 2 测试锚定（分支 `history-cleanup/02-tests-ast-tools`）:
+  - 基线: 单元 47 例全通过, 0 skip; 覆盖率 行 84.2% (886/1052), 分支 62.6% (117/187).
+  - 单元锚点: 新增 35 例, 覆盖二进制探测与回落、子进程启动失败 / 超时 / JSON 解析错误、定时器统一面形状兜底与卸载路径、工具 canonical 入参 / 渲染兜底与截断、bundle 工厂与 `apply` 极简宿主.
+  - 集成层: 新增 `tests/assemble.ts` (假工具面 / 假事件面 / 假服务面 + 假 ast-grep CLI + 假时钟, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 例): 工具注册名、`execute` canonical 值、`output.render` 投影、服务面 `clock` 读取、事件面零订阅、降级装配.
+  - 脚本: `package.json` 加 `test:integration` 与 `test:coverage`.
+  - 结果: 单元 82 例 + 集成 9 例全通过; 覆盖率 行 96.3% (1013/1052), 分支 87.6% (218/249).
 
 ## 偏差
 
-无
+- 无 `src` 改动.
+- 覆盖率脚本: `report.mjs` 的两个路径参数按仓库根解析, 故 `test:coverage` 里传 `tmp/cov-ast-tools` / `tmp/cov-ast-tools/report.json`; `NODE_V8_COVERAGE` 由 node 按包目录解析, 仍用 `../tmp/cov-ast-tools`. 两者指向同一目录.
+- 发现未修 (不属本阶段范围): `BundleHost.logger` 声明为可选, 但 `src/index.ts:191` 与 `:201` 无条件调用 `ctx.logger?.(name).info(...)`; 宿主缺 `logger` 时 `apply` 抛 TypeError. 装配器始终提供 logger, 未用用例锁死该行为, 留给阶段 3 代码整理.
 
 ## 测试与证据
 
-(待填)
+### 四个入口实跑
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C ast-tools run check` | 通过 (tsc --noEmit, 无输出) |
+| `pnpm -C ast-tools run test` | 82 例, pass 82, fail 0, skipped 0 |
+| `pnpm -C ast-tools run test:integration` | 9 例, pass 9, fail 0, skipped 0 |
+| `pnpm -C ast-tools run test:coverage` | 91 例全通过, 报告见下 |
+
+### 覆盖率 (改前 / 改后)
+
+只统 `ast-tools/src`; 同次报告里的 `clock-base/src/timers.ts` 来自 `tests/clock.test.ts` 跨包 import `ManualClock`, 不属本包口径, 不计入合计.
+
+| 文件 | 行 (改前) | 行 (改后) | 分支 (改前) | 分支 (改后) |
+| --- | --- | --- | --- | --- |
+| `src/binary.ts` | 71.3% (124/174) | 92.0% (160/174) | 46.2% (18/39) | 77.1% (37/48) |
+| `src/index.ts` | 95.9% (141/147) | 96.6% (142/147) | 72.7% (8/11) | 69.2% (9/13) |
+| `src/langs.ts` | 96.2% (25/26) | 96.2% (25/26) | 0.0% (0/1) | 0.0% (0/1) |
+| `src/outline.ts` | 88.2% (15/17) | 88.2% (15/17) | 75.0% (3/4) | 75.0% (3/4) |
+| `src/replace.ts` | 88.4% (61/69) | 88.4% (61/69) | 33.3% (2/6) | 33.3% (2/6) |
+| `src/rules.ts` | 88.9% (16/18) | 100.0% (18/18) | 80.0% (4/5) | 100.0% (6/6) |
+| `src/search.ts` | 90.0% (18/20) | 100.0% (20/20) | 0.0% (0/1) | 100.0% (1/1) |
+| `src/timers.ts` | 67.1% (104/155) | 95.5% (148/155) | 33.3% (7/21) | 88.0% (44/50) |
+| `src/tools.ts` | 89.7% (382/426) | 99.5% (424/426) | 75.8% (75/99) | 96.7% (116/120) |
+| 合计 | 84.2% (886/1052) | 96.3% (1013/1052) | 62.6% (117/187) | 87.6% (218/249) |
+
+分层贡献 (两轮跑): 只跑单元层 行 96.1% (1011/1052) / 分支 87.2% (212/243); 单元加集成 行 96.3% / 分支 87.6%, 集成层贡献 +2 行 / +6 分支 (search / outline / rules 的参数装配行).
+
+### 用例增减
+
+| 类别 | 改前 | 改后 | 增减 |
+| --- | --- | --- | --- |
+| 单元 (`tests/*.test.ts`) | 47 | 82 | +35 |
+| 集成 (`tests/integration/*.test.ts`) | 0 | 9 | +9 |
+| skip | 0 | 0 | 0 |
+| todo | 0 | 0 | 0 |
+| 删除用例 | - | 0 | 0 |
+
+### 豁免台账
+
+| 位置 | 缺什么 | 为什么补不了 | 触发条件 | 交给谁 |
+| --- | --- | --- | --- | --- |
+| `src/replace.ts:35` 重叠编辑跳过 | 公开入口 | `applyEdits` 未导出, 且 ast-grep 命中区间本不重叠, 属防御分支 | 无 | 阶段 3 代码整理评估 |
+| `src/binary.ts:196` `Array.isArray` 兜底 | 公开入口 | 解析片段固定从 `[` 到 `]`, `JSON.parse` 结果必为数组 | 无 | 阶段 3 代码整理评估 |
+| `src/index.ts:104-107` / `:125-127` | 非可执行行 | 接口 / 类型声明行, 非可执行代码, V8 仍按行计入 | 无 | 不处理 |
