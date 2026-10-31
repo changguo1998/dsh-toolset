@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `herdr-use` 合并, 分支 `history-cleanup/02-tests-herdr-use` (`760a593`), 合并提交 `7f8c569`; 单元 136→143 条, 集成 22 条, 覆盖率 84.5%→88.6% / 71.3%→75.1%; `tests/clock.test.ts` 的 exclude 与跨包 import 按计划未动; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `herdr-integration` 合并, 分支 `history-cleanup/02-tests-herdr-integration` (`c851c4e`), 合并提交 `659a0ba`; 单元 57→60 条, 集成 11 条 (连跑 3 次全绿), 覆盖率 86.7%→91.7% / 67.2%→73.2%; win32 命名管道分支不可达, 入豁免台账; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `hash-edit` 合并, 分支 `history-cleanup/02-tests-hash-edit` (`c4e5e76`), 合并提交 `7429890`; 单元 54→57 条, 集成 18 条, 覆盖率 87.0%→96.4% / 73.3%→88.0%; `apply` 缺 ctx 守卫已记本包 BACKLOG 交阶段 3; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `goal-contract` 合并, 分支 `history-cleanup/02-tests-goal-contract` (`627883c`), 合并提交 `c71a02a`; 单元 41→55 条, 集成 9 条, 覆盖率 87.6%→95.8% / 81.8%→90.3%; worktree 已删, coagent 已关.
