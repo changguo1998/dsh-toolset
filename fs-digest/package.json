@@ -9,7 +9,9 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "demo": "node --experimental-transform-types demo/main.ts",
-    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE=../tmp/cov-fs-digest node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-fs-digest tmp/cov-fs-digest/report.json"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

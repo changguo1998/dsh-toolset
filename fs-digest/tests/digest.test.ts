@@ -58,6 +58,48 @@ describe("digest 错误路径", () => {
     assert.equal(r.ok, false);
     if (!r.ok) assert.equal(r.error, "invalid_option");
   });
+
+  it("非法 mode → invalid_option, message 列出三种模式", async () => {
+    const r = await digest(null, TS_FILE, { mode: "weird" as never });
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.error, "invalid_option");
+      assert.equal(r.mode, "unknown");
+      assert.match(r.message, /非法 mode：weird/);
+      assert.match(r.message, /outline \/ signatures \/ pruned/);
+    }
+  });
+
+  it("depth 非整数 → invalid_option", async () => {
+    const r = await digest(null, TS_FILE, { mode: "outline", depth: 1.5 });
+    assert.equal(r.ok, false);
+    if (!r.ok) {
+      assert.equal(r.error, "invalid_option");
+      assert.match(r.message, /depth 须为 >=1 的整数/);
+    }
+  });
+
+  it("pruned maxLines < 2 / 非整数 → invalid_option", async () => {
+    for (const maxLines of [1, 2.5]) {
+      const r = await digest(null, BIG_FILE, { mode: "pruned", maxLines });
+      assert.equal(r.ok, false, `maxLines=${maxLines}`);
+      if (!r.ok) {
+        assert.equal(r.error, "invalid_option");
+        assert.match(r.message, /maxLines 须为 >=2 的整数/);
+      }
+    }
+  });
+
+  it("pruned maxTokens < 2 / 非整数 → invalid_option", async () => {
+    for (const maxTokens of [1, 2.5]) {
+      const r = await digest(null, BIG_FILE, { mode: "pruned", maxTokens });
+      assert.equal(r.ok, false, `maxTokens=${maxTokens}`);
+      if (!r.ok) {
+        assert.equal(r.error, "invalid_option");
+        assert.match(r.message, /maxTokens 须为 >=2 的整数/);
+      }
+    }
+  });
 });
 
 describe("LSP 降级与 requireLsp", () => {
