@@ -137,3 +137,57 @@ test("契约符号：name / inject", () => {
   assert.equal(name, "ponytail");
   assert.deepEqual(inject, ["ruleEngine"]);
 });
+
+test("resolveConfig: sources 过滤非法项, 全非法或空数组回退缺省", () => {
+  const mixed = resolveConfig({
+    sources: ["session-start", "", 42 as unknown as string, "step-end"],
+  });
+  assert.deepEqual(mixed.sources, ["session-start", "step-end"]);
+
+  const allBad = resolveConfig({ sources: [""] });
+  assert.deepEqual(allBad.sources, ["session-start", "step-end"]);
+
+  const empty = resolveConfig({ sources: [] });
+  assert.deepEqual(empty.sources, ["session-start", "step-end"]);
+
+  const custom = resolveConfig({ sources: ["step-end"] });
+  assert.deepEqual(custom.sources, ["step-end"], "单个合法节点直接透传");
+});
+
+test("resolveConfig: delivery 合法值透传, 非法值回退 steer", () => {
+  assert.equal(resolveConfig({ delivery: "inject" }).delivery, "inject");
+  assert.equal(resolveConfig({ delivery: "followup" }).delivery, "followup");
+  assert.equal(resolveConfig({ delivery: "steer" }).delivery, "steer");
+  assert.equal(
+    resolveConfig({ delivery: "auto" as unknown as "inject" }).delivery,
+    "steer",
+    "非白名单投递方式回退缺省",
+  );
+});
+
+test("resolveConfig: dedupeInRecord 接受 0 与非 1 值, 非数字回退 1", () => {
+  assert.equal(resolveConfig({ dedupeInRecord: 0 }).dedupeInRecord, 0);
+  assert.equal(resolveConfig({ dedupeInRecord: 3 }).dedupeInRecord, 3);
+  assert.equal(
+    resolveConfig({ dedupeInRecord: "2" as unknown as number }).dedupeInRecord,
+    1,
+    "非数字回退缺省 1",
+  );
+  assert.equal(
+    resolveConfig({ dedupeInRecord: -2 }).dedupeInRecord,
+    1,
+    "负数回退缺省 1",
+  );
+});
+
+test("resolveConfig: 非空自定义 text 覆盖阶梯正文, 空串或非字符串回退内置", () => {
+  const custom = resolveConfig({ text: "[ponytail] 试验正文" });
+  assert.equal(custom.text, "[ponytail] 试验正文");
+  assert.notEqual(custom.text, LADDER_TEXT);
+  assert.equal(resolveConfig({ text: "" }).text, LADDER_TEXT);
+  assert.equal(
+    resolveConfig({ text: 7 as unknown as string }).text,
+    LADDER_TEXT,
+    "非字符串回退内置阶梯正文",
+  );
+});
