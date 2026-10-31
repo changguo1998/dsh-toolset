@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 1: `background-daemon` 合并, 分支 `history-cleanup/02-tests-background-daemon` (`01b37c1`), 合并提交 `94380d0`; 单元 166→190 条, 集成 10 条, 覆盖率 85.4%→89.8% / 72.8%→78.3%; worktree 已删, coagent 已关.
 - 2026-10-28 批次 1: `behavior-correction` 合并, 分支 `history-cleanup/02-tests-behavior-correction` (`e076027`), 合并提交 `19b7379`; 单元 33→46 条, 集成 13 条, 覆盖率 90.8%→98.6% / 85.3%→98.4%; `herdr_use` 负断言按 4.4 保留; worktree 已删, coagent 已关.
 - 2026-10-28 批次 1: `ast-tools` 合并, 分支 `history-cleanup/02-tests-ast-tools` (`8645ac6`), 合并提交 `a73fabd`; 单元 82 条, 集成 9 条, 覆盖率 84.2%→96.3% / 62.6%→87.6%; worktree 已删, coagent 已关. 包内记 `BundleHost.logger` 可选却无条件取 `.info` 的问题, 留阶段 3.
 - 2026-10-28 批次 1: `auto-approve` 合并, 分支 `history-cleanup/02-tests-auto-approve` (`3c809ca`), 合并提交 `4d5ab15`; 单元 181 条, 集成 12 条, 覆盖率 87.2%→90.3% / 72.1%→75.7%; worktree 已删, coagent 已关.
