@@ -101,4 +101,14 @@ describe("块与链接查询", () => {
       "title 也参与匹配",
     );
   });
+
+  it("空筛选数组 / 空子串视为不过滤，limit 截断生效", () => {
+    assert.equal(findSections(doc, { levels: [] }).length, 3);
+    assert.equal(findSections(doc, { pattern: "" }).length, 3);
+    assert.equal(queryBlocks(doc, { kind: [] }).length, 7);
+    assert.equal(listLinks(doc, { kind: [] }).length, 3);
+    assert.equal(listLinks(doc, { pattern: "" }).length, 3);
+    assert.equal(listLinks(doc, { limit: 1 }).length, 1);
+    assert.equal(queryBlocks(doc, { limit: 2 }).length, 2);
+  });
 });

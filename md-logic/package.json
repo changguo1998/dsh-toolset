@@ -9,7 +9,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-md-logic && mkdir -p ../tmp/cov-md-logic && NODE_V8_COVERAGE=../tmp/cov-md-logic node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-md-logic tmp/cov-md-logic/report.json"
   },
   "dependencies": {
     "marked": "^18.0.14"
