@@ -42,12 +42,43 @@ rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction
 
 ## 实现记录
 
-(待填)
+- 基线：`pnpm -C behavior-correction run test` 33 条（32 通过、1 skip = `contract.test.ts` 的 `@dsh-toolset/rule-engine` 契约探针）；`run check` 通过；覆盖率 行 90.8%（326/359）、分支 85.3%（87/102）。
+- 单元锚点：新增 `behavior-correction/tests/index.test.ts`（13 条），补 `src/index.ts` 未被现有用例走到的分支与错误路径 —— `resolveConfig` 的 rules 缺席 / 非数组兜底；`compileRules` 的 `tool` 非法（数字、空数组、全非法项）、`match` 非对象、`match.keywords` / `match.regex` 非字符串数组、`exclude` 非对象、`exclude.keywords` / `exclude.regex` 非法、`exclude` 正则无效、混合列表只留合法项、`g` / `y` 从 flags 去掉、无 `id` 规则的序号标签；`matchRule` 的 tool 限定跳过与 exclude 弃权、空上下文；`apply` 的 `ctx` 为 null / undefined、严格模式直读 `ctx.ruleEngine` 抛错回退 `ctx.get`、直接属性非注册面、`registerConsumer` 不返回注销函数、宿主不给 `ctx.on`。
+- 集成层：新增 `behavior-correction/tests/assemble.ts`（装配器，不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（13 条）。装配器按总规范 4.2 拼三个假面 —— 假工具面是 `tools/pre-execute` 的 waterfall（按注册顺序派发，首个 `deny` 胜出、`undefined` 弃权交下一位）、假事件面是 `ctx.on` / `emit("dispose")`、假服务面是 `ctx.get("ruleEngine")` 的 `registerConsumer` 注册面；另支持直接属性暴露、严格模式直读抛错、注册被拒与无注销函数四种接线形态。断言覆盖：注册项 `id` / `sources`、拒绝回执 `kind: "deny"` 且 `reason` 等于 `DEFAULT_RULES[0].reason`、waterfall 弃权与命中、`dispose` 事件注销一次且返回值幂等、服务缺席 / 严格模式 / 注册被拒 / 非注册面四种降级、`enabled: false` 与自定义规则整体替换、非法正则告警后其余规则照常。本包无工具注册、无服务 provide、不落盘，故集成层不涉及临时目录。
+- 专项：删除 `tests/contract.test.ts`（文件内容只有那个探针；本仓布局下 `@dsh-toolset/rule-engine` 不可解析、本机永远 skip，`CONSUMER_SOURCES` 已由 `rule-engine/tests/rules.test.ts` 锁定）。删后本包 `skip` 计数 0，夹具 0 个（无需复核）。`tests/main.test.ts` 未改，原因见「偏差」。
+- 脚本：`behavior-correction/package.json` 增加 `test:integration` 与 `test:coverage`（后者按包文档的命令写，报告目录用 `tmp/cov-behavior-correction`，与 `auto-approve` 同形）。
+- 覆盖率：行 90.8% → 98.6%，分支 85.3% → 98.4%（单元 + 集成，分母 359 行 / 122 分支）；只跑单元层为 98.6% / 99.2%（120/121 分支），集成层不增加 `src` 行覆盖，作用是锚定 `apply` 的接线值。
 
 ## 偏差
 
-无
+- 任务清单第 3 步要求把 `tests/main.test.ts:141` 的 `herdr_use` 旧名改成 `herdr_run`；总规范 4.4 第 4 条则明确「负断言保留，『旧名不得回流』本身是护栏（`behavior-correction` 与 `security-guard` 各一处）」。两者冲突，按总规范执行：该行 `assert.doesNotMatch(reason, /herdr_use|pane_|tab_/)` 保留原样（改成 `herdr_run` 会让这条 `doesNotMatch` 必然失败）。作为补偿，集成用例里另加了一条同口径的负断言，并以 `DEFAULT_RULES[0].reason` 做正向断言，避免文案重复写字面量。
+- 覆盖率报告里的未覆盖行 `373-377`（`matchRule` 的 exclude 分支与两个 return）是 V8 子表达式 range 的统计残余：这些行已被多条用例实际执行，聚合器按「最小 span 的 count」取数时被记成 0；按 4.3「不可达分支不计」处理，不另写用例凑数。
 
 ## 测试与证据
 
-(待填)
+命令（均在 `behavior-correction/` 下执行，分支 `history-cleanup/02-tests-behavior-correction`）：
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm run check` | ✓ 通过（`tsc -p tsconfig.json --noEmit`，无输出） |
+| `pnpm run test` | ✓ 46 条通过 / 0 失败 / 0 skip / 0 todo（改前 33 条、1 skip） |
+| `pnpm run test:integration` | ✓ 13 条通过 / 0 失败 / 0 skip |
+| `pnpm run test:coverage` | ✓ 单元 + 集成全跑通，报告 `tmp/cov-behavior-correction/report.json` |
+
+覆盖率（`dev/coverage/report.mjs`）：
+
+| 文件 | 改前 行 | 改前 分支 | 改后 行 | 改后 分支 | 未覆盖行 |
+| --- | --- | --- | --- | --- | --- |
+| `behavior-correction/src/index.ts` | 90.8% (326/359) | 85.3% (87/102) | 98.6% (354/359) | 98.4% (120/122) | 373-377（统计残余，见「偏差」） |
+| 合计 | 90.8% | 85.3% | 98.6% | 98.4% | - |
+
+新增与删除用例清单：
+
+| 文件 | 动作 | 条数 | 覆盖内容 |
+| --- | --- | --- | --- |
+| `tests/index.test.ts` | 新增 | 13 | 配置兜底、规则编译的六类非法分支、flags 归一、空上下文、`apply` 的五条降级 / 注销路径 |
+| `tests/assemble.ts` | 新增 | - | 三假面装配器（工具 / 事件 / 服务）+ stderr 捕获，无断言 |
+| `tests/integration/plugin.test.ts` | 新增 | 13 | 注册面值、拒绝文案、waterfall、dispose 事件、四种服务面降级、配置面 |
+| `tests/contract.test.ts` | 删除 | 1 | 对 `@dsh-toolset/rule-engine` 的契约探针（本机不可解析，永远 skip），由 `rule-engine/tests/rules.test.ts` 接管 |
+
+`skip` 与豁免台账：本包当次触发 `skip` 0 条、`todo` 0 条、豁免 0 条。
