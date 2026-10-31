@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-TUI node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-TUI ../tmp/cov-TUI/report.json
+rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-TUI node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-TUI tmp/cov-TUI/report.json
 ```
 
 - 专项: `tests/app.test.ts:354` 的 `skip` 按 4.4 处理; `tests/fixtures/` 的 2 个夹具复核; 新增 `test:e2e`, 跑 `demo -- --smoke` 与 `smoke:pty`; 端到端只在 TUI 做.

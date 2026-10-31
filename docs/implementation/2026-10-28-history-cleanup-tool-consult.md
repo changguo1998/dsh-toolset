@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-tool-consult && mkdir -p ../tmp/cov-tool-consult && NODE_V8_COVERAGE=../tmp/cov-tool-consult node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-tool-consult ../tmp/cov-tool-consult/report.json
+rm -rf ../tmp/cov-tool-consult && mkdir -p ../tmp/cov-tool-consult && NODE_V8_COVERAGE=../tmp/cov-tool-consult node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-tool-consult tmp/cov-tool-consult/report.json
 ```
 
 - 专项: `tests/retrieval.test.ts:209` 的 `skip` 收窄为「`channel_delegate` 进前二」; 复核 `tests/fixtures/` 的 1 个夹具.

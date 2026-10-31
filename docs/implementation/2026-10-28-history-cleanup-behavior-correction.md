@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction && NODE_V8_COVERAGE=../tmp/cov-behavior-correction node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-behavior-correction ../tmp/cov-behavior-correction/report.json
+rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction && NODE_V8_COVERAGE=../tmp/cov-behavior-correction node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-behavior-correction tmp/cov-behavior-correction/report.json
 ```
 
 - 专项: 删 `tests/contract.test.ts` 对 `@dsh-toolset/rule-engine` 的契约探针; `tests/main.test.ts` 的 `herdr_use` 旧名改 `herdr_run`.

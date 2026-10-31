@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-session-title-cutoff && mkdir -p ../tmp/cov-session-title-cutoff && NODE_V8_COVERAGE=../tmp/cov-session-title-cutoff node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-session-title-cutoff ../tmp/cov-session-title-cutoff/report.json
+rm -rf ../tmp/cov-session-title-cutoff && mkdir -p ../tmp/cov-session-title-cutoff && NODE_V8_COVERAGE=../tmp/cov-session-title-cutoff node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-session-title-cutoff tmp/cov-session-title-cutoff/report.json
 ```
 
 - 专项: `tests/main.test.ts:553` 的 `skip` 按 4.4 处理.

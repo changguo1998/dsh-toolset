@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_COVERAGE=../tmp/cov-session-paths node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-session-paths ../tmp/cov-session-paths/report.json
+rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_COVERAGE=../tmp/cov-session-paths node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-session-paths tmp/cov-session-paths/report.json
 ```
 
 - 专项: 不新增集成层; `test:integration` 打印缺层原因并退出 0; 单元层补锚点.

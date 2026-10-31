@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVERAGE=../tmp/cov-agent-group node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-agent-group ../tmp/cov-agent-group/report.json
+rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVERAGE=../tmp/cov-agent-group node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-agent-group tmp/cov-agent-group/report.json
 ```
 
 - 专项: -.
@@ -59,7 +59,7 @@ rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVE
 
 ## 偏差
 
-1. `test:coverage` 的 report 参数与规划不同: 规划写 `node ../dev/coverage/report.mjs ../tmp/cov-agent-group ../tmp/cov-agent-group/report.json`, 但 `report.mjs` 把参数按**仓库根**解析, `../tmp/...` 会落到 `.worktree/02-tests/tmp` (scandir ENOENT); 实际改为 `tmp/cov-agent-group` (仓库根相对), 采集侧 `NODE_V8_COVERAGE=../tmp/cov-agent-group` 仍按包目录解析.
+1. `test:coverage` 的 report 参数与规划不同: 规划写 `node ../dev/coverage/report.mjs tmp/cov-agent-group tmp/cov-agent-group/report.json`, 但 `report.mjs` 把参数按**仓库根**解析, `../tmp/...` 会落到 `.worktree/02-tests/tmp` (scandir ENOENT); 实际改为 `tmp/cov-agent-group` (仓库根相对), 采集侧 `NODE_V8_COVERAGE=../tmp/cov-agent-group` 仍按包目录解析.
 2. 环境注记 (不改仓库文件): worktree 内包目录原本没有 `node_modules`, `pnpm -C agent-group run <脚本>` 会因依赖检查自动 `pnpm install` 并失败 (`unable to open database file`); 把包内 `node_modules` 软链到主仓同名包的依赖后四条命令正常, `node_modules` 已被根 `.gitignore` 忽略, 不进提交.
 
 ## 测试与证据

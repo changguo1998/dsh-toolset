@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-context-report && mkdir -p ../tmp/cov-context-report && NODE_V8_COVERAGE=../tmp/cov-context-report node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-context-report ../tmp/cov-context-report/report.json
+rm -rf ../tmp/cov-context-report && mkdir -p ../tmp/cov-context-report && NODE_V8_COVERAGE=../tmp/cov-context-report node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-context-report tmp/cov-context-report/report.json
 ```
 
 - 专项: -.

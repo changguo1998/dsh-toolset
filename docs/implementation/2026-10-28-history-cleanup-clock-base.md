@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERAGE=../tmp/cov-clock-base node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-clock-base ../tmp/cov-clock-base/report.json
+rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERAGE=../tmp/cov-clock-base node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-clock-base tmp/cov-clock-base/report.json
 ```
 
 - 专项: -.

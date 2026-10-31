@@ -26,7 +26,7 @@
 - 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
 
 ```sh
-rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVERAGE=../tmp/cov-rule-engine node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs ../tmp/cov-rule-engine ../tmp/cov-rule-engine/report.json
+rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVERAGE=../tmp/cov-rule-engine node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-rule-engine tmp/cov-rule-engine/report.json
 ```
 
 - 专项: `tests/main.test.ts` / `tests/consumerGuard.test.ts` 的 `herdr_use` 旧名改 `herdr_run`.
