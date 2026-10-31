@@ -86,3 +86,22 @@ test("shouldCompress：空 locator 的通知不触发 spill-notice，回落阈�
   const { reason } = shouldCompress(text, { minBytes: 999999 });
   assert.equal(reason, "none");
 });
+
+test("宽松通知：宿主文案演进（无 retrievalHint）时仍解析出 locator，hint 为空", () => {
+  const text = `preview\n\n(Omitted 7 bytes. Full formatted result stored at: /tmp/dir v1.2/out.txt)`;
+  const notice = parseSpillNotice(text);
+  assert.ok(notice !== null, "严格正则失配后由宽松正则兜底");
+  assert.equal(notice.omittedBytes, 7);
+  assert.equal(notice.locator, "/tmp/dir v1.2/out.txt");
+  assert.equal(notice.retrievalHint, "", "宽松形态不提供取回指引");
+  assert.equal(
+    shouldCompress(text, { minBytes: 999999 }).reason,
+    "spill-notice",
+  );
+});
+
+test("宽松通知：locator 剥空后返回 null（畸形通知不触发）", () => {
+  const text = `preview\n\n(Omitted 5 bytes. Full formatted result stored at: )`;
+  assert.equal(parseSpillNotice(text), null);
+  assert.equal(shouldCompress(text, { minBytes: 999999 }).reason, "none");
+});
