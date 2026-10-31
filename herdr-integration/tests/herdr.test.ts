@@ -32,6 +32,8 @@ function createSocketServer(path: string): {
   const lines: string[] = [];
   const server = createServer((socket) => {
     let buffer = "";
+    // 客户端收到响应即 destroy;服务端回写可能晚一步, 对端关闭按正常收尾处理
+    socket.on("error", () => {});
     socket.on("data", (chunk: Buffer) => {
       buffer += chunk.toString();
       let idx: number;
@@ -322,5 +324,50 @@ describe("HerdrClient unix socket 协议", () => {
     );
     assert.deepEqual(states, ["working", "blocked", "idle"]);
     await close();
+  });
+
+  test("reportSession 无启动来源 → 省略该字段, 仅 path 的引用走 agent_session_path", async () => {
+    const socketPath = tmpSocketPath();
+    const { lines, listen, close } = createSocketServer(socketPath);
+    await listen();
+    const client = clientFor(socketPath);
+    await client.reportSession({ path: "/sessions/sess-1.jsonl" });
+
+    assert.equal(lines.length, 1);
+    const msg = JSON.parse(lines[0]!) as {
+      method: string;
+      params: Record<string, unknown>;
+    };
+    assert.equal(msg.method, "pane.report_agent_session");
+    assert.equal(msg.params.agent_session_path, "/sessions/sess-1.jsonl");
+    assert.equal(msg.params.agent_session_id, undefined);
+    assert.equal(msg.params.session_start_source, undefined);
+
+    await close();
+  });
+
+  test("releaseSync: 同步子进程送达 pane.release_agent（进程退出路径）", async () => {
+    const socketPath = tmpSocketPath();
+    const { lines, listen, close } = createSocketServer(socketPath);
+    await listen();
+    const client = clientFor(socketPath);
+    client.releaseSync();
+    await waitLines(lines, 1);
+
+    const msg = JSON.parse(lines[0]!) as {
+      method: string;
+      params: Record<string, unknown>;
+    };
+    assert.equal(msg.method, "pane.release_agent");
+    assert.equal(msg.params.pane_id, "p1");
+    assert.equal(msg.params.source, "dsh");
+    assert.equal(typeof msg.params.seq, "number");
+
+    await close();
+  });
+
+  test("releaseSync: socket 不存在时静默返回（退出路径不抛）", () => {
+    const client = clientFor(tmpSocketPath());
+    assert.doesNotThrow(() => client.releaseSync());
   });
 });
