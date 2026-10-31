@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `ponytail` 合并, 分支 `history-cleanup/02-tests-ponytail` (`4b91612`), 合并提交 `6cf2ceb`; 单元 9 条, 集成 14 条, 覆盖率 91.3%→100.0% / 65.2%→100.0%; 无落盘面, 集成以「工具面零注册 + 事件面无监听」替代临时目录断言; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `metric-loop` 合并, 分支 `history-cleanup/02-tests-metric-loop` (`84accc6`), 合并提交 `3b1e7a2`; 单元 47→56 条, 集成 17 条, 覆盖率 90.5%→94.8% / 83.3%→91.6%; 装配器以动态 import 取 `ManualClock` 规避 rootDir; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `memory-base` 合并, 分支 `history-cleanup/02-tests-memory-base` (`ea33e18`), 合并提交 `1f5ea4c`; 单元 83→90 条, 集成 6 条, 覆盖率 90.9%→93.0% / 79.3%→82.7%; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `md-map` 合并, 分支 `history-cleanup/02-tests-md-map` (`1d2481e`), 合并提交 `f46d82a`; 单元 50→65 条, 集成 15 条, 覆盖率 89.6%→94.5% / 78.4%→84.7%; `apply` 缺 ctx 守卫与 `warn` 的 `??` 依赖 `info()` 已记本包 BACKLOG; worktree 已删, coagent 已关.
