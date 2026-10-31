@@ -5,9 +5,13 @@ import {
   DENIAL_MARKER_PREFIX,
   ESCALATION_HINT_PREFIX,
   FS_DENIED_CODE,
+  commandOf,
   familyOf,
   hintFor,
   judge,
+  normalizeCommand,
+  resultErrorCode,
+  resultText,
   type JudgeOptions,
   type ToolResultLike,
 } from "../src/judge.ts";
@@ -262,6 +266,131 @@ test("层 3：失败但没有任何拒绝特征文本 → 不提示", () => {
     OPTIONS,
   );
   assert.equal(hint, null);
+});
+
+test("结果文本: 字符串 / 文本块 / 非文本块 / 缺字段", () => {
+  assert.equal(resultText({ content: "纯字符串" }), "纯字符串");
+  assert.equal(
+    resultText({
+      content: [
+        { type: "text", text: "甲" },
+        null,
+        7,
+        { type: "image", data: "x" },
+        { type: "text", text: "乙" },
+      ],
+    }),
+    "甲\n乙",
+  );
+  assert.equal(resultText({}), "");
+  assert.equal(resultText({ content: { type: "text" } }), "");
+});
+
+test("错误码: error.code 优先, 兼容嵌套 error.info.code", () => {
+  assert.equal(
+    resultErrorCode({ error: { code: FS_DENIED_CODE } }),
+    FS_DENIED_CODE,
+  );
+  assert.equal(
+    resultErrorCode({ error: { info: { code: FS_DENIED_CODE } } }),
+    FS_DENIED_CODE,
+  );
+  assert.equal(resultErrorCode({ error: { code: 7 } }), undefined);
+  assert.equal(resultErrorCode({ error: { info: { code: 7 } } }), undefined);
+  assert.equal(resultErrorCode({ error: "EROFS" }), undefined);
+  assert.equal(resultErrorCode({}), undefined);
+});
+
+test("命令文本: 只有 arguments.command 是字符串时给出", () => {
+  assert.equal(commandOf({ arguments: { command: "ls" } }), "ls");
+  assert.equal(commandOf({ arguments: { command: 1 } }), undefined);
+  assert.equal(commandOf({ arguments: null }), undefined);
+  assert.equal(commandOf({ arguments: "ls" }), undefined);
+  assert.equal(commandOf({}), undefined);
+});
+
+test("命令归一: 去 /dev/null 重定向与 2>&1, 压缩空白", () => {
+  assert.equal(normalizeCommand("echo   x  > /dev/null"), "echo x");
+  assert.equal(normalizeCommand("npm test 2>&1"), "npm test");
+  assert.equal(normalizeCommand("a 2>> /dev/null | b"), "a | b");
+  assert.equal(normalizeCommand("  git   add  "), "git add");
+});
+
+test("工具族: 自定义名单替换缺省名单", () => {
+  const custom: JudgeOptions = { commandTools: ["sh"], fileTools: ["patch"] };
+  assert.equal(familyOf("sh", custom), "command");
+  assert.equal(familyOf("patch", custom), "operation");
+  assert.equal(familyOf("bash", custom), undefined);
+  assert.equal(familyOf(undefined, custom), undefined);
+});
+
+test("层 1 优先于层 2: 只有升级提示、没有拒绝标记 → 不提示", () => {
+  assert.equal(
+    judge(
+      { name: "bash" },
+      text("something", `${ESCALATION_HINT_PREFIX} …]`),
+      OPTIONS,
+    ),
+    null,
+  );
+});
+
+test("层 2: 文件沙箱错误码走嵌套 error.info.code", () => {
+  const hint = judge(
+    { name: "edit" },
+    { error: { info: { code: FS_DENIED_CODE } }, content: [] },
+    OPTIONS,
+  );
+  assert.notEqual(hint, null);
+  assert.match(hint!.text, /文件操作/);
+});
+
+test("层 3: value / sandbox 不是对象 → 不命中", () => {
+  const commit = { name: "bash", arguments: { command: "git commit -m x" } };
+  assert.equal(judge(commit, { value: "EROFS" }, OPTIONS), null);
+  assert.equal(
+    judge(
+      commit,
+      { value: { exitCode: 1, sandbox: "workspace-write" } },
+      OPTIONS,
+    ),
+    null,
+  );
+});
+
+test("层 3: 宿主判定 denied=true 时无需拒绝特征文本", () => {
+  const hint = judge(
+    { name: "bash", arguments: { command: "git commit -m x" } },
+    {
+      content: [{ type: "text", text: "write failed" }],
+      value: {
+        exitCode: 1,
+        stderr: { text: "write failed" },
+        sandbox: { mode: "workspace-write", denied: true },
+      },
+    },
+    OPTIONS,
+  );
+  assert.notEqual(hint, null);
+});
+
+test("层 3: 没有命令参数 / stderr 是裸字符串都按形状判断", () => {
+  assert.equal(
+    judge({ name: "bash", arguments: { command: 1 } }, bashValue(1), OPTIONS),
+    null,
+  );
+  const hint = judge(
+    { name: "bash", arguments: { command: "git add -A" } },
+    {
+      value: {
+        exitCode: 1,
+        stderr: "只读文件系统",
+        sandbox: { mode: "workspace-write" },
+      },
+    },
+    OPTIONS,
+  );
+  assert.notEqual(hint, null);
 });
 
 test("重定向到 /dev/null 不算写形状；其它目标 + 拒绝文本才算", () => {

@@ -246,3 +246,63 @@ test("真实 tool-bash 返回值经 apply → 注入一条提示", async () => {
   assert.equal(decision.additionalContexts?.length, 1);
   assert.match(decision.additionalContexts![0]!.content[0]!.text, /git|命令/);
 });
+
+test("resolveConfig: maxHints 取整, 非正 / 非有限值回退缺省", () => {
+  assert.equal(resolveConfig({ maxHints: 2.9 }).maxHints, 2);
+  assert.equal(resolveConfig({ maxHints: 5 }).maxHints, 5);
+  for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(resolveConfig({ maxHints: bad }).maxHints, 64, String(bad));
+  }
+});
+
+test("resolveConfig: 名单过滤非字符串与空串, 全部非法时回退缺省", () => {
+  const resolved = resolveConfig({
+    commandTools: ["bash", "", 7] as unknown as string[],
+    fileTools: [] as unknown as string[],
+  });
+  assert.deepEqual(resolved.commandTools, ["bash"]);
+  assert.deepEqual(resolved.fileTools, [...DEFAULT_FILE_TOOLS]);
+});
+
+test("ctx.on 缺失但有 logger → 告警走 logger.warn", () => {
+  const warnings: string[] = [];
+  const ctx = { logger: { warn: (message: string) => warnings.push(message) } };
+  const off = apply(ctx);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /^\[escalation-hint\] ctx\.on 不可用/);
+  assert.doesNotThrow(() => off());
+});
+
+test("ctx.on 不返回注销函数 → 返回空操作函数", () => {
+  const { ctx } = fakeContext();
+  ctx["on"] = () => undefined;
+  const off = apply(ctx);
+  assert.equal(typeof off, "function");
+  assert.doesNotThrow(() => off());
+});
+
+test("宿主未给下游决定 → 自建 accept 承载附加上下文", async () => {
+  const { ctx, handlers } = fakeContext();
+  apply(ctx);
+  const handler = handlers[0]!;
+  const decision = (await handler(BASH_EXEC, DENIED_RESULT)) as {
+    kind: string;
+    additionalContexts?: unknown[];
+  };
+  assert.equal(decision.kind, "accept");
+  assert.equal(decision.additionalContexts?.length, 1);
+});
+
+test("exec / result 缺失 → 原样返回下游决定", async () => {
+  const { ctx, handlers } = fakeContext();
+  apply(ctx);
+  const handler = handlers[0]!;
+  const decision = await handler(undefined, DENIED_RESULT, async () => ({
+    kind: "accept",
+  }));
+  assert.deepEqual(decision, { kind: "accept" });
+  const noResult = await handler(BASH_EXEC, undefined, async () => ({
+    kind: "accept",
+  }));
+  assert.deepEqual(noResult, { kind: "accept" });
+});
