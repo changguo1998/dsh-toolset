@@ -112,6 +112,37 @@ test("session/end-seed：只推进水位，不改计数", () => {
   assert.equal(state.usageSamples, 0);
 });
 
+test("step/end 无对应 start：不计样本、水位照常推进", () => {
+  const state = foldSession([
+    { type: "step/end", data: { turn: 1, step: 1 }, time: 1, seq: 0 },
+  ]);
+  assert.equal(state.usageSamples, 0);
+  assert.equal(state.uncachedInputTokens, 0);
+  assert.equal(state.asOfSeq, 0, "无起始步的关闭步仍推进水位");
+});
+
+test("assistant/message 在无打开步时忽略 usage", () => {
+  const state = foldSession([
+    {
+      type: "assistant/message",
+      data: { usage: { inputTokens: 100, outputTokens: 10 } },
+      time: 1,
+      seq: 0,
+    },
+  ]);
+  assert.equal(state.usageSamples, 0);
+  assert.equal(state.uncachedInputTokens, 0);
+  assert.equal(state.asOfSeq, 0);
+});
+
+test("事件缺 seq / seq 非有限数：水位按下标补位", () => {
+  const state = foldSession([
+    { type: "step/start", data: {} },
+    { type: "step/end", data: {}, seq: Number.NaN },
+  ]);
+  assert.equal(state.asOfSeq, 1, "末条事件缺合法 seq 时用下标");
+});
+
 test("未匹配事件返回同一引用（宿主据此零下游工作）", () => {
   const state = createInitialState();
   const scratch: FoldScratch = { seq: -1, open: null };

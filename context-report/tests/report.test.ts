@@ -38,6 +38,31 @@ test("formatMs：毫秒/秒/分钟分档", () => {
   assert.equal(formatMs(90_000), "1m30s");
 });
 
+test("formatCount：非有限数归 0, 负数按绝对值分档", () => {
+  assert.equal(formatCount(Number.NaN), "0");
+  assert.equal(formatCount(Number.POSITIVE_INFINITY), "0");
+  assert.equal(formatCount(-1_500), "-1.5k");
+});
+
+test("formatMs：非有限数与非正数归 0ms", () => {
+  assert.equal(formatMs(Number.NaN), "0ms");
+  assert.equal(formatMs(-5), "0ms");
+  assert.equal(formatMs(60_000), "1m0s");
+});
+
+test("occupancyOf：非正读数与非法容量一律丢弃", () => {
+  assert.deepEqual(
+    occupancyOf(
+      { pressureTokens: 0, projectedTokens: -5, contextWindow: 0 },
+      0,
+    ),
+    {},
+  );
+  const fallback = occupancyOf(undefined, 64_000);
+  assert.equal(fallback.contextWindow, 64_000, "兜底容量仍生效");
+  assert.equal(fallback.occupancyPct, undefined, "无分子不给百分比");
+});
+
 test("occupancyOf：容量缺省时不给百分比", () => {
   const only = occupancyOf({ projectedTokens: 1_000 }, undefined);
   assert.equal(only.projectedTokens, 1_000);
@@ -168,6 +193,12 @@ test("buildReport 与 foldSession 串联：token 数字与折叠一致", () => {
   assert.equal(report.tokens.total, 1_400 + 160 + 50 + 20);
   assert.deepEqual(report.tokens, tokenBuckets(state));
   assert.equal(report.steps, 0, "步数不再来自本包折叠（官方投影未传）");
+});
+
+test("withDefaults：无外部构成时只归一级别", () => {
+  const merged = withDefaults({ detail: "full" }, undefined);
+  assert.equal(merged.detail, "full");
+  assert.equal(merged.breakdown, undefined, "不新造构成字段");
 });
 
 test("withDefaults：归一 detail 并可补入构成", () => {
