@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -234,6 +235,54 @@ test("空文件编辑：set 唯一空行 / delete 后仍为空", async () => {
   }
 });
 
+test("目录路径 → io_error（readHashlines 与 applyAnchoredEditsFile 同一口径）", async () => {
+  const t = await makeTmp(CONTENT);
+  try {
+    const dirPath = join(t.dir, "sub");
+    await mkdir(dirPath);
+    const isIoError = (err: unknown): boolean =>
+      err instanceof FileEditError &&
+      err.code === "io_error" &&
+      /read failed/.test(err.message);
+    await assert.rejects(readHashlines(dirPath), isIoError);
+    await assert.rejects(
+      applyAnchoredEditsFile(dirPath, [
+        { delete_line: { anchor: anchorAt(CONTENT, 1) } },
+      ]),
+      isIoError,
+    );
+  } finally {
+    await t.cleanup();
+  }
+});
+
+test("写盘失败 → io_error「write failed」，原文件不变、无临时文件残留", async (ctx) => {
+  // 只读目录不可写这条路径靠目录权限触发，root 不受权限位约束（本机为普通用户，不触发 skip）
+  if (process.getuid?.() === 0) {
+    ctx.skip("root 不受目录权限约束，无法触发写盘失败");
+    return;
+  }
+  const t = await makeTmp(CONTENT);
+  try {
+    await chmod(t.dir, 0o555);
+    await assert.rejects(
+      applyAnchoredEditsFile(t.path, [
+        { set_line: { anchor: anchorAt(CONTENT, 2), new_text: "X" } },
+      ]),
+      (err: unknown) =>
+        err instanceof FileEditError &&
+        err.code === "io_error" &&
+        /write failed/.test(err.message),
+    );
+    await chmod(t.dir, 0o755);
+    assert.equal(await readFile(t.path, "utf8"), CONTENT, "写入失败不改原文件");
+    assert.deepEqual(await listDir(t.dir), ["sample.txt"]);
+  } finally {
+    await chmod(t.dir, 0o755).catch(() => undefined);
+    await t.cleanup();
+  }
+});
+
 test("并发：同文件并行锚定写不互踩（临时文件名唯一，全部成功且无残留）", async () => {
   const t = await makeTmp(CONTENT);
   try {
@@ -249,7 +298,11 @@ test("并发：同文件并行锚定写不互踩（临时文件名唯一，全�
     assert.equal(results.length, 8);
     const after = await readFile(t.path, "utf8");
     const [first] = after.split("\n");
-    assert.match(first ?? "", /^V[0-7]$/, `首行应为某次写入的内容，实际 ${first}`);
+    assert.match(
+      first ?? "",
+      /^V[0-7]$/,
+      `首行应为某次写入的内容，实际 ${first}`,
+    );
     assert.equal(after.split("\n").length, CONTENT.split("\n").length);
     const junk = (await listDir(t.dir)).filter((n) => n.includes("hashedit"));
     assert.deepEqual(junk, [], "并发写后目录不应残留临时文件");

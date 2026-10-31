@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE=../tmp/cov-hash-edit node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-hash-edit tmp/cov-hash-edit/report.json",
     "demo": "node --experimental-transform-types demo/main.ts"
   },
   "devDependencies": {
