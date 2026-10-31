@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `output-compress` 合并, 分支 `history-cleanup/02-tests-output-compress` (`2f677dc`), 合并提交 `736bff8`; 单元 57→75 条, 集成 10 条, 覆盖率 89.6%→94.7% / 76.7%→85.2%; 本包无工具面, 集成改断 `session/event` 与 `renderSummaryRecord`; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `preference-analysis` 合并, 分支 `history-cleanup/02-tests-preference-analysis` (`3369ae8`), 合并提交 `3189806`; 单元 98 条, 集成 11 条, 覆盖率 87.1%→94.6% / 75.5%→88.4%; `tools.ts` 分支分母 26→27 的比值波动已注明; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `ponytail` 合并, 分支 `history-cleanup/02-tests-ponytail` (`4b91612`), 合并提交 `6cf2ceb`; 单元 9 条, 集成 14 条, 覆盖率 91.3%→100.0% / 65.2%→100.0%; 无落盘面, 集成以「工具面零注册 + 事件面无监听」替代临时目录断言; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `metric-loop` 合并, 分支 `history-cleanup/02-tests-metric-loop` (`84accc6`), 合并提交 `3b1e7a2`; 单元 47→56 条, 集成 17 条, 覆盖率 90.5%→94.8% / 83.3%→91.6%; 装配器以动态 import 取 `ManualClock` 规避 rootDir; worktree 已删, coagent 已关.
