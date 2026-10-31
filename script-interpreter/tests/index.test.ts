@@ -266,6 +266,66 @@ test("apply：经 ctx.get 取到沙箱与审批服务时按可用处理、不告
   );
 });
 
+test("resolveSettings：languages 非数组按未配置处理，小数上限向下取整", () => {
+  const settings = resolveSettings({
+    languages: "python" as unknown as readonly string[],
+    timeoutMs: 1_500.9,
+    maxOutputChars: 5.9,
+  });
+  assert.equal(settings.languages, undefined);
+  assert.equal(settings.timeoutMs, 1_500);
+  assert.equal(settings.maxOutputChars, 5);
+});
+
+test("resolveSettings：落盘前缀的反斜杠与开头的点 / 横线都净化掉", () => {
+  assert.equal(
+    resolveSettings({ spillPrefix: "\\tmp\\x-" }).spillPrefix,
+    "tmp-x-",
+  );
+  assert.equal(
+    resolveSettings({ spillPrefix: "-.hidden-" }).spillPrefix,
+    "hidden-",
+  );
+  assert.equal(
+    resolveSettings({ spillPrefix: "/" }).spillPrefix,
+    DEFAULT_SPILL_PREFIX,
+  );
+});
+
+test("apply：显式语言的解释器缺失仍注册，日志给缺失说明与探测痕迹", () => {
+  const host = mockHost();
+  apply(host.ctx, { languages: ["bash"], bashPath: "/nonexistent/bash" });
+  assert.equal(host.defs.length, 1, "缺失不隐藏工具");
+  assert.equal(host.tool().name, "script_run");
+  assert.ok(
+    host.logs.some((line) =>
+      line.includes("Bash: 未探测到解释器（调用时返回安装指引）"),
+    ),
+    host.logs.join("\n"),
+  );
+  assert.ok(
+    host.logs.some(
+      (line) =>
+        line.includes("探测痕迹") && line.includes("config:/nonexistent/bash"),
+    ),
+    host.logs.join("\n"),
+  );
+});
+
+const shApplyTest = (shInfo() === null ? test.skip : test) as (
+  name: string,
+  fn: () => void,
+) => void;
+
+shApplyTest("apply：sh 后端不做版本探测，装载日志不带版本号", () => {
+  const host = mockHost();
+  apply(host.ctx, { languages: ["sh"] });
+  const line = host.logs.find((entry) => entry.includes("sh: "));
+  assert.ok(line !== undefined, host.logs.join("\n"));
+  assert.match(line, /sh: .+（(?:path|config|env|absolute)/);
+  assert.ok(!line.includes(", "), `不应带版本号后缀：${line}`);
+});
+
 test("apply：宿主没有工具面时不抛错，只告警", () => {
   const host = mockHost({ tools: false });
   assert.doesNotThrow(() => {

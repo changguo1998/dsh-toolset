@@ -18,6 +18,7 @@ import {
   probeInterpreter,
   readVersion,
   resolveExecutable,
+  resolveUvPython,
   searchPath,
 } from "../src/probe.ts";
 import {
@@ -336,6 +337,99 @@ test("python uv：无项目标记或 PATH 无 uv 时，uv 分支不命中（回�
     assert.ok(
       noUv.trail.some((line) => line.includes("uv:未命中")),
       noUv.trail.join("；"),
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("resolveUvPython：uv 失败 / 无输出 / 输出不可执行都返回 null，跳过空行取首个路径", () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const failing = writeExecutable(dir, "uv", "#!/bin/sh\nexit 1\n");
+    assert.equal(resolveUvPython(failing, dir), null);
+    const silent = writeExecutable(dir, "silent-uv", "#!/bin/sh\nexit 0\n");
+    assert.equal(resolveUvPython(silent, dir), null);
+    const bogus = writeExecutable(
+      dir,
+      "bogus-uv",
+      "#!/bin/sh\necho /nonexistent/python\n",
+    );
+    assert.equal(resolveUvPython(bogus, dir), null);
+    const resolved = writeExecutable(
+      dir,
+      "resolved-python",
+      fakeInterpreter("Uv 3.13"),
+    );
+    const spaced = writeExecutable(
+      dir,
+      "spaced-uv",
+      `#!/bin/sh\nprintf '\\n%s\\n' "${resolved}"\n`,
+    );
+    assert.equal(resolveUvPython(spaced, dir), resolved);
+  } finally {
+    cleanup();
+  }
+});
+
+test("readVersion：起不来返回 undefined；版本只在 stderr 也能读到", () => {
+  assert.equal(
+    readVersion("/nonexistent/interpreter", ["--version"]),
+    undefined,
+  );
+  const { dir, cleanup } = withTempDir();
+  try {
+    const exe = writeExecutable(
+      dir,
+      "stderr-version",
+      "#!/bin/sh\necho 'ErrVer 1.0' >&2\n",
+    );
+    assert.equal(readVersion(exe, ["--version"]), "ErrVer 1.0");
+  } finally {
+    cleanup();
+  }
+});
+
+test("python venv：只有 .venv/bin/python3 时也命中", () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const ws = join(dir, "ws");
+    mkdirSync(join(ws, ".venv", "bin"), { recursive: true });
+    const venvPy = writeExecutable(
+      join(ws, ".venv", "bin"),
+      "python3",
+      fakeInterpreter("Venv 3.12"),
+    );
+    const outcome = probeInterpreter(pythonBackend, {
+      env: { PATH: "" },
+      workspace: { dir: ws },
+    });
+    assert.equal(outcome.info?.source, "venv");
+    assert.equal(outcome.info?.path, venvPy);
+  } finally {
+    cleanup();
+  }
+});
+
+test("python uv：uv 解析失败时记痕迹并回落", () => {
+  const { dir, cleanup } = withTempDir();
+  try {
+    const ws = join(dir, "ws");
+    mkdirSync(ws, { recursive: true });
+    writeFileSync(
+      join(ws, "pyproject.toml"),
+      '[project]\nname = "x"\n',
+      "utf8",
+    );
+    writeExecutable(dir, "uv", "#!/bin/sh\nexit 1\n");
+    const outcome = probeInterpreter(pythonBackend, {
+      env: { PATH: dir },
+      workspace: { dir: ws },
+    });
+    assert.notEqual(outcome.info?.source, "uv");
+    assert.ok(
+      outcome.trail.some((line) => line.includes("（解析失败）")),
+      outcome.trail.join("；"),
     );
   } finally {
     cleanup();
