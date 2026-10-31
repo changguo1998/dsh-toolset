@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-metric-loop && mkdir -p ../tmp/cov-metric-loop && NODE_V8_COVERAGE=../tmp/cov-metric-loop node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-metric-loop tmp/cov-metric-loop/report.json",
     "smoke": "node smoke/smoke.mjs"
   },
   "devDependencies": {
