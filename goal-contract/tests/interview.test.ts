@@ -8,6 +8,7 @@ import {
   applyAnswer,
   initialState,
   nextQuestion,
+  renderContract,
 } from "../src/interview.ts";
 import type { InterviewAnswer } from "../src/interview.ts";
 
@@ -118,6 +119,44 @@ test("超限：连续空回答达到 maxAttempts → aborted（防无限循环�
   }
   assert.equal(s.phase, "aborted");
   assert.ok(s.abortReason?.includes("超过 3 次重问"));
+});
+
+test("回答映射: 无 custom 时取 selected（目标按空格、条款按换行拼接）", () => {
+  let s = applyAnswer(initialState(), {
+    id: "objective",
+    selected: ["实现", "插件"],
+  });
+  assert.equal(s.phase, "ask-clauses");
+  assert.equal(s.objective, "实现 插件");
+  s = applyAnswer(s, {
+    id: "clauses",
+    selected: ["测试全绿 → npm test", "文档齐全"],
+  });
+  assert.equal(s.phase, "ask-confirm");
+  assert.deepEqual(s.clauses, [
+    { id: "c1", check: "测试全绿", level: "mechanical", command: "npm test" },
+    { id: "c2", check: "文档齐全", level: "human" },
+  ]);
+});
+
+test("renderContract: 预览含 objective、Done-when 与逐条命令", () => {
+  const state = initialState({
+    objective: "实现 goal 契约插件",
+    clauses: [
+      { id: "c1", check: "测试全绿", level: "mechanical", command: "npm test" },
+      { id: "c2", check: "用户验收", level: "human" },
+    ],
+  });
+  assert.equal(
+    renderContract(state),
+    [
+      "实现 goal 契约插件",
+      "",
+      "Done-when:",
+      "1. [c1] (mechanical) 测试全绿 → npm test",
+      "2. [c2] (human) 用户验收",
+    ].join("\n"),
+  );
 });
 
 test("终态不可迁移：done/aborted 上 applyAnswer 原样返回", () => {

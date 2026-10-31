@@ -116,6 +116,36 @@ test("summaryWidth / checkSummaryWidth：按显示列算首个逻辑行（宽字
   );
 });
 
+test("summaryWidth: 宽字符区间逐段按 2 列（谚文 / 假名 / 全角 / 扩展 CJK）", () => {
+  // 逐段覆盖 isWideCodePoint 的区间：任一区间判定丢失都会让对应字符回到 1 列
+  const wide = [
+    "ᄀ", // 0x1100 谚文字母
+    "あ", // 0x3042 平假名
+    "㐀", // 0x3400 CJK 扩展 A
+    "一", // 0x4e00 CJK 基本区
+    "ꀀ", // 0xa000 彝文
+    "가", // 0xac00 谚文音节
+    "豈", // 0xf900 CJK 兼容
+    "︰", // 0xfe30 CJK 兼容形式
+    "Ａ", // 0xff21 全角字母
+    "￠", // 0xffe0 全角符号
+    "𠀀", // 0x20000 CJK 扩展 B
+  ];
+  for (const ch of wide) {
+    assert.equal(summaryWidth(ch), 2, `宽字符 ${ch} 应占 2 列`);
+  }
+  // 窄字符仍按 1 列
+  assert.equal(summaryWidth("a"), 1);
+  assert.equal(summaryWidth("é"), 1);
+});
+
+test("往返: CRLF objective 与 Done-when 段同样还原", () => {
+  const embedded = buildObjective("第一行\r\n第二行", CLAUSES);
+  const parsed = parseContract(embedded);
+  assert.equal(parsed.objective, "第一行\r\n第二行");
+  assert.equal(clausesEqual(CLAUSES, parsed.clauses), true);
+});
+
 test("buildObjective：首行概括超限 → 抛 ContractParseError（正文长度不受限）", () => {
   assert.throws(
     () => buildObjective("一".repeat(21), CLAUSES),

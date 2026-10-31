@@ -75,6 +75,29 @@ test("validateClauses: 非法 level / id 重复 / 超上限报错", () => {
   assert.equal(tooMany.ok, false);
 });
 
+test("validateClauses: 非对象条目逐条报错，camelCase outputSchema 亦归一化", () => {
+  const notObjects = validateClauses([null, [], "x", 3]);
+  assert.equal(notObjects.ok, false);
+  if (!notObjects.ok) {
+    assert.equal(
+      notObjects.errors.filter((e) => e.includes("不是对象")).length,
+      4,
+      notObjects.errors.join("；"),
+    );
+  }
+  const camel = validateClauses([
+    {
+      id: "c1",
+      check: "审查",
+      level: "semantic",
+      outputSchema: { type: "object" },
+    },
+  ]);
+  assert.equal(camel.ok, true);
+  if (camel.ok)
+    assert.deepEqual(camel.clauses[0]?.outputSchema, { type: "object" });
+});
+
 // ── parseClauseText ──────────────────────────────────────────────────────────
 
 test("parseClauseText: 自由文本行（默认 human / 箭头 mechanical / 显式 level 前缀）", () => {
@@ -126,6 +149,24 @@ test("parseClauseText: JSON 数组输入走结构化校验（含 output_schema �
   );
   assert.equal(v.ok, true);
   if (v.ok) assert.deepEqual(v.clauses[1]?.outputSchema, { type: "object" });
+});
+
+test("parseClauseText: 空 checks（只有 level 前缀或只有箭头）被跳过，id 顺延", () => {
+  const v = parseClauseText(
+    ["# 条款", "[human]", "  → npm test", "文档齐全"].join("\n"),
+  );
+  assert.equal(v.ok, true);
+  if (v.ok) {
+    assert.deepEqual(v.clauses, [
+      { id: "c1", check: "文档齐全", level: "human" },
+    ]);
+  }
+});
+
+test("parseClauseText: 全为空 checks → 空集报错", () => {
+  const v = parseClauseText("# 条款\n[human]\n→ npm test");
+  assert.equal(v.ok, false);
+  if (!v.ok) assert.ok(v.errors.some((e) => e.includes("非空数组")));
 });
 
 test("parseClauseText: 空文本 / 形似 JSON 但非法 / 结构化非法 均报错", () => {

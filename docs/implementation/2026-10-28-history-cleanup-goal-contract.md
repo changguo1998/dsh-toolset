@@ -42,12 +42,44 @@ rm -rf ../tmp/cov-goal-contract && mkdir -p ../tmp/cov-goal-contract && NODE_V8_
 
 ## 实现记录
 
-(待填)
+- 基线: `pnpm -C goal-contract run test` 41 例全绿 (clauses 8 / contract 11 / interview 8 / tool 14), `check` 通过; 覆盖率行 87.6% (626/715)、分支 81.8% (189/231), 与现状记录一致.
+- 单元锚点: 新增 14 例, 只加不断 (现有断言语义未改).
+  - `tests/clauses.test.ts`: 非对象条目 (`null` / 数组 / 字符串 / 数字) 逐条报错; `camelCase` 的 `outputSchema` 归一化; 只有 `[level]` 前缀或只有箭头的空 check 行被跳过且 id 顺延; 全为空 check → 空集报错.
+  - `tests/contract.test.ts`: `summaryWidth` 逐段覆盖宽字符区间 (谚文 / 假名 / 扩展 A / 基本区 / 彝文 / 谚文音节 / 兼容 / 全角 / 扩展 B), 窄字符仍按 1 列; CRLF objective 的嵌入与回读往返.
+  - `tests/interview.test.ts`: 无 `custom` 时目标按 `selected` 空格拼接、条款按换行拼接; `renderContract` 预览的 canonical 文本.
+  - `tests/tool.test.ts`: `max_goal_rounds` 缺省不上送; `goals` 无 `get` 时回落 `create` 返回值; 回读解析异常时 `ok` 不翻转且带 `readback.error`; `clauses` 与 `clauses_text` 同给时 `clauses` 优先; `exec` 缺席仍可落 goal; objective 自带 `Done-when:` 标记行 → 契约嵌入失败; 每轮空答案 3 次后中止.
+- 集成层: 新增 `tests/assemble.ts` (三假面装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 例).
+  - 装配器: 假工具面 (present / missing / throwing)、假事件面 (订阅计数)、假服务面 (经 `ctx.get` / 直连属性 / 完全缺席三种形态); 另带假 dsh-goal (`create` 记请求与 `goal/change` 事件, 可选不暴露 `get`) 与假 userQuestions (按脚本应答, 可拒绝).
+  - 用例: bundle 契约符号与工具注册的 canonical 值 (name / inject / 工具名 / 描述 / 参数 schema / output schema / 零事件订阅); 全量预填的 canonical 结果与 `goal/change` 落点; `output.render` 的 JSON 投影可还原; 访谈路径经 `ctx.get` 取服务并透传 `agent` / `signal`; tools 面缺席与 register 抛错的降级; 服务缺席的告警与 canonical 错误; 无 `ctx.get` 时直连属性回落; 访谈取消 / `create` 抛错 / 首行超限 / 回读解析异常的失败路径; `NO_PROVIDER` 与空答案重问上限.
+- `package.json`: 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (`NODE_V8_COVERAGE=../tmp/cov-goal-contract` 跑单元加集成, 再跑 `dev/coverage/report.mjs`).
+- 改动的文件: `goal-contract/tests/assemble.ts` (新)、`goal-contract/tests/integration/plugin.test.ts` (新)、`goal-contract/tests/clauses.test.ts`、`goal-contract/tests/contract.test.ts`、`goal-contract/tests/interview.test.ts`、`goal-contract/tests/tool.test.ts`、`goal-contract/package.json`、本追踪文档.
 
 ## 偏差
 
-无
+无. `src` 未改动; 包 `README.md` 的「测试」节按实现规划留到阶段 4.
 
 ## 测试与证据
 
-(待填)
+四条命令均在本分支实跑 (2026-10-28):
+
+```text
+pnpm -C goal-contract run check            # tsc --noEmit, 通过 (无输出)
+pnpm -C goal-contract run test             # tests 55 / pass 55 / fail 0 / skipped 0 / todo 0
+pnpm -C goal-contract run test:integration # tests 9 / pass 9 / fail 0
+pnpm -C goal-contract run test:coverage    # 见下表, 退出码 0
+```
+
+覆盖率 (只统 `src`; 改前列为阶段 1 基线, 改后列为单元加集成):
+
+| 文件 | 行 (改前) | 行 (改后) | 分支 (改前) | 分支 (改后) |
+| --- | --- | --- | --- | --- |
+| `src/clauses.ts` | 94.5% (103/109) | 97.2% (106/109) | 91.4% (53/58) | 95.3% (61/64) |
+| `src/contract.ts` | 93.4% (99/106) | 100.0% (106/106) | 78.7% (37/47) | 96.1% (49/51) |
+| `src/index.ts` | 39.5% (17/43) | 100.0% (43/43) | n/a (0/0) | 100.0% (18/18) |
+| `src/interview.ts` | 92.3% (180/195) | 93.8% (183/195) | 80.9% (38/47) | 83.3% (40/48) |
+| `src/tool.ts` | 86.6% (227/262) | 94.3% (247/262) | 77.2% (61/79) | 85.1% (74/87) |
+| 合计 | 87.6% (626/715) | 95.8% (685/715) | 81.8% (189/231) | 90.3% (242/268) |
+
+分层贡献 (同一次改动两轮取差): 只跑单元层为行 91.7% (656/715)、分支 89.8% (219/244); 加集成层后行 95.8% (685/715)、分支 90.3% (242/268) — 集成层贡献 +29 行、+23 分支. 分支分母 231 → 268 是因为本轮首次跑到 `src/index.ts` 与更多工具分支, V8 记录的 block range 随之增多; 分子只增不减.
+
+剩余未覆盖行集中在防御分支: `src/tool.ts:251` (`objective` 为空或 `clauses` 为空, 状态机已保证不可达)、`src/interview.ts:173` 起的空回答与重问分支 (同一表达式的其他臂已覆盖, 报告的 range 归属噪声)、`src/clauses.ts` 自由文本循环内的表达式行 (同类路径已由其他用例执行). 无 `skip` / `todo`; 未连接 Redis / pty / 真宿主, 真机联调仍走 `pnpm run smoke`.
