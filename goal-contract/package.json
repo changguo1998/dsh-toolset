@@ -17,6 +17,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-goal-contract && mkdir -p ../tmp/cov-goal-contract && NODE_V8_COVERAGE=../tmp/cov-goal-contract node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-goal-contract tmp/cov-goal-contract/report.json",
     "smoke": "node smoke/smoke.mjs"
   },
   "devDependencies": {

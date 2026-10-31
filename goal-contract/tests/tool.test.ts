@@ -33,41 +33,58 @@ const CLAUSES = [
 
 /** fake dsh-goal：记录 goal/change 事件并支持回读（可篡改模拟外部编辑）。 */
 function fakeGoals(
-  opts: { createError?: Error; tamperReadback?: string } = {},
+  opts: {
+    createError?: Error;
+    tamperReadback?: string;
+    /** false = 服务不暴露 get（验证回落 create 返回值）。 */
+    withGet?: boolean;
+  } = {},
 ) {
   const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+  const requests: Array<{ objective: string; maxGoalRounds?: number }> = [];
   let current: GoalViewLike | undefined;
   let revision = 0;
-  const service: GoalsLike = {
-    create(agent, request) {
-      if (opts.createError !== undefined) throw opts.createError;
-      if (agent !== AGENT) throw new Error("agent 透传不一致");
-      revision += 1;
-      current = {
-        id: `goal-test-${revision}`,
-        revision: 1,
-        objective: request.objective,
-        phase: "active",
-        maxGoalRounds: request.maxGoalRounds ?? 256,
-        roundsStarted: 0,
-      };
-      // 模拟 dsh-goal：create 落官方 goal/change 会话事件
-      events.push({
-        type: "goal/change",
-        data: { op: "create", goal: current },
-      });
-      return current;
-    },
-    get(agent) {
-      if (agent !== AGENT) throw new Error("agent 透传不一致");
-      // 可篡改回读视图（模拟 goal 被外部编辑后条款不一致）
-      if (current !== undefined && opts.tamperReadback !== undefined) {
-        return { ...current, objective: opts.tamperReadback };
-      }
-      return current;
-    },
+  const create = (
+    agent: unknown,
+    request: { objective: string; maxGoalRounds?: number },
+  ): GoalViewLike => {
+    if (opts.createError !== undefined) throw opts.createError;
+    if (agent !== AGENT) throw new Error("agent 透传不一致");
+    revision += 1;
+    requests.push({
+      objective: request.objective,
+      ...(request.maxGoalRounds === undefined
+        ? {}
+        : { maxGoalRounds: request.maxGoalRounds }),
+    });
+    current = {
+      id: `goal-test-${revision}`,
+      revision: 1,
+      objective: request.objective,
+      phase: "active",
+      maxGoalRounds: request.maxGoalRounds ?? 256,
+      roundsStarted: 0,
+    };
+    // 模拟 dsh-goal：create 落官方 goal/change 会话事件
+    events.push({
+      type: "goal/change",
+      data: { op: "create", goal: current },
+    });
+    return current;
   };
-  return { events, service };
+  const get = (agent: unknown): GoalViewLike | undefined => {
+    if (agent !== AGENT) throw new Error("agent 透传不一致");
+    // 可篡改回读视图（模拟 goal 被外部编辑后条款不一致）
+    if (current !== undefined && opts.tamperReadback !== undefined) {
+      return { ...current, objective: opts.tamperReadback };
+    }
+    return current;
+  };
+  const service =
+    opts.withGet === false
+      ? ({ create } as unknown as GoalsLike)
+      : ({ create, get } as GoalsLike);
+  return { events, requests, service };
 }
 
 /** fake userQuestions：按脚本顺序逐题应答；rejectError 模拟 NO_PROVIDER。 */
@@ -382,4 +399,131 @@ test("预填 objective 首行超限 → ok:false 且给可操作报错（不落 
     "错误写明首行概括: " + String(result.error),
   );
   assert.equal(goals.events.length, 0, "未落 goal");
+});
+
+test("max_goal_rounds 缺省时不传给 goals.create（由宿主决定上限）", async () => {
+  const goals = fakeGoals();
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: goals.service,
+  });
+  const result = await tool.execute({ objective: "o", clauses: CLAUSES }, EXEC);
+  assert.equal(result.ok, true);
+  assert.equal(goals.requests.length, 1);
+  assert.equal(
+    "maxGoalRounds" in (goals.requests[0] ?? {}),
+    false,
+    "缺省不上送 maxGoalRounds",
+  );
+});
+
+test("goals 无 get：回读回落 create 返回值，match 仍为 true", async () => {
+  const goals = fakeGoals({ withGet: false });
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: goals.service,
+  });
+  const result = await tool.execute({ objective: "o", clauses: CLAUSES }, EXEC);
+  assert.equal(result.ok, true);
+  const readback = result.readback as { match: boolean; objective: string };
+  assert.equal(readback.match, true);
+  assert.equal(readback.objective, "o");
+});
+
+test("回读解析异常：ok 仍为 true，readback.error 说明原因", async () => {
+  const goals = fakeGoals({
+    tamperReadback: "被改写的目标\n\nDone-when:\n[{broken",
+  });
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: goals.service,
+  });
+  const result = await tool.execute({ objective: "o", clauses: CLAUSES }, EXEC);
+  assert.equal(result.ok, true, "创建成功不因回读失败翻转为失败");
+  const readback = result.readback as {
+    match: boolean;
+    clauses: unknown[];
+    error?: string;
+  };
+  assert.equal(readback.match, false);
+  assert.deepEqual(readback.clauses, []);
+  assert.ok(
+    String(readback.error).includes("Done-when 段不是合法 JSON"),
+    String(readback.error),
+  );
+});
+
+test("clauses 与 clauses_text 同给：clauses 优先，clauses_text 被忽略", async () => {
+  const goals = fakeGoals();
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: goals.service,
+  });
+  const result = await tool.execute(
+    { objective: "o", clauses: CLAUSES, clauses_text: "[{broken" },
+    EXEC,
+  );
+  assert.equal(result.ok, true, "非法 clauses_text 不应影响 clauses 路径");
+  const contract = result.contract as { clauses: unknown[] };
+  assert.deepEqual(contract.clauses, CLAUSES);
+});
+
+test("exec 缺席（无 agent / signal）：全量预填仍可落 goal", async () => {
+  // 单独 fake goals：不校验 agent 透传（exec 缺席时 agent 为 undefined）
+  const created: Array<{ objective: string }> = [];
+  const service: GoalsLike = {
+    create(_agent, request) {
+      created.push({ objective: request.objective });
+      return {
+        id: "goal-1",
+        revision: 1,
+        objective: request.objective,
+        phase: "active",
+        maxGoalRounds: 256,
+        roundsStarted: 0,
+      };
+    },
+    get() {
+      return undefined;
+    },
+  };
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: service,
+  });
+  const result = await tool.execute(
+    { objective: "o", clauses: CLAUSES },
+    undefined,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(created.length, 1);
+});
+
+test("objective 自带 Done-when 标记行：契约嵌入失败，给出 canonical 错误", async () => {
+  const goals = fakeGoals();
+  const tool = createGoalContractTool({
+    userQuestions: fakeUserQuestions([]).service,
+    goals: goals.service,
+  });
+  const result = await tool.execute(
+    { objective: "目标\nDone-when:\n旧条款", clauses: CLAUSES },
+    EXEC,
+  );
+  assert.equal(result.ok, false);
+  assert.match(String(result.error), /^契约嵌入失败：/);
+  assert.equal(goals.events.length, 0, "嵌入失败不落 goal");
+});
+
+test("访谈空答案：每轮 answers 为空 → 3 次后中止，不落 goal", async () => {
+  const goals = fakeGoals();
+  const uq = fakeUserQuestions([[]]);
+  const tool = createGoalContractTool({
+    userQuestions: uq.service,
+    goals: goals.service,
+  });
+  const result = await tool.execute({}, EXEC);
+  assert.equal(result.ok, false);
+  assert.ok(String(result.error).includes("访谈未通过"), String(result.error));
+  assert.equal(uq.asked.length, 3, "达到重问上限");
+  assert.equal(goals.events.length, 0);
 });
