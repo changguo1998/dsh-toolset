@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/auto-approve",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH（DeepSeek Harness）自动审批插件：在审批请求链上按名单 / 只读类 / 指纹 / 沙箱升级规则 / LLM 灰区审查自动裁定，免去逐次人工应答（未命中照常交人工面板）",
   "type": "module",
   "main": "dist/index.js",

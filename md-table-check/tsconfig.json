@@ -11,13 +11,13 @@
     "forceConsistentCasingInFileNames": true,
     "rootDir": ".",
     "outDir": "dist",
-    "declaration": false,
+    "declaration": true,
     "sourceMap": true,
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src", "tests/*.test.ts", "index.ts"],
+  "include": ["src", "tests"],
   "exclude": [
     "tests/reasoningSeparation.test.ts",
     "tests/surfaceDifferential.test.ts",

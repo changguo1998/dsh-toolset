@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/md-table-check",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH（DeepSeek Harness）md-table-check 插件：检查回复正文里的 markdown 表格列数是否一致，不一致时经 rule-engine 注入一条汇总提示（只报不改）",
   "type": "module",
   "main": "dist/index.js",

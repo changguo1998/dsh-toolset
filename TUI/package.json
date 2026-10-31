@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/tui",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成终端 UI",
   "type": "module",
   "bin": {
@@ -12,7 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "demo": "node dist/demo/main.js",
-    "demo:build": "npm run build && node dist/demo/main.js",
+    "demo:build": "pnpm run build && node dist/demo/main.js",
     "gen:width-table": "node scripts/gen-width-table.mts",
     "smoke:pty": "node demo/smokePty.mjs",
     "test": "sh scripts/test.sh",

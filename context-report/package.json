@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/context-report",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成插件：会话累计 token/上下文压力报告（sessionContext 投影 + context_report 工具）",
   "type": "module",
   "main": "dist/src/index.js",

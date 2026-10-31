@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/preference-analysis",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH（DeepSeek Harness）preference-analysis 插件：从会话行为归纳用户偏好，账簿为唯一状态源，经 rule-engine 消费者注入（模型提议一律落候选待审）",
   "type": "module",
   "main": "dist/index.js",

@@ -9,7 +9,7 @@
 #   主 profile（默认 fff）      —— 依赖值 `file:`：pnpm 把插件按包内容落成 node_modules
 #                                  里的真实副本（快照）。改仓库源码不影响已在跑的会话，
 #                                  要生效须重跑本脚本（--sync）或在该 profile 里 pnpm install。
-#   伴随 profile（默认 fff-test）—— 依赖值 `link:`：符号链接指向仓库，改完 npm run build
+#   伴随 profile（默认 fff-test）—— 依赖值 `link:`：符号链接指向仓库，改完 pnpm run build
 #                                  即在新窗口生效，供实时开发 / 验证。
 # 两者除依赖协议外完全一致：bundles、cordis.patch.yml、pnpm-workspace.yaml 及其它顶层
 # 字段都按主 profile 的最终产物复制。--no-test-profile 可只装主 profile。
@@ -56,7 +56,7 @@ usage() {
   --plugins <列表|all>  要装的插件目录名，逗号或空格分隔（默认 all = canonical_pkgs 全部包）
   --dsh-version <版本>  安装的 dsh 版本（默认 0.2.1-rc.3）
   --skip-dsh            不安装 / 不校验 dsh（假设 PATH 上已有）
-  --skip-build          跳过插件的 npm install 与 build（复用已有 dist/）
+  --skip-build          跳过插件的依赖安装与 build（复用已有 dist/）
   --force               覆盖已存在的 profile 配置文件（内容有变化时才写入并备份）
   --sync                更新已存在的 profile：本仓库插件按**当前选择集**刷新（选择集变小则
                         移除已不在选择集的本仓库依赖 / bundle），非本仓库条目保留，再跑
@@ -247,7 +247,7 @@ have node || die "需要 node（脚本用它读 package.json / 生成 manifest�
 node_major="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$node_major" -ge 20 ] || die "node 版本过低（$node_major），本项目要求 20+，建议 22+"
 [ "$node_major" -ge 22 ] || warn "node $node_major 低于 22，部分包的类型剥离测试不可用（运行不受影响）"
-have npm || die "需要 npm（安装 dsh 与各子包依赖）"
+have npm || die "需要 npm（安装全局 dsh）"
 have pnpm || die "需要 pnpm（profile 的依赖管理走 pnpm）：corepack enable pnpm 或 npm i -g pnpm"
 run mkdir -p "$dsh_home" "$dsh_home/profiles"
 if [ "$dry_run" != 1 ]; then
@@ -371,30 +371,20 @@ done
 [ -n "$final" ] || die "没有选中任何插件"
 log "选中插件：$(printf '%s' "$final" | sed 's/^ //')"
 if [ "$skip_build" = 1 ]; then
-    log "按 --skip-build 跳过 npm install / build（要求各包 dist/ 已存在）"
+    log "按 --skip-build 跳过依赖安装 / build（要求各包 dist/ 已存在）"
 else
-    # 依赖安装仍串行：npm/pnpm 并发会争同一份缓存与 lock 文件，失败定位也更难。
+    # 依赖安装仍串行：并发会争同一份缓存与 lock 文件，失败定位也更难。
     for d in $final; do
         if [ ! -d "$repo_root/$d/node_modules" ]; then
-            # npm 不支持 `link:` 协议（code-map → ast-tools、md-map → md-logic）：这些包改用 pnpm
-            if grep -q '"link:' "$repo_root/$d/package.json"; then
-                if command -v pnpm > /dev/null 2>&1; then
-                    log "安装依赖（pnpm；含 link: 本地依赖）：$d"
-                    run_in "$repo_root/$d" pnpm install
-                else
-                    die "$d 声明了 link: 本地依赖，需要 pnpm（npm install 不支持该协议）：请先安装 pnpm"
-                fi
-            else
-                log "安装依赖：$d"
-                run_in "$repo_root/$d" npm install --no-audit --no-fund
-            fi
+            log "安装依赖（pnpm）：$d"
+            run_in "$repo_root/$d" pnpm install
         fi
     done
     # 构建并行。跨包源码依赖只有两处（code-map → ast-tools、md-map → md-logic），
     # 依赖方放到第二批，保证全新环境（dist/ 尚不存在）也能一次构建成功。
     if [ "$dry_run" = 1 ]; then
         for d in $final; do
-            run_in "$repo_root/$d" npm run build
+            run_in "$repo_root/$d" pnpm run build
         done
     else
         phase1=""
@@ -431,7 +421,7 @@ start=$(date +%s%N 2> /dev/null || echo 0)
 case "$start" in
     "" | *[!0-9]*) start=0 ;;
 esac
-if (cd "$root/$d" && npm run build) > "$lb/$safe.log" 2>&1; then
+if (cd "$root/$d" && pnpm run build) > "$lb/$safe.log" 2>&1; then
     rc=0
 else
     rc=$?
@@ -1189,10 +1179,10 @@ fi)
   2) 启动：      dsh --profile $profile_name
   3) 会话内：    /permission 看权限预设
 $(if [ -n "$test_profile" ]; then
-    printf '  4) 开发验证：  dsh --profile %s（改完 npm run build 即生效，无需重装）\n' "$test_profile"
+    printf '  4) 开发验证：  dsh --profile %s（改完 pnpm run build 即生效，无需重装）\n' "$test_profile"
     printf '  5) 同步到主 profile：sh scripts/install.sh --profile %s --sync（重跑 pnpm install 刷新快照）\n' "$profile_name"
 else
-    printf '  4) 改插件后：  npm run build，然后重跑 sh scripts/install.sh --profile %s --sync 刷新快照\n' "$profile_name"
+    printf '  4) 改插件后：  pnpm run build，然后重跑 sh scripts/install.sh --profile %s --sync 刷新快照\n' "$profile_name"
 fi)
 提示
   - 配置（provider/凭据/插件配置）由宿主按「profile 插件条目 id」命名空间写入 profile 的

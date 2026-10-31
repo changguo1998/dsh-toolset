@@ -1,13 +1,14 @@
 {
   "name": "@dsh-toolset/rule-engine",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH（DeepSeek Harness）规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后代替用户向下一个回合注入一条 user-role 消息",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "demo": "npm run build && node dist/demo/main.js",
+    "demo": "pnpm run build && node dist/demo/main.js",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
   },
   "devDependencies": {

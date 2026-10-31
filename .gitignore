@@ -1,6 +1,9 @@
 .pi-glla
 node_modules
-TUI/dist/
+dist
+.pnpm-store
+.pnpm-cache
+.npm-cache
 .worktree
 
 # 各插件启动时生成的构建哈希产物（构建即生成，随 build 一并落盘）
@@ -13,3 +16,10 @@ skills-lock.json
 
 # memory-base 项目层库（运行期生成：<cwd>/.dsh/project.db + WAL/SHM）
 .dsh/
+*.db
+*.db-wal
+*.db-shm
+
+# 脚本运行产生的缓存与临时目录
+__pycache__/
+smoke/.tmp

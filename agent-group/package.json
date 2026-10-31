@@ -1,12 +1,13 @@
 {
   "name": "@dsh-toolset/agent-group",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH（DeepSeek Harness）群组编排插件：组 / 成员 / 主从连接（含等级）/ 指令与回报，懒判定结算",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
   },
   "devDependencies": {

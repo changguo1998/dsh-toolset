@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/md-logic",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成插件：Markdown 逻辑结构（标题/列表/表格/代码块/引用/链接/frontmatter，带行范围）",
   "type": "module",
   "main": "dist/src/index.js",

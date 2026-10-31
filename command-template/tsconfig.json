@@ -11,12 +11,12 @@
     "forceConsistentCasingInFileNames": true,
     "rootDir": ".",
     "outDir": "dist",
-    "declaration": false,
+    "declaration": true,
     "sourceMap": true,
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "index.ts"],
+  "include": ["src", "tests"],
   "exclude": ["tests/clock.test.ts"]
 }

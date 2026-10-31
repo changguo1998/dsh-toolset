@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/md-map",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成插件：Markdown 项目级结构与引用分析（锚点、文档间链接、wiki 链接、影响面、断链）",
   "type": "module",
   "main": "dist/src/index.js",

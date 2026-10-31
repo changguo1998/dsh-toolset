@@ -11,11 +11,11 @@
     "forceConsistentCasingInFileNames": true,
     "rootDir": ".",
     "outDir": "dist",
-    "declaration": false,
+    "declaration": true,
     "sourceMap": true,
     "rewriteRelativeImportExtensions": true,
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

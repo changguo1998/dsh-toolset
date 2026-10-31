@@ -1,6 +1,7 @@
 {
   "name": "@dsh-toolset/script-interpreter",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成插件：模型侧脚本解释器（script_run，自动探测并切换 python / node / sh 解释器）",
   "type": "module",
   "main": "dist/src/index.js",
