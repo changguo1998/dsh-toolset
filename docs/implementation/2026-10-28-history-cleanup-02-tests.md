@@ -18,7 +18,7 @@
 
 ## 实现记录
 
-(待填)
+- 2026-10-28 批次 1: `agent-group` 合并, 分支 `history-cleanup/02-tests-agent-group` (`ecd12a6`), 合并提交 `22c4c05`; 单元 63→108 条, 集成 13 条, 覆盖率 84.8%→90.6% / 72.6%→81.7%; worktree 已删, coagent 已关.
 
 ## 偏差
 
