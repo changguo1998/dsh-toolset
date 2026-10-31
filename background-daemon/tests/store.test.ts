@@ -18,6 +18,7 @@ import { test } from "node:test";
 import {
   TASK_STORE_VERSION,
   TaskStore,
+  validateDaemonTask,
   type TaskMirror,
 } from "../src/store.ts";
 import type { Selector } from "../src/selectors.ts";
@@ -347,5 +348,116 @@ test("update/remove：mirror:false 只改内存与快照, 不写透镜像", () =
       tasks: unknown[];
     };
     assert.deepEqual(parsed.tasks, []);
+  });
+});
+
+test("validateDaemonTask：逐字段非法 → 抛出带字段名的原因", () => {
+  const valid = {
+    id: "d-valid",
+    tier: "S",
+    mode: "deliver",
+    selector: { kind: "after_seconds", seconds: 600 },
+    payload: "正文",
+    sessionId: "sess-1",
+    status: "active",
+    createdAt: NOW,
+    next: NOW + 600_000,
+    lastFireAt: null,
+    lastOutcome: null,
+    lastError: null,
+  };
+  // 每条只破坏一个字段, 断言原因片段（整表校验在上层的 load 里做）
+  const cases: { patch: Record<string, unknown>; expect: RegExp }[] = [
+    { patch: { id: "  " }, expect: /缺少 id/ },
+    { patch: { tier: "X" }, expect: /tier 非法/ },
+    { patch: { mode: "shell" }, expect: /mode 非法/ },
+    { patch: { selector: null }, expect: /缺少 selector/ },
+    {
+      patch: { selector: { kind: "after_seconds", seconds: 0 } },
+      expect: /selector 非规范化/,
+    },
+    { patch: { payload: " " }, expect: /payload 非法/ },
+    { patch: { sessionId: "" }, expect: /sessionId 非法/ },
+    { patch: { status: "running" }, expect: /status 非法/ },
+    { patch: { createdAt: "昨天" }, expect: /createdAt 非法/ },
+    { patch: { next: "明天" }, expect: /next 非法/ },
+    { patch: { lastFireAt: Number.NaN }, expect: /lastFireAt 非法/ },
+    { patch: { lastOutcome: "exploded" }, expect: /lastOutcome 非法/ },
+    { patch: { lastError: 500 }, expect: /lastError 非法/ },
+  ];
+  for (const item of cases) {
+    assert.throws(
+      () => validateDaemonTask({ ...valid, ...item.patch }),
+      item.expect,
+      `应拒绝：${JSON.stringify(item.patch)}`,
+    );
+  }
+  // 非对象 / 数组一律不是合法记录
+  assert.throws(() => validateDaemonTask(null), /记录不是对象/);
+  assert.throws(() => validateDaemonTask([valid]), /记录不是对象/);
+  // 合法记录原样通过
+  assert.equal(validateDaemonTask(valid).id, "d-valid");
+});
+
+test("load：顶层不是对象 / 缺 tasks 数组 → 拒绝启用且原因含路径", () => {
+  withTmpDir((dir) => {
+    const file = fileIn(dir);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, "null", "utf8");
+    const notObject = newStore(dir);
+    const first = notObject.load();
+    assert.equal(first.ok, false);
+    assert.match(notObject.error ?? "", /任务表结构非法（要求对象）/);
+    assert.match(notObject.error ?? "", new RegExp("tasks\\.json"));
+
+    writeFileSync(
+      file,
+      JSON.stringify({ schemaVersion: TASK_STORE_VERSION }),
+      "utf8",
+    );
+    const noArray = newStore(dir);
+    assert.equal(noArray.load().ok, false);
+    assert.match(noArray.error ?? "", /缺少 tasks 数组/);
+  });
+});
+
+test("不可用时写类操作抛错（create / replace / update / remove）", () => {
+  withTmpDir((dir) => {
+    const file = fileIn(dir);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, "{ 半截", "utf8");
+    const store = newStore(dir);
+    assert.equal(store.load().ok, false);
+    const reason = /任务表损坏/;
+    assert.throws(
+      () =>
+        store.create({
+          mode: "deliver",
+          selector: DELIVER_ONCE,
+          payload: "x",
+          sessionId: "s",
+        }),
+      reason,
+    );
+    assert.throws(
+      () =>
+        store.replace({
+          id: "d-x",
+          tier: "S",
+          mode: "deliver",
+          selector: DELIVER_ONCE,
+          payload: "x",
+          sessionId: "s",
+          status: "active",
+          createdAt: NOW,
+          next: null,
+          lastFireAt: null,
+          lastOutcome: null,
+          lastError: null,
+        }),
+      reason,
+    );
+    assert.throws(() => store.update("d-x", { status: "paused" }), reason);
+    assert.throws(() => store.remove("d-x"), reason);
   });
 });

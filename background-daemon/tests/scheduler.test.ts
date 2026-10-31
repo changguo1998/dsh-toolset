@@ -630,3 +630,104 @@ test("delivered：照常写透 memory（skipped 抑制只作用于 skipped）", 
   assert.deepEqual(sinks, [task.id]);
   assert.deepEqual(saves, [task.id]);
 });
+
+test("渠道未注册：到点记 failed(error), 不重试且不抛", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "background-daemon-scheduler-"));
+  const clock = { value: NOW };
+  const store = new TaskStore(path.join(dir, "tasks.json"), () => clock.value);
+  const journal = new Journal(path.join(dir, "journal.jsonl"), { limit: 50 });
+  journal.load();
+  const agent: AgentLike = { session: { id: "sess-1" }, followup: () => {} };
+  const warnings: string[] = [];
+  const scheduler = new Scheduler({
+    store,
+    journal,
+    channels: new ChannelRegistry(),
+    agents: { get: () => agent },
+    timer: new FakeTimer(),
+    now: () => clock.value,
+    warn: (message) => warnings.push(message),
+  });
+  try {
+    scheduler.start();
+    await scheduler.settle();
+    const task = store.create({
+      mode: "deliver",
+      selector: { kind: "after_seconds", seconds: 60 },
+      payload: "渠道缺失",
+      sessionId: "sess-1",
+    });
+    clock.value += 60_000;
+    await scheduler.runDue();
+    const stored = store.get(task.id);
+    assert.equal(stored?.lastOutcome, "failed");
+    assert.equal(stored?.lastError, "error");
+    const record = journal.tail(1, task.id)[0];
+    assert.equal(record?.outcome, "failed");
+    assert.match(record?.detail ?? "", /渠道未注册：deliver/);
+  } finally {
+    await scheduler.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("runNow：目标无活跃 agent → skipped, 不改 next / 状态", async () => {
+  const built = track(harness({ agents: new Map<string, AgentLike>() }));
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "无人接收",
+  });
+  const result = await built.scheduler.runNow(task.id);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "no-active-agent");
+  const stored = built.store.get(task.id);
+  assert.equal(stored?.status, "active");
+  assert.equal(stored?.next, task.next);
+  assert.equal(stored?.lastOutcome, "skipped");
+  assert.equal(built.text.requests.length, 0);
+});
+
+test("runNow：未知任务 / 渠道抛错 → error, 不抛", async () => {
+  const built = track(
+    harness({
+      respondText: () => {
+        throw new Error("渠道炸了");
+      },
+    }),
+  );
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const missing = await built.scheduler.runNow("d-nope");
+  assert.deepEqual(missing, {
+    ok: false,
+    code: "error",
+    message: "任务不存在：d-nope",
+  });
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "抛错",
+  });
+  const failed = await built.scheduler.runNow(task.id);
+  assert.equal(failed.ok, false);
+  assert.equal(failed.code, "error");
+  assert.match(failed.message ?? "", /渠道炸了/);
+  assert.equal(built.store.get(task.id)?.lastOutcome, "failed");
+});
+
+test("volatile 投递：durable:false 时告警, 结局仍记 delivered", async () => {
+  const built = track(
+    harness({ respondText: () => ({ ok: true, durable: false }) }),
+  );
+  built.scheduler.start();
+  await built.scheduler.settle();
+  const task = built.create({
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "只到 L1",
+  });
+  built.clock.value = NOW + 60_000;
+  await built.scheduler.runDue();
+  assert.equal(built.store.get(task.id)?.lastOutcome, "delivered");
+  assert.match(built.warnings.join("\n"), /volatile/);
+});
