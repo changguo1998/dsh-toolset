@@ -42,12 +42,42 @@ rm -rf ../tmp/cov-ponytail && mkdir -p ../tmp/cov-ponytail && NODE_V8_COVERAGE=.
 
 ## 实现记录
 
-(待填)
+- 单元锚点: `tests/main.test.ts` 追加 4 条 `resolveConfig` 判定用例 —— sources 过滤非法项与全非法回退 / delivery 白名单 (inject / followup / 非法值) / dedupeInRecord 接受 0 与非数字回退 / 自定义 text 覆盖与空串回退; 现有 5 条断言未改语义.
+- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (14 条).
+  - 假面按 4.2 三条: 假服务面 (`ctx.get("ruleEngine")` / `ctx.ruleEngine` / 半装配无 `registerConsumer` / 完全缺席), 假事件面 (`ctx.on` / `emit`, 守住本包不订阅宿主生命周期), 假工具面 (`ctx.tools.registerTool`, 守住本包不注册工具); 另加假会话事件派发 `fire(source)`, 按 `sources` 命中 `session-start` / `step-end` 调 `decide`.
+  - 断言: 消费者注册项 (id / sources / delivery / dedupeInRecord / directWrite), 两个节点注入的阶梯正文与摘要, 未挂节点不注入, `enabled: false` 仍注册但不注入, 配置透传到注册项与正文, 服务缺席 / 半装配 / 注册被拒三条降级路径只告警, 注册面无注销函数时 `apply` 透传 `undefined`, `ctx` 为 `null` / `undefined` 时按缺席处理.
+- 脚本: `ponytail/package.json` 加 `test:integration` 与 `test:coverage` (`report.mjs` 参数 `tmp/cov-ponytail`), 与其它包同构.
+- 清理: 本包 0 处 `skip`, 0 处 `todo`, 无夹具, 按 4.4 无处置项.
 
 ## 偏差
 
-无
+- 未改 `src` (为可测性无需改动).
+- 本包不落盘: 4.2 的「落盘写临时目录」无对象, 集成层改为断言工具面为零注册、事件面无监听.
+- 工具面记一行 (交阶段 2 汇总): `dev/coverage/report.mjs` 的「未覆盖行」列在 `--experimental-transform-types` 下会与真实源码行号错位 —— 本次实测实际未覆盖的是 `src/index.ts` 的 `ctx ?? {}`, 报告标成 `53`; 行 / 分支的计数与 Node 内置 `--experimental-test-coverage` 完全一致, 故判定以计数为准, 行号列仅作参考.
 
 ## 测试与证据
 
-(待填)
+覆盖率 (只统 `src`, 装配器不计):
+
+| 轮次 | 行 | 分支 | 未覆盖行 |
+| --- | --- | --- | --- |
+| 改前 (阶段 1 末, 单元层) | 91.3% (95/104) | 65.2% (15/23) | 29,36,39,40,41,53,55,78,79 |
+| 改后 (单元层) | 96.2% (100/104) | 90.0% (27/30) | 53,55,78,79 |
+| 改后 (单元 + 集成) | 100.0% (104/104) | 100.0% (31/31) | - |
+
+集成层贡献: 行 +3.8 个百分点 (4 行), 分支 +10.0 个百分点 (3 条). 未下降.
+
+四入口实跑:
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C ponytail run check` | ✓ 通过 (tsc 无输出) |
+| `pnpm -C ponytail run test` | ✓ 9 通过 / 0 失败 / 0 跳过, 73 ms |
+| `pnpm -C ponytail run test:integration` | ✓ 14 通过 / 0 失败 / 0 跳过, 74 ms |
+| `pnpm -C ponytail run test:coverage` | ✓ 行 100.0% / 分支 100.0%, 表同上 |
+
+- 交叉核对: `node --experimental-transform-types --experimental-test-coverage` 对 `src/index.ts` 报 100.00% 行 / 100.00% 分支 / 100.00% 函数, 与 `report.mjs` 一致.
+- 导出覆盖: `name` / `inject` / `resolveConfig` / `apply` 与两个文本常量全部被用例调用或断言.
+- 错误码覆盖: 本包无 `code` 常量, 不适用.
+- 用例增减: 新增 18 条 (单元 4 + 集成 14), 删除 0 条; 本机 `skipped` 0.
+
