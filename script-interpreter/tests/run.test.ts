@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { SpillStore, runScript } from "../src/run.ts";
+import type { SpillSink } from "../src/run.ts";
 import { pythonInfo, withTempDir } from "./helpers.ts";
 
 const PY = pythonInfo();
@@ -191,6 +192,65 @@ pyTest("runScript：解释器不存在时返回 spawnError（不抛）", async (
   });
   assert.notEqual(outcome.spawnError, undefined);
   assert.equal(outcome.exitCode, null);
+});
+
+test("runScript：argv 为空时返回 spawnError，不起进程", async () => {
+  const outcome = await runScript({
+    argv: [],
+    script: "print(1)",
+    timeoutMs: 1_000,
+    maxOutputChars: 100,
+  });
+  assert.match(outcome.spawnError ?? "", /argv 为空/);
+  assert.equal(outcome.exitCode, null);
+  assert.deepEqual(outcome.stdout, { text: "", truncated: false });
+  assert.deepEqual(outcome.stderr, { text: "", truncated: false });
+});
+
+test("runScript：调用前已取消的 signal 立即按进程组终止", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const outcome = await runScript({
+    argv: [process.execPath, "-e", "setTimeout(() => {}, 30000)"],
+    script: "",
+    timeoutMs: 30_000,
+    maxOutputChars: 100,
+    signal: controller.signal,
+  });
+  assert.equal(outcome.timedOut, false);
+  assert.notEqual(outcome.signal, null, "已取消的调用应被终止");
+});
+
+test("runScript：maxOutputChars 小于 1 时按 1 个字符截断", async () => {
+  const outcome = await runScript({
+    argv: [process.execPath, "-e", "process.stdout.write('abcdef')"],
+    script: "",
+    timeoutMs: 20_000,
+    maxOutputChars: 0,
+  });
+  assert.equal(outcome.stdout.truncated, true);
+  assert.equal(outcome.stdout.text.length, 1);
+  assert.equal(outcome.stdout.spillPath, undefined);
+});
+
+test("runScript：落盘失败只丢路径，截断与执行都不受影响", async () => {
+  const spill: SpillSink = {
+    async open() {
+      throw new Error("disk full");
+    },
+  };
+  const outcome = await runScript({
+    argv: [process.execPath, "-e", "process.stdout.write('x'.repeat(50))"],
+    script: "",
+    timeoutMs: 20_000,
+    maxOutputChars: 10,
+    spill,
+  });
+  assert.equal(outcome.exitCode, 0);
+  assert.equal(outcome.stdout.truncated, true);
+  assert.equal(outcome.stdout.spillPath, undefined);
+  assert.ok(outcome.stdout.text.endsWith("x"));
+  assert.ok(outcome.stdout.text.length <= 10);
 });
 
 test("SpillStore：会话分桶、0600 文件、追加写入、每次新文件", async () => {

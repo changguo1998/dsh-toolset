@@ -42,12 +42,43 @@ rm -rf ../tmp/cov-script-interpreter && mkdir -p ../tmp/cov-script-interpreter &
 
 ## 实现记录
 
-(待填)
+- 集成层: 新增 `tests/assemble.ts` (假工具面 / 假事件面 / 假服务面拼 `apply`, `ctx.get` 受保护读取 + `expose: "property"` 回落, 临时工作区与 `cleanup()`, `captureStderr`) 与 `tests/integration/plugin.test.ts` (14 条): 工具注册名 / 参数面 / 语言枚举, canonical 值 (成功 / 非零退出 / 超时), `output.render` 投影, 相对 workdir 与 `spillPrefix` 路径守卫, 参数校验 / 未启用语言 / 解释器缺失 / 围栏失败 / 审批拒绝的失败路径, 服务全缺与 `ctx.tools` 缺失的降级, 无事件消费者 (不订阅) 与日志回落.
+- 单元锚点 (存量文件追加, 不改旧断言): `tests/index.test.ts` +4 (非数组 `languages`、小数钳位、`spillPrefix` 反斜杠与开头点横线净化、显式语言缺解释器的日志与探测痕迹、sh 不做版本探测); `tests/probe.test.ts` +4 (`resolveUvPython` 失败三态与空行跳过、`readVersion` 起不来 / stderr 版本、`.venv/bin/python3` 候选、uv 解析失败痕迹); `tests/run.test.ts` +4 (空 argv、调用前已取消的 signal、`maxOutputChars < 1`、落盘失败只丢路径); `tests/clock.test.ts` +5 (ctx 缺失 / 无 get / get 或 scope 抛错 / 形状不符的回落, `systemTimers` 延迟归一与 interval 撤销, deadline 取消幂等, effect 抛错 / 非函数, disposer 返回 Promise); `tests/sandbox.test.ts` +1 (空签名过滤与空行剔除); 新增 `tests/render.test.ts` 5 条 (两条流拼接、截断提示、标记顺序、失败值 / 畸形值全函数口径).
+- 脚本: `package.json` 加 `test:integration` 与 `test:coverage` (后者按包文档命令, `report.mjs` 参数用 `tmp/cov-script-interpreter`).
+- `src` 未改.
 
 ## 偏差
 
-无
+无.
 
 ## 测试与证据
 
-(待填)
+### 入口实跑
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C script-interpreter run check` | `tsc -p tsconfig.json --noEmit` 通过 (exit 0) |
+| `pnpm -C script-interpreter run test` | tests 117 / pass 117 / fail 0 / skipped 0 / todo 0 |
+| `pnpm -C script-interpreter run test:integration` | tests 14 / pass 14 / fail 0 / skipped 0 / todo 0 |
+| `pnpm -C script-interpreter run test:coverage` | tests 131 / pass 131 / fail 0 / skipped 0; 本包行 95.1% (1550/1630), 分支 86.9% (398/458) |
+
+- 新增用例: 单元 23 条, 集成 14 条; 删除用例 0 条, 夹具 0 个.
+- `skip`: 本机 0 条; 集成层按 4.4 对 sh 解释器做条件式 skip (`shInfo() === null` 时 skip 并注明缺 sh), 本机触发 0 条.
+
+### 覆盖率 (改前 → 改后, 只统 `src`)
+
+| 文件 | 改前行 | 改前分支 | 改后行 | 改后分支 | 改后未覆盖行 |
+| --- | --- | --- | --- | --- | --- |
+| `src/index.ts` | 95.1% (291/306) | 86.6% (58/67) | 99.0% (303/306) | 95.9% (71/74) | 46,47,225 |
+| `src/probe.ts` | 89.2% (141/158) | 79.1% (53/67) | 96.2% (152/158) | 89.0% (65/73) | 44,101,104,114,203,204 |
+| `src/render.ts` | 91.5% (75/82) | 86.2% (25/29) | 100.0% (82/82) | 100.0% (39/39) | - |
+| `src/run.ts` | 86.5% (268/310) | 69.2% (36/52) | 90.0% (279/310) | 79.7% (47/59) | 77,90,91,98,99,114,132,145,169,170,225-234,256,260-263,266-273,284,285 |
+| `src/sandbox.ts` | 97.6% (124/127) | 90.0% (36/40) | 97.6% (124/127) | 86.0% (37/43) | 39,80,81 |
+| `src/timers.ts` | 77.4% (120/155) | 37.5% (12/32) | 92.9% (144/155) | 83.3% (40/48) | 47,59,115-117,123,124,127-129,144 |
+| `src/tools.ts` | 94.0% (406/432) | 80.2% (97/121) | 94.0% (406/432) | 81.1% (99/122) | 56-58,79,80,140,141,157,158,173-175,179,230,231,294,324,325,335,344-346,370,420,426,441 |
+| `src/langs/*.ts` | 100.0% | n/a | 100.0% | n/a | - |
+| `src/types.ts` | 100.0% (6/6) | n/a | 100.0% (6/6) | n/a | - |
+| 本包合计 | 91.1% (1485/1630) | 77.7% (317/408) | 95.1% (1550/1630) | 86.9% (398/458) | - |
+
+- 口径说明: `src/sandbox.ts` 的分支比例从 90.0% 降到 86.0%, 原因是集成层经 `src/index.ts` 也加载同一文件, 合并后的 block 分母 40 → 43 而命中只 +1; 行覆盖不变, 本包整体行 / 分支均上升, 不构成退化.
+- 未覆盖行集中在类型 / 接口声明与闭包归因行, 以及 4.3 允许豁免的防御分支 (如 `index.ts:46,47` 的 `BundleHost` 接口、`run.ts` 的 `StreamCapture` 私有字段声明).

@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { apply } from "../src/index.ts";
 import { runScript } from "../src/run.ts";
-import { createDeadline, resolveClock } from "../src/timers.ts";
+import { createDeadline, resolveClock, systemTimers } from "../src/timers.ts";
 import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /** `clock` 服务的假实现：`scope()` 一律返回同一块手控表，并记录调用参数。 */
@@ -92,6 +92,122 @@ test("resolveClock: 服务缺失时回落进程内定时器并告警一次", () 
   assert.equal(timers.fromClock, false);
   assert.equal(warnings.length, 1);
   assert.equal(typeof timers.scoped.now(), "number");
+});
+
+test("resolveClock: ctx 缺失 / 无 get / get 或 scope 抛错 / 形状不符都回落并告警", () => {
+  const cases: Array<[string, unknown]> = [
+    ["ctx 非对象", null],
+    ["无 get", {}],
+    [
+      "get 抛错",
+      {
+        get() {
+          throw new Error("boom");
+        },
+      },
+    ],
+    ["clock 缺 scope", { get: () => ({ now: () => 0 }) }],
+    [
+      "scope 抛错",
+      {
+        get: () => ({
+          now: () => 0,
+          scope() {
+            throw new Error("boom");
+          },
+        }),
+      },
+    ],
+    [
+      "scope 返回非排期器",
+      { get: () => ({ now: () => 0, scope: () => ({}) }) },
+    ],
+  ];
+  for (const [label, ctx] of cases) {
+    const warnings: string[] = [];
+    const timers = resolveClock(ctx, (message) => warnings.push(message));
+    assert.equal(timers.fromClock, false, label);
+    assert.equal(warnings.length, 1, label);
+    assert.equal(typeof timers.scoped.now(), "number", label);
+  }
+});
+
+test("systemTimers: 负延迟按 0，非有限延迟报 RangeError，interval 可撤销", async () => {
+  const timers = systemTimers();
+  const fired: string[] = [];
+  timers.schedule(-5, () => fired.push("negative"));
+  timers.schedule(0, () => fired.push("zero"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(fired.sort(), ["negative", "zero"]);
+  assert.throws(
+    () => timers.schedule(Number.POSITIVE_INFINITY, () => {}),
+    RangeError,
+  );
+  assert.equal(typeof timers.now(), "number");
+
+  const ticks: number[] = [];
+  const stop = timers.interval(5, () => ticks.push(1));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  stop();
+  const count = ticks.length;
+  assert.ok(count >= 1, `interval 应至少触发一次: ${count}`);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(ticks.length, count, "撤销后不再触发");
+});
+
+test("createDeadline: 取消后到点不再触发；到点后取消与重复取消都安全", () => {
+  const manual = new ManualClock(0);
+  const deadline = createDeadline(manual, undefined);
+  const fired: string[] = [];
+  const cancel = deadline(100, (reason) => fired.push(reason));
+  cancel();
+  cancel();
+  manual.advance(100);
+  assert.deepEqual(fired, []);
+
+  const deadlineWithEffect = createDeadline(manual, fakeHost().ctx);
+  const cancelSecond = deadlineWithEffect(100, (reason) => fired.push(reason));
+  manual.advance(100);
+  cancelSecond();
+  assert.deepEqual(fired, ["timeout"]);
+  assert.equal(manual.pending, 0);
+});
+
+test("createDeadline: ctx.effect 抛错或返回非函数时照常排期", () => {
+  const manual = new ManualClock(0);
+  const fired: string[] = [];
+  const throwing = {
+    effect() {
+      throw new Error("boom");
+    },
+  };
+  const nonFunction = { effect: () => 42 };
+  for (const ctx of [throwing, nonFunction]) {
+    const deadline = createDeadline(manual, ctx);
+    deadline(10, (reason) => fired.push(reason));
+    manual.advance(10);
+  }
+  assert.deepEqual(fired, ["timeout", "timeout"]);
+});
+
+test("createDeadline: 正常取消时静默清掉 effect disposer（含 Promise 返回值）", async () => {
+  const manual = new ManualClock(0);
+  let disposed = 0;
+  const ctx = {
+    effect(): () => Promise<void> {
+      return async () => {
+        disposed += 1;
+      };
+    },
+  };
+  const deadline = createDeadline(manual, ctx);
+  const fired: string[] = [];
+  const cancel = deadline(1_000, (reason) => fired.push(reason));
+  cancel();
+  await Promise.resolve();
+  assert.equal(disposed, 1);
+  assert.deepEqual(fired, []);
+  assert.equal(manual.pending, 0);
 });
 
 test("createDeadline: 到点触发 timeout；卸载触发 unload 且无残留", () => {

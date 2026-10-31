@@ -153,6 +153,20 @@ test("matchesSignature：只有非零退出且命中方言才算拒绝", () => {
   assert.equal(matchesSignature(1, "read-only file system", []), false);
 });
 
+test("matchesSignature：空签名被过滤，空 stderr 与无规则都不算拒绝", () => {
+  assert.equal(matchesSignature(1, "read-only file system", [""]), false);
+  assert.equal(matchesSignature(1, "read-only file system", ["", ""]), false);
+  assert.equal(matchesSignature(1, "", ["read-only file system"]), false);
+  assert.equal(classifyRunnerFailure(1, "anything", []), undefined);
+  assert.equal(
+    classifyRunnerFailure(1, "   ", [
+      { fatalSignatures: ["fatal"], informationalLines: ["noise"] },
+    ]),
+    undefined,
+    "空行与良性行剔除后没有可匹配的行",
+  );
+});
+
 test("classifyRunnerFailure：退出码 0 永不算，allowedExitCodes 是门禁", () => {
   const rules = [{ allowedExitCodes: [125], fatalSignatures: ["bwrap: "] }];
   assert.equal(classifyRunnerFailure(0, "bwrap: oops", rules), undefined);
