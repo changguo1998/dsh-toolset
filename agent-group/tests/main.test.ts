@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 
-import type { ToolDef } from "../src/main.ts";
-import { apply, callerSessionIdOf, inject, name } from "../src/main.ts";
+import type { ToolDef } from "../src/index.ts";
+import { apply, callerSessionIdOf, inject, name } from "../src/index.ts";
 
 const MANAGER = "sess-manager";
 const tempDirs: string[] = [];

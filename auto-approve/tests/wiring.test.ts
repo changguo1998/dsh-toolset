@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { inject, name, provide } from "../src/main.ts";
+import { inject, name, provide } from "../src/index.ts";
 import { resolveConfig } from "../src/config.ts";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -25,11 +25,9 @@ test("bundle 契约：name / inject / provide / Config / apply 导出齐备", ()
   assert.equal(name, "auto-approve");
   assert.deepEqual(inject, ["approval", "tools"]);
   assert.deepEqual(provide, ["autoApprove"]);
-  const entry = readFileSync(join(packageRoot, "index.ts"), "utf8");
-  assert.match(entry, /export \* from "\.\/src\/main\.ts"/);
-  const main = readFileSync(join(packageRoot, "src", "main.ts"), "utf8");
-  assert.match(main, /export function apply/);
-  assert.match(main, /export type \{ Config \}/);
+  const entry = readFileSync(join(packageRoot, "src", "index.ts"), "utf8");
+  assert.match(entry, /export function apply/);
+  assert.match(entry, /export type \{ Config \}/);
 });
 
 /** 去掉注释（只扫代码本体；注释里会出现「不调用 ctx.get("guard")」这类说明）。 */
@@ -89,6 +87,6 @@ test("package.json：dsh.bundle 声明与入口", () => {
     dsh?: { bundle?: { patch?: string } };
   }>(join(packageRoot, "package.json"));
   assert.equal(pkg.name, "@dsh-toolset/auto-approve");
-  assert.equal(pkg.main, "dist/index.js");
+  assert.equal(pkg.main, "dist/src/index.js");
   assert.equal(pkg.dsh?.bundle?.patch, "./cordis.patch.yml");
 });

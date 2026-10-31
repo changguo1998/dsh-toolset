@@ -13,7 +13,7 @@ import {
   judgeToolFilter,
   parseVerdictJson,
   runChildOnce,
-} from "../src/main.ts";
+} from "../src/index.ts";
 
 /** 一次裁决 run 的脚本：fake `subagents.start` 依次吐出这些文本（用完后重复最后一个）。 */
 function fakeSubagents(

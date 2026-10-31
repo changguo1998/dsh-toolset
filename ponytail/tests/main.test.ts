@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apply, resolveConfig, inject, name } from "../src/main.ts";
+import { apply, resolveConfig, inject, name } from "../src/index.ts";
 import { LADDER_SUMMARY, LADDER_TEXT } from "../src/ladder.ts";
 
 test("resolveConfig：缺省开启（仅显式 false 关闭）+ session-start + 去重 1 + 内置阶梯文本", () => {

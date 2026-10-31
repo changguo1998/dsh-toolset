@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）md-table-check 插件：检查回复正文里的 markdown 表格列数是否一致，不一致时经 rule-engine 注入一条汇总提示（只报不改）",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
@@ -28,5 +28,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

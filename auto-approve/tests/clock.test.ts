@@ -9,7 +9,7 @@ import { resolveConfig } from "../src/config.ts";
 import { CallTable } from "../src/calls.ts";
 import { FingerprintStore } from "../src/fingerprint.ts";
 import { FormStore, createLearner } from "../src/learn.ts";
-import { createBundle, name } from "../src/main.ts";
+import { createBundle, name } from "../src/index.ts";
 import { runReview, type Reviewer } from "../src/review.ts";
 import { SessionObserver } from "../src/sessions.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";

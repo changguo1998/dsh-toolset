@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）工具咨询插件：按需揭示工具（咨询即授权，遮罩 + 关键词索引）",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -27,5 +27,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

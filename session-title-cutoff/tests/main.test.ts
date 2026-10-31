@@ -28,7 +28,7 @@ import {
   titleFromResponse,
   titleSystemPrompt,
   type ApplyDeps,
-} from "../src/main.ts";
+} from "../src/index.ts";
 
 /** 0.2.1 helper 接受的键集合（宿主 `CONFIG_KEYS`）。 */
 const HELPER_CONFIG_KEYS = new Set([

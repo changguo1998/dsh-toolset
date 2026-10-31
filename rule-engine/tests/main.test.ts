@@ -14,7 +14,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { RuleEngine } from "../src/engine.ts";
-import { apply, isSubagentSession } from "../src/main.ts";
+import { apply, isSubagentSession } from "../src/index.ts";
 import { toToolDefs } from "../src/tools.ts";
 import type { Config, SessionEventLike, SessionLike } from "../src/types.ts";
 

@@ -9,7 +9,7 @@ import {
   hintMessage,
   name,
   resolveConfig,
-} from "../src/main.ts";
+} from "../src/index.ts";
 
 /** 捕获 stderr（结束后恢复） */
 function captureStderr(run: () => void): string[] {

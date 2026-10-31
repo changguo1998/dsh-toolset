@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）escalation-hint 插件：沙箱拒绝但宿主没给升级提示时，经 tools/post-execute 追加一条重试指引（只提示、不拦截）",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -27,5 +27,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

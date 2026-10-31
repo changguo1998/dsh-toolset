@@ -4,7 +4,13 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -21,7 +27,7 @@ import {
   CommandTemplateService,
   SERVICE_FACE_METHODS,
   serviceFace,
-} from "../src/main.ts";
+} from "../src/index.ts";
 import type { StepDeps, TemplateSpec } from "../src/types.ts";
 
 const SAMPLE = `---

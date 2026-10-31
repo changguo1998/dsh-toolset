@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { judgeAcceptance } from "../src/acceptance.ts";
-import { apply, makeCommandGuard } from "../src/main.ts";
+import { apply, makeCommandGuard } from "../src/index.ts";
 
 /** 危险词分片拼接（不写真实提权词字面量）。 */
 const RISKY_WORD = "su" + "do";

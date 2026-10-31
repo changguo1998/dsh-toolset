@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）符号规范插件：模型正文符号的展示层归一 + 回合审查（notice / 模型反馈），以 rule-engine 消费者形式接入",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -28,5 +28,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 
-import { apply } from "../src/main.ts";
+import { apply } from "../src/index.ts";
 
 interface ToolLike {
   name: string;

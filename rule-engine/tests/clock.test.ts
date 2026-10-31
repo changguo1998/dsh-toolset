@@ -10,7 +10,7 @@ import { after, test } from "node:test";
 
 import { createAgentInjector } from "../src/inject.ts";
 import type { InjectionHost } from "../src/inject.ts";
-import { apply } from "../src/main.ts";
+import { apply } from "../src/index.ts";
 import { resolveClock } from "../src/timers.ts";
 import type { InjectionRequest } from "../src/types.ts";
 import { ManualClock } from "../../clock-base/src/timers.ts";

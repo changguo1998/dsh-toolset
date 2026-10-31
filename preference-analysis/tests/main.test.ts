@@ -11,7 +11,7 @@ import {
   inject,
   name,
   resolveConfig,
-} from "../src/main.ts";
+} from "../src/index.ts";
 import { DEFAULT_MARKERS } from "../src/induce.ts";
 import { fakeMemory, userEvent } from "./fakes.ts";
 

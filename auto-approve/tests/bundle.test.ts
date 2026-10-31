@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { AUDIT_FILE_NAME } from "../src/audit.ts";
-import { apply, name } from "../src/main.ts";
+import { apply, name } from "../src/index.ts";
 import type { Config } from "../src/config.ts";
 import type {
   ApprovalOutcome,

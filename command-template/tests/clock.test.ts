@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CommandTemplateService } from "../src/main.ts";
+import { CommandTemplateService } from "../src/index.ts";
 import { runOneShotAgent } from "../src/subagent.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";
 import { ManualClock } from "../../clock-base/src/timers.ts";

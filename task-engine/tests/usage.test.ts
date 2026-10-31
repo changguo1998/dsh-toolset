@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { measureChildTokens, readUsageOutputTokens } from "../src/main.ts";
+import { measureChildTokens, readUsageOutputTokens } from "../src/index.ts";
 
 /** 有样本的投影状态（`last !== null` 才代表上报过 usage）。 */
 const sampled = (outputTokens: number): unknown => ({

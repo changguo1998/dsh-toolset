@@ -17,8 +17,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FEEDBACK_SUMMARY } from "../src/checker.ts";
-import { apply, type Config } from "../src/main.ts";
-import { apply as applyRuleEngine } from "../../rule-engine/src/main.ts";
+import { apply, type Config } from "../src/index.ts";
+import { apply as applyRuleEngine } from "../../rule-engine/src/index.ts";
 
 /** 列数不一致的两行表（分隔行少一列；表头在第 1 行） */
 const BAD = ["| a | b | c |", "| --- | --- |", "| 1 | 2 | 3 |"].join("\n");

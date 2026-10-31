@@ -34,7 +34,7 @@ import {
   type Learner,
   type LearnerOptions,
 } from "../src/learn.ts";
-import { createBundle } from "../src/main.ts";
+import { createBundle } from "../src/index.ts";
 import {
   parseLearnDecisions,
   runLearnReview,

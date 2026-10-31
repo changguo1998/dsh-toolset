@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH (DeepSeek Harness) 进程内集成插件：上下文感知文件读取（outline/signatures/pruned 三模式）",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -28,5 +28,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

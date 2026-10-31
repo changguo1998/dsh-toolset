@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { apply } from "../src/main.ts";
+import { apply } from "../src/index.ts";
 
 /** 消费者注册记录。 */
 interface ConsumerRecord {

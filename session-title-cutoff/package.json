@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）会话标题插件：all-prompts 触发不变，参考窗口改为「最近一次 git commit 之后」的人类消息",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -27,5 +27,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

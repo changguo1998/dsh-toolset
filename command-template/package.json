@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）模板体系插件：slash 命令模板（pre-steps / chain / best-of-N + 模板级模型选择），模板双源（仓库随包 + 用户目录）",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -28,5 +28,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { apply } from "../src/main.ts";
+import { apply } from "../src/index.ts";
 import { createFakeHost, type FakeToolSchema } from "./fake-host.ts";
 
 const NAMES = [

@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { apply, runChildOnce } from "../src/main.ts";
+import { apply, runChildOnce } from "../src/index.ts";
 import { createDeadline, resolveClock } from "../src/timers.ts";
 import { ManualClock } from "../../clock-base/src/timers.ts";
 

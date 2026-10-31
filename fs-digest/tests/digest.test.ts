@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { apply, name, inject, digest } from "../src/main.ts";
+import { apply, name, inject, digest } from "../src/index.ts";
 import type { LspDocumentSymbol, SymbolProvider } from "../src/lsp.ts";
 import type { DigestResult } from "../src/types.ts";
 

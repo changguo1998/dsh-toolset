@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FEEDBACK_SUMMARY } from "../src/checker.ts";
-import { apply, inject, name, resolveConfig } from "../src/main.ts";
+import { apply, inject, name, resolveConfig } from "../src/index.ts";
 
 /** 列数不一致的两行表（分隔行少一列） */
 const BAD = ["| a | b | c |", "| --- | --- |", "| 1 | 2 | 3 |"].join("\n");

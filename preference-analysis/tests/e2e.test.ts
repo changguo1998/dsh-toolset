@@ -7,7 +7,7 @@ import {
   createPlugin,
   type Config,
   type PreferencePlugin,
-} from "../src/main.ts";
+} from "../src/index.ts";
 import { fakeMemory, userEvent, type FakeMemory } from "./fakes.ts";
 
 const DAY = 86_400_000;

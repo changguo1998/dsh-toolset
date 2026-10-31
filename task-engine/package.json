@@ -4,7 +4,7 @@
   "private": true,
   "description": "DSH（DeepSeek Harness）任务树引擎：Frame 状态机、decompose/implement/stop/status 工具族、机械门禁与 RET 验收路由",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
@@ -29,5 +29,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "types": "./dist/src/index.d.ts"
 }

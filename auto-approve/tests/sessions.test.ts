@@ -6,7 +6,7 @@ import {
   SessionObserver,
   type SessionLike,
 } from "../src/sessions.ts";
-import { createInstructionReader } from "../src/main.ts";
+import { createInstructionReader } from "../src/index.ts";
 
 test("SessionObserver：折叠 request/header 得到会话路由", () => {
   const observer = new SessionObserver();
