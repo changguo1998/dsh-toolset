@@ -52,7 +52,7 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 ## 偏差
 
 - 无 `src` 改动.
-- 计划中的覆盖率命令以 `../tmp/...` 相对路径调用 `dev/coverage/report.mjs`, 该脚本按仓库根解析参数, 从包目录运行会指到 worktree 之外; 实际脚本改用 `$PWD/../tmp/...` 绝对路径, 目录与产物位置不变.
+- 覆盖率脚本: `report.mjs` 的两个路径参数按仓库根解析, 故 `test:coverage` 里传 `tmp/cov-ast-tools` / `tmp/cov-ast-tools/report.json`; `NODE_V8_COVERAGE` 由 node 按包目录解析, 仍用 `../tmp/cov-ast-tools`. 两者指向同一目录.
 - 发现未修 (不属本阶段范围): `BundleHost.logger` 声明为可选, 但 `src/index.ts:191` 与 `:201` 无条件调用 `ctx.logger?.(name).info(...)`; 宿主缺 `logger` 时 `apply` 抛 TypeError. 装配器始终提供 logger, 未用用例锁死该行为, 留给阶段 3 代码整理.
 
 ## 测试与证据
