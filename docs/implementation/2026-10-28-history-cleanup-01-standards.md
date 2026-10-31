@@ -136,7 +136,7 @@
 
 ## 偏差
 
-1. 8 处 `exclude` 未删: 计划按总追踪 5.4 的「文件不存在」删除, 实测 8 个包 (`ast-tools` / `auto-approve` / `command-template` / `herdr-integration` / `herdr-use` / `rule-engine` / `script-interpreter` / `task-engine`) 都有 `tests/clock.test.ts`, 且直接 import `../../clock-base/src/timers.ts`; 删 `exclude` 后触发 `TS6059` (rootDir) 与 `PluginCtxLike` 不匹配. 本阶段保留 `exclude`, 跨包 import 收口按 4.2 移交阶段 2, 收口后再删.
+1. 8 处 `exclude` 未删: 计划按总追踪 5.4 的「文件不存在」删除, 实测 8 个包 (`ast-tools` / `auto-approve` / `command-template` / `herdr-integration` / `herdr-use` / `rule-engine` / `script-interpreter` / `task-engine`) 都有 `tests/clock.test.ts`, 且直接 import `../../clock-base/src/timers.ts`; 删 `exclude` 后触发 `TS6059` (rootDir) 与 `PluginCtxLike` 不匹配. 本阶段保留 `exclude`, 跨包 import 收口按 4.2 与 5.3 在阶段 2 / 3 处理, 收口后再删.
 2. 34 包打开 `declaration: true`: 计划只写补 `types`; 实测 27 包 `declaration: false`, 补 `types` 会指向不存在的 `.d.ts`. 一并打开, 构建产出与 `types` 对齐 (含 `herdr-use` 原先有 `types` 无声明).
 3. T3.4 的验收原写「源码 import 中无 `src/main.ts`, 只剩 TUI」: 实际 4 个已用 `src/index.ts` 的包 (`background-daemon` / `coagent` / `context-report` / `herdr-use`) 保留内部 `src/main.ts` 模块, 测试从内部模块 import 属正常. 本阶段只保证入口与 `package.json` 不指向 `main.ts`, 未合并这 4 个内部模块.
 4. 分层测试入口的落地方式与计划不同: 计划写根脚本用 `pnpm -C <包> run --if-present`; 实际由 `test-one.sh` 直接执行包内脚本体并在缺脚本时记 SKIP. 原因: pnpm `run` 会把 `NODE_V8_COVERAGE` 从脚本环境清掉, 覆盖率采集必须绕开; 对外命令仍是 `pnpm run test:integration` / `test:e2e`.
@@ -158,4 +158,4 @@
 
 - 总追踪已补「阶段 1 完成」、阶段偏差与全量结果; 本文件留在 `docs/implementation/`, 总任务关闭时与总追踪一并移入 `docs/archived/`.
 - `docs/BACKLOG.md` 未改 (`#1` 仍「进行中」); `docs/STATUS.md` / `docs/host/` / 根 `README*` 未改.
-- 阶段 2 前由主分支写 34 份包追踪文档的测试实现规划; 8 处 `tests/clock.test.ts` 的跨包 import 与 `exclude` 清理随 4.2 在阶段 2 处理, 已写入总追踪「偏差」.
+- 阶段 2 前由主分支写 34 份包追踪文档的测试实现规划; 8 处 `tests/clock.test.ts` 的跨包 import 与 `exclude` 清理随 4.2 与 5.3 在阶段 2 / 3 处理, 已写入总追踪「偏差」.
