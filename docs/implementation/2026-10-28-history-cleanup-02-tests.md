@@ -18,6 +18,8 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `command-template` 合并, 分支 `history-cleanup/02-tests-command-template` (`abe2daa`), 合并提交 `361e5ef`; 单元 33→48 条, 集成 12 条, 覆盖率 72.6%→84.6% / 58.9%→73.5%; worktree 已删, coagent 已关.
+- 2026-10-28 批次 2: `context-report` 合并, 分支 `history-cleanup/02-tests-context-report` (`1b51f16`), 合并提交 `549e295`; 单元 51 条, 集成 16 条, 覆盖率 93.3%→95.8% / 87.3%→90.3%; `ctx.logger.info` 与类型声明不一致, 留阶段 3; worktree 已删, coagent 已关.
 - 2026-10-28 批次 1: `coagent` 合并, 分支 `history-cleanup/02-tests-coagent` (`a13d9e5`), 合并提交 `5d12995`; 单元 33→78 条, 集成 18 条, 覆盖率 79.9%→88.1% / 62.4%→78.6%; 集成层因 `apply` 固定 `systemClock` 改用真实时钟 + 毫秒等待; worktree 已删, coagent 已关.
 - 2026-10-28 批次 1: `TUI` 合并, 分支 `history-cleanup/02-tests-tui` (`660211e`..`370e384`), 合并提交 `01fec6b`; 单元 1828 条, 集成 12 条, 覆盖率 87.39%→87.48% / 78.42%→78.41% (分支微降属分母噪声); `test:e2e` 的 demo 段 `SMOKE_OK`, `smoke:pty` 因缺 `TOLLGATE_API_KEY` 未通过, 交人工验收; worktree 已删, coagent 已关.
 - 2026-10-28 批次 1: `clock-base` 合并, 分支 `history-cleanup/02-tests-clock-base` (`874e486`), 合并提交 `0e030f1`; 单元 25→33 条, 集成 12 条, 覆盖率 94.6%→98.2% / 83.0%→94.4% (规划基线 84.0% 与实测 83.0% 不符, 以实测为准); worktree 已删, coagent 已关.
