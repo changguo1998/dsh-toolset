@@ -262,6 +262,30 @@ test("malformed: 指令形状非法（双变体键 / 空 edits）", () => {
   expectRejected(CONTENT, [], "malformed");
 });
 
+test("malformed: 未知变体键 / 空对象 / 三个变体键同时出现", () => {
+  expectRejected(
+    CONTENT,
+    [
+      {
+        rename_line: { anchor: anchorAt(CONTENT, 1), new_text: "x" },
+      } as unknown as EditOp,
+    ],
+    "malformed",
+  );
+  expectRejected(CONTENT, [{} as unknown as EditOp], "malformed");
+  expectRejected(
+    CONTENT,
+    [
+      {
+        set_line: { anchor: anchorAt(CONTENT, 1), new_text: "x" },
+        delete_line: { anchor: anchorAt(CONTENT, 2) },
+        insert_after: { anchor: anchorAt(CONTENT, 3), new_text: "y" },
+      } as unknown as EditOp,
+    ],
+    "malformed",
+  );
+});
+
 test("malformed: replace_lines end 先于 start", () => {
   const err = expectRejected(
     CONTENT,

@@ -8,4 +8,4 @@
 
 ## 待办
 
-（当前无未完成项）
+- **#1 apply 缺 ctx 守卫**〔状态: 待办, 2026-11-01〕（2026-11-01）：`apply(ctx)` 未判断 `ctx === null || typeof ctx !== "object"`, 传 `undefined` 时抛 `TypeError: Cannot read properties of undefined (reading 'tools')`, 与「缺 `ctx.tools` 时告警降级」的口径不一致 → 期望非对象 `ctx` 也只写一条 stderr 告警并返回 → P3 → 来源: `docs/implementation/2026-10-28-history-cleanup-hash-edit.md`（阶段 2 集成层装配时实测; 同类判断散落见总追踪调研 1.8, 统一收口归阶段 3）
