@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CONSUMER_REGISTRATION,
+  DAY_MS,
   DEFAULT_MIN_INTERVAL_MS,
+  MAX_PENDING_OBSERVATIONS,
   apply,
   createPlugin,
   inject,
@@ -13,6 +15,7 @@ import {
   resolveConfig,
 } from "../src/index.ts";
 import { DEFAULT_MARKERS } from "../src/induce.ts";
+import { MAX_ENTRIES } from "../src/ledger.ts";
 import { fakeMemory, userEvent } from "./fakes.ts";
 
 async function tempPath(): Promise<string> {
@@ -585,4 +588,334 @@ test("顺序兜底：宿主忽略 inject 提前激活且 ruleEngine 未就绪 ->
   assert.equal(entries.length, 1, "证据仍应落账簿（只记录）");
   assert.ok(["active", "candidate"].includes(entries[0]!.status));
   dispose();
+});
+
+test("consolidate：纠正语境无约束句只记未成形观察；dispose 后零报告、不再观测", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const now = 2_000_000;
+  const plugin = createPlugin({
+    ctx: { memory: memory.face },
+    config: { ledgerPath },
+    now: () => now,
+    warn: () => {},
+  });
+  plugin.handle("s1", "/p", userEvent("不对，重新来一遍", { time: now }));
+  const report = await plugin.consolidate();
+  assert.equal(report.unformed, 1);
+  assert.equal(report.evidence, 0);
+  assert.equal(plugin.snapshot().unformed, 1);
+  assert.equal(plugin.snapshot().entries.length, 0);
+  assert.equal(memory.puts.length, 0);
+
+  plugin.dispose();
+  plugin.handle("s2", "/p", userEvent("不要用 emoji", { time: now }));
+  const after = await plugin.consolidate();
+  assert.deepEqual(after, {
+    evidence: 0,
+    created: 0,
+    merged: 0,
+    suppressed: 0,
+    blocked: 0,
+    unformed: 0,
+    applied: 0,
+    dormant: 0,
+    retired: 0,
+  });
+  assert.equal(plugin.snapshot().unformed, 1, "dispose 后不再落账");
+  assert.equal(plugin.snapshot().entries.length, 0);
+  assert.equal(plugin.decide(), null);
+});
+
+test("api.add：空正文 / 无法归一化 / 标题与项目缺省 / 撤销后拒绝重登记", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const now = 7_000_000;
+  const plugin = createPlugin({
+    ctx: { memory: memory.face },
+    config: { ledgerPath },
+    now: () => now,
+    warn: () => {},
+  });
+  assert.deepEqual(await plugin.api.add({ text: "   " }), {
+    ok: false,
+    reason: "text 不能为空",
+  });
+  assert.deepEqual(await plugin.api.add({ text: "，。" }), {
+    ok: false,
+    reason: "正文无法归一化",
+  });
+
+  // lastProject 由 handle 记住，模型提议缺 project 时沿用
+  plugin.handle("s1", "/p", userEvent("不要用 emoji", { time: now }));
+  const added = await plugin.api.add({ text: "提交信息用中文" });
+  assert.equal(added.ok, true);
+  assert.equal(added.status, "candidate");
+  const entry = plugin
+    .snapshot()
+    .entries.find((item) => item.text === "提交信息用中文");
+  assert.ok(entry !== undefined);
+  assert.equal(entry.project, "/p");
+
+  const titled = await plugin.api.add({
+    text: "段落间只留一个空行",
+    title: "段落",
+  });
+  assert.ok(titled.id !== undefined);
+  assert.equal(
+    plugin.snapshot().entries.find((item) => item.id === titled.id)?.title,
+    "段落",
+  );
+
+  // 撤销后同一模式进抑制键：模型再提议被拒
+  await plugin.api.remove(added.id!);
+  assert.deepEqual(await plugin.api.add({ text: "提交信息用中文" }), {
+    ok: false,
+    reason: "该模式已被撤销，不再登记",
+  });
+});
+
+test("api.list：按最近证据倒序、limit 截断（含 0）", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  let now = 1_000;
+  const plugin = createPlugin({
+    ctx: { memory: memory.face },
+    config: { ledgerPath },
+    now: () => now,
+    warn: () => {},
+  });
+  for (const [text, step] of [
+    ["第一条偏好", 1_000],
+    ["第二条偏好", 2_000],
+    ["第三条偏好", 3_000],
+  ] as const) {
+    now = step;
+    await plugin.api.add({ text, project: "/p" });
+  }
+  const all = await plugin.api.list();
+  assert.deepEqual(
+    all.map((item) => item.text),
+    ["第三条偏好", "第二条偏好", "第一条偏好"],
+  );
+  assert.deepEqual(
+    (await plugin.api.list({ limit: 1 })).map((item) => item.text),
+    ["第三条偏好"],
+  );
+  assert.deepEqual(await plugin.api.list({ limit: 0 }), []);
+});
+
+test("api：memory 缺席时 add 直接拒绝、remove 无法删库行", async () => {
+  const ledgerPath = await tempPath();
+  const plugin = createPlugin({
+    config: { ledgerPath },
+    now: () => 9_000,
+    warn: () => {},
+  });
+  assert.deepEqual(await plugin.api.add({ text: "提交信息用中文" }), {
+    ok: false,
+    reason: "memory 服务不可用（需要分层句柄面）",
+  });
+
+  // 种一条带库行副本的账簿，模拟「上次运行时写过库、这次 memory 服务缺席」
+  await mkdir(join(ledgerPath, ".."), { recursive: true });
+  await writeFile(
+    ledgerPath,
+    `${JSON.stringify({
+      version: 1,
+      revision: 1,
+      entries: [
+        {
+          id: "pref_seed",
+          key: "不要用emoji",
+          text: "不要用 emoji",
+          status: "active",
+          evidence: 3,
+          sessions: ["s1", "s2"],
+          origin: "user",
+          project: "/p",
+          importance: 4,
+          firstSeen: 1,
+          lastSeen: 2,
+          memory: { scope: "induction", tier: "project", id: 7 },
+        },
+      ],
+      suppressed: [],
+      unformed: 0,
+      updatedAt: 2,
+    })}\n`,
+    "utf8",
+  );
+  const seeded = createPlugin({
+    config: { ledgerPath },
+    now: () => 9_000,
+    warn: () => {},
+  });
+  assert.equal(seeded.snapshot().entries[0]?.id, "pref_seed");
+  assert.deepEqual(await seeded.api.remove("pref_seed"), {
+    ok: false,
+    reason: "memory 服务不可用，无法删库行",
+  });
+  assert.equal(
+    seeded.snapshot().entries[0]?.status,
+    "active",
+    "删库失败不改状态",
+  );
+});
+
+test("autoApply: all：证据够且跨会话但最近证据超窗口，达候选门槛即写库", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  let now = 1_000_000;
+  const plugin = createPlugin({
+    ctx: { memory: memory.face },
+    config: { ledgerPath, autoApply: "all" },
+    now: () => now,
+    warn: () => {},
+  });
+  plugin.handle("s1", "/p", userEvent("不要用 emoji", { time: now }));
+  plugin.handle("s2", "/p", userEvent("不要用 emoji", { time: now + 1 }));
+  plugin.handle("s2", "/p", userEvent("不要用 emoji", { time: now + 2 }));
+  now += 60 * DAY_MS;
+  const report = await plugin.consolidate();
+  assert.equal(report.applied, 1);
+  const entry = plugin.snapshot().entries[0]!;
+  assert.equal(entry.status, "active");
+  assert.equal(entry.importance, 3, "超窗口只算候选档");
+  assert.ok(plugin.decide() !== null);
+});
+
+test("退休删行失败：告警并保留原状态，不落 retired", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  const face = {
+    ...memory.face,
+    registerKind(spec: Parameters<typeof memory.face.registerKind>[0]) {
+      const scope = memory.face.registerKind(spec);
+      return {
+        ...scope,
+        async forget(): Promise<number> {
+          throw new Error("forget 不可用");
+        },
+      };
+    },
+  };
+  let now = 1_000_000;
+  const warnings: string[] = [];
+  const plugin = createPlugin({
+    ctx: { memory: face },
+    config: { ledgerPath },
+    now: () => now,
+    warn: (message) => warnings.push(message),
+  });
+  for (const sessionId of ["s1", "s2", "s3"]) {
+    plugin.handle(sessionId, "/p", userEvent("不要用 emoji", { time: now }));
+  }
+  await plugin.consolidate();
+  assert.equal(plugin.snapshot().entries[0]?.status, "active");
+  now += 181 * DAY_MS;
+  const report = await plugin.consolidate();
+  assert.equal(report.retired, 0);
+  assert.ok(
+    warnings.some((line) => line.includes("偏好退休删行失败")),
+    `应告警，实际：${warnings.join(" | ")}`,
+  );
+  assert.equal(plugin.snapshot().entries[0]?.status, "active");
+  assert.ok(!plugin.snapshot().suppressed.includes("不要用emoji"));
+});
+
+test("apply：ctx.on 缺失与 tools.register 抛错都只告警，不中断装配", async () => {
+  const ledgerPath = await tempPath();
+  const memory = fakeMemory();
+  let consumers = 0;
+  const services: Record<string, unknown> = {
+    memory: memory.face,
+    ruleEngine: {
+      registerConsumer() {
+        consumers += 1;
+        return () => {};
+      },
+    },
+    tools: {
+      register() {
+        throw new Error("tools 只读");
+      },
+    },
+  };
+  const ctx = {
+    get(name: string) {
+      return services[name];
+    },
+  };
+  const captured: string[] = [];
+  const originalWrite = process.stderr.write;
+  let dispose: (() => void) | undefined;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    captured.push(
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+    );
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    dispose = apply(ctx, { ledgerPath, minIntervalMs: 1 });
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  const output = captured.join("");
+  assert.ok(output.includes("ctx.on 不可用"), `实际：${output}`);
+  assert.ok(
+    output.includes("注册工具 preference_list 失败"),
+    `实际：${output}`,
+  );
+  assert.ok(output.includes("tools 只读"), `实际：${output}`);
+  assert.equal(consumers, 1, "消费者注册不受工具失败影响");
+  dispose!();
+});
+
+test("resolveConfig：DSH_HOME 环境变量派生 dshHome 与 ledgerPath，空值回落 ~/.dsh", () => {
+  const before = process.env["DSH_HOME"];
+  try {
+    process.env["DSH_HOME"] = "/tmp/dsh-home";
+    const config = resolveConfig();
+    assert.equal(config.dshHome, "/tmp/dsh-home");
+    assert.equal(
+      config.ledgerPath,
+      "/tmp/dsh-home/preference-analysis/ledger.json",
+    );
+    process.env["DSH_HOME"] = "   ";
+    assert.ok(resolveConfig().dshHome.endsWith("/.dsh"));
+  } finally {
+    if (before === undefined) delete process.env["DSH_HOME"];
+    else process.env["DSH_HOME"] = before;
+  }
+});
+
+test("待归纳观测上限：超过 2000 条丢最早者，归纳只吃上限内的证据", async () => {
+  const ledgerPath = await tempPath();
+  const now = 3_000_000;
+  const plugin = createPlugin({
+    config: { ledgerPath },
+    now: () => now,
+    warn: () => {},
+  });
+  for (let index = 0; index < MAX_PENDING_OBSERVATIONS + 5; index += 1) {
+    plugin.handle(
+      "s1",
+      "/p",
+      userEvent(`不要用第 ${index} 种写法`, { time: now }),
+    );
+  }
+  const report = await plugin.consolidate();
+  assert.equal(report.evidence, MAX_PENDING_OBSERVATIONS);
+  assert.equal(plugin.snapshot().entries.length, MAX_ENTRIES);
+  assert.ok(
+    !plugin.snapshot().entries.some((entry) => entry.text.includes("第 0 种")),
+    "最早的 5 条被丢弃",
+  );
+  assert.ok(
+    plugin
+      .snapshot()
+      .entries.some((entry) => entry.text.includes("第 2004 种")),
+    "最新一条保留",
+  );
 });

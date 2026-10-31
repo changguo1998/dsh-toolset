@@ -237,3 +237,43 @@ test("历史恢复：已退休条目不再被相似匹配到（靠 suppressed �
     "suppressed",
   );
 });
+
+test("findEntry：多个相似条目时取分数最高者（不命中等值即继续比）", () => {
+  const ledger = emptyLedger();
+  mergeEvidence(ledger, evidence("abcdefgh", "s1", 1_000));
+  mergeEvidence(ledger, evidence("abcdefghij", "s2", 2_000));
+  const best = findEntry(ledger, "abcdefghi", 0.5);
+  assert.equal(best?.key, "abcdefghij", "更长的近似条目分数更高");
+  assert.equal(findEntry(ledger, "abcdefghi", 0.99), undefined);
+});
+
+test("evaluate：最近证据恰好落在窗口边界仍算高置信", () => {
+  const ledger = emptyLedger();
+  mergeEvidence(ledger, evidence("不要用 emoji", "s1", 0));
+  mergeEvidence(ledger, evidence("不要用 emoji", "s2", 0));
+  mergeEvidence(ledger, evidence("不要用 emoji", "s2", 0));
+  const entry = ledger.entries[0]!;
+  assert.equal(
+    evaluate(entry, THRESHOLDS, THRESHOLDS.recentDays * DAY_MS).tier,
+    "confident",
+  );
+  assert.equal(
+    evaluate(entry, THRESHOLDS, THRESHOLDS.recentDays * DAY_MS + 1).tier,
+    "candidate",
+  );
+});
+
+test("mergeEvidence：合并时补标题，已有标题不被覆盖", () => {
+  const ledger = emptyLedger();
+  mergeEvidence(ledger, evidence("不要用 emoji", "s1", 1_000));
+  mergeEvidence(
+    ledger,
+    evidence("不要用 emoji", "s2", 2_000, { title: "符号" }),
+  );
+  assert.equal(ledger.entries[0]?.title, "符号");
+  mergeEvidence(
+    ledger,
+    evidence("不要用 emoji", "s3", 3_000, { title: "另一个标题" }),
+  );
+  assert.equal(ledger.entries[0]?.title, "符号", "首次标题胜出");
+});
