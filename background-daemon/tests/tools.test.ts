@@ -354,3 +354,43 @@ test("工具描述：tier 解释 S / P / U 的落点（D9）", async () => {
   assert.match(tier, /U[^。]*user/);
   assertFirstSentence(tool.description, "daemon_task");
 });
+
+test("resume：任务未暂停 → not_paused, 状态与下次触发都不动", async () => {
+  const { h, run } = await setup();
+  const created = await run({
+    action: "create",
+    selector: { kind: "every_seconds", seconds: 60 },
+    payload: "常态",
+  });
+  const id = String((created["task"] as { id: string }).id);
+  const before = h.store.get(id);
+  const result = await run({ action: "resume", id });
+  assert.equal(result["ok"], false);
+  assert.equal(result["error"], "not_paused");
+  assert.match(String(result["text"]), /未处于暂停状态/);
+  assert.equal(h.store.get(id)?.status, "active");
+  assert.equal(h.store.get(id)?.next, before?.next);
+});
+
+test("log：不带 id 取全局流水, limit 非法回落 20 条", async () => {
+  const { h, run } = await setup();
+  for (let index = 0; index < 25; index += 1) {
+    h.journal.append({
+      taskId: "d-global",
+      tier: "S",
+      at: h.clock.value + index,
+      sessionId: "sess-1",
+      mode: "deliver",
+      outcome: "delivered",
+      error: null,
+      durationMs: 1,
+      detail: null,
+    });
+  }
+  const fallback = await run({ action: "log", limit: 0 });
+  assert.equal(fallback["ok"], true);
+  assert.equal((fallback["records"] as unknown[]).length, 20);
+  assert.match(String(fallback["text"]), /运行流水/);
+  const floored = await run({ action: "log", limit: 3.9 });
+  assert.equal((floored["records"] as unknown[]).length, 3);
+});

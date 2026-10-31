@@ -3,6 +3,7 @@
  */
 
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { after, test } from "node:test";
 
 import {
@@ -251,4 +252,62 @@ test("控制帐：pause / resume / cancel 各写一条事件（跨实例传播�
   // 未成功的操作不写事件
   assert.equal((await run(`cancel ${task.id}`)).kind, "error");
   assert.equal(h.control.load().length, 3);
+});
+
+test("start / stop：重复操作给出幂等文案, 停止后调度器撤销", async () => {
+  const running = await setup({ enabled: true });
+  assert.equal(running.h.scheduler.status().running, true);
+  const again = await running.run("start");
+  assert.equal(again.kind, "success");
+  assert.match(again.text, /守护已开启/);
+  const stopped = await running.run("stop");
+  assert.equal(stopped.kind, "success");
+  assert.match(stopped.text, /已关闭/);
+  assert.equal(running.h.switcher.enabled, false);
+  assert.equal(running.h.scheduler.status().running, false);
+  const stoppedAgain = await running.run("stop");
+  assert.equal(stoppedAgain.kind, "success");
+  assert.match(stoppedAgain.text, /守护未开启/);
+});
+
+test("start：任务表损坏 → 开启失败并回滚开关（不留下半开状态）", async () => {
+  const { h, run } = await setup({ enabled: false, start: false });
+  writeFileSync(h.store.file, "{ 半截", "utf8");
+  h.store.load();
+  const failed = await run("start");
+  assert.equal(failed.kind, "error");
+  assert.match(failed.text, /开启失败/);
+  assert.match(failed.text, /任务表损坏/);
+  assert.equal(h.switcher.enabled, false);
+  assert.equal(h.scheduler.status().running, false);
+});
+
+test("run：缺任务 id → 报错并附用法", async () => {
+  const { run } = await setup({ enabled: true });
+  const result = await run("run");
+  assert.equal(result.kind, "error");
+  assert.match(result.text, /缺少任务 id/);
+  assert.match(result.text, /用法：\/daemon/);
+});
+
+test("log：条数非法（0 / 非数字）→ 回落缺省 20 条", async () => {
+  const { h, run } = await setup();
+  for (let index = 0; index < 25; index += 1) {
+    h.journal.append({
+      taskId: "d-many",
+      tier: "S",
+      at: h.clock.value + index,
+      sessionId: "sess-1",
+      mode: "deliver",
+      outcome: "delivered",
+      error: null,
+      durationMs: 1,
+      detail: null,
+    });
+  }
+  for (const input of ["log d-many 0", "log d-many abc"]) {
+    const result = await run(input);
+    assert.equal(result.kind, "success");
+    assert.match(result.text, /最近 20 条/, input);
+  }
 });

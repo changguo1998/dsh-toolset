@@ -554,6 +554,162 @@ test("bootDaemon：同一路径下仍返回运行期句柄（与 apply 的分工
   await runtime.dispose();
 });
 
+test("装配降级：clock 形状不符 / scope 抛错 → 回落进程内定时器, 不抛", async () => {
+  const dir = tempDir();
+  const clocks: unknown[] = [
+    { now: () => NOW },
+    { now: () => NOW, scope: () => ({ now: () => NOW }) },
+    {
+      now: () => NOW,
+      scope: () => {
+        throw new Error("fiber 已卸载");
+      },
+    },
+  ];
+  for (const clock of clocks) {
+    const fake = fakeContext();
+    const get = fake.ctx["get"] as (name: string) => unknown;
+    const ctx = {
+      ...fake.ctx,
+      get: (name: string) => (name === "clock" ? clock : get(name)),
+    };
+    const runtime = await createDaemonRuntime(
+      ctx,
+      {
+        storePath: path.join(dir, "tasks.json"),
+        journalPath: path.join(dir, "journal.jsonl"),
+      },
+      () => NOW,
+      () => {},
+    );
+    runtime.scheduler.start();
+    assert.equal(runtime.scheduler.status().running, true);
+    const task = runtime.store.create({
+      mode: "deliver",
+      selector: { kind: "after_seconds", seconds: 60 },
+      payload: "回落",
+      sessionId: "sess-1",
+    });
+    // 回落 systemTimer 时以注入时钟为准算 next, 排期本身不抛
+    runtime.scheduler.arm();
+    assert.equal(runtime.store.get(task.id)?.next, NOW + 60_000);
+    await runtime.dispose();
+  }
+});
+
+test("装配降级：ctx.inject 读取抛错 → 视为无 inject, 不抛", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const ctx: Record<string, unknown> = { ...fake.ctx };
+  Object.defineProperty(ctx, "inject", {
+    get() {
+      throw new Error("cannot get property without inject");
+    },
+  });
+  const runtime = await createDaemonRuntime(
+    ctx,
+    {
+      storePath: path.join(dir, "tasks.json"),
+      journalPath: path.join(dir, "journal.jsonl"),
+    },
+    () => NOW,
+    () => {},
+  );
+  assert.equal(runtime.backend, "json");
+  await runtime.dispose();
+});
+
+test("bootDaemon：provide / 工具注册 / dispose 事件面抛错 → 告警降级, 不抛", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const nested = fake.ctx as Record<string, unknown>;
+  const original = process.stderr.write.bind(process.stderr);
+  const captured: string[] = [];
+  process.stderr.write = (chunk: string | Uint8Array) => {
+    captured.push(String(chunk));
+    return true;
+  };
+  const ctx: Record<string, unknown> = {
+    ...nested,
+    provide: () => {
+      throw new Error("服务名冲突");
+    },
+    on: () => {
+      throw new Error("事件面形状不符");
+    },
+    get: (name: string) => {
+      if (name === "tools") {
+        return {
+          register: () => {
+            throw new Error("工具名重复");
+          },
+        };
+      }
+      return (nested["get"] as (key: string) => unknown)(name);
+    },
+  };
+  try {
+    const runtime = await bootDaemon(ctx, {
+      storePath: path.join(dir, "tasks.json"),
+      journalPath: path.join(dir, "journal.jsonl"),
+    });
+    await runtime.dispose();
+  } finally {
+    process.stderr.write = original;
+  }
+  const text = captured.join("");
+  assert.match(text, /提供 backgroundDaemon 服务失败/);
+  assert.match(text, /工具注册失败/);
+});
+
+test("装配降级：memory-base 底座注册抛错 → 告警并保持 json", async () => {
+  const dir = tempDir();
+  const fake = fakeContext();
+  const get = fake.ctx["get"] as (name: string) => unknown;
+  const ctx = {
+    ...fake.ctx,
+    get: (name: string) =>
+      name === "memory"
+        ? {
+            registerKind: () => {
+              throw new Error("越权层");
+            },
+          }
+        : get(name),
+  };
+  const warnings: string[] = [];
+  const runtime = await createDaemonRuntime(
+    ctx,
+    {
+      storePath: path.join(dir, "tasks.json"),
+      journalPath: path.join(dir, "journal.jsonl"),
+    },
+    () => NOW,
+    (message) => warnings.push(message),
+  );
+  assert.equal(runtime.backend, "json");
+  assert.equal(runtime.service.status().records, "json");
+  assert.match(warnings.join("\n"), /memory-base 记录底座不可用/);
+  await runtime.dispose();
+});
+
+test("装配告警：agents / sessions 缺失 → 各一条降级告警", async () => {
+  const dir = tempDir();
+  const warnings: string[] = [];
+  const runtime = await createDaemonRuntime(
+    {},
+    {
+      storePath: path.join(dir, "tasks.json"),
+      journalPath: path.join(dir, "journal.jsonl"),
+    },
+    () => NOW,
+    (message) => warnings.push(message),
+  );
+  assert.match(warnings.join("\n"), /ctx\.agents 不可用/);
+  assert.match(warnings.join("\n"), /ctx\.sessions\.flush 不可用/);
+  await runtime.dispose();
+});
+
 test("apply：真机严格面 memory 读不到时, ctx.inject 晚挂 memory 底座", async () => {
   const dir = tempDir();
   const fake = fakeContext();

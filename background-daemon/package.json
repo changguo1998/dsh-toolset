@@ -8,7 +8,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-background-daemon && mkdir -p ../tmp/cov-background-daemon && NODE_V8_COVERAGE=../tmp/cov-background-daemon node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-background-daemon tmp/cov-background-daemon/report.json"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
