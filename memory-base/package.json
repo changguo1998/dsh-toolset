@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-memory-base && mkdir -p ../tmp/cov-memory-base && NODE_V8_COVERAGE=../tmp/cov-memory-base node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-memory-base tmp/cov-memory-base/report.json",
     "demo": "node --experimental-transform-types demo/main.ts",
     "smoke": "node smoke/smoke.mjs"
   },

@@ -342,6 +342,77 @@ test("删除：真删并返回条数；未创建的层视为无行", async () =>
   }
 });
 
+test("落点解析：P 层缺 projectRoot / S 层缺 sessionId 返回 undefined，且不建库", async () => {
+  const ws = await workspace();
+  const tiers = TierSet.open({ dshHome: ws.dshHome, registry: registry() });
+  try {
+    assert.equal(tiers.pathFor("project"), undefined, "无项目根即无 P 落点");
+    assert.equal(
+      tiers.pathFor("user"),
+      join(ws.dshHome, "memory-base", "user.db"),
+    );
+    assert.equal(tiers.pathFor("session"), undefined, "S 层缺会话 id 不解析");
+    assert.equal(
+      tiers.pathFor("session", "s1"),
+      undefined,
+      "缺 sessionPaths 不解析",
+    );
+
+    const withPaths = TierSet.open({
+      dshHome: ws.dshHome,
+      projectRoot: ws.projectRoot,
+      sessionPaths: ws.sessionPaths,
+      registry: registry(),
+    });
+    assert.equal(
+      withPaths.pathFor("project"),
+      join(ws.projectRoot, ".dsh", "project.db"),
+    );
+    assert.equal(
+      withPaths.pathFor("session", "s1"),
+      join(ws.sessionDir, "session.db"),
+    );
+    assert.deepEqual(await withPaths.usage(), [], "只解析落点，不创建文件");
+    assert.equal(existsSync(join(ws.projectRoot, ".dsh")), false);
+    withPaths.close();
+  } finally {
+    tiers.close();
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
+test("只读打开：P 层缺 projectRoot 抛明示例外，未建层返回 undefined 且不落盘", async () => {
+  const ws = await workspace();
+  const noRoot = TierSet.open({ dshHome: ws.dshHome, registry: registry() });
+  const tiers = TierSet.open({
+    dshHome: ws.dshHome,
+    projectRoot: ws.projectRoot,
+    sessionPaths: ws.sessionPaths,
+    registry: registry(),
+  });
+  try {
+    await assert.rejects(
+      () =>
+        noRoot.write("project", { kind: "proj", project: "p", content: "x" }),
+      /写项目层需要 projectRoot/,
+    );
+    assert.equal(
+      await noRoot.openExisting("session", "s1"),
+      undefined,
+      "无 sessionPaths 即视为不存在",
+    );
+
+    assert.equal(await tiers.openExisting("user"), undefined);
+    assert.equal(await tiers.openExisting("session", "s1"), undefined);
+    assert.equal(existsSync(join(ws.dshHome, "memory-base")), false);
+    assert.equal(existsSync(join(ws.sessionDir, "session.db")), false);
+  } finally {
+    noRoot.close();
+    tiers.close();
+    await rm(ws.dir, { recursive: true, force: true });
+  }
+});
+
 test("用量：只报已创建的库，未创建的层不出现", async () => {
   const ws = await workspace();
   const tiers = TierSet.open({
