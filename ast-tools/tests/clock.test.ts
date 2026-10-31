@@ -10,7 +10,7 @@ import { after, test } from "node:test";
 
 import { runCli } from "../src/binary.ts";
 import { apply } from "../src/index.ts";
-import { createDeadline, resolveClock } from "../src/timers.ts";
+import { createDeadline, resolveClock, systemTimers } from "../src/timers.ts";
 import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /** `clock` 服务的假实现：`scope()` 一律返回同一块手控表，并记录调用参数。 */
@@ -180,6 +180,144 @@ test("apply: clock 可用时不告警", () => {
     logs.filter((line) => line.includes("clock 服务不可用")),
     [],
   );
+});
+
+test("systemTimers: 非有限延迟抛 RangeError，负延迟按 0 立即排期", async () => {
+  const timers = systemTimers();
+  assert.throws(() => timers.schedule(Number.NaN, () => {}), RangeError);
+  assert.throws(
+    () => timers.schedule(Number.NEGATIVE_INFINITY, () => {}),
+    RangeError,
+  );
+  assert.throws(
+    () => timers.interval(Number.POSITIVE_INFINITY, () => {}),
+    RangeError,
+  );
+  const fired = await new Promise<boolean>((resolve) => {
+    const cancel = timers.schedule(-5, () => {
+      cancel();
+      resolve(true);
+    });
+  });
+  assert.equal(fired, true);
+});
+
+test("systemTimers: 取消句柄撤销排期，重复取消不抛", async () => {
+  const timers = systemTimers();
+  const fired: string[] = [];
+  const cancelSchedule = timers.schedule(5, () => fired.push("schedule"));
+  cancelSchedule();
+  cancelSchedule();
+  const cancelInterval = timers.interval(5, () => fired.push("interval"));
+  cancelInterval();
+  cancelInterval();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(fired, []);
+});
+
+test("resolveClock: ctx 缺失 / get 抛错 / 服务形状不符都回落并告警一次", () => {
+  const contexts: unknown[] = [
+    null,
+    42,
+    {},
+    {
+      get: () => {
+        throw new Error("服务读取抛错");
+      },
+    },
+    { get: () => null },
+    { get: () => ({ now: () => 0 }) },
+    { get: () => ({ now: () => 0, scope: () => ({}) }) },
+    {
+      get: () => ({
+        now: () => 0,
+        scope: () => {
+          throw new Error("scope 抛错");
+        },
+      }),
+    },
+  ];
+  const throwingGetter = Object.defineProperty({}, "get", {
+    get() {
+      throw new Error("getter 抛错");
+    },
+  });
+  contexts.push(throwingGetter);
+  for (const ctx of contexts) {
+    const warnings: string[] = [];
+    const timers = resolveClock(ctx, (message) => warnings.push(message));
+    assert.equal(timers.fromClock, false, `ctx=${String(ctx)} 应回落`);
+    assert.equal(warnings.length, 1, `ctx=${String(ctx)} 只告警一次`);
+    assert.equal(typeof timers.scoped.schedule, "function");
+  }
+});
+
+test("createDeadline: 正常收尾取消后到点不触发，重复取消不抛", () => {
+  const manual = new ManualClock(0);
+  const { ctx } = fakeHost();
+  const deadline = createDeadline(manual, ctx);
+  const fired: string[] = [];
+  const cancel = deadline(100, (reason) => fired.push(reason));
+  cancel();
+  cancel();
+  manual.advance(100);
+  assert.deepEqual(fired, []);
+  assert.equal(manual.pending, 0);
+});
+
+test("createDeadline: 到点触发后再卸载不重复触发", () => {
+  const manual = new ManualClock(0);
+  const { ctx, unload } = fakeHost();
+  const deadline = createDeadline(manual, ctx);
+  const fired: string[] = [];
+  deadline(10, (reason) => fired.push(reason));
+  manual.advance(10);
+  unload();
+  assert.deepEqual(fired, ["timeout"]);
+});
+
+test("createDeadline: effect 缺失 / 抛错 / 返回非函数时照常可取消", () => {
+  const manual = new ManualClock(0);
+  const throwingGetter = Object.defineProperty({}, "effect", {
+    get() {
+      throw new Error("effect getter 抛错");
+    },
+  });
+  const contexts: unknown[] = [
+    null,
+    {},
+    throwingGetter,
+    {
+      effect: () => {
+        throw new Error("effect 抛错");
+      },
+    },
+    { effect: () => undefined },
+  ];
+  for (const ctx of contexts) {
+    const deadline = createDeadline(manual, ctx);
+    const fired: string[] = [];
+    const cancel = deadline(100, (reason) => fired.push(reason));
+    assert.equal(manual.pending, 1);
+    cancel();
+    assert.equal(manual.pending, 0);
+    manual.advance(100);
+    assert.deepEqual(fired, [], `ctx=${String(ctx)} 取消后不应触发`);
+  }
+});
+
+test("createDeadline: disposer 返回 rejected promise 时静默吞掉", async () => {
+  const manual = new ManualClock(0);
+  const ctx = {
+    effect(fn: () => () => void): () => Promise<unknown> {
+      const dispose = fn();
+      return () => Promise.reject(new Error("卸载抛错")).then(dispose);
+    },
+  };
+  const deadline = createDeadline(manual, ctx);
+  const cancel = deadline(100, () => {});
+  cancel();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 });
 
 /** 轮询谓词直到成立（真实定时器；判稳用）。 */

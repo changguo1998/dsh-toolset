@@ -10,6 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE=\"$PWD/../tmp/cov-ast-tools\" node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs \"$PWD/../tmp/cov-ast-tools\" \"$PWD/../tmp/cov-ast-tools/report.json\"",
     "example:search": "node --experimental-transform-types examples/search.example.ts",
     "example:replace": "node --experimental-transform-types examples/replace.example.ts"
   },
