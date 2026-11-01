@@ -7,6 +7,7 @@ import {
   createTimers,
   ManualClock,
   MAX_ADVANCE_STEPS,
+  resolveClock,
   resolveDelay,
 } from "../src/timers.ts";
 
@@ -316,4 +317,84 @@ test("resolveDelay: 负数归零，非有限数报错", () => {
   assert.equal(resolveDelay(12.5), 12.5);
   assert.throws(() => resolveDelay(Number.NaN), RangeError);
   assert.throws(() => resolveDelay(Number.POSITIVE_INFINITY), RangeError);
+});
+
+// ---------------------------------------------------------------------------
+// resolveClock: 公共接线层（有 clock 服务 / 无 clock 服务回落）
+// ---------------------------------------------------------------------------
+
+test("resolveClock: 手控时钟排期与撤销（不依赖真实等待）", () => {
+  const manual = new ManualClock(1_000);
+  const ctx = {
+    get(name: string) {
+      return name === "clock"
+        ? { now: () => manual.now(), scope: () => manual }
+        : undefined;
+    },
+  };
+  const warnings: string[] = [];
+  const clock = resolveClock(ctx, (message) => warnings.push(message));
+
+  assert.equal(clock.fromClock, true);
+  assert.equal(clock.detached, manual, "clock 服务在场时两组排期器都来自服务");
+  assert.deepEqual(warnings, []);
+
+  let fired = 0;
+  let ticks = 0;
+  const stopSchedule = clock.scoped.schedule(20, () => {
+    fired += 1;
+  });
+  const stopInterval = clock.scoped.interval(10, () => {
+    ticks += 1;
+  });
+
+  manual.advance(10);
+  assert.equal(ticks, 1, "interval 到点一次");
+  assert.equal(fired, 0);
+
+  stopSchedule();
+  manual.advance(20);
+  assert.equal(fired, 0, "撤销后一次性排期不再触发");
+  assert.equal(ticks, 3, "interval 在 20 / 30 各触发一次");
+
+  stopInterval();
+  manual.advance(100);
+  assert.equal(fired, 0);
+  assert.equal(ticks, 3, "撤销后 interval 不再触发");
+  assert.equal(manual.pending, 0);
+  assert.equal(clock.scoped.now(), 1_130);
+});
+
+test("resolveClock: 没有 clock 服务时回落系统定时器（不依赖真实等待）", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const warnings: string[] = [];
+  const timers = resolveClock({}, (message) => warnings.push(message));
+
+  assert.equal(timers.fromClock, false);
+  assert.equal(timers.scoped, timers.detached, "回落后两组共用同一个排期器");
+  assert.equal(warnings.length, 1, "每个插件实例只告警一次");
+  assert.match(warnings[0] ?? "", /回落进程内定时器/);
+
+  let fired = 0;
+  let ticks = 0;
+  const stopSchedule = timers.scoped.schedule(5, () => {
+    fired += 1;
+  });
+  const stopInterval = timers.detached.interval(10, () => {
+    ticks += 1;
+  });
+
+  t.mock.timers.tick(5);
+  assert.equal(fired, 1);
+  assert.equal(ticks, 0);
+
+  stopSchedule();
+  t.mock.timers.tick(10);
+  assert.equal(fired, 1, "撤销后一次性排期不再触发");
+  assert.equal(ticks, 1);
+
+  stopInterval();
+  t.mock.timers.tick(50);
+  assert.equal(fired, 1);
+  assert.equal(ticks, 1, "撤销后 interval 不再触发");
 });

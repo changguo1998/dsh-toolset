@@ -62,6 +62,12 @@ rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERA
   - 集成层: 新增 `tests/assemble.ts`（假工具面 / 假事件面 / 假服务面 + `ctx.effect` 卸载登记 + stderr 捕获, 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（12 例）: 经 `provide` 注册与重复注册、工具面零注册与事件面零订阅、两种降级装配、`clock.now` 区间、`scope` 的 `schedule` / `interval` 与 `ctx` 卸载撤销、`ManualClock` 的到期序与回调内再排期.
   - 脚本: `package.json` 加 `test:integration` 与 `test:coverage`.
   - 结果: 单元 33 例 + 集成 12 例全通过; 覆盖率 行 98.2% (217/221), 分支 94.4% (51/54).
+- 阶段 3 代码整理（分支 `history-cleanup/03-code-clock-base`）:
+  - `src/timers.ts`: 删掉包内私有的旧 `attachEffect`, 追加公共接线层 8 个函数（`systemTimers` / `isTimers` / `readClock` / `resolveClock` / `createDeadline` / `delayOf` / `runDisposer` / `attachEffect`）与 4 个类型（`TimersLike` / `ClockTimers` / `Deadline` / `DeadlineReason`）, 与 `createTimers` / `ManualClock` 同文件; 实现取各包既有副本的公共版本, `delayOf` 复用 `resolveDelay`, `TimersLike` 与 `Timers` 同形.
+  - `src/index.ts`: 入口导出上述 12 个符号.
+  - 上下文对象守卫: 收在 `src/timers.ts` 的 `isTimers` / `readClock` / `attachEffect` 与 `src/index.ts` 的 `apply`, 每处只判一次.
+  - 测试: `tests/timers.test.ts` 新增 2 例 —— 手控时钟下的 `resolveClock` 排期与撤销, 无 `clock` 服务时的系统定时器回落; 分别用 `ManualClock.advance` 与 `t.mock.timers.tick`, 不等真实时间.
+  - 行为: `createTimers` 登记 effect 的标签仍为 `clock.timer`; 工具名 / 配置键 / 注入文案未动.
 
 ## 偏差
 
@@ -70,6 +76,9 @@ rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERA
 - 覆盖率脚本的两套路径基准: `report.mjs` 的两个路径参数按仓库根解析, 故 `test:coverage` 传 `tmp/cov-clock-base` / `tmp/cov-clock-base/report.json`; `NODE_V8_COVERAGE` 由 node 按包目录解析, 仍用 `../tmp/cov-clock-base`; 两者指向同一目录. 与规划的命令等价, 只是显式分开写.
 - 集成层的真实时间: `apply` 产出的 `ClockService` 缺省读系统时钟, 装配器不替换 `Date.now`（不 mock 全局时钟）; 故 `schedule` / `interval` 用例等真实时间 10 至 45ms, 在用例旁注明; 需要确定时间的断言改用本包导出的 `ManualClock`（3.5 口径）.
 - 余 4 行未覆盖: V8 range 的落点与 types 剥离后的源码行存在对齐误差（`clock-base/src/timers.ts` 的 61 / 62 / 78 / 85, 报告按 0 基写出 60 / 61 / 77 / 84）, 行内副作用已由用例断言间接证明执行, 不按 4.3 补用例; 明细见「豁免台账」.
+- 阶段 3: 包内私有 `attachEffect`（只登记清理, 无返回值）与公共 `attachEffect`（返回 effect 的 disposer）合并为一个函数; `createTimers` 调用处补传标签 `clock.timer`, 登记语义不变. 其余与规划一致.
+- 阶段 3: `TimersLike` 实现为 `Timers` 的类型别名, 未再复制一份同形接口; 结构等价, 消费方替换 import 即可.
+- 阶段 3: `readClock` 的返回类型 `ClockLike` 未入口导出, 入口只新增规划列出的 12 个符号（构建声明确认 `ClockLike` 随 `readClock` 落在 `.d.ts`）.
 
 ## 测试与证据
 
@@ -112,3 +121,14 @@ rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERA
 | `src/timers.ts:62` `} catch {` | 同上 | 块头行, 无独立可执行语义 | 无 | 同上 |
 | `src/timers.ts:78` `createTimers(options = {})` 默认参数 | 同上 | 默认参数初始化器被 V8 记为独立 range | 无 | 同上 |
 | `src/timers.ts:85` `let handle: ReturnType<typeof setTimeout> \| undefined` | 同上 | 声明行, 无独立可执行语义 | 无 | 同上 |
+
+### 阶段 3 代码整理（实跑）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C clock-base run check` | 通过（`tsc --noEmit`, 无输出） |
+| `pnpm -C clock-base run test` | 35 例, pass 35, fail 0, skipped 0 |
+| `pnpm -C clock-base run test:integration` | 12 例, pass 12, fail 0, skipped 0 |
+| `pnpm -C clock-base run build` | 通过; `dist/src/index.d.ts` 可见 12 个新符号, 构建产物随后清理 |
+
+用例增减: 单元 33 → 35（+2）; 集成 12 不变; 新增两例分别用 `ManualClock.advance` 与 `t.mock.timers.tick`, 不依赖真实等待.
