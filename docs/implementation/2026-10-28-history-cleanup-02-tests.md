@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `security-guard` 合并, 分支 `history-cleanup/02-tests-security-guard` (`57d55b3`), 合并提交 `01f04e9`; 单元 142→160 条 (skip 1→0), 集成 14 条, 覆盖率 97.5%→98.9% / 90.9%→94.1%; `report.mjs` 不排除 `dist`, 覆盖轮先删 `dist`; `herdr_use` 负断言保留; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `script-interpreter` 合并, 分支 `history-cleanup/02-tests-script-interpreter` (`d88b0b4`), 合并提交 `ab7b5a8`; 单元 117 条, 集成 14 条, 覆盖率 91.1%→95.1% / 77.7%→86.9%; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `output-compress` 合并, 分支 `history-cleanup/02-tests-output-compress` (`2f677dc`), 合并提交 `736bff8`; 单元 57→75 条, 集成 10 条, 覆盖率 89.6%→94.7% / 76.7%→85.2%; 本包无工具面, 集成改断 `session/event` 与 `renderSummaryRecord`; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `preference-analysis` 合并, 分支 `history-cleanup/02-tests-preference-analysis` (`3369ae8`), 合并提交 `3189806`; 单元 98 条, 集成 11 条, 覆盖率 87.1%→94.6% / 75.5%→88.4%; `tools.ts` 分支分母 26→27 的比值波动已注明; worktree 已删, coagent 已关.
