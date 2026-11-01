@@ -1,5 +1,7 @@
 # @dsh-toolset/output-compress
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成**确定性摘要 + 切片索引**写进**自持**的 `digest.db`（每会话一个文件），`is_error` 摘要另经 memory-base 的作用域句柄写入知识库——原始大输出不进模型上下文，事后仍可按需检索并定位回原始字节。
 
 ## 能力
@@ -24,15 +26,15 @@ DSH（DeepSeek Harness）进程内插件：把超阈值命令/工具输出压成
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `sessionDir` | （无） | digest.db 落点的**显式覆盖**；配了就优先用它，且仍要求目录已存在（插件只校验、不 mkdir）。缺省按会话经 `session-paths` 的 `sessionDirFor` 推导 |
+| `sessionDir` | （无） | digest.db 存放位置的**显式覆盖**；配了就优先用它，且仍要求目录已存在（插件只校验、不 mkdir）。缺省按会话经 `session-paths` 的 `sessionDirFor` 推导 |
 | `minBytes` | `16384` | 无 spill 通知时触发摘要的最小文本 UTF-8 字节数 |
 | `maxSourceBytes` | `524288` | 读取 spill 文件的字节上限 |
 
-库指纹固定 `application_id = 0x44494745`（`'DIGE'`）、`user_version = 1`；容量自管 **100 MB**（每会话每文件），过期亦由本包自管；落点不可推导（`session-paths` 缺失且无覆盖）或指纹不符即跳过（告警），不向宿主抛错。
+库指纹固定 `application_id = 0x44494745`（`'DIGE'`）、`user_version = 1`；容量自管 **100 MB**（每会话每文件），过期亦由本包自管；存放位置不可推导（`session-paths` 缺失且无覆盖）或指纹不符即跳过（告警），不向宿主抛错。
 
-## 使用示例
+## 用法
 
-profile 挂载（`~/.dsh/profiles/<p>`）：以 `link:` 依赖指向本包。落点缺省由 `session-paths` 服务按会话推导（该包未挂载时可用 `config.sessionDir` 显式覆盖）；memory-base 可选（缺失时 digest 照常入本地库，仅 `is_error` 摘要不进知识库，并打一次性告警）。
+profile 挂载（`~/.dsh/profiles/<p>`）：以 `link:` 依赖指向本包。存放位置缺省由 `session-paths` 服务按会话推导（该包未挂载时可用 `config.sessionDir` 显式覆盖）；memory-base 可选（缺失时 digest 照常入本地库，仅 `is_error` 摘要不进知识库，并打一次性告警）。
 
 检索 `is_error` 摘要（走 memory-base 的检索面，按 `kind` 过滤）：
 
@@ -48,28 +50,28 @@ searchDigests(db, "ENOENT", { limit: 10 }); // db 即 <会话目录>/digest.db
 
 命中结果里带 `L<行号>` 区间与 `C<字符区间>`，用 `read offset/limit` 即可定位回 spill 文件中的原始片段。
 
-## 边界与限制
+## 边界
 
-- **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引（`slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少），不让原文进模型上下文；与官方 `spill-policy` / `compaction-tool-result-pruner` 的三方分工（不构成双重截断）见 `docs/DESIGN.md` 第 1 节的表。
-- **只经服务面通信、不建 npm 依赖**：跨 bundle 只经 `ctx.get('memory')` 的 `registerKind`（拿写入句柄）/ `checkPrivacy` 与一份必须一致的隐私常量（`deny-patterns.ts` 同源复制 + 指纹封印对拍测试）；写入前过本包 `deny-patterns.ts` 六类形态模式（底线闸自足，设计 §5），能取到 `checkPrivacy(text)` 则叠加 profile denyPatterns。
+- **不存原文全文**：原始字节由宿主 retention / spill 负责保留；本插件只写入可检索的摘要与切片索引（`slices` 片数是**上限 16**：每片行数取 `max(1, ceil(总行数/16))`，行数少时实际片数更少），不让原文进模型上下文；与官方 `spill-policy` / `compaction-tool-result-pruner` 的三方分工（不构成双重截断）见 `docs/DESIGN.md` 「背景」节的表。
+- **只经服务面通信、不建 npm 依赖**：跨 bundle 只经 `ctx.get('memory')` 的 `registerKind`（拿写入句柄）/ `checkPrivacy` 与一份必须一致的隐私常量（`deny-patterns.ts` 同源复制 + 指纹封印对拍测试）；写入前过本包 `deny-patterns.ts` 六类形态模式（底线闸自足，见 `docs/DESIGN.md` 「机制」节的「写入」），能取到 `checkPrivacy(text)` 则叠加 profile denyPatterns。
 - 触发依赖宿主文案：严格正则锚定 spill 通知字面量，宽松正则兜底宿主文案演进；空 locator 的通知回落阈值判定。宿主在同时省略整张图片时会在省略句与定位句之间插入 ` Omitted N images.`，该形态两个正则都不命中 → 回落阈值判定（不会误写，只是少了 spill 权威信号）。
-- 失败一律降级：管线内任何抛错都收敛为 `skipped` + 日志；spill 文件暂不可读时降级为「用事件内文本入库」（并在 10s 冷却窗口内不再尝试读该文件）；落点不可推导（`session-paths` 缺失且无覆盖）时该会话整条管线 `skipped.session-dir-missing`；memory-base 缺面时 `is_error` 行停在「未推」（`push_state = 'none'`），句柄就绪后由 `promotePending` 重试——三种情况各只记一次日志。
+- 失败一律降级：管线内任何抛错都收敛为 `skipped` + 日志；spill 文件暂不可读时降级为「用事件内文本入库」（并在 10s 冷却窗口内不再尝试读该文件）；存放位置不可推导（`session-paths` 缺失且无覆盖）时该会话整条管线 `skipped.session-dir-missing`；memory-base 缺面时 `is_error` 行停在「未推」（`push_state = 'none'`），句柄就绪后由 `promotePending` 重试——三种情况各只记一次日志。
 - 去重表（已处理事件、`callId → toolName`）有容量上限（1024 / 256），超出后**整体清空**（不是淘汰最旧项）；同时保持打开的会话库连接上限 32（超出按最早打开淘汰）。
 - 本包 `cordis.patch.yml` 用 dsh 的 `insert` 方言（非 RFC6902 JSON Patch），故刻意不写注释——仓库统一的 `format` 对 YAML 走 python `yq -y -i .`，会丢注释、导致格式化永不收敛；同目录 `.pi-lens.json` 把该文件排除出 `yaml-schema: JSONPatch` 误报。
 
-> **架构（2026-10-17 重定）**：库归本包自持（落点与容量见上）；不再共库直写（`kb-write.ts` 已拆除）；提升链 `promote` 已随 memory-base 重设取消；`searchDigests` / `readDigest` 为属主自有回读入口（命中刷新 `referenced_at`）。
+> **架构（2026-10-17 重定）**：库归本包自持（存放位置与容量见上）；不再共库直写（`kb-write.ts` 已拆除）；提升链 `promote` 已随 memory-base 重设取消；`searchDigests` / `readDigest` 为属主自有回读入口（命中刷新 `referenced_at`）。
 
 ## 测试
 
 ```sh
-npm run check   # tsc -p tsconfig.json --noEmit
-npm run build   # tsc -p tsconfig.json → dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
-npm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话：临时 DSH_HOME + 三包 link 挂载；走本机 tollgate 网关，缺省 key 用占位值）
+pnpm run check   # tsc -p tsconfig.json --noEmit
+pnpm run build   # tsc -p tsconfig.json → dist/
+pnpm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
+pnpm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话：临时 DSH_HOME + 三包 link 挂载；走本机 tollgate 网关，缺省 key 用占位值）
 ```
 
 57 例单测（trigger 9 + summary 9 + digest-db 7 + deny-parity 2 + hooks 30），含真实临时 SQLite 库的写入与去重用例。
 
-smoke 断言（2026-10-18 对齐每会话 `digest.db` 口径）：`<会话目录>/digest.db` 指纹与 `digests` 行、spill locator + 切片定位、`digests_fts` 召回、stderr 不出现 `session-dir-missing`；memory-base S 层 `<会话目录>/session.db` 的 `kind_digest` 行只在会话产出 `is_error` 摘要时断言（宿主 bash 把非零退出记为文本而非 `isError`，故通常跳过）。不配 `dbPath` / `sessionDir`，两处落点都由 `sessionPaths.sessionDirFor` 推导。
+smoke 断言（2026-10-18 对齐每会话 `digest.db` 口径）：`<会话目录>/digest.db` 指纹与 `digests` 行、spill locator + 切片定位、`digests_fts` 召回、stderr 不出现 `session-dir-missing`；memory-base S 层 `<会话目录>/session.db` 的 `kind_digest` 行只在会话产出 `is_error` 摘要时断言（宿主 bash 把非零退出记为文本而非 `isError`，故通常跳过）。不配 `dbPath` / `sessionDir`，两处存放位置都由 `sessionPaths.sessionDirFor` 推导。
 
 设计决策见 `DESIGN.md`。
