@@ -10,7 +10,6 @@ import { test } from "node:test";
 import {
   errorTextOf,
   isTerminalGone,
-  notesOf,
   payloadOf,
   runningOf,
   screenTextOf,
@@ -91,13 +90,4 @@ test("errorTextOf: 失败拼「码: 消息（；提示）」，成功给空串",
     "terminal-create-failed: workspace 不可用；提示：先 herdr_create",
   );
   assert.equal(errorTextOf(okResult({ terminal_id: "t1" })), "");
-});
-
-test("notesOf: 缺省空数组，有则原样返回", () => {
-  assert.deepEqual(notesOf(okResult()), []);
-  assert.deepEqual(
-    notesOf({ ok: true, payload: {}, notes: ["label 已存在，沿用旧 label"] }),
-    ["label 已存在，沿用旧 label"],
-  );
-  assert.deepEqual(notesOf(failed("herdr-cli-error")), []);
 });

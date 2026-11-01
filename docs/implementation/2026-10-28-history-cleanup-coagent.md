@@ -74,12 +74,26 @@ rm -rf ../tmp/cov-coagent && mkdir -p ../tmp/cov-coagent && NODE_V8_COVERAGE=../
 - 未写 `todo`, 未新增 `skip`; 存量 0 处 `skip` 未动, 无夹具增删。
 - 未碰 `src`; 装配器与用例只经 `src/index.ts` 与 `src/*.ts` 的公开导出。
 
+### 阶段 3 代码整理
+
+- 删失效导出 `notesOf` (`src/herdr.ts:51`): 全仓仅 `tests/herdr.test.ts` 引用, 删函数与对应 1 条用例, 同步删测试的 import.
+- 其余规划项 (无) 不涉及; `src` 只有这一处改动, 行为不变.
+
 ## 偏差
 
 1. 4.2 要求集成层「时间用 `ManualClock`」: 本包的 `apply` 内部固定用 `systemClock`, 无法注入, 故集成层用真实时钟 + 毫秒级等待上限(见上)。单元层仍全部用 `ManualClock`。
 2. 分支覆盖率的分母随「被真正执行过的函数」增多而变大(V8 懒编译: 没跑到的函数只报外层 range, 不报内部块), 故分母从 364 增到 431(只跑单元层) / 468(单元 + 集成); 新增用例顺带加载了 `src/index.ts` 与 `src/types.ts` 的判定函数等此前未执行的部分。各文件的行与分支命中数只升, 唯一例外是 `tools.ts` 的分支比例(分母 12 → 17, 命中 10 → 14)。
 
 ## 测试与证据
+
+### 阶段 3 实跑
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C coagent run check` | 通过 (tsc `--noEmit`, 无输出) |
+| `pnpm -C coagent run test` | 77 通过 / 0 失败 / 0 `skip` (较阶段 2 少 1 条, 随 `notesOf` 一起删除) |
+
+### 阶段 2 实跑
 
 四条入口(分支上实跑):
 
