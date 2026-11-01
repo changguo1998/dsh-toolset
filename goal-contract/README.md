@@ -1,6 +1,30 @@
 # @dsh-toolset/goal-contract
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-ask-user` 面访谈（或参数预填）得到「目标 + Done-when 验证条款」，把条款嵌入 objective 并落 dsh-goal 事件源（`goal/change`），再回读当前 goal 视图做往返比对。
+
+### 文件结构与相关文档
+
+```text
+goal-contract/
+  src/
+    index.ts       # bundle 入口：name / inject / apply；注册 goal_contract_draft
+    tool.ts        # 工具工厂：参数编译、访谈驱动、create / 回读编排（依赖注入，可单测）
+    interview.ts   # 访谈状态机（纯函数：提问文案、答案迁移、重问上限）
+    clauses.ts     # 条款校验 validateClauses + 文本解析 parseClauseText
+    contract.ts    # Done-when 段嵌入 / 回读（buildObjective / parseContract / clausesEqual）
+    types.ts       # 领域类型 + 宿主结构化最小型（不 import cordis）
+  smoke/smoke.mjs  # 真实 dsh 联调（独立 profile，见「测试」）
+  tests/           # node --test：clauses / contract / interview / tool
+```
+
+| 相关文档 | 关系 |
+| --- | --- |
+| `task-engine/README.md` | 条款 schema 的对齐源与验收执行方（RET 三级路由） |
+| `docs/ARCHITECTURE-REUSE.md` | 复用审计：§0 结论「保留」、§3 已复用的官方面（inject `tools` / `userQuestions` / `goals`） |
+| `docs/host/DSH-CTX-API.md` §0 | bundle 导出契约（`name` / `inject` / `Config` / `apply`；本包无 `Config`） |
+| `TUI/docs/DESIGN.md`「命令实现落点」 | 下游消费者：TUI `/contract` 的取用与内置同构回读兜底 |
 
 ## 能力
 
@@ -23,10 +47,10 @@ DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-a
   "readback": { "objective": "...", "clauses": [], "match": true } }
 ```
 
-**流程与落点**（实现见 `src/interview.ts` / `src/tool.ts`）：
+**流程与实现位置**（实现见 `src/interview.ts` / `src/tool.ts`）：
 
 - **访谈**：三阶段状态机 `ask-objective → ask-clauses → ask-confirm`（纯函数，无宿主依赖）；每阶段向宿主 `ctx.userQuestions.ask` 提交**单题**（透传 `agent` 与 `signal`），答案映射回状态。预填字段跳过对应提问；`objective` 与条款齐备时直接转 `done`、不追问确认（headless 无 UI answerer，smoke 依赖这条非交互路径）。同阶段校验失败把错误拼进下次提问重问，累计 3 次超限转 `aborted`（防无限循环）；`done` / `aborted` 为终态。
-- **落点（dsh-goal 事件源）**：`ctx.goals.create(agent, { objective: <objective + Done-when 段>, maxGoalRounds? })`——写的是官方 `goal/change` 会话事件（durable）；本包不自行 append 事件，TUI 状态列与 `/goal` 读的是同一 goal 面。
+- **实现位置（dsh-goal 事件源）**：`ctx.goals.create(agent, { objective: <objective + Done-when 段>, maxGoalRounds? })`——写的是官方 `goal/change` 会话事件（durable）；本包不自行 append 事件，TUI 状态列与 `/goal` 读的是同一 goal 面。
 - **回读比对**：`ctx.goals.get(agent)` 取当前 goal 视图（服务未暴露 `get` 时回落 `create` 返回值）→ `parseContract` 还原条款 → `clausesEqual` 深比较得 `readback.match`；回读解析异常不翻转 `ok`，以 `readback.error` 说明（失败仍拿到创建结果）。
 
 条款 schema 对齐 task-engine 的 `Acceptance` / `AcceptanceLevel`（`task-engine/src/types.ts`；本包字段见 `src/types.ts` 的 `ContractClause` / `ClauseLevel`；两包无代码依赖，跨插件通信只经宿主 ctx 服务面）：`id` 非空且唯一、`check` 非空、`level` 显式给出且 ∈ `mechanical` / `semantic` / `human`、mechanical 必须带非空 `command`、条数不超过 32。三级语义与 task-engine RET 验收同口径：mechanical = 验收命令退出码 0 即过 / semantic = 结构化裁决（`outputSchema` 可选，宿主侧校验）/ human = approval 链人工确认；**判定执行由 task-engine 的验收阶段承担**，本包只做起草与回读。
@@ -47,7 +71,7 @@ DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-a
 
 取用顺序为 `ctx.get("<name>")` 优先、直连属性（`ctx.userQuestions` / `ctx.goals`）回落——宿主面形状不固定，本包不 import `@deepseek-ai/cordis`（结构化最小型见 `src/types.ts`）。
 
-## 使用示例
+## 用法
 
 工具调用（全量预填，非交互）：
 
@@ -55,7 +79,7 @@ DSH（DeepSeek Harness）进程内插件：goal 会话契约起草。经 `tool-a
 {
   "objective": "给 TUI 增加 /loop 面板",
   "clauses": [
-    { "id": "c1", "check": "npm run check 退出 0", "level": "mechanical", "command": "npm run check" },
+    { "id": "c1", "check": "pnpm run check 退出 0", "level": "mechanical", "command": "pnpm run check" },
     { "id": "c2", "check": "人工确认面板渲染与停止语义", "level": "human" }
   ],
   "max_goal_rounds": 8
@@ -70,7 +94,7 @@ dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/goal-contract@l
 dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/task-engine@link:<task-engine 路径>'
 ```
 
-## 边界与限制
+## 边界
 
 - 只负责「起草 → 落 goal → 条款回读」；条款的判定执行由 task-engine 的验收阶段承担（三级语义与分工见上文「条款 schema 对齐 task-engine」段）。
 - 只经模型工具 `goal_contract_draft` 暴露能力：不注册 slash 命令、不 provide ctx 服务（`goalContract` 取不到，TUI `/contract` 走内置同构回读）、无 CLI / 面板面。
@@ -81,33 +105,12 @@ dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/task-engine@lin
 - `objective` 含独占一行的 `Done-when:` 时拒绝创建（回读边界歧义）。
 - 所有失败路径返回 `{ ok: false, error }`，不向宿主抛异常。
 
-## 文件结构与相关文档
-
-```text
-goal-contract/
-  src/
-    index.ts       # bundle 入口：name / inject / apply；注册 goal_contract_draft
-    tool.ts        # 工具工厂：参数编译、访谈驱动、create / 回读编排（依赖注入，可单测）
-    interview.ts   # 访谈状态机（纯函数：提问文案、答案迁移、重问上限）
-    clauses.ts     # 条款校验 validateClauses + 文本解析 parseClauseText
-    contract.ts    # Done-when 段嵌入 / 回读（buildObjective / parseContract / clausesEqual）
-    types.ts       # 领域类型 + 宿主结构化最小型（不 import cordis）
-  smoke/smoke.mjs  # 真实 dsh 联调（独立 profile，见「测试」）
-  tests/           # node --test：clauses / contract / interview / tool
-```
-
-| 相关文档 | 关系 |
-| --- | --- |
-| `task-engine/README.md` | 条款 schema 的对齐源与验收执行方（RET 三级路由） |
-| `docs/ARCHITECTURE-REUSE.md` | 复用审计：§0 结论「保留」、§3 已复用的官方面（inject `tools` / `userQuestions` / `goals`） |
-| `docs/host/DSH-CTX-API.md` §0 | bundle 导出契约（`name` / `inject` / `Config` / `apply`；本包无 `Config`） |
-| `TUI/docs/DESIGN.md`「命令实现落点」 | 下游消费者：TUI `/contract` 的取用与内置同构回读兜底 |
-
 ## 测试
 
 ```sh
-npm run check   # tsc --noEmit
-npm run build   # 编译到 dist/
-npm run test    # node --test（41 例：clauses 8 / contract 11 / interview 8 / tool 14——访谈状态机 / 条款校验 / 落 goal 与回读）
-npm run smoke   # 真实 dsh 会话联调（需 dsh 0.2.1-rc.3 与模型凭据）
+pnpm run check            # tsc --noEmit
+pnpm run build            # 编译到 dist/
+pnpm run test             # node --test（55 例：clauses 11 / contract 13 / interview 10 / tool 21——访谈状态机 / 条款校验 / 落 goal 与回读）
+pnpm run test:integration # node --test（集成 9 例：bundle 契约与工具注册、output.render 投影、失败路径）
+pnpm run smoke            # 真实 dsh 会话联调（需 dsh 0.2.1-rc.3 与模型凭据）
 ```
