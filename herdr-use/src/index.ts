@@ -192,6 +192,7 @@ export type {
   ReadSource,
   RenderLimit,
   ResolvedConfig,
+  SandboxMode,
   TerminalRecord,
   WorkspaceBinding,
 } from "./types.ts";

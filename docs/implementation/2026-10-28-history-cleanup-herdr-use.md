@@ -112,6 +112,18 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 - 落地顺序: 改 `package.json` → 本包 `pnpm install`（生成 `node_modules/@dsh-toolset/clock-base` 软链）→ `pnpm -C ../clock-base run build`（包入口指向 `dist/`, 未构建则类型与运行时都解析不到）→ 删副本改 import → `check` / `test`.
 - 行为面未动: `resolveClock` / `createDeadline` / `systemTimers` 现在吃 `clock-base` 的同一份实现（`createDeadline` / `systemTimers` 与原副本逐字一致; `resolveClock` 只差告警文案的标点, 随 `clock-base` 的英文标点口径, 语义不变, 本包无用例断言该文案）; 工具面、参数面、`output.render` 投影、配置键、注入文案不变.
 
+### 阶段 3 补丁: 入口导出 `SandboxMode` 类型
+
+- 背景: `script-interpreter` 要引本包的沙箱模式枚举, 但入口未导出该类型, 只能走 `dist` 深路径. 本轮只补类型级导出, 不改实现、不改枚举定义位置（仍留 `src/types.ts`）、不改其它对外签名.
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/src/index.ts` | `./types.ts` 的 `export type` 列表加 `SandboxMode`（排在 `ResolvedConfig` 与 `TerminalRecord` 之间, 按字母序） |
+| `herdr-use/tests/assemble.ts` | `SandboxMode` 的 type import 从 `../src/types.ts` 改为并入 `../src/index.ts` 的类型列表（编译期断言入口导出可用, 不计新用例） |
+
+- 导出写法: `export type { …, ResolvedConfig, SandboxMode, TerminalRecord, … } from "./types.ts";` —— 与同文件其余类型同一出口, 无独立 re-export 行、无运行时产物.
+- 类型锚点: 装配器原先显式绕开入口（偏差 5）; 改走入口后, `check` 通过即证明入口类型可用, 故未加新用例.
+
 ## 偏差
 
 1. 装配器不建临时目录：本包 `src` 无落盘路径（只有 `homedir()` 参与 socket 路径推导），4.2 的「落盘写临时目录再断言」没有对象。
@@ -123,6 +135,7 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 7. 阶段 3 本轮只做规划「代码」节里不依赖 `clock-base` 的三项: 删 `defaultConfig`、核对沙箱模式唯一出口、去工具数量注释; `src/timers.ts`、入口 import 改 `clock-base`、`package.json` / `pnpm-lock.yaml` 的 `link:../clock-base` 待 `clock-base` 合并到 `main` 后再做（届时先 `git rebase main`, 再补 `pnpm install --frozen-lockfile`）. 因无新依赖, 本轮未跑 `pnpm install`.
 8. `src/tools.ts:13` 的「那十项」同样带工具数量, 规划只点名 `:2` / `:258`; 按同一口径一并改为「那批工具」. `:264` 的「其余 6 个待 P1 批次」是待办批次说明而非工具面数量, 未动.
 9. 阶段 3 代码整理第二批完成: 定时器族已改用 `clock-base` 入口导出, 本地副本删除, 本包 `dependencies` 记 `link:../clock-base`. 规划要求的「开工先 `pnpm install --frozen-lockfile`」按实际改为新增依赖后再做一次普通 `pnpm install`（`--frozen-lockfile` 会因 lockfile 需变更而失败）. 另 `clock-base` 包入口指向 `dist/`, 本包 `check` / `test` 前必须先在 worktree 里 `pnpm -C ../clock-base run build`（`dist` 不入库, 故这是跨包依赖的固有前置）.
+10. 原规划未列入入口导出: 「代码」节只写「沙箱模式枚举与判定留在 `src/types.ts` / `src/policy.ts` 并作为唯一出口, 供 `script-interpreter` 与 `TUI` 引」, 未点明「唯一出口」是否含包入口的类型导出. 本轮按 `script-interpreter` 的实际需要（避免 `dist` 深路径）补 `SandboxMode` 类型导出; 定义位置与判定逻辑均未动, 偏差 5 提到的绕行 import 已随本轮消除.
 
 ## 测试与证据
 
@@ -194,3 +207,16 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 | `format package.json src/cli.ts src/socket.ts src/main.ts tests/clock.test.ts` | 三个源文件 unchanged; `tests/clock.test.ts` 重排 import 顺序后定稿 |
 
 删行: `src/timers.ts` 整份 205 行; 本批 diff 共 7 个文件、20 插入 / 212 删除.
+
+### 阶段 3 补丁: 入口导出 `SandboxMode` 类型
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C ../clock-base run build` | 通过（`tsc -p tsconfig.json`, 供包入口 `dist/` 解析） |
+| `pnpm -C herdr-use run check` | 通过（`tsc -p tsconfig.json --noEmit`, 无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过（用例未增删, 与上一批同数） |
+| `format src/index.ts tests/assemble.ts` | 两个文件均 unchanged |
+
+- 入口类型可用性由 `tests/assemble.ts` 的 import 改动在编译期验证（`check` 通过即证明 `SandboxMode` 可从入口取到）; 未新增用例.
+- 未跑 `test:integration` / `test:coverage`: 本轮只动入口类型导出与测试 import, 不改运行时逻辑.
+- 本批 diff 共 2 个代码文件（`src/index.ts` 1 插入, `tests/assemble.ts` 1 增 1 删）与本追踪文档.
