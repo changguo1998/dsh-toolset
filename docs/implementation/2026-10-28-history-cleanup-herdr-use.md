@@ -93,6 +93,25 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 - 沙箱模式核对（只核对, 未改代码）: 封闭词汇 `SandboxMode` 只在 `src/types.ts:89` 定义一份; 判定与解析（`asSandboxMode` / `makeSandboxModeReader` / `sandboxDenialReason` / `isSandboxWrite`）集中在 `src/policy.ts`, 无第二份副本; `src/index.ts` 经 `policy.ts` 导出判定函数与 `SandboxModeReader`, 但未导出 `SandboxMode` 类型本身（与偏差 5 同一现状, 本轮按要求不改导出名）. `tests/main.test.ts:65` 的 `"read-only" | "workspace-write"` 是测试替身的参数收窄, 不算第二份枚举.
 - 未做: 删 `src/timers.ts`、入口 import 改从 `clock-base` 引、`package.json` / `pnpm-lock.yaml` 加 `link:../clock-base`.
 
+### 阶段 3 代码整理（第二批: 定时器迁移）
+
+- 开工先 `git rebase main`: 分支从 `bbb9cadf` 变基到 `3d04c043`（rebase 时的 `main` 头, 已含 `clock-base` 收拢提交 `1df62e2a` 与其合并 `7265223a`）; 变基后本分支提交 `eec896c8`. 收尾时 `main` 已前进到 `289fb72e`, 未再追.
+- 取到 `@dsh-toolset/clock-base` 入口的 12 个导出: `systemTimers` / `isTimers` / `readClock` / `resolveClock` / `createDeadline` / `delayOf` / `runDisposer` / `attachEffect` 与类型 `TimersLike` / `ClockTimers` / `Deadline` / `DeadlineReason`.
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/src/timers.ts` | 删除整份本地副本（205 行） |
+| `herdr-use/src/main.ts` | `createDeadline` / `resolveClock` 改从 `@dsh-toolset/clock-base` 引, 删本地 `./timers.ts` import |
+| `herdr-use/src/socket.ts` | `Deadline` / `TimersLike` 类型改从 `@dsh-toolset/clock-base` 引 |
+| `herdr-use/src/cli.ts` | `Deadline` 类型改从 `@dsh-toolset/clock-base` 引 |
+| `herdr-use/tests/clock.test.ts` | `createDeadline` / `resolveClock` / `ManualClock` 统一改从 `@dsh-toolset/clock-base` 入口引, 不再跨包引 `clock-base/src/timers.ts` |
+| `herdr-use/package.json` | `dependencies` 加 `"@dsh-toolset/clock-base": "link:../clock-base"` |
+| `herdr-use/pnpm-lock.yaml` | 本包 importer 记上 `link:../clock-base` |
+
+- 与仓内既有跨包依赖同形: `code-map` → `ast-tools`、`md-map` → `md-logic` 都按包名从入口 import, 不引内部模块.
+- 落地顺序: 改 `package.json` → 本包 `pnpm install`（生成 `node_modules/@dsh-toolset/clock-base` 软链）→ `pnpm -C ../clock-base run build`（包入口指向 `dist/`, 未构建则类型与运行时都解析不到）→ 删副本改 import → `check` / `test`.
+- 行为面未动: `resolveClock` / `createDeadline` / `systemTimers` 现在吃 `clock-base` 的同一份实现（`createDeadline` / `systemTimers` 与原副本逐字一致; `resolveClock` 只差告警文案的标点, 随 `clock-base` 的英文标点口径, 语义不变, 本包无用例断言该文案）; 工具面、参数面、`output.render` 投影、配置键、注入文案不变.
+
 ## 偏差
 
 1. 装配器不建临时目录：本包 `src` 无落盘路径（只有 `homedir()` 参与 socket 路径推导），4.2 的「落盘写临时目录再断言」没有对象。
@@ -103,6 +122,7 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 6. 文件级覆盖率的行 / 分支分母随新增执行路径增长（V8 block range 计数变化），个别文件百分比有 1 至 3 个百分点波动；整包行与分支均上升，未退化。
 7. 阶段 3 本轮只做规划「代码」节里不依赖 `clock-base` 的三项: 删 `defaultConfig`、核对沙箱模式唯一出口、去工具数量注释; `src/timers.ts`、入口 import 改 `clock-base`、`package.json` / `pnpm-lock.yaml` 的 `link:../clock-base` 待 `clock-base` 合并到 `main` 后再做（届时先 `git rebase main`, 再补 `pnpm install --frozen-lockfile`）. 因无新依赖, 本轮未跑 `pnpm install`.
 8. `src/tools.ts:13` 的「那十项」同样带工具数量, 规划只点名 `:2` / `:258`; 按同一口径一并改为「那批工具」. `:264` 的「其余 6 个待 P1 批次」是待办批次说明而非工具面数量, 未动.
+9. 阶段 3 代码整理第二批完成: 定时器族已改用 `clock-base` 入口导出, 本地副本删除, 本包 `dependencies` 记 `link:../clock-base`. 规划要求的「开工先 `pnpm install --frozen-lockfile`」按实际改为新增依赖后再做一次普通 `pnpm install`（`--frozen-lockfile` 会因 lockfile 需变更而失败）. 另 `clock-base` 包入口指向 `dist/`, 本包 `check` / `test` 前必须先在 worktree 里 `pnpm -C ../clock-base run build`（`dist` 不入库, 故这是跨包依赖的固有前置）.
 
 ## 测试与证据
 
@@ -159,3 +179,18 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 | `format src/tools.ts src/workspace.ts` | 两个文件均 unchanged |
 
 断言未改, 行为面（工具名、参数面、`output.render` 投影、配置键、注入文案）未动.
+
+### 阶段 3 代码整理（第二批: 定时器迁移）
+
+| 命令 | 结果 |
+| --- | --- |
+| `git rebase main` | 成功, 变基到 `3d04c043` |
+| `pnpm install`（本包目录） | 成功, `+ @dsh-toolset/clock-base 0.1.0 <- ../clock-base` |
+| `pnpm -C ../clock-base run build` | 通过（供包入口 `dist/` 解析） |
+| `pnpm -C herdr-use run check` | 通过（`tsc -p tsconfig.json --noEmit`, 无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过（与上一批同数, 用例未增删） |
+| `pnpm -C herdr-use run test:integration` | 22 条通过 / 0 失败 / 0 跳过 |
+| `pnpm -C herdr-use run build` | 通过 |
+| `format package.json src/cli.ts src/socket.ts src/main.ts tests/clock.test.ts` | 三个源文件 unchanged; `tests/clock.test.ts` 重排 import 顺序后定稿 |
+
+删行: `src/timers.ts` 整份 205 行; 本批 diff 共 7 个文件、20 插入 / 212 删除.

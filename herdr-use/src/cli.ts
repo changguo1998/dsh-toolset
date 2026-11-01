@@ -17,8 +17,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
+import type { Deadline } from "@dsh-toolset/clock-base";
+
 import type { HerdrHandshake } from "./types.ts";
-import type { Deadline } from "./timers.ts";
 
 /** CLI 调用结果（原始观测值）。 */
 export interface CliRunResult {
