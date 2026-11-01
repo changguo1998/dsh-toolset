@@ -33,8 +33,8 @@ import {
 import { createTools, type TaskToolDef, type ToolExecuteCtx } from "./tools.ts";
 import { validateIsolateId } from "./gate.ts";
 import type { AuditRequest, AuditVerdict } from "./acceptance.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
-import type { Deadline } from "./timers.ts";
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+import type { Deadline } from "@dsh-toolset/clock-base";
 import type {
   Acceptance,
   AcceptanceLevel,
