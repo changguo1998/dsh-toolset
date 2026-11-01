@@ -5,7 +5,7 @@
  * 行号与列号均从 0 起，byteOffset 为文件 UTF-8 编码下的字节偏移。
  */
 
-import type { Deadline } from "./timers.ts";
+import type { Deadline } from "@dsh-toolset/clock-base";
 
 /** 0-based 行列位置。 */
 export interface AstPos {

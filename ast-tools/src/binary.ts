@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Deadline } from "./timers.ts";
+import type { Deadline } from "@dsh-toolset/clock-base";
 import type { AstOptions } from "./types.ts";
 
 /** 默认子进程超时（毫秒）。 */
