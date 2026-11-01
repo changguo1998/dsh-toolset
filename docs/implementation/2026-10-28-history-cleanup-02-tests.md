@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `session-paths` 合并, 分支 `history-cleanup/02-tests-session-paths` (`af922a9b`), 合并提交 `018b13de`; 单元 24→31 条, 集成 12 条, 覆盖率 93.8%→100.0% / 85.5%→95.8%; 规划原写不设集成层, 按任务改实跑; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `symbol-normalizer` 合并, 分支 `history-cleanup/02-tests-symbol-normalizer` (`ab7e4f0c`), 合并提交 `4251e22b`; 单元 46 条, 集成 10 条, 覆盖率 96.9%→98.5% / 81.9%→87.2%; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `session-title-cutoff` 合并, 分支 `history-cleanup/02-tests-session-title-cutoff` (`ea19606`), 合并提交 `5e30da5c`; 单元 21 条, 集成 18 条, 覆盖率 94.7%→98.0% / 81.4%→89.2%; 测试发现 `src/index.ts:352` 的 `\u202a-\u202e` 写在字符类外, 留阶段 3; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `session-channel` 合并, 分支 `history-cleanup/02-tests-session-channel` (`8906816`), 合并提交 `9f71a74`; 单元 78 条, 集成 9 条, 覆盖率 86.9%→88.2% / 61.9%→66.2%; 装配器以 `disabled: true` 取注册面再 `wireLive()` 起真服务; worktree 已删, coagent 已关.
