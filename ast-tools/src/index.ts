@@ -189,7 +189,7 @@ export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
     if (error instanceof AstGrepMissingError) {
       ctx
         .logger?.(name)
-        .info(`ast-tools 降级（ast-grep 不可用）：${error.message}`);
+        ?.info(`ast-tools 降级（ast-grep 不可用）：${error.message}`);
       for (const def of toToolDefs(unavailableOps(error.message))) {
         ctx.tools?.register(def);
       }
@@ -198,5 +198,5 @@ export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
     throw error;
   }
   for (const def of toToolDefs(bundle)) ctx.tools?.register(def);
-  ctx.logger?.(name).info(`ast-tools ready (ast-grep=${bundle.bin})`);
+  ctx.logger?.(name)?.info(`ast-tools ready (ast-grep=${bundle.bin})`);
 }

@@ -179,7 +179,7 @@ export async function createOutputCompressBundle(
   host: BundleHost,
   config: OutputCompressConfig = {},
 ): Promise<OutputCompressBundle> {
-  const log = (message: string) => host.logger?.(name).info(message);
+  const log = (message: string) => host.logger?.(name)?.info(message);
   // 落点：显式覆盖才在此判定存在性（D60-b）；缺省 undefined = 按会话推导。
   const overrideDir =
     config.sessionDir === undefined
@@ -261,6 +261,6 @@ export function apply(
   void createOutputCompressBundle(ctx, config).catch((error: unknown) => {
     ctx
       .logger?.(name)
-      .info(`output-compress 启动失败，放弃挂载: ${String(error)}`);
+      ?.info(`output-compress 启动失败，放弃挂载: ${String(error)}`);
   });
 }

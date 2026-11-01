@@ -327,7 +327,7 @@ function recordApply(
     ` audit.session=${status.audit.sessionWritable ? "ok" : "degraded"}` +
     ` audit.project=${status.audit.projectWritable ? "ok" : "skipped"}`;
   try {
-    ctx.logger?.(name).info(message);
+    ctx.logger?.(name)?.info(message);
   } catch {
     process.stderr.write(`[${name}] ${message}\n`);
   }

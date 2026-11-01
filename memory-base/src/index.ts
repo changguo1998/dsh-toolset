@@ -458,7 +458,7 @@ function provideMemory(ctx: BundleHost, memory: MemoryGlobalService): void {
   } catch (error: unknown) {
     ctx
       .logger?.(name)
-      .info(`memory-base 服务面暴露失败（忽略）：${String(error)}`);
+      ?.info(`memory-base 服务面暴露失败（忽略）：${String(error)}`);
   }
 }
 
@@ -467,7 +467,7 @@ function registerTools(ctx: BundleHost, memory: MemoryGlobalService): void {
   if (ctx.tools === undefined) {
     ctx
       .logger?.(name)
-      .info("memory-base 未注册 memory_query（宿主未暴露 tools 服务）");
+      ?.info("memory-base 未注册 memory_query（宿主未暴露 tools 服务）");
     return;
   }
   const executor: MemoryQueryExecutor = {
@@ -479,7 +479,7 @@ function registerTools(ctx: BundleHost, memory: MemoryGlobalService): void {
   } catch (error: unknown) {
     ctx
       .logger?.(name)
-      .info(`memory-base 注册 memory_query 失败（忽略）：${String(error)}`);
+      ?.info(`memory-base 注册 memory_query 失败（忽略）：${String(error)}`);
   }
 }
 
@@ -501,10 +501,10 @@ export function apply(ctx: BundleHost, config: KnowledgeConfig = {}): void {
     const userPath = bundle.tiers.pathFor("user");
     ctx
       .logger?.(name)
-      .info(
+      ?.info(
         `memory-base 已就绪（分层库惰性创建；U=${userPath ?? "-"}；session-paths=${sessionPaths === undefined ? "未挂载" : "已挂载"}）`,
       );
   } catch (error: unknown) {
-    ctx.logger?.(name).info(`memory-base 启动失败：${String(error)}`);
+    ctx.logger?.(name)?.info(`memory-base 启动失败：${String(error)}`);
   }
 }

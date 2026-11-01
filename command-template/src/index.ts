@@ -127,7 +127,7 @@ export class CommandTemplateService {
     this.#config = config;
     this.#log = (message) => {
       try {
-        ctx.logger?.(name).info(message);
+        ctx.logger?.(name)?.info(message);
       } catch {
         process.stderr.write(`[${name}] ${message}\n`);
       }

@@ -120,7 +120,7 @@ export function createSecurityGuard(
     const logHead = receipt.split("\n").slice(0, 2).join(" ");
     host
       .logger?.(name)
-      .info(`security-guard blocked tool=${exec.name}: ${logHead}`);
+      ?.info(`security-guard blocked tool=${exec.name}: ${logHead}`);
     return receipt;
   };
   const tools = host.tools;
@@ -130,7 +130,9 @@ export function createSecurityGuard(
     const off = tools.guard((exec) => inspect(exec) ?? undefined);
     host
       .logger?.(name)
-      .info("security-guard mounted: monotonic guard（黑名单 + 敏感文件保护）");
+      ?.info(
+        "security-guard mounted: monotonic guard（黑名单 + 敏感文件保护）",
+      );
     return {
       guard: engine,
       dispose:
@@ -147,7 +149,7 @@ export function createSecurityGuard(
   });
   host
     .logger?.(name)
-    .info(
+    ?.info(
       "security-guard mounted: tools/pre-execute 回退（宿主无 tools.guard；黑名单 + 敏感文件保护）",
     );
   return {

@@ -80,5 +80,5 @@ export type Config = MdLogicConfig;
 export function apply(ctx: BundleHost, config: MdLogicConfig = {}): void {
   const tool = mdLogicTool(config.maxBytes ?? DEFAULT_MAX_BYTES);
   ctx.tools?.register(tool);
-  ctx.logger?.(name).info("md-logic ready (tool=md_logic)");
+  ctx.logger?.(name)?.info("md-logic ready (tool=md_logic)");
 }
