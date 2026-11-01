@@ -69,12 +69,48 @@ rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVE
 - 脚本: `package.json` 加 `test:integration` (`node --experimental-transform-types --test 'tests/integration/*.test.ts'`) 与 `test:coverage` (临时目录 + `NODE_V8_COVERAGE` + `dev/coverage/report.mjs`).
 - 4.4 复核: 本包 `skip` 0 / `todo` 0 / 无夹具, 无失效或过时用例, 无需清理.
 
+2026-10-28 在分支 `history-cleanup/03-code-agent-group` 完成阶段 3 代码整理.
+
+- 动作数核对: 工具 `action` enum 与 `run` 分派都是 11 个（`create_group` / `add_member` / `link` / `link_peer` / `send` / `send_peer` / `broadcast` / `check` / `remove` / `close_group` / `status`）; 入口注释原写「11 个动作」本身正确, 但 README 写 10、DESIGN 与旧 core 头写 7 已漂移, 故把数字去掉, 改指 `parameters.properties.action.enum`（数字不再随动作增减漂移）.
+- 定时器族: 删 `src/core.ts` 内联的 `systemTimers`, 改从 `@dsh-toolset/clock-base` 入口引同名函数（仍是 `unref` 的 `interval`）; `package.json` 加 `link:../clock-base`, `pnpm install` 刷新 `pnpm-lock.yaml`.
+- 拆 `src/core.ts`（1250 行, 已删）为 8 个文件, 按职责分层:
+
+| 文件 | 行数 | 职责 |
+| --- | --- | --- |
+| `src/config.ts` | 52 | 配置归一（缺省值与状态文件名白名单） |
+| `src/errors.ts` | 8 | 错误文案（`describe`） |
+| `src/action-host.ts` | 64 | 动作层协作接口 `GroupActionHost` + `stringArg` |
+| `src/member.ts` | 183 | 成员: 加 / 移除 + 忙闲判定（`judgeAgentState` / `memberStatesOf`） |
+| `src/group.ts` | 219 | 组: 建组 / 关组 / 只读 `status` / `readGroupStatus` |
+| `src/link.ts` | 252 | 连接: `link` / `link_peer` / `send_peer` / `broadcast` |
+| `src/instruction.ts` | 300 | 指令与结算: `send` / `check` / `verdictOf` |
+| `src/service.ts` | 421 | 内核: 状态缓存、串行锁、镜像计数、状态巡查、action 分派 |
+
+- 协作方式: 内核实现 `GroupActionHost`（`load` / `persist` / `locked` / `guard` / `mirrorGroup` / `stateFailure` / `mirrorReport` / `statesOf` / `noteManager` / `closedGuard`）, 四层只经该接口读写内核状态; `#` 私有字段仍留内核, 未新增公开方法（`statesOf` / `refreshMemberStates` / `cachedStateEntries` 原已公开）; 公开 action 方法签名不变, 方法体改为一行转调.
+- 行为等价核对: 一次性脚本（`/tmp`, 已删）把旧 `core.ts` 的方法体与新模块对应函数体去掉空白与注释、把 `this.#x` 归一成 `host.x` 后比对, 11 个动作方法体 + 5 个纯函数（`resolveConfig` / `verdictOf` / `readGroupStatus` / `judgeAgentState` / `memberStatesOf`）+ 9 个内核方法全部相等; 唯一差异是格式化产生的尾逗号.
+- 测试 import: `tests/core.test.ts` 的 `../src/core.ts` 拆成 `config` / `group` / `instruction` / `member` / `service` 五条路径, 断言未动.
+- 入口面: `src/index.ts` 的 re-export 名单不变（`GroupService` / `resolveConfig` / `verdictOf` 等）, 未新增包入口; 旧 `core.ts` 底部的 `export { MANAGER_NAME }` 是死 re-export（入口已从 `model.ts` 导出同名）, 随文件删除.
+- 注释同步: `src/model.ts` 文件头「与 `src/core.ts` 分开」改指四个动作层模块.
+
 ## 偏差
 
 1. `test:coverage` 的 report 参数与规划不同: 规划写 `node ../dev/coverage/report.mjs tmp/cov-agent-group tmp/cov-agent-group/report.json`, 但 `report.mjs` 把参数按**仓库根**解析, `../tmp/...` 会落到 `.worktree/02-tests/tmp` (scandir ENOENT); 实际改为 `tmp/cov-agent-group` (仓库根相对), 采集侧 `NODE_V8_COVERAGE=../tmp/cov-agent-group` 仍按包目录解析.
 2. 环境注记 (不改仓库文件): worktree 内包目录原本没有 `node_modules`, `pnpm -C agent-group run <脚本>` 会因依赖检查自动 `pnpm install` 并失败 (`unable to open database file`); 把包内 `node_modules` 软链到主仓同名包的依赖后四条命令正常, `node_modules` 已被根 `.gitignore` 忽略, 不进提交.
+3. 阶段 3 任务写「`src/index.ts` 内联的 `systemTimers`」, 实际实现在 `src/core.ts`（入口没有该副本）; 按实际位置改, 入口只改 import 来源.
+4. 阶段 3 任务写「`src/main.ts:18` 的『11 个动作』」, 本包无 `main.ts`, 该注释在 `src/index.ts:18`; 核对全包实际动作数为 11（enum 与 `run` 分派一致）, 因 README / DESIGN / 旧 core 头的 10 与 7 已漂移, 按「去数字」改为指向 enum 清单.
+5. 包文档 `README.md`（写 10 个动作、`src/core.ts`）与 `docs/DESIGN.md`（写 7 个动作、`src/core.ts`）仍未同步; 按规划「包文档阶段 4 补」留给阶段 4, 本任务只改本文件与源码 / 测试 / 依赖.
+6. 未重跑 `test:coverage`: 阶段 3 验收只要求 `check` 与 `test`, 覆盖率重测留给阶段 4 或后续按需.
 
 ## 测试与证据
+
+- `pnpm -C clock-base run build`: 退出 0（跨包 import 取 `clock-base/dist`）.
+- `pnpm -C agent-group run check`: 退出 0 (`tsc -p tsconfig.json --noEmit`).
+- `pnpm -C agent-group run test`: 108 条通过, 0 fail / 0 skip / 0 todo, `duration_ms` 约 150.
+- `pnpm -C agent-group run test:integration`: 13 条通过, 0 fail / 0 skip / 0 todo.
+- `pnpm -C agent-group run build`: 退出 0.
+- 拆分后源码行数: `service.ts` 421 / `instruction.ts` 300 / `link.ts` 252 / `group.ts` 219 / `member.ts` 183 / `action-host.ts` 64 / `config.ts` 52 / `errors.ts` 8 / `index.ts` 547（原 `core.ts` 1250 行删除）.
+
+## 测试与证据（阶段 2 留档）
 
 - `pnpm -C agent-group run check`: 退出 0 (`tsc -p tsconfig.json --noEmit`).
 - `pnpm -C agent-group run test`: 108 条通过, 0 fail / 0 skip / 0 todo, `duration_ms` 约 150.
