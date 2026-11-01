@@ -74,6 +74,20 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - 记忆层级: `adapter/types.ts` 新增 `ManagedTier` 类型、`isManagedTier` 判定与 `SESSION_TIER` 常量, 5 处层级字面联合收成 `ManagedTier`; `index.ts` 的 `/memory list|add|remove|replace` 校验改调 `isManagedTier`（3 处）与会话层常量（1 处）。
   - 注释路径: 按总追踪 1.3 表把仓内简写改成包内完整路径（`layout/hints.ts` → `src/app/layout/hints.ts` 等）共 32 处; 计数类注释未动。
   - 沙箱展示映射: 核对 `src/app/layout.ts:277` 的 `MODE_SHORT`, 仅是 `read-only/workspace-write/danger-full-access` → `ro/wr/full` 的标题栏缩写, 与 `herdr-use` 的沙箱判定枚举非同源, 本轮不引依赖（见偏差）。
+- 阶段 3 第二批（2026-10-28, 拆长文件, 顺序按总追踪 4.1 的 P1: 排版与宽度 → 状态 → 适配 → 类型）:
+  - `src/app/layout.ts`（2440 行）拆成 7 个模块 + 入口重导出, 一行代码未改（只挪位置与补 import）:
+    | 新文件 | 行数 | 职责 |
+    | --- | --- | --- |
+    | `layout/frame-rows.ts` | 211 | 行文本、提示区折行、渐进窗口常量、半屏与用户块跳转量 |
+    | `layout/geometry.ts` | 464 | 三区高度、顶部切分、`FrameGeometry` 与面板可见性判定 |
+    | `layout/title-bar.ts` | 211 | 标题栏状态符号、状态列渲染 |
+    | `layout/top-region.ts` | 606 | 顶部区域装配（状态列 + 会话区 + 活动区面板选型） |
+    | `layout/status-line.ts` | 278 | 底部状态栏（模型 / 用量 / 分支 / 沙箱段） |
+    | `layout/run-virt.ts` | 270 | 运行指示（虚拟速度 / 虚拟 token / ●○ 与用户块符号） |
+    | `layout/frame-build.ts` | 442 | 分区、滚动回落、`buildFrame` 与焦点 |
+  - `src/app/layout.ts` 只剩入口重导出（外部既有 import 路径 `./layout.ts` 不变, 包内其它模块与 `tests/` 全部不改 import）。跨模块复用的私有辅助（`capRows` / `panelShownInActivity` / `MODE_SYMBOL` / `runningSymbol` / `userBlockSymbolResolver` / `activeSessionFields` / `buildTopRegion`）只在子模块间 `export`, 不加入口重导出, 对外可见集合与拆分前一致。
+  - 依赖方向为单向: `frame-rows` → `geometry` → `title-bar` / `top-region` → `status-line` / `frame-build`; 唯一的反向引用是 `top-region` 对 `FrameScrollReport` 的 `import type`（仅类型, 编译期擦除, 不形成运行时环）。
+  - 偏差: 逐字节帧比对的做法与理由见「测试与证据」; 拆分只挪位置与补 import, 未改名、未合并判断、未动 `src/main.ts` 启动顺序。
 
 ## 偏差
 
@@ -139,3 +153,15 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 - `demo` 直接跑需要先 `build`（`dist/` 不存在时 `node dist/demo/main.js` 报 MODULE_NOT_FOUND）, 本次按 `build` → `demo -- --smoke` 顺序执行。
 - 按键表读数: 10 张上下文表 / 75 条键位 / 51 个动作名; `handleKey` 内 `name === "…"` 由 72 处降到 31 处, 其余为动作体内部的方向三元、Ctrl 组合键分支、编辑区模式键。
 - `check` / `test` 均在格式化后复跑, 结果不变; 已有 1828 条用例未改断言。
+
+### 阶段 3 第二批 · layout.ts（2026-10-28）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error（拆分后与格式化后各一次） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo, 8.3s |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
+
+- 帧基线: 逐字节比对不靠 `TUI_FRAME_DUMP` 的两次实跑（帧序列随真实时间推进, 虚拟速度 / job 计时 / 动画帧数每次都不同, 实测两次 581 与 584 行且内容错位）, 改由测试里的冻结帧基线承担: `tests/focus-frame.test.ts` 对 `tests/fixtures/focus-frame-legacy.json` 逐行比对、`tests/status-column-equivalence.test.ts` 对旧实现快照比对、其余布局用例断言精确行文本; 拆分前后全量用例均 1828 通过, 断言一字未改。
+- 拆分前后各跑一次 `demo -- --smoke`（`git checkout HEAD~1 -- TUI/src/app/layout.ts` + 重建 `dist/`）, 两次均 `SMOKE_OK` 且 42 条帧断言全过; 对比完成后已恢复拆分版并重建。
