@@ -42,12 +42,44 @@ rm -rf ../tmp/cov-session-title-cutoff && mkdir -p ../tmp/cov-session-title-cuto
 
 ## 实现记录
 
-(待填)
+- 脚本: `session-title-cutoff/package.json` 加 `test:integration` 与 `test:coverage`, 命令与 `clock-base` / `rule-engine` 同构; 覆盖率临时目录 `tmp/cov-session-title-cutoff`, 报告 `tmp/cov-session-title-cutoff/report.json`。
+- 装配器: `session-title-cutoff/tests/assemble.ts` (不以 `.test.ts` 结尾, 不参与覆盖率统计)。本包无工具注册与落盘, 三个假面按 `src/index.ts` 的结构面拼: 服务面给唯一 provider 槽位 (第二次注册即抛, 与宿主一致) 与 `sessionQuery.readSession` 只读快照 (可注入抛错与畸形快照); 事件面给 `session/event` 派发口并按宿主形状把 `(session, event)` 两个参数拆给监听器; 工具面只记注册数 (零断言)。宿主 helper 经 `ApplyDeps.loadHelper` 注入严格复刻 0.2.1 键面的假实现, 不解析真实宿主包; 假 git 提交面记录读过的会话 id, 告警从 `ctx.logger` 与 stderr 两处抓取。
+- 集成层: `tests/integration/plugin.test.ts` 18 条, 覆盖 provider 注册契约 (id / `all-prompts` / 单槽位占位 / 无 `sessionTitle` 降级 / 旧 `generate` 形态不注册)、参考窗口 (无提交回退、只取最近一次 `git commit` 之后、再次提交推进、提交后无新消息回退、文本提及 `git commit` 不算、按会话隔离、重启重建且只读一次、事件不可读与畸形快照回退、缺 session id)、生成契约 (canonical 标题 / 源消息 seq / 模型、helper 收到的 id / 执行控制键 / 原始请求、每次调用都产出标题)、失败路径 (helper 执行失败原样 reject、`tool-calls` 与 `max-tokens` 终止原因拒绝、无 logger 回落 stderr)。
+- 单元锚点: `tests/main.test.ts` 补 5 条 —— `titleFromResponse` 两种终止原因与工具块 / 多文本块 / 空块 / 三星号包裹; `normalizeTitleText` 控制字符与多字节字节边界; `latestCommitSeq` 的事件过滤与非有限 seq; `isUsableTitleLlmHelper` 缺单侧的键面与 `commandOf` 参数细节; `resolveConfig` / `executionConfigOf` / `selectReasoningEffort` 的 0 值与空 `efforts` 边界。存量 16 条断言语义未改。
+- 专项: `tests/main.test.ts:553` 是「缺宿主包」条件式 `skip` (4.4 保留类), 探测表达式在用例内算一次; 本机 helper 已安装, 当次触发 0 条。
+- 未改 `src`; 包 `README.md` 的「测试」节按本包规划归阶段 4。
 
 ## 偏差
 
-无
+无实现偏差。两点记录:
+
+- 测试发现 `src/index.ts:352` 的方向控制符正则 `\u202a-\u202e` 写在字符类之外, 实际只匹配 `U+202A` `-` `U+202E` 三字符字面序列, 并不剥 U+202A..U+202E 区间 (实测 `normalizeTitleText("x\u202ay", …)` 原样返回)。本阶段不动 `src`, 用例只锁控制字符与字节截断, 不把该现状写成期望; 修复留阶段 3。
+- 覆盖率报告里剩余的未覆盖行 (`100, 115, 139, 323, 335, 362, 370, 381`) 是 V8 range 与声明行取交集的映射残余 (函数签名续行、模板字符串的 `return [` 行), 对应分支均已由用例走到。
 
 ## 测试与证据
 
-(待填)
+四条命令 (分支 `history-cleanup/02-tests-session-title-cutoff`, 提交前实跑):
+
+| 入口 | 结果 |
+| --- | --- |
+| `pnpm -C session-title-cutoff run check` | 通过, 无输出 (exit 0) |
+| `pnpm -C session-title-cutoff run test` | 21 条全过, 21 pass / 0 fail / 0 skipped / 0 todo |
+| `pnpm -C session-title-cutoff run test:integration` | 18 条全过, 18 pass / 0 fail / 0 skipped / 0 todo |
+| `pnpm -C session-title-cutoff run test:coverage` | 通过, 报告 `tmp/cov-session-title-cutoff/report.json` |
+
+覆盖率 (只统 `src`; 改前 = 只跑单元层, 改后 = 单元加集成):
+
+| 阶段 | 行 | 分支 |
+| --- | --- | --- |
+| 改前 (单元层) | 94.7% (373/394) | 81.4% (70/86) |
+| 改后 (单元 + 集成) | 98.0% (386/394) | 89.2% (91/102) |
+
+集成层贡献 +13 行 / +21 分支; 分支分母由 86 变 102 是两轮 V8 range 合并后多出的 range, 占比口径以百分比为准。分层两轮跑: 单元层 `tmp/cov-session-title-cutoff`, 合并层同目录重跑。
+
+改后每文件表:
+
+| 文件 | 行 | 分支 | 未覆盖行 |
+| --- | --- | --- | --- |
+| `src/index.ts` | 98.0% (386/394) | 89.2% (91/102) | 100, 115, 139, 323, 335, 362, 370, 381 |
+
+新增 / 删除用例: 新增 `tests/integration/plugin.test.ts` 18 条、`tests/assemble.ts` 1 个装配器、`tests/main.test.ts` 补 5 条; 未删除用例; 未删除夹具。`skip` 计数: 0 (本机 helper 已安装, 条件式 `skip` 未触发)。
