@@ -3,6 +3,9 @@
 // 取值口径：AI 会话的交互尺度——心跳 5s / TTL 15s（3 倍容错）；
 // 邮箱流上限 1000 条（约几十 KB，足够排障且不膨胀）；回执 60s（发送方等待窗口远小于它）。
 
+/** 插件名（bundle 条目 id；日志前缀同源）。 */
+export const PLUGIN_NAME = "session-channel";
+
 /** 心跳间隔（ms）。 */
 export const DEFAULT_HEARTBEAT_MS = 5000;
 
