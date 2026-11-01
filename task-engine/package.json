@@ -7,7 +7,7 @@
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
     "demo": "pnpm run build && node dist/demo/main.js",
     "smoke:executor": "pnpm run build && node scripts/executor-smoke.mjs",
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",

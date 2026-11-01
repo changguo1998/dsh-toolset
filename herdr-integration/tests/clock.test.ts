@@ -1,7 +1,7 @@
 // tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
-// 跨包 import 真实 `ManualClock`（clock-base 包）作假时钟；本文件不在 tsconfig 的 include 内
-// （`rootDir` 限制，见 tsconfig.json 的 exclude），测试运行时经 node 类型擦除直接加载。
+// 跨包 import 真实 `ManualClock`（clock-base 包）作假时钟；本文件随 tests 一起纳入主 program 的类型检查
+// （跨包只取对端 `.d.ts`），测试运行时经 node 类型擦除直接加载。
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
@@ -33,25 +33,20 @@ function fakeClock(manual: ManualClock, scopes: unknown[] = []): unknown {
 /** 极简 cordis ctx：只实现本包消费的 `get` / `effect` / `on`。 */
 function fakeCtx(services: Record<string, unknown> = {}): {
   ctx: {
-    get(name: string): unknown;
-    effect(fn: () => () => void): () => void;
-    on(event: string, listener: (...args: unknown[]) => unknown): () => void;
+    get(name: string): object | undefined;
+    effect(fn: () => () => void): void;
+    on(event: string, listener: (...args: unknown[]) => unknown): void;
   };
   unload(): void;
 } {
   const disposers: Array<() => unknown> = [];
   const ctx = {
-    get: (name: string): unknown => services[name],
-    effect(fn: () => () => void): () => void {
-      const dispose = fn();
-      disposers.push(dispose);
-      return () => {
-        void dispose();
-      };
+    get: (name: string): object | undefined =>
+      services[name] as object | undefined,
+    effect(fn: () => () => void): void {
+      disposers.push(fn());
     },
-    on(): () => void {
-      return () => {};
-    },
+    on(): void {},
   };
   return {
     ctx,

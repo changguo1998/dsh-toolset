@@ -17,6 +17,5 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "demo"],
-  "exclude": ["tests/clock.test.ts"]
+  "include": ["src", "tests", "demo"]
 }

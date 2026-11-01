@@ -1,9 +1,8 @@
 // tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
 // 定时器族与假时钟 `ManualClock` 一律从 clock-base 包入口 import。
-// 本文件在 tsconfig 的 exclude 内: 既有的 `assert.deepEqual(fired, [])` 断言收窄会把
-// `fired` 推成 `never[]`（@types/node 的 `asserts actual is T`），纳入类型检查需改用
-// `deepStrictEqual` 或显式泛型；按「用例断言不改」留在 exclude，测试运行时经 node 类型擦除直接加载。
+// 纳入类型检查（不再 exclude）: 断言里的 `fired` 用显式泛型 `deepEqual<string[]>`，
+// 避免 @types/node 的 `asserts actual is T` 把 `fired` 收窄成 `never[]`。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -169,7 +168,7 @@ test("createDeadline: 取消后到点不再触发；到点后取消与重复取�
   cancel();
   cancel();
   manual.advance(100);
-  assert.deepEqual(fired, []);
+  assert.deepEqual<string[]>(fired, []);
 
   const deadlineWithEffect = createDeadline(manual, fakeHost().ctx);
   const cancelSecond = deadlineWithEffect(100, (reason) => fired.push(reason));
@@ -212,7 +211,7 @@ test("createDeadline: 正常取消时静默清掉 effect disposer（含 Promise 
   cancel();
   await Promise.resolve();
   assert.equal(disposed, 1);
-  assert.deepEqual(fired, []);
+  assert.deepEqual<string[]>(fired, []);
   assert.equal(manual.pending, 0);
 });
 

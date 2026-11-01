@@ -1,7 +1,7 @@
 // tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
-// 跨包 import 真实 `ManualClock`（clock-base 包入口）作假时钟；本文件不在主 program 的
-// include 内（跨包 `rootDir` 限制，见 tsconfig.json 的 exclude），由 tests/tsconfig.json 纳入检查。
+// 跨包 import 真实 `ManualClock`（clock-base 包入口）作假时钟；本文件随 `tests` 一起纳入
+// 主 program 的类型检查（`rootDir` 为包根，跨包只取对端 `.d.ts`）。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
