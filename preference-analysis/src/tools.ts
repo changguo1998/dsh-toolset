@@ -94,7 +94,7 @@ const REMOVE_DESCRIPTION =
   "效果: 该模式记入抑制键, 重放同一行为不会再被归纳出来。\n" +
   "相关: preference_list、preference_add。";
 
-/** 构造三个工具定义。 */
+/** 构造工具定义（工具名见 `TOOL_NAMES`）。 */
 export function createTools(api: PreferenceApi): ToolDef[] {
   return [
     {

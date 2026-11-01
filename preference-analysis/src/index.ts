@@ -2,9 +2,9 @@
  * preference-analysis 插件入口（DSH bundle 接入面）。
  *
  * 角色：**观测 + 归纳 + 注入**。
- * - 观测：订阅 `session/event`，抽出重复约束 / 纠正加权 / 审批拒绝三条信号（observe.ts）；
- * - 归纳：统计门槛 + 近似合并 + 置信分档（induce.ts），账簿是唯一状态源（ledger.ts）；
- * - 存储：达高置信且 `autoApply` 允许时写入 memory-base 项目层（apply.ts），撤销 / 退休真删；
+ * - 观测：订阅 `session/event`，抽出重复约束 / 纠正加权 / 审批拒绝三条信号（preference-analysis/src/observe.ts）；
+ * - 归纳：统计门槛 + 近似合并 + 置信分档（preference-analysis/src/induce.ts），账簿是唯一状态源（preference-analysis/src/ledger.ts）；
+ * - 存储：达高置信且 `autoApply` 允许时写入 memory-base 项目层（preference-analysis/src/apply.ts），撤销 / 退休真删；
  * - 注入：注册一个 rule-engine 消费者，`decide` 只读账簿快照，守条数与字符上限。
  *
  * 依赖：`inject: ["memory", "ruleEngine", "tools"]` —— 交给 cordis 排序，保证激活期内三个服务
@@ -210,7 +210,9 @@ export function createPlugin(deps: PluginDeps = {}): PreferencePlugin {
   store.loadSync();
   for (const warning of store.warnings) warn(warning);
 
-  const portResult = createMemoryPort(getService(deps.ctx, "memory"));
+  const portResult = createMemoryPort(
+    getService(contextObject(deps.ctx), "memory"),
+  );
   const port: MemoryPort | null = portResult.ok ? portResult.port : null;
   if (!portResult.ok) {
     warn(
@@ -521,11 +523,16 @@ export function createPlugin(deps: PluginDeps = {}): PreferencePlugin {
  * （未在 inject 里声明的服务直接读属性会被 cordis 抛错）。
  */
 interface HostContext {
+  /** 其余宿主键（服务、注入面等）一律按索引读，不逐个声明。 */
+  [key: string]: unknown;
   on?: (
     event: string,
     listener: (session: unknown, event: unknown) => void,
   ) => unknown;
 }
+
+/** 非对象 ctx 归一后的共用空容器（读取处不必再按次判类型）。 */
+const EMPTY_CONTEXT: HostContext = {};
 
 /** rule-engine 消费者注册项（结构面访问，不 import 对方代码）。 */
 interface ConsumerInput {
@@ -558,7 +565,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
   if (!resolved.enabled) return () => {};
   const plugin = createPlugin({ ctx, config, warn });
   const disposers: Array<() => void> = [];
-  const c = (ctx ?? {}) as HostContext;
+  const c = contextObject(ctx);
 
   let lastRun = 0;
   const schedule = (): void => {
@@ -630,14 +637,23 @@ export function apply(ctx: unknown, config?: Config): () => void {
 }
 
 /**
+ * 上下文对象守卫：入口处判一次，null / 原始值一律归一为同一份空容器，
+ * `getService` 与成员读取随之不必逐个判类型。
+ */
+function contextObject(ctx: unknown): HostContext {
+  return ctx !== null && typeof ctx === "object"
+    ? (ctx as HostContext)
+    : EMPTY_CONTEXT;
+}
+
+/**
  * 读取宿主服务：cordis 对**未在 inject 里声明**的服务，直接读属性会抛
  * `cannot get property "x" without inject`（真实加载时报过 ruleEngine）。故优先走受保护的
  * `ctx.get(key)`，再 try/catch 直取属性作为兜底（兼容没有 `get` 的测试宿主）。
  */
-function getService(ctx: unknown, key: string): unknown {
-  if (ctx === null || typeof ctx !== "object") return undefined;
+function getService(ctx: HostContext, key: string): unknown {
   try {
-    const get = (ctx as { get?: unknown }).get;
+    const get = ctx["get"];
     if (typeof get === "function") {
       const value = (get as (name: string) => unknown).call(ctx, key);
       if (value !== undefined) return value;
@@ -646,7 +662,7 @@ function getService(ctx: unknown, key: string): unknown {
     // 受保护读取也不可用（宿主未就绪 / 非 cordis 宿主）：继续尝试属性读
   }
   try {
-    return (ctx as Record<string, unknown>)[key];
+    return ctx[key];
   } catch {
     return undefined;
   }
