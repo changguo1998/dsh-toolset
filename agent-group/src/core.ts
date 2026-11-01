@@ -12,6 +12,8 @@
 
 import { randomUUID } from "node:crypto";
 
+import { systemTimers } from "@dsh-toolset/clock-base";
+
 import {
   addMember as modelAddMember,
   assignTaskId as modelAssignTaskId,
@@ -196,17 +198,6 @@ export interface GroupServiceOptions {
   log?: (message: string) => void;
   /** 定时器面（2b 状态轮询用；缺省进程内 `setInterval` + unref）。 */
   timers?: { interval(delayMs: number, callback: () => void): () => void };
-}
-
-/** 定时器统一面的缺省实现（unref：不阻塞进程退出；测试注入替身）。 */
-function systemTimers(): NonNullable<GroupServiceOptions["timers"]> {
-  return {
-    interval(delayMs, callback) {
-      const handle = setInterval(callback, delayMs);
-      handle.unref?.();
-      return () => clearInterval(handle);
-    },
-  };
 }
 
 /** 状态缓存键（`<manager>\0<group>`；`\0` 分隔避免组名里出现前缀碰撞）。 */
