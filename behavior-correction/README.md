@@ -1,18 +1,18 @@
 # @dsh-toolset/behavior-correction
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用专用工具却走 shell」的调用，并在回执里
 指出该改用哪个工具。实现方式是向 `rule-engine` 注册一个 `tools/pre-execute` 的 **guard 消费者**，按
 自身 `config` 的规则表（工具名 + 参数字符串）判定：命中返回 `{kind:"deny", reason}`，未命中返回
 `undefined`（弃权）。
-
-## 为什么需要
 
 `security-guard` 只拦危险命令与敏感路径，`auto-approve` 只裁定审批，两者都不表达「该改用专用工具」。
 模型仍会用 `bash` 直接跑有专用工具的命令（典型：`herdr pane list` —— herdr CLI 的终端面有 `herdr_run` /
 `herdr_read` / `herdr_list` 等专用工具，走 bash 会绕过插件面板与状态绑定）。rule-engine 的注入面只能事后
 提醒，拦不住已经执行的调用。
 
-## 行为
+## 能力
 
 1. 宿主在工具执行前唤醒 `tools/pre-execute` 消费者，传入 `{ name, arguments, callId?, sessionId?, resumed? }`。
 2. 判定文本 = `工具名 + " " + 参数字符串`：`bash` / `pwsh` 取 `arguments.command`（模型给的原文），
@@ -57,6 +57,8 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`。`ruleEn
 没有任何匹配条件（`match` 省略或为空）的规则**永不命中**，不会变成「全拦」。非法条目（非对象 /
 缺 `reason` / `tool` 或 `match` 形态不对）逐条告警并跳过，其余规则照常。
 
+## 用法
+
 profile 覆盖示例（用户层 patch）：
 
 ```yaml
@@ -73,7 +75,17 @@ profile 覆盖示例（用户层 patch）：
         reason: 仓库状态请走 code_map / read，不要用 git 命令
 ```
 
-## 与其它插件的关系
+接线：根 `package.json` 的 check/build 链、`scripts/install.sh`（`canonical_pkgs`）、
+`scripts/test-parallel.sh`（`default_pkgs`）与根 `README.md` / `README.zh.md` / `AGENTS.md` 的包清单。
+
+## 边界
+
+- **不解释 shell 语义**：管道、别名、变量展开、引号、heredoc 都不解析，只对命令原文做文本判定 ——
+  宁可漏拦也不误伤（缺省规则只认命令位，正文里提到该词不拦）。
+- 不做审计、不落 memory-base、不提供人工命令面；规则只能由插件配置表达。
+- 未挂载 rule-engine / 框架不支持该节点时不拦截（fail-open；安全兜底仍在 `security-guard`）。
+
+### 与其它插件的关系
 
 - **rule-engine**：只做调度与汇总（按注册顺序串行询问、任一 `deny` 胜出、异常按弃权处理）。本插件
   不 import 它的代码，`registerConsumer` 走结构化类型；节点 `tools/pre-execute` 仅消费者可用，
@@ -82,25 +94,19 @@ profile 覆盖示例（用户层 patch）：
   两者可以同时拒绝同一调用。
 - **auto-approve**：审批链裁定；本包在更早处拒绝，被拒的调用不会走到审批。
 
-## 边界（明确不做）
-
-- **不解释 shell 语义**：管道、别名、变量展开、引号、heredoc 都不解析，只对命令原文做文本判定 ——
-  宁可漏拦也不误伤（缺省规则只认命令位，正文里提到该词不拦）。
-- 不做审计、不落 memory-base、不提供人工命令面；规则只能由插件配置表达。
-- 未挂载 rule-engine / 框架不支持该节点时不拦截（fail-open；安全兜底仍在 `security-guard`）。
-
-## 开发
+## 测试
 
 ```sh
-npm run check   # 类型检查（两个 program：主 tsconfig + tests/tsconfig.json）
-npm run build   # 编译到 dist/
-npm test        # 接线用例 + 真包契约探针
+pnpm run check             # 类型检查（tsc -p tsconfig.json --noEmit）
+pnpm run build             # 编译到 dist/
+pnpm run test              # 单元层接线用例
+pnpm run test:integration  # 集成层：装配 apply 与宿主接线
+pnpm run test:coverage     # 单元 + 集成，覆盖率报告在 ../tmp/cov-behavior-correction
 ```
 
 | 文件 | 覆盖 |
 | --- | --- |
 | `tests/main.test.ts` | 契约符号 / 缺省规则命中与放行 / 工具限定 / 关键词与正则（含大小写与 flags）/ 规则顺序 / 配置替换与空数组 / `enabled: false` / 非法规则与非法正则告警 / 缺服务与注册被拒降级 / dispose 注销幂等 / 判定文本抽取 |
-| `tests/contract.test.ts` | 真包契约探针：`@dsh-toolset/rule-engine` 可解析时校验 `CONSUMER_SOURCES` 含 `tools/pre-execute`、且引擎接受「`sources` + `guard`、不带 `decide`」的注册；不可解析时 skip（本包刻意不依赖它） |
-
-接线：根 `package.json` 的 check/build 链、`scripts/install.sh`（`canonical_pkgs`）、
-`scripts/test-parallel.sh`（`default_pkgs`）与根 `README.md` / `README.zh.md` / `AGENTS.md` 的包清单。
+| `tests/index.test.ts` | 配置兜底 / 规则编译的非法分支 / 空上下文 / `apply` 的降级与注销路径 |
+| `tests/assemble.ts` | 三假面装配器（工具 / 事件 / 服务），无断言 |
+| `tests/integration/plugin.test.ts` | 注册面值 / 拒绝文案 / waterfall / dispose 事件 / 服务面降级 / 配置面 |
