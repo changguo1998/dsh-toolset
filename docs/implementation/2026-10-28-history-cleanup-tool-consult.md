@@ -46,16 +46,26 @@ rm -rf ../tmp/cov-tool-consult && mkdir -p ../tmp/cov-tool-consult && NODE_V8_CO
 ## 实现记录
 
 - 基线 (分支起点): `pnpm -C tool-consult run check` 通过; `pnpm -C tool-consult run test` 81 例 (80 通过 / 1 跳过, 约 0.12 s); 覆盖率行 89.4% (1292/1445), 分支 80.0% (216/270).
+
 - 单元锚点: 新增 `tests/index.test.ts` (12 例) 与 `tests/tool.test.ts` (10 例), 只经 `src/index.ts` / `src/tool.ts` 的导出驱动.
+
   - `index.ts`: 服务形状不符 (非对象 tools / 缺 list 的 agents); logger 缺失 / 抛错 / 缺方法; `agent/created` 与 `agent/disposed` 非法载荷; 工具服务缺 `schemas`; allowlist / denylist 两种空交集; `restrict` 其他错误与名单失配的降级与「每运行时只告警一次」; 代理作用域缺 `ctx.on` / 缺 `tools.register`; disposer 抛错被吞; `session/event` 非字符串会话 / 缺事件 / 缺回合号; 配置热重载复用运行时并切换缺省档.
   - `tool.ts`: 无参数与空工具面的分组回退; `limit` 下限与非法值回退、非法 `scope` 回退缺省; `names` 的已见 / 预览 / 未知 / 入口自身; query 全可见抬头与部分可见排序; pin 三态 (session 忽略 / turn 名额满 / turn 已钉住); turn 配额文案; 重复揭示不累加; `output.render` 回退与 schema 形状.
+
 - 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (18 例).
+
   - 假面: 假工具面 (`schemas` / `register` / `restrict`, 可注入缺服务、重名、名单失配与 disposer 抛错) / 假事件面 (全局 `emit` + 订阅计数, 代理级 `agent.emit`) / 假服务面 (`ctx.get` 的 `tools` / `agents`, 可按名缺席或覆盖返回值); 无落盘面.
   - 断言面: 既有代理热挂载与 9 核心遮罩; 5 条全局订阅; `consult_tools` 注册与 `execute` 的 canonical 文本; `output.render` 三种投影; 按名咨询四类分支; `pre-execute` 的 deny / allow 与缺参放行; turn 档 pin、容量收敛与 LRU (`tools/result` 刷新最近使用); `tools/change` 只刷新索引 (新工具可检索 / 揭示, 不重设遮罩); denylist 组成与 reveal 不改变名单; `maskMode=off` 零遮罩; `applyTo: all` / `roots`; 服务缺失; `agent/disposed` 清理与同 id 重挂; 插件卸载; 咨询工具重名 / 其他注册错误; `enabled: false`; 空工具面; 回读校验缺项告警与漂移恢复.
+
 - 假宿主扩展: `tests/fake-host.ts` 增加缺服务 / 返回值覆盖、`schemas` 作用域视图可返回 undefined 或缺名、logger 三态、代理事件面开关、`register` / `restrict` / disposer 故障注入、`addSchema` 与订阅计数; 原有 15 个用例语义未改.
+
 - 脚本: `package.json` 加 `test:integration` (跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两目录一起跑, `NODE_V8_COVERAGE=../tmp/cov-tool-consult`, 再调 `dev/coverage/report.mjs tmp/cov-tool-consult tmp/cov-tool-consult/report.json`).
+
 - 专项: `tests/retrieval.test.ts` 的 `skip` 收窄为「`channel_delegate` 进前二」并转正, 全包 `skip` 归零; `tests/fixtures/real-descriptions.ts` 复核后被 `retrieval.test.ts` 使用, 仅把注释里的 `src/main.ts` 更正为 `src/index.ts`, 语料未动 (`src/tool.ts` 的同类注释未改, 属 `src`, 留阶段 3).
+
 - 4.4 复核: 本次未新增 `skip` / `todo`; 未新增夹具; 未删除用例.
+
+- 阶段 3 补丁 (2026-11-01): `isVisible` 按 `maskMode` 解释 `initialNames` (`denylist` 下为隐藏集, `off` 全可见, 已授权优先), 修遮罩与 `pre-execute` 判定不一致; 包 BACKLOG 对应条目关闭.
 
 ## 偏差
 

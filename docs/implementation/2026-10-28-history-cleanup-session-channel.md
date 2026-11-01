@@ -67,13 +67,22 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 ### 阶段 3 代码整理 (分支 `history-cleanup/03-code-session-channel`)
 
 - 删失效导出: `src/broker.ts` 的 `countTasks` (18 行, 连带删 `TaskStatus` 类型 import) 与 `src/keys.ts` 的 `STATE_PATTERN` / `sessionIdFromStateKey` / `TASK_INDEX_PATTERN` / `sessionIdFromTaskIndexKey` (4 个, 22 行)。删前重扫全仓 (`src` / `tests` / `scripts` / `docs`): 除总追踪 / 本文件的待删清单与历史归档外零引用。
+
 - 定时器族: `src/index.ts` 内联的 `systemTimers` (15 行) 删掉, 改从 `@dsh-toolset/clock-base` 入口引入并由 `src/index.ts` 同名 re-export; 调用点 (`resolveTimers` 的四处回落) 未动。
+
 - 拆长文件 (1928 行入口 → 161 行): 新增 `src/service.ts` (1055 行, 会话层: 连接 / 会话跟踪 / 心跳 / 投递 / 别名 / 共享 KV / 服务面方法 / `resolveTimers`)、`src/task-layer.ts` (471 行, 任务层: `TaskLayer` 承接 `delegate` / `taskStatus` / `taskList` / `taskCancel` / `taskResult` 与 `user/message` 对位、`turn/end` 轮末回收、结果通知, 经 `TaskLayerHost` 取连接 / 时钟 / 日志 / 标签 / 正文上限)、`src/tools.ts` (404 行, 工具面: 四个工具定义、`toLosslessJson` 归一、`SERVICE_FACE_METHODS`)。`src/index.ts` 只留 bundle 接线 (`name` / `inject` / `provide` / `apply`)、`activeService` 与对外 re-export; 拆出的模块不新增包入口 (`package.json` 未加 `exports`), 测试 import 路径未改。
+
 - 任务层边界: 服务实例保留五个任务方法的连接判定外壳 (错误文案与判定顺序不变), 任务表读写与回收搬进 `TaskLayer`; `#workerTasks` 队列随之下移, 服务类不再持有。
+
 - 上下文对象守卫: 入口 `apply` 判一次 (`null` / 非对象按空上下文处理; 此前 `ctx` 为 `null` 时在 `ctx.logger` 处抛 `TypeError`), 下游 (`createSessionChannelService` 收到的 ctx、`apply` 里的 `tools` / `provide` 读取) 不再重复判; 宿主服务读取的唯一对象判断仍在 `src/inject.ts` 的 `readService`。
+
 - 依赖: `package.json` 加 `@dsh-toolset/clock-base: link:../clock-base`, 本包目录 `pnpm install` 更新 `pnpm-lock.yaml` (importer 一项) 并建 `node_modules/@dsh-toolset/clock-base -> ../../../clock-base`。
+
 - 对外面: `createSessionChannelService` / `SessionChannelService` / `resolveTimers` / `systemTimers` / 四个归一函数 / `SERVICE_FACE_METHODS` / `BundleHost` 等类型仍从包入口导出; `AgentState` 等六个类型与 `SessionChannelError` 不变。
+
 - 提交: `ed3112a4` 删失效导出 → `e5c71570` 定时器族改 clock-base (含依赖与 lockfile) → `caf3793b` 入口按会话 / 任务 / 工具面拆分 → `c5b681e3` 上下文对象守卫收进入口。
+
+- 阶段 3 补丁 (2026-11-01): 入口 `warn` 与服务 `#log` 改为显式分支, 消除 `info()` 返回 `void` 时重复落 stderr.
 
 ## 偏差
 

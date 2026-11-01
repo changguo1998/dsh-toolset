@@ -66,7 +66,10 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 ### 阶段 3 代码整理
 
 - 删失效导出 `toPosix` (`src/indexer.ts:449`): 全仓无引用, 只被自身注释说明; 同步删 `node:path` 的 `sep` import.
+
 - 其余规划项 (无) 不涉及; 行为不变.
+
+- 阶段 3 补丁 (2026-11-01): `apply` 补非对象 `ctx` 守卫; `warn` 改为显式分支 (有 logger 走 logger, 否则 stderr); 包 BACKLOG #1 / #2 关闭.
 
 ## 偏差
 

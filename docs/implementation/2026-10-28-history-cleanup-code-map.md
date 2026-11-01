@@ -54,30 +54,40 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 - 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾): 假工具面 / 假事件面 / 假服务面 + 假 astTools 面.
   假 ast 按固定表回放 `outline` / `search` (含 import 整行形态、`signature` 缺失、空 `astKind`),
   并让 `broken/gen.ts` 一律抛错; 项目落 `os.tmpdir()` 的临时目录, 用例结束删除, 不依赖 ast-grep 二进制.
+
 - 新增 `tests/integration/plugin.test.ts`, 15 条: `apply` 注册与 `provide` 面; `index` / `refresh` /
   `callers` / `callees` / `impact` / `cycles` / `report` / `summary` 八个 action 的 canonical 值与未索引错误;
   `output.render` 投影 (含 `undefined` / 字符串兜底与形参顺序哨兵); `codeMap.getSummary` / `getBundle`;
   宿主形态 (缺 `tools` / 缺 `provide` / `register` 抛错 / 无 logger 落 stderr); `ctx.get("lsp")` 语义层接线
   (`precision=lsp` 且不搜候选); 临时目录清理.
+
 - 单元锚点 12 条 (24 → 36): `graph` 2 条 (`addImport` 任一端不在图时忽略、自环不入依赖环);
   `report` 2 条 (符号 kind 归一全桶、跨模块 import 上卷去重与 `.` 模块); `scan` 3 条
   (绝对说明符按仓库内外分流、噪音目录跳过、`outline` 抛错或返回空数组时跳过且 `filesScanned` 仍计数);
   `semantic` 4 条 (`ctx.get` 抛错回落直接属性、`query` 非函数、结果形状 fail-open 与非法条目丢弃、
   `AbortSignal` 透传、`symbolPositionAt` 入参守卫); `bundle` 1 条 (惰性索引、并发 `inflight` 去重、
   已索引摘要、`refresh` 与 `index({ root })` 重扫). 存量断言未改语义, 只补 `inject` 契约一条.
+
 - `package.json` 加 `test:integration` / `test:coverage` (后者含单元与集成两层 glob, 输出到 `tmp/cov-code-map`).
+
 - 观察项 (留阶段 3): `src/report/builder.ts` 的 `kindBucket` 只认 `class` / `interface` / `enum` /
   `function|method|arrow` / `variable|let|const` / `type` / `import` 词根, ast-grep 的 `lexical_declaration`
   与空 `astKind` 都落 `other`; 本阶段按现状锁定 (`kindCounts` 断言写 `other: 2`), 未改实现.
+
 - 另记: `src/index.ts` 的 `callees` / `impact` / `report` / `summary` 等方法在集成跑里被逐个调用,
   但报告仍按未覆盖计 (见「测试与证据」的口径说明); 未为凑数加用例.
+
 - 阶段 3 (代码整理): 上下文对象守卫收进 `apply` 入口 (`src/index.ts` 新增 `host` 归一);
   `resolveLspReferences` 改收已归一的 `object` (缺省空对象), `src/semantic/lsp.ts` 的 `readLspSurface`
   删掉 `ctx === null || typeof ctx !== "object"` 这一判断, 每处只判一次. 判定结果不变: `null` / 非对象
   仍等价空上下文 (无 `lsp` 服务 → `undefined`), 工具注册 / `provide` / `logger` 的取值路径未动.
+
 - 阶段 3 (零引用导出复查): 无. 44 个模块级导出逐个扫 worktree (排除 `node_modules` / `dist` / `tmp`),
   每个都至少有「声明行 + 一处引用」, 未发现零引用符号, 未删任何导出.
+
 - 阶段 3 (`kindBucket` 复核): 详见「偏差」第 2 条.
+
+- 阶段 3 补丁 (2026-11-01): `warn` 改为显式分支, 避免 logger 返回 `void` 时同时落 stderr.
 
 ## 偏差
 

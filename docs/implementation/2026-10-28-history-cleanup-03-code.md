@@ -59,6 +59,7 @@
 - `TUI` 第二批 `layout.ts` 拆分 (`a7986664` / `2db2f0d0`) 已合并 `12363ed6`: 2440 行拆成 `layout/geometry.ts` / `layout/frame-build.ts` / `layout/frame-rows.ts` 等分层模块, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` + `SMOKE_OK` 通过.
 - `TUI` 第一批 (`7f326518` / `f7652029` / `5f46146a`) 已合并 `8b1ede1a`: 删 3 个零引用导出, 按键表 75 条键位 / 51 个动作, `name ===` 从 72 处降到 31 处, 消息谓词 21 处、层级判定 4 处、注释路径 32 处; `check` / `test` 1828 例 / `build` / `demo --smoke` 通过.
 - 收口: 24 个有代码改动的包全部合并 (`TUI` 分 6 批, 其余一包一笔到数笔), 10 个无代码改动的包未建分支; 24 个 `history-cleanup/03-code-*` 分支保留到总任务关闭, worktree 全部删除.
+- 2026-11-01 补丁轮 (阶段关闭后修潜伏项): `hash-edit` / `md-map` 的 `apply` 补非对象 `ctx` 守卫; `tool-consult` 的 `isVisible` 按 `maskMode` 解释 `initialNames`; 11 个包的 `logger` 调用补可选链; `code-map` / `md-map` / `session-channel` 的 `warn` 改显式分支; 8 个包的假 `exclude` 删除、`task-engine` 双 program 合并为一个 (同时删 `tests/tsconfig.json`); `TUI` 两处长文件拆分登记为包 BACKLOG 条目. 提交 `54ac908c` / `78500945` / `25fce711` 与本笔文档.
 
 ## 测试与证据
 
@@ -73,7 +74,9 @@
 | `pnpm -C TUI run demo:build -- --smoke` | 42 条 `SMOKE_PASS`, 退出 0 |
 | `pnpm -C TUI run smoke:pty` | 未跑, 缺 `TOLLGATE_API_KEY` (与阶段 2 同) |
 
-覆盖率口径与阶段 2 相同: `report.mjs` 不排 `dist`, 依赖包的 `dist` 会随引用被计入, 故数字只与同一命令的结果比较. 阶段 2 为 86.4% / 79.9%.
+覆盖率口径与阶段 2 相同: `report.mjs` 不排 `dist`, 依赖包的 `dist` 会随引用被计入, 故数字只与同一命令的结果果比较. 阶段 2 为 86.4% / 79.9%.
+
+2026-11-01 补丁后复跑: 17 个受影响包逐个 `check` + `test` 通过; 全量 `pnpm run build` / `check` / `test` 均退出 0. 补丁只动守卫、日志兜底与 `tsconfig`, 未重跑覆盖率.
 
 ## 偏差
 

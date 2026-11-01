@@ -55,15 +55,24 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 日期: 2026-11-01. 分支 `history-cleanup/02-tests-hash-edit`.
 
 - 基线 (改动前, 本分支): `check` 绿; `test` 54 例全通过, `skipped` 0 / `todo` 0, 耗时约 98ms; 覆盖率行 87.0% (653/751), 分支 73.3% (85/116).
+
 - 单元锚点 (3 条, 均新增, 未改既有断言语义):
+
   - `tests/edit.test.ts`: 「malformed: 未知变体键 / 空对象 / 三个变体键同时出现」补 `parseOp` 的变体键形状判定 (未知键、`{}`、三键)。
   - `tests/fs.test.ts`: 「目录路径 → io_error」补 `readFile` 非 `ENOENT` 分支 (EISDIR); 「写盘失败 → io_error」补 `writeFile` 失败分支 (`readHashlines` / `applyAnchoredEditsFile` 的 `io_error` 映射), 同时断原文件不变与无临时文件残留。
+
 - 集成层 (新增 2 个文件):
+
   - `tests/assemble.ts`: 三个假面 (工具 / 事件 / 服务) + `captureStderr` + `makeWorkspace` (临时目录), 装配 `apply`; 两种宿主形态 `full` / `no-tools`。
   - `tests/integration/plugin.test.ts`: 18 例, 覆盖装配面 (注册名 / 参数 schema / 零事件订阅 / 零 provide / 缺 `ctx.tools` 与注册被拒的降级)、`hash_read` 与 `hash_edit` 的 canonical 值 (行号 1 基、sha256 前 8 位定值、全文哈希定值、`applied`)、`output.render` 投影 (逐字等于 `JSON.stringify(value, null, 2)`)、相对路径基准 (`config.root` 与空串回落 exec 会话 cwd)、落盘 (内容一致、目录无残留)、失败路径 (stale / out_of_range / malformed 七种形状 / not_found / not_utf8 / 入参校验)。
+
 - 脚本: `package.json` 增 `test:integration` (跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两轮目录合并 + `dev/coverage/report.mjs tmp/cov-hash-edit tmp/cov-hash-edit/report.json`)。
+
 - 未改 `src`; 用例只经 `src/index.ts` 与同包模块的公开导出。
+
 - 阶段 3 代码整理 (日期 2026-11-01, 分支 `history-cleanup/03-code-hash-edit`): 计数注释 `src/index.ts:294` 改「构造工具定义」, 不写数量 (本包没有与工具数对应的导出常量, 按任务口径用文字表述); 零引用导出按 5.2 复查为「无」 (28 个具名导出都有引用, 明细见「测试与证据」); 路径注释与标题补 4 处 (`src/index.ts:260` 与 `src/fs.ts:30` 的 `edit.ts` → `hash-edit/src/edit.ts`、`src/index.ts:15` 的「本包 fs.ts」→ `hash-edit/src/fs.ts`、`src/index.ts:7` 的 `task-engine/src/main.ts` → `task-engine/src/index.ts`), 并把 `src/index.ts:2` 的标题 `main` 改为 `index`; 未删代码, 工具名 / 参数面 / `output.render` 投影 / 配置键 / 注入文案与用例断言均未动。
+
+- 阶段 3 补丁 (2026-11-01): `apply` 补非对象 `ctx` 守卫 (stderr 告警后返回); 包 BACKLOG #1 关闭.
 
 ## 偏差
 
