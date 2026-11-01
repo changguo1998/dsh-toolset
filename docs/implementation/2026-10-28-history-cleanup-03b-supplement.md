@@ -1,6 +1,6 @@
 # 阶段 3 附加: 复核修正 (所属总追踪: `docs/implementation/2026-10-28-history-cleanup.md`)
 
-状态: 规划　　开启: 2026-11-01　　关闭:
+状态: 完成　　开启: 2026-11-01　　关闭: 2026-11-01
 本文件记录 2026-11-01 对阶段 1 至 3 追踪文档与仓库实际的复核结果, 并规划在阶段 4 之前把这些不一致处理完; 总追踪见 `docs/implementation/2026-10-28-history-cleanup.md`, 计划外的文件不改.
 
 ## 目标
@@ -138,6 +138,44 @@
 
 ## 实现记录
 
+- T1.1 `tool-consult`: 集成用例 `tests/integration/plugin.test.ts:247` 拆成两段 —— 揭示已可见项断「已在可见集 + 不重挂遮罩 + 名单不变」, 揭示被挡项 `bash` 断「已揭示 + 重挂一次 + 允许集加 1 + `read` 仍被挡」。用例先红, 暴露 `src/index.ts:263` 的 `applyMask` 在 `denylist` 下只按隐藏集算允许集, 已授权项仍被遮罩挡住; 补 `runtime.grants` 放行后转绿。`check` / `test` 103 例 / `test:integration` 18 例全绿; `test:coverage` 行 96.1% / 分支 92.3% (阶段 2 记录为 96.1% / 92.4%, 新增一个分支条件)。
+- T1.2 `md-map`: 集成用例 `tests/integration/plugin.test.ts:102` 改断「有 logger 时 `stderr` 为 0、logger 收到告警」, 「无 logger 落 `stderr`」仍由 `:131` 覆盖; 源码未改。`check` / `test` 65 例 / `test:integration` 15 例全绿。
+- T1.3 `task-engine`: 复现到真实竞态而非负载抖动 —— 周期快照与卸载最终写各自 `writeFile` 同一路径, 卸载只等自己那次写, 更早排队的周期写随后截断文件, 读侧 `JSON.parse` 得到空串。`src/engine-store.ts:155` 新增 `scheduleSnapshot()`, 所有落盘排进同一串行链; `writeSnapshot()` 等链尾落定, `append()` 只排不等待。`check` / `test` 171 例 / `test:integration` 17 例全绿; 根 `pnpm run test:integration` 连跑 3 次退出 0 (34 包)。
+- T2 文档回写: `tool-consult` 的「代码 / 偏差 / 证据」改记补丁轮与 T1.1 的 `src` 改动; `hash-edit` 偏差与豁免台账记 `apply` 守卫已修 (`54ac908c`); `md-map` 偏差由「无」改为守卫与日志分支两条; `command-template` 偏差记 `exclude` 已删 (`25fce711`); `code-map` 偏差的「阶段 6」改「阶段 5 (第 6 章)」并指向新条目; 阶段 3 文档分支数 24 改 25 (含多出的 `history-cleanup/03-code-herdr-use-2`), 删「进行中」残句, 实现记录按合并提交时间重排并加口径说明。
+- T3 状态与日期: 阶段 1 / 2 / 3 与总追踪标题下加「最近修订: 2026-11-01」, 原关闭日期保留。
+- T4 移交项: `session-title-cutoff/src/index.ts:352` 的正则改为 `[\u202a-\u202e]` 字符类, 用例补 U+202A / U+202B / U+202D / U+202E 剥除断言 (`21` 例); `code-map/docs/BACKLOG.md` 立 `#1` (`kindBucket` 对导出符号失真, 需带 `kindCounts` 快照); `TUI/docs/BACKLOG.md` 立 `#3` (`dsh.ts` 3604 行) 与 `#4` (布局层 7 处 `delivery.kind === "user"` 的收拢与类型收窄); `herdr-integration` 两步在包追踪文档写明「本包无长文件、5.6 六组不含本包」后关闭; 1000 至 1200 行三文件 (`herdr-use/src/actions.ts` / `session-channel/src/alias-words.ts` / `TUI/src/main.ts`) 在各自包追踪文档补不拆理由。
+- T5 门禁: 根 `pnpm run check` / `build` / `test` / `test:integration` 全部退出 0; `pnpm -C TUI run demo:build -- --smoke` 42 条 `SMOKE_PASS`; `smoke:pty` 仍因缺 `TOLLGATE_API_KEY` 未跑, 记为既有偏差。覆盖率另跑三包: `tool-consult` 96.1% / 92.3%, `task-engine` 82.8% / 74.4%, `session-title-cutoff` 98.0% / 89.2%。
+
 ## 偏差
 
+- T1.1 的规划写「不改代码」, 实际改了 `applyMask` 的 `denylist` 分支: 不改则「揭示被挡项后遮罩收缩」无法成立, 而且与 `isVisible` 的「已授权优先」口径冲突 (一处判可见、一处仍遮住)。改动只加一条放行条件, 属行为修复, 与 5.6「判断唯一出口」同向; 已在 `tool-consult` 包追踪文档「代码」「偏差」两节回写。
+- T1.2 只改用例, 未改 `warn` 的双写行为; 裁定为「有 logger 时告警只进 logger」, 与补丁轮实现一致。原断言把双写固化成期望, 属用例跟随实现变更, 不是放宽覆盖。
+- T1.3 的失败不是阶段 2 记的「既有 flake」, 是真实写读竞态; 修复落在 `src`, 未改断言、未加等待。
+- 阶段 3 文档的「TUI 分 6 批」未改: 本次只回写分支总数与时间序, 批次数口径不在复核清单内; 如需按合并提交数重算, 留阶段 5 文档整理。
+- 覆盖率对照受阶段 3 拆分影响: `task-engine` 的包文档数字 (83.6% / 73.0%) 是阶段 2 代码的同一命令结果, 拆出 `engine-flow.ts` 等模块并删 `src/timers.ts` 后行分母 3347 → 3292、分支 854 → 831, 与本次 82.8% / 74.4% 不能直接论升降; `tool-consult` 分支 92.4% → 92.3% 是新增 `||` 条件带来的分母 +1。两处均不改阶段 2 的历史数字。
+
 ## 测试与证据
+
+全部在 `main` 上实跑 (2026-11-01, Node v24.16.0):
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm run check` | 退出 0 |
+| `pnpm run build` | 退出 0, 34 包编译到 `dist/` |
+| `pnpm run test` | 退出 0, 34 包单元层无失败 |
+| `pnpm run test:integration` | 退出 0, 34 包集成层无失败; T1.3 修复后连跑 4 次均 0 |
+| `pnpm -C TUI run demo:build -- --smoke` | 42 条 `SMOKE_PASS`, 退出 0 |
+| `pnpm -C TUI run smoke:pty` | 未跑, 缺 `TOLLGATE_API_KEY` (既有偏差) |
+
+受影响包单独实跑:
+
+| 包 | `check` | `test` | `test:integration` | `test:coverage` |
+| --- | --- | --- | --- | --- |
+| `tool-consult` | 通过 | 103 例 | 18 例 | 行 96.1% / 分支 92.3% |
+| `md-map` | 通过 | 65 例 | 15 例 | 未重跑 (源码未改) |
+| `task-engine` | 通过 | 171 例 | 17 例 | 行 82.8% / 分支 74.4% |
+| `session-title-cutoff` | 通过 | 21 例 | 未重跑 (改动只在单元层) | 行 98.0% / 分支 89.2% |
+
+- 集成层三例失败全部转绿: `tool-consult:247` 改断言语义, `md-map:102` 改断言语义, `task-engine:416` 修写读竞态。
+- 文档 `format` 后自查 diff: 本文件与总追踪、阶段 3、11 份包追踪文档互指可达; 记录里的提交号 `54ac908c` / `78500945` / `25fce711` 均存在。
+- `smoke:pty` 缺凭据为既有偏差, 不阻塞本阶段; 其余门禁全绿。
