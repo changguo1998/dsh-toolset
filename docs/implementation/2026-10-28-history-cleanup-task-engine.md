@@ -64,11 +64,26 @@ rm -rf ../tmp/cov-task-engine && mkdir -p ../tmp/cov-task-engine && NODE_V8_COVE
 - 脚本: `package.json` 加 `test:integration` (跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两目录一起跑, `NODE_V8_COVERAGE=../tmp/cov-task-engine`, 再调 `dev/coverage/report.mjs tmp/cov-task-engine tmp/cov-task-engine/report.json`).
 - 类型检查面: `check` 改为串跑两个 program (`tsconfig.json` + `tests/tsconfig.json`); 主 program 排除 `tests/clock.test.ts` / `tests/assemble.ts` / `tests/integration` (三者跨包 import `clock-base`), 由 `tests/tsconfig.json` (`rootDir` 上移到仓库上一层, `noEmit`, `include: ["."]`) 重新纳入检查.
 - 4.4 复核: 本次未新增 `skip` / `todo`, 未新增夹具; 本机 `skipped` 为 0.
+- 阶段 3 代码整理 (分支 `history-cleanup/03-code-task-engine`):
+  - 定时器族: 删 `src/timers.ts` (205 行本地副本), 入口不再有 timer 族本地 import; `tests/clock.test.ts` / `tests/assemble.ts` 改从 `@dsh-toolset/clock-base` 入口引 `ManualClock` / `createDeadline` / `resolveClock`. 告警文案沿用 clock-base 版本 (两侧都含 `clock 服务不可用`, 用例按该子串断言, 未改).
+  - 依赖: `package.json` 加 `dependencies.@dsh-toolset/clock-base = link:../clock-base`, `pnpm install` 刷新本包 `pnpm-lock.yaml` (4 行).
+  - 入口分层 (拆前 `src/index.ts` 1867 行, 拆后入口 36 行只做 re-export): `src/plugin.ts` (395) 配置面与装配 / 生命周期; `src/executor.ts` (297) 三类后端适配; `src/subagent.ts` (345) 子代理发起器与计量; `src/command.ts` (30) `/bin/sh -c`; `src/worktree.ts` (426) executor 隔离; `src/guard.ts` (81) 执行前复查; `src/verdict.ts` (150) 裁决提示词 / 信封 / 取值; `src/evidence.ts` (46) 证据文本; `src/dsh-tools.ts` (88) 工具面适配; `src/host.ts` (92) 宿主结构面.
+  - 引擎分层 (拆前 `src/engine.ts` 1050 行): `src/engine.ts` (622) 模型侧操作 + 状态转接; `src/engine-types.ts` (179) 对外类型; `src/engine-store.ts` (178) 事件流 / 物化树 / 就绪池 / 只读视图 / 周期快照; `src/engine-flow.ts` (283) 验收裁决 / 打回 / 终态 / join 续体 (经最小 host 面读写状态, 不直接碰事件流实现).
+  - 公开面: 包入口 re-export 名单与拆前一致; `src/engine.ts` 仍 re-export 原有类型与 `resumeFromSnapshot`; 其余拆出模块只被本包内部与入口使用, 不新增对外入口.
 
 ## 偏差
 
 - 实现规划未列 `tsconfig` 改动: 真实 `ManualClock` 经跨包 `import` 进装配器后越出主 program 的 `rootDir` (`tests/clock.test.ts` 原先靠 `exclude` 规避). 照 `md-table-check` 的既有做法改双 program, 未动 `src`, 也未放宽主 program 的严格度.
+
 - 实现规划写的「事件消费者注入内容」在本包不适用: `task-engine` 不注册事件消费者, 也不向宿主发事件. 集成层据此把该断言位换成两处等价可见面 —— `provide` 的 `taskEngine` 只读查询面, 与快照事件流 (`plan/node-expanded` / `plan/step-verdict`) 的内容.
+
+- 阶段 3 顺序调整: 任务列的是先删 `timers` 再拆文件再改依赖; 实际**先**加 `link:` 依赖并 `pnpm install` (第 3 步前移), 否则第 1 步改完 import 无法跑 check / test.
+
+- 任务只点名 `tests/clock.test.ts` 改入口引, 实际连 `tests/assemble.ts` 一起改: 它同样从 `../../clock-base/src/index.ts` 跨包 import 真实 `ManualClock`. 不改则「跨包 import 取 dist」的口径在本包不成立. 该文件不以 `.test.ts` 结尾, 不涉及用例断言.
+
+- `tsconfig` 双 program 保持原样: 入口改指 `@dsh-toolset/clock-base` 后, 主 program 的 `exclude` 是否仍必要未复核 (本轮不动配置, 留阶段 4).
+
+- 发现 (未改): `pnpm run demo` 在本分支有 1 例既有失败 —— 演示 13 的 `回填证据 + 超预算只标注 (overBudget)` 期望按 `tokens` 数值判超预算, 而引擎自 BACKLOG #13 起只认后端 `out.overBudget` (宿主 `max-tokens` 权威信号); demo 的假 runner 只给 `tokens`. 拆前同一逻辑, 与本次组织改动无关; demo 不属本阶段验收命令, 未改.
 
 ## 测试与证据
 
@@ -101,3 +116,18 @@ rm -rf ../tmp/cov-task-engine && mkdir -p ../tmp/cov-task-engine && NODE_V8_COVE
 - 新增用例清单: `tests/index.test.ts` 20 例, `tests/integration/plugin.test.ts` 17 例, `tests/assemble.ts` 为装配器 (不计入用例与覆盖率).
 - 删除用例与夹具: 无.
 - 豁免台账: 无新增. 未覆盖的防御分支按 4.3 的例外口径留给阶段 3 复核, 不写空用例凑数.
+
+阶段 3 (每步都跑, 全部在 `task-engine/` 下):
+
+| 步骤 | `pnpm run check` | `pnpm run test` | 其他 |
+| --- | --- | --- | --- |
+| 删 `src/timers.ts` + 改 import + 加 `link:` 依赖 | 通过 | 171 例全绿 | `pnpm run build` 通过 |
+| 拆入口 (`src/index.ts` → 10 个模块) | 通过 | 171 例全绿 | - |
+| 拆引擎 (`src/engine.ts` → 4 个模块) | 通过 | 171 例全绿 | - |
+| 拆分后总验 | 通过 (两个 program) | 171 例全绿, 0 失败, 0 跳过; 约 0.45 s | `test:integration` 17 例全绿; `build` 通过 |
+
+- 跨包前置: check / test 前先 `pnpm -C ../clock-base run build` (跨包 import 取 `clock-base/dist`).
+- 集成层: 首次跑 `test:integration` 出 1 例失败 (`tests/assemble.ts:352` 读快照时 `Unexpected end of JSON input`), 属阶段 2 记录的既有 flake; 按约定重跑一次 17 例全绿, 未改用例.
+- 断言: 本轮未改任何用例断言; 测试侧改动只有 `tests/clock.test.ts` 与 `tests/assemble.ts` 的 import 来源.
+- 未跑 `test:coverage`: 本阶段验收只要 check / test; 覆盖率的报告口径留给阶段 4 复核.
+- `pnpm run demo` (验收命令外): 除上述 `overBudget` 那条外其余断言通过, `DEMO_FAIL failures=1`.

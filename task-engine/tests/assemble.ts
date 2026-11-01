@@ -18,7 +18,7 @@
 import { readFileSync } from "node:fs";
 
 import { apply, type Config } from "../src/index.ts";
-import { ManualClock } from "../../clock-base/src/index.ts";
+import { ManualClock } from "@dsh-toolset/clock-base";
 
 /** 注册面收到的工具形态 (`toDshTool` 产物; 只列本装配器用到的字段)。 */
 export interface RegisteredTool {

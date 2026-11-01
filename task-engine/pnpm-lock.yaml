@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@dsh-toolset/clock-base':
+        specifier: link:../clock-base
+        version: link:../clock-base
     devDependencies:
       '@types/node':
         specifier: ^24.13.3
