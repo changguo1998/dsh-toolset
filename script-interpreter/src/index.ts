@@ -21,7 +21,7 @@ import { pythonBackend } from "./langs/python.ts";
 import { shBackend } from "./langs/sh.ts";
 import { probeInterpreter } from "./probe.ts";
 import { SpillStore } from "./run.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
 import { createScriptRunTool } from "./tools.ts";
 import type { ToolHost, ToolSettings } from "./tools.ts";
 import type {

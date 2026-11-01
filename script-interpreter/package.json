@@ -13,6 +13,10 @@
     "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
     "test:coverage": "rm -rf ../tmp/cov-script-interpreter && mkdir -p ../tmp/cov-script-interpreter && NODE_V8_COVERAGE=../tmp/cov-script-interpreter node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-script-interpreter tmp/cov-script-interpreter/report.json"
   },
+  "dependencies": {
+    "@dsh-toolset/clock-base": "link:../clock-base",
+    "@dsh-toolset/herdr-use": "link:../herdr-use"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3"
