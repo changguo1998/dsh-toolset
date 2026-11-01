@@ -1,14 +1,16 @@
 # @dsh-toolset/memory-base
 
-DSH（DeepSeek Harness）进程内插件：**分层记忆的存储底座**——S / P / U 三层独立 SQLite（`node:sqlite`）库 + FTS5 双索引。本包只做存储（分层 / 分类 / 读写 / 查询 / 按扩展隔离），提升、审阅、生命周期与容量淘汰归上层插件。
+## 定位
 
-## 定位与读写边界
+DSH（DeepSeek Harness）进程内插件：**分层记忆的存储底座**——S / P / U 三层独立 SQLite（`node:sqlite`）库 + FTS5 双索引。本包只做存储（分层 / 分类 / 读写 / 查询 / 按扩展隔离），提升、审阅、生命周期与容量淘汰归上层插件。
 
 - **读全局**：`ctx.get('memory')` 八读 + 三管理写，跨 kind、跨层查询，调用方不传文件路径、不关心一次会碰几个库。
 - **写隔离**：扩展的业务写入与删除**只经 `registerKind(spec)` 返回的作用域句柄**（按 kind + 可写层）；全局面另有三管理写（`forget` / `update` / `remember`），只做 U / P 层的用户纠错与直写，S 层一律拒绝。
 - **不注册写工具**：模型侧只有一个只读查询工具 `memory_query`；写权限留在各扩展的句柄与 TUI 管理面。
 
-## 服务面（`ctx.get('memory')`，八读 + 三管理写）
+## 能力
+
+### 服务面（`ctx.get('memory')`，八读 + 三管理写）
 
 | 键 | 参数要点 | 返回 |
 | --- | --- | --- |
@@ -24,7 +26,7 @@ DSH（DeepSeek Harness）进程内插件：**分层记忆的存储底座**——
 | `update(ref, patch)` | 同上地址 + `{content, title?, importance?}`；单行就地改，**不重新分块** | `{ok, id}` 或 `{ok: false, skipped}`（`missing` / `duplicate` / 内容闸门原因） |
 | `remember(input)` | `{tier: "project" \| "user", kind, content, title?, importance?}`；用户直写，内容闸门与 `preWrite` 仍生效 | `PutResult` |
 
-## 写入作用域句柄（`MemoryScope`）
+### 写入作用域句柄（`MemoryScope`）
 
 ```ts
 interface MemoryScope {
@@ -47,9 +49,9 @@ interface PutResult { ids: number[]; sourceId: number; created: number; skipped?
 
 **拒写的两种形态**（唯一两种失败风格）：
 
-**抛错**（参数级 / 权限级）与 **`skipped`**（内容级，`ids` 为空、不落库、不抛错）——逐条触发与表现见 `docs/DESIGN.md` §3 的「拒写的两种形态」表与 §8 失败语义汇总。
+**抛错**（参数级 / 权限级）与 **`skipped`**（内容级，`ids` 为空、不落库、不抛错）——逐条触发与表现见 `docs/DESIGN.md`「机制」节的「拒写的两种形态」表与「失败语义汇总」。
 
-## 分类注册
+### 分类注册
 
 本包只提供**分类机制**，不规定有哪些分类——「偏好」「技能沉淀」这类语义归各自上层插件，代码里不出现具体分类名。
 
@@ -67,17 +69,17 @@ const scope = memory.registerKind({
 - 同名 / 同表重复注册、表名撞保留名、`writableTiers` 非法或为空数组，均抛错。
 - kind 名由注册方自定，本包不校验也不维护全量清单。
 
-## 分层与落点
+### 分层与存储路径
 
-三层库文件 / 落点 / 指纹（`SESS` / `PROJ` / `USER`）与不变量见 `docs/DESIGN.md` §1。
+三层库文件 / 存储路径 / 指纹（`SESS` / `PROJ` / `USER`）与不变量见 `docs/DESIGN.md`「结构」节的「分层与存储路径」。
 
-- **层级恒开启**，没有开关也没有单库形态；**库惰性创建**——`apply` 只解析落点，首次写到某层才建 / 打开该库。
-- **S 层落点经 `session-paths` 的 `sessionDirFor(sessionId)` 解析**：本包不自己拼路径、不读宿主会话服务。该服务未挂载时 S 层写入按明示例外报错，P / U 层不受影响。
+- **层级恒开启**，没有开关也没有单库形态；**库惰性创建**——`apply` 只解析存储路径，首次写到某层才建 / 打开该库。
+- **S 层存储路径经 `session-paths` 的 `sessionDirFor(sessionId)` 解析**：本包不自己拼路径、不读宿主会话服务。该服务未挂载时 S 层写入按明示例外报错，P / U 层不受影响。
 - 同一进程可能同时存在主会话与子代理会话，S 层按 `(tier, sessionId)` 惰性打开并缓存，各落各库。
 - 检索排序：**U > P > S**，同层按分数。
 - 检索策略 `mode`：`bm25`（缺省，单词面：porter BM25 + `fuzzy` 叠加 trigram + LIKE 兜底）或 `hybrid`（带权 BM25 + trigram + LIKE + 词项邻近四路 RRF 融合，长句 / 多词更稳，延迟约 6 倍）。
 
-## 模型侧工具 `memory_query`（只读）
+### 模型侧工具 `memory_query`（只读）
 
 - `action`：`search`（缺省，全文检索）/ `list`（按 kind 结构化列举）；
 - 参数：`query`（search 必填）、`kind?`、`tier?`、`project?`、`limit?`（缺省 10，clamp 1..100）、`fuzzy?`（仅 search）、`mode?`（仅 search：`bm25` 缺省 / `hybrid`）、`offset?`（仅 list）；
@@ -88,15 +90,15 @@ const scope = memory.registerKind({
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `dshHome` | `~/.dsh` | U 库落点根（`<dshHome>/memory-base/user.db`） |
-| `projectRoot` | `process.cwd()` | P 库落点根（`<projectRoot>/.dsh/project.db`） |
+| `dshHome` | `~/.dsh` | U 库存储路径根（`<dshHome>/memory-base/user.db`） |
+| `projectRoot` | `process.cwd()` | P 库存储路径根（`<projectRoot>/.dsh/project.db`） |
 | `project` | `process.cwd()` | 缺省归属项目键（句柄未给 `project` 时用） |
 | `journalMode` | `"wal"` | `wal` / `delete` / `truncate` / `persist` |
 | `persistRules` | 无 | `{minChars?, denyPatterns?}`：最小长度与追加拒绝模式（内置隐私模式始终生效，非法正则只记 warning） |
 | `listLimit` | `20` | `list` 的缺省上限（clamp 1..100） |
 | `legacyDbPath` | `~/.dsh/memory-base/memory.db` | `migrate` 作用的旧库路径 |
 
-## 使用示例
+## 用法
 
 ```ts
 import { createMemoryBundle, createGlobalService } from "@dsh-toolset/memory-base";
@@ -127,9 +129,9 @@ bundle.dispose();
 
 S 层写入需要 `session-paths` 插件同在组合里（它 `provide: ["sessionPaths"]`）；本包用 `ctx.get("sessionPaths")` 探测，**不写进 `inject`**。
 
-## 边界与限制
+## 边界
 
-- **已知边界**（CJK 召回与 `LIKE` 兜底及转义、去重全局、隐私形态匹配、不做价值判断、token 估算、层权重、删除不传播、同进程共享）见 `docs/DESIGN.md` §10。
+- **已知边界**（CJK 召回与 `LIKE` 兜底及转义、去重全局、隐私形态匹配、不做价值判断、token 估算、层权重、删除不传播、同进程共享）见 `docs/DESIGN.md`「取舍」节的「已知边界」。
 - **`search` 无写副作用**：命中不刷新任何列（`last_referenced` 已随列删除下线）。
 - 库文件 `0o600`、父目录 `0o700`；**一库一指纹**，指纹或版本不符一律拒绝打开（不整库重置）；旧库清空走显式 `migrate({from: "v1", mode: "drop"})`。
 - **已收敛（2026-10-23）**：TUI `/memory add` 改走管理面 `remember`（kind 必填、S 层拒绝），并新增 `list` / `remove` / `replace`；`/memory review` 的提示已指向新子命令。
@@ -137,18 +139,15 @@ S 层写入需要 `session-paths` 插件同在组合里（它 `provide: ["sessio
 ## 测试
 
 ```sh
-npm run check   # tsc -p tsconfig.json --noEmit
-npm run build   # tsc -p tsconfig.json → dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
-npm run demo    # node --experimental-transform-types demo/main.ts（末行 demo OK）
-npm run smoke   # node smoke/smoke.mjs（自包含自检，不依赖模型凭据）
+pnpm run check   # tsc -p tsconfig.json --noEmit
+pnpm run build   # tsc -p tsconfig.json → dist/
+pnpm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
+pnpm run demo    # node --experimental-transform-types demo/main.ts（末行 demo OK）
+pnpm run smoke   # node smoke/smoke.mjs（自包含自检，不依赖模型凭据）
 ```
 
 61 例（`schema` 5 + `knowledge` 12 + `kinds` 8 + `tiers` 9 + `bundle-tiers` 9 + `exposure` 3 + `tools` 8 + `rules` 4 + `migrate` 3）。
 
 `demo` 演示句柄写入三层、隐私闸 / `preWrite` / 越权层、跨层检索与列举、真删、`memory_query` 渲染。`smoke` 是确定性自检：惰性建库 → 三层写入 → 指纹断言 → 全局读面 → 闸门 → 真删 → 工具面 → 可选报告宿主机版本；失败保留临时目录。
 
-## 文档
-
-- 设计取舍、机制与实现落点：`docs/DESIGN.md`（定位 / 分层 / 句柄 / 闸门 / 查询 / Schema / 失败语义 / 边界 / 实现落点与踩坑）。
-- 待办：`docs/BACKLOG.md`。
+设计取舍、机制与实现位置见 `docs/DESIGN.md`（背景 / 结构 / 机制 / 取舍）；待办见 `docs/BACKLOG.md`。
