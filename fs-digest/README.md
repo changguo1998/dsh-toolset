@@ -1,6 +1,10 @@
 # @dsh-toolset/fs-digest
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：上下文感知文件读取。注册工具 `fs_digest`，按文件类型与读取意图返回最小充分上下文，替代整文件 `read`；只读，不改文件。
+
+文档：能力与契约以本文件为准（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）；待办见 `docs/BACKLOG.md`（当前无未完成项），历史过程记录见 `docs/archived/`（cwd 注入、render 全函数化）；Markdown 深能力与口径差异见下文「边界」的 `md_logic` 条目；宿主契约见 `docs/host/DSH-CTX-API.md` §0（bundle 导出面）与 `docs/host/HOST-PACKAGES.md`（会话 `header.cwd` / `ctx.tools`）。
 
 ## 能力
 
@@ -22,7 +26,7 @@ DSH（DeepSeek Harness）进程内插件：上下文感知文件读取。注册�
 
 bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 不可用时静默跳过注册。
 
-## 使用示例
+## 用法
 
 ```jsonc
 { "path": "src/digest.ts", "mode": "outline", "depth": 2 }
@@ -44,9 +48,9 @@ L1-20 heading 标题一
 
 块 kind：`list`（条目数）/ `table`（数据行数，不含表头与分隔行）/ `code`（围栏语言）/ `quote`（行数）/ `frontmatter`（键数）。
 
-TS API（包入口 `index.ts` → `src/main.ts` 透出）：`digest(ctx, filePath, opts, deps?)`（`deps` 可注入 `provider` / `read` / `resolvePath` / `maxBytes`，单测与嵌入场景）、`DIGEST_MODES` 与 `types.ts` 的全部结果/选项类型、bundle 契约符号 `name` / `inject` / `Config` / `apply`。结构扫描器等只在**模块级**导出（`src/outline.ts` 的 `scanMarkdown` / `parseMarkdownOutline` / `parseTsOutline` / `parsePythonOutline` / `buildOutline`、`src/signatures.ts` 的 `extract*Signatures` / `buildSignatures`、`src/prune.ts` 的 `pruneText` 等）：深路径可引用，但**不属包入口契约**。
+TS API（包入口 `src/index.ts` 透出）：`digest(ctx, filePath, opts, deps?)`（`deps` 可注入 `provider` / `read` / `resolvePath` / `maxBytes`，单测与嵌入场景）、`DIGEST_MODES` 与 `types.ts` 的全部结果/选项类型、bundle 契约符号 `name` / `inject` / `Config` / `apply`。结构扫描器等只在**模块级**导出（`src/outline.ts` 的 `scanMarkdown` / `parseMarkdownOutline` / `parseTsOutline` / `parsePythonOutline` / `buildOutline`、`src/signatures.ts` 的 `extract*Signatures` / `buildSignatures`、`src/prune.ts` 的 `pruneText` 等）：深路径可引用，但**不属包入口契约**。
 
-## 边界与限制
+## 边界
 
 - `outline` / `signatures` 优先消费宿主 LSP（duck-typed：`ctx.lsp` 或 `ctx.get("lsp")` 的 `documentSymbols` / `symbols`）；不可用时 Markdown 走原生标题解析，TypeScript/JavaScript 与 Python 走启发式（多行签名配平、注释剥离、缩进层级）。
 - Markdown **深查**（链接 / 引用式定义 / 嵌套层数 / 表格行列数）用 `md_logic`（`@dsh-toolset/md-logic`）：本包是轻量启发式入口（零依赖、与三模式统一），行范围口径两者一致，但在 setext 标题 / HTML 块 / 缩进代码块 / 懒续行等情形会有差异（**以 `md_logic` 的真实解析为准**，差异清单见其 README「与 fs_digest 的口径差异」）。
@@ -60,15 +64,10 @@ TS API（包入口 `index.ts` → `src/main.ts` 透出）：`digest(ctx, filePat
 ## 测试
 
 ```sh
-npm run check   # tsc --noEmit
-npm run build   # 编译到 dist/
-npm run test    # node --test（66 例：三模式 + 语言推断/LSP/读取守卫 + Markdown 结构视图）
-npm run demo    # 三模式本地示例（无 DSH 依赖）
+pnpm run check             # tsc --noEmit
+pnpm run build             # 编译到 dist/
+pnpm run test              # 单元用例（node --test）：三模式 + 语言推断/LSP/读取守卫 + Markdown 结构视图
+pnpm run test:integration  # 集成层：apply 与宿主接线（tests/integration）
+pnpm run test:coverage     # 单元 + 集成并出覆盖率报告（tmp/cov-fs-digest）
+pnpm run demo              # 三模式本地示例（无 DSH 依赖）
 ```
-
-## 文档
-
-- 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
-- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`（cwd 注入、render 全函数化）。
-- Markdown 深能力与口径差异：见上文「边界与限制」的 `md_logic` 条目。
-- 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（会话 `header.cwd` / `ctx.tools`）。
