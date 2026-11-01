@@ -203,40 +203,31 @@ import {
 import { StatusTicker, type StatusQueries } from "./status.ts";
 import type { ActivityPlacement } from "./config.ts";
 
-/** Ctrl+D 退出守卫（P8 口径）：agent 空闲、**未在压缩上下文**、且输入区为空才退出。
- *  压缩期间视为活跃——此时按 Ctrl+D 不退出（与排队判据同源，见 App.agentBusy）。 */
-export function canExitOnCtrlD(state: AppState): boolean {
-  return (
-    state.agentStatus === "idle" &&
-    !isCompacting(state) &&
-    state.inputText === ""
-  );
-}
+export {
+  DSH_RESTART_EXIT_CODE,
+  EXIT_CONFIRM_CLEAN_LABEL,
+  EXIT_CONFIRM_RESTART_LABEL,
+  canExitOnCtrlD,
+} from "./exit-guards.ts";
+import {
+  CLEAN_QUIT_CONFIRM_LABEL,
+  CLEAN_QUIT_PANEL_ID,
+  DSH_RESTART_EXIT_CODE,
+  EXIT_CONFIRM_CLEAN_LABEL,
+  EXIT_CONFIRM_RESTART_LABEL,
+  CTRL_C_DOUBLE_MS,
+  EXIT_CLEAN_TIMEOUT_MS,
+  EXIT_CONFIRM_PANEL_ID,
+  MEMORY_USAGE,
+  canExitOnCtrlD,
+} from "./exit-guards.ts";
+export { focusedLineScroll, focusedPageScroll } from "./scroll-helpers.ts";
+export type { PaneScrollMax } from "./scroll-helpers.ts";
+import { focusedLineScroll, focusedPageScroll } from "./scroll-helpers.ts";
+import type { PaneScrollMax } from "./scroll-helpers.ts";
+export type { AppDeps } from "./app-deps.ts";
+import type { AppDeps } from "./app-deps.ts";
 
-/** Ctrl+C 双击退出窗口(毫秒)：窗口内第二次 Ctrl+C 退出程序 */
-const CTRL_C_DOUBLE_MS = 750;
-/** 退出确认面板的合成问答面板 id（非宿主 ask；`submitQuestion`/`cancelQuestion` 按它分支，
- *  绝不调用 adapter 的 answerQuestion/cancelQuestion）。普通 id 不会与之冲突（宿主 id 为 uuid 类） */
-const EXIT_CONFIRM_PANEL_ID = "exit-confirm";
-/** 退出确认面板「重启 dsh」项与启动器的约定退出码（BACKLOG #51）：
- *  TUI 置 `process.exitCode = 75` 后正常收尾退出，启动器看到 75 即重启下一轮
- *  （会话 id 经 `DSH_RESTART_FILE` 交接；语义见 `TUI/docs/DESIGN.md`「退出确认 ·「重启」方案」） */
-export const DSH_RESTART_EXIT_CODE = 75;
-/** 「重启 dsh（保留会话）」选项文案：`finishExitConfirm` 按它分支，测试与文案同源 */
-export const EXIT_CONFIRM_RESTART_LABEL = "重启 dsh（保留会话）";
-/** 退出确认面板「清理并退出」项文案：`finishExitConfirm` 按它分支，测试与文案同源 */
-export const EXIT_CONFIRM_CLEAN_LABEL = "清理并退出（删除本会话）";
-/** `/cleanquit` 的合成确认面板 id 与确认项文案（删除不可逆，显式命令也要二次确认） */
-const CLEAN_QUIT_PANEL_ID = "clean-quit-confirm";
-const CLEAN_QUIT_CONFIRM_LABEL = "清理并退出";
-/** `/memory` 用法（管理面子命令；S 层按会话隔离，管理面只处理 project / user）。 */
-const MEMORY_USAGE =
-  "usage: /memory [search <query> [--all-projects] | list [project|user] [--kind <k>] | " +
-  "remove <tier> <kind> <id> | replace <tier> <kind> <id> <content> | " +
-  "add <project|user> --kind <k> <content>]";
-/** 退出时清理空会话的最长等待(ms)：防会话服务挂起把退出卡死。
- *  正常清理毫秒级即可完成，超时仅放弃清理并继续退出。 */
-const EXIT_CLEAN_TIMEOUT_MS = 5000;
 /** 运行中闪烁时间驱动的 tick 周期(ms)：running 期间周期性推进虚拟状态
  *  （无数据时虚拟速度衰减回落、虚拟总 token 持续积分，闪烁频率渐降到最低而不断） */
 const VIRT_TICK_MS = 250;
@@ -302,144 +293,6 @@ export function smallTerminal(size: { cols: number; rows: number }): boolean {
 }
 
 const RETIRED_COMMAND_NOTICE = "该命令已下线（待重新设计）";
-
-/**
- * 焦点面板行滚动 action 映射：activity 偏移语义=距底部（上滚=+），
- * status 偏移语义=距顶部（上滚=-），方向不可混用。
- *
- * `delta` = 位移行数（正 = 上滚）：裸 ↑/↓ 传 1，Ctrl+↑/↓ 传半屏
- * （`dialogueHalfPage(activityH)`，与对话区同款快速翻页）。
- *
- * 对话区不在其中：它按「段键 + 段内行」定位，位移在 App 用本帧段表换算
- * （见 `App.scrollDialogueBy`）。
- */
-export function focusedLineScroll(
-  panel: "activity" | "status",
-  delta: number, // 行数：正=上, 负=下
-  max?: PaneScrollMax,
-): StateAction {
-  if (panel === "activity") {
-    return {
-      type: "activity-scroll",
-      delta,
-      ...(max ? { max: max.activity } : {}),
-    };
-  }
-  return { type: "status-column-scroll", delta: -delta };
-}
-
-/** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数；对话区同上） */
-export function focusedPageScroll(
-  panel: "activity" | "status",
-  dir: 1 | -1, // 1=上一页, -1=下一页
-  page: FrameGeometry,
-  max?: PaneScrollMax,
-): StateAction {
-  if (panel === "activity") {
-    return {
-      type: "activity-scroll",
-      delta: dir * page.activityH,
-      ...(max ? { max: max.activity } : {}),
-    };
-  }
-  return { type: "status-column-scroll", delta: -dir * page.contentTopH };
-}
-
-/** 两 pane 的可滚动上限（行单位；App 经 paneMaxes() 取得，见 FrameScrollReport） */
-export interface PaneScrollMax {
-  dialogue: number;
-  activity: number;
-}
-
-export interface AppDeps {
-  renderer: Renderer;
-  adapter: DshAdapter;
-  /** 可选：系统状态区数据源；提供后 App 自动启动合并节流 ticker */
-  status?: {
-    queries: StatusQueries;
-    intervalMs?: number;
-    /** 调度器（可注入；缺省 setInterval）。定时器统一面（`clock` 服务）经 main.ts 接成
-     *  `(fn, ms) => timers.interval(ms, fn)`，未挂载时回落进程内 setInterval。 */
-    schedule?: (fn: () => void, ms: number) => () => void;
-  };
-  /** 初始主题（默认 dark=fffdark；/theme 切换仅当前会话） */
-  initialTheme?: ThemeId;
-  /** 跨回合最小帧间隔(ms)：>0 时限帧到该频率（窗口内跨宏任务的标脏合并到窗口末
-   *  统一出帧）；缺省 0=不限帧（测试/演示保持立即出帧）。真实接线 main.ts 传 100=10Hz。 */
-  frameIntervalMs?: number;
-  /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
-  messageGutter?: number;
-  /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
-  footerHeight?: number;
-  /** 活动区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
-  activityHeightDivisor?: number;
-  /** 活动区分隔行锚定（tui.config.json layout.activityTopRow；"half" = floor(rows/2) 或绝对行号；
-   *  配置后替代 activityHeightDivisor 的比例分配，缺省走 divisor） */
-  activityTopRow?: "half" | number;
-  /** 活动区排列方式（tui.config.json layout.activityPlacement；"auto" 按黄金分割比
-   *  自动在上下/左右间选择，缺省恒上下排列。见 layout.ts topPaneSplit） */
-  activityPlacement?: ActivityPlacement;
-  /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
-  statusColumnDivisor?: number;
-  /** /agents 面板定时刷新间隔(ms)；缺省 2000。宿主无 subagent 状态事件面，由
-   *  打开期间定时 + 手动 `r` 双路保鲜（C2；评估结论见 TUI/docs/DESIGN.md「非显然实现要点」） */
-  agentsRefreshIntervalMs?: number;
-  /** 声音提醒（P2#33）：任务运行结束 / 等待用户输入超阈值 → 终端 BEL（\x07）。
-   *  可选；不传=默认开启。配置源 tui.config.json `notify`（见 config.ts）。 */
-  notify?: {
-    /** bell 总开关；缺省 true */
-    enabled?: boolean;
-    /** 等待用户输入超时(ms)；缺省 8000。最小 1000（由 config 归一化兜底） */
-    idleThresholdMs?: number;
-  };
-  /**
-   * 六步流水线装配：App 在此注册「块交付」sink 并
-   * 自己持有节缓存（`state.pipeline`）。缺省不注册 → adapter 零开销、旧路径不变。
-   */
-  pipelineSink?: { current?: (delivery: BlockDelivery) => void };
-  /** 符号服务读取器（懒读，容忍插件装载顺序）：返回 undefined = symbol-normalizer 未挂载，
-   *  此时展示层原文透传、无 notice（BACKLOG TUI#18 / 项目级 #48） */
-  getSymbols?: () => SymbolNormalizerLike | undefined;
-  /** 会话通道读取器（懒读）：返回 undefined = session-channel 未挂载，状态栏不显示别名段
-   *  （BACKLOG TUI#48） */
-  getSessionChannel?: () => SessionChannelLike | undefined;
-  /** rule-engine 服务读取器（懒读）：返回 undefined（或未实现 onNotice）= 告警不经总线，
-   *  由插件侧 stderr 兜底（BACKLOG「rule-engine 的用户提示应显示在活动区」） */
-  getRuleEngine?: () => RuleEngineLike | undefined;
-  /** 运行期告警出口（缺省静默；真实接线由 main.ts 写 stderr，格式 `warn: …`） */
-  logger?: (message: string) => void;
-  /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。
-   *  不传 / adapter 未实现 sendBootstrapKickoff = 不发送 */
-  bootstrapKickoffText?: string;
-  /** `/new` 的启动自检惰性门控（BACKLOG TUI#57；main.ts 接线）：每次新建会话**切换完成后**
-   *  调用，返回正文则补发 kickoff，undefined = 不发。不能复用 `bootstrapKickoffText`——
-   *  那是按启动会话判定的静态值（启动会话已解锁时为空） */
-  bootstrapKickoffForNewSession?: () => string | undefined;
-  /** 自动清理空会话（tui.config.json `session.autoCleanEmpty`；main.ts 接线缺省 true）。
-   *  true 时 start() 异步扫描全部目录删除空会话（notice 汇报），且优雅退出时
-   *  （/quit、Ctrl+D、双击 Ctrl+C、插件 unload）先打印提示并等待清理完成再关闭渲染器。 */
-  autoCleanEmpty?: boolean;
-  /** 重启交接文件路径（main.ts 从 `process.env.DSH_RESTART_FILE` 接线；BACKLOG #51）。
-   *  非空 = 由会处理退出码 75 的启动器启动：退出确认面板才提供「重启 dsh（保留会话）」，
-   *  选中后把当前活跃会话 id 写进该文件并置退出码 75（不自己 respawn）。 */
-  restartHandoffPath?: string;
-  /** `$` 模式本地执行器（BACKLOG TUI#37）：缺省走 node:child_process（local-shell.ts），
-   *  测试可注入假实现避免真起进程 */
-  runShell?: ShellRunner;
-  /** `$` 模式执行前复查的 security-guard 服务读取器（懒读，容忍插件装载顺序；BACKLOG
-   *  「TUI `$` 模式执行面不经 guard」）：main.ts 接 `ctx.get("guard")`；返回 undefined /
-   *  无 inspectCommand / 读取或调用抛错 → fail-open 照常执行 + 每种失效模式告警一次。
-   *  缺省（不传）= 未接线：不复查也不告警（测试与无 guard 的嵌入方保持原行为）。 */
-  getGuard?: () => SecurityGuardLike | undefined;
-  /** profile 目录（main.ts 从 `ctx.get('profileContext').dir` 接线）：实测宽度表
-   *  落盘位置（`<profile 目录>/tui-width-symbols.json`）。缺省 / 空串 = 不落盘
-   *  （仍按需实测，只是不跨会话复用）；见 src/app/layout/width-symbols.ts。 */
-  profileDir?: string;
-  /** 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源；见 src/app/adapter/local-log.ts）：
-   *  main.ts 从 tui.config.json 的 localLog 段归一化后传入（缺省开启）。
-   *  缺省不传 = 不落盘（测试与嵌入方保持原行为）。 */
-  localLog?: LocalLogWriteOptions;
-}
 
 export class App {
   private state: AppState;
