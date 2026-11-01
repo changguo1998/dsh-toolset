@@ -18,7 +18,7 @@ import { probeInterpreter } from "./probe.ts";
 import { renderScriptValue } from "./render.ts";
 import { runScript } from "./run.ts";
 import type { SpillSink } from "./run.ts";
-import type { Deadline } from "./timers.ts";
+import type { Deadline } from "@dsh-toolset/clock-base";
 import {
   SANDBOX_UNAVAILABLE,
   SandboxUnavailableError,

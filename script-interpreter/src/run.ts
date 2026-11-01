@@ -16,7 +16,7 @@ import { appendFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Deadline } from "./timers.ts";
+import type { Deadline } from "@dsh-toolset/clock-base";
 
 /** 进程组清理宽限期（毫秒）：`SIGTERM` 后等这么久再 `SIGKILL`。 */
 export const KILL_GRACE_MS = 1_000;
