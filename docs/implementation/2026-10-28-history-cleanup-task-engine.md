@@ -131,3 +131,9 @@ rm -rf ../tmp/cov-task-engine && mkdir -p ../tmp/cov-task-engine && NODE_V8_COVE
 - 断言: 本轮未改任何用例断言; 测试侧改动只有 `tests/clock.test.ts` 与 `tests/assemble.ts` 的 import 来源.
 - 未跑 `test:coverage`: 本阶段验收只要 check / test; 覆盖率的报告口径留给阶段 4 复核.
 - `pnpm run demo` (验收命令外): 除上述 `overBudget` 那条外其余断言通过, `DEMO_FAIL failures=1`.
+
+## 阶段 3b (2026-11-01)
+
+- 缺陷定位: 上面第 130 行的「既有 flake」不是负载抖动, 是真实竞态。周期快照 (`append`) 与卸载最终写 (`writeSnapshot`) 各自直接 `writeFile` 同一路径, 彼此不排队; `unload()` 只等自己那一次写, 而更早排队的周期写仍可能随后执行并截断文件, 读侧 `JSON.parse` 读到空串 (`Unexpected end of JSON input`)。单包顺序跑时微任务先排空, 故只在根并行跑时复现。
+- 修复: `src/engine-store.ts:155` 新增 `scheduleSnapshot()`, 所有落盘排进同一条串行链; `writeSnapshot()` 排在链尾并等链尾落定, `append()` 只排不等待 (失败吞掉, 不阻塞主流程)。对外快照内容与时序语义不变, 只是不再交叉写。
+- 验证: `pnpm -C task-engine run check` 通过; `pnpm run test` 171 例全绿; `pnpm run test:integration` 17 例全绿; 根 `pnpm run test:integration` 连跑 3 次均退出 0 (34 包)。

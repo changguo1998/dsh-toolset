@@ -155,6 +155,24 @@ export class EngineStore {
   /** 写快照到 snapshotPath（配置时）；未配置时 no-op */
   async writeSnapshot(): Promise<void> {
     if (!this.snapshotPath) return;
+    // 与周期快照共用同一条串行链：最终写排在已排队的写之后，
+    // await 返回时链尾已落定，读侧不会读到后续并发写截断出的半截文件。
+    await this.scheduleSnapshot();
+  }
+
+  /** 把一次落盘排到串行链尾；返回本次写的 promise（失败会抛给调用方）。 */
+  private scheduleSnapshot(): Promise<void> {
+    const write = this.snapshotChain.then(() => this.writeFileNow());
+    // 链上保留吞错版本：一次写失败不阻断后续快照。
+    this.snapshotChain = write.catch(() => {
+      /* 快照写失败不阻塞主流程 */
+    });
+    return write;
+  }
+
+  /** 实际落盘（只经串行链调用）。 */
+  private async writeFileNow(): Promise<void> {
+    if (!this.snapshotPath) return;
     const { writeFile } = await import("node:fs/promises");
     await writeFile(this.snapshotPath, this.snapshotText(), "utf8");
   }
@@ -164,11 +182,9 @@ export class EngineStore {
     // 周期快照：配置 snapshotPath 时每次事件后串行写盘（fire-and-forget），
     // 保证硬中止（turn/end reason=aborted）后磁盘上存在可恢复的最新事件流
     if (this.snapshotPath) {
-      this.snapshotChain = this.snapshotChain
-        .then(() => this.writeSnapshot())
-        .catch(() => {
-          /* 快照写失败不阻塞主流程 */
-        });
+      this.scheduleSnapshot().catch(() => {
+        /* 快照写失败不阻塞主流程 */
+      });
     }
   }
 
