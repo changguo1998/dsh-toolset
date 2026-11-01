@@ -1,15 +1,19 @@
 # @dsh-toolset/session-title-cutoff
 
+## 定位
+
 DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— **触发策略保持 `all-prompts`**（每条真实用户消息触发一次自动标题，手动 `/rename` 的 pin 语义不变），但**参考窗口**改为「最近一次会话内提交动作（`git commit`）之后的人类消息」；会话内从未提交过则等同全量（现状）。
 
-## 行为
+## 能力
 
 - **窗口**：`selected = request.messages.filter(m => m.seq > cutoffSeq)`；`cutoffSeq` = 本会话最近一次 `git commit` 工具调用事件的 `seq`。
 - **回退**：无提交记录 / 过滤后为空 / 事件不可读 → 用全量消息（保证标题仍可生成）。
 - **提交判定**：只按命令文本判定，不绑定工具名——命令按换行 / `;` / `&&` / `||` / `|` 切段后，**某段以 `git commit` 开头**才算提交（放行 `sudo` 与 `git -C <目录>` 前缀，`--amend` / `-a` 自然覆盖）。命令里只是「提到」`git commit` 的文本不算（2026-09-29 真机日志实证：核查脚本会把 cutoff 顶高）。
 - **记账**：订阅 `session/event` 的 `tool/call` 维护每会话 `cutoffSeq` 缓存（容量 256 个会话，FIFO 淘汰）；进程重启后缓存为空 → 首次触发时经 `ctx.get("sessionQuery").readSession()` 按会话事件重建一次 cutoff（事件不可读才回退全量），后续提交再次推进。
 
-## 配置（`cordis.patch.yml` 的 `config`）
+## 配置
+
+配置写在 `cordis.patch.yml` 的 `config`。
 
 | 字段 | 缺省 | 说明 |
 | --- | --- | --- |
@@ -20,19 +24,7 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 | `timeoutMs` | `60000` | 标题请求超时 |
 | `provider` / `model` | 空 | 成对提供时显式指定路由；留空 = 复用会话当前记录的路由，但 `all-prompts` 在会话首条消息时可能尚无已记录路由，故**建议显式配置** |
 
-## 宿主依赖姿态（零依赖）
-
-宿主包不在本仓库的可解析路径内。本包**不声明 `@deepseek-ai/*` 依赖**，而是在运行时经
-`createRequire($DSH_HOME/profiles/node_modules/x.js)` 解析并动态 `import()` 官方 helper
-（`@deepseek-ai/dsh-session-title-llm`）——该路径是宿主官方兜底解析路径（见 profile 模板注释），
-解析到的是与宿主同版的副本。解析失败 → 告警且**不注册 provider**（宿主回落确定性 fallback，不崩）。
-
-只把**执行控制键**（`maxInputBytes` / `maxOutputTokens` / `timeoutMs` / `provider` / `model`）交给
-`resolveSessionTitleLlmConfig`（0.2.1 对集合外的键直接抛错）；措辞两键由本包自用并本地校验。
-只认 0.2.1 起的 `executeSessionTitleLlm` 形态：只提供旧 `generateSessionTitleWithLlm` 的 helper
-视为不可用（告警、不注册），回退 0.2.0 宿主须一并回退本包。
-
-## 接入前提
+## 用法
 
 宿主只允许注册一个标题 provider，故需在 profile 用户层**禁用官方 `session-title-all-prompts-llm`**：
 
@@ -47,12 +39,24 @@ DSH 进程内插件：接管 `ctx.sessionTitle` 的唯一标题 provider —— 
 
 profile 挂载（bundle 层已自带 insert 与缺省配置，通常无需手写：本包 `package.json` 的 `dsh.bundle.patch` 已插入自身）。
 
+## 边界
+
+宿主依赖姿态为**零依赖**。宿主包不在本仓库的可解析路径内。本包**不声明 `@deepseek-ai/*` 依赖**，而是在运行时经
+`createRequire($DSH_HOME/profiles/node_modules/x.js)` 解析并动态 `import()` 官方 helper
+（`@deepseek-ai/dsh-session-title-llm`）——该路径是宿主官方兜底解析路径（见 profile 模板注释），
+解析到的是与宿主同版的副本。解析失败 → 告警且**不注册 provider**（宿主回落确定性 fallback，不崩）。
+
+只把**执行控制键**（`maxInputBytes` / `maxOutputTokens` / `timeoutMs` / `provider` / `model`）交给
+`resolveSessionTitleLlmConfig`（0.2.1 对集合外的键直接抛错）；措辞两键由本包自用并本地校验。
+只认 0.2.1 起的 `executeSessionTitleLlm` 形态：只提供旧 `generateSessionTitleWithLlm` 的 helper
+视为不可用（告警、不注册），回退 0.2.0 宿主须一并回退本包。
+
 ## 测试
 
 ```sh
-npm run check   # tsc --noEmit
-npm run build   # tsc → dist/
-npm run test    # node --test（纯函数 + 假 ctx 装配；另含一条真实 helper 契约测试，未安装时 skip；不连真实 LLM）
+pnpm run check   # tsc --noEmit
+pnpm run build   # tsc → dist/
+pnpm run test    # node --test（纯函数 + 假 ctx 装配；另含一条真实 helper 契约测试，未安装时 skip；不连真实 LLM）
 ```
 
 包内文档：本 README（契约与边界）；决策与工期记录见 `docs/archived/2026-09-29-title-cutoff-provider.md` 与 `docs/archived/2026-10-21-title-fallback-config-split.md`（0.2.1 键面适配）。
