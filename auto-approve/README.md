@@ -1,5 +1,7 @@
 # @dsh-toolset/auto-approve
 
+## 定位
+
 DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval/request`）上按配置自动裁定，
 免去逐次人工应答；人工面保留（未命中判据的请求照常弹审批面板），宿主审计对照常产生。
 
@@ -13,7 +15,12 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 > **自动放行不等于沙箱放行**：本插件只回答「是否免去人工应答」；沙箱围栏仍由 `sandboxPolicy`
 > 承担，自动放行后的命令继续在既有沙箱模式下执行。
 
-## 挂载与裁定顺序
+- 设计与决策（优先级表、审计口径、R1–R7 裁定）：项目级 `docs/archived/2026-10-16-auto-approval-design.md`。
+- 包内待办：`docs/BACKLOG.md`。
+
+## 能力
+
+### 挂载与裁定顺序
 
 | 挂载点 | 职责 |
 | --- | --- |
@@ -29,7 +36,7 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 | 1 | 显式拒绝名单（`deny.tools` / `deny.escalation.to`） | `rejected` | 缺省全空；**只表达「不自动批」**；优先于一切放行与 LLM |
 | 2 | 同会话指纹（已批准过的等价调用） | `allowed-once` | 仅单会话内有效；被拒绝过的等价调用不进放行集 |
 | 2.5 | 人工放行学来的形态覆盖（`learnFromManual`） | `allowed-once` | 只对命令类工具；**每一段**形态都在本会话表里才命中；`ruleId: fingerprint:form` |
-| 3 | 只读类工具（`readonlyTools`） | `allowed-once` | 缺省含官方读工具与本仓读面插件工具；**不含 `bash`**；herdr 十个工具一律按未登记只读类处理（四个读类也逐次确认，见 `docs/implementation/2026-10-23-herdr-terminal-readonly.md`） |
+| 3 | 只读类工具（`readonlyTools`） | `allowed-once` | 缺省含官方读工具与本仓读面插件工具；**不含 `bash`**；herdr 终端工具一律按未登记只读类处理（四个读类也逐次确认，见 `docs/archived/2026-10-23-herdr-terminal-readonly.md`） |
 | 4 | 路径白名单（`allow.paths`） | `allowed-once` | 归一化后匹配（展开 `~` / `$HOME`、相对路径按会话 cwd） |
 | 5 | 命令白名单（`allow.commands`） | `allowed-once` | 命令原文折叠空白后匹配 |
 | 6 | 沙箱升级白名单（`escalation.allow`） | `allowed-once` | **两维**：命令 / 路径命中 **且** 目标模式在 `to` 内 |
@@ -37,67 +44,6 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 | 8 | 以上都未命中 | 不裁定 | 照常弹审批面板 |
 
 裁定词表与宿主一致：`allowed-once` / `rejected`（不提供其它授权词汇）。
-
-## 配置（profile 的 `cordis.patch.yml` 该条目下 `config`）
-
-```yaml
-- id: auto-approve
-  name: '@dsh-toolset/auto-approve'
-  config:
-    enabled: true            # 缺省 true；显式 false 关闭
-    mode: rules              # off | rules | rules+llm | all（缺省 rules：灰区落面板、零 token）
-    readonlyTools: [read, read_image, grep, glob]   # 覆盖内置只读类清单；空数组即关闭该层
-    bypassTools: [run_code]  # 不参与自动裁定（精确或 `*` 结尾前缀通配）
-    # gateTools: [bash, write]  # 非空即只审这些工具
-    fingerprintCapacity: 256 # 单会话指纹表容量（近似 LRU）
-    callTableCapacity: 256   # callId → 参数 表容量
-    learnFromManual: true    # 从人工面板放行学习（false 即整条学习路径与形态层都关闭）
-    learnGeneralize: on      # on（缺省，B 层最小泛化）| off（只保留逐段精确形态）
-    learnReview:             # 学习结果先经 LLM 准入审阅（失败即不学）
-      enabled: true
-      onFailure: skip        # 目前只有 skip（不入表，fail-closed）
-    formCapacity: 256        # 单会话形态表容量（近似 LRU）
-    selfDecidedCapacity: 512 # 「本插件自己裁过」自记集合容量
-    selfDecidedTtlMs: 300000 # 自记保留窗口（毫秒）
-    learnRehydrate: true     # 重启后首用某会话时回读历史回填形态
-    allow:
-      paths:
-        read: ['^/var/log/']
-        write: ['^/w/tmp/']
-      commands:
-        bash: ['^git (status|diff|log|show)\b']
-    deny:
-      tools: ['mcp__*']                 # 永不自动批的工具
-      escalation:
-        to: ['danger-full-access']      # 任何工具升到这些档一律拒绝（优先于 escalation.allow）
-      # missingArguments: true          # 取不到命令 / 路径原文时直接拒（缺省落面板）
-    escalation:
-      mode: match                       # match（缺省）| any（不建议）
-      # to: [workspace-write]           # 规则自身 to 的兜底
-      allow:
-        - id: git-ro
-          match: '^git (status|diff)\b'
-          to: [workspace-write]
-        - id: logs
-          path: '^/var/log/'
-          to: [read-only]               # 目标模式必须与宿主词表一致
-        - id: git-worktree-commit       # 缺省补丁已带：worktree 内的 add / commit / tag
-          match: '^git +(?:-C +[^ ]+ +)?(?:add|commit|tag)(?: +[^;&|]*)?$'
-          to: [danger-full-access]
-    review:
-      enabled: true            # 缺省 true；只有 mode: rules+llm 时才真的调用
-      # provider: some-provider # provider + model 同时给出才覆盖（缺省跟随当前会话模型）
-      # model: some-model
-      timeoutMs: 10000
-      maxRiskAllow: medium     # low | medium | high（允许自动放行的最高风险档）
-      onFailure: panel         # panel（缺省，交人工 / 原路径）| reject（直接拒）
-    audit:
-      project: true            # 项目那份（memory-base）；false 关闭跨会话留痕
-      maxBytes: 16777216       # 会话那份单文件上限（16 MiB）
-```
-
-非法取值一律**回落缺省**并记一条诊断（不抛错）：本插件的保守方向是「不自动批」，
-所以丢弃非法规则是安全的。
 
 ### 沙箱升级白名单
 
@@ -158,9 +104,9 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
   `onFailure: reject` 直接拒绝。
 - **成本**：只对灰区调用 +1 次模型请求；名单命中 0 次。审查串在审批应答之前，超时缺省 10 s。
 
-## 审计（双落点）
+### 审计双写
 
-| 落点 | 载体 | 不可用时 |
+| 写入 | 载体 | 不可用时 |
 | --- | --- | --- |
 | 会话 | `<会话目录>/auto-approve-audit.jsonl`（经 `sessionPaths.sessionDirFor(sessionId)` 推导，同步 append） | **退回人工面板 + 一次警告**（绝不静默放行）；`status().audit.sessionWritable` 为 `false` 并带 `degradedReason` |
 | 项目 | memory-base `project` 层、kind `approval_audit`（经作用域句柄 `put`） | 跳过（计数 + 一次警告，**不影响裁定**） |
@@ -169,7 +115,72 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 **不记录参数原文与命令全文**（避免把凭据 / 敏感路径写进日志）。
 会话那份达上限时保留最近一半并写一条 `truncated` marker 行，保证最新记录仍在。
 
-## 命令面 `/autoapprove`
+## 配置
+
+写在 profile 的 `cordis.patch.yml` 该条目下的 `config`：
+
+```yaml
+- id: auto-approve
+  name: '@dsh-toolset/auto-approve'
+  config:
+    enabled: true            # 缺省 true；显式 false 关闭
+    mode: rules              # off | rules | rules+llm | all（缺省 rules：灰区落面板、零 token）
+    readonlyTools: [read, read_image, grep, glob]   # 覆盖内置只读类清单；空数组即关闭该层
+    bypassTools: [run_code]  # 不参与自动裁定（精确或 `*` 结尾前缀通配）
+    # gateTools: [bash, write]  # 非空即只审这些工具
+    fingerprintCapacity: 256 # 单会话指纹表容量（近似 LRU）
+    callTableCapacity: 256   # callId → 参数 表容量
+    learnFromManual: true    # 从人工面板放行学习（false 即整条学习路径与形态层都关闭）
+    learnGeneralize: on      # on（缺省，B 层最小泛化）| off（只保留逐段精确形态）
+    learnReview:             # 学习结果先经 LLM 准入审阅（失败即不学）
+      enabled: true
+      onFailure: skip        # 目前只有 skip（不入表，fail-closed）
+    formCapacity: 256        # 单会话形态表容量（近似 LRU）
+    selfDecidedCapacity: 512 # 「本插件自己裁过」自记集合容量
+    selfDecidedTtlMs: 300000 # 自记保留窗口（毫秒）
+    learnRehydrate: true     # 重启后首用某会话时回读历史回填形态
+    allow:
+      paths:
+        read: ['^/var/log/']
+        write: ['^/w/tmp/']
+      commands:
+        bash: ['^git (status|diff|log|show)\b']
+    deny:
+      tools: ['mcp__*']                 # 永不自动批的工具
+      escalation:
+        to: ['danger-full-access']      # 任何工具升到这些档一律拒绝（优先于 escalation.allow）
+      # missingArguments: true          # 取不到命令 / 路径原文时直接拒（缺省落面板）
+    escalation:
+      mode: match                       # match（缺省）| any（不建议）
+      # to: [workspace-write]           # 规则自身 to 的兜底
+      allow:
+        - id: git-ro
+          match: '^git (status|diff)\b'
+          to: [workspace-write]
+        - id: logs
+          path: '^/var/log/'
+          to: [read-only]               # 目标模式必须与宿主词表一致
+        - id: git-worktree-commit       # 缺省补丁已带：worktree 内的 add / commit / tag
+          match: '^git +(?:-C +[^ ]+ +)?(?:add|commit|tag)(?: +[^;&|]*)?$'
+          to: [danger-full-access]
+    review:
+      enabled: true            # 缺省 true；只有 mode: rules+llm 时才真的调用
+      # provider: some-provider # provider + model 同时给出才覆盖（缺省跟随当前会话模型）
+      # model: some-model
+      timeoutMs: 10000
+      maxRiskAllow: medium     # low | medium | high（允许自动放行的最高风险档）
+      onFailure: panel         # panel（缺省，交人工 / 原路径）| reject（直接拒）
+    audit:
+      project: true            # 项目那份（memory-base）；false 关闭跨会话留痕
+      maxBytes: 16777216       # 会话那份单文件上限（16 MiB）
+```
+
+非法取值一律**回落缺省**并记一条诊断（不抛错）：本插件的保守方向是「不自动批」，
+所以丢弃非法规则是安全的。
+
+## 用法
+
+### 命令面 `/autoapprove`
 
 | 子命令 | 作用 |
 | --- | --- |
@@ -190,45 +201,7 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 `setMode(mode)`）暴露。`/autoapprove learn` 的写操作**不动**运行时裁定与精确指纹表（`learn clear`
 只清形态；精确指纹用 `clear-fingerprints`）。
 
-## 与既有件的关系
-
-- **`security-guard`**：分工**零重合**。命令 / 路径拦截（危险命令、敏感文件）是守卫的职责，
-  它是**唯一不可翻盘的最终否决者**（单调守卫，排在 `tools/pre-execute` 之后）；本插件**不调用**
-  `ctx.get("guard")`，拒绝名单只表达「不自动批」。同一条命令可同时命中守卫的放行配置与本插件的白名单
-  （语义不同：前者是「不做硬拒」，后者是「免人工审批」）。**危险命令与敏感路径请配 `security-guard`**。
-- **宿主 `/policy never`**：宿主在服务内部、链分发之前短路，本插件根本收不到请求 ——
-  「谁最终裁定」= `never` > 本插件 > TUI 面板 > fail-closed。
-- **`permission-presets`**：只写沙箱 + 审批两个旋钮，不做逐次裁定；本插件挂在它写的 `ask` 策略之后，天然并存。
-  不占用保留名 `auto`。
-- **官方 `experimental-auto-review`**：**不挂载**。职责与本插件 LLM 段重合，同链双审属浪费；
-  本插件把它的判断力接过来，并补上它没有的名单 / 指纹 / 可配开关。
-
-## 依赖
-
-- `session-paths`（**可选面**，仅用于会话审计落点）：经 `ctx.get("sessionPaths").sessionDirFor(sessionId)`
-  推导目录（不在 `inject` 里，经 `readService` 受保护读取）；未挂载、会话目录不可得或 `sessionDirFor` 抛错 → 会话那份审计不可得 → **退回人工面板并警告**（见上表）。
-- `memory-base`（**可选**）：项目那份经 `registerKind({kind: "approval_audit", writableTiers: ["project"]})`
-  取句柄写入；取不到即跳过（只计数）。
-- `sessionQuery`（**可选**，仅学习回填用）：经 `ctx.get("sessionQuery").readSession(sessionId)` 回读
-  会话事件；未挂载 / 读失败 → 回填按空集处理，不影响裁定与学习入口。
-- 与 `security-guard` **无接口**；`llm` / `commands` / `sessions` / `agents` 均为可选读取。
-
-## 边界与已知限制
-
-- 指纹只在**单会话内**有效（与宿主「一次性授权」语义一致），不做跨会话持久授权。
-- 形态层同样只在本会话内生效，且比精确指纹**宽**：人工放行一次等于认可「这一类命令形态」
-  （值位不同的后续调用也免问）。这是它省下重复询问的代价；用 `learn off` / `learn clear` 收紧，
-  危险命令仍由 `security-guard` 在守卫层否决（本包仍**不调用** `guard`）。
-- 形态按会话共享（不分 shell 工具）：`bash` 与 `pwsh` 在同一会话共用一张表；抹值与匹配都是
-  token 级精确比对，跨语言误命中只可能来自完全同形的命令。
-- 拿不到 `callId` / 参数原文、引号不配对、空命令的调用**学不了也命不中**（不猜）。
-- `mode: all` 会放行一切未命中拒绝名单的调用（含灰区），仅建议封闭环境使用。
-- 会话那份审计不可用时**整条自动裁定停用**（决策 5 第 4 条：绝不静默放行）——这是有意的降级。
-- 不做 TUI 审批面板改造、不新增 `ApprovalPolicy` 取值、不新增会话事件词汇。
-- 不搬「记住该命令」的跨会话授权存储（宿主亦无），不做 GUI 面板。
-- 不做按会话配置：会话级旋钮由宿主 `/policy` 与 `/permission` 承担，本包跟随生效。
-
-## 巡检（只读）
+### 巡检（只读）
 
 从会话日志 + 本包会话审计还原「哪些调用被自动放行、命中哪条规则」，不写任何文件、不改裁定：
 
@@ -245,16 +218,56 @@ node scripts/inspect-session.mjs --file <session.v4.jsonl[.zstd]>
 （Node 内置 zstd 只解首帧，缺 CLI 时会提示）。审计行比审批对多 = 该次裁定没走到宿主审批链
 （如 `never` 策略短路）。
 
-## 验证
+## 边界
+
+### 与既有件的关系
+
+- **`security-guard`**：分工**零重合**。命令 / 路径拦截（危险命令、敏感文件）是守卫的职责，
+  它是**唯一不可翻盘的最终否决者**（单调守卫，排在 `tools/pre-execute` 之后）；本插件**不调用**
+  `ctx.get("guard")`，拒绝名单只表达「不自动批」。同一条命令可同时命中守卫的放行配置与本插件的白名单
+  （语义不同：前者是「不做硬拒」，后者是「免人工审批」）。**危险命令与敏感路径请配 `security-guard`**。
+- **宿主 `/policy never`**：宿主在服务内部、链分发之前短路，本插件根本收不到请求 ——
+  「谁最终裁定」= `never` > 本插件 > TUI 面板 > fail-closed。
+- **`permission-presets`**：只写沙箱 + 审批两个旋钮，不做逐次裁定；本插件挂在它写的 `ask` 策略之后，天然并存。
+  不占用保留名 `auto`。
+- **官方 `experimental-auto-review`**：**不挂载**。职责与本插件 LLM 段重合，同链双审属浪费；
+  本插件把它的判断力接过来，并补上它没有的名单 / 指纹 / 可配开关。
+
+### 依赖
+
+- `session-paths`（**可选面**，仅用于会话审计写入）：经 `ctx.get("sessionPaths").sessionDirFor(sessionId)`
+  推导目录（不在 `inject` 里，经 `readService` 受保护读取）；未挂载、会话目录不可得或 `sessionDirFor` 抛错 → 会话那份审计不可得 → **退回人工面板并警告**（见上表）。
+- `memory-base`（**可选**）：项目那份经 `registerKind({kind: "approval_audit", writableTiers: ["project"]})`
+  取句柄写入；取不到即跳过（只计数）。
+- `sessionQuery`（**可选**，仅学习回填用）：经 `ctx.get("sessionQuery").readSession(sessionId)` 回读
+  会话事件；未挂载 / 读失败 → 回填按空集处理，不影响裁定与学习入口。
+- 与 `security-guard` **无接口**；`llm` / `commands` / `sessions` / `agents` 均为可选读取。
+
+### 边界与已知限制
+
+- 指纹只在**单会话内**有效（与宿主「一次性授权」语义一致），不做跨会话持久授权。
+- 形态层同样只在本会话内生效，且比精确指纹**宽**：人工放行一次等于认可「这一类命令形态」
+  （值位不同的后续调用也免问）。这是它省下重复询问的代价；用 `learn off` / `learn clear` 收紧，
+  危险命令仍由 `security-guard` 在守卫层否决（本包仍**不调用** `guard`）。
+- 形态按会话共享（不分 shell 工具）：`bash` 与 `pwsh` 在同一会话共用一张表；抹值与匹配都是
+  token 级精确比对，跨语言误命中只可能来自完全同形的命令。
+- 拿不到 `callId` / 参数原文、引号不配对、空命令的调用**学不了也命不中**（不猜）。
+- `mode: all` 会放行一切未命中拒绝名单的调用（含灰区），仅建议封闭环境使用。
+- 会话那份审计不可用时**整条自动裁定停用**（决策 5 第 4 条：绝不静默放行）——这是有意的降级。
+- 不做 TUI 审批面板改造、不新增 `ApprovalPolicy` 取值、不新增会话事件词汇。
+- 不搬「记住该命令」的跨会话授权存储（宿主亦无），不做 GUI 面板。
+- 不做按会话配置：会话级旋钮由宿主 `/policy` 与 `/permission` 承担，本包跟随生效。
+
+## 测试
 
 ```sh
-npm --prefix auto-approve run check
-npm --prefix auto-approve test
-npm --prefix auto-approve run build
+pnpm -C auto-approve run check
+pnpm -C auto-approve test
+pnpm -C auto-approve run build
 ```
 
 单测覆盖：裁定矩阵（含优先级与缺参数降级）、指纹（容量 / 会话隔离 / 拒绝不入集）、升级白名单两维
-（含 `justification` 不参与）、LLM 决策矩阵与失败兜底、名单优先于模型（零请求）、审计双落点与
+（含 `justification` 不参与）、LLM 决策矩阵与失败兜底、名单优先于模型（零请求）、审计双写与
 16 MiB 截断、命令面全部子命令、契约与三处接线、R3 反向验证（代码里没有 guard 调用）；
 学习层另有 34 例（`tests/learn.test.ts` + `tests/config.test.ts`）：切段 / 切 token / 抹值、段覆盖、
 A / B 两层、审阅与合并窗口、回填与截断、自记集合容量与 TTL、`learn` 命令面、形态层与精确层的优先级、
@@ -265,8 +278,3 @@ A / B 两层、审阅与合并窗口、回填与截断、自记集合容量与 T
 无新增 `approval/asked`）；差异落在**未加引号** token 上的两条命令（`echo learn-probe-one` /
 `learn-probe-two`）第二次仍弹面板 —— 形态不同，属预期。**未真机验证**：重启回填（`sessionQuery`
 回读）、`pwsh` 跨 shell 的形态共享、免问收益的度量。
-
-## 文档
-
-- 设计与决策（优先级表、审计口径、R1–R7 裁定）：项目级 `docs/archived/2026-10-16-auto-approval-design.md`。
-- 包内待办：`docs/BACKLOG.md`。
