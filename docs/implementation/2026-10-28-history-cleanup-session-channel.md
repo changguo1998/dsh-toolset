@@ -64,11 +64,30 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 - 脚本: `package.json` 加 `test:integration` 与 `test:coverage` (覆盖率参数 `tmp/cov-session-channel`)。
 - `src` 未改。
 
+### 阶段 3 代码整理 (分支 `history-cleanup/03-code-session-channel`)
+
+- 删失效导出: `src/broker.ts` 的 `countTasks` (18 行, 连带删 `TaskStatus` 类型 import) 与 `src/keys.ts` 的 `STATE_PATTERN` / `sessionIdFromStateKey` / `TASK_INDEX_PATTERN` / `sessionIdFromTaskIndexKey` (4 个, 22 行)。删前重扫全仓 (`src` / `tests` / `scripts` / `docs`): 除总追踪 / 本文件的待删清单与历史归档外零引用。
+- 定时器族: `src/index.ts` 内联的 `systemTimers` (15 行) 删掉, 改从 `@dsh-toolset/clock-base` 入口引入并由 `src/index.ts` 同名 re-export; 调用点 (`resolveTimers` 的四处回落) 未动。
+- 拆长文件 (1928 行入口 → 161 行): 新增 `src/service.ts` (1055 行, 会话层: 连接 / 会话跟踪 / 心跳 / 投递 / 别名 / 共享 KV / 服务面方法 / `resolveTimers`)、`src/task-layer.ts` (471 行, 任务层: `TaskLayer` 承接 `delegate` / `taskStatus` / `taskList` / `taskCancel` / `taskResult` 与 `user/message` 对位、`turn/end` 轮末回收、结果通知, 经 `TaskLayerHost` 取连接 / 时钟 / 日志 / 标签 / 正文上限)、`src/tools.ts` (404 行, 工具面: 四个工具定义、`toLosslessJson` 归一、`SERVICE_FACE_METHODS`)。`src/index.ts` 只留 bundle 接线 (`name` / `inject` / `provide` / `apply`)、`activeService` 与对外 re-export; 拆出的模块不新增包入口 (`package.json` 未加 `exports`), 测试 import 路径未改。
+- 任务层边界: 服务实例保留五个任务方法的连接判定外壳 (错误文案与判定顺序不变), 任务表读写与回收搬进 `TaskLayer`; `#workerTasks` 队列随之下移, 服务类不再持有。
+- 上下文对象守卫: 入口 `apply` 判一次 (`null` / 非对象按空上下文处理; 此前 `ctx` 为 `null` 时在 `ctx.logger` 处抛 `TypeError`), 下游 (`createSessionChannelService` 收到的 ctx、`apply` 里的 `tools` / `provide` 读取) 不再重复判; 宿主服务读取的唯一对象判断仍在 `src/inject.ts` 的 `readService`。
+- 依赖: `package.json` 加 `@dsh-toolset/clock-base: link:../clock-base`, 本包目录 `pnpm install` 更新 `pnpm-lock.yaml` (importer 一项) 并建 `node_modules/@dsh-toolset/clock-base -> ../../../clock-base`。
+- 对外面: `createSessionChannelService` / `SessionChannelService` / `resolveTimers` / `systemTimers` / 四个归一函数 / `SERVICE_FACE_METHODS` / `BundleHost` 等类型仍从包入口导出; `AgentState` 等六个类型与 `SessionChannelError` 不变。
+- 提交: `ed3112a4` 删失效导出 → `e5c71570` 定时器族改 clock-base (含依赖与 lockfile) → `caf3793b` 入口按会话 / 任务 / 工具面拆分 → `c5b681e3` 上下文对象守卫收进入口。
+
 ## 偏差
 
 - 接线方式: `apply` 不接 `SessionChannelDeps` (签名只有 `ctx` / `config`), 无法把假 broker 注入 `apply` 自建的服务。为不改 `src`, 装配器分两步: 先用 `apply(ctx, { disabled: true })` 拿到注册面 (不发起连接、不订阅事件), 再用 `createSessionChannelService(..., { connect: 假连接 })` 起「假 broker 上的真服务」, 把 apply 服务实例的服务面方法逐条绑定过去 (`wireLive()`)。工具与 provide 面闭包都按属性名延迟取值 (`service.peers()`), 故接线后走的是同一份真实现。代价: `apply` 内「连接成功 → `#afterConnect`」这一跳只由连接态用例间接验证 (真 Redis 用例已覆盖); 若阶段 3 给 `apply` 补可选 `deps` 形参, 可去掉这层绑定。
 - 假 broker 的 `eval`: 只按 `KV_PUT_SCRIPT` 的契约在 JS 里等价实现 (CAS + 版本自增 + TTL), 不执行 Lua 本身; Lua 语法与 `cjson` 行为仍由真 Redis 用例 (`tests/broker.test.ts` / `tests/service.test.ts`) 覆盖。
 - 分支分母随执行路径增多: `broker.ts` 分支 76.4% → 76.1% (覆盖数 133 → 134, 分母 174 → 176), `index.ts` 分支分母 385 → 431; 整包行 / 分支均上升, 无回退。
+
+阶段 3 的偏差:
+
+- 计划顺序把「加 `link:` 依赖」列为第 5 步, 实际与第 2 步 (定时器族改 `clock-base`) 同时落地: 引包名 import 前必须先有依赖与 `node_modules` 链接, 否则 `check` / `test` 解析不到; 第 5 步无单独提交, 内容在 `e5c71570`。
+- 拆分比计划多一个内部模块分工: 会话层的载荷解析 (`textOfUserMessage` / `textOfContent`) 随任务层落在 `src/task-layer.ts`, 避免 `service.ts` 与 `task-layer.ts` 循环依赖; 未新增对外导出。
+- `clock-base` 的 `systemTimers` 对非有限延迟抛 `RangeError` (本包原实现直接把值交给 `setTimeout`), 属上游统一口径; 现有用例不触达该分支, 未加兼容层。
+- 跨包 import 走包名 (解析到 `clock-base/dist/`), 故 `check` / `test` 前须先 `pnpm -C ../clock-base run build`; 与实现规划的前置一致, 代价是本包测试多一条构建前置。
+- 本包没有 `tests/clock.test.ts` 之类的跨包内部 import 需要收口; `tests/` 未改 (import 路径与断言都未动)。
 
 ## 测试与证据
 
@@ -102,3 +121,13 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 - `pnpm -C session-channel run test:integration`: 9 条通过, 0 失败, 0 跳过, 4.4 s。
 - `pnpm -C session-channel run test:coverage`: 87 条通过, 0 失败, 0 跳过; 汇总见上表; 产物 `tmp/cov-session-channel/report.json`。
 - 真机验收: 未做 (本阶段不出网、不连真 Redis 之外的宿主面); 留 `scripts/install.sh --sync` 之后人工确认。
+
+阶段 3 (每步跑 `check` 与 `test`, 先 `pnpm -C clock-base run build`):
+
+- `pnpm -C session-channel run check`: 通过 (tsc --noEmit, 无输出), 四步各一次。
+- `pnpm -C session-channel run test`: 78 条通过, 0 失败, 0 跳过, 每步 10.1 s 左右。
+- `pnpm -C session-channel run test:integration`: 9 条通过, 0 失败, 0 跳过, 4.4 s (拆分后与守卫后各跑一次)。
+- `pnpm -C session-channel run build`: 通过 (先构建 `clock-base`)。
+- 冒烟: `apply(null, { disabled: true })` 不再抛, 打印「tools 未挂载」告警后返回。
+- 用例: 断言、标题、条数 (单元 78 / 集成 9) 与夹具均未改, 测试 import 路径未改。
+- 入口行数: `src/index.ts` 1928 → 161; 新层 `service.ts` 1055、`task-layer.ts` 471、`tools.ts` 404 (合计 2091 ≈ 拆分前 1928 + 接线与二层边界代码)。
