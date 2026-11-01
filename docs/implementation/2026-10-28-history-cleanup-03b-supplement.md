@@ -144,7 +144,7 @@
 - T2 文档回写: `tool-consult` 的「代码 / 偏差 / 证据」改记补丁轮与 T1.1 的 `src` 改动; `hash-edit` 偏差与豁免台账记 `apply` 守卫已修 (`54ac908c`); `md-map` 偏差由「无」改为守卫与日志分支两条; `command-template` 偏差记 `exclude` 已删 (`25fce711`); `code-map` 偏差的「阶段 6」改「阶段 5 (第 6 章)」并指向新条目; 阶段 3 文档分支数 24 改 25 (含多出的 `history-cleanup/03-code-herdr-use-2`), 删「进行中」残句, 实现记录按合并提交时间重排并加口径说明。
 - T3 状态与日期: 阶段 1 / 2 / 3 与总追踪标题下加「最近修订: 2026-11-01」, 原关闭日期保留。
 - T4 移交项: `session-title-cutoff/src/index.ts:352` 的正则改为 `[\u202a-\u202e]` 字符类, 用例补 U+202A / U+202B / U+202D / U+202E 剥除断言 (`21` 例); `code-map/docs/BACKLOG.md` 立 `#1` (`kindBucket` 对导出符号失真, 需带 `kindCounts` 快照); `TUI/docs/BACKLOG.md` 立 `#3` (`dsh.ts` 3604 行) 与 `#4` (布局层 7 处 `delivery.kind === "user"` 的收拢与类型收窄); `herdr-integration` 两步在包追踪文档写明「本包无长文件、5.6 六组不含本包」后关闭; 1000 至 1200 行三文件 (`herdr-use/src/actions.ts` / `session-channel/src/alias-words.ts` / `TUI/src/main.ts`) 在各自包追踪文档补不拆理由。
-- T5 门禁: 根 `pnpm run check` / `build` / `test` / `test:integration` 全部退出 0; `pnpm -C TUI run demo:build -- --smoke` 42 条 `SMOKE_PASS`; `smoke:pty` 仍因缺 `TOLLGATE_API_KEY` 未跑, 记为既有偏差。覆盖率另跑三包: `tool-consult` 96.1% / 92.3%, `task-engine` 82.8% / 74.4%, `session-title-cutoff` 98.0% / 89.2%。
+- T5 门禁: 根 `pnpm run check` / `build` / `test` / `test:integration` 全部退出 0; `pnpm -C TUI run test:e2e` 按开发口径用 `DSH_PROFILE=fff-test`、`TOLLGATE_API_KEY` 填任意字符串, 退出 0 (42 条 `SMOKE_PASS` + `SMOKE OK`)。覆盖率另跑三包: `tool-consult` 96.1% / 92.3%, `task-engine` 82.8% / 74.4%, `session-title-cutoff` 98.0% / 89.2%。
 
 ## 偏差
 
@@ -153,6 +153,7 @@
 - T1.3 的失败不是阶段 2 记的「既有 flake」, 是真实写读竞态; 修复落在 `src`, 未改断言、未加等待。
 - 阶段 3 文档的「TUI 分 6 批」未改: 本次只回写分支总数与时间序, 批次数口径不在复核清单内; 如需按合并提交数重算, 留阶段 5 文档整理。
 - 覆盖率对照受阶段 3 拆分影响: `task-engine` 的包文档数字 (83.6% / 73.0%) 是阶段 2 代码的同一命令结果, 拆出 `engine-flow.ts` 等模块并删 `src/timers.ts` 后行分母 3347 → 3292、分支 854 → 831, 与本次 82.8% / 74.4% 不能直接论升降; `tool-consult` 分支 92.4% → 92.3% 是新增 `||` 条件带来的分母 +1。两处均不改阶段 2 的历史数字。
+- `smoke:pty` 原先按「缺 `TOLLGATE_API_KEY`」记为既有偏差, 实际该变量填任意字符串即可 (用户 2026-11-01 指出), 且真机冒烟应按开发口径用 `fff-test` (link: 直连仓库构建), 不用 `fff` (file: 快照)。改用 `DSH_PROFILE=fff-test TOLLGATE_API_KEY=smoke-dummy` 复跑, 首次尝试即 `SMOKE OK`; 上文「未跑」与「缺凭据」的口径作废。
 
 ## 测试与证据
 
@@ -165,7 +166,8 @@
 | `pnpm run test` | 退出 0, 34 包单元层无失败 |
 | `pnpm run test:integration` | 退出 0, 34 包集成层无失败; T1.3 修复后连跑 4 次均 0 |
 | `pnpm -C TUI run demo:build -- --smoke` | 42 条 `SMOKE_PASS`, 退出 0 |
-| `pnpm -C TUI run smoke:pty` | 未跑, 缺 `TOLLGATE_API_KEY` (既有偏差) |
+| `pnpm -C TUI run smoke:pty` (profile `fff-test`, key 任意) | `SMOKE OK`, 首次尝试, 退出 0 |
+| `pnpm -C TUI run test:e2e` (profile `fff-test`, key 任意) | 退出 0: 42 条 `SMOKE_PASS` + `SMOKE OK` |
 
 受影响包单独实跑:
 
@@ -178,4 +180,4 @@
 
 - 集成层三例失败全部转绿: `tool-consult:247` 改断言语义, `md-map:102` 改断言语义, `task-engine:416` 修写读竞态。
 - 文档 `format` 后自查 diff: 本文件与总追踪、阶段 3、11 份包追踪文档互指可达; 记录里的提交号 `54ac908c` / `78500945` / `25fce711` 均存在。
-- `smoke:pty` 缺凭据为既有偏差, 不阻塞本阶段; 其余门禁全绿。
+- `smoke:pty` 按 `fff-test` 口径复跑通过 (首次 `SMOKE OK`); 其余门禁全绿。

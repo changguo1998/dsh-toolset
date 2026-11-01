@@ -140,6 +140,7 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - 注释路径: 总追踪 1.3 表列 TUI 34 处, 其中 `app/layout/tool-line.ts:18` 的 `TUI/src/x.ts` 是路径缩短的**示例**、`app/adapter/types.ts:920` 的 `src/types.ts` 实为宿主仓路径 `packages/interaction/commands/src/types.ts`, 两处都不是仓内简写, 未改; 实改 32 处。
   - 沙箱展示映射: `MODE_SHORT` 只是标题栏缩写表（`ro` / `wr` / `full`）, `herdr-use` 侧是命令放行判定用的沙箱模式读取器, 两者不同源; 本轮不引 `herdr-use` 类型（规划未给 TUI 加该 link 依赖）。
   - `smoke:pty` 仍需 `TOLLGATE_API_KEY`, 本机缺凭据, 本轮跳过, 与阶段 2 同一条偏差。
+  - 阶段 3b 复核（2026-11-01）: `smoke:pty` 并不需要真实凭据, `TOLLGATE_API_KEY` 填任意字符串即可; 且真机冒烟应按开发口径用 `fff-test`（`link:` 直连仓库构建）, 不用 `fff`（`file:` 快照）。复跑 `DSH_PROFILE=fff-test TOLLGATE_API_KEY=smoke-dummy pnpm -C TUI run test:e2e` 退出 0（42 条 `SMOKE_PASS` + `SMOKE OK`）; 上面「缺凭据跳过」的结论作废。
 - 长文件拆分收尾（2026-10-28, 阶段 3 裁定）: 剩余 `TUI/src/app/adapter/dsh.ts` 3604 行与 `TUI/src/app/index.ts` 6497 行都是有状态主体 —— 前者是 `createRealDshAdapter` 工厂闭包（`DshAdapter` 的实现与闭包变量互相引用）, 后者是 `App` 类的约 6200 行方法体（方法读写私有字段、计时器与渲染句柄）。两者继续按职责切, 都要先把状态收成显式上下文对象再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突, 收益与风险不匹配。本轮停在「按可独立搬移的职责拆完」: 纯函数 / 纯类型 / 登记表 / 装配面已全部搬出, 有状态主体单独立条目后再做。
 - 1000 至 1200 行档的不拆理由（2026-11-01 阶段 3b 补记）: `TUI/src/main.ts` 1089 行不拆, 因为入口按宿主生命周期串成一条线（`main` 148 行 → `apply` 约 500 行 + 配置归一 / 热更新 / 启动参数), `apply` 的事件接线读写同一组闭包变量与模块级配置, 可独立搬移的纯函数已在前几批拆到 `app-deps.ts` / `config*.ts`; 再切要把闭包环境提成上下文对象, 与 `app/index.ts` 的重构同批做才有收益, 且改动会碰到启动顺序, 与本轮门禁冲突。`app/adapter/dsh.ts` 3604 行另见 `TUI/docs/BACKLOG.md` `#3`。
 

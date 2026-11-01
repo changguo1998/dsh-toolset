@@ -1375,7 +1375,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 阶段 2 开工前: 主分支一次写 34 份包追踪文档的测试实现规划并提交, 再按包开 worktree 与分支.
 - 2026-10-28 阶段 2 (测试锚定) 完成: 34 包全部分支合并, 合并记录与逐包数字见 `docs/implementation/2026-10-28-history-cleanup-02-tests.md`; 全量 `test` / `check` / `test:coverage` 退出 0.
 - 2026-10-28 阶段 3 (代码整理) 完成: 24 个有代码改动的包全部分支合并 (`TUI` 分 6 批), 10 个无代码改动的包未建分支; 分支与逐包合并提交见 `docs/implementation/2026-10-28-history-cleanup-03-code.md`; 全量 `build` / `check` / `test` / `test:coverage` 退出 0, `TUI` 帧冒烟 42 条 `SMOKE_PASS`.
-- 2026-11-01 阶段 3b (阶段 3 附加: 复核修正) 完成: 集成层三例全部转绿 (`tool-consult` / `md-map` 改用例断言, `task-engine` 修快照写读竞态), 补丁轮改动回写 11 份包追踪文档, 阶段 1 至 3 与本文件补「最近修订」, 移交项按 T4 归口 (`session-title-cutoff` 正则修复, `code-map` / `TUI` 立 BACKLOG, `herdr-integration` 与三处长文件补不拆理由); 根 `pnpm run check` / `build` / `test` / `test:integration` 退出 0, 集成层连跑 4 次无失败, `TUI` 42 条 `SMOKE_PASS`. 明细见 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md`.
+- 2026-11-01 阶段 3b (阶段 3 附加: 复核修正) 完成: 集成层三例全部转绿 (`tool-consult` / `md-map` 改用例断言, `task-engine` 修快照写读竞态), 补丁轮改动回写 11 份包追踪文档, 阶段 1 至 3 与本文件补「最近修订」, 移交项按 T4 归口 (`session-title-cutoff` 正则修复, `code-map` / `TUI` 立 BACKLOG, `herdr-integration` 与三处长文件补不拆理由); 根 `pnpm run check` / `build` / `test` / `test:integration` 退出 0, 集成层连跑 4 次无失败, `TUI` `test:e2e` 以 `fff-test` 与任意 `TOLLGATE_API_KEY` 复跑通过 (42 条 `SMOKE_PASS` + `SMOKE OK`). 明细见 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md`.
 
 ## 偏差
 
@@ -1392,6 +1392,6 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 阶段 2 全量: `pnpm run test` / `check` / `test:coverage` 退出 0; 覆盖率行 86.4% (70349/81387), 分支 79.9% (16570/20743); 明细与逐包数字见阶段文档.
 - 阶段 3 全量: `pnpm run build` / `check` / `test` / `test:coverage` 退出 0; 覆盖率行 87.7% (70114/79945), 分支 80.1% (16404/20491) (同命令口径, `report.mjs` 不排 `dist`); `TUI` `demo:build -- --smoke` 42 条 `SMOKE_PASS`; `smoke:pty` 缺 `TOLLGATE_API_KEY` 未跑.
 - `test:integration` / `test:e2e` 本阶段全 SKIP; 包级三条脚本留阶段 2.
-- 阶段 3b 全量: `pnpm run check` / `build` / `test` / `test:integration` 退出 0; 根集成层修复后连跑 4 次无失败; `TUI` `demo:build -- --smoke` 42 条 `SMOKE_PASS`; 受影响三包覆盖率 `tool-consult` 96.1% / 92.3%、`task-engine` 82.8% / 74.4%、`session-title-cutoff` 98.0% / 89.2%.
+- 阶段 3b 全量: `pnpm run check` / `build` / `test` / `test:integration` 退出 0; 根集成层修复后连跑 4 次无失败; `TUI` `test:e2e` (`DSH_PROFILE=fff-test`, key 任意) 退出 0 (42 条 `SMOKE_PASS` + `SMOKE OK`); 受影响三包覆盖率 `tool-consult` 96.1% / 92.3%、`task-engine` 82.8% / 74.4%、`session-title-cutoff` 98.0% / 89.2%.
 
 ## 收尾
