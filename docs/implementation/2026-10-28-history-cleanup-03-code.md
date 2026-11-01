@@ -87,3 +87,7 @@
 - `fs-digest` 首笔把 `apply` 收非对象上下文由抛错改成静默返回, 属行为变化, 已改回抛错再合并 (提交 `cefe850e`).
 - `task-engine` 的 `demo` 有 1 例 `overBudget` 既有失败 (拆前同样失败, 与引擎「只认宿主 max-tokens 信号」口径不一致), 未改.
 - `agent-group` 任务书写「`src/index.ts` 内联 `systemTimers`」, 实际在 `core.ts` (随拆分删除), `main.ts:18` 实际是 `index.ts:18`; 实现按实际位置处理, 动作数确为 11.
+
+## 后续
+
+- 2026-11-01 复核发现集成层 3 例失败、补丁轮改动未回写、移交项无条目与日期不一致; 问题清单与修法见 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md`; 本文件的分支数与残句随该阶段回写, 既有结论不改.

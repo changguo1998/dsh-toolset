@@ -1074,6 +1074,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 | 1 | 标准与工具 | `main` | `docs/implementation/2026-10-28-history-cleanup-01-standards.md` |
 | 2 | 测试锚定 | 按包: `.worktree/02-tests/<包>`, 分支 `history-cleanup/02-tests-<包>` | `...-02-tests.md` |
 | 3 | 代码整理 | 按包: `.worktree/03-code/<包>`, 分支 `history-cleanup/03-code-<包>` | `...-03-code.md` |
+| 3b | 阶段 3 附加: 复核修正 | `main` | `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md` |
 | 4 | 包文档 | 按包: `.worktree/04-package-docs/<包>`, 分支 `history-cleanup/04-package-docs-<包>` | `...-04-package-docs.md` |
 | 5 | 项目文档与收尾 | `main` | `...-05-project-docs.md` |
 
@@ -1082,6 +1083,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 建分支用 `git worktree add .worktree/02-tests/<包> -b history-cleanup/02-tests-<包> main`; 阶段 3 / 4 只换目录与分支名. 每个分支从当时的 `main` 开, 不挂上游分支.
 - 每个包分支只改本包文件与本包包追踪文档; 总追踪、阶段追踪、其它包的文件都不碰. 同一包内按逻辑改动分笔提交, 不混入其它包.
 - 阶段 2 覆盖 34 个包; 阶段 3 只给有代码改动的 24 个包开分支; 阶段 4 覆盖 34 个包; 三阶段合计 92 个包分支, 分批开, 不一次全开.
+- 阶段 3b 在 `main` 完成, 不建 worktree 与分支; 阶段 4 从 3b 关闭后的 `main` 开分支.
 - 阶段追踪与包追踪在总任务关闭前留在 `docs/implementation/`; 关闭时与总追踪一并移入 `docs/archived/`.
 
 ### 分支与包追踪文档清单
@@ -1259,6 +1261,19 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 | `session-paths` | `src/index.ts` 上下文守卫收进入口 |
 | `task-engine` | 删 `src/timers.ts`; 拆 `src/index.ts` 与 `src/engine.ts`; import 改 `clock-base`; `tests/clock.test.ts`; `package.json` / lock |
 
+#### 3b. 阶段 3 附加: 复核修正 (main)
+
+阶段 3 关闭后对追踪文档与实际状态复核出的不一致, 在阶段 4 之前处理完; 明细与裁决见 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md`.
+
+| 组 | 文件 | 动作 |
+| --- | --- | --- |
+| 集成用例 | `tool-consult/tests/integration/plugin.test.ts` / `md-map/tests/integration/plugin.test.ts` / `task-engine/tests/integration/plugin.test.ts` 与各自 `tests/assemble.ts` | 三例失败按侧裁定: 改断言或改时序, 不用重试掩盖 |
+| 源码 | `session-title-cutoff/src/index.ts` 与其用例 | 方向控制符正则 `\u202a-\u202e` 并入字符类 |
+| 包文档 | 11 份包追踪文档 (`tool-consult` / `hash-edit` / `md-map` / `command-template` / `code-map` / `herdr-integration` / `session-title-cutoff` / `herdr-use` / `session-channel` / `tui` / `task-engine`) | 回写补丁轮改动、偏差、1000 至 1200 行的不拆理由与验证数字 |
+| 阶段文档 | `docs/implementation/2026-10-28-history-cleanup-01-standards.md` / `-02-tests.md` / `-03-code.md` / 本文件 | 阶段 3 分支数改 25, 删「进行中」残句, 加「最近修订: 2026-11-01」, 本文件补 3b |
+| 条目 | `code-map/docs/BACKLOG.md` / `TUI/docs/BACKLOG.md` | 登记 `kindBucket` 输出失真、`dsh.ts` 拆分、`delivery.kind` 谓词收拢 |
+| 门禁 | 根 `pnpm run test:integration` | 从退出 1 转 0; 全量 `check` / `build` / `test` 一并复跑 |
+
 #### 4. 包文档 (按包)
 
 每包都改本包 `README.md`(六节) 与本包包追踪文档; `TUI` 与 15 个有 `DESIGN.md` 的包按四节归并; 命令统一 `pnpm`; 有 `docs/BACKLOG.md` 的包同步术语与命令. 下表只列专项.
@@ -1336,13 +1351,14 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 1. 规划确认后先提交本文件; 在 `main` 建阶段 1 追踪文档, 按「pnpm 与元数据 → 测试工具 → 入口迁移 → 规范入口」推进; 每组跑 `pnpm run check`, 入口迁移后跑全量 `pnpm run check` 与 `pnpm run test`; 入口迁移按 13 / 5 两批提交.
 2. 阶段 1 全绿后, 主分支一次写 34 份包追踪文档的测试实现规划并提交; 按包开 `.worktree/02-tests/<包>` 与 `history-cleanup/02-tests-<包>`, 每批 4 至 6 个包并行; 每包先跑基线, 再补本包用例, 通过后合并; 全部包合并后跑全量 `test` 与 `test:coverage`.
 3. 阶段 2 全绿后, 主分支补 34 份包追踪文档的代码实现规划并提交; 阶段 3 先合 `clock-base` / `herdr-use` / `memory-base`, 再合依赖包, 其余包并行; 每包按「删失效 → 并定时器 → 拆长文件 → 收判断 → 改注释」推进, 通过后合并; 全部合并后跑 `check` / `build` / `test`.
-4. 阶段 3 全绿后, 主分支补 34 份包追踪文档的包文档实现规划并提交; 按包开 `.worktree/04-package-docs/<包>` 与对应分支; 每包 `format` 与复扫通过后合并; 全部合并后跑断链 / 符号 / 术语复扫.
-5. 阶段 5 在 `main` 做根文档、项目事实、术语表终稿、宿主链接、归档符号与关闭; 全量 `check` / `build` / `test` / `test:coverage`, TUI `demo -- --smoke` 与 `smoke:pty` 通过后移追踪文档、清 `BACKLOG`; 关闭提交是本次最后一次提交.
-6. 提交点按流程阻塞询问: 决策后只提交文档, 代码实现后先 `pnpm run check` + `pnpm run build` 再提交代码, 测试通过且人工确认后提交代码与用例, 关闭后提交剩余全部. 未获同意不提交.
+4. 阶段 3 关闭后先做阶段 3b: 在 `main` 修集成层三例, 回写补丁轮改动与状态日期, 给移交项立条目, 复跑全量四条命令; 根 `test:integration` 退出 0 后才进阶段 4.
+5. 阶段 3b 全绿后, 主分支补 34 份包追踪文档的包文档实现规划并提交; 按包开 `.worktree/04-package-docs/<包>` 与对应分支; 每包 `format` 与复扫通过后合并; 全部合并后跑断链 / 符号 / 术语复扫.
+6. 阶段 5 在 `main` 做根文档、项目事实、术语表终稿、宿主链接、归档符号与关闭; 全量 `check` / `build` / `test` / `test:coverage`, TUI `demo -- --smoke` 与 `smoke:pty` 通过后移追踪文档、清 `BACKLOG`; 关闭提交是本次最后一次提交.
+7. 提交点按流程阻塞询问: 决策后只提交文档, 代码实现后先 `pnpm run check` + `pnpm run build` 再提交代码, 测试通过且人工确认后提交代码与用例, 关闭后提交剩余全部. 未获同意不提交.
 
 ### 验收标准
 
-- 34 个包 `check` / `build` / `test` 全绿; 覆盖率不低于基线; TUI `demo -- --smoke` 与 `smoke:pty` 通过.
+- 34 个包 `check` / `build` / `test` 全绿; 根 `pnpm run test:integration` 退出 0; 覆盖率不低于基线; TUI `demo -- --smoke` 与 `smoke:pty` 通过.
 - 21 个死导出删除; 定时器只剩 `clock-base` 一份; 11 个长文件完成拆分; 6 组判断各只剩一个出口.
 - 34 份 README 六节、15 份 DESIGN 四节; 非归档断链为 0; 正文符号变体为 0; 包数统一 34.
 - 5 份阶段追踪、34 份包追踪与总追踪都有实现规划 / 实现记录 / 合并提交; 关闭后全部移入 `docs/archived/`; `docs/BACKLOG.md` 只剩未完成项.
@@ -1359,12 +1375,14 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 阶段 2 开工前: 主分支一次写 34 份包追踪文档的测试实现规划并提交, 再按包开 worktree 与分支.
 - 2026-10-28 阶段 2 (测试锚定) 完成: 34 包全部分支合并, 合并记录与逐包数字见 `docs/implementation/2026-10-28-history-cleanup-02-tests.md`; 全量 `test` / `check` / `test:coverage` 退出 0.
 - 2026-10-28 阶段 3 (代码整理) 完成: 24 个有代码改动的包全部分支合并 (`TUI` 分 6 批), 10 个无代码改动的包未建分支; 分支与逐包合并提交见 `docs/implementation/2026-10-28-history-cleanup-03-code.md`; 全量 `build` / `check` / `test` / `test:coverage` 退出 0, `TUI` 帧冒烟 42 条 `SMOKE_PASS`.
+- 2026-11-01 阶段 3b (阶段 3 附加: 复核修正) 规划完成, 尚未开工: 复核出集成层 3 例失败、补丁轮改动未回写、移交项无条目与日期不一致, 问题清单、裁决与文件清单见 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md`.
 
 ## 偏差
 
 - 阶段 1: 8 处 `exclude` 实际指向存在的 `tests/clock.test.ts` (本文件调研 1.4 / 3.6 与决策 5.4 的「文件不存在」判断有误), 阶段 1 保留; 跨包 import 收口按 4.2 与 5.3 在阶段 2 / 3 处理, 处理后再删. 其余偏差见阶段文档「偏差」.
 - 阶段 2: 分支并行数受 coagent 上限约束为 4, 后期 `TRANSPORT 422` 频发降至 2; 覆盖率按同命令改前改后对比; `report.mjs` 不排 `dist`、V8 range 行号偏移、TUI `smoke:pty` 缺凭据等见阶段文档「偏差」与各包豁免台账.
-- 阶段 3: 并发受 coagent 上限 4 (第 4 槽被阶段 2 遗留记录占用, 已清理); `TRANSPORT 422` 仍反复出现, 以 `session_channel send` 续跑; `TUI` 长文件只拆到可独立搬移的职责 (`dsh.ts` 3603 / `index.ts` 6497 行, 需上下文对象重构, 留后续条目); `fs-digest` 一处行为变化改回抛错; 其余逐包偏差见阶段文档.
+- 阶段 3: 并发受 coagent 上限 4 (第 4 槽被阶段 2 遗留记录占用, 已清理); `TRANSPORT 422` 仍反复出现, 以 `session_channel send` 续跑; `TUI` 长文件只拆到可独立搬移的职责 (`dsh.ts` 3604 / `index.ts` 6497 行, 需上下文对象重构, 留后续条目); `fs-digest` 一处行为变化改回抛错; 其余逐包偏差见阶段文档.
+- 阶段 3 关闭时只以单元层 `pnpm run test` 为门禁, 集成层未复跑: 2026-11-01 复核时根 `pnpm run test:integration` 退出 1 (`tool-consult` / `md-map` / `task-engine` 各 1 例), 三份包追踪文档仍记全绿; 补丁轮的两个可见行为变化 (`tool-consult` 的 `isVisible`、`apply` 守卫) 只进实现记录, 未进「偏差」. 以上转阶段 3b 处理.
 
 ## 测试与证据
 
