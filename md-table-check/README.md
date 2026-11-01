@@ -1,15 +1,16 @@
 # @dsh-toolset/md-table-check
 
+## 定位
+
 > **状态：2026-10-23 起缺省关闭（下线）。** 本插件的前提是「TUI 只在表头与分隔行列数相等时才渲染表格」，
 > 该前提已随 TUI `#3` 修复失效（TUI 改为分隔行列数**只许少不许多**、缺列按左对齐补齐，见
-> `TUI/docs/SPEC.md` §3.2 / §15.6）；继续检查只会产生「TUI 本就能渲染」的噪音提示。代码保留，
-> 要临时启用把 `cordis.patch.yml` 的 `enabled` 改回 `true`（或 profile 用户 patch 覆盖）。
+> `TUI/docs/SPEC.md` §3.2 / §15.6）；继续检查只会产生「TUI 本就能渲染」的噪音提示。代码保留。
 
 DSH（DeepSeek Harness）进程内插件：检查**助手回复正文**里的 markdown 表格列数是否一致。不一致时经
 `rule-engine` 消费者面注入一条汇总提示，要求模型更正后重新回复。**只报不改** —— 不改回复正文、
 不改任何文件、不碰 TUI 渲染。
 
-## 为什么需要
+### 为什么需要
 
 > **注意：本节描述的前提已于 2026-10-23 失效**（TUI 已容错列数不等），保留原文以示本插件的由来。
 
@@ -18,7 +19,9 @@ TUI 只在「表头行 + 分隔行」单元格数**相等**且分隔行每格形
 （观感即「排版失败」）。即便成对，数据行多格会被静默忽略、缺格会被补空（`parseTableAt:168-176`），
 内容丢格却无人报错。仓内原本没有任何自动检查。
 
-## 行为
+## 能力
+
+### 行为
 
 - 只检查 `assistant-text` 节点（`turn/end` 时派发的整回合助手正文），**只针对回复正文**。
 - 表格候选 = 围栏外「表头行 + 分隔行样」；分隔行**不要求**与表头列数相等（这正是要报的情形）。
@@ -27,40 +30,7 @@ TUI 只在「表头行 + 分隔行」单元格数**相等**且分隔行每格形
 - 每条回复**汇总一条**提示：表头行号 + 表头摘录 + 期望列数，以及每个不一致行的行号、角色、实际列数。
 - 缺省上限：每条最多列 5 张表、每张最多列 3 行；超出以「另有 N 处不一致未列出。」收尾。
 
-注入正文示例（`summary` 恒为 `表格列数提醒`）：
-
-```text
-[md-table-check] 上一条回复正文里的 markdown 表格列数不一致（本提示只针对回复正文，与仓库文件无关）：
-- 表 1（表头在第 12 行）：`| 包 | 作用 | 状态 |` 期望 3 列
-  - 第 13 行（分隔行）：2 列
-  - 第 14 行（数据行）：4 列
-请修正这些表格后，把上一条回复完整重发一次；不要修改仓库里的任何文件或文档。
-```
-
-## 配置
-
-bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ruleEngine` 不可用时写 stderr
-告警并静默降级（不让宿主启动失败）。缺省**开启**（`cordis.patch.yml` 里 `enabled: true`）。
-
-| 字段 | 默认 | 说明 |
-| --- | --- | --- |
-| `enabled` | `true` | 是否检查；`false` 时仍注册消费者但 `decide` 恒返回 null |
-| `sources` | `["assistant-text"]` | 唤醒节点（整回合助手正文） |
-| `delivery` | `"followup"` | 注入路径：作为新回合投递给模型 |
-| `dedupeInRecord` | `0` | 按记录去重上限；0 = 不限次（每次出现不一致都注入） |
-| `maxTables` | `5` | 每条反馈最多列出几个表格（`0` 口径见下「上限为 0 的口径」） |
-| `maxRowsPerTable` | `3` | 每张表最多列出几行不一致（同上） |
-
-`src/checker.ts` 另外导出纯函数 `checkTables` / `renderFeedback` / `splitCells` / `hasCellPipe` 与
-`CheckOptions.headerExcerptLimit`（缺省 60，`0` 口径见下「上限为 0 的口径」）；判定核心无依赖、无 IO，可被展示层单独复用。
-
-## 边界（明确不做）
-
-- **宽度不足**导致的 TUI 退回（属终端与窗口，非回复缺陷）。
-- **伪表格**（有竖线但缺分隔行）识别 —— 正文里带竖线的普通行很常见，误报代价高于收益。
-- 自动改写回复正文或任何文件；TUI 侧展示 / 命令面。
-
-## 已核查形态（2026-10-16）
+### 已核查形态（2026-10-16）
 
 逐形态实跑并落断言（`tests/checker.test.ts` 的「漏检形态筛查」用例组 + `tests/tuiParity.test.ts` 互证 ⑤ + `tests/formMatrixSnapshot.test.ts` 的 20 形态快照）:
 
@@ -79,18 +49,56 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ru
 | 行尾裸 `\`（转义吞字符到行尾） | 不抛; 切分与 TUI 同形（`splitCells("a\\") === null`、`hasCellPipe("a\\") === false`） |
 | 引用块内的表格 / 列表项内缩进表格 | 不报（TUI 引用分支走行内解析, 口径一致）/ 报 |
 
+## 配置
+
+bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`；`ctx.ruleEngine` 不可用时写 stderr
+告警并静默降级（不让宿主启动失败）。`enabled` 字段缺省 `true`，而 `cordis.patch.yml` 现设 `false`（见文首状态说明）。
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 是否检查；`false` 时仍注册消费者但 `decide` 恒返回 null |
+| `sources` | `["assistant-text"]` | 唤醒节点（整回合助手正文） |
+| `delivery` | `"followup"` | 注入路径：作为新回合投递给模型 |
+| `dedupeInRecord` | `0` | 按记录去重上限；0 = 不限次（每次出现不一致都注入） |
+| `maxTables` | `5` | 每条反馈最多列出几个表格（`0` 口径见下「上限为 0 的口径」） |
+| `maxRowsPerTable` | `3` | 每张表最多列出几行不一致（同上） |
+
+`src/checker.ts` 另外导出纯函数 `checkTables` / `renderFeedback` / `splitCells` / `hasCellPipe` 与
+`CheckOptions.headerExcerptLimit`（缺省 60，`0` 口径见下「上限为 0 的口径」）；判定核心无依赖、无 IO，可被展示层单独复用。
+
 ### 上限为 0 的口径（2026-10-16 起：0 = 不设上限）
 
 - 三个上限参数（`maxTables` / `maxRowsPerTable` / `headerExcerptLimit`）**统一**：`0` = **不设上限** —— `maxTables: 0` 列出全部问题表格、`maxRowsPerTable: 0` 列出每张表的全部不一致行、`headerExcerptLimit: 0` 表头摘录不截断；未设 / 负数 / `NaN` 等非法值回退缺省 `5` / `3` / `60`。
 - 实现 = `src/checker.ts` 的 `limitOrInfinity()`（有限非负数按值、`0` 取 `Infinity`、非法值回退缺省）。
 
-## 开发
+## 用法
+
+- 启用：本包 2026-10-23 起缺省关闭；要临时启用把 `cordis.patch.yml` 的 `enabled` 改回 `true`（或 profile 用户 patch 覆盖）。
+  注入正文示例（`summary` 恒为 `表格列数提醒`）：
+
+```text
+[md-table-check] 上一条回复正文里的 markdown 表格列数不一致（本提示只针对回复正文，与仓库文件无关）：
+- 表 1（表头在第 12 行）：`| 包 | 作用 | 状态 |` 期望 3 列
+  - 第 13 行（分隔行）：2 列
+  - 第 14 行（数据行）：4 列
+请修正这些表格后，把上一条回复完整重发一次；不要修改仓库里的任何文件或文档。
+```
+
+## 边界
+
+明确不做：
+
+- **宽度不足**导致的 TUI 退回（属终端与窗口，非回复缺陷）。
+- **伪表格**（有竖线但缺分隔行）识别 —— 正文里带竖线的普通行很常见，误报代价高于收益。
+- 自动改写回复正文或任何文件；TUI 侧展示 / 命令面。
+
+## 测试
 
 ```sh
-npm run check            # 类型检查（两个 program：主 tsconfig + tests/tsconfig.json）
-npm run build            # 编译到 dist/（只编本包源与常规测试, 不往他包 src/ 落产物）
-npm run check:no-cross-emit  # build 后自检：rule-engine/src 与 TUI/src 里没有未跟踪产物
-npm test                 # 八份测试：判定 / 形态矩阵快照 / 与 TUI 源码互证 / 接线 / 真实 rule-engine 端到端注入 / 显示面与注入呈现 / 思考与正文分离 / 三面差分对拍
+pnpm run check            # 类型检查（两个 program：主 tsconfig + tests/tsconfig.json）
+pnpm run build            # 编译到 dist/（只编本包源与常规测试, 不往他包 src/ 落产物）
+pnpm run check:no-cross-emit  # build 后自检：rule-engine/src 与 TUI/src 里没有未跟踪产物
+pnpm run test             # 八份测试：判定 / 形态矩阵快照 / 与 TUI 源码互证 / 接线 / 真实 rule-engine 端到端注入 / 显示面与注入呈现 / 思考与正文分离 / 三面差分对拍
 ```
 
 测试文件（`tests/`）：
@@ -115,7 +123,7 @@ TUI 源码不在时（独立分发场景）其用例自动跳过。`integration.
 - 主 `tsconfig.json`：`include` = `src` + `index.ts` + 常规测试，`exclude` 掉上述三个跨包用例；
   `rootDir: "."`、`outDir: "dist"` 不变 —— build 不会往 `rule-engine/src/` 落产物。
 - `tests/tsconfig.json`：`extends` 主配置、`rootDir` 上移到仓库根、`noEmit`，`include` 整个 `tests/`，
-  把跨包用例重新纳入类型检查（`npm run check` 依次跑两个 program）。
+  把跨包用例重新纳入类型检查（`pnpm run check` 依次跑两个 program）。
 - 未用 project references：`rule-engine` 的 `tsconfig.json` 没有 `composite: true`，加引用需要改他包配置
   （超出本包改动范围），故只取「`rootDir` 上移」这一半。
 
