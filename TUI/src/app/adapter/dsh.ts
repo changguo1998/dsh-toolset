@@ -5,7 +5,8 @@ import { aggregateSearchSources } from "./search-aggregate.ts";
 
 // src/app/adapter/dsh.ts — DSH 适配层：真实实现 + 兼容重导（类型/纯函数已拆出）
 //
-// 纯类型见 ./types.ts，纯归一化函数见 ./normalize.ts；本文件保留
+// 纯类型见 ./types.ts，纯归一化函数见 ./normalize.ts，审批链的 tool/call 参数
+// 登记表见 ./approval-tool-calls.ts；本文件保留
 // installSessionModelSelection 与 createRealDshAdapter，并以显式重导保持原
 // ./adapter/dsh.ts 公共导出不变（外部 import 路径无需改动）。
 //
@@ -85,7 +86,6 @@ import type {
   ConfigEntrySummary,
 } from "./types.ts";
 import {
-  type ApprovalDetail,
   buildApprovalPrompt,
   buildUserMessage,
   extractTextBlocks,
@@ -97,6 +97,7 @@ import {
   ruleInjectionTextOf,
   summarizeToolArguments,
 } from "./normalize.ts";
+import { ToolCallCache } from "./approval-tool-calls.ts";
 import {
   stepHeaderLine,
   toolCallLine,
@@ -1341,7 +1342,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         const argsRaw =
           typeof data.arguments === "string" ? data.arguments : "";
         const summary = summarizeToolArguments(argsRaw);
-        rememberToolCall(data.callId, name, argsRaw, summary);
+        toolCallsByCallId.remember(data.callId, name, argsRaw, summary);
         if (typeof data.callId === "string" && data.callId !== "") {
           const explicit = data as unknown as { turn?: number; step?: number };
           const scope =
@@ -1873,44 +1874,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   // --- approval/request waterfall 应答者 ---
   // 3.3.3：tool/call 参数短期登记表（键 = 宿主 callId）。容量上限防长会话堆积；
   // 审批裁定 / 超时 / abort 后立即清理（见 approvalAnswerer 的 finally）。
-  const toolCallsByCallId = new Map<string, ApprovalDetail>();
-  const TOOL_CALL_CACHE_MAX = 64;
-
-  /** 由原始 arguments 抽审批草稿明细：command 字段取全文，非 JSON 原样，摘要兜底 */
-  const approvalDetailOf = (
-    name: string,
-    argsRaw: string,
-    summary: string,
-  ): ApprovalDetail => {
-    const detail: ApprovalDetail = { tool: name, summary };
-    const raw = argsRaw.trim();
-    if (raw === "") return detail;
-    try {
-      const obj = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof obj.command === "string" && obj.command.trim() !== "") {
-        detail.command = obj.command;
-      }
-    } catch {
-      detail.command = raw;
-    }
-    return detail;
-  };
-
-  const rememberToolCall = (
-    callId: unknown,
-    name: string,
-    argsRaw: string,
-    summary: string,
-  ): void => {
-    if (typeof callId !== "string" || callId === "") return;
-    toolCallsByCallId.delete(callId); // 重放时移到队尾（LRU 近似）
-    toolCallsByCallId.set(callId, approvalDetailOf(name, argsRaw, summary));
-    while (toolCallsByCallId.size > TOOL_CALL_CACHE_MAX) {
-      const oldest = toolCallsByCallId.keys().next().value;
-      if (oldest === undefined) break;
-      toolCallsByCallId.delete(oldest);
-    }
-  };
+  // 登记表与其明细投影见 ./approval-tool-calls.ts。
+  const toolCallsByCallId = new ToolCallCache();
 
   /**
    * 裁定并清理。reason 非空表示「由宿主侧裁定」（超时 / abort）——此时额外发

@@ -110,6 +110,9 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - `adapter/dsh.ts` 从 4648 行降到 3639 行, 保留: 文件头重导块（对外 136 个可见名与拆分前逐一对应, missing 0 / extra 0）、`installSessionModelSelection`、`createRealDshAdapter` 本体, 并对 9 个搬走的公开函数（`normalizeHistoryMessages` / `listSessionRecords` / `pickRecentSession` / `pickContinueTarget` / `deleteSessionDir` / `parseContractObjective` / `contractSummaryText` / `groupStatusText` / `aggregateSearchSources`）与 2 个类型做入口重导出, 外部 import 路径不变。
   - 偏差: `adapter/dsh.ts` 拆完仍 3639 行, 其中约 3350 行是 `createRealDshAdapter` 的**单个工厂闭包**: 内部方法与闭包变量（事件队列、活跃会话句柄、painter、去抖计时器）互相引用, 按职责切要把这些状态收成一个依赖上下文再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突; 本轮按「一个文件一层」只把可独立成层的纯函数搬出, 工厂整体留待单独条目再拆。
 
+- 阶段 3 第三批 · 第一步（2026-10-28, `adapter/dsh.ts` 余量按职责分组搬, 一次一组）: 搬「审批链的 tool/call 参数登记表」一组到 `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）。原 `createRealDshAdapter` 闭包里的 `approvalDetailOf`（纯投影）、`TOOL_CALL_CACHE_MAX` 与该表的插入 / 取回 / 删除 / 淘汰逻辑收成一个 `ToolCallCache` 类; `dsh.ts` 只在原位留一行 `const toolCallsByCallId = new ToolCallCache()` 与三处调用点改写（remember / get / delete）, 行为与 LRU 近似淘汰顺序逐行对应, 未加新导出、未改对外导出集合（这两个辅助原本就是闭包私有）。`dsh.ts` 从 3639 行降到 3603 行; 仍 > 3000 行, 按本轮口径只做这一组即提交。
+  - 偏差: 开工时分支 `history-cleanup/03-code-tui` 落后 `main` 4 个 task-engine 提交（`f1ca5d2b..2ab7b760`）, 先做 `git merge --ff-only main` 对齐（快进, 无冲突、无内容改动）再动手。
+
 ## 偏差
 
 - 覆盖率命令路径: `report.mjs` 把两个参数按**仓库根**解析（`resolve(root, argv)`）, 而 `NODE_V8_COVERAGE` 由 node 按**当前目录**解析。脚本据此分工: `NODE_V8_COVERAGE=../tmp/cov-tui`（相对 `TUI/`）、报告参数 `tmp/cov-tui` / `tmp/cov-tui/report.json`（相对仓库根）, 两者指向同一目录; 包文档原写法 `node ../dev/coverage/report.mjs ../tmp/cov-TUI ...` 会把产物解析到仓库外, 故按上述分工落地。
@@ -242,3 +245,15 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   | `app/app-deps.ts` | 100 | `AppDeps` 装配依赖面（main.ts 与测试的接线契约） |
 - 对外可见集合: 脚本比对 15 个导出名, missing 0 / extra 0; 私有常量（`CTRL_C_DOUBLE_MS` / `EXIT_CONFIRM_PANEL_ID` / `MEMORY_USAGE` 等）只在模块间 export + `index.ts` import, 不加入口重导出。
 - 偏差: `index.ts` 仍是 6499 行, 主体是 `App` 类的约 6200 行方法体。类内方法大量读写私有字段（`state` / `deps` / 计时器 / 渲染句柄）, 按职责切要先把这些状态收成显式上下文再谈搬走, 属**改结构**; 本轮按「行为不变」只搬类外纯函数与依赖面, 类体拆分建议另立条目（可先按「会话控制 / 面板交互 / 插件接线」三组配合上下文对象做）。
+
+### 阶段 3 第三批 · adapter/dsh.ts 第一步（2026-10-28）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error（搬完 / 补 import / 格式化后各一次） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo, 8.2s |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
+
+- 只搬一组: 「审批链的 tool/call 参数登记表」→ `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）; `TUI/src/app/adapter/dsh.ts` 3639 → 3603 行。
+- 断言一字未改, 1828 条全过; 行为不变, 工具名 / 配置键 / 注入文案 / 帧内容均未动。
