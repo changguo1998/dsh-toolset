@@ -1,6 +1,14 @@
 # @dsh-toolset/ast-tools
 
-DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行。零运行时依赖，二进制与实现选型见下文「二进制选型」。
+## 定位
+
+DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索、结构化替换、文件大纲与 YAML 规则执行。零运行时依赖，二进制与实现选型见下文「能力」中的「二进制选型」。
+
+### 文档
+
+- 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
+- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`。
+- 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（`ctx.tools` 注册面）。
 
 ## 能力
 
@@ -33,7 +41,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 | `runRules(params, opts?)` | YAML 规则执行 → `AstRuleHit[]`（`ruleId` / `severity` / `message`，fix 规则附 `replacement`） |
 | `createAstToolsBundle(config?)` | 核心工厂：绑定二进制与超时，返回 `search` / `replace` / `outline` / `rules` / `dispose` 服务对象 |
 | `findAstGrepBin` / `ensureAstGrepBin` | 二进制探测（未找到返回 `null` / 抛 `AstGrepMissingError`） |
-| `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约（`inject: ["tools"]`，注册上表的两个模型侧工具） |
+| `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约（`inject: ["tools"]`，注册上表的模型侧工具） |
 
 各操作的参数（`opts` 为通用选项 `bin` / `timeoutMs`）：
 
@@ -44,7 +52,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 
 另导出工具面构件 `astQueryTool` / `astReplaceTool` / `toToolDefs` / `unavailableOps` / `RENDER_LIMIT` 与渲染器 `renderMatches` / `renderOutlineFiles` / `renderReplace` / `renderRuleHits`（供宿主与其他插件自行注册 / 复用渲染），以及 `normalizeLanguage`、`runCli` / `runCliJson`、`DEFAULT_TIMEOUT_MS`、`INSTALL_GUIDANCE` 与错误类型 `AstGrepError` / `AstGrepMissingError` / `AstGrepProcessError` / `AstGrepJsonError`（含 `exitCode` / `stderr`）。
 
-## 二进制选型
+### 二进制选型
 
 采用**系统 ast-grep CLI**（不内置二进制、不引入 `@ast-grep/napi` 绑定）：CLI 覆盖 25+ 语言、原生执行 YAML 规则（含 `fix` 重写）并输出结构化 JSON；napi 绑定只内置 5 种语言，规则配置也没有 `fix` / `rewrite` 字段，无法覆盖「多语言 + 规则」的能力面。代价是语言覆盖与规则能力随**本机 ast-grep 版本**（字段形态按 0.45.x 对齐），二进制缺失时走下文降级路径。
 
@@ -59,7 +67,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 
 探测失败抛 `AstGrepMissingError`，报错内含安装方式：`npm install -g @ast-grep/cli`、`brew install ast-grep`、`cargo install ast-grep`、预编译二进制下载，或用 `AST_GREP_BIN` / `bin` 指定路径。bundle 的 `apply` 捕获该错误后记录日志，并注册**降级版模型侧工具**：工具可见，但每次调用都返回含 `INSTALL_GUIDANCE` 的错误值——不假装成功（fail-closed），模型侧仍能读到安装指引（口径与 `code-map` 的降级 bundle 一致）。其他错误照常抛出，不使宿主崩溃。
 
-## 使用示例
+## 用法
 
 ```ts
 import { outlineFile, replaceAst, runRules, searchAst } from "@dsh-toolset/ast-tools";
@@ -86,11 +94,11 @@ fix: console.info($MSG)` }, paths: ["src/"] });
 包内可运行样例（临时文件全流程断言）：
 
 ```sh
-npm run example:search    # 输出 SEARCH_EXAMPLE_PASS
-npm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
+pnpm run example:search    # 输出 SEARCH_EXAMPLE_PASS
+pnpm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 ```
 
-## 边界与限制
+## 边界
 
 - 依赖系统 ast-grep CLI（选型见上文「二进制选型」）：每次操作为一次性子进程，语言覆盖与规则能力随本机 ast-grep 版本；无法安装二进制的环境按上文降级。
 - 元变量语法：`$VAR` 捕获单个 AST 节点，`$$$VAR` / `$$$` 捕获节点序列（0 个或多个兄弟节点）。`$$VAR` / `$$` / `$(name)` 不产生序列捕获（`$(name)` 匹配不到），不要使用。
@@ -104,15 +112,9 @@ npm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 ## 测试
 
 ```sh
-npm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
-npm run build   # 编译到 dist/
-npm run test    # node --test（38 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
+pnpm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
+pnpm run build   # 编译到 dist/
+pnpm run test    # node --test（38 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
 ```
 
 依赖二进制的用例在缺 ast-grep 的机器上自动 skip，降级路径用例恒跑。
-
-## 文档
-
-- 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
-- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`。
-- 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（`ctx.tools` 注册面）。
