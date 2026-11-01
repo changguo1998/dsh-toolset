@@ -1,6 +1,28 @@
 # @dsh-toolset/task-engine
 
+## 定位
+
 DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / implement / execute / stop / status 工具族，分解双重门禁与 RET 验收（mechanical / semantic / human）路由。
+
+**目录结构**
+
+```
+src/
+  types.ts      # Frame / Acceptance / ExecutorSpec / PlanEvent / TaskTree / StepVerdict
+  events.ts     # 事件溯源：materialize 折叠、嵌套视图、快照/恢复
+  gate.ts       # 分解门禁：粒度四规则 + coverage + deps + executor 校验 + 隔离 id 规则（DEFAULT_GATE）
+  acceptance.ts # RET 裁决：mechanical / human / semantic
+  engine.ts     # TaskEngine：decompose / implement / execute / stop、有界就绪池、join、bounded retry、终态钩子、查询面
+  tools.ts      # 模型侧工具族（纯数据 + 处理器，零 DSH 依赖）
+  main.ts       # cordis 插件入口（结构面适配、宿主服务惰性解析、executor 后端接线、worktree 隔离器）
+index.ts        # 包入口：re-export src/main（编译产出 dist/index.js）
+scripts/        # executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主面）
+demo/main.ts    # mock demo（脚本化模型，自断言）
+tests/          # node:test 单测
+docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（包待办）、archived/（已关闭的追踪文档）
+```
+
+架构与设计取舍见 `docs/DESIGN.md`；包待办见 `docs/BACKLOG.md`；追踪文档见 `docs/archived/`。
 
 ## 能力
 
@@ -23,14 +45,14 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
   - 四 kind：`model`（缺省语义 = 本会话执行，`task_execute` 拒绝并指向 `task_implement`）/ `subagent` / `workflow` / `command`（`/bin/sh -c`，可带 `cwd`）；可选字段 `model`（`{provider, model}` 覆盖）、`budget.maxTokens`、`cwd`、`isolate`、`prompt` / `script` / `meta` 按后端取用。
   - 必填约束（机械门禁 `rule: "executor"`，带反馈打回）：只允许叶子声明；`command` 必给 `command`、`workflow` 必给 `script`；`meta.name` / `meta.description` 非空；`model` 覆盖须给全 provider/model；`budget.maxTokens` 须为正数；`isolate` 只认 `"worktree"`（仅 `command` 后端 + 必须同时给 `cwd`，见下条）。
   - 失败分类：`workflow` 的 `start` 同步抛错（`META_INVALID` / `SCRIPT_PARSE`）= **声明错误 → 不打回不计重试**，`cancelled`（用户取消）不打回，`error` 交 bounded retry（反馈附 `已启动子代理 N 个`）；`subagent` 的 `stopReason` 非 `completed` / `max-tokens` 视为失败（`aborted` = 用户中止，不打回）；`workflow` 的 `value` 为对象 / 数组时记入 `structured`（文本证据为缩进 JSON）；三类后端证据统一**截断**到 8000 字符（超出标注原始长度），**全文**仍走 `plan/frame-implemented`。
-  - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`）；后端接线细节（`agentOptions` 映射、workflow `meta` 浅合并、用量投影与 `overBudget` 口径、`retryable` 分流）见 `docs/DESIGN.md`「关键设计取舍 6 / 7 / 8」。
+  - 执行记录落 `plan/frame-executed`（`executor` / `model` / `tokens` / `overBudget` / `structured` / 证据摘要 / `retryable`）；后端接线细节（`agentOptions` 映射、workflow `meta` 浅合并、用量投影与 `overBudget` 口径、`retryable` 分流）见 `docs/DESIGN.md`「取舍 6 / 7 / 8」。
 
 - **executor 隔离（`isolate: "worktree"`，2026-10-02 自建简易版）**：叶子声明该字段且 `kind` 为 `command` 时，`task_execute` 先建 git worktree（`<repo>/.worktree/<leafId 安全化>`，分支 `dsh/<leafId 安全化>`），再把该路径**覆盖** `cwd` 交给命令后端。契约三条：
 
   - ① **只对 `command` 后端**生效且必须同时声明 `cwd`：宿主 `SubagentStartRequest` / workflow 面**都没有 cwd 参数**，隔离无处落地 → 声明期直接报错（不「假装隔离」）；`isolate` 只认 `"worktree"`。
   - ② **回收永不 `--force`**：干净工作区才 `worktree remove`，成功后才 `branch -D`；**脏树（有未提交改动 / 未跟踪产出）一律保留现场** —— 路径 + 取回提示写进 `plan/frame-completed.notice`、`stop` 返回与 stderr 告警（三处可见，不静默）。**隔离区产出不会被自动 merge**，要留用请自行提交 / 复制出去。
   - ③ **只有终态（`done` / `failed`）才回收**：打回重试（非终态失败）保留现场供二次执行复用（同 leafId 复用同一 worktree，不重复 `add`）；插件 unload 时 best-effort 回收在册工作区（脏树同样保留）。
-    机制细节（id 安全化与 `rule: "isolate-id"`、注册表幂等与 `prune` 兜底、`execFile` + guard 复查、跨进程残留 / 无 `node_modules`）见 `docs/DESIGN.md`「关键设计取舍 12」。
+    机制细节（id 安全化与 `rule: "isolate-id"`、注册表幂等与 `prune` 兜底、`execFile` + guard 复查、跨进程残留 / 无 `node_modules`）见 `docs/DESIGN.md`「取舍 12」。
 
 - **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`（**自动开轮路径除外**：临时新根未落盘即打回，不留空轮、也不把重试计数记到新根），达 `maxRetries` 置 `failed`。
 
@@ -60,13 +82,13 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 
 门禁默认值 `maxChildren=7`、`maxRetries=3`、`maxConcurrent=4` 定义在 `DEFAULT_GATE`；插件 config 只暴露 `maxConcurrent`（其余两项供引擎级调用覆盖）。
 
-## 使用示例
+## 用法
 
 工具调用（模型侧）：
 
 ```jsonc
 { "parent_id": "root", "children": [{ "id": "c1", "title": "…", "spec": "…",
-  "acceptance": [{ "id": "a1", "check": "…", "level": "mechanical", "command": "npm run check" }],
+  "acceptance": [{ "id": "a1", "check": "…", "level": "mechanical", "command": "pnpm run check" }],
   "need_decompose": false, "coverage": { "r1": ["c1"] },
   "executor": { "kind": "subagent", "prompt": "…", "budget": { "maxTokens": 4000 } } }] }
 { "task_id": "c1" }              // 未声明 executor（model 语义）→ 模型自己写产出
@@ -74,7 +96,7 @@ DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / impleme
 { "task_id": "c1" }              // 声明了 executor → 用 task_execute 发起后端（此处为 subagent）
 // 隔离（仅 command 后端）：命令在 <repo>/.worktree/c1 里跑，主树不动
 { "id": "c2", "title": "…", "spec": "…", "acceptance": [], "need_decompose": false, "coverage": {},
-  "executor": { "kind": "command", "command": "npm run check", "isolate": "worktree", "cwd": "/abs/path/to/repo" } }
+  "executor": { "kind": "command", "command": "pnpm run check", "isolate": "worktree", "cwd": "/abs/path/to/repo" } }
 ```
 
 profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` 加
@@ -89,7 +111,7 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
     maxConcurrent: 4
 ```
 
-## 边界与限制
+## 边界
 
 - **边界与外包**（2026-09-30 决策）：引擎自研「语义与不变量」——帧栈与状态机（decompose / implement / stop / join / retry / 快照恢复）、拆解门禁（粒度 + coverage + deps）、RET 验收路由、事件溯源与查询面；「机制与资源」一律复用宿主，不重复造：
   - 执行与隔离：叶子可声明 `executor`（`subagent` / `workflow` / `command` 后端由模板或叶子显式声明，引擎不替模型生成脚本）；未声明 `isolate` 时 `cwd` 仍只做透传；隔离（git worktree）仅 `command` 后端、不自动 merge、不做审查 / checkpoint、不处理远程、不并发复用同一 leafId（见上「叶子执行后端」与「executor 隔离」）。
@@ -98,7 +120,7 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
   - 工具注册与会话面：`tools` / `agents` / `sessions`（需要时的 jobs / schedule 只用于等待，不作调度器）。
   - **明确不替换**：宿主 `todo`（模型面清单，无契约 / deps / 验收 / 溯源，不能当帧栈）、`experimental-agent-team` 任务板（跨执行器调度板，可作呈现或辅助，不作 Frame 底座）。
 - **语义面接线**（2026-10-02）：`audit` / `entail` 各跑一次**裁决子代理**（经 `ctx.subagents`，与 `subagent` 执行后端共用 `runChildOnce`；prompt 只输出一个 JSON 对象，`{"pass"|"ok": boolean, "feedback": string}`，声明了 `outputSchema` 时另带 `structured`）；开关与超时见 Config `semantic`（缺省都开，`timeoutMs` 120s）；**裁决 run 不可用**（失败 / 超时 / 输出不可解析）分流：`audit` **fail-closed 打回**（不假通过）、`entail` **跳过该门**（环境故障不烧重试预算）。**工具面收窄**（2026-10-04）：裁决 run 与 `subagent` 执行后端都带 **`toolFilter.deny` = 本引擎注册成功的全部 `task_*` 工具名**（宿主 `spawn` provider 支持 `toolFilter` → `ctx.tools.restrict`），子代理看不到 `task_*` 族、无法反向操作同一引擎与任务树；名单只在工具**注册成功**后收集（注册是 best-effort；一个都没成功 → 不收窄，避免宿主 `restrict()` 因未知工具名拒绝整次 run）；provider 未声明该能力位时**降级**（不收窄、照跑）并在 stderr 留一条告警（每插件实例一次）；带 `toolFilter` 的发起若失败（deny 名单里的名字在宿主全局注册表已失效——插件 remount / 卸载重注册的空窗）→ **去 filter 重试一次**并在告警留痕。
-- **执行期复查**：命令**执行之前**各过一次 security-guard（① `executor` 的 `command` 后端、② mechanical 验收命令（含不在 `task_decompose` 登记表里的 `root.acceptance[].command`）、③ 隔离的 git 调用），`source` 形如 `task-engine{executor|acceptance|worktree} <id>`；命中即**不执行**，回执原文作为失败原因。取舍：**需 guard 挂载**（本包惰性读取、不进 `inject`），**未挂载或复查抛错 → fail-open 放行 + 每种失效模式只告警一次**；且「这条命令没复查过」不静默——命令缝落 `plan/frame-executed.guardSkipped`、验收缝落 `plan/acceptance-verdict.guardSkipped` 并随 `task_stop` 反馈透出。细节见 `docs/DESIGN.md`「目标与边界」的同名条。
+- **执行期复查**：命令**执行之前**各过一次 security-guard（① `executor` 的 `command` 后端、② mechanical 验收命令（含不在 `task_decompose` 登记表里的 `root.acceptance[].command`）、③ 隔离的 git 调用），`source` 形如 `task-engine{executor|acceptance|worktree} <id>`；命中即**不执行**，回执原文作为失败原因。取舍：**需 guard 挂载**（本包惰性读取、不进 `inject`），**未挂载或复查抛错 → fail-open 放行 + 每种失效模式只告警一次**；且「这条命令没复查过」不静默——命令缝落 `plan/frame-executed.guardSkipped`、验收缝落 `plan/acceptance-verdict.guardSkipped` 并随 `task_stop` 反馈透出。细节见 `docs/DESIGN.md`「机制」的同名条。
 - **引擎内核零 DSH 依赖**：`audit`（semantic 验收）与 `entail`（语义蕴含）在引擎侧仍是注入式 hook，插件形态（`apply`）已按上条接线；显式关掉（`semantic.audit=false` / `semantic.entail=false`）时分别回到 fail-closed 与跳过。父帧（无自身产出）的裁决证据由**子帧结论汇总**（§17.3）。
 - fan-out 有界并发只是引擎侧 claim 语义；真实多执行器并行（agent-team DAG）属宿主编排层，引擎侧只保证「帧在途」的记账与上限。
 - 单会话实例：一个引擎持有一棵任务树；快照持久化依赖 `snapshotPath`，未配置时跨进程恢复不可用。
@@ -106,38 +128,18 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 - abort 语义：宿主中止 turn 后重启，`resumeFromSnapshot` 为每个在途 active 帧补记 `plan/frame-interrupted`，回收为 pending 且不增 `retryCount`；有隔离工作区的帧在这一路径上**不回收**（保留现场，重入按注册表复用），跨进程残留属已知残余。
 - `ctx.tools` 缺失时告警并跳过工具注册；`ctx.approval` 缺失或 `request` 抛错时静默 fail-closed（human 级一律视为未批准），保证 bundle 加载不崩。
 
-## 目录结构
-
-```
-src/
-  types.ts      # Frame / Acceptance / ExecutorSpec / PlanEvent / TaskTree / StepVerdict
-  events.ts     # 事件溯源：materialize 折叠、嵌套视图、快照/恢复
-  gate.ts       # 分解门禁：粒度四规则 + coverage + deps + executor 校验 + 隔离 id 规则（DEFAULT_GATE）
-  acceptance.ts # RET 裁决：mechanical / human / semantic
-  engine.ts     # TaskEngine：decompose / implement / execute / stop、有界就绪池、join、bounded retry、终态钩子、查询面
-  tools.ts      # 模型侧工具族（纯数据 + 处理器，零 DSH 依赖）
-  main.ts       # cordis 插件入口（结构面适配、宿主服务惰性解析、executor 后端接线、worktree 隔离器）
-index.ts        # 包入口：re-export src/main（编译产出 dist/index.js）
-scripts/        # executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主面）
-demo/main.ts    # mock demo（脚本化模型，自断言）
-tests/          # node:test 单测
-docs/           # DESIGN.md（架构与设计取舍）、BACKLOG.md（模块待办）、archived/（已关闭的过程记录与追踪文档）
-```
-
-架构与设计取舍见 `docs/DESIGN.md`；模块待办见 `docs/BACKLOG.md`；过程记录见 `docs/archived/`。
-
 ## 测试
 
 ```sh
-npm run check   # 类型检查（tsc --noEmit）
-npm run build   # 编译到 dist/
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（136 例：engine / events / gate /
+pnpm run check   # 类型检查（tsc --noEmit）
+pnpm run build   # 编译到 dist/
+pnpm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（136 例：engine / events / gate /
                 # query / tools / semantic / usage / exec-guard / exec-isolate（隔离 14 例：建 / 回收 / 脏树取舍 /
                 # id 安全化 / id 规则 / 崩后残留 / 卸载兜底 / guard 命中 / 幂等 / 非 git 仓库 / 声明面）等）
-npm run demo    # npm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-13，
+pnpm run demo    # pnpm run build && node dist/demo/main.js；脚本化模型跑步骤 0-7 + 演示 8-13，
                 # 覆盖全链路（门禁打回→implement→stop→join）、fan-out 有界并发、
                 # 语义验收 audit、step 裁决、语义蕴含门、abort 恢复、叶子执行后端；输出 DEMO_OK / DEMO_FAIL，退出码 0/1
-npm run smoke:executor  # npm run build && node scripts/executor-smoke.mjs；dist 级 + 假宿主面冒烟，
+pnpm run smoke:executor  # pnpm run build && node scripts/executor-smoke.mjs；dist 级 + 假宿主面冒烟，
                 # 覆盖**主机适配层**（单测与 demo 都踩不到的部分）：subagent 的 `agentOptions` 映射与
                 # usage 投影口径用量 + 无投影回退 pressure + `max-tokens` → `overBudget`、未声明模型不传 `agentOptions`、command 真跑 `/bin/sh`、
                 # workflow 默认 meta 合并与对象证据、同步抛错不打回不计重试、`cancelled` 反馈、
