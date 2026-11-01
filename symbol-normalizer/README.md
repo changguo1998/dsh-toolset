@@ -1,5 +1,7 @@
 # @dsh-toolset/symbol-normalizer
 
+## 定位
+
 DSH（DeepSeek Harness）插件：**模型正文符号规范**——展示层归一（别名替换）+ 回合审查（人类 notice + 模型反馈），以 **rule-engine 消费者**形式接入（消费者框架的第一个验证插件）。
 
 ## 能力
@@ -8,7 +10,7 @@ DSH（DeepSeek Harness）插件：**模型正文符号规范**——展示层归
 
 `normalize(text)` 返回 `{ text, replacedCount, remaps, emojiRemaps, unrecommended }`：治理区内的不推荐符号按别名表替换为推荐符号（如 `✔→✓`、`❌→✗`、`➔→→`）；无替代的符号原样保留并记入 `unrecommended`。纯函数、无副作用；dsh-toolset TUI 在 `/symbol-unify` 开启时对每个流式段调用。
 
-### 符号规则表（内置默认）
+### 符号规范表（内置默认）
 
 推荐白名单：`✓ ✗ △ → ← ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ▶ ◀ ▲ ▼ ▷ ◁ ▽ ⟸ ⟹ ⟺ ⇆ • ◦ ○ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …`。
 
@@ -39,8 +41,8 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 ### 3. 会话开局指南（消费者 `symbol-normalizer-guide`）
 
-- 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、**英文标点且标点后留一个空格**、**非 ASCII 符号后留一个空格（不紧贴文字）**、变体必须用推荐对应符、使用场景口径、代码段豁免说明），末尾以空行分隔附一条**不编号**的工作流指令「若本会话有正在进行的工作, 了解后继续原任务; 否则停下等待指令, 不要自行去工作区找任务.」（不与 1~7 条符号规则混列）；文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容。
-- 触发与去重照 rule-engine 统一标准（`sources` / `delivery` / `dedupeInRecord` / `directWrite` 四项取值、直写与同组合并口径见 `docs/DESIGN.md` 的「关键取舍」第 8 条）；`injectGuide: false` 关闭。**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
+- 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、**英文标点且标点后留一个空格**、**非 ASCII 符号后留一个空格（不紧贴文字）**、变体必须用推荐对应符、使用场景口径、代码段豁免说明），末尾以空行分隔附一条**不编号**的工作流指令「若本会话有正在进行的工作, 了解后继续原任务; 否则停下等待指令, 不要自行去工作区找任务.」（不与 1~7 条符号规范混列）；文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容。
+- 触发与去重照 rule-engine 统一标准（`sources` / `delivery` / `dedupeInRecord` / `directWrite` 四项取值、直写与同组合并口径见 `docs/DESIGN.md` 的「机制」第 5 条）；`injectGuide: false` 关闭。**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
 
 ### 4. 服务（`provide("symbolNormalizer")`）
 
@@ -61,7 +63,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 | `cooldownMs` | `600000` | 同符号冷却时间窗（ms；`0` 关闭） |
 | `cooldownRuns` | `3` | 同符号冷却 run 次数（`0` 关闭） |
 
-## 配置示例（profile `cordis.patch.yml`）
+## 用法
 
 ```yaml
 - insert:
@@ -75,26 +77,28 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 `config` 段是**整行替换、非深合并**（宿主 patch 语义），多层叠加需自行写全。
 
-## 依赖与时序
+## 边界
+
+### 依赖与时序
 
 - `inject: ["ruleEngine"]` 硬依赖：rule-engine 未挂载时本插件不加载（TUI 回退原文透传、无提醒）；指南的去重与补注入由 rule-engine 侧统一负责（`dedupeInRecord`）。
 - `decide` 运行在 `session/event` 的同步派发窗口内：不注入、不写事件、不读宿主会话面（注入与判空都由 rule-engine 负责），须廉价。
 - 消费者面依据（宿主 rc.2）：`registerConsumer` 由 rule-engine 提供（见 `rule-engine/README.md`）。
 
-## 已知限制
+### 已知限制
 
 - 反馈按回合合并为一条，不逐符号多条。
 - 冷却记账在进程内（`dsh` 重启清零），按会话隔离。
 - 展示层归一依赖客户端主动调用 `normalize`（dsh-toolset TUI 已接入）；未接入的客户端只有模型侧提醒。
 - 标点与间距两条（英文标点 + 标点后空格、非 ASCII 符号后空格）**只做引导层**——写进开局指南文案，不替换、不插空格、不进审查；模型不遵守时无强制手段。
 
-## 开发
+## 测试
 
 ```sh
-npm run check   # tsc --noEmit
-npm run build   # 编译到 dist/
-npm test        # node --test
-npm run demo    # mock 正文跑「审查 → notice + 反馈」，不依赖 DSH
+pnpm run check   # tsc --noEmit
+pnpm run build   # 编译到 dist/
+pnpm run test    # node --test
+pnpm run demo    # mock 正文跑「审查 → notice + 反馈」，不依赖 DSH
 ```
 
 架构与设计取舍见 `docs/DESIGN.md`。
