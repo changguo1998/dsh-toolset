@@ -7,10 +7,12 @@
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tests/tsconfig.json",
     "demo": "pnpm run build && node dist/demo/main.js",
     "smoke:executor": "pnpm run build && node scripts/executor-smoke.mjs",
-    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-task-engine && mkdir -p ../tmp/cov-task-engine && NODE_V8_COVERAGE=../tmp/cov-task-engine node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-task-engine tmp/cov-task-engine/report.json"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
