@@ -13,12 +13,8 @@
 import type { ResolvedConfig } from "./config.ts";
 import { reviewActive } from "./config.ts";
 import { FingerprintStore, fingerprintOf } from "./fingerprint.ts";
-import {
-  commandOfCall,
-  formOfCommand,
-  type FormStore,
-  type LearnHooks,
-} from "./learn.ts";
+import type { LearnHooks } from "./learn-decide.ts";
+import { commandOfCall, formOfCommand, type FormStore } from "./learn-rules.ts";
 import type { AuditWriter } from "./audit.ts";
 import {
   applyReviewDecision,
@@ -264,14 +260,6 @@ function failure(ctx: DecisionContext, detail: string): DecisionResult {
 export function riskAtMost(risk: RiskLevel, max: RiskLevel): boolean {
   const order: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
   return order[risk] <= order[max];
-}
-
-/** 只允许放行在 `maxRiskAllow` 以内的风险（对外暴露，供测试与文档断言）。 */
-export function allowedByRisk(
-  decision: ReviewDecision,
-  max: RiskLevel,
-): boolean {
-  return decision.decision === "allow" && riskAtMost(decision.risk, max);
 }
 
 /** 判定后记账：放行记指纹（只有 `allowed-once` 进放行集；拒绝不记）。 */

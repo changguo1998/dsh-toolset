@@ -1,20 +1,23 @@
 // tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
-// 跨包 import 真实 `ManualClock`（clock-base 包）作假时钟；本文件不在 tsconfig 的 include 内
-// （`rootDir` 限制，见 tsconfig.json 的 exclude），测试运行时经 node 类型擦除直接加载。
+// 定时器族从 `@dsh-toolset/clock-base` 入口引（含假时钟 `ManualClock`），不跨包引其内部模块；
+// 本文件不在 tsconfig 的 include 内（`rootDir` 限制，见 tsconfig.json 的 exclude），
+// 测试运行时经 node 类型擦除直接加载。
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import {
+  createDeadline,
+  ManualClock,
+  resolveClock,
+} from "@dsh-toolset/clock-base";
 import { resolveConfig } from "../src/config.ts";
 import { CallTable } from "../src/calls.ts";
 import { FingerprintStore } from "../src/fingerprint.ts";
-import { FormStore, createLearner } from "../src/learn.ts";
-import { createBundle, name } from "../src/index.ts";
+import { FormStore, createLearner, createBundle, name } from "../src/index.ts";
 import { runReview, type Reviewer } from "../src/review.ts";
 import { SessionObserver } from "../src/sessions.ts";
-import { createDeadline, resolveClock } from "../src/timers.ts";
 import type { PluginHost } from "../src/types.ts";
-import { ManualClock } from "../../clock-base/src/timers.ts";
 import { createFakeHost } from "./fakes.ts";
 
 /**

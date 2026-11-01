@@ -23,15 +23,6 @@ import {
 import { SHELL_TOOLS, type ResolvedConfig } from "./config.ts";
 import type { CallInfo, Decision } from "./types.ts";
 
-/** 判定所需的最小上下文（`callId → 参数` 表命中后的快照）。 */
-export interface RuleInput {
-  call: CallInfo;
-  /** 审批请求的理由（升级目标模式从这里取；`pre-execute` 侧无理由）。 */
-  reason?: string;
-  /** 本次请求的目标模式（已解析；undefined = 非升级请求或解析失败）。 */
-  escalationTarget?: string;
-}
-
 /** 判定结果：命中返回裁定，未命中返回 `undefined`。 */
 export type RuleHit = Pick<
   Decision,

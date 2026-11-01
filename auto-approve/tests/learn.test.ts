@@ -21,6 +21,7 @@ import {
 } from "../src/decide.ts";
 import { FingerprintStore } from "../src/fingerprint.ts";
 import {
+  createBundle,
   createLearner,
   FormStore,
   formHash,
@@ -33,8 +34,7 @@ import {
   tokenizeSegment,
   type Learner,
   type LearnerOptions,
-} from "../src/learn.ts";
-import { createBundle } from "../src/index.ts";
+} from "../src/index.ts";
 import {
   parseLearnDecisions,
   runLearnReview,
