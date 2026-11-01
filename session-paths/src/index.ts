@@ -1,7 +1,7 @@
 /**
  * session-paths 插件入口（DSH bundle 接入面）。
  *
- * 角色：把「宿主把会话目录放在哪」收敛成仓内唯一事实源 —— `src/encode.ts` 复刻宿主的
+ * 角色：把「宿主把会话目录放在哪」收敛成仓内唯一事实源 —— `session-paths/src/encode.ts` 复刻宿主的
  * `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，本文件把它包成服务
  * `sessionPaths`（`provide: ["sessionPaths"]`），供 memory-base 的 S 库、output-compress 的
  * `digest.db`、auto-approve 的会话审计、agent-group 的状态文件等消费方共用。
@@ -46,9 +46,6 @@ export interface SessionPathsConfig {
   /** sessions 根；缺省读环境变量 `DSH_HOME` → `<DSH_HOME>/sessions`，无该变量回落 `~/.dsh/sessions`。 */
   root?: string;
 }
-
-/** 与既有包命名习惯对齐（`Config` = 宿主透传的配置对象）。 */
-export type Config = SessionPathsConfig;
 
 /** 服务面（`ctx.get("sessionPaths")`）；边界语义见文件头。 */
 export interface SessionPaths {
@@ -179,11 +176,18 @@ export class SessionPathsService implements SessionPaths {
 
 /** 挂载：把服务面挂到 ctx（cordis `provide`）；极简 ctx 无 `provide` 时退回直接属性挂载。 */
 export function apply(ctx: unknown, config?: SessionPathsConfig): void {
+  // 入口守卫只判一次，后续两步都直接用收窄后的 ctx（与 readService 同一口径）。
+  if (ctx === null || typeof ctx !== "object") {
+    process.stderr.write(
+      "[session-paths] warn: ctx 无 provide，服务面 sessionPaths 未注册\n",
+    );
+    return;
+  }
   const service = new SessionPathsService(config?.root, ctx);
-  const c = (ctx ?? {}) as { provide?: unknown };
+  const c = ctx as Record<string, unknown>;
   let provideFn: ((serviceName: string, value: unknown) => unknown) | undefined;
   try {
-    const p = c.provide;
+    const p = c["provide"];
     if (typeof p === "function") {
       provideFn = p as (serviceName: string, value: unknown) => unknown;
     }
@@ -201,14 +205,8 @@ export function apply(ctx: unknown, config?: SessionPathsConfig): void {
     }
     return;
   }
-  if (ctx === null || typeof ctx !== "object") {
-    process.stderr.write(
-      "[session-paths] warn: ctx 无 provide，服务面 sessionPaths 未注册\n",
-    );
-    return;
-  }
   try {
-    (ctx as Record<string, unknown>)["sessionPaths"] = service;
+    c["sessionPaths"] = service;
   } catch (error) {
     process.stderr.write(
       `[session-paths] warn: 服务面 sessionPaths 注册失败：${String(error)}\n`,
