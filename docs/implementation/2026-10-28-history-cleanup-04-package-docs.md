@@ -1,6 +1,6 @@
 # 整理历史代码和文档: 阶段 4 包文档 (所属总追踪: `docs/implementation/2026-10-28-history-cleanup.md`)
 
-状态: 进行中　　开启: 2026-11-01　　关闭:
+状态: 完成　　开启: 2026-11-01　　关闭: 2026-11-01
 本文件是阶段 4 的阶段追踪文档, 记录范围、批次、门禁与合并结论; 逐包执行清单在 34 份包追踪文档的「实现规划 / 包文档」节, 计划外的文件不改.
 
 ## 目标
@@ -67,6 +67,25 @@
 
 ## 实现记录
 
+- 2026-11-01: 从 `61227e60` 开 34 个 `history-cleanup/04-package-docs-*` 分支与 `.worktree/04-package-docs/<包>`; 每包一个 coagent (permission `danger-full-access`), 只改本包文档。
+- 34 个分支各一笔文档提交, 工作区全干净; 合并回 `main` 用 `git cherry-pick` 逐笔落地 (保持线性历史, 未用 merge commit), 剔除 6 个分支对 `docs/implementation/` 追踪文档的顺带改动。
+- 改动面: 75 个文件, 其中 34 份 `README.md`、15 份 `docs/DESIGN.md`、22 份 `docs/BACKLOG.md`, 另 4 份 TUI 专项 (`docs/SPEC.md` / `docs/COMMANDS-SPEC.md` / `docs/design/AUDIT-colors.md` / `docs/design/REFACTOR.md`)。
+- 34 份 README 六节齐 (无配置项的包省 `## 配置`), 15 份 DESIGN 四节齐; 命令统一 `pnpm`, 归档断链改实际路径, 工具数与包数硬编码改为泛指, 界面四组术语统一。
+- 全量复扫: 断链 0 (脚本报 6 条均为行内代码里的示例 `url` / `href` / `a.md` / `来源`), 符号变体 0 (命中均在行内代码或符号规则示例内), 裸 `npm` 仅剩指 npm 仓库 / npm 包 / `npm install -g` 的说明性文字。
+
 ## 偏差
 
+- 计划列的 `command-template/templates/*.md`「评审」改「审阅」未落地: 执行中判为模板运行时内容、超出阶段 4 只改文档的范围, 已从分支恢复; 模板与包文档术语暂不一致, 留待专项。
+- 6 个分支 (`fs-digest` / `hash-edit` / `md-table-check` / `security-guard` / `task-engine` / `tool-consult`) 顺带改了包追踪文档; 合并时剔除, 追踪文档统一由主分支收尾。
+- 测试数字处理不一致: 部分包补了 `test:integration` / `test:coverage` 并更新用例数 (`herdr-integration` / `code-map` / `agent-group` / `rule-engine` / TUI 等), 部分包按「不新增结论」保留旧数 (`memory-base` 仍写 61 例, 实际 90 单测 + 6 集成; `task-engine` 结构清单与用例数过时); 需一次事实同步补正。
+- `rule-engine/docs/DESIGN.md` 结构节仍列拆分前 `main.ts` / `match.ts` / `rules.ts` / `persist.ts`, 与阶段 3 的五个新文件不符; `command-template/docs/DESIGN.md` 的 `src/main.ts` 路径与 `availableProviders` 旧句按范围要求回退; 均需补正。
+- 合并方式与计划写的 merge commit 不同, 改用 cherry-pick; 不影响内容。
+
 ## 测试与证据
+
+- `pnpm run check`: 退出 0 (文档改动, 无代码 diff)。
+- `format` 覆盖 75 个改动文件: 退出 0, 复跑无 diff。
+- 标题扫描 (跳过代码围栏): 34 份 README 六节 `readme_bad=0`; 15 份 DESIGN 四节 `design_bad=0`。
+- 链接扫描: 75 份 Markdown, 相对链接缺失 0 (6 条为行内代码示例)。
+- 合并后 `git status` 干净; `git rev-list --count 61227e60..HEAD` = 34, 逐笔均为 `docs(<包>): ...`; 无 `src` / `tests` / `package.json` / `tsconfig` / `cordis.patch.yml` 改动。
+- 分支与 worktree 保留待总任务关闭时统一清理; 未 push。
