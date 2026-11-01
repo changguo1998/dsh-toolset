@@ -1,10 +1,10 @@
 # coagent 设计
 
+## 背景
+
 本文件记录 `coagent` 的机制：状态机、证据优先级、认领算法、前台约束的守门点、落盘与已知限制。
 产品契约（工具参数、回执、错误码）见 `README.md`；取舍过程与验收方案见
-`docs/implementation/2026-10-22-coagent.md`。
-
-## 定位
+`docs/archived/2026-10-22-coagent.md`。
 
 一段生命周期里的**两段**：把长驻 dsh 会话拉起来，和把它收掉。
 
@@ -12,9 +12,9 @@
 - 收尾：`herdrUse.run("/quit")` → 等进程退出 → `herdrUse.close(terminal_id)`。
 
 中间的一切不实现：派任务 / 收结果（session-channel）、编排与等级（agent-group）、看屏 / 插话 /
-按键（herdr-use 的十个工具）。coagent 不转发对话、不解析结果、不做权限边界。
+按键（herdr-use 的终端工具）。coagent 不转发对话、不解析结果、不做权限边界。
 
-## 组件
+## 结构
 
 | 模块 | 职责 | 依赖 |
 | --- | --- | --- |
@@ -31,7 +31,9 @@
 **不 import 任何 `@dsh-toolset/*` 包**：跨包只走 `ctx.get("herdrUse")` / `ctx.get("sessionChannel")` /
 `ctx.get("sessionPaths")`，结构面自声明（先例 `agent-group/src/transport.ts`）。
 
-## 状态机
+## 机制
+
+### 状态机
 
 ```
                  create+run 成功
@@ -57,7 +59,7 @@
 
 `maxLive` 只计 `starting` / `ready` / `closing`。
 
-## 证据优先级
+### 证据优先级
 
 没有退出码可用（herdr 不回报终端内命令的退出码），「起没起来 / 还在不在」按以下顺序判定：
 
@@ -71,7 +73,7 @@
 `ready` 与 `lost` 的分界：终端消失 → `lost`；终端在但 `running: false` → 看 `peers`，会话在线则保持
 原状态（可能处在上层重启 / 构建间隙），掉线才 `lost`。
 
-## 认领算法
+### 认领算法
 
 1. 快照已有记录里的 `session_id` 作排除集（`known`）：避免认到同 cwd 的旧会话。
 2. 每轮 `peers()`，按以下条件筛：
@@ -85,17 +87,17 @@
 为什么必须轮询：session-channel 不做启动枚举、事件无回放，子会话要先产生第一条 `session/event`
 才进 `peers`；`fffdsh` 首次启动还可能触发多包构建（分钟级）。
 
-## 前台约束的守门点
+### 前台约束的守门点
 
 | 层 | 手段 |
 | --- | --- |
 | 命令面 | 提交给终端的命令以常量 `fffdsh`（`LAUNCH_COMMAND`）为前缀，仅允许追加受控的 `--provider` / `--model` / `--effort`（值过字符集与长度校验），没有任意命令透传入口 |
 | 文本自检 | `checkForegroundText` 拒绝 `nohup` / `setsid` / `&` / `disown` / `bg` / `screen` / `tmux`（词边界） |
-| 终端落点 | `create` 固定 `foreground: true`，不使用 `foreground: false` 的后台 lane |
+| 终端目标 | `create` 固定 `foreground: true`，不使用 `foreground: false` 的后台 lane |
 | 对象归属 | 只操作 `create` 回执返回的 `terminal_id`，不接受调用方传入 |
 | 参数面 | `spawn` 只接受 `cwd` / `label` / `claimTimeoutSec`；`target` / `task` / `text` / `env` 一律 `invalid_params` |
 
-## 落盘
+### 落盘
 
 目录 `<父会话目录>/coagent/`（`sessionPaths.sessionDirFor`；缺席降级 `$DSH_HOME/coagent/<会话>`）：
 
@@ -116,14 +118,14 @@ coagent/
   同步写索引与 meta；终端的关闭由 herdr-use 的退出清理按同一份登记表完成。`kill -9` 不跑钩子，
   残留由下次 `list(probe=live)` 判 `lost`。
 
-## 并发与锁
+### 并发与锁
 
 - **`spawn` 进程级排他**：并发拉起会同时写 `$DSH_HOME/profiles`（启动期做删除式操作），也可能
   在认领时抢同一个新会话；故 `spawn` 全程串行。
 - **按 `coagent_id` 串行**：同一记录的 `close` / 探测不并发写索引。
 - **索引读改写串行**：`FileCoagentStore.update` 内部排队，避免同进程两次写互相覆盖。
 
-## 依赖降级
+### 依赖降级
 
 | 服务 | 姿态 | 缺席行为 |
 | --- | --- | --- |
@@ -134,7 +136,9 @@ coagent/
 调用期服务消失：`herdr_unavailable` / `session_unavailable`；`sessionDirFor` 抛错：
 `session_paths_unavailable`；索引读坏 / 写失败：`record_write_failed`。
 
-## 已知限制
+## 取舍
+
+### 已知限制
 
 - **不隔离**：子会话与父会话同 profile、同 `DSH_HOME`、同凭据库、同工具面。coagent 不是权限边界。
 - **依赖 `fffdsh`**：终端登录 shell 必须加载它且导出 `*_API_KEY`，否则 `launch_failed`。
@@ -143,7 +147,7 @@ coagent/
 - **会话标识依赖 session-channel**：子会话所在 profile 没挂 session-channel 时永远认领不到。
 - **不做 resume**：`fffdsh` 自己的重启循环（退出码 75）由它处理，coagent 不介入。
 
-## 未验证
+### 未验证
 
 - herdr-use 服务面（I 组实现中）的真实回执形状只在 fake 上核对过；`create` 的 `terminal_id` 字段名、
   `close` 对已消失终端的错误码，都要在服务面落地后复核。

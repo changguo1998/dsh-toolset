@@ -9,4 +9,4 @@
 
 （当前无未完成项）
 
-> 2026-10-27 关闭：`spawn` 传递启动模型参数（`provider` / `model` / `effort`）完成并移出清单（实现：受控拼装 `fffdsh --provider/--model/--effort`，值过字符集与长度校验；记录与回执存完整命令行；`npm run check` 0、`npm test` 33/33、build 成功、live profile 已同步 dist；追踪文档 `coagent/docs/archived/2026-10-27-coagent-launch-model-args.md`）。
+> 2026-10-27 关闭：`spawn` 传递启动模型参数（`provider` / `model` / `effort`）完成并移出清单（实现：受控拼装 `fffdsh --provider/--model/--effort`，值过字符集与长度校验；记录与回执存完整命令行；`pnpm run check` 0、`pnpm test` 33/33、build 成功、live profile 已同步 dist；追踪文档 `coagent/docs/archived/2026-10-27-coagent-launch-model-args.md`）。
