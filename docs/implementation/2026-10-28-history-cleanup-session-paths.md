@@ -56,12 +56,17 @@ rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_
 - 集成层: 新增装配器 `tests/assemble.ts` (假服务面 `get` / `provide` + 假宿主 `sessions`, 临时 HOME) 与 `tests/integration/plugin.test.ts` 12 例; 断言 `apply` 挂服务 → `ctx.get("sessionPaths")` 取用 → `root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir` 的 canonical 值, 其中 `ensureSessionDir` 真在临时 HOME 下落盘 (0700、幂等、`_no-cwd` 桶), `dispose` 删临时目录并还原 `HOME` / `DSH_HOME`.
 - 脚本: `package.json` 加 `test:integration` (实跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两层合并, `dev/coverage/report.mjs` 参数 `tmp/cov-session-paths`).
 - 包文档: `README.md` 的「测试」节改为四条命令与分层说明.
+- 阶段 3 上下文守卫: `src/index.ts:178` 的 `apply` 把 `ctx === null || typeof ctx !== "object"` 移到入口首句 (`src/index.ts:179-185`), 只判一次; 读 `provide` 与直接属性挂载都用同一收窄结果 `c`, 删掉尾部重复守卫与 `(ctx ?? {})` 兜底; 判定条件、告警文案与两条注册路径不变.
+- 阶段 3 零引用导出: 复查本包原有 12 个导出在全仓 (`src` / `tests` / `scripts` / `docs`) 的引用, 删掉 `Config` (`SessionPathsConfig` 的别名, 除 `dist/` 的 `.d.ts` 外无引用); 其余保留: `name` / `provide` / `apply` 属 bundle 装配面与入口, 四个纯函数与 `SessionPaths` / `SessionPathsConfig` / `resolveRoot` / `SessionPathsService` 被测试和 `README.md` 的 API 示例引用.
+- 阶段 3 路径注释: `src/index.ts:4` 的 `src/encode.ts` 补成 `session-paths/src/encode.ts`; 本包其余路径注释 (`docs/host/DSH-CTX-API.md`、宿主 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js`) 已是完整路径或外部引用, 本包无计数注释.
 
 ## 偏差
 
 - 规划写「不设集成层, `test:integration` 打印缺层原因并退出 0」; 分支任务明确要求新增集成层并实跑, 按当次指令执行: 该包有服务面, 落在总规范 4.2「服务提供与消费归集成」的必备范围内. 缺层原因不再成立, 故脚本改为实跑.
 - 覆盖率命令在规划的单层命令上追加 `tests/integration/*.test.ts` (4.3 的分层贡献另跑单元层对照, 数字见下).
 - 未改 `src`.
+- 阶段 3: 总追踪 5.2 的 21 符号表未列本包, 按任务复查后发现 `Config` 零引用, 按 5.2 执行口径「有就删」删除; 其余导出都至少被测试、入口或 bundle 装配面引用.
+- 阶段 3: 5.1 把注释里的路径归第 6 章, 本次按任务第 3 条只补 `src/index.ts:4` 一处, 其余路径与计数不动.
 
 ## 测试与证据
 
@@ -92,3 +97,10 @@ rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_
 | `pnpm -C session-paths run test` | ✓ 31/31 通过 |
 | `pnpm -C session-paths run test:integration` | ✓ 12/12 通过 |
 | `pnpm -C session-paths run test:coverage` | ✓ 行 100.0% (192/192), 分支 95.8% (69/72) |
+
+阶段 3 代码整理:
+
+- 改前 (本分支): `check` ✓ 无输出; `test` ✓ 31/31.
+- 改后: `check` ✓ 无输出; `test` ✓ 31/31; `test:integration` ✓ 12/12; `build` ✓; `test:coverage` ✓ 行 100.0% (191/191), 分支 97.2% (69/71); 分母各减 1 是删掉尾部重复守卫与 `Config` 别名后少掉的块, 百分比未降.
+- 用例断言未改, `tests/` 本次零改动; 运行期行为只有「`ctx` 非对象时提前返回」一步顺序变化, 告警文案与注册结果相同.
+- 改动范围: `session-paths/src/index.ts` (11 增 13 删) 与本文件的「实现记录 / 偏差 / 测试与证据」.
