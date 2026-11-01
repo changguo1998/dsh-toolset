@@ -15,21 +15,20 @@
  *   `session_paths_unavailable`，带原因 + 下一步），工具本身照常已注册。
  * - `memory-base`（`memory` 服务）可选：每次组状态变更后把只读视图镜像进去（`kind: "agent_group"`），
  *   失败只计数 + 一次日志、不重试。
- * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派 11 个动作）与只读服务面 `agentGroup`。
+ * - `apply(ctx, config)`：注册单个工具 `agent_group`（`action` 分派，动作清单见
+ *   `parameters.properties.action.enum`）与只读服务面 `agentGroup`。
  *
  * 状态落点：`<管理者会话目录>/agent-group.json`（原子写、0600），经
  * `sessionPaths.sessionDirFor(managerSessionId)` 推导。
  */
 
-import {
-  GroupService,
-  describe,
-  readGroupStatus,
-  resolveConfig,
-} from "./core.ts";
+import { resolveConfig } from "./config.ts";
+import { describe } from "./errors.ts";
+import { readGroupStatus } from "./group.ts";
 import { pruneUndefined } from "./json.ts";
 import { failure, isFailure } from "./model.ts";
 import { MemoryBaseMirror, isMemoryFace } from "./mirror.ts";
+import { GroupService } from "./service.ts";
 import { FileBookStore } from "./store.ts";
 import {
   createSessionChannelTransport,
@@ -43,7 +42,9 @@ import type {
 } from "./types.ts";
 
 export { MANAGER_NAME } from "./model.ts";
-export { GroupService, resolveConfig, verdictOf } from "./core.ts";
+export { resolveConfig } from "./config.ts";
+export { GroupService } from "./service.ts";
+export { verdictOf } from "./instruction.ts";
 export {
   MemoryBookStore,
   FileBookStore,
