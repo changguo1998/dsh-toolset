@@ -6,15 +6,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { resolveConfig } from "../src/config.ts";
+import { readGroupStatus } from "../src/group.ts";
+import { verdictOf } from "../src/instruction.ts";
 import {
-  GroupService,
   judgeAgentState,
   memberStatesOf,
-  readGroupStatus,
-  resolveConfig,
-  verdictOf,
   type MemberStateLookup,
-} from "../src/core.ts";
+} from "../src/member.ts";
+import { GroupService } from "../src/service.ts";
 import { failure, isFailure } from "../src/model.ts";
 import { MemoryBookStore } from "../src/store.ts";
 import type {
