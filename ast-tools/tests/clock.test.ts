@@ -1,17 +1,22 @@
 // tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
-// 跨包 import 真实 `ManualClock`（clock-base 包）作假时钟；本文件不在 tsconfig 的 include 内
-// （`rootDir` 限制，见 tsconfig.json 的 exclude），测试运行时经 node 类型擦除直接加载。
+// 定时器族从 `@dsh-toolset/clock-base` 入口引（含假时钟 `ManualClock`），不跨包引其内部模块；
+// 本文件不在 tsconfig 的 include 内（`rootDir` 限制，见 tsconfig.json 的 exclude），
+// 测试运行时经 node 类型擦除直接加载。
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
+import {
+  createDeadline,
+  ManualClock,
+  resolveClock,
+  systemTimers,
+} from "@dsh-toolset/clock-base";
 import { runCli } from "../src/binary.ts";
 import { apply } from "../src/index.ts";
-import { createDeadline, resolveClock, systemTimers } from "../src/timers.ts";
-import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /** `clock` 服务的假实现：`scope()` 一律返回同一块手控表，并记录调用参数。 */
 function fakeClock(manual: ManualClock, scopes: unknown[] = []): unknown {

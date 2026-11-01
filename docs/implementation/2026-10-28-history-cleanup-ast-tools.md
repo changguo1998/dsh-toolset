@@ -57,17 +57,28 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 ## 实现记录
 
 - 阶段 2 测试锚定（分支 `history-cleanup/02-tests-ast-tools`）:
+
   - 基线: 单元 47 例全通过, 0 skip; 覆盖率 行 84.2% (886/1052), 分支 62.6% (117/187).
   - 单元锚点: 新增 35 例, 覆盖二进制探测与回落、子进程启动失败 / 超时 / JSON 解析错误、定时器统一面形状兜底与卸载路径、工具 canonical 入参 / 渲染兜底与截断、bundle 工厂与 `apply` 极简宿主.
   - 集成层: 新增 `tests/assemble.ts` (假工具面 / 假事件面 / 假服务面 + 假 ast-grep CLI + 假时钟, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 例): 工具注册名、`execute` canonical 值、`output.render` 投影、服务面 `clock` 读取、事件面零订阅、降级装配.
   - 脚本: `package.json` 加 `test:integration` 与 `test:coverage`.
   - 结果: 单元 82 例 + 集成 9 例全通过; 覆盖率 行 96.3% (1013/1052), 分支 87.6% (218/249).
 
+- 阶段 3 代码整理（分支 `history-cleanup/03-code-ast-tools`）:
+
+  - 删 `src/timers.ts`（本地副本, 205 行）, 定时器族改用 `@dsh-toolset/clock-base` 入口导出: `src/index.ts` 引 `createDeadline` / `resolveClock` 与类型 `Deadline`; `src/types.ts` / `src/binary.ts` 只引类型 `Deadline`.
+  - `tests/clock.test.ts` 改从 `@dsh-toolset/clock-base` 入口引 `createDeadline` / `ManualClock` / `resolveClock` / `systemTimers`, 不再引 `../../clock-base/src/timers.ts`; 用例断言未改.
+  - `package.json` 加 `dependencies.@dsh-toolset/clock-base = link:../clock-base`, 本包目录 `pnpm install` 更新 `pnpm-lock.yaml`（importer 加 dependencies 一项）.
+  - `src/tools.ts:467` 注释去掉数字, 由「两个工具定义」改为「工具定义」（实际仍是 `ast_query` / `ast_replace` 两个, 去数字免得后续增减不同步）.
+  - 行为不变: 工具名、参数面、`output.render` 投影、配置键、注入文案、降级路径都未动.
+
 ## 偏差
 
 - 无 `src` 改动.
 - 覆盖率脚本: `report.mjs` 的两个路径参数按仓库根解析, 故 `test:coverage` 里传 `tmp/cov-ast-tools` / `tmp/cov-ast-tools/report.json`; `NODE_V8_COVERAGE` 由 node 按包目录解析, 仍用 `../tmp/cov-ast-tools`. 两者指向同一目录.
 - 发现未修 (不属本阶段范围): `BundleHost.logger` 声明为可选, 但 `src/index.ts:191` 与 `:201` 无条件调用 `ctx.logger?.(name).info(...)`; 宿主缺 `logger` 时 `apply` 抛 TypeError. 装配器始终提供 logger, 未用用例锁死该行为, 留给阶段 3 代码整理.
+- 阶段 3 偏差: 跨包 import 走包名（解析到 `clock-base` 的 `dist/`）, 故 `check` / `test` 前须先 `pnpm -C ../clock-base run build`; 与「实现规划」的前置要求一致, 代价是本包测试多一条构建前置.
+- 阶段 3 偏差: `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 保持原样未动（改入口 import 后是否可纳入 include 未评估, 属实现规划未列任务）.
 
 ## 测试与证据
 
@@ -116,3 +127,15 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 | `src/replace.ts:35` 重叠编辑跳过 | 公开入口 | `applyEdits` 未导出, 且 ast-grep 命中区间本不重叠, 属防御分支 | 无 | 阶段 3 代码整理评估 |
 | `src/binary.ts:196` `Array.isArray` 兜底 | 公开入口 | 解析片段固定从 `[` 到 `]`, `JSON.parse` 结果必为数组 | 无 | 阶段 3 代码整理评估 |
 | `src/index.ts:104-107` / `:125-127` | 非可执行行 | 接口 / 类型声明行, 非可执行代码, V8 仍按行计入 | 无 | 不处理 |
+
+### 阶段 3 代码整理实跑
+
+前置: `pnpm -C ../clock-base run build`（产出 `dist/`, 供包名 import 解析）; 本包目录 `pnpm install`（建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`）.
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C ast-tools run check` | 通过 (tsc --noEmit, 无输出) |
+| `pnpm -C ast-tools run test` | 82 例, pass 82, fail 0, skipped 0, todo 0 |
+| `pnpm -C ast-tools run test:integration` | 9 例, pass 9, fail 0, skipped 0 |
+
+改动量: 删 `src/timers.ts` 205 行; 改 6 个文件（`src/index.ts` / `src/types.ts` / `src/binary.ts` / `src/tools.ts` / `tests/clock.test.ts` / `package.json`）与 `pnpm-lock.yaml`, 合计 +21 / -9 行（不含删除的 205 行）.

@@ -33,8 +33,8 @@ import { searchAst } from "./search.ts";
 import { replaceAst } from "./replace.ts";
 import { outlineFile } from "./outline.ts";
 import { runRules } from "./rules.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
-import type { Deadline } from "./timers.ts";
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+import type { Deadline } from "@dsh-toolset/clock-base";
 import { toToolDefs, unavailableOps } from "./tools.ts";
 
 export {

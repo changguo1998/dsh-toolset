@@ -464,7 +464,7 @@ export function astReplaceTool(ops: AstOperations): unknown {
   };
 }
 
-/** 两个工具定义（宿主 `ctx.tools.register()` 的入参）。 */
+/** 工具定义（宿主 `ctx.tools.register()` 的入参）。 */
 export function toToolDefs(ops: AstOperations): unknown[] {
   return [astQueryTool(ops), astReplaceTool(ops)];
 }
