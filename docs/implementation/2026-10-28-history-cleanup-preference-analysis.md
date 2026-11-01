@@ -65,10 +65,20 @@ rm -rf ../tmp/cov-preference-analysis && mkdir -p ../tmp/cov-preference-analysis
   - 状态一律 `mkdtemp` 临时目录, `cleanup` 解绑后删除; 无残留.
 - 脚本: `package.json` 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (按 4.2 的命令, 覆盖率目录 `tmp/cov-preference-analysis`).
 - 未改 `src`.
+- 阶段 3 代码整理（分支 `history-cleanup/03-code-preference-analysis`）：
+  - 上下文对象守卫收进入口：`src/index.ts` 新增 `contextObject`（非对象 ctx 归一为共用空容器 `EMPTY_CONTEXT`），`HostContext` 补索引签名；`getService` 删掉逐次 `ctx === null || typeof ctx !== "object"` 判断，改收归一后的对象；`apply` 与 `createPlugin` 各在入口判一次。判定结果不变：null / 原始值仍取不到服务。
+  - `src/tools.ts:97` 的「三个工具」去数字，按 3.9 改指向导出常量：构造工具定义（工具名见 `TOOL_NAMES`）。
+  - 5.2 零引用导出复查：无。逐符号核对本包 5 个 `src` 文件的全部导出（含类型与常量），每个符号至少在定义文件内有实现引用；19 个仅在定义文件内使用，属内部实现，5.2 的「全仓含测试无任何引用」口径未命中，故不删。
+  - 路径注释：入口文件头部 3 行里的 `observe.ts` / `induce.ts` / `ledger.ts` / `apply.ts` 简写补成从仓库根算起的 `preference-analysis/src/*.ts`。
 
 ## 偏差
 
-无 (未改 `src`).
+- 阶段 2：无 (未改 `src`)。
+- 阶段 3：
+  - 5.1 与 6.7 把注释路径与计数排到第 6 章；本阶段任务单明确列了 `src/tools.ts:97` 计数注释与「路径注释补全」，按任务单执行，实现规划与总追踪未动。
+  - 任务单写的 `src/main.ts` 在阶段 2 后已迁为 `src/index.ts`（入口迁移），本次落点即 `src/index.ts`，内容同一。
+  - `tests/assemble.ts` 注释里的 `tests/fakes.ts` 简写未动：阶段 3 边界只含本包测试的 import，注释留给阶段 4 / 6。
+  - `src/index.ts` 的上下文守卫由 `getService` 内联判断改为入口归一，`apply` 与 `createPlugin` 各判一次；`apply` 仍把原始 ctx 交给 `createPlugin`，两处互不依赖，判定结果与原实现一致。
 
 ## 测试与证据
 
@@ -103,3 +113,14 @@ pnpm -C preference-analysis run test:coverage     -> tests 109, pass 109, fail 0
 - `skip` / `todo`: 0 处 (`grep` 只命中 apply 用例里的 `result.skipped`, 是业务字段不是测试修饰).
 - 夹具: 无 `tests/fixtures/`; 临时状态都在 `mkdtemp` 目录, 用后删除.
 - 存量用例: 未改名, 未改语义.
+
+### 阶段 3 代码整理 (分支上)
+
+```text
+pnpm -C preference-analysis run check -> tsc --noEmit 通过 (exit 0)
+pnpm -C preference-analysis run test  -> tests 98, pass 98, fail 0, skipped 0, todo 0
+```
+
+- 用例断言未改 (98 条与阶段 2 末一致, 无新增 / 删除).
+- 非对象 ctx 实跑 (临时脚本, 用后已删): `apply` 与 `createPlugin` 传 `null` / `undefined` / `42` / `"x"` / `true` / `[]` / `{}` 均不抛错, `memoryAvailable` 皆为 `false`, `createPlugin` 告警各 1 条; 与改前判定一致.
+- 5.2 零引用导出: 0 个 (逐符号在 `src` / `tests` / `docs` / `scripts` 中核对, 无「全仓无引用」符号).
