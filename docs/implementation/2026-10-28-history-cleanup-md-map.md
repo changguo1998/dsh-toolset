@@ -71,9 +71,12 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 
 - 阶段 3 补丁 (2026-11-01): `apply` 补非对象 `ctx` 守卫; `warn` 改为显式分支 (有 logger 走 logger, 否则 stderr); 包 BACKLOG #1 / #2 关闭.
 
+- 阶段 3b (2026-11-01): 集成用例 `tests/integration/plugin.test.ts:102` 从断 `stderr` 1 条改为断 logger 收到告警且 `stderr` 为 0, 与上一条「显式分支」口径对齐; 无 logger 形态仍由另一例断 `stderr` 1 条。`check` / `test` (65 例) / `test:integration` (15 例) 全绿。
+
 ## 偏差
 
-无
+- 阶段 3 补丁 (2026-11-01) 是行为改动, 与「行为不变」的实现规划不符: `apply(undefined)` 原会抛 `TypeError`, 现告警后返回; `warn` 原在常规 logger 下同时写 logger 与 stderr, 现二选一。两项都是关闭后暴露的缺陷修复, 提交见阶段 3b 追踪文档。
+- 集成用例原断「注册失败 stderr 1 条」, 该断言把双写行为固化成了期望; 补丁后改为断「logger 收到告警, stderr 0 条」, 不是放宽断言。
 
 ## 测试与证据
 
@@ -82,7 +85,8 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 | 命令 | 结果 |
 | --- | --- |
 | `pnpm -C md-map run check` | 通过 (先在 worktree 里构建 `md-logic` 依赖) |
-| `pnpm -C md-map run test` | 通过, 0 失败 |
+| `pnpm -C md-map run test` | 通过, 65 例 |
+| `pnpm -C md-map run test:integration` | 通过, 15 例 (阶段 3b 复跑) |
 
 ### 阶段 2 实跑
 
@@ -113,4 +117,4 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 - 分支分母随执行的函数数变化（未被调用的函数不上报 block range）: 改前 462、单元层改后 502、两层合计 518, 故分支覆盖以百分比为可比口径, 计数分母不跨轮比较。
 - 未覆盖行的构成（逐条核对）: 多数是注释与类型声明行（如 `index.ts:66`、`indexer.ts:48, 53, 89, 104, 143, 180`、`query.ts:3-9`）, 以及多行对象展开的行归属偏差（如 `indexer.ts:378-381` 的 `external` 带 `text` 分支、`render.ts:107-108` 的报告首行, 用例已实际执行却仍记未覆盖）; 真实未测路径只剩少数边界（`links.ts` 的等长反引号跨行切段与目录相对候选、`indexer.ts` 的 `ref` 目录兜底越界分支）, 本阶段不补, 留代码阶段一并处置。
 - `output.render` 投影、`index` 六类边、`callers` / `impact` / `orphans` / `report` / `summary` 的 canonical 值均由集成用例钉住: 文档集覆盖 internal / wiki / file / external / broken(missing-file, missing-anchor, outside-root) / ref 六类边与入口判定。
-- 豁免台账: 「空 `ctx`」（`apply(undefined)`）不写用例——`apply` 无对象守卫, 传入即抛 `TypeError`, 补测只会固化崩溃行为, 已立 `md-map/docs/BACKLOG.md` #1（与 `hash-edit` 同源）; `warn` 在常规 logger（`info` 返回 `void`）下同时写 logger 与 stderr 的现状由集成用例钉住（断言 stderr 一条）, 处置见 `md-map/docs/BACKLOG.md` #2。
+- 豁免台账: 无。原两项 (`apply(undefined)` 无守卫、`warn` 双写) 已在阶段 3 补丁轮修掉, 对应用例见 `tests/integration/plugin.test.ts:102` 与 `:131`。

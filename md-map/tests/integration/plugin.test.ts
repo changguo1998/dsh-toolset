@@ -102,10 +102,12 @@ test("装配: 参数 schema 编译为顶层 object, 只声明真实必填项 act
 test("装配: 宿主拒绝注册时只告警, apply 不抛, 仍 provide mdMap", async () => {
   const host = await assemble({ registerThrows: true });
   assert.deepEqual(host.tools.names(), []);
-  assert.equal(host.stderr.length, 1);
-  assert.match(
-    host.stderr[0] ?? "",
-    /^\[md-map\] md_map 工具注册失败：Error: tool registry rejected/,
+  assert.deepEqual(host.stderr, [], "有 logger 时告警只写 logger");
+  assert.ok(
+    host.logs.includes(
+      "md-map: md_map 工具注册失败：Error: tool registry rejected",
+    ),
+    host.logs.join("\n"),
   );
   assert.deepEqual(host.services.names(), ["mdMap"]);
   assert.ok(
