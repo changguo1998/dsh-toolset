@@ -39,15 +39,15 @@ export interface LspReferencesProvider {
 export const LSP_QUERY_TIMEOUT_MS = 5000;
 
 /**
- * 解析宿主 LSP 引用提供器：
+ * 解析宿主 LSP 引用提供器（`ctx` 已由包入口归一为对象，此处不再判上下文类型）：
  * 1. 显式注入（`config.lsp`，单测/嵌入用）优先；
  * 2. 宿主 ctx 的 `lsp` 服务（`ctx.get("lsp")`，兼容直接 `ctx.lsp` 的测试宿主）：
  *    - 有 `query` → 官方缝形态（发 findReferences 请求、解析 locations）；
  *    - 有 `findReferences` → 已在缝契约上的窄化形态，直接采用。
- * 均不满足返回 undefined（调用方走结构层）。
+ * 均不满足返回 undefined（调用方走结构层）；省略 `ctx`（等价空对象）同样返回 undefined。
  */
 export function resolveLspReferences(
-  ctx: unknown,
+  ctx: object = {},
   workspaceRoot: string,
   injected?: LspReferencesProvider,
 ): LspReferencesProvider | undefined {
@@ -97,8 +97,7 @@ export function resolveLspReferences(
 }
 
 /** 受保护地读宿主 lsp 服务面：`ctx.get("lsp")` 优先，直接属性读兜底（cordis 代理可能抛）。 */
-function readLspSurface(ctx: unknown): unknown {
-  if (ctx === null || typeof ctx !== "object") return undefined;
+function readLspSurface(ctx: object): unknown {
   const c = ctx as { get?: (name: string) => unknown; lsp?: unknown };
   if (typeof c.get === "function") {
     try {

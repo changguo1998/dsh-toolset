@@ -431,20 +431,26 @@ export function getCodeMapSummary():
 /**
  * DSH 宿主按 bundle 契约调用：惰性、防御，加载失败只告警；索引惰性（首查时构建）。
  * `config` 透传给 `createCodeMapBundle`（`root` 决定索引根，缺省 cwd）。
+ *
+ * 上下文对象守卫收进入口，只判这一次：`null` / 非对象按空上下文处理，下游
+ * （`resolveLspReferences` 等）只接收对象，不再重复判类型。
  */
 export function apply(
-  ctx: BundleHost & Record<string, unknown>,
+  ctx: BundleHost & Record<string, unknown> = {},
   config: CodeMapConfig = {},
 ): void {
+  const host: BundleHost & Record<string, unknown> =
+    ctx === null || typeof ctx !== "object" ? {} : ctx;
   const warn = (msg: string): void => {
-    ctx.logger?.(name).info(msg) ?? process.stderr.write(`[code-map] ${msg}\n`);
+    host.logger?.(name).info(msg) ??
+      process.stderr.write(`[code-map] ${msg}\n`);
   };
   const bundle = createCodeMapBundle({
     ...config,
-    lsp: config.lsp ?? resolveLspReferences(ctx, config.root ?? process.cwd()),
+    lsp: config.lsp ?? resolveLspReferences(host, config.root ?? process.cwd()),
   });
   activeBundle = bundle;
-  const tools = (ctx as { tools?: { register(def: unknown): unknown } }).tools;
+  const tools = (host as { tools?: { register(def: unknown): unknown } }).tools;
   if (tools && typeof tools.register === "function") {
     try {
       tools.register(toToolDef(bundle as unknown as CodeMapService));
@@ -453,7 +459,7 @@ export function apply(
     }
   }
   const provideSvc = (
-    ctx as { provide?: (key: string, value: unknown) => unknown }
+    host as { provide?: (key: string, value: unknown) => unknown }
   ).provide;
   if (typeof provideSvc === "function") {
     provideSvc("codeMap", {

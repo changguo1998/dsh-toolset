@@ -71,10 +71,30 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
   与空 `astKind` 都落 `other`; 本阶段按现状锁定 (`kindCounts` 断言写 `other: 2`), 未改实现.
 - 另记: `src/index.ts` 的 `callees` / `impact` / `report` / `summary` 等方法在集成跑里被逐个调用,
   但报告仍按未覆盖计 (见「测试与证据」的口径说明); 未为凑数加用例.
+- 阶段 3 (代码整理): 上下文对象守卫收进 `apply` 入口 (`src/index.ts` 新增 `host` 归一);
+  `resolveLspReferences` 改收已归一的 `object` (缺省空对象), `src/semantic/lsp.ts` 的 `readLspSurface`
+  删掉 `ctx === null || typeof ctx !== "object"` 这一判断, 每处只判一次. 判定结果不变: `null` / 非对象
+  仍等价空上下文 (无 `lsp` 服务 → `undefined`), 工具注册 / `provide` / `logger` 的取值路径未动.
+- 阶段 3 (零引用导出复查): 无. 44 个模块级导出逐个扫 worktree (排除 `node_modules` / `dist` / `tmp`),
+  每个都至少有「声明行 + 一处引用」, 未发现零引用符号, 未删任何导出.
+- 阶段 3 (`kindBucket` 复核): 详见「偏差」第 2 条.
 
 ## 偏差
 
-无 (未改 `src`; 覆盖率与脚本按规划口径落地).
+1. 入口守卫的边界变化: `apply(undefined)` / `apply(null)` 此前读 `ctx.logger` 就抛 `TypeError`,
+   现按空上下文继续; 这是总追踪 5.6「上下文对象守卫收各包入口」的预期收敛,
+   非对外可见面 (工具名 / 参数 / 投影 / 配置键不变). 另: `tests/assemble.ts:392` 的注释仍写
+   「`apply` 未做守卫, 传 `undefined` 会抛」, 已随本次改动失效; 本阶段只允许改源码与测试 import,
+   该注释留阶段 6「注释与代码不一致」处理.
+2. `kindBucket` 忽略 `lexical_declaration`: 字面属实 (函数级判断里没有该词根, 会落 `other`), 但实测
+   ast-grep 0.51.0 的 `outline --json=compact` 对顶层声明给 `variable_declarator` (落 `variable`) 与
+   `export_statement` (落 `other`), 不出现 `lexical_declaration`; 观察项「ast-grep 的
+   `lexical_declaration` 落 `other`」与真实管线不符. 真实失真在导出声明的 `astKind` 是
+   `export_statement`, 以及成员 `property_signature` / `property_identifier` 与空 `astKind` 都落 `other`,
+   故 `report.kindCounts` 对导出符号基本失真. 属行为改动 (改 `kindBucket` 或 `scan` 的 kind 选取),
+   本阶段不改, 交后续条目.
+3. 阶段 2 的覆盖率口径未变; 本次在 `src/index.ts` 入口新增归一与注释, 阶段 2 的行覆盖数字不再逐行
+   可比 (本阶段未重跑覆盖率, 验收只要求 `check` / `test`).
 
 ## 测试与证据
 
@@ -120,3 +140,23 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 | `src/index.ts:282-283` 与 `degradedBundle` (288-311) | 本机有 ast-grep, `createCodeMapBundle` 在 `config.ast` 为空时直接自建真 bundle, 没有注入口可强制失败 | 目标机无 ast-grep 二进制 | 阶段 3 (可考虑给工厂留注入口, 或包内用子进程改 PATH 隔离) |
 | `src/indexer/scan.ts:72,78-81` (`readdirSync` / `statSync` 失败的防御分支) | 需不可读目录或悬空符号链接; 当前用户权限下临时目录造不出 | 权限受限或扫描中并发删文件 | 阶段 3 判定是否可删该防御 |
 | `src/index.ts:341,346-347,361,365` (工具描述与参数文案) | 纯文案 (总追踪 4.1 的 P4) | - | 不补 |
+
+阶段 3 (代码整理, 2026-11-02, 均在 `code-map/` 下实跑):
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm run check` | 通过 (tsc --noEmit 无输出) |
+| `pnpm run test` | 36 条通过 / 0 失败 / skipped 0 / todo 0, 约 206ms |
+| `pnpm run test:integration` | 15 条通过 / 0 失败 / skipped 0 / todo 0, 约 104ms |
+
+守卫行为实测 (临时脚本调 `apply`, 未改用例): `undefined` / `null` / `42` / `"x"` / `{}` 五种入参均不抛,
+`getCodeMapSummary()` 均为 `undefined`; 与改前语义一致 (无宿主面 → 无服务). 改前仅 `undefined` / `null`
+在读 `ctx.logger` 处抛 `TypeError` (数字 / 字符串 / 空对象本就不抛), 现一并收敛为空上下文.
+
+零引用导出复查: 44 个模块级导出逐名扫 worktree (含 `src` / `tests` / `docs` / 配置文件, 排除
+`node_modules` / `dist` / `tmp`), 最少命中 2 行 (声明 + 一处引用), 零引用 0 个, 故无删除.
+
+`kindBucket` 复核实测 (ast-grep 0.51.0, 临时目录 3 个文件: 未导出 `const` / `var` / `function` /
+`class` 与导出 `function` / `interface` / `type` / `enum`): `report.kindCounts` 为
+`{"variable":3,"function":1,"class":1,"other":7}`; 顶层声明实际 `astKind` 为 `variable_declarator` /
+`export_statement`, 不出现 `lexical_declaration`.
