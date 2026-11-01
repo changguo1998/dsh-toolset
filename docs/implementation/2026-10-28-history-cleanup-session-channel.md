@@ -42,12 +42,49 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 
 ## 实现记录
 
-(待填)
+- 单元锚点: 新增 `tests/entry.test.ts` (3 条) —— `systemTimers` 的 schedule / interval 撤销语义, `resolveTimers` 四条回落路径 (缺服务 / 缺 `scope` / `scope` 返回形状不符 / `scope` 抛错) 与合法 clock 原样使用; `tests/client.test.ts` 追加 1 条假客户端用例, 锁 `healthCheck` 的 PING 异常 / 版本过低 / 版本解析失败 / 标记键缺失写入四条分支; `tests/task.test.ts` 补 `truncateUtf8` 的两个边界 (单字符放不下 → 空串, 截断点落字符中间 → 前退)。
+- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 条)。
+  - 三个假面与 4.2 同形: 假工具面收集 `register`, 假事件面记录 / 手动 `emit`, 假服务面 `get` 提供 `agents` / `sessions` 替身、`provide` 记录服务。
+  - 假 broker: `createFakeRedis()` 内存版 Redis, 实现本包用到的 `get` / `set` (EX / KEEPTTL) / `del` / `expire` / `scanIterator` / `eval` (共享 KV 的 CAS 脚本按契约等价实现) / `xAdd` / `xRevRange` / `xRead` / `lPush` / `lTrim` / `lRange`; `xRead` 无消息时让出事件循环 5 ms, 模拟 `BLOCK` 且不忙等。
+  - 覆盖: 四个工具的注册名 / 参数面 / 出口 schema; 禁用态 13 组 canonical 回执与参数校验; 四个工具的 `output.render` 投影 (对象 / 字符串 / `undefined` / 循环引用兜底); 连接态四类事件订阅、会话发现、agent 状态牌三态 (转换写牌 / 同态不刷 `at` / 销毁删牌); send 注入正文与回执、inbox、别名 set / list / 按别名寻址 / clear; delegate → `user/message` 注入对位 → 显式回传 → 通知委托方 → 终态不可取消 / 非终态取消; 轮末自动回收与通知; 服务面经 `ctx.get("agents")` 注入并调 `flush`、共享 KV 版本自增 / CAS 冲突 / 删除; 无工具面只告警、无 provide 面不抛。
+- 脚本: `package.json` 加 `test:integration` 与 `test:coverage` (覆盖率参数 `tmp/cov-session-channel`)。
+- `src` 未改。
 
 ## 偏差
 
-无
+- 接线方式: `apply` 不接 `SessionChannelDeps` (签名只有 `ctx` / `config`), 无法把假 broker 注入 `apply` 自建的服务。为不改 `src`, 装配器分两步: 先用 `apply(ctx, { disabled: true })` 拿到注册面 (不发起连接、不订阅事件), 再用 `createSessionChannelService(..., { connect: 假连接 })` 起「假 broker 上的真服务」, 把 apply 服务实例的服务面方法逐条绑定过去 (`wireLive()`)。工具与 provide 面闭包都按属性名延迟取值 (`service.peers()`), 故接线后走的是同一份真实现。代价: `apply` 内「连接成功 → `#afterConnect`」这一跳只由连接态用例间接验证 (真 Redis 用例已覆盖); 若阶段 3 给 `apply` 补可选 `deps` 形参, 可去掉这层绑定。
+- 假 broker 的 `eval`: 只按 `KV_PUT_SCRIPT` 的契约在 JS 里等价实现 (CAS + 版本自增 + TTL), 不执行 Lua 本身; Lua 语法与 `cjson` 行为仍由真 Redis 用例 (`tests/broker.test.ts` / `tests/service.test.ts`) 覆盖。
+- 分支分母随执行路径增多: `broker.ts` 分支 76.4% → 76.1% (覆盖数 133 → 134, 分母 174 → 176), `index.ts` 分支分母 385 → 431; 整包行 / 分支均上升, 无回退。
 
 ## 测试与证据
 
-(待填)
+改前 (基线, 只跑单元层, 74 条): 行 86.9% (3327/3828), 分支 61.9% (409/661)。
+
+改后 (单元 + 集成, 87 条): 行 88.2% (3377/3828), 分支 66.2% (473/714)。
+
+分层贡献 (两轮跑取差): 单元层 78 条 → 行 87.3% (3342/3828), 分支 63.0% (421/668); 加集成层后 +35 行、+52 分支。
+
+| 文件 | 改前行 | 改后行 | 改前分支 | 改后分支 |
+| --- | --- | --- | --- | --- |
+| session-channel/src/alias-words.ts | 100.0% (1075/1075) | 100.0% (1075/1075) | 87.5% (7/8) | 87.5% (7/8) |
+| session-channel/src/broker.ts | 91.2% (636/697) | 91.2% (636/697) | 76.4% (133/174) | 76.1% (134/176) |
+| session-channel/src/client.ts | 84.4% (124/147) | 90.5% (133/147) | 73.0% (27/37) | 82.9% (34/41) |
+| session-channel/src/constants.ts | 100.0% (11/11) | 100.0% (11/11) | n/a | n/a |
+| session-channel/src/index.ts | 76.0% (1248/1642) | 78.3% (1285/1642) | 51.2% (197/385) | 58.2% (251/431) |
+| session-channel/src/inject.ts | 94.1% (64/68) | 94.1% (64/68) | 81.8% (18/22) | 81.8% (18/22) |
+| session-channel/src/keys.ts | 82.7% (62/75) | 82.7% (62/75) | 0.0% (0/3) | 0.0% (0/3) |
+| session-channel/src/tasks.ts | 94.1% (96/102) | 98.0% (100/102) | 84.4% (27/32) | 87.9% (29/33) |
+| session-channel/src/types.ts | 100.0% (11/11) | 100.0% (11/11) | n/a | n/a |
+| 合计 | 86.9% (3327/3828) | 88.2% (3377/3828) | 61.9% (409/661) | 66.2% (473/714) |
+
+新增 / 删除用例: 新增 13 条 (单元 4: `entry.test.ts` 3 + `client.test.ts` 1; 集成 9), 修改既有断言 1 处 (`tests/task.test.ts` 追加边界断言, 原断言语义不变); 未删除用例, 未改夹具。
+
+`skip` / `todo`: 本机 `skipped` 0、`todo` 0; 未新增条件式 `skip`; 豁免台账为空 (`tests/helpers.ts` 的 `redisTest` 属既有「缺 `redis-server`」探测, 本机触发 0 条)。
+
+四条入口实跑 (分支 `history-cleanup/02-tests-session-channel`, 本机 redis-server 7.0.15 在场):
+
+- `pnpm -C session-channel run check`: 通过 (tsc --noEmit, 无输出)。
+- `pnpm -C session-channel run test`: 78 条通过, 0 失败, 0 跳过, 10.1 s。
+- `pnpm -C session-channel run test:integration`: 9 条通过, 0 失败, 0 跳过, 4.4 s。
+- `pnpm -C session-channel run test:coverage`: 87 条通过, 0 失败, 0 跳过; 汇总见上表; 产物 `tmp/cov-session-channel/report.json`。
+- 真机验收: 未做 (本阶段不出网、不连真 Redis 之外的宿主面); 留 `scripts/install.sh --sync` 之后人工确认。

@@ -57,6 +57,13 @@ test("任务纯函数：截断 / 文案 / 终态 / 超时懒判定", () => {
   assert.equal(truncateUtf8("abc", 8).truncated, false);
   assert.equal(truncateUtf8("abc", 0).text, "");
 
+  // 单字符都放不下（循环走到 end = 0）: 返回空串并标注截断
+  assert.deepEqual(truncateUtf8("汉", 1), { text: "", truncated: true });
+  // 多字节边界: 截断点落在字符中间时向前退, 不切半个字
+  const midChar = truncateUtf8("汉字", 4);
+  assert.deepEqual(midChar, { text: "汉", truncated: true });
+  assert.ok(Buffer.byteLength(midChar.text, "utf8") <= 4);
+
   const injection = taskInjectionText(record());
   assert.ok(injection.startsWith("TASK task-0001: 把 X 做掉"));
   assert.ok(injection.includes("channel_task_result"));
