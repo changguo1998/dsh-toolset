@@ -6,7 +6,7 @@
  * 宿主侧对象只要形状满足即可传入（沙箱与审批恒为**可选**服务，缺失时降级并如实标注）。
  */
 
-import type { SandboxMode as HerdrSandboxMode } from "@dsh-toolset/herdr-use/dist/src/types.js";
+import type { SandboxMode as HerdrSandboxMode } from "@dsh-toolset/herdr-use";
 
 /** 语言标识（配置 `languages` 与工具 `language` 参数的取值）。 */
 export type LanguageId = string;
@@ -14,7 +14,7 @@ export type LanguageId = string;
 /**
  * 沙箱文件效果模式（宿主 `dsh-sandbox` 词汇表，原样沿用）。
  * 唯一来源是 `herdr-use` 的 `src/types.ts`（总追踪 5.1 的枚举持有者），本包不另存副本；
- * 其包入口未导出该类型，故此处按声明模块作类型级 import 再以原名 re-export。
+ * 其包入口已导出该类型，此处从入口作类型级 import 再以原名 re-export。
  */
 export type SandboxMode = HerdrSandboxMode;
 

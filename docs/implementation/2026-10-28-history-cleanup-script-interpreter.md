@@ -66,10 +66,11 @@ rm -rf ../tmp/cov-script-interpreter && mkdir -p ../tmp/cov-script-interpreter &
 - `package.json` 的 `dependencies` 加 `@dsh-toolset/clock-base` 与 `@dsh-toolset/herdr-use` (均 `link:`); 本包 `pnpm install` 生成软链并更新 `pnpm-lock.yaml` 的 importer.
 - 落地顺序: 改 `package.json` → 本包 `pnpm install` → `pnpm -C ../clock-base run build` 与 `pnpm -C ../herdr-use run build` (两包入口指向 `dist/`, 未构建则类型与运行时都解析不到) → 改 import 与删副本 → `check` / `test`.
 - 行为面未动: 两包入口的 `createDeadline` / `systemTimers` 与原副本逐字同实现; `resolveClock` 只差告警文案的标点 (随 `clock-base` 的英文标点口径, 本包无用例断言整句, 只断言 `clock 服务不可用` 子串). 工具名 / 参数面 / `output.render` 投影 / 配置键 / 注入文案不变.
+- 收尾 (沙箱类型改从入口引): 本分支 `git rebase main` 取到 `herdr-use` 入口新导出的 `SandboxMode` 后, `src/types.ts` 的 `import type` 由声明模块深路径 `@dsh-toolset/herdr-use/dist/src/types.js` 改回包入口 `@dsh-toolset/herdr-use`; 别名 `HerdrSandboxMode` 与 `SandboxMode` 的 re-export 形状、导出名均不变, 该处注释同步改为「入口已导出」. 行为与产物面不变, 编译产物 `dist/src/types.d.ts` 只余包名引用.
 
 ## 偏差
 
-1. `herdr-use` 的包入口 (`src/index.ts`) 未导出 `SandboxMode` (与其追踪文档「偏差 5」同一现状), 本包又不改他包源码, 故 `src/types.ts` 按声明模块 `@dsh-toolset/herdr-use/dist/src/types.js` 作类型级 import: 只取类型、不触运行时, 枚举仍只有 `herdr-use/src/types.ts` 一处定义. **记录待主分支解决**: `herdr-use` 入口补 `export type { SandboxMode }` 后, 本包改回按包名从入口 import, 去掉 dist 深路径.
+1. (已解决) `herdr-use` 的包入口 (`src/index.ts`) 原未导出 `SandboxMode` (与其追踪文档「偏差 5」同一现状), 本包又不改他包源码, 当时按声明模块 `@dsh-toolset/herdr-use/dist/src/types.js` 作类型级 import. 现 `herdr-use` 入口已补 `export type { SandboxMode }` 并合并到 `main`, 本包 rebase 后已改回按包名从入口 import, dist 深路径已去掉; 枚举仍只有 `herdr-use/src/types.ts` 一处定义.
 2. `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 保持不变: 纳入类型检查会暴露既有的 `assert.deepEqual(fired, [])` 断言收窄 (`@types/node` 的 `asserts actual is T` 把 `fired` 推成 `never[]`), 修它须改用 `deepStrictEqual` 或显式泛型, 超出「用例断言不改」; 已在 `tests/clock.test.ts` 头注释写明原因.
 3. 规划要求开工先 `pnpm install --frozen-lockfile`, 按实际改为新增依赖后做一次普通 `pnpm install` (`--frozen-lockfile` 会因 lockfile 需变更而失败, 与 `herdr-use` 同例).
 4. 规划只点名 `src/index.ts` 与「其它文件」的 timer import; 本轮按同一口径把 `tests/clock.test.ts` 的两处 import (`../src/timers.ts`、`../../clock-base/src/timers.ts`) 也改成包入口, 不再跨包引内部模块.
@@ -119,3 +120,18 @@ rm -rf ../tmp/cov-script-interpreter && mkdir -p ../tmp/cov-script-interpreter &
 
 - 改动规模: 删除 205 行 (`src/timers.ts` 整份), 合计新增 32 行 / 删除 214 行 (含 lockfile、import 换行与被替换的枚举行).
 - 未验证: 宿主 profile 装配实测 (`scripts/install.sh` 与真机 `dsh --profile fff-test`) 不在本轮门禁内, 留阶段收尾.
+
+### 阶段 3 收尾 (沙箱类型改从入口引)
+
+| 命令 | 结果 |
+| --- | --- |
+| `git rebase main` | 成功 (`main` 已含 `herdr-use` 入口导出 `SandboxMode` 的合并 `d8312816`) |
+| `pnpm -C <worktree>/clock-base run build` | 通过 (exit 0) |
+| `pnpm -C <worktree>/herdr-use run build` | 通过 (exit 0; 入口 `dist/src/index.d.ts` 已带 `SandboxMode` 类型导出) |
+| `pnpm -C script-interpreter run check` | `tsc -p tsconfig.json --noEmit` 通过 (exit 0) |
+| `pnpm -C script-interpreter run test` | tests 117 / pass 117 / fail 0 / cancelled 0 / skipped 0 / todo 0 |
+| `pnpm -C script-interpreter run test:integration` | tests 14 / pass 14 / fail 0 / cancelled 0 / skipped 0 / todo 0 |
+| `pnpm -C script-interpreter run build` | 通过 (exit 0; `dist/src/types.d.ts` 只余 `from "@dsh-toolset/herdr-use"` 入口引用) |
+
+- 改动规模: 2 个文件, 新增 3 行 / 删除 3 行 (`src/types.ts` 的 import 与注释各一处) 加本文件.
+- 用例断言、导出名与运行时行为均未改, 测试数与改前同数.
