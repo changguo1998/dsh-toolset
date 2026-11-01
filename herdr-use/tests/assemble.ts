@@ -34,10 +34,10 @@ import type {
   HerdrUseToolDef,
   PaneReader,
   PluginCtxLike,
+  SandboxMode,
   SocketConnector,
 } from "../src/index.ts";
 import type { BackgroundSession } from "../src/index.ts";
-import type { SandboxMode } from "../src/types.ts";
 import type { FakeConnector, FakeReader } from "./helpers.ts";
 import { fakeExec, fakeHerdr, fakeReader, readOk } from "./helpers.ts";
 
