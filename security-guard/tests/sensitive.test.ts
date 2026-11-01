@@ -8,7 +8,9 @@ import {
   compileSensitiveRules,
   extractCommandPaths,
   normalizePath,
+  basenameOf,
   DEFAULT_SENSITIVE_RULES,
+  type SensitiveRule,
 } from "../src/sensitive.ts";
 
 const HOME = "/home/tester";
@@ -104,4 +106,75 @@ test("放行：allowedPaths 前缀与 glob 生效", () => {
   assert.ok(allowed.some((r) => r.matchPath(norm("~/.ssh/id_rsa"))));
   assert.ok(allowed.some((r) => r.matchPath(norm("certs/server.pem"))));
   assert.ok(!allowed.some((r) => r.matchPath(norm("~/.aws/credentials"))));
+});
+
+// ------------------------------------------------- 归一化与匹配的边角形态（阶段 2 补锚点）
+
+test("归一化: 家目录的三种单独写法、引号与尾斜杠按字面保留", () => {
+  assert.equal(normalizePath("${HOME}", HOME), HOME);
+  assert.equal(normalizePath("$HOME", HOME), HOME);
+  assert.equal(normalizePath("~", HOME), HOME);
+  // 带引号与首尾空白: 引号剥掉、空白 trim
+  assert.equal(normalizePath('  "~/x"  ', HOME), `${HOME}/x`);
+  assert.equal(normalizePath("'$HOME/y'", HOME), `${HOME}/y`);
+  // 尾斜杠不折叠（只折叠重复斜杠）; 空串原样
+  assert.equal(normalizePath(`"${HOME}//z/"`, HOME), `${HOME}/z/`);
+  assert.equal(normalizePath("", HOME), "");
+});
+
+test("basenameOf: 有分隔符取末段、无分隔符原样、末尾分隔符得空串", () => {
+  assert.equal(basenameOf("a/b"), "b");
+  assert.equal(basenameOf("plain.txt"), "plain.txt");
+  assert.equal(basenameOf("a/b/"), "");
+  assert.equal(basenameOf(""), "");
+});
+
+test("glob 条目: ** 跨目录、? 单字符、/** 结尾时目录本身也算命中", () => {
+  const globRules: SensitiveRule[] = [
+    { id: "glob-deep", path: "**/secrets/**", reason: "跨目录" },
+    { id: "glob-one", path: "token?.txt", reason: "单字符" },
+  ];
+  const compiled = compileSensitiveRules(globRules, HOME);
+  const check = (p: string) => checkSensitivePath(p, compiled, HOME)?.rule.id;
+  // ** 跨 / ：任意深度命中，目录本身也命中
+  assert.equal(check("/srv/secrets/a/b"), "glob-deep");
+  assert.equal(check("/srv/secrets"), "glob-deep");
+  assert.equal(check("/srv/public/a"), undefined);
+  // ? 只吃一个字符，且不跨 /（basename 语义下按末段匹配）
+  assert.equal(check("token1.txt"), "glob-one");
+  assert.equal(check("token.txt"), undefined);
+  assert.equal(check("token1.txtx"), undefined);
+});
+
+test("字面条目: 含 / 按完整路径子树匹配, 不含 / 按 basename 任意深度匹配", () => {
+  const compiled = compileSensitiveRules(
+    [
+      { id: "literal-dir", path: "/opt/app/data", reason: "目录子树" },
+      { id: "literal-name", path: "secret.txt", reason: "basename" },
+    ],
+    HOME,
+  );
+  const check = (p: string) => checkSensitivePath(p, compiled, HOME)?.rule.id;
+  assert.equal(check("/opt/app/data"), "literal-dir");
+  assert.equal(check("/opt/app/data/x/y"), "literal-dir");
+  assert.equal(check("/opt/app/database"), undefined, "前缀须落在 / 边界上");
+  assert.equal(check("/srv/secret.txt"), "literal-name");
+  assert.equal(check("secret.txt"), "literal-name");
+  assert.equal(check("/srv/secret.txt.bak"), undefined);
+});
+
+test("路径提取: 空命令返回空数组, 同一路径的带引号与裸 token 形态去重", () => {
+  assert.deepEqual(extractCommandPaths(""), []);
+  const paths = extractCommandPaths("cat .env '.env'");
+  assert.equal(
+    paths.filter((p) => p === ".env").length,
+    1,
+    `同一路径只留一份: ${JSON.stringify(paths)}`,
+  );
+  // 家目录前缀在无空格粘连时也能提取（< 重定向）
+  assert.ok(
+    extractCommandPaths("cat<~/.aws/credentials").includes(
+      "~/.aws/credentials",
+    ),
+  );
 });

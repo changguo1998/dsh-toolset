@@ -33,6 +33,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SCRIPT = join(HERE, "..", "scripts", "tool-surface-check.mjs");
 /** 已构建产物（键集来源之一）；未 build 时为 undefined（相应用例跳过）。 */
 const DIST_INDEX = join(HERE, "..", "dist", "src", "index.js");
+/**
+ * 「缺 `dist` 未构建」这类环境探测在文件顶层算**一次**（条件式 skip 的保留类，
+ * 见总追踪 4.4）：本仓布局下只有跑过 `pnpm -C security-guard run build` 才会是 true，
+ * 发布形态用例据此决定是否跳过；补法即执行该构建命令。
+ */
+const DIST_BUILT = existsSync(DIST_INDEX);
 
 /** 跑脚本并收集输出与退出码（非零退出不抛，统一返回 status）。 */
 function runScript(
@@ -506,7 +512,11 @@ test("tool-surface-check：损坏安装（只有 scripts，无 dist 无 src）�
 
 test(
   "tool-surface-check：发布形态（只有 dist + scripts）→ 键集来源 dist",
-  { skip: existsSync(DIST_INDEX) ? false : "dist 未构建（先 npm run build）" },
+  {
+    skip: DIST_BUILT
+      ? false
+      : "dist 未构建（先 pnpm -C security-guard run build）",
+  },
   () => {
     const fixture = makeFixture([SOURCES.read, SOURCES.future]);
     const layouts = mkdtempSync(join(tmpdir(), "sg-surface-pkg-"));

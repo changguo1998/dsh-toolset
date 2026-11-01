@@ -7,7 +7,14 @@ import {
   matchCommand,
   compileAllowPatterns,
   isCommandAllowed,
+  splitCommandSegments,
+  rmRecursiveRootHit,
+  chmod777RootHit,
+  systemctlPowerHit,
+  heredocFedShellHit,
+  commandWords,
   DEFAULT_COMMAND_RULES,
+  type CommandRule,
 } from "../src/blacklist.ts";
 
 /** 用默认规则集匹配，返回命中规则 id（无命中为 null）。 */
@@ -191,4 +198,98 @@ test("代码文本（kind=code）对命令位规则退化为整段判定", () =>
     "sudo",
   );
   assert.equal(matchCommand(code, DEFAULT_COMMAND_RULES, "shell"), null);
+});
+
+// ------------------------------------------------- 判定的边角形态（阶段 2 补锚点）
+
+test("命令切段: 引号内分隔符不切、空段丢弃、首尾空白剥掉", () => {
+  // 引号内的 ; 与 | 属参数文本, 不切段
+  assert.deepEqual(splitCommandSegments("echo 'a;b' | wc -l"), [
+    "echo 'a;b'",
+    "wc -l",
+  ]);
+  // 连续分隔符产生空段, 空段不落段
+  assert.deepEqual(splitCommandSegments("a ;; ;b"), ["a", "b"]);
+  // 分隔符前后的空白被剥掉; 换行与 & 同样是分隔符
+  assert.deepEqual(splitCommandSegments("  a  \n b & c  "), ["a", "b", "c"]);
+  assert.deepEqual(splitCommandSegments("   "), []);
+  // 未闭合的引号原样累积到串尾
+  assert.deepEqual(splitCommandSegments("echo 'a;b"), ["echo 'a;b"]);
+});
+
+test("rm 递归删除: env 赋值前缀与 -- 分隔符都挡不住高危目标", () => {
+  assert.equal(
+    rmRecursiveRootHit(`FOO=1 ${["rm", "-rf", "/"].join(" ")}`),
+    true,
+  );
+  assert.equal(rmRecursiveRootHit(["rm", "-rf", "--", "/"].join(" ")), true);
+  // 只认递归标志: 无 -r 的高危目标不算
+  assert.equal(rmRecursiveRootHit(["rm", "/"].join(" ")), false);
+  // --no-preserve-root 单独出现即命中（不要求同段有 rm）
+  assert.equal(rmRecursiveRootHit("echo --no-preserve-root"), true);
+});
+
+test("chmod 777: env 前缀与 - 开头选项被跳过, 目标带尾斜杠仍命中", () => {
+  assert.equal(chmod777RootHit("FOO=1 chmod -R 777 '/etc/'"), true);
+  assert.equal(chmod777RootHit("chmod --reference=x 777 /usr"), true);
+  // 选项排在 mode 之后也不影响 mode 与目标的识别
+  assert.equal(chmod777RootHit("chmod 777 -R /var"), true);
+  assert.equal(chmod777RootHit("chmod 755 /etc"), false);
+  // 只看命令位: 参数位里的 chmod 不算
+  assert.equal(chmod777RootHit("echo chmod 777 /etc"), false);
+});
+
+test("systemctl-power: env 前缀与选项被跳过, 非 systemctl 段继续扫下一段", () => {
+  assert.equal(systemctlPowerHit("FOO=1 systemctl --no-pager reboot"), true);
+  assert.equal(systemctlPowerHit("systemctl -q kexec"), true);
+  // 首段不是 systemctl → 继续看后面的段
+  assert.equal(systemctlPowerHit("echo hi; systemctl reboot"), true);
+  // 前缀词链（sudo）与 env 赋值都不算命令词
+  assert.equal(systemctlPowerHit("FOO=1 ls"), false);
+  assert.equal(systemctlPowerHit("systemctl status nginx"), false);
+});
+
+test("heredoc-fed-shell: 缺换行正文 / 未喂给 shell 时各自独立放行", () => {
+  // 有 heredoc 标记但没有换行 → 无正文
+  assert.equal(heredocFedShellHit("bash <<EOF"), false);
+  // 有正文但没有 shell 族命令接收 → 不算喂给 shell
+  assert.equal(heredocFedShellHit("cat <<EOF\nx\nEOF"), false);
+  // 正文为空（只有换行）
+  assert.equal(heredocFedShellHit("bash <<EOF\n\nEOF"), false);
+  // 三条件齐备且正文含危险命令 → 命中
+  assert.equal(heredocFedShellHit("bash <<EOF\nwipefs -a /dev/sdb\nEOF"), true);
+});
+
+test("命令位: eval / shell -c 递归展开, 递归深度上限 2 层", () => {
+  assert.deepEqual(commandWords("eval 'sudo id'"), ["eval", "sudo", "id"]);
+  assert.deepEqual(commandWords(`bash -c '${SU}${DO} id'`), [
+    "bash",
+    "sudo",
+    "id",
+  ]);
+  // 深度上限 2: 第 3 层 shell -c 里的命令不再展开（词面只剩第 2 层）
+  const nested = "bash -c 'bash -c \"bash -c id\"'";
+  assert.ok(
+    !commandWords(nested).includes("id"),
+    JSON.stringify(commandWords(nested)),
+  );
+});
+
+test("黑名单规则源非法: scope=command 与整段正则两条路径都按命中处理（宁拦勿放）", () => {
+  const commandScoped: CommandRule[] = [
+    { id: "bad-command-scope", pattern: "(", scope: "command", reason: "r" },
+  ];
+  const wholeText: CommandRule[] = [
+    { id: "bad-whole-text", pattern: "(", reason: "r" },
+  ];
+  assert.equal(
+    matchCommand("anything", commandScoped)?.rule.id,
+    "bad-command-scope",
+  );
+  assert.equal(matchCommand("anything", wholeText)?.rule.id, "bad-whole-text");
+  // 对照: 非法规则的 shell 文本与 code 文本同样判命中
+  assert.equal(
+    matchCommand("x", commandScoped, "code")?.rule.id,
+    "bad-command-scope",
+  );
 });

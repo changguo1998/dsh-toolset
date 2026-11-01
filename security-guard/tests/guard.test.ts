@@ -25,8 +25,10 @@ import { join } from "node:path";
 import {
   GuardEngine,
   createSecurityGuard,
+  resolveGuardConfig,
   name,
   inject,
+  provide,
   apply,
   DEFAULT_COMMAND_RULES,
   TOOL_SURFACE,
@@ -2706,4 +2708,134 @@ test("键路径回执体积 —— 12 条超长键名时按字符预算收敛（
     receipt.length <= 1200,
     `整条回执应受字符预算约束（实得 ${receipt.length}）`,
   );
+});
+
+// ---------------------------------------------------------------------------
+// 暴露面与配置归一的锚点（阶段 2）: provide 声明、resolveGuardConfig 缺省与
+// 用户层编号、放行名单的非法条目、挂载 disposer 的退化形态、无 provide 的 ctx。
+// ---------------------------------------------------------------------------
+
+test("bundle 约定: provide 声明 guard 服务名（TUI /guard 与插件复查的取用键）", () => {
+  assert.deepEqual([...provide], ["guard"]);
+  assert.equal(name, "security-guard");
+  assert.deepEqual([...inject], ["tools"]);
+});
+
+test("resolveGuardConfig: 缺省归一（开关 / 家目录 / 两层规则与放行面）", () => {
+  const cfg = resolveGuardConfig({ homeDir: HOME });
+  assert.equal(cfg.enabled, true);
+  assert.equal(cfg.home, HOME);
+  assert.equal(cfg.commandBlacklist.enabled, true);
+  assert.equal(cfg.sensitiveFiles.enabled, true);
+  assert.equal(cfg.unknownToolPolicy, "allow");
+  assert.equal(cfg.unknownToolPolicyInvalid, false);
+  // 默认规则不可移除: 无用户规则时与默认表逐条同 id
+  assert.deepEqual(
+    cfg.commandBlacklist.rules.map((r) => r.id),
+    DEFAULT_COMMAND_RULES.map((r) => r.id),
+  );
+  assert.deepEqual(cfg.commandBlacklist.allowPatterns, []);
+  // 敏感文件层: 默认清单编译后可用; 放行面缺省为空
+  assert.ok(cfg.sensitiveFiles.rules.length > 0);
+  assert.deepEqual(cfg.sensitiveFiles.allowedPaths, []);
+});
+
+test("resolveGuardConfig: 用户层规则追加在默认之后并按序号编号（id 稳定）", () => {
+  const cfg = resolveGuardConfig({
+    homeDir: HOME,
+    commandBlacklist: { rules: ["^x$", "^y$"], allowPatterns: ["^ok$"] },
+    sensitiveFiles: { rules: ["~/secret"], allowedPaths: ["~/open"] },
+    unknownToolAllowlist: ["mcp__*"],
+  });
+  const userRules = cfg.commandBlacklist.rules.slice(
+    DEFAULT_COMMAND_RULES.length,
+  );
+  assert.deepEqual(
+    userRules.map((r) => r.id),
+    ["user-rule-1", "user-rule-2"],
+  );
+  assert.match(userRules[0]!.reason, /#1/);
+  assert.deepEqual(
+    cfg.commandBlacklist.allowPatterns.map((r) => r.source),
+    ["^ok$"],
+  );
+  // 用户追加的保护路径 id 为 user-path-N（排在默认清单之后）
+  assert.equal(cfg.sensitiveFiles.rules.at(-1)!.id, "user-path-1");
+  assert.deepEqual(
+    cfg.sensitiveFiles.allowedPaths.map((r) => r.id),
+    ["allowed-1"],
+  );
+});
+
+test("未登记工具放行名单: 非字符串 / 空串 / 空白条目被忽略，精确与通配仍生效", () => {
+  const denyConfig = {
+    homeDir: HOME,
+    unknownToolPolicy: "deny",
+  } as const;
+  // 非法条目全被忽略 → 照常按 deny 拦
+  const ignored = new GuardEngine({
+    ...denyConfig,
+    unknownToolAllowlist: ["", "   ", 42 as unknown as string],
+  });
+  assert.notEqual(ignored.inspect("weird_tool", { path: "/tmp/x" }), null);
+  // 精确名与 * 前缀通配都生效
+  assert.equal(
+    new GuardEngine({
+      ...denyConfig,
+      unknownToolAllowlist: ["weird_tool"],
+    }).inspect("weird_tool", { path: "/tmp/x" }),
+    null,
+  );
+  assert.equal(
+    new GuardEngine({
+      ...denyConfig,
+      unknownToolAllowlist: ["mcp__*"],
+    }).inspect("mcp__files_read", { path: "/tmp/x" }),
+    null,
+  );
+  // 前缀通配不是子串匹配: 名字不以 mcp__ 开头则不命中
+  assert.notEqual(
+    new GuardEngine({
+      ...denyConfig,
+      unknownToolAllowlist: ["mcp__*"],
+    }).inspect("x_mcp__files_read", { path: "/tmp/x" }),
+    null,
+  );
+});
+
+test("挂载 disposer: 宿主 on / tools.guard 返回非函数时 dispose 不抛（幂等）", () => {
+  // 降级路径: ctx.on 返回 undefined（极简 ctx）
+  const fallbackHost: GuardHost = {
+    on: () => undefined,
+  };
+  const fallback = createSecurityGuard(fallbackHost);
+  assert.equal(typeof fallback.dispose, "function");
+  fallback.dispose();
+  fallback.dispose();
+
+  // 单调守卫路径: tools.guard 返回非函数
+  const monotonicHost: GuardHost = {
+    on: () => () => {},
+    tools: { guard: () => 42 },
+  };
+  const monotonic = createSecurityGuard(monotonicHost);
+  monotonic.dispose();
+  monotonic.dispose();
+});
+
+test("apply 防御: ctx 无 provide 面时只挂判定、不抛且不注册服务", async () => {
+  const { host, listeners } = makeHost();
+  assert.equal(
+    (host as { provide?: unknown }).provide,
+    undefined,
+    "前提: 该宿主没有 provide 面",
+  );
+  // 不抛即通过（apply 内部对 provide 做 typeof 防御）
+  apply(host, { homeDir: HOME });
+  assert.equal(listeners.length, 1, "判定面照常挂载");
+  const result = await listeners[0]!(
+    execOf("bash", { command: `${"su"}${"do"} ls /` }),
+    nextAllow,
+  );
+  assert.equal(result.kind, "deny", "无服务面不影响判定");
 });
