@@ -638,3 +638,155 @@ test("titleFromResponse / normalizeTitleText：取首行、剥整行星号强调
   const long = "标题".repeat(100);
   assert.ok(Buffer.byteLength(normalizeTitleText(long, 60), "utf8") <= 60);
 });
+
+test("titleFromResponse：终止原因与工具块都拒绝，无文本块得空标题", () => {
+  const response = (
+    blocks: { type: string; text?: string }[],
+    kind: string,
+  ) => ({
+    blocks,
+    finish: { kind },
+  });
+  assert.throws(
+    () =>
+      titleFromResponse(
+        response([{ type: "text", text: "x" }], "tool-calls"),
+        1024,
+      ),
+    /must contain text only/,
+    "tool-calls 终止原因不算标题",
+  );
+  assert.throws(
+    () =>
+      titleFromResponse(
+        response([{ type: "text", text: "x" }], "max-tokens"),
+        1024,
+      ),
+    /reached maxOutputTokens/,
+  );
+  assert.equal(
+    titleFromResponse(
+      response(
+        [
+          { type: "text", text: "  第一段  " },
+          { type: "text" },
+          { type: "text", text: "第二段" },
+        ],
+        "stop",
+      ),
+      1024,
+    ),
+    "第一段 第二段",
+    "多文本块以空格连接后取首条非空行",
+  );
+  assert.equal(
+    titleFromResponse(response([], "stop"), 1024),
+    "",
+    "没有文本块 → 空标题（不抛）",
+  );
+  assert.equal(
+    titleFromResponse(
+      response([{ type: "text", text: "***粗体标题***" }], "stop"),
+      1024,
+    ),
+    "粗体标题",
+    "三星号包裹同样剥离",
+  );
+});
+
+test("normalizeTitleText：剥控制字符，多字节按字节边界截断", () => {
+  assert.equal(
+    normalizeTitleText("a\u001b[31m红\u009b色\u007f", 1024),
+    "a[31m红色",
+    "ESC / CSI / DEL 都清掉",
+  );
+  assert.equal(normalizeTitleText("  多\t行\n标题  ", 1024), "多 行 标题");
+  assert.equal(
+    normalizeTitleText("标题", 4),
+    "标",
+    "4 字节上限下只放得下 3 字节的首字，第二个字整字丢弃",
+  );
+  assert.equal(normalizeTitleText("标题", 6), "标题", "恰好等于上限时原样返回");
+  assert.equal(normalizeTitleText("", 1024), "");
+});
+
+test("latestCommitSeq：只看 tool/call 的提交命令，seq 非有限值忽略", () => {
+  assert.equal(
+    latestCommitSeq([
+      { seq: 1, type: "tool/call" },
+      { seq: 2, type: "tool/call", data: { arguments: '{"command":"ls"}' } },
+      {
+        type: "tool/call",
+        data: { arguments: '{"command":"git commit -m a"}' },
+      },
+      {
+        seq: Number.NaN,
+        type: "tool/call",
+        data: { arguments: '{"command":"git commit -m b"}' },
+      },
+    ]),
+    undefined,
+    "缺 arguments / 非提交 / seq 非有限值都不记账",
+  );
+  assert.equal(
+    latestCommitSeq([
+      {
+        seq: "3",
+        type: "tool/call",
+        data: { arguments: '{"command":"git commit -m c"}' },
+      },
+    ]),
+    3,
+    "字符串 seq 按数值记账",
+  );
+});
+
+test("isUsableTitleLlmHelper / commandOf：键面与参数细节", () => {
+  assert.equal(
+    isUsableTitleLlmHelper({
+      resolveSessionTitleLlmConfig: () => ({}),
+    } as never),
+    false,
+    "缺 executeSessionTitleLlm 即不可用",
+  );
+  assert.equal(
+    isUsableTitleLlmHelper({
+      executeSessionTitleLlm: async () => ({
+        blocks: [],
+        finish: { kind: "stop" },
+      }),
+    } as never),
+    false,
+    "缺 resolveSessionTitleLlmConfig 即不可用",
+  );
+  assert.equal(
+    commandOf("null"),
+    "null",
+    "合法 JSON 但不是对象 → 退化为原文匹配",
+  );
+  assert.equal(commandOf('["git commit"]'), undefined, "数组里没有命令字段");
+  assert.equal(commandOf('{"command":""}'), undefined, "空命令视为未提供");
+  assert.equal(commandOf('{"cmd":123}'), undefined, "非字符串命令字段忽略");
+});
+
+test("resolveConfig / executionConfigOf / selectReasoningEffort：边界值", () => {
+  const zero = resolveConfig({ maxInputBytes: 0, timeoutMs: 0 });
+  assert.equal(
+    zero["maxInputBytes"],
+    0,
+    "0 是显式值，不当空值丢弃（交给 helper 校验）",
+  );
+  assert.equal(zero["timeoutMs"], 0);
+  const emptyOf = executionConfigOf({ provider: undefined, model: undefined });
+  assert.deepEqual(emptyOf, {}, "undefined 的执行控制键不出现");
+  assert.equal(
+    selectReasoningEffort({ reasoning: { efforts: [] } }),
+    undefined,
+    "空 efforts → 无努力档",
+  );
+  assert.equal(
+    selectReasoningEffort({ reasoning: { efforts: [{}] } }),
+    undefined,
+    "档位缺 id → 无努力档",
+  );
+});
