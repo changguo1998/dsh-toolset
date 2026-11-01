@@ -134,6 +134,118 @@ test("resolveLspReferences：窄化 findReferences 形态直接采用", async ()
   );
 });
 
+test("resolveLspReferences：ctx.get 抛错时回落直接属性；query 非函数 → undefined", async () => {
+  // cordis 严格代理：读 get 抛错，但直接属性可读
+  const strict = {
+    get: () => {
+      throw new Error('cannot get property "lsp" without inject');
+    },
+    lsp: { findReferences: async () => [location("file:///x.ts", 0, 0)] },
+  };
+  const provider = resolveLspReferences(strict, "/r");
+  assert.ok(provider, "抛错的 get 之后仍能取到直接属性");
+  assert.deepEqual(
+    await provider!.findReferences("/x.ts", { line: 0, character: 0 }),
+    [location("file:///x.ts", 0, 0)],
+  );
+  assert.equal(
+    resolveLspReferences({ get: () => ({ query: 42 }) }, "/r"),
+    undefined,
+    "query 非函数 → 无可解析面",
+  );
+  assert.equal(
+    resolveLspReferences({ get: () => ({}) }, "/r"),
+    undefined,
+    "空对象面 → undefined",
+  );
+  assert.equal(
+    resolveLspReferences(undefined, "/r"),
+    undefined,
+    "非对象 ctx → undefined",
+  );
+});
+
+test("resolveLspReferences：结果形状不符 fail-open，非法条目被丢弃", async () => {
+  const cases: Array<[string, unknown, LspLocation[] | null]> = [
+    ["null", null, null],
+    ["字符串", "x", null],
+    ["locations 非数组", { kind: "locations", locations: 1 }, null],
+  ];
+  for (const [name, payload, expected] of cases) {
+    const provider = resolveLspReferences(
+      { get: () => ({ query: async () => payload }) },
+      "/r",
+    );
+    assert.deepEqual(
+      await provider!.findReferences("/a.ts", { line: 0, character: 0 }),
+      expected,
+      name,
+    );
+  }
+  const mixed = resolveLspReferences(
+    {
+      get: () => ({
+        query: async () => ({
+          kind: "locations",
+          locations: [
+            null,
+            1,
+            { uri: 2 },
+            { uri: "file:///a.ts" }, // 缺 range
+            {
+              uri: "file:///a.ts",
+              range: { start: { line: 0, character: 0 } },
+            },
+            {
+              uri: "file:///b.ts",
+              range: {
+                start: { line: 1, character: 2 },
+                end: { line: 1, character: 5 },
+              },
+            },
+          ],
+        }),
+      }),
+    },
+    "/r",
+  );
+  assert.deepEqual(
+    await mixed!.findReferences("/a.ts", { line: 0, character: 0 }),
+    [
+      {
+        uri: "file:///b.ts",
+        range: {
+          start: { line: 1, character: 2 },
+          end: { line: 1, character: 5 },
+        },
+      },
+    ],
+    "只保留形状完整的条目",
+  );
+});
+
+test("resolveLspReferences：调用方 AbortSignal 原样透传给宿主 query", async () => {
+  const seen: unknown[] = [];
+  const provider = resolveLspReferences(
+    {
+      get: () => ({
+        query: async (_req: unknown, signal?: AbortSignal) => {
+          seen.push(signal);
+          return { kind: "locations", locations: [] };
+        },
+      }),
+    },
+    "/r",
+  );
+  const controller = new AbortController();
+  await provider!.findReferences(
+    "/a.ts",
+    { line: 0, character: 0 },
+    controller.signal,
+  );
+  assert.equal(seen[0], controller.signal, "不额外包一层超时信号");
+});
+
 /* -- symbolPositionAt ------------------------------------------------------ */
 
 test("symbolPositionAt：定义行内定位列号；缺失/越界 → undefined", async () => {
@@ -161,6 +273,12 @@ test("symbolPositionAt：定义行内定位列号；缺失/越界 → undefined"
   } finally {
     cleanup();
   }
+});
+
+test("symbolPositionAt：非法行号与空名直接 undefined（不读文件）", async () => {
+  assert.equal(await symbolPositionAt("/nope.ts", -1, "x"), undefined);
+  assert.equal(await symbolPositionAt("/nope.ts", 1.5, "x"), undefined);
+  assert.equal(await symbolPositionAt("/nope.ts", 0, ""), undefined);
 });
 
 /* -- callers：精确 / 回落两态 ---------------------------------------------- */

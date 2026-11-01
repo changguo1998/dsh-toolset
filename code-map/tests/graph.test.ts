@@ -37,6 +37,24 @@ test("transitiveDependents：反向传递闭包（b 依赖 a、c 依赖 b → a 
   assert.deepEqual(g.transitiveDependents("/r/c.ts"), []);
 });
 
+test("addImport：任一端不在图中则不进边表", () => {
+  const g = new CodeGraph();
+  g.addFile({ path: "/r/a.ts", language: "typescript", symbols: [] });
+  g.addImport("/r/a.ts", "/r/absent.ts");
+  g.addImport("/r/absent.ts", "/r/a.ts");
+  assert.deepEqual(g.importsOf("/r/a.ts"), []);
+  assert.deepEqual(g.importedBy("/r/a.ts"), []);
+  assert.equal(g.files.size, 1, "文件表不受未收录文件影响");
+});
+
+test("transitiveDependents：自环不把目标自身算作受影响的文件", () => {
+  const g = new CodeGraph();
+  g.addFile({ path: "/r/a.ts", language: "typescript", symbols: [] });
+  g.addImport("/r/a.ts", "/r/a.ts");
+  assert.deepEqual(g.transitiveDependents("/r/a.ts"), []);
+  assert.deepEqual(g.sccCycles(), [], "size=1 的自环不算依赖环");
+});
+
 test("sccCycles：只有 e/f 环（size=2）被检出", () => {
   const g = manualGraph();
   const cycles = g.sccCycles();

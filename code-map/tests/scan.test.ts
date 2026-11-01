@@ -5,6 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
+import type { AstToolsBundle } from "@dsh-toolset/ast-tools";
 import { createAstToolsBundle } from "@dsh-toolset/ast-tools";
 import {
   collectSourceFiles,
@@ -97,6 +98,109 @@ test("resolveImport：相对补扩展名 / 目录 index / 外部 null", () => {
     assert.equal(resolveImport("@scope/lib", fromB, root), null);
     // 不存在
     assert.equal(resolveImport("./missing", fromB, root), null);
+  } finally {
+    cleanup();
+    void dir;
+  }
+});
+
+test("resolveImport：绝对说明符按仓库内/外分流", () => {
+  const { dir, cleanup, root } = commonFixture();
+  try {
+    const fromB = resolve(root, "src/b.ts");
+    const inside = resolve(root, "src/a.ts");
+    assert.equal(
+      resolveImport(inside, fromB, root),
+      inside,
+      "仓库内绝对路径命中",
+    );
+    const outside = writeFixture(dir, "outside/o.ts", "export const o = 1;\n");
+    assert.equal(
+      resolveImport(outside, fromB, root),
+      null,
+      "仓库外绝对路径拒绝",
+    );
+    // 带引号的说明符去引号后再解析
+    assert.equal(resolveImport("'./a'", fromB, root), inside);
+  } finally {
+    cleanup();
+    void dir;
+  }
+});
+
+test("collectSourceFiles：噪音目录（dist/tmp/archive/coverage/.git）一律跳过", () => {
+  const { dir, cleanup, root } = commonFixture();
+  try {
+    for (const noise of [
+      "dist/x.ts",
+      "tmp/y.ts",
+      "archive/z.ts",
+      "coverage/c.ts",
+      ".git/g.ts",
+    ]) {
+      writeFixture(root, noise, "export const n = 1;\n");
+    }
+    const files = collectSourceFiles(root);
+    const rel = files.map((f) => resolve(f).replace(resolve(root) + "/", ""));
+    assert.ok(rel.includes("src/a.ts"));
+    for (const skipped of ["dist", "tmp", "archive", "coverage", ".git"]) {
+      assert.ok(
+        !rel.some((r) => r.startsWith(`${skipped}/`)),
+        `跳过 ${skipped}`,
+      );
+    }
+  } finally {
+    cleanup();
+    void dir;
+  }
+});
+
+test("scanProject：outline 抛错或返回空数组的文件被跳过，filesScanned 仍逐个计数", async () => {
+  const { dir, cleanup } = withTempDir();
+  const root = join(dir, "repo");
+  writeFixture(root, "ok.ts", "export const ok = 1;\n");
+  writeFixture(root, "broken.ts", "???\n");
+  writeFixture(root, "empty.ts", "\n");
+  try {
+    const stub = {
+      async outline(params: { path: string }) {
+        if (params.path.endsWith("broken.ts")) {
+          throw new Error("ast-grep: 解析失败");
+        }
+        if (params.path.endsWith("empty.ts")) return [];
+        return [
+          {
+            path: params.path,
+            language: "typescript",
+            items: [
+              {
+                role: "item",
+                symbolType: "variable",
+                name: "ok",
+                range: {
+                  start: { line: 0, column: 0 },
+                  end: { line: 0, column: 20 },
+                  byteOffset: { start: 0, end: 0 },
+                },
+                signature: "export const ok = 1",
+                astKind: "lexical_declaration",
+                isImport: false,
+                isExported: true,
+              },
+            ],
+          },
+        ];
+      },
+    } as unknown as AstToolsBundle;
+    const scan = await scanProject(stub, root);
+    assert.equal(scan.filesScanned, 3, "收集到的文件都计数");
+    assert.equal(scan.files.length, 1, "只有 outline 成功的文件进图");
+    assert.equal(scan.files[0]?.path, resolve(root, "ok.ts"));
+    assert.deepEqual(
+      scan.files[0]?.symbols.map((s) => s.name),
+      ["ok"],
+    );
+    assert.deepEqual(scan.imports, []);
   } finally {
     cleanup();
     void dir;
