@@ -9,11 +9,12 @@
 // 列表行格式：`[>| ]* MM-DD HH:mm  <8位短id>  <标题>  .../cwd  [当前]|[不可续]|[空]`
 // （行首时间为**编辑时间** `updatedAt`，缺省回退创建时间——与列表排序同口径，TUI#22；
 // 第 2 列 * = 批量删除标记，Space 切换；可删项标红不涉及，见 index.ts 键位）。
-// 按键提示不放面板内（位于输入区下方提示区，见 layout/hints.ts 的 HISTORY_*_HINT_LINE）；
+// 按键提示不放面板内（位于输入区下方提示区，见 src/app/layout/hints.ts 的 HISTORY_*_HINT_LINE）；
 // 标题按显示宽补齐，避免 CJK 顶开活动区右缘框线。
 // 无 ANSI 着色（与模型选择面板同风格），中文界面文本按显示宽度截断。
 
 import type { HistoryPanelState } from "../state.ts";
+import { isUserMessage } from "../state.ts";
 import type { SessionInfo } from "../adapter/dsh.ts";
 import { truncateToWidth, wrapLine, displayWidth } from "../layout.ts";
 import type { Box } from "../layout/box.ts";
@@ -121,7 +122,7 @@ function messageLines(
 ): string[] {
   const out: string[] = [];
   for (const m of messages) {
-    const label = m.role === "user" ? "问: " : "答: ";
+    const label = isUserMessage(m.role) ? "问: " : "答: ";
     const text = m.text === "" ? "（无文本内容）" : m.text;
     const wrapped = wrapLine(text, Math.max(1, width - displayWidth(label)));
     wrapped.forEach((line, i) => {

@@ -498,7 +498,7 @@ export interface DshAdapter {
   }): Promise<unknown[] | undefined>;
   /** `/memory list`：跨 kind 列举（管理面定位；未挂载 → undefined） */
   memoryList?(args: {
-    tier?: "project" | "user";
+    tier?: ManagedTier;
     kind?: string;
     limit?: number;
   }): Promise<unknown[] | undefined>;
@@ -517,7 +517,7 @@ export interface DshAdapter {
   memoryAdd?(input: {
     content: string;
     kind: string;
-    tier: "project" | "user";
+    tier: ManagedTier;
   }): Promise<{ ok: boolean; skipped?: string }>;
   /** 请求刷新循环面板（经 metric-loop `list()` 归一化为行后推送）；未挂载 → reject */
   refreshLoops?(): Promise<void>;
@@ -1468,9 +1468,23 @@ export interface KnowledgeBundleSummaryLike {
   sourceCount: number;
 }
 
+/** 管理面可写的记忆层级：U（user）/ P（project）两层；S（session）层按会话隔离，管理面不处理。 */
+export type ManagedTier = "project" | "user";
+
+/**
+ * 管理面层级判定：层级只认适配层声明的 `ManagedTier`，调用方不再各自自比字面量
+ * （`/memory list|add|remove|replace` 的 tier 校验统一走这里）。
+ */
+export function isManagedTier(value: unknown): value is ManagedTier {
+  return value === "project" || value === "user";
+}
+
+/** S 层（会话层）标识：按会话隔离，管理面不处理；`/memory` 参数校验据它给出专属提示。 */
+export const SESSION_TIER = "session";
+
 /** `/memory` 管理面的行地址（memory-base 管理面只处理 U / P 层）。 */
 export interface MemoryRowRef {
-  tier: "project" | "user";
+  tier: ManagedTier;
   kind: string;
   id: number;
 }
@@ -1489,7 +1503,7 @@ export interface KnowledgeServiceLike {
   /** 跨 kind 列举（管理面定位：行带 `id` / `tier` / `kind`）。 */
   list?(opts?: {
     kind?: string;
-    tier?: "project" | "user";
+    tier?: ManagedTier;
     limit?: number;
   }): Promise<unknown[]> | unknown[];
   /** 管理面：删除 U / P 条目（返回删除条数；S 层等参数级错误抛错）。 */
@@ -1504,7 +1518,7 @@ export interface KnowledgeServiceLike {
     content: string;
     kind: string;
     title?: string;
-    tier: "project" | "user";
+    tier: ManagedTier;
   }): Promise<{ ids?: number[]; skipped?: string }>;
 }
 

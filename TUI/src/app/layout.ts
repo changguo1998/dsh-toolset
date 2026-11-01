@@ -20,6 +20,7 @@ import type {
   ModeState,
   PickerState,
 } from "./state.ts";
+import { isUserMessage } from "./state.ts";
 import { hintLine } from "./layout/hints.ts";
 import {
   activeGoalSnapshot,
@@ -260,13 +261,13 @@ export function turnGroupStarts(
     const line = local[i]!;
     const kind = line.kind;
     const prev = i > 0 ? local[i - 1]!.kind : undefined;
-    const userStart = kind === "user" && prev !== "user";
+    const userStart = isUserMessage(kind) && !isUserMessage(prev);
     // 与历史一致：紧邻 user 的答复并入该用户组；无 user 前缀的 final 回复自成一组
     const replyStart =
       kind === "assistant" &&
       line.final === true &&
       prev !== "assistant" &&
-      prev !== "user";
+      !isUserMessage(prev);
     if (userStart || replyStart) starts.push(i);
   }
   if (starts.length === 0 || starts[0]! > 0) starts.unshift(0);

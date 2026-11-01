@@ -4,7 +4,7 @@
 // （adapter 调用、paint、notice）留在 App 执行。
 
 import { localTitleFromText } from "./adapter/normalize.ts";
-import { sanitizeText, TURN_SEPARATOR } from "./state.ts";
+import { isUserMessage, sanitizeText, TURN_SEPARATOR } from "./state.ts";
 import type { HistoryRow } from "./state.ts";
 import type { ModelCatalog, ModelSelection } from "./adapter/dsh.ts";
 import type { ThemeId } from "../renderer/theme.ts";
@@ -80,18 +80,18 @@ export function surfaceToBuffer(
     // 一个用户块，显式换行由布局层按物理行渲染，块内行首左对齐）。
     const text = sanitizeText(m.text).text;
     if (text.trim() === "") continue; // P9：空文本不产行
-    const parts = m.role === "user" ? [text] : text.split("\n");
+    const parts = isUserMessage(m.role) ? [text] : text.split("\n");
     for (const line of parts)
       out.push({
         text: line,
         kind: m.role,
         final: m.role === "assistant" ? true : undefined,
         // 恢复的终态随用户行透传 → 重放器据此还原用户块符号（不再一律 `?`）
-        ...(m.role === "user" && m.status !== undefined
+        ...(isUserMessage(m.role) && m.status !== undefined
           ? { status: m.status }
           : {}),
         // steer 续接标记（BACKLOG #23②）：随用户行透传 → 重放补 user-flag → 永久 `←`
-        ...(m.role === "user" && m.steerContinued === true
+        ...(isUserMessage(m.role) && m.steerContinued === true
           ? { steerContinued: true }
           : {}),
       });

@@ -903,6 +903,14 @@ export function sanitizeText(text: string): { text: string; stripped: number } {
   return { text: out, stripped };
 }
 /**
+ * 用户消息判定（唯一口径）：消息的 `role`、展示投影的 `kind`、宿主 `source.kind`
+ * 都取 `"user"`，适配层 / 状态层 / 渲染层一律经此判定，不再各文件自比字符串。
+ */
+export function isUserMessage(value: unknown): boolean {
+  return value === "user";
+}
+
+/**
  * 内容类 action 的**状态事实**记写（条目 16 段 C2）：内容行不再有缓冲形态（唯一来源是节缓存
  * `state.pipeline`），这里只保留缓冲时代遗留的可观测事实——剔除计数（`strippedChars`，
  * turn-end 警告用）、流式分片的虚拟状态推进（`runVirt` / `stepEstTokens`，●/○ 闪烁与
@@ -924,7 +932,7 @@ export function appendStream(
   // 模型流式输出（assistant/thinking）推进虚拟状态（窗口速率估计 → slew/clamp 虚拟速度 →
   // 虚拟总 token 积分，驱动 ●/○ 交替）；用户行不参与。估算 token 按 tokenCalib 校正
   // （P5：流末 usage 真值学习）；stepEstTokens 累计原始估算量供校准对比
-  const streamed = kind !== "user";
+  const streamed = !isUserMessage(kind);
   const estTokens = streamed ? estimateOutputTokens(clean) : 0;
   const virt = streamed
     ? nextRunVirt(state.runVirt, time, estTokens * state.tokenCalib)

@@ -28,6 +28,7 @@ import {
   inputLineBounds,
   inputLineMove,
   isCompacting,
+  isUserMessage,
   markableSessionIds,
   reduceState,
   setSystemStatus,
@@ -47,6 +48,7 @@ import type {
   RuleEngineLike,
 } from "./adapter/dsh.ts";
 import type { MemoryRowRef, NoticeTone } from "./adapter/types.ts";
+import { SESSION_TIER, isManagedTier } from "./adapter/types.ts";
 import { formatNoticeLine } from "./notice-format.ts";
 import {
   allSections,
@@ -159,6 +161,20 @@ import {
   pickerFilterText,
   pickerFocusedValues,
 } from "./picker-filter.ts";
+import type { KeyActionName } from "./keys.ts";
+import {
+  APPROVAL_KEYS,
+  COMMAND_PANEL_KEYS,
+  EDITOR_KEYS,
+  HISTORY_CONFIRM_KEYS,
+  HISTORY_ERROR_KEYS,
+  HISTORY_LIST_KEYS,
+  HISTORY_VIEW_KEYS,
+  JOBS_PANEL_KEYS,
+  PICKER_KEYS,
+  STATUS_PANEL_KEYS,
+  lookupKey,
+} from "./keys.ts";
 import {
   buildFrame,
   WINDOW_GROW_STEP,
@@ -417,9 +433,9 @@ export interface AppDeps {
   getGuard?: () => SecurityGuardLike | undefined;
   /** profile 目录（main.ts 从 `ctx.get('profileContext').dir` 接线）：实测宽度表
    *  落盘位置（`<profile 目录>/tui-width-symbols.json`）。缺省 / 空串 = 不落盘
-   *  （仍按需实测，只是不跨会话复用）；见 layout/width-symbols.ts。 */
+   *  （仍按需实测，只是不跨会话复用）；见 src/app/layout/width-symbols.ts。 */
   profileDir?: string;
-  /** 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源；见 adapter/local-log.ts）：
+  /** 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源；见 src/app/adapter/local-log.ts）：
    *  main.ts 从 tui.config.json 的 localLog 段归一化后传入（缺省开启）。
    *  缺省不传 = 不落盘（测试与嵌入方保持原行为）。 */
   localLog?: LocalLogWriteOptions;
@@ -459,7 +475,7 @@ export class App {
   private renderedRuleInjections = new Set<string>();
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   private paintDirty = false;
-  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 layout/width-symbols.ts） */
+  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 src/app/layout/width-symbols.ts） */
   private profileDir = "";
   /** 宽度实测在途：同一时刻只发一批，在途期间不再登记新批（探测字节叠发会串台） */
   private widthProbeInFlight = false;
@@ -1063,7 +1079,7 @@ export class App {
     // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；main.ts 接线缺省 true，
     // 未接线时为关闭）
     this.autoCleanEmpty = deps.autoCleanEmpty === true;
-    // 符号列表落盘目录（缺省 "" = 不落盘；见 layout/width-symbols.ts）
+    // 符号列表落盘目录（缺省 "" = 不落盘；见 src/app/layout/width-symbols.ts）
     this.profileDir = deps.profileDir ?? "";
     this.state = initialState(
       normalizeThemeId(this.deps.initialTheme ?? DEFAULT_THEME),
@@ -1086,7 +1102,7 @@ export class App {
   /**
    * 首帧前载入「呈现不确定」符号列表（`<profile 目录>/tui-width-symbols.json`）：只记
    * **哪些码点值得实测**，宽度不落盘（每次会话重新实测）——换终端 / tmux / 字体 / 字号
-   * 因此自动正确（用户 2026-10-12 裁定，见 `layout/width-symbols.ts`）。
+   * 因此自动正确（用户 2026-10-12 裁定，见 `src/app/layout/width-symbols.ts`）。
    *
    * `TUI_WIDTH_PROBE=0`：整体关闭按需实测（不读列表、不登记、不探测、不落盘），用于对照
    * 排查「静态表基线」。
@@ -1609,7 +1625,7 @@ export class App {
           return;
         }
         if (view.messages.length === 0) return; // 空会话：保持空历史
-        const firstUser = view.messages.find((m) => m.role === "user");
+        const firstUser = view.messages.find((m) => isUserMessage(m.role));
         const title =
           this.state.sessionTitle !== ""
             ? this.state.sessionTitle
@@ -2206,7 +2222,7 @@ export class App {
         // 压缩提示 / 重试中 …）过去只进缓冲、不投块 → 流水线看不到，这里补投块。
         // **adapter 已直接交付的事件不桥接**（重复投递会在回合区出现两行）：
         // `tool-call` / `tool-result`（批与结果）、`step`（step-start）、
-        // `compaction-prune`（shadow）—— 见 adapter/dsh.ts 的 deliver 调用点。
+        // `compaction-prune`（shadow）—— 见 src/app/adapter/dsh.ts 的 deliver 调用点。
         const tailBefore = this.state.local.length;
         this.apply((s) => reduceState(s, e));
         const bridged =
@@ -2494,6 +2510,589 @@ export class App {
     return service;
   }
 
+  /**
+   * 按键动作表：动作名 -> 实现。按键表与上下文见 `app/keys.ts`；`handleKey` 查表命中即调用，
+   * 未命中的键由各上下文自己兜底（无效键提示 / 筛选词编辑 / 模式键 / 可打印字符）。
+   * 函数体与拆分前的 if / switch 分支逐行对应，paint 时机保持原样。
+   */
+  private readonly keyActions: Record<KeyActionName, (k: KeyEvent) => void> = {
+    // ── 审批面板 ────────────────────────────────────────────────
+    "approval-allow": () => this.finishApproval(true),
+    "approval-deny": () => this.finishApproval(false),
+    "approval-submit": () =>
+      this.finishApproval(this.state.approvalFocus === "approve"),
+    "approval-switch": () => this.moveApprovalFocus(),
+    "approval-scroll": (k) => {
+      // ↑/↓ 语义随焦点窗（3.3.4）：描述窗滚草稿、选项窗移动「批准 / 拒绝」
+      if (this.state.approvalWindow === "desc") {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "approval-scroll",
+            delta: k.name === "down" ? 1 : -1,
+            max: this.approvalScrollMax(),
+          }),
+        );
+      } else {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "approval-focus",
+            focus:
+              this.state.approvalFocus === "approve" ? "reject" : "approve",
+          }),
+        );
+      }
+      this.paint();
+    },
+    "approval-tab": () => {
+      // Tab：草稿 <-> 选项焦点窗（BACKLOG 3.3.4，与问答面板同构）
+      this.apply((s) => reduceState(s, { type: "approval-tab" }));
+      this.paint();
+    },
+    "approval-cancel": () => {
+      this.deps.adapter.cancelApproval(this.state.approval!.id);
+      this.apply((s) => reduceState(s, { type: "approval", approval: null }));
+      this.paint();
+    },
+
+    // ── /model 选择面板 ─────────────────────────────────────────
+    "picker-move": (k) => {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "picker-move",
+          delta: k.name === "down" ? 1 : -1,
+        }),
+      );
+      this.paint();
+    },
+    "picker-select": () => {
+      this.apply((s) => reduceState(s, { type: "picker-select" }));
+      this.paint();
+      // provider/model 区星号移动后重载思考等级列表（thinking 区选择不变列表）
+      const phase = this.state.picker?.phase;
+      if (phase === 0 || phase === 1) void this.reloadPickerEfforts();
+    },
+    "picker-tab": () => {
+      this.apply((s) => reduceState(s, { type: "picker-tab" }));
+      this.paint();
+    },
+    "picker-phase": (k) => {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "picker-phase",
+          delta: k.name === "right" ? 1 : -1,
+        }),
+      );
+      this.paint();
+    },
+    "picker-submit": () => {
+      void this.confirmModelPicker();
+    },
+    "picker-cancel": () => {
+      // Esc：本列有筛选词时只清空（再按一次才关面板）
+      if (pickerFilterText(this.state.picker!) !== "") {
+        this.apply((s) => reduceState(s, { type: "picker-filter", text: "" }));
+        this.paint();
+        return;
+      }
+      // 关闭面板（并重置输入模式为 normal；提交后的自动回退见 submit）
+      this.apply((s) => reduceState(s, { type: "picker-close" }));
+      this.apply((s) => reduceState(s, { type: "input-mode", mode: "steer" }));
+      this.paint();
+    },
+
+    // ── 通用状态选项面板（/policy /permission） ─────────────────
+    "status-move": (k) => {
+      this.apply((s) =>
+        reduceState(s, {
+          type: "status-panel-move",
+          delta: k.name === "down" ? 1 : -1,
+        }),
+      );
+      this.paint();
+    },
+    "status-select": () => {
+      this.apply((s) => reduceState(s, { type: "status-panel-select" }));
+      this.paint();
+    },
+    "status-submit": () => {
+      void this.commitStatusPanel();
+    },
+    "status-cancel": () => {
+      this.apply((s) => reduceState(s, { type: "status-panel-close" }));
+      this.paint();
+    },
+
+    // ── /jobs 任务面板 ──────────────────────────────────────────
+    "jobs-move": (k) => {
+      const focus = this.state.jobsPanel!.index;
+      const delta = k.name === "down" ? 1 : -1;
+      this.apply((st) =>
+        reduceState(st, { type: "jobs-panel-move", focus, delta }),
+      );
+    },
+    "jobs-page": (k) => {
+      // 翻页页高 = 活动区可视行数（与 shared commandPanel 同一 frameGeometry 口径）
+      const page = frameGeometry(
+        this.state,
+        this.deps.renderer.getSize(),
+      ).activityH;
+      const delta = k.name === "pageup" ? -1 : 1;
+      this.apply((st) =>
+        reduceState(st, { type: "jobs-panel-page", delta, page }),
+      );
+    },
+    "jobs-enter": () => {
+      const job = this.state.jobs[this.state.jobsPanel!.index];
+      if (job) void this.killJob(job.id);
+    },
+    "jobs-close": () => {
+      this.apply((st) => reduceState(st, { type: "jobs-panel-close" }));
+    },
+
+    // ── 共享列表面板（/skills /agents /tools 等） ───────────────
+    "panel-move": (k) => {
+      const delta = k.name === "down" ? 1 : -1;
+      this.apply((st) =>
+        reduceState(st, { type: "command-panel-move", delta }),
+      );
+    },
+    "panel-page": (k) => {
+      // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §4 接线点 5）
+      const page = frameGeometry(
+        this.state,
+        this.deps.renderer.getSize(),
+      ).activityH;
+      const delta = k.name === "pageup" ? -1 : 1;
+      this.apply((st) =>
+        reduceState(st, { type: "command-panel-page", delta, page }),
+      );
+    },
+    "panel-enter": () => {
+      const panel = this.state.commandPanel!;
+      const row = panel.rows[panel.index];
+      if (row === undefined) {
+        // 空态/占位：无行可操作，吞掉
+      } else if (panel.kind === "guard") {
+        // 守卫行恒无 payload：Enter 统一展示策略快照（policy()）
+        void this.showGuardPolicy();
+      } else if (!row.payload) {
+        // 无可中断 id 的条目（agents 的 diagnostic / 一次性等）：灰显 + 说明，不发服务调用；
+        // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的活动区遮住
+        this.apply((s) => reduceState(s, { type: "command-panel-close" }));
+        this.notice(
+          row.blockedReason ??
+            (panel.kind === "agents"
+              ? "该条目不可中断（无可用会话 id）"
+              : "该条目无详情载荷"),
+          "info",
+        );
+      } else if (panel.kind === "agents") {
+        void this.interruptAgent(row.payload);
+      } else if (panel.kind === "workflows") {
+        // 只读运行列表：Enter 无操作（吞键，面板保持）
+      } else {
+        void this.showPanelDetail(panel.kind, row.payload);
+      }
+    },
+    "panel-refresh": () => {
+      // C2：/agents 手动刷新（无宿主事件面时的手动保鲜路径）
+      if (this.state.commandPanel!.kind !== "agents") return;
+      void this.deps.adapter
+        .refreshAgents?.()
+        .catch(() => this.notice("subagents 服务不可用", "warn"));
+    },
+    "panel-close": () => {
+      this.apply((st) => reduceState(st, { type: "command-panel-close" }));
+    },
+
+    // ── /history 历史会话面板 ───────────────────────────────────
+    "history-move": (k) => {
+      const delta = k.name === "down" ? 1 : -1;
+      this.apply((st) => reduceState(st, { type: "history-move", delta }));
+    },
+    "history-enter": () => {
+      const rec = historyVisibleRecords(this.state)[this.state.history!.index];
+      if (!rec) return;
+      if (rec.live) {
+        this.notice("live 会话不可续（仅 persisted 会话可切换）", "warn");
+        return;
+      }
+      void this.resumeToSession(rec.id);
+    },
+    "history-scope": () => {
+      // [Tab]：切换列表范围（当前目录 ⇄ 全部目录），默认当前目录
+      this.apply((st) => reduceState(st, { type: "history-scope-toggle" }));
+    },
+    "history-mark": () => {
+      // Space：批量标记/取消（不可删项以 notice 说明原因）
+      this.toggleMarkRecord();
+    },
+    "history-mark-all": () => {
+      // a：全选当前范围可删项（批量删除入口的快捷全选）
+      this.markAllRecords();
+    },
+    "history-unmark-all": () => {
+      // c：清空批量标记
+      this.clearMarkedRecords();
+    },
+    "history-delete": () => {
+      this.confirmDeleteRecord();
+    },
+    "history-clean": () => {
+      this.confirmClean();
+    },
+    "history-close": () => {
+      this.apply((st) => reduceState(st, { type: "history-close" }));
+    },
+    "history-view-scroll": (k) => {
+      this.apply((st) =>
+        reduceState(st, {
+          type: "history-scroll",
+          delta: k.name === "down" ? 1 : -1,
+        }),
+      );
+    },
+    "history-view-page": (k) => {
+      this.apply((st) =>
+        reduceState(st, {
+          type: "history-scroll",
+          delta: k.name === "pageup" ? -10 : 10,
+        }),
+      );
+    },
+    "history-back": () => {
+      // 返回列表（列表数据仍在内存）
+      this.apply((st) => reduceState(st, { type: "history-back" }));
+    },
+    "history-confirm-run": () => {
+      void this.runPendingHistoryOp();
+    },
+    "history-confirm-cancel": () => {
+      this.apply((st) => reduceState(st, { type: "history-confirm-cancel" }));
+    },
+
+    // ── 编辑区（无面板） ────────────────────────────────────────
+    "editor-escape": () => {
+      // 补全候选打开时 Esc 只收起候选（不打断运行、不动焦点）
+      if (this.state.completion) {
+        this.apply((s) => reduceState(s, { type: "completion-close" }));
+        this.paint();
+        return;
+      }
+      // Esc：自 2026-10-15 起**不再打断**运行、也**不再退回排队登记**（打断收敛到 `!` 模式，
+      // 见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）——排队内容留在核心 next-turn
+      // 队列里等下一回合认领，退回输入框会让同一条消息既在队列又在输入框而重复发送。
+      // 剩余语义 = 空输入时退出面板焦点（有焦点 → 回到无焦点 = 跟随最新；聚焦改用
+      // Ctrl+E / T / S，Tab 不再进焦点）——**运行中同样生效**（2026-10-15 真机裁定：
+      // 忙时 Esc 不打断，但要能回到默认状态）；补全候选与各面板（picker / 审批 / 问答）
+      // 已在上方分支处理。
+      if (this.state.inputText === "" && this.state.focusedPanel) {
+        this.apply((s) => ({ ...s, focusedPanel: null }));
+      }
+    },
+    "editor-tab": () => {
+      // 补全候选打开时 Tab 接受默认选中的候选（补全不提交）
+      if (this.state.completion) {
+        this.acceptCompletion();
+      }
+      // 顶部面板焦点已改由 Ctrl+E / Ctrl+T / Ctrl+S 独占（一键一区域），
+      // Tab 不再有全局语义：仅「补全 / 面板内切窗」——编辑输入时也不打断输入
+    },
+    "editor-scroll": (k) => {
+      const name = k.name;
+      // 补全候选打开时 ↑/↓ 只在候选间移动（不滚动面板）
+      if (this.state.completion) {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "completion-move",
+            delta: name === "down" ? 1 : -1,
+            // 超出活动区可视行的候选已丢弃：焦点导航同样不超出可视范围
+            max: this.completionVisibleRows(),
+          }),
+        );
+        this.paint();
+        return;
+      }
+      // 输入历史见 Ctrl+P / Ctrl+N（readline 惯例）：↑/↓ 不再接管输入历史 ——
+      // 用户 2026-10-10 裁定，↑/↓ 专用于历史区翻页（含到顶加载更旧回合）
+      // 焦点面板滚动（2026-10-10 用户裁定，两处同款）：裸 ↑/↓ = **一行**；Ctrl+↑/↓ =
+      // **半屏**（快速翻页）。对话区（history 焦点/无焦点默认）走 scrollDialogueBy；
+      // 活动区（Turn 面板）走 focusedLineScroll —— 半屏在此前只落在对话区，
+      // Turn 面板按 Ctrl+↑ 与裸 ↑ 同效（用户真机缺陷）
+      const dir: 1 | -1 = name === "up" ? 1 : -1;
+      const panel = this.state.focusedPanel;
+      // 无面板焦点 = 正在编辑输入：↑/↓ 在输入区上下移一行（同显示列），不翻页
+      // （2026-10-27 用户裁定：翻页键只在会话 / 回合区聚焦时生效）
+      if (panel === null) {
+        // 注意方向口径与翻页相反：翻页 +1 = 上滚，输入区 -1 = 上一行
+        const cur = inputLineMove(
+          this.state.inputText,
+          this.state.inputCursor,
+          name === "up" ? -1 : 1,
+        );
+        this.apply((s) =>
+          reduceState(s, { type: "move-cursor", delta: cur - s.inputCursor }),
+        );
+        this.paint();
+        return;
+      }
+      // 可滚动上限由渲染层按内容/窗口算好（上一帧回填或就地补算）：滚键据此收敛
+      // 偏移，否则越界偏移（连续上滚越顶、End）会累积成"按了没反应"的假死
+      const max = this.paneScrollMaxOf(panel);
+      if (panel === "activity") {
+        const step =
+          k.ctrl && panel === "activity"
+            ? dialogueHalfPage(
+                frameGeometry(this.state, this.deps.renderer.getSize())
+                  .activityH,
+              )
+            : 1;
+        // 活动区按「节键 + 行偏移」滚动（与对话区同口径）: 位置锚在活动段键,
+        // 扩窗/上方插段不动画面
+        this.scrollActivityBy(dir * step);
+      } else if (panel === "status") {
+        this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
+      } else {
+        // 位移基准 = 本帧可视行数（缺省回落到几何口径）
+        const vh =
+          this.paneMaxes().dialogueViewportH ||
+          frameGeometry(this.state, this.deps.renderer.getSize()).viewportH;
+        // 2026-10-10 用户裁定：裸 ↑/↓ = **一行**（默认滚动粒度）；Ctrl+↑/↓ = **半屏**
+        // （快速翻页）。两者都走同一套「先扩窗、再按扩窗后的段表施加位移」，
+        // 所以 1 行步进到窗口顶时同样只多物化、不多滚（见 scrollDialogueBy）
+        this.scrollDialogueBy(dir * (k.ctrl ? dialogueHalfPage(vh) : 1));
+      }
+    },
+    "editor-page": (k) => {
+      const name = k.name;
+      // 焦点面板翻页：活动区/状态列保持整页滚动（页 = 面板当前可视行数）；
+      // 对话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
+      const dir: 1 | -1 = name === "pageup" ? 1 : -1;
+      const panel = this.state.focusedPanel;
+      // 无面板焦点 = 编辑输入：PgUp = 行首、PgDn = 行尾（不翻页）
+      if (panel === null) {
+        const bounds = inputLineBounds(
+          this.state.inputText,
+          this.state.inputCursor,
+        );
+        const target = name === "pageup" ? bounds.start : bounds.end;
+        this.apply((s) =>
+          reduceState(s, {
+            type: "move-cursor",
+            delta: target - s.inputCursor,
+          }),
+        );
+        this.paint();
+        return;
+      }
+      if (panel === "activity") {
+        // 回合区 PgUp/PgDn = 移一个 Step（等级错开: 会话区整 Turn、回合区整 Step）
+        this.scrollActivityStep(dir);
+      } else if (panel === "status") {
+        const page = frameGeometry(this.state, this.deps.renderer.getSize());
+        this.apply((s) =>
+          reduceState(
+            s,
+            focusedPageScroll(panel, dir, page, this.paneScrollMaxOf(panel)),
+          ),
+        );
+      } else {
+        // 跳转只在已物化范围内找目标：目标不在窗口里（更早回合未物化）→ 先扩窗再翻页。
+        // 条目 7 选项 1 回归：恢复出的历史只物化最近 N 组，PgUp 在窗口顶此前直接无反应
+        // ——「先按 ↑ 扩窗」这条前提在折叠窗口上不成立（用户真机：按键没有翻页）
+        let r = this.paneMaxes();
+        const jump = (): number | undefined =>
+          userRowJump(
+            r.dialogueUserRows,
+            r.dialogueTopIdx,
+            r.dialogueViewportH,
+            r.dialogueTotal,
+            dir,
+          );
+        let target = jump();
+        for (
+          let guard = 0;
+          target === undefined && dir === 1 && guard < 4;
+          guard++
+        ) {
+          if (
+            this.state.windowGroups >= sectionGroupCount(sectionsOf(this.state))
+          )
+            break; // 更早回合已全部物化，没有可扩的窗口
+          const before = r.dialogueTotal;
+          this.apply((s) =>
+            reduceState(s, {
+              type: "window-grow",
+              groups: s.windowGroups + WINDOW_GROW_STEP,
+            }),
+          );
+          r = this.paneMaxes();
+          if (r.dialogueTotal <= before) break; // 没有更多内容可纳入
+          target = jump();
+        }
+        if (target === undefined) {
+          // PgDn 无下一条 → 回到底部跟随最新
+          if (dir === -1)
+            this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
+        } else {
+          this.apply((s) =>
+            reduceState(s, {
+              type: "dialogue-scroll",
+              top: positionAt(
+                createLineTable(r.dialogueCounts),
+                r.dialogueKeys,
+                target,
+              ),
+              offset: Math.max(0, r.dialogueMaxScroll - target),
+            }),
+          );
+        }
+      }
+    },
+    "editor-home": () => {
+      // 无面板焦点（输入区）时：Home = 光标跳到输入开头；面板焦点下仍走历史区滚动
+      if (this.state.focusedPanel === null) {
+        this.apply((s) =>
+          reduceState(s, { type: "move-cursor", delta: -s.inputCursor }),
+        );
+        this.paint();
+        return;
+      }
+      // 回合区：Home 一次 → 顶部；再按已到顶 → 无操作（回合区不加载更旧历史）
+      if (this.state.focusedPanel === "activity") {
+        this.scrollActivityHome();
+        return;
+      }
+      // Home = 往回翻到最旧「已加载」内容（2026-10-06 用户裁定；不一次性全量物化）；
+      // 已在最旧已加载处再按 → 再物化一批更早回合，锚点段键不变（内容从上方长出）
+      const r = this.paneMaxes();
+      // 「最旧已加载内容」= 段表里第一个**节内容段**（跳过折叠占位行与边界项：
+      // 分隔行 / step 头 / 空行 / step 摘要）。钉在边界段键上会在扩窗后解析不到
+      // （边界项随窗口重算，如 `sep@18` 消失）→ 走「距底偏移」兜底把视口弹走。
+      const firstContent = ((): number => {
+        const at = r.dialogueKeys.findIndex(
+          (k) =>
+            k !== "" &&
+            k !== MARKER_KEY &&
+            !/^(sep|step|blank|summary)@/.test(k),
+        );
+        return at >= 0 ? at : 0;
+      })();
+      if (r.dialogueTopIdx > firstContent) {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "dialogue-scroll",
+            top: positionAt(
+              createLineTable(r.dialogueCounts),
+              r.dialogueKeys,
+              firstContent,
+            ),
+            offset: Math.max(0, r.dialogueMaxScroll - firstContent),
+          }),
+        );
+        return;
+      }
+      // 已在最旧已加载：再物化一批，并把视口**显式钉回原内容行**
+      if (this.state.windowGroups >= sectionGroupCount(sectionsOf(this.state)))
+        return; // 更早回合已全部物化：无更旧内容，静默不动作
+      // 新物化的行都插在视口上方 → 顶行号平移「新增行数」。不靠段键跨扩窗解析：
+      // 键随窗口重建会失效，`indexOfTop` 兜底「距底偏移」会把视口弹到新窗口顶部
+      // （实测 3 → 6 组时画面从 ⇆18 跳到 ⇆2）。
+      const beforeTop = r.dialogueTopIdx;
+      const beforeTotal = r.dialogueTotal;
+      this.apply((s) =>
+        reduceState(s, {
+          type: "window-grow",
+          groups: s.windowGroups + WINDOW_GROW_STEP,
+        }),
+      );
+      const after = this.paneMaxes();
+      const target = Math.min(
+        after.dialogueMaxScroll,
+        beforeTop + Math.max(0, after.dialogueTotal - beforeTotal),
+      );
+      this.apply((s) =>
+        reduceState(s, {
+          type: "dialogue-scroll",
+          top: positionAt(
+            createLineTable(after.dialogueCounts),
+            after.dialogueKeys,
+            target,
+          ),
+          offset: Math.max(0, after.dialogueMaxScroll - target),
+        }),
+      );
+    },
+    "editor-end": () => {
+      // 无面板焦点（输入区）时：End = 光标跳到输入末尾；面板焦点下仍翻到最新
+      if (this.state.focusedPanel === null) {
+        this.apply((s) =>
+          reduceState(s, {
+            type: "move-cursor",
+            delta: s.inputText.length - s.inputCursor,
+          }),
+        );
+        this.paint();
+        return;
+      }
+      // End = 翻到最新（2026-10-06 用户裁定，接管原 Home 行为）：跟随底部 + 渐进窗口复位
+      this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
+    },
+    "editor-left": () => {
+      this.apply((s) => reduceState(s, { type: "move-cursor", delta: -1 }));
+    },
+    "editor-right": () => {
+      this.apply((s) => reduceState(s, { type: "move-cursor", delta: 1 }));
+    },
+    "editor-backspace": () => {
+      // 光标在开头（含输入为空）时 Backspace 回退模式：切了模式但还没输入时用 Backspace
+      // 回 >；有内容时把光标移到最前按 Backspace 同样能回退（2026-10-27 用户裁定）
+      if (this.state.inputCursor === 0 && this.state.inputMode !== "steer") {
+        this.apply((s) =>
+          reduceState(s, { type: "input-mode", mode: "steer" }),
+        );
+      } else {
+        this.apply((s) => this.backspace(s));
+      }
+    },
+    "editor-enter": () => {
+      // Enter 的语义只由**输入模式**决定（2026-10-15 起）：`!` 模式 = 打断并发送（空输入则
+      // 只打断）；其余模式 = 排队 / 发送。Alt+Enter（解码层仍把 `ESC CR` / `ESC LF` 合并为
+      // 单个 meta+enter）不再有独立语义 → 忽略 `meta`，等效普通 Enter（解码层不动：删合并会
+      // 让它退化成「独立 Esc + Enter」两个事件，凭空带出 Esc 的副作用）
+      this.submit(this.state.inputMode === "interrupt");
+    },
+    "editor-paste": (k) => {
+      if (k.text) {
+        const t = k.text;
+        this.apply((s) =>
+          reduceState(s, {
+            type: "input",
+            text:
+              s.inputText.slice(0, s.inputCursor) +
+              t +
+              s.inputText.slice(s.inputCursor),
+            cursor: s.inputCursor + t.length,
+          }),
+        );
+      }
+    },
+  };
+
+  /** 审批应答：提交裁定、关面板、重绘（原 handleKey 内的本地闭包） */
+  private finishApproval(allow: boolean): void {
+    this.deps.adapter.approve(this.state.approval!.id, allow);
+    this.apply((s) => reduceState(s, { type: "approval", approval: null }));
+    this.paint();
+  }
+
+  /** 审批焦点窗左右切换（批准 ⇄ 拒绝） */
+  private moveApprovalFocus(): void {
+    const focus = this.state.approvalFocus === "approve" ? "reject" : "approve";
+    this.apply((s) => reduceState(s, { type: "approval-focus", focus }));
+    this.paint();
+  }
+
   private handleKey(k: KeyEvent): void {
     // BACKLOG 3.4.3：任意用户输入（含无效键，人在终端前即算操作）即停止需交互催促响铃，
     // 且同一次交互内不再重启
@@ -2514,54 +3113,9 @@ export class App {
       // 审批按键白名单（BACKLOG 3.2.4 / 3.2.6 / 3.3.1）：y/n 与数字键直答、Enter 提交
       // 焦点项、←/→ 切换焦点、↑/↓ 滚草稿、Esc 取消；白名单外按键不落输入栏，改在提示区
       // 给出「无效键」提示（提示由 state.approvalHint 承载，任一有效键即清空）。
-      const finishApproval = (allow: boolean): void => {
-        this.deps.adapter.approve(this.state.approval!.id, allow);
-        this.apply((s) => reduceState(s, { type: "approval", approval: null }));
-        this.paint();
-      };
-      const moveApprovalFocus = (): void => {
-        const focus =
-          this.state.approvalFocus === "approve" ? "reject" : "approve";
-        this.apply((s) => reduceState(s, { type: "approval-focus", focus }));
-        this.paint();
-      };
-      if (name === "y" || name === "1") return finishApproval(true);
-      if (name === "n" || name === "2") return finishApproval(false);
-      if (name === "enter")
-        return finishApproval(this.state.approvalFocus === "approve");
-      if (name === "left" || name === "right") return moveApprovalFocus();
-      if (name === "escape") {
-        this.deps.adapter.cancelApproval(this.state.approval!.id);
-        this.apply((s) => reduceState(s, { type: "approval", approval: null }));
-        this.paint();
-        return;
-      }
-      if (name === "tab") {
-        // Tab：草稿 <-> 选项焦点窗（BACKLOG 3.3.4，与问答面板同构）
-        this.apply((s) => reduceState(s, { type: "approval-tab" }));
-        this.paint();
-        return;
-      }
-      if (name === "up" || name === "down") {
-        // ↑/↓ 语义随焦点窗（3.3.4）：描述窗滚草稿、选项窗移动「批准 / 拒绝」
-        if (this.state.approvalWindow === "desc") {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "approval-scroll",
-              delta: name === "down" ? 1 : -1,
-              max: this.approvalScrollMax(),
-            }),
-          );
-        } else {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "approval-focus",
-              focus:
-                this.state.approvalFocus === "approve" ? "reject" : "approve",
-            }),
-          );
-        }
-        this.paint();
+      const action = lookupKey(APPROVAL_KEYS, name);
+      if (action !== undefined) {
+        this.keyActions[action](k);
         return;
       }
       this.apply((s) =>
@@ -2590,58 +3144,9 @@ export class App {
     // **当前焦点列**的筛选词（provider / model 列各记各的；effort 列不筛，吞掉），
     // 命中项按匹配度排序（见 picker-filter.ts）；其余按键忽略
     if (this.state.picker) {
-      if (name === "up" || name === "down") {
-        this.apply((s) =>
-          reduceState(s, {
-            type: "picker-move",
-            delta: name === "down" ? 1 : -1,
-          }),
-        );
-        this.paint();
-        return;
-      }
-      if (name === " " || name === "space") {
-        this.apply((s) => reduceState(s, { type: "picker-select" }));
-        this.paint();
-        // provider/model 区星号移动后重载思考等级列表（thinking 区选择不变列表）
-        const phase = this.state.picker?.phase;
-        if (phase === 0 || phase === 1) void this.reloadPickerEfforts();
-        return;
-      }
-      if (name === "tab") {
-        this.apply((s) => reduceState(s, { type: "picker-tab" }));
-        this.paint();
-        return;
-      }
-      if (name === "left" || name === "right") {
-        this.apply((s) =>
-          reduceState(s, {
-            type: "picker-phase",
-            delta: name === "right" ? 1 : -1,
-          }),
-        );
-        this.paint();
-        return;
-      }
-      if (name === "enter") {
-        void this.confirmModelPicker();
-        return;
-      }
-      if (name === "escape") {
-        // Esc：本列有筛选词时只清空（再按一次才关面板）
-        if (pickerFilterText(this.state.picker) !== "") {
-          this.apply((s) =>
-            reduceState(s, { type: "picker-filter", text: "" }),
-          );
-          this.paint();
-          return;
-        }
-        // 关闭面板（并重置输入模式为 normal；提交后的自动回退见 submit）
-        this.apply((s) => reduceState(s, { type: "picker-close" }));
-        this.apply((s) =>
-          reduceState(s, { type: "input-mode", mode: "steer" }),
-        );
-        this.paint();
+      const action = lookupKey(PICKER_KEYS, name);
+      if (action !== undefined) {
+        this.keyActions[action](k);
         return;
       }
       // 筛选词编辑：只在可筛列（provider / model）生效
@@ -2662,122 +3167,24 @@ export class App {
     // 通用状态选项面板（/policy /permission）：↑/↓ 移动焦点、空格预选
     // （星号，再按取消）、Enter 提交预选（无预选回退焦点）并关闭、Esc 取消
     if (this.state.statusPanel) {
-      if (name === "up" || name === "down") {
-        this.apply((s) =>
-          reduceState(s, {
-            type: "status-panel-move",
-            delta: name === "down" ? 1 : -1,
-          }),
-        );
-        this.paint();
-        return;
-      }
-      if (name === " " || name === "space") {
-        this.apply((s) => reduceState(s, { type: "status-panel-select" }));
-        this.paint();
-        return;
-      }
-      if (name === "enter") {
-        void this.commitStatusPanel();
-        return;
-      }
-      if (name === "escape") {
-        this.apply((s) => reduceState(s, { type: "status-panel-close" }));
-        this.paint();
-        return;
-      }
+      const action = lookupKey(STATUS_PANEL_KEYS, name);
+      if (action !== undefined) this.keyActions[action](k);
       return;
     }
 
     // /jobs 任务面板：↑/↓ 移动高亮、PgUp/PgDn 整页（页高=活动区可视行数，与共享面板
     // 同 frameGeometry 口径）、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
     if (this.state.jobsPanel) {
-      if (name === "up") {
-        const focus = this.state.jobsPanel.index;
-        this.apply((st) =>
-          reduceState(st, { type: "jobs-panel-move", focus, delta: -1 }),
-        );
-      } else if (name === "down") {
-        const focus = this.state.jobsPanel.index;
-        this.apply((st) =>
-          reduceState(st, { type: "jobs-panel-move", focus, delta: 1 }),
-        );
-      } else if (name === "pageup" || name === "pagedown") {
-        // 翻页页高 = 活动区可视行数（与 shared commandPanel 同一 frameGeometry 口径）
-        const page = frameGeometry(
-          this.state,
-          this.deps.renderer.getSize(),
-        ).activityH;
-        const delta = name === "pageup" ? -1 : 1;
-        this.apply((st) =>
-          reduceState(st, { type: "jobs-panel-page", delta, page }),
-        );
-      } else if (name === "enter") {
-        const job = this.state.jobs[this.state.jobsPanel.index];
-        if (job) void this.killJob(job.id);
-      } else if (name === "escape")
-        this.apply((st) => reduceState(st, { type: "jobs-panel-close" }));
+      const action = lookupKey(JOBS_PANEL_KEYS, name);
+      if (action !== undefined) this.keyActions[action](k);
       this.paint();
       return;
     }
 
     // 共享列表面板（/skills 等）：↑/↓ 移动、PgUp/PgDn 整页、Enter 主操作、Esc 关闭；其余吞掉
     if (this.state.commandPanel) {
-      const panel = this.state.commandPanel;
-      // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §4 接线点 5）
-      const page = frameGeometry(
-        this.state,
-        this.deps.renderer.getSize(),
-      ).activityH;
-      if (name === "up") {
-        this.apply((st) =>
-          reduceState(st, { type: "command-panel-move", delta: -1 }),
-        );
-      } else if (name === "down") {
-        this.apply((st) =>
-          reduceState(st, { type: "command-panel-move", delta: 1 }),
-        );
-      } else if (name === "pageup") {
-        this.apply((st) =>
-          reduceState(st, { type: "command-panel-page", delta: -1, page }),
-        );
-      } else if (name === "pagedown") {
-        this.apply((st) =>
-          reduceState(st, { type: "command-panel-page", delta: 1, page }),
-        );
-      } else if (name === "enter") {
-        const row = panel.rows[panel.index];
-        if (row === undefined) {
-          // 空态/占位：无行可操作，吞掉
-        } else if (panel.kind === "guard") {
-          // 守卫行恒无 payload：Enter 统一展示策略快照（policy()）
-          void this.showGuardPolicy();
-        } else if (!row.payload) {
-          // 无可中断 id 的条目（agents 的 diagnostic / 一次性等）：灰显 + 说明，不发服务调用；
-          // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的活动区遮住
-          this.apply((s) => reduceState(s, { type: "command-panel-close" }));
-          this.notice(
-            row.blockedReason ??
-              (panel.kind === "agents"
-                ? "该条目不可中断（无可用会话 id）"
-                : "该条目无详情载荷"),
-            "info",
-          );
-        } else if (panel.kind === "agents") {
-          void this.interruptAgent(row.payload);
-        } else if (panel.kind === "workflows") {
-          // 只读运行列表：Enter 无操作（吞键，面板保持）
-        } else {
-          void this.showPanelDetail(panel.kind, row.payload);
-        }
-      } else if (name === "r" && panel.kind === "agents") {
-        // C2：/agents 手动刷新（无宿主事件面时的手动保鲜路径）
-        void this.deps.adapter
-          .refreshAgents?.()
-          .catch(() => this.notice("subagents 服务不可用", "warn"));
-      } else if (name === "escape") {
-        this.apply((st) => reduceState(st, { type: "command-panel-close" }));
-      }
+      const action = lookupKey(COMMAND_PANEL_KEYS, name);
+      if (action !== undefined) this.keyActions[action](k);
       this.paint();
       return;
     }
@@ -2787,77 +3194,20 @@ export class App {
     if (this.state.history) {
       const h = this.state.history;
       if (h.phase === "list") {
-        if (name === "up")
-          this.apply((st) =>
-            reduceState(st, { type: "history-move", delta: -1 }),
-          );
-        else if (name === "down")
-          this.apply((st) =>
-            reduceState(st, { type: "history-move", delta: 1 }),
-          );
-        else if (name === "enter") {
-          const rec = historyVisibleRecords(this.state)[h.index];
-          if (!rec) return;
-          if (rec.live) {
-            this.notice("live 会话不可续（仅 persisted 会话可切换）", "warn");
-            return;
-          }
-          void this.resumeToSession(rec.id);
-          return;
-        } else if (name === "tab") {
-          // [Tab]：切换列表范围（当前目录 ⇄ 全部目录），默认当前目录
-          this.apply((st) => reduceState(st, { type: "history-scope-toggle" }));
-        } else if (name === " " || name === "space") {
-          // Space：批量标记/取消（不可删项以 notice 说明原因）
-          this.toggleMarkRecord();
-          return;
-        } else if (name === "a") {
-          // a：全选当前范围可删项（批量删除入口的快捷全选）
-          this.markAllRecords();
-          return;
-        } else if (name === "c") {
-          // c：清空批量标记
-          this.clearMarkedRecords();
-          return;
-        } else if (name === "d" || name === "delete" || name === "backspace") {
-          this.confirmDeleteRecord();
-          return;
-        } else if (name === "x") {
-          this.confirmClean();
-          return;
-        } else if (name === "escape")
-          this.apply((st) => reduceState(st, { type: "history-close" }));
+        const action = lookupKey(HISTORY_LIST_KEYS, name);
+        if (action !== undefined) this.keyActions[action](k);
       } else if (h.phase === "view") {
-        if (name === "up")
-          this.apply((st) =>
-            reduceState(st, { type: "history-scroll", delta: -1 }),
-          );
-        else if (name === "down")
-          this.apply((st) =>
-            reduceState(st, { type: "history-scroll", delta: 1 }),
-          );
-        else if (name === "pageup")
-          this.apply((st) =>
-            reduceState(st, { type: "history-scroll", delta: -10 }),
-          );
-        else if (name === "pagedown")
-          this.apply((st) =>
-            reduceState(st, { type: "history-scroll", delta: 10 }),
-          );
-        else if (name === "escape")
-          // 返回列表（列表数据仍在内存）
-          this.apply((st) => reduceState(st, { type: "history-back" }));
+        const action = lookupKey(HISTORY_VIEW_KEYS, name);
+        if (action !== undefined) this.keyActions[action](k);
       } else if (h.phase === "confirm-delete" || h.phase === "confirm-clean") {
         // 二次确认：y/Enter 执行、n/Esc 取消（其余键吞掉，避免误触）
-        if (name === "y" || name === "enter") void this.runPendingHistoryOp();
-        else if (name === "n" || name === "escape")
-          this.apply((st) =>
-            reduceState(st, { type: "history-confirm-cancel" }),
-          );
+        const action = lookupKey(HISTORY_CONFIRM_KEYS, name);
+        if (action !== undefined) this.keyActions[action](k);
       } else if (h.phase === "deleting" || h.phase === "cleaning") {
         // 进行中：吞键；完成后由 history-delete-done / history-clean-done 回列表
-      } else if (h.phase === "error" && name === "escape") {
-        this.apply((st) => reduceState(st, { type: "history-close" }));
+      } else if (h.phase === "error") {
+        const action = lookupKey(HISTORY_ERROR_KEYS, name);
+        if (action !== undefined) this.keyActions[action](k);
       }
       this.paint();
       return;
@@ -2952,346 +3302,40 @@ export class App {
       return;
     }
 
-    switch (name) {
-      case "escape":
-        // 补全候选打开时 Esc 只收起候选（不打断运行、不动焦点）
-        if (this.state.completion) {
-          this.apply((s) => reduceState(s, { type: "completion-close" }));
-          this.paint();
-          break;
-        }
-        // Esc：自 2026-10-15 起**不再打断**运行、也**不再退回排队登记**（打断收敛到 `!` 模式，
-        // 见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）——排队内容留在核心 next-turn
-        // 队列里等下一回合认领，退回输入框会让同一条消息既在队列又在输入框而重复发送。
-        // 剩余语义 = 空输入时退出面板焦点（有焦点 → 回到无焦点 = 跟随最新；聚焦改用
-        // Ctrl+E / T / S，Tab 不再进焦点）——**运行中同样生效**（2026-10-15 真机裁定：
-        // 忙时 Esc 不打断，但要能回到默认状态）；补全候选与各面板（picker / 审批 / 问答）
-        // 已在上方分支处理。
-        if (this.state.inputText === "" && this.state.focusedPanel) {
-          this.apply((s) => ({ ...s, focusedPanel: null }));
-        }
-        break;
-      case "tab":
-        // 补全候选打开时 Tab 接受默认选中的候选（补全不提交）
-        if (this.state.completion) {
-          this.acceptCompletion();
-        }
-        // 顶部面板焦点已改由 Ctrl+E / Ctrl+T / Ctrl+S 独占（一键一区域），
-        // Tab 不再有全局语义：仅「补全 / 面板内切窗」——编辑输入时也不打断输入
-        break;
-      case "up":
-      case "down": {
-        // 补全候选打开时 ↑/↓ 只在候选间移动（不滚动面板）
-        if (this.state.completion) {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "completion-move",
-              delta: name === "down" ? 1 : -1,
-              // 超出活动区可视行的候选已丢弃：焦点导航同样不超出可视范围
-              max: this.completionVisibleRows(),
-            }),
-          );
-          this.paint();
-          break;
-        }
-        // 输入历史见 Ctrl+P / Ctrl+N（readline 惯例）：↑/↓ 不再接管输入历史 ——
-        // 用户 2026-10-10 裁定，↑/↓ 专用于历史区翻页（含到顶加载更旧回合）
-        // 焦点面板滚动（2026-10-10 用户裁定，两处同款）：裸 ↑/↓ = **一行**；Ctrl+↑/↓ =
-        // **半屏**（快速翻页）。对话区（history 焦点/无焦点默认）走 scrollDialogueBy；
-        // 活动区（Turn 面板）走 focusedLineScroll —— 半屏在此前只落在对话区，
-        // Turn 面板按 Ctrl+↑ 与裸 ↑ 同效（用户真机缺陷）
-        const dir: 1 | -1 = name === "up" ? 1 : -1;
-        const panel = this.state.focusedPanel;
-        // 无面板焦点 = 正在编辑输入：↑/↓ 在输入区上下移一行（同显示列），不翻页
-        // （2026-10-27 用户裁定：翻页键只在会话 / 回合区聚焦时生效）
-        if (panel === null) {
-          // 注意方向口径与翻页相反：翻页 +1 = 上滚，输入区 -1 = 上一行
-          const cur = inputLineMove(
-            this.state.inputText,
-            this.state.inputCursor,
-            name === "up" ? -1 : 1,
-          );
-          this.apply((s) =>
-            reduceState(s, { type: "move-cursor", delta: cur - s.inputCursor }),
-          );
-          this.paint();
-          break;
-        }
-        // 可滚动上限由渲染层按内容/窗口算好（上一帧回填或就地补算）：滚键据此收敛
-        // 偏移，否则越界偏移（连续上滚越顶、End）会累积成"按了没反应"的假死
-        const max = this.paneScrollMaxOf(panel);
-        if (panel === "activity") {
-          const step =
-            ctrl && panel === "activity"
-              ? dialogueHalfPage(
-                  frameGeometry(this.state, this.deps.renderer.getSize())
-                    .activityH,
-                )
-              : 1;
-          // 活动区按「节键 + 行偏移」滚动（与对话区同口径）: 位置锚在活动段键,
-          // 扩窗/上方插段不动画面
-          this.scrollActivityBy(dir * step);
-        } else if (panel === "status") {
-          this.apply((s) => reduceState(s, focusedLineScroll(panel, dir, max)));
-        } else {
-          // 位移基准 = 本帧可视行数（缺省回落到几何口径）
-          const vh =
-            this.paneMaxes().dialogueViewportH ||
-            frameGeometry(this.state, this.deps.renderer.getSize()).viewportH;
-          // 2026-10-10 用户裁定：裸 ↑/↓ = **一行**（默认滚动粒度）；Ctrl+↑/↓ = **半屏**
-          // （快速翻页）。两者都走同一套「先扩窗、再按扩窗后的段表施加位移」，
-          // 所以 1 行步进到窗口顶时同样只多物化、不多滚（见 scrollDialogueBy）
-          this.scrollDialogueBy(dir * (ctrl ? dialogueHalfPage(vh) : 1));
-        }
-        break;
-      }
-      case "pageup":
-      case "pagedown": {
-        // 焦点面板翻页：活动区/状态列保持整页滚动（页 = 面板当前可视行数）；
-        // 对话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
-        const dir: 1 | -1 = name === "pageup" ? 1 : -1;
-        const panel = this.state.focusedPanel;
-        // 无面板焦点 = 编辑输入：PgUp = 行首、PgDn = 行尾（不翻页）
-        if (panel === null) {
-          const bounds = inputLineBounds(
-            this.state.inputText,
-            this.state.inputCursor,
-          );
-          const target = name === "pageup" ? bounds.start : bounds.end;
-          this.apply((s) =>
-            reduceState(s, {
-              type: "move-cursor",
-              delta: target - s.inputCursor,
-            }),
-          );
-          this.paint();
-          break;
-        }
-        if (panel === "activity") {
-          // 回合区 PgUp/PgDn = 移一个 Step（等级错开: 会话区整 Turn、回合区整 Step）
-          this.scrollActivityStep(dir);
-        } else if (panel === "status") {
-          const page = frameGeometry(this.state, this.deps.renderer.getSize());
-          this.apply((s) =>
-            reduceState(
-              s,
-              focusedPageScroll(panel, dir, page, this.paneScrollMaxOf(panel)),
-            ),
-          );
-        } else {
-          // 跳转只在已物化范围内找目标：目标不在窗口里（更早回合未物化）→ 先扩窗再翻页。
-          // 条目 7 选项 1 回归：恢复出的历史只物化最近 N 组，PgUp 在窗口顶此前直接无反应
-          // ——「先按 ↑ 扩窗」这条前提在折叠窗口上不成立（用户真机：按键没有翻页）
-          let r = this.paneMaxes();
-          const jump = (): number | undefined =>
-            userRowJump(
-              r.dialogueUserRows,
-              r.dialogueTopIdx,
-              r.dialogueViewportH,
-              r.dialogueTotal,
-              dir,
-            );
-          let target = jump();
-          for (
-            let guard = 0;
-            target === undefined && dir === 1 && guard < 4;
-            guard++
-          ) {
-            if (
-              this.state.windowGroups >=
-              sectionGroupCount(sectionsOf(this.state))
-            )
-              break; // 更早回合已全部物化，没有可扩的窗口
-            const before = r.dialogueTotal;
-            this.apply((s) =>
-              reduceState(s, {
-                type: "window-grow",
-                groups: s.windowGroups + WINDOW_GROW_STEP,
-              }),
-            );
-            r = this.paneMaxes();
-            if (r.dialogueTotal <= before) break; // 没有更多内容可纳入
-            target = jump();
-          }
-          if (target === undefined) {
-            // PgDn 无下一条 → 回到底部跟随最新
-            if (dir === -1)
-              this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
-          } else {
-            this.apply((s) =>
-              reduceState(s, {
-                type: "dialogue-scroll",
-                top: positionAt(
-                  createLineTable(r.dialogueCounts),
-                  r.dialogueKeys,
-                  target,
-                ),
-                offset: Math.max(0, r.dialogueMaxScroll - target),
-              }),
-            );
-          }
-        }
-        break;
-      }
-      case "home": {
-        // 无面板焦点（输入区）时：Home = 光标跳到输入开头；面板焦点下仍走历史区滚动
-        if (this.state.focusedPanel === null) {
-          this.apply((s) =>
-            reduceState(s, { type: "move-cursor", delta: -s.inputCursor }),
-          );
-          this.paint();
-          break;
-        }
-        // 回合区：Home 一次 → 顶部；再按已到顶 → 无操作（回合区不加载更旧历史）
-        if (this.state.focusedPanel === "activity") {
-          this.scrollActivityHome();
-          break;
-        }
-        // Home = 往回翻到最旧「已加载」内容（2026-10-06 用户裁定；不一次性全量物化）；
-        // 已在最旧已加载处再按 → 再物化一批更早回合，锚点段键不变（内容从上方长出）
-        const r = this.paneMaxes();
-        // 「最旧已加载内容」= 段表里第一个**节内容段**（跳过折叠占位行与边界项：
-        // 分隔行 / step 头 / 空行 / step 摘要）。钉在边界段键上会在扩窗后解析不到
-        // （边界项随窗口重算，如 `sep@18` 消失）→ 走「距底偏移」兜底把视口弹走。
-        const firstContent = ((): number => {
-          const at = r.dialogueKeys.findIndex(
-            (k) =>
-              k !== "" &&
-              k !== MARKER_KEY &&
-              !/^(sep|step|blank|summary)@/.test(k),
-          );
-          return at >= 0 ? at : 0;
-        })();
-        if (r.dialogueTopIdx > firstContent) {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "dialogue-scroll",
-              top: positionAt(
-                createLineTable(r.dialogueCounts),
-                r.dialogueKeys,
-                firstContent,
-              ),
-              offset: Math.max(0, r.dialogueMaxScroll - firstContent),
-            }),
-          );
-          break;
-        }
-        // 已在最旧已加载：再物化一批，并把视口**显式钉回原内容行**
-        if (
-          this.state.windowGroups >= sectionGroupCount(sectionsOf(this.state))
-        )
-          break; // 更早回合已全部物化：无更旧内容，静默不动作
-        // 新物化的行都插在视口上方 → 顶行号平移「新增行数」。不靠段键跨扩窗解析：
-        // 键随窗口重建会失效，`indexOfTop` 兜底「距底偏移」会把视口弹到新窗口顶部
-        // （实测 3 → 6 组时画面从 ⇆18 跳到 ⇆2）。
-        const beforeTop = r.dialogueTopIdx;
-        const beforeTotal = r.dialogueTotal;
-        this.apply((s) =>
-          reduceState(s, {
-            type: "window-grow",
-            groups: s.windowGroups + WINDOW_GROW_STEP,
-          }),
-        );
-        const after = this.paneMaxes();
-        const target = Math.min(
-          after.dialogueMaxScroll,
-          beforeTop + Math.max(0, after.dialogueTotal - beforeTotal),
-        );
-        this.apply((s) =>
-          reduceState(s, {
-            type: "dialogue-scroll",
-            top: positionAt(
-              createLineTable(after.dialogueCounts),
-              after.dialogueKeys,
-              target,
-            ),
-            offset: Math.max(0, after.dialogueMaxScroll - target),
-          }),
-        );
-        break;
-      }
-      case "end":
-        // 无面板焦点（输入区）时：End = 光标跳到输入末尾；面板焦点下仍翻到最新
-        if (this.state.focusedPanel === null) {
-          this.apply((s) =>
-            reduceState(s, {
-              type: "move-cursor",
-              delta: s.inputText.length - s.inputCursor,
-            }),
-          );
-          this.paint();
-          break;
-        }
-        // End = 翻到最新（2026-10-06 用户裁定，接管原 Home 行为）：跟随底部 + 渐进窗口复位
-        this.apply((s) => reduceState(s, { type: "scroll-to-bottom" }));
-        break;
-      case "left":
-        this.apply((s) => reduceState(s, { type: "move-cursor", delta: -1 }));
-        break;
-      case "right":
-        this.apply((s) => reduceState(s, { type: "move-cursor", delta: 1 }));
-        break;
-      case "backspace":
-        // 光标在开头（含输入为空）时 Backspace 回退模式：切了模式但还没输入时用 Backspace
-        // 回 >；有内容时把光标移到最前按 Backspace 同样能回退（2026-10-27 用户裁定）
-        if (this.state.inputCursor === 0 && this.state.inputMode !== "steer") {
-          this.apply((s) =>
-            reduceState(s, { type: "input-mode", mode: "steer" }),
-          );
-        } else {
-          this.apply((s) => this.backspace(s));
-        }
-        break;
-      case "enter":
-        // Enter 的语义只由**输入模式**决定（2026-10-15 起）：`!` 模式 = 打断并发送（空输入则
-        // 只打断）；其余模式 = 排队 / 发送。Alt+Enter（解码层仍把 `ESC CR` / `ESC LF` 合并为
-        // 单个 meta+enter）不再有独立语义 → 忽略 `meta`，等效普通 Enter（解码层不动：删合并会
-        // 让它退化成「独立 Esc + Enter」两个事件，凭空带出 Esc 的副作用）
-        this.submit(this.state.inputMode === "interrupt");
-        break;
-      case "paste":
-        if (k.text) {
-          const t = k.text;
-          this.apply((s) =>
-            reduceState(s, {
-              type: "input",
-              text:
-                s.inputText.slice(0, s.inputCursor) +
-                t +
-                s.inputText.slice(s.inputCursor),
-              cursor: s.inputCursor + t.length,
-            }),
-          );
-        }
-        break;
-      default:
-        // 模式键：光标在**整个输入的开头**时按 $ / / / < / ! 切换模式并吞键（$ shell /
-        // / slash / < followup / ! interrupt（打断并发送）；同符号幂等；提交后自动回退默认 >）。
-        // 判据是「光标在开头」而非「输入为空」：已有内容时把光标移到最前也能切模式，
-        // 切完再打字即带模式提交（2026-10-27 用户裁定）。
-        if (
-          name.length === 1 &&
-          !ctrl &&
-          this.state.inputCursor === 0 &&
-          (name === "$" || name === "/" || name === "<" || name === "!")
-        ) {
-          const mode: InputMode =
-            name === "$"
-              ? "shell"
-              : name === "/"
-                ? "slash"
-                : name === "<"
-                  ? "followup"
-                  : "interrupt";
-          if (this.state.inputMode !== mode) {
-            this.apply((s) => reduceState(s, { type: "input-mode", mode }));
-          }
-          break;
-        }
-        // 可打印字符：插入输入框（Esc/Ctrl+C 已在上方 Ctrl 分支处理，不落入此处）
-        if (name.length === 1 && !ctrl) this.insertChar(name);
-        break;
+    // 编辑区按键：查表（见 app/keys.ts 的 EDITOR_KEYS）；未命中的键走下方缺省分支
+    const action = lookupKey(EDITOR_KEYS, name);
+    if (action !== undefined) {
+      this.keyActions[action](k);
+      this.paint();
+      return;
     }
+
+    // 缺省分支 —— 模式键：光标在**整个输入的开头**时按 $ / / / < / ! 切换模式并吞键（$ shell /
+    // / slash / < followup / ! interrupt（打断并发送）；同符号幂等；提交后自动回退默认 >）。
+    // 判据是「光标在开头」而非「输入为空」：已有内容时把光标移到最前也能切模式，
+    // 切完再打字即带模式提交（2026-10-27 用户裁定）。
+    if (
+      name.length === 1 &&
+      !ctrl &&
+      this.state.inputCursor === 0 &&
+      (name === "$" || name === "/" || name === "<" || name === "!")
+    ) {
+      const mode: InputMode =
+        name === "$"
+          ? "shell"
+          : name === "/"
+            ? "slash"
+            : name === "<"
+              ? "followup"
+              : "interrupt";
+      if (this.state.inputMode !== mode) {
+        this.apply((s) => reduceState(s, { type: "input-mode", mode }));
+      }
+      this.paint();
+      return;
+    }
+    // 可打印字符：插入输入框（Esc/Ctrl+C 已在上方 Ctrl 分支处理，不落入此处）
+    if (name.length === 1 && !ctrl) this.insertChar(name);
     this.paint();
   }
 
@@ -4773,7 +4817,7 @@ export class App {
       // stale guard：面板已关闭/目标已换 → 丢弃结果
       const cur = this.state.history;
       if (!cur || cur.phase !== "resuming" || cur.pendingResume !== id) return;
-      const firstUser = view.messages.find((m) => m.role === "user");
+      const firstUser = view.messages.find((m) => isUserMessage(m.role));
       // 标题：官方 session/title 事件优先（dsh-session-title 落盘日志），
       // 缺失时本地兜底（surface 首条用户消息前 30 字符 / （新会话））
       const official = this.deps.adapter.sessionTitle
@@ -5645,7 +5689,7 @@ export class App {
     tokens: string[],
   ): { ref: MemoryRowRef; rest: string } | { reason: string } {
     const [tier, kind, idText] = tokens;
-    if (tier !== "project" && tier !== "user") {
+    if (!isManagedTier(tier)) {
       return {
         reason: `tier 只接受 project / user（收到 ${tier ?? "空"}；S 层按会话隔离，管理面不处理）`,
       };
@@ -5719,7 +5763,7 @@ export class App {
         i++;
         continue;
       }
-      if (token === "project" || token === "user") {
+      if (isManagedTier(token)) {
         tier = token;
         continue;
       }
@@ -5840,14 +5884,14 @@ export class App {
   private handleMemoryAddCommand(rest: string): void {
     const tokens = rest.split(/\s+/).filter((token) => token !== "");
     const tier = tokens[0];
-    if (tier === "session") {
+    if (tier === SESSION_TIER) {
       this.notice(
         "管理面不处理会话层（S 层按会话隔离），请用 project / user",
         "warn",
       );
       return;
     }
-    if (tier !== "project" && tier !== "user") {
+    if (!isManagedTier(tier)) {
       this.notice(MEMORY_USAGE, "warn");
       return;
     }
