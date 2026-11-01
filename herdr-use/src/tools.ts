@@ -1,5 +1,5 @@
 /**
- * src/tools.ts — 十个模型侧工具的定义与回执渲染
+ * src/tools.ts — herdr 终端工具的模型面定义与回执渲染
  *
  * 形态（2026-10-23 终端面重构）：**工具即动作**——`herdr_list` / `herdr_read` / `herdr_info` /
  * `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` /
@@ -10,7 +10,7 @@
  * 加它自带的 root pane，`herdr_create` 建立、`herdr_close` 关闭。
  *
  * 渲染分层：`renderHerdrUse` 把动作结果渲染为文本块（可直接测），
- * `createHerdrTools` 只做薄壳与结果回传，是 `main.ts` 注册给宿主的那十项。
+ * `createHerdrTools` 只做薄壳与结果回传，是 `main.ts` 注册给宿主的那批工具。
  */
 
 import type { DispatchDeps } from "./actions.ts";
@@ -255,7 +255,7 @@ const NO_PARAMS: HerdrUseToolDef["parameters"] = {
 };
 
 /**
- * 构造十个工具定义（顺序与 `ALL_ACTIONS` 一致）。
+ * 构造 herdr 终端工具定义（顺序与 `ALL_ACTIONS` 一致）。
  *
  * 描述里写明四件模型最容易踩的事：① 何时用本工具族（需要屏幕状态与按键时序）与何时不该
  * （一条命令能跑完的用 bash）；② 只作用于自己创建的终端；③ `herdr_create` 的

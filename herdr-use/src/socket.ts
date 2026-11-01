@@ -20,9 +20,10 @@ import net from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import type { Deadline, TimersLike } from "@dsh-toolset/clock-base";
+
 import type { ParsedEnvelope } from "./cli.ts";
 import { parseEnvelope } from "./cli.ts";
-import type { Deadline, TimersLike } from "./timers.ts";
 import type { ReadFormat, ReadSource } from "./types.ts";
 
 /**

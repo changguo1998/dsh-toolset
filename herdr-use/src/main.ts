@@ -20,6 +20,8 @@
  * name / inject / provide / apply，Config 以类型别名给出（无运行时 schema）。
  */
 
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+
 import {
   createDefaultRunner,
   DEFAULT_PROBE_TIMEOUT_MS,
@@ -49,7 +51,6 @@ import {
   realClock,
 } from "./socket.ts";
 import type { Clock, PaneReader, SocketConnector } from "./socket.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
 import { createHerdrTools } from "./tools.ts";
 import type { HerdrUseToolDef } from "./tools.ts";
 import { BACKGROUND_SESSION, actionForTool, resolveConfig } from "./types.ts";

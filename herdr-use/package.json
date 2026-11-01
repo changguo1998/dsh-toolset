@@ -15,7 +15,9 @@
     "verify": "node scripts/verify-herdr-use.mjs",
     "watch": "tsc -p tsconfig.json --watch"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@dsh-toolset/clock-base": "link:../clock-base"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3"
