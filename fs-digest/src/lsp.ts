@@ -20,9 +20,10 @@ export interface SymbolProvider {
 /**
  * 取宿主上下文的对象面容器, 本包唯一的「上下文对象守卫」。
  * 非对象（含 `null` / `undefined` / 原始值）一律视为没有上下文, 调用方只判一次 `undefined`;
- * 入口（`fs-digest/src/index.ts` 的 `apply`）与 LSP 结构面解析共用这一处判定, 下游不再重复判类型。
+ * 全包只有这一处判定, 位置随语义留在宿主结构面这一层, 入口不前置判定
+ * (`apply` 读 `ctx.tools` 时非对象仍按原行为抛错, 行为不变)。
  */
-export function contextContainer<T = Record<string, unknown>>(
+function contextContainer<T = Record<string, unknown>>(
   ctx: unknown,
 ): T | undefined {
   return ctx === null || typeof ctx !== "object"
