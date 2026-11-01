@@ -95,14 +95,15 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
    现按空上下文继续; 这是总追踪 5.6「上下文对象守卫收各包入口」的预期收敛,
    非对外可见面 (工具名 / 参数 / 投影 / 配置键不变). 另: `tests/assemble.ts:392` 的注释仍写
    「`apply` 未做守卫, 传 `undefined` 会抛」, 已随本次改动失效; 本阶段只允许改源码与测试 import,
-   该注释留阶段 6「注释与代码不一致」处理.
+   该注释留阶段 5 (第 6 章)「注释与代码不一致」处理.
 2. `kindBucket` 忽略 `lexical_declaration`: 字面属实 (函数级判断里没有该词根, 会落 `other`), 但实测
    ast-grep 0.51.0 的 `outline --json=compact` 对顶层声明给 `variable_declarator` (落 `variable`) 与
    `export_statement` (落 `other`), 不出现 `lexical_declaration`; 观察项「ast-grep 的
    `lexical_declaration` 落 `other`」与真实管线不符. 真实失真在导出声明的 `astKind` 是
    `export_statement`, 以及成员 `property_signature` / `property_identifier` 与空 `astKind` 都落 `other`,
    故 `report.kindCounts` 对导出符号基本失真. 属行为改动 (改 `kindBucket` 或 `scan` 的 kind 选取),
-   本阶段不改, 交后续条目.
+   本阶段不改, 交后续条目. 阶段 3b 已登记为 `code-map/docs/BACKLOG.md` `#1` (需连同 `kindCounts`
+   快照一起改), 本阶段不修.
 3. 阶段 2 的覆盖率口径未变; 本次在 `src/index.ts` 入口新增归一与注释, 阶段 2 的行覆盖数字不再逐行
    可比 (本阶段未重跑覆盖率, 验收只要求 `check` / `test`).
 

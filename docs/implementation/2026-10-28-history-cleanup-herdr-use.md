@@ -126,16 +126,18 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 
 ## 偏差
 
-1. 装配器不建临时目录：本包 `src` 无落盘路径（只有 `homedir()` 参与 socket 路径推导），4.2 的「落盘写临时目录再断言」没有对象。
-2. 退出清理的 `spawnSync` 不进集成层：装配器缺省 `closeOnExit: false`，dispose 只清登记，不在用例里起子进程；`tab close` / `workspace close` 的 argv 面已由 `tests/registry.test.ts` 的单元用例锁住。
-3. 集成层经 `apply(ctx, config, deps)` 的第三参注入替身（包内既有的测试注入面，`HerdrUseDeps`），未改 `src`；握手缺省仍走真实 `readHerdrHandshake` 读 env，路径指向当前 node 可执行文件。
-4. `tests/clock.test.ts` 的 `tsconfig` `exclude` 与跨包 import 未动（按任务留在阶段 2/3 收口）；因此覆盖率表里带出 `clock-base`，不计入本包结论。
-5. 装配器从 `src/types.ts` 取 `SandboxMode`（`src/index.ts` 未导出该类型；仅类型级 import，不触运行时）。
-6. 文件级覆盖率的行 / 分支分母随新增执行路径增长（V8 block range 计数变化），个别文件百分比有 1 至 3 个百分点波动；整包行与分支均上升，未退化。
-7. 阶段 3 本轮只做规划「代码」节里不依赖 `clock-base` 的三项: 删 `defaultConfig`、核对沙箱模式唯一出口、去工具数量注释; `src/timers.ts`、入口 import 改 `clock-base`、`package.json` / `pnpm-lock.yaml` 的 `link:../clock-base` 待 `clock-base` 合并到 `main` 后再做（届时先 `git rebase main`, 再补 `pnpm install --frozen-lockfile`）. 因无新依赖, 本轮未跑 `pnpm install`.
-8. `src/tools.ts:13` 的「那十项」同样带工具数量, 规划只点名 `:2` / `:258`; 按同一口径一并改为「那批工具」. `:264` 的「其余 6 个待 P1 批次」是待办批次说明而非工具面数量, 未动.
-9. 阶段 3 代码整理第二批完成: 定时器族已改用 `clock-base` 入口导出, 本地副本删除, 本包 `dependencies` 记 `link:../clock-base`. 规划要求的「开工先 `pnpm install --frozen-lockfile`」按实际改为新增依赖后再做一次普通 `pnpm install`（`--frozen-lockfile` 会因 lockfile 需变更而失败）. 另 `clock-base` 包入口指向 `dist/`, 本包 `check` / `test` 前必须先在 worktree 里 `pnpm -C ../clock-base run build`（`dist` 不入库, 故这是跨包依赖的固有前置）.
+01. 装配器不建临时目录：本包 `src` 无落盘路径（只有 `homedir()` 参与 socket 路径推导），4.2 的「落盘写临时目录再断言」没有对象。
+02. 退出清理的 `spawnSync` 不进集成层：装配器缺省 `closeOnExit: false`，dispose 只清登记，不在用例里起子进程；`tab close` / `workspace close` 的 argv 面已由 `tests/registry.test.ts` 的单元用例锁住。
+03. 集成层经 `apply(ctx, config, deps)` 的第三参注入替身（包内既有的测试注入面，`HerdrUseDeps`），未改 `src`；握手缺省仍走真实 `readHerdrHandshake` 读 env，路径指向当前 node 可执行文件。
+04. `tests/clock.test.ts` 的 `tsconfig` `exclude` 与跨包 import 未动（按任务留在阶段 2/3 收口）；因此覆盖率表里带出 `clock-base`，不计入本包结论。
+05. 装配器从 `src/types.ts` 取 `SandboxMode`（`src/index.ts` 未导出该类型；仅类型级 import，不触运行时）。
+06. 文件级覆盖率的行 / 分支分母随新增执行路径增长（V8 block range 计数变化），个别文件百分比有 1 至 3 个百分点波动；整包行与分支均上升，未退化。
+07. 阶段 3 本轮只做规划「代码」节里不依赖 `clock-base` 的三项: 删 `defaultConfig`、核对沙箱模式唯一出口、去工具数量注释; `src/timers.ts`、入口 import 改 `clock-base`、`package.json` / `pnpm-lock.yaml` 的 `link:../clock-base` 待 `clock-base` 合并到 `main` 后再做（届时先 `git rebase main`, 再补 `pnpm install --frozen-lockfile`）. 因无新依赖, 本轮未跑 `pnpm install`.
+08. `src/tools.ts:13` 的「那十项」同样带工具数量, 规划只点名 `:2` / `:258`; 按同一口径一并改为「那批工具」. `:264` 的「其余 6 个待 P1 批次」是待办批次说明而非工具面数量, 未动.
+09. 阶段 3 代码整理第二批完成: 定时器族已改用 `clock-base` 入口导出, 本地副本删除, 本包 `dependencies` 记 `link:../clock-base`. 规划要求的「开工先 `pnpm install --frozen-lockfile`」按实际改为新增依赖后再做一次普通 `pnpm install`（`--frozen-lockfile` 会因 lockfile 需变更而失败）. 另 `clock-base` 包入口指向 `dist/`, 本包 `check` / `test` 前必须先在 worktree 里 `pnpm -C ../clock-base run build`（`dist` 不入库, 故这是跨包依赖的固有前置）.
 10. 原规划未列入入口导出: 「代码」节只写「沙箱模式枚举与判定留在 `src/types.ts` / `src/policy.ts` 并作为唯一出口, 供 `script-interpreter` 与 `TUI` 引」, 未点明「唯一出口」是否含包入口的类型导出. 本轮按 `script-interpreter` 的实际需要（避免 `dist` 深路径）补 `SandboxMode` 类型导出; 定义位置与判定逻辑均未动, 偏差 5 提到的绕行 import 已随本轮消除.
+
+- 1000 至 1200 行档的不拆理由 (2026-11-01 阶段 3b 补记): `src/actions.ts` 1083 行不拆, 因为其中约 700 行是 `targetOf` 的单个 `switch` (266 至 967), 每个分支只做参数取值与一条 herdr CLI 调用, 共用同一 `DispatchDeps` / `TargetResult` 形状与末尾的结果归一; 按动作组拆会把同一张分派表切到多文件, 还要为中间类型开新导出面, 而本文件没有独立状态机可分层.
 
 ## 测试与证据
 

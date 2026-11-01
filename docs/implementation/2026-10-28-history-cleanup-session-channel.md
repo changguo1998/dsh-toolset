@@ -97,6 +97,7 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 - `clock-base` 的 `systemTimers` 对非有限延迟抛 `RangeError` (本包原实现直接把值交给 `setTimeout`), 属上游统一口径; 现有用例不触达该分支, 未加兼容层。
 - 跨包 import 走包名 (解析到 `clock-base/dist/`), 故 `check` / `test` 前须先 `pnpm -C ../clock-base run build`; 与实现规划的前置一致, 代价是本包测试多一条构建前置。
 - 本包没有 `tests/clock.test.ts` 之类的跨包内部 import 需要收口; `tests/` 未改 (import 路径与断言都未动)。
+- 1000 至 1200 行档的不拆理由 (2026-11-01 阶段 3b 补记): `src/alias-words.ts` 1161 行不拆, 因为其中约 1060 行是四张别名词表常量 (`AUTO_ALIAS_WORDS` 18 至 465、`AUTO_ALIAS_WORDS_EXTRA` 466 至 811、`AUTO_ALIAS_WORDS_SCIENCE` 812 至 1064、`AUTO_ALIAS_POOL` 1065 至 1073), 逻辑只有 `aliasPrefixFor` / `pickAutoAlias` 等约 100 行; 按表拆文件只是搬常量, 反而让查重与增删要跨文件, 且这些表是同一条命名策略的分层语料, 不是独立职责.
 
 ## 测试与证据
 

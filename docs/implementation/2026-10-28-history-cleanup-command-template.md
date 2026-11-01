@@ -80,7 +80,7 @@ rm -rf ../tmp/cov-command-template && mkdir -p ../tmp/cov-command-template && NO
 
 - `clock-base` 的 `resolveClock` 告警文案用半角标点 (「, 回落进程内定时器…; 本条…」), 与本包原口径 (「，…；」) 不同 (`clock-base` 收拢时按现行标点规范改写). 为守住「用例断言不改」与「文案不动」(`tests/integration/plugin.test.ts:463` 精确断言全文), 告警文案留在本包入口作常量, `clock-base` 只负责探测与回落; 未保留副本, 也未写兼容分支.
 - 跨包 import 走包名 (解析到 `clock-base/dist/`), 故 `check` / `test` 前须先 `pnpm -C ../clock-base run build`; 与实现规划的前置要求一致, 代价是本包测试多一条构建前置.
-- `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 保持原样未动 (改入口 import 后本已可纳入 `include`, 实测 `check` 也通过, 但不属实现规划列出的文件, 留阶段 4 或后续条目评估).
+- `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 保持原样未动 (改入口 import 后本已可纳入 `include`, 实测 `check` 也通过, 但不属实现规划列出的文件, 留阶段 4 或后续条目评估). 后续: 2026-11-01 补丁轮已删该 `exclude` (`tsconfig.json` 现只有 `include: ["src", "tests"]`, 提交 `25fce711`), `check` 通过, 此项关闭.
 - `command-template/docs/DESIGN.md:46` 仍提到 `availableProviders(ctx)`; 包文档按实现规划留到阶段 4 补, 本次未动.
 
 ## 测试与证据

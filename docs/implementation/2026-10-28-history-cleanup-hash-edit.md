@@ -76,7 +76,7 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 
 ## 偏差
 
-- 集成层装配形态收窄为 `full` / `no-tools` 两种, 计划里的「空 `ctx`」未做: `apply` 没有 `ctx === null || typeof ctx !== "object"` 守卫, 传 `undefined` 会抛 `TypeError: Cannot read properties of undefined (reading 'tools')` (实测), 补守卫属 `src` 改动, 本阶段不动; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` 并进下方豁免台账。同类判断散落见总追踪调研 1.8「上下文对象守卫」(15 个包), 统一收口留阶段 3。
+- 集成层装配形态收窄为 `full` / `no-tools` 两种, 计划里的「空 `ctx`」未做: `apply` 没有 `ctx === null || typeof ctx !== "object"` 守卫, 传 `undefined` 会抛 `TypeError: Cannot read properties of undefined (reading 'tools')` (实测), 补守卫属 `src` 改动, 本阶段不动; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` 并进下方豁免台账。同类判断散落见总追踪调研 1.8「上下文对象守卫」(15 个包), 统一收口留阶段 3。后续: 2026-11-01 补丁轮已补守卫 (`src/index.ts:377`, 提交 `54ac908c`), 包 BACKLOG `#1` 关闭; 集成用例未加空 `ctx` 一例, 留给阶段 4 复核补测.
 - 阶段 3 的代码项在本包只有注释一类可落: 本包无 `src/timers.ts`, 无跨包复制的同名函数 (`src` 最大文件 390 行), 结构改写 (删失效 / 并定时器族 / 拆长文件 / 收拢判断) 没有对应对象, 故只做计数注释、零引用导出复查与路径注释。
 - 计划写「计数注释改指向常量」, 实际落为去数字: 本包没有与「两个工具」对应的导出常量 (两个工具定义在 `createTools` 内就地构造), 造常量只为给注释引用不划算, 按任务口径写成「构造工具定义」。
 - 比任务清单多改两处同属注释口径的位置: `src/index.ts:7` 的跨包入口路径 `task-engine/src/main.ts` 已不存在 (该包入口改名为 `index.ts`), 改为 `task-engine/src/index.ts`; `src/index.ts:2` 的标题 `main` 与实际文件名 `index.ts` 不一致, 改为 `index`。两处都不影响行为, 记为计划外更正。
@@ -119,7 +119,7 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 | --- | --- | --- | --- |
 | `src/fs.ts:139` `stat` 失败分支 (`io_error: stat failed`) | `readFile` 成功后对同一路径 `stat` 几乎不可能失败, 只能靠并发删除竞态构造, 不可稳定复现 | 构造不出 | 阶段 3 判断是否随改写删掉该防御分支 |
 | `src/index.ts:141` `compileParameters` 的幂等分支 (入参已是顶层 object schema) | 两个工具的参数面都是 property-map, 该分支要先从 `src` 导出才能测; 本阶段不动 `src` | 参数面改成 JSON Schema 时 | 阶段 3 (代码整理) |
-| `src/index.ts:373` `apply` 的 `ctx` 守卫 (缺 `ctx === null \|\| typeof ctx !== "object"`) | 守卫不存在, 只会抛 `TypeError`, 没有可断言的降级行为; 补守卫属 `src` 改动 | 缺守卫的包共 15 个 (调研 1.8) | 阶段 3; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` |
+| `src/index.ts:377` `apply` 的 `ctx` 守卫 (缺 `ctx === null \|\| typeof ctx !== "object"`) | 阶段 2 时守卫不存在, 只会抛 `TypeError`; 2026-11-01 补丁轮已补 (告警后返回), 条目关闭 | - | 已修 (`54ac908c`); 对应用例留阶段 4 复核 |
 
 ### 阶段 3 命令实跑 (2026-11-01, 分支 `history-cleanup/03-code-hash-edit`)
 

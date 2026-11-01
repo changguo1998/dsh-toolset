@@ -62,19 +62,28 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 ## 实现记录
 
 - 集成层: 新增 `TUI/tests/assemble.ts`（装配器, 不以 `.test.ts` 结尾）与 `TUI/tests/integration/app.test.ts`（12 条）。装配器用真实 `App` + 真实 `createRenderer`（注入 `write` 捕获报文, `rawMode: false` 不写模式序列, `exitOnClose: false` 不结束进程）+ 假适配器 `FakeAdapter` + 可选假状态查询; 唯一被替换的终端能力是 CPR 宽度实测（立即回空表, App 走「终端不支持 CPR」分支沿用静态宽度表, 真探测归 `smoke:pty` 与 `width-probe` 单测）。断言分三类: 命令分派（未知 `/` 命令进宿主注册表、`/help`、`/theme`、`/new`）、视图投影（用户块、思考 / 正文 / 工具调用与结果、审批面板、问答面板、交付直灌）、帧文本（首帧 80x24 骨架、状态栏时间 / 分支 / cwd、底部提示行、面板提示行）。
+
 - 起始态: 装配器在 `start()` 之后推一条 `session-title` 事件确立活跃会话（生产适配器同为接线后时序）。少了它 `activeSessionId` 停在 null, `/new` 走 `sectionsSessionId === null` 的「会话建立过渡」分支, 旧会话内容不会随切换重建节缓存。
+
 - 单元锚点: 新增 `TUI/tests/terminal.test.ts`（7 条）, 覆盖 `src/renderer/terminal.ts` 的 `setRawMode` 三种判定（非 TTY 静默失败 / TTY 成功 / 底层抛错回落 `isRaw`）与 `createTerminal` 的 raw 开关、`close`、尺寸回落（TTY 读数、非 TTY 与零尺寸回 80x24）、`onResize` 订阅。
+
 - 脚本: `TUI/package.json` 增 `test:integration`（`node --experimental-transform-types --test 'tests/integration/*.test.ts'`）、`test:coverage`（单元 + 集成两轮 glob; 覆盖率原始 JSON 落 `../tmp/cov-tui`（相对 `TUI/`）, 报告落 `tmp/cov-tui/report.json`（相对仓库根））、`test:e2e`（`pnpm run demo:build -- --smoke` 与 `pnpm run smoke:pty` 串联）。
+
 - 专项复核: `tests/app.test.ts:354` 的条件 `skip` 属 4.4 允许的「仓库不在家目录」一类, 保留不动; 本机仓库在家目录下, 本轮实测 `skipped` 为 0。`tests/fixtures/` 两个夹具均在用: `focus-frame-legacy.json` 由 `tests/focus-frame.test.ts` 读取（冻结基线）, `status-column-old.ts` 由 `tests/status-column-equivalence.test.ts` 导入（旧实现快照）, 都保留。
+
 - 缺口取舍: `src/main.ts` 仍是最大未覆盖面（行 47.1%）, 其 `apply()` 属宿主接线, 留代码阶段与包文档阶段; 按「少量缺口锚点」本次只补 `renderer/terminal.ts`。
+
 - 阶段 3 第一批（2026-10-28, 分支 `history-cleanup/03-code-tui`）: 长文件拆分留第二批, 本轮只做五步里的删失效、收拢判断与注释。逐项:
+
   - 删失效导出: 删 `src/app/adapter/types.ts` 的 `ToolResultMetaLike`、`src/app/state.ts` 的 `PickerOption` 与 `isInputHistoryBrowse`; 删前重扫 `src` / `tests` / `scripts` / `docs`, 除定义处零引用; 删后复扫（含 `dist` 之外全仓）无残留。
   - 按键分派: 新增 `src/app/keys.ts`, 10 张上下文表（审批 / 选择面板 / 状态选项 / 任务面板 / 列表面板 / 历史 list·view·confirm·error / 编辑区）共 75 条键位映射, 收成 51 个动作名; `App.keyActions` 是 `Record<KeyActionName, (k) => void>` 的动作实现表, 函数体与拆分前的 if / switch 分支逐行对应。`handleKey` 从 800 行降到约 330 行, 各上下文一律 `lookupKey(表, name)` 命中即执行并返回; 文件头注明三类留在代码里的特殊分支（Ctrl 组合键与修饰键、按面板内部状态判的兜底、编辑区模式键与可打印字符）。原 `handleKey` 里的两个本地闭包提为私有方法 `finishApproval` / `moveApprovalFocus`。
   - 用户消息谓词: `state.ts` 新增 `isUserMessage(value)`（role 与 kind 同一口径）, 适配层（`dsh.ts` / `tool-bootstrap.ts`）、状态层（`appendStream`）、渲染层（`layout.ts` / `commands.ts` / `HistoryPanel.ts` / `index.ts`）共 21 处调用点改调它。
   - 记忆层级: `adapter/types.ts` 新增 `ManagedTier` 类型、`isManagedTier` 判定与 `SESSION_TIER` 常量, 5 处层级字面联合收成 `ManagedTier`; `index.ts` 的 `/memory list|add|remove|replace` 校验改调 `isManagedTier`（3 处）与会话层常量（1 处）。
   - 注释路径: 按总追踪 1.3 表把仓内简写改成包内完整路径（`layout/hints.ts` → `src/app/layout/hints.ts` 等）共 32 处; 计数类注释未动。
   - 沙箱展示映射: 核对 `src/app/layout.ts:277` 的 `MODE_SHORT`, 仅是 `read-only/workspace-write/danger-full-access` → `ro/wr/full` 的标题栏缩写, 与 `herdr-use` 的沙箱判定枚举非同源, 本轮不引依赖（见偏差）。
+
 - 阶段 3 第二批（2026-10-28, 拆长文件, 顺序按总追踪 4.1 的 P1: 排版与宽度 → 状态 → 适配 → 类型）:
+
   - `src/app/layout.ts`（2440 行）拆成 7 个模块 + 入口重导出, 一行代码未改（只挪位置与补 import）:
     | 新文件 | 行数 | 职责 |
     | --- | --- | --- |
@@ -111,7 +120,9 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - 偏差: `adapter/dsh.ts` 拆完仍 3639 行, 其中约 3350 行是 `createRealDshAdapter` 的**单个工厂闭包**: 内部方法与闭包变量（事件队列、活跃会话句柄、painter、去抖计时器）互相引用, 按职责切要把这些状态收成一个依赖上下文再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突; 本轮按「一个文件一层」只把可独立成层的纯函数搬出, 工厂整体留待单独条目再拆。
 
 - 阶段 3 第三批 · 第一步（2026-10-28, `adapter/dsh.ts` 余量按职责分组搬, 一次一组）: 搬「审批链的 tool/call 参数登记表」一组到 `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）。原 `createRealDshAdapter` 闭包里的 `approvalDetailOf`（纯投影）、`TOOL_CALL_CACHE_MAX` 与该表的插入 / 取回 / 删除 / 淘汰逻辑收成一个 `ToolCallCache` 类; `dsh.ts` 只在原位留一行 `const toolCallsByCallId = new ToolCallCache()` 与三处调用点改写（remember / get / delete）, 行为与 LRU 近似淘汰顺序逐行对应, 未加新导出、未改对外导出集合（这两个辅助原本就是闭包私有）。`dsh.ts` 从 3639 行降到 3604 行; 仍 > 3000 行, 按本轮口径只做这一组即提交。
+
   - 偏差: 开工时分支 `history-cleanup/03-code-tui` 落后 `main` 4 个 task-engine 提交（`f1ca5d2b..2ab7b760`）, 先做 `git merge --ff-only main` 对齐（快进, 无冲突、无内容改动）再动手。
+
 - 阶段 3 长文件拆分收尾（2026-10-28）: 本批合并后停止继续拆 `dsh.ts` 与 `index.ts`。可独立搬移的职责（纯函数 / 纯类型 / 登记表 / 装配面）已拆完; 剩余 3604 行的 `adapter/dsh.ts` 与 6497 行的 `index.ts` 都是有状态主体, 继续拆需要上下文对象重构, 按「偏差」一条的裁定, 拆分类工作留待后续单独条目。阶段 3 的代码整理到此定稿。
 
 ## 偏差
@@ -130,6 +141,7 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - 沙箱展示映射: `MODE_SHORT` 只是标题栏缩写表（`ro` / `wr` / `full`）, `herdr-use` 侧是命令放行判定用的沙箱模式读取器, 两者不同源; 本轮不引 `herdr-use` 类型（规划未给 TUI 加该 link 依赖）。
   - `smoke:pty` 仍需 `TOLLGATE_API_KEY`, 本机缺凭据, 本轮跳过, 与阶段 2 同一条偏差。
 - 长文件拆分收尾（2026-10-28, 阶段 3 裁定）: 剩余 `TUI/src/app/adapter/dsh.ts` 3604 行与 `TUI/src/app/index.ts` 6497 行都是有状态主体 —— 前者是 `createRealDshAdapter` 工厂闭包（`DshAdapter` 的实现与闭包变量互相引用）, 后者是 `App` 类的约 6200 行方法体（方法读写私有字段、计时器与渲染句柄）。两者继续按职责切, 都要先把状态收成显式上下文对象再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突, 收益与风险不匹配。本轮停在「按可独立搬移的职责拆完」: 纯函数 / 纯类型 / 登记表 / 装配面已全部搬出, 有状态主体单独立条目后再做。
+- 1000 至 1200 行档的不拆理由（2026-11-01 阶段 3b 补记）: `TUI/src/main.ts` 1089 行不拆, 因为入口按宿主生命周期串成一条线（`main` 148 行 → `apply` 约 500 行 + 配置归一 / 热更新 / 启动参数), `apply` 的事件接线读写同一组闭包变量与模块级配置, 可独立搬移的纯函数已在前几批拆到 `app-deps.ts` / `config*.ts`; 再切要把闭包环境提成上下文对象, 与 `app/index.ts` 的重构同批做才有收益, 且改动会碰到启动顺序, 与本轮门禁冲突。`app/adapter/dsh.ts` 3604 行另见 `TUI/docs/BACKLOG.md` `#3`。
 
 ## 测试与证据
 

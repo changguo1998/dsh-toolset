@@ -1,6 +1,6 @@
 # 代码整理（阶段 3，所属总追踪：`docs/implementation/2026-10-28-history-cleanup.md`）
 
-状态：完成　　开启：2026-10-28　　关闭：2026-10-28
+状态：完成　　开启：2026-10-28　　关闭：2026-10-28　　最近修订: 2026-11-01
 本文件是阶段 3 的阶段追踪文档，记录范围、波次、门禁与合并结论；逐包细节见 34 份包追踪文档。分支 agent 不改本文件。
 
 ## 目标
@@ -33,32 +33,33 @@
 
 ## 实现记录
 
+以下按合并提交时间排列 (同一行含多笔时取最早一笔), 收口与补丁轮按落笔时间排在末尾; 每行附合并提交号可回溯.
+
 - 2026-10-28 第一波合并: `clock-base` (`1df62e2a`, 合并提交 `7265223a`, 新增 12 个导出与 2 例), `memory-base` (`a54ad8dd`, 合并提交 `3d04c043`, 层级谓词 `isSessionTier`).
 - 2026-10-28 随后合并: `herdr-use` (`4ba3a88e`, 合并提交 `64518eaf`), `ast-tools` (`d9737d19`, 合并提交 `1b394081`), `coagent` (`e8dd3d0f`, 合并提交 `289fb72e`), `md-map` (`68aa15ea`, 合并提交 `d2215a91`), `output-compress` (`5d454153`, 合并提交 `333cea11`), `goal-contract` (`e616a5ec`).
-- 进行中: `TUI` 第二批 (拆长文件), `auto-approve`, `command-template`; 每包合并后在此追加一行.
-- `herdr-integration` (`7b9ac9f6`) 已合并 `9ff3fa4b`: 删 `src/timers.ts`, 定时器族改用 `clock-base`; `check` / 60 例测试 / 11 例集成通过.
-- `auto-approve` (`21816988` / `a1a32004`) 已合并 `70cd64f3`: 删 `AuditRecent` / `allowedByRisk` / `RuleInput` 与 `src/timers.ts`, `learn.ts` 1222 行拆成 `learn-rules.ts` 505 / `learn-observe.ts` 716 / `learn-decide.ts` 25; `check` / 181 例测试 / `build` 通过.
+- `TUI` 第一批 (`7f326518` / `f7652029` / `5f46146a`) 已合并 `8b1ede1a`: 删 3 个零引用导出, 按键表 75 条键位 / 51 个动作, `name ===` 从 72 处降到 31 处, 消息谓词 21 处、层级判定 4 处、注释路径 32 处; `check` / `test` 1828 例 / `build` / `demo --smoke` 通过.
 - `command-template` (`c1ae3ad5`) 已合并 `adb9f44c`: 删 `src/timers.ts`、`declaredModels`、`availableProviders`, 定时器族改用 `clock-base`; `check` / 48 例测试 / 12 例集成 / `build` 通过. 告警文案差异记入包追踪「偏差」.
-- `preference-analysis` (`d7e5bd9c`) 已合并 `89d7b5b4`: 守卫收进入口, `tools.ts:97` 计数注释改指 `TOOL_NAMES`, 入口 4 处路径注释补全; `check` / 98 例测试 / 11 例集成通过.
-- `fs-digest` (`b45807d5` / `cefe850e`) 已合并 `9216210c`: 守卫收进入口一处判定, 注释路径补全; 首笔曾把 `apply` 非对象上下文由抛错改成静默返回, 已按「行为不变」改回抛错再合并; `check` / 75 例测试 / 12 例集成通过, 覆盖率 91.8% / 80.3%.
-- `agent-group` (`e5be0b08` / `2eeb6ad2` / `c040e36b`) 已合并 `f7183d4d`: `core.ts` 1250 行删成 `service.ts` 421 / `instruction.ts` 300 / `link.ts` 252 / `group.ts` 219 / `member.ts` 183 / `action-host.ts` 64 / `config.ts` 52 / `errors.ts` 8, 定时器族改用 `clock-base`; `check` / 108 例测试 / 13 例集成通过.
-- `hash-edit` (`99b7bd09`) 已合并 `81c41134`: 计数注释去数字, 补 5 处路径 / 标题注释; `check` / 57 例测试 / 18 例集成 / `build` 通过.
-- `code-map` (`27419775`) 已合并 `8bfe9272`: 上下文守卫收进入口; `check` / 测试通过 (需先建 `ast-tools` 依赖).
-- `TUI` 收尾记录 (`51213f4f`) 已合并 `a5199284`; `TUI` 代码整理完成 (剩 `dsh.ts` 3603 / `index.ts` 6497 行, 偏差见包追踪).
-- `TUI` 收尾拆分 (`14ca3530`) 已合并 `876c7bce`: 审批链 tool/call 登记表拆成 `adapter/approval-tool-calls.ts` 60 行; `dsh.ts` 3639 → 3603. 决定停在按可独立搬移的职责拆完这一步: 剩余 `dsh.ts` 3603 行与 `index.ts` 6497 行为有状态类, 继续拆需上下文对象重构, 记入包追踪「偏差」留后续条目.
-- `background-daemon` (`809f96f8` / `8a010c3d`) 已合并 `e3600c38`: 删 `Subcommand` 与 `daysBetween`, 上下文守卫收进入口; `check` / 测试通过.
-- `security-guard` (`4d4cfd65` / `1c1b8817`) 已合并 `4919cfcc`: `index.ts` 1378 行拆成 `tool-registry.ts` 270 / `arg-scan.ts` 243 / `config.ts` 202 / `engine.ts` 450 / `receipt.ts` 190 / 入口 176; 新旧 `dist` 26 个导出名与 11 组 `inspect` 回执逐字一致; `check` / 160 例测试 / 14 例集成通过, 覆盖率 99.1% / 94.1%.
-- `task-engine` (`4aa5cb19` / `8d226a64` / `1a0777d4`) 已合并 `2ab7b760`: 删 `src/timers.ts`, `index.ts` 1867 行拆成 10 个文件 (入口仅 36 行 re-export), `engine.ts` 1050 → 622 并拆出 flow / types / store; `check` / 171 例测试 / 17 例集成 / `build` 通过. 集成层首跑 1 例既有 flake 重跑通过; `demo` 1 例 overBudget 既有失败 (拆前同样失败).
-- `TUI` 第二批 `adapter/types.ts` 与 `index.ts` 第一批 (`8aa769b4` / `001c3f1b` + 两笔文档) 已合并 `f1ca5d2b`: 类型域模块与装配面 / 滚动助手拆出; `index.ts` 6601 → 6497, `adapter/dsh.ts` 4647 → 3639, `state.ts` / `layout.ts` / `adapter/types.ts` 降到 95 / 132 / 128 行; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` 通过.
-- `session-channel` (`ed3112a4` / `e5c71570` / `caf3793b` / `c5b681e3` / `3bda5b2e`) 已合并 `e9c7e3d5`: 删 5 个失效导出, 定时器族改用 `clock-base`, `index.ts` 1929 行拆成 `index.ts` 161 / `service.ts` 1055 / `task-layer.ts` 471 / `tools.ts` 404; `check` / 78 例测试 / 9 例集成 / `build` 通过.
-- `TUI` 第二批 `adapter/dsh.ts` 拆分 (`28ae0e45` / `c71c2b3b`) 已合并 `4fabdbd5`: 辅助层拆出, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` 通过.
-- `TUI` 第二批 `state.ts` 拆分 (`35bfcf90` / `5908bc22`) 已合并 `9c90a600`: 3379 行拆成分层模块, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` 通过.
+- `auto-approve` (`21816988` / `a1a32004`) 已合并 `70cd64f3`: 删 `AuditRecent` / `allowedByRisk` / `RuleInput` 与 `src/timers.ts`, `learn.ts` 1222 行拆成 `learn-rules.ts` 505 / `learn-observe.ts` 716 / `learn-decide.ts` 25; `check` / 181 例测试 / `build` 通过.
+- `herdr-integration` (`7b9ac9f6`) 已合并 `9ff3fa4b`: 删 `src/timers.ts`, 定时器族改用 `clock-base`; `check` / 60 例测试 / 11 例集成通过.
+- `TUI` 第二批 `layout.ts` 拆分 (`a7986664` / `2db2f0d0`) 已合并 `12363ed6`: 2440 行拆成 `layout/geometry.ts` / `layout/frame-build.ts` / `layout/frame-rows.ts` 等分层模块, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` + `SMOKE_OK` 通过.
+- `rule-engine` (`d30fc86a` / `13b75663` / `d88239a2`) 已合并 `776394ba`: 删 `src/timers.ts`, `engine.ts` 1260 行拆成 `engine.ts` 593 / `consumers.ts` 477 / `engine-state.ts` 185 / `evaluation.ts` 136 / `delivery.ts` 115; `check` / 175 例测试 / 13 例集成 / `build` 通过.
 - `script-interpreter` (`ae55f5d7` / `4eb82a0e`) 已合并 `710a35eb`: 删 `src/timers.ts`, 沙箱类型改从 `herdr-use` 入口引; `check` / 117 例测试 / 14 例集成 / `build` 通过.
 - `herdr-use` 补丁 (`11571ed8`) 已合并 `d8312816`: 入口增加 `SandboxMode` 类型导出, 供 `script-interpreter` 从入口引而不是走 `dist` 深路径; `check` / 143 例测试通过.
-- `rule-engine` (`d30fc86a` / `13b75663` / `d88239a2`) 已合并 `776394ba`: 删 `src/timers.ts`, `engine.ts` 1260 行拆成 `engine.ts` 593 / `consumers.ts` 477 / `engine-state.ts` 185 / `evaluation.ts` 136 / `delivery.ts` 115; `check` / 175 例测试 / 13 例集成 / `build` 通过.
-- `TUI` 第二批 `layout.ts` 拆分 (`a7986664` / `2db2f0d0`) 已合并 `12363ed6`: 2440 行拆成 `layout/geometry.ts` / `layout/frame-build.ts` / `layout/frame-rows.ts` 等分层模块, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` + `SMOKE_OK` 通过.
-- `TUI` 第一批 (`7f326518` / `f7652029` / `5f46146a`) 已合并 `8b1ede1a`: 删 3 个零引用导出, 按键表 75 条键位 / 51 个动作, `name ===` 从 72 处降到 31 处, 消息谓词 21 处、层级判定 4 处、注释路径 32 处; `check` / `test` 1828 例 / `build` / `demo --smoke` 通过.
-- 收口: 24 个有代码改动的包全部合并 (`TUI` 分 6 批, 其余一包一笔到数笔), 10 个无代码改动的包未建分支; 24 个 `history-cleanup/03-code-*` 分支保留到总任务关闭, worktree 全部删除.
+- `TUI` 第二批 `state.ts` 拆分 (`35bfcf90` / `5908bc22`) 已合并 `9c90a600`: 3379 行拆成分层模块, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` 通过.
+- `session-channel` (`ed3112a4` / `e5c71570` / `caf3793b` / `c5b681e3` / `3bda5b2e`) 已合并 `e9c7e3d5`: 删 5 个失效导出, 定时器族改用 `clock-base`, `index.ts` 1929 行拆成 `index.ts` 161 / `service.ts` 1055 / `task-layer.ts` 471 / `tools.ts` 404; `check` / 78 例测试 / 9 例集成 / `build` 通过.
+- `TUI` 第二批 `adapter/dsh.ts` 拆分 (`28ae0e45` / `c71c2b3b`) 已合并 `4fabdbd5`: 辅助层拆出, 对外可见集合不变; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` 通过.
+- `task-engine` (`4aa5cb19` / `8d226a64` / `1a0777d4`) 已合并 `2ab7b760`: 删 `src/timers.ts`, `index.ts` 1867 行拆成 10 个文件 (入口仅 36 行 re-export), `engine.ts` 1050 → 622 并拆出 flow / types / store; `check` / 171 例测试 / 17 例集成 / `build` 通过. 集成层首跑 1 例既有 flake 重跑通过; `demo` 1 例 overBudget 既有失败 (拆前同样失败).
+- `TUI` 第二批 `adapter/types.ts` 与 `index.ts` 第一批 (`8aa769b4` / `001c3f1b` + 两笔文档) 已合并 `f1ca5d2b`: 类型域模块与装配面 / 滚动助手拆出; `index.ts` 6601 → 6497, `adapter/dsh.ts` 4647 → 3639, `state.ts` / `layout.ts` / `adapter/types.ts` 降到 95 / 132 / 128 行; `check` / 1828 例测试 / `build` / 42 条 `SMOKE_PASS` 通过.
+- `security-guard` (`4d4cfd65` / `1c1b8817`) 已合并 `4919cfcc`: `index.ts` 1378 行拆成 `tool-registry.ts` 270 / `arg-scan.ts` 243 / `config.ts` 202 / `engine.ts` 450 / `receipt.ts` 190 / 入口 176; 新旧 `dist` 26 个导出名与 11 组 `inspect` 回执逐字一致; `check` / 160 例测试 / 14 例集成通过, 覆盖率 99.1% / 94.1%.
+- `TUI` 收尾拆分 (`14ca3530`) 已合并 `876c7bce`: 审批链 tool/call 登记表拆成 `adapter/approval-tool-calls.ts` 60 行; `dsh.ts` 3639 → 3603. 决定停在按可独立搬移的职责拆完这一步: 剩余 `dsh.ts` 3603 行与 `index.ts` 6497 行为有状态类, 继续拆需上下文对象重构, 记入包追踪「偏差」留后续条目.
+- `background-daemon` (`809f96f8` / `8a010c3d`) 已合并 `e3600c38`: 删 `Subcommand` 与 `daysBetween`, 上下文守卫收进入口; `check` / 测试通过.
+- `TUI` 收尾记录 (`51213f4f`) 已合并 `a5199284`; `TUI` 代码整理完成 (剩 `dsh.ts` 3603 / `index.ts` 6497 行, 偏差见包追踪).
+- `agent-group` (`e5be0b08` / `2eeb6ad2` / `c040e36b`) 已合并 `f7183d4d`: `core.ts` 1250 行删成 `service.ts` 421 / `instruction.ts` 300 / `link.ts` 252 / `group.ts` 219 / `member.ts` 183 / `action-host.ts` 64 / `config.ts` 52 / `errors.ts` 8, 定时器族改用 `clock-base`; `check` / 108 例测试 / 13 例集成通过.
+- `code-map` (`27419775`) 已合并 `8bfe9272`: 上下文守卫收进入口; `check` / 测试通过 (需先建 `ast-tools` 依赖).
+- `hash-edit` (`99b7bd09`) 已合并 `81c41134`: 计数注释去数字, 补 5 处路径 / 标题注释; `check` / 57 例测试 / 18 例集成 / `build` 通过.
+- `fs-digest` (`b45807d5` / `cefe850e`) 已合并 `9216210c`: 守卫收进入口一处判定, 注释路径补全; 首笔曾把 `apply` 非对象上下文由抛错改成静默返回, 已按「行为不变」改回抛错再合并; `check` / 75 例测试 / 12 例集成通过, 覆盖率 91.8% / 80.3%.
+- `preference-analysis` (`d7e5bd9c`) 已合并 `89d7b5b4`: 守卫收进入口, `tools.ts:97` 计数注释改指 `TOOL_NAMES`, 入口 4 处路径注释补全; `check` / 98 例测试 / 11 例集成通过.
+- 收口: 24 个有代码改动的包全部合并 (`TUI` 分 6 批, 其余一包一笔到数笔), 10 个无代码改动的包未建分支; 共 25 个 `history-cleanup/03-code-*` 分支 (多出 `history-cleanup/03-code-herdr-use-2`), 全部保留到总任务关闭, worktree 全部删除.
 - 2026-11-01 补丁轮 (阶段关闭后修潜伏项): `hash-edit` / `md-map` 的 `apply` 补非对象 `ctx` 守卫; `tool-consult` 的 `isVisible` 按 `maskMode` 解释 `initialNames`; 11 个包的 `logger` 调用补可选链; `code-map` / `md-map` / `session-channel` 的 `warn` 改显式分支; 8 个包的假 `exclude` 删除、`task-engine` 双 program 合并为一个 (同时删 `tests/tsconfig.json`); `TUI` 两处长文件拆分登记为包 BACKLOG 条目. 提交 `54ac908c` / `78500945` / `25fce711` 与本笔文档.
 
 ## 测试与证据
