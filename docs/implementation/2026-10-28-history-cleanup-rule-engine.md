@@ -50,7 +50,16 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 
 ### 包文档
 
-阶段 4 补.
+- 分支 `history-cleanup/04-package-docs-rule-engine`, worktree `.worktree/04-package-docs/rule-engine`; 只改本包文档, 不动 `src` / `tests` / 配置文件.
+- 文件: `README.md` / `docs/DESIGN.md` / `docs/BACKLOG.md`.
+- `README.md`: 现有 7 个二级标题按总追踪 3.9 归并为六节 `## 定位` / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 无配置项可省 `## 配置`; 只改节名、合并重复段落, 不删内容、不新增结论.
+- `docs/DESIGN.md`: 归并为四节 `## 背景` / `## 结构` / `## 机制` / `## 取舍`; 只改节名与合并重复, 机制与取舍内容不动.
+- 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
+- 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
+- `docs/BACKLOG.md`: 同文件的命令与术语同步改; 条目内容、状态与顺序不动.
+- 断链: `README.md` 里指向 `docs/implementation/` 的归档链接改为 `../docs/archived/2026-10-21-behavior-correction.md` (归档后的真实路径).
+- 验收: 六节齐 (无配置可省)、四节齐、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
+- 提交: `docs(rule-engine): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
 
 ## 实现记录
 

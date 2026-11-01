@@ -1308,7 +1308,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 | `rule-engine` | `README.md` / `docs/DESIGN.md`; 7 条断链; `docs/BACKLOG.md` 命令/术语 |
 | `script-interpreter` | `README.md`; 命令/术语 |
 | `security-guard` | `README.md`: `状态栏` 改「状态列」; 命令/术语 |
-| `session-channel` | `README.md` / `docs/DESIGN.md`: `回执` / `返回体` 统一「回执」, 命令改 pnpm; 7 条断链中的 README |
+| `session-channel` | `README.md` / `docs/DESIGN.md`: `回执` / `返回体` 统一「回执」, 命令改 pnpm; 断链复核 (当前扫描 0) |
 | `session-paths` | `README.md`; 命令/术语 |
 | `session-title-cutoff` | `README.md`; 命令/术语 |
 | `symbol-normalizer` | `README.md`; 命令/术语 |

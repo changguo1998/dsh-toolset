@@ -51,7 +51,16 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 
 ### 包文档
 
-阶段 4 补.
+- 分支 `history-cleanup/04-package-docs-auto-approve`, worktree `.worktree/04-package-docs/auto-approve`; 只改本包文档, 不动 `src` / `tests` / 配置文件.
+- 文件: `README.md` / `docs/BACKLOG.md`.
+- `README.md`: 现有 10 个二级标题按总追踪 3.9 归并为六节 `## 定位` / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 无配置项可省 `## 配置`; 只改节名、合并重复段落, 不删内容、不新增结论.
+- 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
+- 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
+- `docs/BACKLOG.md`: 同文件的命令与术语同步改; 条目内容、状态与顺序不动.
+- 断链: `README.md` 里指向 `docs/implementation/` 的归档链接改为 `docs/archived/2026-10-23-herdr-terminal-readonly.md` (归档后的真实路径).
+- `README.md` `:32` 的「herdr 十个工具」改「herdr 终端工具」.
+- 验收: 六节齐 (无配置可省)、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
+- 提交: `docs(auto-approve): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
 
 ## 实现记录
 
@@ -81,13 +90,19 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 ## 偏差
 
 1. 断言口径按本包实际面替换. 任务书与计划写「工具注册 / `execute` canonical 值 / `output.render` 投影」; 本包不注册工具、也没有 `output.render`, 对外可见面是审批应答者、`tools/pre-execute` 监听器与 `/autoapprove` 命令. 集成层对应断言改为: `approval/request` 的 canonical 词表、`tools/pre-execute` 的 `{kind:"deny"|"allow"}` 投影、命令 handler 的投影文本、LLM 审查提示的注入内容.
+
 2. `test:coverage` 里 `report.mjs` 的路径参数改仓库根相对写法. `report.mjs` 用 `resolve(root, argv)` 解析路径, 计划写的 `../tmp/cov-auto-approve` 会落到仓库外; 实际脚本用 `NODE_V8_COVERAGE=../tmp/cov-auto-approve` (相对包目录) 配 `report.mjs tmp/cov-auto-approve ...` (相对仓库根), 两者指向同一目录, 报告仍落仓库 `tmp/`.
+
 3. 计划只列两个新文件; 实际另加 `tests/calls.test.ts` / `tests/timers.test.ts` / `tests/index.test.ts` 三个单元文件. 理由: 这三块是改前未覆盖的大头 (`calls.ts` 行 54.5% / 分支 25.0%, `timers.ts` 分支 21.4%, `index.ts` 分支 48.3%), 且 `calls.ts` / `timers.ts` 原先没有专属用例; 用例只走公开导出, 不改 `src`.
+
 4. 合并轮 (单元 + 集成) 里 `learn.ts` 与 `fingerprint.ts` 的行覆盖比单元轮略低 (`learn.ts` 848 → 838, `fingerprint.ts` 101 → 98). 原因: 集成进程让 V8 对同一函数补出更细的 block range, 原先被外层 range 记成覆盖的行如实记为未覆盖 (如 `FormStore.list` / `remove` 内的遍历, 指纹容量淘汰), 属覆盖率口径变细而非用例减少; 包级仍为 3679 → 3806 行.
+
 5. `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 未动. 该文件跨包 import `clock-base` 的内部模块, 删 `exclude` 会在 `rootDir` 上报错, 按阶段 1 偏差 1 留到阶段 2 统一收口.
 
 6. 定时器错误文案随 `clock-base` 变了一处. 本包原副本的 `delayOf` 抛 `定时器延迟必须是有限数字（收到 …）`, `clock-base` 的 `resolveDelay` 抛 `timers: 延迟必须是有限数字（收到 …）`; 换成入口导出后 `tests/timers.test.ts` 的 `assert.throws` 正则由 `/定时器延迟必须是有限数字/` 收窄为 `/延迟必须是有限数字/`, 其余断言不动. 语义 (非有限延迟抛 `RangeError`) 未变; 这是本次唯一一处用例断言改动, 换 import 后先跑出一条失败, 改正则后 181 条全过.
+
 7. 学习层对外符号改由 `src/index.ts` re-export. 原 `learn.ts` 的 24 个导出全部保留 (另新增判定层的 `admitLearnOutcome`), 测试 import 从 `../src/learn.ts` 改到 `../src/index.ts`, `src/decide.ts` 直接引分层模块; `package.json` 未加 `exports` 子路径, 其他包也不引本包学习层.
+
 8. 拆分后观测层 716 行、规则层 505 行, 都低于 1000 行; 观测层把「回填」留在事件状态机内, 因为回填复用同一套审阅 / 落表闭包 (8 个以上闭包变量), 再拆要跨文件传参, 收益不足.
 
 ## 测试与证据

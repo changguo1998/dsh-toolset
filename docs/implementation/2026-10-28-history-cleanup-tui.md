@@ -57,7 +57,17 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 ### 包文档
 
-阶段 4 补.
+- 分支 `history-cleanup/04-package-docs-tui`, worktree `.worktree/04-package-docs/TUI`; 只改本包文档, 不动 `src` / `tests` / 配置文件.
+- 文件: `README.md` / `docs/DESIGN.md` / `docs/BACKLOG.md` / `TUI/docs/SPEC.md` / `TUI/docs/COMMANDS.md` / `TUI/docs/COMMANDS-SPEC.md` / `TUI/docs/design/`.
+- `README.md`: 现有 11 个二级标题按总追踪 3.9 归并为六节 `## 定位` / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 无配置项可省 `## 配置`; 只改节名、合并重复段落, 不删内容、不新增结论.
+- `docs/DESIGN.md`: 归并为四节 `## 背景` / `## 结构` / `## 机制` / `## 取舍`; 只改节名与合并重复, 机制与取舍内容不动.
+- 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
+- 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
+- `docs/BACKLOG.md`: 同文件的命令与术语同步改; 条目内容、状态与顺序不动.
+- `TUI/docs/SPEC.md` / `COMMANDS.md` / `COMMANDS-SPEC.md` / `docs/design/`: 只统一界面四组术语 (活动区 / 输入区 / 状态列 / 提示行) 与命令, 不重写规格与设计内容.
+- 测试节保留 `pnpm -C TUI run test` / `test:tui` / `test:integration` / `demo -- --smoke` / `smoke:pty` (含 `DSH_PROFILE=fff-test`) 的写法.
+- 验收: 六节齐 (无配置可省)、四节齐、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
+- 提交: `docs(tui): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
 
 ## 实现记录
 

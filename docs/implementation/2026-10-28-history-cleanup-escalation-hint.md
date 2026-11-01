@@ -41,7 +41,13 @@ rm -rf ../tmp/cov-escalation-hint && mkdir -p ../tmp/cov-escalation-hint && NODE
 
 ### 包文档
 
-阶段 4 补.
+- 分支 `history-cleanup/04-package-docs-escalation-hint`, worktree `.worktree/04-package-docs/escalation-hint`; 只改本包文档, 不动 `src` / `tests` / 配置文件.
+- 文件: `README.md`.
+- `README.md`: 现有 7 个二级标题按总追踪 3.9 归并为六节 `## 定位` / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 无配置项可省 `## 配置`; 只改节名、合并重复段落, 不删内容、不新增结论.
+- 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
+- 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
+- 验收: 六节齐 (无配置可省)、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
+- 提交: `docs(escalation-hint): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
 
 ## 实现记录
 

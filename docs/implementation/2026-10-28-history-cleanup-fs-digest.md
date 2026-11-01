@@ -47,21 +47,35 @@ rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE
 
 ### 包文档
 
-阶段 4 补.
+- 分支 `history-cleanup/04-package-docs-fs-digest`, worktree `.worktree/04-package-docs/fs-digest`; 只改本包文档, 不动 `src` / `tests` / 配置文件.
+- 文件: `README.md` / `docs/BACKLOG.md`.
+- `README.md`: 现有 6 个二级标题按总追踪 3.9 归并为六节 `## 定位` / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 无配置项可省 `## 配置`; 只改节名、合并重复段落, 不删内容、不新增结论.
+- 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
+- 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
+- `docs/BACKLOG.md`: 同文件的命令与术语同步改; 条目内容、状态与顺序不动.
+- 验收: 六节齐 (无配置可省)、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
+- 提交: `docs(fs-digest): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
 
 ## 实现记录
 
 - 单元锚点:
+
   - `tests/digest.test.ts` 的「digest 错误路径」追加 4 条: 非法 `mode` (message 列出三模式)、`depth` 非整数、`maxLines` < 2 / 非整数、`maxTokens` < 2 / 非整数.
   - 新增 `tests/index.test.ts` (3 组 4 条): 入参校验 6 种探针 (缺 path / path 非 string / path 空串 / 缺 mode / mode 非 string / mode 非枚举) 的 `invalid_option`、`mode=unknown` 与 path 回显; 可选参数类型不符时被忽略 (字符串 `depth` 取缺省 3、非数字 `maxLines` / `maxTokens` 取缺省); `language` 提示覆盖扩展名、`requireLsp` 透传; 会话 cwd 为空串 / 非字符串时回退进程 cwd.
+
 - 集成层:
+
   - 新增 `tests/assemble.ts`: 假工具面 (`createToolSurface` 收集注册, 按名 `require`)、假事件面 (`createEventSurface`, 记录订阅 / `listenerCount`)、假服务面 (`createServiceSurface`, `provide` / `get` / `names`), 由 `assemble()` 拼 `apply` 并回传宿主句柄; 另给 `renderText` (args 第一、value 第二). 不以 `.test.ts` 结尾.
   - 新增 `tests/integration/plugin.test.ts` (4 组 12 条): 注册面 (`fs_digest` 单工具、`required` / `mode.enum` / `output.schema`、零事件订阅、apply 不写服务面、`config.maxBytes` 透传); `execute` canonical 值 (Markdown outline 树与块、TS signatures、pruned 全文与裁剪、七类错误面、相对路径认会话 cwd); `output.render` 投影 (三模式文案、失败文案、`undefined` / 非三模式的 JSON 兜底、80 行截断标记); 假服务面 LSP (source=lsp、提供器抛错降级与 requireLsp 原因文案).
+
 - 脚本: `package.json` 加 `test:integration` (只跑 `tests/integration/*.test.ts`) 与 `test:coverage` (单元 + 集成两 glob, 覆盖率目录 `tmp/cov-fs-digest`, 报告落 `tmp/cov-fs-digest/report.json`).
+
 - 专项: `tests/fixtures/` 5 个夹具全部仍被引用 (`tests/digest.test.ts` 与 `demo/main.ts`), 无删除; `skip` / `todo` 改前改后均为 0, 未新增.
+
 - `src` 未改动.
 
 - 阶段 3 代码整理 (分支 `history-cleanup/03-code-fs-digest`):
+
   - 上下文对象守卫: `fs-digest/src/lsp.ts` 的 `ctx === null || typeof ctx !== "object"` 收拢成本文件内的唯一函数 `contextContainer(ctx)` (非对象, 含 `null` / `undefined` / 原始值 → `undefined`), 全包只剩这一处判定; `readLspSurface` 先取容器再判一次. 入口 `fs-digest/src/index.ts` 的 `apply` 不前置判定: 仍按原样读 `ctx.tools` 并把 `ctx` 交给 `digest`, 非对象 (含 `null`) 在读取处抛错, 与改前完全一致. 判定结果不变: 非对象上下文一律视为无上下文, `digest(null, …)` 等直调路径的降级行为与改前一致.
   - 零引用导出: 按 5.2 重扫本包 55 个导出 (`src` 全量, 含入口 5 个契约符号与 `types.ts` 的对外类型), 在 `src` / `tests` / `demo` / 仓内文档里均有引用, 零引用导出 0 个, 无删除; `contextContainer` 只在 `fs-digest/src/lsp.ts` 内用, 不导出.
   - 路径注释: `src/` / `tests/` / `demo/` 文件头与正文里的包内简写路径补成仓根路径 (如 `fs-digest/src/lsp.ts`), 涉及 10 个 `src` 文件、5 个单元测试文件、`tests/assemble.ts`、`tests/integration/plugin.test.ts` 与 `demo/main.ts`; 计数注释本包没有; `README.md` 里 `index.ts → src/main.ts` 的旧描述属包文档, 留阶段 4.
@@ -71,6 +85,7 @@ rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE
 - 阶段 2: 无 (未改 `src`; 集成层与单元层均只经公开导出与既有工具面).
 
 - 阶段 3: 首笔提交 (`b45807d5`) 曾把守卫前置到 `apply`, 使非对象上下文 (含 `null`) 由「读 `ctx.tools` 抛 `TypeError`」变为静默返回, 属行为变化; 修正提交已恢复改前行为 (入口不前置判定, 守卫只收拢判定位置), 现有用例不含该路径.
+
 - 阶段 3 覆盖率: 行 91.5% (1265/1382) → 91.7% (1277/1392), 分支 80.4% (386/480) → 80.5% (388/482), 两项均升. 分母 +10 行 / +2 分支为新增 `contextContainer` (行 1277 中 12 行为新覆盖) 与它的三元判定; 无未触达的新增分支.
 
 ## 测试与证据
