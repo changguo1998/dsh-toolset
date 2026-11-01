@@ -1,5 +1,7 @@
 # script-interpreter（模型侧脚本解释器）
 
+## 定位
+
 DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_run`）：把脚本正文经 stdin
 交给本机解释器，收 stdout / stderr / 退出码并回填上下文。主功能是**按语言自动探测并切换
 执行环境**：`languages` 不配置时逐语言探测解释器，探到即进可切换列表（缺省 python / node / sh）。
@@ -11,7 +13,9 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
   **不参与自动探测**，要启用需显式写进 `languages`。
 - **不做**：REPL / 跨调用状态保持 / 持久 PTY / 交互式驱动 / `sandbox_permissions` 提权参数。
 
-## 工具面
+## 能力
+
+### 工具面
 
 唯一注册项 `script_run`（参数面照官方 bash 工具镜像，去掉提权与后台作业两项）：
 
@@ -26,7 +30,40 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 传未启用的语言（如 `bash`，它不参与自动探测）→ 明确报错并列出可用语言，**不静默回落**。
 参数校验先于能力检查（先报「参数不合法」，再报「解释器缺失」）。
 
+### 执行与围栏
+
+每次执行前：`ctx.sandboxPolicy.resolve()` 取模式与工作区根 → `ctx.sandbox.confine()` 包一层 argv → spawn。三条口径：
+
+- 围栏模式下拿不到可强制后端（`confine` 抛错）→ **fail-closed**：返回 `SANDBOX_UNAVAILABLE`，脚本**未执行**，绝不退回无围栏路径；
+- `ctx.sandbox` / `ctx.sandboxPolicy` 缺失（极简 profile）→ 不围栏执行，但**结构化结果值**的 `sandbox.unavailable` 如实标注「未围栏」与原因（不静默）；装配时另在装载日志（`ctx.logger`）里告警一次，回执正文不加提示行（见下节口径）；
+- `danger-full-access` → 按策略不围栏（这是解析出的策略，不是能力缺失），结果值带 `mode`，回执不加行、也不标 `unavailable`。
+
+围栏事实判定按宿主 `dsh-sandbox` 的语义复刻（本包不 import 宿主包）：失败运行的 stderr 命中后端 `denialSignatures` → 标 `denied`（`[sandbox: file access denied under <mode> mode]`）；命中 `runnerFailureRules` → 判为运行器自身失败（`SANDBOX_UNAVAILABLE`，命令没跑）。
+
+### 超时与取消
+
+超时 = `SIGTERM` → 宽限 1s → `SIGKILL`，作用对象是**进程组**（`detached` + `kill(-pid)`），
+脚本起的子进程不会留成孤儿。调用方的取消信号走同一条终止路径。stdin 写完脚本即 EOF。
+
+### 实现位置
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/index.ts` | `apply` 装配：配置解析与钳位、自动探测集合、逐语言探测、注册 `script_run`、装载日志 |
+| `src/types.ts` | 公共类型 + 宿主面结构替身（沙箱 / 策略 / 审批 / 工具面） |
+| `src/probe.ts` | 解释器探测（显式配置 → 环境变量 → python 工作区 `.venv` / `uv` → PATH → 绝对路径；不回落；`versionArgs` 为空则跳过版本） |
+| `src/langs/python.ts` | Python 后端（`python3 -u -`） |
+| `src/langs/node.ts` | Node 后端（`node -`；参与自动探测） |
+| `src/langs/sh.ts` | POSIX sh 后端（`sh -s`；参与自动探测） |
+| `src/langs/bash.ts` | Bash 后端（`bash -s`；不参与自动探测，需显式配置） |
+| `src/sandbox.ts` | 策略解析、`confine`、fail-closed、拒绝 / 运行器失败判定 |
+| `src/run.ts` | spawn、stdin 送脚本、超时与进程组清理、尾部截断、溢出落盘 |
+| `src/render.ts` | 回执渲染（全函数，畸形值不抛） |
+| `src/tools.ts` | `script_run` 定义与执行顺序（校验 → 语言 → 超时 → workdir → 解释器（python 按工作区重探测）→ 审批 → 围栏 → 执行 → 事实） |
+
 ## 配置
+
+### 配置项
 
 | 配置项 | 缺省 | 说明 |
 | --- | --- | --- |
@@ -47,31 +84,26 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 命中一个都没有时才不注册工具并告警。`sh` 没有统一的版本开关，故不做版本探测。
 
 **python 另按工作区探测（execute 期）**：每次调用在拿到工作目录之后，python 的探测链在
-「环境变量」与「`PATH`」之间插入两项 —— ① 工作区 `.venv/bin/python`（含 `python3` 候选）；
-② 无 `.venv` 但工作区是 uv 项目（有 `pyproject.toml` / `uv.lock`）且 `PATH` 有 `uv` 时，
-经 `uv run -- python -c "import sys; print(sys.executable)"` **解析真实解释器路径**后执行
-（单次上限 20s，超时就回落；`uv` 首次运行可能自动创建 `.venv` / 拉取解释器，属 uv 自身行为，
-本包不创建虚拟环境、不改 `sys.path`）。装配期探测结果始终作为回落：工作区探测未命中就用它。
+「环境变量」与「`PATH`」之间插入两项 ——
 
-## 执行与围栏
+- 工作区 `.venv/bin/python`（含 `python3` 候选）；
+- 无 `.venv` 但工作区是 uv 项目（有 `pyproject.toml` / `uv.lock`）且 `PATH` 有 `uv` 时，
+  经 `uv run -- python -c "import sys; print(sys.executable)"` **解析真实解释器路径**后执行
+  （单次上限 20s，超时就回落；`uv` 首次运行可能自动创建 `.venv` / 拉取解释器，属 uv 自身行为，
+  本包不创建虚拟环境、不改 `sys.path`）。装配期探测结果始终作为回落：工作区探测未命中就用它。
 
-每次执行前：`ctx.sandboxPolicy.resolve()` 取模式与工作区根 → `ctx.sandbox.confine()` 包一层 argv → spawn。三条口径：
+### 审批
 
-- 围栏模式下拿不到可强制后端（`confine` 抛错）→ **fail-closed**：返回 `SANDBOX_UNAVAILABLE`，脚本**未执行**，绝不退回无围栏路径；
-- `ctx.sandbox` / `ctx.sandboxPolicy` 缺失（极简 profile）→ 不围栏执行，但**结构化结果值**的 `sandbox.unavailable` 如实标注「未围栏」与原因（不静默）；装配时另在装载日志（`ctx.logger`）里告警一次，回执正文不加提示行（见下节口径）；
-- `danger-full-access` → 按策略不围栏（这是解析出的策略，不是能力缺失），结果值带 `mode`，回执不加行、也不标 `unavailable`。
+`approval: "never"`（缺省，2026-10-17 用户裁定「与 bash 一致」）：普通执行不弹审批。
 
-围栏事实判定按宿主 `dsh-sandbox` 的语义复刻（本包不 import 宿主包）：失败运行的 stderr 命中后端 `denialSignatures` → 标 `denied`（`[sandbox: file access denied under <mode> mode]`）；命中 `runnerFailureRules` → 判为运行器自身失败（`SANDBOX_UNAVAILABLE`，命令没跑）。
+`approval: "ask"` 时每次执行前调 `ctx.approval.request({ agent, toolName: "script_run", callId, reason, signal })`，由宿主服务写 `approval/asked` + `approval/decided` 审计对；
+只有 `allowed-once` 才执行，其余结果（含 `rejected` / `cancelled` / `unavailable`）返回
+`APPROVAL_DENIED`。缺 `ctx.approval` 或没有调用方 agent 时 **fail-closed**
+（`APPROVAL_UNAVAILABLE`）。
 
-## 宿主接入
+## 用法
 
-`inject` 只声明 `["tools"]`（工具面是硬依赖）；`sandbox` / `sandboxPolicy` / `approval` 是
-**可选服务**，一律经 `ctx.get(name)` 受保护读取 —— cordis 对**未 inject** 的服务属性直读会抛
-`cannot get property "<name>" without inject`，直读会在加载期把宿主炸掉；极简宿主没有 `ctx.get`
-时退回 `try { ctx[name] } catch`（抛错即视为该服务不可用）。`tests/index.test.ts` 与
-`tests/tool.test.ts` 用 Proxy 桩模拟该守卫钉住这条契约。
-
-## 回执
+### 回执
 
 顺序与官方 bash 同构：stdout → 独立 `[stderr]` 段 → 各标记各占一行：
 
@@ -91,12 +123,7 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 - `[interpreter: <path>]` 只在**解释器被工作区环境切换**（进了项目 `.venv` / `uv`，或解释器路径与装配期默认不同）时占一行，提示模型这轮跑在哪个解释器上；未切换时结构化结果值的 `interpreter` 字段恒在；
 - 逐次失败（参数非法 / 解释器缺失 / 审批未过 / 围栏不可用）是**预期失败值**（`{ error, code }`），回执渲染成 `script_run 失败（<code>）：<error>`。
 
-## 超时与取消
-
-超时 = `SIGTERM` → 宽限 1s → `SIGKILL`，作用对象是**进程组**（`detached` + `kill(-pid)`），
-脚本起的子进程不会留成孤儿。调用方的取消信号走同一条终止路径。stdin 写完脚本即 EOF。
-
-## 溢出落点与残留
+### 溢出与残留
 
 仿官方 `spill-local`（决策 6）：
 
@@ -107,30 +134,23 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 - 每次溢出新建一个 **0600** 文件，stdout / stderr 各一份；
 - **不自动删**（可审计），残留交给 `/tmp` 生命周期 —— 不自造清理策略。
 
-## 审批
+## 边界
 
-`approval: "never"`（缺省，2026-10-17 用户裁定「与 bash 一致」）：普通执行不弹审批。
+### 宿主接入
 
-`approval: "ask"` 时每次执行前调 `ctx.approval.request({ agent, toolName: "script_run", callId, reason, signal })`，由宿主服务写 `approval/asked` + `approval/decided` 审计对；
-只有 `allowed-once` 才执行，其余结果（含 `rejected` / `cancelled` / `unavailable`）返回
-`APPROVAL_DENIED`。缺 `ctx.approval` 或没有调用方 agent 时 **fail-closed**
-（`APPROVAL_UNAVAILABLE`）。
+`inject` 只声明 `["tools"]`（工具面是硬依赖）；`sandbox` / `sandboxPolicy` / `approval` 是
+**可选服务**，一律经 `ctx.get(name)` 受保护读取 —— cordis 对**未 inject** 的服务属性直读会抛
+`cannot get property "<name>" without inject`，直读会在加载期把宿主炸掉；极简宿主没有 `ctx.get`
+时退回 `try { ctx[name] } catch`（抛错即视为该服务不可用）。`tests/index.test.ts` 与
+`tests/tool.test.ts` 用 Proxy 桩模拟该守卫钉住这条契约。
 
-## 实现落点
+### 状态
 
-| 文件 | 职责 |
-| --- | --- |
-| `src/index.ts` | `apply` 装配：配置解析与钳位、自动探测集合、逐语言探测、注册 `script_run`、装载日志 |
-| `src/types.ts` | 公共类型 + 宿主面结构替身（沙箱 / 策略 / 审批 / 工具面） |
-| `src/probe.ts` | 解释器探测（显式配置 → 环境变量 → python 工作区 `.venv` / `uv` → PATH → 绝对路径；不回落；`versionArgs` 为空则跳过版本） |
-| `src/langs/python.ts` | Python 后端（`python3 -u -`） |
-| `src/langs/node.ts` | Node 后端（`node -`；参与自动探测） |
-| `src/langs/sh.ts` | POSIX sh 后端（`sh -s`；参与自动探测） |
-| `src/langs/bash.ts` | Bash 后端（`bash -s`；不参与自动探测，需显式配置） |
-| `src/sandbox.ts` | 策略解析、`confine`、fail-closed、拒绝 / 运行器失败判定 |
-| `src/run.ts` | spawn、stdin 送脚本、超时与进程组清理、尾部截断、溢出落盘 |
-| `src/render.ts` | 回执渲染（全函数，畸形值不抛） |
-| `src/tools.ts` | `script_run` 定义与执行顺序（校验 → 语言 → 超时 → workdir → 解释器（python 按工作区重探测）→ 审批 → 围栏 → 执行 → 事实） |
+实现与用例已按设计文档的「实现前冻结的接口」落地。**跨包的硬拒层登记不在本包**：
+`security-guard` 的 `PLUGIN_COMMAND_TOOLS.script_run = { commandKeys: ["script"] }` 归
+`security-guard` 自己的条目（本包只保证参数名就是 `script`，`tests/index.test.ts` 与
+`tests/tool.test.ts` 钉住该键名）。实现计划与裁定见项目级
+`docs/archived/2026-10-16-script-interpreter-design.md`（已归档的调研与决策记录）。
 
 ## 测试
 
@@ -143,14 +163,6 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 | `tests/tool.test.ts` | schema 与 `script` 键对拍、参数校验顺序、语言 / 解释器降级（含 node / sh 指引）、按 `language` 切换、node / sh 真实执行、python 有 / 无 `.venv` 两态真实执行与回执标记、审批三态、沙箱四态、回执渲染 |
 
 ```sh
-npm --prefix script-interpreter run check   # 类型检查
-npm --prefix script-interpreter run test    # 单包测试（缺对应解释器时相关用例 skip）
+pnpm -C script-interpreter run check   # 类型检查
+pnpm -C script-interpreter run test    # 单包测试（缺对应解释器时相关用例 skip）
 ```
-
-## 状态
-
-实现与用例已按设计文档的「实现前冻结的接口」落地。**跨包的硬拒层登记不在本包**：
-`security-guard` 的 `PLUGIN_COMMAND_TOOLS.script_run = { commandKeys: ["script"] }` 归
-`security-guard` 自己的条目（本包只保证参数名就是 `script`，`tests/index.test.ts` 与
-`tests/tool.test.ts` 钉住该键名）。实现计划与裁定见项目级
-`docs/archived/2026-10-16-script-interpreter-design.md`（已归档的调研与决策记录）。
