@@ -25,14 +25,6 @@ export interface ContractClause {
   outputSchema?: unknown;
 }
 
-/** 访谈起草得到的 goal 契约（objective + 条款集）。 */
-export interface GoalContract {
-  /** 目标描述（不含 Done-when 段）。 */
-  objective: string;
-  /** Done-when 条款集（非空）。 */
-  clauses: ContractClause[];
-}
-
 /** 条款校验结果（判别联合）。 */
 export type ClauseValidation =
   { ok: true; clauses: ContractClause[] } | { ok: false; errors: string[] };
