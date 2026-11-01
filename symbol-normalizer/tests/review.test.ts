@@ -102,6 +102,46 @@ test("review：警示文案的白名单取自规则面（与 DEFAULT_RECOMMENDED
   assert.ok(withConfig.includes("§"), "配置追加的推荐字符应出现在文案里");
 });
 
+test("review：别名映射到空串时反馈要求删除，且同一 emoji 只列一次", () => {
+  const deleting = reviewer({ aliases: { "✅": "" } }).review(
+    "s1",
+    "完成 ✅，另一个 ✅。",
+  );
+  assert.ok(deleting !== null);
+  assert.match(
+    deleting.notice,
+    /符号已替换 1 处为推荐符号/,
+    "同符号只计一次提醒",
+  );
+  assert.ok(deleting.feedback !== null);
+  assert.match(deleting.feedback, /请删除「✅」/);
+  assert.doesNotMatch(deleting.feedback, /请将「✅」/);
+  assert.equal(
+    (deleting.feedback.match(/请删除「✅」/g) ?? []).length,
+    1,
+    "同一 emoji 重复出现只列一次",
+  );
+});
+
+test("review：只有警示时 notice 不出现替换计数与分隔符", () => {
+  const result = reviewer().review("s1", "星标 ⭐ 无替代。");
+  assert.ok(result !== null);
+  assert.match(result.notice, /^未推荐符号：⭐（建议用推荐符号或文字）$/);
+  assert.doesNotMatch(result.notice, /符号已替换/);
+  assert.doesNotMatch(result.notice, /；/, "无替换时没有前导分隔符");
+});
+
+test("review：emoji 冷却期内跳过（不重复列更换要求），过期后恢复", () => {
+  let now = 1_000;
+  const r = reviewer({ cooldownMs: 5_000 }, () => now);
+  assert.ok(r.review("s1", "完成 ✅。") !== null, "首次提醒");
+  assert.equal(r.review("s1", "完成 ✅。"), null, "冷却期内全跳过");
+  now = 7_000;
+  const again = r.review("s1", "完成 ✅。");
+  assert.ok(again !== null, "冷却过期后恢复");
+  assert.match(again.feedback ?? "", /请将「✅」改为「✓」/);
+});
+
 test("review：⇆（TUI 回合号标记）已入白名单，不再触发审查", () => {
   assert.equal(
     reviewer().review("s1", "回合分隔线 ⇆3 与 ⇆12。"),
