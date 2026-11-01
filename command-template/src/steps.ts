@@ -5,7 +5,6 @@
 
 import { expand, unresolvedPlaceholders } from "./args.ts";
 import type {
-  ModelRef,
   RunOutcome,
   StepDeps,
   StepResult,
@@ -270,15 +269,4 @@ function budgetMessage(
 
 function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** 供测试 / 诊断：模板声明的模型覆盖清单。 */
-export function declaredModels(template: TemplateSpec): ModelRef[] {
-  const out: ModelRef[] = [];
-  if (template.model !== undefined) out.push(template.model);
-  for (const step of template.steps) {
-    if (step.model !== undefined) out.push(step.model);
-    if (step.judge?.model !== undefined) out.push(step.judge.model);
-  }
-  return out;
 }

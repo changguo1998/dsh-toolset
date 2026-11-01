@@ -64,9 +64,24 @@ rm -rf ../tmp/cov-command-template && mkdir -p ../tmp/cov-command-template && NO
 - 分层贡献 (4.3 的两轮跑取差): 单元层 48 条, 集成层 12 条; 只跑单元 vs 单元加集成的差值即集成层贡献 (行 72.6% → 84.6%). 集成层主要补 `host.ts` 的宿主模块解析 (`importHostModule` 让该文件从 24/48 升到 40/48)、`index.ts` 的 `apply` 与命令 handler 全链路 (231/339 → 318/339) 与 `subagent.ts` 的模块加载与结算 (212/278 → 223/278).
 - 交付清单: 新增 `tests/frontmatter.test.ts` / `tests/index.test.ts` / `tests/assemble.ts` / `tests/integration/plugin.test.ts`; 删除 0 条用例与 0 个夹具.
 
+### 阶段 3 代码整理（分支 `history-cleanup/03-code-command-template`）
+
+- 删失效导出: `declaredModels` (`src/steps.ts:276`, 9 行) 与 `availableProviders` (`src/subagent.ts:335`, 10 行). 删前重扫全仓 (`src` / `tests` / `scripts` / `docs`), 除总追踪与本文件的待删清单外零引用; 连带删 `src/steps.ts` 的 `ModelRef` 类型 import.
+- 删 `src/timers.ts` (本地副本 205 行): `src/index.ts` 的 `createDeadline` / `resolveClock` 与类型 `ClockTimers` / `Deadline`、`src/subagent.ts` 的类型 `Deadline`、`tests/clock.test.ts` 的 `createDeadline` / `ManualClock` / `resolveClock` 一并改从 `@dsh-toolset/clock-base` 入口引; 不再引 `../../clock-base/src/timers.ts`.
+- 上下文对象守卫: 入口 `apply` 判一次 (非对象按空上下文 `{}` 处理, 之前 `ctx` 为 `null` 时会在读 `provide` 处抛); `src/host.ts` 的 `readService` 是宿主服务读取的唯一入口, 对象判断只此一处; 下游 (`CommandTemplateService.#ctx` / `runOneShotAgent` 收到的 ctx) 不再重复判.
+- `package.json` 加 `dependencies.@dsh-toolset/clock-base = link:../clock-base`, 本包目录 `pnpm install` 更新 `pnpm-lock.yaml` (importer 加 dependencies 一项, 并建 `node_modules/@dsh-toolset/clock-base -> ../clock-base`).
+- 告警文案: `clock` 缺席的告警由本包持有 (`src/index.ts` 的 `CLOCK_MISSING_WARNING`), `resolveClock` 只负责探测与回落; 文案与告警一次的口径不变.
+- 行为不变: 工具名 / 命令名 / 参数面 / `output.render` 投影 / 配置键 / 注入文案 / 降级路径 / 告警文案都未动; 48 条单元与 12 条集成用例的断言与标题未改.
+- 交付清单: 删 1 个文件 (`src/timers.ts`) 与 2 个导出; 新增 0 个文件.
+
 ## 偏差
 
-无 (`src` 未改动, 未新增依赖).
+无 (`src` 未改动, 未新增依赖). 以上为阶段 2 记录; 阶段 3 的偏差如下.
+
+- `clock-base` 的 `resolveClock` 告警文案用半角标点 (「, 回落进程内定时器…; 本条…」), 与本包原口径 (「，…；」) 不同 (`clock-base` 收拢时按现行标点规范改写). 为守住「用例断言不改」与「文案不动」(`tests/integration/plugin.test.ts:463` 精确断言全文), 告警文案留在本包入口作常量, `clock-base` 只负责探测与回落; 未保留副本, 也未写兼容分支.
+- 跨包 import 走包名 (解析到 `clock-base/dist/`), 故 `check` / `test` 前须先 `pnpm -C ../clock-base run build`; 与实现规划的前置要求一致, 代价是本包测试多一条构建前置.
+- `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 保持原样未动 (改入口 import 后本已可纳入 `include`, 实测 `check` 也通过, 但不属实现规划列出的文件, 留阶段 4 或后续条目评估).
+- `command-template/docs/DESIGN.md:46` 仍提到 `availableProviders(ctx)`; 包文档按实现规划留到阶段 4 补, 本次未动.
 
 ## 测试与证据
 
@@ -96,3 +111,16 @@ rm -rf ../tmp/cov-command-template && mkdir -p ../tmp/cov-command-template && NO
 分支覆盖分母说明: 370 → 476 不是新增分支, 而是 V8 按需编译——改前未被任何用例调用的函数不产出块区间, 新增用例把 `apply` / 命令 handler / 宿主模块解析等函数拉进执行面后这些区间才出现; 已覆盖分支数 218 → 350 同步上升, 无下降文件.
 
 未覆盖行 (改后, 工具口径): `frontmatter.ts` 119-123, 137, 177-178, 185-186, 188-192, 196-199, 218, 220-222, 224-225, 249, 251-252, 256-259, 262, 290-292, 295, 299-304, 321, 323-326, 334-335, 338-340, 342-365, 400, 441, 455, 475; `host.ts` 13, 19, 26, 37-39, 58-59; `index.ts` 75-77, 80, 95-96, 203, 208, 213-216, 222-223, 234, 236, 264, 359, 361-363; `registry.ts` 11-14, 24, 28, 33, 39, 61-62, 77-79; `steps.ts` 90, 115, 132, 135, 145-147, 160-169, 197, 205-207, 253, 257-266; `subagent.ts` 59-62, 87, 115, 120, 127-128, 131-132, 183-184, 190-192, 213, 235-236, 244, 246, 257, 260-274, 277-278, 283-298; `timers.ts` 16-19, 31-34, 37, 39, 41, 47, 57-60, 73, 91-93, 105-106, 113-117, 122-125, 127-129, 133-134, 144, 157-159. 其中纯类型行、上述不可达分支与「需要真实宿主 / 真机」的路径 (`importHostModule` 的解析失败重试分支、`availableProviders` 一类诊断函数) 按 4.3 / 4.5 豁免, 真机面留 `scripts/install.sh --sync` 后人工验收.
+
+### 阶段 3 代码整理实跑
+
+前置: `pnpm -C ../clock-base run build` (产出 `dist/`, 供包名 import 解析); 本包目录 `pnpm install` (建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`).
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C command-template run check` | 通过 (`tsc --noEmit`, 无输出) |
+| `pnpm -C command-template run test` | 48 例, pass 48, fail 0, skipped 0, todo 0 |
+| `pnpm -C command-template run test:integration` | 12 例, pass 12, fail 0, skipped 0, todo 0 |
+| `pnpm -C command-template run build` | 通过 (`tsc -p tsconfig.json`) |
+
+改动量: 删 `src/timers.ts` 205 行、`declaredModels` 9 行、`availableProviders` 10 行; 改 5 个文件 (`src/index.ts` / `src/steps.ts` / `src/subagent.ts` / `tests/clock.test.ts` / `package.json`) 与 `pnpm-lock.yaml`, 合计 +27 / -33 行 (不含删除的 205 行). 用例数不变 (单元 48, 集成 12), 断言未改.

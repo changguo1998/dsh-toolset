@@ -12,8 +12,8 @@ import { randomUUID } from "node:crypto";
 import { describe, readService } from "./host.ts";
 import { loadDefaultTemplates, type LoadResult } from "./registry.ts";
 import { budgetOrInfinity, runTemplate } from "./steps.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
-import type { ClockTimers, Deadline } from "./timers.ts";
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+import type { ClockTimers, Deadline } from "@dsh-toolset/clock-base";
 import type {
   CommandTemplateConfig,
   ModelRef,
@@ -49,6 +49,10 @@ export const ENTRY_SUBCOMMANDS = ["list", "show", "reload"] as const;
 
 /** Config 契约别名（DSH bundle §0 的 `Config`）。 */
 export type Config = CommandTemplateConfig;
+
+/** clock 服务缺席时的告警文案（本包用户面口径，兜底日志与用例按它断言）。 */
+const CLOCK_MISSING_WARNING =
+  "clock 服务不可用，回落进程内定时器（排期不随插件卸载撤销；本条每个插件实例只告警一次）";
 
 /** 服务面（`provide`）暴露的方法键清单；新增公开方法时必须同步（D5 教训，测试守卫）。 */
 export const SERVICE_FACE_METHODS = [
@@ -128,18 +132,19 @@ export class CommandTemplateService {
         process.stderr.write(`[${name}] ${message}\n`);
       }
     };
-    this.#timers = resolveClock(ctx, (message) => {
+    // 文案由本包持有（`clock-base` 只负责探测与回落），保证告警口径不变。
+    this.#timers = resolveClock(ctx, () => {
       try {
         const logger = ctx.logger?.(name) as
           { warn?: (text: string) => void } | undefined;
         if (typeof logger?.warn === "function") {
-          logger.warn(message);
+          logger.warn(CLOCK_MISSING_WARNING);
           return;
         }
       } catch {
         // 落到 stderr
       }
-      process.stderr.write(`[${name}] warn: ${message}\n`);
+      process.stderr.write(`[${name}] warn: ${CLOCK_MISSING_WARNING}\n`);
     });
     this.#deadline = createDeadline(this.#timers.scoped, ctx);
   }
@@ -401,14 +406,16 @@ export function apply(
   ctx: BundleHost & Record<string, unknown> = {},
   config: CommandTemplateConfig = {},
 ): void {
-  const service = new CommandTemplateService(ctx, config);
+  // 上下文对象守卫：入口判一次（非对象按空上下文处理），下游助手不再重复判。
+  const host: BundleHost = ctx === null || typeof ctx !== "object" ? {} : ctx;
+  const service = new CommandTemplateService(host, config);
   if (config.disabled === true) {
     process.stderr.write(`[${name}] 已禁用（config.disabled）\n`);
     return;
   }
   service.load();
   service.register();
-  const provideSvc = ctx.provide;
+  const provideSvc = host.provide;
   if (typeof provideSvc === "function") {
     provideSvc("commandTemplate", serviceFace(service));
   }
