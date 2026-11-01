@@ -244,7 +244,7 @@ test("tools/change: 只刷新检索索引, 新工具可被检索并揭示", asyn
   assert.ok((app.host.activeMask() ?? []).includes("quantum_tool"));
 });
 
-test("denylist: 只遮 initialTools, reveal 不改变名单", async (t) => {
+test("denylist: 只遮 initialTools, 揭示可见项为空操作, 揭示被挡项收缩遮罩", async (t) => {
   const app = assemble();
   app.apply({ maskMode: "denylist", initialTools: ["bash", "read"] });
   t.after(() => app.dispose());
@@ -256,10 +256,25 @@ test("denylist: 只遮 initialTools, reveal 不改变名单", async (t) => {
   assert.ok(mask.includes("write"), "清单外工具应可见");
   assert.ok(mask.includes("rule_add"));
 
+  // 已在可见集: 揭示是空操作, 不重挂遮罩。
   const calls = app.host.restrictCalls.length;
-  await app.executeText({ names: ["task_status"] });
-  assert.equal(app.host.restrictCalls.length, calls + 1, "揭示会重挂遮罩");
-  assert.deepEqual(app.host.activeMask(), mask, "denylist 名单不随授权变化");
+  const visible = await app.executeText({ names: ["task_status"] });
+  assert.ok(visible.includes("已在可见集"), visible);
+  assert.equal(app.host.restrictCalls.length, calls, "揭示已可见项不重挂遮罩");
+  assert.deepEqual(app.host.activeMask(), mask, "名单不变");
+
+  // 被挡项: 揭示后该名进入允许集, 遮罩收缩并重挂一次。
+  const revealed = await app.executeText({ names: ["bash"] });
+  assert.ok(revealed.includes("已揭示"), revealed);
+  assert.equal(
+    app.host.restrictCalls.length,
+    calls + 1,
+    "揭示被挡项会重挂遮罩",
+  );
+  const narrowed = app.host.activeMask() ?? [];
+  assert.ok(narrowed.includes("bash"), "被挡项揭示后应可见");
+  assert.ok(!narrowed.includes("read"), "未揭示的被挡项仍被挡住");
+  assert.equal(narrowed.length, mask.length + 1);
 });
 
 test("maskMode=off: 零遮罩, 咨询工具仍可揭示", async (t) => {

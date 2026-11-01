@@ -261,8 +261,12 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
 
   let allow: string[];
   if (runtime.config.maskMode === "denylist") {
+    // denylist 下清单是隐藏集，但已授权的工具仍要放行（与 `isVisible` 同口径）。
     const hidden = new Set(runtime.initialNames);
-    allow = [...restrictable].filter((toolName) => !hidden.has(toolName));
+    const granted = new Set(runtime.grants.allowedNames());
+    allow = [...restrictable].filter(
+      (toolName) => !hidden.has(toolName) || granted.has(toolName),
+    );
   } else {
     const granted = runtime.grants
       .allowedNames()
