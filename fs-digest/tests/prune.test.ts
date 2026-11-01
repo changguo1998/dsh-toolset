@@ -1,4 +1,4 @@
-// tests/prune.test.ts — pruned 模式：预算、头尾比例、省略标记、边界吸附
+// fs-digest/tests/prune.test.ts — pruned 模式：预算、头尾比例、省略标记、边界吸附
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 

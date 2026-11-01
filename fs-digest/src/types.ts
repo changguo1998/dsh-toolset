@@ -1,4 +1,4 @@
-// src/types.ts — fs-digest 核心类型：三模式（outline/signatures/pruned）的输入输出契约。
+// fs-digest/src/types.ts — fs-digest 核心类型：三模式（outline/signatures/pruned）的输入输出契约。
 // 结果统一 JSON-serializable（dsh tool/result 值约束）；行号一律 1 基。
 
 /** 三种读取模式。 */

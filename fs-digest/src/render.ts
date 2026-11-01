@@ -1,4 +1,4 @@
-// src/render.ts — fs_digest 工具结果的文本渲染（模型侧唯一可见面；工具 JSON 值不直接面向模型）。
+// fs-digest/src/render.ts — fs_digest 工具结果的文本渲染（模型侧唯一可见面；工具 JSON 值不直接面向模型）。
 // 预算：标题树与块清单**各有独立上限**，避免大文档时块清单被树挤掉；超出各自打省略标记。
 
 import type { MdBlock, OutlineNode } from "./types.ts";

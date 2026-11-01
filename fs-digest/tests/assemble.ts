@@ -2,13 +2,13 @@
  * 集成层装配器: 用假工具面 / 假事件面 / 假服务面拼出宿主并调用 `apply`.
  *
  * 三个假面的形状按总追踪 4.2 的口径 (工具 / 事件 / 服务), 本文件不以 `.test.ts` 结尾,
- * 也不计入覆盖率 (dev/coverage 只统 `src`). 集成用例一律经本装配器接宿主,
+ * 也不计入覆盖率 (dev/coverage 只统 `fs-digest/src`). 集成用例一律经本装配器接宿主,
  * 不直接 import 宿主运行时.
  */
 
 import { apply } from "../src/index.ts";
 
-/** apply 的配置形态 (与 `src/index.ts` 的 `Config` 同形, 不跨包引类型). */
+/** apply 的配置形态 (与 `fs-digest/src/index.ts` 的 `Config` 同形, 不跨包引类型). */
 export type ApplyConfig = NonNullable<Parameters<typeof apply>[1]>;
 
 /** 工具定义的最小结构面 (`ctx.tools.register` 的入参形状). */

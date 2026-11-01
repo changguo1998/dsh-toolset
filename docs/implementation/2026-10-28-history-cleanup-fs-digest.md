@@ -61,9 +61,17 @@ rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE
 - 专项: `tests/fixtures/` 5 个夹具全部仍被引用 (`tests/digest.test.ts` 与 `demo/main.ts`), 无删除; `skip` / `todo` 改前改后均为 0, 未新增.
 - `src` 未改动.
 
+- 阶段 3 代码整理 (分支 `history-cleanup/03-code-fs-digest`):
+  - 上下文对象守卫: `fs-digest/src/lsp.ts` 的 `ctx === null || typeof ctx !== "object"` 收拢成本文件内的唯一函数 `contextContainer(ctx)` (非对象, 含 `null` / `undefined` / 原始值 → `undefined`), 全包只剩这一处判定; `readLspSurface` 先取容器再判一次. 入口 `fs-digest/src/index.ts` 的 `apply` 不前置判定: 仍按原样读 `ctx.tools` 并把 `ctx` 交给 `digest`, 非对象 (含 `null`) 在读取处抛错, 与改前完全一致. 判定结果不变: 非对象上下文一律视为无上下文, `digest(null, …)` 等直调路径的降级行为与改前一致.
+  - 零引用导出: 按 5.2 重扫本包 55 个导出 (`src` 全量, 含入口 5 个契约符号与 `types.ts` 的对外类型), 在 `src` / `tests` / `demo` / 仓内文档里均有引用, 零引用导出 0 个, 无删除; `contextContainer` 只在 `fs-digest/src/lsp.ts` 内用, 不导出.
+  - 路径注释: `src/` / `tests/` / `demo/` 文件头与正文里的包内简写路径补成仓根路径 (如 `fs-digest/src/lsp.ts`), 涉及 10 个 `src` 文件、5 个单元测试文件、`tests/assemble.ts`、`tests/integration/plugin.test.ts` 与 `demo/main.ts`; 计数注释本包没有; `README.md` 里 `index.ts → src/main.ts` 的旧描述属包文档, 留阶段 4.
+
 ## 偏差
 
-无 (未改 `src`; 集成层与单元层均只经公开导出与既有工具面).
+- 阶段 2: 无 (未改 `src`; 集成层与单元层均只经公开导出与既有工具面).
+
+- 阶段 3: 首笔提交 (`b45807d5`) 曾把守卫前置到 `apply`, 使非对象上下文 (含 `null`) 由「读 `ctx.tools` 抛 `TypeError`」变为静默返回, 属行为变化; 修正提交已恢复改前行为 (入口不前置判定, 守卫只收拢判定位置), 现有用例不含该路径.
+- 阶段 3 覆盖率: 行 91.5% (1265/1382) → 91.7% (1277/1392), 分支 80.4% (386/480) → 80.5% (388/482), 两项均升. 分母 +10 行 / +2 分支为新增 `contextContainer` (行 1277 中 12 行为新覆盖) 与它的三元判定; 无未触达的新增分支.
 
 ## 测试与证据
 
@@ -102,3 +110,16 @@ rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE
 - 行覆盖分母稳定 (1382 全书一致), 行数只升不降 (1234 → 1265); 分支分母在两次运行间有 ±10 内波动 (V8 block 统计口径), 以百分比与改前同命令对比.
 - 契约面: 错误码 7/7 被断言 (`invalid_option` / `file_not_found` / `not_a_file` / `too_large` / `binary` / `lsp_unavailable` / `unsupported_language`); `src/index.ts` 的运行时导出 (`name` / `inject` / `apply` / `digest` / `DIGEST_MODES`) 均有用例触达.
 - `src/read.ts` 38-43 (stat 成功后的 `readFile` 失败) 为竞态防御分支, 测试内无法确定性复现, 按 4.3 豁免并在用例旁不写假用例; 其余未覆盖行多为多行表达式 / 正则 / 三元续行在 V8 行映射上的归属偏移, 非行为缺口.
+
+### 阶段 3 代码整理 (改动后实跑)
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C fs-digest run check` | 通过, 无输出 (exit 0) |
+| `pnpm -C fs-digest run test` | 75 通过 / 0 失败 / 0 skipped / 0 todo |
+| `pnpm -C fs-digest run test:integration` | 12 通过 / 0 失败 / 0 skipped / 0 todo |
+| `pnpm -C fs-digest run test:coverage` | 87 通过 / 0 失败; 行 91.7% (1277/1392), 分支 80.5% (388/482) |
+
+用例文件只改了文件头与正文的路径注释, 断言一条未改; 未新增 / 删除用例. 未覆盖行集合与阶段 2 表同构, 只是行号顺移 (`fs-digest/src/index.ts` 的 165 / 177 对应阶段 2 的 169 / 170 一类注释行与括号行); 分母变化来自 `contextContainer` 的函数体与三元判定 (分支 388/482 全部触达), `fs-digest/src/lsp.ts` 的行覆盖率 95.7% → 100.0%.
+
+行为不变的手工探针 (一次性, 未入用例): `apply(null)` / `apply(undefined)` 抛 `TypeError: Cannot read properties of null|undefined (reading 'tools')`, 与改前一致; `apply({})` 与 `apply(5)` 静默返回.

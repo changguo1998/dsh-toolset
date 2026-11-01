@@ -1,6 +1,6 @@
 /**
- * 集成层用例 (`tests/integration/plugin.test.ts`):
- * 用 `tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面拼宿主并调用 `apply`,
+ * 集成层用例 (`fs-digest/tests/integration/plugin.test.ts`):
+ * 用 `fs-digest/tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面拼宿主并调用 `apply`,
  * 断言工具注册名、`execute` 的 canonical 值、`output.render` 投影与服务面接线.
  *
  * 需要真实文件的用例落在临时目录, 用后统一清理; LSP 符号经假服务面注入,

@@ -1,4 +1,4 @@
-// src/prune.ts — pruned 模式：语言无关的智能裁剪。
+// fs-digest/src/prune.ts — pruned 模式：语言无关的智能裁剪。
 // 预算 = min(maxLines, maxTokens*4 字符)；保留头部约 2/3 + 尾部约 1/3，
 // 切点吸附到最近的边界行（空行 / 分隔线 / Markdown 标题 / 闭合括号行 / 顶层语句结束），
 // 中间插入一行省略标记。文件本身在预算内时 truncated=false 返回全文。

@@ -1,4 +1,4 @@
-// tests/outline.test.ts — outline 三来源（markdown / TS-JS / Python / LSP）
+// fs-digest/tests/outline.test.ts — outline 三来源（markdown / TS-JS / Python / LSP）
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
