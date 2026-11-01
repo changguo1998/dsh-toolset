@@ -9,8 +9,8 @@
 //
 // 失败一律抛错：上层（steps.ts）转 `step_failed` 并给出可读原因；不静默降级为「忽略模型覆盖」。
 
+import type { Deadline } from "@dsh-toolset/clock-base";
 import { describe, importHostModule, readService } from "./host.ts";
-import type { Deadline } from "./timers.ts";
 import type { ModelRef } from "./types.ts";
 
 /** 宿主 `SubagentRuntime` 的最小形态（服务面；一次性运行走 `start(name, request)`）。 */
@@ -329,15 +329,4 @@ export function clamp(text: string, maxBytes = MAX_RESULT_BYTES): string {
   while (end > 0 && Buffer.byteLength(text.slice(0, end), "utf8") > maxBytes)
     end -= 1;
   return `${text.slice(0, end)}\n[…结果已截断]`;
-}
-
-/** 供诊断：当前可用的子代理 provider 名单（失败 → 空数组）。 */
-export function availableProviders(ctx: unknown): string[] {
-  const runtime = readService<SubagentRuntimeLike>(ctx, "subagents");
-  try {
-    return runtime?.list?.() ?? [];
-  } catch (err) {
-    void describe(err);
-    return [];
-  }
 }
