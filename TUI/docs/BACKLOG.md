@@ -14,7 +14,7 @@
 - **#3 拆 `TUI/src/app/adapter/dsh.ts` 的 `DshAdapter`**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/adapter/dsh.ts` 3604 行, `DshAdapter` 持有连接 / 会话 / 审批 / 工具事件等多组状态, 阶段 3 已把可独立搬移的辅助层与审批登记表拆出, 余下方法互相读写私有字段 → 期望先把适配器状态收成显式上下文对象, 再按「连接与会话 / 事件转接 / 审批桥」拆文件, 对外可见集合、事件顺序与帧内容不变 → 落点 `TUI/src/app/adapter/dsh.ts` 与新增 `adapter/*.ts` → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿且帧基线一致 → 来源 `docs/implementation/2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
 - **#4 收拢布局层的 `delivery.kind === "user"` 判断**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/layout/pipeline/sections.ts:641` 起有 7 处 `delivery.kind === "user"` 直接比较, 与总追踪 5.6「消息谓词收进 `state.ts`」的收拢口径有差距; 这些比较是 `switch (delivery.kind)` 判别式下方的收窄条件, `state/updates.ts` 的 `isUserMessage` 只接受字符串, 直接换成普通谓词会丢类型收窄 → 期望补一个类型守卫形式的 `isUserDelivery` (或让 `isUserMessage` 收窄入参), 布局层统一改调, 判断结果与帧内容不变 → 落点 `TUI/src/app/state/updates.ts` 与 `TUI/src/app/layout/pipeline/sections.ts` → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿 → 来源 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md` T4 与 `2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
 
-> 2026-10-27 关闭：`/model`、`/provider`、`/effort` 带参切换（含 `:effort` 后缀）与目录组合校验、启动参数指定 provider / model / effort 三条完成并移出清单（`npm run check` 0、`npm test` 1821/1821、build 成功、live profile 已同步 dist；追踪文档 `TUI/docs/archived/2026-10-27-provider-effort-args.md` / `2026-10-27-model-name-validation.md` / `2026-10-27-startup-model-flags.md`）。
+> 2026-10-27 关闭：`/model`、`/provider`、`/effort` 带参切换（含 `:effort` 后缀）与目录组合校验、启动参数指定 provider / model / effort 三条完成并移出清单（`pnpm run check` 0、`pnpm test` 1821/1821、build 成功、live profile 已同步 dist；追踪文档 `TUI/docs/archived/2026-10-27-provider-effort-args.md` / `2026-10-27-model-name-validation.md` / `2026-10-27-startup-model-flags.md`）。
 
 > 2026-10-27 关闭：`TUI 配置迁到 profile patch` 完成并移出清单（提交 `41b2d44`：`DshTuiConfig` 扁平展开 `layout` / `notify` / `session` / `approval` / `localLog`、主题段改名 `colorschema`、`mergeTuiConfig`（patch > 文件 > 默认，段内逐键）；示例 patch 与 `~/.dsh/profiles/fff`、`fff.bak` 同步写入；新增 `tests/tui-config-merge.test.ts`，全量 1809 例绿；追踪文档 `TUI/docs/archived/2026-10-27-tui-config-to-patch.md`）。
 
@@ -28,7 +28,7 @@
 
 > 2026-10-27 关闭（不立项）：「表格单元格内 `<br>` 换行未支持」不做并移出清单 —— 用户裁定表格不做单元格换行。
 > 2026-10-27 关闭：「新会话跑一会儿后整机卡死」真机复验通过（用户确认目前无问题）并移出清单 —— 根因 = 列表起始判定与解析口径分叉（`LIST_RE` 认裸标记、`listItemMark` 不认）导致的解析死循环；修法 = 删除 `LIST_RE`、统一 `isListItemStart` + 空产出必推进兜底，提交 `5070fe4`，回归 `tests/pipeline-parse.test.ts` 六形态与 `tests/layout-hang-guard.test.ts`。
-> 2026-10-27 关闭：`嵌套列表按缩进产真子列表` 完成并移出清单（§2 parse 按前导缩进每 2 列一层产层级、§4 structure 按条目缩进列数排版；四条 `test.todo` 全部转正；`npm run test:tui` 1798 例全绿 / 0 todo；追踪文档 `TUI/docs/archived/2026-10-27-nested-list.md`）。
+> 2026-10-27 关闭：`嵌套列表按缩进产真子列表` 完成并移出清单（§2 parse 按前导缩进每 2 列一层产层级、§4 structure 按条目缩进列数排版；四条 `test.todo` 全部转正；`pnpm run test:tui` 1798 例全绿 / 0 todo；追踪文档 `TUI/docs/archived/2026-10-27-nested-list.md`）。
 
 > 2026-10-26 关闭：`排查表格排版修复后的副作用（额外空行 / 竖线断掉）` 完成并移出清单（本任务只到决策，未单独实现修法：两个根因——表格行高二次解析、measure 与 fill 折行口径分叉——已由渲染流水线重构从结构上消除；追踪文档 `TUI/docs/archived/2026-10-24-table-layout-side-effects.md`）。
 
@@ -36,7 +36,7 @@
 
 > 2026-10-24 关闭：`#1` notice 行统一为 `[hh:mm:ss <来源>] 正文` 完成并移出清单（实现含 deliverBufferTail 补漏, 即 compaction/retry 等直落 toast 也带前缀; 追踪文档 `TUI/docs/archived/2026-10-24-notice-line-format.md`; 复验 1760 例 + 冒烟 42 PASS; demo 脚本不再内嵌 build）。
 
-> 2026-10-22 接取：全部 5 条标〔进行中: 2026-10-22〕，追踪文档 `TUI/docs/implementation/2026-10-22-*.md`（hmr-no-exit / config-editor-surface / code-block-tab / table-content-mismatch / user-block-right-gap）；本次只建文档，调研与实现未开始。
+> 2026-10-22 接取：全部 5 条标〔进行中: 2026-10-22〕，追踪文档 `TUI/docs/archived/2026-10-22-*.md`（hmr-no-exit / config-editor-surface / code-block-tab / table-content-mismatch / user-block-right-gap）；本次只建文档，调研与实现未开始。
 
 > 历史（2026-10-13 至 2026-10-22）：本清单关闭过的 20 余条过程记录全在 `TUI/docs/archived/`（按日期命名，逐条对应），本文件不再保留逐条关闭注记。要点按档：`2026-10-13-*`（HMR 主题退出 / tui 配置重建 fiber）、`2026-10-14-*`（`@` 文件补全 / 焦点键与提示行）、`2026-10-15-*`（打断发送与 `!` 模式 / 焦点保持 / 相位抖动）、`2026-10-16-*`（提示键审计 / 审批超时 / 宽度探测 / 思考排版 / 干净退出 / 边界留白）、`2026-10-17-*`（字符格高宽比）、`2026-10-18-*`（活动区开关 / 用户块平衡 / 五项清单）、`2026-10-19-*`（notice 模型可见 / 列表类型）、`2026-10-21-help-align-4.md`（help 4 空格档位）。
 > 2026-10-22 登记：新增两条（同一发现源——改 `output-compress` 行 config 后 dsh 直接退出；排查确认是 HMR 行级重载 + TUI `process.exit` 链路），状态均未接取。

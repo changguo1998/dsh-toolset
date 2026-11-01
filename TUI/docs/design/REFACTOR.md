@@ -26,7 +26,7 @@
 | `src/app/adapter/dsh.ts` | 外部边界 | 真实 adapter：ctx 订阅与事件归一化、服务调用与降级；纯函数（`forkErrorMessage` / `contractSummaryText` / 多 provider 搜索结果聚合） |
 | `src/app/layout.ts` | 排版 | 几何唯一来源 `frameGeometry` + 四区域帧组装；重导 `layout/` 下的宽度原语、markdown 纯函数、内容规则与 help 排版 |
 | `src/app/layout/*.ts` | 排版 | `box`（类型）、`measure`（measure/allocate）、`fill`（fill 摊平）、`build-box`（分区树 + 内容映射）、`focus-frame`（焦点框覆写）、`panel`（面板场景原语）、`table`（表格构建期降级）、`markdown`（宽度原语 + 行内/块级解析）、`tool-line`（工具行文本）、`content-rules`（跨文件共享的排版规则常量）、`primitives`（宽/折行原语）、`cache`（排版缓存）、`help`（/help 双列排版）——逐文件职责见 `TUI/docs/DESIGN.md`「Box 排版模型 · 模块归属」 |
-| `src/app/components/*` | 排版 | 各面板 / 输入框的 Box 生成器（`buildXxxBox`，薄包装 `fillBoxTree`） |
+| `src/app/components/*` | 排版 | 各面板 / 输入区的 Box 生成器（`buildXxxBox`，薄包装 `fillBoxTree`） |
 
 - `state.ts`、`renderer/` 为拆分禁区（reducer / 渲染层保持整体）。
 - 兼容策略：原文件重导公共符号（`index.ts` 重导 `formatModelCatalog` / `resolveModelSpec`；`layout.ts` 重导 `layout/` 的宽度原语与 markdown 纯函数；`adapter/dsh.ts` 显式重导 `normalize.ts` 函数与 tool-bootstrap 符号，**不用 `export *`**，避免 verbatimModuleSyntax 与循环依赖），外部 import 路径不变。

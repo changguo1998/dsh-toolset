@@ -34,16 +34,16 @@
 |----|------|------|
 | notice | 活动区瞬态行（info / log / warn / error / success） | `this.notice(text, tone)` |
 | 面板 | 活动区窗口内的列表面板（§4） | 共享 `buildCommandListPanelBox` |
-| 预填型 | `reduceState(s, { type: "input", text, cursor })` 写回输入框 | 为后续命令预留，当前无命令使用 |
+| 预填型 | `reduceState(s, { type: "input", text, cursor })` 写回输入区 | 为后续命令预留，当前无命令使用 |
 
 ## 4. 面板通用契约
 
 **渲染位置（重要）**：面板渲染在**活动区窗口**，不是底部交互区。
 
 - 选型点在 `layout.ts` `buildActivePanelBox(state, activityH, contentW)`，优先级：`approval` > `question` > `picker` > `statusPanel` > `jobsPanel` > `commandPanel` > `history` > `completion`；返回 `null` 时活动区显示瞬态行。
-- 面板用活动区高度 `activityH` 与内容宽度 `contentW` 构建并 fill 进活动区窗口；面板态底部输入区在**问题交互态（问答 / 审批）改显最近 notice**（尾 `footerHeight` 行、tone 与 hanging 口径同活动区），其余面板为空白占位；提示区 **1 至 2 行**（显示该面板键位，文案见 `layout/hints.ts` 的 `hintLine(state)`；行数由 `layout.hintRowsFor(state, cols)` 按当前文案与终端宽算出——按 `·` 边界折行、超 2 行截断，空文案占位 1 行），`footerHeight = max(1, interaction − hintRows)`——面板开关不改变交互区高度（避免顶区跳动）；**面板内不再内嵌键位提示**。
+- 面板用活动区高度 `activityH` 与内容宽度 `contentW` 构建并 fill 进活动区窗口；面板态底部输入区在**问题交互态（问答 / 审批）改显最近 notice**（尾 `footerHeight` 行、tone 与 hanging 口径同活动区），其余面板为空白占位；提示行 **1 至 2 行**（显示该面板键位，文案见 `layout/hints.ts` 的 `hintLine(state)`；行数由 `layout.hintRowsFor(state, cols)` 按当前文案与终端宽算出——按 `·` 边界折行、超 2 行截断，空文案占位 1 行），`footerHeight = max(1, interaction − hintRows)`——面板开关不改变交互区高度（避免顶区跳动）；**面板内不再内嵌键位提示**。
 
-**接线点（现状）**：`buildActivePanelBox` 按优先级选型（`commandPanel` 插在 `jobsPanel` 之后、`history` 之前）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history）——提示区不再随面板隐藏（`FrameGeometry.showHint` 已移除，提示文案由 `layout/hints.ts` 按状态给出；`normalInput` 局部亦于 2026-10-10 死代码清理删除），布局层无独立的 `&& !commandPanel` 条件；PgUp/PgDn 页高取活动区可视行数——在 `index.ts` 按键分支内按 `frameGeometry(state, renderer.getSize()).activityH` 计算（`jobs-panel-page` 与 `command-panel-page` 同一口径）。（`fillPanelBox` / `modalPanel` 与活动区渲染由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
+**接线点（现状）**：`buildActivePanelBox` 按优先级选型（`commandPanel` 插在 `jobsPanel` 之后、`history` 之前）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history）——提示行不再随面板隐藏（`FrameGeometry.showHint` 已移除，提示文案由 `layout/hints.ts` 按状态给出；`normalInput` 局部亦于 2026-10-10 死代码清理删除），布局层无独立的 `&& !commandPanel` 条件；PgUp/PgDn 页高取活动区可视行数——在 `index.ts` 按键分支内按 `frameGeometry(state, renderer.getSize()).activityH` 计算（`jobs-panel-page` 与 `command-panel-page` 同一口径）。（`fillPanelBox` / `modalPanel` 与活动区渲染由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
 
 **共享面板模型（不复制 N 套 state/reducer）**：所有列表面板共用一个判别联合与一套实现，kind = `skills` / `agents` / `tools` / `task` / `guard` / `loop` / `workflows` / `search`：
 
@@ -76,7 +76,7 @@ commandPanel: {
 
 - 命令名规则 `^/([a-z][a-z0-9_-]*)`；别名在 `LOCAL_COMMANDS` 内以独立条目指向同一 route（先例 `/clearscreen` + `/cls`）。
 - 与宿主注册命令同名时**本地优先**（先例 `/goal`、`/permission`）；本地未消费的形态应转发宿主——`/goal` 已**无本地行为**（条目仅提供帮助 / 补全描述，`route: "registry"`，全形态交宿主 `dsh-command-goal`，2026-10-06 起），`/permission` 无参走本地面板、带参转发宿主。
-- `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `npm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（当前 40 项，2026-10-02 实测：删除 `/preset` 命令的三项断言后）。
+- `/help` 必须同步加行；help 行数变化会改变冻结基线（`tests/fixtures/focus-frame-legacy.json`）→ 重跑 `node --experimental-transform-types scripts/freeze-focus-frame.mts` 并 diff 审查，随后 `pnpm run demo -- --smoke` 断言 `SMOKE_PASS` 全绿（当前 40 项，2026-10-02 实测：删除 `/preset` 命令的三项断言后）。
 
 ## 6. 测试口径（每条命令必备）
 
