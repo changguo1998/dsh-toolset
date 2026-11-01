@@ -64,6 +64,12 @@ rm -rf ../tmp/cov-goal-contract && mkdir -p ../tmp/cov-goal-contract && NODE_V8_
 - `package.json`: 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (`NODE_V8_COVERAGE=../tmp/cov-goal-contract` 跑单元加集成, 再跑 `dev/coverage/report.mjs`).
 - 改动的文件: `goal-contract/tests/assemble.ts` (新)、`goal-contract/tests/integration/plugin.test.ts` (新)、`goal-contract/tests/clauses.test.ts`、`goal-contract/tests/contract.test.ts`、`goal-contract/tests/interview.test.ts`、`goal-contract/tests/tool.test.ts`、`goal-contract/package.json`、本追踪文档.
 
+### 阶段 3 代码整理
+
+- 删失效类型 `GoalContract` (`src/types.ts:29`): 全仓无引用, 只声明未使用.
+- `src/index.ts:5` 的路径注释补成完整路径 `task-engine/src/index.ts` (阶段 1 已把该包入口从 `src/main.ts` 迁到 `src/index.ts`).
+- 行为不变.
+
 ## 偏差
 
 无. `src` 未改动; 包 `README.md` 的「测试」节按实现规划留到阶段 4.
