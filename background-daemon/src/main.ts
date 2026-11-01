@@ -45,7 +45,7 @@ import {
   createDaemonService,
   type BackgroundDaemonService,
 } from "./service.ts";
-import { readService } from "./services.ts";
+import { contextContainer, readService } from "./services.ts";
 import { TaskStore } from "./store.ts";
 import { DaemonSwitch } from "./switch.ts";
 import { createTargetValidator } from "./target.ts";
@@ -221,10 +221,13 @@ interface InjectFace {
 
 /** 读 `ctx.inject`：属性读取在 cordis 下对未声明的键会抛（同 `readService` 的理由）。 */
 function readInject(ctx: unknown): InjectFace["inject"] {
-  if (ctx === null || typeof ctx !== "object") return undefined;
+  const container = contextContainer(ctx);
+  if (container === undefined) return undefined;
   try {
-    const value = (ctx as InjectFace).inject;
-    return typeof value === "function" ? value : undefined;
+    const value = container["inject"];
+    return typeof value === "function"
+      ? (value as InjectFace["inject"])
+      : undefined;
   } catch {
     return undefined;
   }

@@ -27,8 +27,6 @@ export interface CalendarDate {
 /** `Date` 可表示的瞬时上限（±8.64e15 ms）, 超出即 `time_out_of_range`。 */
 export const MAX_INSTANT = 8.64e15;
 
-const MS_PER_DAY = 86_400_000;
-
 /** 时区格式化器缓存（`Intl.DateTimeFormat` 构造开销大, 同进程复用）。 */
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -195,19 +193,4 @@ export function addDays(date: CalendarDate, days: number): CalendarDate {
     month: shifted.getUTCMonth() + 1,
     day: shifted.getUTCDate(),
   };
-}
-
-/** 日历日 → 该日 00:00 的 UTC 毫秒（只用于比较与推进, 不是真实瞬时）。 */
-export function calendarDayMs(date: CalendarDate): number {
-  return Date.UTC(date.year, date.month - 1, date.day);
-}
-
-/** 两天之间的天数差（`later - earlier`, 按日历日）。 */
-export function daysBetween(
-  earlier: CalendarDate,
-  later: CalendarDate,
-): number {
-  return Math.round(
-    (calendarDayMs(later) - calendarDayMs(earlier)) / MS_PER_DAY,
-  );
 }
