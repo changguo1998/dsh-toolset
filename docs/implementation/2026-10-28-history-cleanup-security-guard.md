@@ -60,12 +60,26 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
 - 专项: `tests/script.test.ts` 的发布形态用例, 探测表达式提到文件顶层 (`DIST_BUILT`), 跳过原因补上补法 (`pnpm -C security-guard run build`); `tests/guard.test.ts` 的 `herdr_use` 负断言保留未动。
 - 脚本: `security-guard/package.json` 增加 `test:integration` 与 `test:coverage`, 覆盖率命令与其它包同构 (`report.mjs` 参数 `tmp/cov-security-guard`)。
 - 未改 `src`。
+- 阶段 3 代码整理: 按「实现规划 / 代码」把 `src/index.ts` (1377 行) 按职责拆开, 对外面仍是 `src/index.ts` 单入口 (拆出的文件只从入口 re-export, 不新增对外入口):
+  - `src/tool-registry.ts` (270 行, 规则表): 官方工具集 (`SHELL_TOOLS` / `RUN_CODE_TOOLS` / `FILE_TOOLS` / `FILE_PATH_KEYS` / `WRITE_FILE_TOOLS`)、插件文件与命令登记表及查表、未登记工具三类键集、`UNKNOWN_TOOL_KEY_DEPTH`、遍历资源上限 (`MAX_WALK_*`)、`TOOL_SURFACE`、`toolOperation`。
+  - `src/arg-scan.ts` (243 行, 命令解析): 参数遍历与完整键路径、未登记工具键面 / 值面扫描、插件文件与命令参数提取、`firstString` / `asStringRecord`。
+  - `src/config.ts` (202 行, 配置): `SecurityGuardConfig` / `Config`、`ResolvedConfig`、`resolveGuardConfig`、未登记工具放行名单的编译与匹配。
+  - `src/receipt.ts` (190 行, 原 61 行, 回执文案): 并入未登记工具拦截回执、参数面截断回执、来源标注行、命中键路径列表上限 (`MAX_RECEIPT_*`) 与 `receiptToolName` / `receiptLabelLine`。
+  - `src/engine.ts` (450 行, 判定): `GuardEngine`、`GuardRecord` / `PolicySnapshot` / `GuardService`、`MAX_RECORDS`。
+  - `src/index.ts` (176 行): bundle 契约 (`name` / `provide` / `inject` / `Config`) + 宿主挂接 (`createSecurityGuard` / `apply`) + 全部 re-export。
+- 逐行搬运: 新文件由旧文件的行区间切片生成, 除新增 `export` 关键字与模块头 / import 行外没有改写; 行多重集核对结果见「测试与证据」。
+- 两处配套改动 (行为不变): `tests/guard.test.ts` 的「登记表 commandPaths 防呆」读源文件路径由 `../src/index.ts` 改为 `../src/tool-registry.ts` (断言与用例名未动); `scripts/tool-surface-check.mjs` 的仓库形态回退解析改为把 `src/index.ts` + `src/tool-registry.ts` 拼起来喂同一个解析器 (报告的 `surfacePath` 仍是入口, dist 判旧取两文件 mtime 最大值)。
 
 ## 偏差
 
 - 覆盖率基线口径: 本文件「现状」节记的是行 63.6% (1842/2896), 本分支实测为行 97.5% (1538/1578); 两者统计范围不同, 本阶段以分支实测的「改前 / 改后」两列为准, 未改「现状」节。
 - `test:coverage` 的统计范围: `dev/coverage/report.mjs` 的 `isPackageSource` 只排除 `tests` 与 `node_modules`, 不排除 `dist`, 故 `dist` 已构建时会把它一并计入 (实测行 64.4%)。处理办法: 覆盖轮在删除 `dist` 后跑 (发布形态用例因此跳过 1 条, 属 4.4 保留的「`dist` 未构建」类), 单测轮在 `build` 后跑 (skipped 0)。修 `report.mjs` 属跨包工具改动, 本阶段不做。
 - 集成层断言面: 本包不注册工具、无 `output.render` 投影、也不订阅除 `tools/pre-execute` 外的事件, 故规划里的「工具注册名与 execute 的 canonical 值 / output.render 投影 / 事件消费者注入内容」落为零值断言 (零工具注册、零多余订阅), 实际断言面是服务面 `guard` 与两条判定挂载路径。
+- 拆分粒度: 规划写「规则表 / 命令解析 / 判定」三层, 实际落成五个文件 —— 配置归一 (`config.ts`) 与回执文案 (`receipt.ts`) 各单列。理由: `resolveGuardConfig` 与回执文案在旧文件里各自成块, 并入判定层会让 `engine.ts` 同时承担「读配置 / 拼文案 / 判定」三件事。对外面与行为不变。
+- 回执文案进既有的 `src/receipt.ts` 而非新建 `guard-receipt.ts`: 回执只留一个出口, 两个名字相近的文件反而容易分叉。
+- 计划外文件: `scripts/tool-surface-check.mjs` 不在「实现规划 / 代码」的文件清单里, 但它是本包键集 (键集单一来源) 的仓库形态读取方; 不改会让未构建 `dist` 的仓库形态直接 exit 2, 故按「保持既有行为」做了最小改动。`tests/guard.test.ts` 只改读路径属「只改路径不改断言」。
+- `README.md:133` 仍写 `src/index.ts` 含判定引擎与工具登记表, 拆分后该行已过期; 按规划「包文档」归阶段 4, 本分支未改。
+- 5.2 零引用导出复查: 扫 `src` / `tests` / `scripts`, 入口 34 个导出里 8 个在包外无引用 (`CommandHit` / `CompiledSensitiveRule` / `Config` / `PolicySnapshot` / `SensitiveHit` / `formatCommandReceipt` / `formatSensitiveReceipt` / `remotePipeShellHit`), 但都属入口公开面 (类型与服务面 / 诊断用的回执格式化函数), 且总追踪 5.2 的逐包删除表里没有 `security-guard`; 按 5.1「拿不准的留在原处」本轮不删, 只记录。
 
 ## 测试与证据
 
@@ -106,3 +120,18 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
 
 - 导出覆盖率: `src/index.ts` 的导出名以 `tests/` 引用为准, 新增用例补上 `provide` 与 `resolveGuardConfig` 两处此前无用例引用的导出。
 - 错误码覆盖率: 本包回执是字符串文案、无 `code` 常量, 不适用。
+
+### 阶段 3 代码整理 (本分支)
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C security-guard run check` | 通过 (tsc --noEmit, 无输出) |
+| `pnpm -C security-guard run test` | 160 例, 160 通过, 0 失败, 0 跳过 (`build` 之后跑, 发布形态用例实际通过) |
+| `pnpm -C security-guard run test:integration` | 14 例, 14 通过, 0 失败 |
+| `pnpm -C security-guard run test:coverage` | 通过; 行 99.1% (1622/1637) / 分支 94.1% (416/442) (改前 行 98.9% (1561/1578) / 分支 94.1% (416/442)) |
+| `pnpm -C security-guard run smoke` | 本机未跑通: 缺 `DEEPSEEK_API_KEY` (`MISSING_CREDENTIAL`), 与本次改动无关; 真机验收留 profile 刷新后 |
+
+- 覆盖率分母 +59 行、分支数不变: 增量是拆分新增的 import / re-export 语句行 (可执行), 判定分支与用例断言未变。
+- 分文件覆盖率: `tool-registry` 行 100.0% (137/137) / 分支 95.8% (23/24); `arg-scan` 行 97.8% (174/178) / 分支 94.7% (72/76); `config` 行 99.3% (139/140) / 分支 96.7% (29/30); `engine` 行 99.7% (321/322) / 分支 93.8% (76/81); `index` 行 100.0% (119/119) / 分支 100.0% (16/16); `receipt` 行 98.4% (120/122) / 分支 90.0% (18/20)。
+- 行为对照 (新旧 `dist/src/index.js` 对跑): 入口导出名集合 26 个逐名相同; `TOOL_SURFACE` 与 `DEFAULT_COMMAND_RULES` 的 JSON 逐字节一致; 11 组抽样入参 (shell 命令 / 工作目录 / 官方读写文件 / 插件文件工具 / 插件命令工具含数组键 / 未登记工具 deny 路径 / `run_code`) 的 `inspect` 回执逐字相同, 差异 0; `policy()` 快照与 `inspectCommand` 回执也相同。
+- 逐行搬运核对: 拿旧 `src/index.ts` 的行多重集与新六个文件比对, 缺失 34 行全部是删掉的 import 行与加了 `export` 关键字的声明行; 新文件多出的行只有文件头注释与 import 行, 无改写、无重复。
