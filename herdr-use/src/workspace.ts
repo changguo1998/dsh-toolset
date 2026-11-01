@@ -20,7 +20,6 @@ import { parseEnvelope } from "./cli.ts";
 import type { TerminalRegistry } from "./registry.ts";
 import {
   BACKGROUND_SESSION,
-  resolveConfig,
   type Lane,
   type ResolvedConfig,
   type WorkspaceBinding,
@@ -249,9 +248,4 @@ export async function ensureWorkspace(
   };
   registry.setBinding(session.id, lane, binding);
   return { ok: true, binding, created };
-}
-
-/** 生产路径的缺省配置（供库面单测少写参数）。 */
-export function defaultConfig(): ResolvedConfig {
-  return resolveConfig();
 }

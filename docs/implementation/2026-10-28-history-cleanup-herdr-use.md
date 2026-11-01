@@ -82,6 +82,17 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 - `main.ts`：`preExecuteVerdict` 对非对象参数按空参数处理、缺 `name` 放行、只读回执带目标终端；探活抛错时告警一次且不注册。
 - `workspace.ts`：`readSessionContext` 的 cwd 依次取 `header` / `meta` / `session` / `process.cwd()`，id 缺失即无会话；`workspaceLabel` 的空白与斜杠归一、取不到目录名回退 `dsh`。
 
+### 阶段 3 代码整理（本轮: 不依赖 clock-base 的三项）
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/src/workspace.ts` | 删失效导出 `defaultConfig`（原 253-257 行, 含其文档注释）与随之无用的 `resolveConfig` import; `ResolvedConfig` 类型 import 保留（`ensureWorkspace` 仍在用） |
+| `herdr-use/src/tools.ts` | 头部 `:2` 与 `createHerdrTools` 文档 `:258` 去掉工具数量, 另把 `:13` 的「那十项」改为「那批工具」 |
+
+- 删前全仓扫描: `defaultConfig` 除定义处外只出现在 `docs/implementation/` 的两份追踪文档里; 本包源码、测试、`README.md`、其他包、TUI 均无引用, `src/index.ts` 也未导出它.
+- 沙箱模式核对（只核对, 未改代码）: 封闭词汇 `SandboxMode` 只在 `src/types.ts:89` 定义一份; 判定与解析（`asSandboxMode` / `makeSandboxModeReader` / `sandboxDenialReason` / `isSandboxWrite`）集中在 `src/policy.ts`, 无第二份副本; `src/index.ts` 经 `policy.ts` 导出判定函数与 `SandboxModeReader`, 但未导出 `SandboxMode` 类型本身（与偏差 5 同一现状, 本轮按要求不改导出名）. `tests/main.test.ts:65` 的 `"read-only" | "workspace-write"` 是测试替身的参数收窄, 不算第二份枚举.
+- 未做: 删 `src/timers.ts`、入口 import 改从 `clock-base` 引、`package.json` / `pnpm-lock.yaml` 加 `link:../clock-base`.
+
 ## 偏差
 
 1. 装配器不建临时目录：本包 `src` 无落盘路径（只有 `homedir()` 参与 socket 路径推导），4.2 的「落盘写临时目录再断言」没有对象。
@@ -90,6 +101,8 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 4. `tests/clock.test.ts` 的 `tsconfig` `exclude` 与跨包 import 未动（按任务留在阶段 2/3 收口）；因此覆盖率表里带出 `clock-base`，不计入本包结论。
 5. 装配器从 `src/types.ts` 取 `SandboxMode`（`src/index.ts` 未导出该类型；仅类型级 import，不触运行时）。
 6. 文件级覆盖率的行 / 分支分母随新增执行路径增长（V8 block range 计数变化），个别文件百分比有 1 至 3 个百分点波动；整包行与分支均上升，未退化。
+7. 阶段 3 本轮只做规划「代码」节里不依赖 `clock-base` 的三项: 删 `defaultConfig`、核对沙箱模式唯一出口、去工具数量注释; `src/timers.ts`、入口 import 改 `clock-base`、`package.json` / `pnpm-lock.yaml` 的 `link:../clock-base` 待 `clock-base` 合并到 `main` 后再做（届时先 `git rebase main`, 再补 `pnpm install --frozen-lockfile`）. 因无新依赖, 本轮未跑 `pnpm install`.
+8. `src/tools.ts:13` 的「那十项」同样带工具数量, 规划只点名 `:2` / `:258`; 按同一口径一并改为「那批工具」. `:264` 的「其余 6 个待 P1 批次」是待办批次说明而非工具面数量, 未动.
 
 ## 测试与证据
 
@@ -136,3 +149,13 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 | 新增装配器 | 1（`tests/assemble.ts`） |
 | 删除用例 / 夹具 | 0 |
 | `skip` / `todo` | 0 / 0（改前改后一致；本包无 skip、无夹具） |
+
+### 阶段 3 代码整理（本轮）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C herdr-use run check` | 通过（`tsc -p tsconfig.json --noEmit`, 无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过（与阶段 2 收尾同数, 用例未增删） |
+| `format src/tools.ts src/workspace.ts` | 两个文件均 unchanged |
+
+断言未改, 行为面（工具名、参数面、`output.render` 投影、配置键、注入文案）未动.
