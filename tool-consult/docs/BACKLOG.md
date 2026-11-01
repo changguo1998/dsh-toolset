@@ -7,7 +7,7 @@
 
 ## 待办
 
-（当前无未完成项）
+1. `denylist` 模式的可见性判定与遮罩不一致：`isVisible` 只看 `initialNames`（在 denylist 里这批是**被隐藏**的工具），导致被遮工具仍被 `tools/pre-execute` 放行、遮罩内工具反被拦。修法二选一：`isVisible` 按 `maskMode` 解释 `initialNames`，或 `pre-execute` 改查 `appliedAllow`。阶段 3 处理。
 
 ## 记录
 

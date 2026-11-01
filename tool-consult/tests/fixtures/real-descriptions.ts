@@ -131,7 +131,7 @@ export const CORPUS_DOCS: readonly ToolDoc[] = [
 ].map(([name, description]) => ({ name, description }));
 
 /**
- * 生产检索索引: `consult_tools` 是查询入口本身, 由 `src/main.ts` 的
+ * 生产检索索引: `consult_tools` 是查询入口本身, 由 `src/index.ts` 的
  * `buildMatcher` 过滤掉; 这里同样排除, 让守护测试与线上索引同口径。
  */
 export const INDEXED_DOCS: readonly ToolDoc[] = CORPUS_DOCS.filter(

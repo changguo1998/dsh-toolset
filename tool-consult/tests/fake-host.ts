@@ -35,7 +35,7 @@ export interface RestrictCall {
   agentId: string;
 }
 
-/** 假工具服务。 */
+/** 假工具服务（`schemas` 可运行期返回 undefined，模拟宿主不提供作用域视图）。 */
 export interface FakeTools {
   schemas: (scope?: unknown) => FakeToolSchema[];
   register: (definition: FakeToolDefinition) => () => void;
@@ -79,6 +79,14 @@ export interface FakeHost {
     id?: string;
     header?: { origin?: string; delegationDepth?: number };
   }) => FakeAgent;
+  /** 向全局工具面追加一个 schema（模拟宿主后续注册工具）。 */
+  addSchema: (schema: FakeToolSchema) => void;
+  /** 切换「schemas 不看遮罩」开关（回读校验漂移恢复用）。 */
+  setIgnoreRestrictions: (value: boolean) => void;
+  /** 让作用域视图临时缺掉这些名字（回读校验「该可见却缺」用）。 */
+  setHiddenVisible: (names: string[]) => void;
+  /** 全局事件面的订阅数（不传事件名时统计总数）。 */
+  listenerCount: (event?: string) => number;
   emit: (event: string, ...args: unknown[]) => unknown;
   dispose: () => void;
   /** 当前生效的遮罩名单（最后一次未撤销的 restrict）。 */
@@ -89,18 +97,46 @@ export interface FakeHost {
  * 创建假宿主。
  * @param options.schemas 全局工具面。
  * @param options.withAgentTools 是否让 agent.ctx.tools 可用（false 模拟无作用域宿主）。
+ * @param options.withToolsService `ctx.get("tools")` 是否返回工具服务。
+ * @param options.withAgentsService `ctx.get("agents")` 是否返回代理注册表。
+ * @param options.serviceValues 覆盖个别服务的返回值（形状不符的用例）。
  * @param options.restrictFailure 前 N 次 restrict 抛指定错误（模拟名单失配等）。
+ * @param options.registerFailure 前 N 次 register 抛指定错误（模拟重名）。
  * @param options.emitOnRestrict restrict / 撤销时同步广播 tools/change。
  * @param options.ignoreRestrictions schemas(scope) 不看遮罩（模拟设置未生效）。
+ * @param options.schemaViewUndefined schemas(scope) 返回 undefined（宿主不提供作用域视图）。
+ * @param options.hideVisible 作用域视图里缺掉这些名字（模拟「该可见却缺」）。
+ * @param options.withEffect 是否提供 `ctx.effect`（false 模拟无生命周期钩子）。
+ * @param options.withLogger 是否提供 `ctx.logger`。
+ * @param options.loggerThrows logger 调用一律抛错。
+ * @param options.loggerPartial logger 返回的对象缺各级方法。
+ * @param options.agentEvents 代理作用域是否提供 `ctx.on`（false 模拟无事件面）。
+ * @param options.listenerDisposeThrows 事件 disposer 抛错（模拟宿主已回收）。
+ * @param options.disposeThrows 遮罩 / 工具 disposer 抛错（模拟宿主已回收）。
  */
 export function createFakeHost(options: {
   schemas: FakeToolSchema[];
   withAgentTools?: boolean;
   withToolsService?: boolean;
+  withAgentsService?: boolean;
+  serviceValues?: Record<string, unknown>;
   restrictFailure?: { message: string; times: number };
+  registerFailure?: { message: string; times: number };
   emitOnRestrict?: boolean;
   ignoreRestrictions?: boolean;
+  schemaViewUndefined?: boolean;
+  hideVisible?: string[];
+  withEffect?: boolean;
+  withLogger?: boolean;
+  loggerThrows?: boolean;
+  loggerPartial?: boolean;
+  agentEvents?: boolean;
+  listenerDisposeThrows?: boolean;
+  disposeThrows?: boolean;
 }): FakeHost {
+  const agentEvents = options.agentEvents !== false;
+  const hiddenVisible = new Set(options.hideVisible ?? []);
+  let ignoreRestrictions = options.ignoreRestrictions === true;
   const restrictCalls: RestrictCall[] = [];
   const restrictions: Array<{
     agentId: string;
@@ -119,9 +155,13 @@ export function createFakeHost(options: {
 
   /** 某作用域看到的工具面（真实宿主：全局面减去该作用域的允许名单补集）。 */
   const visibleSchemas = (scope?: unknown): FakeToolSchema[] => {
-    const all = options.schemas.map((schema) => ({ ...schema }));
-    if (options.ignoreRestrictions === true) return all;
     const agentId = (scope as { id?: unknown } | undefined)?.id;
+    if (options.schemaViewUndefined === true && typeof agentId === "string")
+      return undefined as unknown as FakeToolSchema[];
+    const all = options.schemas
+      .map((schema) => ({ ...schema }))
+      .filter((schema) => !hiddenVisible.has(schema.name));
+    if (ignoreRestrictions) return all;
     if (typeof agentId !== "string") return all;
     const hidden = new Set<string>();
     for (const restriction of restrictions) {
@@ -164,15 +204,22 @@ export function createFakeHost(options: {
       call.disposed = true;
       restriction.disposed = true;
       notify();
+      if (options.disposeThrows === true) throw new Error("layer disposed");
     };
   };
 
   const tools: FakeTools = {
     schemas: (scope) => visibleSchemas(scope),
     register: (definition) => {
+      const failure = options.registerFailure;
+      if (failure !== undefined && failure.times > 0) {
+        failure.times -= 1;
+        throw new Error(failure.message);
+      }
       registered.set(definition.name, definition);
       return () => {
         registered.delete(definition.name);
+        if (options.disposeThrows === true) throw new Error("tool disposed");
       };
     },
     restrict: (filter) => restrictFor("", filter),
@@ -182,35 +229,62 @@ export function createFakeHost(options: {
     handlers: Map<string, Array<(...args: unknown[]) => unknown>>,
     includeTools: boolean,
     agentId = "",
+    includeEvents = true,
   ): FakeCtx => ({
-    get: (service) =>
-      service === "tools"
+    get: (service) => {
+      const overrides = options.serviceValues ?? {};
+      if (Object.prototype.hasOwnProperty.call(overrides, service))
+        return overrides[service];
+      return service === "tools"
         ? options.withToolsService === false
           ? undefined
           : tools
         : service === "agents"
-          ? { list: () => [...agentList] }
-          : undefined,
-    on: (event, callback) => {
-      const list = handlers.get(event) ?? [];
-      list.push(callback);
-      handlers.set(event, list);
-      return () => {
-        const current = handlers.get(event) ?? [];
-        const index = current.indexOf(callback);
-        if (index >= 0) current.splice(index, 1);
-      };
+          ? options.withAgentsService === false
+            ? undefined
+            : { list: () => [...agentList] }
+          : undefined;
     },
-    effect: (callback) => {
-      const dispose = callback();
-      if (typeof dispose === "function") effects.push(dispose);
-      return dispose;
-    },
-    logger: () => ({
-      info: (message: string) => logs.push({ level: "info", message }),
-      warn: (message: string) => logs.push({ level: "warn", message }),
-      debug: (message: string) => logs.push({ level: "debug", message }),
-    }),
+    ...(includeEvents
+      ? {
+          on: (event: string, callback: (...args: unknown[]) => unknown) => {
+            const list = handlers.get(event) ?? [];
+            list.push(callback);
+            handlers.set(event, list);
+            return () => {
+              const current = handlers.get(event) ?? [];
+              const index = current.indexOf(callback);
+              if (index >= 0) current.splice(index, 1);
+              if (options.listenerDisposeThrows === true)
+                throw new Error("listener disposed");
+            };
+          },
+        }
+      : {}),
+    ...(options.withEffect === false
+      ? {}
+      : {
+          effect: (callback: () => (() => void) | void) => {
+            const dispose = callback();
+            if (typeof dispose === "function") effects.push(dispose);
+            return dispose;
+          },
+        }),
+    ...(options.withLogger === false
+      ? {}
+      : {
+          logger: () => {
+            if (options.loggerThrows === true)
+              throw new Error("logger unavailable");
+            if (options.loggerPartial === true) return {};
+            return {
+              info: (message: string) => logs.push({ level: "info", message }),
+              warn: (message: string) => logs.push({ level: "warn", message }),
+              debug: (message: string) =>
+                logs.push({ level: "debug", message }),
+            };
+          },
+        }),
     // 代理作用域的工具面：restrict 落到该代理（真实宿主按 `agent.ctx` 取 scope）。
     ...(includeTools
       ? {
@@ -238,7 +312,7 @@ export function createFakeHost(options: {
       string,
       Array<(...args: unknown[]) => unknown>
     >();
-    const agentCtx = makeCtx(agentHandlers, withAgentTools, id);
+    const agentCtx = makeCtx(agentHandlers, withAgentTools, id, agentEvents);
     const agent: FakeAgent = {
       id,
       session: {
@@ -267,6 +341,22 @@ export function createFakeHost(options: {
     registered,
     logs,
     addAgent,
+    addSchema: (schema) => {
+      options.schemas.push(schema);
+    },
+    setIgnoreRestrictions: (value) => {
+      ignoreRestrictions = value;
+    },
+    setHiddenVisible: (names) => {
+      hiddenVisible.clear();
+      for (const name of names) hiddenVisible.add(name);
+    },
+    listenerCount: (event) => {
+      if (event !== undefined) return (globalHandlers.get(event) ?? []).length;
+      let total = 0;
+      for (const list of globalHandlers.values()) total += list.length;
+      return total;
+    },
     emit,
     dispose: () => {
       for (const dispose of effects.splice(0)) dispose();

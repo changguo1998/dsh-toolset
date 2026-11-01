@@ -173,7 +173,7 @@ test("守护语料：44 条真实 + 8 条占位，名称唯一", () => {
   }
 });
 
-test("检索索引排除 consult_tools（与 src/main.ts 的 buildMatcher 同口径）", () => {
+test("检索索引排除 consult_tools（与 src/index.ts 的 buildMatcher 同口径）", () => {
   assert.equal(INDEXED_DOCS.length, CORPUS_DOCS.length - 1);
   assert.ok(!matcher.names().includes("consult_tools"));
   assert.ok(
@@ -203,12 +203,12 @@ for (const { query, want, topN, why } of CASES) {
 }
 
 // 已知排序偏差，依赖描述层：lint 任务按决策 7 给 task_status 改「跨会话委托」
-// 措辞（删掉那句同款归因）之后再取消 skip，把上面的 topN 收到 1。
-test(
-  "检索「跨会话委托」→ channel_delegate top-1（待 lint 任务改 task_status 措辞）",
-  { skip: "决策 7 描述层归 lint 任务；修好措辞后取消 skip 并转正" },
-  () => {
-    const names = matcher.search("跨会话委托", 10).map((hit) => hit.name);
-    assert.equal(names[0], "channel_delegate", `实际：${names.join(" > ")}`);
-  },
-);
+// 措辞（删掉那句同款归因）之后再收紧到 top-1。此处先锚定「进前二」这一现状：
+// 一旦排名跌出前二，说明别名或打分退化，测试应当报错。
+test("检索「跨会话委托」→ channel_delegate 进前二（描述层措辞待 lint 任务）", () => {
+  const names = matcher.search("跨会话委托", 10).map((hit) => hit.name);
+  assert.ok(
+    names.slice(0, 2).includes("channel_delegate"),
+    `channel_delegate 应进前二，实际：${names.join(" > ")}`,
+  );
+});
