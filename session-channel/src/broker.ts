@@ -49,7 +49,6 @@ import {
   type SendRequest,
   type SendResult,
   type TaskRecord,
-  type TaskStatus,
 } from "./types.ts";
 import {
   applyTaskPatch,
@@ -807,23 +806,6 @@ export async function listAllTasks(
     }
   }
   return out;
-}
-
-/** 任务表统计（诊断用：总数 + 各状态计数）。 */
-export async function countTasks(
-  client: RedisClientType,
-): Promise<{ total: number; byStatus: Record<TaskStatus, number> }> {
-  const byStatus: Record<string, number> = {};
-  let total = 0;
-  for await (const keys of client.scanIterator({ MATCH: TASK_PATTERN })) {
-    for (const redisKey of keys as unknown as string[]) {
-      const task = parseTask(await client.get(redisKey));
-      if (task === undefined) continue;
-      total += 1;
-      byStatus[task.status] = (byStatus[task.status] ?? 0) + 1;
-    }
-  }
-  return { total, byStatus: byStatus as Record<TaskStatus, number> };
 }
 
 /** 结果正文入库前的截断（纯函数包装，便于调用方复用同一上限）。 */
