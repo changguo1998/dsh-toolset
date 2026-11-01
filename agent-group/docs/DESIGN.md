@@ -1,6 +1,6 @@
 # agent-group 设计
 
-## 1. 定位
+## 背景
 
 **跨会话协调层**：组、成员、主从连接（含等级）、指令与回报。不碰终端（不做 pane 后端）、不采样、不聚合、不建也不销毁会话。
 
@@ -16,21 +16,30 @@
                           成员会话（各自可能也挂着本插件）
 ```
 
-## 2. 模块划分
+## 结构
+
+### 源文件划分
 
 | 文件 | 职责 | 不做什么 |
 | --- | --- | --- |
 | `src/types.ts` | 配置 / 组状态（落盘形状）/ 端口（传输、存储、镜像）/ 结果信封 | 不含逻辑 |
 | `src/model.ts` | **纯**状态迁移：建组、加成员、建连接、开 / 结算指令、移除、视图、不变量自检 | 不碰传输、不落盘、不读时钟（`now` / `id` 由调用方注入） |
-| `src/core.ts` | 7 个动作的编排：读状态 → 纯迁移 → 落盘 → 镜像 → 结果；`verdictOf` 懒判定 | 不直接拼 SQL / 不直接调 Redis |
+| `src/config.ts` | 配置归一（缺省值与状态文件名白名单） | - |
+| `src/errors.ts` | 错误文案（`describe`） | - |
+| `src/action-host.ts` | 动作层协作接口 `GroupActionHost` + `stringArg` | 不含状态 |
+| `src/member.ts` | 成员：加 / 移除 + 忙闲判定（`judgeAgentState` / `memberStatesOf`） | 只经 `GroupActionHost` 读写内核状态 |
+| `src/group.ts` | 组：建组 / 关组 / 只读 `status` / `readGroupStatus` | 只经 `GroupActionHost` 读写内核状态 |
+| `src/link.ts` | 连接：`link` / `link_peer` / `send_peer` / `broadcast` | 只经 `GroupActionHost` 读写内核状态；不做重试 / 排队 |
+| `src/instruction.ts` | 指令与结算：`send` / `check` / `verdictOf` | 只经 `GroupActionHost` 读写内核状态；不直接拼 SQL / 不直接调 Redis |
+| `src/service.ts` | 内核：状态缓存、串行锁、镜像计数、状态巡查、action 分派 | 不含单动作规则 |
 | `src/store.ts` | 文件存储（`<会话目录>/agent-group.json`，原子写 / 0600）与内存存储 | 不建会话目录（宿主负责） |
 | `src/transport.ts` | session-channel 服务面适配：寻址（`peers` + `aliasList`）、投递（`delegate`）、读任务（`taskStatus`） | 不做重试 / 排队 |
 | `src/mirror.ts` | 可选 memory-base 镜像（`registerKind` 拿写句柄 + `scope.put`） | 失败不重试 |
-| `src/main.ts` | bundle 入口：依赖门禁（可选读取）、组装、注册工具、lossless JSON 归一 | 不含协调逻辑 |
+| `src/index.ts` | bundle 入口：依赖门禁（可选读取）、组装、注册工具、lossless JSON 归一 | 不含协调逻辑 |
 
-`model.ts` 的纯函数性是本包可测性的基础：连接规则、等级、未结指令、移除下推、视图与不变量自检都能不起任何外部依赖地单测；`core.ts` 只负责把「外部世界」（传输 / 存储 / 镜像 / 时钟）接上。
+`model.ts` 的纯函数性是本包可测性的基础：连接规则、等级、未结指令、移除下推、视图与不变量自检都能不起任何外部依赖地单测；`service.ts` 与四个动作层只负责把「外部世界」（传输 / 存储 / 镜像 / 时钟）接上。
 
-## 3. 数据模型
+### 数据模型
 
 ```
 AgentGroupBook（一个管理者会话的全量状态，落盘）
@@ -48,9 +57,11 @@ AgentGroupBook（一个管理者会话的全量状态，落盘）
 - **可选字段一律按需拼装**：落盘与工具返回都不出现值为 `undefined` 的键（宿主 `INVALID_TOOL_OUTPUT` 的成因）。
 - **向后兼容**：旧落盘文件没有 `peerLinks` 字段，`store.load` 按空对象补齐（不升 `version`）。
 
-## 4. 状态机
+## 机制
 
-### 4.1 指令
+### 状态机
+
+#### 指令
 
 ```
                  send（连接上无未结）
@@ -68,7 +79,7 @@ AgentGroupBook（一个管理者会话的全量状态，落盘）
 - `check` 只对 `open` 指令读取传输；仍是 `pending` / `running` 且未超时 → 保持未结（结果里进 `open` 数组）。
 - 超时判定双轨：通道的 `taskStatus` 会在读取时懒判定超时（`timeout`）；本包再用 `now ≥ deadline` 兜底（时钟漂移 / 通道未及时判定），成因里注明「通道判定」或「本地判定」。
 
-### 4.2 成员与连接
+#### 成员与连接
 
 ```
 add_member ──▶ 成员（自由代理：无主、无从、等级 0）
@@ -85,7 +96,7 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 - 管理者不能被移除、也不能作为从方——两条路径都带原因与下一步。
 - **平等连接**：`link_peer group from to` 建立（校验成员存在、不自连、该对尚无平等连接）；建立后**双向可发**（`send_peer` 由管理者经连接发一条消息，发完即走）；不影响主从等级与未结指令。
 
-### 4.3 「主等级 ≥ 从等级」这条规则怎么落地
+#### 「主等级 ≥ 从等级」这条规则怎么落地
 
 决策项 8 要求「不允许主等级 ≥ 从等级」，决策项 9 又要求从方必须是等级 0 的自由代理。两条合起来：正常路径上任何连接都会把从方从 0 提到「主 + 1」，严格递增由构造保证；**真正可触发这条规则的是「把管理者当从方」**（管理者等级固定 0，主方等级 ≥ 0 即 ≥ 从方等级 0）。因此实现里：
 
@@ -93,25 +104,27 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 2. 连接写入位置保留断言式守卫（`principal.level >= level` → 拒绝），用于防御被外部改动的状态；
 3. `invariantViolations` 把「连接等级 ≠ 主 + 1」「从方等级 ≠ 连接等级」「自由代理等级 ≠ 0」「成环」都列为违规，`status` 命中违规时会带出 `violations`。
 
-## 5. 时序与并发
+### 时序与并发
 
 - **串行化**：同一管理者的动作串在一条 promise 链上（`#locked`），避免同一会话内两次读到同一份旧状态（典型场景：并发两次 `send` 只应有一条成为未结）。
 - **先落盘再更新缓存**：写动作成功落盘后才把新状态放进缓存；落盘失败返回 `state_unavailable`，缓存保持「最后一次成功写入」的版本。
 - **只读不落盘**：`status` 不写文件、不写镜像；缓存命中时**完全不碰存储** —— 这就是「运行期 `sessionDirFor` 抛错时 `status` 仍可读」的落地方式。
 - **镜像在动作之后**：`await mirror.put(...)` 失败只计数 + 首次一条日志，不影响动作结果（决策项：镜像不是协调的必要条件）。
 
-## 6. 持久化
+### 持久化
 
 - 路径：`sessionPaths.sessionDirFor(managerSessionId)` + `stateFileName`（缺省 `agent-group.json`）。
 - 写入：`mkdir -p`（0700，幂等；目录通常已由宿主建好）→ 写临时文件（0600）→ `rename` 覆盖 —— 崩溃时不会留下半个 JSON。
 - 读取：缺失 → 空状态；JSON 损坏 / 形状不符 → `state_unavailable`（带「删掉该文件后重建」的下一步），**不静默重置**。
 - 跨实例：组状态不随进程存活，重开进程后从文件读回；但**组不跨会话恢复**（另一会话看到的是它自己的「组」集合）。
 
-## 7. 降级矩阵
+### 降级矩阵
 
-注册与解析分开（`apply` 期用**静态 `inject: ["tools"]`** 保证注册时机；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 走 `ctx.inject([...], cb)` **子分叉**绑定、每次 `execute` 再解析、成功才缓存 → 服务晚到可自愈；2026-10-19 真机修正，取代 2026-10-17「不写 inject」的裁定）的机制与各依赖缺失时的行为 / 错误码见 `README.md` 的「依赖与降级」；README 未列的补充：`add_member` 目标离线 / 歧义 → `target_offline` / `target_ambiguous`，`send` 投递失败结算为 `failure`，状态文件损坏 → `state_unavailable`（不静默重置，见 §6）。
+注册与解析分开（`apply` 期用**静态 `inject: ["tools"]`** 保证注册时机；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 走 `ctx.inject([...], cb)` **子分叉**绑定、每次 `execute` 再解析、成功才缓存 → 服务晚到可自愈；2026-10-19 真机修正，取代 2026-10-17「不写 inject」的裁定）的机制与各依赖缺失时的行为 / 错误码见 `README.md` 的「依赖与降级」；README 未列的补充：`add_member` 目标离线 / 歧义 → `target_offline` / `target_ambiguous`，`send` 投递失败结算为 `failure`，状态文件损坏 → `state_unavailable`（不静默重置，见「机制」节的「持久化」）。
 
-## 8. 与设计文档的偏差（实现阶段记录）
+## 取舍
+
+### 与设计文档的偏差（实现阶段记录）
 
 | 设计口径 | 实现口径 | 原因 |
 | --- | --- | --- |
@@ -120,11 +133,11 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 | 指令「由主方发」 | 物理投递的 `delegate.from` = 主方成员的会话 id（未知时回落管理者会话 id） | 结果通知归主方语义；管理者仍可用 `taskStatus` 读到结果（任务表全局） |
 | 回报三态「成功 / 失败 / 受阻」 | 通道只有 `failed: boolean`；本包约定 `failed: true` + `error: "blocked: …"` 表示受阻并剥掉前缀 | session-channel 的追踪文档已定「通道不规定语义，三态由 agent-group 自描述」 |
 | `status` 只读 | 只读且不落盘、不镜像；命中缓存时不碰存储 | 让「目录解析运行期失败」时只读面仍可用（验收细化第 9 条） |
-| 成员忙闲不可见（BACKLOG #1 前） | `status` 动作与只读服务附 `memberStates`：每成员 `state ∈ {offline, idle, working, stuck}`，基于 session-channel 跨进程状态牌（`state:<sid>` = `{status, at}`，发布端见 session-channel DESIGN §3）现算；`stuckAfterMs` 缺省 5 min、`statusPollMs` 缺省 20 s 为配置面（判定面为调用时现算，未内建常驻巡查循环——agent-group 无组长→组的会话表，多实例会重复读；偏差见追踪文档 `2026-10-20-agent-status-board.md`） | 跨进程忙闲信号缺失：`agent/status` 只在进程内，`/group` 无法得知成员真实待机 / 工作 / 卡死；卡死判定不依赖目标工作循环、无推理 |
-| 无 TUI 消费面（§9 曾列「TUI 命令或面板」为不做） | `apply` 额外 `ctx.provide("agentGroup", { status })` **只读服务面**（与动作 `status` 同源 `readGroupStatus`），TUI `/group` 命令经 `ctx.get("agentGroup")` 消费（BACKLOG #3 落地；未挂载时调用方降级提示） | 需求演进：TUI 需免问模型直读组状态；插件侧只提供只读查询面，命令在 TUI 侧实现（COMMANDS-SPEC 落点决策）；**状态列二期仍不做** |
+| 成员忙闲不可见（BACKLOG #1 前） | `status` 动作与只读服务附 `memberStates`：每成员 `state ∈ {offline, idle, working, stuck}`，基于 session-channel 跨进程状态牌（`state:<sid>` = `{status, at}`，发布端见 session-channel DESIGN 的「结构」节）现算；`stuckAfterMs` 缺省 5 min、`statusPollMs` 缺省 20 s 为配置面（判定面为调用时现算，未内建常驻巡查循环——agent-group 无组长→组的会话表，多实例会重复读；偏差见追踪文档 `2026-10-20-agent-status-board.md`） | 跨进程忙闲信号缺失：`agent/status` 只在进程内，`/group` 无法得知成员真实待机 / 工作 / 卡死；卡死判定不依赖目标工作循环、无推理 |
+| 无 TUI 消费面（「取舍」节的「明确不做」曾列「TUI 命令或面板」为不做） | `apply` 额外 `ctx.provide("agentGroup", { status })` **只读服务面**（与动作 `status` 同源 `readGroupStatus`），TUI `/group` 命令经 `ctx.get("agentGroup")` 消费（BACKLOG #3 落地；未挂载时调用方降级提示） | 需求演进：TUI 需免问模型直读组状态；插件侧只提供只读查询面，命令在 TUI 侧实现（COMMANDS-SPEC 落点决策）；**状态列二期仍不做** |
 | 缺依赖 → 不注册工具 + 一次警告（apply 期门禁） | ~~**工具照常注册**，缺依赖改为调用期错误（原因 + 下一步）~~ | ~~真机实测（2026-10-17）：`sessionChannel` / `sessionPaths` 晚于本包激活且无法经 `inject` 解析，注册被推到 agent 创建之后 → 工具表不收录（`/tools agent_group` 为 0）。工具定义改为不依赖服务，`execute` 时才组装 `GroupService`~~ —— **2026-10-19 被下一行取代** |
 | 注册面一并去掉 `inject`（2026-10-17 裁定） | 静态 `inject: ["tools"]` 恢复声明；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 改走 `ctx.inject([...], cb)` 子分叉绑定，工具仍在 `apply` 期注册 | 真机实测（2026-10-19）：不写 `inject` 时 `ctx.get("tools")` 读到 `undefined`（cordis 4.0.5），工具**从未注册**；兄弟 bundle 提供的服务未注入也读不到。回归用例见 `tests/main.test.ts`「真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用」 |
 
-## 9. 明确不做（当前）
+### 明确不做（当前）
 
-TUI 状态列（二期）；轮次建模与终止细节；结论聚合与投票；启动 / 销毁成员会话；跨机；`experimental-agent-team` 的挂载。均见 `docs/BACKLOG.md`。广播与平等连接（含「每对至多一条」校验）已随二期落地（见 §3 / §4.2，追踪文档 `docs/archived/2026-10-19-agent-group-broadcast.md`）；**只读 TUI 命令 `/group` 已落地**（BACKLOG #3，2026-10-20，追踪文档 `docs/implementation/2026-10-19-agent-group-tui.md`）。
+TUI 状态列（二期）；轮次建模与终止细节；结论聚合与投票；启动 / 销毁成员会话；跨机；`experimental-agent-team` 的挂载。均见 `docs/BACKLOG.md`。广播与平等连接（含「每对至多一条」校验）已随二期落地（见「结构」节的「数据模型」/「机制」节的「成员与连接」，追踪文档 `docs/archived/2026-10-19-agent-group-broadcast.md`）；**只读 TUI 命令 `/group` 已落地**（BACKLOG #3，2026-10-20，追踪文档 `docs/archived/2026-10-19-agent-group-tui.md`）。
