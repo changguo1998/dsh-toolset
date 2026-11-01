@@ -690,17 +690,6 @@ export interface PickerState {
   current?: ModelSelection;
 }
 
-/** 选择面板单个选项 */
-/** 选择面板单个选项 */
-export interface PickerOption {
-  /** 纯 ASCII 展示文本，如 "<provider>/<model>" */
-  label: string;
-  /** 确认后应用的模型选择 */
-  selection: ModelSelection;
-  /** 是否为当前会话模型（行内标记 + 高亮） */
-  current: boolean;
-}
-
 /** 问答面板单题交互状态 */
 export interface QuestionPanelItem {
   id: string;
@@ -2830,12 +2819,7 @@ function setInput(
 /** 输入历史上限（超出丢最旧）。200 条对进程内数组无感知成本。 */
 const INPUT_HISTORY_MAX = 200;
 
-/** 是否处于输入历史翻看态（缺省时长 = 有历史且游标 > 0） */
-export function isInputHistoryBrowse(state: AppState): boolean {
-  return isInputHistoryBrowseAt(state, state.inputHistoryCursor);
-}
-
-/** 同上，显式给游标（App 侧按键分派用「下一游标」判定，避免提前改状态）。 */
+/** 是否处于输入历史翻看态（显式给游标：App 侧按键分派用「下一游标」判定，避免提前改状态）。 */
 export function isInputHistoryBrowseAt(
   state: AppState,
   cursor: number,
