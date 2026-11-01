@@ -1,10 +1,11 @@
-// src/main.ts — dsh bundle 入口 + fs_digest 工具注册（package.json main 指向 index.ts，由其 re-export 本模块）。
+// fs-digest/src/index.ts — dsh bundle 入口 + fs_digest 工具注册（package.json 的 main 指向本文件）。
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
 // name / inject / Config / apply，Config 以类型声明给出（interface Config；无运行时 schema，
 // 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。bundle 无 default export。
 
 import { resolve } from "node:path";
 import { digest, type DigestDeps } from "./digest.ts";
+import { contextContainer } from "./lsp.ts";
 import { renderOutline } from "./render.ts";
 import {
   DIGEST_MODES,
@@ -190,7 +191,10 @@ function parseArgs(
  * 相对路径基准 = **调用方会话 cwd**（工具执行上下文第二实参，见 resolveExecCwd）。
  */
 export function apply(ctx: PluginCtx, config: Config = {}): void {
-  const tools = ctx.tools;
+  // 上下文对象守卫收进本包入口, 只判这一次: 非对象上下文（含 null）等同未挂载, 静默跳过.
+  const host = contextContainer<PluginCtx>(ctx);
+  if (host === undefined) return;
+  const tools = host.tools;
   if (tools === undefined) return; // inject 未满足时静默跳过（对齐 dsh 插件惯例）
   /**
    * 本次调用的相对路径基准（execute 内按最新 exec 更新；digest 层不掌握会话）。
@@ -262,7 +266,7 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
         } satisfies DigestResult;
       }
       sessionCwd = resolveExecCwd(exec);
-      return digest(ctx, parsed.filePath, parsed.opts, deps);
+      return digest(host, parsed.filePath, parsed.opts, deps);
     },
     output: {
       schema: { type: "object", additionalProperties: true },

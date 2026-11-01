@@ -1,4 +1,4 @@
-// src/outline.ts — 章节/符号大纲提取（outline 模式核心）。
+// fs-digest/src/outline.ts — 章节/符号大纲提取（outline 模式核心）。
 // 三条来源：Markdown 标题解析 / LSP 文档符号 / 正则启发式（TS-JS、Python）。
 // 深度语义：代码 = 声明嵌套层（顶层 1 级、类方法 2 级）；Markdown = 最大标题级。
 

@@ -1,4 +1,4 @@
-// src/languages.ts — 语言推断：按扩展名，可被显式 language 提示覆盖。
+// fs-digest/src/languages.ts — 语言推断：按扩展名，可被显式 language 提示覆盖。
 // 启发式解析覆盖 Markdown / TS-JS / Python；其余语言依赖 LSP 符号源，
 // 无 LSP 时由 digest 层以 unsupported_language 明确报错。
 

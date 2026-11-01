@@ -1,4 +1,4 @@
-// tests/signatures.test.ts — signatures 启发式（TS/Python）与 LSP 来源
+// fs-digest/tests/signatures.test.ts — signatures 启发式（TS/Python）与 LSP 来源
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 

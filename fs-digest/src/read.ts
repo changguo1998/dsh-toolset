@@ -1,4 +1,4 @@
-// src/read.ts — 文件读取底座（对齐 tool-fs 职责：尺寸守卫 + 二进制检测）。
+// fs-digest/src/read.ts — 文件读取底座（对齐 tool-fs 职责：尺寸守卫 + 二进制检测）。
 // 只读、无副作用；错误分类由 digest 层映射为 DigestErrorResult。
 
 import { promises as fs } from "node:fs";

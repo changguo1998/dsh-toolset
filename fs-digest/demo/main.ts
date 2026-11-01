@@ -1,4 +1,4 @@
-// demo/main.ts — fs_digest 三模式本地示例（无 DSH 依赖，直接调用核心 digest）。
+// fs-digest/demo/main.ts — fs_digest 三模式本地示例（无 DSH 依赖，直接调用核心 digest）。
 // 运行：npm run demo
 import { join } from "node:path";
 import { digest } from "../src/digest.ts";

@@ -1,5 +1,5 @@
-// tests/index.test.ts — index 层锚点: 工具入参校验分支、可选参数过滤、会话 cwd 回退.
-// render 的兜底口径已由 digest.test.ts 的全函数性用例覆盖, 这里只补入参路径.
+// fs-digest/tests/index.test.ts — index 层锚点: 工具入参校验分支、可选参数过滤、会话 cwd 回退.
+// render 的兜底口径已由 fs-digest/tests/digest.test.ts 的全函数性用例覆盖, 这里只补入参路径.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";

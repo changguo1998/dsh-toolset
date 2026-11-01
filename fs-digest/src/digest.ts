@@ -1,4 +1,4 @@
-// src/digest.ts — digest 编排层：选项校验 → 文件读取 → 语言推断 → 三模式分发。
+// fs-digest/src/digest.ts — digest 编排层：选项校验 → 文件读取 → 语言推断 → 三模式分发。
 // 纯逻辑（文件读取经 readTextFile 注入点，便于单测）；无 DSH 运行时依赖。
 
 import { detectLanguage, type Language } from "./languages.ts";

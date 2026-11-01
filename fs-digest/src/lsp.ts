@@ -1,4 +1,4 @@
-// src/lsp.ts — LSP 符号源（tool-lsp 数据底座）的结构面适配。
+// fs-digest/src/lsp.ts — LSP 符号源（tool-lsp 数据底座）的结构面适配。
 // 零 DSH 运行时依赖：宿主 LSP 面以 duck-typing 接入（documentSymbols 或 symbols 方法），
 // 真实 tool-lsp surface 联调时仅需在本文件对齐方法名。
 
@@ -18,24 +18,40 @@ export interface SymbolProvider {
 }
 
 /**
+ * 取宿主上下文的对象面容器, 本包唯一的「上下文对象守卫」。
+ * 非对象（含 `null` / `undefined` / 原始值）一律视为没有上下文, 调用方只判一次 `undefined`;
+ * 入口（`fs-digest/src/index.ts` 的 `apply`）与 LSP 结构面解析共用这一处判定, 下游不再重复判类型。
+ */
+export function contextContainer<T = Record<string, unknown>>(
+  ctx: unknown,
+): T | undefined {
+  return ctx === null || typeof ctx !== "object"
+    ? undefined
+    : (ctx as unknown as T);
+}
+
+/**
  * 受保护地读宿主 lsp 服务面：`ctx.get("lsp")` 优先，直接属性读兜底。
  * 真实 cordis ctx 上未 inject 的服务属性**直读会抛错**
  * （`cannot get property "lsp" without inject`），故两路都包 try/catch——
  * 读取失败一律视为「服务不可用」（调用方降级启发式），绝不透传抛出。
  */
 function readLspSurface(ctx: unknown): unknown {
-  if (ctx === null || typeof ctx !== "object") return undefined;
-  const c = ctx as { lsp?: unknown; get?: (name: string) => unknown };
-  if (typeof c.get === "function") {
+  const container = contextContainer<{
+    lsp?: unknown;
+    get?: (name: string) => unknown;
+  }>(ctx);
+  if (container === undefined) return undefined;
+  if (typeof container.get === "function") {
     try {
-      const svc = c.get("lsp");
+      const svc = container.get("lsp");
       if (svc !== undefined) return svc;
     } catch {
       /* 严格模式读取异常 → 尝试直接属性读 */
     }
   }
   try {
-    return c.lsp;
+    return container.lsp;
   } catch {
     return undefined;
   }

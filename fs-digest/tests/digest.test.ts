@@ -1,4 +1,4 @@
-// tests/digest.test.ts — digest 编排层端到端：错误路径 / LSP 降级 / 工具注册
+// fs-digest/tests/digest.test.ts — digest 编排层端到端：错误路径 / LSP 降级 / 工具注册
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";

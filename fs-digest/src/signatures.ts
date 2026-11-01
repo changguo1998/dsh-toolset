@@ -1,4 +1,4 @@
-// src/signatures.ts — 函数/方法签名提取（signatures 模式核心）。
+// fs-digest/src/signatures.ts — 函数/方法签名提取（signatures 模式核心）。
 // 从源码行还原签名：多行声明折叠为单行，超过 8 行截断。
 // LSP 面直接给出 signature 字段时优先使用。
 
@@ -19,7 +19,7 @@ const MAX_SIGNATURE_LINES = 8;
 const SIGNATURE_KINDS = new Set(["function", "method", "constructor"]);
 
 // ---------------------------------------------------------------------------
-// 共享：TS 系逐行注释剥离（与 outline.ts 相同实现，独立模块避免循环依赖）
+// 共享：TS 系逐行注释剥离（与 fs-digest/src/outline.ts 相同实现，独立模块避免循环依赖）
 // ---------------------------------------------------------------------------
 
 /** 创建逐行剥离器：去掉 // 行注释与块注释片段，保留字符串字面量内容。 */
