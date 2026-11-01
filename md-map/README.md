@@ -1,10 +1,16 @@
 # @dsh-toolset/md-map
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用分析**（对象是文档，对标 `code-map`）。索引项目内 `**/*.md` 的标题锚点、文档间链接、wiki 链接、对代码 / 文件的引用与被引计数，提供 `callers` / `impact` / `orphans` / `report` / `summary` 查询；只读。
 
 单文件结构解析**复用 `@dsh-toolset/md-logic`**（本包依赖它，不重复实现 Markdown 解析）；三者分工：**代码结构 → `code_map`；单文件 Markdown 结构 → `md_logic`；项目级文档关系 / 影响面 / 断链 → `md_map`**。
 
-## 模型侧工具
+包文档：架构与机制见 `docs/DESIGN.md`；未完成项见 `docs/BACKLOG.md`；变更过程与已关闭条目见 `docs/archived/`。
+
+## 能力
+
+### 模型侧工具
 
 `inject: ["tools"]`，注册一个工具；`provide: ["mdMap"]` 暴露服务面。
 
@@ -19,7 +25,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 
 渲染口径：紧凑文本、行号 **1 基**、每类上限 80 行带省略标记；`report` 的孤儿只预览前 15 个（真实仓库动辄上百个，整行输出会撑爆上下文）。
 
-## 边分类（口径）
+### 边分类（口径）
 
 | kind | 含义 |
 | --- | --- |
@@ -27,12 +33,12 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 | `wiki` | `[[Target]]` / `[[Target\|文本]]` / `[[Target#anchor]]`（先按 root 相对、再按源文件目录相对解析） |
 | `file` | 目标存在但不是 `.md`（对代码 / 文件的引用、目录引用） |
 | `external` | 站外目标（任意 `scheme:` 前缀，如 `http(s)` / `mailto:` / `tel:`；含协议相对 `//`） |
-| `ref` | **行内代码里的路径引用**（如 `` `docs/BACKLOG.md` ``）：按候选序解析（root 相对 → 源目录相对；多解优先源目录形态，与 wiki 同解），只认能解析到索引内文档的 token（目录形态按磁盘存在落 `file` 边）；**未命中不产边、不计断链**（示例路径不该变噪声），仅计入 `refUnresolved`（report 露出的漂移探针——文档改名 / 写错路径时升高）。默认计入内部边 / backlinks / impact；需要「文档链接」语义时用 `kind` 过滤（如 `["internal","wiki"]`）。**三处补口**（锚点拆分 / 目录形态落 `file` / 唯一同名兜底）见 `docs/DESIGN.md` §4 |
+| `ref` | **行内代码里的路径引用**（如 `` `docs/BACKLOG.md` ``）：按候选序解析（root 相对 → 源目录相对；多解优先源目录形态，与 wiki 同解），只认能解析到索引内文档的 token（目录形态按磁盘存在落 `file` 边）；**未命中不产边、不计断链**（示例路径不该变噪声），仅计入 `refUnresolved`（report 露出的漂移探针——文档改名 / 写错路径时升高）。默认计入内部边 / backlinks / impact；需要「文档链接」语义时用 `kind` 过滤（如 `["internal","wiki"]`）。**三处补口**（锚点拆分 / 目录形态落 `file` / 唯一同名兜底）见 `docs/DESIGN.md`「机制」 |
 | `broken` | 目标不存在（`missing-file`）/ 锚点不存在（`missing-anchor`）/ 指向仓库外（`outside-root`） |
 
 不计为关系边：**图片**（`image`，资产引用）与**引用式定义声明**（`definition`，`[tag]: url` 是目标声明而不是引用）。
 
-## 库 / 服务面
+### 库 / 服务面
 
 | 导出 | 说明 |
 | --- | --- |
@@ -40,8 +46,22 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 | `createMdMapService(config?)` | 服务实例：`index` / `refresh` / `callers` / `impact` / `orphans` / `report` / `summary`（另有 `hasDoc` / `dispose`） |
 | `callers` / `impact` / `orphans` / `report` / `summary` / `topBacklinks` / `getDoc` / `resolveDocRef` | 纯查询函数（输入是索引；`callers` / `impact` 分别支持 `{anchor?, kind?}` / `{depth?, kind?}` 选项） |
 | `buildAnchors` / `slugify` / `scanWikiLinks` / `isExternal` / `splitHref` / `resolveDocPath` / `wikiCandidates` / `dirOf` / `candidateDocPaths` | 包入口（`src/index.ts`）再导出的锚点与链接解析工具（独立可测） |
-| `scanInlineRefs` / `stripInlineCode` / `stripInlineCodeAcross` / `inlineCodeSpans` / `isRootRelative` / `fenceLines`（`src/links.ts`）与 `toPosix`（`src/indexer.ts`） | 内部模块导出，**未从包入口再导出**；本包实现与测试直接引用 |
+| `scanInlineRefs` / `stripInlineCode` / `stripInlineCodeAcross` / `inlineCodeSpans` / `isRootRelative` / `fenceLines`（`src/links.ts`） | 内部模块导出，**未从包入口再导出**；本包实现与测试直接引用 |
 | `name` / `inject` / `provide` / `Config` / `apply(ctx, config?)` | DSH bundle 契约 |
+
+### 目录结构
+
+| 路径 | 内容 |
+| --- | --- |
+| `src/index.ts` | 插件入口（bundle 契约 `name` / `inject` / `provide` / `apply`）+ 库面再导出 |
+| `src/indexer.ts` | 文件发现与索引构建（`findMarkdownFiles` / `buildIndex` / `DEFAULT_EXCLUDES` / `DEFAULT_MAX_FILES`） |
+| `src/links.ts` | 锚点 slug / wiki 链接补扫 / 行内代码路径 token / 目标解析（纯函数，文件系统访问由 indexer 注入） |
+| `src/query.ts` | 关系查询（`callers` / `impact` / `orphans` / `report` / `summary` / `topBacklinks` / `getDoc` / `resolveDocRef`） |
+| `src/render.ts` | 工具面文本渲染（`RENDER_LIMIT = 80`） |
+| `src/service.ts` | 服务面：持有最近一次索引（`createMdMapService`） |
+| `src/tools.ts` | 模型侧工具 `md_map`（action 分派 + 参数校验 + 渲染接线） |
+| `src/types.ts` | 数据模型（文档 / 锚点 / 边 / 断链 / 索引 / 选项） |
+| `tests/` | 单元用例（`*.test.ts`）、集成用例（`tests/integration/`）与假面装配器（`assemble.ts`），见「测试」 |
 
 ## 配置
 
@@ -51,7 +71,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 项目级结构与引用�
 | `maxFiles` | `2000` | 文件数上限（超出截断并在 summary / report 标记） |
 | `exclude` | `[]` | 追加排除的目录名 |
 
-## 使用示例
+## 用法
 
 ```jsonc
 { "action": "index" }
@@ -81,33 +101,19 @@ README.md:3 → internal “A”
 README.md:4 → internal#小节 “A 的锚点”
 ```
 
-## 边界与限制
+## 边界
 
 - **只读、全量重建**：不写任何文件；每次 `index` 全量扫描（不做增量 / 文件监视）；代码区识别 = 围栏状态机（带容器缩进栈）+ 跨行 code span 剥离 + `md-logic` 的 code / frontmatter / html 块四者并集。
 - **自引用与示例链接**：自引用出现在 `callers` 里但**不计入 backlinks**（避免「自己引用自己 → 不是孤儿」的假阴性）；行内代码里的语法（`` `[[Target]]` ``）已剥离，但正文里的示例仍算真实引用（真实仓库实测有 1 例），需要「文档链接」语义时用 `kind` 过滤分离。
-- **ref 边与跨类型**：本仓文档习惯用 `` `docs/BACKLOG.md` `` 这类写法，现解析为 `kind:"ref"` 边（源目录优先；未命中不产边、不计断链，仅计入 report 的未解析计数），内部边 / 孤儿 / 被引最多的数字因此才有实质信息量；代码 / 配置反向引用到文档（「哪些源码引用了这份文档」）未实现（见 `docs/DESIGN.md` §8）。
-- **锚点与安装**：锚点用 GitHub 风格 slug（小写、去标点、空格转 `-`、重名加 `-1`），不支持 `{#custom}` 与 HTML 锚点；`@dsh-toolset/md-logic` 以 `link:../md-logic` 引入（与 `code-map` 依赖 `ast-tools` 同款），`npm install` 不支持 `link:` 故用 pnpm：`pnpm install`（`scripts/install.sh` 自动改走 pnpm，无 pnpm 时明确报错），lockfile 为 `pnpm-lock.yaml`，手工兜底 `mkdir -p node_modules/@dsh-toolset && ln -sfn ../../../md-logic node_modules/@dsh-toolset/md-logic` + 自备 `typescript` / `@types/node`。
+- **ref 边与跨类型**：本仓文档习惯用 `` `docs/BACKLOG.md` `` 这类写法，现解析为 `kind:"ref"` 边（源目录优先；未命中不产边、不计断链，仅计入 report 的未解析计数），内部边 / 孤儿 / 被引最多的数字因此才有实质信息量；代码 / 配置反向引用到文档（「哪些源码引用了这份文档」）未实现（见 `docs/DESIGN.md`「取舍」）。
+- **锚点与安装**：锚点用 GitHub 风格 slug（小写、去标点、空格转 `-`、重名加 `-1`），不支持 `{#custom}` 与 HTML 锚点；`@dsh-toolset/md-logic` 以 `link:../md-logic` 引入（与 `code-map` 依赖 `ast-tools` 同款），`link:` 依赖走 pnpm：`pnpm install`（`scripts/install.sh` 自动改走 pnpm，无 pnpm 时明确报错），lockfile 为 `pnpm-lock.yaml`，手工兜底 `mkdir -p node_modules/@dsh-toolset && ln -sfn ../../../md-logic node_modules/@dsh-toolset/md-logic` + 自备 `typescript` / `@types/node`。
 
 ## 测试
 
 ```sh
-npm run check   # tsc --noEmit
-npm run build   # 编译到 dist/
-npm run test    # node --test（49 例：锚点 / wiki / 目标解析 / 索引分类与断链 / 行内代码路径引用 / 代码区 / 查询 / 工具面）
+pnpm run check            # tsc --noEmit
+pnpm run build            # 编译到 dist/
+pnpm run test             # 单元用例（node --test）：锚点 / wiki / 目标解析 / 索引分类与断链 / 行内代码路径引用 / 代码区 / 查询 / 渲染 / 服务面 / 工具面
+pnpm run test:integration # 集成用例（node --test）：装配 apply 与宿主接线（tests/integration）
+pnpm run test:coverage    # 单元 + 集成并出覆盖率报告（tmp/cov-md-map）
 ```
-
-## 目录结构
-
-| 路径 | 内容 |
-| --- | --- |
-| `src/index.ts` | 插件入口（bundle 契约 `name` / `inject` / `provide` / `apply`）+ 库面再导出 |
-| `src/indexer.ts` | 文件发现与索引构建（`findMarkdownFiles` / `buildIndex` / `DEFAULT_EXCLUDES` / `DEFAULT_MAX_FILES`） |
-| `src/links.ts` | 锚点 slug / wiki 链接补扫 / 行内代码路径 token / 目标解析（纯函数，文件系统访问由 indexer 注入） |
-| `src/query.ts` | 关系查询（`callers` / `impact` / `orphans` / `report` / `summary` / `topBacklinks` / `getDoc` / `resolveDocRef`） |
-| `src/render.ts` | 工具面文本渲染（`RENDER_LIMIT = 80`） |
-| `src/service.ts` | 服务面：持有最近一次索引（`createMdMapService`） |
-| `src/tools.ts` | 模型侧工具 `md_map`（action 分派 + 参数校验 + 渲染接线） |
-| `src/types.ts` | 数据模型（文档 / 锚点 / 边 / 断链 / 索引 / 选项） |
-| `tests/*.test.ts` | 单测（见「测试」） |
-
-模块文档：架构与机制见 `docs/DESIGN.md`；未完成项见 `docs/BACKLOG.md`；变更过程与已关闭条目见 `docs/archived/`。
