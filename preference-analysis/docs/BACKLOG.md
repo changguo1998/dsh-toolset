@@ -1,6 +1,6 @@
-# preference-analysis 待办（模块级）
+# preference-analysis 待办
 
-跨模块条目见项目级 `docs/BACKLOG.md`；本文件只收本模块条目。
+跨包条目见项目级 `docs/BACKLOG.md`；本文件只收本包条目。
 
 ## 条目详情（待办）
 

@@ -4,11 +4,13 @@ DSH（DeepSeek Harness）进程内插件：从**会话行为**里归纳用户的
 memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型也能提议偏好，但**一律落候选待审**，
 不自动应用；用户可随时撤销。
 
-## 为什么需要
+## 定位
 
 仓内的静态约定（`~/.dsh/AGENTS.md`、项目 `AGENTS.md`、`rule-engine` 规则表、`ponytail` 阶梯、`symbol-normalizer` 符号表）全是**人工写定**的，没有生产者——本包补上这个生产者：从「用户反复要求同一件事」「被打断后重新强调」「审批里连续拒绝同一类操作」里归纳偏好，闭环可审阅、可撤销、可老化。
 
-## 观测面（三条机器可判信号 + 显式通道）
+## 能力
+
+### 观测面（三条机器可判信号 + 显式通道）
 
 | 信号 | 触发 | 产物 |
 | --- | --- | --- |
@@ -21,12 +23,12 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 （后三者或不可得，或与既有静态约定重复）。「用户对模型输出的修改」在 TUI 不可得，用打断 + 纠正性重述 +
 审批拒绝代理。
 
-## 生命周期与阈值
+### 生命周期与阈值
 
-状态机、分档不变量与抑制键规则见 `docs/DESIGN.md` 第 2 节；阈值（`thresholds`）与老化天数（`aging`）见下方「配置」。
+状态机、分档不变量与抑制键规则见 `docs/DESIGN.md` 的状态机与不变量一节；阈值（`thresholds`）与老化天数（`aging`）见下方「配置」。
 数值：加权证据 = 普通证据 1 + 纠正语境证据 1.5；`importance` 候选 3 / 高置信 4（可经服务面写入的元数据位）。
 
-## 注入
+### 注入
 
 注册**一个** `rule-engine` 消费者（不往规则表写规则）：
 
@@ -38,7 +40,9 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 `decide` 只读账簿快照（廉价、不同步调宿主 API），渲染 `active` 条目：缺省每次最多 5 条 / 600 字符，
 超限截断并在末尾标注「另有 N 条偏好未列出。」。注入正文由 rule-engine 统一加 `[RULE] ` 前缀。
 
-## 配置（profile 用户 patch）
+## 配置
+
+配置写在 profile 用户 patch 里：
 
 ```yaml
 - id: preference-analysis
@@ -52,10 +56,12 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
     similarity: 0.8            # 3-gram Jaccard 合并阈值
     inject: { maxItems: 5, maxChars: 600 }
     minIntervalMs: 600000      # 归纳节流（启动后一次 + compaction/end 后一次）
-    # ledgerPath: <dshHome>/preference-analysis/ledger.json  # 缺省落点，一般不用改
+    # ledgerPath: <dshHome>/preference-analysis/ledger.json  # 缺省存放位置，一般不用改
 ```
 
-## 模型侧工具
+## 用法
+
+### 模型侧工具
 
 | 工具 | 作用 | 边界 |
 | --- | --- | --- |
@@ -63,9 +69,11 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 | `preference_add` | 登记一条偏好建议 | **一律落候选待审**，不自动应用、不自动注入 |
 | `preference_remove` | 撤销一条偏好 | 描述写明**仅在用户当次明确要求撤销时调用** |
 
-## 账簿与隐私
+## 边界
 
-- 落点 `<dshHome>/preference-analysis/ledger.json`（跨会话），目录 0700 / 文件 0600，临时文件 + rename
+### 账簿与隐私
+
+- 存放位置 `<dshHome>/preference-analysis/ledger.json`（跨会话），目录 0700 / 文件 0600，临时文件 + rename
   原子写，写入前做 `revision` 版本守卫（并发写冲突 → 重载后重试）。
 - 账簿是**唯一状态源**：库里的行被删 / 被压缩 / 被迁移都不影响注入正确性，库只作正文副本与检索面。
 - 隐私三层：写入前 `checkPrivacy` 预检（本包自有模式：私钥 / 凭据文件 / 凭据形态 / 家目录绝对路径）+
@@ -73,31 +81,31 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 - 门禁：归纳只持 `writableTiers: ["project"]` 的句柄（写 U 层会被 memory-base 抛错）；
   用户层是独立 kind `preference_user`，只由显式动作调用。
 
-## 依赖
+### 依赖
 
-`inject: ["memory", "ruleEngine", "tools"]`（三个宿主服务）：为什么必须显式 inject 排序（漏注册消费者的真实重启教训）、非 cordis 宿主的兜底口径，见 `docs/DESIGN.md` 第 4 节。
+`inject: ["memory", "ruleEngine", "tools"]`（三个宿主服务）：为什么必须显式 inject 排序（漏注册消费者的真实重启教训）、非 cordis 宿主的兜底口径，见 `docs/DESIGN.md` 的跨包契约一节。
 
-## 降级
+### 降级
 
-三种降级（`memory` 无分层句柄面 / 非 cordis 宿主忽略 `inject` 且服务未就绪 / 账簿损坏或版本不符）各自的行为与告警见 `docs/DESIGN.md` 第 6 节；三种情形都不抛错、不影响宿主启动。
+三种降级（`memory` 无分层句柄面 / 非 cordis 宿主忽略 `inject` 且服务未就绪 / 账簿损坏或版本不符）各自的行为与告警见 `docs/DESIGN.md` 的幂等、并发与降级一节；三种情形都不抛错、不影响宿主启动。
 
-## 与相邻件的分工
+### 与相邻件的分工
 
 - `rule-engine`：**注入通道**（本包只注册消费者，规则表仍归人工与 `rule_add`）。
 - `memory-base`：**分层存储面**（项目层句柄 + 隐私闸 + 检索）；提升链 / 审阅队列等管理逻辑不在本包依赖里。
 - `ponytail` / `symbol-normalizer`：固定约定，不参与归纳；偏好与它们重复时**不自动抑制**，由用户撤销或退休。
 - `AGENTS.md`：仍是最高的静态约定；本包**不自动改仓内文件**。
 
-## 验证
-
-```sh
-npm --prefix preference-analysis run check
-npm --prefix preference-analysis run test
-npm --prefix preference-analysis run build
-```
-
-## 文档
+### 相关文档
 
 - `docs/DESIGN.md`：状态机、跨包契约、幂等与并发的机制沉淀。
-- `docs/BACKLOG.md`：模块待办与「已裁定不做」（首期不做 TUI 面板、LLM 归纳、写 `AGENTS.md` 等）。
+- `docs/BACKLOG.md`：包内待办与「已裁定不做」（首期不做 TUI 面板、LLM 归纳、写 `AGENTS.md` 等）。
 - 归档追踪文档：`docs/archived/2026-10-16-preference-analysis-design.md`（项目级，决策 D1-D20、实现记录与验收口径）。
+
+## 测试
+
+```sh
+pnpm -C preference-analysis run check
+pnpm -C preference-analysis run test
+pnpm -C preference-analysis run build
+```
