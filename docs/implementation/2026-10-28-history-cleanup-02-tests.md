@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `tool-consult` 合并, 分支 `history-cleanup/02-tests-tool-consult` (`5c2ed696`), 合并提交 `620d44f9`; 单元 81→103 条 (skip 1→0), 集成 18 条, 覆盖率 89.4%→96.1% / 80.0%→92.4%; 发现 `denylist` 模式的 `isVisible` 把隐藏清单当可见 (pre-execute 拦截反向), 已记包 BACKLOG 待办 1; `state.ts` 表内下降为 V8 range 偏移度量误差 (单跑 95.6%), 包合计仍升; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `code-map` 合并, 分支 `history-cleanup/02-tests-code-map` (`04e75b0b`), 合并提交 `12f0117a`; 单元 24→36 条, 集成 15 条, 覆盖率 83.1%→93.6% / 61.5%→87.9%; 观察项: `builder.ts` 的 `kindBucket` 不认 `lexical_declaration`, 留阶段 3; `report.mjs` 不排 `dist` 且 TS 擦除行号偏移, 只做同命令对比; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `task-engine` 合并, 分支 `history-cleanup/02-tests-task-engine` (`a3e7052c`), 合并提交 `d930b485`; 单元 151→171 条, 集成 17 条, 覆盖率 81.2%→83.6% / 70.3%→73.0%; 装配器跨包 import `ManualClock`, 照 `md-table-check` 改双 program; 集成 `effect 注销` 偶发读到空 JSON (重跑通过), 留阶段 3 加固; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `session-paths` 合并, 分支 `history-cleanup/02-tests-session-paths` (`af922a9b`), 合并提交 `018b13de`; 单元 24→31 条, 集成 12 条, 覆盖率 93.8%→100.0% / 85.5%→95.8%; 规划原写不设集成层, 按任务改实跑; worktree 已删, coagent 已关.
