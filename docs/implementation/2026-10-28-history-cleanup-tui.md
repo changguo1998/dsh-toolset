@@ -100,6 +100,15 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - `src/app/state.ts` 只剩入口重导出（95 行）; 对外 67 个导出与拆分前逐一对应（脚本比对 missing 0 / extra 0）。跨模块复用的私有辅助（`trimBufferHead` / `dropHistoryRecords` / `statusFor` / `setInput` / `recomputeCompletion` 等 22 个）只在子模块间 `export`, 不加入口。
   - 依赖方向: `types` ← `initial` / `updates` / `actions` / `panels` ← `reducer`; 无环。
   - 偏差: `state/reducer.ts` 拆完仍 1266 行, 仍是全包最长文件之一 —— `reduceState` 的 `switch` 是**一个状态机**, 按 action 组再切会把同一台状态机拆到多文件、读一处要来回跳, 与 5.5「一个文件一层」的目标相悖; 若后续要切, 应按 action 前缀分组并另立条目。
+  - `src/app/adapter/dsh.ts`（4648 行）拆出辅助层 4 个模块（第二批第三步, 适配层）:
+    | 新文件 | 行数 | 职责 |
+    | --- | --- | --- |
+    | `adapter/history-normalize.ts` | 519 | 历史事件 → app 消息列表（P9 折叠口径）及其私有辅助 |
+    | `adapter/session-records.ts` | 359 | 会话列举 / 续接目标 / 删除 / 设置值与错误文案 |
+    | `adapter/contracts.ts` | 218 | Done-when 契约解析与群组状态文本 |
+    | `adapter/search-aggregate.ts` | 177 | 多源搜索聚合与循环行 detail |
+  - `adapter/dsh.ts` 从 4648 行降到 3639 行, 保留: 文件头重导块（对外 136 个可见名与拆分前逐一对应, missing 0 / extra 0）、`installSessionModelSelection`、`createRealDshAdapter` 本体, 并对 9 个搬走的公开函数（`normalizeHistoryMessages` / `listSessionRecords` / `pickRecentSession` / `pickContinueTarget` / `deleteSessionDir` / `parseContractObjective` / `contractSummaryText` / `groupStatusText` / `aggregateSearchSources`）与 2 个类型做入口重导出, 外部 import 路径不变。
+  - 偏差: `adapter/dsh.ts` 拆完仍 3639 行, 其中约 3350 行是 `createRealDshAdapter` 的**单个工厂闭包**: 内部方法与闭包变量（事件队列、活跃会话句柄、painter、去抖计时器）互相引用, 按职责切要把这些状态收成一个依赖上下文再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突; 本轮按「一个文件一层」只把可独立成层的纯函数搬出, 工厂整体留待单独条目再拆。
 
 ## 偏差
 
@@ -189,3 +198,15 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 - 对外可见集合: 用脚本比对拆分前后的 `state.ts` 导出名（67 个）, missing 0 / extra 0; `tests/` 与包内其它模块的 import 路径全部未改。
 - 拆分只挪位置与补 import: 未改名、未合并判断、未改 `reduceState` 分支顺序; 冻结帧基线与断言未改语义（1828 条全过）。
+
+### 阶段 3 第二批 · adapter/dsh.ts（2026-10-28）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error（拆分后 / 补 import 后 / 格式化后各一次） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
+
+- 对外可见集合: 脚本比对 `adapter/dsh.ts` 与拆分前的 136 个导出名（含重导块）, missing 0 / extra 0; `tests/` 与包内其它模块的 import 路径全部未改。
+- 拆分只挪位置与补 import/export: 未改名、未改逻辑; 冻结帧基线与断言未改语义（1828 条全过）。
