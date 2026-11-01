@@ -1,10 +1,10 @@
 /**
- * main — cordis 插件入口（DSH bundle 接入面，零 DSH 运行时依赖，结构式访问）。
+ * index — cordis 插件入口（DSH bundle 接入面，零 DSH 运行时依赖，结构式访问）。
  *
  * 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
  * name / inject / Config / apply，Config 以类型声明给出（interface Config；无运行时 schema，
  * 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。无 default export。
- * 与 task-engine/src/main.ts 同模式：惰性防御，ctx.tools 缺失时告警降级不抛错，保证 dsh 加载本 bundle 不崩。
+ * 与 task-engine/src/index.ts 同模式：惰性防御，ctx.tools 缺失时告警降级不抛错，保证 dsh 加载本 bundle 不崩。
  *
  * 注册两个模型侧工具：
  * - hash_read: 读取文件行并返回 LINE:HASH 锚点（锚定编辑的锚点来源）
@@ -12,7 +12,7 @@
  *   校验失败（malformed/out_of_range/stale_anchors/overlapping_edits）返回结构化错误
  *   （stale 含全部失效锚点 + expected/actual），不抛异常，供模型重新取锚点重试。
  *
- * 复用说明：文件读写底座在 DSH 宿主内即 tool-fs（本包 fs.ts 为标准库薄封装，
+ * 复用说明：文件读写底座在 DSH 宿主内即 tool-fs（本包 `hash-edit/src/fs.ts` 为标准库薄封装，
  * 供独立测试/demo）；行级锚定与 fs-observation-policy 的版本号守护互补。
  */
 
@@ -257,7 +257,7 @@ const HASH_EDIT_PARAMS = {
   },
 } as const;
 
-/** 校验 edits 数组形状（供模型侧错误定位；核心校验仍在 edit.ts 纯函数内）。 */
+/** 校验 edits 数组形状（供模型侧错误定位；核心校验仍在 `hash-edit/src/edit.ts` 纯函数内）。 */
 function coerceEdits(raw: unknown): { ops: EditOp[]; error?: string } {
   if (!Array.isArray(raw) || raw.length === 0) {
     return { ops: [], error: "edits must be a non-empty array" };
@@ -291,7 +291,7 @@ function coerceEdits(raw: unknown): { ops: EditOp[]; error?: string } {
   return { ops };
 }
 
-/** 构造两个工具定义（root = 显式 config.root；未配置 / 空串按调用会话 cwd 解析相对路径，缺省进程 cwd）。 */
+/** 构造工具定义（root = 显式 config.root；未配置 / 空串按调用会话 cwd 解析相对路径，缺省进程 cwd）。 */
 function createTools(root: string | undefined): ToolDef[] {
   /** 本次调用的相对路径基准：显式配置优先；空串按未配置（仓库惯例，对照 fs-digest / md-logic），回落会话 cwd。 */
   const baseRoot = (exec: unknown): string =>

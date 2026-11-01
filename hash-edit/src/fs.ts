@@ -27,7 +27,7 @@ import { type Hashline, fileHash, hashlines } from "./hashline.ts";
 /** 文件级错误码：文件不存在 / 非 UTF-8 / IO 失败。 */
 export type FileErrorCode = "not_found" | "not_utf8" | "io_error";
 
-/** 文件级错误（IO 类；锚定校验类错误见 edit.ts 的 AnchoredEditError）。 */
+/** 文件级错误（IO 类；锚定校验类错误见 `hash-edit/src/edit.ts` 的 AnchoredEditError）。 */
 export class FileEditError extends Error {
   constructor(
     public readonly code: FileErrorCode,

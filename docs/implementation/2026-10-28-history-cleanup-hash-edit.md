@@ -63,10 +63,14 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
   - `tests/integration/plugin.test.ts`: 18 例, 覆盖装配面 (注册名 / 参数 schema / 零事件订阅 / 零 provide / 缺 `ctx.tools` 与注册被拒的降级)、`hash_read` 与 `hash_edit` 的 canonical 值 (行号 1 基、sha256 前 8 位定值、全文哈希定值、`applied`)、`output.render` 投影 (逐字等于 `JSON.stringify(value, null, 2)`)、相对路径基准 (`config.root` 与空串回落 exec 会话 cwd)、落盘 (内容一致、目录无残留)、失败路径 (stale / out_of_range / malformed 七种形状 / not_found / not_utf8 / 入参校验)。
 - 脚本: `package.json` 增 `test:integration` (跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两轮目录合并 + `dev/coverage/report.mjs tmp/cov-hash-edit tmp/cov-hash-edit/report.json`)。
 - 未改 `src`; 用例只经 `src/index.ts` 与同包模块的公开导出。
+- 阶段 3 代码整理 (日期 2026-11-01, 分支 `history-cleanup/03-code-hash-edit`): 计数注释 `src/index.ts:294` 改「构造工具定义」, 不写数量 (本包没有与工具数对应的导出常量, 按任务口径用文字表述); 零引用导出按 5.2 复查为「无」 (28 个具名导出都有引用, 明细见「测试与证据」); 路径注释与标题补 4 处 (`src/index.ts:260` 与 `src/fs.ts:30` 的 `edit.ts` → `hash-edit/src/edit.ts`、`src/index.ts:15` 的「本包 fs.ts」→ `hash-edit/src/fs.ts`、`src/index.ts:7` 的 `task-engine/src/main.ts` → `task-engine/src/index.ts`), 并把 `src/index.ts:2` 的标题 `main` 改为 `index`; 未删代码, 工具名 / 参数面 / `output.render` 投影 / 配置键 / 注入文案与用例断言均未动。
 
 ## 偏差
 
-1. 集成层装配形态收窄为 `full` / `no-tools` 两种, 计划里的「空 `ctx`」未做: `apply` 没有 `ctx === null || typeof ctx !== "object"` 守卫, 传 `undefined` 会抛 `TypeError: Cannot read properties of undefined (reading 'tools')` (实测), 补守卫属 `src` 改动, 本阶段不动; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` 并进下方豁免台账。同类判断散落见总追踪调研 1.8「上下文对象守卫」(15 个包), 统一收口留阶段 3。
+- 集成层装配形态收窄为 `full` / `no-tools` 两种, 计划里的「空 `ctx`」未做: `apply` 没有 `ctx === null || typeof ctx !== "object"` 守卫, 传 `undefined` 会抛 `TypeError: Cannot read properties of undefined (reading 'tools')` (实测), 补守卫属 `src` 改动, 本阶段不动; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` 并进下方豁免台账。同类判断散落见总追踪调研 1.8「上下文对象守卫」(15 个包), 统一收口留阶段 3。
+- 阶段 3 的代码项在本包只有注释一类可落: 本包无 `src/timers.ts`, 无跨包复制的同名函数 (`src` 最大文件 390 行), 结构改写 (删失效 / 并定时器族 / 拆长文件 / 收拢判断) 没有对应对象, 故只做计数注释、零引用导出复查与路径注释。
+- 计划写「计数注释改指向常量」, 实际落为去数字: 本包没有与「两个工具」对应的导出常量 (两个工具定义在 `createTools` 内就地构造), 造常量只为给注释引用不划算, 按任务口径写成「构造工具定义」。
+- 比任务清单多改两处同属注释口径的位置: `src/index.ts:7` 的跨包入口路径 `task-engine/src/main.ts` 已不存在 (该包入口改名为 `index.ts`), 改为 `task-engine/src/index.ts`; `src/index.ts:2` 的标题 `main` 与实际文件名 `index.ts` 不一致, 改为 `index`。两处都不影响行为, 记为计划外更正。
 
 ## 测试与证据
 
@@ -107,3 +111,24 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 | `src/fs.ts:139` `stat` 失败分支 (`io_error: stat failed`) | `readFile` 成功后对同一路径 `stat` 几乎不可能失败, 只能靠并发删除竞态构造, 不可稳定复现 | 构造不出 | 阶段 3 判断是否随改写删掉该防御分支 |
 | `src/index.ts:141` `compileParameters` 的幂等分支 (入参已是顶层 object schema) | 两个工具的参数面都是 property-map, 该分支要先从 `src` 导出才能测; 本阶段不动 `src` | 参数面改成 JSON Schema 时 | 阶段 3 (代码整理) |
 | `src/index.ts:373` `apply` 的 `ctx` 守卫 (缺 `ctx === null \|\| typeof ctx !== "object"`) | 守卫不存在, 只会抛 `TypeError`, 没有可断言的降级行为; 补守卫属 `src` 改动 | 缺守卫的包共 15 个 (调研 1.8) | 阶段 3; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` |
+
+### 阶段 3 命令实跑 (2026-11-01, 分支 `history-cleanup/03-code-hash-edit`)
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C hash-edit run check` | 通过 (`tsc --noEmit` 无输出) |
+| `pnpm -C hash-edit run test` | 57 例通过 / 0 失败 / 0 跳过 / 0 todo, 约 98ms |
+| `pnpm -C hash-edit run test:integration` | 18 例通过 / 0 失败 / 0 跳过 / 0 todo, 约 93ms |
+| `pnpm -C hash-edit run build` | 通过 (`tsc -p tsconfig.json` 无输出) |
+| `prettier --check src/index.ts src/fs.ts` | 通过 (两文件已符合格式) |
+
+用例未增删, 断言未改; 行为面未动, 57 + 18 例与阶段 2 结果一致。
+
+### 零引用导出复查 (5.2)
+
+扫描口径: 对 `src` 的 28 个具名导出 (`hashline.ts` 11、`edit.ts` 6、`fs.ts` 7、`index.ts` 4) 按符号名全仓检索, 范围 `src` / `tests` / `demo` / `docs` / `scripts` / `profiles`, 排除 `node_modules` 与 `dist`; `index.ts` 的 `export *` 不重复计数。结果:
+
+- 入口对外引用: `apply` / `name` / `inject` / `Config` 被 `tests/assemble.ts` 与 `tests/integration/plugin.test.ts` 引用; 宿主按 `cordis.patch.yml` 装配入口, 其他包不 import 本包内部模块。
+- 测试或 demo 引用: `hashLine`、`hashlines`、`splitLines`、`detectLineEnding`、`formatAnchor`、`parseLineAnchor`、`HASH_LEN`、`AnchoredEditError`、`EditOp`、`FileEditError`、`readHashlines`、`applyAnchoredEditsFile`、`listDir`、`applyAnchoredEdits`、`fileHash`、`Hashline`、`EditSuccess`。
+- 仅包内引用: `LINE_ANCHOR_RE`、`Anchor`、`EditErrorCode`、`AnchorDetail`、`FileErrorCode`、`ReadResult`、`FileEditSuccess` (被同包函数签名或实现使用, 引用数不为 0)。
+- 结论: 零引用导出「无」, 未删任何符号。
