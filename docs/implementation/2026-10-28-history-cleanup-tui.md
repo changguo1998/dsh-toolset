@@ -210,3 +210,17 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 - 对外可见集合: 脚本比对 `adapter/dsh.ts` 与拆分前的 136 个导出名（含重导块）, missing 0 / extra 0; `tests/` 与包内其它模块的 import 路径全部未改。
 - 拆分只挪位置与补 import/export: 未改名、未改逻辑; 冻结帧基线与断言未改语义（1828 条全过）。
+
+### 阶段 3 第二批 · adapter/types.ts（2026-10-28）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error（拆分后 / 修路径后 / 格式化后各一次） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
+
+- 拆法: 1805 行按类型域切成 13 个模块（`core` / `events` / `adapter-contract` / `model` / `session-events` / `runtime` / `session` / `agent` / `tools` / `services` / `memory` / `channel` / `adapter-options`），最大 292 行; `adapter/types.ts` 只剩 132 行入口重导出。
+- 对外可见集合: 脚本比对拆分前后 105 个导出名, missing 0 / extra 0; `dsh.ts` / `normalize.ts` / app / demo / tests 的 import 路径全部未改。
+- 模块间 `import type` 单向（`adapter-contract` 依赖其余各域, 其余域之间无环）; 共享的外部类型（`SessionUiState` / `TurnEndReason` / `FileMentionCandidate` / `BlockDelivery`）按用处分到 `adapter-contract` / `events` / `adapter-options`。
+- 拆分只挪位置与补 import: 未改名、未改字段、未改注释语义; 断言未改（1828 条全过）。
