@@ -27,8 +27,8 @@
 //      ——脚本不再自维护深度数字；另设**分析步数上限**（`MAX_PARAM_KEY_STEPS`）防病态深层嵌套
 //      把递归栈打爆、耗尽即停止下探。
 // 2) **键集 + 键深单一来源**：路径 / 命令 / 代码三类键、已登记工具名与**键深上限**取自本包
-//    `src/index.ts` 的 `UNKNOWN_TOOL_PATH_KEYS` / `UNKNOWN_TOOL_COMMAND_KEYS` /
-//    `UNKNOWN_TOOL_CODE_KEYS` / `UNKNOWN_TOOL_KEY_DEPTH` / `TOOL_SURFACE`
+//    `src/index.ts` 与拆分后的规则表 `src/tool-registry.ts` 的 `UNKNOWN_TOOL_PATH_KEYS` /
+//    `UNKNOWN_TOOL_COMMAND_KEYS` / `UNKNOWN_TOOL_CODE_KEYS` / `UNKNOWN_TOOL_KEY_DEPTH` / `TOOL_SURFACE`
 //    （发布形态优先读已构建的 `dist/src/index.js`，`src` 作仓库内回退；dist 早于 src 时改用 src
 //    并提示，避免读到过期口径）——脚本不再自维护一份键表（旧版两处键集互不一致）。
 //    两者都读不到（含缺 `keyDepth`）→ **提示先 build 并 exit 2**，不静默当作无规则 / 无深度。
@@ -656,7 +656,7 @@ function surfaceFromDist(mod) {
   };
 }
 
-/** 从 src/index.ts 文本解析同一份口径（仓库形态；登记表按 prettier 两空格缩进）。 */
+/** 从 src 文本（入口 + 规则表）解析同一份口径（仓库形态；登记表按 prettier 两空格缩进）。 */
 function surfaceFromSource(text) {
   const listOf = (name) => {
     const m = new RegExp(
@@ -710,14 +710,29 @@ function surfaceFromSource(text) {
 }
 
 /**
+ * 仓库形态的源码口径来源文件：入口 + 拆分后的规则表
+ * （登记表与键集在 `src/tool-registry.ts`，两段文本拼起来喂同一个解析器；
+ * 报告的 `path` 仍是入口文件，口径来源对外不变）。
+ */
+const SOURCE_PARTS = ["src/index.ts", "src/tool-registry.ts"];
+
+/**
  * 载入口径来源：**dist 优先**（发布形态），`src` 作仓库内回退（dist 缺失 / 失效 / 比 src 旧时）；
  * 都解析不出 → 返回 null（调用方提示先 `npm run build` 并 exit 2，不静默用空键集）。
  */
 async function loadSurface(pkgDir) {
   const distPath = join(pkgDir, "dist", "src", "index.js");
   const srcPath = join(pkgDir, "src", "index.ts");
+  const srcParts = SOURCE_PARTS.map((rel) => join(pkgDir, rel)).filter(isFile);
+  /** 源码口径 = 各来源文件拼起来（缺失的部分按空串处理）。 */
+  const readSrcText = () =>
+    srcParts.map((path) => readFileSync(path, "utf8")).join("\n");
+  /** 源码口径的「最后改动时刻」取各来源文件的最大值（任一改动都要让 dist 判旧）。 */
+  const srcM = srcParts.reduce((acc, path) => {
+    const m = mtimeMs(path);
+    return m === null ? acc : acc === null ? m : Math.max(acc, m);
+  }, null);
   const distM = mtimeMs(distPath);
-  const srcM = mtimeMs(srcPath);
   const distFirst = distM !== null && (srcM === null || distM >= srcM);
   const order = [];
   if (distFirst) order.push(["dist", distPath]);
@@ -728,7 +743,7 @@ async function loadSurface(pkgDir) {
       const surface =
         origin === "dist"
           ? surfaceFromDist(await import(pathToFileURL(path).href))
-          : surfaceFromSource(readFileSync(path, "utf8"));
+          : surfaceFromSource(readSrcText());
       if (surface !== null) {
         return {
           origin,

@@ -2662,7 +2662,7 @@ test("键路径回执体积上限 —— 300 条折叠为 12 条 + 「等 288 �
 
 test("登记表 commandPaths 防呆 —— 不得出现多级数组（[][] 不可被解析器回读）", () => {
   const source = readFileSync(
-    new URL("../src/index.ts", import.meta.url),
+    new URL("../src/tool-registry.ts", import.meta.url),
     "utf8",
   );
   const literals: string[] = [];
