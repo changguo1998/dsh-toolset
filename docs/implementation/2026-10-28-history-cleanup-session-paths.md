@@ -42,12 +42,44 @@ rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_
 
 ## 实现记录
 
-(待填)
+- 基线: `pnpm -C session-paths run test` 24 例通过 (73ms); `check` 通过; 覆盖率 (仅单元层) 行 93.8% (180/192) / 分支 85.5% (53/62), `src/index.ts` 未覆盖段 61, 63, 140, 145-146, 155-156, 158-162 (报告按 0 基行号).
+- 单元锚点: `tests/service.test.ts` 24 → 31 例, 补的都是原有未走到的防御分支 —— `resolveRoot` 空串与相对路径, `readService` 的 ctx 非对象 / `get` 是抛错 getter / `get` 返回 null 三条兜底, `apply` 的 ctx 为 null / ctx 不可写 / 读 `provide` getter 抛错三条降级路径; 现有断言未改语义.
+- 集成层: 新增装配器 `tests/assemble.ts` (假服务面 `get` / `provide` + 假宿主 `sessions`, 临时 HOME) 与 `tests/integration/plugin.test.ts` 12 例; 断言 `apply` 挂服务 → `ctx.get("sessionPaths")` 取用 → `root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir` 的 canonical 值, 其中 `ensureSessionDir` 真在临时 HOME 下落盘 (0700、幂等、`_no-cwd` 桶), `dispose` 删临时目录并还原 `HOME` / `DSH_HOME`.
+- 脚本: `package.json` 加 `test:integration` (实跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两层合并, `dev/coverage/report.mjs` 参数 `tmp/cov-session-paths`).
+- 包文档: `README.md` 的「测试」节改为四条命令与分层说明.
 
 ## 偏差
 
-无
+- 规划写「不设集成层, `test:integration` 打印缺层原因并退出 0」; 分支任务明确要求新增集成层并实跑, 按当次指令执行: 该包有服务面, 落在总规范 4.2「服务提供与消费归集成」的必备范围内. 缺层原因不再成立, 故脚本改为实跑.
+- 覆盖率命令在规划的单层命令上追加 `tests/integration/*.test.ts` (4.3 的分层贡献另跑单元层对照, 数字见下).
+- 未改 `src`.
 
 ## 测试与证据
 
-(待填)
+改前 (仅单元层, 24 例):
+
+| 文件 | 行 | 分支 | 未覆盖行 |
+| --- | --- | --- | --- |
+| session-paths/src/encode.ts | 100.0% (46/46) | 100.0% (26/26) | - |
+| session-paths/src/index.ts | 91.8% (134/146) | 75.0% (27/36) | 61, 63, 140, 145-146, 155-156, 158-162 |
+| 整包 | 93.8% (180/192) | 85.5% (53/62) | - |
+
+改后 (单元层 31 例 / 单元加集成 43 例):
+
+| 文件 | 行 | 分支 (单元) | 分支 (单元加集成) | 未覆盖行 |
+| --- | --- | --- | --- | --- |
+| session-paths/src/encode.ts | 100.0% (46/46) | 100.0% (26/26) | 100.0% (26/26) | - |
+| session-paths/src/index.ts | 100.0% (146/146) | 97.7% (42/43) | 93.5% (43/46) | - |
+| 整包 | 100.0% (192/192) | 98.6% (68/69) | 95.8% (69/72) | - |
+
+- 剩余 3 个未覆盖分支块: `src/index.ts` 76 行 (注释块)、152-155 与 155-163 (`sessions` 缺失与会话取不到的两处抛错). 这两处行为已由单元层「sessions 服务不可用」「不在宿主的 sessions」两条断言锚住; 计数为 0 是 `--experimental-transform-types` 映射回源码后的字面量块产物, 不为数字补空跑用例.
+- 加集成层后分支分母由 69 升到 72 (集成进程多报 3 个块), 覆盖率按整包仍从 85.5% 升到 95.8%.
+
+四条命令 (改后):
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C session-paths run check` | ✓ 通过 (无输出) |
+| `pnpm -C session-paths run test` | ✓ 31/31 通过 |
+| `pnpm -C session-paths run test:integration` | ✓ 12/12 通过 |
+| `pnpm -C session-paths run test:coverage` | ✓ 行 100.0% (192/192), 分支 95.8% (69/72) |

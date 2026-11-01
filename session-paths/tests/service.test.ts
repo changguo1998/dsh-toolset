@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -200,4 +200,86 @@ test("readService：ctx.get 抛错时按缺失处理（不外泄异常）", () =
   };
   const service = new SessionPathsService("/tmp/sessions-z", ctx);
   assert.throws(() => service.sessionDirFor("s1"), /sessions 服务不可用/);
+});
+
+/** 捕获一段同步代码写入 stderr 的分片（结束后恢复原函数）。 */
+function captureStderr(run: () => void): string[] {
+  const chunks: string[] = [];
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    run();
+  } finally {
+    process.stderr.write = original;
+  }
+  return chunks;
+}
+
+test("resolveRoot：空串 root 视为缺省、相对路径按进程 cwd resolve", () => {
+  const saved = process.env["DSH_HOME"];
+  try {
+    process.env["DSH_HOME"] = "/env/home";
+    assert.equal(resolveRoot(""), "/env/home/sessions");
+    assert.equal(
+      new SessionPathsService("relative/sessions").root(),
+      resolve("relative/sessions"),
+    );
+  } finally {
+    if (saved === undefined) delete process.env["DSH_HOME"];
+    else process.env["DSH_HOME"] = saved;
+  }
+});
+
+test("readService：ctx 非对象时按服务缺失处理", () => {
+  const service = new SessionPathsService("/tmp/sessions-z", null);
+  assert.throws(() => service.sessionDirFor("s1"), /sessions 服务不可用/);
+});
+
+test("readService：ctx.get 是抛错的 getter 时退回直接属性读", () => {
+  const ctx: Record<string, unknown> = {
+    sessions: fakeSessions({ s1: { header: { cwd: "/p" } } }),
+  };
+  Object.defineProperty(ctx, "get", {
+    get() {
+      throw new Error("strict mode boom");
+    },
+  });
+  const service = new SessionPathsService("/tmp/sessions-z", ctx);
+  assert.equal(service.sessionDirFor("s1"), "/tmp/sessions-z/--p--/s1");
+});
+
+test("readService：ctx.get 返回 null 时退回直接属性读", () => {
+  const ctx = {
+    get: () => null,
+    sessions: fakeSessions({ s1: { header: { cwd: "/p" } } }),
+  };
+  const service = new SessionPathsService("/tmp/sessions-z", ctx);
+  assert.equal(service.sessionDirFor("s1"), "/tmp/sessions-z/--p--/s1");
+});
+
+test("apply：ctx 为 null 时只告警、不抛", () => {
+  const chunks = captureStderr(() => apply(null));
+  assert.match(chunks.join(""), /ctx 无 provide/);
+});
+
+test("apply：ctx 不可写时只告警、不抛", () => {
+  const ctx = Object.freeze({ get: () => undefined });
+  const chunks = captureStderr(() => apply(ctx, { root: "/tmp/sessions-x" }));
+  assert.match(chunks.join(""), /服务面 sessionPaths 注册失败/);
+});
+
+test("apply：读 provide 的 getter 抛错时退回直接属性挂载", () => {
+  const ctx: Record<string, unknown> = { get: () => undefined };
+  Object.defineProperty(ctx, "provide", {
+    get() {
+      throw new Error("strict mode boom");
+    },
+  });
+  assert.doesNotThrow(() => apply(ctx, { root: "/tmp/sessions-w" }));
+  const service = ctx["sessionPaths"] as SessionPaths | undefined;
+  assert.ok(service !== undefined);
+  assert.equal(service.root(), "/tmp/sessions-w");
 });
