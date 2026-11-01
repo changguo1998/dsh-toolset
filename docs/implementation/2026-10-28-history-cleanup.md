@@ -1357,15 +1357,18 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 
 - 2026-10-28 阶段 1 (标准与工具) 完成: 组 1 至组 4 与阶段记录各一笔提交, 依次 `d559d03` / `0ec16f4` / `745ce84` / `cfbcbe6` / `ebc8d76` / 阶段记录 (本笔); 规划提交为 `5da198c`. 明细见 `docs/implementation/2026-10-28-history-cleanup-01-standards.md`.
 - 阶段 2 开工前: 主分支一次写 34 份包追踪文档的测试实现规划并提交, 再按包开 worktree 与分支.
+- 2026-10-28 阶段 2 (测试锚定) 完成: 34 包全部分支合并, 合并记录与逐包数字见 `docs/implementation/2026-10-28-history-cleanup-02-tests.md`; 全量 `test` / `check` / `test:coverage` 退出 0.
 
 ## 偏差
 
 - 阶段 1: 8 处 `exclude` 实际指向存在的 `tests/clock.test.ts` (本文件调研 1.4 / 3.6 与决策 5.4 的「文件不存在」判断有误), 阶段 1 保留; 跨包 import 收口按 4.2 与 5.3 在阶段 2 / 3 处理, 处理后再删. 其余偏差见阶段文档「偏差」.
+- 阶段 2: 分支并行数受 coagent 上限约束为 4, 后期 `TRANSPORT 422` 频发降至 2; 覆盖率按同命令改前改后对比; `report.mjs` 不排 `dist`、V8 range 行号偏移、TUI `smoke:pty` 缺凭据等见阶段文档「偏差」与各包豁免台账.
 
 ## 测试与证据
 
 - 阶段 1 全量: `pnpm run check` / `build` / `test` 退出 0; 34 包 `private` / `main` / `types` 齐全; 34 份 `pnpm-lock.yaml`、0 份 `package-lock.json`.
 - 覆盖率: 34 包 313 个 `src` 文件, 行 84.4% (68694/81387), 分支 76.3% (15172/19874); 明细见阶段文档.
+- 阶段 2 全量: `pnpm run test` / `check` / `test:coverage` 退出 0; 覆盖率行 86.4% (70349/81387), 分支 79.9% (16570/20743); 明细与逐包数字见阶段文档.
 - `test:integration` / `test:e2e` 本阶段全 SKIP; 包级三条脚本留阶段 2.
 
 ## 收尾
