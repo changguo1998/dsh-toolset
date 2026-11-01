@@ -224,3 +224,21 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 - 对外可见集合: 脚本比对拆分前后 105 个导出名, missing 0 / extra 0; `dsh.ts` / `normalize.ts` / app / demo / tests 的 import 路径全部未改。
 - 模块间 `import type` 单向（`adapter-contract` 依赖其余各域, 其余域之间无环）; 共享的外部类型（`SessionUiState` / `TurnEndReason` / `FileMentionCandidate` / `BlockDelivery`）按用处分到 `adapter-contract` / `events` / `adapter-options`。
 - 拆分只挪位置与补 import: 未改名、未改字段、未改注释语义; 断言未改（1828 条全过）。
+
+### 阶段 3 第二批 · index.ts 第一批（2026-10-28）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
+
+- 本轮只做**类外装配面**这一层: `index.ts` 6499 行（原 6644）, 拆出
+  | 新文件 | 行数 | 职责 |
+  | --- | --- | --- |
+  | `app/exit-guards.ts` | 39 | 退出守卫 `canExitOnCtrlD` 与退出 / 重启 / 清理的约定常量 |
+  | `app/scroll-helpers.ts` | 52 | 焦点面板行 / 整页滚动的 action 映射与 `PaneScrollMax` |
+  | `app/app-deps.ts` | 100 | `AppDeps` 装配依赖面（main.ts 与测试的接线契约） |
+- 对外可见集合: 脚本比对 15 个导出名, missing 0 / extra 0; 私有常量（`CTRL_C_DOUBLE_MS` / `EXIT_CONFIRM_PANEL_ID` / `MEMORY_USAGE` 等）只在模块间 export + `index.ts` import, 不加入口重导出。
+- 偏差: `index.ts` 仍是 6499 行, 主体是 `App` 类的约 6200 行方法体。类内方法大量读写私有字段（`state` / `deps` / 计时器 / 渲染句柄）, 按职责切要先把这些状态收成显式上下文再谈搬走, 属**改结构**; 本轮按「行为不变」只搬类外纯函数与依赖面, 类体拆分建议另立条目（可先按「会话控制 / 面板交互 / 插件接线」三组配合上下文对象做）。
