@@ -14,7 +14,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { RuleEngine } from "../src/engine.ts";
-import { apply, isSubagentSession } from "../src/index.ts";
+import { apply, guardContextOf, isSubagentSession } from "../src/index.ts";
 import { toToolDefs } from "../src/tools.ts";
 import type { Config, SessionEventLike, SessionLike } from "../src/types.ts";
 
@@ -1005,7 +1005,7 @@ test("apply：消费者 deny → 返回 {kind:'deny', reason} 且不调 next()�
         return context.name === "bash"
           ? {
               kind: "deny",
-              reason: "bash 里不要跑 herdr 命令: 改用 herdr_use（pane）",
+              reason: "bash 里不要跑 herdr 命令: 改用 herdr_run（pane）",
             }
           : undefined;
       },
@@ -1027,7 +1027,7 @@ test("apply：消费者 deny → 返回 {kind:'deny', reason} 且不调 next()�
     );
     assert.deepEqual(deny, {
       kind: "deny",
-      reason: "bash 里不要跑 herdr 命令: 改用 herdr_use（pane）",
+      reason: "bash 里不要跑 herdr 命令: 改用 herdr_run（pane）",
     });
     assert.equal(nextCalls, 0, "deny 不再交下一位");
     assert.deepEqual(seen, [{ name: "bash", sessionId: "s1" }]);
@@ -1095,5 +1095,41 @@ test("apply：guard 抛错 / 汇总失败 → fail-open（调 next()）且告警
     assert.equal(nextCalls, 2);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("guardContextOf：exec → 消费者上下文（会话 id 取 agent.session.id，空值省略）", () => {
+  // 完整面: 四个字段原样带出
+  assert.deepEqual(
+    guardContextOf({
+      name: "bash",
+      arguments: { command: "herdr pane list" },
+      callId: "call-1",
+      agent: { session: { id: "s1" } },
+    }),
+    {
+      name: "bash",
+      arguments: { command: "herdr pane list" },
+      callId: "call-1",
+      sessionId: "s1",
+    },
+  );
+  // 结构性缺省: 空 callId / 非字符串 name / 无 agent → 只留必填两项
+  assert.deepEqual(
+    guardContextOf({ name: 0, arguments: undefined, callId: "" } as never),
+    { name: "", arguments: undefined },
+  );
+  // agent 形状畸形（非对象 / 无 session / id 非字符串或空串）→ 一律省略 sessionId
+  for (const agent of [
+    null,
+    "agent",
+    {},
+    { session: null },
+    { session: { id: 7 } },
+    { session: { id: "" } },
+  ]) {
+    const context = guardContextOf({ name: "read", arguments: {}, agent });
+    assert.deepEqual(Object.keys(context), ["name", "arguments"]);
+    assert.equal(context.sessionId, undefined);
   }
 });

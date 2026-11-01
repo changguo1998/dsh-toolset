@@ -134,7 +134,7 @@ test("guard：合法注册可拦截；重复 id 告警且不覆盖先注册者",
     const dispose = engine.registerConsumer({
       id: "bc",
       sources: ["tools/pre-execute"],
-      guard: () => ({ kind: "deny", reason: "用 herdr_use" }),
+      guard: () => ({ kind: "deny", reason: "用 herdr_run" }),
     });
     const duplicate = engine.registerConsumer({
       id: "bc",
@@ -145,7 +145,7 @@ test("guard：合法注册可拦截；重复 id 告警且不覆盖先注册者",
     assert.match(warnings.join("\n"), /已注册，重复注册被忽略/);
     assert.deepEqual(await engine.guardTool(exec()), {
       kind: "deny",
-      reason: "用 herdr_use",
+      reason: "用 herdr_run",
     });
     dispose();
     assert.equal(await engine.guardTool(exec()), undefined, "注销后不再唤醒");
