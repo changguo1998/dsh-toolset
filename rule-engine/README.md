@@ -1,5 +1,7 @@
 # @dsh-toolset/rule-engine
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按设定规则（关键词 / 正则 / 内置谓词）检测模型正文、工具调用与回合边界，命中后**代替用户**向下一个回合注入一条 user-role 消息（如检测到非推荐符号即发更正要求、检测到越界操作即发约束提醒）。
 
 注册模型面工具族 `rule_*`（增删改查 + 干跑），规则可来自插件配置（只读基线）或运行时的工具调用（落状态目录）。
@@ -14,7 +16,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 | source | 判定时机 | 判定文本 |
 | --- | --- | --- |
-| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; `surfaceOp: "replace"` 的影子覆盖事件**不进缓冲**（与 TUI 显示面一致）; 单条 step 正文超 200 000 字符**被截断并发告警**（见「已知限制」） |
+| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; `surfaceOp: "replace"` 的更正事件**不进缓冲**（与 TUI 显示面一致）; 单条 step 正文超 200 000 字符**被截断并发告警**（见「已知限制」） |
 | `user-message` | `user/message` 到达 | 用户消息 text 块（本引擎自己的注入消息被排除，避免自触发） |
 | `tool-call` | `tool/call` 到达 | 工具名 + 模型原始参数 JSON 串 |
 | `tool-result` | `tool/result` 到达 | 工具结果消息的 text 块 |
@@ -83,19 +85,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 - **回合级**：`maxInjectionsPerTurn`（插件配置，缺省 `3`）= 同一会话、同一**来源回合**最多注入条数（按触发事件所属回合计数）；同回合同内容只注入一次（固定开启，不同规则同文案也只发一条）。
 - **规则级**：`cooldownTurns`（缺省 `0`；`1` = 隔回合才允许再次命中）、`cooldownMs`（缺省 `0` = 不限制）；记账是**进程内**内存态，`dsh` 重启后清零（规则本身仍持久化）。
-- **记录级**：`dedupeInRecord`（缺省 `0` = 无限制，**整型**：会话记录 = 可见投影（`deriveMessages()`）**加**仍在 inbox 待消费的注入里最多允许 N 条本注入；`1` = 已有就跳过（重载不重复注入，压缩把注入挤出记录后才补），`N≥2` = 最多 N 条；计数按 `source.summary` / `summaries` 命中该 key 的**条数**，记录不可读 → fail-open 照旧注入，旧布尔值归一 `true → 1` / `false → 0`）；`directWrite`（缺省 `[]`：这些节点**跳过 `dedupeInRecord` 记录判断**直接写入，项须是匹配面 / `sources` 的子集，越界项归一化时丢弃并记 warning）。判定细节与设计理由见 `docs/DESIGN.md` 取舍 6。
-
-### 与官方 `repeat-tool-reminder` 的分工（不竞争，2026-10-05 定论）
-
-官方 `repeat-tool-reminder`（base 已挂载，`thresholds: [3, 5, 8]`）与本引擎**既不同注入点、也不同通道**：
-
-| 维度 | 本引擎 | 官方 `repeat-tool-reminder` |
-| --- | --- | --- |
-| 触发条件 | 规则表判定（关键词 / 正则 / 谓词）+ 消费者 `decide` | 同一工具重复调用计数达阈值 |
-| 注入通道 | `agent.followup` / `steer` / `inject` 注入**消息记录**（落 next-step inbox，呈现为用户输入块） | 在 `tools/post-execute` 返回值里附 `additionalContexts`——**步骤级上下文，不产生消息记录** |
-| 订阅节点 | session / turn / step / tool 边界 + `compaction`（**不含 `agent/pre-step`**） | `tools/post-execute`（注入）；`agent/pre-step` 仅用于「收到真实用户消息即清零重复计数」 |
-
-故：注入预算互不挤占（`maxInjectionsPerTurn` 只计本引擎自己的注入段）；同一回合各出一条提醒**不构成冲突**（触发条件互不相关、通道与文案均不同，无需去重）。本引擎**不**为避让官方 reminder 而收窄触发面（调研与实测依据见 `docs/archived/2026-10-05-rule-engine-reminder-overlap.md`）。
+- **记录级**：`dedupeInRecord`（缺省 `0` = 无限制，**整型**：会话记录 = 可见投影（`deriveMessages()`）**加**仍在 inbox 待消费的注入里最多允许 N 条本注入；`1` = 已有就跳过（重载不重复注入，压缩把注入挤出记录后才补），`N≥2` = 最多 N 条；计数按 `source.summary` / `summaries` 命中该 key 的**条数**，记录不可读 → fail-open 照旧注入，旧布尔值归一 `true → 1` / `false → 0`）；`directWrite`（缺省 `[]`：这些节点**跳过 `dedupeInRecord` 记录判断**直接写入，项须是匹配面 / `sources` 的子集，越界项归一化时丢弃并记 warning）。判定细节与设计理由见 `docs/DESIGN.md` 机制 6。
 
 ### 工具族
 
@@ -111,6 +101,45 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 `tools` 不在 `inject` 声明中，经 `ctx.get('tools')` 读取（cordis 严格模式禁止未注入服务的直接属性访问；2026-09-27 真机实测踩坑）；缺失时工具族降级告警，事件面照常。
 
+### 消费者面
+
+`provide("ruleEngine")` 面向其他插件：
+
+| 方法 | 说明 |
+| --- | --- |
+| `list()` | 生效规则只读清单（`id` / `enabled` / `sources` / `directWrite` / `delivery` / `origin` / `description` / `text` / 节流参数） |
+| `status()` | 规则条数、运行时条数、被运行时删除的基线条数、状态目录、每回合注入上限 |
+| `evaluate({ text, source? })` | 只读判定：返回命中规则（含**可注入内容** `text` / `summary`）与未启用规则 id；不注入、不改状态 |
+| `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数。`sources` 含 `tools/pre-execute` 时改为 guard 形态（必须给 `guard`、不得给 `decide` 与注入 / 冷却参数），见下「guard 面」 |
+| `onNotice(listener)` | 订阅插件告警（完整展示行 + tone） |
+
+- **共用闸门**：逐段上限（`maxInjectionsPerTurn` 以「**段**」计）、同文本去重、`dedupeInRecord` 判空；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。同一次触发的全部命中（规则 + 消费者）按 `delivery` 分组、**每组合并为一条**注入消息（正文空行分隔；多段时 `source.summaries` 记录各段摘要）。
+- **时序约束**：`decide` 运行在 `session/event` 的同步派发窗口内——须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）；`ctx.trigger` 是实际触发的节点 id，`ctx.event` 是原始宿主事件（`session-start` 上是宿主 Session），`ctx.resumed` 是本会话是否为恢复 / 重载（会话内稳定，可直接喂给匹配器复用会话谓词）。
+- **对齐点（尺度双 flag）与复杂度边界**见 `docs/DESIGN.md` 机制 7：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，`*-start` 清更粗 / 更细 flag、`*-end` 查或后置位，「清」与是否注册无关，`decide` 返回 `reset: true` 清空本消费者 flag，`compaction` 不参与合并、每次到达都触发。
+
+#### guard 面（`tools/pre-execute`，工具执行前拦截）
+
+**节点**：`sources: ["tools/pre-execute"]` 的消费者在宿主 `tools/pre-execute`（cordis **waterfall**）唤醒，上下文是 `ToolGuardContext { name, arguments, callId?, sessionId?, resumed? }`（宿主 exec 的结构面子集；`sessionId` 取自 `exec.agent.session.id`，`resumed` 按会话级判据补齐）。裁决是 `ToolGuardDecision = { kind: "allow" } | { kind: "deny"; reason }`，返回 `undefined` = 弃权。
+
+```ts
+service.registerConsumer({
+  id: "my-guard",
+  sources: ["tools/pre-execute"],
+  guard: (context) =>
+    context.name === "bash" && String(context.arguments?.command ?? "").includes("herdr")
+      ? { kind: "deny", reason: "bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）" }
+      : undefined,
+});
+```
+
+- **注册约束**（违反即拒绝注册并告警，返回 noop）：该形态**必须**给 `guard`（同步或异步均可）、**不得**给 `decide`，也**不得**带 `delivery` / `dedupeInRecord` / `directWrite` / `cooldownTurns` / `cooldownMs`（guard 只裁决、不注入、不去重、不记账）。不含该节点的注册仍必须给 `decide`。
+- **汇总顺序**：按**注册顺序串行** `await`，任一 `deny` **立即返回**（安全向：`allow` 不否决后续 `deny`）；全部放行 / 弃权 → `undefined`，监听器走宿主 `next()`。
+- **失败语义**：`guard` 抛错 / 返回非法结构 / `deny` 但理由为空 → 告警并视为弃权（fail-open）。最终否决权仍在 `security-guard`（`ctx.tools.guard` 单调守卫），本面不接管。
+- **会话范围**：对所有会话生效（含子代理）。
+- **可见性**：`deny` 时经 `warn` 打一行「消费者 `<id>` 拒绝工具 `<name>`」；**不写审计**、不落 memory-base。
+- **工具面**：`rule_*` 仍只接受 `inject` 动作 —— 消费者 guard 只由插件代码注册，配置无法直接表达拦截规则；规则由各消费者插件自己的 `config` 提供（首个消费者 `behavior-correction` 是并行任务，口径见项目级 `../docs/archived/2026-10-21-behavior-correction.md`）。
+- **与相邻拦截层的关系**：`security-guard`（危险命令 / 敏感路径，单调守卫，拥有最终否决）与 `auto-approve`（`approval/request` 审批裁定）职责不变；本面只表达「应改用专用工具」。
+
 ## 配置
 
 | 字段 | 默认 | 说明 |
@@ -125,7 +154,7 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬依赖，缺失则插件整体等待）/ `provide: ["ruleEngine"]` / `Config`（类型声明，无运行时 schema）/ `apply`。
 
-## 配置示例（profile `cordis.patch.yml`）
+### profile 配置示例（`cordis.patch.yml`）
 
 ```yaml
 - insert:
@@ -171,50 +200,27 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 
 `config` 段是**整行替换、非深合并**（宿主 patch 语义），多层叠加需自行写全。
 
-## 消费者面
+## 用法
 
-`provide("ruleEngine")` 面向其他插件：
+### 时序约束（重要）
 
-| 方法 | 说明 |
-| --- | --- |
-| `list()` | 生效规则只读清单（`id` / `enabled` / `sources` / `directWrite` / `delivery` / `origin` / `description` / `text` / 节流参数） |
-| `status()` | 规则条数、运行时条数、被运行时删除的基线条数、状态目录、每回合注入上限 |
-| `evaluate({ text, source? })` | 只读判定：返回命中规则（含**可注入内容** `text` / `summary`）与未启用规则 id；不注入、不改状态 |
-| `registerConsumer({ id, sources?, delivery?, cooldownTurns?, cooldownMs?, dedupeInRecord?, directWrite?, decide })` | 注册消费者：在注册的**节点**（`sources`，缺省 `["turn-end"]`）按注册顺序**同步**询问，`decide(ctx)` 返回要注入的内容 `{ text, summary?, reset? }`（null = 不反馈），反馈由本引擎统一注入；`directWrite` 列出的节点跳过投影去重判断；返回注销函数。`sources` 含 `tools/pre-execute` 时改为 guard 形态（必须给 `guard`、不得给 `decide` 与注入 / 冷却参数），见下「guard 面」 |
-| `onNotice(listener)` | 订阅插件告警（完整展示行 + tone） |
+`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup` / `steer` / `inject`，随后 `sessions.flush(agent.session)`；会话非 live 时跳过并记 warning。启动期顺序、注入到步边界才被 claim 与 `dedupeInRecord` 的配合见 `docs/DESIGN.md` 机制 1 与 6。
 
-- **共用闸门**：逐段上限（`maxInjectionsPerTurn` 以「**段**」计）、同文本去重、`dedupeInRecord` 判空；消费者级 `cooldownTurns` / `cooldownMs` 可选（按注入记账），更细粒度冷却由消费者自理。同一次触发的全部命中（规则 + 消费者）按 `delivery` 分组、**每组合并为一条**注入消息（正文空行分隔；多段时 `source.summaries` 记录各段摘要）。
-- **时序约束**：`decide` 运行在 `session/event` 的同步派发窗口内——须廉价，且不得调用宿主 API（注入一律由本引擎推迟宏任务）；`ctx.trigger` 是实际触发的节点 id，`ctx.event` 是原始宿主事件（`session-start` 上是宿主 Session），`ctx.resumed` 是本会话是否为恢复 / 重载（会话内稳定，可直接喂给匹配器复用会话谓词）。
-- **对齐点（尺度双 flag）与复杂度边界**见 `docs/DESIGN.md` 取舍 10：尺度层级 `session ⊃ turn ⊃ step ⊃ tool`，`*-start` 清更粗 / 更细 flag、`*-end` 查或后置位，「清」与是否注册无关，`decide` 返回 `reset: true` 清空本消费者 flag，`compaction` 不参与合并、每次到达都触发。
+## 边界
 
-### guard 面（`tools/pre-execute`，工具执行前拦截）
+### 与官方 `repeat-tool-reminder` 的分工（不竞争，2026-10-05 定论）
 
-**节点**：`sources: ["tools/pre-execute"]` 的消费者在宿主 `tools/pre-execute`（cordis **waterfall**）唤醒，上下文是 `ToolGuardContext { name, arguments, callId?, sessionId?, resumed? }`（宿主 exec 的结构面子集；`sessionId` 取自 `exec.agent.session.id`，`resumed` 按会话级判据补齐）。裁决是 `ToolGuardDecision = { kind: "allow" } | { kind: "deny"; reason }`，返回 `undefined` = 弃权。
+官方 `repeat-tool-reminder`（base 已挂载，`thresholds: [3, 5, 8]`）与本引擎**既不同注入点、也不同通道**：
 
-```ts
-service.registerConsumer({
-  id: "my-guard",
-  sources: ["tools/pre-execute"],
-  guard: (context) =>
-    context.name === "bash" && String(context.arguments?.command ?? "").includes("herdr")
-      ? { kind: "deny", reason: "bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）" }
-      : undefined,
-});
-```
+| 维度 | 本引擎 | 官方 `repeat-tool-reminder` |
+| --- | --- | --- |
+| 触发条件 | 规则表判定（关键词 / 正则 / 谓词）+ 消费者 `decide` | 同一工具重复调用计数达阈值 |
+| 注入通道 | `agent.followup` / `steer` / `inject` 注入**消息记录**（落 next-step inbox，呈现为用户输入块） | 在 `tools/post-execute` 返回值里附 `additionalContexts`——**步骤级上下文，不产生消息记录** |
+| 订阅节点 | session / turn / step / tool 边界 + `compaction`（**不含 `agent/pre-step`**） | `tools/post-execute`（注入）；`agent/pre-step` 仅用于「收到真实用户消息即清零重复计数」 |
 
-- **注册约束**（违反即拒绝注册并告警，返回 noop）：该形态**必须**给 `guard`（同步或异步均可）、**不得**给 `decide`，也**不得**带 `delivery` / `dedupeInRecord` / `directWrite` / `cooldownTurns` / `cooldownMs`（guard 只裁决、不注入、不去重、不记账）。不含该节点的注册仍必须给 `decide`。
-- **汇总顺序**：按**注册顺序串行** `await`，任一 `deny` **立即返回**（安全向：`allow` 不否决后续 `deny`）；全部放行 / 弃权 → `undefined`，监听器走宿主 `next()`。
-- **失败语义**：`guard` 抛错 / 返回非法结构 / `deny` 但理由为空 → 告警并视为弃权（fail-open）。最终否决权仍在 `security-guard`（`ctx.tools.guard` 单调守卫），本面不接管。
-- **会话范围**：对所有会话生效（含子代理）。
-- **可见性**：`deny` 时经 `warn` 打一行「消费者 `<id>` 拒绝工具 `<name>`」；**不写审计**、不落 memory-base。
-- **工具面**：`rule_*` 仍只接受 `inject` 动作 —— 消费者 guard 只由插件代码注册，配置无法直接表达拦截规则；规则由各消费者插件自己的 `config` 提供（首个消费者 `behavior-correction` 是并行任务，口径见项目级 `docs/implementation/2026-10-21-behavior-correction.md`）。
-- **与相邻拦截层的关系**：`security-guard`（危险命令 / 敏感路径，单调守卫，拥有最终否决）与 `auto-approve`（`approval/request` 审批裁定）职责不变；本面只表达「应改用专用工具」。
+故：注入预算互不挤占（`maxInjectionsPerTurn` 只计本引擎自己的注入段）；同一回合各出一条提醒**不构成冲突**（触发条件互不相关、通道与文案均不同，无需去重）。本引擎**不**为避让官方 reminder 而收窄触发面（调研与实测依据见 `docs/archived/2026-10-05-rule-engine-reminder-overlap.md`）。
 
-## 时序约束（重要）
-
-`session/event` 监听器运行在 `Session.append` 的**同步派发窗口**内，直接调用 `agent.followup()` 会撞重入保护（异常被宿主吞掉，现象是「消息不落盘」）。因此注入一律 `setTimeout(…, 0)` 推迟宏任务后再 `agents.get(sessionId)`，按 `delivery` 调 `followup` / `steer` / `inject`，随后 `sessions.flush(agent.session)`；会话非 live 时跳过并记 warning。启动期顺序、注入到步边界才被 claim 与 `dedupeInRecord` 的配合见 `docs/DESIGN.md` 取舍 1 与 6。
-
-## 已知限制
+### 已知限制
 
 - **「提示人」已由 TUI 支持**：注入消息按**用户输入块**渲染（正文 `[RULE] ` 前缀标明自动注入）；未实现该分支的客户端按普通 user 消息块渲染（行为退化为默认，不丢消息）。
 - 只有 `inject` 一种动作：`tag` 打标 / `abort` 中断 / `memory` 写知识库未实现。
@@ -223,13 +229,14 @@ service.registerConsumer({
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
 - **观测口径与 TUI 显示不完全一致（2026-10-16 实测，同日修正并放宽两项）**：显示面是各 step 正文**直接相接**（TUI 丢弃 `surfaceOp: "replace"` 的正文、但空白 step 照常显示）, 而本引擎的 `assistant-text` 是各 step 正文用 `\n` 连接（N step 多 N-1 个换行）。因此行号 / 片段定位可能与界面差若干字符。两项已处理: ① `surfaceOp: "replace"` 的消息**不进缓冲**（与显示面一致，不再要求「修正」屏幕上不存在的内容）; ② 单条 step 超 200 000 字符时判定只见截断后的前缀，**截断时发一条告警**（文案含「截断」与上限数字），不再静默丢内容。
 
-## 开发
+## 测试
 
 ```sh
-npm run check   # tsc --noEmit
-npm run build   # 编译到 dist/
-npm test        # node --test（168 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
-npm run demo    # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
+pnpm run check            # tsc --noEmit
+pnpm run build            # 编译到 dist/
+pnpm run test             # node --test（175 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
+pnpm run test:integration # node --test（13 条：装配 apply 与宿主接线）
+pnpm run demo             # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```
 
 架构与设计取舍见 `docs/DESIGN.md`。
