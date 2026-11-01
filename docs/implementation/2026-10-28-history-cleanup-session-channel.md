@@ -7,6 +7,8 @@
 
 阶段 2 测试锚定: 给 `session-channel` 补单元锚点与集成层, 落地 `test:integration` / `test:coverage`, 记录改前改后覆盖率, 为阶段 3 的代码整理提供回归网.
 
+阶段 3 代码整理: 按总追踪 5.1 的步骤改本包, 行为不变.
+
 ## 现状
 
 - 单元层: `tests/` 下 9 个 `.test.ts` (`agent-state.test.ts` / `alias.test.ts` / `apply.test.ts` / `broker.test.ts` / `client.test.ts` / `inject.test.ts` / `service.test.ts` / `task.test.ts` / `tools.test.ts`); 阶段 1 末 `pnpm -C session-channel run test` 通过.
@@ -14,6 +16,7 @@
 - 覆盖率基线 (阶段 1 末): 行 86.9% (3326/3827); 分支 61.9% (409/661).
 - 脚本: 只有 `test`; 缺 `test:integration` / `test:coverage`.
 - 专项: 无; 按 4.4 复核本包 `skip` / `todo` / 夹具.
+- 阶段 3 开工前: 全量 `check` / `test` / `test:coverage` 通过, 明细见阶段 2 证据.
 
 ## 实现规划
 
@@ -34,7 +37,18 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 
 ### 代码
 
-阶段 3 补; 本阶段不动 `src` (为可测性必须动时先在「偏差」记原因).
+- 分支 `history-cleanup/03-code-session-channel`, worktree `.worktree/03-code/session-channel`; 只改本包源码、本包测试的 import、`package.json` / `pnpm-lock.yaml` 与本文件.
+- 前置: `clock-base` 已合并, 本分支从含它的 `main` 开.
+- 开工: 在 worktree 的本包目录跑 `pnpm install --frozen-lockfile`; 有 `link:` 依赖时先在 worktree 里构建被依赖包 (`pnpm -C <被依赖包> run build`), 再跑本包 `check`.
+- 顺序: 删失效 → 并定时器族 → 拆长文件 → 收拢判断 → 改注释; 每步跑 `pnpm -C session-channel run check` 与 `pnpm -C session-channel run test`.
+- 任务:
+  - 删失效导出: `src/broker.ts:813` `countTasks`; `src/keys.ts` 的 `STATE_PATTERN`、`sessionIdFromStateKey`、`TASK_INDEX_PATTERN`、`sessionIdFromTaskIndexKey` 共 4 个.
+  - `src/index.ts` 内联的 `systemTimers` 换成 `clock-base` 导出; 入口保留同名 re-export, 调用点不动.
+  - 拆 `src/index.ts` (1929 行): 会话 / 任务 / 工具面分层.
+  - `src/inject.ts` 的上下文对象守卫收进入口.
+  - `package.json` / `pnpm-lock.yaml` 加 `link:../clock-base`.
+- 验收: `pnpm -C session-channel run check` 与 `pnpm -C session-channel run test` 全绿, 用例断言不因组织改动而改; 行为不变 (工具名、参数面、`output.render` 投影、配置键、注入文案、帧内容都不动).
+- 提交: `refactor(session-channel): <动作>`, 一个逻辑一笔; 不改本节实现规划, 不改总追踪与阶段追踪.
 
 ### 包文档
 

@@ -7,6 +7,8 @@
 
 阶段 2 测试锚定: 给 `TUI` 补单元锚点与集成层, 落地 `test:integration` / `test:coverage`, 记录改前改后覆盖率, 为阶段 3 的代码整理提供回归网.
 
+阶段 3 代码整理: 按总追踪 5.1 的步骤改本包, 行为不变.
+
 ## 现状
 
 - 单元层: `tests/` 下 139 个 `.test.ts` (见 `tests/`); 阶段 1 末 `pnpm -C TUI run test` 通过.
@@ -14,6 +16,7 @@
 - 覆盖率基线 (阶段 1 末): 行 87.4% (24156/27643); 分支 78.3% (6258/7989).
 - 脚本: 只有 `test`; 缺 `test:integration` / `test:coverage`.
 - 专项: `tests/app.test.ts:354` 的 `skip` 按 4.4 处理; `tests/fixtures/` 的 2 个夹具复核; 新增 `test:e2e`, 跑 `demo -- --smoke` 与 `smoke:pty`; 端到端只在 TUI 做
+- 阶段 3 开工前: 全量 `check` / `test` / `test:coverage` 通过, 明细见阶段 2 证据.
 
 ## 实现规划
 
@@ -35,7 +38,22 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 ### 代码
 
-阶段 3 补; 本阶段不动 `src` (为可测性必须动时先在「偏差」记原因).
+- 分支 `history-cleanup/03-code-tui`, worktree `.worktree/03-code/TUI`; 只改本包源码、本包测试的 import、`package.json` / `pnpm-lock.yaml` 与本文件.
+- 开工: 在 worktree 的本包目录跑 `pnpm install --frozen-lockfile`; 有 `link:` 依赖时先在 worktree 里构建被依赖包 (`pnpm -C <被依赖包> run build`), 再跑本包 `check`.
+- 顺序: 删失效 → 并定时器族 → 拆长文件 → 收拢判断 → 改注释; 每步跑 `pnpm -C TUI run check` 与 `pnpm -C TUI run test`.
+- 任务:
+  - 删失效导出: `src/app/adapter/types.ts:114` `ToolResultMetaLike`、`src/app/state.ts:695` `PickerOption`、`src/app/state.ts:2834` `isInputHistoryBrowse`; 删前重扫全仓引用.
+  - 按键分派收进 `src/app/keys.ts`: 72 处 `name === "…"` 收成一张 `Record<string, Action>`, 表按现有 `if` 链顺序排, 命中即停.
+  - 用户消息识别收进 `src/app/state.ts`: 34 处 `role === "user"` / `kind === "user"` 收成一个谓词, 适配层与渲染层改调它.
+  - 沙箱展示映射 (`src/app/layout.ts:278`) 改读 `herdr-use` 的枚举类型, 不自判.
+  - 记忆层级判定 (`src/app/index.ts:5843` 起) 改读注入值, 不再自比 `tier`.
+  - 拆长文件, 一个文件一层: `src/app/index.ts` (6601 行) → 状态 / 渲染 / 适配 / 工具面; `src/app/adapter/dsh.ts` (4647 行); `src/app/state.ts` (3388 行); `src/app/layout.ts` (2440 行); `src/app/adapter/types.ts` (1803 行). 拆出的文件只从包入口 re-export, 不新增对外入口.
+  - 拆分顺序按总追踪 4.1 的 P1: 排版与宽度 → 状态 → 适配 → 类型; 每拆一步跑一次帧基线并逐字节比对; 不清 `src/main.ts` 的启动顺序.
+  - 按总追踪 1.3 表改本包路径注释: `layout/hints.ts` 14 处、`layout/width-symbols.ts` 9 处、`adapter/local-log.ts` 3 处、`adapter/types.ts` / `adapter/dsh.ts` / `layout/eaw-table.ts` / `layout/tool-line.ts` / `components/ModelPicker.ts` / `pipeline/types.ts` / `src/types.ts` / `TUI/src/x.ts` 各 1 处, 共 34 处.
+  - 删完按 `.ts` 符号扫描复扫本包.
+- 验收: `pnpm -C TUI run check` 与 `pnpm -C TUI run test` 全绿, 用例断言不因组织改动而改; 行为不变 (工具名、参数面、`output.render` 投影、配置键、注入文案、帧内容都不动).
+- 补充: 每步另跑 `pnpm -C TUI run demo -- --smoke`; `smoke:pty` 需 `TOLLGATE_API_KEY`, 缺凭据记「偏差」.
+- 提交: `refactor(TUI): <动作>`, 一个逻辑一笔; 不改本节实现规划, 不改总追踪与阶段追踪.
 
 ### 包文档
 

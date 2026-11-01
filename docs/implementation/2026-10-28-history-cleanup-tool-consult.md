@@ -7,6 +7,8 @@
 
 阶段 2 测试锚定: 给 `tool-consult` 补单元锚点与集成层, 落地 `test:integration` / `test:coverage`, 记录改前改后覆盖率, 为阶段 3 的代码整理提供回归网.
 
+阶段 3 无代码改动, 不建分支.
+
 ## 现状
 
 - 单元层: `tests/` 下 8 个 `.test.ts` (`aliases.test.ts` / `config.test.ts` / `degrade.test.ts` / `main.test.ts` / `matcher.test.ts` / `retrieval.test.ts` / `state.test.ts` / `tokenize.test.ts`); 阶段 1 末 `pnpm -C tool-consult run test` 通过.
@@ -14,6 +16,7 @@
 - 覆盖率基线 (阶段 1 末): 行 89.4% (1292/1445); 分支 80.0% (216/270).
 - 脚本: 只有 `test`; 缺 `test:integration` / `test:coverage`.
 - 专项: `tests/retrieval.test.ts:209` 的 `skip` 收窄为「`channel_delegate` 进前二」; 复核 `tests/fixtures/` 的 1 个夹具
+- 阶段 3 开工前: 全量 `check` / `test` / `test:coverage` 通过, 明细见阶段 2 证据.
 
 ## 实现规划
 
@@ -34,7 +37,7 @@ rm -rf ../tmp/cov-tool-consult && mkdir -p ../tmp/cov-tool-consult && NODE_V8_CO
 
 ### 代码
 
-阶段 3 补; 本阶段不动 `src` (为可测性必须动时先在「偏差」记原因).
+阶段 3 无代码改动, 不建分支. 本包的整理在阶段 4 (包文档) 完成.
 
 ### 包文档
 

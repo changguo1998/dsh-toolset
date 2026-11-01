@@ -7,6 +7,8 @@
 
 阶段 2 测试锚定: 给 `escalation-hint` 补单元锚点与集成层, 落地 `test:integration` / `test:coverage`, 记录改前改后覆盖率, 为阶段 3 的代码整理提供回归网.
 
+阶段 3 无代码改动, 不建分支.
+
 ## 现状
 
 - 单元层: `tests/` 下 2 个 `.test.ts` (`judge.test.ts` / `main.test.ts`); 阶段 1 末 `pnpm -C escalation-hint run test` 通过.
@@ -14,6 +16,7 @@
 - 覆盖率基线 (阶段 1 末): 行 92.1% (255/277); 分支 79.4% (81/102).
 - 脚本: 只有 `test`; 缺 `test:integration` / `test:coverage`.
 - 专项: 无; 按 4.4 复核本包 `skip` / `todo` / 夹具.
+- 阶段 3 开工前: 全量 `check` / `test` / `test:coverage` 通过, 明细见阶段 2 证据.
 
 ## 实现规划
 
@@ -34,7 +37,7 @@ rm -rf ../tmp/cov-escalation-hint && mkdir -p ../tmp/cov-escalation-hint && NODE
 
 ### 代码
 
-阶段 3 补; 本阶段不动 `src` (为可测性必须动时先在「偏差」记原因).
+阶段 3 无代码改动, 不建分支. 本包的整理在阶段 4 (包文档) 完成.
 
 ### 包文档
 
