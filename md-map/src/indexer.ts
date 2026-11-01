@@ -3,7 +3,7 @@
 // 只读、无副作用（不改任何文件）；每次 buildIndex 全量扫描（不做增量 / 文件监视）。
 
 import { readFile, readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, normalize, resolve, sep } from "node:path";
+import { isAbsolute, join, normalize, resolve } from "node:path";
 
 import { parseMarkdownDocument } from "@dsh-toolset/md-logic";
 
@@ -444,9 +444,4 @@ export async function buildIndex(
     refUnresolvedMd,
     broken,
   };
-}
-
-/** 路径分隔符统一成 POSIX（Windows 兼容）；当前包内无调用方，也未从包入口再导出。 */
-export function toPosix(path: string): string {
-  return path.split(sep).join("/");
 }

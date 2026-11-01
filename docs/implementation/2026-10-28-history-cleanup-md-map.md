@@ -63,11 +63,25 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 - `md-map/package.json`: 新增 `test:integration` 与 `test:coverage`（命令与 `hash-edit` / `fs-digest` 同构, 覆盖率目录 `tmp/cov-md-map`）。
 - 删除用例与夹具: 无。`skip` / `todo`: 0 处（本机处理前后均为 0）。
 
+### 阶段 3 代码整理
+
+- 删失效导出 `toPosix` (`src/indexer.ts:449`): 全仓无引用, 只被自身注释说明; 同步删 `node:path` 的 `sep` import.
+- 其余规划项 (无) 不涉及; 行为不变.
+
 ## 偏差
 
 无
 
 ## 测试与证据
+
+### 阶段 3 实跑
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C md-map run check` | 通过 (先在 worktree 里构建 `md-logic` 依赖) |
+| `pnpm -C md-map run test` | 通过, 0 失败 |
+
+### 阶段 2 实跑
 
 命令（均在 `md-map/` 下实跑）:
 
