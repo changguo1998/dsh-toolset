@@ -88,6 +88,18 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - `src/app/layout.ts` 只剩入口重导出（外部既有 import 路径 `./layout.ts` 不变, 包内其它模块与 `tests/` 全部不改 import）。跨模块复用的私有辅助（`capRows` / `panelShownInActivity` / `MODE_SYMBOL` / `runningSymbol` / `userBlockSymbolResolver` / `activeSessionFields` / `buildTopRegion`）只在子模块间 `export`, 不加入口重导出, 对外可见集合与拆分前一致。
   - 依赖方向为单向: `frame-rows` → `geometry` → `title-bar` / `top-region` → `status-line` / `frame-build`; 唯一的反向引用是 `top-region` 对 `FrameScrollReport` 的 `import type`（仅类型, 编译期擦除, 不形成运行时环）。
   - 偏差: 逐字节帧比对的做法与理由见「测试与证据」; 拆分只挪位置与补 import, 未改名、未合并判断、未动 `src/main.ts` 启动顺序。
+  - `src/app/state.ts`（3379 行）拆成 6 个模块 + 入口重导出（第二批第二步, 状态层）:
+    | 新文件 | 行数 | 职责 |
+    | --- | --- | --- |
+    | `state/types.ts` | 698 | 状态模型（类型、常量、纯查询与默认值） |
+    | `state/initial.ts` | 139 | 初始状态装配 |
+    | `state/updates.ts` | 384 | 状态更新入口（缓冲追加、面板开关、光标移动） |
+    | `state/actions.ts` | 394 | `StateAction` 联合类型（含注释） |
+    | `state/reducer.ts` | 1266 | `reduceState` 本体 |
+    | `state/panels.ts` | 644 | 面板 / 输入历史 / 滚动的 action 实现 |
+  - `src/app/state.ts` 只剩入口重导出（95 行）; 对外 67 个导出与拆分前逐一对应（脚本比对 missing 0 / extra 0）。跨模块复用的私有辅助（`trimBufferHead` / `dropHistoryRecords` / `statusFor` / `setInput` / `recomputeCompletion` 等 22 个）只在子模块间 `export`, 不加入口。
+  - 依赖方向: `types` ← `initial` / `updates` / `actions` / `panels` ← `reducer`; 无环。
+  - 偏差: `state/reducer.ts` 拆完仍 1266 行, 仍是全包最长文件之一 —— `reduceState` 的 `switch` 是**一个状态机**, 按 action 组再切会把同一台状态机拆到多文件、读一处要来回跳, 与 5.5「一个文件一层」的目标相悖; 若后续要切, 应按 action 前缀分组并另立条目。
 
 ## 偏差
 
@@ -165,3 +177,15 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 - 帧基线: 逐字节比对不靠 `TUI_FRAME_DUMP` 的两次实跑（帧序列随真实时间推进, 虚拟速度 / job 计时 / 动画帧数每次都不同, 实测两次 581 与 584 行且内容错位）, 改由测试里的冻结帧基线承担: `tests/focus-frame.test.ts` 对 `tests/fixtures/focus-frame-legacy.json` 逐行比对、`tests/status-column-equivalence.test.ts` 对旧实现快照比对、其余布局用例断言精确行文本; 拆分前后全量用例均 1828 通过, 断言一字未改。
 - 拆分前后各跑一次 `demo -- --smoke`（`git checkout HEAD~1 -- TUI/src/app/layout.ts` + 重建 `dist/`）, 两次均 `SMOKE_OK` 且 42 条帧断言全过; 对比完成后已恢复拆分版并重建。
+
+### 阶段 3 第二批 · state.ts（2026-10-28）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error（拆分后 / 补 import 后 / 格式化后各一次） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
+
+- 对外可见集合: 用脚本比对拆分前后的 `state.ts` 导出名（67 个）, missing 0 / extra 0; `tests/` 与包内其它模块的 import 路径全部未改。
+- 拆分只挪位置与补 import: 未改名、未合并判断、未改 `reduceState` 分支顺序; 冻结帧基线与断言未改语义（1828 条全过）。
