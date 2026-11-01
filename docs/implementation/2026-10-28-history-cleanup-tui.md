@@ -67,6 +67,13 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 - 脚本: `TUI/package.json` 增 `test:integration`（`node --experimental-transform-types --test 'tests/integration/*.test.ts'`）、`test:coverage`（单元 + 集成两轮 glob; 覆盖率原始 JSON 落 `../tmp/cov-tui`（相对 `TUI/`）, 报告落 `tmp/cov-tui/report.json`（相对仓库根））、`test:e2e`（`pnpm run demo:build -- --smoke` 与 `pnpm run smoke:pty` 串联）。
 - 专项复核: `tests/app.test.ts:354` 的条件 `skip` 属 4.4 允许的「仓库不在家目录」一类, 保留不动; 本机仓库在家目录下, 本轮实测 `skipped` 为 0。`tests/fixtures/` 两个夹具均在用: `focus-frame-legacy.json` 由 `tests/focus-frame.test.ts` 读取（冻结基线）, `status-column-old.ts` 由 `tests/status-column-equivalence.test.ts` 导入（旧实现快照）, 都保留。
 - 缺口取舍: `src/main.ts` 仍是最大未覆盖面（行 47.1%）, 其 `apply()` 属宿主接线, 留代码阶段与包文档阶段; 按「少量缺口锚点」本次只补 `renderer/terminal.ts`。
+- 阶段 3 第一批（2026-10-28, 分支 `history-cleanup/03-code-tui`）: 长文件拆分留第二批, 本轮只做五步里的删失效、收拢判断与注释。逐项:
+  - 删失效导出: 删 `src/app/adapter/types.ts` 的 `ToolResultMetaLike`、`src/app/state.ts` 的 `PickerOption` 与 `isInputHistoryBrowse`; 删前重扫 `src` / `tests` / `scripts` / `docs`, 除定义处零引用; 删后复扫（含 `dist` 之外全仓）无残留。
+  - 按键分派: 新增 `src/app/keys.ts`, 10 张上下文表（审批 / 选择面板 / 状态选项 / 任务面板 / 列表面板 / 历史 list·view·confirm·error / 编辑区）共 75 条键位映射, 收成 51 个动作名; `App.keyActions` 是 `Record<KeyActionName, (k) => void>` 的动作实现表, 函数体与拆分前的 if / switch 分支逐行对应。`handleKey` 从 800 行降到约 330 行, 各上下文一律 `lookupKey(表, name)` 命中即执行并返回; 文件头注明三类留在代码里的特殊分支（Ctrl 组合键与修饰键、按面板内部状态判的兜底、编辑区模式键与可打印字符）。原 `handleKey` 里的两个本地闭包提为私有方法 `finishApproval` / `moveApprovalFocus`。
+  - 用户消息谓词: `state.ts` 新增 `isUserMessage(value)`（role 与 kind 同一口径）, 适配层（`dsh.ts` / `tool-bootstrap.ts`）、状态层（`appendStream`）、渲染层（`layout.ts` / `commands.ts` / `HistoryPanel.ts` / `index.ts`）共 21 处调用点改调它。
+  - 记忆层级: `adapter/types.ts` 新增 `ManagedTier` 类型、`isManagedTier` 判定与 `SESSION_TIER` 常量, 5 处层级字面联合收成 `ManagedTier`; `index.ts` 的 `/memory list|add|remove|replace` 校验改调 `isManagedTier`（3 处）与会话层常量（1 处）。
+  - 注释路径: 按总追踪 1.3 表把仓内简写改成包内完整路径（`layout/hints.ts` → `src/app/layout/hints.ts` 等）共 32 处; 计数类注释未动。
+  - 沙箱展示映射: 核对 `src/app/layout.ts:277` 的 `MODE_SHORT`, 仅是 `read-only/workspace-write/danger-full-access` → `ro/wr/full` 的标题栏缩写, 与 `herdr-use` 的沙箱判定枚举非同源, 本轮不引依赖（见偏差）。
 
 ## 偏差
 
@@ -76,6 +83,13 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 - 覆盖率分母: 分支分母由 7976 涨到 7996（新跑到的 V8 block range 计入分母）, 比率 78.42% → 78.41%; 用**原测试集**重跑一次得 78.413%, 证明该量级属统计方法噪声。包级行覆盖 87.39% → 87.48%, 只升不降。
 - 观察（未改 `src`）: `createTerminal().rawMode(false)` 之后 `rawEnabled` 仍为 `true`（`if (setRawMode(...))` 在关闭时返回 falsy 不再赋值）, 该字段全仓无消费方, 行为无影响, 留给代码阶段。集成层里 `/new` 后旧内容不残留依赖活跃会话已确立, 已在装配器按生产时序补 `session-title`（见实现记录）。
 - 本机环境: `pnpm` 的依赖预检会尝试联网安装并因 store 不可写失败, 四个命令统一以 `pnpm_config_verify_deps_before_run=false` 运行; 脚本内容本身不含该变量。
+- 阶段 3 第一批偏差:
+  - `isInputHistoryBrowseAt` 在删掉 wrapper 后也成了零引用（导出仍在, 全仓无调用方）, 但它不在 5.2 的删除清单里, 本轮按「计划外不改、不顺手改」留在原处, 待后续按 5.2 口径处置。
+  - 用户消息谓词只覆盖 21 处: `src/app/layout/pipeline/sections.ts`（6 处）与 `pipeline/replay.ts`（1 处）的 `delivery.kind === "user"` 是 `switch (delivery.kind)` 判别式下方的收窄条件, 换成普通谓词会丢类型收窄、连带改结构, 保留字面比较; 总追踪 1.3 与 5.1 的「34 处」含这些判别式与 3 处注释说明。
+  - 记忆层级: 规划写「改读注入值（适配层已给的层级）」, 但 TUI 侧的 tier 只来自 `/memory` 的命令参数, 没有注入值可读; 落地为从适配层声明的层级派生 `ManagedTier` / `isManagedTier` / `SESSION_TIER`, 4 处自比字面量改调它们, 行为与提示文案不变。
+  - 注释路径: 总追踪 1.3 表列 TUI 34 处, 其中 `app/layout/tool-line.ts:18` 的 `TUI/src/x.ts` 是路径缩短的**示例**、`app/adapter/types.ts:920` 的 `src/types.ts` 实为宿主仓路径 `packages/interaction/commands/src/types.ts`, 两处都不是仓内简写, 未改; 实改 32 处。
+  - 沙箱展示映射: `MODE_SHORT` 只是标题栏缩写表（`ro` / `wr` / `full`）, `herdr-use` 侧是命令放行判定用的沙箱模式读取器, 两者不同源; 本轮不引 `herdr-use` 类型（规划未给 TUI 加该 link 依赖）。
+  - `smoke:pty` 仍需 `TOLLGATE_API_KEY`, 本机缺凭据, 本轮跳过, 与阶段 2 同一条偏差。
 
 ## 测试与证据
 
@@ -109,3 +123,19 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 - `skip` 计数: 0（本机环境探测未触发）; 条件式 `skip` 仍保留 1 处（`tests/app.test.ts:354`）。
 - 夹具: 2 个保留, 均有引用（见实现记录）; 未删任何夹具。
 - 边界: 未改 `src`; 未改总追踪 / 阶段追踪 / 其它包; 未 push / 未合并。
+
+### 阶段 3 第一批（2026-10-28）
+
+工作目录 `TUI/`, 每步实跑 `check` + `test`, 收尾跑 demo 冒烟:
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | ✓ 0 error（删导出后 / 谓词后 / 层级后 / 按键表后 / 格式化后各跑一次） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo, 8.2 至 8.5s（同上各步各跑一次） |
+| `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
+| `pnpm -C TUI run demo -- --smoke` | ✓ 末行 `SMOKE_OK sent=[...] interrupts=1`, 全程 `SMOKE_PASS preset-badge` / `jobs-panel` / `jobs-kill` 等断言通过 |
+| `pnpm -C TUI run smoke:pty` | - 跳过（缺 `TOLLGATE_API_KEY`, 见偏差） |
+
+- `demo` 直接跑需要先 `build`（`dist/` 不存在时 `node dist/demo/main.js` 报 MODULE_NOT_FOUND）, 本次按 `build` → `demo -- --smoke` 顺序执行。
+- 按键表读数: 10 张上下文表 / 75 条键位 / 51 个动作名; `handleKey` 内 `name === "…"` 由 72 处降到 31 处, 其余为动作体内部的方向三元、Ctrl 组合键分支、编辑区模式键。
+- `check` / `test` 均在格式化后复跑, 结果不变; 已有 1828 条用例未改断言。

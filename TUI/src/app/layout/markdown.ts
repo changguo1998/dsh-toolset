@@ -403,7 +403,7 @@ registerCacheReset(() => CHAR_WIDTH_TABLE.fill(0));
 
 /**
  * 终端实测宽度覆盖表（码点 → 列数）：来源有二——① 启动时按 profile 目录内的**符号列表**
- * 预探测（`layout/width-symbols.ts`；宽度本身不落盘，每次会话重新实测）；② 运行中按需实测
+ * 预探测（`src/app/layout/width-symbols.ts`；宽度本身不落盘，每次会话重新实测）；② 运行中按需实测
  * （`Renderer.probeSymbolWidths`，见 `takePendingWidthProbes`）。不同终端对
  * 「呈现不确定」字符的解析不同（1 或 2 列），静态表只能保守取值，实测值优先于全部静态判定。
  */
