@@ -1,4 +1,4 @@
-// src/main.ts — dsh-herdr 集成插件入口（bundle 形态，零运行时依赖）
+// src/main.ts — dsh-herdr 集成插件入口（bundle 形态；运行时依赖只有 clock-base 的定时器族）
 //
 // 职责：
 //   1. 环境变量握手（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID），未启用即空转。
@@ -23,6 +23,9 @@
 //   - turn/end.reason 取 'blocked'（§1 事件载荷要点）——第三阻塞源见 handleSessionEvent；
 //   - ctx.get('agents').roots()：根 agent 注册表（顶层 agent，owner === undefined）。
 
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+import type { Deadline } from "@dsh-toolset/clock-base";
+
 import { HerdrClient, readHerdrEnv } from "./herdr.ts";
 import type {
   AgentState,
@@ -31,8 +34,6 @@ import type {
   SessionRef,
 } from "./herdr.ts";
 import { BlockTracker, COMPACTING_MESSAGE, desiredState } from "./state.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
-import type { Deadline } from "./timers.ts";
 
 /** 根 agent 结构面（只消费 session.id 与 status）。 */
 export interface RootAgentLike {

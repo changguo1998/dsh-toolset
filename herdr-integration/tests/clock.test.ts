@@ -9,11 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 
+import {
+  createDeadline,
+  ManualClock,
+  resolveClock,
+} from "@dsh-toolset/clock-base";
+
 import { createHerdrPlugin } from "../src/index.ts";
 import type { HerdrPluginDeps } from "../src/index.ts";
 import { HerdrClient } from "../src/herdr.ts";
-import { createDeadline, resolveClock } from "../src/timers.ts";
-import { ManualClock } from "../../clock-base/src/timers.ts";
 
 /** `clock` 服务的假实现：`scope()` 一律返回同一块手控表，并记录调用参数。 */
 function fakeClock(manual: ManualClock, scopes: unknown[] = []): unknown {
