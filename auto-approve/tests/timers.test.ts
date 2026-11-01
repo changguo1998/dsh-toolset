@@ -7,7 +7,7 @@ import {
   systemTimers,
   type DeadlineReason,
   type TimersLike,
-} from "../src/timers.ts";
+} from "@dsh-toolset/clock-base";
 
 /** 手控排期器（只实现本包用到的 schedule；interval 不参与 createDeadline）。 */
 function manualTimers(): {
@@ -79,7 +79,7 @@ test("systemTimers: 延迟非有限数抛 RangeError, 负数按 0 立即排期",
   const timers = systemTimers();
   assert.throws(
     () => timers.schedule(Number.NaN, () => {}),
-    /定时器延迟必须是有限数字/,
+    /延迟必须是有限数字/,
   );
   assert.throws(
     () => timers.interval(Number.POSITIVE_INFINITY, () => {}),

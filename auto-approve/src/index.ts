@@ -33,11 +33,11 @@ import { createGate, identityOf } from "./gate.ts";
 import { FingerprintStore } from "./fingerprint.ts";
 import {
   createLearner,
-  FormStore,
   readAuditCallIds,
   type Learner,
   type LearnHistory,
-} from "./learn.ts";
+} from "./learn-observe.ts";
+import { FormStore } from "./learn-rules.ts";
 import { registerCommand } from "./command.ts";
 import {
   createReviewer,
@@ -47,7 +47,7 @@ import {
   type ReviewInstructionItem,
 } from "./review.ts";
 import { createRuntime, type Runtime } from "./runtime.ts";
-import { createDeadline, resolveClock } from "./timers.ts";
+import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
 import {
   SessionObserver,
   type SessionEventLike,
@@ -518,3 +518,32 @@ export type {
   AutoApproveService,
   AutoApproveStatus,
 };
+
+// 学习层按观测 / 规则 / 判定分层；对外符号统一经包入口 re-export, 不新增内部入口。
+export {
+  createLearner,
+  LEARN_REVIEW_WINDOW_MS,
+  readAuditCallIds,
+  REHYDRATE_LIMIT,
+} from "./learn-observe.ts";
+export type { Learner, LearnerOptions, LearnHistory } from "./learn-observe.ts";
+export { admitLearnOutcome } from "./learn-decide.ts";
+export type { LearnHooks } from "./learn-decide.ts";
+export {
+  commandOfCall,
+  FormStore,
+  formHash,
+  formOfCommand,
+  HEX_PLACEHOLDER,
+  maskToken,
+  matchesForm,
+  MAX_VARIABLE_SLOTS,
+  mergeForm,
+  NUMBER_PLACEHOLDER,
+  QUOTED_PLACEHOLDER,
+  segmentForm,
+  splitCommandSegments,
+  tokenizeSegment,
+  VALUE_PLACEHOLDER,
+} from "./learn-rules.ts";
+export type { CommandToken } from "./learn-rules.ts";

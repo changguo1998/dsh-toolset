@@ -262,7 +262,5 @@ export function createAudit(options: {
   };
 }
 
-/** 服务面里 `recent()` 与审计行同形（类型别名，避免调用方再声明一次）。 */
-export type AuditRecent = readonly AuditLine[];
 /** 指纹视图（服务面 re-export 用）。 */
 export type { FingerprintView };
