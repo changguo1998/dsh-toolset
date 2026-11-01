@@ -90,19 +90,24 @@ export function getSessionChannelService(): SessionChannelService | undefined {
 
 /**
  * DSH 宿主按 bundle 契约调用：惰性、防御；连接失败只降级（工具返回错误提示），不抛。
+ *
+ * 上下文对象守卫收进入口，只判这一次：`null` / 非对象按空上下文处理（此前 `null` 会在读
+ * `logger` 处抛）；服务读取的唯一判断留在 `readService`，下游不再重复判类型。
  */
 export function apply(
   ctx: BundleHost & Record<string, unknown> = {},
   config: SessionChannelConfig = {},
 ): void {
+  const host: BundleHost & Record<string, unknown> =
+    ctx === null || typeof ctx !== "object" ? {} : ctx;
   const warn = (msg: string): void => {
-    ctx.logger?.(PLUGIN_NAME).info(msg) ??
+    host.logger?.(PLUGIN_NAME).info(msg) ??
       process.stderr.write(`[session-channel] ${msg}\n`);
   };
-  const service = createSessionChannelService(config, ctx);
+  const service = createSessionChannelService(config, host);
   activeService = service;
   void service.start();
-  const tools = (ctx as { tools?: { register(def: unknown): unknown } }).tools;
+  const tools = host.tools;
   if (tools && typeof tools.register === "function") {
     for (const build of [
       toToolDef,
@@ -120,9 +125,7 @@ export function apply(
   } else {
     warn("tools 未挂载：session-channel 工具不可用（服务面仍提供）");
   }
-  const provideSvc = (
-    ctx as { provide?: (key: string, value: unknown) => unknown }
-  ).provide;
+  const provideSvc = host.provide;
   if (typeof provideSvc === "function") {
     provideSvc("sessionChannel", {
       peers: () => service.peers(),
