@@ -1,6 +1,30 @@
 # @dsh-toolset/metric-loop
 
+## 定位
+
 DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册工具 `metric_loop`，每轮执行用户提供的测量命令（stdout 解析单个数字），按方向比较历史最优；连续 `window` 轮无改进则 plateau 停止。循环状态持久化为 JSON，跨进程唤醒即可续跑。
+
+### 与官方循环机制的分工（2026-10-06 裁定 A）
+
+宿主另有两条「循环 / 自主续跑」面，与本包不是同类能力（依据与全过程：`docs/archived/2026-10-05-metric-loop-official-loops.md`）：
+
+| 维度 | 本包 `metric-loop` | 官方 `goal-round-driver` | 官方 `tool-ralph` |
+| --- | --- | --- | --- |
+| 驱动源 | 模型调 `metric_loop`，每轮显式 `tick`（可经 schedule 提示唤醒） | 宿主事件：agent idle 时排 goal-round | 模型调 `ralph`，**前台阻塞**至结算 |
+| 前置条件 | 无（新建循环即可） | **需已建 goal 且 `activation === "armed"`**（resume / fork 后 disarmed） | 无 |
+| 测量与收敛 | **有**：测量命令 + best / streak / plateau | 无（模型自判） | 无（worker 自报） |
+| 停止边界 | 见下文「能力」的停止原因优先级 | complete / paused / blocked / 轮上限 | complete / blocked / 轮上限 |
+| 跨进程状态 | **有**（JSON 状态文件，原子写 + schema 版本） | 无（activation 仅进程内） | 无（工作区即长期记忆） |
+| 轮间共享 | 同一会话 + 状态文件 | 同一会话 | 仅一份有界结构化报告（每轮全新子 agent） |
+| 本项目当前是否在位 | 是（本仓插件） | 是（`dsh-base` 装配） | **否** —— base 默认 `disabled: true`（`dsh-base/cordis.patch.yml:447-449`），一行 overlay（`- id: tool-ralph` + `disabled: false`）可恢复 |
+
+**本项目口径（裁定 A）**：要**按指标收敛**的长跑（有可测目标数字、按方向比较、plateau 自动收手、跨进程续跑）→ 用本包（这三项官方两条都没有）；要**同一个 goal 的自主多轮推进**（目标是完成一件事，而不是优化一个数字）→ 用官方 goal + `goal-round-driver`，本包不参与；`tool-ralph` **本项目不启用**（每轮全新子 agent、跨轮只传一份结构化报告，完成 / 受阻是 worker 自报而非独立评估，即使用也需人明确要求，与本包的指标循环不是同类能力）；建议**不把两条循环叠在同一个目标上**（同一目标同时挂本包与 goal 续轮会形成两条互不知情的推进链，各有独立停止条件，收敛语义无法归因）。
+
+### 相关文档
+
+- 宿主 bundle 契约（`name` / `inject` / `provide` / `Config` / `apply`）：`docs/host/DSH-CTX-API.md` §0；本包与 `task-engine` 同款——零 DSH 运行时依赖、以结构面访问 ctx。
+- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.1-rc.3.md`。
+- `metric_loop` 的模型侧参数 schema 以 `src/index.ts` 的 `toToolDef()` 为唯一来源（本 README 的表格与其保持一致）；复查分工的实现见 `src/index.ts` 的 `makeCommandGuard` / `runRound`。
 
 ## 能力
 
@@ -36,7 +60,7 @@ DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册�
 
 bundle 契约：`name` / `inject: ["tools"]` / `provide: ["metricLoop"]` / `Config` / `apply`。
 
-## 使用示例
+## 用法
 
 ```jsonc
 { "action": "start", "id": "bundle-size", "measureCmd": "du -sk dist | cut -f1", "direction": "min", "window": 3, "maxRounds": 20, "cadenceSec": 900 }
@@ -48,28 +72,12 @@ bundle 契约：`name` / `inject: ["tools"]` / `provide: ["metricLoop"]` / `Conf
 宿主联调（smoke 幂等引导 profile `dsh-toolset-metric-loop`，并把 `stateDir` 重定向到临时目录）：
 
 ```sh
-npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau 停止
+pnpm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau 停止
 ```
 
-## 与官方循环机制的分工（2026-10-06 裁定 A）
+## 边界
 
-宿主另有两条「循环 / 自主续跑」面，与本包不是同类能力（依据与全过程：`docs/archived/2026-10-05-metric-loop-official-loops.md`）：
-
-| 维度 | 本包 `metric-loop` | 官方 `goal-round-driver` | 官方 `tool-ralph` |
-| --- | --- | --- | --- |
-| 驱动源 | 模型调 `metric_loop`，每轮显式 `tick`（可经 schedule 提示唤醒） | 宿主事件：agent idle 时排 goal-round | 模型调 `ralph`，**前台阻塞**至结算 |
-| 前置条件 | 无（新建循环即可） | **需已建 goal 且 `activation === "armed"`**（resume / fork 后 disarmed） | 无 |
-| 测量与收敛 | **有**：测量命令 + best / streak / plateau | 无（模型自判） | 无（worker 自报） |
-| 停止边界 | 见上 | complete / paused / blocked / 轮上限 | complete / blocked / 轮上限 |
-| 跨进程状态 | **有**（JSON 状态文件，原子写 + schema 版本） | 无（activation 仅进程内） | 无（工作区即长期记忆） |
-| 轮间共享 | 同一会话 + 状态文件 | 同一会话 | 仅一份有界结构化报告（每轮全新子 agent） |
-| 本项目当前是否在位 | 是（本仓插件） | 是（`dsh-base` 装配） | **否** —— base 默认 `disabled: true`（`dsh-base/cordis.patch.yml:447-449`），一行 overlay（`- id: tool-ralph` + `disabled: false`）可恢复 |
-
-**本项目口径（裁定 A）**：要**按指标收敛**的长跑（有可测目标数字、按方向比较、plateau 自动收手、跨进程续跑）→ 用本包（这三项官方两条都没有）；要**同一个 goal 的自主多轮推进**（目标是完成一件事，而不是优化一个数字）→ 用官方 goal + `goal-round-driver`，本包不参与；`tool-ralph` **本项目不启用**（每轮全新子 agent、跨轮只传一份结构化报告，完成 / 受阻是 worker 自报而非独立评估，即使用也需人明确要求，与本包的指标循环不是同类能力）；建议**不把两条循环叠在同一个目标上**（同一目标同时挂本包与 goal 续轮会形成两条互不知情的推进链，各有独立停止条件，收敛语义无法归因）。
-
-## 边界与限制
-
-- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。**字段已对齐官方入参校验**（`dsh-schedule` 0.2.1-rc.3 的 `validateCreateArgs`：键白名单、恰好一个选择器、`prompt` / `title` trim 后非空且 `title` ≤120 字符、`after_seconds` 为正安全整数；`title` 为 `[metric-loop] <id>`），照提示调用即可成功。该提示的**可执行性仍取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。回归背景见 `docs/archived/2026-10-06-metric-loop-schedule-hint.md`。
+- 自动唤醒复用宿主 schedule 面：插件只返回 `schedule_create` 参数，由宿主按提示排下一次唤醒（`after_seconds` 一次性提醒链式续排）；不新建调度器。**字段已对齐官方入参校验**（`dsh-schedule` 0.2.1-rc.3 的 `validateCreateArgs`：键白名单、恰好一个选择器、`prompt` / `title` trim 后非空且 `title` ≤120 字符、`after_seconds` 为正安全整数；`title` 为 `[metric-loop] <id>`），照提示调用即可成功。该提示的**可执行性仍取决于 profile 是否挂载 `@deepseek-ai/dsh-schedule`**（模型侧 `schedule_create` 工具由它提供）；未挂载时提示只是文案，循环仍需靠显式 `tick` 或其他唤醒路径推进。退化背景见 `docs/archived/2026-10-06-metric-loop-schedule-hint.md`。
 - 轮内做什么改进动作（循环载体）由宿主 workflow / 会话编排，插件不感知。
 - 跨进程语义依赖状态文件：每次 `dsh` 启动或 schedule 唤醒加载状态推进一轮；文件缺失视为循环不存在（`tick`/`stop` 报错，`status` 返回 `exists: false`）。
 - 测量命令经 `/bin/sh -c` 执行，取 stdout 中最后一个数字（容忍 `score: 0.87` 等噪声）；信任契约内命令，不做沙箱隔离。
@@ -79,19 +87,13 @@ npm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau �
   - **复查不可用时可见（D1）**：guard 未挂载 / 复查抛错 → **fail-open 照常测量**（每种失效模式只告警一次，原先抛错是每轮都告警），但结果会标 `guardSkipped: true` 且 `summary` 写明「本轮命令未复查即执行」；未接线（无复查器）的路径不标 `guardSkipped`（那属于「没接线」，不是「复查失败」）。
 - metricless 循环不判 plateau，只按轮数/时间/token 边界或手动停止。
 
-## 相关文档
-
-- 宿主 bundle 契约（`name` / `inject` / `provide` / `Config` / `apply`）：`docs/host/DSH-CTX-API.md` §0；本包与 `task-engine` 同款——零 DSH 运行时依赖、以结构面访问 ctx。
-- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.1-rc.3.md`。
-- `metric_loop` 的模型侧参数 schema 以 `src/index.ts` 的 `toToolDef()` 为唯一来源（本 README 的表格与其保持一致）；复查分工的实现见 `src/index.ts` 的 `makeCommandGuard` / `runRound`。
-
 ## 测试
 
 ```sh
-npm run check   # 类型检查（tsc --noEmit，strict）
-npm run build   # 编译到 dist/
-npm run test    # node --test（45 例：engine / persist / controller，注入时钟与测量）
-npm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
+pnpm run check   # 类型检查（tsc --noEmit，strict）
+pnpm run build   # 编译到 dist/
+pnpm run test    # node --test（45 例：engine / persist / controller，注入时钟与测量）
+pnpm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 
-`npm run smoke` 需本机可用 dsh 0.2.1-rc.3 与模型凭据。
+`pnpm run smoke` 需本机可用 dsh 0.2.1-rc.3 与模型凭据。
