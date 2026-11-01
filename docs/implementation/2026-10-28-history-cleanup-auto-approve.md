@@ -67,6 +67,17 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 - 脚本: `package.json` 加 `test:integration` (跑 `tests/integration/*.test.ts`) 与 `test:coverage` (单元 + 集成一次采集, 再调 `dev/coverage/report.mjs`), 口径见「偏差 2」.
 - 分层贡献: 只跑单元层 行 89.8% (3788/4217) / 分支 75.6% (925/1224); 单元 + 集成 行 90.3% (3806/4217) / 分支 75.7% (940/1242); 集成层 +18 行 / +15 分支.
 
+2026-10-28 在分支 `history-cleanup/03-code-auto-approve` 完成阶段 3 代码整理, 只动本包源码、本包测试的 import、`package.json` / `pnpm-lock.yaml` 与本文件; 用例断言只按「偏差 6」改了一处正则.
+
+- 删失效导出: `src/audit.ts` 的 `AuditRecent`、`src/decide.ts` 的 `allowedByRisk`、`src/rules.ts` 的 `RuleInput`; 删前全仓重扫 (含 `tests/`), 除定义处外无引用, 也没有只服务它们的私有代码.
+- 定时器族: 删 `src/timers.ts` 本地副本 (205 行); `src/index.ts` 与 `src/review.ts` 改从 `@dsh-toolset/clock-base` 入口引 `resolveClock` / `createDeadline` / `Deadline`; `tests/clock.test.ts` (含 `ManualClock`) 与 `tests/timers.test.ts` 同步改从入口引.
+- 拆 `src/learn.ts` (1222 行): 按观测 / 规则 / 判定分层, 新文件只经包入口 re-export, 不新增对外入口:
+  - `src/learn-rules.ts` (505 行): 规则层, 词法切段 / 切 token / 抹值 / 形态匹配与最小泛化 + `FormStore`;
+  - `src/learn-observe.ts` (716 行): 观测层, `createLearner` 事件状态机 + 回填 + `readAuditCallIds`;
+  - `src/learn-decide.ts` (25 行): 判定层, `LearnHooks` 契约与审阅准入 `admitLearnOutcome`.
+  - `src/index.ts` re-export 原 `learn.ts` 的全部对外符号; `src/decide.ts` 与 `tests/learn.test.ts` / `tests/clock.test.ts` 改引分层模块或包入口.
+- `package.json` 加 `"@dsh-toolset/clock-base": "link:../clock-base"`; 本包目录 `pnpm install` 更新 `pnpm-lock.yaml`.
+
 ## 偏差
 
 1. 断言口径按本包实际面替换. 任务书与计划写「工具注册 / `execute` canonical 值 / `output.render` 投影」; 本包不注册工具、也没有 `output.render`, 对外可见面是审批应答者、`tools/pre-execute` 监听器与 `/autoapprove` 命令. 集成层对应断言改为: `approval/request` 的 canonical 词表、`tools/pre-execute` 的 `{kind:"deny"|"allow"}` 投影、命令 handler 的投影文本、LLM 审查提示的注入内容.
@@ -74,6 +85,10 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 3. 计划只列两个新文件; 实际另加 `tests/calls.test.ts` / `tests/timers.test.ts` / `tests/index.test.ts` 三个单元文件. 理由: 这三块是改前未覆盖的大头 (`calls.ts` 行 54.5% / 分支 25.0%, `timers.ts` 分支 21.4%, `index.ts` 分支 48.3%), 且 `calls.ts` / `timers.ts` 原先没有专属用例; 用例只走公开导出, 不改 `src`.
 4. 合并轮 (单元 + 集成) 里 `learn.ts` 与 `fingerprint.ts` 的行覆盖比单元轮略低 (`learn.ts` 848 → 838, `fingerprint.ts` 101 → 98). 原因: 集成进程让 V8 对同一函数补出更细的 block range, 原先被外层 range 记成覆盖的行如实记为未覆盖 (如 `FormStore.list` / `remove` 内的遍历, 指纹容量淘汰), 属覆盖率口径变细而非用例减少; 包级仍为 3679 → 3806 行.
 5. `tsconfig.json` 的 `exclude: ["tests/clock.test.ts"]` 未动. 该文件跨包 import `clock-base` 的内部模块, 删 `exclude` 会在 `rootDir` 上报错, 按阶段 1 偏差 1 留到阶段 2 统一收口.
+
+6. 定时器错误文案随 `clock-base` 变了一处. 本包原副本的 `delayOf` 抛 `定时器延迟必须是有限数字（收到 …）`, `clock-base` 的 `resolveDelay` 抛 `timers: 延迟必须是有限数字（收到 …）`; 换成入口导出后 `tests/timers.test.ts` 的 `assert.throws` 正则由 `/定时器延迟必须是有限数字/` 收窄为 `/延迟必须是有限数字/`, 其余断言不动. 语义 (非有限延迟抛 `RangeError`) 未变; 这是本次唯一一处用例断言改动, 换 import 后先跑出一条失败, 改正则后 181 条全过.
+7. 学习层对外符号改由 `src/index.ts` re-export. 原 `learn.ts` 的 24 个导出全部保留 (另新增判定层的 `admitLearnOutcome`), 测试 import 从 `../src/learn.ts` 改到 `../src/index.ts`, `src/decide.ts` 直接引分层模块; `package.json` 未加 `exports` 子路径, 其他包也不引本包学习层.
+8. 拆分后观测层 716 行、规则层 505 行, 都低于 1000 行; 观测层把「回填」留在事件状态机内, 因为回填复用同一套审阅 / 落表闭包 (8 个以上闭包变量), 再拆要跨文件传参, 收益不足.
 
 ## 测试与证据
 
@@ -118,3 +133,15 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 - 用例增减: 新增 24 条单元用例 + 12 条集成用例; 删除 0 条; `skip` 0 / `todo` 0 (与改前一致). `tests/` 现有 18 个单元 `.test.ts`、1 个集成用例 (`tests/integration/plugin.test.ts`)、1 个装配器 (`assemble.ts`) 与 1 个假件 (`fakes.ts`).
 - 夹具: 无新增夹具文件; 临时目录由 `tempDir()` 落在系统 tmp, 覆盖率原始数据与报告落在仓库 `tmp/` (已忽略), 都不入库.
 - 提交: 分支提交 `test: 补 auto-approve 测试锚定`.
+
+### 阶段 3 代码整理实跑 (2026-10-28, 分支 `history-cleanup/03-code-auto-approve`)
+
+前置: `pnpm -C ../clock-base run build` (产出 `dist/`, 供包名 import 解析); 本包目录 `pnpm install` (建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`).
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C auto-approve run check` | 退出 0 (tsc --noEmit, 无输出) |
+| `pnpm -C auto-approve run test` | 181 条, pass 181, fail 0, skipped 0, todo 0 (约 0.4 s) |
+| `pnpm -C auto-approve run build` (辅助核对) | 退出 0 |
+
+拆分后文件与行数: 原 `src/learn.ts` 1222 行 → `src/learn-rules.ts` 505 行 + `src/learn-observe.ts` 716 行 + `src/learn-decide.ts` 25 行; 另删 `src/timers.ts` 205 行. 改动文件: `src/audit.ts` / `src/decide.ts` / `src/index.ts` / `src/review.ts` / `src/rules.ts` / `tests/clock.test.ts` / `tests/timers.test.ts` / `tests/learn.test.ts` / `package.json` / `pnpm-lock.yaml`.
