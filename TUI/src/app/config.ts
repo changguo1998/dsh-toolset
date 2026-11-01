@@ -85,7 +85,7 @@ export interface TuiConfig {
   session?: TuiSessionConfig;
   /** 审批交互段（BACKLOG 3.3.7）：超时等参数；缺省见 main.ts 的回落值 */
   approval?: TuiApprovalConfig;
-  /** 本地输出旁路日志段（模型侧工具 `tui_local_log` 的数据源；见 adapter/local-log.ts） */
+  /** 本地输出旁路日志段（模型侧工具 `tui_local_log` 的数据源；见 src/app/adapter/local-log.ts） */
   localLog?: TuiLocalLogConfig;
 }
 
@@ -261,7 +261,7 @@ function normalizeApprovalSection(v: unknown): TuiApprovalConfig | undefined {
 
 /**
  * 本地输出旁路日志段归一：`enabled` 只认布尔；`maxBytes` 取整且不小于 4 KB；
- * `maxTextChars` 取整且不小于 256；非法字段忽略（回落 adapter/local-log.ts 的缺省）。
+ * `maxTextChars` 取整且不小于 256；非法字段忽略（回落 src/app/adapter/local-log.ts 的缺省）。
  */
 function normalizeLocalLogSection(v: unknown): TuiLocalLogConfig | undefined {
   if (typeof v !== "object" || v === null) return undefined;
@@ -295,7 +295,10 @@ export function mergeTuiConfig(
   file: TuiConfig,
   patch?: TuiConfigPatch | undefined,
 ): TuiConfig {
-  const merge = <T extends object>(a: T | undefined, b: unknown): T | undefined => {
+  const merge = <T extends object>(
+    a: T | undefined,
+    b: unknown,
+  ): T | undefined => {
     if (b === undefined) return a;
     if (b === null || typeof b !== "object") return a;
     return { ...(a ?? ({} as T)), ...(b as T) } as T;

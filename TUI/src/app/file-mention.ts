@@ -2,7 +2,7 @@
 //
 // 与宿主 @deepseek-ai/dsh-file-reference 的 grammar 同源复刻。为什么不 import 官方模块：
 // TUI 零运行时依赖，src 内无任何 @deepseek-ai/* import，宿主服务一律经结构面 + ctx.get
-// 访问（见 adapter/types.ts）；静态 import 官方 grammar 会让**未挂 file-reference 的
+// 访问（见 src/app/adapter/types.ts）；静态 import 官方 grammar 会让**未挂 file-reference 的
 // profile 直接 ERR_MODULE_NOT_FOUND**（整包起不来），而本特性本应可降级。官方 Web 客户端
 // （dsh-client-ui-input-trigger / dsh-client-ui-reference）同样把这段语法内联进自己的
 // bundle，故复刻与本仓既有约定一致。

@@ -42,6 +42,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { DshRuntime } from "./types.ts";
+import { isUserMessage } from "../state.ts";
 
 /** 引导选项：总开关 + 模型门控（两者缺省 = 生效） */
 export type ToolBootstrapOptions = {
@@ -112,7 +113,7 @@ export function firstUserText(
     for (const e of session.events) {
       if (!e || e.type !== "user/message") continue;
       const kind = eventMessageKind(e.data);
-      if (typeof kind === "string" && kind !== "user") continue; // 注入消息不参与
+      if (typeof kind === "string" && !isUserMessage(kind)) continue; // 注入消息不参与
       const text = extractText(e.data).trim();
       if (text !== "") return text;
     }
@@ -121,7 +122,7 @@ export function firstUserText(
   const messages = sessionMessages(session);
   if (messages === undefined) return undefined;
   const msg = messages.find(
-    (m) => m && m.role === "user" && m.source?.kind === "user",
+    (m) => m && isUserMessage(m.role) && isUserMessage(m.source?.kind),
   );
   if (msg === undefined) return undefined;
   const text = extractText(msg).trim();
@@ -295,7 +296,7 @@ export function sessionModeFromMessages(
 ): TaskAnchor {
   if (!Array.isArray(messages)) return "weak";
   const userMsg = messages.find(
-    (m) => m && m.role === "user" && m.source?.kind === "user",
+    (m) => m && isUserMessage(m.role) && isUserMessage(m.source?.kind),
   );
   return classifyTask(extractText(userMsg));
 }
@@ -443,7 +444,7 @@ export function installToolBootstrap(
         const session = p?.agent?.session;
         if (!session || firstTexts.has(session.id)) return;
         const msg = p?.message;
-        if (!msg || !msg.source || msg.source.kind !== "user") return;
+        if (!msg || !msg.source || !isUserMessage(msg.source.kind)) return;
         const text = messageText(msg);
         if (text.trim()) firstTexts.set(session.id, text);
       } catch {
@@ -465,7 +466,7 @@ export function installToolBootstrap(
         if (!session || firstTexts.has(session.id)) return decision;
         const messages = Array.isArray(p.messages) ? p.messages : [];
         const first = messages.find(
-          (m) => m && m.source && m.source.kind === "user",
+          (m) => m && m.source && isUserMessage(m.source.kind),
         );
         if (first === undefined) return decision; // system reminder 不参与分类
         const text = messageText(first);

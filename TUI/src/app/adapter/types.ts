@@ -106,17 +106,6 @@ export interface CompactionSummaryPayloadLike {
   };
 }
 
-/**
- * tool/result.meta 的宽容视口（0.1.2-rc.1 起工具可回附任意 JsonValue meta，官方形状
- * 未文档化；dsh-tool-fs 现以 {before, after} 存 LF 规范化全文）。渲染方命中
- * before/after 均为 string 时自行计算行级摘要（(+N/-M)），其他形状忽略——保持降级。
- */
-export interface ToolResultMetaLike {
-  [key: string]: unknown;
-  before?: unknown;
-  after?: unknown;
-}
-
 /** notice/tool 行 tone——4 级语义 5 色值：log 灰=进度/状态无需关注；info 蓝=需用户了解；warn 黄=可绕开的运行错误/副作用危险警示；result 级互斥：error 红=操作失败（用户输入命令的结果一律 error、须修复继续）、success 绿=重要操作成功 */
 export type NoticeTone = "log" | "info" | "warn" | "error" | "success";
 /** 应用层收到的归一化事件（见文件头映射表） */
@@ -509,7 +498,7 @@ export interface DshAdapter {
   }): Promise<unknown[] | undefined>;
   /** `/memory list`：跨 kind 列举（管理面定位；未挂载 → undefined） */
   memoryList?(args: {
-    tier?: "project" | "user";
+    tier?: ManagedTier;
     kind?: string;
     limit?: number;
   }): Promise<unknown[] | undefined>;
@@ -528,7 +517,7 @@ export interface DshAdapter {
   memoryAdd?(input: {
     content: string;
     kind: string;
-    tier: "project" | "user";
+    tier: ManagedTier;
   }): Promise<{ ok: boolean; skipped?: string }>;
   /** 请求刷新循环面板（经 metric-loop `list()` 归一化为行后推送）；未挂载 → reject */
   refreshLoops?(): Promise<void>;
@@ -1479,9 +1468,23 @@ export interface KnowledgeBundleSummaryLike {
   sourceCount: number;
 }
 
+/** 管理面可写的记忆层级：U（user）/ P（project）两层；S（session）层按会话隔离，管理面不处理。 */
+export type ManagedTier = "project" | "user";
+
+/**
+ * 管理面层级判定：层级只认适配层声明的 `ManagedTier`，调用方不再各自自比字面量
+ * （`/memory list|add|remove|replace` 的 tier 校验统一走这里）。
+ */
+export function isManagedTier(value: unknown): value is ManagedTier {
+  return value === "project" || value === "user";
+}
+
+/** S 层（会话层）标识：按会话隔离，管理面不处理；`/memory` 参数校验据它给出专属提示。 */
+export const SESSION_TIER = "session";
+
 /** `/memory` 管理面的行地址（memory-base 管理面只处理 U / P 层）。 */
 export interface MemoryRowRef {
-  tier: "project" | "user";
+  tier: ManagedTier;
   kind: string;
   id: number;
 }
@@ -1500,7 +1503,7 @@ export interface KnowledgeServiceLike {
   /** 跨 kind 列举（管理面定位：行带 `id` / `tier` / `kind`）。 */
   list?(opts?: {
     kind?: string;
-    tier?: "project" | "user";
+    tier?: ManagedTier;
     limit?: number;
   }): Promise<unknown[]> | unknown[];
   /** 管理面：删除 U / P 条目（返回删除条数；S 层等参数级错误抛错）。 */
@@ -1515,7 +1518,7 @@ export interface KnowledgeServiceLike {
     content: string;
     kind: string;
     title?: string;
-    tier: "project" | "user";
+    tier: ManagedTier;
   }): Promise<{ ids?: number[]; skipped?: string }>;
 }
 

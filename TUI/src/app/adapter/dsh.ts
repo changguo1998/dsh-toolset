@@ -30,6 +30,7 @@
 // signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
 import type { TurnEndReason } from "../state.ts";
+import { isUserMessage } from "../state.ts";
 import type { FileMentionCandidate } from "../file-mention.ts";
 import type { BlockDelivery } from "../layout/pipeline/types.ts";
 import { clockHms } from "../clock.ts";
@@ -501,7 +502,7 @@ export function normalizeHistoryMessages(
       ) {
         for (let i = out.length - 1; i >= 0; i--) {
           const m = out[i]!;
-          if (m.role !== "user") continue;
+          if (!isUserMessage(m.role)) continue;
           out[i] = { ...m, steerContinued: true };
           break;
         }
@@ -523,20 +524,20 @@ export function normalizeHistoryMessages(
         if (role !== "user" && role !== "assistant") continue;
         // 同 id 的 `user/message` 已经在正文里出过一次 → 注入副本丢弃（无 id 的照旧显示）
         const id = item.id;
-        if (role === "user" && typeof id === "string" && userIds.has(id))
+        if (isUserMessage(role) && typeof id === "string" && userIds.has(id))
           continue;
         // 同一句话可能被宿主**换一个 id** 再 splice 一次（真机实测：排队中的输入重发 →
         // 两条 spliced 事件 id 不同、正文相同，而其中一条永远等不到 `turn/end`）→ 画面上
         // 多出一个恒 `?` 的重块。正文与某条 `user/message` 完全相同也丢弃；真的重复发送
         // 同一句话不受影响（那两次各自都有 `user/message` 正文行，丢的只是 spliced 副本）。
-        if (role === "user") {
+        if (isUserMessage(role)) {
           const text = extractTextBlocks(item.content).trim();
           if (text !== "" && userTexts.has(text)) continue;
         }
         pushText(role, extractTextBlocks(item.content));
         if (
-          role === "user" &&
-          (item.source as { kind?: unknown } | undefined)?.kind === "user"
+          isUserMessage(role) &&
+          isUserMessage((item.source as { kind?: unknown } | undefined)?.kind)
         )
           humanUsers.push(out.length - 1);
       }
@@ -552,12 +553,13 @@ export function normalizeHistoryMessages(
     let at = -1;
     for (const index of humanUsers) {
       const m = out[index];
-      if (m !== undefined && m.role === "user" && m.turn === turn) at = index;
+      if (m !== undefined && isUserMessage(m.role) && m.turn === turn)
+        at = index;
     }
     if (at < 0) {
       for (let i = out.length - 1; i >= 0; i--) {
         const m = out[i]!;
-        if (m.role !== "user" || m.turn !== turn) continue;
+        if (!isUserMessage(m.role) || m.turn !== turn) continue;
         at = i;
         break;
       }
@@ -865,7 +867,7 @@ export async function listSessionRecords(deps: {
   const probes = await mapLimit(probeIds, 8, async (id) => {
     try {
       const messages = await readMessages!(id);
-      const first = messages.find((m) => m.role === "user");
+      const first = messages.find((m) => isUserMessage(m.role));
       return [
         id,
         {
@@ -2281,7 +2283,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "turn/start": {
         // turn/start 本身不插入历史分隔线（用户本地回显后应紧邻模型响应），但把**回合号**
-        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss ⇆N`（符号见 layout/tool-line.ts 的
+        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss ⇆N`（符号见 src/app/layout/tool-line.ts 的
         // turnHeaderLine），而本地 turn-begin 早于本事件。
         const turn = (data as { turn?: unknown }).turn;
         emit({

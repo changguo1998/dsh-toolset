@@ -1,7 +1,7 @@
 // TUI/src/app/layout/pipeline/ir.ts — 七段渲染流水线的新 IR（阶段 0 基建类型）
 //
 // 这是重构后的共享类型层：Section / Block（5 种闭集）/ PaneItem / Node / Leaf /
-// Row / FrameRow / NodeBase / PaneId。与旧 `pipeline/types.ts`（节缓存类型：旧
+// Row / FrameRow / NodeBase / PaneId。与旧 `src/app/layout/pipeline/types.ts`（节缓存类型：旧
 // Section / Item / ToolCall / ToolResult / Delivery / BlockDelivery）**互不占用
 // 名字**：旧文件保留给 split（§1）之前的节缓存用，新类型全在本文件。
 //
