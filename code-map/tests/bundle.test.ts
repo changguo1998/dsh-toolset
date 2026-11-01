@@ -5,10 +5,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
+import type { AstToolsBundle } from "@dsh-toolset/ast-tools";
 import {
   apply,
   createCodeMapBundle,
   getCodeMapBundle,
+  inject,
   name,
   provide,
 } from "../src/index.ts";
@@ -17,6 +19,7 @@ import { astTest, withTempDir, writeFixture } from "./helpers.ts";
 test("bundle 契约：name / provide / inject", () => {
   assert.equal(name, "code-map");
   assert.deepEqual(provide, ["codeMap"]);
+  assert.deepEqual(inject, ["tools"], "工具面是硬依赖");
 });
 
 astTest("createCodeMapBundle：index → summary/report 全链路", async () => {
@@ -91,35 +94,40 @@ test("apply 防御：tools.register 抛错只告警不崩", () => {
   assert.doesNotThrow(() => apply(ctx as never));
 });
 
-astTest("工具面：未索引时 cycles 返回 not_indexed（不静默当成无环）", async () => {
-  const { dir, cleanup } = withTempDir();
-  const root = join(dir, "repo");
-  writeFixture(root, "src/a.ts", "export const A = 1;\n");
-  const registered: unknown[] = [];
-  try {
-    apply(
-      {
-        provide: () => {},
-        tools: { register: (t: unknown) => void registered.push(t) },
-      } as never,
-      { root },
-    );
-    const tool = registered[0] as {
-      execute: (a: Record<string, unknown>) => Promise<Record<string, unknown>>;
-    };
-    assert.ok(tool, "apply 应注册 code_map 工具");
-    const before = await tool!.execute({ action: "cycles" });
-    assert.equal(before["ok"], false);
-    assert.equal(before["error"], "not_indexed");
-    await getCodeMapBundle()!.index();
-    const after = await tool!.execute({ action: "cycles" });
-    assert.deepEqual(after, [], "索引后返回环数组（本仓无环）");
-  } finally {
-    getCodeMapBundle()?.dispose();
-    apply({} as never); // 复位共享状态，避免影响后续用例
-    cleanup();
-  }
-});
+astTest(
+  "工具面：未索引时 cycles 返回 not_indexed（不静默当成无环）",
+  async () => {
+    const { dir, cleanup } = withTempDir();
+    const root = join(dir, "repo");
+    writeFixture(root, "src/a.ts", "export const A = 1;\n");
+    const registered: unknown[] = [];
+    try {
+      apply(
+        {
+          provide: () => {},
+          tools: { register: (t: unknown) => void registered.push(t) },
+        } as never,
+        { root },
+      );
+      const tool = registered[0] as {
+        execute: (
+          a: Record<string, unknown>,
+        ) => Promise<Record<string, unknown>>;
+      };
+      assert.ok(tool, "apply 应注册 code_map 工具");
+      const before = await tool!.execute({ action: "cycles" });
+      assert.equal(before["ok"], false);
+      assert.equal(before["error"], "not_indexed");
+      await getCodeMapBundle()!.index();
+      const after = await tool!.execute({ action: "cycles" });
+      assert.deepEqual(after, [], "索引后返回环数组（本仓无环）");
+    } finally {
+      getCodeMapBundle()?.dispose();
+      apply({} as never); // 复位共享状态，避免影响后续用例
+      cleanup();
+    }
+  },
+);
 
 astTest("apply：config 透传（root 生效；缺省沿用 cwd）", async () => {
   const { dir, cleanup } = withTempDir();
@@ -147,6 +155,84 @@ astTest("apply：config 透传（root 生效；缺省沿用 cwd）", async () =>
     // 复位共享状态：后续用例（无 config 的 apply）不应看到本用例的 bundle
     apply({} as never);
     cleanup();
+  }
+});
+
+/** 计数用最小假 ast（只实现 outline / search）：验证惰性索引、inflight 去重与重扫。 */
+function countingAst(root: string): {
+  ast: AstToolsBundle;
+  calls: () => number;
+} {
+  let calls = 0;
+  const ast = {
+    bin: "fake-ast-grep",
+    async outline(params: { path: string }) {
+      calls++;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const rel = params.path.slice(root.length + 1);
+      const items =
+        rel === "src/a.ts"
+          ? [
+              {
+                role: "item",
+                symbolType: "function",
+                name: "A",
+                range: {
+                  start: { line: 0, column: 0 },
+                  end: { line: 0, column: 10 },
+                  byteOffset: { start: 0, end: 0 },
+                },
+                signature: "export function A()",
+                astKind: "function_declaration",
+                isImport: false,
+                isExported: true,
+              },
+            ]
+          : [];
+      return [{ path: params.path, language: "typescript", items }];
+    },
+    async search() {
+      return [];
+    },
+    async replace() {
+      throw new Error("fake ast: replace 不可用");
+    },
+    async rules() {
+      throw new Error("fake ast: rules 不可用");
+    },
+    dispose() {
+      /* 无持久资源 */
+    },
+  } as unknown as AstToolsBundle;
+  return { ast, calls: () => calls };
+}
+
+test("index：惰性 + 并发 inflight 去重 + 已索引摘要 + refresh/index({root}) 重扫", async () => {
+  const { dir, cleanup } = withTempDir();
+  const root = join(dir, "repo");
+  writeFixture(root, "src/a.ts", "export function A() { return 1; }\n");
+  try {
+    const { ast, calls } = countingAst(root);
+    const bundle = createCodeMapBundle({ root, ast });
+    assert.equal(bundle.summary(), undefined, "首次查询前不建索引");
+    assert.equal(calls(), 0, "构造不扫描");
+    const [first, second] = await Promise.all([bundle.index(), bundle.index()]);
+    assert.equal(calls(), 1, "并发首查共用同一次扫描");
+    assert.deepEqual(first, second);
+    assert.equal(first.files, 1);
+    assert.equal(first.symbols, 1);
+    assert.equal(bundle.summary()?.files, 1);
+    const cached = await bundle.index();
+    assert.equal(calls(), 1, "已索引后不再扫描");
+    assert.equal(cached.imports, 0, "摘要路径不带 import 计数");
+    await bundle.refresh();
+    assert.equal(calls(), 2, "refresh 重扫");
+    await bundle.index({ root });
+    assert.equal(calls(), 3, "index({ root }) 等同重扫");
+    bundle.dispose();
+  } finally {
+    cleanup();
+    void dir;
   }
 });
 
