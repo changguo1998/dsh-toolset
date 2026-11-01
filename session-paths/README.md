@@ -72,8 +72,12 @@ await ctx.get("sessionPaths").ensureSessionDir("/home/u/proj", sessionId);
 ## 测试
 
 ```sh
-npm --prefix session-paths run check   # 两个 program 的类型检查
-npm --prefix session-paths run test    # 24 例：编码对拍 + 服务面（假 ctx / 假 sessions）
+npm --prefix session-paths run check            # 两个 program 的类型检查
+npm --prefix session-paths run test             # 单元层 31 例：编码对拍 + 服务面分支
+npm --prefix session-paths run test:integration # 集成层 12 例：apply 接线 + 临时 HOME 落盘
+npm --prefix session-paths run test:coverage    # 两层合并的覆盖率报告
 ```
+
+单元层在 `tests/*.test.ts`；集成层在 `tests/integration/*.test.ts`，装配器 `tests/assemble.ts` 用假服务面拼 `apply`，并在 `os.tmpdir()` 的临时 HOME 上断言 `sessionPaths` 的 canonical 路径（用后删除）。层层分工与覆盖数字见本次整理的分包追踪文档。
 
 编码对拍的期望值来源：本机 `~/.dsh/sessions/` 的真实桶名（七个），以及从宿主已安装包里截出四个函数、在本地 eval 出的真实实现（合成向量覆盖 `~XXXX` 转义、连续分隔符合并、`_no-cwd`、`.` 与 `..`、251 截断），断言一律逐字符相等。
