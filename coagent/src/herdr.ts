@@ -47,8 +47,3 @@ export function errorTextOf(result: HerdrActionResult): string {
     result.error.hint === undefined ? "" : `；提示：${result.error.hint}`;
   return `${result.error.code}: ${result.error.message}${hint}`;
 }
-
-/** 附注（服务面在「自动打 label 失败」等场景给的软失败说明）。 */
-export function notesOf(result: HerdrActionResult): string[] {
-  return result.notes ?? [];
-}
