@@ -349,7 +349,7 @@ export function normalizeTitleText(input: string, maxBytes: number): string {
   const cleaned = input
     // eslint-disable-next-line no-control-regex
     .replace(
-      /[\u001b\u009b]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|\u202a-\u202e/gu,
+      /[\u001b\u009b]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]|[\u202a-\u202e]/gu,
       "",
     )
     .replace(/\s+/gu, " ")

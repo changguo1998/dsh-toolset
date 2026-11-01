@@ -702,6 +702,11 @@ test("normalizeTitleText：剥控制字符，多字节按字节边界截断", ()
   );
   assert.equal(normalizeTitleText("  多\t行\n标题  ", 1024), "多 行 标题");
   assert.equal(
+    normalizeTitleText("左\u202a右\u202b文\u202d字\u202e", 1024),
+    "左右文字",
+    "双向文本控制符逐个清掉",
+  );
+  assert.equal(
     normalizeTitleText("标题", 4),
     "标",
     "4 字节上限下只放得下 3 字节的首字，第二个字整字丢弃",
