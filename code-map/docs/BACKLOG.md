@@ -8,6 +8,6 @@
 
 ## 待办
 
-- **#1 修 `kindBucket` 对导出符号的分类**〔状态: 待办, 2026-11-01〕（2026-11-01）：`src/report/builder.ts:13` 的 `kindBucket` 按子串判类, `export_statement` 落 `other`, 成员 `property_signature` / `property_identifier` 与空 `astKind` 同样落 `other`, 导致 `report.kindCounts` 对导出符号基本失真 → 期望按 ast-grep `outline` 的实际 kind 取值补映射 (导出声明取被导出节点的 kind, 或把 `export_statement` 归到内层声明), 并给出改前改后的 `kindCounts` 快照 → 落点 `src/report/builder.ts` 与报告用例 / 快照 → 验收 `pnpm -C code-map run check` / `test` / `test:integration` 全绿, 快照差异逐项说明 → 来源 `docs/implementation/2026-10-28-history-cleanup-code-map.md` 偏差第 2 条与 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md` T4 → P3.
+- **#1 修 `kindBucket` 对导出符号的分类**〔状态: 待办, 2026-11-01〕（2026-11-01）：`src/report/builder.ts:13` 的 `kindBucket` 按子串判类, `export_statement` 落 `other`, 成员 `property_signature` / `property_identifier` 与空 `astKind` 同样落 `other`, 导致 `report.kindCounts` 对导出符号基本失真 → 期望按 ast-grep `outline` 的实际 kind 取值补映射 (导出声明取被导出节点的 kind, 或把 `export_statement` 归到内层声明), 并给出改前改后的 `kindCounts` 快照 → 改动位置 `src/report/builder.ts` 与报告用例 / 快照 → 验收 `pnpm -C code-map run check` / `test` / `test:integration` 全绿, 快照差异逐项说明 → 来源 `docs/implementation/2026-10-28-history-cleanup-code-map.md` 偏差第 2 条与 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md` T4 → P3.
 
 （本条会改 `report.kindCounts` 的可见输出, 需单独立项与快照; 阶段 3b 只登记不修。）
