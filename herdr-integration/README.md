@@ -1,6 +1,22 @@
 # @dsh-toolset/herdr-integration
 
-DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板集成插件（零运行时依赖）：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问等待、approval 审批等待、turn 阻塞等待三类信号源）。
+## 定位
+
+DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板集成插件（运行时依赖只有 `@dsh-toolset/clock-base` 的定时器族）：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问等待、approval 审批等待、turn 阻塞等待三类信号源）。
+
+### 目录结构
+
+```text
+src/herdr.ts              # 协议客户端：握手读取、三个 method 的报文、两次尝试、状态队列
+src/state.ts              # 纯函数推导：BlockTracker（多来源计数）+ desiredState
+src/index.ts              # 插件入口：事件订阅、blocked 桥、会话 / 状态上报、dispose 与 exit 释放
+scripts/verify-herdr.mjs  # 端到端验证脚本（import dist/，供 herdr api snapshot 核对面板）
+tests/                    # node --test 单测（state / herdr / main / clock）与集成层（tests/integration/）
+cordis.patch.yml          # bundle 挂载行（无注释，加载顺序见下文「加载顺序」）
+package.json              # dsh.bundle 契约 + build / check / test / watch
+```
+
+本包为轻量包：不写 `DESIGN.md`，能力面与边界以本 README 为准；待办见 `herdr-integration/docs/BACKLOG.md`。宿主面依据见根 `docs/host/DSH-CTX-API.md`（§1 事件载荷、§3 审批应答链、§4 Agent 注册表与 `agent/status`）；项目文档索引见根 `README.md`。
 
 ## 能力
 
@@ -42,7 +58,7 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 
 环境变量握手（由 herdr 提供）：`HERDR_ENV=1`、`HERDR_SOCKET_PATH`、`HERDR_PANE_ID` 缺一即禁用。
 
-## 使用示例
+## 用法
 
 1. 在 profile（`~/.dsh/profiles/<p>`）的 `package.json` 加 `link:` 依赖并声明 bundle（勿用 `file:`）：
 
@@ -63,7 +79,7 @@ DSH（DeepSeek Harness）与 [herdr](https://github.com/Jungod1121/herdr) 面板
 
 2. 在 herdr 面板内启动：`dsh --profile <p>`；可用 `dsh --profile <p> --dump-config` 核对出现 `- id: herdr-integration`。
 
-3. 端到端验证（先 `npm run build`，脚本直接 import `dist/`）：
+3. 端到端验证（先 `pnpm run build`，脚本直接 import `dist/`）：
 
 ```sh
 node scripts/verify-herdr.mjs blocked "waiting for user"   # 位置参数：state [message]
@@ -77,7 +93,7 @@ herdr api snapshot                                         # 核实 pane 的 age
 
 blocked 桥必须在真实答案者（如 `@dsh-toolset/tui` 的问答应答者）**之前**注册，否则请求已被下游认领、观察者收不到事件——因此 profile 的 `bundles` 数组要把本 bundle 排在 tui 之前（见上面示例）。
 
-## 边界与限制
+## 边界
 
 - 只跟踪**根 agent**：子 agent（subagent / jobs）的状态不翻转面板展示。
 - 会话引用只上报 `agent_session_id`（DSH `Session.id`）；`agent_session_path` 需要宿主暴露会话文件路径，当前不配置。
@@ -89,27 +105,15 @@ blocked 桥必须在真实答案者（如 `@dsh-toolset/tui` 的问答应答者�
 - 宿主面锚点：事件名与作用域语义对齐基线为 dsh 0.1.2-rc.1，0.1.7 / 0.2.0-rc.2 复核未变（`docs/host/HOST-UPGRADE-0.1.7-rc.2.md` §3.3、`docs/host/HOST-UPGRADE-0.2.0-rc.2.md` §3.3）；升宿主时复核这三类事件与 `agents.roots()`。
 - 被阻塞的 turn 依赖后续 `turn/start` 解除阻塞；会话中途放弃时不主动解除。
 
-## 目录结构
-
-```text
-src/herdr.ts              # 协议客户端：握手读取、三个 method 的报文、两次尝试、状态队列
-src/state.ts              # 纯函数推导：BlockTracker（多来源计数）+ desiredState
-src/main.ts               # 插件入口：事件订阅、blocked 桥、会话 / 状态上报、dispose 与 exit 释放
-scripts/verify-herdr.mjs  # 端到端验证脚本（import dist/，供 herdr api snapshot 核对面板）
-tests/                    # node --test 单测（state / herdr / main）
-cordis.patch.yml          # bundle 挂载行（无注释，加载顺序见上文「加载顺序」）
-package.json              # dsh.bundle 契约 + build / check / test / watch
-```
-
-本包为轻量包：不写 `DESIGN.md`，能力面与边界以本 README 为准；待办见 `herdr-integration/docs/BACKLOG.md`。宿主面依据见根 `docs/host/DSH-CTX-API.md`（§1 事件载荷、§3 审批应答链、§4 Agent 注册表与 `agent/status`）；项目文档索引见根 `README.md`。
-
 ## 测试
 
 ```sh
-npm run build   # tsc -p tsconfig.json → dist/
-npm run check   # tsc -p tsconfig.json --noEmit
-npm run test    # node --experimental-transform-types --test 'tests/*.test.ts'（49 例）
-npm run watch   # tsc -p tsconfig.json --watch
+pnpm run build             # tsc -p tsconfig.json → dist/
+pnpm run check             # tsc -p tsconfig.json --noEmit
+pnpm run test              # node --experimental-transform-types --test 'tests/*.test.ts'（60 例）
+pnpm run test:integration  # 集成层：装配 apply 与宿主接线（tests/integration，11 例）
+pnpm run test:coverage     # 单元 + 集成并出覆盖率报告（tmp/cov-herdr-integration）
+pnpm run watch             # tsc -p tsconfig.json --watch
 ```
 
-49 例单测（state 12 + herdr 12 + main 25），覆盖握手判定、协议报文与状态队列合并、状态推导（并发阻塞计数、`blocked` 优先级、压缩期 `working`）、插件行为（会话切换、子 agent 忽略、观察者 waterfall 的阻塞与解除、压缩 start/end 配对与子会话压缩过滤、dispose 释放）。
+60 例单测（state 12 + herdr 15 + main 25 + clock 8），覆盖握手判定、协议报文与状态队列合并、状态推导（并发阻塞计数、`blocked` 优先级、压缩期 `working`）、插件行为（会话切换、子 agent 忽略、观察者 waterfall 的阻塞与解除、压缩 start/end 配对与子会话压缩过滤、dispose 释放）；11 例集成覆盖 `apply` 与宿主接线、事件投影与服务面缺失路径。
