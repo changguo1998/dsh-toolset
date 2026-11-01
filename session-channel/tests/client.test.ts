@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
   closeConnection,
   connectSessionChannel,
+  healthCheck,
   parseAddress,
   resolveAddress,
 } from "../src/client.ts";
@@ -106,5 +107,65 @@ test("connectSessionChannel：实例连不上 → unavailable（快速失败，�
     () => connectSessionChannel({ url: missing }),
     (err: unknown) =>
       err instanceof SessionChannelError && err.code === "unavailable",
+  );
+});
+
+/**
+ * 健康自检的错误分支（真 Redis 只覆盖成功与 schema 不兼容两态）：用假客户端逐个锁
+ * PING 异常、版本过低、标记键缺失三条路径，避免这些判断只靠真机偶发路径走到。
+ */
+test("healthCheck：PING 异常 / 版本过低 / 标记键缺失（假客户端）", async () => {
+  const badPing = {
+    ping: async () => "NO",
+    info: async () => "redis_version:7.0.15",
+    get: async () => "1",
+    set: async () => "OK",
+  };
+  await assert.rejects(
+    () => healthCheck(badPing as never),
+    (err: unknown) =>
+      err instanceof SessionChannelError &&
+      err.code === "unavailable" &&
+      /PING 返回异常/.test(err.message),
+  );
+
+  const tooOld = {
+    ping: async () => "PONG",
+    info: async () => "redis_version:4.2.0",
+    get: async () => "1",
+    set: async () => "OK",
+  };
+  await assert.rejects(
+    () => healthCheck(tooOld as never),
+    (err: unknown) =>
+      err instanceof SessionChannelError &&
+      err.code === "unavailable" &&
+      /版本过低/.test(err.message),
+  );
+
+  const writes: Array<[string, string]> = [];
+  const fresh = {
+    ping: async () => "PONG",
+    info: async () => "redis_version:7.0.15",
+    get: async () => null,
+    set: async (key: string, value: string) => {
+      writes.push([key, value]);
+      return "OK";
+    },
+  };
+  assert.equal(await healthCheck(fresh as never), "7.0.15");
+  assert.deepEqual(writes, [[META_KEY, "1"]], "标记键缺失时写入 schema 版本");
+
+  const unknownVersion = {
+    ping: async () => "PONG",
+    info: async () => "no-version-line",
+    get: async () => "1",
+    set: async () => "OK",
+  };
+  await assert.rejects(
+    () => healthCheck(unknownVersion as never),
+    (err: unknown) =>
+      err instanceof SessionChannelError && err.code === "unavailable",
+    "版本解析不出来按过低处理",
   );
 });
