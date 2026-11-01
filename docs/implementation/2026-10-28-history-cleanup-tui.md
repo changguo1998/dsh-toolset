@@ -110,8 +110,9 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - `adapter/dsh.ts` 从 4648 行降到 3639 行, 保留: 文件头重导块（对外 136 个可见名与拆分前逐一对应, missing 0 / extra 0）、`installSessionModelSelection`、`createRealDshAdapter` 本体, 并对 9 个搬走的公开函数（`normalizeHistoryMessages` / `listSessionRecords` / `pickRecentSession` / `pickContinueTarget` / `deleteSessionDir` / `parseContractObjective` / `contractSummaryText` / `groupStatusText` / `aggregateSearchSources`）与 2 个类型做入口重导出, 外部 import 路径不变。
   - 偏差: `adapter/dsh.ts` 拆完仍 3639 行, 其中约 3350 行是 `createRealDshAdapter` 的**单个工厂闭包**: 内部方法与闭包变量（事件队列、活跃会话句柄、painter、去抖计时器）互相引用, 按职责切要把这些状态收成一个依赖上下文再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突; 本轮按「一个文件一层」只把可独立成层的纯函数搬出, 工厂整体留待单独条目再拆。
 
-- 阶段 3 第三批 · 第一步（2026-10-28, `adapter/dsh.ts` 余量按职责分组搬, 一次一组）: 搬「审批链的 tool/call 参数登记表」一组到 `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）。原 `createRealDshAdapter` 闭包里的 `approvalDetailOf`（纯投影）、`TOOL_CALL_CACHE_MAX` 与该表的插入 / 取回 / 删除 / 淘汰逻辑收成一个 `ToolCallCache` 类; `dsh.ts` 只在原位留一行 `const toolCallsByCallId = new ToolCallCache()` 与三处调用点改写（remember / get / delete）, 行为与 LRU 近似淘汰顺序逐行对应, 未加新导出、未改对外导出集合（这两个辅助原本就是闭包私有）。`dsh.ts` 从 3639 行降到 3603 行; 仍 > 3000 行, 按本轮口径只做这一组即提交。
+- 阶段 3 第三批 · 第一步（2026-10-28, `adapter/dsh.ts` 余量按职责分组搬, 一次一组）: 搬「审批链的 tool/call 参数登记表」一组到 `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）。原 `createRealDshAdapter` 闭包里的 `approvalDetailOf`（纯投影）、`TOOL_CALL_CACHE_MAX` 与该表的插入 / 取回 / 删除 / 淘汰逻辑收成一个 `ToolCallCache` 类; `dsh.ts` 只在原位留一行 `const toolCallsByCallId = new ToolCallCache()` 与三处调用点改写（remember / get / delete）, 行为与 LRU 近似淘汰顺序逐行对应, 未加新导出、未改对外导出集合（这两个辅助原本就是闭包私有）。`dsh.ts` 从 3639 行降到 3604 行; 仍 > 3000 行, 按本轮口径只做这一组即提交。
   - 偏差: 开工时分支 `history-cleanup/03-code-tui` 落后 `main` 4 个 task-engine 提交（`f1ca5d2b..2ab7b760`）, 先做 `git merge --ff-only main` 对齐（快进, 无冲突、无内容改动）再动手。
+- 阶段 3 长文件拆分收尾（2026-10-28）: 本批合并后停止继续拆 `dsh.ts` 与 `index.ts`。可独立搬移的职责（纯函数 / 纯类型 / 登记表 / 装配面）已拆完; 剩余 3604 行的 `adapter/dsh.ts` 与 6497 行的 `index.ts` 都是有状态主体, 继续拆需要上下文对象重构, 按「偏差」一条的裁定, 拆分类工作留待后续单独条目。阶段 3 的代码整理到此定稿。
 
 ## 偏差
 
@@ -128,6 +129,7 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
   - 注释路径: 总追踪 1.3 表列 TUI 34 处, 其中 `app/layout/tool-line.ts:18` 的 `TUI/src/x.ts` 是路径缩短的**示例**、`app/adapter/types.ts:920` 的 `src/types.ts` 实为宿主仓路径 `packages/interaction/commands/src/types.ts`, 两处都不是仓内简写, 未改; 实改 32 处。
   - 沙箱展示映射: `MODE_SHORT` 只是标题栏缩写表（`ro` / `wr` / `full`）, `herdr-use` 侧是命令放行判定用的沙箱模式读取器, 两者不同源; 本轮不引 `herdr-use` 类型（规划未给 TUI 加该 link 依赖）。
   - `smoke:pty` 仍需 `TOLLGATE_API_KEY`, 本机缺凭据, 本轮跳过, 与阶段 2 同一条偏差。
+- 长文件拆分收尾（2026-10-28, 阶段 3 裁定）: 剩余 `TUI/src/app/adapter/dsh.ts` 3604 行与 `TUI/src/app/index.ts` 6497 行都是有状态主体 —— 前者是 `createRealDshAdapter` 工厂闭包（`DshAdapter` 的实现与闭包变量互相引用）, 后者是 `App` 类的约 6200 行方法体（方法读写私有字段、计时器与渲染句柄）。两者继续按职责切, 都要先把状态收成显式上下文对象再传给各段, 属**改结构**而非挪位置, 与本轮「行为不变」的门禁冲突, 收益与风险不匹配。本轮停在「按可独立搬移的职责拆完」: 纯函数 / 纯类型 / 登记表 / 装配面已全部搬出, 有状态主体单独立条目后再做。
 
 ## 测试与证据
 
@@ -255,5 +257,5 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 | `pnpm -C TUI run build` | ✓ 编译到 `dist/` |
 | `pnpm -C TUI run demo -- --smoke` | ✓ 42 条 `SMOKE_PASS` + 末行 `SMOKE_OK sent=[...] interrupts=1` |
 
-- 只搬一组: 「审批链的 tool/call 参数登记表」→ `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）; `TUI/src/app/adapter/dsh.ts` 3639 → 3603 行。
+- 只搬一组: 「审批链的 tool/call 参数登记表」→ `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）; `TUI/src/app/adapter/dsh.ts` 3639 → 3604 行。
 - 断言一字未改, 1828 条全过; 行为不变, 工具名 / 配置键 / 注入文案 / 帧内容均未动。
