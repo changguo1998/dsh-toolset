@@ -62,6 +62,11 @@ rm -rf ../tmp/cov-output-compress && mkdir -p ../tmp/cov-output-compress && NODE
 - 集成层: 新增 `tests/assemble.ts` (假工具面 + 假事件面 + 假服务面拼 `apply`, 末缀不是 `.test.ts`) 与 `tests/integration/plugin.test.ts` 10 条: 订阅面与零工具注册、`registerKind` 的 canonical 入参、启动日志三要素、spill 通知按全文派生的 digest 行 canonical 列值与 `sha256` 去重键、FTS / LIKE 两路检索与 `referenced_at` 刷新、preview 投影的三段结构与 600 字符截断、spill 来源的 locator / retrieval / truncated 标注、`is_error` 行的 `put` 入参 (`tier` / `sessionId` / `importance` / `source`) 与 `push_state`、句柄缺失后巩固重推的补推与幂等、`dispose` 反订阅、`sessionPaths` 缺席的跳过与告警、事件形状的静默跳过. 落盘全部在 `os.tmpdir()` 的临时目录, 用后删除.
 - 脚本: `package.json` 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (命令按本文件「测试」节, 参数 `tmp/cov-output-compress`).
 
+### 阶段 3 代码整理
+
+- 删失效导出 `DigestPutOutcome` (`src/digest-db.ts:53`): 全仓无引用, 只声明未使用; 行为不变.
+- 其余规划项 (无) 不涉及.
+
 ## 偏差
 
 - 任务书里的「断言大输出入库工具的注册、canonical 值与 `output.render` 投影」在本包没有直接对应面: 本包不注册工具, 也不产出 `output.render` (它只订阅 `session/event` 的 `tool/result`). 按 4.2 的集成层本义 (插件的 `apply` 与宿主接线), 这三项落到等价位置: 工具面断「零注册」这条边界; canonical 值断 digest 行的列值与句柄 `put` 的入参; 「投影」断 `renderSummaryRecord` 的确定性 markdown (落库为 `preview`, 推送为 `content`). 未简化成只断返回值.
@@ -69,6 +74,13 @@ rm -rf ../tmp/cov-output-compress && mkdir -p ../tmp/cov-output-compress && NODE
 - 未覆盖行集中在类型声明与注释行 (V8 按 range 计行, 这些行没有可执行语句) 与少数防御分支 (如 `registerKind` 返回非对象、宿主 `reflect.get` 缺省); 按 4.3 不设阈值、不为数字补用例, 明细见 `tmp/cov-output-compress/report.json`.
 
 ## 测试与证据
+
+### 阶段 3 实跑
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C output-compress run check` | 通过 (`tsc --noEmit`, 无输出) |
+| `pnpm -C output-compress run test` | 75 条通过, 失败 0 |
 
 四条命令 (分支 `history-cleanup/02-tests-output-compress`, 提交 `test: 补 output-compress 测试锚定` 前的实跑):
 
