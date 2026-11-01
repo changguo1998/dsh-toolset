@@ -13,6 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { systemTimers } from "@dsh-toolset/clock-base";
 import {
   aliasPrefixFor,
   AUTO_ALIAS_POOL,
@@ -255,22 +256,8 @@ export interface ClockLike {
   scope(ctx: unknown): TimersLike;
 }
 
-/** 统一面缺席时的进程内回退（unref，与既有心跳实现同口径）。 */
-export function systemTimers(): TimersLike {
-  return {
-    now: () => Date.now(),
-    schedule(delayMs, callback) {
-      const handle = setTimeout(callback, delayMs);
-      handle.unref?.();
-      return () => clearTimeout(handle);
-    },
-    interval(delayMs, callback) {
-      const handle = setInterval(callback, delayMs);
-      handle.unref?.();
-      return () => clearInterval(handle);
-    },
-  };
-}
+/** 统一面缺席时的进程内回退（`clock-base` 导出；入口保留同名 re-export）。 */
+export { systemTimers };
 
 /**
  * 解析定时器统一面：`clock` 服务可用时用 `scope(host)` 造一组（心跳随本插件 fiber 卸载

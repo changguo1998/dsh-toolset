@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@dsh-toolset/clock-base':
+        specifier: link:../clock-base
+        version: link:../clock-base
       redis:
         specifier: ^6.2.1
         version: 6.2.1
