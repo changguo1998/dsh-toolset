@@ -1,4 +1,4 @@
-// src/engine.ts — TaskStack 引擎：Frame 状态机、decompose/implement/stop、
+// src/engine.ts — TaskStack 引擎：Frame 状态机、decompose/implement/execute/stop、
 // 就绪池（fan-out 多执行器 + 有界并发）、join 续体激活、bounded retry
 //
 // 对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §13/§14/§15/§17：事件溯源驱动，树 = 事件回放；
@@ -8,197 +8,64 @@
 //   - step 级裁决：stop/decompose 返回并落事件流 accepted/next（§8/§11.2）。
 //   - 语义蕴含：decompose 第二道门经可注入 entail hook 裁决 ∧Qᵢ ⟹ Q_parent（§17.2）。
 //   - abort 路径：恢复时在途(active)帧回收为 pending，不增重试计数（turn/end reason=aborted）。
+//
+// 分层：状态（事件流 / 物化树 / 就绪池 / 视图）在 engine-store，裁决流（验收 / 打回 /
+// 终态 / join）在 engine-flow；本文件只留模型侧操作与装配。
 
-import {
-  judgeAcceptance,
-  type AcceptanceHooks,
-  type AuditRequest,
-  type AuditVerdict,
+import type {
+  AcceptanceHooks,
+  AuditRequest,
+  AuditVerdict,
 } from "./acceptance.ts";
-import { logEvent, materialize, restore } from "./events.ts";
+import { AcceptanceFlow, GUARD_SKIPPED_NOTICE, reject } from "./engine-flow.ts";
+import { EngineStore } from "./engine-store.ts";
+import type {
+  ActionResult,
+  DecomposeResult,
+  EntailHook,
+  ExecuteOutcome,
+  ExecuteResult,
+  ExecutorRunner,
+  RootSpec,
+  StopResult,
+  TaskEngineOptions,
+  TaskEngineSnapshot,
+  TerminalHook,
+} from "./engine-types.ts";
+import { logEvent, restore } from "./events.ts";
 import { checkDecomposition, DEFAULT_GATE, type GateConfig } from "./gate.ts";
 import type {
-  Acceptance,
   ChildSpec,
-  ExecutorKind,
-  ExecutorSpec,
   Frame,
   FrameId,
   LoggedPlanEvent,
   NestedTaskItem,
   PlanEvent,
-  StepVerdict,
   TaskTree,
-  TokenKind,
 } from "./types.ts";
-import { toNested } from "./events.ts";
 
-export interface RootSpec {
-  /** 缺省 "root" */
-  id?: FrameId;
-  title: string;
-  spec: string;
-  acceptance: Acceptance[];
-  /** 根是否需要再拆（默认 true；false = 根即叶子） */
-  needDecompose?: boolean;
-  /** 根即叶子时的执行后端声明（同 ChildSpec.executor） */
-  executor?: ExecutorSpec;
-}
-
-/**
- * executor 执行请求（引擎 → 后端适配器，`main.ts` 接线真实宿主面）。
- * 引擎只做发起：拼装请求、回填证据、交给既有 RET 验收。
- */
-export interface ExecuteRequest {
-  frame: FrameId;
-  title: string;
-  spec: string;
-  acceptance: Acceptance[];
-  executor: ExecutorSpec;
-  /** 上一次打回反馈（重试时带上，便于后端修正） */
-  feedback?: string;
-}
-
-/** executor 执行结果（证据回填；ok=false 走打回通道，除非 `retryable === false`） */
-export interface ExecuteOutcome {
-  ok: boolean;
-  /** 证据正文（ok=true 时写回 `plan/frame-implemented`） */
-  result?: string;
-  /** 失败反馈（ok=false 时打回给模型） */
-  feedback?: string;
-  /** 结构化产出（workflow `value` 等；记入 `plan/frame-executed`，不进证据正文） */
-  structured?: unknown;
-  /** 事后计量 / 后端自报的 token 用量（②） */
-  tokens?: number;
-  /**
-   * 计量口径：`pressure` = 会话上下文压力（`tokenMeter.measure` 的 totalTokens，含系统
-   * 提示词与工具定义）；`usage` = provider 上报的输出 token（投影 `totals`，跨请求累计）。
-   * 两者都只是**信息量**，不参与数值比较（见 `overBudget`）。
-   */
-  tokensKind?: TokenKind;
-  /**
-   * 后端给出的**超预算权威信号**（subagent = 宿主 `stopReason === "max-tokens"`：输出被
-   * **每次请求**的上限截断）。引擎只在叶子声明了 `budget.maxTokens` 时采纳；不是数值比较。
-   */
-  overBudget?: boolean;
-  /** 实际使用的模型（`provider/model`；未覆盖时为空 = 随宿主默认） */
-  model?: string;
-  /**
-   * 失败是否可重试（缺省 true = 走 bounded retry 打回）。
-   * `false` = 声明 / 环境问题（脚本语法错、宿主面缺失、能力位不足、用户取消）：
-   * 引擎**不打回、不计重试、不改帧状态**，只把反馈交给模型去改声明。
-   */
-  retryable?: boolean;
-  /**
-   * 执行前命令复查（security-guard）**被跳过**（服务不可用 / 抛错 → fail-open 放行，未复查即执行）：
-   * 记入 `plan/frame-executed.guardSkipped`（D1：复查不可用要可见，不静默）。
-   */
-  guardSkipped?: boolean;
-}
-
-/** executor 后端适配器（宿主侧接线；未注入时 execute fail-closed 打回） */
-export type ExecutorRunner = (req: ExecuteRequest) => Promise<ExecuteOutcome>;
-
-/**
- * 帧进入**终态**（done / failed）时的钩子（executor 隔离据此回收 worktree）：
- * 在帧被标记终态**之前**调用，返回非空字符串 = 终态注记（原样写进 `plan/frame-completed` /
- * `plan/frame-failed` 的 `notice` 字段，并随 `stop` 的返回透出）。抛错不冒泡：转成注记文本。
- * 缺省不注入 → 既有行为逐字不变。
- */
-export type TerminalHook = (
-  frame: FrameId,
-  status: "done" | "failed",
-) => Promise<string | undefined> | string | undefined;
-
-/** execute 结果（与 stop 同口径的 step 级裁决 + 证据摘要 + 用量） */
-export interface ExecuteResult {
-  ok: boolean;
-  accepted: boolean;
-  /** 建议下一步：成功 = 本帧（待 stop 验收）；失败 = 本帧（重做）或 null（已 failed） */
-  next: FrameId | null;
-  feedback?: string;
-  /** 证据摘要（截断，供工具返回值直接展示） */
-  evidence?: string;
-  /** 用量与预算标注（②；超预算只标注、不据此打回） */
-  usage?: { tokens?: number; tokensKind?: TokenKind; overBudget?: boolean };
-}
-
-/** 语义蕴含（第二道门）hook：独立 entail run 判定 ∧Qᵢ ⟹ Q_parent（§17.2）。宿主侧实现。 */
-export type EntailHook = (
-  parent: Frame,
-  children: ChildSpec[],
-) => Promise<{
-  ok: boolean;
-  feedback: string;
-  /**
-   * 裁决 run **不可用**（环境 / 超时 / 输出不可解析）而跳过该门：不据此打回、不烧重试预算
-   * （区分「模型判出不成立」与「跑不起来」——后者不该把可拆解变成整树 failed）。
-   */
-  skipped?: boolean;
-}>;
-
-export interface TaskEngineOptions {
-  root: RootSpec;
-  /** 从既有事件流恢复（resume；与 root 二选一） */
-  log?: LoggedPlanEvent[];
-  gate?: Partial<GateConfig>;
-  runCommand?: AcceptanceHooks["runCommand"];
-  approve?: AcceptanceHooks["approve"];
-  /** 语义级验收的独立 audit run（§16.2）。未配置时语义级 fail-closed。 */
-  audit?: (req: AuditRequest) => Promise<AuditVerdict>;
-  /** 语义蕴含第二道门（§17.2）。未配置时只做机械门禁（结构蕴含跳过）。 */
-  entail?: EntailHook;
-  /** executor 后端适配器（①）。未配置时声明了非 model 后端的帧 execute fail-closed。 */
-  executor?: ExecutorRunner;
-  /** 帧进入终态时的钩子（executor 隔离的 worktree 回收走这里） */
-  onFrameTerminal?: TerminalHook;
-  /** 配置后每次变更自动写快照（周期快照，§15.1 L3） */
-  snapshotPath?: string;
-}
-
-export type ActionResult =
-  | { ok: true; guardSkipped?: true }
-  | { ok: false; feedback: string; guardSkipped?: true };
-
-/** decompose 结果（BACKLOG #5：step 级 accepted/next） */
-export type DecomposeResult =
-  | { ok: true; accepted: true; next: FrameId | null }
-  | { ok: false; accepted: false; next: null; feedback: string };
-
-/** stop 结果（BACKLOG #5：step 级 accepted/next + 打回反馈） */
-export interface StopResult {
-  ok: boolean;
-  /** 本步验收是否通过（accepted 与 ok 在 stop 上一致；ok=false 表示打回/拒绝） */
-  accepted: boolean;
-  /** 建议下一步帧：打回指向本帧（重做），终态指向 null，通过指向就绪池候选 */
-  next: FrameId | null;
-  /**
-   * 打回反馈**或终态注记**：通过路径也可能带（如隔离 worktree 回收失败保留现场的路径，
-   * 走 `plan/frame-completed.notice` 同一份文本；不静默）。
-   */
-  feedback?: string;
-}
-
-/** 只读查询面快照（TUI /task 面板接线；纯读取，无副作用） */
-export interface TaskEngineSnapshot {
-  /** 嵌套任务清单（标题/状态，先序） */
-  tasks: NestedTaskItem[];
-  /** 当前帧栈（DFS 就绪池；数组末位 = 下一待处理帧） */
-  frameStack: FrameId[];
-  /** 在途（active）帧数 */
-  activeCount: number;
-  /** 是否已完成（根帧 done） */
-  isComplete: boolean;
-}
+export type {
+  ActionResult,
+  DecomposeResult,
+  EntailHook,
+  ExecuteOutcome,
+  ExecuteRequest,
+  ExecuteResult,
+  ExecutorRunner,
+  RootSpec,
+  StopResult,
+  TaskEngineOptions,
+  TerminalHook,
+} from "./engine-types.ts";
+export type { TaskEngineSnapshot } from "./engine-types.ts";
 
 export class TaskEngine {
-  readonly log: LoggedPlanEvent[] = [];
+  readonly log: LoggedPlanEvent[];
   readonly config: GateConfig;
-  /** 空初始树（构造结束后由 materialize(this.log) 替换；不因空日志抛错） */
-  private tree: TaskTree = { rootId: "", rootIds: [], frames: new Map() };
-  /** 就绪池：DFS 栈（push 逆序、pop 先序）+ 去重集合 */
-  private pool: FrameId[] = [];
-  private inPool = new Set<FrameId>();
+  /** 状态层：事件流、物化树、就绪池、只读视图与周期快照 */
+  private readonly store: EngineStore;
+  /** 裁决流：验收、打回、终态与 join 续体 */
+  private readonly flow: AcceptanceFlow;
   private approveFallback: AcceptanceHooks["approve"];
   private runCommandFallback: AcceptanceHooks["runCommand"] | undefined;
   private auditFallback:
@@ -206,24 +73,27 @@ export class TaskEngine {
   private entail: EntailHook | undefined;
   private executorFallback: ExecutorRunner | undefined;
   private onFrameTerminal: TerminalHook | undefined;
-  private snapshotPath?: string;
   /** 根契约（每轮新根沿用同一份；多轮 2026-10-05） */
   private rootTemplate: RootSpec;
-  /** 周期快照写盘串行链：避免并发 fire-and-forget 写乱序（新快照覆盖旧快照） */
-  private snapshotChain: Promise<void> = Promise.resolve();
 
   constructor(opts: TaskEngineOptions) {
     this.config = { ...DEFAULT_GATE, ...opts.gate };
+    this.store = new EngineStore({
+      ...(opts.log === undefined ? {} : { log: opts.log }),
+      config: this.config,
+      ...(opts.snapshotPath === undefined
+        ? {}
+        : { snapshotPath: opts.snapshotPath }),
+    });
+    this.log = this.store.log;
     this.approveFallback = opts.approve ?? (async () => false);
     this.runCommandFallback = opts.runCommand;
     this.auditFallback = opts.audit;
     this.entail = opts.entail;
     this.executorFallback = opts.executor;
     this.onFrameTerminal = opts.onFrameTerminal;
-    this.snapshotPath = opts.snapshotPath;
     this.rootTemplate = opts.root;
     if (opts.log && opts.log.length > 0) {
-      this.log.push(...opts.log);
       // 恢复：根契约以**最后**一条 root-created 的载荷为准（`resumeFromSnapshot` 传的 root
       // 只是占位，空验收；否则新一轮会继承空契约）
       for (const ev of this.log) {
@@ -237,7 +107,7 @@ export class TaskEngine {
         round: 1,
       });
     }
-    this.tree = materialize(this.log);
+    this.recompute();
     // abort 路径（turn/end reason=aborted）：恢复时在途(active)帧回收为 pending，
     // 不增重试计数（区别于打回），保证跨 turn 不丢帧
     if (opts.log && opts.log.length > 0) {
@@ -258,62 +128,85 @@ export class TaskEngine {
     for (const f of this.tree.frames.values()) {
       if (f.status === "pending") this.pushPool(f.id);
     }
+    this.flow = new AcceptanceFlow({
+      config: this.config,
+      runCommandFallback: this.runCommandFallback,
+      auditFallback: this.auditFallback,
+      onFrameTerminal: this.onFrameTerminal,
+      append: (ev) => this.append(ev),
+      recompute: () => this.recompute(),
+      frame: (id) => this.tree.frames.get(id),
+      pushPoolFront: (id) => this.pushPoolFront(id),
+    });
+  }
+
+  /** 物化树（本层的操作都读它；写只经 append + recompute） */
+  private get tree(): TaskTree {
+    return this.store.tree;
   }
 
   // -------------------------------------------------------------------------
-  // 就绪池（fan-out：多执行器 + 有界并发上限）
+  // 状态层转接（就绪池与只读视图；语义见 engine-store）
   // -------------------------------------------------------------------------
 
-  /** 当前在途（active）帧数：fan-out 并发计数 */
   activeCount(): number {
-    let n = 0;
-    for (const f of this.tree.frames.values()) {
-      if (f.status === "active") n += 1;
-    }
-    return n;
+    return this.store.activeCount();
   }
 
-  /**
-   * 取下一个待处理帧（先序）并激活它。
-   * fan-out（BACKLOG #13）：active 帧数达 maxConcurrent 上限时返回 undefined
-   * （不消费候选），留待某个执行器完成后释放容量再次取用。
-   */
   nextReady(): FrameId | undefined {
-    if (this.activeCount() >= this.config.maxConcurrent) return undefined;
-    const id = this.pool.pop();
-    if (id === undefined) return undefined;
-    this.inPool.delete(id);
-    const f = this.tree.frames.get(id);
-    if (f === undefined || f.status !== "pending") return undefined;
-    this.append({ type: "plan/frame-activated", frame: id });
-    this.recompute();
-    return id;
+    return this.store.nextReady();
   }
 
-  /** 就绪池首个候选帧（不消费）：用于 step 裁决的 next 提示 */
   peekNextReady(): FrameId | null {
-    if (this.activeCount() >= this.config.maxConcurrent) return null;
-    for (let i = this.pool.length - 1; i >= 0; i -= 1) {
-      const id = this.pool[i];
-      if (id === undefined) continue;
-      const f = this.tree.frames.get(id);
-      if (f !== undefined && f.status === "pending") return id;
-    }
-    return null;
+    return this.store.peekNextReady();
   }
 
   private pushPool(id: FrameId): void {
-    if (this.inPool.has(id)) return;
-    this.inPool.add(id);
-    // 逆序入栈 → 先序出栈（§14.2 DFS）
-    this.pool.push(id);
+    this.store.pushPool(id);
   }
 
   private pushPoolFront(id: FrameId): void {
-    // 打回重试：放回栈顶（先序最先）
-    if (this.inPool.has(id)) return;
-    this.inPool.add(id);
-    this.pool.push(id);
+    this.store.pushPoolFront(id);
+  }
+
+  private append(ev: PlanEvent): void {
+    this.store.append(ev);
+  }
+
+  private recompute(): void {
+    this.store.recompute();
+  }
+
+  nested(): NestedTaskItem[] {
+    return this.store.nested();
+  }
+
+  frames(): Map<FrameId, Frame> {
+    return this.store.frames();
+  }
+
+  root(): Frame {
+    return this.store.root();
+  }
+
+  isComplete(): boolean {
+    return this.store.isComplete();
+  }
+
+  frameStack(): FrameId[] {
+    return this.store.frameStack();
+  }
+
+  query(): TaskEngineSnapshot {
+    return this.store.query();
+  }
+
+  snapshotText(): string {
+    return this.store.snapshotText();
+  }
+
+  writeSnapshot(): Promise<void> {
+    return this.store.writeSnapshot();
   }
 
   // -------------------------------------------------------------------------
@@ -335,7 +228,7 @@ export class TaskEngine {
     parentId = this.resolveId(parentId);
     let parent = this.tree.frames.get(parentId);
     if (parent === undefined)
-      return this.finishDecompose(parentId, {
+      return this.flow.finishDecompose(parentId, {
         ok: false,
         accepted: false,
         next: null,
@@ -347,7 +240,7 @@ export class TaskEngine {
     let autoRoundId: FrameId | undefined;
     if (parent.status === "done" || parent.status === "failed") {
       if (parent.parentId !== null || parent.id !== this.tree.rootId) {
-        return this.finishDecompose(parentId, {
+        return this.flow.finishDecompose(parentId, {
           ok: false,
           accepted: false,
           next: null,
@@ -356,7 +249,7 @@ export class TaskEngine {
       }
       const spec = this.rootTemplate;
       if (spec.needDecompose === false || spec.executor !== undefined) {
-        return this.finishDecompose(parentId, {
+        return this.flow.finishDecompose(parentId, {
           ok: false,
           accepted: false,
           next: null,
@@ -376,7 +269,7 @@ export class TaskEngine {
     // frame 表按 id 全局唯一：跨轮复用 id 会覆盖旧轮帧并污染 pool / worktree 注册表
     const clash = children.find((c) => this.tree.frames.has(c.id));
     if (clash !== undefined) {
-      return this.finishDecompose(parentId, {
+      return this.flow.finishDecompose(parentId, {
         ok: false,
         accepted: false,
         next: null,
@@ -384,7 +277,7 @@ export class TaskEngine {
       });
     }
     if (parent.children.length > 0)
-      return this.finishDecompose(parentId, {
+      return this.flow.finishDecompose(parentId, {
         ok: false,
         accepted: false,
         next: null,
@@ -396,13 +289,13 @@ export class TaskEngine {
     if (!gate.ok) {
       // 自动开轮路径下父帧是临时新根：不把打回计数记到已完成的旧轮上
       if (autoRoundId === undefined) {
-        await this.rejectFrame(
+        await this.flow.rejectFrame(
           parentId,
           `gate:${String(gate.rule)}`,
           gate.feedback,
         );
       }
-      return this.finishDecompose(parentId, {
+      return this.flow.finishDecompose(parentId, {
         ok: false,
         accepted: false,
         next: null,
@@ -415,9 +308,9 @@ export class TaskEngine {
       const ent = await entailHook(parent, children);
       if (!ent.ok && ent.skipped !== true) {
         if (autoRoundId === undefined) {
-          await this.rejectFrame(parentId, "gate:entail", ent.feedback);
+          await this.flow.rejectFrame(parentId, "gate:entail", ent.feedback);
         }
-        return this.finishDecompose(parentId, {
+        return this.flow.finishDecompose(parentId, {
           ok: false,
           accepted: false,
           next: null,
@@ -440,7 +333,7 @@ export class TaskEngine {
       this.pushPool(c.id);
     }
     const first = children[0]?.id ?? null;
-    return this.finishDecompose(parentId, {
+    return this.flow.finishDecompose(parentId, {
       ok: true,
       accepted: true,
       next: first,
@@ -557,17 +450,17 @@ export class TaskEngine {
       // 声明 / 环境问题（retryable=false）：重试无用 —— 不打回、不计重试、不改帧状态，
       // 只落 step 裁决事件（审计留痕）并把反馈交给模型去改声明
       if (out.retryable === false) {
-        this.emitStepVerdict(frameId, {
+        this.flow.emitStepVerdict(frameId, {
           accepted: false,
           next: frameId,
           feedback,
         });
         return { ok: false, accepted: false, next: frameId, feedback };
       }
-      await this.rejectFrame(frameId, "executor", feedback);
+      await this.flow.rejectFrame(frameId, "executor", feedback);
       const now = this.tree.frames.get(frameId);
       const next: FrameId | null = now?.status === "failed" ? null : frameId;
-      this.emitStepVerdict(frameId, { accepted: false, next, feedback });
+      this.flow.emitStepVerdict(frameId, { accepted: false, next, feedback });
       return { ok: false, accepted: false, next, feedback };
     }
     const result =
@@ -627,24 +520,24 @@ export class TaskEngine {
         feedback: `帧 ${frameId} 尚未 implement，无法 stop`,
       };
     const approve = hooks?.approve ?? this.approveFallback;
-    const result = await this.audit(frameId, approve, hooks?.audit);
+    const result = await this.flow.audit(frameId, approve, hooks?.audit);
     if (!result.ok) {
       // 打回：带反馈重试；终态(failed)无下一步，否则下一步 = 本帧（重做）
       // （反馈里的复查留痕由 audit 统一附上，此处不重复拼接）
       const now = this.tree.frames.get(frameId);
       const next: FrameId | null = now?.status === "failed" ? null : frameId;
-      this.emitStepVerdict(frameId, {
+      this.flow.emitStepVerdict(frameId, {
         accepted: false,
         next,
         feedback: result.feedback,
       });
       return { ok: false, accepted: false, next, feedback: result.feedback };
     }
-    const notices = await this.completeUp(frameId, approve, hooks?.audit);
+    const notices = await this.flow.completeUp(frameId, approve, hooks?.audit);
     // 成功路径同样留痕：否则「验收命令没复查过却通过了」会静默
     if (result.guardSkipped === true) notices.push(GUARD_SKIPPED_NOTICE);
     const next = this.peekNextReady();
-    this.emitStepVerdict(frameId, {
+    this.flow.emitStepVerdict(frameId, {
       accepted: true,
       next,
       ...(notices.length === 0 ? {} : { feedback: notices.join("；") }),
@@ -656,299 +549,6 @@ export class TaskEngine {
       ...(notices.length === 0 ? {} : { feedback: notices.join("；") }),
     };
   }
-
-  // -------------------------------------------------------------------------
-  // 内部：审计、打回、完成与 join 续体
-  // -------------------------------------------------------------------------
-
-  /** decompose 收尾：落 step 级裁决事件（#5）后返回结果 */
-  private finishDecompose(
-    parentId: FrameId,
-    res: DecomposeResult,
-  ): DecomposeResult {
-    this.emitStepVerdict(parentId, {
-      accepted: res.ok,
-      next: res.ok ? res.next : parentId,
-      ...(res.ok ? {} : { feedback: res.feedback }),
-    });
-    return res;
-  }
-
-  /** 落一条 step 级裁决事件（§11.2：裁决进事件流，供宿主/审计消费） */
-  private emitStepVerdict(frameId: FrameId, v: StepVerdict): void {
-    this.append({
-      type: "plan/step-verdict",
-      frame: frameId,
-      accepted: v.accepted,
-      next: v.next,
-      ...(v.feedback === undefined ? {} : { feedback: v.feedback }),
-    });
-  }
-
-  /**
-   * 语义裁决的证据文本：叶子用自身产出；**父帧没有自身产出**（父验收在子任务 join 后才判），
-   * 故汇总子帧结论——否则语义级 audit run 对父验收「无产出可审」，语义门形同虚设。
-   */
-  private evidenceFor(f: Frame): string | undefined {
-    if (f.result !== undefined && f.result.trim() !== "") return f.result;
-    if (f.children.length === 0) return f.result;
-    const parts: string[] = [];
-    for (const childId of f.children) {
-      const child = this.tree.frames.get(childId);
-      if (child === undefined) continue;
-      const text = child.result ?? "";
-      parts.push(
-        `- ${child.id}（${child.title}）：${text === "" ? "（无产出）" : text}`,
-      );
-    }
-    return parts.length === 0 ? f.result : parts.join("\n");
-  }
-
-  /** 依序裁决一个帧的全部验收条目；任一失败 → 打回（bounded retry） */
-  private async audit(
-    frameId: FrameId,
-    approve: AcceptanceHooks["approve"],
-    perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
-  ): Promise<ActionResult> {
-    const f = this.tree.frames.get(frameId);
-    if (f === undefined) return reject(`未知帧 ${frameId}`);
-    if (f.acceptance.length === 0) return { ok: true };
-    // 本轮验收里是否有「命令复查被跳过」（guard 不可用 / 抛错 → fail-open）：留痕给事件与 stop 反馈
-    let guardSkipped = false;
-    for (const acc of f.acceptance) {
-      const verdict = await judgeAcceptance(
-        frameId,
-        acc,
-        {
-          runCommand:
-            this.runCommandFallback ??
-            (async () => ({ code: 1, output: "未配置 runCommand" })),
-          approve,
-          ...((perCallAudit ?? this.auditFallback)
-            ? { audit: perCallAudit ?? this.auditFallback }
-            : {}),
-        },
-        this.evidenceFor(f),
-      );
-      if (verdict.guardSkipped === true) guardSkipped = true;
-      this.append({
-        type: "plan/acceptance-verdict",
-        frame: frameId,
-        acceptance: acc.id,
-        level: acc.level,
-        pass: verdict.pass,
-        ...(verdict.pass ? {} : { evidence: verdict.feedback }),
-        ...(verdict.structured === undefined
-          ? {}
-          : { structured: verdict.structured }),
-        ...(verdict.guardSkipped === true
-          ? { guardSkipped: true as const }
-          : {}),
-      });
-      if (!verdict.pass) {
-        // 复查被跳过（guard 不可用 / 抛错 → fail-open）：失败反馈里同口径留痕（D1，不静默）
-        const feedback =
-          verdict.guardSkipped === true
-            ? `${verdict.feedback}\n${GUARD_SKIPPED_NOTICE}`
-            : verdict.feedback;
-        await this.rejectFrame(frameId, `acceptance:${acc.id}`, feedback);
-        return {
-          ok: false,
-          feedback,
-          ...(guardSkipped ? { guardSkipped: true as const } : {}),
-        };
-      }
-    }
-    return {
-      ok: true,
-      ...(guardSkipped ? { guardSkipped: true as const } : {}),
-    };
-  }
-
-  /** 打回：记事件、计数、超限即 failed（进终态前先过终态钩子，回收失败不静默） */
-  private async rejectFrame(
-    frameId: FrameId,
-    reason: string,
-    feedback: string,
-  ): Promise<void> {
-    this.append({
-      type: "plan/frame-rejected",
-      frame: frameId,
-      reason,
-      feedback,
-    });
-    this.recompute();
-    const f = this.tree.frames.get(frameId);
-    if (f !== undefined && f.retryCount >= this.config.maxRetries) {
-      await this.failFrame(frameId);
-    } else {
-      // 打回后放回就绪池顶部等待重新处理（带反馈）
-      this.pushPoolFront(frameId);
-    }
-  }
-
-  /**
-   * 转 failed 并**向上传播**。
-   * 父帧只在全部子帧 done 时才被 join（tryJoinParent），子帧 failed 永远等不到 join →
-   * 祖先会停在 pending：既不能再分解（已展开过），根也非终态故不能开新一轮，就绪池空 = 卡死。
-   * 因此这里沿 parentId 链把仍在进行中的祖先一并转 failed（各自过终态钩子回收现场），
-   * 根进终态后自然获得「开新一轮」出口。
-   */
-  private async failFrame(frameId: FrameId): Promise<void> {
-    await this.markFailed(frameId);
-    let cursor = this.tree.frames.get(frameId)?.parentId ?? null;
-    while (cursor !== null) {
-      const parent = this.tree.frames.get(cursor);
-      if (
-        parent === undefined ||
-        parent.status === "done" ||
-        parent.status === "failed"
-      )
-        break;
-      await this.markFailed(cursor);
-      cursor = this.tree.frames.get(cursor)?.parentId ?? null;
-    }
-  }
-
-  /** 单帧落地 failed：先取终态注记（回收 worktree 等），再记事件并重算 */
-  private async markFailed(frameId: FrameId): Promise<void> {
-    const notice = await this.terminalNotice(frameId, "failed");
-    this.append({
-      type: "plan/frame-failed",
-      frame: frameId,
-      ...(notice === undefined ? {} : { notice }),
-    });
-    this.recompute();
-  }
-
-  /**
-   * 终态钩子（帧 done / failed 之前调用；executor 隔离在此回收 worktree）。
-   * 未注入 = 无注记；钩子抛错**不冒泡**（终态照常落地），抛错文本本身作为注记。
-   */
-  private async terminalNotice(
-    frameId: FrameId,
-    status: "done" | "failed",
-  ): Promise<string | undefined> {
-    const hook = this.onFrameTerminal;
-    if (typeof hook !== "function") return undefined;
-    try {
-      const notice = await hook(frameId, status);
-      return typeof notice === "string" && notice.trim() !== ""
-        ? notice.trim()
-        : undefined;
-    } catch (err) {
-      return `终态钩子抛错（现场未回收，需人工处理）：${String(err)}`;
-    }
-  }
-
-  /**
-   * 完成一个帧并向上 join：父帧全部子任务 done 后，对其合取复核父 Q（§17.3），
-   * 通过则继续向上；失败则父帧打回重试（不弹栈）。join 续体语义在 fan-out 下保持。
-   */
-  private async completeUp(
-    frameId: FrameId,
-    approve: AcceptanceHooks["approve"],
-    perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
-  ): Promise<string[]> {
-    const notice = await this.terminalNotice(frameId, "done");
-    this.append({
-      type: "plan/frame-completed",
-      frame: frameId,
-      ...(notice === undefined ? {} : { notice }),
-    });
-    this.recompute();
-    const notices = notice === undefined ? [] : [notice];
-    const f = this.tree.frames.get(frameId);
-    if (f === undefined || f.parentId === null) return notices;
-    notices.push(
-      ...(await this.tryJoinParent(f.parentId, approve, perCallAudit)),
-    );
-    return notices;
-  }
-
-  private async tryJoinParent(
-    parentId: FrameId,
-    approve: AcceptanceHooks["approve"],
-    perCallAudit?: (req: AuditRequest) => Promise<AuditVerdict>,
-  ): Promise<string[]> {
-    const parent = this.tree.frames.get(parentId);
-    if (
-      parent === undefined ||
-      parent.status === "done" ||
-      parent.status === "failed"
-    )
-      return [];
-    // 全部子任务 done 才激活父帧续体（fan-out：最后一个完成子任务触发）
-    const allDone = parent.children.every(
-      (c) => this.tree.frames.get(c)?.status === "done",
-    );
-    if (!allDone) return [];
-    const result = await this.audit(parentId, approve, perCallAudit);
-    if (!result.ok) {
-      // 打回已完成：父帧 pending + 反馈（含留痕），等待模型重新 stop；
-      // 父帧验收由**本次 stop** 的 join 续体触发 → 复查被跳过时把留痕透给本次反馈（不静默）
-      return result.guardSkipped === true ? [GUARD_SKIPPED_NOTICE] : [];
-    }
-    const notices = await this.completeUp(parentId, approve, perCallAudit);
-    if (result.guardSkipped === true) notices.push(GUARD_SKIPPED_NOTICE);
-    return notices;
-  }
-
-  // -------------------------------------------------------------------------
-  // 视图与快照
-  // -------------------------------------------------------------------------
-
-  /** 嵌套任务列表（parent_id + order，先序展开） */
-  nested(): NestedTaskItem[] {
-    return toNested(this.tree);
-  }
-
-  /** 扁平帧表（深拷贝，防外部改动） */
-  frames(): Map<FrameId, Frame> {
-    return new Map(this.tree.frames);
-  }
-
-  /** 根帧（存在返回；根缺失抛错） */
-  root(): Frame {
-    const r = this.tree.frames.get(this.tree.rootId);
-    if (r === undefined) throw new Error("引擎缺少根帧");
-    return r;
-  }
-
-  isComplete(): boolean {
-    return this.root().status === "done";
-  }
-
-  /** 当前帧栈（就绪池 DFS 栈的只读副本；数组末位 = 下一待处理帧） */
-  frameStack(): FrameId[] {
-    return [...this.pool];
-  }
-
-  /** 只读查询面快照：任务清单/当前帧栈/active 计数/是否完成（复用既有视图，零副作用） */
-  query(): TaskEngineSnapshot {
-    return {
-      tasks: this.nested(),
-      frameStack: this.frameStack(),
-      activeCount: this.activeCount(),
-      isComplete: this.isComplete(),
-    };
-  }
-
-  /** 事件流快照（JSON，用于恢复/审计） */
-  snapshotText(): string {
-    return JSON.stringify(this.log);
-  }
-
-  /** 写快照到 snapshotPath（配置时）；未配置时 no-op */
-  async writeSnapshot(): Promise<void> {
-    if (!this.snapshotPath) return;
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile(this.snapshotPath, this.snapshotText(), "utf8");
-  }
-
-  // -------------------------------------------------------------------------
-  // 私有
-  // -------------------------------------------------------------------------
 
   /** 根帧骨架：首轮沿用 `opts.root.id ?? "root"`（向后兼容），第二轮回起 `root-<轮次>` */
   private buildRootFrame(
@@ -993,35 +593,7 @@ export class TaskEngine {
     this.pushPool(id);
     return id;
   }
-
-  private append(ev: PlanEvent): void {
-    logEvent(this.log, ev);
-    // 周期快照：配置 snapshotPath 时每次事件后串行写盘（fire-and-forget），
-    // 保证硬中止（turn/end reason=aborted）后磁盘上存在可恢复的最新事件流
-    if (this.snapshotPath) {
-      this.snapshotChain = this.snapshotChain
-        .then(() => this.writeSnapshot())
-        .catch(() => {
-          /* 快照写失败不阻塞主流程 */
-        });
-    }
-  }
-
-  private recompute(): void {
-    this.tree = materialize(this.log);
-  }
 }
-
-function reject(feedback: string): ActionResult {
-  return { ok: false, feedback };
-}
-
-/**
- * 复查被跳过时的留痕文案（`task_stop` 反馈；与事件流的 `guardSkipped` 同口径）。
- * fail-open 策略不变（命令照常执行），但「这条命令没复查过」必须写出来（D1：不可见 → 可见）。
- */
-const GUARD_SKIPPED_NOTICE =
-  "复查留痕：security-guard 执行前复查不可用（fail-open 放行），验收命令未复查即执行（guardSkipped）";
 
 /** 证据摘要（折叠空白 + 截断；供事件与工具返回值展示，非全文） */
 function summarize(text: string, max = 240): string {
