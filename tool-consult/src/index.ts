@@ -165,6 +165,12 @@ function shouldManage(config: ResolvedConfig, agent: HostAgent): boolean {
 /** 是否在当前可见集（初始集 ∪ 已授权 ∪ 咨询工具自身）。 */
 function isVisible(runtime: AgentRuntime, toolName: string): boolean {
   if (toolName === CONSULT_TOOL_NAME) return true;
+  if (runtime.config.maskMode === "off") return true;
+  if (runtime.config.maskMode === "denylist") {
+    // denylist 模式下 initialNames 是「要挡住的名单」，被挡的工具除已授权外不可见。
+    if (runtime.grants.has(toolName)) return true;
+    return !runtime.initialNames.includes(toolName);
+  }
   if (runtime.initialNames.includes(toolName)) return true;
   return runtime.grants.has(toolName);
 }

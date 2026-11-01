@@ -101,8 +101,9 @@ export function apply(
   const host: BundleHost & Record<string, unknown> =
     ctx === null || typeof ctx !== "object" ? {} : ctx;
   const warn = (msg: string): void => {
-    host.logger?.(PLUGIN_NAME).info(msg) ??
-      process.stderr.write(`[session-channel] ${msg}\n`);
+    const logger = host.logger?.(PLUGIN_NAME);
+    if (typeof logger?.info === "function") logger.info(msg);
+    else process.stderr.write(`[session-channel] ${msg}\n`);
   };
   const service = createSessionChannelService(config, host);
   activeService = service;

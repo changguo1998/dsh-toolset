@@ -269,9 +269,11 @@ export class SessionChannelService {
       sessions: readService(host, "sessions") ?? host.sessions,
     };
     this.#deps = deps;
-    this.#log = (message) =>
-      host.logger?.(PLUGIN_NAME).info(message) ??
-      process.stderr.write(`[session-channel] ${message}\n`);
+    this.#log = (message) => {
+      const logger = host.logger?.(PLUGIN_NAME);
+      if (typeof logger?.info === "function") logger.info(message);
+      else process.stderr.write(`[session-channel] ${message}\n`);
+    };
     this.#instanceId = config.instanceId ?? randomUUID();
     this.#startedAt = (deps.now ?? Date.now)();
     this.#status = {

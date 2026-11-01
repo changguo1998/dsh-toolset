@@ -14,7 +14,12 @@ import { createMdMapService, type MdMapService } from "./service.ts";
 import { mdMapTool, resolveExecCwd } from "./tools.ts";
 import type { MdMapOptions } from "./types.ts";
 
-export { DEFAULT_EXCLUDES, DEFAULT_MAX_FILES, buildIndex, findMarkdownFiles } from "./indexer.ts";
+export {
+  DEFAULT_EXCLUDES,
+  DEFAULT_MAX_FILES,
+  buildIndex,
+  findMarkdownFiles,
+} from "./indexer.ts";
 export {
   buildAnchors,
   candidateDocPaths,
@@ -93,13 +98,15 @@ export function getMdMapSummary(): ReturnType<MdMapService["summary"]> {
 }
 
 /** DSH 宿主挂载入口（bundle 约定调用）：惰性、防御，注册失败只告警。 */
-export function apply(
-  ctx: BundleHost,
-  config: MdMapOptions = {},
-): void {
+export function apply(ctx: BundleHost, config: MdMapOptions = {}): void {
+  if (ctx === null || typeof ctx !== "object") {
+    process.stderr.write("[md-map] warn: ctx unavailable, skipped\n");
+    return;
+  }
   const warn = (message: string): void => {
-    ctx.logger?.(name).info(message) ??
-      process.stderr.write(`[md-map] ${message}\n`);
+    const logger = ctx.logger?.(name);
+    if (typeof logger?.info === "function") logger.info(message);
+    else process.stderr.write(`[md-map] ${message}\n`);
   };
   const service = createMdMapService(config);
   activeService = service;
@@ -116,5 +123,5 @@ export function apply(
       getSummary: () => getMdMapSummary(),
     });
   }
-  ctx.logger?.(name).info("md-map ready (tool=md_map)");
+  ctx.logger?.(name)?.info("md-map ready (tool=md_map)");
 }

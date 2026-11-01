@@ -374,6 +374,10 @@ export async function apply(ctx: unknown, config: Config = {}): Promise<void> {
   const warn = (msg: string): void => {
     process.stderr.write(`[hash-edit] warn: ${msg}\n`);
   };
+  if (ctx === null || typeof ctx !== "object") {
+    warn("ctx unavailable, skipping tool registration");
+    return;
+  }
   const root = config.root;
   const toolsSvc = (ctx as { tools?: ToolRegistrar }).tools;
   if (toolsSvc === undefined || typeof toolsSvc.register !== "function") {

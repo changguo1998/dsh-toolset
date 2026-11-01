@@ -7,8 +7,10 @@
 
 ## 待办
 
-1. `denylist` 模式的可见性判定与遮罩不一致：`isVisible` 只看 `initialNames`（在 denylist 里这批是**被隐藏**的工具），导致被遮工具仍被 `tools/pre-execute` 放行、遮罩内工具反被拦。修法二选一：`isVisible` 按 `maskMode` 解释 `initialNames`，或 `pre-execute` 改查 `appliedAllow`。阶段 3 处理。
+（当前无未完成项）
 
 ## 记录
+
+> 2026-11-01 关闭：「`denylist` 模式可见性判定与遮罩不一致」已修（`isVisible` 按 `maskMode` 解释 `initialNames`：`denylist` 下初始名单是隐藏集，`off` 下全可见，已授权仍优先）；`pnpm -C tool-consult run check` / `test` 通过。
 
 > 2026-10-27 关闭：「取消会话揭示上限」已完成（`session` 档去掉 `maxRevealed` 强制上限，`maxRevealed` 只保留 `turn` 档容量语义；`rejected-cap` 状态与上限提示一并移除；`npm test` 80 通过 / 1 跳过）。追踪文档 `tool-consult/docs/archived/2026-10-27-tool-consult-no-session-cap.md`。
