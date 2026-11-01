@@ -20,8 +20,28 @@
 import { createTimers, ManualClock } from "./timers.ts";
 import type { CreateTimersOptions, Disposer, Timers } from "./timers.ts";
 
-export { createTimers, ManualClock, resolveDelay } from "./timers.ts";
-export type { CreateTimersOptions, Disposer, Timers } from "./timers.ts";
+export {
+  attachEffect,
+  createDeadline,
+  createTimers,
+  delayOf,
+  isTimers,
+  ManualClock,
+  readClock,
+  resolveClock,
+  resolveDelay,
+  runDisposer,
+  systemTimers,
+} from "./timers.ts";
+export type {
+  ClockTimers,
+  CreateTimersOptions,
+  Deadline,
+  DeadlineReason,
+  Disposer,
+  Timers,
+  TimersLike,
+} from "./timers.ts";
 
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "clock-base";
