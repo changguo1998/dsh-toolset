@@ -61,10 +61,20 @@ rm -rf ../tmp/cov-background-daemon && mkdir -p ../tmp/cov-background-daemon && 
 - 集成层: 新增 `tests/assemble.ts`（工具 / 事件 / 服务三个假面, 附假 clock 与临时目录; 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts` 10 条。装配 `apply` 后断言: `daemon_task` 注册名 / 参数面 / 描述、`execute` 的 canonical 值（create / list / show / pause / resume / cancel / log 与 `task_not_found` / `unknown_action` / `frequency_too_high`）、`output.render` 的单条 text JSON 投影、`/daemon` 命令注册与 handler 输出、文本与命令两条投递内容（注入前缀 / source / 目标会话 / 规范化 slash 行 / guardSkipped）、`dispose` 事件撤销调度器且幂等、服务面 `provide` 与 `get` 同一实例及状态视图字段、memory 底座经 `inject` 晚挂后状态与写透同步。
 - 脚本: `package.json` 增 `test:integration` 与 `test:coverage`; 覆盖率目录用 `../tmp/cov-background-daemon`（从包目录写入仓库根 `tmp/`）, `report.mjs` 的两个参数按仓库根解析写 `tmp/cov-background-daemon`。
 - `src` 未改（无偏差记录）。
+- 阶段 3（分支 `history-cleanup/03-code-background-daemon`）:
+  - 删失效导出: `src/commands.ts` 的 `Subcommand`（类型, 原第 38 行）与 `src/tz.ts` 的 `daysBetween`（函数, 原第 206 行）; 全仓含 `tests` 重扫为零引用后删。
+  - 连带删: `src/tz.ts` 的 `calendarDayMs`（只被 `daysBetween` 调用, 删后零引用）与私有常量 `MS_PER_DAY`（只被 `calendarDayMs` / `daysBetween` 使用）。
+  - 上下文对象守卫: 收成 `src/services.ts` 的唯一出口 `contextContainer(ctx)`, `readService` 与 `src/main.ts` 的 `readInject` 都调它; 每处入口只判一次 `container === undefined`, `readInject` 里原来的 `ctx === null || typeof ctx !== "object"` 删除。
+  - 零引用导出复查（5.2）: 重新扫描后本包剩 0 个「仅出现于声明」的导出, 无新增删除; 仅被 `src/index.ts` re-export、包内无调用的导出（如 `DaemonConfig`、`SelectorError` 等类型）按 5.1「对外可见的一律不动」保留。
 
 ## 偏差
 
 无（本阶段未改 `src`; 规划文档示例覆盖率命令把 `report.mjs` 的两个参数也写成 `../tmp/...`, 按任务口径与仓库既有包改为 `tmp/cov-background-daemon`）。
+
+阶段 3 有两处与规划的表述差异:
+
+- `calendarDayMs` 不在规划列出的删除清单里, 但删 `daysBetween` 后它零引用且只服务后者, 按 5.2「连带删只服务它的私有代码」一并删除; 它原本是 `tz.ts` 的导出（`tz.ts` 未从包入口导出, 属包内模块）。
+- 规划写「上下文对象守卫收进 `src/main.ts` / `src/services.ts`」, 实现取单一出口: 守卫本体放 `src/services.ts` 的 `contextContainer`, `src/main.ts` 只 import 复用, 两处入口各自只判一次。若理解为两个文件各留一份守卫, 则会产生两份同义判断, 与 5.6「唯一出口」冲突。
 
 ## 测试与证据
 
@@ -132,3 +142,29 @@ rm -rf ../tmp/cov-background-daemon && mkdir -p ../tmp/cov-background-daemon && 
 | src/due.ts / src/index.ts / src/service.ts / src/switch.ts / src/types.ts | 行全覆盖 |
 
 未覆盖部分的三类来源: 多行模板字符串 / 接口声明的续行被 `report.mjs` 按原始字节区间记为「未命中」（`commands.ts`、`deliver.ts`、`scheduler.ts` 的大部分条目）; 异步镜像与 journal 轮转的少数写盘失败分支（`journal.ts`、`records.ts`, 需人为造磁盘错误）; `tz.ts` 的 DST 稀有分支。均未用空跑用例凑数。
+
+### 阶段 3（分支 `history-cleanup/03-code-background-daemon`）
+
+命令实跑:
+
+| 入口 | 结果 |
+| --- | --- |
+| `pnpm -C background-daemon run check` | ✓ 通过（`tsc --noEmit`, 无输出） |
+| `pnpm -C background-daemon run test` | ✓ 190 pass / 0 fail / 0 skipped / 0 todo, 261.6 ms |
+| `pnpm -C background-daemon run test:integration` | ✓ 10 pass / 0 fail, 107.6 ms |
+| `pnpm -C background-daemon run build` | ✓ 通过（`tsc`, 无输出） |
+| `pnpm -C background-daemon run test:coverage` | ✓ 200 pass / 0 fail, 行 90.0% (3099/3442), 分支 78.3% (626/799) |
+
+删除符号（合计 4 个导出 + 1 个私有常量）与按文件的增删（`git diff --numstat`）:
+
+| 文件 | 符号 | 性质 | 增 / 删 |
+| --- | --- | --- | --- |
+| `src/commands.ts` | `Subcommand` | 类型（规划列出） | +0 / -2 |
+| `src/tz.ts` | `daysBetween`、`calendarDayMs`、`MS_PER_DAY` | 函数（规划列出）、函数（连带, 仅被 `daysBetween` 调用）、私有常量（连带） | +0 / -17 |
+| `src/services.ts` | 新增 `contextContainer`, `readService` 改为调用它 | 上下文对象守卫唯一出口 | +17 / -2 |
+| `src/main.ts` | `readInject` 改调 `contextContainer` | 守卫重复判断删除 | +7 / -4 |
+| 合计 | - | - | +24 / -25 |
+
+用例: 断言未改, 190 / 10 条与阶段 2 一致; 覆盖率较阶段 2 末行 89.8%（3093/3445）→ 90.0%（3099/3442）, 分支 78.3%（624/797）→ 78.3%（626/799）, 分母随删除的行与分支同步变化。
+
+零引用导出复查: 用 `tmp/scan-zero.mjs` 按「导出符号在全仓 `src` + `tests` 仅出现于声明行」的口径扫描, 结果 `零引用导出: 0`（脚本为临时文件, 任务结束已删）。
