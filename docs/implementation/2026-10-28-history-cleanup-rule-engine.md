@@ -59,11 +59,28 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 - 集成层: `rule-engine/tests/integration/plugin.test.ts` 13 条, 覆盖工具注册名与参数面、`execute` 的 canonical 返回值与落盘、`output.render` 投影、事件派发到注入消息形状 (含 `turn/end` 与 `session/created`)、消费者 `decide` / `guard` 的唤醒与注销、`tools/pre-execute` 的 deny 短路与放行、服务面 `onNotice` 订阅退订、`dedupeInRecord` 读 inbox 去重、以及工具面 / 服务面 / 严格读面三条降级路径。
 - 单元锚点: `tests/main.test.ts` 补 `guardContextOf` 一条, 断导出面的 canonical 上下文 (name / arguments / callId / sessionId) 与结构性缺省 (空 callId、非字符串 name、agent 畸形一律省略 sessionId)。其余存量的 174 条用例语义未改。
 - 专项: `tests/main.test.ts` 两处与 `tests/consumerGuard.test.ts` 两处 `herdr_use` 改 `herdr_run` (用例自造的拒绝理由, 与 `behavior-correction` 实际文案一致)。
-- `skip` / `todo` / 夹具: 本包测试代码里 0 处 `skip`、0 处 `todo`, 无 `tests/fixtures` 目录, 无删除项。
+- `skip` / `todo` / 夹具: 本包测试代码里 0 处 `skip`、0 处 `todo`, 无 `tests/fixtures` 目录, 无删除项.
+
+阶段 3 代码整理:
+
+- 定时器族: 删 `src/timers.ts` (205 行本地副本); 入口 `src/index.ts` 与 `tests/clock.test.ts` 改从 `@dsh-toolset/clock-base` 入口引 (`resolveClock` / `ManualClock`); `package.json` 加 `dependencies` 的 `@dsh-toolset/clock-base: link:../clock-base`, 包内 `pnpm install` 更新 `pnpm-lock.yaml`. 跨包 import 落 `clock-base/dist/src`, 故 `check` / `test` 前先在 worktree 内 `pnpm -C ../clock-base run build`.
+- `src/engine.ts` 拆分 (1260 → 593 行): 只留事件分流与生命周期编排 (`handle` / `#entry` / `#dispatch` / `turn/end` reason 归一 / 运行时层增删改与落盘 / 消费者注册面与 guard 入口):
+  - `src/evaluation.ts` (136 行): 规则集编译, 节点匹配 / 冷却 / 按记录去重, 只读 `evaluate` 口径;
+  - `src/consumers.ts` (477 行): 注册归一, 会话节点唤醒与对齐账本, `tools/pre-execute` 的 guard 汇总;
+  - `src/delivery.ts` (115 行): 待注入段的闸门, 按 delivery 分组合并, 注入器调用与按记录计数读面;
+  - `src/engine-state.ts` (185 行): 会话内存态, 对齐尺度表, 各层共用形状 (`Segment` / `TurnUsage` / `SessionState`) 与纯函数 (恢复判据 / 缓冲 / 淘汰 / 值预览).
+- 搬运方式: 原方法体原样搬进模块函数, 私有字段改为调用方传参 (会话态、时钟、告警出口、记录读面); 判定顺序、告警文案、段产出顺序不变, `RuleEngine` 对外方法签名与返回不变. 逐字比对拆前拆后的字符串字面量, 差异只出现在告警模板里取上限的表达式 (`this.#maxInjectionsPerTurn` → `input.maxInjectionsPerTurn`), 渲染文本相同.
 
 ## 偏差
 
-无。`src` 未改 (覆盖缺口都是既有代码路径, 阶段 3 才动)。
+阶段 2: 无. `src` 未改 (覆盖缺口都是既有代码路径, 阶段 3 才动).
+
+阶段 3:
+
+- 拆出四个文件而非三个: 三层 (规则求值 / 消费者调度 / 上下文注入) 都要读写同一份会话内存态与对齐尺度表, 放进任一层都会让其余两层反向依赖; 单放 `src/engine-state.ts` 后依赖方向单向 (三层 → 状态层), 同属「状态与纯函数」这一层, 无行为改动.
+- 拆出的模块未在包入口新增导出: `src/index.ts` 的对外面原样 (仍 `RuleEngine` 与既有工具函数 / 类型), 新模块只被 `engine.ts` 内部引. 依据总追踪 3.2「新增导出在同一次提交里要有调用方」; 规划里「只从包入口 re-export」按「对外只能经入口看到」理解.
+- `tests/clock.test.ts` 的 `resolveClock` 也从 `clock-base` 入口引 (不止 `ManualClock`): 本包不再重导出定时器族, 测试直接对 `clock-base` 的符号断言, 与 `ast-tools` / `auto-approve` 同形.
+- `RuleEngine.guardTool` 由 `async` 方法改为直接返回 `consumers.ts` 的 `guardDecision(...)` Promise (该路径无同步抛错), 对外仍是 `Promise<ToolGuardDecision | undefined>`.
 
 ## 测试与证据
 
@@ -101,3 +118,25 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 缺口说明: `timers.ts` 的裸定时器回落 (`systemTimers`) 与 `detached` 面、`engine.ts` 的若干防御分支是既有代码, 本阶段只补锚点不改写法; 阶段 3 代码整理时一并处理, 不在此处补空跑用例。报告里的行号取自 `--experimental-transform-types` 的 V8 range, 与源码行存在一两行偏移, 只作定位参考。
 
 新增 / 删除用例: 新增 `tests/integration/plugin.test.ts` 13 条、`tests/main.test.ts` 补 1 条 (`guardContextOf`); 未删除用例; 未删除夹具。`skip` 计数: 0。
+
+阶段 3 代码整理 (分支 `history-cleanup/03-code-rule-engine`, 提交前实跑):
+
+| 入口 | 结果 |
+| --- | --- |
+| `pnpm -C ../clock-base run build` | 通过 (worktree 内 `clock-base` 原本无 `dist`, 跨包 import 指向它) |
+| `pnpm -C rule-engine run check` | 通过, 无输出 (exit 0) |
+| `pnpm -C rule-engine run test` | 175 条全过, 175 pass / 0 fail / 0 skipped / 0 todo, 约 0.29s |
+| `pnpm -C rule-engine run test:integration` | 13 条全过, 13 pass / 0 fail / 0 skipped / 0 todo, 约 0.13s |
+
+拆分前后行数 (`wc -l src/*.ts`):
+
+| 文件 | 拆前 | 拆后 |
+| --- | --- | --- |
+| `src/engine.ts` | 1260 | 593 |
+| `src/evaluation.ts` | - | 136 |
+| `src/consumers.ts` | - | 477 |
+| `src/delivery.ts` | - | 115 |
+| `src/engine-state.ts` | - | 185 |
+| `src/timers.ts` | 205 | 0 (改引 `clock-base`) |
+
+用例断言未改: 阶段 3 两笔提交对 `tests/` 的唯一改动是 `tests/clock.test.ts` 的两条 import (定时器族改从 `clock-base` 入口引), 拆分那笔提交里 `git diff --name-only -- tests` 为空. 提交: `d30fc86a` (定时器族改引 `clock-base`), `13b75663` (拆 `engine.ts`), 均未 push.

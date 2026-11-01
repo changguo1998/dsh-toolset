@@ -20,10 +20,11 @@
  * （落 `~/.dsh/rule-engine/rules.json`，可用 `RULE_ENGINE_STATE_DIR` 覆盖目录）。
  */
 
+import { resolveClock } from "@dsh-toolset/clock-base";
+
 import { RuleEngine } from "./engine.ts";
 import { createAgentInjector } from "./inject.ts";
 import { defaultStateDir } from "./persist.ts";
-import { resolveClock } from "./timers.ts";
 import { toToolDefs } from "./tools.ts";
 import type {
   Config,
