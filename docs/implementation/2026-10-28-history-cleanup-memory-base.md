@@ -58,10 +58,17 @@ rm -rf ../tmp/cov-memory-base && mkdir -p ../tmp/cov-memory-base && NODE_V8_COVE
 - 脚本: `memory-base/package.json` 增 `test:integration` 与 `test:coverage`, 命令与 4.2 / 4.3 一致, 覆盖率目录 `tmp/cov-memory-base`。
 - 专项（4.4）: 本包测试代码 `skip` 0 处、`todo` 0 处, 无夹具文件引用, 无需处置项。
 - 未改 `src`, 未动其它包与总追踪。
+- 阶段 3 代码整理（任务 03 分支, 本文件后续「偏差」「测试与证据」两节同属本阶段）:
+  - 删 `src/hybrid.ts` 的 `SEARCH_MODES`: 删前扫全 worktree（含 `tests/` 与其它包）只有 `src/hybrid.ts:15` 一处定义、零导入; `SearchMode` 类型与 `isSearchMode` 保留（工具参数仍在用）。
+  - 层级判定单一出口: 在 `src/tiers.ts` 新增谓词 `isSessionTier(tier: string): tier is "session"`, 作为「这一层是不是会话层」的唯一判定; 原 11 处就地比较改为调它 —— `src/tiers.ts` 6 处（`openWritable` 两处前置校验、`openExisting` 两处、`usage()` 跳过 S 层、`storeKey`）、`src/scope.ts` 3 处（`put` 的 sessionId 校验与 `lastSessionId` 记录、`forget` 的库键定位）、`src/index.ts` 2 处（管理面 `managedTier` 拒绝 S 层、`list` 跳过 S 层）。
+  - 导出面未变: `isSessionTier` 只在 `src/tiers.ts` 导出, `src/index.ts` 的对外导出清单未增一项; 层名字符串、注入文案、配置键、工具名与参数面、`output.render` 投影均未动。
+  - 只改本包 `src/`, 未动测试断言、其它包与总追踪。
 
 ## 偏差
 
 无（未改 `src`; 两条新脚本写在 `package.json`, 属本次交付范围）。
+
+阶段 3 代码整理: 行为无差异。组织上有一处取舍需记录 —— 谓词落在 `src/tiers.ts` 而非 `src/router.ts`。`router.ts` 虽是 `Tier` 身份所在, 但本节把收拢点限定为 `scope.ts` / `index.ts` / `tiers.ts`, 故取三者中与层语义最近的 `tiers.ts` 作单一出口; 代价是 `src/scope.ts` 多一条对 `tiers.ts` 的运行期导入（无循环: `tiers.ts` 不反向依赖 `scope.ts`）。另: `src/tiers.ts` 的 `openExisting` 两处单行 `if` 被格式器补上大括号, 属纯排版。
 
 ## 测试与证据
 
@@ -117,3 +124,15 @@ rm -rf ../tmp/cov-memory-base && mkdir -p ../tmp/cov-memory-base && NODE_V8_COVE
 - `tests/hybrid-search.test.ts`: `proximitySpan` 既有用例补两条断言（重复出现最小窗口、空词项跳过）。
 
 `skip` 计数: 改前 0, 改后 0。豁免台账: 无（三条阶梯未用尽的情形未出现）。删除用例与夹具: 无。
+
+阶段 3 代码整理（任务 03 分支, 在本包目录执行）:
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm run check` | ✓ 通过（tsc --noEmit, 含 tests; 改后跑两次, 格式器处理后复跑同结果） |
+| `pnpm run test` | ✓ 90 通过 / 0 失败 / 0 跳过 / 0 todo |
+| `pnpm run test:integration` | ✓ 6 通过 / 0 失败 / 0 跳过 |
+
+- 用例断言未改一条, 通过数与阶段 2 末一致（单元 90 + 集成 6）, 说明组织改动未动行为。
+- 全仓引用重扫: `SEARCH_MODES` 只在 `src/hybrid.ts` 有定义, `tests/`、`TUI/` 与其它包零引用, 故直接删除, 无需改导入。
+- 格式: 四个改动文件跑 `format`（prettier 无改动 3 个, `src/tiers.ts` 仅排版）。

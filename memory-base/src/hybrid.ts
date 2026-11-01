@@ -11,9 +11,6 @@
 /** 检索策略：`bm25` = 现有单词面行为（缺省）；`hybrid` = 多路召回 + RRF 融合。 */
 export type SearchMode = "bm25" | "hybrid";
 
-/** 合法的策略值（工具参数与调用方共用）。 */
-export const SEARCH_MODES: readonly SearchMode[] = ["bm25", "hybrid"];
-
 /** RRF 平滑常数（取原论文的 60，不做调参）。 */
 export const RRF_K = 60;
 
