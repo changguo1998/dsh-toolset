@@ -16,6 +16,7 @@ import type {
   SourceRef,
 } from "./knowledge.ts";
 import { isTier, type RegisteredKind, type Tier } from "./router.ts";
+import { isSessionTier } from "./tiers.ts";
 
 /** 写入入参（对外形态；`project` / `sessionId` 的落点由本插件解析）。 */
 export interface ScopePutInput {
@@ -90,13 +91,13 @@ export function createMemoryScope(
     async put(input: ScopePutInput): Promise<PutResult> {
       const writable = entry.writableTiers;
       const tier = requireTier(input, writable);
-      if (tier === "session" && (input.sessionId ?? "").length === 0) {
+      if (isSessionTier(tier) && (input.sessionId ?? "").length === 0) {
         throw new Error(
           `memory-base 分类「${entry.kind}」写会话层需要 sessionId（会话层落点按会话解析）`,
         );
       }
       // 会话层的库按会话区分：记下最近一次写入的会话，删除时用它定位同一库。
-      if (tier === "session") lastSessionId = input.sessionId;
+      if (isSessionTier(tier)) lastSessionId = input.sessionId;
       const kb = await host.openWritable(tier, input.sessionId);
       return kb.put({
         kind: entry.kind,
@@ -127,7 +128,7 @@ export function createMemoryScope(
         }
         const kb = host.opened(
           ref.tier,
-          ref.tier === "session" ? lastSessionId : undefined,
+          isSessionTier(ref.tier) ? lastSessionId : undefined,
         );
         if (kb === undefined) continue;
         removed += kb.evict(

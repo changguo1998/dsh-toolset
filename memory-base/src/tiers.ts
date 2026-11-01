@@ -37,6 +37,15 @@ export const TIER_DB_FILES: Record<Tier, string> = {
 };
 
 /**
+ * 会话层判定（**层级判定的单一出口**）：S 层按会话多库——落点、库键与写入前置校验
+ * 都按会话解析，故凡「这一层是不是会话层」的判断都调这里，不再就地写 `=== "session"`。
+ * 入参放宽到 `string`，供管理面在类型收窄前先判别。
+ */
+export function isSessionTier(tier: string): tier is "session" {
+  return tier === "session";
+}
+
+/**
  * 会话目录解析面（由 `session-paths` 插件提供；缺失时 S 层写入报明示例外）。
  * 只依赖这一个方法，故以结构化类型声明，不 import 该包（避免未落地时的构建依赖）。
  */
@@ -142,12 +151,12 @@ export class TierSet {
     const key = storeKey(tier, sessionId);
     const existing = this.#stores.get(key);
     if (existing !== undefined) return existing;
-    if (tier === "session" && this.#sessionPaths === undefined) {
+    if (isSessionTier(tier) && this.#sessionPaths === undefined) {
       throw new Error(
         "memory-base 写会话层需要 session-paths 服务（未挂载时无法解析会话目录）",
       );
     }
-    if (tier === "session" && (sessionId ?? "").length === 0) {
+    if (isSessionTier(tier) && (sessionId ?? "").length === 0) {
       throw new Error(
         "memory-base 写会话层需要 sessionId（会话层落点按会话解析）",
       );
@@ -181,9 +190,10 @@ export class TierSet {
     const existing = this.#stores.get(key);
     if (existing !== undefined) return existing;
     // S 层缺 `sessionPaths` 时无法解析落点，直接视为不存在。
-    if (tier === "session" && this.#sessionPaths === undefined)
+    if (isSessionTier(tier) && this.#sessionPaths === undefined) {
       return undefined;
-    if (tier === "session" && (sessionId ?? "").length === 0) return undefined;
+    }
+    if (isSessionTier(tier) && (sessionId ?? "").length === 0) return undefined;
     const path = this.pathFor(tier, sessionId);
     if (path === undefined || !existsSync(path)) return undefined;
     const db = await openTierDatabase(path, tier, this.#journalMode);
@@ -210,7 +220,7 @@ export class TierSet {
       });
     }
     for (const tier of TIERS) {
-      if (tier === "session") continue; // S 层按会话多库，只报已打开的
+      if (isSessionTier(tier)) continue; // S 层按会话多库，只报已打开的
       const path = this.pathFor(tier);
       if (path === undefined || seen.has(path) || !existsSync(path)) continue;
       seen.add(path);
@@ -318,7 +328,7 @@ export const TIER_WEIGHT: Record<Tier, number> = {
 
 /** 库键：S 层按库路径（= 会话），P / U 层各一份。 */
 function storeKey(tier: Tier, sessionIdOrPath?: string): string {
-  return tier === "session" ? `session\u0000${sessionIdOrPath ?? ""}` : tier;
+  return isSessionTier(tier) ? `session\u0000${sessionIdOrPath ?? ""}` : tier;
 }
 
 /** 库文件的字节数（并了 WAL 主文件；文件不存在记 0）。 */

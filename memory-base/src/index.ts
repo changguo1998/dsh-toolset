@@ -38,7 +38,12 @@ import type {
 } from "./knowledge.ts";
 import { compileRules, matchDenyPattern, type PersistRules } from "./rules.ts";
 import { KindRegistry, TIERS, type KindSpec, type Tier } from "./router.ts";
-import { TierSet, type SessionPathsLike, type TierUsage } from "./tiers.ts";
+import {
+  isSessionTier,
+  TierSet,
+  type SessionPathsLike,
+  type TierUsage,
+} from "./tiers.ts";
 import {
   createMemoryScope,
   type MemoryScope,
@@ -338,7 +343,7 @@ export function createGlobalService(
   /** 管理面参数校验：S 层 / 未注册 kind / 非正整数 id 一律抛错（与句柄的参数级抛错同口径）。 */
   const managedTier = (tier: string): ManagedTier => {
     if (tier === "project" || tier === "user") return tier;
-    if (tier === "session") {
+    if (isSessionTier(tier)) {
       throw new Error(
         "memory-base 管理面不处理会话层（S 层按会话隔离，跨会话语义不明）",
       );
@@ -382,7 +387,7 @@ export function createGlobalService(
       const tiersToOpen: readonly Tier[] =
         opts?.tier === undefined ? ["project", "user"] : [opts.tier];
       for (const tier of tiersToOpen) {
-        if (tier === "session") continue;
+        if (isSessionTier(tier)) continue;
         await bundle.tiers.openExisting(tier);
       }
       const limit = Math.max(
