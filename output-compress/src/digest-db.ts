@@ -50,10 +50,6 @@ export interface DigestRecord {
   now?: number;
 }
 
-export type DigestPutOutcome =
-  | { status: "stored" | "duplicate"; id: number }
-  | { status: "rejected"; reason: "deny-pattern" };
-
 /** 底线闸：命中任一模式 → 拒写（拒绝原因区分 deny-pattern，纳入可观测）。 */
 export function matchDenyPattern(text: string): string | null {
   for (const pattern of DENY_PATTERNS) {
