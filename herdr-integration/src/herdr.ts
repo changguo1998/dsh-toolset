@@ -16,7 +16,7 @@
 import net from "node:net";
 import { spawnSync } from "node:child_process";
 
-import type { Deadline } from "./timers.ts";
+import type { Deadline } from "@dsh-toolset/clock-base";
 
 /**
  * 同步发送的内联子进程脚本（process 退出回调里已无异步事件循环，需 fork 子进程

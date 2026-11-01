@@ -59,9 +59,22 @@ rm -rf ../tmp/cov-herdr-integration && mkdir -p ../tmp/cov-herdr-integration && 
 - 脚本: `package.json` 加 `test:integration`(`tests/integration/*.test.ts`)与 `test:coverage`(两轮 glob 一起跑, `NODE_V8_COVERAGE` 落 `../tmp/cov-herdr-integration`, 再调 `dev/coverage/report.mjs tmp/cov-herdr-integration tmp/cov-herdr-integration/report.json`)。
 - 未改 `src`; `tsconfig.json` 的 `exclude` 与空 `LICENSE` 等归阶段 3 / 4。
 
+阶段 3 (分支 `history-cleanup/03-code-herdr-integration`):
+
+- 删 `src/timers.ts`(本地副本, 205 行);`src/index.ts` 与 `src/herdr.ts` 的定时器族 import 改从 `@dsh-toolset/clock-base` 入口引(`createDeadline` / `resolveClock` 与类型 `Deadline`), 按仓内既有姿态把包 import 单独成组置于相对 import 之前。
+- `tests/clock.test.ts` 的 `createDeadline` / `resolveClock` / `ManualClock` 一并从包入口引, 不再跨包引 `../../clock-base/src/timers.ts`;断言未改。
+- `package.json` 的 `dependencies` 加 `"@dsh-toolset/clock-base": "link:../clock-base"`, 在本包目录 `pnpm install` 刷新 `pnpm-lock.yaml`(importer 下新增一条 link 依赖)。
+- 跨包 import 解析到 `clock-base/dist`, 故 `check` / `test` 前先在 `../clock-base` 跑 `pnpm run build`。
+
 ## 偏差
 
-无。`src` 未改;测试侧只给 `tests/herdr.test.ts` 的 socket 服务端补了 `error` 忽略, 不改任何既有断言。
+阶段 2: 无。`src` 未改;测试侧只给 `tests/herdr.test.ts` 的 socket 服务端补了 `error` 忽略, 不改任何既有断言。
+
+阶段 3:
+
+- 「实现规划 / ### 代码」的「顺序」里 `拆长文件` / `收拢判断` 两步没有对应的任务条目(`任务` 只有删副本与加依赖两条), 本次未做, 留给后续条目。
+- 计划外一行注释:`src/index.ts:1` 的头注释原写「零运行时依赖」, 加 link 依赖后不再成立, 改为「运行时依赖只有 clock-base 的定时器族」。
+- 本文件「覆盖率」表里 `src/timers.ts` 那一行随副本删除失效;该实现的覆盖率归 `clock-base` 自己的用例, 本包不再统计。
 
 ## 测试与证据
 
@@ -105,3 +118,15 @@ rm -rf ../tmp/cov-herdr-integration && mkdir -p ../tmp/cov-herdr-integration && 
 ### 集成层贡献(两轮跑取差)
 
 只跑单元层即改前一行(行 574/662);加集成层后为 607/662, 差值为行 +33、分支 +19, 集中在 `src/index.ts` 的生产发送器与生产 `readRoots` 装配, 以及 `src/herdr.ts` 的构造与超时接线。
+
+### 阶段 3 命令结果(分支 `history-cleanup/03-code-herdr-integration`, Node v24.16.0, pnpm 11.7.0)
+
+前置: `pnpm -C ../clock-base run build`(跨包 import 取 `clock-base/dist`), 本包 `pnpm install`。
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C herdr-integration run check` | ✓ 通过(无输出) |
+| `pnpm -C herdr-integration run test` | ✓ 60 pass / 0 fail, 5 suites, 约 0.55s |
+| `pnpm -C herdr-integration run test:integration` | ✓ 11 pass / 0 fail, 3 suites, 约 2.9s |
+
+用例断言一条未改(仅改 import 来源);删 `src/timers.ts` 205 行, 全量 diff 为 6 文件 +18 / -212。
