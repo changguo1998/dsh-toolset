@@ -18,6 +18,7 @@
 
 ## 实现记录
 
+- 2026-10-28 批次 2: `session-channel` 合并, 分支 `history-cleanup/02-tests-session-channel` (`8906816`), 合并提交 `9f71a74`; 单元 78 条, 集成 9 条, 覆盖率 86.9%→88.2% / 61.9%→66.2%; 装配器以 `disabled: true` 取注册面再 `wireLive()` 起真服务; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `rule-engine` 合并, 分支 `history-cleanup/02-tests-rule-engine` (`46cf37c`), 合并提交 `7fc4345`; 单元 175 条, 集成 13 条, 覆盖率 94.7%→94.8% / 88.7%→88.8%; `herdr_use`→`herdr_run` 4 处; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `security-guard` 合并, 分支 `history-cleanup/02-tests-security-guard` (`57d55b3`), 合并提交 `01f04e9`; 单元 142→160 条 (skip 1→0), 集成 14 条, 覆盖率 97.5%→98.9% / 90.9%→94.1%; `report.mjs` 不排除 `dist`, 覆盖轮先删 `dist`; `herdr_use` 负断言保留; worktree 已删, coagent 已关.
 - 2026-10-28 批次 2: `script-interpreter` 合并, 分支 `history-cleanup/02-tests-script-interpreter` (`d88b0b4`), 合并提交 `ab7b5a8`; 单元 117 条, 集成 14 条, 覆盖率 91.1%→95.1% / 77.7%→86.9%; worktree 已删, coagent 已关.
