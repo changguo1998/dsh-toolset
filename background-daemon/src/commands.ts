@@ -35,8 +35,6 @@ export const SUBCOMMANDS = [
   "log",
 ] as const;
 
-export type Subcommand = (typeof SUBCOMMANDS)[number];
-
 /** 命令面依赖（store / journal / scheduler / switcher；control 可选 = 跨实例传播）。 */
 export interface DaemonCommandDeps {
   store: TaskStore;
