@@ -1377,6 +1377,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 2026-10-28 阶段 3 (代码整理) 完成: 24 个有代码改动的包全部分支合并 (`TUI` 分 6 批), 10 个无代码改动的包未建分支; 分支与逐包合并提交见 `docs/implementation/2026-10-28-history-cleanup-03-code.md`; 全量 `build` / `check` / `test` / `test:coverage` 退出 0, `TUI` 帧冒烟 42 条 `SMOKE_PASS`.
 - 2026-11-01 阶段 3b (阶段 3 附加: 复核修正) 完成: 集成层三例全部转绿 (`tool-consult` / `md-map` 改用例断言, `task-engine` 修快照写读竞态), 补丁轮改动回写 11 份包追踪文档, 阶段 1 至 3 与本文件补「最近修订」, 移交项按 T4 归口 (`session-title-cutoff` 正则修复, `code-map` / `TUI` 立 BACKLOG, `herdr-integration` 与三处长文件补不拆理由); 根 `pnpm run check` / `build` / `test` / `test:integration` 退出 0, 集成层连跑 4 次无失败, `TUI` `test:e2e` 以 `fff-test` 与任意 `TOLLGATE_API_KEY` 复跑通过 (42 条 `SMOKE_PASS` + `SMOKE OK`). 明细见 `docs/implementation/2026-10-28-history-cleanup-03b-supplement.md`.
 - 2026-11-01 阶段 4 (包文档) 完成: 34 个包分支各一笔文档提交, 从 `61227e60` 开分支, 以 `cherry-pick` 逐笔合入 `main` (34 笔, 未 push); 34 份 README 归并六节、15 份 DESIGN 归并四节, 22 份 BACKLOG 与 TUI 四份专项同步命令与术语; 6 个分支对包追踪文档的顺带记录在合并后补回. 明细见 `docs/implementation/2026-10-28-history-cleanup-04-package-docs.md`.
+- 2026-11-01 阶段 4b (包文档补正) 完成: 实测 4 包并扫 34 份 README 的数字断言, 补正 12 份包文档的测试数字与结构清单 (`eedfb239`), 统一 `command-template` 两模板「评审」为「审阅」(`ae8be407`), 修正 7 个源码文件的入口注释 (`ba8b8b4a`). 明细见 `docs/implementation/2026-11-01-history-cleanup-04b-package-docs-fix.md`.
 
 ## 偏差
 
@@ -1384,7 +1385,8 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 阶段 2: 分支并行数受 coagent 上限约束为 4, 后期 `TRANSPORT 422` 频发降至 2; 覆盖率按同命令改前改后对比; `report.mjs` 不排 `dist`、V8 range 行号偏移、TUI `smoke:pty` 缺凭据等见阶段文档「偏差」与各包豁免台账.
 - 阶段 3: 并发受 coagent 上限 4 (第 4 槽被阶段 2 遗留记录占用, 已清理); `TRANSPORT 422` 仍反复出现, 以 `session_channel send` 续跑; `TUI` 长文件只拆到可独立搬移的职责 (`dsh.ts` 3604 / `index.ts` 6497 行, 需上下文对象重构, 留后续条目); `fs-digest` 一处行为变化改回抛错; 其余逐包偏差见阶段文档.
 - 阶段 3 关闭时只以单元层 `pnpm run test` 为门禁, 集成层未复跑: 2026-11-01 复核时根 `pnpm run test:integration` 退出 1 (`tool-consult` / `md-map` / `task-engine` 各 1 例), 三份包追踪文档仍记全绿; 补丁轮的两个可见行为变化 (`tool-consult` 的 `isVisible`、`apply` 守卫) 只进实现记录, 未进「偏差」. 以上转阶段 3b 处理.
-- 阶段 4: 计划列的 `command-template/templates/*.md` 术语改动按「只改文档」范围回退; 6 个分支顺带补的包追踪记录已补回; 测试数字处理不一致 (部分包补集成 / 覆盖率行并更新用例数, 部分包保留旧数), `rule-engine` / `command-template` / `task-engine` 仍有拆分前文件路径或旧结构清单; 合并改用 `cherry-pick` 而非 merge commit. 详见阶段 4 追踪文档「偏差」.
+- 阶段 4: 计划列的 `command-template/templates/*.md` 术语改动按「只改文档」范围回退; 6 个分支顺带补的包追踪记录已补回; 测试数字处理不一致 (部分包补集成 / 覆盖率行并更新用例数, 部分包保留旧数), `rule-engine` / `command-template` / `task-engine` 仍有拆分前文件路径或旧结构清单; 合并改用 `cherry-pick` 而非 merge commit. 前两类遗留由阶段 4b 补正, 详见两份阶段追踪文档「偏差」.
+- 阶段 4b: `auto-approve` 只写学习层 43 例, 未写全套 181 例; `rule-engine` 只写单测 175, 未补集成 13; 归档文档仍含 `main.ts` 旧引用; 计划外多修 `task-engine/docs/DESIGN.md` 机制节一处 `main.ts`. 详见 4b 追踪文档「偏差」.
 - 阶段 3b: T1.1 的规划写「不改代码」, 实际补了 `applyMask` 的 `denylist` 放行条件 (不改则「已授权优先」两处判定不一致); T1.3 的失败不是既有 flake 而是快照写读竞态, 修复落在 `src/engine-store.ts`; 覆盖率对照受阶段 3 拆分影响, `task-engine` 的行 / 分支分母与阶段 2 不同, 不作升降结论. 详见 3b 追踪文档「偏差」.
 
 ## 测试与证据
@@ -1395,6 +1397,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 阶段 3 全量: `pnpm run build` / `check` / `test` / `test:coverage` 退出 0; 覆盖率行 87.7% (70114/79945), 分支 80.1% (16404/20491) (同命令口径, `report.mjs` 不排 `dist`); `TUI` `demo:build -- --smoke` 42 条 `SMOKE_PASS`; `smoke:pty` 缺 `TOLLGATE_API_KEY` 未跑.
 - `test:integration` / `test:e2e` 本阶段全 SKIP; 包级三条脚本留阶段 2.
 - 阶段 4: `pnpm run check` 退出 0; 75 个改动文件 `format` 幂等; 标题扫描 34 份 README 六节、15 份 DESIGN 四节均 `0` 例外; 相对链接缺失 0 (6 条命中为行内代码示例); 合并后 `git status` 干净, `61227e60..HEAD` 34 笔均为 `docs(<包>): ...`.
+- 阶段 4b: `pnpm run check` 退出 0; `command-template` 48 / 48、`task-engine` 171 / 171; 34 份 README 六节、15 份 DESIGN 四节; `command-template` 文档与模板「评审」0 命中; `main.ts` 仅余 `demo/main.ts`; 22 个改动文件 `format` 退出 0.
 - 阶段 3b 全量: `pnpm run check` / `build` / `test` / `test:integration` 退出 0; 根集成层修复后连跑 4 次无失败; `TUI` `test:e2e` (`DSH_PROFILE=fff-test`, key 任意) 退出 0 (42 条 `SMOKE_PASS` + `SMOKE OK`); 受影响三包覆盖率 `tool-consult` 96.1% / 92.3%、`task-engine` 82.8% / 74.4%、`session-title-cutoff` 98.0% / 89.2%.
 
 ## 收尾
