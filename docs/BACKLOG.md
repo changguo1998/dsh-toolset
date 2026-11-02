@@ -12,7 +12,7 @@
 
 ## 1. 已完成索引
 
-`[x]` 已实现并合入 main，落点如下（单测数与首版边界见状态表）：
+`[x]` 已实现并合入 main，改动位置如下（单测数与首版边界见状态表）：
 
 - 任务控制：task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决、**叶子执行后端**：`executor` 声明 + `task_execute` 工具 + `subagent` / `workflow` / `command` 后端 + 用量计量，追踪文档 `docs/archived/2026-10-02-injection-timing-naming-warn-executor.md`）、fan-out 就绪池、goal-contract、metric-loop；
 
@@ -24,7 +24,7 @@
 
 - 安全与集成：security-guard 策略层、herdr-integration、herdr-use（把 herdr 终端当可控伪终端层驱动交互式命令：**10 个模型侧工具** `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`（旧 `herdr_use` 与 `pane_*` / `tab_*` 动作已删），一个终端 = 一个 tab + 自带 root pane、严格一会话一 workspace、`foreground:false` 落 `dshbg` 后台 lane（缺会话时 `herdr server` 自动拉起），并与进程内 `herdrUse` 服务面共用同一份登记表与写锁；追踪文档 `docs/archived/2026-10-16-herdr-pane-design.md`、本轮终端面重构 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）；
 
-- 规则触发与符号规范：rule-engine、TUI 符号规则迁移（落点为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、注入消息呈现（**不带** `source.form:'notice'`：TUI 按用户输入块显示、正文以 `[RULE] ` 前缀标明自动注入）、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
+- 规则触发与符号规范：rule-engine、TUI 符号规范迁移（实现位置为 symbol-normalizer 插件）、next-step 注入路径、仓库级集成、注入消息呈现（**不带** `source.form:'notice'`：TUI 按用户输入块显示、正文以 `[RULE] ` 前缀标明自动注入）、消费者框架（`registerConsumer` + `evaluate`）、symbol-normalizer 插件；真机验证记录见 `docs/archived/2026-09-27-rule-engine-consumer-and-integration.md`；
 
 - TUI：/workflows 面板、/council、/search 多 provider 聚合、声音提醒，以及 7 项纯 TUI 命令与 A1-A5（`/task` `/guard` `/memory` `/loop` `/contract`）；
 
@@ -38,15 +38,15 @@
 
 - 宿主面知识：官方 **0.2.0-rc.2 对照汇总**（`docs/host/HOST-UPGRADE-0.2.0-rc.2.md`；工具 / 事件 / 服务面零增删，`docs/host/HOST-PACKAGES.md` 同期刷到 0.2.0 口径，审阅记录见 `docs/archived/2026-10-02-host-upgrade-0.2.0-rc.2.md`）。
 
-- `md-map`：新建第 19 个插件包（文档版 `code-map`：标题锚点 / 跨文档链接 / wiki / 代码文件引用 / 被引计数，查询 `callers` / `impact` / `orphans` / `report`；单文件解析复用 `md-logic`；36 例测试；追踪文档 `docs/archived/2026-10-02-md-map-package.md`）。
+- `md-map`：新建第 19 个插件（文档版 `code-map`：标题锚点 / 跨文档链接 / wiki / 代码文件引用 / 被引计数，查询 `callers` / `impact` / `orphans` / `report`；单文件解析复用 `md-logic`；36 例测试；追踪文档 `docs/archived/2026-10-02-md-map-package.md`）。
 
-- `script-interpreter`：新建插件包（模型侧脚本解释器：`script_run` 单次执行 Python，脚本经 stdin 送入不落临时文件；围栏走 `ctx.sandboxPolicy` + `ctx.sandbox`，可选服务经 `ctx.get` 受保护读取、能力缺失如实标注；审批缺省关闭，`approval: ask` 走宿主审计对；超限保留尾部 + 全文落盘 0600；73 例测试；追踪文档 `docs/archived/2026-10-16-script-interpreter-design.md`）。
+- `script-interpreter`：新建插件（模型侧脚本解释器：`script_run` 单次执行 Python，脚本经 stdin 送入不落临时文件；围栏走 `ctx.sandboxPolicy` + `ctx.sandbox`，可选服务经 `ctx.get` 受保护读取、能力缺失如实标注；审批缺省关闭，`approval: ask` 走宿主审计对；超限保留尾部 + 全文落盘 0600；73 例测试；追踪文档 `docs/archived/2026-10-16-script-interpreter-design.md`）。
 
-- command-template 终态与回收：`playbook` 等命令的子代理步骤改为**与取消信号竞速**（`start` 与宿主结算面都在竞速内），abort 路径**发起但不等待**回收（宿主 in-process `dispose()` 内部 `await run.result`，等它等于换个地方无界等待）；修掉真机「命令悬挂、无 `command/done`」的根因面（本仓侧任何路径都回终态，文案区分「被调用方取消」/「步骤超时（N ms）」并带子会话 id）；19 例测试（含宿主语义 dispose / start 悬挂 / 迟到 reject 三个回归点），全仓 20 包全绿（追踪文档 `docs/archived/2026-10-02-command-template-terminal-state.md`）。
+- command-template 终态与回收：`playbook` 等命令的子代理步骤改为**与取消信号竞速**（`start` 与宿主结算面都在竞速内），abort 路径**发起但不等待**回收（宿主 in-process `dispose()` 内部 `await run.result`，等它等于换个地方无界等待）；修掉真机「命令悬挂、无 `command/done`」的根因面（本仓侧任何路径都回终态，文案区分「被调用方取消」/「步骤超时（N ms）」并带子会话 id）；19 例测试（含宿主语义 dispose / start 悬挂 / 迟到 reject 三个退化点），全仓 20 包全绿（追踪文档 `docs/archived/2026-10-02-command-template-terminal-state.md`）。
 
 - task-engine 计量口径（usage → 权威信号）：subagent 用量改读宿主 `tokenUsage` 投影（`sessionProjections.stateOf`＝provider 上报的**累计**输出 token；尚无样本 / 服务缺失 / 抛错时回退 `tokenMeter` 的 pressure 口径），**超预算判定改用宿主权威信号** `stopReason === "max-tokens"`——不做 tokens 数值比较（审阅用真实会话日志回放 12 个 spawn 子会话：totals 6–81,955 vs 实际预算 256/512/4000，数值比较会 10/12 恒真）；72 例单测 + `smoke:executor` 扩 4 条断言，全仓 20 包全绿（追踪文档 `docs/archived/2026-10-02-task-engine-usage-metric.md`）。
 
-- `md-logic`：新建第 18 个插件包（Markdown 逻辑结构：节树 + 块 + 链接清单，带行范围；解析用 `marked` 真实 CommonMark），注册模型侧工具 `md_logic`（structure / blocks / links）并与 `fs_digest` 双向指路；接线 9 处（含补齐根 check/build 链与 test-parallel 的既有漏项）；34 例测试 + 全仓 19 包全绿（追踪文档 `docs/archived/2026-10-02-md-logic-package.md`）。
+- `md-logic`：新建第 18 个插件（Markdown 逻辑结构：节树 + 块 + 链接清单，带行范围；解析用 `marked` 真实 CommonMark），注册模型侧工具 `md_logic`（structure / blocks / links）并与 `fs_digest` 双向指路；接线 9 处（含补齐根 check/build 链与 test-parallel 的既有漏项）；34 例测试 + 全仓 19 包全绿（追踪文档 `docs/archived/2026-10-02-md-logic-package.md`）。
 
 - `ast-tools` 模型侧工具：注册 `ast_query`（action 分派：search / outline / rules，AST 形态与元变量捕获）与 `ast_replace`（默认 dry-run，写回需 `write:true`）；缺 ast-grep 二进制时注册降级版（调用返回含安装指引的 error）；模型侧行号渲染为 1 基，描述里写明与 `grep` / `glob` / `fs_digest` / `code_map` / `hash_edit` 的选择成本（追踪文档 `docs/archived/2026-10-02-ast-tools-model-tools.md`）。
 
@@ -60,7 +60,7 @@
 
 - install.sh 四条硬化：`.bak` 堆积（内容未变不写不备份）、profile 树外官方插件版本检查、收尾 `--dump-config` 自检（`--skip-verify`）、头注释口径 + 接线一致性校验；新增 `scripts/test-install.sh`（49 例；追踪文档 `docs/archived/2026-10-03-install-sh-followups.md`）。
 
-- goal 状态行补 `activation`（`⟳` 自动续轮开关）：宿主**进程本地**事件 `goal/activation-changed` → `goalActivationBySession`（末条边、按会话隔离、不落盘）+ 展示值 `activeGoalActivation`（仅 `phase === "active"`、无记录 → `disarmed`）；head 行改 `Goal <符号> <phase>`（`▷` active 绿 / `∥` paused 黄 / `△` blocked 黄（**由红改黄**）/ `✓` complete 绿）+ 尾随 `⟳`（armed 绿 / disarmed 灰），`resumeTo` 补清空边（宿主 resume 经 `sessions.prepare` 重建 Session，activation 归 disarmed 且同值早退不发边）；7 例新用例（重启回归 / 边序无关 / 端到端帧断言），两轮子代理审阅修订（陈旧 armed、SPEC 口径矛盾、宽度表条目登记），反向验证撤符号渲染 → 7 例红（追踪文档 `docs/archived/2026-10-04-tui-goal-activation-symbol.md`）。
+- goal 状态行补 `activation`（`⟳` 自动续轮开关）：宿主**进程本地**事件 `goal/activation-changed` → `goalActivationBySession`（末条边、按会话隔离、不落盘）+ 展示值 `activeGoalActivation`（仅 `phase === "active"`、无记录 → `disarmed`）；head 行改 `Goal <符号> <phase>`（`▷` active 绿 / `∥` paused 黄 / `△` blocked 黄（**由红改黄**）/ `✓` complete 绿）+ 尾随 `⟳`（armed 绿 / disarmed 灰），`resumeTo` 补清空边（宿主 resume 经 `sessions.prepare` 重建 Session，activation 归 disarmed 且同值早退不发边）；7 例新用例（重启守成测试 / 边序无关 / 端到端帧断言），两轮子代理审阅修订（陈旧 armed、SPEC 口径矛盾、宽度表条目登记），反向验证撤符号渲染 → 7 例红（追踪文档 `docs/archived/2026-10-04-tui-goal-activation-symbol.md`）。
 
 ## 2. 未完成项
 
@@ -68,37 +68,37 @@
 
 **#2 修正 surfaceOp: replace 的识别与处理**〔待办: 2026-10-28〕（登记: 2026-10-28）：TUI 与 rule-engine 只在 `assistant/message` 上按字符串 `surfaceOp === "replace"` 跳过，宿主契约的 `SurfaceOp` 是 `'append' | { op: 'replace', startSeq, endSeq }` 的范围替换，`user/message` 与 `tool/result` 的 replace 未见同样处理；现在遇到 replace 是整条丢弃、旧内容保留，画面不会更正 → 期望按契约识别对象形态并覆盖各 surface 事件，明确「完整实现范围替换」或「记录为不支持并给替代」，补 TUI / rule-engine 对齐用例，文档与注释统一叫「更正事件」 → 优先级 P2 → 来源: 2026-10-28 文档整理讨论（surfaceOp replace 的机制核对）。
 
-> 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`pnpm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；过程记录 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
+> 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`pnpm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；追踪文档 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
 
-> 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；过程记录 `docs/archived/2026-10-25-tool-description-lint.md`）。
+> 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；追踪文档 `docs/archived/2026-10-25-tool-description-lint.md`）。
 
-> 2026-10-25 关闭：条目「定位 clock-base 测试在并行负载下的偶发失败」完成并移出清单（提交 `97b655d`；失败用例为 `clock-base/tests/timers.test.ts:182`，改为假定时器并补「忙时跳过」语义用例，连跑 10 次 25/25 稳定；全仓 93 处等待类用例已排查，无其他同类隐患；过程记录 `docs/archived/2026-10-25-clock-base-parallel-flake.md`）。
+> 2026-10-25 关闭：条目「定位 clock-base 测试在并行负载下的偶发失败」完成并移出清单（提交 `97b655d`；失败用例为 `clock-base/tests/timers.test.ts:182`，改为假定时器并补「忙时跳过」语义用例，连跑 10 次 25/25 稳定；全仓 93 处等待类用例已排查，无其他同类隐患；追踪文档 `docs/archived/2026-10-25-clock-base-parallel-flake.md`）。
 
-> 2026-10-25 关闭：条目「审阅本项目各工具的描述是否准确合理」完成并移出清单（提交 `e10371d`（46 个工具描述 + 别名表 + 回归测试）与 `30fe04f`（真机验证发现的检索排序回归）；真机 12 条查询预览均达标，过程记录 `docs/archived/2026-10-24-tool-description-review.md`）。
+> 2026-10-25 关闭：条目「审阅本项目各工具的描述是否准确合理」完成并移出清单（提交 `e10371d`（46 个工具描述 + 别名表 + 守成测试）与 `30fe04f`（真机验证发现的检索排序退化）；真机 12 条查询预览均达标，追踪文档 `docs/archived/2026-10-24-tool-description-review.md`）。
 
-> 2026-10-25 关闭：条目「behavior-correction 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令并指路」完成并移出清单（提交 `75c6efb`；真机：`head` / `cat` / `sed -n` 被拒并指路，`head -c` / `tail -f` / `sed -i` / 重定向 / 管道上游放行；过程记录 `docs/archived/2026-10-24-behavior-readonly-view-guard.md`）。
+> 2026-10-25 关闭：条目「behavior-correction 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令并指路」完成并移出清单（提交 `75c6efb`；真机：`head` / `cat` / `sed -n` 被拒并指路，`head -c` / `tail -f` / `sed -i` / 重定向 / 管道上游放行；追踪文档 `docs/archived/2026-10-24-behavior-readonly-view-guard.md`）。
 
-> 2026-10-25 关闭：条目「security-guard 黑名单匹配增加命令拆分与命令/参数区分」完成并移出清单（提交 `09e80da`；真机：`echo sudo` / `grep sudo` 放行，`sudo id` / heredoc 喂 shell / `base64 -d | sh` 拒绝；过程记录 `docs/archived/2026-10-24-security-guard-command-position.md`）。
+> 2026-10-25 关闭：条目「security-guard 黑名单匹配增加命令拆分与命令/参数区分」完成并移出清单（提交 `09e80da`；真机：`echo sudo` / `grep sudo` 放行，`sudo id` / heredoc 喂 shell / `base64 -d | sh` 拒绝；追踪文档 `docs/archived/2026-10-24-security-guard-command-position.md`）。
 
-> 2026-10-25 关闭：条目「新增 `escalation-hint` 插件：补齐「沙箱拒绝但升级提示缺失」的一类问题」完成并移出清单（实现 + 根级接线已随 `031190b` 落地；误报收紧与补齐测试见后续提交；真机端到端：worktree 内 `git add` / `git commit` 被 EROFS 拒 → 同回合收到提示 → 带 `sandbox_permissions: danger-full-access` + `justification` 重试成功，审计两条 `outcome=allowed-once` / `ruleId=git-worktree-commit`，无审批面板；过程记录 `docs/archived/2026-10-24-escalation-hint-package.md`）。
+> 2026-10-25 关闭：条目「新增 `escalation-hint` 插件：补齐「沙箱拒绝但升级提示缺失」的一类问题」完成并移出清单（实现 + 根级接线已随 `031190b` 落地；误报收紧与补齐测试见后续提交；真机端到端：worktree 内 `git add` / `git commit` 被 EROFS 拒 → 同回合收到提示 → 带 `sandbox_permissions: danger-full-access` + `justification` 重试成功，审计两条 `outcome=allowed-once` / `ruleId=git-worktree-commit`，无审批面板；追踪文档 `docs/archived/2026-10-24-escalation-hint-package.md`）。
 
-> 2026-10-24 关闭（不立项）：条目「rule-engine 消费者的 `tool-result` 判定透传结构化上下文」移出清单 —— 查证发现 `tool/result` 会话事件只带 `message` / `error` / `meta`（`agent-loop/src/tool-calls.ts:282-295`），工具返回值不进事件流，透传无从谈起；改由 `tools/post-execute` 直接拿 `exec` + `result.value`，已落在 `escalation-hint`（过程记录 `docs/archived/2026-10-24-rule-engine-tool-result-context.md`）。
+> 2026-10-24 关闭（不立项）：条目「rule-engine 消费者的 `tool-result` 判定透传结构化上下文」移出清单 —— 查证发现 `tool/result` 会话事件只带 `message` / `error` / `meta`（`agent-loop/src/tool-calls.ts:282-295`），工具返回值不进事件流，透传无从谈起；改由 `tools/post-execute` 直接拿 `exec` + `result.value`，已落在 `escalation-hint`（追踪文档 `docs/archived/2026-10-24-rule-engine-tool-result-context.md`）。
 
-> 2026-10-24 关闭：条目「调研 worktree 内 git 提交的无人值守自动放行路径（越界写升级请求的发起）」完成并移出清单（结论：宿主把升级设计成模型显式发起，沙箱拒绝不发 `approval/request`；叠加 `denied` 靠英文签名判定，本地化报错无提示；a 不可行、b 过重、c 属产品取舍，改走「第 4 条零代码链路 + 提示消费者」；过程记录 `docs/archived/2026-10-24-worktree-git-escalation.md`；实施拆分为 `escalation-hint` 新包与 `rule-engine` 透传两条）。
+> 2026-10-24 关闭：条目「调研 worktree 内 git 提交的无人值守自动放行路径（越界写升级请求的发起）」完成并移出清单（结论：宿主把升级设计成模型显式发起，沙箱拒绝不发 `approval/request`；叠加 `denied` 靠英文签名判定，本地化报错无提示；a 不可行、b 过重、c 属产品取舍，改走「第 4 条零代码链路 + 提示消费者」；追踪文档 `docs/archived/2026-10-24-worktree-git-escalation.md`；实施拆分为 `escalation-hint` 新包与 `rule-engine` 透传两条）。
 
-> 2026-10-24 关闭：条目「示例 profile 资产对齐当前 fff 的通用配置（去个人化）」完成并移出清单（`profiles/example/cordis.patch.yml` 删 permission / schedule / invariants，补 fff 通用条目，`rule-engine` 只留启用的 `resumed-notice`，个人模型配置以 `PROVIDER` / `MODEL` 占位，`tui.theme` 改 `dark`；同步 `profiles/README.md`、`scripts/install.sh`（full-ask 提示）、`scripts/test-install.sh`（theme 断言）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-example-align-fff.md`）。
+> 2026-10-24 关闭：条目「示例 profile 资产对齐当前 fff 的通用配置（去个人化）」完成并移出清单（`profiles/example/cordis.patch.yml` 删 permission / schedule / invariants，补 fff 通用条目，`rule-engine` 只留启用的 `resumed-notice`，个人模型配置以 `PROVIDER` / `MODEL` 占位，`tui.theme` 改 `dark`；同步 `profiles/README.md`、`scripts/install.sh`（full-ask 提示）、`scripts/test-install.sh`（theme 断言）；`scripts/test-install.sh` 98 项通过；追踪文档 `docs/archived/2026-10-24-example-align-fff.md`）。
 
-> 2026-10-24 关闭：条目「安装脚本生成的 profile 与当前 fff 的通用配置对齐」完成并移出清单（实现 `a3f1e3b`：示例 patch 补 theme light / goal 999 / ponytail 停挂，`install.sh` 追加 hmr 生成区（`base` = 仓库根 + `root: ['.']` + 文档忽略，幂等且保留手写 hmr）；`scripts/test-install.sh` 98 项通过；过程记录 `docs/archived/2026-10-24-install-profile-parity.md`；fff 已由用户执行 `--sync` 生效）。
+> 2026-10-24 关闭：条目「安装脚本生成的 profile 与当前 fff 的通用配置对齐」完成并移出清单（实现 `a3f1e3b`：示例 patch 补 theme light / goal 999 / ponytail 停挂，`install.sh` 追加 hmr 生成区（`base` = 仓库根 + `root: ['.']` + 文档忽略，幂等且保留手写 hmr）；`scripts/test-install.sh` 98 项通过；追踪文档 `docs/archived/2026-10-24-install-profile-parity.md`；fff 已由用户执行 `--sync` 生效）。
 
-> 2026-10-23 关闭：条目「`/memory` 的 `replace` 与 `remove` 子命令」完成并移出清单（实现 `02d79c0`、合并 `6ab5b43`；过程记录 `docs/archived/2026-10-22-memory-edit-subcommands.md`；复核：根 check 通过、memory-base 82/82、TUI 1745/1745；真机验收未做）。
-> 2026-10-23 关闭：条目「其余包接入定时器统一面 `clock`」完成并移出清单（实现 `190ee24`、假时钟与降级用例 `e40f5d0`；过程记录 `docs/archived/2026-10-22-clock-unified-timers.md`）。
+> 2026-10-23 关闭：条目「`/memory` 的 `replace` 与 `remove` 子命令」完成并移出清单（实现 `02d79c0`、合并 `6ab5b43`；追踪文档 `docs/archived/2026-10-22-memory-edit-subcommands.md`；复核：根 check 通过、memory-base 82/82、TUI 1745/1745；真机验收未做）。
+> 2026-10-23 关闭：条目「其余包接入定时器统一面 `clock`」完成并移出清单（实现 `190ee24`、假时钟与降级用例 `e40f5d0`；追踪文档 `docs/archived/2026-10-22-clock-unified-timers.md`）。
 > 2026-10-23 关闭：条目「MCP 脚本化（mcpScript）」按「不立项」关闭并移出清单（用户 2026-10-23 裁定: 本工作先不做, 等真正需要再做; 设计定稿见 `docs/archived/2026-10-22-mcp-script.md`，重开触发条件与两档预案在该文件）。
-> 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；过程记录 `docs/archived/2026-10-23-clock-base-rename.md`）。
-> 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；过程记录 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
-> 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；过程记录 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/archived/2026-10-23-real-machine-verification.md` #12 至 #14）。
-> 2026-10-24 关闭：条目「6. 共享文档与根级接线」完成并移出清单（根四链、`AGENTS.md`、README 双侧、`scripts/*.sh` 枚举、profile 模板全部落地；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包 = 34 个 bundle；过程记录 `docs/archived/2026-10-23-new-package-wiring.md`）。
-> 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/archived/2026-10-23-real-machine-verification.md`；过程记录 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
-> 2026-10-24 关闭：条目「4. 工具咨询插件（按需揭示工具）」完成并移出清单（实现 + 遮罩接线合并；真机验证：9 核心 + `consult_tools` 生效、揭示链路可用、未揭示调用被拦并给可行动文案；期间修掉 `tools/change` 自激死循环与 3 处工作流文案缺陷，提交 `105bb23` / `4d68858`；包内 49 例通过；过程记录 `tool-consult/docs/archived/2026-10-22-tool-consult.md`）。
+> 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；追踪文档 `docs/archived/2026-10-23-clock-base-rename.md`）。
+> 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；追踪文档 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
+> 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；追踪文档 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/archived/2026-10-23-real-machine-verification.md` #12 至 #14）。
+> 2026-10-24 关闭：条目「6. 共享文档与根级接线」完成并移出清单（根四链、`AGENTS.md`、README 双侧、`scripts/*.sh` 枚举、profile 模板全部落地；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包 = 34 个 bundle；追踪文档 `docs/archived/2026-10-23-new-package-wiring.md`）。
+> 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/archived/2026-10-23-real-machine-verification.md`；追踪文档 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
+> 2026-10-24 关闭：条目「4. 工具咨询插件（按需揭示工具）」完成并移出清单（实现 + 遮罩接线合并；真机验证：9 核心 + `consult_tools` 生效、揭示链路可用、未揭示调用被拦并给可行动文案；期间修掉 `tools/change` 自激死循环与 3 处工作流文案缺陷，提交 `105bb23` / `4d68858`；包内 49 例通过；追踪文档 `tool-consult/docs/archived/2026-10-22-tool-consult.md`）。
 > 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
 
 > 2026-10-27 关闭：条目「安装脚本双 profile：主 profile 走快照安装（`file:`），伴随 `<名>-test` 走软链接」完成并移出清单（提交 `1edb9b2`：主 profile 依赖 `file:` 快照 + 断开 pnpm 硬链接 + 删 up-to-date 标记刷新，伴随 `<名>-test` 依赖 `link:`，两者除协议外内容一致，`--mode` / `--profile-test` / `--no-test-profile`；`scripts/test-install.sh` 117 项通过。真机反馈修复 `4b98016`：`tui.config.json` 补进 TUI `files`，否则快照读不到配置、排列方式回落纵向。追踪文档 `docs/archived/2026-10-27-install-dual-profile.md`；正跑会话仍待用户按需 `install.sh --profile fff --sync` 后重启生效）。
@@ -106,7 +106,7 @@
 > 2026-10-27 关闭：条目「宿主升级复核：dsh 0.2.1-rc.3 相对 rc.2 的接口变更」完成并移出清单（对比 `dsh-v0.2.1-rc.2..dsh-v0.2.1-rc.3` 6 提交 / 640 文件：进程内接口面零变更，`bundle/base` patch 未变，唯一行为变更是 LLM 官方路由改跟 `/models` 列表；包目录 342 → 343 仅新增 web 专用包。已同步版本口径（`install.sh` 默认版本、`test-install.sh` 7 处、4 个 smoke `REQUIRED_VERSION`、各 README、`TUI/docs/COMMANDS.md`）与宿主面文档（新增 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md`、`HOST-PACKAGES.md` 计数改 rc.3 实测 306 / 295、`DSH-CTX-API.md` rc.3 复核注记、`STATUS.md` / `ARCHITECTURE-REUSE.md` 基线）；本机安装树未升级（仍为 rc.2，升级到 rc.3 待择时，见 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` §0 与 `STATUS.md` 宿主基线），升级后需复测安装树包计数、`--dump-config` 与编码复核；本仓无代码适配项。`scripts/test-install.sh` 117 项通过。追踪文档 `docs/archived/2026-10-27-host-upgrade-0.2.1-rc.3.md`）。
 
 > 顺序依据：**修复类优先 → 依赖深度升序 → 工作量升序**（2026-10-18 用户裁定「修复类的放前面」，在此之前为依赖深度 → 工作量）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
-> 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）过程记录全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
+> 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >
 > - 知识库 / 记忆：`2026-10-07-knowledge-memory-lifecycle.md`、`2026-10-17-output-compress-scope-handle.md`、`2026-10-20-bgdaemon-memory-backend.md`、`2026-10-22-memory-hybrid-retrieval.md`
 > - 新插件落地：`2026-10-15-md-table-check.md`、`2026-10-16-auto-approval-design.md`、`2026-10-16-script-interpreter-design.md`、`2026-10-19-timer-plugin.md`、`2026-10-21-behavior-correction.md`、`2026-10-22-herdr-use-rename.md`
@@ -144,7 +144,7 @@
 
 **挂起裁定（2026-10-06，用户核实）**：账号登录（浏览器 PKCE）**仅桌面版（Desktop）支持**；**Linux web / CLI 只支持 API key**。本项目当前形态（TUI + Linux）落在后者，故 `deepseek-account` 不可用，且非本项目可解。**恢复条件**：官方在 Linux web / CLI 开放账号登录，或本项目改用 Desktop 版。
 
-**已同步卸载登录链（2026-10-06）**：本机 fff profile 用户层 patch（`~/.dsh/profiles/fff/cordis.patch.yml`）与仓库模板 `profiles/example/cordis.patch.yml` 均新增两条 `- id: <条目>` + `disabled: true`：`deepseek-account`（`dsh-deepseek-account-platform`，PKCE 登录 + `/oauth/callback`）与 `llm-deepseek-account`（账号 LLM 路由，未登录恒空目录）。**影响面已核**：`ctx.deepseekAccount` 在本 profile 内的消费者只有后者与 `web-search-deepseek`（仅当会话 provider 为 `deepseek-account` 时才取账号 token，见其 `resolveAccountToken` 的 `ACCOUNT_PROVIDER` 判定）→ 禁用后 web 搜索回落 `resolveApiKey`，无回归。**验证**：`dsh --profile fff --dump-config` 输出里两条均带 `disabled: true`（2026-10-06 实测）。桌面版部署需删掉这两条。
+**已同步卸载登录链（2026-10-06）**：本机 fff profile 用户层 patch（`~/.dsh/profiles/fff/cordis.patch.yml`）与仓库模板 `profiles/example/cordis.patch.yml` 均新增两条 `- id: <条目>` + `disabled: true`：`deepseek-account`（`dsh-deepseek-account-platform`，PKCE 登录 + `/oauth/callback`）与 `llm-deepseek-account`（账号 LLM 路由，未登录恒空目录）。**影响面已核**：`ctx.deepseekAccount` 在本 profile 内的消费者只有后者与 `web-search-deepseek`（仅当会话 provider 为 `deepseek-account` 时才取账号 token，见其 `resolveAccountToken` 的 `ACCOUNT_PROVIDER` 判定）→ 禁用后 web 搜索回落 `resolveApiKey`，无退化。**验证**：`dsh --profile fff --dump-config` 输出里两条均带 `disabled: true`（2026-10-06 实测）。桌面版部署需删掉这两条。
 
 **已查证结论（备查，2026-10-06）**：官方两条路由 = `deepseek-official`（API key，`@deepseek-ai/dsh-llm-deepseek-api-key`，`lib/index.js:36` `PROVIDER = "deepseek-official"`，走 `x-api-key`）与 `deepseek-account`（账号，`@deepseek-ai/dsh-llm-deepseek-account`，`:11`，走 `x-dsh-auth-token`）。**两条插件行都已挂载**（`dsh-base/cordis.patch.yml:522-529`；组合树 dump `tmp/hostdoc-020/dump-020.yml:761-764`，0.2.0-rc.2 + fff profile），所以“没接入”**不是挂载问题**，缺口在登录通路：① 该 provider 只从 `ctx.deepseekAccount.resolveToken(baseURL)` 取 token（`lib/index.js:16-20`），拿不到抛 `ACCOUNT_SIGN_IN_REQUIRED`，且未登录时 `discoverModels` 返回**空目录**（`:49-56`）→ 模型选择器里无模型；② `ctx.deepseekAccount` 由 `@deepseek-ai/dsh-deepseek-account-platform`（base 行 id `deepseek-account`）提供，登录走浏览器 PKCE，`startSignIn` 内部 `this.ctx.get("webServer")`，**无 webServer 直接抛 `PlatformAuthError("protocol")`**（`:950-953`）并需注册 `/oauth/callback`（`:970`）；③ fff profile 不挂 host-webserver；④ 凭据库无账号 grant（`~/.dsh/.credentials.yaml` 仅 `client-connection/browser-session` 一条）；⑤ 现成登录入口只有 Web / Desktop 面（`dsh-api-account-controller` + `dsh-client-ui-settings-account`，即 `dsh-web-app` bundle 的 `ui-settings-account` 行），TUI 侧 grep `account` / `login` 零命中。
 **若将来恢复**，原候选路径不变（懒 → 重）：① 用带 Web UI 的 profile 登录一次 → grant 落共享的 `$DSH_HOME/.credentials.yaml`（`dsh-credentials-local`）→ 回 TUI 即用（约 10 min）；② profile 自足（加 `@deepseek-ai/dsh-host-webserver` + 一个能触发 `authorization` 流的调用方；注意非 desktop profile 下 `desktopPlatform` 为 null → `x-client-platform: web`，回调 origin 需浏览器可达，含 SSH 转发端口）；③ 仅把 `ACCOUNT_SIGN_IN_REQUIRED` 渲染成可读提示（`turnEndNotice`，`TUI/src/app/adapter/dsh.ts:478-511`）。

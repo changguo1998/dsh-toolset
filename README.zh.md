@@ -2,7 +2,7 @@
 
 # dsh-toolset
 
-DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
+DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
 面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考；最近一次逐条复核基于 `dsh-v0.1.7-rc.2`，`0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` 对照确认本项目消费面无变化，见 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md`（上一份 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`））。
 
@@ -18,7 +18,7 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **herdr-use** | herdr 终端读写：十个模型侧工具 `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`（无 `action` 参数）；一个终端 = 一个 tab + 自带 root pane，`terminal_id` 取 root pane id，模型不接触 pane / tab / workspace；前台 lane 继承父 herdr 会话，后台 lane 落在 `dshbg` 会话并在缺会话时自动拉起 headless server；每个 dsh 会话按 lane 严格绑定一个 workspace；另向进程内提供 `herdrUse` 服务面，与工具面共用同一 registry 与同一把锁；写类工具过 read-only 沙箱闸与 security-guard 登记 |
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`execute`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
 | **session-paths** | 宿主会话目录编码的仓内唯一事实源：逐字符复刻 `@deepseek-ai/dsh-session-persistence-jsonl` 的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用（`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`）。纯函数不落盘；`sessionDirFor(sessionId)` 经宿主 `sessions` 服务取 `header.cwd`（可选读取，不写进 `inject`） |
-| **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层落点经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
+| **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层存放位置经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
 | **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
 | **metric-loop** | 指标驱动自动循环：测量命令解析单个数字、plateau 平稳停止、轮数/时间/token 边界、cadence 自动唤醒 |
 | **output-compress** | 大输出压缩：超阈值命令/工具输出的确定性摘要 + 切片索引写入自持的每会话 `digest.db`（每会话一个文件，经 `sessionPaths.sessionDirFor` 推导）；`is_error` 摘要另经写入作用域句柄进 memory-base（`kind: "digest"`、`tier: "session"`），原始大输出不进模型上下文 |
@@ -35,14 +35,14 @@ DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方�
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
 | **ponytail** | ponytail 模式（2026-10-05 起缺省开启；`enabled: false` 关闭）：会话起始注入「懒资深工程师」7 级决策阶梯（YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）。 |
 | **md-table-check** | 回复正文表格列数检查（`assistant-text` 上的 rule-engine 消费者）：逐行比对表头 / 分隔行 / 数据行的单元格数，不一致时注入一条汇总提示（表头行号 + 摘录 + 期望与实际列数），要求模型更正后重新回复。只报不改：不改写回复正文与任何文件；列数一致的表格、宽度退回的表格与伪表格都不报 |
-| **auto-approve** | 审批链自动裁定：作为 `approval/request` 应答者按优先级阶梯（拒绝名单 → 会话指纹 → 形态覆盖层 → 只读类 → 路径 / 命令白名单 → 沙箱升级白名单 → LLM 灰区审查）给出 `allowed-once` / `rejected`，未命中交 TUI 审批面板；**人工放行学习**：把面板放行沉淀为同会话的形态覆盖（引号串 / 长 hex / 数字抹值，第二次成功观测才做最小泛化，LLM 准入审阅，重启从会话日志回填），命令面 `learn off|on|list|undo|clear`；审计双落点（会话 JSONL + memory-base `approval_audit`，不记参数原文）；`/autoapprove status|mode|on|off|log|clear-fingerprints`；关闭或未挂载时行为与宿主原生一致 |
+| **auto-approve** | 审批链自动裁定：作为 `approval/request` 应答者按优先级阶梯（拒绝名单 → 会话指纹 → 形态覆盖层 → 只读类 → 路径 / 命令白名单 → 沙箱升级白名单 → LLM 灰区审查）给出 `allowed-once` / `rejected`，未命中交 TUI 审批面板；**人工放行学习**：把面板放行沉淀为同会话的形态覆盖（引号串 / 长 hex / 数字抹值，第二次成功观测才做最小泛化，LLM 准入审阅，重启从会话日志回填），命令面 `learn off|on|list|undo|clear`；审计双写（会话 JSONL + memory-base `approval_audit`，不记参数原文）；`/autoapprove status|mode|on|off|log|clear-fingerprints`；关闭或未挂载时行为与宿主原生一致 |
 | **session-channel** | 跨会话消息通道（专用 Redis 实例 + unix socket）：`peers`/`send`/`inbox`/`status`，消息注入目标会话的下一回合（形如 `[CHANNEL](来源) 正文`）；provide `sessionChannel` 服务（含别名、共享 KV：last-value + 版本号，以及跨会话委托：`channel_delegate`/`channel_task`/`channel_task_result` + 任务表 + 结果自动/显式回传） |
 | **session-title-cutoff** | 会话标题 provider：触发保持 all-prompts，参考窗口改为「最近一次 `git commit` 之后」的人类消息（无提交/窗口为空回退全量）；接管 `ctx.sessionTitle` 唯一 provider，需在 profile 禁用官方 all-prompts 实现 |
 | **preference-analysis** | 偏好分析：订阅 `session/event` 抽三条结构化信号（重复约束 / 纠正加权 / 审批拒绝），按 3-gram 相似度并入跨会话账簿（唯一状态源），达高置信自动写入 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律落候选待审，撤销 / 退休 / 老化都记抑制键。首期零 TUI 改动 |
 | **command-template** | 模板体系：把提示词流程写成 `.md` 模板（YAML 子集 front-matter）并统一经一个 slash 命令调用（`/playbook <模板> [参数]`，另有 `list` / `show` / `reload` 子命令）——双源目录（随包 `templates/` + 用户 `~/.dsh/command-templates`，同名用户优先）、步骤 `prompt`（注入当前会话）与 `agent`（一次性子代理，可覆盖模型且仅本次生效）、`{{stepId}}` 串链、`bestOf` + `judge` 裁判 |
 | **script-interpreter** | 模型侧脚本解释器：`script_run` 执行一段**已启用语言**的脚本（首期 Python；bash 后端随包实现但缺省不启用）。脚本正文经 stdin 交给解释器（不落临时脚本文件），每次调用都是新进程；非零退出码回执 `[exit code: N]`、不是工具错误；输出过长保留尾部并把全文落到 `0600` 文件；执行前经 `ctx.sandboxPolicy` + `ctx.sandbox` 围栏，拿不到可强制后端即 fail-closed `SANDBOX_UNAVAILABLE`；三个可选服务经 `ctx.get` 受保护读取（cordis 对未 inject 的服务直读会抛） |
 | **background-daemon** | 面向「agent 会话投递」的进程内调度：选择器 `after_seconds` / `at` / `every_seconds` / `daily` / `weekly`（首期无 `cron`）；两条渠道 —— `deliver`（user 消息经 `agent.followup`，再以 `sessions.flush` 作 L2 确认）与 `command`（slash 命令，执行前过引擎侧 `security-guard` 复查）；重启补算（周期任务只补最近一次错过的时点，一次性任务 24 h 窗口内仍触发）、单 timer、不重试；`/daemon` 子命令 + `daemon_task` 模型工具；记录落 memory-base（`daemon_task` / `daemon_run`）并带本地 JSON 降级 |
-| **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时 / 已移除），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态落点） |
+| **agent-group** | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报；`check` 时懒判定结算（成功 / 失败 / 受阻 / 超时 / 已移除），移除逐层下推，拒绝带原因与下一步；依赖 session-channel（传输）与 session-paths（状态存放位置） |
 | **coagent** | 长驻 agent 拉起与收尾：经 `herdrUse` 服务面建终端、在其交互 shell 里发 `fffdsh`、用 session-channel 的 `peers` 认领新会话，回执 `terminal_id` / `session_id`；职责只到拉起与收尾，派任务与编排分别归 session-channel 与 agent-group；拉起失败回滚终端并落 `failed` 记录（含失败码与屏摘要） |
 | **tool-consult** | 工具咨询与按需揭示：模型描述要做什么，`consult_tools` 按关键词索引返回名称 + 一句话并揭示给当前会话（宿主 `tools.restrict` 遮罩 + 单条活动 mask 替换）；缺省只留 9 个核心工具；咨询即授权，揭示在会话内只增不减（`revealScope: session`）或仅本回合（`turn`，带 `ttlTurns` / `pin`）；调用被遮罩的工具返回「先咨询」的可行动文案；任一路径失败（无 agent 作用域 / `restrict` 抛错 / 名单失配 / 空交集）降级为「不遮罩」而不中断会话 |
 | **escalation-hint** | 沙箱升级提示补齐：订阅宿主 `tools/post-execute`，在「调用被沙箱拒绝、但宿主没有渲染 `[sandbox: escalation available …]` 提示」时（`denied` 由英文 stderr 签名判定，本地化报错必然漏判）经 `additionalContexts` 追加一条 user 消息，提示模型对同一调用加 `sandbox_permissions` + `justification` 重试一次；三层判据（已有提示 → 跳过；命中宿主 `[sandbox: file access denied under <mode> mode]` / `FS_SANDBOX_DENIED` → 补；否则用结构化 `exitCode` + `sandbox.mode` + 写形状命令兜底）覆盖 `bash` / `pwsh` 与 `write` / `edit` / `str_replace_editor`；只提示、不拦截 |
@@ -75,7 +75,7 @@ dsh-toolset/
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
 ├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
 ├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
-├── auto-approve/         # 审批链自动裁定（approval/request 应答者；审计双落点）
+├── auto-approve/         # 审批链自动裁定（approval/request 应答者；审计双写）
 ├── background-daemon/    # 面向会话投递的进程内调度（/daemon + daemon_task；记录落 memory-base）
 ├── session-channel/      # 跨会话消息通道（专用 Redis 实例 + unix socket）
 ├── session-title-cutoff/ # 会话标题 provider（all-prompts 触发不变，参考窗口=最近一次 git commit 之后）

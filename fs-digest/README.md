@@ -4,7 +4,7 @@
 
 DSH（DeepSeek Harness）进程内插件：上下文感知文件读取。注册工具 `fs_digest`，按文件类型与读取意图返回最小充分上下文，替代整文件 `read`；只读，不改文件。
 
-文档：能力与契约以本文件为准（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）；待办见 `docs/BACKLOG.md`（当前无未完成项），历史过程记录见 `docs/archived/`（cwd 注入、render 全函数化）；Markdown 深能力与口径差异见下文「边界」的 `md_logic` 条目；宿主契约见 `docs/host/DSH-CTX-API.md` §0（bundle 导出面）与 `docs/host/HOST-PACKAGES.md`（会话 `header.cwd` / `ctx.tools`）。
+文档：能力与契约以本文件为准（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）；待办见 `docs/BACKLOG.md`（当前无未完成项），历史追踪文档见 `docs/archived/`（cwd 注入、render 全函数化）；Markdown 深能力与口径差异见下文「边界」的 `md_logic` 条目；宿主契约见 `docs/host/DSH-CTX-API.md` §0（bundle 导出面）与 `docs/host/HOST-PACKAGES.md`（会话 `header.cwd` / `ctx.tools`）。
 
 ## 能力
 

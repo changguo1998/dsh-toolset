@@ -5,15 +5,15 @@
 > 过期条件：无
 
 > 用途：记录命令面现状（本地命令 + 宿主注册命令）与「值得添加的命令」建议。
-> 命令用法与键位见 `TUI/README.md`「Slash 命令」，逐命令实现落点见 `TUI/docs/DESIGN.md`「命令实现落点」，扩展规格（落点、服务降级、面板契约）见 `TUI/docs/COMMANDS-SPEC.md`。
+> 命令用法与键位见 `TUI/README.md`「Slash 命令」，逐命令实现位置见 `TUI/docs/DESIGN.md`「命令实现位置」，扩展规格（实现位置、服务降级、面板契约）见 `TUI/docs/COMMANDS-SPEC.md`。
 
 ## 1. 现状
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（44 条 = 38 命令 + 6 别名 `/cls` `/thinking` `/usage` `/context` `/exit` `/clean`；`/continue` 为后续新增命令，`/restart` 为显式重启命令新增，`/detect-char-width` 为字符宽度重测命令新增，`/cleanquit` 为「清理并退出」新增——删除当前会话记录与历史、先弹确认面板，`/clean` 是其别名，`/group` 为「群组只读状态」新增（agent-group 只读服务面，见 `TUI/docs/DESIGN.md`「命令实现落点」）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。`/collapse` 与 `/verbose` 于 2026-10-18 按类别重做并恢复进目录（压缩 / 显示六开关，见 `docs/SPEC.md` §15.5）。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（44 条 = 38 命令 + 6 别名 `/cls` `/thinking` `/usage` `/context` `/exit` `/clean`；`/continue` 为后续新增命令，`/restart` 为显式重启命令新增，`/detect-char-width` 为字符宽度重测命令新增，`/cleanquit` 为「清理并退出」新增——删除当前会话记录与历史、先弹确认面板，`/clean` 是其别名，`/group` 为「群组只读状态」新增（agent-group 只读服务面，见 `TUI/docs/DESIGN.md`「命令实现位置」）；路由决策 `routeSlashCommand`，处理分支在 `src/app/index.ts` `handleSlash`。`/collapse` 与 `/verbose` 于 2026-10-18 按类别重做并恢复进目录（压缩 / 显示六开关，见 `docs/SPEC.md` §15.5）。
 
-命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**落点与降级**见 `TUI/docs/DESIGN.md`「命令实现落点」。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
+命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**实现位置与降级**见 `TUI/docs/DESIGN.md`「命令实现位置」。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
 
 ### 1.2 宿主注册命令
 
@@ -28,11 +28,11 @@
 
 **机制前提**：dsh 的「服务」与「slash 命令」是两套独立注册面——服务（cordis Service）只提供编程 API（`ctx.<svc>`），不会自动变成命令；命令须显式 `ctx.commands.register`，官方当前仅 6 条（§1.2）。
 
-**落点决策**：命令一律走 TUI 本地命令（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件包——可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）与 FakeAdapter 测试基建，与既有 `/session` `/policy` `/permission` `/jobs` 同路径；代价是命令仅 TUI 可用。需要跨客户端可见时再考虑宿主命令插件路线（`dsh-command-toolset`）。
+**实现位置选择**：命令一律走 TUI 本地命令（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件——可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）与 FakeAdapter 测试基建，与既有 `/session` `/policy` `/permission` `/jobs` 同路径；代价是命令仅 TUI 可用。需要跨客户端可见时再考虑宿主命令插件路线（`dsh-command-toolset`）。
 
 ### 2.1 已实现（索引）
 
-已实现命令的用法与键位见 `TUI/README.md`「Slash 命令」，逐命令落点与降级见 `TUI/docs/DESIGN.md`「命令实现落点」。落点统一：插件侧只提供只读查询面，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）；`/contract` 例外——goal-contract 只读面优先、缺失时内置同构回读兜底。
+已实现命令的用法与键位见 `TUI/README.md`「Slash 命令」，逐命令实现位置与降级见 `TUI/docs/DESIGN.md`「命令实现位置」。实现位置统一：插件侧只提供只读查询面，命令仍在 TUI 侧实现（`ctx.get("<svc>")` → adapter → 本地命令）；`/contract` 例外——goal-contract 只读面优先、缺失时内置同构回读兜底。
 
 - 工具性质、命令入口价值低（模型直接用即可）：fs-digest、hash-edit、ast-tools、output-compress、code-map。
 - `/group`：群组只读状态查看（agent-group 只读服务面 `status()`，notice 型；`/group [组名]` 带参看单组详情，组不存在时提示现有组清单；未挂载 agent-group → 提示不可用）。

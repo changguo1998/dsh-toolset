@@ -129,14 +129,14 @@ add_member ──▶ 成员（自由代理：无主、无从、等级 0）
 | 设计口径 | 实现口径 | 原因 |
 | --- | --- | --- |
 | 镜像 API 写作 `registerKind({kind, writableTiers}).put({tier, sessionId, …})` | ~~用仓内现行 memory-base 服务面：`registerKind(KindSpec)` + `remember(RememberInput)`；`source` 用 `{kind: "manual", label: "agent_group", ref}`~~ | ~~memory-base 的 `SourceKind` 是闭合联合（`session/file/url/tool_result/manual`），没有 `agent_group`；`put` 方法在现行服务面上不存在（`memory-base/src/index.ts:824`、`:839`）~~ —— **2026-10-20 被下一行取代（上一版读错了服务面：`remember` 不在服务上，写权限本就在 `registerKind` 返回的句柄上）** |
-| 镜像写入口（2026-10-20 真机修正） | `registerKind(KindSpec)` 拿 `MemoryScope` 写句柄，写入走 `scope.put({tier: "session", sessionId, project, content, title, source})` | 真机实测：上一版把 `remember` 当服务方法、`isMemoryFace` 判定失败 → `mirror.enabled=false`、库中从无 `agent_group` 记录。回归用例 `tests/main.test.ts` 的 `fakeMemory` 已改为 `registerKind` 返回 `{put}` 形状 |
+| 镜像写入口（2026-10-20 真机修正） | `registerKind(KindSpec)` 拿 `MemoryScope` 写句柄，写入走 `scope.put({tier: "session", sessionId, project, content, title, source})` | 真机实测：上一版把 `remember` 当服务方法、`isMemoryFace` 判定失败 → `mirror.enabled=false`、库中从无 `agent_group` 记录。守成测试用例 `tests/main.test.ts` 的 `fakeMemory` 已改为 `registerKind` 返回 `{put}` 形状 |
 | 指令「由主方发」 | 物理投递的 `delegate.from` = 主方成员的会话 id（未知时回落管理者会话 id） | 结果通知归主方语义；管理者仍可用 `taskStatus` 读到结果（任务表全局） |
 | 回报三态「成功 / 失败 / 受阻」 | 通道只有 `failed: boolean`；本包约定 `failed: true` + `error: "blocked: …"` 表示受阻并剥掉前缀 | session-channel 的追踪文档已定「通道不规定语义，三态由 agent-group 自描述」 |
 | `status` 只读 | 只读且不落盘、不镜像；命中缓存时不碰存储 | 让「目录解析运行期失败」时只读面仍可用（验收细化第 9 条） |
 | 成员忙闲不可见（BACKLOG #1 前） | `status` 动作与只读服务附 `memberStates`：每成员 `state ∈ {offline, idle, working, stuck}`，基于 session-channel 跨进程状态牌（`state:<sid>` = `{status, at}`，发布端见 session-channel DESIGN 的「结构」节）现算；`stuckAfterMs` 缺省 5 min、`statusPollMs` 缺省 20 s 为配置面（判定面为调用时现算，未内建常驻巡查循环——agent-group 无组长→组的会话表，多实例会重复读；偏差见追踪文档 `2026-10-20-agent-status-board.md`） | 跨进程忙闲信号缺失：`agent/status` 只在进程内，`/group` 无法得知成员真实待机 / 工作 / 卡死；卡死判定不依赖目标工作循环、无推理 |
-| 无 TUI 消费面（「取舍」节的「明确不做」曾列「TUI 命令或面板」为不做） | `apply` 额外 `ctx.provide("agentGroup", { status })` **只读服务面**（与动作 `status` 同源 `readGroupStatus`），TUI `/group` 命令经 `ctx.get("agentGroup")` 消费（BACKLOG #3 落地；未挂载时调用方降级提示） | 需求演进：TUI 需免问模型直读组状态；插件侧只提供只读查询面，命令在 TUI 侧实现（COMMANDS-SPEC 落点决策）；**状态列二期仍不做** |
+| 无 TUI 消费面（「取舍」节的「明确不做」曾列「TUI 命令或面板」为不做） | `apply` 额外 `ctx.provide("agentGroup", { status })` **只读服务面**（与动作 `status` 同源 `readGroupStatus`），TUI `/group` 命令经 `ctx.get("agentGroup")` 消费（BACKLOG #3 落地；未挂载时调用方降级提示） | 需求演进：TUI 需免问模型直读组状态；插件侧只提供只读查询面，命令在 TUI 侧实现（COMMANDS-SPEC 实现位置选择）；**状态列二期仍不做** |
 | 缺依赖 → 不注册工具 + 一次警告（apply 期门禁） | ~~**工具照常注册**，缺依赖改为调用期错误（原因 + 下一步）~~ | ~~真机实测（2026-10-17）：`sessionChannel` / `sessionPaths` 晚于本包激活且无法经 `inject` 解析，注册被推到 agent 创建之后 → 工具表不收录（`/tools agent_group` 为 0）。工具定义改为不依赖服务，`execute` 时才组装 `GroupService`~~ —— **2026-10-19 被下一行取代** |
-| 注册面一并去掉 `inject`（2026-10-17 裁定） | 静态 `inject: ["tools"]` 恢复声明；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 改走 `ctx.inject([...], cb)` 子分叉绑定，工具仍在 `apply` 期注册 | 真机实测（2026-10-19）：不写 `inject` 时 `ctx.get("tools")` 读到 `undefined`（cordis 4.0.5），工具**从未注册**；兄弟 bundle 提供的服务未注入也读不到。回归用例见 `tests/main.test.ts`「真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用」 |
+| 注册面一并去掉 `inject`（2026-10-17 裁定） | 静态 `inject: ["tools"]` 恢复声明；`sessionChannel` / `sessionPaths` / `sessions` / `memory` 改走 `ctx.inject([...], cb)` 子分叉绑定，工具仍在 `apply` 期注册 | 真机实测（2026-10-19）：不写 `inject` 时 `ctx.get("tools")` 读到 `undefined`（cordis 4.0.5），工具**从未注册**；兄弟 bundle 提供的服务未注入也读不到。守成测试用例见 `tests/main.test.ts`「真机形态：兄弟 bundle 的服务直读不到时，经 ctx.inject 分叉仍可用」 |
 
 ### 明确不做（当前）
 

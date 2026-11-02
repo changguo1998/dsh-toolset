@@ -9,7 +9,7 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心�
 | `TUI/docs/DESIGN.md` | design | 架构设计：术语与模块划分、Box 排版模型、四区域布局、DSH 事件接入、规划与边界 |
 | `TUI/docs/SPEC.md` | spec | 规范性规格：Box 类型与布局算法、内容元素映射、缩进语义、面板原语、FocusFrame、渲染契约、主题契约、不变量 |
 | `TUI/docs/COMMANDS.md` | 参考 | 命令面清单（本地 + 宿主注册）与扩展建议 |
-| `TUI/docs/COMMANDS-SPEC.md` | 参考 | 命令扩展规格：落点矩阵、服务获取与降级硬约定、输出三型、共享面板契约 |
+| `TUI/docs/COMMANDS-SPEC.md` | 参考 | 命令扩展规格：实现位置矩阵、服务获取与降级硬约定、输出三型、共享面板契约 |
 | `TUI/docs/BACKLOG.md` | 待办 | 未完成待办（当前 4 条）；已完成项见 git 历史与 `TUI/docs/archived/` |
 | `TUI/docs/STATUS.md` | 状态 | 现状快照：完成情况、命令面、与宿主升级的适配状态 |
 | `TUI/docs/design/REFACTOR.md` | 约定 | 模块拆分原则、文件归属、触发标准 |
@@ -117,7 +117,7 @@ agent 工作中提交的消息经官方流程立即交给核心（默认模式�
 
 ### 符号规范化
 
-对**模型正文**做符号治理，`/symbol-unify on|off` 控制（缺省 on）——关闭时正文原样展示、不替换不提示。**实现已迁至独立插件 `symbol-normalizer`**（原 TUI 待办「符号规则归一」/ 项目级「symbol-normalizer 插件」）：
+对**模型正文**做符号治理，`/symbol-unify on|off` 控制（缺省 on）——关闭时正文原样展示、不替换不提示。**实现已迁至独立插件 `symbol-normalizer`**（原 TUI 待办「符号规范归一」/ 项目级「symbol-normalizer 插件」）：
 
 - **展示层归一**（TUI 侧）：流式正文经服务 `normalize(text)` 做别名替换（如 `✔→✓`、`❌→✗`），不改会话记录；服务未挂载时原文透传。
 - **回合审查**（插件侧）：整回合正文检测替换与警示（三态口径：放行 / 归一 / 警示），逐符号冷却（`cooldownMs` 默认 10 分钟、`cooldownRuns` 默认 3）；命中时向 TUI 推一行 notice，并把 `[符号规范]` 反馈交 rule-engine 注入模型（`warnModel: false` 只提示人）。
@@ -348,7 +348,7 @@ dsh --profile <p>                      # 启动（需要真实终端；真实链
 | `/workflows` | workflow 运行面板（只读，面板打开期间定时刷新） |
 | `/memory` | 知识库（memory-base）：缺省概要；`search <query> [--all-projects]`；`add <tier> [--kind k] <内容>`（origin: user 直达）。`review` 子命令只回一句指引（审阅面板随候选队列下沉移除） |
 | `/contract` | 当前会话 goal 的 Done-when 条款摘要 |
-| `/council [N]` | 二次意见：并行拉起 N（默认 2、上限 4）个评审子代理汇总意见 |
+| `/council [N]` | 二次意见：并行拉起 N（默认 2、上限 4）个审阅子代理汇总意见 |
 | `/search <query>` | 网页搜索：并行多 provider 聚合 → URL 去重 → 相关度排序 → 列表面板（Enter 打开来源 URL） |
 
 宿主服务缺失时相关命令提示不可用（且不空开面板）；面板型命令的主操作以 notice 反馈时先关面板再提示。

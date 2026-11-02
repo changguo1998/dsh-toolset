@@ -76,7 +76,7 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 
 三条硬约束照 `session-channel` 的 README：从方也要挂本插件（注入由目标进程的 reader 完成）· 目标必须在线 · 离线不排队。
 
-### 状态落点与镜像
+### 状态存放位置与镜像
 
 - 组状态落**管理者自己的会话目录**：`<管理者会话目录>/agent-group.json`（`stateFileName` 可改，经 `sessionPaths.sessionDirFor(managerSessionId)` 推导）；原子写与 0600、串行与先落盘再更新缓存、只读 `status` 不碰存储的机制见 `docs/DESIGN.md` 的「机制」节（「时序与并发」/「持久化」）。
 - **可选镜像**（`mirror`，缺省开）：每次组状态变更后把只读视图写进 memory-base（`kind: "agent_group"`，写目标层 `session`，`source: {kind: "manual", label: "agent_group", ref: <组 id>}`，`project` 取管理者会话的 `cwd`）；memory-base 未挂载 → 跳过，写入被 `MemoryScope.put` 拒收（`skipped`）或抛错 → 只计数 + 首次一条日志、**不重试**，计数见 `status` 的 `mirror` 字段。
@@ -123,7 +123,7 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 | --- | --- | --- |
 | `tools`（宿主） | 注册工具 | `apply` 期一次警告（连注册面都没有，无从提供工具） |
 | `sessionChannel`（session-channel） | 传输 | 工具**仍已注册**；调用返回 `session_channel_unavailable`（原因 + 下一步） |
-| `sessionPaths`（session-paths） | 组状态落点 | 调用返回 `session_paths_unavailable`（原因 + 下一步） |
+| `sessionPaths`（session-paths） | 组状态存放位置 | 调用返回 `session_paths_unavailable`（原因 + 下一步） |
 | `memory`（memory-base） | 可选镜像 | 跳过并计数，不影响动作 |
 | `sessions`（宿主） | 镜像的 `project`（管理者会话 `cwd`） | 回落 `agent-group:<组名>` |
 

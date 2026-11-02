@@ -102,11 +102,11 @@
 
 ## 4. 可执行改造清单（未立项，用户择时）
 
-| # | 改造 | 落点 | 工作量 | 依赖 / 前置 |
+| # | 改造 | 改动位置 | 工作量 | 依赖 / 前置 |
 |---|---|---|---|---|
-| A | ~~`context-report` **改用已挂的 `sessionStats` / `turnOutline`** 提供轮次 / 墙钟 / 大纲，去掉自己的同类折叠（保留 token / 上下文占用口径）~~ **已完成（2026-10-06）**：轮次 / 步 / 墙钟改读 `sessionStats`，自折叠已删；`turnOutline` 未接（属新增能力，另议） | `context-report/src/{fold,main,report,types,schema}.ts` | 已完成 | 口径已对齐（官方视图字段 `ttftMs` / `ttftSteps`，非 `firstTokenTime`）；过程记录 `docs/archived/2026-10-05-context-report-official-projections.md` |
+| A | ~~`context-report` **改用已挂的 `sessionStats` / `turnOutline`** 提供轮次 / 墙钟 / 大纲，去掉自己的同类折叠（保留 token / 上下文占用口径）~~ **已完成（2026-10-06）**：轮次 / 步 / 墙钟改读 `sessionStats`，自折叠已删；`turnOutline` 未接（属新增能力，另议） | `context-report/src/{fold,main,report,types,schema}.ts` | 已完成 | 口径已对齐（官方视图字段 `ttftMs` / `ttftSteps`，非 `firstTokenTime`）；追踪文档 `docs/archived/2026-10-05-context-report-official-projections.md` |
 | B | `output-compress`：把与官方 `spill-policy` / `compaction-tool-result-pruner` 的**分工与阈值语义**写进 DESIGN，并记录「spill 文件 + 知识库」双份存储的取舍 | `output-compress/docs/DESIGN.md` | **已完成（2026-10-20 重审计复核）** | 分工 / 阈值节已存在（`spill-policy` 分工表 + `maxInlineTokens` 阈值语义 + 不构成双重截断），见该文件 §1 / §2 |
-| C | ~~`metric-loop` 唤醒链缺口：挂 `@deepseek-ai/dsh-schedule`，或把提示改为不依赖宿主 schedule；另一条路是评估「改用官方承担循环」~~ **已裁定（2026-10-06 选 A）**：保留 `metric-loop` 承担指标循环（测量 + 收敛 + 边界停止 + 跨进程状态），与官方循环的分工写进 README；**不挂** `schedule`、**不启用** `tool-ralph`、不改循环代码。`schedule` 提示本身的字段缺陷另立条目（`docs/BACKLOG.md` §2） | `metric-loop/README.md`（口径） | 已完成 | 过程记录 `docs/archived/2026-10-05-metric-loop-official-loops.md` |
+| C | ~~`metric-loop` 唤醒链缺口：挂 `@deepseek-ai/dsh-schedule`，或把提示改为不依赖宿主 schedule；另一条路是评估「改用官方承担循环」~~ **已裁定（2026-10-06 选 A）**：保留 `metric-loop` 承担指标循环（测量 + 收敛 + 边界停止 + 跨进程状态），与官方循环的分工写进 README；**不挂** `schedule`、**不启用** `tool-ralph`、不改循环代码。`schedule` 提示本身的字段缺陷另立条目（`docs/BACKLOG.md` §2） | `metric-loop/README.md`（口径） | 已完成 | 追踪文档 `docs/archived/2026-10-05-metric-loop-official-loops.md` |
 | D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | （不实施） | **已关闭（2026-10-20 重审计明示关闭）** | 关闭理由：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写」变为受 workspace-write 围栏（安全语义变更）；且官方版本守卫是文件级，**不能**替代行级锚点语义。维持 `node:fs` 直写现状，不另立条目 |
 | E | 把「可挂但不该挂」清单（§5）落到**非生成型**文档（`docs/BACKLOG.md` 观察项 / `profiles/example/cordis.patch.yml` 注释） | （不实施） | **已关闭（2026-10-20 重审计明示关闭）** | 关闭理由：§5 清单位于 `docs/ARCHITECTURE-REUSE.md`（本仓自维护、**非宿主重生成**，升宿主不会被覆盖），已满足「不随 HOST-PACKAGES 重生成丢失」的原始意图；其中 `experimental-auto-review` / `schedule` 等已在各自条目与本节注记中登记，无需搬移 |
 

@@ -7,7 +7,7 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 ### 文档
 
 - 能力与契约：本文件（轻量包只留 `README.md` + `docs/BACKLOG.md`，无 `DESIGN.md`）。
-- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史过程记录见 `docs/archived/`。
+- 模块待办：`docs/BACKLOG.md`（当前无未完成项）；历史追踪文档见 `docs/archived/`。
 - 宿主契约：`docs/host/DSH-CTX-API.md` §0（bundle 导出面）、`docs/host/HOST-PACKAGES.md`（`ctx.tools` 注册面）。
 
 ## 能力

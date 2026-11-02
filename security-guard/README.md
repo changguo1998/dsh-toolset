@@ -11,7 +11,7 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 | 路径 | 内容 |
 | --- | --- |
 | `src/index.ts` | 插件入口（bundle 契约 `name` / `provide` / `inject` / `Config` + 宿主挂接 `createSecurityGuard` / `apply` + 全部 re-export） |
-| `src/tool-registry.ts` | 规则表：官方工具集（`SHELL_TOOLS` / `RUN_CODE_TOOLS` / `FILE_TOOLS` / `FILE_PATH_KEYS` / `WRITE_FILE_TOOLS`）、插件文件与命令登记表及查表、未登记工具三类键集与 `UNKNOWN_TOOL_KEY_DEPTH`、遍历资源上限（`MAX_WALK_*`）、`TOOL_SURFACE`、`toolOperation` |
+| `src/tool-registry.ts` | 规则表：官方工具面（`SHELL_TOOLS` / `RUN_CODE_TOOLS` / `FILE_TOOLS` / `FILE_PATH_KEYS` / `WRITE_FILE_TOOLS`）、插件文件与命令登记表及查表、未登记工具三类键集与 `UNKNOWN_TOOL_KEY_DEPTH`、遍历资源上限（`MAX_WALK_*`）、`TOOL_SURFACE`、`toolOperation` |
 | `src/arg-scan.ts` | 命令解析：参数遍历与完整键路径、未登记工具键面 / 值面扫描、插件文件与命令参数提取、`firstString` / `asStringRecord` |
 | `src/config.ts` | 配置：`SecurityGuardConfig` / `Config`、`ResolvedConfig`、`resolveGuardConfig`、未登记工具放行名单的编译与匹配 |
 | `src/engine.ts` | 判定：`GuardEngine`、`GuardRecord` / `PolicySnapshot` / `GuardService`、`MAX_RECORDS` |

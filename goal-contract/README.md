@@ -24,7 +24,7 @@ goal-contract/
 | `task-engine/README.md` | 条款 schema 的对齐源与验收执行方（RET 三级路由） |
 | `docs/ARCHITECTURE-REUSE.md` | 复用审计：§0 结论「保留」、§3 已复用的官方面（inject `tools` / `userQuestions` / `goals`） |
 | `docs/host/DSH-CTX-API.md` §0 | bundle 导出契约（`name` / `inject` / `Config` / `apply`；本包无 `Config`） |
-| `TUI/docs/DESIGN.md`「命令实现落点」 | 下游消费者：TUI `/contract` 的取用与内置同构回读兜底 |
+| `TUI/docs/DESIGN.md`「命令实现位置」 | 下游消费者：TUI `/contract` 的取用与内置同构回读兜底 |
 
 ## 能力
 
