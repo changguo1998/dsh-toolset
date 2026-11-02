@@ -82,8 +82,8 @@
 - 包 `npm test`：`ℹ tests 73 / pass 73 / fail 0`（改动前 61 例；rule-engine 变更后曾 58/61）。分文件：checker 30 / displaySurface 10 / formMatrix 2 / integration 3 / main 10 / reasoning 9 / surfaceDifferential 4 / tuiParity 5。
 - 根仓 `npm test`（22 包并行）：全绿（`OK rule-engine pass 140` / `OK md-table-check pass 73`）。
 - 覆盖率（`--test-coverage-include='src/**'`）：`checker.ts` 行 / 分支 / 函数 100.00；`main.ts` 100.00 / **100.00**（分支 97.56 → 100）/ 100.00。
-- 反向验证 ①（#5 变异：`resolved.check` → `{}`）：`✗ apply：非缺省配置四字段原样透传 + check 真的进 decide`、`AssertionError: maxTables=1：只列 1 张表   2 !== 1`，还原后 pass。
-- 反向验证 ②（围栏撤回：闭栅改回「要求同前缀」）：```` ✗ 围栏混用标记（``` 开 / ~~~ 闭）… ````（`0 !== 1`）与形态快照漂移 `+ '表0 行0 | —' - '表1 行1 | L5:期望2[L6/delim=1]'`，还原后两条均 pass。
+- 反向验证 ①（#5 变异：`resolved.check` → `{}`）：`✖ apply：非缺省配置四字段原样透传 + check 真的进 decide`、`AssertionError: maxTables=1：只列 1 张表   2 !== 1`，还原后 pass。
+- 反向验证 ②（围栏撤回：闭栅改回「要求同前缀」）：```` ✖ 围栏混用标记（``` 开 / ~~~ 闭）… ````（`0 !== 1`）与形态快照漂移 `+ '表0 行0 | —' - '表1 行1 | L5:期望2[L6/delim=1]'`，还原后两条均 pass。
 - `npm run build` + `npm run check:no-cross-emit`：exit 0；`git status --porcelain -- rule-engine/src TUI/src` 0 行（不再往他包 `src/` 落产物）。
 - 改动范围：`git status --porcelain` 仅 `md-table-check/` 内路径（12 个 `M` + 新建 `tests/integration.test.ts` / `tests/tsconfig.json` / 追踪文档）。
 
