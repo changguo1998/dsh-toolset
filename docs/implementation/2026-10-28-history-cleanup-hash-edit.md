@@ -82,12 +82,17 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 
 - 阶段 3 补丁 (2026-11-01): `apply` 补非对象 `ctx` 守卫 (stderr 告警后返回); 包 BACKLOG #1 关闭.
 
+- 阶段 4 包文档 (2026-11-02, 分支 `history-cleanup/04-package-docs-hash-edit`): `hash-edit/README.md` 的 7 个二级标题归并为六节 —— 原来是「能力 / 配置 / 使用示例 / 与官方 read / edit 的边界 / 边界与限制 / 文件结构与相关文档 / 测试」, 改成「定位 / 能力 / 配置 / 用法 / 边界 / 测试」; 首段定位文字移入 `## 定位`, 原「文件结构与相关文档」整段降为 `## 定位` 下的 `### 文件结构与相关文档`, 原「与官方 read / edit 的边界」与「边界与限制」降为 `## 边界` 下的两个 `###`; 原「使用示例」改名 `## 用法`; 测试块 4 条命令的 `npm` 改 `pnpm`; 「注册两个模型侧工具」与文件结构块里的「注册两个工具」去数字, 改为「注册模型侧工具」; `hash-edit/docs/BACKLOG.md` 无 `npm`、无旧术语、无未完成条目, 未改.
+
 ## 偏差
 
 - 集成层装配形态收窄为 `full` / `no-tools` 两种, 计划里的「空 `ctx`」未做: `apply` 没有 `ctx === null || typeof ctx !== "object"` 守卫, 传 `undefined` 会抛 `TypeError: Cannot read properties of undefined (reading 'tools')` (实测), 补守卫属 `src` 改动, 本阶段不动; 已在 `hash-edit/docs/BACKLOG.md` 登记 `#1` 并进下方豁免台账。同类判断散落见总追踪调研 1.8「上下文对象守卫」(15 个包), 统一收口留阶段 3。后续: 2026-11-01 补丁轮已补守卫 (`src/index.ts:377`, 提交 `54ac908c`), 包 BACKLOG `#1` 关闭; 集成用例未加空 `ctx` 一例, 留给阶段 4 复核补测.
 - 阶段 3 的代码项在本包只有注释一类可落: 本包无 `src/timers.ts`, 无跨包复制的同名函数 (`src` 最大文件 390 行), 结构改写 (删失效 / 并定时器族 / 拆长文件 / 收拢判断) 没有对应对象, 故只做计数注释、零引用导出复查与路径注释。
 - 计划写「计数注释改指向常量」, 实际落为去数字: 本包没有与「两个工具」对应的导出常量 (两个工具定义在 `createTools` 内就地构造), 造常量只为给注释引用不划算, 按任务口径写成「构造工具定义」。
 - 比任务清单多改两处同属注释口径的位置: `src/index.ts:7` 的跨包入口路径 `task-engine/src/main.ts` 已不存在 (该包入口改名为 `index.ts`), 改为 `task-engine/src/index.ts`; `src/index.ts:2` 的标题 `main` 与实际文件名 `index.ts` 不一致, 改为 `index`。两处都不影响行为, 记为计划外更正。
+- 阶段 4 的「文件结构与相关文档」在六节模板里没有对应节: 本包就是 7 个二级标题要并成 6 节, 多出来的正是这一节; 处理成 `## 定位` 下的 `### 文件结构与相关文档`, 理由是该段讲本包在仓内的位置与相邻文档, 与定位同主题, 内容与表格一字未改。若后续统一口径要求另作处理, 只需移走这一节。
+- 阶段 4 的文件结构块里 `src/main.ts` 已在入口迁移时改名为 `src/index.ts` (提交 `cfbcbe64`, R100), README 未跟改; 本阶段按实际路径更正为 `index.ts`, 同行的「注册两个工具」按去数字口径一并改为「注册模型侧工具」。
+- 阶段 4 的测试行原写「53 例」, 阶段 2 之后已变为单元 57 例 + 集成 18 例; 该行改为不写例数, 并在测试区域与结构块里补上 `integration` 目录, 只对齐现状, 未加结论。
 
 ## 测试与证据
 
@@ -149,3 +154,16 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 - 测试或 demo 引用: `hashLine`、`hashlines`、`splitLines`、`detectLineEnding`、`formatAnchor`、`parseLineAnchor`、`HASH_LEN`、`AnchoredEditError`、`EditOp`、`FileEditError`、`readHashlines`、`applyAnchoredEditsFile`、`listDir`、`applyAnchoredEdits`、`fileHash`、`Hashline`、`EditSuccess`。
 - 仅包内引用: `LINE_ANCHOR_RE`、`Anchor`、`EditErrorCode`、`AnchorDetail`、`FileErrorCode`、`ReadResult`、`FileEditSuccess` (被同包函数签名或实现使用, 引用数不为 0)。
 - 结论: 零引用导出「无」, 未删任何符号。
+
+### 阶段 4 包文档 (2026-11-02, 分支 `history-cleanup/04-package-docs-hash-edit`)
+
+| 检查 | 结果 |
+| --- | --- |
+| `format hash-edit/README.md hash-edit/docs/BACKLOG.md` | 通过 (无输出) |
+| `git diff` 自查 | 只有节名与层级改动、整段移动 (`文件结构与相关文档`) 与命令 / 数字措辞; 无段落删除, 无新增结论 |
+| 二级标题 | 6 个: 定位 / 能力 / 配置 / 用法 / 边界 / 测试 |
+| 正文 `npm` | 0 (仅 `pnpm` 前缀) |
+| 符号变体 | 0 |
+| Markdown 引用 | `docs/host/DSH-CTX-API.md` / `ast-tools/README.md` / `docs/ARCHITECTURE-REUSE.md` 三个目标均存在 |
+
+本阶段为文档改动, 未跑代码门禁 (`check` / `test` / `build`); 未改 `src` / `tests` / `package.json` / `tsconfig.json` / `cordis.patch.yml`。

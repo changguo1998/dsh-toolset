@@ -55,14 +55,26 @@ rm -rf ../tmp/cov-md-table-check && mkdir -p ../tmp/cov-md-table-check && NODE_V
 2026-10-28 在分支 `history-cleanup/02-tests-md-table-check` 完成, 未改 `src`.
 
 - 基线: `pnpm -C md-table-check run test` 73 条通过 (223 ms), `check` 通过; 覆盖率行 100.0% (273/273)、分支 99.0% (99/100), 与阶段 1 末记录一致.
+
 - 单元锚点: `tests/checker.test.ts` 末尾追加 1 条 (32 行)「边界: 空单元格行(单个竖线)不成表, 非有限上限回退缺省」: `splitCells("|")` / `splitCells(" | ")` 返回空数组; 空表头、空分隔行、缺分隔行都不成表; `maxRowsPerTable: Infinity` 回退缺省 3 行. 现有断言未改.
+
 - 集成层: 新增 `tests/assemble.ts` (假 rule-engine 注册面 + 假 `assistant-text` 派发面 + 注入投影, 末缀不是 `.test.ts`) 与 `tests/integration/plugin.test.ts` 13 条: 注册与注销、`ctx.get` 回退、缺席告警、列数判定两态、围栏、提示正文各字段、`maxTables` / `maxRowsPerTable` 裁剪、超长表头摘录、消息投影形状与 summary、`delivery` 三路、`enabled: false`、`sources` 不在 `assistant-text`.
+
 - 脚本: `package.json` 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (覆盖命令按本文件「测试」节的写法, 参数 `tmp/cov-md-table-check`).
+
+- 阶段 4 包文档 (分支 `history-cleanup/04-package-docs-md-table-check`, 只改本包文档):
+
+  - `md-table-check/README.md`: 首段与状态注归入 `## 定位`; 原 `## 为什么需要` 降为 `### 为什么需要` 并入「定位」; 原 `## 行为` 与 `## 已核查形态` 并入 `## 能力` (后者降为 `### 已核查形态`); 原 `### 上限为 0 的口径` 移入 `## 配置`; 注入正文示例连同启用说明移入新建 `## 用法`; 原 `## 边界（明确不做）` 改名 `## 边界`, 「明确不做」改为节内引导句; 原 `## 开发` 改名 `## 测试`. 节内文字未改写, 无整段删除.
+  - 命令: `npm run check` / `npm run build` / `npm run check:no-cross-emit` / `npm test` 与正文两处 `npm run check` 改 `pnpm ...`, 与 `package.json` 脚本名一致.
+  - 旧说法修正: 配置节「缺省**开启**（`cordis.patch.yml` 里 `enabled: true`）」与文首状态注、`cordis.patch.yml` 现状 (`enabled: false`) 矛盾; 改为「`enabled` 字段缺省 `true`, 而 `cordis.patch.yml` 现设 `false`（见文首状态说明）」.
+  - 术语: `md-table-check/docs/BACKLOG.md` 标题「模块级」→「包级」, 正文「跨模块」→「跨包」、「本模块」→「本包」; 两条关闭记录里的 `npm` → `pnpm`; 条目内容、状态与顺序不动.
+  - 断链: 两份文件均无 markdown 链接, 行内路径 (如 `md-table-check/docs/archived/`) 目标存在, 本包非归档断链 0.
 
 ## 偏差
 
 - 「`output.render` 投影」在本包没有对应面: 本包不注册工具、不产出 `output.render`. 集成层按 rule-engine 真实注入器 (`rule-engine/src/inject.ts` 的 `buildInjectionMessage`) 的消息构造做投影断言 —— `[RULE] ` 前缀正文、`source.kind` 非空、`source.summary` 可识别、`delivery` 决定送达路径 —— 与会话事件的注入内容断言一致, 未简化成只断返回值.
 - 唯一未覆盖分支 (分支 66/67) 是覆盖率聚合的假阴性, 不是真实缺口: V8 对未执行函数只报合并后的零命中块, 执行过的进程则把同一区间拆成两个子块 (均命中), `dev/coverage/report.mjs` 按偏移精确匹配, 合并块这一键始终停在 0. 单进程直接取 `maxTables` / `maxRowsPerTable` / `headerExcerptLimit` 的 undefined / -1 / NaN / Infinity / 0 / 3 / 1.7 全部形态, 该函数 6/6 块全命中; 三个上限的非法值与 0 也都有单元断言. 按 4.3 「不可达的防御分支」口径记在这里, 不为此补用例.
+- 阶段 4: 「`npm` → `pnpm`」属规范落地, 配置节的「缺省开启」改为与 `cordis.patch.yml` 一致的说法, 两者都不是新增结论; 节内其余文字一条未改, 无整段删除. `README.md`「测试」节仍写「八份测试」, 未含阶段 2 新增的 `tests/integration/plugin.test.ts`, 按本阶段「不新增结论」未改, 记在此处待回写. 本阶段未改 `src` / `tests` / `package.json` / `tsconfig.json` / `cordis.patch.yml`.
 
 ## 测试与证据
 
@@ -86,3 +98,18 @@ rm -rf ../tmp/cov-md-table-check && mkdir -p ../tmp/cov-md-table-check && NODE_V
 - 分层贡献 (4.3 两轮取差): 单元层 273/273 行、99/100 分支; 单元层加集成层仍 273/273、99/100, 差值 0 行 0 分支 —— 集成层验的是接线与投影, 不新增 `src` 覆盖, 与「单元层已 100% 行」的现状一致.
 - 行与分支均未下降; 无删除代码.
 - 4.4 复核: 本包 `skip` 0 处、`todo` 0 处、无 `tests/fixtures/`, 无处置项; 新用例标题均为中文短句、不含宿主版本号.
+
+### 阶段 4 包文档 (改动后自查)
+
+| 检查 | 结果 |
+| --- | --- |
+| `format md-table-check/README.md md-table-check/docs/BACKLOG.md` | exit 0, 无报错 |
+| README 二级标题 | 六节齐: 定位 / 能力 / 配置 / 用法 / 边界 / 测试 |
+| 正文 `npm` | 0 处 (README 与 BACKLOG 均为 `pnpm`) |
+| 符号变体 | 0 处 (20 条映射并成一条正则扫两份文件) |
+| 术语 | 模块 / 落点 / 回归 / 收口 / 状态栏 / 输入框 / 回合区 / 对话区 / 工具集 / 评审 / 过程记录 / 返回体 / 决策点 均 0 处; 保留的 `TUI 表格模块` 指 TUI 内部源码模块 |
+| 本包非归档断链 | 0 (两份文件无 markdown 链接; 行内仓根路径目标存在) |
+| 内容删除 | 无: 唯一整段变动是注入正文示例与启用说明移入「用法」, 文字逐字保留 |
+| `git diff --numstat` | README +50 / -42 行, BACKLOG +4 / -4 行; 另本文件追加本阶段记录 |
+
+文档改动按阶段追踪「验证与门禁」不跑代码门禁, 未执行 `check` / `test`.

@@ -80,7 +80,17 @@ rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE
   - 零引用导出: 按 5.2 重扫本包 55 个导出 (`src` 全量, 含入口 5 个契约符号与 `types.ts` 的对外类型), 在 `src` / `tests` / `demo` / 仓内文档里均有引用, 零引用导出 0 个, 无删除; `contextContainer` 只在 `fs-digest/src/lsp.ts` 内用, 不导出.
   - 路径注释: `src/` / `tests/` / `demo/` 文件头与正文里的包内简写路径补成仓根路径 (如 `fs-digest/src/lsp.ts`), 涉及 10 个 `src` 文件、5 个单元测试文件、`tests/assemble.ts`、`tests/integration/plugin.test.ts` 与 `demo/main.ts`; 计数注释本包没有; `README.md` 里 `index.ts → src/main.ts` 的旧描述属包文档, 留阶段 4.
 
+- 阶段 4 包文档 (分支 `history-cleanup/04-package-docs-fs-digest`, 只改本包文档):
+
+  - `fs-digest/README.md`: 首段归入 `## 定位`; 原 `## 文档` 索引折成「定位」内一段, 四条内容逐项保留; `## 使用示例` → `## 用法`; `## 边界与限制` → `## 边界`; `## 能力` / `## 配置` / `## 测试` 节名本就合规, 不动; 节内表格与段落文字未改.
+  - 命令: 测试节 `npm run` 全部改 `pnpm run`; 补上阶段 2 新增的 `test:integration` / `test:coverage` 两条脚本, 并把原「66 例」的用例数断言改成按层描述 (单元 / 集成), 不再写死数字.
+  - 旧描述修正: TS API 首句「包入口 `index.ts` → `src/main.ts` 透出」改成「包入口 `src/index.ts` 透出」, 对应当前 `src/` 无 `main.ts`、`package.json` 的 `main` 指向 `dist/src/index.js`; 即阶段 3 记录里留到本阶段的那一项.
+  - 术语: `fs-digest/docs/BACKLOG.md` 标题「模块级」→「包级」, 正文「跨模块」→「跨包」、「本模块条目」→「本包条目」, 表头「落点」→「改动位置」; 条目内容、空表与「当前无未完成项」不动.
+  - 断链: 两份文件均无 markdown 链接; 行内路径 `docs/archived/`、`docs/BACKLOG.md`、`docs/host/DSH-CTX-API.md`、`docs/host/HOST-PACKAGES.md` 按仓根引用, 目标均存在, 本包非归档断链 0.
+
 ## 偏差
+
+- 阶段 4: 用例数断言「66 例」在阶段 2 之后已过期 (单元 75 例 / 集成 12 例), 与 package.json 现状一并同步为按层描述; 属现状修正, 未新增结论. 本阶段未改 `src` / `tests` / 配置文件.
 
 - 阶段 2: 无 (未改 `src`; 集成层与单元层均只经公开导出与既有工具面).
 
@@ -138,3 +148,17 @@ rm -rf ../tmp/cov-fs-digest && mkdir -p ../tmp/cov-fs-digest && NODE_V8_COVERAGE
 用例文件只改了文件头与正文的路径注释, 断言一条未改; 未新增 / 删除用例. 未覆盖行集合与阶段 2 表同构, 只是行号顺移 (`fs-digest/src/index.ts` 的 165 / 177 对应阶段 2 的 169 / 170 一类注释行与括号行); 分母变化来自 `contextContainer` 的函数体与三元判定 (分支 388/482 全部触达), `fs-digest/src/lsp.ts` 的行覆盖率 95.7% → 100.0%.
 
 行为不变的手工探针 (一次性, 未入用例): `apply(null)` / `apply(undefined)` 抛 `TypeError: Cannot read properties of null|undefined (reading 'tools')`, 与改前一致; `apply({})` 与 `apply(5)` 静默返回.
+
+### 阶段 4 包文档 (改动后自查)
+
+| 检查 | 结果 |
+| --- | --- |
+| `format fs-digest/README.md fs-digest/docs/BACKLOG.md` | exit 0, 无改动 (格式化前后 diff 统计一致) |
+| README 二级标题 | 六节齐: 定位 / 能力 / 配置 / 用法 / 边界 / 测试 |
+| 正文 `npm` | 0 处 (全部 `pnpm run`) |
+| 符号变体 | 0 处 (20 条映射并成一条正则扫 README 与 BACKLOG) |
+| 本包非归档断链 | 0 (无 markdown 链接; 行内仓根路径目标均存在) |
+| `git diff --stat` | README + BACKLOG 合计 +16 / -17 行; 另本文件追加本阶段记录 |
+| 内容删除 | 无: 唯一整段变动是 `## 文档` 四条索引折入「定位」一段, 每条均保留; 用例数断言由数字改按层描述 |
+
+文档改动按阶段追踪「验证与门禁」不跑代码门禁, 未执行 `check` / `test`.

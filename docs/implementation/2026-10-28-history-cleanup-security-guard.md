@@ -77,6 +77,14 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
   - `src/index.ts` (176 行): bundle 契约 (`name` / `provide` / `inject` / `Config`) + 宿主挂接 (`createSecurityGuard` / `apply`) + 全部 re-export。
 - 逐行搬运: 新文件由旧文件的行区间切片生成, 除新增 `export` 关键字与模块头 / import 行外没有改写; 行多重集核对结果见「测试与证据」。
 - 两处配套改动 (行为不变): `tests/guard.test.ts` 的「登记表 commandPaths 防呆」读源文件路径由 `../src/index.ts` 改为 `../src/tool-registry.ts` (断言与用例名未动); `scripts/tool-surface-check.mjs` 的仓库形态回退解析改为把 `src/index.ts` + `src/tool-registry.ts` 拼起来喂同一个解析器 (报告的 `surfacePath` 仍是入口, dist 判旧取两文件 mtime 最大值)。
+- 阶段 4 包文档 (本分支): 只改 `security-guard/README.md` 与 `security-guard/docs/BACKLOG.md`, 未动 `src` / `tests` / 配置。
+  - `README.md` 六节归并: 首段加 `## 定位`; `## 使用示例` 改 `## 用法`; `## 边界与限制` 改 `## 边界`; `## 目录结构` 降为 `## 定位` 下的 `### 目录结构`; `## 能力` / `## 配置` / `## 测试` 节名不变。最终二级标题: 定位 / 能力 / 配置 / 用法 / 边界 / 测试。
+  - 重复段落合并: 「拦截面」表里「敏感文件」一行原有两个逐字相同的表格行, 合并为一行。
+  - 命令: 测试节四条命令由 `npm` 改 `pnpm`, 并按 `package.json` 补 `test:integration` / `test:coverage` 两行; 引述脚本提示的一处 `npm run build` 同改 `pnpm run build`。
+  - 术语: `状态栏 cwd` 改 `状态列 cwd`; `2026-10-02 收口` 改 `收尾`; `不回归` 改 `不退化`; `含本仓 28 插件` 改 `含本仓 33 个插件`。
+  - 事实同步 (阶段 3 偏差里移交本阶段的一项): 目录结构表按 `src/` 拆分结果重写 —— `src/index.ts` 只留入口与挂接, 新增 `tool-registry.ts` / `arg-scan.ts` / `config.ts` / `engine.ts` 四行, `DEFAULT_COMMAND_RULES` 由 15 条改 18 条 (源码实测), 用例数由 142 例改 160 例并补集成用例一行; 正文三处「`src/index.ts` 的登记表 / `TOOL_SURFACE`」改指 `src/tool-registry.ts`。
+  - 用例数按本分支实测: 单元 160 例 (blacklist 23 / guard 103 / script 22 / sensitive 12, 1 例发布形态用例在无 `dist` 时跳过) + 集成 14 例, 替换原有的 135 例 (9 / 97 / 22 / 7)。
+  - `docs/BACKLOG.md`: 模板字段「落点」按 `docs/GLOSSARY.md` 改「改动位置」; 其余不动 (当前无未完成条目)。
 
 ## 偏差
 
@@ -88,6 +96,8 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
 - 计划外文件: `scripts/tool-surface-check.mjs` 不在「实现规划 / 代码」的文件清单里, 但它是本包键集 (键集单一来源) 的仓库形态读取方; 不改会让未构建 `dist` 的仓库形态直接 exit 2, 故按「保持既有行为」做了最小改动。`tests/guard.test.ts` 只改读路径属「只改路径不改断言」。
 - `README.md:133` 仍写 `src/index.ts` 含判定引擎与工具登记表, 拆分后该行已过期; 按规划「包文档」归阶段 4, 本分支未改。
 - 5.2 零引用导出复查: 扫 `src` / `tests` / `scripts`, 入口 34 个导出里 8 个在包外无引用 (`CommandHit` / `CompiledSensitiveRule` / `Config` / `PolicySnapshot` / `SensitiveHit` / `formatCommandReceipt` / `formatSensitiveReceipt` / `remotePipeShellHit`), 但都属入口公开面 (类型与服务面 / 诊断用的回执格式化函数), 且总追踪 5.2 的逐包删除表里没有 `security-guard`; 按 5.1「拿不准的留在原处」本轮不删, 只记录。
+- 阶段 4 包文档: 测试节里引述脚本提示的一处 `npm run build` 按规划改 `pnpm run build`, 但 `scripts/tool-surface-check.mjs:1113` 的提示文案与 `tests/script.test.ts:505` 的断言仍是 `npm --prefix security-guard run build`; 改脚本与用例不属本阶段文件清单, 故文档与脚本实际提示暂时不一致, 待后续改脚本提示时与用例断言同改。
+- 阶段 4 包文档: 目录结构表与用例数超出「只改节名」的字面范围, 但前者是上一节「偏差」里明确移交本阶段的一项 (`src/index.ts` 行在阶段 3 拆分后已过期), 后者与原表并存即自相矛盾 (142 与 160); 两者均按源码与实测更新, 未新增结论。
 
 ## 测试与证据
 
@@ -143,3 +153,16 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
 - 分文件覆盖率: `tool-registry` 行 100.0% (137/137) / 分支 95.8% (23/24); `arg-scan` 行 97.8% (174/178) / 分支 94.7% (72/76); `config` 行 99.3% (139/140) / 分支 96.7% (29/30); `engine` 行 99.7% (321/322) / 分支 93.8% (76/81); `index` 行 100.0% (119/119) / 分支 100.0% (16/16); `receipt` 行 98.4% (120/122) / 分支 90.0% (18/20)。
 - 行为对照 (新旧 `dist/src/index.js` 对跑): 入口导出名集合 26 个逐名相同; `TOOL_SURFACE` 与 `DEFAULT_COMMAND_RULES` 的 JSON 逐字节一致; 11 组抽样入参 (shell 命令 / 工作目录 / 官方读写文件 / 插件文件工具 / 插件命令工具含数组键 / 未登记工具 deny 路径 / `run_code`) 的 `inspect` 回执逐字相同, 差异 0; `policy()` 快照与 `inspectCommand` 回执也相同。
 - 逐行搬运核对: 拿旧 `src/index.ts` 的行多重集与新六个文件比对, 缺失 34 行全部是删掉的 import 行与加了 `export` 关键字的声明行; 新文件多出的行只有文件头注释与 import 行, 无改写、无重复。
+
+### 阶段 4 包文档 (本分支)
+
+| 项 | 结果 |
+| --- | --- |
+| 六节 | ✓ 定位 / 能力 / 配置 / 用法 / 边界 / 测试 (顺序与模板一致) |
+| 正文 `npm` 命中 | 0 (`grep -nE "(^\|[^p])npm "` 于 `README.md` / `docs/BACKLOG.md`) |
+| 术语命中 | 0 (`状态栏` / `落点` / `收口` / `回归` / `插件包` / `返回体` / `评审` 均无) |
+| 符号变体命中 | 0 (20 条映射逐条扫两文件) |
+| 非归档断链 | 0 (两文件无相对链接) |
+| 用例数实测 | 单元 160 例 (23 + 103 + 22 + 12; 159 通过 / 1 跳过) / 集成 14 例 (14 通过) |
+| `format` | 两个文档 `format` 后无二次改动 |
+| 自查 diff | 37 增 / 29 删; 删除项只有重复的「敏感文件」表格行与搬移的目录结构表 (内容进了 `## 定位`), 无内容丢失, 无新增结论 |

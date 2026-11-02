@@ -145,3 +145,18 @@ rm -rf ../tmp/cov-task-engine && mkdir -p ../tmp/cov-task-engine && NODE_V8_COVE
 - 缺陷定位: 上面第 130 行的「既有 flake」不是负载抖动, 是真实竞态。周期快照 (`append`) 与卸载最终写 (`writeSnapshot`) 各自直接 `writeFile` 同一路径, 彼此不排队; `unload()` 只等自己那一次写, 而更早排队的周期写仍可能随后执行并截断文件, 读侧 `JSON.parse` 读到空串 (`Unexpected end of JSON input`)。单包顺序跑时微任务先排空, 故只在根并行跑时复现。
 - 修复: `src/engine-store.ts:155` 新增 `scheduleSnapshot()`, 所有落盘排进同一条串行链; `writeSnapshot()` 排在链尾并等链尾落定, `append()` 只排不等待 (失败吞掉, 不阻塞主流程)。对外快照内容与时序语义不变, 只是不再交叉写。
 - 验证: `pnpm -C task-engine run check` 通过; `pnpm run test` 171 例全绿; `pnpm run test:integration` 17 例全绿; 根 `pnpm run test:integration` 连跑 3 次均退出 0 (34 包)。
+
+## 阶段 4 包文档
+
+- README: 原 6 个二级标题 (`能力` / `配置` / `使用示例` / `边界与限制` / `目录结构` / `测试`) 归并为六节 —— `## 定位` (首段 + 原「目录结构」整块, 标题降为粗体引导) / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 只改节名与位置, 段落文字未删改。
+- DESIGN: 原 3 个二级标题 (`目标与边界` / `分层` / `关键设计取舍`) 归并为四节 —— `## 背景` (目标段 + 四条边界) / `## 结构` (原「分层」) / `## 机制` (原「目标与边界」里的 executor 隔离 / 执行期复查 / 语义面接线三条) / `## 取舍` (原「关键设计取舍」12 条, 编号与内容不动); 交叉引用「关键设计取舍 N」改「取舍 N」, README 两处与 DESIGN 一处同改。
+- 命令: README 正文、示例与测试命令, 以及 BACKLOG 记录里的 `npm` 全改 `pnpm`。
+- 术语: `模块` → `包` (「模块待办」→「包待办」)、`过程记录` → `追踪文档`、`落点` → `改动位置` (BACKLOG 记录一条); 界面名、符号规范、审阅、回执一组在本包三份文档里无命中, 未改。
+- 断链: 本包原无非归档断链; 改动后逐一核对三份文档引用的 6 个目标 (`docs/DESIGN.md` / `docs/BACKLOG.md` / `docs/archived/` / `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` / `TUI/docs/archived/2026-10-05-task-panel-rounds.md` / `task-engine/docs/archived/2026-10-27-task-engine-failure-cascade.md`) 均存在。
+- 符号: 变体扫描 0 命中 (只查正文, 行内代码与围栏代码块按 3.9 排除); 原有 `①` / `§` / `≥` / `–` 属 3.9 的表外符号, 未动。
+- 证据: `format task-engine/README.md task-engine/docs/{DESIGN,BACKLOG}.md` 通过 (mdformat 把「取舍 12」里的重复 `1.` 序号规范成 1-6, 文字未变); `git diff --stat` = 3 文件 52 增 47 删; 文档改动不跑代码门禁。
+
+### 偏差
+
+- 六节模板没有「结构」位, 原 `## 目录结构` 整块并入 `## 定位` 并降为粗体引导; 未删也未改写其内容。
+- 「只改节名与合并重复段落」与现状冲突的两处按受限口径**未改**, 留待另立条目: (1) `## 定位` 的目录结构清单仍是阶段 3 拆分前的形态 (入口 `src/main.ts` + 单文件 `src/index.ts`), 实际入口已拆成 `plugin.ts` / `executor.ts` / `engine-store.ts` 等多个模块; (2) `## 测试` 节仍是阶段 2 之前的五项命令与 136 例的说法, 未含新增的 `test:integration` / `test:coverage`, 实际用例为单元 171 + 集成 17。

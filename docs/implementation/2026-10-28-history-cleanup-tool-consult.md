@@ -77,6 +77,15 @@ rm -rf ../tmp/cov-tool-consult && mkdir -p ../tmp/cov-tool-consult && NODE_V8_CO
 
 - 阶段 3b (2026-11-01): 补该补丁的另一半。`src/index.ts:263` 的 `applyMask` 在 `denylist` 下仍按「清单外全放行」算允许集, 已授权项虽被 `isVisible` 判可见却仍被遮罩挡住; 现把 `runtime.grants` 一并放行, 与 `isVisible` 同口径。集成用例 `tests/integration/plugin.test.ts:247` 改为两段: 揭示已可见项断不重挂遮罩, 揭示被挡项 `bash` 断允许集加 1 且 `read` 仍被挡。`check` / `test` (103 例) / `test:integration` (18 例) 全绿。
 
+- 包文档 (阶段 4, 2026-11-02):
+
+  - `tool-consult/README.md`: 原 4 个二级标题 `能力` / `配置` / `接入` / `开发` 归并为六节 —— 首段与追踪文档引用移入 `## 定位`, `接入` 改 `## 用法`, `开发` 改 `## 测试` 并补上 `package.json` 已有的 `test:integration` 与 `test:coverage` 两项; 原「失败降级」条目与配置表的 `applyTo: roots` 口径移入 `## 边界` (内容原文保留, 未新增结论), 其余条目不动.
+  - 断链: `docs/implementation/2026-10-22-tool-consult.md` 改为归档后的真实路径 `docs/archived/2026-10-22-tool-consult.md`.
+  - 命令: `npm run check` / `build` / `test` 三处改 `pnpm run ...`, 与根 `package.json` 脚本名一致.
+  - `tool-consult/docs/BACKLOG.md`: 2026-10-27 记录里的 `npm test` 改 `pnpm test`; 标题与职责行本已写「包」, 未改.
+  - 项目级条目指路: `README.md` 原文写「项目级条目见 `docs/BACKLOG.md` §2「5. 工具咨询插件」」, 该条目 2026-10-24 已关闭并移出 `§2`, 改为「项目级记录见 `docs/BACKLOG.md` §1「已完成索引」」.
+  - 未动 `src` / `tests` / `package.json` / `tsconfig.json` / `cordis.patch.yml`; 正文无符号变体.
+
 ## 偏差
 
 - 实现规划写「服务 provide / get」, 本包没有 `ctx.provide` 面; 集成层用 `ctx.get` 的 `tools` / `agents` 与 5 条全局事件订阅做等价断言, 不写不存在的 provide.
@@ -115,3 +124,13 @@ rm -rf ../tmp/cov-tool-consult && mkdir -p ../tmp/cov-tool-consult && NODE_V8_CO
 - 删除用例与夹具: 无.
 - 阶段 3b 复跑 (2026-11-01): `pnpm run check` 通过; `pnpm run test` 103 例全绿; `pnpm run test:integration` 18 例全绿。此前该表按阶段 2 末结果填写, 补丁轮后集成曾 1 例失败, 现已修复并复跑确认。
 - 豁免台账: 无 (原 `denylist` 可见性缺陷已在补丁轮与阶段 3b 修完); `state.ts` 的度量误差只在本文件说明, 不改报告脚本.
+
+文档归并 (阶段 4, 2026-11-02, 只改文档, 不跑代码门禁):
+
+| 检查 | 命令 / 方法 | 结果 |
+| --- | --- | --- |
+| 格式化 | `format tool-consult/README.md tool-consult/docs/BACKLOG.md` | 通过, 无额外改动 |
+| 六节齐 | 自查 `tool-consult/README.md` 的二级标题 | `定位` / `能力` / `配置` / `用法` / `边界` / `测试` 六节齐 |
+| 命令 | 自查正文与示例 | 全为 `pnpm`, 无 `npm` 残留 |
+| 断链 | 只按本包文档里的链接逐条比对落盘路径 | 0 条 (`docs/archived/2026-10-22-tool-consult.md` 存在) |
+| 符号变体 | 20 条变体映射在本包两份文档复扫 | 0 处命中 |
