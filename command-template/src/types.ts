@@ -110,7 +110,7 @@ export interface CommandTemplateConfig {
   disabled?: boolean;
 }
 
-/** 模板运行依赖（测试注入替身；缺省由 main.ts 接到宿主面）。 */
+/** 模板运行依赖（测试注入替身；缺省由 index.ts 接到宿主面）。 */
 export interface StepDeps {
   /** 把展开后的文本注入当前会话（返回是否注入成功）。 */
   injectPrompt(text: string): boolean;

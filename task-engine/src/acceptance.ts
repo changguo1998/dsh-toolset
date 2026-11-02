@@ -7,8 +7,8 @@
 // fail-closed（不假通过）。
 //
 // 结构化裁决口径（2026-10-02 接线）：hook 向宿主请求一个**信封 schema**
-// （`{pass: boolean, feedback?: string, structured?: <声明的 outputSchema>}`，见 main.ts
-// `verdictEnvelope`），子会话经 `structured_output` 工具上报、**宿主按该 schema 校验**；
+// （`{pass: boolean, feedback?: string, structured?: <声明的 outputSchema>}`，见
+// `verdict.ts` 的 `verdictEnvelope`），子会话经 `structured_output` 工具上报、**宿主按该 schema 校验**；
 // verdict 优先取校验后的结果，缺用时才回退文本 JSON 解析（模型自报不作保证）。
 
 import type { Acceptance, FrameId } from "./types.ts";

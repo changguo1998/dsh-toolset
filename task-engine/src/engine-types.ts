@@ -33,7 +33,7 @@ export interface RootSpec {
 }
 
 /**
- * executor 执行请求（引擎 → 后端适配器，`main.ts` 接线真实宿主面）。
+ * executor 执行请求（引擎 → 后端适配器，`plugin.ts` 接线真实宿主面）。
  * 引擎只做发起：拼装请求、回填证据、交给既有 RET 验收。
  */
 export interface ExecuteRequest {

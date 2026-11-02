@@ -1,4 +1,4 @@
-// src/main.ts — cordis 入口：加载双源模板 → 注册宿主命令 → 执行模板（步骤落到宿主面）。
+// src/index.ts — cordis 入口：加载双源模板 → 注册宿主命令 → 执行模板（步骤落到宿主面）。
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, provide, Config, apply }）：
 // - `inject: ["commands"]`：命令注册面（缺失则告警，不使加载失败）；

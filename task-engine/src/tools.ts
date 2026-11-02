@@ -1,7 +1,7 @@
 // src/tools.ts — 模型侧工具族：task_decompose / task_implement / task_execute /
 // task_stop / task_status（+ 嵌套任务列表：parent_id + order）
 //
-// 零 DSH 依赖的纯数据 + 处理器：工具定义供 cordis 适配层结构注册（main.ts），
+// 零 DSH 依赖的纯数据 + 处理器：工具定义供 cordis 适配层结构注册（plugin.ts），
 // 也供 demo/tests 直接调用。JSON 参数在此做最小校验，拒绝时返回带反馈结果。
 // 第二迭代（BACKLOG #5/#13）：decompose 解析 deps/output_schema；
 // stop 输出 step 级 accepted/next 裁决（打回 next 指向本帧，终态 null）。
@@ -25,7 +25,7 @@ export interface ToolExecuteCtx {
   ) => (req: { frame: FrameId; reason: string }) => Promise<boolean>;
   /** 真实链路：executor 适配器构造器（按当前工具调用的 agent 构造；缺省 = engine 内建适配器） */
   makeExecutor?: (exec: unknown) => ExecutorRunner | undefined;
-  /** 真实链路：按当前工具执行构造语义面 hook（audit / entail；见 main.ts 的按次构造） */
+  /** 真实链路：按当前工具执行构造语义面 hook（audit / entail；见 plugin.ts 的按次构造） */
   makeSemanticHooks?: (exec: unknown) => {
     audit?: (req: AuditRequest) => Promise<AuditVerdict>;
     entail?: EntailHook;
