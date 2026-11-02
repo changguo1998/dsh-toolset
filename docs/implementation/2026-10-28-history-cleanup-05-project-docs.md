@@ -72,6 +72,26 @@
 
 ## 实现记录
 
+- 项目级事实 (提交 `59d5c3fd`): 根 `README.md` / `README.zh.md` 两侧同步 — 宿主复核补 `rc.3` 并指向 `HOST-UPGRADE-0.2.1-rc.3.md`, 当前升级索引改 `rc.3` / 上一份 `rc.2`, 命令块 `npm` 改 `pnpm`, 复用审计改「31 包快照 (2026-10-22; 3 包未审)」, DESIGN 名单补 `coagent`, Documentation 加 `docs/GLOSSARY.md`; 英文侧另修 `32 in-process plugins` → `33`.
+- 同一提交: `docs/ROADMAP.md` 包数改「34 个包 (TUI 与 33 个插件)」; `docs/ARCHITECTURE-REUSE.md` 当前口径改 34 个包、审计 31 行与 3 包未审; `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` 导航链接改 `docs/archived/2026-10-19-dsh-update-check.md`; `docs/BACKLOG.md` 与总追踪的 `npm` 命令改 `pnpm` (历史性 npm 说明按语境保留).
+- `docs/GLOSSARY.md` 复核后无 diff: 三张表、`评审 → 审阅`、`返回体 → 回执`、`落点` 分写与阶段 4 实际术语一致.
+- 归档符号 (提交 `459f70ab`): 8 个归档文件正文替换 53 处禁用变体 (43 行), 覆盖 `✔` / `✅` / `✖` / `⚠` / `➡` / `⬅` 等; 围栏代码块内 12 处按规则保留.
+- 门禁: `pnpm run check` / `build` / `test` / `test:coverage` 全部退出 0; TUI `demo -- --smoke` 退出 0 (42 条 `SMOKE_PASS`); `DSH_PROFILE=fff-test` 的 `smoke:pty` 退出 0 (`SMOKE OK`).
+
 ## 偏差
 
+- 规划写归档「39 处正文」, 实际按行内代码与围栏豁免规则替换 53 处 / 43 行; 原 39 是早期扫描口径, 以本次代码区感知替换为准.
+- 归档文件只做符号替换, 未跑 `format` (避免 mdformat 重写历史表格); 已用脚本确认围栏代码块与行内代码零改动.
+- 英文根 README 的 `32 in-process plugins` 与中文侧 `33 个插件` 不一致, 属计划外事实修正, 随 `59d5c3fd` 一并改.
+- 总追踪 `npm --prefix` 的 4 处当前事实描述 (3.1 / 3.3 / 4.x 对照表) 一并改 `pnpm -C`; 行业对照里的 npm workspaces 说明保留.
+- 关闭动作 (移追踪文档、清 `BACKLOG #1`、最后一笔提交) 未执行, 等用户确认.
+
 ## 测试与证据
+
+- `pnpm run check` / `build` / `test` / `test:coverage`: 退出 0; 覆盖率合计行 86.6%, 分支 80.0%.
+- TUI `demo -- --smoke`: 退出 0, 42 条 `SMOKE_PASS`; `smoke:pty` (`fff-test`, key 任意): 退出 0, `SMOKE_OK` + `SMOKE OK`.
+- 标题扫描: 34 份 README 六节、15 份 DESIGN 四节, 均 0 例外.
+- 非归档断链: 8 条命中全部为行内代码示例 (`<source>` / `来源` / `url` / `href` / `a.md`), 实际缺失 0.
+- 动过的文档正文符号变体 (代码区之外): 0.
+- `format`: 8 份非归档文档退出 0, 复跑无 diff; 归档 8 份按手工替换, 未跑 format.
+- 提交链: `59d5c3fd` (项目级文档), `459f70ab` (归档符号); 本文件与总追踪待关闭提交.
