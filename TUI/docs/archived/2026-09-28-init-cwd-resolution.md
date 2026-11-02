@@ -44,8 +44,8 @@
 ## 测试与证据
 
 - 新增用例先红后绿（回归对照）：
-  - 反向验证：`git stash push -- TUI/src/app/index.ts`（临时撤掉修复）后跑 `npm run test:tui -- app.test.ts` → 该用例 ✖（`AssertionError：缩写路径展开后命中，不发送消息`，实际发送了初始化指令），证明用例真实覆盖缺陷；
-  - 恢复修复后同用例 ✔。
+  - 反向验证：`git stash push -- TUI/src/app/index.ts`（临时撤掉修复）后跑 `npm run test:tui -- app.test.ts` → 该用例 ✗（`AssertionError：缩写路径展开后命中，不发送消息`，实际发送了初始化指令），证明用例真实覆盖缺陷；
+  - 恢复修复后同用例 ✓。
 - `npm run test:tui -- app.test.ts`：161 pass / 0 fail（含新用例，未 skip）。
 - 全仓机械验证：`npm run check` exit 0；`npm run build` exit 0；`npm run test`（全包并行）15 包全部 pass / fail 0，exit 0。
 - 附加验证（demo 冒烟，发现预存在缺陷）：`npm run demo -- --smoke` 在改动树与 clean tree（HEAD `8671b82`）均 `SMOKE_FAIL n=2`（`compaction-summary-toast` / `shell-submit`）→ 与本改动无关，已登记 BACKLOG #47。

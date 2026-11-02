@@ -31,10 +31,10 @@
 
 ## 收尾记录（2026-10-02，父会话）
 
-- **D1 ✅**：`security-guard/README.md` 快照措辞改为「经导出 API `resumeFromSnapshot` 恢复的帧（本仓库插件当前未接线：只写快照、不读回）」。
-- **D2 ✅**（口径修正版）：`src/index.ts` 日志从「回执首行」改为「**前两行**」（插件命令工具首行是来源标注行，只取首行会丢规则 id）；**未**改动任何回执行的顺序，也未动 `inspectCommand`（避免与 metric-loop 条目的来源标注入口径冲突）。
-- **D3 ✅**：`tests/guard.test.ts` 新增两例 ——「命令层 + 敏感层同时命中：只回命令层（来源标注 + 规则 id，不含敏感层文案）」「插件命令工具：`allowPatterns` 正向放行（对照：不匹配 / 空的 allowPatterns 仍被拦）」（由子代理落地；我另写的两条重复用例已删除，保留前者）。
-- **D4 ✅**：`tests/guard.test.ts` 四处 `assert.doesNotMatch(hit!, /写入/)` 改为断言操作标签 `assert.match(hit!, /已拦截：读取敏感文件/)`（实测四处均属读侧）。
+- **D1 ✓**：`security-guard/README.md` 快照措辞改为「经导出 API `resumeFromSnapshot` 恢复的帧（本仓库插件当前未接线：只写快照、不读回）」。
+- **D2 ✓**（口径修正版）：`src/index.ts` 日志从「回执首行」改为「**前两行**」（插件命令工具首行是来源标注行，只取首行会丢规则 id）；**未**改动任何回执行的顺序，也未动 `inspectCommand`（避免与 metric-loop 条目的来源标注入口径冲突）。
+- **D3 ✓**：`tests/guard.test.ts` 新增两例 ——「命令层 + 敏感层同时命中：只回命令层（来源标注 + 规则 id，不含敏感层文案）」「插件命令工具：`allowPatterns` 正向放行（对照：不匹配 / 空的 allowPatterns 仍被拦）」（由子代理落地；我另写的两条重复用例已删除，保留前者）。
+- **D4 ✓**：`tests/guard.test.ts` 四处 `assert.doesNotMatch(hit!, /写入/)` 改为断言操作标签 `assert.match(hit!, /已拦截：读取敏感文件/)`（实测四处均属读侧）。
 - 顺带（审阅问题 ③）：`security-guard/README.md` 服务面条目补 `inspectCommand(command, source?)` 说明。
 - **验证**：`security-guard` `npm run check` exit 0、`build` exit 0、`npm run test` **67/67 全绿**（改前 65，+2）；全仓 `npm run check` exit 0、`npm run test` **20 包全 `fail 0`**。
 - 残余：① D3 反向验证的完整两态结论由落地子代理产出，未回传（用例含对照臂，具备区分度）；② README 未提「命令层先于敏感层」的顺序说明（若需要另开条目）；③ 真机未验。

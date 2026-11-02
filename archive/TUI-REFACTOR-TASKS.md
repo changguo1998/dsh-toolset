@@ -82,22 +82,22 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 
 | # | 问题 | 备注 |
 |---|---|---|
-| B3 | /review 设计裁定 | ✅ 已裁定（C8 复核 dsh-workflow 0.1.5-rc.2：workflowEngine.start 为通用脚本引擎（自备 script/meta/parent: Agent），包内无 review 资产 → 需先建 review 编排资产 → 搁置；裁定见 `COMMANDS-SPEC.md` §3） |
-| B2 | /login·/logout 设计裁定 | ✅ 已裁定（C7 复核 dsh-credentials 0.1.5-rc.2：ctx.credentials 为凭据存取/管理 seam（reference 空间 resolve/describe/set/unset + record 空间 listRecords/describeRecord/modifyRecord/deleteRecord + reference-updated 事件），仍无交互登录流程；/logout 无宿主「登出」概念 → 维持排除；裁定见 `COMMANDS-SPEC.md` §3） |
-| B1 | /clear 设计裁定 | ✅ 已裁定（C6 复核 dsh-session 0.1.5-rc.2：store 公开面无删除/清理 API（`detachEntered`/`store.delete` 为 private teardown）、`dsh-session-query` 仅查询、无 `session/delete` 事件 → 宿主入口仍缺；会话清理已由 `/session` 面板 `d`/`x` + `/session clean` 文件级删除覆盖 → 维持排除；裁定见 `COMMANDS-SPEC.md` §3） |
-| C1 | /jobs 面板 PgUp/PgDn 回补 | ✅ 已实现（jobs-panel-page reducer + index 按键 + footer/helpText 同步，页高=activityH 与共享面板同口径） |
-| P2#24 | /search 网页搜索 | ✅ 已实现（核实 dsh-web 为 provider-selecting 非聚合 → **TUI 侧并行多 provider**（web 派生 + options.searchProviders）合并/URL 去重/query-token 关联度排序；单 provider 失败降级、全败 reject(warn)；Enter 来源 URL） |
-| P2#33 | 声音提醒事件钩子 | ✅ 已实现（Renderer.bell?() → Screen.beep() 写 BEL \\x07；turn-end 任务结束响 + 等待输入超 idleThresholdMs 补响；notify.enabled 开关；经 tui.config.json notify 读取，缺省即可用；不做桌面通知） |
-| P2#18 | /council 二次意见 | ✅ 已实现（核实 ctx.subagents.start（dsh-subagent one-shot）可达 → adapter 并行 N 个 allSettled 汇总 + 失败降级；notice 展示；宿主缺失 warn 不假启动） |
-| P2#16 | /workflows 面板（只读运行列表） | ✅ 已实现（tool-workflow 事件按 runId 维护集合 + workflowEngine 挂载探测 + 面板定时刷新；dsh-workflow 无查询面走事件面，B3 裁定衔接） |
-| C2 | /agents 面板事件驱动刷新 | ✅ 已实现（评估：宿主无 subagent 状态事件面 → 打开期间每 2s 定时 + 手动 `r` 刷新，tick 自检停表；`agentsRefreshIntervalMs` 可注入） |
-| C2 | markdown 解析器重构范围 | ✅ 已随 Box 重构收口（`wrapBufferLines` 已删、块解析抽出完成，见 `IMPLEMENTATION.md`「渲染管线重构」；`markdown.ts` 现 723 行，未做整体重排——当年判据保留为历史） |
-| C3 | 测试迁移策略 | ✅ 已随 Box 重构收口（主线 A：断言改用 `segments` 结构 + `tests/helpers/rowText.ts` 序列化辅助；当前 TUI 844 单测） |
-| — | 活动区两态触发方式 | ✅ 已裁定并实现：**用户显式命令** `/verbose on\|off`（不做按高度预算自动降级）。状态 2（紧凑）= 每条目 1 行 + 行尾 `…`，`state.activityVerbose` + `buildBox` 单行压缩；`SPEC.md` §6.8、`IMPLEMENTATION.md`「活动区详略两态」 |
-| — | 表格 `minW` 取值策略 | ✅ 已定并实现：`max(3, ⌈自然宽/4⌉)`；压缩改**水位法**（窄列保自然宽、超宽列压到共同水位线），ΣminW 仍放不下才按 minW 比例 + 格内 `…` 截断（`SPEC.md` §3.2、`layout/table.ts`） |
+| B3 | /review 设计裁定 | ✓ 已裁定（C8 复核 dsh-workflow 0.1.5-rc.2：workflowEngine.start 为通用脚本引擎（自备 script/meta/parent: Agent），包内无 review 资产 → 需先建 review 编排资产 → 搁置；裁定见 `COMMANDS-SPEC.md` §3） |
+| B2 | /login·/logout 设计裁定 | ✓ 已裁定（C7 复核 dsh-credentials 0.1.5-rc.2：ctx.credentials 为凭据存取/管理 seam（reference 空间 resolve/describe/set/unset + record 空间 listRecords/describeRecord/modifyRecord/deleteRecord + reference-updated 事件），仍无交互登录流程；/logout 无宿主「登出」概念 → 维持排除；裁定见 `COMMANDS-SPEC.md` §3） |
+| B1 | /clear 设计裁定 | ✓ 已裁定（C6 复核 dsh-session 0.1.5-rc.2：store 公开面无删除/清理 API（`detachEntered`/`store.delete` 为 private teardown）、`dsh-session-query` 仅查询、无 `session/delete` 事件 → 宿主入口仍缺；会话清理已由 `/session` 面板 `d`/`x` + `/session clean` 文件级删除覆盖 → 维持排除；裁定见 `COMMANDS-SPEC.md` §3） |
+| C1 | /jobs 面板 PgUp/PgDn 回补 | ✓ 已实现（jobs-panel-page reducer + index 按键 + footer/helpText 同步，页高=activityH 与共享面板同口径） |
+| P2#24 | /search 网页搜索 | ✓ 已实现（核实 dsh-web 为 provider-selecting 非聚合 → **TUI 侧并行多 provider**（web 派生 + options.searchProviders）合并/URL 去重/query-token 关联度排序；单 provider 失败降级、全败 reject(warn)；Enter 来源 URL） |
+| P2#33 | 声音提醒事件钩子 | ✓ 已实现（Renderer.bell?() → Screen.beep() 写 BEL \\x07；turn-end 任务结束响 + 等待输入超 idleThresholdMs 补响；notify.enabled 开关；经 tui.config.json notify 读取，缺省即可用；不做桌面通知） |
+| P2#18 | /council 二次意见 | ✓ 已实现（核实 ctx.subagents.start（dsh-subagent one-shot）可达 → adapter 并行 N 个 allSettled 汇总 + 失败降级；notice 展示；宿主缺失 warn 不假启动） |
+| P2#16 | /workflows 面板（只读运行列表） | ✓ 已实现（tool-workflow 事件按 runId 维护集合 + workflowEngine 挂载探测 + 面板定时刷新；dsh-workflow 无查询面走事件面，B3 裁定衔接） |
+| C2 | /agents 面板事件驱动刷新 | ✓ 已实现（评估：宿主无 subagent 状态事件面 → 打开期间每 2s 定时 + 手动 `r` 刷新，tick 自检停表；`agentsRefreshIntervalMs` 可注入） |
+| C2 | markdown 解析器重构范围 | ✓ 已随 Box 重构收口（`wrapBufferLines` 已删、块解析抽出完成，见 `IMPLEMENTATION.md`「渲染管线重构」；`markdown.ts` 现 723 行，未做整体重排——当年判据保留为历史） |
+| C3 | 测试迁移策略 | ✓ 已随 Box 重构收口（主线 A：断言改用 `segments` 结构 + `tests/helpers/rowText.ts` 序列化辅助；当前 TUI 844 单测） |
+| — | 活动区两态触发方式 | ✓ 已裁定并实现：**用户显式命令** `/verbose on\|off`（不做按高度预算自动降级）。状态 2（紧凑）= 每条目 1 行 + 行尾 `…`，`state.activityVerbose` + `buildBox` 单行压缩；`SPEC.md` §6.8、`IMPLEMENTATION.md`「活动区详略两态」 |
+| — | 表格 `minW` 取值策略 | ✓ 已定并实现：`max(3, ⌈自然宽/4⌉)`；压缩改**水位法**（窄列保自然宽、超宽列压到共同水位线），ΣminW 仍放不下才按 minW 比例 + 格内 `…` 截断（`SPEC.md` §3.2、`layout/table.ts`） |
 | — | 面板选中/高亮字符 | 候选沿用现状：`>` 高亮、单选 `*`、多选 `+`；SPEC 面板原语只定结构字段，字符待定（`SPEC.md` §7） |
-| — | 启动自动清理空会话 | ✅ 已实现（session.autoCleanEmpty 开关，**缺省开**，tui.config.json 显式 false 关闭；启动 + 优雅退出两个时机：start() 后台全目录扫描空会话复用 /session 判据，deleteSession 串行删除 + notice 汇报；退出时提示与结果渲染到活动区并等待完成再退出；startupCleanableIds 纯函数 + App 集成 7 例） |
+| — | 启动自动清理空会话 | ✓ 已实现（session.autoCleanEmpty 开关，**缺省开**，tui.config.json 显式 false 关闭；启动 + 优雅退出两个时机：start() 后台全目录扫描空会话复用 /session 判据，deleteSession 串行删除 + notice 汇报；退出时提示与结果渲染到活动区并等待完成再退出；startupCleanableIds 纯函数 + App 集成 7 例） |
 
 ## 7. 开放点
 
-- **内容树的测量代价**：✅ 已缓解（折行/宽度纯函数有界缓存 + `charWidth` 码点表，开关 `TUI_LAYOUT_CACHE=0`，见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」；`npm --prefix TUI run bench` 三档报告 off/on 中位耗时与倍数，cold 33×、warm 72×、incremental 70× 量级）。**剩余未做**（本次明确不纳入）：区域级帧输出 memo（状态列/状态栏/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）。
+- **内容树的测量代价**：✓ 已缓解（折行/宽度纯函数有界缓存 + `charWidth` 码点表，开关 `TUI_LAYOUT_CACHE=0`，见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」；`npm --prefix TUI run bench` 三档报告 off/on 中位耗时与倍数，cold 33×、warm 72×、incremental 70× 量级）。**剩余未做**（本次明确不纳入）：区域级帧输出 memo（状态列/状态栏/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）。

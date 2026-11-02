@@ -15,11 +15,11 @@
 
 | 批次 | 内容 | 建立的闭环 | 前置 |
 |------|------|-----------|------|
-| **0** | API 合同门（5 项核实 + 面板接线点普查）✅ 已完成 | 实现前的确定性 | 无 |
+| **0** | API 合同门（5 项核实 + 面板接线点普查）✓ 已完成 | 实现前的确定性 | 无 |
 | 1 | `/stats`、`/rename` | 命令 + notice（零面板；`/rename` 打通宿主服务调用） | 批次 0 中与二者相关的项（无） |
-| 2 | 共享列表面板 + `/skills` ✅ 已完成 | 面板基础设施 + 首个面板命令 | —（批次 0 第 3 项已过门） |
-| 3 | `/agents`、`/tools` ✅ 已完成 | 面板 kind 复制 | —（批次 0 第 1、2 项已过门） |
-| 4 | `/settings`、`/fork` ✅ 已完成 | 只读展示 / 签名收尾 | —（批次 0 第 4、5 项已过门） |
+| 2 | 共享列表面板 + `/skills` ✓ 已完成 | 面板基础设施 + 首个面板命令 | —（批次 0 第 3 项已过门） |
+| 3 | `/agents`、`/tools` ✓ 已完成 | 面板 kind 复制 | —（批次 0 第 1、2 项已过门） |
+| 4 | `/settings`、`/fork` ✓ 已完成 | 只读展示 / 签名收尾 | —（批次 0 第 4、5 项已过门） |
 
 ## 1. 批次 0 · API 合同门
 
@@ -28,11 +28,11 @@
 
 | # | 待核实 | 影响命令 | 结论 |
 |---|--------|---------|-------------|
-| 1 | `subagents.interrupt(targetSessionId, authority)` 的 **`authority` 从何而来**；`list()` 条目是否带可中断 id | `/agents` | ✅ **过门**。`authority` 为联合类型：`{kind:'user', parentSessionId}` 或 `{kind:'ancestor', agent}`（`dsh-subagent/lib/types/types.d.ts:57-63`）——TUI 用前者，`parentSessionId` 取 `state.activeSessionId`（TUI `src/app/state.ts:227`）。条目列表须用 **`listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`**（`lib/types/index.d.ts:201`），条目含 `id`/`activity`/`mode`/`label?`/`hasChildren` 或 `kind:'diagnostic'`+`reason`（`lib/types/control-types.d.ts:30-70`）。**`list(): string[]`（`index.d.ts:283`）返回 provider 名，不是 agent 列表**。备选同步 API `interruptByParent(childSessionId, parentSessionId, 'continuable')`（`index.d.ts:264`） |
-| 2 | `tools.schemas(scope)` 的 **`scope` 来源**；返回结构 | `/tools` | ✅ **过门**。签名 `schemas(scope?: ScopeKey): ToolSchema[]`（`dsh-tools/lib/types/index.d.ts:676`）——**scope 可省略**（`ScopeKey = object`，`dsh-scope/lib/types/index.d.ts:11`）；省略即全局视图：`peek(undefined)→undefined`、`chainLayers(undefined)→[]`（`dsh-scope/lib/index.js:151-167`），`view()` 走 `this.layers.global.tools` 全量可见（`dsh-tools/lib/index.js:2854-2880`）。返回 `{name, description, parameters}`（`index.js:2934` 起）。`get(name, scope?)` 同可省略（`index.d.ts:655`） |
-| 3 | `skills.get(candidate)` 的 **`candidate` 形态**；`skills.list()` 条目结构 | `/skills` | ✅ **过门（服务层不接触 candidate）**。`ctx.skills.get(name: string, options?)` → `SkillDefinition \| undefined`（`dsh-skill/lib/types/index.d.ts:286`），`list(options?)` → `SkillSummary[]`（`index.d.ts:268`）——服务层用 **skill 名字符串**。`SkillCandidate`（含 `rank`/`locator`）仅存在于 provider 层（`index.d.ts:61-70`、provider 声明 `:187`）。`SkillSummary` = `name`/`description`/`whenToUse?`/`invocation`/`source`/`provider`/`resourceBase?`（`index.d.ts:44-59`）；`SkillDefinition` 另含 `content` 正文 |
-| 4 | `settings.get(ns)` 的 **`ns` 枚举方式**；`options` 形态 | `/settings` | ✅ **过门**。服务面 `ctx.settings: SettingsProvider`（`dsh-settings/lib/types/index.d.ts:111-114`）。**枚举方式 = `describe(options?)` → `SettingsDescriptor[]`**（`index.d.ts:236`），描述符含 `ns`/`schema`/`value`/`revision`/`base?`/`user?`/`applies`/`secrets?`（`:50-73`）——一次调用即得 ns + 当前值。单读 `get(ns)` → `unknown`（`:243`）。注意 `describe` 的 `redactSecrets` 选项（`:75+`）：同进程 UI 可省略，但 `role('secret')` 字段不应明文展示 |
-| 5 | `sessions.fork(source, boundary, childSessionId)` 的 **`boundary` / `childSessionId` 可省性与语义**；返回结构 | `/fork` | ✅ **过门**。签名 `fork(source: Session \| SessionId, boundary?: SessionSeq, childSessionId?: SessionId): Session`（`dsh-session/lib/types/index.d.ts:439`）——**后两参皆可省略**：省略 `boundary` = 源会话**当前最后事件**（`:431-433`），省略 `childSessionId` = `SessionStore` 的 id 策略；`source` 可为 id 字符串（`SessionForkSource = Session \| SessionId`，`:294-295`）。**同步返回 live Session 对象**。约束：切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码全量 `SessionForkErrorCode`（`:304`）：`SESSION_NOT_FOUND`/`SESSION_NOT_LIVE`/`SESSION_ALREADY_EXISTS`/`INVALID_BOUNDARY`/`OPEN_TURN`（`:296-305`） |
+| 1 | `subagents.interrupt(targetSessionId, authority)` 的 **`authority` 从何而来**；`list()` 条目是否带可中断 id | `/agents` | ✓ **过门**。`authority` 为联合类型：`{kind:'user', parentSessionId}` 或 `{kind:'ancestor', agent}`（`dsh-subagent/lib/types/types.d.ts:57-63`）——TUI 用前者，`parentSessionId` 取 `state.activeSessionId`（TUI `src/app/state.ts:227`）。条目列表须用 **`listChildren(parentSessionId, signal?)` → `SubagentListEntry[]`**（`lib/types/index.d.ts:201`），条目含 `id`/`activity`/`mode`/`label?`/`hasChildren` 或 `kind:'diagnostic'`+`reason`（`lib/types/control-types.d.ts:30-70`）。**`list(): string[]`（`index.d.ts:283`）返回 provider 名，不是 agent 列表**。备选同步 API `interruptByParent(childSessionId, parentSessionId, 'continuable')`（`index.d.ts:264`） |
+| 2 | `tools.schemas(scope)` 的 **`scope` 来源**；返回结构 | `/tools` | ✓ **过门**。签名 `schemas(scope?: ScopeKey): ToolSchema[]`（`dsh-tools/lib/types/index.d.ts:676`）——**scope 可省略**（`ScopeKey = object`，`dsh-scope/lib/types/index.d.ts:11`）；省略即全局视图：`peek(undefined)→undefined`、`chainLayers(undefined)→[]`（`dsh-scope/lib/index.js:151-167`），`view()` 走 `this.layers.global.tools` 全量可见（`dsh-tools/lib/index.js:2854-2880`）。返回 `{name, description, parameters}`（`index.js:2934` 起）。`get(name, scope?)` 同可省略（`index.d.ts:655`） |
+| 3 | `skills.get(candidate)` 的 **`candidate` 形态**；`skills.list()` 条目结构 | `/skills` | ✓ **过门（服务层不接触 candidate）**。`ctx.skills.get(name: string, options?)` → `SkillDefinition \| undefined`（`dsh-skill/lib/types/index.d.ts:286`），`list(options?)` → `SkillSummary[]`（`index.d.ts:268`）——服务层用 **skill 名字符串**。`SkillCandidate`（含 `rank`/`locator`）仅存在于 provider 层（`index.d.ts:61-70`、provider 声明 `:187`）。`SkillSummary` = `name`/`description`/`whenToUse?`/`invocation`/`source`/`provider`/`resourceBase?`（`index.d.ts:44-59`）；`SkillDefinition` 另含 `content` 正文 |
+| 4 | `settings.get(ns)` 的 **`ns` 枚举方式**；`options` 形态 | `/settings` | ✓ **过门**。服务面 `ctx.settings: SettingsProvider`（`dsh-settings/lib/types/index.d.ts:111-114`）。**枚举方式 = `describe(options?)` → `SettingsDescriptor[]`**（`index.d.ts:236`），描述符含 `ns`/`schema`/`value`/`revision`/`base?`/`user?`/`applies`/`secrets?`（`:50-73`）——一次调用即得 ns + 当前值。单读 `get(ns)` → `unknown`（`:243`）。注意 `describe` 的 `redactSecrets` 选项（`:75+`）：同进程 UI 可省略，但 `role('secret')` 字段不应明文展示 |
+| 5 | `sessions.fork(source, boundary, childSessionId)` 的 **`boundary` / `childSessionId` 可省性与语义**；返回结构 | `/fork` | ✓ **过门**。签名 `fork(source: Session \| SessionId, boundary?: SessionSeq, childSessionId?: SessionId): Session`（`dsh-session/lib/types/index.d.ts:439`）——**后两参皆可省略**：省略 `boundary` = 源会话**当前最后事件**（`:431-433`），省略 `childSessionId` = `SessionStore` 的 id 策略；`source` 可为 id 字符串（`SessionForkSource = Session \| SessionId`，`:294-295`）。**同步返回 live Session 对象**。约束：切片可止于 turn 间事件，**不可落在未闭合 turn 内**；错误码全量 `SessionForkErrorCode`（`:304`）：`SESSION_NOT_FOUND`/`SESSION_NOT_LIVE`/`SESSION_ALREADY_EXISTS`/`INVALID_BOUNDARY`/`OPEN_TURN`（`:296-305`） |
 
 **未过门的处置**：任何一项若核实结果为「必须提供 TUI 侧无法获得的参数」或「需宿主侧改动」，则该命令移入 §7 不在范围，不进入实现批次。
 
@@ -152,7 +152,7 @@ npm --prefix TUI run demo -- --smoke   # 帧断言 SMOKE_PASS 36/36
 
 ## 7. 不在范围
 
-> 状态说明（2026-09-20）：本表为**批次 0-4 实现期快照**。其后原列「需插件改造 / 包改动」的 5 项已完成插件改造并落地：`/task` `/guard` `/memory` `/loop` `/contract`（A1-A5，提交链 `c31f4ec`→`ec94879`→`1bd761b`→`3ccd8f0`→`b17f13c`→`c39359a`）——最新状态以 `COMMANDS-SPEC.md` §3 为准（均已标 ✅ 已实现）。本表下方 `/clear`、`/login`·`/logout`、`/review` 三条裁定维持排除/搁置不变；`/settings` 写回与宿主命令插件包等其他不做项不变。
+> 状态说明（2026-09-20）：本表为**批次 0-4 实现期快照**。其后原列「需插件改造 / 包改动」的 5 项已完成插件改造并落地：`/task` `/guard` `/memory` `/loop` `/contract`（A1-A5，提交链 `c31f4ec`→`ec94879`→`1bd761b`→`3ccd8f0`→`b17f13c`→`c39359a`）——最新状态以 `COMMANDS-SPEC.md` §3 为准（均已标 ✓ 已实现）。本表下方 `/clear`、`/login`·`/logout`、`/review` 三条裁定维持排除/搁置不变；`/settings` 写回与宿主命令插件包等其他不做项不变。
 
 | 命令 | 原因 |
 |------|------|
@@ -180,7 +180,7 @@ npm --prefix TUI run demo -- --smoke   # 帧断言 SMOKE_PASS 36/36
 
 | # | 问题 | 备注 |
 |---|------|------|
-| 1 | 批次 0 五项结论 | ✅ 已核实、全部过门（§1 表，附源码文件:行）；无命令移出范围 |
+| 1 | 批次 0 五项结论 | ✓ 已核实、全部过门（§1 表，附源码文件:行）；无命令移出范围 |
 | 2 | PgUp/PgDn 是否回头补给既有 `/jobs` 面板 | 共享面板新增能力，统一体验则后续补 |
 | 3 | `commandPanel` 的 kind 扩张 | 插件改造完成后 `/memory` `/task` 等是否并入同一判别联合（倾向并入） |
 | 4 | `/agents` 是否需要事件驱动刷新 | 本轮打开时拉取；若状态变化频繁再接 `subagent/*` 事件（事件面已接） |
