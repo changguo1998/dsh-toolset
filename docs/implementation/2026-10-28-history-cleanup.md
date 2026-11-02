@@ -358,7 +358,7 @@ TUI 一个包占了前四名与 `TUI/src/main.ts` 一处, 单文件 6601 行的 
 
 #### 3.1 变更流程
 
-标准流程由 `AGENTS.md` 与 `docs/WORKFLOW-STANDARD.md` 规定:开工前必须在对应层 `BACKLOG.md` 有可执行条目, 条目写法固定为 `**#n 标题**〔状态: 日期〕（登记日）：现象 → 期望 → 优先级 → 来源`, 编号仅供阅读且每次整理从 1 重排;开工时把接取条目改「进行中」并建 `docs/implementation/<YYYY-MM-DD>-<slug>.md`, 文件头列全部接取条目、先写「计划改动文件清单」;过程中只改清单内文件, 计划外一律不碰;完成时条目标「完成」并从 BACKLOG 移除、追踪文档移入 `archived/`。流程还在四处阻塞询问是否提交:决策后 (仅文档)、代码实现后 (先 `npm run check` + `npm run build` 再提交代码)、测试通过且人工确认后 (代码 + 用例)、关闭后 (剩余全部, 且是本次最后一次提交)。
+标准流程由 `AGENTS.md` 与 `docs/WORKFLOW-STANDARD.md` 规定:开工前必须在对应层 `BACKLOG.md` 有可执行条目, 条目写法固定为 `**#n 标题**〔状态: 日期〕（登记日）：现象 → 期望 → 优先级 → 来源`, 编号仅供阅读且每次整理从 1 重排;开工时把接取条目改「进行中」并建 `docs/implementation/<YYYY-MM-DD>-<slug>.md`, 文件头列全部接取条目、先写「计划改动文件清单」;过程中只改清单内文件, 计划外一律不碰;完成时条目标「完成」并从 BACKLOG 移除、追踪文档移入 `archived/`。流程还在四处阻塞询问是否提交:决策后 (仅文档)、代码实现后 (先 `pnpm run check` + `pnpm run build` 再提交代码)、测试通过且人工确认后 (代码 + 用例)、关闭后 (剩余全部, 且是本次最后一次提交)。
 
 `docs/WORKFLOW-FAST.md` 管小改动:入口不设硬阈值但 agent 判定后必须先问用户, 提交前用 `git diff --numstat` 复核「文件 ≤ 3 且增删合计 ≤ 50 行」, 不达标须三选一 (转标准流程 / 维持快速流程 / 停手);免 BACKLOG 条目与追踪文档, 唯一记录是 commit message;验证按类型分, 文档类 `format` + 自查 diff, 代码类 `check` + `build` + `test`;同一任务只走一条流程且可升不可降。
 
@@ -368,7 +368,7 @@ TUI 一个包占了前四名与 `TUI/src/main.ts` 一处, 单文件 6601 行的 
 
 #### 3.3 类型与构建
 
-34 个 `tsconfig.json` 同构:`target` 与 `lib` 为 ES2022, `module` 与 `moduleResolution` 为 NodeNext, 打开 `strict`、`noUncheckedIndexedAccess`、`skipLibCheck`、`esModuleInterop`、`forceConsistentCasingInFileNames`、`declaration`、`sourceMap`、`rewriteRelativeImportExtensions`、`verbatimModuleSyntax`, `rootDir` 为 `.`、`outDir` 为 `dist`, `include` 覆盖 `src` / `tests` / `examples`。每包三个脚本固定:`build` 是 `tsc -p tsconfig.json`、`check` 是同一命令加 `--noEmit`、`test` 是 `node --experimental-transform-types --test 'tests/*.test.ts'`;根 `package.json` 用 `npm --prefix` 把 34 个包串成 `check` / `build` 两条链, `test` 走 `scripts/test-parallel.sh` 并行跑单包。`engines` 也是统一的 `node >= 22.19.0` (34/34)。这套口径能挡住类型错误, 但挡不住未使用符号:8 个包的 `tsconfig.json` 里还留着 `"exclude": ["tests/clock.test.ts"]`, 而那个文件在这些包里并不存在, 属复制遗留, 没有任何检查会发现它。
+34 个 `tsconfig.json` 同构:`target` 与 `lib` 为 ES2022, `module` 与 `moduleResolution` 为 NodeNext, 打开 `strict`、`noUncheckedIndexedAccess`、`skipLibCheck`、`esModuleInterop`、`forceConsistentCasingInFileNames`、`declaration`、`sourceMap`、`rewriteRelativeImportExtensions`、`verbatimModuleSyntax`, `rootDir` 为 `.`、`outDir` 为 `dist`, `include` 覆盖 `src` / `tests` / `examples`。每包三个脚本固定:`build` 是 `tsc -p tsconfig.json`、`check` 是同一命令加 `--noEmit`、`test` 是 `node --experimental-transform-types --test 'tests/*.test.ts'`;根 `package.json` 用 `pnpm -C` 把 34 个包串成 `check` / `build` 两条链, `test` 走 `scripts/test-parallel.sh` 并行跑单包。`engines` 也是统一的 `node >= 22.19.0` (34/34)。这套口径能挡住类型错误, 但挡不住未使用符号:8 个包的 `tsconfig.json` 里还留着 `"exclude": ["tests/clock.test.ts"]`, 而那个文件在这些包里并不存在, 属复制遗留, 没有任何检查会发现它。
 
 #### 3.4 格式化
 
@@ -402,7 +402,7 @@ Diátaxis 按用户需求把文档分四象限:tutorial 面向学习、how-to �
 
 #### 4.4 版本与提交
 
-SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、PATCH 为修复, `0.y.z` 阶段不承诺稳定, 已发布的版本内容不可再改([SemVer](https://semver.org/))。Conventional Commits 1.0.0 规定提交结构为 `type(scope)!: description` 加可选 body 与 footer, 并给出与 SemVer 的对应:`fix` 对应 PATCH、`feat` 对应 MINOR、`BREAKING CHANGE` footer 或 `!` 对应 MAJOR, footer 的 token 用 `-` 代替空格([Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/))。本仓提交已经按这套写, 但 34 个包的版本号统一停在 `0.1.0`, 没有推进规则。多包场景的版本由 changesets 这类工具承担:每次改动写一个 changeset 文件声明受影响包与 bump 级别, 发布时统一改版本、写 CHANGELOG、联动内部依赖;多包策略分 independent(各自版本)、fixed(同组同版本同发)、linked(联动 bump 但保留各自版本号)三种([changesets](https://github.com/changesets/changesets)、[Fixed Packages](https://changesets.dev/guide/fixed-packages)、[Linked Packages](https://changesets.dev/guide/linked-packages))。npm workspaces 是另一条路:根 `workspaces` 字段把子包软链进根 `node_modules`, 一次 install, 用 `-w` 指定包跑脚本, 代价是包间依赖必须显式声明([npm workspaces](https://docs.npmjs.com/cli/v10/using-npm/workspaces));本仓用的是「根脚本逐个 `npm --prefix` 委托」, 与 workspaces 不是同一套机制。本仓现状:无发布流程, 包间依赖走宿主 profile。
+SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、PATCH 为修复, `0.y.z` 阶段不承诺稳定, 已发布的版本内容不可再改([SemVer](https://semver.org/))。Conventional Commits 1.0.0 规定提交结构为 `type(scope)!: description` 加可选 body 与 footer, 并给出与 SemVer 的对应:`fix` 对应 PATCH、`feat` 对应 MINOR、`BREAKING CHANGE` footer 或 `!` 对应 MAJOR, footer 的 token 用 `-` 代替空格([Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/))。本仓提交已经按这套写, 但 34 个包的版本号统一停在 `0.1.0`, 没有推进规则。多包场景的版本由 changesets 这类工具承担:每次改动写一个 changeset 文件声明受影响包与 bump 级别, 发布时统一改版本、写 CHANGELOG、联动内部依赖;多包策略分 independent(各自版本)、fixed(同组同版本同发)、linked(联动 bump 但保留各自版本号)三种([changesets](https://github.com/changesets/changesets)、[Fixed Packages](https://changesets.dev/guide/fixed-packages)、[Linked Packages](https://changesets.dev/guide/linked-packages))。npm workspaces 是另一条路:根 `workspaces` 字段把子包软链进根 `node_modules`, 一次 install, 用 `-w` 指定包跑脚本, 代价是包间依赖必须显式声明([npm workspaces](https://docs.npmjs.com/cli/v10/using-npm/workspaces));本仓用的是「根脚本逐个 `pnpm -C` 委托」, 与 workspaces 不是同一套机制。本仓现状:无发布流程, 包间依赖走宿主 profile。
 
 #### 4.5 仓库卫生与自动化
 
@@ -422,7 +422,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 | 文档组织 | 分层 README / DESIGN / BACKLOG / 追踪文档 | Diátaxis 四象限 + ADR | 缺 tutorial, 决策未独立成 ADR |
 | 提交 | Conventional Commits | 同名规范 | 已对齐 |
 | 版本 | 34 包统一 0.1.0 | SemVer + changesets | 无发布流程, 暂不适用 |
-| 依赖与脚本 | 根脚本逐个 `npm --prefix` 委托 | npm workspaces | 依赖走宿主 profile, 暂不适用 |
+| 依赖与脚本 | 根脚本逐个 `pnpm -C` 委托 | npm workspaces | 依赖走宿主 profile, 暂不适用 |
 | 门禁 | `tsc --noEmit` + `node --test` | CI 拆 job + husky / lint-staged | 无 CI, 无钩子 |
 
 对齐得比较好的有三处:提交信息已按 Conventional Commits 写;类型基线(strict + noUncheckedIndexedAccess)与行业建议一致;文档分层与 Diátaxis 的 reference / explanation / how-to 三象限近似, 只差 tutorial 与独立决策记录。

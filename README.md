@@ -4,11 +4,11 @@ English | [中文](README.zh.md)
 
 An in-process plugin toolset for DSH (DeepSeek Harness): a set of TypeScript plugins mounted into the DSH session process as cordis bundles, filling in capabilities such as task trees, a knowledge base with persistent memory, goal contracts, and metric loops. It also ships a homegrown terminal UI (TUI) — a third way to interact with DSH alongside the Web UI and the CLI.
 
-For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference; last clause-by-clause review against `dsh-v0.1.7-rc.2`, and the `0.2.0-rc.2` / `0.2.1-rc.2` comparisons found no change on the surfaces this project consumes — see `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`).
+For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference; last clause-by-clause review against `dsh-v0.1.7-rc.2`, and the `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` comparisons found no change on the surfaces this project consumes — see `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` (previous: `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`).
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 32 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 33 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -100,15 +100,15 @@ dsh-toolset/
 The repository root `package.json` delegates to all subpackages:
 
 ```sh
-npm run check   # type-check all subpackages (tsc --noEmit)
-npm run build   # compile all subpackages to dist/
-npm run test    # run all subpackage tests in parallel (scripts/test-parallel.sh)
-npm run demo    # build the TUI and run the mock demo (no DSH dependency)
-npm run demo -- --smoke   # TUI smoke check (frame assertion SMOKE_PASS)
-npm run test:tui          # TUI single-package test shortcut (name regex / file-name filters)
+pnpm run check   # type-check all subpackages (tsc --noEmit)
+pnpm run build   # compile all subpackages to dist/
+pnpm run test    # run all subpackage tests in parallel (scripts/test-parallel.sh)
+pnpm run demo    # build the TUI and run the mock demo (no DSH dependency)
+pnpm run demo -- --smoke   # TUI smoke check (frame assertion SMOKE_PASS)
+pnpm run test:tui          # TUI single-package test shortcut (name regex / file-name filters)
 ```
 
-Inside a single subpackage you can run its own `npm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `AGENTS.md`.
+Inside a single subpackage you can run its own `pnpm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `AGENTS.md`.
 
 ## Wiring into a DSH profile
 
@@ -125,7 +125,7 @@ One run produces **two** profiles that differ only in how plugins are linked:
 | profile | dependency | picks up repo changes | use |
 | --- | --- | --- | --- |
 | `fff` (main) | `file:` snapshot | no; rerun `scripts/install.sh --profile fff --sync` | running sessions, acceptance runs |
-| `fff-test` | `link:` symlink | immediately after `npm run build` | live development in a new window |
+| `fff-test` | `link:` symlink | immediately after `pnpm run build` | live development in a new window |
 
 The main profile is installed as a real copy: pnpm would hard-link `file:` directory dependencies, so the script copies each plugin once more to break those links (in-place rewrites in the repository, e.g. `tsc` output, would otherwise leak into the profile through the shared inode). Refreshing it works because the script drops pnpm's "already up to date" markers before installing — pnpm does not track the content of `file:` directories (measured). The companion profile reuses the main profile's finished `dsh.profile.bundles`, `cordis.patch.yml` and `pnpm-workspace.yaml` byte for byte, with dependency values rewritten to `link:`. `--no-test-profile` installs the main profile only, `--profile-test <name>` renames the companion, and `--mode link` makes the main profile symlink-based too.
 
@@ -162,9 +162,10 @@ Two change flows: `docs/WORKFLOW-STANDARD.md` (standard) and `docs/WORKFLOW-FAST
 - `docs/ROADMAP.md` — future development directions and completion criteria (progress, schedule and items live in `docs/BACKLOG.md` §3 milestones).
 - `docs/BACKLOG.md` — actionable items: cross-package features and defects (P0/P1/P2) + milestones + plugin roadmap.
 - `docs/STATUS.md` — reference document recording what has been implemented (updated by maintainers as needed).
-- `docs/ARCHITECTURE-REUSE.md` — reuse audit covering all 31 packages (TUI + 30 plugins; verdicts: 0 reuse / 22 keep / 9 coexist): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
+- `docs/ARCHITECTURE-REUSE.md` — reuse audit snapshot of 31 packages (TUI + 30 plugins, 2026-10-22; `coagent` / `tool-consult` / `escalation-hint` not audited; verdicts: 0 reuse / 22 keep / 9 coexist): whether an official equivalent exists, plus the "reuse / keep / coexist" verdict and its reasons.
 - `docs/WORKFLOW-STANDARD.md` — content change policy · standard flow (full version).
 - `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
+- `docs/GLOSSARY.md` — terminology: choices and replacement tables (packages / plugins, tracking documents, symbols, UI names).
 - `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).
 
 **Host surface (`docs/host/`, outside the change process — always re-check after a host upgrade)**
@@ -173,14 +174,14 @@ The home for official interface study notes and upgrade documents — **not limi
 
 - `docs/host/DSH-CTX-API.md` — host ctx interface study notes (cross-plugin contract, read-only reference).
 - `docs/host/HOST-PACKAGES.md` — dictionary of official host packages and services (generated; regenerate after a host upgrade).
-- `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` — current upgrade comparison (0.2.0-rc.2 → 0.2.1-rc.2) and implementation status; the previous one is `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` (0.1.7-rc.2 → 0.2.0-rc.2).
+- `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` — current upgrade comparison (0.2.1-rc.2 → 0.2.1-rc.3) and implementation status; the previous one is `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` (0.2.0-rc.2 → 0.2.1-rc.2).
 - `docs/host/AGENT-COMPOSITION.md` — current agent-side composition and its official basis (the TUI uses profile-wide composition, with no preset).
 - `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — official agent architecture and interface comparison (the design basis for task-engine and memory-base).
 
 **Module-level (`TUI/docs/`, `<package>/docs/`)**
 
 - `TUI/README.md`, `<package>/README.md` — module entry points: usage, configuration, contracts, boundaries.
-- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`, `preference-analysis`, `agent-group`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
+- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`, `preference-analysis`, `agent-group`, `coagent`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
 - `TUI/docs/SPEC.md` — rendering pipeline spec; `TUI/docs/COMMANDS.md`, `TUI/docs/COMMANDS-SPEC.md` — command inventory and extension spec.
 - `TUI/docs/design/` — TUI-internal conventions: `NOTICE-LEVELS.md` (notice levels), `AUDIT-colors.md` (color semantics), `REFACTOR.md` (module split conventions).
 - `<module>/docs/BACKLOG.md` — module backlog (one per module where work is pending); `<module>/docs/STATUS.md` — module-level reference document (TUI has one).

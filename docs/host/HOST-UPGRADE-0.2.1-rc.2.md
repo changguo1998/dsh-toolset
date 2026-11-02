@@ -103,6 +103,6 @@
 
 1. 用户裁定是否升级基线至 `0.2.1-rc.2`。
 2. 若升级：`scripts/install.sh` 默认版本与主要版本引用 `0.2.0-rc.2 → 0.2.1-rc.2`；按 `HOST-PACKAGES.md` 自身流程复核实挂行；对本仓全量跑 `npm run check` + `npm run test`；按上表 #3/#8/#12/#13 逐项复核。
-3. 结论注记写入本文件与追踪文档 `docs/implementation/2026-10-19-dsh-update-check.md`。
+3. 结论注记写入本文件与追踪文档 `docs/archived/2026-10-19-dsh-update-check.md`。
 
 > 复核时间戳：2026-10-20（主会话，条目「检查官方 deepseek-harness 更新」）；上述「本仓直接消费」为对 `TUI` / `timer` / `agent-group` / `background-daemon` / `script-interpreter` / `memory-base` / `session-channel` / `rule-engine` / `code-map` 等包的源码 grep 结论，非全量 29 包逐一核验——升级前应全量复扫。

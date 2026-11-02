@@ -4,7 +4,7 @@
 
 DSH（DeepSeek Harness）进程内集成插件工具集：以 cordis bundle 方式挂载进 DSH 会话进程的一组 TypeScript 插件，补齐任务树、知识库与记忆、目标契约、指标循环等能力；另含一套自研终端 UI（TUI），是 Web UI / CLI 之外的第三种交互方式。
 
-面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考；最近一次逐条复核基于 `dsh-v0.1.7-rc.2`，`0.2.0-rc.2` / `0.2.1-rc.2` 对照确认本项目消费面无变化，见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）。
+面向 agent 的协作规范见根目录 `AGENTS.md`；跨插件共享的 DSH 契约研读笔记见 `docs/host/DSH-CTX-API.md`（只读参考；最近一次逐条复核基于 `dsh-v0.1.7-rc.2`，`0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` 对照确认本项目消费面无变化，见 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md`（上一份 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`））。
 
 ## 组成
 
@@ -100,15 +100,15 @@ dsh-toolset/
 仓库根 `package.json` 委托全部子包：
 
 ```sh
-npm run check   # 全部子包类型检查（tsc --noEmit）
-npm run build   # 全部子包编译到 dist/
-npm run test    # 全部子包测试并行运行（scripts/test-parallel.sh）
-npm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
-npm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
-npm run test:tui          # TUI 单包测试快捷入口（可接名字正则/文件名过滤）
+pnpm run check   # 全部子包类型检查（tsc --noEmit）
+pnpm run build   # 全部子包编译到 dist/
+pnpm run test    # 全部子包测试并行运行（scripts/test-parallel.sh）
+pnpm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
+pnpm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
+pnpm run test:tui          # TUI 单包测试快捷入口（可接名字正则/文件名过滤）
 ```
 
-单个子包内直接运行各自的 `npm run check / build / test / demo`（TUI 另有 `bench`、`smoke:pty`）。命令细节、并行调度参数与过滤用法见 `AGENTS.md`。
+单个子包内直接运行各自的 `pnpm run check / build / test / demo`（TUI 另有 `bench`、`smoke:pty`）。命令细节、并行调度参数与过滤用法见 `AGENTS.md`。
 
 ## 接入 DSH profile 使用
 
@@ -125,7 +125,7 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 | profile | 依赖 | 是否跟仓库改动 | 用途 |
 | --- | --- | --- | --- |
 | `fff`（主） | `file:` 快照 | 不跟；重跑 `scripts/install.sh --profile fff --sync` 才刷新 | 正在跑的会话 / 验收 |
-| `fff-test` | `link:` 符号链接 | `npm run build` 后立即生效 | 新窗口实时开发 |
+| `fff-test` | `link:` 符号链接 | `pnpm run build` 后立即生效 | 新窗口实时开发 |
 
 主 profile 是真实副本：pnpm 对 `file:` 目录依赖默认用硬链接，脚本会再整包复制一次断开这些链接（否则仓库里的原地改写——如 `tsc` 输出——会顺着同一个 inode 串到 profile）。刷新靠脚本在安装前删掉 pnpm 的「已是最新」标记（pnpm 不跟踪 `file:` 目录的内容变化，已实测）。伴随 profile 直接复用主 profile 的成品 `dsh.profile.bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml`（逐字节相同），只把依赖值改成 `link:`。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
 
@@ -162,9 +162,10 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 - `docs/ROADMAP.md` — 未来开发方向与完成判据（进度、排期与条目见 `docs/BACKLOG.md` §3 里程碑）。
 - `docs/BACKLOG.md` — 可执行条目：跨包功能与缺陷（P0/P1/P2）+ 里程碑 + 插件规划。
 - `docs/STATUS.md` — 对照文档：记录已实现的内容（由维护者择时更新）。
-- `docs/ARCHITECTURE-REUSE.md` — 复用审计（覆盖全部 31 个包 = TUI + 30 插件；结论分布改用 0 / 保留 22 / 并存 9）：「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
+- `docs/ARCHITECTURE-REUSE.md` — 复用审计（31 包快照 = TUI + 30 插件，2026-10-22；`coagent` / `tool-consult` / `escalation-hint` 3 包未审；结论分布改用 0 / 保留 22 / 并存 9）：「官方是否有等价物」与「改用 / 保留 / 并存」结论及理由。
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
+- `docs/GLOSSARY.md` — 术语表：术语选择与替换表（包 / 插件、追踪文档、符号、界面名等）。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
 
 **宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**
@@ -173,14 +174,14 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 
 - `docs/host/DSH-CTX-API.md` — 宿主 ctx 接口研读笔记（跨插件契约，只读参考）。
 - `docs/host/HOST-PACKAGES.md` — 宿主官方包与服务字典（生成物，升宿主后重新生成）。
-- `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` — 当前升级对照（0.2.0-rc.2 → 0.2.1-rc.2）与实施状态；上一份 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`（0.1.7-rc.2 → 0.2.0-rc.2）。
+- `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` — 当前升级对照（0.2.1-rc.2 → 0.2.1-rc.3）与实施状态；上一份 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`（0.2.0-rc.2 → 0.2.1-rc.2）。
 - `docs/host/AGENT-COMPOSITION.md` — agent 面组合现状与官方依据（TUI 走 profile 全局组合、不配 preset）。
 - `docs/host/AGENT-ARCHITECTURE-ANALOGY.md` — 官方 agent 架构与接口对照（task-engine、memory-base 的设计依据）。
 
 **模块级（`TUI/docs/`、`<包>/docs/`）**
 
 - `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
-- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`memory-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`ponytail`、`command-template`、`md-logic`、`md-map`、`preference-analysis`、`agent-group` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
+- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`memory-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`ponytail`、`command-template`、`md-logic`、`md-map`、`preference-analysis`、`agent-group`、`coagent` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
 - `<模块>/docs/BACKLOG.md` — 模块待办（有未完成项的模块各一份）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。
