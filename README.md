@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 An in-process plugin toolset for DSH (DeepSeek Harness): a set of TypeScript plugins mounted into the DSH session process as cordis bundles, filling in capabilities such as task trees, a knowledge base with persistent memory, goal contracts, and metric loops. It also ships a homegrown terminal UI (TUI) — a third way to interact with DSH alongside the Web UI and the CLI.
 
-For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference; last clause-by-clause review against `dsh-v0.1.7-rc.2`, and the `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` comparisons found no change on the surfaces this project consumes — see `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` (previous: `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`).
+For agent-facing collaboration rules, see `AGENTS.md` in the repository root. For DSH contract notes shared across plugins, see `docs/host/DSH-CTX-API.md` (read-only reference; last clause-by-clause review against `dsh-v0.1.7-rc.2`, and the `0.2.0-rc.2` / `0.2.1-rc.2` / `0.2.1-rc.3` comparisons found no change on the surfaces this project consumes — see `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` (previous: `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`)).
 
 ## Composition
 
