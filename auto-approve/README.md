@@ -269,7 +269,7 @@ pnpm -C auto-approve run build
 单测覆盖：裁定矩阵（含优先级与缺参数降级）、指纹（容量 / 会话隔离 / 拒绝不入集）、升级白名单两维
 （含 `justification` 不参与）、LLM 决策矩阵与失败兜底、名单优先于模型（零请求）、审计双写与
 16 MiB 截断、命令面全部子命令、契约与三处接线、R3 反向验证（代码里没有 guard 调用）；
-学习层另有 34 例（`tests/learn.test.ts` + `tests/config.test.ts`）：切段 / 切 token / 抹值、段覆盖、
+学习层另有 43 例（`tests/learn.test.ts` + `tests/config.test.ts`）：切段 / 切 token / 抹值、段覆盖、
 A / B 两层、审阅与合并窗口、回填与截断、自记集合容量与 TTL、`learn` 命令面、形态层与精确层的优先级、
 学习配置键的缺省与非法回落。
 

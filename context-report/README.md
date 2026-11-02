@@ -101,7 +101,7 @@ bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` /
 ```sh
 pnpm run check   # 类型检查（tsc --noEmit，strict）
 pnpm run build   # 编译到 dist/
-pnpm run test    # node --test（41 例：fold / report / main）
+pnpm run test    # node --test（51 例：fold / report / main）
 ```
 
 单测全部用构造事件与假宿主 ctx（仿宿主投影注册表的按会话缓存语义）驱动，不依赖 dsh 运行时与文件系统。

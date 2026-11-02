@@ -103,5 +103,5 @@ steps:
 ```sh
 pnpm run check   # tsc --noEmit
 pnpm run build   # tsc → dist/
-pnpm run test    # node --test（27 例：解析 / 参数 / 双源 / 步骤与预算 / 服务与命令注册 / 子代理面）
+pnpm run test    # node --test（48 例：解析 / 参数 / 双源 / 步骤与预算 / 服务与命令注册 / 子代理面）
 ```

@@ -92,7 +92,7 @@ pnpm run smoke   # dsh headless 连跑三轮，断言跨进程状态与 plateau 
 ```sh
 pnpm run check   # 类型检查（tsc --noEmit，strict）
 pnpm run build   # 编译到 dist/
-pnpm run test    # node --test（45 例：engine / persist / controller，注入时钟与测量）
+pnpm run test    # node --test（56 例：engine / persist / controller / measure，注入时钟与测量）
 pnpm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 

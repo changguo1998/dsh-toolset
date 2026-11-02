@@ -19,7 +19,7 @@
 ## 结构
 
 ```text
-main.ts       插件入口：name / inject / provide / Config / apply
+index.ts       插件入口：name / inject / provide / Config / apply
               ├─ ctx.on('session/event') → engine.handle(session, event)
               ├─ ctx.on('tools/pre-execute') → engine.guardTool(exec)（deny 或 next()）
               ├─ ctx.tools.register(...) ← tools.ts（缺 tools 时降级告警）
@@ -27,14 +27,19 @@ main.ts       插件入口：name / inject / provide / Config / apply
 engine.ts     编排：事件分流 → 回合正文聚合 → 匹配 → 节流去重 → 交付注入器
               + 节点派发：规则命中 + 消费者唤醒（按注册的 sources）→ 逐段闸门 → 按 delivery 合并写入
               + guard 汇总：guardTool(exec) 按注册顺序串行 await 消费者的 guard → 任一 deny 胜出
-              ├─ match.ts    纯匹配：keyword / regex / 内置谓词 + 消息文本抽取
-              ├─ rules.ts    规则归一化 + 两层合并（config 基线 + runtime 层）
-              └─ persist.ts  运行时层落盘（{version, state} + tmp/rename 原子写）
+              ├─ evaluation.ts  规则求值：编译生效规则集 → 匹配 / 冷却 / 记录去重，产出待注入段
+              ├─ consumers.ts   消费者调度：注册归一、会话事件唤醒与对齐账本、guard 汇总
+              ├─ delivery.ts    上下文注入：逐段闸门 → 按 delivery 分组 → 合并成一条
+              ├─ engine-state.ts 引擎共享形状与会话内存态
+              ├─ match.ts       纯匹配：keyword / regex / 内置谓词 + 消息文本抽取
+              ├─ rules.ts       规则归一化 + 两层合并（config 基线 + runtime 层）
+              └─ persist.ts     运行时层落盘（{version, state} + tmp/rename 原子写）
 inject.ts     注入动作：推迟宏任务 → agents.get → 按 delivery 走 followup / steer / inject → sessions.flush
 tools.ts      模型面工具族：rule_add / rule_list / rule_update / rule_remove / rule_test
+types.ts      规则引擎的类型定义
 ```
 
-依赖方向单向：`main → engine → {match, rules, persist}`（另取 `inject` 的 `SOURCE_KIND` 常量做去重判据）、`main → {inject, tools}`；`engine` 只依赖 `Injector` 接口与会话投影读取函数，不认识宿主（可注入假实现单测）。
+依赖方向单向：`index → engine → {evaluation, consumers, delivery, engine-state, match, rules, persist}`（另取 `inject` 的 `SOURCE_KIND` 常量做去重判据）、`index → {inject, tools}`；`engine` 只依赖 `Injector` 接口与会话投影读取函数，不认识宿主（可注入假实现单测）。
 
 ## 机制
 

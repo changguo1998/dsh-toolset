@@ -114,7 +114,7 @@ pnpm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 ```sh
 pnpm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 pnpm run build   # 编译到 dist/
-pnpm run test    # node --test（38 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
+pnpm run test    # node --test（82 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
 ```
 
 依赖二进制的用例在缺 ast-grep 的机器上自动 skip，降级路径用例恒跑。

@@ -139,14 +139,15 @@ S 层写入需要 `session-paths` 插件同在组合里（它 `provide: ["sessio
 ## 测试
 
 ```sh
-pnpm run check   # tsc -p tsconfig.json --noEmit
-pnpm run build   # tsc -p tsconfig.json → dist/
-pnpm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
-pnpm run demo    # node --experimental-transform-types demo/main.ts（末行 demo OK）
-pnpm run smoke   # node smoke/smoke.mjs（自包含自检，不依赖模型凭据）
+pnpm run check            # tsc -p tsconfig.json --noEmit
+pnpm run build            # tsc -p tsconfig.json → dist/
+pnpm run test             # node --experimental-transform-types --test 'tests/*.test.ts'
+pnpm run test:integration # node --experimental-transform-types --test 'tests/integration/*.test.ts'
+pnpm run demo             # node --experimental-transform-types demo/main.ts（末行 demo OK）
+pnpm run smoke            # node smoke/smoke.mjs（自包含自检，不依赖模型凭据）
 ```
 
-61 例（`schema` 5 + `knowledge` 12 + `kinds` 8 + `tiers` 9 + `bundle-tiers` 9 + `exposure` 3 + `tools` 8 + `rules` 4 + `migrate` 3）。
+90 例单测（`admin-surface` 8 + `bundle-tiers` 11 + `exposure` 3 + `hybrid-search` 13 + `kinds` 8 + `knowledge` 14 + `migrate` 4 + `rules` 4 + `schema` 5 + `tiers` 11 + `tools` 9）+ 6 例集成（`tests/integration/plugin.test.ts`）。
 
 `demo` 演示句柄写入三层、隐私闸 / `preWrite` / 越权层、跨层检索与列举、真删、`memory_query` 渲染。`smoke` 是确定性自检：惰性建库 → 三层写入 → 指纹断言 → 全局读面 → 闸门 → 真删 → 工具面 → 可选报告宿主机版本；失败保留临时目录。
 

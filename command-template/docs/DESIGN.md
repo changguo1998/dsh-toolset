@@ -12,7 +12,7 @@
 
 ## 结构
 
-### 命令注册（`src/main.ts`）
+### 命令注册（`src/index.ts`）
 
 - `inject: ["commands"]`、`provide: ["commandTemplate"]`（DSH bundle 契约）；`apply(ctx, config)` 建 `CommandTemplateService` → `load()`（扫模板）→ `register()`（**只注册入口命令** `playbook`：description / `input.hint` 为硬编码文案，模板的 `description` / `input.hint` 只用于 `list` / `show` 的输出）。`commands` 未挂载时记日志并跳过注册，**服务面照常提供**（`list` / `errors` 仍可见）。
 - 入口分派（`#dispatch`）：输入为空 → `list`；第一段是保留子命令（`list` / `show` / `reload`）**或入口命令名本身**（`playbook`）→ 走管理面（否则 `run()` ⇄ `#dispatch()` 互调会递归，2026-10-04 修）；否则第一段按**模板名**运行（含后续参数）；模板名未知 → 报「模板不存在」错误（不回落 `list`）。
@@ -39,7 +39,7 @@
 
 ### 宿主面（`src/subagent.ts` / `src/host.ts`）
 
-- `host.ts` 的 `readService(ctx, key)`：**同一 ctx 内**先 `ctx.get(key)`（严格模式下未 `inject` 的属性直读会抛，故必须走 getter），抛错 / 空值再回退属性直读，两者都失败视为「服务不可用」（`undefined`）。调用点用的都是 `apply` 收到的那个插件 ctx（`main.ts` 接线 `StepDeps`、`subagent.ts` 取 `subagents`）；`availableProviders(ctx)` 只作诊断出口。
+- `host.ts` 的 `readService(ctx, key)`：**同一 ctx 内**先 `ctx.get(key)`（严格模式下未 `inject` 的属性直读会抛，故必须走 getter），抛错 / 空值再回退属性直读，两者都失败视为「服务不可用」（`undefined`）。调用点用的都是 `apply` 收到的那个插件 ctx（`index.ts` 接线 `StepDeps`、`subagent.ts` 取 `subagents` 并经 `pickProvider` 选 provider）。
 - `runOneShotAgent`：经宿主 `subagents` 跑一次性子代理（`buildOneShotRequest`：prompt 块 + `agentOptions` 模型覆盖；**不带 `outputSchema`**）；provider 从可用列表里挑（`pickProvider`，`spawn` 优先）——**服务缺面 / provider 不可用时抛错**，由 `steps.ts` 归一成 `step_failed`（不是 `agent_unavailable`）。
 - **取消语义**（2026-10-02 真机教训）：`start` 与 `run.result` 都与调用方取消信号**竞速**（`settleOrAbort`）；abort 路径 `reclaimInBackground` **发起回收但不等待**——宿主 in-process 的 `dispose()` 内部会 `await run.result`，等它等于换个地方无界等待。命令路径因此恒有终态，文案区分「被调用方取消」/「步骤超时（N ms）」并带子会话 id。
 

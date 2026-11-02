@@ -16,25 +16,37 @@
 ## 结构
 
 ```text
-main.ts       插件入口：name / inject / provide / Config / apply
+index.ts       包入口：插件契约 + 分层的公开导出
+plugin.ts      插件入口：name / inject / provide / Config / apply
               ├─ 宿主服务惰性解析（工具执行 ctx → 插件 ctx）
               ├─ executor 适配器（subagent / workflow / command → engine.execute）
               ├─ worktree 隔离器（isolate:"worktree"：建 / 复用 / 回收；git 经 execFile 直调 + guard 复查）
-              ├─ ctx.tools.register ← tools.ts（ctx.tools 缺失 → 告警并跳过）
+              ├─ ctx.tools.register ← dsh-tools.ts / tools.ts（ctx.tools 缺失 → 告警并跳过）
               └─ ctx.provide('taskEngine', { query, frameStack })（供 TUI /task 只读接线）
 engine.ts     编排：帧状态机（decompose / implement / execute / stop / join / retry）
               + 有界就绪池（DFS 先序栈，maxConcurrent 上限）+ 终态钩子（onFrameTerminal）
               + 查询面与快照
-              ├─ gate.ts       机械门禁：粒度四规则 + coverage + deps + executor 校验 + 隔离 id 规则
-              ├─ acceptance.ts RET 裁决：mechanical / human / semantic
-              └─ events.ts     事件溯源：append → 物化视图 / 嵌套视图 / 快照与恢复
+              ├─ engine-flow.ts  裁决流：验收裁决、打回、终态与 join 续体
+              ├─ engine-store.ts 状态层：事件流 / 物化树 / 就绪池 / 只读视图 / 周期快照
+              ├─ gate.ts         机械门禁：粒度四规则 + coverage + deps + executor 校验 + 隔离 id 规则
+              ├─ acceptance.ts   RET 裁决：mechanical / human / semantic
+              └─ events.ts       事件溯源：append → 物化视图 / 嵌套视图 / 快照与恢复
 types.ts      领域类型：Frame / Acceptance / ExecutorSpec / PlanEvent / TaskTree / StepVerdict
+engine-types.ts 引擎对外类型面：根契约、执行请求 / 结果、终态钩子与选项
 tools.ts      模型面工具族（纯数据 + 处理器，零 DSH 依赖）
-index.ts      包入口：re-export src/main（编译产出 dist/index.js）
+dsh-tools.ts  工具定义 → 宿主 tools.register 接受的形态
+host.ts       宿主结构面：本插件消费的服务面最小形态与受保护读取
+executor.ts   executor 适配器：叶子执行后端 → 宿主调用
+subagent.ts   子代理发起器与计量（执行后端与 audit / entail 裁决共用）
+worktree.ts   executor 隔离（自建简易 worktree）：建 / 复用 / 回收
+guard.ts      命令复查（security-guard 服务面）：执行前检查点与跳过留痕
+evidence.ts   证据文本：产出转文本、截断与结构化判定
+verdict.ts    裁决面：audit / entail 的提示词、信封 schema 与取值
+command.ts    /bin/sh 命令执行（mechanical 验收与 command 后端共用）
 scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主面）
 ```
 
-依赖方向单向：`main → engine → {gate, acceptance, events}`、`main → tools`；`engine` 只认注入的 hook 与接口，不认识宿主（可用假实现单测）。
+依赖方向单向：`index → plugin → engine → {engine-flow, engine-store, gate, acceptance, events}`、`plugin → {executor, subagent, worktree, guard, tools, dsh-tools, host, command, evidence, verdict}`；`engine` 只认注入的 hook 与接口，不认识宿主（可用假实现单测）。
 
 ## 机制
 
@@ -119,7 +131,7 @@ scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主�
 **为什么自建**：叶子执行后端已支持 `cwd` 透传但**无隔离**；官方 316 个公开包里没有 worktree 隔离实现，第三方 `dsh-git-worktree` 至今无实现（本机只有空目录）→ 自建**简单版**。
 
 **机制**：`executor.isolate = "worktree"`（叶子 + `command` 后端）→ `task_execute` 先
-`git worktree add -b dsh/<seg> <repo>/.worktree/<seg>`（`execFile` 直调、不经 shell、超时 60s；仓库根只在**声明的 `cwd`** 下用 `git rev-parse --show-toplevel` 定位，不猜 `process.cwd()`），把该路径**覆盖** `cwd` 交给命令后端；帧进终态（`done` / `failed`）时由 `engine.onFrameTerminal` 回调 `main.ts` 的隔离器回收。
+`git worktree add -b dsh/<seg> <repo>/.worktree/<seg>`（`execFile` 直调、不经 shell、超时 60s；仓库根只在**声明的 `cwd`** 下用 `git rev-parse --show-toplevel` 定位，不猜 `process.cwd()`），把该路径**覆盖** `cwd` 交给命令后端；帧进终态（`done` / `failed`）时由 `engine.onFrameTerminal` 回调 `plugin.ts` 的隔离器回收。
 
 **取舍（按重要性）**：
 
