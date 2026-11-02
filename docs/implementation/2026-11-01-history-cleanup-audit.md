@@ -275,7 +275,7 @@
 | E-01 | `TUI/docs/archived/2026-10-01-lazy-width-table.md`、`md-table-check/docs/archived/2026-10-16-test-coverage-and-tsconfig.md` (`459f70ab`) | 行内代码内 15 处禁用变体被替换; 前者把被测字符 `➡ ➠ ➢ ➣ ⬅ ⚠` 压成 `→ → → → ← △`, 码点对应关系失真 | `git show 459f70ab`; 前者 `:46,80,85,92`, 后者 `:85,86` | 归档记录被改写, 违反 6.5「代码内命中保留」与「不改归档内容」 | 已补正 (2026-11-02): 15 处还原; 终态 7 文件 38 处正文 |
 | E-02 | `-05:84` (`191ffa2a`) | 写「已用脚本确认围栏代码块与行内代码零改动」, 与 E-01 矛盾 | 同上 | 证据声明失真, 不可引用 | 已补正: `-05:83/84/96` 改为首轮越界 15 处、终态 38 处正文 |
 | E-03 | 项目级与包文档术语 | 审计时 落点 37、回归 39、收口 2、过程记录 5、符号规则 3、工具集 6、评审 2、影子 1; `docs/BACKLOG.md` 最集中; `WORKFLOW-STANDARD.md:11` 写「模块 = …」 | 逐文件计数见「测试与证据」; D 审计 | 与 `docs/GLOSSARY.md`「不写」列相反; 6.3 的同句「模块」改「包」未做 | 已补正 (2026-11-02): 现行文档 0 命中; 仅规则句与词内命中保留 |
-| E-04 | TUI 三份文档与 BACKLOG | `对话区` 9 处、`回合区` 18 处未改「活动区」; 实际语义是历史 pane / 回合 pane 的内部名 | `TUI/README.md`、`docs/DESIGN.md`、`docs/SPEC.md`、`docs/BACKLOG.md` | 与 GLOSSARY 第 44 行冲突; 强行替换会混淆 pane 层级 | 二选一: 补 pane 名例外, 或改写为「活动区 (回合 pane)」 |
+| E-04 | TUI 文档与 BACKLOG | `对话区` 9 处、`回合区` 18 处, 另有 `活动区` / `历史区` / `系统状态区` 等旧称; 2026-11-02 用户裁定统一为 状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行 | `TUI/README.md`、`docs/DESIGN.md`、`docs/SPEC.md`、`docs/BACKLOG.md`; `docs/GLOSSARY.md` | 与 GLOSSARY 旧表冲突; 全量替换影响面大 | 已记录七名口径 (`docs/GLOSSARY.md`「界面名称」); 全量替换转 `docs/BACKLOG.md` #3, 不阻塞本次关闭 |
 | E-05 | 34 份 README 测试节 | 审计时 20/34 缺 test:integration, 25/34 缺 test:coverage; TUI 计划明示保留但未写 | 逐包 grep; `-tui:68` | 4.6 的「三条命令」要求在规划里未派活 | 已补正 (2026-11-02): 34/34 含两命令, 25 份有改动 |
 | E-06 | 时钟能力探测 | `background-daemon/src/main.ts`、`metric-loop/src/index.ts`、`session-channel/src/service.ts`、`TUI/src/main.ts` 仍各自探测 `clock.now` / `clock.scope` | `git grep` BASE 11 包 → HEAD 5 包 (含 clock-base 自身) | 5.6「收进 clock-base」未完全落实, 无偏差记录 | 收进 `readClock` / `resolveClock`, 或补偏差 |
 | E-07 | TUI `app/index.ts` 6497 行、`adapter/dsh.ts` 3604 行 | 11 个长文件中的两个只部分拆分 | 阶段 3 偏差; `TUI/docs/BACKLOG.md` #1/#3 | 与验收「11 个长文件完成拆分」有差 | 已有条目, 关闭时接受为后续 |
@@ -298,8 +298,9 @@
 - 证据修正 (E-02): `-05:83/84/96` 改为「首轮 53 处中 15 处越界, 终态 7 文件 38 处 37 行, 行内代码零改动」.
 - 术语 (E-03): 按 GLOSSARY 替换 落点 / 回归 / 收口 / 过程记录 / 符号规则 / 工具集 / 评审 / 影子覆盖事件 / 插件包; 现行文档 0 命中 (排除归档 / host / 追踪 / GLOSSARY / STATUS); `WORKFLOW-STANDARD.md:11` 改为「本仓 34 个包 = TUI 与 33 个插件」. 仅 `AGENTS.md:13` 的规则句、`herdr-integration/README.md:43` 的「夺回归属」、`preference-analysis/README.md:103` 的「验收口径」为词内命中, 保留.
 - README (E-05): 25 份包 `README.md` 测试节补 `test:integration` / `test:coverage` (含 TUI), 34/34 齐; 注释写明层次.
+- 界面名称 (E-04): 用户 2026-11-02 裁定统一为 状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行; 旧称映射写入 `docs/GLOSSARY.md`「界面名称」, 全量替换另立 `docs/BACKLOG.md` #3, 本次不执行.
 - 补正后判定: P5-15 / P5-19 / P5-37 / P2-17 / P4-11 转 `✓`; 合计 `✓ 98` / `△ 23` / `✗ 1` / `? 2`; 剩余 `✗` 为 P2-07 (已记录偏差).
-- 未处理: E-04 (`对话区` / `回合区`), E-06 (时钟探测), E-12 (3b 回写), 以及阶段 5 收尾.
+- 未处理: E-06 (时钟探测), E-12 (3b 回写), 以及阶段 5 收尾; E-04 已转条目 (#3).
 
 ### 结论
 
@@ -311,10 +312,11 @@
 
 关闭前置条件 (补正后):
 
-1. E-04: 为 `对话区` / `回合区` 补 pane 名例外并更新 GLOSSARY, 或改写为「活动区 (回合 pane)」.
-2. E-06: 时钟探测 4 处收进 `clock-base` 的 `readClock` / `resolveClock`, 或在总追踪「偏差」记明保留理由.
-3. E-12: 回写 3b 遗漏的三处 tsconfig 声明、fs-digest 提交号、`-03:60` 覆盖率与门禁 3/4 次口径.
-4. 收尾: 总追踪补阶段 5 记录与「收尾」, 43 份追踪移入 `docs/archived/`, 清 `BACKLOG #1`, 写 STATUS 交付说明 (补 `escalation-hint` 一行, 32 → 33), 最后一笔提交.
+1. E-06: 时钟探测 4 处收进 `clock-base` 的 `readClock` / `resolveClock`, 或在总追踪「偏差」记明保留理由.
+2. E-12: 回写 3b 遗漏的三处 tsconfig 声明、fs-digest 提交号、`-03:60` 覆盖率与门禁 3/4 次口径.
+3. 收尾: 总追踪补阶段 5 记录与「收尾」, 43 份追踪移入 `docs/archived/`, 清 `BACKLOG #1`, 写 STATUS 交付说明 (补 `escalation-hint` 一行, 32 → 33), 最后一笔提交.
+
+E-04 已按用户裁定记录七名口径, 全量替换转入 `docs/BACKLOG.md` #3, 不再阻塞本次关闭.
 
 未做的核对: 按审计计划不重跑门禁, 两个 `?` 只引用追踪文档自述; 覆盖率未重算.
 
@@ -360,10 +362,10 @@
 | 影子覆盖事件 | 1 | `TUI/docs/DESIGN.md` |
 | 对话区 / 回合区 | 9 / 18 | TUI README / DESIGN / SPEC / BACKLOG |
 
-以上为审计时快照; 2026-11-02 补正后, 落点 / 回归 / 收口 / 过程记录 / 符号规则 / 工具集 / 评审 / 影子覆盖事件 在现行文档 0 命中 (`AGENTS.md:13` 的规则句、`herdr-integration/README.md:43` 的「夺回归属」、`preference-analysis/README.md:103` 的「验收口径」为词内命中, 保留); `对话区` / `回合区` 未改, 见 E-04.
+以上为审计时快照; 2026-11-02 补正后, 落点 / 回归 / 收口 / 过程记录 / 符号规则 / 工具集 / 评审 / 影子覆盖事件 在现行文档 0 命中 (`AGENTS.md:13` 的规则句、`herdr-integration/README.md:43` 的「夺回归属」、`preference-analysis/README.md:103` 的「验收口径」为词内命中, 保留); `对话区` / `回合区` 未改, 七名口径与后续处理见 E-04 与 `docs/BACKLOG.md` #3.
 
 ### 统计
 
 - 正向: 审计时 125 项 = `✓ 93` / `△ 25` / `✗ 4` / `? 2`; 补正后 = `✓ 98` / `△ 23` / `✗ 1` / `? 2`; 另 1 项「待关闭」.
 - 反向: 720 条 = 已计划 675 / 允许的例外 44 / 计划外 1.
-- 例外: 17 条 (E-01 至 E-17); P0 四条 (E-01 / E-02 / E-03 / E-05) 已补正, 余 E-04 / E-06 / E-12 待处理, 其余按例外接受.
+- 例外: 17 条 (E-01 至 E-17); P0 四条 (E-01 / E-02 / E-03 / E-05) 已补正; 余 E-06 / E-12 待处理, E-04 已转 `docs/BACKLOG.md` #3, 其余按例外接受.

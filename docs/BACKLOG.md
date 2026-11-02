@@ -68,6 +68,8 @@
 
 **#2 修正 surfaceOp: replace 的识别与处理**〔待办: 2026-10-28〕（登记: 2026-10-28）：TUI 与 rule-engine 只在 `assistant/message` 上按字符串 `surfaceOp === "replace"` 跳过，宿主契约的 `SurfaceOp` 是 `'append' | { op: 'replace', startSeq, endSeq }` 的范围替换，`user/message` 与 `tool/result` 的 replace 未见同样处理；现在遇到 replace 是整条丢弃、旧内容保留，画面不会更正 → 期望按契约识别对象形态并覆盖各 surface 事件，明确「完整实现范围替换」或「记录为不支持并给替代」，补 TUI / rule-engine 对齐用例，文档与注释统一叫「更正事件」 → 优先级 P2 → 来源: 2026-10-28 文档整理讨论（surfaceOp replace 的机制核对）。
 
+**#3 统一界面名称**〔待办: 2026-11-02〕（登记: 2026-11-02）：现行非归档文档对 TUI 界面仍有多套叫法——审计时 `活动区` 146 处、`历史区` 47 处、`系统状态区` 53 处、`对话区` 11 处、`交互区` 12 处, 合计约 280 处; 用户 2026-11-02 裁定统一为 **状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行** 七个名称, 其余叫法全部替换 → 期望按 `docs/GLOSSARY.md`「界面名称」表逐文件替换现行文档与代码注释; 归档文档不改, 代码标识符与英文 `activity` / `dialogue` 等不改; 替换后现行非归档文档旧称 0 命中 (规则句、GLOSSARY 替换表、历史对照除外), `format` 幂等, 表格列数与链接不变 → 改动位置 `TUI/README.md` / `TUI/docs/DESIGN.md` / `TUI/docs/SPEC.md` / `TUI/docs/COMMANDS.md` / `TUI/docs/COMMANDS-SPEC.md` / `TUI/docs/STATUS.md` / `TUI/docs/BACKLOG.md` / 项目与包文档 → 验收: 旧称扫描 0, 文档 `format` 幂等, 人工复核 `状态列` / `状态行` 与 `回合区` / `工具区` 不混 → 优先级 P2 → 来源: 用户 2026-11-02 界面名称裁定; 因影响面大, 本次只记录, 待专门任务接取.
+
 > 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`pnpm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；追踪文档 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
 
 > 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；追踪文档 `docs/archived/2026-10-25-tool-description-lint.md`）。
