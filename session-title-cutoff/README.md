@@ -57,6 +57,8 @@ profile 挂载（bundle 层已自带 insert 与缺省配置，通常无需手写
 pnpm run check   # tsc --noEmit
 pnpm run build   # tsc → dist/
 pnpm run test    # node --test（纯函数 + 假 ctx 装配；另含一条真实 helper 契约测试，未安装时 skip；不连真实 LLM）
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 ```
 
 包内文档：本 README（契约与边界）；决策与工期记录见 `docs/archived/2026-09-29-title-cutoff-provider.md` 与 `docs/archived/2026-10-21-title-fallback-config-split.md`（0.2.1 键面适配）。

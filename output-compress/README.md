@@ -67,6 +67,8 @@ searchDigests(db, "ENOENT", { limit: 10 }); // db 即 <会话目录>/digest.db
 pnpm run check   # tsc -p tsconfig.json --noEmit
 pnpm run build   # tsc -p tsconfig.json → dist/
 pnpm run test    # node --experimental-transform-types --test 'tests/*.test.ts'
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run smoke   # node smoke/smoke.mjs（真实 dsh headless 会话：临时 DSH_HOME + 三包 link 挂载；走本机 tollgate 网关，缺省 key 用占位值）
 ```
 

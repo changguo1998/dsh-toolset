@@ -161,6 +161,8 @@ socket 路径解析顺序：foreground 用 `HERDR_SOCKET_PATH` → 探活报出�
   ```sh
   pnpm -C herdr-use run check
   pnpm -C herdr-use run test
+  pnpm -C herdr-use run test:integration # 集成层（tests/integration）
+  pnpm -C herdr-use run test:coverage # 单元 + 集成覆盖率报告
   ```
 
 - 用例文件：`cli`（可用性握手 / 二进制定位 / 探活 / 信封解析 / 退出码）、`socket`（报文拼装 / 响应解析 / 判稳 / 缺省 socket 路径）、`net`（真实 unix socket：分片 framing / 超时 / 连接失败）、

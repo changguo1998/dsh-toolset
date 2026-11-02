@@ -98,6 +98,8 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 pnpm run check   # tsc --noEmit
 pnpm run build   # 编译到 dist/
 pnpm run test    # node --test
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run demo    # mock 正文跑「审查 → notice + 反馈」，不依赖 DSH
 ```
 

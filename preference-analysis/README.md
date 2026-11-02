@@ -107,5 +107,7 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 ```sh
 pnpm -C preference-analysis run check
 pnpm -C preference-analysis run test
+pnpm -C preference-analysis run test:integration # 集成层（tests/integration）
+pnpm -C preference-analysis run test:coverage # 单元 + 集成覆盖率报告
 pnpm -C preference-analysis run build
 ```

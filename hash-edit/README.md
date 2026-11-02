@@ -110,5 +110,7 @@ bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 
 pnpm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 pnpm run build   # 编译到 dist/
 pnpm run test    # node --test（hashline / edit / fs / tool / integration）
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run demo    # 冒烟：多锚点编辑 + stale 拒绝，输出 SMOKE_PASS
 ```

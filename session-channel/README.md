@@ -146,6 +146,8 @@ profile 挂载（与其他插件同法）：
 pnpm run check   # tsc --noEmit
 pnpm run build   # tsc → dist/
 pnpm run test    # node --test（无 redis-server 的机器上集成用例自动 skip）
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 ```
 
 设计决策见 `docs/DESIGN.md`；缺陷与待办见 `docs/BACKLOG.md`。

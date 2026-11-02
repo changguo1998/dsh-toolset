@@ -111,6 +111,7 @@ dsh plugin --profile dsh-toolset-goal-contract add '@dsh-toolset/task-engine@lin
 pnpm run check            # tsc --noEmit
 pnpm run build            # 编译到 dist/
 pnpm run test             # node --test（55 例：clauses 11 / contract 13 / interview 10 / tool 21——访谈状态机 / 条款校验 / 落 goal 与回读）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run test:integration # node --test（集成 9 例：bundle 契约与工具注册、output.render 投影、失败路径）
 pnpm run smoke            # 真实 dsh 会话联调（需 dsh 0.2.1-rc.3 与模型凭据）
 ```

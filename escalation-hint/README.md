@@ -58,6 +58,8 @@ DSH（DeepSeek Harness）进程内集成插件：在「工具调用被沙箱拒�
 cd escalation-hint
 pnpm run check   # tsc --noEmit（含 tests）
 pnpm test        # node --test：判据 30 例 + 挂载 20 例（共 50 例）
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run build
 ```
 

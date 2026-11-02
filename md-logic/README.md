@@ -127,6 +127,7 @@ L6-34 h1 标题一 ·#9f3a1c07
 pnpm run check            # tsc --noEmit（strict + noUncheckedIndexedAccess）
 pnpm run build            # 编译到 dist/
 pnpm run test             # node --test（76 例：解析 22 / 查询 6 / 渲染 11 / 工具面 13 / 改写面 24）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run test:integration # node --test（10 例：装配 apply 与宿主接线）
 ```
 

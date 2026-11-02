@@ -84,4 +84,6 @@ const dispose = timers.schedule(1_000, () => { /* 到点做事 */ });
 ```sh
 pnpm run check   # 类型检查（src + tests）
 pnpm run test    # 手控假时钟 / 真实定时器 / fiber 卸载清理 / 服务注册
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 ```

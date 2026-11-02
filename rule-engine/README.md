@@ -235,6 +235,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 pnpm run check            # tsc --noEmit
 pnpm run build            # 编译到 dist/
 pnpm run test             # node --test（175 条单测：匹配 / 规则层 / 持久化 / 引擎 / 注入器 / 模型面工具族 / 插件入口）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run test:integration # node --test（13 条：装配 apply 与宿主接线）
 pnpm run demo             # mock 事件流跑「规则命中 → 注入」，不依赖 DSH
 ```

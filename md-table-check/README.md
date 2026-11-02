@@ -99,6 +99,8 @@ pnpm run check            # 类型检查（两个 program：主 tsconfig + tests
 pnpm run build            # 编译到 dist/（只编本包源与常规测试, 不往他包 src/ 落产物）
 pnpm run check:no-cross-emit  # build 后自检：rule-engine/src 与 TUI/src 里没有未跟踪产物
 pnpm run test             # 八份测试：判定 / 形态矩阵快照 / 与 TUI 源码互证 / 接线 / 真实 rule-engine 端到端注入 / 显示面与注入呈现 / 思考与正文分离 / 三面差分对拍
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 ```
 
 测试文件（`tests/`）：

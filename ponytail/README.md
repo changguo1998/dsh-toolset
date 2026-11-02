@@ -61,4 +61,6 @@ profile 用户 patch：
 
 ```sh
 pnpm -C ponytail run check && pnpm -C ponytail run test && pnpm -C ponytail run build
+pnpm -C ponytail run test:integration # 集成层（tests/integration）
+pnpm -C ponytail run test:coverage # 单元 + 集成覆盖率报告
 ```

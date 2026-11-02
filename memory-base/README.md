@@ -142,6 +142,7 @@ S 层写入需要 `session-paths` 插件同在组合里（它 `provide: ["sessio
 pnpm run check            # tsc -p tsconfig.json --noEmit
 pnpm run build            # tsc -p tsconfig.json → dist/
 pnpm run test             # node --experimental-transform-types --test 'tests/*.test.ts'
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run test:integration # node --experimental-transform-types --test 'tests/integration/*.test.ts'
 pnpm run demo             # node --experimental-transform-types demo/main.ts（末行 demo OK）
 pnpm run smoke            # node smoke/smoke.mjs（自包含自检，不依赖模型凭据）

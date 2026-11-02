@@ -406,6 +406,8 @@ pnpm run build # tsc → dist/（无 bundler）
 pnpm run check # tsc --noEmit 类型检查
 pnpm run test  # node --test 全量（渲染解码 + 排版 + adapter fake-ctx 单测）
               # 仓库根 pnpm run test:tui -- <正则或文件名> 可过滤运行（scripts/test.sh）
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run bench # 排版性能基准（cache off/on 三档中位耗时与倍数，报告式不设阈值）
 pnpm run demo  # 构建后跑 mock demo（--theme light|dark；demo 不读 profile 配置）
 pnpm run demo -- --smoke   # 帧断言冒烟（SMOKE_PASS）

@@ -146,6 +146,7 @@ profile 挂载（`~/.dsh/profiles/<p>`）：`package.json` 的 `dependencies` �
 pnpm run check   # 类型检查（tsc --noEmit）
 pnpm run build   # 编译到 dist/
 pnpm run test             # node --experimental-transform-types --test 'tests/*.test.ts'（171 例：engine / events / gate /
+pnpm run test:coverage # 单元 + 集成覆盖率报告
                           # query / tools / semantic / usage / exec-guard / exec-isolate（隔离 14 例：建 / 回收 / 脏树取舍 /
                           # id 安全化 / id 规则 / 崩后残留 / 卸载兜底 / guard 命中 / 幂等 / 非 git 仓库 / 声明面）等）
 pnpm run test:integration # node --experimental-transform-types --test 'tests/integration/*.test.ts'（17 例：装配 apply 与宿主接线）

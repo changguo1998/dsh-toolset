@@ -165,4 +165,6 @@ DSH 进程内集成插件。给**模型**一个执行脚本的入口（`script_r
 ```sh
 pnpm -C script-interpreter run check   # 类型检查
 pnpm -C script-interpreter run test    # 单包测试（缺对应解释器时相关用例 skip）
+pnpm -C script-interpreter run test:integration # 集成层（tests/integration）
+pnpm -C script-interpreter run test:coverage # 单元 + 集成覆盖率报告
 ```

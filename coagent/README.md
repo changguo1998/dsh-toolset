@@ -117,6 +117,8 @@ DSH（DeepSeek Harness）进程内集成插件：在 herdr **终端**的交互 s
 cd coagent
 pnpm run check   # tsc --noEmit（含 tests）
 pnpm test        # node --test：T1-T13（fake herdrUse + fake sessionChannel + 假时钟）
+pnpm run test:integration # 集成层（tests/integration）
+pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run build
 ```
 

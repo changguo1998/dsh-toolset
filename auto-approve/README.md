@@ -263,6 +263,8 @@ node scripts/inspect-session.mjs --file <session.v4.jsonl[.zstd]>
 ```sh
 pnpm -C auto-approve run check
 pnpm -C auto-approve test
+pnpm -C auto-approve run test:integration # 集成层（tests/integration）
+pnpm -C auto-approve run test:coverage # 单元 + 集成覆盖率报告
 pnpm -C auto-approve run build
 ```
 

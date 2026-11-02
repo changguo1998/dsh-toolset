@@ -111,6 +111,8 @@ DSH（DeepSeek Harness）进程内插件：**面向「agent 会话投递」的�
 ```sh
 pnpm -C background-daemon run check   # tsc --noEmit
 pnpm -C background-daemon run test    # node --test（假时钟 / 假 timer / 假渠道）
+pnpm -C background-daemon run test:integration # 集成层（tests/integration）
+pnpm -C background-daemon run test:coverage # 单元 + 集成覆盖率报告
 ```
 
 单测覆盖：选择器与 DST、补发口径、任务表损坏拒启、流水有界轮转、两条渠道（含 flush 失败与复查拦截）、调度器（单 timer / 分段 / 同批合并 / skipped / 回拨 / 不重试 / stop / 控制帐收敛）、共享控制帐（读写、坏行跳过、取消 / 暂停 / 恢复、幂等）、`/daemon` 九个子命令（`pause` 与 `resume` 分立，上表并列一行）、进程内开关（默认关闭 / `start` 与 `stop` 的调度器联动 / 关闭态闸门）、创建期目标校验（`sessionPaths` 可选读取、S 档探测、P / U 放行）、只读服务面、模型侧工具、`apply` 装配与降级、记录底座（假 memory-base：kind 注册 / 取最新修订 / 坏行隔离 / 写透 / 删除 / 流水外送）。
