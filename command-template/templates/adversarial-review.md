@@ -1,7 +1,7 @@
 ---
 name: adversarial-review
-description: 对抗评审：正方结论 → 反方攻击 → 裁决
-input: 待评审的结论 / 设计 / 方案
+description: 对抗审阅：正方结论 → 反方攻击 → 裁决
+input: 待审阅的结论 / 设计 / 方案
 steps:
   - id: claim
     type: agent
@@ -11,7 +11,7 @@ steps:
   - id: attack
     type: agent
     prompt: |
-      你是对抗评审者：只做攻击，不客气。逐条找出上述结论的错误假设、缺失证据、
+      你是对抗审阅者：只做攻击，不客气。逐条找出上述结论的错误假设、缺失证据、
       边界反例与更差后果；每条给出反例或可验证的检验方式。
       方案与假设：
       {{claim}}
