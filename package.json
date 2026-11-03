@@ -8,9 +8,19 @@
     "build": "pnpm -C clock-base run build && pnpm -C TUI run build && pnpm -C herdr-integration run build && pnpm -C herdr-use run build && pnpm -C memory-base run build && pnpm -C task-engine run build && pnpm -C ast-tools run build && pnpm -C fs-digest run build && pnpm -C goal-contract run build && pnpm -C hash-edit run build && pnpm -C metric-loop run build && pnpm -C output-compress run build && pnpm -C security-guard run build && pnpm -C code-map run build && pnpm -C context-report run build && pnpm -C rule-engine run build && pnpm -C behavior-correction run build && pnpm -C symbol-normalizer run build && pnpm -C session-channel run build && pnpm -C session-title-cutoff run build && pnpm -C command-template run build && pnpm -C md-logic run build && pnpm -C md-map run build && pnpm -C ponytail run build && pnpm -C md-table-check run build && pnpm -C auto-approve run build && pnpm -C background-daemon run build && pnpm -C preference-analysis run build && pnpm -C session-paths run build && pnpm -C script-interpreter run build && pnpm -C agent-group run build && pnpm -C coagent run build && pnpm -C tool-consult run build && pnpm -C escalation-hint run build",
     "test": "sh scripts/test-parallel.sh",
     "test:integration": "TEST_SCRIPT=test:integration sh scripts/test-parallel.sh",
-    "test:e2e": "TEST_SCRIPT=test:e2e sh scripts/test-parallel.sh TUI",
+    "test:e2e": "node --experimental-transform-types --test --test-force-exit --test-concurrency=4 'e2e/*.test.ts'",
+    "test:e2e:tui": "TEST_SCRIPT=test:e2e sh scripts/test-parallel.sh TUI",
     "test:coverage": "node dev/coverage/collect.mjs && node dev/coverage/report.mjs",
     "demo": "pnpm -C TUI run demo --",
     "test:tui": "sh TUI/scripts/test.sh"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-rc.3"
+  },
+  "pnpm": {
+    "verifyDepsBeforeRun": false
+  },
+  "engines": {
+    "node": ">=22.19.0"
   }
 }
