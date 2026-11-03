@@ -1,6 +1,6 @@
 # 拆分 `App` 类体（接取条目: `TUI/docs/BACKLOG.md`「拆分 `TUI/src/app/index.ts` 的 `App` 类体」）
 
-状态: 测试　　开启: 2026-11-04
+状态: 关闭　　开启: 2026-11-04　　关闭: 2026-11-04
 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改.
 
 ## 目标
@@ -133,6 +133,10 @@
 - `TUI/docs/BACKLOG.md`（条目状态「进行中」→「完成」, 关闭时移除）
 - `TUI/docs/DESIGN.md`（步骤 5 回写）
 - `TUI/docs/design/REFACTOR.md`（步骤 5 回写）
+- `TUI/docs/design/NOTICE-LEVELS.md`（收尾回写: notice 范围与章节标题）
+- `TUI/docs/COMMANDS.md`（收尾回写: handleSlash 位置）
+- `TUI/docs/COMMANDS-SPEC.md`（收尾回写: 新命令改动位置）
+- `TUI/docs/SPEC.md`（收尾回写: 合帧实现位置）
 
 明确不改（出现需求先请示并补进清单）:
 
@@ -156,6 +160,7 @@
 1. **拆分粒度**（2026-11-04）: 选「再细拆 10+ 模块」—— 即决策 3 的 c, 在 7 个职责模块之上再把命令面按 model / config / memory / host 拆开, 共 11 个职责模块 + 上下文对象; 该项取代规划初稿的 b.
 2. **检查点 1（决策后）**（2026-11-04）: 先选「先停下, 等检查」; 复查后裁定「提交后继续任务」—— 规划文档单独提交, 随后进入实现.
 3. **检查点 2（实现后）**（2026-11-04）: 选「现在提交代码与实现记录」—— 本次实现单独提交; 关闭收尾（DESIGN / REFACTOR 回写、归档、BACKLOG 清理）留到收尾阶段.
+4. **检查点 3（测试后人工确认）**（2026-11-04）: 选「确认通过, 进入收尾」—— 依据为 TUI 1829 例 / 帧基线 1/1 / 冒烟 `SMOKE_OK` / 全仓 `check`、`test` 全绿; 未另跑手动 `pnpm run demo`.
 
 ## 实现记录
 
@@ -196,6 +201,7 @@
 4. **死常量**: `RETIRED_COMMAND_NOTICE` 在原文件即未使用, 随组搬到 `commands.ts` 保留（未删, 守 move-only）; 项目未开启 `noUnusedLocals`, 不影响检查.
 5. **未分步落盘**: 决策 8 已定一次性脚本; 任一组先搬都无法独立编译, 故实现记录按一次性描述（与 adapter 拆分的偏差 1 同因）.
 6. **注释路径**: 搬入方法的注释保留原文（含 `src/app/...` 简写路径存量）, 新文件头用完整路径; `check:docs` 警告 647（基线 648, 少 1, 无新增）.
+7. **计划外文档同步（收尾阶段补入）**: 拆分后另有 4 份文档仍指向 `src/app/index.ts` 的旧位置 —— `TUI/docs/design/NOTICE-LEVELS.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md`、`TUI/docs/SPEC.md`; 实现后发现并随收尾一并更新（只改路径 / 位置描述, 无行为与契约改动）, 计划清单已补入.
 
 ## 测试与证据
 
@@ -217,4 +223,9 @@
 
 ## 收尾
 
-（待关闭阶段补记）
+- **回写**: `TUI/docs/DESIGN.md`（控制层表格、文件树 `runtime/` 段、4 处行为说明改点）、`TUI/docs/design/REFACTOR.md`（拆分原则、`runtime/*` 归属行、边界表述）、`TUI/docs/design/NOTICE-LEVELS.md`（notice 范围与章节标题）、`TUI/docs/COMMANDS.md`（`handleSlash` 位置）、`TUI/docs/COMMANDS-SPEC.md`（新命令改动位置）、`TUI/docs/SPEC.md`（合帧实现位置）; `TUI/README.md` 不涉及（对外契约未变）, `TUI/docs/STATUS.md` 按流程交由用户择时更新.
+- **BACKLOG**: 条目「拆分 `TUI/src/app/index.ts` 的 `App` 类体」标完成并移出清单, 关闭注记留在 `## 待办` 下的说明行; 该层现无未完成条目.
+- **归档**: 本文件已移入 `TUI/docs/archived/2026-11-04-split-app-class.md`.
+- **临时文件**: `tmp/split-app.mjs` / `tmp/verify-split.mjs` / `tmp/app.orig.ts` / `tmp/impl-record.md` / `tmp/gen/` 已删除.
+- **人工确认**: 用户 2026-11-04 在检查点 3 确认通过; 未另跑手动 `pnpm run demo`, 依据为全量测试 / 帧基线 / 冒烟与全仓 check、test 全绿.
+- **遗留**: 无新增 BACKLOG 条目; 测试私有成员兼容层（6 个私有成员）待后续允许改测试时再清（偏差 2）; `RETIRED_COMMAND_NOTICE` 死常量随组保留（偏差 4）.

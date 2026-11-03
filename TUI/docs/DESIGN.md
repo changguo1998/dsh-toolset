@@ -52,7 +52,7 @@ DSH 适配层接口以**官方源码研读与升级对照**为准（`docs/host/D
 | 逻辑 | 状态模型与纯状态转换 | `state.ts`、`*-transition.ts`、`commands.ts` |
 | 排版 | 状态 → 带语义样式的行 | `layout.ts`、`layout/*`、`components/*` |
 | 渲染 | 行 → 字节上屏 | `renderer/*` |
-| 控制 | 副作用编排（adapter / notice / paint / 异步） | `index.ts`（App） |
+| 控制 | 副作用编排（adapter / notice / paint / 异步） | `app/index.ts`（App 壳）与 `app/runtime/`（各职责模块） |
 | 外部边界 | DSH 事件归一化与回调 | `adapter/*` |
 
 排版内部的分层（2026-10-26 七段重构）：**内容（会话区 / 回合区）由 `layout/pipeline/` 按七段产出**，每段一个纯函数 + 显式 IR：
@@ -109,8 +109,13 @@ TUI/
       adapter/           # 插拔边界：dsh.ts（装配 + 兼容重导）、context.ts（状态与事件出口）、
                          #   dsh-events.ts / dsh-session.ts / dsh-approval.ts / dsh-panels.ts（按面拆分）、
                          #   types.ts、normalize.ts、session-paths.ts、session-ui-state.ts、tool-bootstrap.ts
+      runtime/           # App 内部职责模块（2026-11-04 拆分自 index.ts 的 App 类体）:
+                         #   context.ts（显式上下文对象 + 构造器归一化）/ frame.ts（交付 / 绘制 / 滚动 / 提示写出）/
+                         #   interaction.ts（按键 / 审批问答 / 退出确认 / 编辑与补全）/ session.ts（提交 / shell / 历史与恢复）/
+                         #   panels.ts（列表面板 / 状态面板 / 模型选择）/ commands.ts + commands-{model,config,memory,host}.ts（slash 分派与按域命令）/
+                         #   wiring.ts（事件桥 / 服务懒读 / 状态行）/ lifecycle.ts（启动 / 退出 / 清理 / 宽度探测 / 响铃）
       stderr-bridge.ts   # 运行期 stderr 桥：按行转交回合区（项目级「插件告警改道回合区」方案 A）
-      index.ts           # App：组装层，副作用（adapter 调用 / paint / notice / 异步）都在此
+      index.ts           # App 壳: private ctx + 8 个公开方法委托与装配（职责在 runtime/）
   bench/                 # 排版性能基准（pnpm run bench → bench/layout-bench.mts）
   scripts/               # test.sh（测试包装）/ gen-width-table.mts / freeze-focus-frame.mts / eaw-dump.py
   demo/                  # mock adapter 喂模拟流式文本 + 审批，不接 DSH；smokePty.mjs 为真机 PTY 冒烟
@@ -420,9 +425,9 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 
 完整映射与渲染语义见 `TUI/docs/DESIGN.md`「事件接入与渲染」。实现要点：
 
-- raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `index.ts` 穷尽登记（否则 `pnpm run check` 失败）。
+- raw 事件由 adapter 归一化为 `DshEvent` → App 事件 switch → state reducer → `buildFrame`；`DshEvent` 为封闭联合，新增成员需同步 `runtime/wiring.ts` 的 `handleEvent` 穷尽登记（否则 `pnpm run check` 失败）。
 - tool 行文本由 `layout/tool-line.ts` 纯函数组装（step 分组头 = `stepHeaderLine(step, time, turn)` → `hh:mm:ss ⇆N #M`（顺序固定；片段缺失即省略；本地时区 24 小时制逐段补零）；渲染层补 `╌╌ ` 前缀与尾部 `╌` 铺满）；summary / detail 启发式由 adapter（`dsh.ts`）在归一化时产出。结果行 = `✓ <detail>` / `✗ <detail>`，**detail 为空按上表省略**（成功只出 `✓ `，行尾空格是前缀契约）；分组 / 着色按**符号**判定（`content-rules.ts` 的 `TOOL_STATUS_PREFIXES` / `renderToolText` 不依赖尾随空格，勿 trimEnd 结果行）。
-- **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `index.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（打断自 2026-10-15 起走 `!` 模式，`Esc` 不打断）。守成测试：`tests/p8-compaction-active.test.ts`。
+- **压缩期间算活跃（P8）**：`compaction/start` → `compaction/end` 期间按会话记 `compactingBySession`，`isCompacting(state)` 供 `runtime/session.ts` 的 `agentBusy()` 判定——该会话视为忙：用户块符号显示运行中 `●`/`○`、Enter 提交走排队、`Ctrl+D` 退出守卫不触发（打断自 2026-10-15 起走 `!` 模式，`Esc` 不打断）。守成测试：`tests/p8-compaction-active.test.ts`。
 - **状态符号渲染位置（P1）**：符号在排版层算定（`userBlockSymbolResolver` → `USER_BLOCK_SYMBOL`；终态由 `turn/end` 的 reason 经 `markUserBlockStatus` 打标到 `BufferLine.status`），`pipeline/structure.ts` 用 `userSym` 把 `符号 + 1 空格` 拼到用户块首行左侧（在块内部，块右缘位置不变；排队块不出符号）。水平状态行不再有符号段。守成测试：`tests/app.test.ts`（用户块首行符号与 SGR / turn-end reason 打标）/ `tests/layout4.test.ts`。
 - **seq 守卫**（per-session 游标）：`event.seq <= lastSeq` 丢弃；间隙接受不补缺；非活跃会话丢弃。
 
@@ -556,10 +561,11 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - `components/ApprovalPrompt.ts`：描述窗 + 选项窗两窗（2/3 规则）、选项固定「批准 / 拒绝」带编号与焦点标记、拒绝项倒计时；`ApprovalView`（focus / deadline / now / window（焦点窗 3.3.4）/ hint（面板内提示 3.3.6））为渲染参数；焦点窗决定左侧列与选项光标着色（3.2.8 口径），`hint` 行先占 1 行再分配两窗（面板总高不变）。
 - `layout/hints.ts`：`approvalHintLine(state)` 用 `[↑/↓]滚动` / `[↑/↓]选项` 与 `[Tab]选项` / `[Tab]草稿` 的文案差异指示焦点窗（3.3.4；2026-10-14 起不再用 `▶` 前缀，改由面板内焦点条 / 滚动条呈现；2026-10-16 起补 `[←/→]选项` 与 `[y/n/1/2]直答`）；无效键提示不占用提示行。
 - `layout.ts`：`noticeFooterLines`（输入区 notice 视图）在 `state.approvalHint` 非空时**优先**用该行显示 `[无效键] …`（黄、左对齐），有效键清空后自动切回 notice 视图（显示位置为用户输入区＝屏幕左下、按键提示正上方）。
-- 超时语义（3.3.5）：无操作到点 → `rejected`；面板内按过任意键 → `adapter.stopApprovalTimeout(id)` 停止计时、倒计时隐藏；`Esc` 仍为 `cancelled`。倒计时的**每秒重绘**由 App 的 `syncApprovalTicker()` 专起 1s 定时器驱动（`approvalTimer`，仅「有审批且有 deadline」时存活，在 `apply()` 里按 state 同步）——不依赖状态行 ticker 节律。
+- 超时语义（3.3.5）：无操作到点 → `rejected`；面板内按过任意键 → `adapter.stopApprovalTimeout(id)` 停止计时、倒计时隐藏；`Esc` 仍为 `cancelled`。倒计时的**每秒重绘**由 `runtime/frame.ts` 的 `syncApprovalTicker()` 专起 1s 定时器驱动（`approvalTimer`，仅「有审批且有 deadline」时存活，在 `apply()` 里按 state 同步）——不依赖状态行 ticker 节律。
 - `components/QuestionPrompt.ts`：选项行格式 `${光标}${标记} ${编号}. ${正文}`（编号居中靠左、内容起点 = numW + 6，续行与 `description` 对齐内容起点即数字悬挂）；描述窗顶部来源段（灰、`panel.source`）。审批面板选项同格式。`state.ts` 的 `recentQuestionSource` 按**分块口径**取「最近一块含正文」的整块（`thinking` / `notice` 不切割、不设行数上限；本回合取不到则**先回退**取上一回合的最近一块、不加相关性闸门，两回合皆无返回空串；见 `SPEC.md` §15.5）。
 - `question-transition.ts`：数字键 → `{ kind: "digit", n }`（自定义项上仍 `custom`）。
-- `index.ts`：审批按键白名单（y/1、n/2、Enter、Tab 切焦点窗、←/→、↑/↓ 按焦点窗分派、Esc；其余置 `approval-hint`）；按键分发前统一停止超时计时（3.3.5）；、`approval-closed` 处理（关面板 + notice）、`question-open` 带 `recentQuestionSource`、数字键标记（move + select，不提交）。
+- `runtime/interaction.ts`: 审批按键白名单（y/1、n/2、Enter、Tab 切焦点窗、←/→、↑/↓ 按焦点窗分派、Esc; 其余置 `approval-hint`); 按键分发前统一停止超时计时（3.3.5); 数字键标记（move + select, 不提交).
+- `runtime/wiring.ts`: `approval-closed` 处理（关面板 + notice）、`question-open` 带 `recentQuestionSource`; 审批 / 问答事件触发响铃（`beginInteractiveBell`), `apply()` 统一停止催促响铃与同步倒计时定时器.
 
 #### /theme 命令
 

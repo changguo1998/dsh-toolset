@@ -8,8 +8,8 @@
 
 ## 原则
 
-- **拆文件不拆架构、只拆纯逻辑**。分层方向（renderer ← app ← adapter 单向下行）与各文件公共导出保持不变；不引入框架、不抽象通用 Panel、不改运行时行为。
-- 副作用（adapter 调用、paint、notice、异步）一律留在 `App`（`index.ts`）；`commands.ts` / `adapter/normalize.ts` / `layout/markdown.ts` / `question-transition.ts` / `model-transition.ts` 只承载**纯状态转换与纯函数**。
+- **拆文件不拆架构、只拆纯逻辑**（App 内部职责模块除外, 见 `src/app/runtime/*`）。分层方向（renderer ← app ← adapter 单向下行）与各文件公共导出保持不变；不引入框架、不抽象通用 Panel、不改运行时行为。
+- 副作用（adapter 调用、paint、notice、异步）一律留在 App 层（`index.ts` 壳 + `runtime/`）；`commands.ts` / `adapter/normalize.ts` / `layout/markdown.ts` / `question-transition.ts` / `model-transition.ts` 只承载**纯状态转换与纯函数**。
 - 拆分后原文件的公共导入路径保持不变（兼容重导，见下），避免一次性改穿所有调用点。
 
 ## 当前文件归属
@@ -27,6 +27,7 @@
 | `src/app/layout.ts` | 排版 | 几何唯一来源 `frameGeometry` + 四区域帧组装；重导 `layout/` 下的宽度原语、markdown 纯函数、内容规则与 help 排版 |
 | `src/app/layout/*.ts` | 排版 | `box`（类型）、`measure`（measure/allocate）、`fill`（fill 摊平）、`build-box`（分区树 + 内容映射）、`focus-frame`（焦点框覆写）、`panel`（面板场景原语）、`table`（表格构建期降级）、`markdown`（宽度原语 + 行内/块级解析）、`tool-line`（工具行文本）、`content-rules`（跨文件共享的排版规则常量）、`primitives`（宽/折行原语）、`cache`（排版缓存）、`help`（/help 双列排版）——逐文件职责见 `TUI/docs/DESIGN.md`「Box 排版模型 · 模块归属」 |
 | `src/app/components/*` | 排版 | 各面板 / 输入区的 Box 生成器（`buildXxxBox`，薄包装 `fillBoxTree`） |
+| `src/app/runtime/*` | 控制 | App 内部职责模块（2026-11-04 拆分自 `index.ts` 的 App 类体): `context`（显式上下文对象）、`frame`（交付 / 绘制 / 滚动）、`interaction`（按键 / 确认 / 补全）、`session`（提交 / 历史 / 恢复）、`panels`（面板 / 模型选择）、`commands-*`（slash 分派与按域命令）、`wiring`（事件桥 / 服务懒读）、`lifecycle`（启动 / 退出 / 宽度探测）; `index.ts` 只留壳与装配 |
 
 - `state.ts`、`renderer/` 为拆分禁区（reducer / 渲染层保持整体）。
 - 兼容策略：原文件重导公共符号（`index.ts` 重导 `formatModelCatalog` / `resolveModelSpec`；`layout.ts` 重导 `layout/` 的宽度原语与 markdown 纯函数；`adapter/dsh.ts` 显式重导 `normalize.ts` 函数与 tool-bootstrap 符号，**不用 `export *`**，避免 verbatimModuleSyntax 与循环依赖），外部 import 路径不变。
@@ -42,4 +43,4 @@
 - 不换 TUI 框架、不加事件总线 / 中间件。
 - 不为 Approval / Question / ModelPicker 建共享 Panel 基类。
 - 不把控制逻辑装进 `components/` 渲染文件。
-- 不做「带副作用 controller」——只搬纯逻辑，副作用编排留 App 层。
+- 不做「带副作用 controller」——`components/` 与纯逻辑模块不承载副作用; 副作用编排集中在 App 层（`index.ts` / `runtime/`).

@@ -15,11 +15,11 @@
 | `info` | 蓝 | 需要用户了解的提示信息 / 主动索取的信息展示 |
 | `log` | 灰 | 展示运行进度与状态，无需用户关注 |
 
-- 范围：App 层 `index.ts` 的 `notice()`、适配层 `adapter/dsh.ts`、reducer 层 `state.ts`。
+- 范围：App 层 `runtime/frame.ts` 的 `notice()`、适配层 `adapter/dsh.ts`、reducer 层 `state.ts`。
 - `—` = 有意静默 / 低调（高频行成功降噪）或无语义分级。
 - 渲染侧映射 `NOTICE_TONE_COLOR`（`layout/content-rules.ts`）：log 灰 / info 蓝 / warn 黄 / error 红 / success 绿。
 
-## A. App 层 notice()（src/app/index.ts）
+## A. App 层 notice()（src/app/runtime/frame.ts）
 
 ### A1 服务不可用与降级（warn）
 

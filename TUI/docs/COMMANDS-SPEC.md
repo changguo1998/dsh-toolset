@@ -16,7 +16,7 @@
 | 2 | `src/app/adapter/types.ts` | 加结构化 `<Svc>Like` 类型（宽松返回 + 方法可选，风格照 `JobsLike`）+ `DshAdapter` 上的可选方法（`refresh<Name>?()` / `<verb><Name>?()`） |
 | 3 | `src/app/adapter/dsh.ts` | 实现该方法：调服务、归一化返回值；异常内部消化为 `undefined` / `[]` 并经 notice 上报，不抛穿 |
 | 4 | `src/app/commands.ts` | **两处**：`SlashRoute` 联合类型加 `"<name>"` **和** `LOCAL_COMMANDS` 加条目（缺一不可） |
-| 5 | `src/app/index.ts` | `case "<name>"` 分支 + `handle<Name>Command()` + 键位段（若为面板）+ `/help` 行 |
+| 5 | `src/app/runtime/commands.ts`（分支与 `/help` 行）/ `src/app/runtime/interaction.ts`（键位段, 若为面板） | `case "<name>"` 分支 + `handle<Name>Command()` + 键位段（若为面板）+ `/help` 行 |
 | 6 | 测试与基线 | `tests/app.test.ts`（`FakeAdapter` 注入）用例 + 文档同步（本文件、`README.md`、`TUI/docs/design/NOTICE-LEVELS.md`）；`/help` 行变化须重跑 freeze 脚本与 smoke（§5） |
 
 > 服务获取走 `ctx.get()`，**无需**改本插件的 `inject` 声明——既有做法即如此（`agentDefaultModel` / `commands` / `sessionQuery` 等均未在 `inject` 中声明，见 `src/main.ts` 注释）。

@@ -850,7 +850,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
   - 有界：每表 FIFO 上限 `TEXT_CACHE_LIMIT`（2048），超限淘汰最旧插入项。
   - 开关：`TUI_LAYOUT_CACHE=0`（初始值）或运行期 `setLayoutCacheEnabled(false)`；`clearLayoutCaches()` 清空并重置码点宽度表。关缓存即回到优化前直算路径，用于等价断言与基准对比。
   - 零宽判定：326 条零宽区间表为模块级常量，`charWidth` 另带码点宽度表 memo（`Uint8Array`）——若区间表在函数体内每次调用重建并线性扫描，会成为逐字符宽度计算的主要常数因子。
-- **App 层 tick 内合帧**（`app/index.ts`）：`paint()` 只标脏并排队一个 microtask，同一 tick 内多次标脏只调用一次 `renderer.render`；`flushPaint()` 同步冲刷、`paintNow()` 立即出帧（启动首帧、测试与需即时可见路径用）；绘制期间再次标脏会补画一帧并收敛；`dispose()` 清掉待处理帧。
+- **App 层 tick 内合帧**（`app/runtime/frame.ts`）：`paint()` 只标脏并排队一个 microtask，同一 tick 内多次标脏只调用一次 `renderer.render`；`flushPaint()` 同步冲刷、`paintNow()` 立即出帧（启动首帧、测试与需即时可见路径用）；绘制期间再次标脏会补画一帧并收敛；`dispose()` 清掉待处理帧。
   - **跨回合帧率上限**（真实接线默认 10Hz）：`AppDeps.frameIntervalMs`（`main.ts` 传 100；0 / 缺省 = 不限帧，测试与演示保持立即出帧）。`flushPaint()` 距上一帧不足该间隔时不清脏、改挂「窗口末」定时器，窗口内跨宏任务的标脏合并到该时点统一出一帧；`paintNow()` 抢占时取消窗口定时器；`dispose()` 一并清除。
   - 语义提醒：同一 tick 内的中间态不再逐帧写终端（这正是合帧的目的）；demo mock 的复合场景因此拆成两个 tick 发出，保证 `subagent` 行等中间态能被帧断言看到。
 - **测试与基准**：`tests/layout-cache.test.ts` 断言 cache 冷 / 热与 off 逐项一致、固定动作序列整帧一致，以及合帧侧「同 tick 200 事件只画一帧」「flushPaint / paintNow」「绘制期间标脏收敛」「dispose 丢弃待处理帧」等；`tests/helpers/paintFlush.ts` 提供同步测试体读帧前的冲刷辅助（`TrackedApp` 构造即登记）。基准 `pnpm run bench`（`bench/layout-bench.mts`，手动运行不设阈值）对同一合成语料跑 cache off/on 三档（cold 每帧清缓存 / warm 同状态重复排版 / incremental 增量追尾），打印中位耗时与提速倍数。

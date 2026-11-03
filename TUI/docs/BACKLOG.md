@@ -9,7 +9,7 @@
 
 ## 待办
 
-- **#2 拆分 `TUI/src/app/index.ts` 的 `App` 类体**〔状态: 进行中, 2026-11-04〕（2026-11-01）：`TUI/src/app/index.ts` 6497 行, 主体是 `App` 类约 6200 行方法体, 方法大量读写私有字段 (`state` / `deps` / 计时器 / 渲染句柄), 直接搬会改结构 → 期望先把这些状态收成显式上下文对象, 再按「会话控制 / 面板交互 / 插件接线」三组拆出, 对外可见集合与帧内容不变 → 改动位置 `TUI/src/app/index.ts` 与新增分层文件 → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿且帧基线一致 → 来源 `docs/archived/2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
+> 2026-11-04 关闭: 「拆分 `TUI/src/app/index.ts` 的 `App` 类体」完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-04-split-app-class.md`): 59 个显式字段 + `deps` 与构造器收进 `app/runtime/context.ts`（`AppContext` + `ctx.self` 扁平成员面), 174 个方法按职责拆成 11 个模块（`frame` / `interaction` / `session` / `panels` / `commands` + `commands-{model,config,memory,host}` / `wiring` / `lifecycle`), `index.ts` 6497 → 151 行且只剩壳与装配; `App` 公开面 8 个方法、导出集合 15 个符号与帧内容不变（测试零改动, 壳上仅加 6 个私有兼容成员); TUI 1829 例全过、帧基线 1/1、`SMOKE_OK`、全仓 `check` / `test` 退出 0.
 
 > 2026-11-04 关闭：「拆 `TUI/src/app/adapter/dsh.ts` 的 `DshAdapter`」完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-04-split-dsh-adapter.md`）：状态收进 `adapter/context.ts`（`AdapterState` + `emit` / `deliver` 出口），职责拆成 `dsh-events.ts` / `dsh-session.ts` / `dsh-approval.ts` / `dsh-panels.ts`，`dsh.ts` 3633 → 577 行且只剩装配与接线（getter 用 `defineProperties` 保留）；对外导出集合、`runtime.on` 注册顺序与帧内容不变；TUI 1829 例全过、`demo -- --smoke` 输出 `SMOKE_OK`、帧基线 1/1、全仓 `check` / `test` 退出 0。
 
