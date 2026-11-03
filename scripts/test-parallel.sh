@@ -7,7 +7,7 @@
 # 脚本由 TEST_SCRIPT 指定（缺省 test，可传 test:integration / test:e2e），
 # 包内没有该脚本时记 SKIP。
 #
-# 为什么并行：30 个包各自独立（node --test 各自进程），串行 `&&` 只是顺序
+# 为什么并行：34 个包各自独立（node --test 各自进程），串行 `&&` 只是顺序
 # 等待；并行后墙钟 ≈ 最慢包（当前 TUI ~8.6s）。
 # 输出：每包 OK/SKIP/FAIL + 耗时 + pass/fail 计数；FAIL 的包附日志。
 # 退出码：任一包失败即非零（不 fail-fast——等全部跑完，便于一次看到所有失败）。
@@ -18,6 +18,27 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 default_pkgs="clock-base TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group coagent tool-consult escalation-hint"
 pkgs="${*:-$default_pkgs}"
+
+warn() {
+    printf 'WARN  %s\n' "$*" >&2
+}
+
+# 包清单双向校验：清单里有、目录没有；目录有、清单漏列。与 install.sh 同口径，只告警不退出。
+for p in $default_pkgs; do
+    [ -d "$root/$p" ] || warn "test-parallel.sh: default_pkgs 里的 $p 目录不存在（请同步清单）"
+done
+for manifest in "$root"/*/package.json; do
+    [ -f "$manifest" ] || continue
+    p=$(basename "$(dirname "$manifest")")
+    case "$p" in
+        node_modules | tmp | .*) continue ;;
+    esac
+    case " $default_pkgs " in
+        *" $p "*) ;;
+        *) warn "test-parallel.sh: 仓库包 $p 未列入 default_pkgs（请同步清单）" ;;
+    esac
+done
+
 logbase="${TMPDIR:-/tmp}/dsh-test-parallel.$$"
 mkdir -p "$logbase"
 
