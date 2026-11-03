@@ -86,7 +86,9 @@ TUI/
       theme-config.ts    # 启动解析 tui.config.json 的 theme 段
       index.ts           # 公共 API
     app/                 # 应用层：只依赖 renderer 公共 API
-      state.ts           # 状态模型 + reducer（会话/缓冲/审批/系统状态/滚动/面板）
+      state/             # 状态模型 + reducer（会话/缓冲/审批/系统状态/滚动/面板）
+        reducer.ts       # reducer 入口：子 reducer 链（命中即停）+ 焦点复位
+        reducer-*.ts     # 按 action 前缀分组的纯 reducer（stream/tool/turn/history/session/panel/input/view/goal）
       layout.ts          # 几何唯一来源 frameGeometry + 四区域帧组装
       layout/            # 排版：内容走 pipeline/ 七段；面板 / chrome 仍走旧 Box 链
         pipeline/        # 七段：sections|split → parse → route|routeTable → structure

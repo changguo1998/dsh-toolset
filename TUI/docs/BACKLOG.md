@@ -9,9 +9,10 @@
 
 ## 待办
 
-- **#1 拆 `TUI/src/app/state/reducer.ts` 的 `reduceState` 状态机**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/state/reducer.ts` 1266 行, `reduceState` 的 `switch` 是一台完整状态机, 按动作组切会把同一台状态机拆到多文件 → 期望按 action 前缀分组为多个 reducer 文件, 由入口合并导出, 行为与帧内容不变 → 改动位置 `TUI/src/app/state/reducer.ts` 与新增 `state/reducer-*.ts` → 验收同上 → 来源同上 → P3.
-- **#2 拆 `TUI/src/app/adapter/dsh.ts` 的 `DshAdapter`**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/adapter/dsh.ts` 3604 行, `DshAdapter` 持有连接 / 会话 / 审批 / 工具事件等多组状态, 阶段 3 已把可独立搬移的辅助层与审批登记表拆出, 余下方法互相读写私有字段 → 期望先把适配器状态收成显式上下文对象, 再按「连接与会话 / 事件转接 / 审批桥」拆文件, 对外可见集合、事件顺序与帧内容不变 → 改动位置 `TUI/src/app/adapter/dsh.ts` 与新增 `adapter/*.ts` → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿且帧基线一致 → 来源 `docs/archived/2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
-- **#3 拆分 `TUI/src/app/index.ts` 的 `App` 类体**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/index.ts` 6497 行, 主体是 `App` 类约 6200 行方法体, 方法大量读写私有字段 (`state` / `deps` / 计时器 / 渲染句柄), 直接搬会改结构 → 期望先把这些状态收成显式上下文对象, 再按「会话控制 / 面板交互 / 插件接线」三组拆出, 对外可见集合与帧内容不变 → 改动位置 `TUI/src/app/index.ts` 与新增分层文件 → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿且帧基线一致 → 来源 `docs/archived/2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
+- **#1 拆 `TUI/src/app/adapter/dsh.ts` 的 `DshAdapter`**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/adapter/dsh.ts` 3604 行, `DshAdapter` 持有连接 / 会话 / 审批 / 工具事件等多组状态, 阶段 3 已把可独立搬移的辅助层与审批登记表拆出, 余下方法互相读写私有字段 → 期望先把适配器状态收成显式上下文对象, 再按「连接与会话 / 事件转接 / 审批桥」拆文件, 对外可见集合、事件顺序与帧内容不变 → 改动位置 `TUI/src/app/adapter/dsh.ts` 与新增 `adapter/*.ts` → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿且帧基线一致 → 来源 `docs/archived/2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
+- **#2 拆分 `TUI/src/app/index.ts` 的 `App` 类体**〔状态: 待办, 2026-11-01〕（2026-11-01）：`TUI/src/app/index.ts` 6497 行, 主体是 `App` 类约 6200 行方法体, 方法大量读写私有字段 (`state` / `deps` / 计时器 / 渲染句柄), 直接搬会改结构 → 期望先把这些状态收成显式上下文对象, 再按「会话控制 / 面板交互 / 插件接线」三组拆出, 对外可见集合与帧内容不变 → 改动位置 `TUI/src/app/index.ts` 与新增分层文件 → 验收 `pnpm -C TUI run check` / `test` / `demo -- --smoke` 全绿且帧基线一致 → 来源 `docs/archived/2026-10-28-history-cleanup-tui.md` 阶段 3 偏差 → P3.
+
+> 2026-11-03 关闭：`拆 TUI/src/app/state/reducer.ts 的 reduceState 状态机` 完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-03-split-reducer.md`）：`switch` 的 133 个 `case` 块按 action 前缀搬到 9 个 `state/reducer-*.ts`（块文本逐字节一致），入口只留子 reducer 链与焦点复位；TUI 1829 例全过、`demo -- --smoke` 输出 `SMOKE_OK`、全仓 `check` / `test` 退出 0。
 
 > 2026-11-03 关闭：`收拢布局层的 delivery.kind === "user" 判断` 完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-03-is-user-delivery.md`）：类型守卫 `isUserDelivery` 与 `UserDelivery` 落在 `layout/pipeline/types.ts`，`sections.ts` 7 处比较统一改调；TUI 1829 例全过、`demo -- --smoke` 输出 `SMOKE_OK`。
 
