@@ -113,15 +113,22 @@
 ## 偏差
 
 - 条目一的「TUI 两处旧称」未改：`TUI/README.md:351` 与 `TUI/docs/DESIGN.md:378` 现为 `/council` 行，用词已是「审阅子代理」；`grep '评审'` 在非归档 TUI 文档 0 命中（命中全在 `TUI/docs/archived/`，按规则不改）。判定为审计快照的行号与结论已过期。
-- 条目二「同 commit 两次报告一致」未达成：同一 commit 连跑三次，行覆盖 69437 / 69437 / 69440（分母 77567），分支覆盖 16269 / 16269 / 16272（分母 20298 / 20298 / 20303）。逐文件比对差异集中在 `memory-base/src/tiers.ts`、`script-interpreter/src/run.ts`、`session-channel/src/broker.ts` / `service.ts`，属并行测试的时序分支（同一路径有时执行、有时不执行）。因此回写时记录**区间**（行 69437~69440 / 77567 = 89.5%，分支 16269~16272 / 20298~20303 = 80.2%）并列出分子分母；百分比仍可由分子分母复算。
+- 条目二「同 commit 两次报告一致」未达成：同一 commit 连跑三次，行覆盖 69437 / 69437 / 69440（分母 77567），分支覆盖 16269 / 16269 / 16272（分母 20298 / 20298 / 20303）。逐文件比对差异集中在 `memory-base/src/tiers.ts`、`script-interpreter/src/run.ts`、`session-channel/src/broker.ts` / `service.ts`，属并行测试的时序分支（同一路径有时执行、有时不执行）。因此回写时记录**区间**（行 69437~69440 / 77567 = 89.5%，分支 16269~16272 / 20298~20303 = 80.2%）并列出分子分母；百分比仍可由分子分母复算。条目三落地后在 HEAD 复跑，口径同一条命令给 行 69481 / 77591（89.6%）、分支 16297 / 20329（80.2%）——差异来自新增判定函数的源码行，属预期漂移，不作为第三次「报告不一致」的证据。
 - 条目三选了「记录为不支持并给替代」而非「完整实现范围替换」（决策项 1、2）：TUI 缓冲行不保留源事件 seq 到行的映射，按 `startSeq` / `endSeq` 重写已展示区间需要另建索引并重排历史流，风险与改动面都超出本条目的 P2 边界。
 - 计划外文件：无（实际改动与清单一致，另加 `docs/BACKLOG.md` 的条目状态与本追踪文档）。
 
 ## 测试与证据
 
-| 命令 | 结果 |
-| --- | --- |
-| `grep 'npm --prefix security-guard'` / `grep '两个 program'` / `grep '\`npm run build\`'`（现行文档与脚本） | 0 命中（`docs/archived/`的历史记录保留） | |`pnpm -C security-guard run check`/`run test`| 退出 0 / 160 例全过 | |`pnpm -C session-paths run check`| 退出 0 | |`pnpm run test:coverage`（三次，脚本加排 `dist/` 后） | 退出 0；`dist`文件 0；行 69437~69440 / 77567（89.5%），分支 16269~16272 / 20298~20303（80.2%） | |`pnpm -C rule-engine run check`/`run test`| 退出 0 / 177 例全过（较改前 168 例新增 9） | |`pnpm -C TUI run check`| 退出 0 | |`bash TUI/scripts/test.sh adapter.dsh.test.ts`| 218 例全过 | |`pnpm run check`/`pnpm run build`/`pnpm run test`（全仓） | 均退出 0（`test`无 fail 行） | |`format\`（全部改动文件） | 退出 0，复跑无变化 |
+- 旧文案扫描：`grep 'npm --prefix security-guard'`、`grep '两个 program'`、`grep '\`npm run build\`'` 在现行文档与脚本 0 命中（`docs/archived/\` 的历史记录保留）。
+- `pnpm -C security-guard run check` / `run test`：退出 0 / 160 例全过。
+- `pnpm -C session-paths run check`：退出 0。
+- `pnpm run test:coverage`（脚本加排 `dist/` 后连跑三次）：均退出 0；`dist` 文件 0；行 69437~69440 / 77567（89.5%），分支 16269~16272 / 20298~20303（80.2%）。
+- 条目三落地后的 HEAD 复跑：行 69481 / 77591（89.6%），分支 16297 / 20329（80.2%），`dist` 文件 0；与上一条的差异来自新增判定函数带来的源码行（分母 +24）。
+- `pnpm -C rule-engine run check` / `run test`：退出 0 / 177 例全过（较改前 168 例新增 9）。
+- `pnpm -C TUI run check`：退出 0。
+- `bash TUI/scripts/test.sh adapter.dsh.test.ts`：218 例全过。
+- `pnpm run check` / `pnpm run build` / `pnpm run test`（全仓）：均退出 0（`test` 无 fail 行）。
+- `format`（全部改动文件）：退出 0，复跑无变化。
 
 反向验证：条目三的两处用例在改动前会转红（`assistant/message` 的对象形态被当 append → 覆盖正文会进流；`user/message` / `tool/result` 的 replace 会照常派发）。改动后两包用例转绿，说明门确实生效。
 
