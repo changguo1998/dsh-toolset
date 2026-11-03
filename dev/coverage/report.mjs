@@ -9,12 +9,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const covDir = resolve(root, process.argv[2] ?? "tmp/coverage");
 const outFile = resolve(root, process.argv[3] ?? "tmp/coverage/report.json");
 
-/** 该相对路径是否属于某个包的 src (排除 tests / node_modules / 仓库外)。 */
+/** 该相对路径是否属于某个包的 src (排除 tests / dist / node_modules / 仓库外)。 */
 function isPackageSource(rel) {
   if (rel.startsWith("..") || isAbsolute(rel)) return false;
   if (
     rel.includes(`${sep}node_modules${sep}`) ||
-    rel.includes(`${sep}tests${sep}`)
+    rel.includes(`${sep}tests${sep}`) ||
+    rel.includes(`${sep}dist${sep}`)
   )
     return false;
   return rel.includes(`${sep}src${sep}`);

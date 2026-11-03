@@ -1403,6 +1403,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 - 阶段 4b: `pnpm run check` 退出 0; `command-template` 48 / 48、`task-engine` 171 / 171; 34 份 README 六节、15 份 DESIGN 四节; `command-template` 文档与模板「评审」0 命中; `main.ts` 仅余 `demo/main.ts`; 22 个改动文件 `format` 退出 0.
 - 阶段 3b 全量: `pnpm run check` / `build` / `test` / `test:integration` 退出 0; 根集成层修复后连跑 4 次无失败; `TUI` `test:e2e` (`DSH_PROFILE=fff-test`, key 任意) 退出 0 (42 条 `SMOKE_PASS` + `SMOKE OK`); 受影响三包覆盖率 `tool-consult` 96.1% / 92.3%、`task-engine` 82.8% / 74.4%、`session-title-cutoff` 98.0% / 89.2%.
 - 2026-11-02 关闭前复跑: `pnpm run check` / `build` / `test` / `test:coverage` 退出 0; 覆盖率行 86.6% (70416/81275), 分支 80.0% (16407/20497); 首轮全量 `test` 的 `task-engine` 一例并行失败, 单包复跑 171/171、全量复跑通过; 根空 `pnpm-lock.yaml` 保留并在阶段 1 补记 (E-09); 43 份追踪归档; `BACKLOG #1` 清除.
+- 2026-11-03 口径补正 (项目级条目「覆盖率报告排除 dist 并统一口径」): `dev/coverage/report.mjs` 的 `isPackageSource` 加排 `dist/`, 连跑三次 `pnpm run test:coverage` 均退出 0 且报告内 `dist` 文件 0 条; 同 commit 行 69437~69440 / 77567 (89.5%), 分支 16269~16272 / 20298~20303 (80.2%); 上列阶段 3 的 87.7% (70114/79945) / 80.1% (16404/20491) 与阶段 5 的 86.6% (70416/81275) / 80.0% (16407/20497) 都是未排 `dist` 的旧口径快照, 保留不改, 跨阶段比较须按本次口径重跑. 复跑非确定 (±3 行 / ±4 分支) 来自并行测试的时序分支, 证据与过程见 `docs/archived/2026-11-03-backlog-batch-four.md`.
 
 ## 收尾
 
