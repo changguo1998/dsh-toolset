@@ -3,17 +3,23 @@ import { test } from "node:test";
 
 import { bootPackage } from "./harness.ts";
 
-test("auto_approve 的服务面与 /autoapprove status 在真实宿主可用", async (t) => {
-  const host = await bootPackage("auto-approve", {
-    extraPackages: ["session-paths", "memory-base"],
-  });
+test("auto_approve 只挂 dsh-base 时仍激活并降级审计", async (t) => {
+  const host = await bootPackage("auto-approve");
   t.after(async () => host.dispose());
 
   const service = host.ctx.get("autoApprove") as {
-    status(): Record<string, unknown>;
+    status(): {
+      audit: {
+        sessionWritable: boolean;
+        projectWritable: boolean;
+        degradedReason?: string;
+      };
+    };
   };
   const status = service.status();
-  assert.ok(Object.keys(status).length > 0, "status 为空");
+  assert.equal(status.audit.sessionWritable, false);
+  assert.equal(status.audit.projectWritable, false);
+  assert.match(status.audit.degradedReason ?? "", /session-paths/);
 
   const agent = await host.createAgent("e2e-approve");
   t.after(async () => agent.dispose());
@@ -32,5 +38,5 @@ test("auto_approve 的服务面与 /autoapprove status 在真实宿主可用", a
     new AbortController().signal,
   );
   assert.ok(execution, "命令未解析");
-  assert.match(execution?.result?.text ?? "", /模式|名单|审计/);
+  assert.match(execution?.result?.text ?? "", /审计（会话）: 不可用/);
 });

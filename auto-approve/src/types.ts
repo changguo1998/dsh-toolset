@@ -208,6 +208,12 @@ export function readService<T>(host: unknown, key: string): T | undefined {
       // get 抛错时回落直接成员读取
     }
   }
-  const direct = record[key];
-  return direct === undefined || direct === null ? undefined : (direct as T);
+  // cordis 对未在 inject 声明的服务属性访问会抛（"cannot get property ... without inject"），
+  // 与「服务缺席」同义，按不可用处理，不让可选服务把整个插件拖下水。
+  try {
+    const direct = record[key];
+    return direct === undefined || direct === null ? undefined : (direct as T);
+  } catch {
+    return undefined;
+  }
 }
