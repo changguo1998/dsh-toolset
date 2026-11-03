@@ -98,11 +98,11 @@
 | P1-03 | 根新增 test:integration / test:e2e / test:coverage | 根 `package.json` | `:10-12`; `0ec16f43` | ✓ |
 | P1-04 | 34 包补 `private: true` | 34 份 package.json | 34/34 无缺字段 | ✓ |
 | P1-05 | main/types 指 `dist/src/index.js` / `./dist/src/index.d.ts` | 34 份 package.json | agent-group `:7,36`; TUI `:10,45` | ✓ |
-| P1-06 | files 固定 dist / README.md / cordis.patch.yml (有 LICENSE 才列) | 34 份 package.json | 34 份路径存在; security-guard 另列 `scripts` | △ |
+| P1-06 | files 固定 dist / README.md / cordis.patch.yml (有 LICENSE 才列) | 34 份 package.json | 34/34 符合; security-guard 已删 `scripts` (2026-11-02) | ✓ |
 | P1-07 | scripts 至少 build/check/test, 额外脚本按四类命名 | 34 份 package.json | 34/34 三件齐; 加项均落 demo / smoke / watch / verify / inspect / gen: / example: / check: | ✓ |
 | P1-08 | 5 个包补 LICENSE 并在 files 列出 | 5 包 | 5/5 与根 `LICENSE` 相同; `d559d031` | ✓ |
 | P1-09 | 覆盖率聚合器只用 Node 标准库, 输出四列表 | `dev/coverage/collect.mjs` / `report.mjs` | 仅 `node:*` import; 落盘用固定 `tmp/coverage` | △ |
-| P1-10 | test-parallel.sh 分层、parallel/xargs 两路、`set -u` 累计退出 | `scripts/test-parallel.sh` | `:7,16,40-50,68-77`; 缺包清单反向校验, `:10` 注释仍写「30 个包」 | △ |
+| P1-10 | test-parallel.sh 分层、parallel/xargs 两路、`set -u` 累计退出 | `scripts/test-parallel.sh` | `:7,16,40-50,68-77`; 双向校验与 34 包注释已补 (2026-11-02) | ✓ |
 | P1-11 | TUI/scripts/test.sh 注释改 pnpm | `TUI/scripts/test.sh` | `:2,5,11,16`; `0ec16f43` | ✓ |
 | P1-12 | install.sh 依赖与 build 改 pnpm, 只留两处 npm | `scripts/install.sh` | `:250,267,270,379-387`; `d559d031` | ✓ |
 | P1-13 | 34 份 tsconfig 同构, include 固定 src/tests | 34 份 tsconfig.json | 34/34 compilerOptions 相同; include/exclude 全部真实存在 | ✓ |
@@ -144,7 +144,7 @@
 | P2-13 | tool-consult skip 收窄为进前二 | `tests/retrieval.test.ts` | `:208-212`; skip 归零 | ✓ |
 | P2-14 | 夹具复核 TUI 2 / fs-digest 5 / tool-consult 1 | 三包 fixtures | 8 个夹具均有引用 | ✓ |
 | P2-15 | 每包记改前/改后覆盖率 | 34 份包追踪 | 34/34 有「改前」列 | ✓ |
-| P2-16 | 每包记用例清单、skip 计数与豁免台账 | 34 份包追踪 | 16/34 有用例清单; 17/34 无豁免台账字样 (多为 0 条未单列) | △ |
+| P2-16 | 每包记用例清单、skip 计数与豁免台账 | 34 份包追踪 | 34/34 已补「四份测试产物」索引 (2026-11-02); 数据仍见各包「实现记录」与「测试与证据」 | ✓ |
 | P2-17 | 每包 README 测试节写层次、三条命令与缺层原因 | 34 份 README | 20/34 缺 test:integration, 25/34 缺 test:coverage; session-paths `:75` 仍写「两个 program」 | △ |
 | P2-18 | 覆盖率整包只升不降 | 阶段 2 记录 | TUI 分支 78.42% → 78.41%, 只进实现记录 | △ |
 | P2-19 | 阶段 2 全量 test/check/test:coverage 退出 0 | 根脚本 | `-02:66-67` 自述; 未复跑 | ? |
@@ -160,7 +160,7 @@
 | P3-03 | 8 包加 link 依赖, tests 改从入口引 | 10 份 package.json / 8 份 `tests/clock.test.ts` | `@dsh-toolset/clock-base` 依赖 10 处; 8 份测试 import 入口 | ✓ |
 | P3-04 | 11 个超长文件按职责拆分 | TUI / session-channel / task-engine / security-guard / rule-engine / agent-group / auto-approve | 9 个拆成多文件; TUI `app/index.ts` 6497 / `adapter/dsh.ts` 3604 只部分拆, 有 BACKLOG #1/#3 | △ |
 | P3-05 | 4 个 1000 至 1200 行文件补不拆理由 | 3 份包追踪 | herdr-use `:149`, session-channel `:110`, tui `:155`; task-engine 已拆到 622 | ✓ |
-| P3-06 | 6 组判断各只剩一个出口 | 各包 | 沙箱枚举 / 用户消息 / 按键 / 上下文守卫 / 记忆层级已收; 时钟探测仍 4 包各一处 | △ |
+| P3-06 | 6 组判断各只剩一个出口 | 各包 | 沙箱枚举 / 用户消息 / 按键 / 上下文守卫 / 记忆层级已收; 时钟探测 4 处改用 `clock-base` 的 `readClock` (2026-11-02) | ✓ |
 | P3-07 | 一包一提交, 提交信息 `refactor(<包>)` | 264 笔 | 24 个包有 refactor 提交; 3 笔跨包无 scope | ✓ |
 | P3-08 | 行为不变, 例外有记录 | 3b / 总追踪 | fs-digest 抛错 `8777399a`、tool-consult 遮罩 `17e1819d`、task-engine 竞态 `c38a0372` 均有记录 | ✓ |
 | P3-09 | 阶段 3 门禁 | 记录 | check/build/test/test:coverage 退出 0; 集成层延到 3b | ✓ |
@@ -277,11 +277,11 @@
 | E-03 | 项目级与包文档术语 | 审计时 落点 37、回归 39、收口 2、过程记录 5、符号规则 3、工具集 6、评审 2、影子 1; `docs/BACKLOG.md` 最集中; `WORKFLOW-STANDARD.md:11` 写「模块 = …」 | 逐文件计数见「测试与证据」; D 审计 | 与 `docs/GLOSSARY.md`「不写」列相反; 6.3 的同句「模块」改「包」未做 | 已补正 (2026-11-02): 现行文档 0 命中; 仅规则句与词内命中保留 |
 | E-04 | TUI 文档与 BACKLOG | `对话区` 9 处、`回合区` 18 处, 另有 `活动区` / `历史区` / `系统状态区` 等旧称; 2026-11-02 用户裁定统一为 状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行 | `TUI/README.md`、`docs/DESIGN.md`、`docs/SPEC.md`、`docs/BACKLOG.md`; `docs/GLOSSARY.md` | 与 GLOSSARY 旧表冲突; 全量替换影响面大 | 已记录七名口径 (`docs/GLOSSARY.md`「界面名称」); 全量替换转 `docs/BACKLOG.md` #3, 不阻塞本次关闭 |
 | E-05 | 34 份 README 测试节 | 审计时 20/34 缺 test:integration, 25/34 缺 test:coverage; TUI 计划明示保留但未写 | 逐包 grep; `-tui:68` | 4.6 的「三条命令」要求在规划里未派活 | 已补正 (2026-11-02): 34/34 含两命令, 25 份有改动 |
-| E-06 | 时钟能力探测 | `background-daemon/src/main.ts`、`metric-loop/src/index.ts`、`session-channel/src/service.ts`、`TUI/src/main.ts` 仍各自探测 `clock.now` / `clock.scope` | `git grep` BASE 11 包 → HEAD 5 包 (含 clock-base 自身) | 5.6「收进 clock-base」未完全落实, 无偏差记录 | 收进 `readClock` / `resolveClock`, 或补偏差 |
+| E-06 | 时钟能力探测 | `background-daemon/src/main.ts`、`metric-loop/src/index.ts`、`session-channel/src/service.ts`、`TUI/src/main.ts` 仍各自探测; 2026-11-02 已补正 | `git grep` BASE 11 包 → HEAD 5 包 (含 clock-base 自身) | 5.6「收进 clock-base」未完全落实, 无偏差记录; 补正后 4 处不再自写探测 | 已补正: 4 处改用 `readClock` + `isTimers`; 见「E-06 补正记录」 |
 | E-07 | TUI `app/index.ts` 6497 行、`adapter/dsh.ts` 3604 行 | 11 个长文件中的两个只部分拆分 | 阶段 3 偏差; `TUI/docs/BACKLOG.md` #1/#3 | 与验收「11 个长文件完成拆分」有差 | 已有条目, 关闭时接受为后续 |
 | E-08 | `session-paths` 集成层 | 计划写「不设集成层」, 实际 12 例实跑 | 包追踪 `:72` | 与 4.2「有服务面必须有集成层」一致, 属计划写错 | 接受并在计划侧记偏差 |
 | E-09 | 根 `pnpm-lock.yaml` (`d559d031`) | 计划只列 34 份包内 lockfile | `pnpm-lock.yaml:1-9` | 口径不符, 无功能影响 | 删除或在阶段 1 补记 |
-| E-10 | `security-guard/package.json` `files` 含 `scripts`; 3 处 `npm --prefix` 文案; `test-parallel.sh:10`「30 个包」; `session-paths/README.md:75`「两个 program」 | 3.6 / 1.3 口径未收敛 | 逐处 grep; 均 BASE 已存在 | 文档与脚本文案失真 | 另立条目或随关闭前补正 |
+| E-10 | 3 处 `npm --prefix` 文案; `session-paths/README.md:75`「两个 program」; `security-guard` `files` 与 `test-parallel.sh:10` 已补正 (2026-11-02) | 3.6 / 1.3 口径未收敛 | 逐处 grep; 均 BASE 已存在 | 文档与脚本文案失真 | 余 2 处另立条目或随关闭前补正 |
 | E-11 | TUI 分支覆盖 78.42% → 78.41% | 4.3 要求只升不降 | `-02:48` 只进实现记录 | 门禁例外未入偏差 | 补偏差一句 |
 | E-12 | 3b 回写遗漏 | `herdr-use:141`、`herdr-integration:67`、`task-engine:84,92` 仍称 tsconfig 未动; fs-digest 偏差缺 `8777399a`; `-03:60` 覆盖率过期; 门禁「3 次 / 4 次」并存; 3 处行号漂移 | B2 审计 | 追踪文档与仓库不一致 | 关闭前回写 |
 | E-13 | 阶段追踪结构 | 01/02/03 用 `## 规划` / `## 范围` 等, 非模板的 `## 实现规划`; 34 份包追踪无合并提交号 | D 审计 | 不影响内容, 验收第 4 条口径有差 | 接受或补标题 |
@@ -299,8 +299,22 @@
 - 术语 (E-03): 按 GLOSSARY 替换 落点 / 回归 / 收口 / 过程记录 / 符号规则 / 工具集 / 评审 / 影子覆盖事件 / 插件包; 现行文档 0 命中 (排除归档 / host / 追踪 / GLOSSARY / STATUS); `WORKFLOW-STANDARD.md:11` 改为「本仓 34 个包 = TUI 与 33 个插件」. 仅 `AGENTS.md:13` 的规则句、`herdr-integration/README.md:43` 的「夺回归属」、`preference-analysis/README.md:103` 的「验收口径」为词内命中, 保留.
 - README (E-05): 25 份包 `README.md` 测试节补 `test:integration` / `test:coverage` (含 TUI), 34/34 齐; 注释写明层次.
 - 界面名称 (E-04): 用户 2026-11-02 裁定统一为 状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行; 旧称映射写入 `docs/GLOSSARY.md`「界面名称」, 全量替换另立 `docs/BACKLOG.md` #3, 本次不执行.
-- 补正后判定: P5-15 / P5-19 / P5-37 / P2-17 / P4-11 转 `✓`; 合计 `✓ 98` / `△ 23` / `✗ 1` / `? 2`; 剩余 `✗` 为 P2-07 (已记录偏差).
-- 未处理: E-06 (时钟探测), E-12 (3b 回写), 以及阶段 5 收尾; E-04 已转条目 (#3).
+- P0 补正后判定: P5-15 / P5-19 / P5-37 / P2-17 / P4-11 转 `✓`; 合计 `✓ 98` / `△ 23` / `✗ 1` / `? 2`; 剩余 `✗` 为 P2-07 (已记录偏差).
+- 未处理: E-12 (3b 回写), 以及阶段 5 收尾; E-04 已转条目 (#3).
+
+### E-06 补正记录 (2026-11-02)
+
+- 改动: `background-daemon/src/main.ts` / `metric-loop/src/index.ts` / `session-channel/src/service.ts` / `TUI/src/main.ts` 4 处改用 `clock-base` 的 `readClock`; `scope` 返回值用 `isTimers` 校验. 四包均依赖 `@dsh-toolset/clock-base`; `background-daemon` / `metric-loop` / `TUI` 新增 link 依赖与 lockfile, `session-channel` 原已有. `metric-loop/tests/assemble.ts` / `controller.test.ts` 与 `session-channel/tests/helpers.ts` 的假时钟面同步补 `scope` / `get`.
+- TUI 口径: 根 `README.md` / `README.zh.md`、`TUI/README.md`、`TUI/docs/DESIGN.md` 的「零运行时依赖」改为「零第三方运行时依赖」, 注明仅复用本仓 `clock-base`; `dependencies` 不再为空.
+- 验证: 根 `pnpm run check` 退出 0; 四包 `build` 退出 0; 四包 `test` / `test:integration` 退出 0; TUI `demo -- --smoke` 42 条 `SMOKE_PASS`.
+- 判定: P3-06 转 `✓`.
+
+### P1-06 / P1-10 / P2-16 补正记录 (2026-11-02)
+
+- P1-06: `security-guard/package.json` 的 `files` 删除 `scripts`, 与 3.6 的固定列一致; 包行为无改动.
+- P1-10: `scripts/test-parallel.sh` 增加 `default_pkgs` 与仓库目录的双向校验 (缺目录 / 漏列均告警), 注释「30 个包」改 34; 与 `scripts/install.sh:346-354` 同口径.
+- P2-16: 34 份包追踪各追加「四份测试产物」索引 (覆盖率表 / 用例清单 / `skip` 与豁免 / 四入口); 具体数据仍在各包「实现记录」与「测试与证据」, 未搬移.
+- 判定: P1-06 / P1-10 / P2-16 转 `✓`; 合计 `✓ 102` / `△ 19` / `✗ 1` / `? 2`.
 
 ### 结论
 
@@ -308,15 +322,14 @@
 
 理由: 计划的骨架已落到文件并可复现 —— 34 包元数据与 lockfile 统一、入口迁移、34 份 README 六节与 15 份 DESIGN 四节、21 个死导出删除、定时器只剩 `clock-base` 一份、7 条断链修复、正文符号变体 0、包数统一 34、门禁与冒烟记录齐全; 反向 720 个条目中 675 个可归计划项, 仅 1 个计划外文件.
 
-审计时未决项: 正向 125 项中 `✓ 93` / `△ 25` / `✗ 4` / `? 2`, 另有 1 项待关闭. 2026-11-02 补正 P0 四项后, 5 项转 `✓`, 现为 `✓ 98` / `△ 23` / `✗ 1` / `? 2`; 唯一 `✗` 是 P2-07 (`session-paths` 集成层), 已记录且被接受的计划偏差.
+审计时未决项: 正向 125 项中 `✓ 93` / `△ 25` / `✗ 4` / `? 2`, 另有 1 项待关闭. 2026-11-02 补正 P0 四项后, 5 项转 `✓`, 现为 `✓ 98` / `△ 23` / `✗ 1` / `? 2`; E-06 与 P1-06 / P1-10 / P2-16 补正后 4 项再转 `✓`, 现为 `✓ 102` / `△ 19` / `✗ 1` / `? 2`; 唯一 `✗` 是 P2-07 (`session-paths` 集成层), 已记录且被接受的计划偏差.
 
 关闭前置条件 (补正后):
 
-1. E-06: 时钟探测 4 处收进 `clock-base` 的 `readClock` / `resolveClock`, 或在总追踪「偏差」记明保留理由.
-2. E-12: 回写 3b 遗漏的三处 tsconfig 声明、fs-digest 提交号、`-03:60` 覆盖率与门禁 3/4 次口径.
-3. 收尾: 总追踪补阶段 5 记录与「收尾」, 43 份追踪移入 `docs/archived/`, 清 `BACKLOG #1`, 写 STATUS 交付说明 (补 `escalation-hint` 一行, 32 → 33), 最后一笔提交.
+1. E-12: 回写 3b 遗漏的三处 tsconfig 声明、fs-digest 提交号、`-03:60` 覆盖率与门禁 3/4 次口径.
+2. 收尾: 总追踪补阶段 5 记录与「收尾」, 43 份追踪移入 `docs/archived/`, 清 `BACKLOG #1`, 写 STATUS 交付说明 (补 `escalation-hint` 一行, 32 → 33), 最后一笔提交.
 
-E-04 已按用户裁定记录七名口径, 全量替换转入 `docs/BACKLOG.md` #3, 不再阻塞本次关闭.
+E-06 已补正; E-04 已按用户裁定记录七名口径, 全量替换转入 `docs/BACKLOG.md` #3, 两者不再阻塞本次关闭.
 
 未做的核对: 按审计计划不重跑门禁, 两个 `?` 只引用追踪文档自述; 覆盖率未重算.
 
@@ -325,7 +338,7 @@ E-04 已按用户裁定记录七名口径, 全量替换转入 `docs/BACKLOG.md` 
 - 审计执行: 首轮 B 与 C 的子任务各失败一次 (无收尾消息), B 重试的 B1 也失败; 主会话用 `git grep` / `git diff` / 读文件重建 B1 的 10 项表, 并按同一清单全量复核 C; B2 / A / D 用任务返回结果. 抽查记录见下节.
 - 基线取 `5da198c` 的父提交 `9796562c`; 规划提交系列 (`0a1be8a9` 至 `9796562c`) 属计划本身, 不计入反向范围. 若按「任务接取提交之前」取 `c3245d1a`, 会多出 7 笔纯追踪文档提交, 不改变结论.
 - `session-paths` 集成层按计划判 `✗` (P2-07), 同时在例外 E-08 记为「计划写错、实现按 4.2 执行」; 若按「已记录偏差」口径可降为 `△`, 结论不变.
-- 时钟探测 (E-06) 与 README 测试节 (E-05) 是规划缺口: 计划总表写了要求, 逐包清单未派活; 审计按「计划要求是否落地」判 `△`, 未归入实现错误.
+- 时钟探测 (E-06) 与 README 测试节 (E-05) 是规划缺口: 计划总表写了要求, 逐包清单未派活; 审计按「计划要求是否落地」判 `△`, 未归入实现错误. E-06 已补正, E-05 已补正.
 - 未复跑 `check` / `build` / `test` / `test:coverage` / `demo -- --smoke` / `smoke:pty`; 门禁结论照抄阶段记录.
 - 2026-11-02 补正: 按用户指示处理 P0 四项 (E-01 / E-02 / E-03 / E-05), 详见「补正记录」; 上表与计数保留审计时快照, 补正后计数单列.
 
@@ -366,6 +379,6 @@ E-04 已按用户裁定记录七名口径, 全量替换转入 `docs/BACKLOG.md` 
 
 ### 统计
 
-- 正向: 审计时 125 项 = `✓ 93` / `△ 25` / `✗ 4` / `? 2`; 补正后 = `✓ 98` / `△ 23` / `✗ 1` / `? 2`; 另 1 项「待关闭」.
+- 正向: 审计时 125 项 = `✓ 93` / `△ 25` / `✗ 4` / `? 2`; 补正后 = `✓ 102` / `△ 19` / `✗ 1` / `? 2`; 另 1 项「待关闭」.
 - 反向: 720 条 = 已计划 675 / 允许的例外 44 / 计划外 1.
-- 例外: 17 条 (E-01 至 E-17); P0 四条 (E-01 / E-02 / E-03 / E-05) 已补正; 余 E-06 / E-12 待处理, E-04 已转 `docs/BACKLOG.md` #3, 其余按例外接受.
+- 例外: 17 条 (E-01 至 E-17); P0 四条 (E-01 / E-02 / E-03 / E-05) 已补正; E-06 已补正; 余 E-12 待处理, E-04 已转 `docs/BACKLOG.md` #3, 其余按例外接受.
