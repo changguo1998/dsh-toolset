@@ -13,6 +13,8 @@
 import os from "node:os";
 import path from "node:path";
 
+import { isTimers, readClock } from "@dsh-toolset/clock-base";
+
 import {
   registerDaemonCommand,
   type CommandRegistrarLike,
@@ -172,40 +174,22 @@ export function resolveControlPath(config: DaemonConfig = {}): string {
   return path.join(path.dirname(resolveStorePath(config)), "control.jsonl");
 }
 
-/** 定时器统一面（`timer` 插件的 `clock` 服务）的结构面：不 import 该包。 */
+/** 定时器统一面（`clock-base` 的 `clock` 服务 `scope` 返回）的最小结构面。 */
 interface TimersLike extends TimerLike {
   now(): number;
-}
-
-/** `clock` 服务面：`scope(ctx)` 返回的排期器把撤销动作登记在调用方 fiber 上。 */
-interface ClockLike {
-  now(): number;
-  scope(ctx: unknown): TimersLike;
 }
 
 /**
  * 读取 `clock` 服务并按本插件 ctx 造一组排期器；缺失 / 形状不符 / `scope` 抛错一律
  * 返回 `undefined`（调用方回退 `systemTimer()`），不让可选服务影响插件加载。
+ * 探测走 `clock-base` 的 `readClock`，本包不再自写形状判断。
  */
 function resolveTimers(ctx: unknown): TimersLike | undefined {
-  const clock = readService<ClockLike>(ctx, "clock");
-  if (
-    clock === undefined ||
-    typeof clock.now !== "function" ||
-    typeof clock.scope !== "function"
-  ) {
-    return undefined;
-  }
+  const clock = readClock(ctx);
+  if (clock === undefined) return undefined;
   try {
-    const timers = clock.scope(ctx) as Partial<TimersLike> | undefined;
-    if (
-      timers === undefined ||
-      typeof timers.schedule !== "function" ||
-      typeof timers.now !== "function"
-    ) {
-      return undefined;
-    }
-    return timers as TimersLike;
+    const timers = clock.scope(ctx);
+    return isTimers(timers) ? timers : undefined;
   } catch {
     return undefined;
   }

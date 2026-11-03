@@ -250,7 +250,16 @@ test("apply：clock 服务可用时读钟走统一面（假时钟可测）", asy
         registered.push(def as Record<string, unknown>),
     },
     get: (name: string): unknown =>
-      name === "clock" ? { now: () => fakeNow } : undefined,
+      name === "clock"
+        ? {
+            now: () => fakeNow,
+            scope: () => ({
+              now: () => fakeNow,
+              schedule: () => () => {},
+              interval: () => () => {},
+            }),
+          }
+        : undefined,
   };
   try {
     await apply(ctx, { stateDir: dir });

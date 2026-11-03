@@ -64,8 +64,8 @@ export interface ServiceSurface {
 /** 假时钟面: `ManualClock` 本体 + 形状与 `clock` 服务一致的只读视图. */
 export interface ClockSurface {
   readonly manual: ManualClockLike;
-  /** 注入到服务面 `clock` 的最小结构面 (`now()`); 与 clock-base 的服务面同形. */
-  readonly service: { now(): number };
+  /** 注入到服务面 `clock` 的最小结构面 (`now()` + `scope()`); readClock 只校验方法存在, 本包不消费 scope. */
+  readonly service: { now(): number; scope(): unknown };
 }
 
 /** 装配后的宿主句柄. */
@@ -144,7 +144,7 @@ export function createServiceSurface(
 /** 造假时钟 (缺省从 1000ms 起, 与既有单元用例同基线). */
 export function createClockSurface(startMs = 1_000): ClockSurface {
   const manual = new ManualClock(startMs);
-  return { manual, service: { now: () => manual.now() } };
+  return { manual, service: { now: () => manual.now(), scope: () => manual } };
 }
 
 /**

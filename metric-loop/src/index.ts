@@ -34,6 +34,8 @@ import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { readClock } from "@dsh-toolset/clock-base";
+
 import {
   advance,
   createInitialState,
@@ -147,18 +149,14 @@ interface GuardServiceLike {
   inspectCommand?: (command: string, source?: string) => string | null;
 }
 
-/** 定时器统一面（`timer` 插件的 `clock` 服务）的最小结构面：本包只消费 `now()`。 */
-interface ClockLike {
-  now(): number;
-}
-
 /**
  * 读定时器统一面时钟（可选服务）：`clock` 未挂载 / 形状不符 → `undefined`（引擎回落
- * `Date.now`）。惰性解析：引擎只在用到时钟那一刻读取，不依赖插件装载顺序。
+ * `Date.now`）。探测走 `clock-base` 的 `readClock`，本包不再自写形状判断。
+ * 惰性解析：引擎只在用到时钟那一刻读取，不依赖插件装载顺序。
  */
 function makeClock(ctx: unknown): (() => number) | undefined {
-  const clock = readService<ClockLike>(ctx, "clock");
-  if (clock === undefined || typeof clock.now !== "function") return undefined;
+  const clock = readClock(ctx);
+  if (clock === undefined) return undefined;
   return () => clock.now();
 }
 

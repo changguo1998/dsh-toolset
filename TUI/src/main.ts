@@ -2,7 +2,7 @@
 //
 // 双角色：
 //   1. DSH 插件(bundle)入口：导出 `{ name, inject, apply }`(注意：cordis 要求
-//      Config 为 schemastery Schema 才导出 `Config`——本项目零运行时依赖、不引入
+//      Config 为 schemastery Schema 才导出 `Config`——本项目零第三方运行时依赖、不引入
 //      schemastery，故不导出 Config，loader 对无 schema 插件直接透传 config)，由
 //      cordis/dsh 以 `name: '@dsh-toolset/tui'` 加载，apply(ctx) 在真实
 //      profile 内做会话/agent 引导并组装 renderer + app + real adapter。
@@ -11,6 +11,7 @@
 //   2. 组装入口 `main()`：renderer + app + adapter 的纯组装（由 apply() 调用；
 //      bin/tui.js 的 mock demo 自行组装 App/renderer，不经此处）。
 
+import { isTimers, readClock } from "@dsh-toolset/clock-base";
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { resolveThemes } from "./renderer/theme-config.ts";
@@ -82,7 +83,7 @@ import {
   type RuleEngineLike,
 } from "./app/adapter/dsh.ts";
 
-/** 定时器统一面（`clock-base` 插件的 `clock` 服务 `scope` 返回）的最小结构面：不 import 该包。 */
+/** 定时器统一面（`clock-base` 的 `clock` 服务 `scope` 返回）的最小结构面。 */
 interface TimersLike {
   schedule(delayMs: number, callback: () => void): () => void;
   interval(delayMs: number, callback: () => void): () => void;
@@ -577,7 +578,7 @@ export async function waitForHostService<T>(
  * ctx 为 cordis Context(结构上满足 DshRuntime)，此处只做窄化。
  *
  * SAFETY: apply 由 cordis 注入完整 Context，本文件刻意不依赖 @deepseek-ai/*
- * 类型(保持零运行时依赖)，用 DshRuntime/DshAgentLike 结构面访问——所有消费
+ * 类型(保持零第三方运行时依赖)，用 DshRuntime/DshAgentLike 结构面访问——所有消费
  * 字段(session.id、followup、agents.create、agentDefaultModel)与官方 dsh 公开
  * 契约一致，见docs/host/DSH-CTX-API.md §4 与 @deepseek-ai/dsh-agent-default-model。
  * 若 DSH 升级破坏形状，真机环境会立即暴露。
@@ -934,16 +935,15 @@ export async function apply(
     (ctx as { get?: (name: string) => unknown }).get?.("ruleEngine") as
       RuleEngineLike | undefined;
 
-  // 定时器统一面（ctx.get('clock')，timer 插件 provide）：同上懒读；StatusTicker 启动时
+  // 定时器统一面（ctx.get('clock')，clock-base provide）：同上懒读；StatusTicker 启动时
   // 经 scope(ctx) 取排期器，排期随本插件 fiber 卸载撤销；未挂载时回落 setInterval。
+  // 探测走 clock-base 的 readClock，本包不再自写形状判断。
   const getTimers = (): TimersLike | undefined => {
-    const clock = (ctx as { get?: (name: string) => unknown }).get?.(
-      "clock",
-    ) as { scope?: (ctx: unknown) => TimersLike } | undefined;
-    if (clock === undefined || typeof clock.scope !== "function")
-      return undefined;
+    const clock = readClock(ctx);
+    if (clock === undefined) return undefined;
     try {
-      return clock.scope(ctx);
+      const timers = clock.scope(ctx);
+      return isTimers(timers) ? timers : undefined;
     } catch {
       return undefined;
     }

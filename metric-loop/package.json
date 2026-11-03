@@ -13,6 +13,9 @@
     "test:coverage": "rm -rf ../tmp/cov-metric-loop && mkdir -p ../tmp/cov-metric-loop && NODE_V8_COVERAGE=../tmp/cov-metric-loop node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-metric-loop tmp/cov-metric-loop/report.json",
     "smoke": "node smoke/smoke.mjs"
   },
+  "dependencies": {
+    "@dsh-toolset/clock-base": "link:../clock-base"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3"

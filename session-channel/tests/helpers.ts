@@ -95,6 +95,7 @@ export function makeFakeHost(options: { capture?: boolean } = {}): FakeHost {
   const listeners: Array<(session: unknown, event: unknown) => void> = [];
   const logs: string[] = [];
   const host: Record<string, unknown> = {
+    get: (name: string) => host[name],
     logger: () => ({ info: (message: string) => void logs.push(message) }),
     agents: {
       get: (id: string) => agents.get(id),

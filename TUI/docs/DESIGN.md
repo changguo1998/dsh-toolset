@@ -15,7 +15,7 @@
 
 ### 技术选型
 
-- 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，**零运行时依赖**（源码零第三方 import；颜色走 manual ANSI，`dependencies` 为空）。
+- 语言 TypeScript（与 DSH 核心一致），运行时 Node.js，**零第三方运行时依赖**（源码零第三方 import；颜色走 manual ANSI，`dependencies` 仅本仓 `@dsh-toolset/clock-base`）。
 - 不采用 Ink / Solid-TUI 等框架，自研极简渲染层。理由：流式输出本质是「增量文本追加 + 偶尔整帧重绘」；渲染层以**变化行游程重写**为核心（逐行比较，连续变化行各成一段、段间独立定位重写，不清屏），无组件树与布局引擎。防闪烁机制（区间重写 / 帧段切分 / DEC 2026 同步输出 / 覆盖式全帧 / 渲染期光标隐藏）见 `SPEC.md` §15.9「增量渲染与防闪烁」。
 - 代价是输入解码需手写 ANSI 转义序列解析（方向键、Home/End、Ctrl 组合、bracketed paste）——node 无 stdlib 键盘解析，这是自研相对用 Ink 的真正成本。
 - **绘制节律**：`paint()` 标脏 + 同一 tick 合帧（microtask 冲刷，一 tick 一帧），事件 burst 不逐事件重绘；真实链路另有跨回合帧率上限（默认 10Hz）。排版侧折行 / 宽度走有界缓存（`TUI_LAYOUT_CACHE=0` 可关）。详见 `SPEC.md` §15.8。
@@ -513,7 +513,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - **列宽分配**（`pickerColumnWidths`）：三列自然宽 = 各自最长选项显示宽（含行前标记 2 列，effort 无选项时按标题宽兜底）。空间充足时按自然宽比例分配（余数按最长列依次补 1），不出现大片留白；空间不足改用水位法（同 `table.ts`）——短列保持自然宽、只有超宽列被压到共同水位线；极窄（可用宽 < 3）退化为「首列吃其余、后两列各 1」。
 - **星号选中语义**：phase 0 仅移动 `providerIndex`；`selectPicker` 在星号移到新 provider 时才把 model 列表切到该 provider、`modelIndex = 0`、旧 `selectedModel` 失效（effort 列表清空由 App 重载；思考等级星号在新列表中存在才显示），重选同一 provider 幂等；phase 1 选中保留 `selectedEffort`。`App.reloadPickerEfforts()` 目标为选中（星号）的 model / provider（未选中回退焦点行）。`Enter` 提交走 `resolvePickerSelection`「星号优先、焦点兜底」。
 - **切换语义**：只改会话内 `SessionModelSelectionRef.current`（经 `installSessionModelSelection` 挂到 agentCtx 的 `system-prompt/assemble` + `agent/request` 双钩子，下一 step 生效，快照保证不撕裂当步请求）；**绝不调用宿主 `agentDefaultModel.saveSelection()`**（避免覆盖配置中的默认模型）。有效选择 = 会话内切换 ?? 宿主实时默认（`currentSelection()` 只读兜底，不做一次性快照以免异步 publish 时序吞掉设置）。切换时保留当前 `reasoningEffort`，不提供 effort 参数。
-- **接线**：`main.ts` 的 `apply()` 在 `agents.create({ setup })` 中把 `installSessionModelSelection(agentCtx, sessionModel, () => readDefaultSelection(defaultModelSvc))` 挂上，并把同一 `sessionModel` 引用 + 只读 `defaultModel` 兜底传入 `createRealDshAdapter`（结构面 `LlmLike` / `AgentDefaultModelLike`，零运行时依赖）。
+- **接线**：`main.ts` 的 `apply()` 在 `agents.create({ setup })` 中把 `installSessionModelSelection(agentCtx, sessionModel, () => readDefaultSelection(defaultModelSvc))` 挂上，并把同一 `sessionModel` 引用 + 只读 `defaultModel` 兜底传入 `createRealDshAdapter`（结构面 `LlmLike` / `AgentDefaultModelLike`，零第三方运行时依赖）。
 - **状态回显**：切换成功后 `systemStatus.model` 更新为 `provider/model` 并写入 notice；`App.start()` 读取 `modelCatalog().current` 写入 `systemStatus.model`。宿主 `agentDefaultModel` 需等 LLM provider 注册后才返回真实路由，故改为常驻跟随 `StatusTicker` 的 1s 周期（值变更才重绘）。
 - **持久化与恢复**：`/model` 只改会话内 `sessionModel.current`（**绝不写宿主 `agentDefaultModel.saveSelection()`**，避免覆盖配置默认模型），同时记入 `state.modelBySession` 供会话状态快照落盘；resume / 启动时按「宿主 `model/selection` → 快照 → 最近 `request/header.config`」恢复并写回引用（详见「会话状态恢复」）。仅内存会话（无持久化目录）没有快照，此时退化为宿主日志口径。
 
@@ -524,7 +524,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 - 展示复用活动区覆盖层（`components/CommandCompletion.ts`，与审批 / 问答 / picker / 各面板同一渲染链；footer **不**空白占位——补全不占输入区，输入行与光标必须可见）。面板 = 标题 1 行 + (activityH−1) 行候选，候选池足够时铺满活动区（曾设硬上限导致活动区高时底部留白，已移除）；**超出可视行的候选直接丢弃、不滚动窗口**——渲染只取前 activityH−1 项，App 侧 `completionVisibleRows()` 给 `completion-move` 传 `max`，把 `↑/↓` 与 `Tab` 接受也限定在可视范围内。键位提示不放面板内，而在输入区下方的提示行（`layout/hints.ts` 的 `COMPLETION_HINT_LINE`；提示行 1 至 2 行、任何状态都在，文案统一由 `hintLine(state)` 按状态给出）。
 - 按键：`Tab` 接受（写命令名 + 尾随空格，slash 模式不写前导 `/`）、`↑/↓` 移动（在 `handleKey` 的 normal 分支先于面板滚动）、`Esc` 收起（不打断运行）、`Enter` 保持提交语义。
 - **`@` 文件提及**（「输入 `@` 时按项目目录补全文件提及」，2026-10-14）：提示文本（steer / followup）里光标处出现活动 `@` token 时给路径候选，`state.completion` 因此泛化为 `CompletionState = command | file` 联合——面板、键位、`completionVisibleRows()` 口径全部复用，两类只在「候选来源」「标题文案」「接受语义」上分叉。slash 命令参数与 `$` shell 不触发（`@` 只是模型侧提示语法）。
-- token 语法（`activeAtToken`：行首 / 空白后触发、邮箱内 `@` 不触发、光标在 token 中间只取前段）与提及拼写（`formatFileMention` / `mentionInsertText` / `replaceActiveToken`）是本仓对官方 `dsh-file-reference/grammar` 的**同源复刻**（`src/app/file-mention.ts`）：TUI 零运行时依赖、未挂 file-reference 的 profile 静态 import 会整包 `ERR_MODULE_NOT_FOUND`，而本特性本应可降级；漂移由 `tests/file-mention.test.ts` 逐条对齐官方语义兜底（官方 Web 客户端同样把它内联进自己的 bundle）。
+- token 语法（`activeAtToken`：行首 / 空白后触发、邮箱内 `@` 不触发、光标在 token 中间只取前段）与提及拼写（`formatFileMention` / `mentionInsertText` / `replaceActiveToken`）是本仓对官方 `dsh-file-reference/grammar` 的**同源复刻**（`src/app/file-mention.ts`）：TUI 零第三方运行时依赖、未挂 file-reference 的 profile 静态 import 会整包 `ERR_MODULE_NOT_FOUND`，而本特性本应可降级；漂移由 `tests/file-mention.test.ts` 逐条对齐官方语义兜底（官方 Web 客户端同样把它内联进自己的 bundle）。
 - 候选来源是宿主播缝 `ctx.fileReferences.list(agent, query, signal)`（本 profile 由 `file-reference-local` 提供有界索引与确定性排序），经 `adapter.listFileCandidates()` 归一为 `{path, kind}`（目录 `path` **不带**尾随 `/`，`/` 由拼写阶段补）；服务未挂载 → 启动探测置 `fileMentionAvailable=false`，该特性整体关闭；查询抛错 / reject → 空数组，两者都不弹错，`@` 按普通字符输入。
 - **异步与竞态**：文件候选不能同步得到，reducer 只登记活动 token（items 首帧为空），App 在 `apply()` 的同一漏斗里按「token 变化」重排查询（60ms 去抖合并连续输入）；新 token 到来即 `AbortController.abort()` 上一次在途，回填走 `completion-data` 并**按 token 三元组（prefix / query / quoted）校验**，过期结果直接丢弃——面板内容恒与当前 token 一致（Esc 收起 / 切到命令候选同样取消在途）。
 - **接受语义差异**：命令候选是整串替换，提及候选按 `token.prefix` **就地**替换（保留 `@` 前后的正文）；文件补尾随空格收尾该提及，目录不加空格且引号保持打开（`@"dir/`）→ 输入重算出的新 token 自动续开下一级。提示行两态：`COMPLETION_HINT_LINE`（补全）/ `FILE_MENTION_HINT_LINE`（插入）。

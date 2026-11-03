@@ -8,7 +8,7 @@
 // 降级：连接失败 / 未启用一律 fail-safe——插件仍在、工具返回错误提示，不抛不影响 dsh 启动。
 
 import { randomUUID } from "node:crypto";
-import { systemTimers } from "@dsh-toolset/clock-base";
+import { isTimers, readClock, systemTimers } from "@dsh-toolset/clock-base";
 import {
   aliasPrefixFor,
   AUTO_ALIAS_POOL,
@@ -198,25 +198,11 @@ export interface ClockLike {
  * 撤销），缺失 / 形状不符 / `scope` 抛错一律回退 `systemTimers()` —— 可选服务不影响加载。
  */
 export function resolveTimers(host: unknown): TimersLike {
-  const clock = readService<ClockLike>(host, "clock");
-  if (
-    clock === undefined ||
-    typeof clock.now !== "function" ||
-    typeof clock.scope !== "function"
-  ) {
-    return systemTimers();
-  }
+  const clock = readClock(host);
+  if (clock === undefined) return systemTimers();
   try {
-    const timers = clock.scope(host) as Partial<TimersLike> | undefined;
-    if (
-      timers === undefined ||
-      typeof timers.now !== "function" ||
-      typeof timers.interval !== "function" ||
-      typeof timers.schedule !== "function"
-    ) {
-      return systemTimers();
-    }
-    return timers as TimersLike;
+    const timers = clock.scope(host);
+    return isTimers(timers) ? timers : systemTimers();
   } catch {
     return systemTimers();
   }

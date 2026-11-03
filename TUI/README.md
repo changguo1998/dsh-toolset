@@ -2,7 +2,7 @@
 
 ## 定位
 
-DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式。自研极简渲染层驱动，不依赖 Ink / Solid-TUI / node-pty，**零运行时依赖**（源码零第三方 import，颜色走 manual ANSI）。
+DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心服务（会话、Agent 驱动、审批链等），提供 Web UI / CLI 之外的第三种交互方式。自研极简渲染层驱动，不依赖 Ink / Solid-TUI / node-pty，**零第三方运行时依赖**（源码零第三方 import，仅复用本仓 `clock-base` 的时钟探测，颜色走 manual ANSI）。
 
 | 文档 | 类型 | 内容 |
 |---|---|---|
