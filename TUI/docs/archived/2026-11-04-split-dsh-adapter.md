@@ -1,6 +1,6 @@
 # 拆分 DSH 适配层（接取条目：`TUI/docs/BACKLOG.md`「拆 `TUI/src/app/adapter/dsh.ts` 的 `DshAdapter`」）
 
-状态：规划　　开启：2026-11-04　　关闭：—
+状态：关闭　　开启：2026-11-04　　关闭：2026-11-04
 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改.
 
 ## 目标
@@ -171,4 +171,9 @@
 
 ## 收尾
 
-（未开始）
+- **回写**: `TUI/docs/DESIGN.md` 已改 —— 文件树 adapter 段（第 109-111 行）与两处行为说明（第 416 / 553 行）点到新文件; `TUI/README.md` / `TUI/docs/SPEC.md` 不涉及（对外契约、渲染规格未变）; `docs/STATUS.md` 按流程交由用户择时更新, 本任务不改.
+- **BACKLOG**: `TUI/docs/BACKLOG.md` 的条目「拆 `TUI/src/app/adapter/dsh.ts` 的 `DshAdapter`」标「完成」并移出清单（关闭注记留在原节说明行）; 该节剩余未完成项 1 条（拆分 `TUI/src/app/index.ts` 的 `App` 类体）.
+- **归档**: 本文件已移入 `TUI/docs/archived/2026-11-04-split-dsh-adapter.md`.
+- **临时文件**: `tmp/split-dsh.mjs` / `tmp/prune-imports.mjs` / `tmp/dsh.orig.ts` 已删除.
+- **人工确认**: 用户 2026-11-04 指示「收尾」视为确认; 本任务未实跑 `pnpm run demo`（Mock 面）与 `smoke:pty`（需模型凭据）, 确认依据为单测 1829 例 / 帧基线 / 冒烟 `SMOKE_OK` 与全仓 check、test 全绿.
+- **遗留**: 无新增 BACKLOG 条目; 偏差 5 的注释路径存量为项目级既有条目「清理 .ts 注释里的简写路径与失效路径」的范围; `smoke:pty` 真机复验留待有凭据时进行.
