@@ -1,12 +1,12 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.1-rc.3）
 
-> 职责：回答「本仓 34 个包（TUI + 33 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计快照 31 包：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`；`coagent` / `tool-consult` / `escalation-hint` 3 包未审）
+> 职责：回答「本仓 34 个包（TUI + 33 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计快照 31 包：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`；2026-11-03 补审 `coagent` / `tool-consult` / `escalation-hint`，覆盖 34 包）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.1-rc.3`（源码 tag 口径 343 个包目录；安装树 294 个 `dsh-*` 与 fff 活跃挂载 100 个官方行是 2026-10-21 的 rc.2 实测，升级后需复测）；本仓 **34 个包 = TUI + 33 个插件**（审计总表 31 行；清单见 `AGENTS.md`「结构与约定」）。
+> 口径：官方基线 `dsh 0.2.1-rc.3`（源码 tag 口径 343 个包目录；安装树 294 个 `dsh-*` 与 fff 活跃挂载 100 个官方行是 2026-10-21 的 rc.2 实测，升级后需复测）；本仓 **34 个包 = TUI + 33 个插件**（审计总表 **34 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行；清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
-> 结论分布：**改用 0 / 保留 22 / 并存 9**（总表 31 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`；`coagent` / `tool-consult` / `escalation-hint` 未入表）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
+> 结论分布：**改用 0 / 保留 24 / 并存 10**（总表 34 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`，2026-11-03 补审 3 包：并存 1 `tool-consult`、保留 2 `coagent` / `escalation-hint`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
 > 2026-10-20 重审（条目 2，主会话）：29 模块全量入表，7 个缺审包补齐；§4 的 B 已执行、D / E / FTS5 观察项明示关闭（见 §4）；基线于 **2026-10-21 升至 `0.2.1-rc.2`**（追踪文档 `docs/archived/2026-10-21-host-upgrade-0.2.1-rc.2.md`，全局安装 + HOST-PACKAGES 重生成）；§0 回查完成：总表口径更新（安装树 294 / 挂载 100），`background-daemon` 行注记保留（官方 `schedule` 未挂、自动化 #12 与自建链路职责不叠加）。
 
@@ -45,14 +45,17 @@
 | `agent-group`（2026-10-20 补审） | `experimental-agent-team`（未挂，实验） | 低 | **保留** | 群组协议（组 / 成员 / 主从与平等连接 / 广播 / 懒判定结算 / 状态面），自建 session-channel 分层；官方 team 为实验且未挂，无等价交付物 |
 | `clock-base`（原名 `timer`, 2026-10-22 补审） | `cordis-plugin-timer`（宿主定时器面） | 高（同诉求） | **并存** | 本包只把 `now()` / `schedule()` / `interval()` 与手控假时钟 `ManualClock` 包成服务 `clock` 供本仓共用（provide `clock`，不 inject 官方面）；与宿主 `cordis-plugin-timer` **并存、不包装**，排期随调用方 fiber 卸载撤销 |
 | `behavior-correction`（2026-10-22 补审） | `agent-instructions`、`hook-protocol` / `hooks-*` | 低 | **保留** | rule-engine 的 `tools/pre-execute` guard 消费者：拦「该用专用工具却走 shell」并指路（现为 bash 里跑 herdr → 指向 `herdr_run` / `herdr_text` / `herdr_key`（写类）与 `herdr_read` / `herdr_list`（查看类））；官方 hooks / 静态指令无这类「意图错位」判定 |
+| `coagent`（2026-11-03 补审） | `subagents`（进程内子代理）、`sessions` | 低 | **保留** | 长驻 agent 的**拉起与收尾**：经 `herdrUse` 建终端并在其交互 shell 里发 `fffdsh`，用 session-channel 的 `peers` 认领新会话；官方 `subagents` 是进程内子代理，无「终端会话 + 跨会话认领」形态，派任务与编排分别归 session-channel / agent-group |
+| `tool-consult`（2026-11-03 补审） | `tools` 注册面（`tools.restrict` 遮罩原语） | 中 | **并存** | 用官方 `tools.restrict` 做单条活动遮罩，本包负责「按需求检索 + 咨询即授权 + 会话 / 回合两档揭示（会话内只增不减）」；官方工具面只给注册与遮罩原语，无按需揭示策略 |
+| `escalation-hint`（2026-11-03 补审） | `tools/post-execute`（waterfall）、`sandbox-policy` | 低 | **保留** | 订阅官方 `tools/post-execute`，在「沙箱拒绝但宿主没给升级提示」时经 `additionalContexts` 追加带 `sandbox_permissions` 的重试指引（只提示不拦截）；官方无这条补齐链路 |
 
-## 1. 保留项（22）的共同理由
+## 1. 保留项（24）的共同理由
 
-官方在这 22 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、Markdown 结构视图与文档引用图、规则表 + 多节点注入 + 消费者框架、模式阶梯注入、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥、herdr 伪终端读写、表格列数检查、进程内守护投递、偏好账簿、群组协议与状态、「该用专用工具却走 shell」的拦截指路（2026-10-20 补审 5 项、2026-10-22 补审 1 项并入）。
+官方在这 24 个诉求上**没有等价能力**（表中逐条给了最接近的官方面，或为「无」）：文件摘要 / 结构视图、行级锚定编辑（官方只有文件级）、知识条目与记忆语义、AST 形态检索、项目级结构地图、Markdown 结构视图与文档引用图、规则表 + 多节点注入 + 消费者框架、模式阶梯注入、任务门禁与验收、Done-when 契约、指标驱动的循环、跨会话写入、符号规范、终端 TUI、herdr 桥、herdr 伪终端读写、表格列数检查、进程内守护投递、偏好账簿、群组协议与状态、「该用专用工具却走 shell」的拦截指路、长驻 agent 拉起与收尾、沙箱升级提示补齐（2026-10-20 补审 5 项、2026-10-22 补审 1 项、2026-11-03 补审 2 项并入）。
 
 两处「看起来像但没有替代」的对照：`metric-loop` 的循环诉求官方有 `tool-ralph` / `goal-round-driver`（区别在「指标测量 + 边界判定 + 跨进程状态」）；`memory-base` 的检索诉求官方有会话日志 FTS5（区别在「知识 / 记忆语义」）。
 
-## 2. 并存项（9）的边界
+## 2. 并存项（10）的边界
 
 | 并存对 | 谁负责哪一段 | 模型面 / 人面处理 |
 |---|---|---|
@@ -66,6 +69,7 @@
 | `session-paths` ⇄ 官方 `dsh-paths` | 官方：宿主目录编码口径（`encodeSegment` / `projectKey` / `sessionDir`）；我们：复刻同一编码暴露为 `sessionPaths` 服务供 7+ 插件共用，`ensureSessionDir` 唯一写盘入口（0o600 约束） | 服务面只读消费；写盘收敛到一个入口，避免各包各自猜目录 |
 | `script-interpreter` ⇄ 官方 `tool-bash` | 官方：通用命令执行（bash 面）；我们：语言探测驱动的解释器执行（python / node / sh，venv/uv 探测，回执带解释器路径），bash 显式启用为可选 | 模型侧两个工具（`bash` 官方 / `script_run` 本仓），按语言意图分流；未启用语言明确报错 |
 | `clock-base` ⇄ 官方 `cordis-plugin-timer` | 官方：宿主定时器原语（`ctx.timer` 面）；我们：服务 `clock`（`now` / `schedule` / `interval` + `ManualClock`），排期随调用方 fiber 卸载撤销、缺省 unref | 双方可同时存在：本仓包用 `ctx.get("clock")` 不碰 `ctx.timer`，接入统一面是职责分工而非替代 |
+| `tool-consult` ⇄ 官方 `tools` 注册面 | 官方：工具注册与 `tools.restrict` 遮罩原语（单条活动 mask）；我们：按需求检索 + 揭示策略（咨询即授权、session / turn 两档、会话内只增不减） | 只遮根代理的工具面；揭示在会话内生效，不改变官方工具注册与既有工具实现 |
 
 **内部边界补充（三）**：`md-map` ⇄ `md-logic` ——前者复用后者的单文件解析做**项目级**引用图（`md-map` 依赖 `md-logic`，`link:../md-logic`）；两者与 `code_map` 的分工写进三个工具描述：代码结构 → `code_map`，单文件 Markdown 结构 → `md_logic`，项目级文档关系 / 影响面 / 断链 → `md_map`。
 
@@ -99,6 +103,7 @@
 
 > 2026-10-20 补审的其余 6 个包（`herdr-use` / `md-table-check` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）运行时主要消费**本仓**服务面（`ruleEngine` / `guard` / `sessionChannel` / `agentGroup` / `sessionPaths` / `memory`），对官方底座无新增依赖（`script-interpreter` / `herdr-use` / `agent-group` 仅 inject `tools` 面板或服务面）。
 > 2026-10-22 补审的 2 个包对官方底座**无新增消费**：`clock-base` 只 provide 服务 `clock`（不 inject 官方面，与宿主 `cordis-plugin-timer` 并存不包装）；`behavior-correction` 只 inject 本仓 `ruleEngine`。
+> 2026-11-03 补审的 3 个包：`coagent` inject `tools` / `herdrUse` / `sessionChannel`（后两者为本仓服务面）、get `herdrUse` / `sessionChannel`；`tool-consult` inject `tools` / `agents` 并经宿主 `tools.restrict` 遮罩工具面；`escalation-hint` 只订阅宿主 `tools/post-execute`（waterfall，`prepend: true`），对官方底座无其他新增依赖。
 
 ## 4. 可执行改造清单（未立项，用户择时）
 
@@ -153,3 +158,4 @@ done
 | 2026-10-20 重审计（条目 2）：总表 22 → 29 行 | 补审 7 包（`herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）：保留 5、并存 2（`session-paths` 与官方 `dsh-paths`、`script-interpreter` 与官方 `tool-bash`）；结论分布「改用 0 / 保留 21 / 并存 8」 | 各包 README/DESIGN + 源码实测（inject/get/loadHost grep）+ `HOST-PACKAGES.md` 口径；`background-daemon` 的 memory 晚挂 2026-10-20 落地（条目 5+6） |
 | §4 的 B / D / E 与 FTS5 观察项重判 | B **已执行**（`output-compress/docs/DESIGN.md` 分工节存在）；D / E / FTS5 **明示关闭**（理由见 §4 各行与观察项②） | 实测 `output-compress/docs/DESIGN.md` 内容；官方 `session-query-sqlite` 缺省 `openAt: never` 维持 |
 | 2026-10-22 补审（条目 3）：总表 29 → 31 行 | 补入 `clock-base`（原名 `timer`, 并存，与宿主 `cordis-plugin-timer` 分工）与 `behavior-correction`（保留，rule-engine guard 消费者）；结论分布「改用 0 / 保留 22 / 并存 9」；模块计数口径改为「31 个包 = TUI + 30 插件」 | 各包 README（`timer/README.md` / `behavior-correction/README.md`）+ 源码实测 `inject` / `provide`；`AGENTS.md` 的 31 包口径；追踪文档 `docs/archived/2026-10-22-docs-consistency.md` |
+| 2026-11-03 补审（条目「复用审计补审 3 包」）：总表 31 → 34 行 | 补入 `coagent`（保留）、`tool-consult`（并存，与官方 `tools.restrict` 遮罩原语分工）、`escalation-hint`（保留）；结论分布「改用 0 / 保留 24 / 并存 10」；31 行快照保留为历史口径，当前口径写 34 包 | 三包 `src` 实测（`inject` / `ctx.get` / `tools.restrict` / `tools/post-execute`）+ 各包 README；追踪文档 `docs/archived/2026-11-03-backlog-batch-four.md` |
