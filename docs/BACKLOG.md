@@ -74,6 +74,14 @@
 
 **#6 迁出 34 包测试产物数据**〔待办: 2026-11-02〕（登记: 2026-11-02）：34 份包追踪已补「四份测试产物」索引, 但覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑数字仍分散在「实现记录」「测试与证据」, 没有独立数据节 → 期望逐包把四类数据搬到索引节或生成一份汇总, 保留原节链接 → 改动位置 34 份 `docs/archived/2026-10-28-history-cleanup-<包>.md` → 验收: 34/34 四类数据可直接读取, 索引链接不指向缺失节, 数字与既有测试记录一致 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P2-16 补正记录.
 
+**#7 33 个插件端到端用例**〔待办: 2026-11-02〕（登记: 2026-11-02）：总追踪只给 TUI 做了端到端, 33 个插件没有进程内真宿主用例 → 期望在根 `e2e/<包>.test.ts` 各写一条, 根 `devDependencies` 引 `@deepseek-ai/dsh/profile-boot` 的 `runProfile()`, 用只挂 `dsh-base` 必需子集与被测包的独立 profile, 经 `ctx` 工具面执行工具、注入事件并断言落盘结果; 由 `pnpm run test:e2e` 单独跑, 不进 `pnpm run test`, 宿主版本随 `engines` 钉住 → 改动位置 `e2e/` / 根 `package.json` / 相关装配夹具 → 验收: 33/33 包各一条, 单跑与全跑均退出 0, 不改变 `pnpm run test` 的包内用例面 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:1370`.
+
+**#8 分阶段开启 5 个 TypeScript 严格检查**〔待办: 2026-11-02〕（登记: 2026-11-02）：总追踪决定本轮不开 `noUnusedLocals` / `noUnusedParameters` / `noImplicitReturns` / `exactOptionalPropertyTypes` / `noFallthroughCasesInSwitch`, 留后续 → 期望逐包评估与修复, 一包一笔提交, 行为不变; `check` / `build` / `test` 与受影响包的覆盖率逐包核对, 不一次全仓打开 → 改动位置 34 份 `tsconfig.json` 与命中代码 → 验收: 五项逐一落地或有逐包豁免理由, 全量 `check` / `build` / `test` 退出 0 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:534,791,1337`.
+
+**#9 复用审计补审 3 包**〔待办: 2026-11-02〕（登记: 2026-11-02）：`docs/ARCHITECTURE-REUSE.md` 的 31 包快照缺 `coagent` / `tool-consult` / `escalation-hint` → 期望按 3.9 的过期条件补 3 行, 重算「改用 / 保留 / 并存」分布; 保留 31 包历史快照, 当前口径写 34 包, 不把 31 说成全部 → 改动位置 `docs/ARCHITECTURE-REUSE.md` → 验收: 3 行齐, 分布可复算, 历史快照与当前口径分列 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:1371`.
+
+**#10 文档检查器 `dev/standard/` 与 `check:docs`**〔待办: 2026-11-02〕（登记: 2026-11-02）：总追踪只列了待写检查器, 未落地 → 期望在 `dev/standard/` 实现符号与标点、术语与旧名、断链、表格列数、注释路径与计数、两个 JSON 的字段与路径检查, 由根 `check:docs` 调起; 只查现行文档, 不改归档, 不引第三方依赖 → 改动位置 `dev/standard/` / 根 `package.json` → 验收: 检查器能对当前仓库跑出 0 误报, `pnpm run check:docs` 退出 0, 规则与 `docs/GLOSSARY.md` 对齐 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:461,1336`.
+
 > 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`pnpm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；追踪文档 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
 
 > 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；追踪文档 `docs/archived/2026-10-25-tool-description-lint.md`）。
