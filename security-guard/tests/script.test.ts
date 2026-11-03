@@ -502,7 +502,7 @@ test("tool-surface-check：损坏安装（只有 scripts，无 dist 无 src）�
     // 不静默当作「无规则」：口径来源缺失即 exit 2 并提示先构建
     assert.equal(run.status, 2, run.output);
     assert.match(run.output, /键集\/登记集单一来源解析失败/);
-    assert.match(run.output, /npm --prefix security-guard run build/);
+    assert.match(run.output, /pnpm -C security-guard run build/);
     assert.doesNotMatch(run.output, /已覆盖/);
   } finally {
     rmSync(layouts, { recursive: true, force: true });

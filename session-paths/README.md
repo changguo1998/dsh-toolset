@@ -72,7 +72,7 @@ await ctx.get("sessionPaths").ensureSessionDir("/home/u/proj", sessionId);
 ## 测试
 
 ```sh
-pnpm -C session-paths run check            # 两个 program 的类型检查
+pnpm -C session-paths run check            # 类型检查（单 program，tsc --noEmit）
 pnpm -C session-paths run test             # 单元层 31 例：编码对拍 + 服务面分支
 pnpm -C session-paths run test:integration # 集成层 12 例：apply 接线 + 临时 HOME 落盘
 pnpm -C session-paths run test:coverage    # 两层合并的覆盖率报告

@@ -922,7 +922,7 @@ if (surface === null) {
       `与 ${join(pkgDir, "src", "index.ts")}（仓库形态）都读不到可用口径。`,
   );
   console.error(
-    "→ 先跑 `npm --prefix security-guard run build` 生成 dist；若已构建仍失败，检查引擎常量是否改名" +
+    "→ 先跑 `pnpm -C security-guard run build` 生成 dist；若已构建仍失败，检查引擎常量是否改名" +
       "（UNKNOWN_TOOL_PATH_KEYS / UNKNOWN_TOOL_COMMAND_KEYS / UNKNOWN_TOOL_CODE_KEYS / " +
       "UNKNOWN_TOOL_KEY_DEPTH / TOOL_SURFACE）。",
   );

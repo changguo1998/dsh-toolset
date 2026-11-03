@@ -22,7 +22,7 @@ scripts/install.sh --profile dev   # 换 profile 名（伴随名 dev-test）；-
 scripts/install.sh --help          # 全部选项
 ```
 
-一次运行生成两个 profile，只有插件链接方式不同：主 profile（默认 `fff`）依赖值用 `file:`，pnpm 把插件内容落成 `node_modules` 下的真实副本并在装完后断开与仓库的硬链接（仓库改动不影响它，重跑安装才刷新）；伴随 profile（默认 `fff-test`）依赖值用 `link:`，改完 `npm run build` 即生效。两者除依赖协议外一致（`bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml` 都按主 profile 成品复制）。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
+一次运行生成两个 profile，只有插件链接方式不同：主 profile（默认 `fff`）依赖值用 `file:`，pnpm 把插件内容落成 `node_modules` 下的真实副本并在装完后断开与仓库的硬链接（仓库改动不影响它，重跑安装才刷新）；伴随 profile（默认 `fff-test`）依赖值用 `link:`，改完 `pnpm run build` 即生效。两者除依赖协议外一致（`bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml` 都按主 profile 成品复制）。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
 
 profile 侧脚本写下的都是**副本**（`package.json` / `cordis.patch.yml` / `pnpm-workspace.yaml`）；插件本身按上面的协议指向仓库或留快照。想让插件彻底不依赖仓库路径，用 `dsh plugin --profile <p> add <包名或 tarball>` 换成发布式安装。
 
