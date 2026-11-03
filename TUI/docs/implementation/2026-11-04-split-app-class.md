@@ -1,11 +1,11 @@
 # 拆分 `App` 类体（接取条目: `TUI/docs/BACKLOG.md`「拆分 `TUI/src/app/index.ts` 的 `App` 类体」）
 
-状态: 决策　　开启: 2026-11-04
+状态: 测试　　开启: 2026-11-04
 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改.
 
 ## 目标
 
-把 `TUI/src/app/index.ts` 的 6497 行（`App` 类 6201 行）收成「显式上下文对象 + 按职责拆文件」: 61 个实例字段收进 `app/runtime/context.ts`, 176 个方法按职责搬进 11 个模块, `index.ts` 只剩 `App` 壳（`private ctx` + 8 个公开方法委托）与装配; 对外可见集合（`App` 的 8 个公开成员、`smallTerminal` 与 3 个常量、5 组重导出）与帧内容一律不变.
+把 `TUI/src/app/index.ts` 的 6497 行（`App` 类 6201 行）收成「显式上下文对象 + 按职责拆文件」: 原 `App` 的 59 个显式字段 + `deps` 与构造器收进 `app/runtime/context.ts`, `keyActions` 表与 174 个方法按职责搬进 11 个模块（`setLogger` 留在壳）, `index.ts` 只剩 `App` 壳（`private ctx` + 8 个公开方法委托）与装配; 对外可见集合（`App` 的 8 个公开成员、`smallTerminal` 与 3 个常量、5 组重导出）与帧内容一律不变.
 
 ## 调研
 
@@ -34,7 +34,7 @@
 
 ### 计数（实测）
 
-- 实例字段 61 个（60 个显式声明 + 构造器参数属性 `deps`）; 方法 176 个, 方法体约 5430 行; `keyActions` 表 565 行是类内最大的单个成员.
+- 实例字段 61 个（60 个显式声明 + 构造器参数属性 `deps`）; 方法 175 个（另 1 个构造器）, 方法体约 5390 行; `keyActions` 表 565 行是类内最大的单个成员.
 - 最大方法: `handleEvent` 332 / `handleKey` 249 / `handleSlash` 194 / `helpLines` 191 / `handleConfigCommand` 125 / `start` 116 / `submit` 113 / `runLocalShell` 93 / `runPendingHistoryOp` 91 / `handleQuestionKey` 79 / `resumeToSession` 75.
 - `this.` 引用 1483 处: 方法调用 773、字段 537、`deps` 173; 无裸 `this` 求值（仅 3 处注释文字 `this`）; 1 处非调用引用 `void this.openHistoryView`（原样保留）.
 - 按拟定分组统计跨职责调用 494 处, 其中 404 处指向帧模块（`apply` / `paint` / `notice` 是事实上的中枢）, 故上下文对象必须提供统一的成员分派面, 否则模块间会成导入网.
@@ -81,9 +81,9 @@
 07. **装配方式**: `assembleApp(parts)` 用 `Object.defineProperties` 合并（与 `assembleAdapter` 同款）; 构造器内不调用任何成员, `ctx.self` 先占位后回填.
     理由: 成员面是普通方法, 无 getter, 但保持与既有装配同一手法, 避免将来加 getter 时静默固化.
 08. **搬迁方式**: a 分步搬（每步 `check` + `test` 绿）; b 一次性脚本搬迁 + 统一编译修复.
-    选定 **b**: 176 个方法与 494 处跨组调用互相牵连, 任一组先搬都会留下「半搬状态」的临时类型层并二次改写调用点; 一次性脚本 + 统一编译修复在 adapter 拆分中已验证（原记录的偏差 1）. 风险由「成员总数断言 + 全量 1829 例 + 帧基线 + 冒烟」兜.
+    选定 **b**: 175 个方法与 494 处跨组调用互相牵连, 任一组先搬都会留下「半搬状态」的临时类型层并二次改写调用点; 一次性脚本 + 统一编译修复在 adapter 拆分中已验证（原记录的偏差 1）. 风险由「成员总数断言 + 全量 1829 例 + 帧基线 + 冒烟」兜.
 09. **迁移规约（move-only）**: 方法体除 `this.` 改写外逐字保留（含注释、空行、分支顺序、不可达代码与既有错位注释）; 不改测试、不改事件 / 按键 / 绘制顺序; 不合并 / 不重命名方法; 发现真缺陷只记「偏差」并在 BACKLOG 另开条目.
-10. **验证门**: 搬迁后依次 `check` → `test:tui` → 帧基线专项 → `demo -- --smoke` → `build` → 全仓 `check` / `test` → `check:docs`; 另加脚本断言（176 个方法全部有归属、无重名、`index.ts` 仅 8 个公开成员、公开导出集合不变、方法体归一化后与原文件逐字一致）.
+10. **验证门**: 搬迁后依次 `check` → `test:tui` → 帧基线专项 → `demo -- --smoke` → `build` → 全仓 `check` / `test` → `check:docs`; 另加脚本断言（174 个方法 + `keyActions` 全部有归属、无重名、`index.ts` 仅 8 个公开成员、公开导出集合不变、方法体归一化后与原文件逐字一致）.
 11. **提交粒度**: 按 `docs/WORKFLOW-STANDARD.md` §5 逐点询问; 默认建议合并为关闭后一次提交.
 
 ## 规划
@@ -94,7 +94,7 @@
 | --- | --- | --- | --- | --- |
 | 0 | 记录基线（已完成, 见「调研」） | — | — | 1829/1829、check 0、`SMOKE_OK`、docs 648 警告 |
 | 1 | 建上下文对象: `AppContext` / `createAppContext(deps)`（61 字段 + 构造器归一化 + `initialState`）与 `ctx.self` 占位; 建 `assembleApp` | 新增 `runtime/context.ts` | ~230 | check |
-| 2 | 脚本抽取 176 个方法到 11 个 part 模块（含 `keyActions` 表）; `this.<字段>` → `ctx.<字段>`、同组方法 → 本地函数名、跨组方法 → `ctx.self.<方法>`; `index.ts` 收成壳 | 新增 `runtime/frame.ts` / `interaction.ts` / `session.ts` / `panels.ts` / `commands.ts` / `commands-model.ts` / `commands-config.ts` / `commands-memory.ts` / `commands-host.ts` / `wiring.ts` / `lifecycle.ts`; 改 `index.ts` | 643 / 1264 / 974 / 386 / 553 / 211 / 247 / 313 / 175 / 669 / 553; index ~150 | check |
+| 2 | 脚本抽取 174 个方法 + 构造器到 11 个 part 模块（`setLogger` 留壳）（含 `keyActions` 表）; `this.<字段>` → `ctx.<字段>`、同组方法 → 本地函数名、跨组方法 → `ctx.self.<方法>`; `index.ts` 收成壳 | 新增 `runtime/frame.ts` / `interaction.ts` / `session.ts` / `panels.ts` / `commands.ts` / `commands-model.ts` / `commands-config.ts` / `commands-memory.ts` / `commands-host.ts` / `wiring.ts` / `lifecycle.ts`; 改 `index.ts` | 643 / 1264 / 974 / 386 / 553 / 211 / 247 / 313 / 175 / 669 / 553; index ~150 | check |
 | 3 | 清理 import（按模块实际使用裁剪、同源合并、补新文件头）与编译错误修复 | 12 个新源文件 + `index.ts` | — | check |
 | 4 | 全量验证与断言: 测试、帧基线、冒烟、构建、成员与导出断言、方法体对拍 | 新增临时脚本（`tmp/`, 用后删除） | — | 见决策 10 |
 | 5 | 回写 `DESIGN.md` 文件树 / 控制层职责与 `REFACTOR.md` 归属表 | 改 `TUI/docs/DESIGN.md` / `TUI/docs/design/REFACTOR.md` | — | check:docs |
@@ -144,7 +144,7 @@
 
 | 风险 | 对策 |
 | --- | --- |
-| 成员漏搬 / 重名被装配覆盖 | 脚本按起始行切分并断言 176 个方法 + `keyActions` 全部有归属; 装配前断言 part 成员名无重复 |
+| 成员漏搬 / 重名被装配覆盖 | 脚本按起始行切分并断言 174 个方法 + `keyActions` 全部有归属; 装配前断言 part 成员名无重复 |
 | `ctx.self` 的类型循环（part 返回类型引用 `AppContext`） | 已用最小原型验证 `ReturnType<typeof createXPart>` 的循环类型可编译; 若实际报循环引用, 退回显式 `XxxPart` 接口（多约 250 行签名, 语义不变） |
 | 跨组调用改错 | 脚本按「同组 → 本地名、跨组 → `ctx.self.`」映射改写; `tsc` 兜未知成员; 全量 1829 例兜行为 |
 | 初始化 / 调用时序变化 | 构造器只建 ctx 与 part、不调用成员; `start()` 前公开方法的调用路径与原来一致 |
@@ -155,18 +155,65 @@
 
 1. **拆分粒度**（2026-11-04）: 选「再细拆 10+ 模块」—— 即决策 3 的 c, 在 7 个职责模块之上再把命令面按 model / config / memory / host 拆开, 共 11 个职责模块 + 上下文对象; 该项取代规划初稿的 b.
 2. **检查点 1（决策后）**（2026-11-04）: 先选「先停下, 等检查」; 复查后裁定「提交后继续任务」—— 规划文档单独提交, 随后进入实现.
+3. **检查点 2（实现后）**（2026-11-04）: 选「现在提交代码与实现记录」—— 本次实现单独提交; 关闭收尾（DESIGN / REFACTOR 回写、归档、BACKLOG 清理）留到收尾阶段.
 
 ## 实现记录
 
-（待实现阶段补记）
+按决策 8 用一次性脚本 `tmp/split-app.mjs` 搬迁（脚本读原文件副本 `tmp/app.orig.ts`, 二者用后删除）:
+
+1. 成员切分: 按缩进 2 的声明行识别 236 个成员（60 字段 + 175 方法 + 构造器）, 成员前的连续注释随成员走.
+2. 改写规则: `this.<字段>` → `ctx.<字段>`, 同组方法 → 本地函数名, 跨组方法 → `ctx.self.<方法>`, `this.keyActions` → `keyActions`; 注释 / 字符串 / 模板字面量文本跳过, 模板 `${...}` 内按代码改写.
+3. 模块生成: 每个 part 导出 `createXPart(ctx)`, 返回本组方法对象; `keyActions` 表留 `interaction.ts` 作模块内 `const`; 顶层常量 / 纯函数按归属搬到使用它的模块, `smallTerminal` 与 3 个常量在 `lifecycle.ts` 导出并由 `index.ts` 重导.
+4. `context.ts`: 59 个显式字段 + `deps` 收成 `AppContext`; 字段初值与构造器归一化逻辑收进 `createAppContext`; `AppSelf` 用 11 个工厂的 `ReturnType` 交集声明, 构造器回填 `ctx.self`.
+5. `index.ts`: 只剩 `App` 壳（`private readonly ctx` + 8 个公开方法委托 + 测试兼容的私有成员）+ `assembleApp`（defineProperties 合并）与兼容重导.
+6. 生成后: `format` 统一格式; 删 7 个因 `.join(` 误判而带入的 `node:path` 未使用 import; 修 1 处局部变量与新上下文参数同名.
+
+行数变化（`wc -l`）:
+
+| 文件 | 行数 |
+| --- | --- |
+| `app/index.ts` | 6497 → 151 |
+| `app/runtime/context.ts` | 新增 366 |
+| `app/runtime/frame.ts` | 新增 704 |
+| `app/runtime/interaction.ts` | 新增 1386 |
+| `app/runtime/session.ts` | 新增 1094 |
+| `app/runtime/panels.ts` | 新增 423 |
+| `app/runtime/commands.ts` | 新增 631 |
+| `app/runtime/commands-model.ts` | 新增 239 |
+| `app/runtime/commands-config.ts` | 新增 281 |
+| `app/runtime/commands-memory.ts` | 新增 346 |
+| `app/runtime/commands-host.ts` | 新增 206 |
+| `app/runtime/wiring.ts` | 新增 710 |
+| `app/runtime/lifecycle.ts` | 新增 643 |
+
+（合计 7180 行, 比原文件多 683 行: 12 个文件头 / import / 工厂包装与 `AppContext` 类型声明.）
 
 ## 偏差
 
-无（规划阶段未发现计划与现状不符）.
+1. **计数口径修正**: 规划原文写「175 个方法搬进 11 个模块 / 61 个实例字段进上下文」; 实测 175 个方法 = **174 个搬出 + `setLogger` 留壳**, 另 1 个构造器; `context.ts` 收 **59 个原字段 + `deps`**（`keyActions` 按决策 5 进 `interaction.ts`）. 文档已在实现阶段按实测修正.
+2. **测试私有成员兼容层（非计划内新增）**: 既有用例经 `as unknown as` 读 `App.state` / `App.sections` / `App.groupCount`, 并直接调用 `apply` / `resumeToSession` / `startNewSession`; 为不改测试, `App` 增加 3 个私有 getter + 1 个 setter + 3 个私有转调方法（TS 私有, 不进公开类型面; 运行时落在原型上）. 这是对内契约的兼容层, 不是新功能; 若后续允许改测试, 可连同这 6 个成员一起删.
+3. **非前缀改写 1 处**: `panelRefreshTick` 的局部变量原名 `ctx`（`const ctx = this.panelRefreshCtx`）, 与新的上下文参数同名 → 改名 `panelCtx`; 逐 token 对拍确认仅此 1 处.
+4. **死常量**: `RETIRED_COMMAND_NOTICE` 在原文件即未使用, 随组搬到 `commands.ts` 保留（未删, 守 move-only）; 项目未开启 `noUnusedLocals`, 不影响检查.
+5. **未分步落盘**: 决策 8 已定一次性脚本; 任一组先搬都无法独立编译, 故实现记录按一次性描述（与 adapter 拆分的偏差 1 同因）.
+6. **注释路径**: 搬入方法的注释保留原文（含 `src/app/...` 简写路径存量）, 新文件头用完整路径; `check:docs` 警告 647（基线 648, 少 1, 无新增）.
 
 ## 测试与证据
 
-拆分前基线见「调研」; 拆分后的命令输出、成员 / 导出断言与对拍结果待实现完成后补记.
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | 退出 0（`tsc -p tsconfig.json --noEmit`） |
+| `pnpm run test:tui` | tests 1829 / pass 1829 / fail 0, 8238 ms |
+| `pnpm run test:tui -- tests/focus-frame.test.ts` | pass 1 / fail 0（帧逐行基线未重冻） |
+| `pnpm -C TUI run demo -- --smoke` | 输出含 `SMOKE_OK` |
+| `pnpm -C TUI run build` | 退出 0 |
+| `pnpm run check`（全仓 34 包） | 退出 0 |
+| `pnpm run test`（全仓 34 包） | 退出 0 |
+| `node dev/standard/index.mjs` | 错误 0 / 警告 647（新增 0）; .ts 901 篇（新增 12） |
+| `node tmp/verify-split.mjs` | 174 个搬出方法 + `setLogger` + 构造器逐 token 对拍: 仅 `panelRefreshTick` 的 `panelCtx` 改名 1 处; 导出集合 15 = 15（无缺 / 无多）; `App` 公开方法 8 个 + 构造器; part 成员 174 个无重名 |
+
+对拍方法: 去掉注释后按 token 比较, 归一化三类预期差异（`ctx.` / `ctx.self.` → `this.`、同组本地调用 → `this.<name>`、prettier 行尾逗号）, 模板字面量 `${...}` 内的 `ctx.` 单独归一.
+
+拆分前后对拍: `index.ts` 导出集合 15 个符号逐名一致; `App` 公开面 8 个方法 + 构造器; 测试零改动（`git status` 无 `TUI/tests/**` 变更）; 编译产物 `dist/src/app/index.d.ts` 的公开成员与原公开面一致（新增成员均为 `private`）.
 
 ## 收尾
 
