@@ -11,6 +11,8 @@
     "test:e2e": "node --experimental-transform-types --test --test-force-exit --test-concurrency=4 'e2e/*.test.ts'",
     "test:e2e:tui": "TEST_SCRIPT=test:e2e sh scripts/test-parallel.sh TUI",
     "test:coverage": "node dev/coverage/collect.mjs && node dev/coverage/report.mjs",
+    "check:docs": "node dev/standard/index.mjs",
+    "check:docs:strict": "node dev/standard/index.mjs --strict",
     "demo": "pnpm -C TUI run demo --",
     "test:tui": "sh TUI/scripts/test.sh"
   },

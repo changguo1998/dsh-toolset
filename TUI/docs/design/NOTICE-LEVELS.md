@@ -43,9 +43,9 @@
 | --- | --- |
 | /help 帮助内容 | handleSlash（/help） |
 | usage: /\<name> (no argument; opens the picker) | handleModelFocus（/provider、/effort 带参） |
-| usage: /theme [light|dark|toggle] | handleThemeCommand（/theme 非法参数） |
-| usage: /collapse on|off（当前：…） / usage: /symbol-unify on|off（当前：…） / usage: /verbose think|tool|step（当前：…） | handleCollapseCommand / handleSymbolUnifyCommand / handleVerboseLevelCommand（无参或非法参数） |
-| 用法：/policy [ask|never] | handlePolicyCommand |
+| `usage: /theme [light|dark|toggle]` | handleThemeCommand（/theme 非法参数） |
+| `usage: /collapse on|off`（当前：…） / `usage: /symbol-unify on|off`（当前：…） / `usage: /verbose think|tool|step`（当前：…） | handleCollapseCommand / handleSymbolUnifyCommand / handleVerboseLevelCommand（无参或非法参数） |
+| `用法：/policy [ask|never]` | handlePolicyCommand |
 | 用法：/rename \<标题> | handleRenameCommand（缺参） |
 | already on current model \<label> | handleModelCommand（/model 带参） |
 | 用量四行（最近一次调用 / 本会话累计 / 上下文 / 缓存命中率；无 usage → `—` / `n/a` 占位） | handleStatsCommand（/stats） |

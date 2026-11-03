@@ -1362,7 +1362,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
       case "tool/call": {
-        // 工具调用：紧凑一行（名称 + arguments 摘要）；阶段 2 渲染 ⚙ <name> <summary>
+        // 工具调用：紧凑一行（名称 + arguments 摘要）；阶段 2 渲染 `⚙ <name> <summary>`
         // 3.3.3：同批把 callId → 参数明细登记进短期表，供审批草稿展示命令/参数
         const name = data.name;
         if (typeof name !== "string" || name === "") return;
