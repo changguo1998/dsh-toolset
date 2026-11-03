@@ -13,7 +13,7 @@ export interface ModelSelection {
   reasoningEffort?: string;
 }
 
-/** 模型推理元数据（状态栏/面板展示用，不触发请求）：
+/** 模型推理元数据（状态行/面板展示用，不触发请求）：
  *  efforts = 可选思考等级；defaultEffort = provider 配置的默认等级（请求未显式指定时实际生效值） */
 export interface ModelReasoning {
   efforts?: { id: string; name: string }[] | undefined;

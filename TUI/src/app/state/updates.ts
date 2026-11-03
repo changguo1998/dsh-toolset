@@ -137,7 +137,7 @@ export function appendNotice(
       ...(tone ? { tone } : {}),
     });
   trimBufferHead(buffer);
-  // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
+  // 失败标记(error notice，如未知 slash 命令 fail-close)→ 输入区失败色(红)；
   // agent 仍活跃时保持黄（活跃守卫），绿/红仅空闲时暴露
   return {
     ...state,
@@ -179,7 +179,7 @@ export function appendNoticeLines(
 }
 
 /**
- * 追加 `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，活动区本地显示；
+ * 追加 `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，回合区本地显示；
  * **不进模型历史**（不经 adapter 发送，模型不可见）；tone 复用 notice 语义色。
  */
 export function appendShellLines(
@@ -240,7 +240,7 @@ export function statusFor(state: AppState, fallback: InputStatus): InputStatus {
   return state.agentStatus === "idle" ? fallback : "running";
 }
 
-/** 合并更新系统状态区（StatusTicker 每 tick 调用；缺失字段保持原值） */
+/** 合并更新状态行（StatusTicker 每 tick 调用；缺失字段保持原值） */
 export function setSystemStatus(
   state: AppState,
   status: Partial<SystemStatus>,

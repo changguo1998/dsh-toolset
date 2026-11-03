@@ -249,7 +249,7 @@ test("渲染层折行：help notice 续行停靠该行描述列（不穿回第�
       hanging: l.hanging,
     })),
   ];
-  // 窄活动 pane（40 列）强制 /jobs 描述折行
+  // 窄回合区（40 列）强制 /jobs 描述折行
   const { activity } = renderBuffer(buffer, {
     dialogueTextW: 40,
     activityTextW: 40,

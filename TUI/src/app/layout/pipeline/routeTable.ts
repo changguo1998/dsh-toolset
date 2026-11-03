@@ -7,7 +7,7 @@
 import type { ActivitySwitches } from "../../state.ts";
 import type { BlockSource } from "./ir.ts";
 
-/** 活动区类别（/verbose 显示档 + /collapse 压缩档共用）：think / tool / reply */
+/** 回合区类别（/verbose 显示档 + /collapse 压缩档共用）：think / tool / reply */
 export type ActivityCategory = "think" | "tool" | "reply";
 
 /** 一条分流规则：来源（结合终态）→ pane / 类别 / 恒显 / 间隔档 */

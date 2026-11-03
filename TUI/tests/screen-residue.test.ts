@@ -1,7 +1,7 @@
 // tests/screen-residue.test.ts — 增量重写的屏幕残留（回归）
 //
-// 背景：活动区行不补齐整行（0951cd6），增量重写若只擦「下一行」而不擦区间首行，
-// 新内容变短/清空后旧字会留在屏幕上——新回合清空活动区时表现为「顶上残留几行」，
+// 背景：回合区行不补齐整行（0951cd6），增量重写若只擦「下一行」而不擦区间首行，
+// 新内容变短/清空后旧字会留在屏幕上——新回合清空回合区时表现为「顶上残留几行」，
 // Ctrl+L 全帧重绘才消失。此处用终端模拟器断言**屏幕上实际留下的字形** == 当前帧。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -100,10 +100,10 @@ test("全帧重写（Ctrl+L 路径）：首行变短同样不留旧字", () => {
   renderer.close();
 });
 
-test("活动区清空（真实帧）：屏幕不得残留上一回合活动行", () => {
+test("回合区清空（真实帧）：屏幕不得残留上一回合活动行", () => {
   const size = { cols: COLS, rows: ROWS };
   const { renderer, emu } = harness();
-  // 上一回合：思考 + 工具行 + 非 final 正文（活动区三类内容）——条目 16 段 C1：内容走交付流
+  // 上一回合：思考 + 工具行 + 非 final 正文（回合区三类内容）——条目 16 段 C1：内容走交付流
   const s = {
     ...initialState(),
     pipeline: sectionsFromScript([
@@ -142,7 +142,7 @@ test("活动区清空（真实帧）：屏幕不得残留上一回合活动行",
     ]),
   };
   renderer.render(buildFrame(s, size));
-  // 新输入开启回合：活动区整体清空
+  // 新输入开启回合：回合区整体清空
   const next = {
     ...s,
     pipeline: sectionsFromScript([
@@ -152,9 +152,9 @@ test("活动区清空（真实帧）：屏幕不得残留上一回合活动行",
   };
   const rows = buildFrame(next, size);
   renderer.render(rows);
-  assertScreenMatches(emu, rows, "活动区清空后");
+  assertScreenMatches(emu, rows, "回合区清空后");
 
-  // 活动区（顶区下半）+ 历史区残留检查：屏幕非空行必须都是本帧内容
+  // 回合区（顶区下半）+ 会话区残留检查：屏幕非空行必须都是本帧内容
   const frameInk = new Set(
     rows
       .map((r, i) => (rowText(r).trim() === "" ? -1 : i))

@@ -2,7 +2,7 @@
 //
 // 覆盖：normalizeConfig 合法/非法/缺省回落；loadTuiConfig 读取缺省文件与缺失路径；
 // metricsFor 的 footerHeight/statusDivisor、activityHeight 的 divisor 生效（默认 2≈1/2）。
-// 语义「总：目标」：状态列宽 = cols/statusColumnDivisor（1/3 → 3）、活动区 = contentTopH/divisor。
+// 语义「总：目标」：状态列宽 = cols/statusColumnDivisor（1/3 → 3）、回合区 = contentTopH/divisor。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -90,13 +90,13 @@ test("loadTuiConfig：缺省路径读取真实文件；缺失路径回落默认�
   assert.deepEqual(missing, { layout: {} }, "缺失文件回落默认");
 });
 
-test("metricsFor：footerHeight 绝对行数生效；statusDivisor 控制状态列宽（最低 20 列、历史区保底 10）", () => {
+test("metricsFor：footerHeight 绝对行数生效；statusDivisor 控制状态列宽（最低 20 列、会话区保底 10）", () => {
   const def = metricsFor({ rows: 24, cols: 60 }, 1, 1);
   const cfg = metricsFor({ rows: 24, cols: 60 }, 1, 1, {
     footerHeight: 6,
     statusDivisor: 2,
   });
-  assert.equal(def.footerHeight, 3, "默认输入态 交互区 4-1");
+  assert.equal(def.footerHeight, 3, "默认输入态 输入区 + 提示行 4 − 1");
   assert.equal(cfg.footerHeight, 5, "配置 footerHeight=6 → 输入态 6-1");
   assert.equal(
     def.statusColWidth,
@@ -108,13 +108,13 @@ test("metricsFor：footerHeight 绝对行数生效；statusDivisor 控制状态�
     Math.min(Math.max(20, 30), 50),
     "statusDivisor=2 → cols/2=30",
   );
-  // 最低 20 列：cols=40 时 1/3=13 仍被提到 20（历史区保底 10 → 历史区 20）
+  // 最低 20 列：cols=40 时 1/3=13 仍被提到 20（会话区保底 10 → 会话区 20）
   const narrow = metricsFor({ rows: 24, cols: 40 }, 1, 1);
   assert.equal(narrow.statusColWidth, 20, "状态列最低 20 列");
-  assert.equal(narrow.historyWidth, 20, "历史区 = 40 - 20");
+  assert.equal(narrow.historyWidth, 20, "会话区 = 40 - 20");
 });
 
-test("activityHeight：divisor 控制活动区高（contentTopH / divisor）", () => {
+test("activityHeight：divisor 控制回合区高（contentTopH / divisor）", () => {
   assert.equal(activityHeight(20), 10, "默认 divisor=2（1/2 比例）");
   assert.equal(activityHeight(20, 4), 5, "divisor=4 → 1/4");
   assert.equal(activityHeight(0, 2), 0, "无顶部空间时 0");
@@ -151,7 +151,7 @@ test("activityTopRowToLine：half → floor(rows/2)；数字按行号；未配�
   assert.equal(activityTopRowToLine(-1, 24), undefined, "负数非法 → undefined");
 });
 
-test("topPaneHeights：topRow 锚定——活动区分隔行落在指定行（优先于 divisor）", () => {
+test("topPaneHeights：topRow 锚定——回合区分隔行落在指定行（优先于 divisor）", () => {
   // rows=24 → topRow=12：titleRows=2，dialogueH=12-2=10，activityH=20-12-1=7
   // diaEnd（分隔行）= titleRows+dialogueH = 12 = topRow
   const anchored = topPaneHeights(20, undefined, 12);
@@ -161,19 +161,19 @@ test("topPaneHeights：topRow 锚定——活动区分隔行落在指定行（�
   assert.equal(
     anchored.titleRows + anchored.dialogueH,
     12,
-    "活动区分隔行恰在 topRow",
+    "回合区分隔行恰在 topRow",
   );
   // divisor 被忽略：同样 contentTopH=20、topRow=12，不因 divisor=4 改变
   const withDiv = topPaneHeights(20, 4, 12);
   assert.equal(withDiv.activityH, 7, "锚定优先于 divisor");
-  // 小 topRow（3）：对话区 1 行、活动区 = contentTopH-3-1
+  // 小 topRow（3）：会话区 1 行、回合区 = contentTopH-3-1
   const small = topPaneHeights(20, undefined, 3);
   assert.equal(small.dialogueH, 1);
   assert.equal(small.activityH, 16);
-  // 剩余不足（topRow 太靠底 / contentTopH 太小）：活动区 0 行、对话区吃满，无分隔行
+  // 剩余不足（topRow 太靠底 / contentTopH 太小）：回合区 0 行、会话区吃满，无分隔行
   const noActivity = topPaneHeights(10, undefined, 9);
   assert.equal(noActivity.activityH, 0);
-  assert.equal(noActivity.dialogueH, 8, "回退：对话区吃满剩余（10-2）");
+  assert.equal(noActivity.dialogueH, 8, "回退：会话区吃满剩余（10-2）");
   // 未锚定：维持 divisor 比例行为（回归）
   const legacy = topPaneHeights(20, undefined);
   assert.equal(legacy.activityH, 10, "未锚定默认 divisor=2");
@@ -197,14 +197,14 @@ test("topPaneSplit：auto 以 2φ 为界（含字符格高宽比校正）——�
   assert.equal(wide.mode, "horizontal");
   assert.equal(wide.dialogueH, 10, "横向两 pane 等高 = 可用行数");
   assert.equal(wide.activityH, 10);
-  assert.equal(wide.activityW, 24, "活动区宽 = floor(48/2)");
-  assert.equal(wide.dialogueW, 23, "48 - 活动区 24 - 1 列内部分隔");
+  assert.equal(wide.activityW, 24, "回合区宽 = floor(48/2)");
+  assert.equal(wide.dialogueW, 23, "48 - 回合区 24 - 1 列内部分隔");
   // 中间带（φ < 值 < 2φ）：60 / 28 / 2 ≈ 1.07 → 左右的 pane 视觉宽高比掉到 ≈ 0.52，
   // 纵向（60 / 12 / 2 = 2.5、60 / 15 / 2 = 2.0）更贴近 φ → 校正后判上下（校正前判左右）
   const mid = topPaneSplit(30, 60, 2, undefined, "auto");
   assert.equal(mid.mode, "vertical");
-  assert.equal(mid.dialogueH, 12, "纵向：30 - 标题栏 2 - 活动区 15 - 分隔行 1");
-  assert.equal(mid.activityH, 15, "活动区高 = floor(30/2)");
+  assert.equal(mid.dialogueH, 12, "纵向：30 - 标题栏 2 - 回合区 15 - 分隔行 1");
+  assert.equal(mid.activityH, 15, "回合区高 = floor(30/2)");
   assert.equal(mid.dialogueW, 60, "纵向两 pane 共用左列正文宽");
   // 60 / 58 / 2 ≈ 0.52 ≪ 2φ → 上下（纵向 pane 视觉宽高比 1.11 / 1.0，比横向的 0.25 更贴近 φ）
   const tall = topPaneSplit(60, 60, 2, undefined, "auto");
@@ -226,10 +226,10 @@ test("topPaneSplit：固定 placement 直通；横向不可行（太窄/无行�
     "vertical",
     "正文宽不足两个 pane",
   );
-  // 正文宽 41 = 恰好放下两个 20 列 pane（divisor=2 时活动区被抬到保底宽）
+  // 正文宽 41 = 恰好放下两个 20 列 pane（divisor=2 时回合区被抬到保底宽）
   const tight = topPaneSplit(12, 41, 2, undefined, "horizontal");
   assert.equal(tight.mode, "horizontal");
-  assert.equal(tight.activityW, 20, "活动区保底 20 列");
+  assert.equal(tight.activityW, 20, "回合区保底 20 列");
   assert.equal(tight.dialogueW, 20);
   // 无可用行（contentTopH <= 标题栏）
   assert.equal(
@@ -240,10 +240,10 @@ test("topPaneSplit：固定 placement 直通；横向不可行（太窄/无行�
 
 test("topPaneSplit：divisor 同时决定纵向高与横向宽（语义一致）", () => {
   const h = topPaneSplit(20, 80, 4, undefined, "horizontal");
-  assert.equal(h.activityW, 20, "活动 pane 宽 = floor(80/4)");
+  assert.equal(h.activityW, 20, "回合区 宽 = floor(80/4)");
   assert.equal(h.dialogueW, 59, "80 - 20 - 1");
   const v = topPaneSplit(20, 60, 4, undefined, "vertical");
-  assert.equal(v.activityH, 5, "活动 pane 高 = floor(20/4)");
+  assert.equal(v.activityH, 5, "回合区 高 = floor(20/4)");
 });
 
 test("审批段：approval.timeoutMs 解析与回落（BACKLOG 3.3.7）", () => {

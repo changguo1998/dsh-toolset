@@ -47,7 +47,7 @@
 - TUI 在 `approval/request` 上注册应答者: `TUI/src/app/adapter/dsh.ts:4375` 经 `runtime.on` 注册, 实现 `:2910` `approvalAnswerer` —— **不调 `next()`**（即命中即独占裁定）、无 scope（接收所有 agent 的请求）、`signal` 中断 → `cancelled`、缺省 `approvalTimeoutMs` 60 s 超时 → `rejected`（`:2923`）.
 - 参数草稿靠本地 `callId → 参数` 表重建: `:2854` `toolCallsByCallId`（上限 64, 来自 `tool/call` 事件）、`:2858` `approvalDetailOf`（取 `command` 字段, 非 JSON 原样）. \*\*这正是「审批层想看参数就必须自己重建」的现成先例. \*\*
 - 审批面板与语义: `TUI/docs/SPEC.md:457-461`（`y` / `n` / 数字键 / `Esc` = `cancelled` / 超时默认拒绝 / 超时值优先级链）.
-- TUI 只消费 `approval/policy` 做状态栏显示（`TUI/src/app/adapter/dsh.ts:2563`）, **不渲染** `approval/asked` / `approval/decided` 文案（二者是 log-only 审计）.
+- TUI 只消费 `approval/policy` 做状态行显示（`TUI/src/app/adapter/dsh.ts:2563`）, **不渲染** `approval/asked` / `approval/decided` 文案（二者是 log-only 审计）.
 
 ### 3. 相关既有件与官方件（本 profile 实况）
 

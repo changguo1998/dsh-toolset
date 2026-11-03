@@ -63,7 +63,7 @@ const key = (name: string, ctrl = false): KeyEvent => ({
   shift: false,
 });
 
-/** 帧纯文本（去 ANSI）：面板与活动区文案断言用 */
+/** 帧纯文本（去 ANSI）：面板与回合区文案断言用 */
 const frameText = (renderer: FakeRenderer): string => {
   flushApp();
   return renderer.lastRender.join("\n").replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
@@ -195,7 +195,7 @@ test("删除失败：只告警仍照常退出", () => {
   assert.equal(renderer.closed, 1, "删除失败不阻断退出");
   assert.ok(
     frameText(renderer).includes("删除本会话失败：磁盘只读"),
-    "活动区给出失败告警",
+    "回合区给出失败告警",
   );
 });
 
@@ -208,7 +208,7 @@ test("宿主无会话服务（deleteSessionForExit 缺失）：只告警仍照�
   assert.equal(renderer.closed, 1, "照常退出");
   assert.ok(
     flatFrameText(renderer).includes("会话服务不可用，未删除本会话"),
-    "活动区给出告警",
+    "回合区给出告警",
   );
 });
 

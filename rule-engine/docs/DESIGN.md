@@ -102,7 +102,7 @@ types.ts      规则引擎的类型定义
 - **为什么是消费者而不是规则动作**（用户裁定 B）：拦截规则与具体工具面强相关，放进插件 `config` 才能独立演进；rule-engine 只提供节点 + 汇总，与 `md-table-check` / `symbol-normalizer` 同构，也避免把「拒绝」变成模型可创建的动作（工具面仍只有 `inject`）。节点 `tools/pre-execute` 只供消费者：规则侧 `RULE_SOURCES` 仍是 10 项，`normalizeRule` 遇到该节点直接报错；消费者侧用 `CONSUMER_SOURCES`（10 + 该节点）校验。
 - **注册形态互斥**：含该节点的注册必须给 `guard`、不得给 `decide`，也不得带 `delivery` / `dedupeInRecord` / `directWrite` / `cooldownTurns` / `cooldownMs`（guard 不注入、不去重、不记账；违反即拒绝注册并告警）。会话事件节点的注册仍必须给 `decide`，两者共用 `CompiledConsumer` 与前 6 个字段的缺省值。
 - **汇总与失败语义**：注册顺序串行 `await`，`deny` 立即返回（安全向；`allow` 不否决后续 `deny`），全弃权 → `undefined` → 监听器 `next()`。`guard` 抛错 / 非法结构 / 空理由 → 告警并视为弃权（fail-open）：最终否决权在 `security-guard` 的 `ctx.tools.guard` 单调守卫，本层故障不该把工具全拦死。
-- **可见性**：`deny` 时一条 `warn`（「消费者 `<id>` 拒绝工具 `<name>`」），经告警总线进活动区；**不写审计**、不落 memory-base（条目已裁定需要审计由人工决定）。
+- **可见性**：`deny` 时一条 `warn`（「消费者 `<id>` 拒绝工具 `<name>`」），经告警总线进回合区；**不写审计**、不落 memory-base（条目已裁定需要审计由人工决定）。
 - **不做**：异步之外的高级调度（优先级 / 超时 / 并发）、`cancel` / `ask` 裁决、在任何一侧内置拦截规则、配置层直接表达拦截。
 
 ### 9. 注入路径三条（delivery）
@@ -124,8 +124,8 @@ types.ts      规则引擎的类型定义
 - apply 内 stderr 自证日志（`已加载：规则 N 条…`）：cordis 的 `inject` 不可用是「等待」而非报错，插件静默不加载时靠它排查。
 - 所有异常路径（状态文件损坏、非法正则、会话非 live、followup / inject / flush 抛错、消费者 decide 抛错）只 warning，不向宿主抛。
 
-### 4. 告警出口：总线优先、stderr 兜底（2026-10-01，「rule-engine 的用户提示应显示在活动区」方案 B）
+### 4. 告警出口：总线优先、stderr 兜底（2026-10-01，「rule-engine 的用户提示应显示在回合区」方案 B）
 
-- `provide("ruleEngine")` 增 `onNotice(listener)`：插件 `warn` 在**有订阅者**（TUI 启动后订阅）时把完整展示行 + tone 发总线（展示层渲染进活动区），**无订阅者**（headless）回退 `process.stderr.write`。
+- `provide("ruleEngine")` 增 `onNotice(listener)`：插件 `warn` 在**有订阅者**（TUI 启动后订阅）时把完整展示行 + tone 发总线（展示层渲染进回合区），**无订阅者**（headless）回退 `process.stderr.write`。
 - 理由：告警是给人看的、不该写进会话/模型上下文（对比 `source.form:'notice'` 会话消息写法）；且对「告警所涉会话已关闭」的场景同样可送达（进程内推送，不经会话句柄）。
 - 引擎（规则归一 / 消费者）/ 注入器（followup / inject / flush 失败）/ 入口三处告警共用同一 `warn`，总线一并覆盖。

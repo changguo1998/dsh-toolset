@@ -402,7 +402,7 @@ export function toolResultDetail(message: unknown): string {
 
 /** turn/end 的 reason → 归一化收尾原因（宿主用 `reason` 字符串或 `reason.kind`；未识别返回 undefined）。
  *  P1：只有 completed / aborted / error 会在用户块上落终态符号，其余（blocked / max-tokens /
- *  interrupted / 未知）保持未定 → 渲染 `?`（与「已进历史区但未收到终态」同口径）。 */
+ *  interrupted / 未知）保持未定 → 渲染 `?`（与「已进会话区但未收到终态」同口径）。 */
 export function turnEndReason(reason: unknown): TurnEndReason | undefined {
   const kind =
     typeof reason === "string"
@@ -487,7 +487,7 @@ export function collectJobs(
 /**
  * 经宿主 llm.resolveModelInfo 读取指定 provider/model 的推理元数据
  * （可选思考等级 + provider 默认等级）。defaultEffort 即请求未显式指定时
- * 实际生效的等级（provider 级 reasoning 配置，如 max），与 TUI 状态栏
+ * 实际生效的等级（provider 级 reasoning 配置，如 max），与 TUI 状态行
  * 显示的「当前生效 effort」保持一致。非思考模型/服务缺失/解析失败 → undefined。
  * 宿主等级名首字母大写（Off/Low/High/Max），归一为全小写再展示。
  */

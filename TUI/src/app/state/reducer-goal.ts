@@ -71,7 +71,7 @@ export function reduceGoal(
         },
       };
     case "model-selection":
-      // 0.1.2-rc.1：会话内生效模型选择事件 → 落 state（状态栏模型徽标可选读取）
+      // 0.1.2-rc.1：会话内生效模型选择事件 → 落 state（状态行模型徽标可选读取）
       return {
         ...state,
         modelBySession: {

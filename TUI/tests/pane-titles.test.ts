@@ -1,8 +1,8 @@
 // tests/pane-titles.test.ts — #5 窗口标题（Session / Turn / Tool）
 //
-// 覆盖：① Session 标题在标题栏下划线行左端、Turn 标题在活动区分隔行左端（未聚焦=边框色）；
-// ② 聚焦时对应标题转焦点色（语义色 focus = 青）；③ 活动区显示交互面板时该标题位写 Tool；
-// ④ 窄窗放不下时整条省略；⑤ 状态栏/输入栏不带窗口标题。
+// 覆盖：① Session 标题在标题栏下划线行左端、Turn 标题在回合区分隔行左端（未聚焦=边框色）；
+// ② 聚焦时对应标题转焦点色（语义色 focus = 青）；③ 回合区显示交互面板时该标题位写 Tool；
+// ④ 窄窗放不下时整条省略；⑤ 状态行/输入区不带窗口标题。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -44,13 +44,13 @@ test("#5 窗口标题：Session / Turn 各在自己窗口左上角，未聚焦�
     turn!.ansi.includes(BORDER + "── Turn ──"),
     "Turn 标题未聚焦 = 边框色",
   );
-  // 输入栏/状态栏不加标题
+  // 输入区/状态行不加标题
   const input = rows.find((r) => r.text.includes("Type a message"));
   assert.ok(input, "存在输入提示行");
   assert.ok(
     !input!.text.includes("-- ") ||
       !/── (Session|Turn|Tool) ──/.test(input!.text),
-    "输入栏不带窗口标题",
+    "输入区不带窗口标题",
   );
 });
 

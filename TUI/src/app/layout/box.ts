@@ -71,11 +71,11 @@ export interface NodeBase {
 
 /** 兄弟项之间的分隔线（结构性，随子项增删；首尾不画）：
  *  纵向 Box = 行间横线（缺省 `╌`，如 turn 分隔/状态列块间虚线）；
- *  横向 Box = 列间竖线框线（缺省 `│`，如状态栏组间分隔，与上/下横线相接成格） */
+ *  横向 Box = 列间竖线框线（缺省 `│`，如状态行组间分隔，与上/下横线相接成格） */
 export interface Separator {
   /** 缺省：纵向 `╌` / 横向 `│` */
   char?: string;
-  /** 缺省 border（灰）；`"plain"` = 默认前景（不染色，如状态栏圆点分隔） */
+  /** 缺省 border（灰）；`"plain"` = 默认前景（不染色，如状态行圆点分隔） */
   color?: ColorName | "plain";
 }
 
@@ -102,7 +102,7 @@ export type SpacerAxis =
       widthStyle?: never;
     };
 
-/** 宽度类型：尺寸的计算方式（对齐现状：状态列 1/3、历史区保底 10 列） */
+/** 宽度类型：尺寸的计算方式（对齐现状：状态列 1/3、会话区保底 10 列） */
 export type WidthStyle =
   | "auto" // 按内容宽度（用户块的"收缩块"用）
   | "fill" // 占满剩余

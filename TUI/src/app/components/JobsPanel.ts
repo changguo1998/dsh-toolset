@@ -1,10 +1,10 @@
 // src/app/components/JobsPanel.ts — /jobs 后台任务面板渲染（纯函数）
 //
-// 输出恰 height 行（渲染在活动区窗口并占满可视行；底部交互区以空白占位）。
+// 输出恰 height 行（渲染在回合区窗口并占满可视行；底部两行（输入区 + 提示行）以空白占位）。
 // 数据源为 ctx.jobs 快照（adapter 经 events.subscribe 增量推送 + 打开时 refreshJobs 拉全量）：
 //   - 首行标题 + 任务计数；每任务一行：`>` 高亮标记 + 状态符号 + label（detail 作后缀）
 //   - 状态着色：running/stopping 黄、failed/error 红、cancelled 灰、其余默认
-//   - 按键提示不在面板内（统一由底部提示区显示，见 src/app/layout/hints.ts 的 JOBS_HINT_LINE）
+//   - 按键提示不在面板内（统一由提示行区显示，见 src/app/layout/hints.ts 的 JOBS_HINT_LINE）
 // 高亮行恒在可见窗口内（窗口随 index 平移），列表放不下时截断显示。
 // 无 ANSI 之外的着色；显示宽度截断（与 HistoryPanel 同风格）。
 
@@ -30,7 +30,7 @@ export function buildJobsPanelBox(
   const rows = Math.max(1, height);
   const leaves = [];
 
-  // 首行：标题（青）；按键提示不在面板内（统一由底部提示区显示，见 src/app/layout/hints.ts）
+  // 首行：标题（青）；按键提示不在面板内（统一由提示行区显示，见 src/app/layout/hints.ts）
   const activeCount = jobs.filter(
     (j) => j.status === "running" || j.status === "stopping",
   ).length;

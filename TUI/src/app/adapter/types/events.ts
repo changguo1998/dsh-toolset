@@ -123,7 +123,7 @@ export type DshEvent =
       symbolUnify?: boolean;
       /** P7：垂直状态列是否显示（Ctrl+S 切换）；缺省 = 该会话无记录（默认显示） */
       statusColumn?: boolean;
-      /** #9：下半区（Turn 流 + Tool 面板区）是否显示（Ctrl+T 切换）；缺省 = 该会话无记录（默认显示） */
+      /** #9：下半区（Turn 流 + 工具区）是否显示（Ctrl+T 切换）；缺省 = 该会话无记录（默认显示） */
       lowerPanes?: boolean;
     }
   | {

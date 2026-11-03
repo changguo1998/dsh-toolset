@@ -23,7 +23,7 @@ function lastLine(
   return [...s.local].reverse().find((l) => l.kind === kind);
 }
 
-test("workflow：run-start/agent-start/agent-end 活动区行 + run-end toast", () => {
+test("workflow：run-start/agent-start/agent-end 回合区行 + run-end toast", () => {
   let s = fresh();
   s = reduceState(s, {
     type: "workflow",

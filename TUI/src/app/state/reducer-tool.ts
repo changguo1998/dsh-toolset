@@ -71,7 +71,7 @@ export function reduceTool(
         "warn",
       );
     case "usage": {
-      // 阶段 1：入状态（阶段 2 状态栏 contextLen/cacheHit 从 state.usage 读取）。
+      // 阶段 1：入状态（阶段 2 状态行 contextLen/cacheHit 从 state.usage 读取）。
       // P5 估算校准：usage 真值（output，每 step 一次）与本 step 估算累计对比，
       // 比例经 EMA 平滑并 clamp 后写入 tokenCalib，供后续 run 校正启发式估算；
       // 本 step 累计清零（真值已消费）。provider 未报 usage（output<=0）不校准。
@@ -159,7 +159,7 @@ export function reduceTool(
       );
     }
     case "workflow":
-      // P3：workflow 运行行（run-start/agent-start/agent-end 为活动区行，append-only）；
+      // P3：workflow 运行行（run-start/agent-start/agent-end 为回合区行，append-only）；
       // run-end 折叠为 toast（携 stopReason detail）。不参与 step 分组（独立运行大动作）。
       if (action.phase === "run-end") {
         return appendNotice(

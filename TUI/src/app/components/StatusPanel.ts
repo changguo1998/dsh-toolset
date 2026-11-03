@@ -1,8 +1,8 @@
 // src/app/components/StatusPanel.ts — 通用状态选项面板（/policy /permission）
 //
-// 以文本面板呈现一组状态选项（活动区窗口，与审批/问答/模型选择同区域）：
+// 以文本面板呈现一组状态选项（回合区窗口，与审批/问答/模型选择同区域）：
 // 标题行 + 选项列表。↑/↓ 移动焦点（>），空格预选（*，再按取消），
-// Enter 提交预选（无预选回退焦点行）并关闭，Esc 取消；按键提示在底部提示区。
+// Enter 提交预选（无预选回退焦点行）并关闭，Esc 取消；按键提示在提示行区。
 // 输出恰 height 行：标题 + 最多 (height-1) 行选项（超出时窗口跟随焦点滚动）。
 
 import type { StatusPanelState } from "../state.ts";
@@ -60,7 +60,7 @@ export function buildStatusPanelBox(
 
   // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）。窗口起点走共用工具
   // windowStart（BACKLOG 3.2.1：三处面板局部实现统一），center = 焦点居中并 clamp。
-  // 按键提示不在面板内（统一由底部提示区显示，见 src/app/layout/hints.ts 的 statusPanelHintLine）
+  // 按键提示不在面板内（统一由提示行区显示，见 src/app/layout/hints.ts 的 statusPanelHintLine）
   const maxBody = Math.max(0, height - 1);
   let window: typeof rows = rows;
   if (rows.length > maxBody) {

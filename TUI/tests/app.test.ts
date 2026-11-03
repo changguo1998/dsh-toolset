@@ -55,7 +55,7 @@ import {
   sectionsOf,
 } from "../src/app/layout/pipeline/frame.ts";
 
-/** 顶部行历史/活动区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
+/** 顶部行历史/回合区正文：取区域正文段（跳过状态列与分隔竖线，到右缘框列前为止；
  *  按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols });
@@ -74,7 +74,7 @@ function histBody(line: string, cols: number): string {
 }
 
 /** 选择面板三列区域文本（自表头行起 4 行）：只校验面板列内容，
- *  避免把状态栏里的「当前模型」标签算进去（面板打开时它同时出现在状态栏） */
+ *  避免把状态行里的「当前模型」标签算进去（面板打开时它同时出现在状态行） */
 function pickerColumnText(frame: string): string {
   const lines = frame.split("\n");
   const i = lines.findIndex((l) => l.includes("[ provider ]"));
@@ -91,7 +91,7 @@ function pickerPanelText(frame: string): string {
   return i < 0 ? "" : lines.slice(i, i + 4).join("\n");
 }
 
-/** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
+/** 回合区分隔行判定：区域正文段为整行横线——焦点回合区/会话区时两端被焦点框
  *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
 function isSepRow(line: string, cols: number): boolean {
   const c = histBody(line, cols)
@@ -102,7 +102,7 @@ function isSepRow(line: string, cols: number): boolean {
 
 /** P1：用户块首行状态符号与它的生效前景色 SGR（符号 + 1 空格 = 块内 2 列前缀）。
  *  lines = 一帧的原始行（含 ANSI）；text = 用户块正文（用于定位该块首行）。
- *  整行最左的状态列里也有 ✓/✗，故符号只从历史 pane 正文段（histBody）取；
+ *  整行最左的状态列里也有 ✓/✗，故符号只从会话区 正文段（histBody）取；
  *  符号色 = 紧邻符号（中间只隔空白填充）的最近一个 SGR——回退 `?` 无色段，
  *  取到的是块默认前景色（非任何状态色）。 */
 function userBlockMark(
@@ -142,7 +142,7 @@ function makeApp(size?: { cols: number; rows: number }): {
   adapter: FakeAdapter;
 } {
   const renderer = new FakeRenderer();
-  // 尺寸须在 start() 前定：高终端用例（如 /help 全表断言）要一次拿到完整活动区窗口
+  // 尺寸须在 start() 前定：高终端用例（如 /help 全表断言）要一次拿到完整回合区窗口
   if (size) renderer.size = size;
   const adapter = new FakeAdapter();
   // 条目 16 段 C1：与生产同路径（`main.ts:322/679` 也传一个空对象，App 自己填 `current`）。
@@ -171,7 +171,7 @@ const noopShell: ShellRunner = async () => ({
   truncated: false,
 });
 
-/** 模拟在输入框输入文本并回车 */
+/** 模拟在输入区输入文本并回车 */
 function typeAndEnter(renderer: FakeRenderer, text: string): void {
   for (const ch of Array.from(text)) {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });
@@ -197,7 +197,7 @@ test("普通输入(不以 / 开头) → sendMessage", () => {
   assert.deepEqual(adapter.commands, []);
 });
 
-test("多行粘贴：整段插入输入框、不自动提交、光标在末尾（条目 11）", () => {
+test("多行粘贴：整段插入输入区、不自动提交、光标在末尾（条目 11）", () => {
   const { app, renderer, adapter } = makeApp();
   renderer.press({
     name: "paste",
@@ -207,7 +207,7 @@ test("多行粘贴：整段插入输入框、不自动提交、光标在末尾�
     text: "第一行\n第二行\n第三行",
   } as KeyEvent);
   const state = (): AppState => (app as unknown as { state: AppState }).state;
-  assert.equal(state().inputText, "第一行\n第二行\n第三行", "整段进输入框");
+  assert.equal(state().inputText, "第一行\n第二行\n第三行", "整段进输入区");
   assert.equal(state().inputCursor, state().inputText.length, "光标停在末尾");
   assert.deepEqual(adapter.sent, [], "不自动提交");
   app.dispose();
@@ -249,7 +249,7 @@ test("普通输入同时本地回显用户行且靠右，不依赖 adapter 回�
   );
 });
 
-test("thinking 事件显示思考，正文事件到达后保留(活动区)", () => {
+test("thinking 事件显示思考，正文事件到达后保留(回合区)", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "thinking", sessionId: "s1", text: "正在分析" });
   const thinkRow = renderer.lastRender.find((l) => l.includes("正在分析"));
@@ -263,7 +263,7 @@ test("thinking 事件显示思考，正文事件到达后保留(活动区)", () 
   assert.ok(joined.includes("回答正文"));
   assert.ok(
     joined.includes("正在分析"),
-    "正文到达后思考保留（分属活动区/历史区）",
+    "正文到达后思考保留（分属回合区/会话区）",
   );
 });
 
@@ -346,8 +346,8 @@ test("/init：AGENTS.md 缺失 → 注入初始化指令（用户行回显 /init
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("/init：状态栏缩写 cwd（~/…）仍能命中已存在的 AGENTS.md（TUI#45）", async (t) => {
-  // 家目录内的项目：状态栏 cwd 经 shortenHome 缩为 `~/…`；修复前直接 join 会误判不存在。
+test("/init：状态行缩写 cwd（~/…）仍能命中已存在的 AGENTS.md（TUI#45）", async (t) => {
+  // 家目录内的项目：状态行 cwd 经 shortenHome 缩为 `~/…`；修复前直接 join 会误判不存在。
   // 用仓库根（自带 AGENTS.md）构造该形态，免在家目录建临时文件；仓库不在家目录下则跳过。
   const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
   if (!repoRoot.startsWith(homedir() + "/")) {
@@ -570,7 +570,7 @@ test("审批按键白名单：无关键提示无效键、Esc 取消审批并关�
   const { renderer, adapter } = makeApp();
   adapter.push({ type: "agent-status", sessionId: "s1", status: "tool" });
   adapter.push({ type: "approval", id: "a1", prompt: "允许执行?" });
-  // 白名单外按键：不落输入栏、不打断，改在提示区给出无效键提示（面板仍开着）
+  // 白名单外按键：不落输入区、不打断，改在提示行给出无效键提示（面板仍开着）
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   const frame = renderer.lastRender.join("\n");
   assert.ok(frame.includes("[无效键]"), "无关键提示无效键");
@@ -601,11 +601,11 @@ test("审批无效键：提示落在用户输入区（按键提示正上方）�
     titleIdx >= 0 && hintIdx > optIdx,
     "提示应在面板下方（用户输入区）",
   );
-  // 用户输入区可能占多行（footerHeight > 1），按键提示区在其**下方**若干行内
+  // 用户输入区可能占多行（footerHeight > 1），按键提示行在其**下方**若干行内
   const keysIdx = lines.findIndex((l) => l.includes("[Enter]提交 · [Esc]取消"));
   assert.ok(
     keysIdx > hintIdx,
-    "按键提示区位于提示行下方（屏幕左下）: " +
+    "按键提示行位于提示行下方（屏幕左下）: " +
       JSON.stringify(lines.slice(hintIdx, hintIdx + 4)),
   );
   assert.ok(
@@ -629,7 +629,7 @@ test("审批面板：Tab 切焦点窗，↑/↓ 语义随焦点窗分派（BACKL
   // 断言用去色文本（选项行带 SGR 着色；plainFrame 仅去掉行尾填充，故此处再剥一层 SGR）
   const frame = (): string =>
     plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
-  // 缺省焦点在选项窗：提示区 `↑/↓` 文案为「选项」；↑/↓ 移动「批准 / 拒绝」
+  // 缺省焦点在选项窗：提示行 `↑/↓` 文案为「选项」；↑/↓ 移动「批准 / 拒绝」
   // （2026-10-14 起提示行不再放 `▶选项` 前缀，焦点窗由面板内的焦点条呈现）
   assert.ok(
     frame().includes("[↑/↓]选项") && !frame().includes("[↑/↓]滚动"),
@@ -640,7 +640,7 @@ test("审批面板：Tab 切焦点窗，↑/↓ 语义随焦点窗分派（BACKL
     / >  2\. 拒绝/.test(frame()),
     "↓ 移到拒绝项: " + frame().slice(0, 200),
   );
-  // Tab → 描述窗：提示区文案切到「滚动」，↑/↓ 不再移动选项（改为滚草稿）
+  // Tab → 描述窗：提示行文案切到「滚动」，↑/↓ 不再移动选项（改为滚草稿）
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   assert.ok(frame().includes("[↑/↓]滚动"), "Tab 后焦点窗 = 草稿");
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
@@ -967,7 +967,7 @@ test("P1：turn-end 的 reason 进 state → 用户块落终态（completed/abor
 
 test("P1：活跃块只看最后一条用户输入——更早的未终态块不跟随运行状态", () => {
   const { app, renderer, adapter } = makeApp();
-  // 放大窗口：三条用户块需同屏（横向排列下历史 pane 行数有限）
+  // 放大窗口：三条用户块需同屏（横向排列下会话区 行数有限）
   renderer.resize(140, 40);
   const cols = 140;
   typeAndEnter(renderer, "第一条");
@@ -1050,16 +1050,16 @@ test("P8：压缩期间 Enter 进排队、Ctrl+D 不请求退出确认；压缩�
   app.dispose();
 });
 
-test("活动区生命周期：新回合不再清空上一回合内容（2026-10-11 裁定去掉清空语义）", () => {
+test("回合区生命周期：新回合不再清空上一回合内容（2026-10-11 裁定去掉清空语义）", () => {
   const { app, renderer, adapter } = makeApp();
   // 条目 16 段 C1：内容（思考 / 工具行）不再写缓冲 → 断言帧内可见。
-  // 2026-10-11 用户裁定：去掉「新回合清空活动区」语义 → 判定统一为「内容持续可见」。
+  // 2026-10-11 用户裁定：去掉「新回合清空回合区」语义 → 判定统一为「内容持续可见」。
   const plain = (): string =>
     renderer.lastRender
       .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
       .join("\n");
   const shown = (t: string): boolean => plain().includes(t);
-  // 第一回合：思考 + 工具 + 提示（活动区三类内容）
+  // 第一回合：思考 + 工具 + 提示（回合区三类内容）
   typeAndEnter(renderer, "第一问");
   adapter.push({ type: "thinking", sessionId: "s1", text: "思考一" });
   adapter.push({
@@ -1072,15 +1072,15 @@ test("活动区生命周期：新回合不再清空上一回合内容（2026-10-
   adapter.push({ type: "turn-end" });
   assert.ok(
     shown("思考一") && shown("bash") && shown("ls") && shown("提示一"),
-    "三类内容同处活动区（帧内可见；工具块 = 名字行 + 参数行）",
+    "三类内容同处回合区（帧内可见；工具块 = 名字行 + 参数行）",
   );
-  // 核心自发的新回合（无本地提交）：turn-begin 画分隔线但不清活动区
+  // 核心自发的新回合（无本地提交）：turn-begin 画分隔线但不清回合区
   adapter.push({ type: "stream", sessionId: "s1", text: "自发回合正文" });
   assert.ok(
     shown("思考一") && shown("bash") && shown("ls") && shown("提示一"),
     "首回合三类内容持续可见（核心自发回合不改变它）",
   );
-  // 自发回合结束后用户输入（空闲直发）→ 活动区整类清空
+  // 自发回合结束后用户输入（空闲直发）→ 回合区整类清空
   adapter.push({ type: "turn-end" });
   typeAndEnter(renderer, "第二问");
   assert.ok(
@@ -1126,7 +1126,7 @@ test("排队消息 Esc：不退回、不清登记、不打断（留在核心 nex
     ["排队甲", "排队乙"],
     "排队登记原样保留",
   );
-  assert.equal(st.inputText, "", "不退回输入框（否则与核心队列重复发送）");
+  assert.equal(st.inputText, "", "不退回输入区（否则与核心队列重复发送）");
   assert.equal(adapter.interrupts, 0, "Esc 不再打断运行中的 agent");
   // 回合结束（核心认领排队条目）→ 队列照旧转正，无需用户重发
   adapter.push({ type: "turn-end" });
@@ -1154,7 +1154,7 @@ test("`!` 模式连带排队登记：按时间顺序并入本次发送（不出�
   assert.deepEqual(
     adapter.sent,
     ["先发的", "排队甲", "排队乙", "排队甲\n排队乙\n现在打断发z"],
-    "排队登记退回输入框后按顺序并入本次发送",
+    "排队登记退回输入区后按顺序并入本次发送",
   );
   app.dispose();
 });
@@ -1218,7 +1218,7 @@ test("slash 模式提交：自动补 / 前缀转发，不经 sendMessage", () =>
   assert.deepEqual(adapter.commands, ["/plan 明天"], "自动补 / 后走注册表");
 });
 
-test("shell 模式提交：本地执行（不经模型），回显与摘要进活动区，提示符回退 normal", async () => {
+test("shell 模式提交：本地执行（不经模型），回显与摘要进回合区，提示符回退 normal", async () => {
   const { app, renderer, adapter } = makeApp();
   renderer.press({ name: "$", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
@@ -1231,7 +1231,7 @@ test("shell 模式提交：本地执行（不经模型），回显与摘要进�
     "shell 模式提交走本地执行（BACKLOG TUI#37：不经模型）",
   );
   assert.deepEqual(adapter.log, [], "adapter 未收到任何消息");
-  // 单字符提示符 = 当前模式符号：提交后已回退 normal → 输入行以 "> " 开头（24 行终端输入区 3 行+提示区 1 行，输入行为倒数第 4 行）
+  // 单字符提示符 = 当前模式符号：提交后已回退 normal → 输入行以 "> " 开头（24 行终端输入区 3 行+提示行 1 行，输入行为倒数第 4 行）
   const lastLine = renderer.lastRender.at(-4) ?? "";
   const plain = lastLine.replace(/\u001b\[[0-9;]*m/g, "");
   assert.ok(
@@ -1240,9 +1240,9 @@ test("shell 模式提交：本地执行（不经模型），回显与摘要进�
   );
   assert.ok(
     !plain.startsWith("$> "),
-    "提示符已改单字符，不再有左 $（状态符号移至状态栏最左侧）",
+    "提示符已改单字符，不再有左 $（状态符号移至状态行最左侧）",
   );
-  // 本地输出进活动区（kind="shell"：回显 + 退出摘要），不进模型上下文
+  // 本地输出进回合区（kind="shell"：回显 + 退出摘要），不进模型上下文
   const shells = (app as unknown as { state: AppState }).state.local.filter(
     (l) => l.kind === "shell",
   );
@@ -1253,8 +1253,8 @@ test("shell 模式提交：本地执行（不经模型），回显与摘要进�
 test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、error notice 均保持黄●/○", () => {
   const { renderer, adapter } = makeApp();
   const USER = "任务中提问";
-  // 用户块首行状态符号（P1：符号不再渲染在状态栏；整行最左的状态列里也有 ✓/✗，
-  // 故 userBlockMark 只取历史 pane 正文段）
+  // 用户块首行状态符号（P1：符号不再渲染在状态行；整行最左的状态列里也有 ✓/✗，
+  // 故 userBlockMark 只取会话区 正文段）
   const mark = (): { sym: string; sgr: string } =>
     userBlockMark(renderer.lastRender, renderer.size.cols, USER);
   // 提交用户消息 → 用户块入 buffer（符号挂在它首行）；agent thinking → 运行中黄 ●/○
@@ -1283,7 +1283,7 @@ test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、er
   assert.equal(mark().sgr, yellow, "活跃中 error notice 不覆盖黄");
   // 回合结束：agent 回 idle（真实路径由宿主的 agent/status 送达）→ 用户块撤下运行中黄。
   // 终态 ✓/✗/■ 由 turn-end 的 reason 打标到用户行（BufferLine.status），取值见
-  // layout4「输入栏单字符提示符」用例（completed→绿✓ / error→红✗ / aborted→灰■）。
+  // layout4「输入区单字符提示符」用例（completed→绿✓ / error→红✗ / aborted→灰■）。
   adapter.push({ type: "agent-status", sessionId: "s1", status: "idle" });
   adapter.push({ type: "turn-end", reason: "completed" });
   assert.notEqual(mark().sgr, yellow, "回合结束不再显示运行中黄");
@@ -1309,7 +1309,7 @@ test("slash 模式 /model 提交后回退 normal：确认面板后普通发送",
 test("未知 slash 命令：error notice → 失败态；turn-end → 回成功态", () => {
   const { app, renderer, adapter } = makeApp();
   // P1：用户块终态符号（✓/✗/■）由 turn-end 的 reason 打标到用户行 BufferLine.status
-  // （取值与着色见 layout4「输入栏单字符提示符」用例）；应用层把事件 reason 转进
+  // （取值与着色见 layout4「输入区单字符提示符」用例）；应用层把事件 reason 转进
   // state action 之前，这里按 state 口径断言收尾态：error notice/failure、turn-end/success
   const st = (): { inputStatus: string; buffer: { kind: string }[] } =>
     (app as unknown as { state: never }).state;
@@ -1336,7 +1336,7 @@ test("Ctrl+L 触发强制重绘(refresh)，不吞普通 'l' 输入", () => {
   assert.deepEqual(adapter.sent, []);
 });
 
-test("普通 'l' 仍插入输入框(不被 Ctrl+L 分支吞掉)", () => {
+test("普通 'l' 仍插入输入区(不被 Ctrl+L 分支吞掉)", () => {
   const { renderer, adapter } = makeApp();
   renderer.press({ name: "l", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
@@ -1567,7 +1567,7 @@ test("输入补全：/ 前缀出候选面板, 最匹配默认高亮, Tab 接受�
   await flush();
   frame = plainFrame(renderer);
   assert.ok(!frame.includes("/命令补全"), `接受后面板收起: ${frame}`);
-  // slash 模式提示符自带 `/`：接受后输入框文本为 `model `（提交时才补前导 /）
+  // slash 模式提示符自带 `/`：接受后输入区文本为 `model `（提交时才补前导 /）
   assert.ok(
     frame.includes("model ") && !frame.includes("/model"),
     `接受后输入应为 model : ${frame}`,
@@ -1606,7 +1606,7 @@ test("输入补全：Esc 收起候选（输入保留，继续输入重新打开�
   assert.ok(frame.includes("comp"), `Esc 不动输入内容: ${frame}`);
   assert.ok(
     !frame.includes("/comp"),
-    `Esc 后输入框仍为 slash 模式文本: ${frame}`,
+    `Esc 后输入区仍为 slash 模式文本: ${frame}`,
   );
   // 继续输入 → 重新打开候选（Esc 只收起当前候选，不锁死补全）
   renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
@@ -1614,12 +1614,12 @@ test("输入补全：Esc 收起候选（输入保留，继续输入重新打开�
   assert.ok(frame.includes("/命令补全"), `继续输入应重新出候选: ${frame}`);
 });
 
-test("输入补全：键位提示在输入区下方提示区, 活动区只放候选", async () => {
+test("输入补全：键位提示在输入区下方提示行, 回合区只放候选", async () => {
   const { renderer } = makeApp();
   renderer.size = { cols: 100, rows: 30 };
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
   const rows = renderer.lastRender;
-  // 提示行唯一且落在最后一行（输入区下方的按键提示区）
+  // 提示行唯一且落在最后一行（输入区下方的按键提示行）
   const hintRows = rows
     .map((l, i) => [i, l] as const)
     .filter(([, l]) => l.includes("[Tab]补全"));
@@ -1631,16 +1631,16 @@ test("输入补全：键位提示在输入区下方提示区, 活动区只放候
   assert.equal(
     hintRows[0]![0],
     rows.length - 1,
-    "提示应在输入区下方的提示区（帧末行）",
+    "提示应在输入区下方的提示行（帧末行）",
   );
-  // 活动区（候选面板）只有标题+候选：不出现默认提示行，也不出现面板内提示
+  // 回合区（候选面板）只有标题+候选：不出现默认提示行，也不出现面板内提示
   assert.ok(
     plainFrame(renderer).includes("> /cls"),
     `默认焦点候选应显示: ${plainFrame(renderer)}`,
   );
   assert.ok(
     !plainFrame(renderer).includes("[C-d]退出"),
-    "补全打开时底部提示区不再显示默认提示",
+    "补全打开时提示行区不再显示默认提示",
   );
 });
 test("输入补全：面板行不超终端宽（帧行宽回归：挤偏边框/折行）", async () => {
@@ -1664,9 +1664,9 @@ test("输入补全：面板行不超终端宽（帧行宽回归：挤偏边框/�
   }
 });
 
-test("输入补全：候选超出活动区可视行时丢弃（不滚动，焦点不越界）", async () => {
+test("输入补全：候选超出回合区可视行时丢弃（不滚动，焦点不越界）", async () => {
   const { renderer } = makeApp();
-  renderer.size = { cols: 100, rows: 12 }; // 矮终端：活动区只能放下少数候选
+  renderer.size = { cols: 100, rows: 12 }; // 矮终端：回合区只能放下少数候选
   renderer.press({ name: "/", ctrl: false, meta: false, shift: false });
   const nameOf = (line: string): string =>
     line.match(/\/([a-z][a-z0-9_-]*)/)?.[1] ?? "";
@@ -2197,14 +2197,14 @@ test("/model <id> → setSessionModel + 更新", async () => {
   ]);
   assert.deepEqual(adapter.sent, []);
 
-  test("/model 切换后状态栏显示新模型", async () => {
+  test("/model 切换后状态行显示新模型", async () => {
     const { renderer, adapter } = makeApp();
     typeAndEnter(renderer, "/model deepseek-test-b");
     await flush();
     const joined = renderer.lastRender.join("\n");
     assert.ok(
       joined.includes("deepseek-test-b"),
-      `状态栏应含新模型，实际:\n${joined}`,
+      `状态行应含新模型，实际:\n${joined}`,
     );
     assert.ok(adapter.savedSelections.length === 1); // 确认确实切换了
   });
@@ -2305,13 +2305,13 @@ test("applyStartupModel: effort 未命中回退最低等级", async () => {
 
 // ---------- /model 交互选择模式 ----------
 
-test("交互选择：无参 /model 打开面板；模式下普通字符不插入输入框", async () => {
+test("交互选择：无参 /model 打开面板；模式下普通字符不插入输入区", async () => {
   const { renderer, adapter } = makeApp();
   typeAndEnter(renderer, "/model");
   await flush();
   assert.ok(adapter.catalogCalls >= 1);
   assert.deepEqual(adapter.savedSelections, []);
-  // 选择模式下按普通字符 x 与方向之外的键：不进入输入框、不发送
+  // 选择模式下按普通字符 x 与方向之外的键：不进入输入区、不发送
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   await flush();
@@ -2353,7 +2353,7 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
     },
   ]);
   assert.deepEqual(adapter.sent, []);
-  // 状态栏 model 段：多等级模型开启思考 → 按实际等级名显示（而非笼统 on）
+  // 状态行 model 段：多等级模型开启思考 → 按实际等级名显示（而非笼统 on）
   const statusJoined = renderer.lastRender
     .map((l) => l.replace(/\u001b\[[0-9;]*m/g, ""))
     .join("\n");
@@ -2363,7 +2363,7 @@ test("交互选择：↑/↓ 移动，Enter 确认持久切换并保留当前 re
   );
 });
 
-test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffort)显示，与后台一致", async () => {
+test("状态行：未显式选择等级时按 provider 默认等级(defaultEffort)显示，与后台一致", async () => {
   const { renderer, adapter } = makeApp();
   // provider 级 reasoning 配置兜底（如 ustc 的 reasoning: max）：后台请求实际生效 max
   adapter.modelReasoningData = {
@@ -2389,7 +2389,7 @@ test("状态栏：未显式选择等级时按 provider 默认等级(defaultEffor
   );
 });
 
-test("状态栏：无 provider 默认等级且未显式选择时显示 off", async () => {
+test("状态行：无 provider 默认等级且未显式选择时显示 off", async () => {
   const { renderer } = makeApp();
   // modelReasoningData 缺省：有等级但无 defaultEffort → 保持 off 语义
   typeAndEnter(renderer, "/model deepseek-test-b");
@@ -2411,7 +2411,7 @@ test("交互选择：Esc 取消不改变，退出后输入恢复正常", async (
   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
   await flush();
   assert.deepEqual(adapter.savedSelections, []);
-  // 退出面板后：普通输入恢复进输入框
+  // 退出面板后：普通输入恢复进输入区
   renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
   renderer.press({ name: "enter", ctrl: false, meta: false, shift: false });
   assert.deepEqual(adapter.sent, ["a"]);
@@ -2503,7 +2503,7 @@ test("/help 内容完整折行（notice 不归压缩开关）", () => {
   const { renderer } = makeApp();
   typeAndEnter(renderer, "/help");
   const compactText = renderer.lastRender.join("\n");
-  // /help 块在活动区底部对齐，可见尾部应包含最后一行脚注（首部与靠前条目
+  // /help 块在回合区底部对齐，可见尾部应包含最后一行脚注（首部与靠前条目
   // 超出 pane 顶边折叠属正常，不在此断言）——核心是 help 内容不被「压 1 行 + 省略号」。
   // 脚注可能折行，断言取其单行内完整出现的前缀（与 3135 行既有 /help 断言同款）
   assert.ok(
@@ -2548,7 +2548,7 @@ test("App initialTheme 非法值回落 dark(外部配置健壮性)", () => {
 // 横线分隔行计数：- / = / · 三种分隔字形均为横线分隔行（状态列右缘 | 不计）
 function barRowCount(renderer: FakeRenderer): number {
   return renderer.lastRender.filter((l) => {
-    // 只看历史区（左侧状态列可能把占位/标题混进同一行，误伤分隔判定）
+    // 只看会话区（左侧状态列可能把占位/标题混进同一行，误伤分隔判定）
     const t = histBody(l, renderer.size.cols);
     // #3/#5 起分隔行带标签（回合线 `╌╌ hh:mm:ss ⇆N #M `、窗口标题 `── Session ──` 等）：
     // 去掉标签后再判「是否为纯横线行」，不把标签当内容
@@ -2647,7 +2647,7 @@ const strippedFrame = (renderer: FakeRenderer): string =>
   plainFrame(renderer).replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "");
 
 test("/help → 含「按键：」全局键表（冷门键与提示行不再列的常用键都在）", () => {
-  // 超高终端：/help 现在约 110 行（按键段 + 命令段），要一次落在活动区窗口内才能断言段标题；
+  // 超高终端：/help 现在约 110 行（按键段 + 命令段），要一次落在回合区窗口内才能断言段标题；
   // 真机上超出窗口的部分靠 ↑/↓ 滚动查看（与既有命令表同口径）
   const { renderer } = makeApp({ cols: 120, rows: 240 });
   typeAndEnter(renderer, "/help");
@@ -2666,14 +2666,14 @@ test("/help → 含「按键：」全局键表（冷门键与提示行不再列�
     ["C-↑/↓", "半屏滚动"],
     ["PgUp/PgDn", "面板整页滚动"],
     ["Home/End", "翻到最旧已加载内容"],
-    ["←/→", "输入框光标移动"],
+    ["←/→", "输入区光标移动"],
     ["Backspace", "删除光标前字符"],
     ["Enter", "按输入模式提交"],
     ["$ / < / !", "输入为空时按其中之一切换输入模式"],
     ["A-Enter", "等效"],
     ["C-p/n", "输入历史回溯"],
-    ["C-j", "输入框插入换行"],
-    ["C-c", "清空输入框"],
+    ["C-j", "输入区插入换行"],
+    ["C-c", "清空输入区"],
     ["C-l", "强制整帧重绘"],
     ["C-e/t/s", "聚焦会话区"],
     ["Tab", "接受补全候选"],
@@ -2686,12 +2686,12 @@ test("/help → 含「按键：」全局键表（冷门键与提示行不再列�
       `键表行对不上：${key} / ${desc}`,
     );
   }
-  assert.ok(frame.includes("面板内按键见底部提示区"), "按键段末指路行");
+  assert.ok(frame.includes("面板内按键见提示行区"), "按键段末指路行");
 });
 
 test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多题动态按键提示", () => {
   const { app, renderer, adapter } = makeApp();
-  // 面板显示在流输出（活动区）窗口；压矮终端让活动区面板高度小、正文窗口受限，
+  // 面板显示在流输出（回合区）窗口；压矮终端让回合区面板高度小、正文窗口受限，
   // 保持「未导航锚定顶部、末位项被裁」语义（多题标题区 1 行 = 符号行，
   // 故 body = 面板高 − 1；BACKLOG TUI#4）
   renderer.size = { cols: 80, rows: 16 };
@@ -2707,7 +2707,7 @@ test("问答面板：渲染标题/题干/预设选项/自定义兜底项 + 多�
   );
   assert.ok(plain.includes("选择部署环境？"), "题干渲染");
   assert.ok(plain.includes("部署：选择部署环境？"), "header 前缀渲染");
-  // 面板只剩符号行（按键提示移到底部提示区）：body = 面板高 − 1（此处 4 行）→
+  // 面板只剩符号行（按键提示移到提示行区）：body = 面板高 − 1（此处 4 行）→
   // 未导航时窗口锚定顶部，末尾的「自定义回答」兜底项被裁
   assert.ok(
     plain.includes(">  1. 生产"),
@@ -2857,7 +2857,7 @@ test("问答面板：多选预设 + 自定义并存，提交同时含 selected �
   app.dispose();
 });
 
-test("问答面板：预设选项上键入被吞（不落入主输入栏、不改自定义）", () => {
+test("问答面板：预设选项上键入被吞（不落入主输入区、不改自定义）", () => {
   const { app, renderer, adapter } = makeApp();
   pushQuestion(adapter);
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
@@ -2877,7 +2877,7 @@ test("问答面板：预设选项上键入被吞（不落入主输入栏、不�
   app.dispose();
 });
 
-test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入主输入栏", () => {
+test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入主输入区", () => {
   const { app, renderer, adapter } = makeApp();
   pushQuestion(adapter);
   // Tab：选项窗 → 描述窗（↑/↓ 语义随焦点窗切换，BACKLOG 3.2.1）
@@ -2885,7 +2885,7 @@ test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入�
   assert.ok(plainFrame(renderer).includes("[↑/↓]滚动"), "Tab 切到描述窗");
   assert.ok(
     plainFrame(renderer).includes("[Tab]选项"),
-    "提示区随焦点窗切换 Tab 文案（BACKLOG 3.2.1）",
+    "提示行随焦点窗切换 Tab 文案（BACKLOG 3.2.1）",
   );
   renderer.press({ name: "down", ctrl: false, meta: false, shift: false });
   assert.ok(
@@ -2895,7 +2895,7 @@ test("问答面板：Tab 切焦点窗（描述窗 <-> 选项窗），不落入�
   renderer.press({ name: "tab", ctrl: false, meta: false, shift: false });
   assert.ok(plainFrame(renderer).includes("[↑/↓]选项"), "Tab 切回选项窗");
   renderer.press({ name: "x", ctrl: false, meta: false, shift: false });
-  assert.equal(adapter.sent.length, 0, "Tab/字符不落入主输入栏");
+  assert.equal(adapter.sent.length, 0, "Tab/字符不落入主输入区");
   assert.ok(
     !plainFrame(renderer).includes("自定义回答："),
     "Tab 不再切到自定义输入",
@@ -2929,7 +2929,7 @@ test("问答面板：Esc 仅取消问答（cancelQuestion），不打断 turn，
 
 test("问答面板：plan-review 单题以计划卡片呈现，hints 只显示用到的按键", () => {
   const { app, renderer, adapter } = makeApp();
-  // 面板显示在流输出窗口：压矮终端让活动区面板高度=4（detail 正文被裁语义不变）
+  // 面板显示在流输出窗口：压矮终端让回合区面板高度=4（detail 正文被裁语义不变）
   renderer.size = { cols: 80, rows: 15 };
   adapter.push({
     type: "question",
@@ -3105,7 +3105,7 @@ test("问答面板：选项按状态着色——已选行绿（光标同在此�
 //     bbbbLine && bbbbLine!.startsWith(">"),
 //     "返回列表后焦点保持在浏览过的会话",
 //   );
-//   // Esc 关闭面板（主输入提示区恢复）
+//   // Esc 关闭面板（主输入提示行恢复）
 //   renderer.press({ name: "escape", ctrl: false, meta: false, shift: false });
 //   joined = renderer.lastRender.map(stripAnsi).join("\n");
 //   assert.ok(joined.includes("[Enter]发送"), "关闭后输入态按键提示恢复");
@@ -3682,7 +3682,7 @@ test("/session：resume 后标题——官方 sessionTitle 优先于本地兜底
   );
   assert.ok(
     plain.some((l) => l.includes("官方标题")),
-    "状态栏显示官方标题而非本地兜底",
+    "状态行显示官方标题而非本地兜底",
   );
 });
 
@@ -3710,7 +3710,7 @@ test("/session：resume 后标题——无官方 sessionTitle → deriveTitle �
   );
 });
 
-test("session-title 事件：官方折叠标题实时流入状态栏（仅当前活跃会话）", async () => {
+test("session-title 事件：官方折叠标题实时流入状态行（仅当前活跃会话）", async () => {
   const { renderer, adapter } = makeApp();
   // 建立活跃会话（session-list 会选首个会话为 activeSessionId）
   adapter.push({
@@ -3724,7 +3724,7 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
     before.some((l) => l.includes("<title>")),
     "初始标题为空，以 <title> 占位",
   );
-  // 官方 session/title 事件到达 → 状态栏更新为官方标题
+  // 官方 session/title 事件到达 → 状态行更新为官方标题
   adapter.push({
     type: "session-title",
     sessionId: "live-1",
@@ -3735,7 +3735,7 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
   );
   assert.ok(
     after.some((l) => l.includes("官方折叠标题")),
-    "状态栏显示官方折叠标题",
+    "状态行显示官方折叠标题",
   );
   // 非活跃会话的标题事件被忽略
   adapter.push({ type: "session-title", sessionId: "other", title: "无关" });
@@ -3744,7 +3744,7 @@ test("session-title 事件：官方折叠标题实时流入状态栏（仅当前
   );
   assert.ok(
     !after2.some((l) => l.includes("无关")),
-    "非活跃会话标题不流入状态栏",
+    "非活跃会话标题不流入状态行",
   );
 });
 
@@ -3811,12 +3811,12 @@ test("会话状态回填：ui-flags 恢复 collapse / verbose 档位 / symbol-un
   assert.deepEqual(
     st().activityCompact,
     { think: false, tool: false, reply: false },
-    "活动区压缩开关不再回填（重启回缺省）",
+    "回合区压缩开关不再回填（重启回缺省）",
   );
   assert.deepEqual(
     st().activityShow,
     { think: true, tool: true, reply: true },
-    "活动区显示开关不再回填（重启回缺省）",
+    "回合区显示开关不再回填（重启回缺省）",
   );
   assert.equal(st().symbolUnify, false, "symbol-unify 由 ui-flags 回填");
   const got = st().modelBySession["s1"];
@@ -4057,7 +4057,7 @@ test("/copy：无模型回复 → 提示无可复制；有回复 → 输出 OSC5
   );
 });
 
-// ===== 阶段 2：工具行 / usage 状态栏 / retry+compaction toast / notice tone 渲染 =====
+// ===== 阶段 2：工具行 / usage 状态行 / retry+compaction toast / notice tone 渲染 =====
 
 // 颜色断言用 dark 主题 24bit 前景码：红 #FD0013 / 黄 #E9C944 / 灰 #272336
 test("tool-call → 工具块名字行 + 参数行（新形制）", () => {
@@ -4219,7 +4219,7 @@ test("本地 slash 分级：/help 内容普通前景（不再 info 蓝）、无�
   const { renderer } = makeApp();
   // /help → 普通文本色（信息提示蓝与正文难区分，改默认前景）
   typeAndEnter(renderer, "/help");
-  // 活动区 8 行窗口只显示帮助列表尾部行（最后一行必可见）
+  // 回合区 8 行窗口只显示帮助列表尾部行（最后一行必可见）
   const helpLine = renderer.lastRender.find((l) =>
     l.includes("其他 /name 通过 commands 注册表执行"),
   );
@@ -4262,12 +4262,12 @@ test("帮助文案：/help 说明统一中文（命令名与参数标识符保�
   assert.ok(text.includes("/collapse on|off"), "参数标识符保留英文");
 });
 
-test("提示区：有输入时只列编辑键（区域键 C-e/C-t/C-s 不露出）", () => {
+test("提示行：有输入时只列编辑键（区域键 C-e/C-t/C-s 不露出）", () => {
   const { renderer } = makeApp();
   renderer.size = { cols: 100, rows: 30 };
   renderer.press({ name: "a", ctrl: false, meta: false, shift: false });
   const hint = renderer.lastRender.find((l) => l.includes("[C-c]清空"));
-  assert.ok(hint, `有输入时提示区应含编辑键: ${plainFrame(renderer)}`);
+  assert.ok(hint, `有输入时提示行应含编辑键: ${plainFrame(renderer)}`);
   assert.ok(hint!.includes("[C-j]换行"), `文案应含换行键: ${hint}`);
   // 用户裁定：区域键不在提示行露出
   const joined = renderer.lastRender.join("\n");
@@ -4320,7 +4320,7 @@ test("compaction/retry → toast notice 文本（retry warn 黄）", () => {
   );
 });
 
-test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
+test("usage 事件 → 状态行显示 ctx/cache（替换占位 —）", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "usage",
@@ -4335,15 +4335,15 @@ test("usage 事件 → 状态栏显示 ctx/cache（替换占位 —）", () => {
   // total=36000 → ctx 36k；cache=24000/36000≈67%
   assert.ok(
     plain.some((l) => l.includes("ctx 36k")),
-    "状态栏显示 ctx 36k",
+    "状态行显示 ctx 36k",
   );
   assert.ok(
     plain.some((l) => l.includes("cache 67%")),
-    "状态栏显示 cache 67%",
+    "状态行显示 cache 67%",
   );
 });
 
-test("usage 事件带 contextWindow → 状态栏 ctx 追加占用百分比", () => {
+test("usage 事件带 contextWindow → 状态行 ctx 追加占用百分比", () => {
   const { renderer, adapter } = makeApp();
   adapter.push({
     type: "usage",
@@ -4359,7 +4359,7 @@ test("usage 事件带 contextWindow → 状态栏 ctx 追加占用百分比", ()
   // total=36000，窗口 120000 → 36k(30%)；无窗口用例保持仅绝对大小（既有 ctx 36k 断言）
   assert.ok(
     plain.some((l) => l.includes("ctx 36k(30%)")),
-    "状态栏显示 ctx 36k(30%)",
+    "状态行显示 ctx 36k(30%)",
   );
 });
 
@@ -4396,7 +4396,7 @@ test("/goal <objective>：带参数转交宿主 goal 命令", () => {
 
 test("顶部面板焦点滚动映射：↑/↓ 只作用于各自面板；PgUp/PgDn 用面板可视行高", () => {
   // 单行：activity 距底部（上=+），status 距顶部（上=-）。
-  // 对话区不在此映射里：它按「段键 + 段内行」定位，位移由 App 用本帧段表换算
+  // 会话区不在此映射里：它按「段键 + 段内行」定位，位移由 App 用本帧段表换算
   // （见 `App.scrollDialogueBy`），不产生 action 级的 scroll
   assert.deepEqual(focusedLineScroll("activity", 1), {
     type: "activity-scroll",
@@ -4444,12 +4444,12 @@ test("frameGeometry：页高口径与 buildFrame 一致（rows=24 → 状态列�
   const g = frameGeometry(initialState(), { rows: 24, cols: 80 });
   assert.equal(g.contentTopH, 17, "状态列内容高=contentTopH（无顶部边框行）");
   assert.equal(g.activityH, 8);
-  // 标题栏（标题行 + 下划线，2 行）由对话区承担：对话 8 → 6
+  // 标题栏（标题行 + 下划线，2 行）由会话区承担：对话 8 → 6
   assert.equal(g.dialogueH, 6);
-  assert.equal(g.viewportH, 6, "无排队块时历史视口 = 对话 pane 高");
+  assert.equal(g.viewportH, 6, "无排队块时历史视口 = 会话区 高");
 });
 
-test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () => {
+test("顶部面板：Ctrl+T 聚焦回合区，↑/PgUp 滚动帮助", async () => {
   const { renderer } = makeApp();
   const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
   const hint = (): string => {
@@ -4458,17 +4458,17 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
       .find((l) => l?.startsWith("[> / ! $ <]") && l.includes("[C-d]退出"));
     return h ?? "";
   };
-  // 活动区正文 = 实线分隔行与状态区上边分隔行之间：取左侧历史/活动区段（右侧为状态列）
+  // 回合区正文 = 实线分隔行与状态区上边分隔行之间：取左侧历史/回合区段（右侧为状态列）
   const actBody = (): string[] => {
     const lines = renderer.lastRender.map(strip);
     // 跳过标题栏分隔行（rows=24 时标题栏 2 行、下划线在 index 2）
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
-    // 状态栏行定位（P1）：状态栏不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
-    // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态栏行 / 下分隔行
+    // 状态行行定位（P1）：状态行不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
+    // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态行行 / 下分隔行
     const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
-    assert.ok(sep >= 0 && statusSep > sep, "活动区窗口存在");
+    assert.ok(sep >= 0 && statusSep > sep, "回合区窗口存在");
     return lines
       .slice(sep + 1, statusSep)
       .map((l) => histBody(l, size.cols).trim())
@@ -4495,7 +4495,7 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
   assert.ok(!hint().includes("面板"), "hint 不带面板标签");
   assert.ok(
     actBody().some((l) => l.includes("注册表执行")),
-    "默认（距底部=0）活动区显示帮助尾部（帮助文末行）",
+    "默认（距底部=0）回合区显示帮助尾部（帮助文末行）",
   );
 
   // 默认无焦点 → Ctrl+T 聚焦流输出：↑ 上滚一行 → 显示更早一行
@@ -4521,9 +4521,9 @@ test("顶部面板：Ctrl+T 聚焦活动区，↑/PgUp 滚动帮助", async () =
   renderer.press(key("escape"));
 });
 
-test("history 焦点空输入：↑ 上滚对话区，展开折叠的更早回复", () => {
+test("history 焦点空输入：↑ 上滚会话区，展开折叠的更早回复", () => {
   const { app, renderer, adapter } = makeApp();
-  // 标题栏占对话区 2 行（rows=24 → dialogueH=5），折叠占位 + 最近
+  // 标题栏占会话区 2 行（rows=24 → dialogueH=5），折叠占位 + 最近
   // 3 组回复（7 行）需加高终端才完整可见：rows=28 → dialogueH=7
   renderer.size = { cols: 80, rows: 28 };
   // 5 组回复（> DIALOGUE_KEEP_REPLIES=3）：stream（assistant）+ turn-end 分隔
@@ -4553,7 +4553,7 @@ test("Esc（idle+空输入）退出顶部焦点：有焦点 → 无焦点", () =
     meta: false,
     shift: false,
   });
-  // dark 主题 history 焦点：对话区**既有**框线（分隔竖线等）转焦点色（#4 起青色
+  // dark 主题 history 焦点：会话区**既有**框线（分隔竖线等）转焦点色（#4 起青色
   // #9FEEFA=159;238;250）；无焦点：框线为边框色（dark ansi[4] #5A98F3=90;152;243）
   const hasFocusVBar = (): boolean =>
     renderer.lastRender.some((l) => l.includes("\x1b[38;2;159;238;250m│"));
@@ -4599,8 +4599,8 @@ test("Tab 不再有全局语义：空输入 / 有输入都不改变焦点，hint
   assert.ok(!focused, "Tab 不再产生顶部面板焦点（无焦点竖线）");
 });
 
-test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ 立即回到跟随最新", async () => {
-  // 回归：上滚活动区后新回合清空瞬态，若 activityScroll 不归零则旧偏移超出
+test("回合区分隔：回合清空后 activityScroll 归零，新回合 ↓ 立即回到跟随最新", async () => {
+  // 回归：上滚回合区后新回合清空瞬态，若 activityScroll 不归零则旧偏移超出
   // 新内容可视上限，↓ 需连续按到偏移耗尽才恢复（“向下没反应”死区）。
   const { app, renderer, adapter } = makeApp();
   const size = { cols: 120, rows: 24 } as const;
@@ -4612,10 +4612,10 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
-    // 状态栏行定位（P1）：不再按「符号 + 空格 + │」前缀找状态栏，改按状态区三段结构
-    // ——上分隔行 / 状态栏行 / 下分隔行（活动 pane 底界 = 状态区上边分隔行）
+    // 状态行行定位（P1）：不再按「符号 + 空格 + │」前缀找状态行，改按状态区三段结构
+    // ——上分隔行 / 状态行行 / 下分隔行（回合区 底界 = 状态区上边分隔行）
     const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
-    assert.ok(sep >= 0 && statusSep > sep, "活动区窗口存在");
+    assert.ok(sep >= 0 && statusSep > sep, "回合区窗口存在");
     return (
       lines
         .slice(sep + 1, statusSep)
@@ -4643,7 +4643,7 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   );
   for (let i = 0; i < 25; i++) renderer.press(key("up")); // 上滚越过可视上限
   assert.ok(actFirst().startsWith("turn1 行 0"), "上滚后钳制到最早行");
-  // 新回合：**用户输入**（提交）触发活动区整体清空（activityScroll 归零 + 自动失焦），
+  // 新回合：**用户输入**（提交）触发回合区整体清空（activityScroll 归零 + 自动失焦），
   // 随后 20 条新 notice（超出窗口）
   typeAndEnter(renderer, "turn2 提问");
   adapter.push({
@@ -4668,8 +4668,8 @@ test("活动区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
   );
 });
 
-test("活动区滚动：上滚后新增内容不把视口推回最新", () => {
-  // 回归：活动区只记「距底行数」（activityScroll），布局按 length-offset 切片；
+test("回合区滚动：上滚后新增内容不把视口推回最新", () => {
+  // 回归：回合区只记「距底行数」（activityScroll），布局按 length-offset 切片；
   // 新内容追加抬高可滚上限 → 视口被一起带向最新。修复：出帧后按增长量等量补偿
   // activityScroll，使视口顶停在同一绝对行（贴底时仍继续跟随最新）。
   const { renderer, adapter } = makeApp();
@@ -4682,7 +4682,7 @@ test("活动区滚动：上滚后新增内容不把视口推回最新", () => {
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
     const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
-    assert.ok(sep >= 0 && statusSep > sep, "活动区窗口存在");
+    assert.ok(sep >= 0 && statusSep > sep, "回合区窗口存在");
     return (
       lines
         .slice(sep + 1, statusSep)
@@ -4709,7 +4709,7 @@ test("活动区滚动：上滚后新增内容不把视口推回最新", () => {
   assert.equal(actFirst(), before, "上滚后新增内容不应移动视口顶");
 });
 
-test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收敛到真实上限）", () => {
+test("会话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收敛到真实上限）", () => {
   // 回归：scrollOffset 无上限时，连续上滚越顶或按 Home（旧实现置 MAX_SAFE_INTEGER）
   // 会把偏移顶到远超可滚范围；渲染层只做显示侧 clamp，于是每次 ↓ 都只是"还债"，
   // 画面纹丝不动——看起来整块历史卡死。修复：滚键按上一帧回填的真实上限收敛偏移。
@@ -4731,7 +4731,7 @@ test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收�
   }
   const scrollOffset = (): number =>
     (app as unknown as { state: { scrollOffset: number } }).state.scrollOffset;
-  /** 历史区顶部若干行的可见文本（画面是否变化看它） */
+  /** 会话区顶部若干行的可见文本（画面是否变化看它） */
   const view = (): string =>
     renderer.lastRender
       .slice(0, 8)
@@ -4745,7 +4745,7 @@ test("对话区滚动：上滚越顶 / Home 之后 ↓ 立即响应（偏移收�
   const atTop = scrollOffset();
   const topView = view();
   assert.ok(atTop > 0, "上滚后偏移 > 0");
-  renderer.press(key("down")); // 对话区 ↓ = 半屏，偏移必须立即下降
+  renderer.press(key("down")); // 会话区 ↓ = 半屏，偏移必须立即下降
   assert.ok(
     scrollOffset() < atTop,
     `↓ 应使偏移下降（不再累积越界债）：${atTop} → ${scrollOffset()}`,
@@ -4894,7 +4894,7 @@ test("Home / End 语义（2026-10-06 裁定）：End 回最新并复位窗口；
   // Home = 往回翻到最旧「已加载」内容：不扩窗（不一次性全量物化），离开跟随底部
   const groups0 = st().windowGroups;
   assert.equal(groups0, defaultGroups, "初始为默认渐进窗口");
-  // 无面板焦点时 Home 改跳输入光标；先聚焦历史区再验历史滚动
+  // 无面板焦点时 Home 改跳输入光标；先聚焦会话区再验历史滚动
   renderer.press({ name: "e", ctrl: true, meta: false, shift: false });
   renderer.press(key("home"));
   assert.equal(st().windowGroups, groups0, "Home 只翻到已加载的最旧处，不扩窗");
@@ -4934,7 +4934,7 @@ test("Home / End 语义（2026-10-06 裁定）：End 回最新并复位窗口；
   app.dispose();
 });
 
-test("对话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进窗口顶那一次也只多物化、不多滚）", () => {
+test("会话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进窗口顶那一次也只多物化、不多滚）", () => {
   // 回归（BACKLOG 条目 5，真机报告「向上箭头翻页跳内容太多」）：旧实现的位移用**移动前**
   // 几何 clamp，撞窗口顶那次被夹到窗口首行，之后才扩窗 → 视口被重钉到新窗口第一条内容，
   // 一次跳十几行。新模型的位移在扩窗后施加，且位置按「段键 + 段内行」表达 → 扩窗只在
@@ -5032,8 +5032,8 @@ test("对话区滚动粒度：裸 ↑ = 一行，Ctrl+↑ = 半屏（撞渐进�
   app.dispose();
 });
 
-test("活动区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收敛到真实上限）", () => {
-  // 与对话区同源缺陷：活动区偏移同样只在渲染侧 clamp（turn-begin 归零只覆盖
+test("回合区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收敛到真实上限）", () => {
+  // 与会话区同源缺陷：回合区偏移同样只在渲染侧 clamp（turn-begin 归零只覆盖
   // "新回合"一条路径，回合内连续上滚越顶仍会积债）。
   const { app, renderer, adapter } = makeApp();
   const key = (name: string): KeyEvent => ({
@@ -5044,20 +5044,20 @@ test("活动区滚动：上滚越顶之后 ↓ 立即响应（activityScroll 收
   });
   renderer.size = { cols: 120, rows: 24 };
   for (let i = 0; i < 30; i++)
-    adapter.push({ type: "notice", text: `活动区行 ${i}` } as DshEvent);
+    adapter.push({ type: "notice", text: `回合区行 ${i}` } as DshEvent);
   renderer.press({ name: "t", ctrl: true, meta: false, shift: false }); // Ctrl+T → 回合区焦点
   const activityScroll = (): number =>
     (app as unknown as { state: { activityScroll: number } }).state
       .activityScroll;
   for (let i = 0; i < 40; i++) renderer.press(key("up"));
   const atTop = activityScroll();
-  assert.ok(atTop > 0, "上滚后活动区偏移 > 0");
+  assert.ok(atTop > 0, "上滚后回合区偏移 > 0");
   renderer.press(key("down"));
-  assert.equal(activityScroll(), atTop - 1, "↓ 使活动区偏移立即下降");
+  assert.equal(activityScroll(), atTop - 1, "↓ 使回合区偏移立即下降");
   app.dispose();
 });
 
-test("Turn 面板焦点：Ctrl+↑/↓ = 半屏（此前与裸 ↑ 同效，半屏只在对话区）", () => {
+test("回合区焦点：Ctrl+↑/↓ = 半屏（此前与裸 ↑ 同效，半屏只在会话区）", () => {
   const { app, renderer, adapter } = makeApp();
   const key = (name: string, ctrl = false): KeyEvent => ({
     name,
@@ -5067,7 +5067,7 @@ test("Turn 面板焦点：Ctrl+↑/↓ = 半屏（此前与裸 ↑ 同效，半�
   });
   renderer.size = { cols: 120, rows: 24 };
   for (let i = 0; i < 30; i++)
-    adapter.push({ type: "notice", text: `活动区行 ${i}` } as DshEvent);
+    adapter.push({ type: "notice", text: `回合区行 ${i}` } as DshEvent);
   renderer.press(key("t", true)); // Ctrl+T → 回合区焦点
   const scroll = (): number =>
     (app as unknown as { state: { activityScroll: number } }).state
@@ -5253,7 +5253,7 @@ test("symbols 服务：懒挂载（后到可用）与 dispose 注销订阅", () 
   assert.equal(fake.listenerCount(), 0, "dispose 后注销订阅");
 });
 
-// ---- rule-engine 告警总线消费（BACKLOG #61 方案 B；TUI 只做活动区渲染） ----
+// ---- rule-engine 告警总线消费（BACKLOG #61 方案 B；TUI 只做回合区渲染） ----
 
 /** 告警事件最小形态（与 AppDeps.getRuleEngine 的 RuleEngineNotice 同构）。 */
 type FakeRuleNotice = { text: string; tone?: "log" | "warn" | "error" };
@@ -5297,7 +5297,7 @@ function makeRuleEngineApp(
   return { app, renderer, adapter };
 }
 
-test("ruleEngine 服务：onNotice 告警渲染进活动区；dispose 注销订阅", () => {
+test("ruleEngine 服务：onNotice 告警渲染进回合区；dispose 注销订阅", () => {
   const fake = fakeRuleEngineService();
   const { app, renderer } = makeRuleEngineApp(() => fake.service);
   assert.equal(fake.listenerCount(), 1, "start 时订阅告警总线");
@@ -5307,18 +5307,18 @@ test("ruleEngine 服务：onNotice 告警渲染进活动区；dispose 注销订�
   });
   assert.ok(
     flatRows(renderer.lastRender).includes("flush失败"),
-    "总线告警渲染进活动区（折行后同样命中，前缀见 notice-format）",
+    "总线告警渲染进回合区（折行后同样命中，前缀见 notice-format）",
   );
   app.dispose();
   assert.equal(fake.listenerCount(), 0, "dispose 注销订阅");
 });
 
-test("appendExternalLog：外部告警行进活动区；未挂载服务不抛错（stderr 桥路径）", () => {
+test("appendExternalLog：外部告警行进回合区；未挂载服务不抛错（stderr 桥路径）", () => {
   const none = makeRuleEngineApp();
   none.app.appendExternalLog("[rule-engine] warn: 桥兜底告警", "warn");
   assert.ok(
     none.renderer.lastRender.join("\n").includes("桥兜底告警"),
-    "外部行渲染进活动区",
+    "外部行渲染进回合区",
   );
 });
 

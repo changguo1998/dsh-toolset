@@ -12,7 +12,7 @@ import type { AppState } from "../../src/app/state.ts";
 import { withText, withTurnEnd, withUser } from "./pipelineContent.ts";
 import assert from "node:assert/strict";
 
-/** 基础内容帧（历史 final 回复 + 活动区流式输出），走交付流（pipeline）构造 */
+/** 基础内容帧（历史 final 回复 + 回合区流式输出），走交付流（pipeline）构造 */
 export function baseState(): AppState {
   let s = initialState();
   s = reduceState(s, {

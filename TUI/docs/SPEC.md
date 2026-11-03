@@ -9,7 +9,7 @@
 
 ## 2. Box 模型 [spec]
 
-> 边界（2026-10-26 七段重构）：**面板（`components/*`）与 chrome（状态列 / 系统状态区 / 标题栏 / 输入区）仍走本章的 Box 模型与 §6 的分配 / 摊平算法**；内容区（会话 / 回合）改走 §9.1 的七段流水线，IR 是 `pipeline/ir.ts` 的 `Node/Leaf`（v/h 容器 + 行叶），不生产 `Box`。
+> 边界（2026-10-26 七段重构）：**面板（`components/*`）与 chrome（状态列 / 状态行 / 标题栏 / 输入区）仍走本章的 Box 模型与 §6 的分配 / 摊平算法**；内容区（会话 / 回合）改走 §9.1 的七段流水线，IR 是 `pipeline/ir.ts` 的 `Node/Leaf`（v/h 容器 + 行叶），不生产 `Box`。
 
 ```ts
 // 节点公共属性（Box 与 Paragraph 共享；除 children/direction/text 外）
@@ -68,11 +68,11 @@ interface Paragraph extends NodeBase {
 //   spacer({ height }) := Paragraph({ text:"", height })（v 容器占行）——轴显式
 ```
 
-**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间分隔（缺省 `│`+border；系统状态区组内 / 组间分隔改传 `{ char:"•", color:"plain" }`，见 §3「系统状态区分隔」，不再与上/下横线相交、无交点 `┬`），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`TUI/docs/DESIGN.md` §8）。
+**简写与说明**：示例中 `v([...])` / `h([...])` 是 `Box(direction:"v"/"h")` 的简写，`text(...)` 是 `Paragraph(...)` 简写。`separator` 是**唯一**的"边框"机制——纵向 `v` 做兄弟项之间横线分隔（缺省 `╌`）、横向 `h` 做列间分隔（缺省 `│`+border；状态行组内 / 组间分隔改传 `{ char:"•", color:"plain" }`，见 §3「状态行分隔」，不再与上/下横线相交、无交点 `┬`），**不做盒子四边描边**（现状无此需求）；焦点框线仍归 `FocusFrame` 全局覆写（`TUI/docs/DESIGN.md` §8）。
 
 **`Spacer` 用法**：块级对齐/间距的占位项——横向 `spacer({ width: fill })` 吃剩余推位（用户块右对齐）、`spacer({ width: fixed n })` 留白（回复右缘 `messageGutter`）；纵向 `spacer({ height: fill })` 吃剩余、让内容不足时落在容器底边、`spacer({ height: fixed n })` 为固定空行。**轴必须显式给出**（`width`→h 占列、`height`→v 占行，杜绝 `{mode:"fill"}` 歧义）；允许 `fill` 与 `fixed`（±夹取界）两种形态，`auto`/`ratio` 对空内容无意义、不做（YAGNI）。
 
-**宽度/高度意图**（对齐现状：状态列 1/3 且最低 20 列、历史区保底 10 列、交互区固定行数）：
+**宽度/高度意图**（对齐现状：状态列 1/3 且最低 20 列、会话区保底 10 列、底部两行（输入区 + 提示行）固定行数）：
 
 ```ts
 type Width =
@@ -81,7 +81,7 @@ type Width =
   | { mode: "fixed"; cols: number }
   | { mode: "ratio"; value: number; min?: number; max?: number }; // value=容器分数（状态列 1/3）；Σ>1 才按 value 和归一
 type Height =
-  | { mode: "fixed"; rows: number }     // 交互区/输入区固定行数
+  | { mode: "fixed"; rows: number }     // 输入区 + 提示行固定行数
   | { mode: "fill" };
 ```
 
@@ -90,10 +90,10 @@ type Height =
 | 用例 | 现状 | 模型表达 |
 |---|---|---|
 | 用户消息块 | `userMaxBodyWidth = width − gutter`（layout.ts:1203） | `{ mode:"auto", max: 可用宽 − gutter }` |
-| 历史区保底 | 与下一条共同决定状态列上限 | `{ mode:"fill", min: 10 }` |
-| 状态列宽 | `Math.min(max(20, ⌊cols/3⌋), cols−10)` | `{ mode:"ratio", value:1/3, min:20 }`——**上限由历史区的 `min` 自动产生**，无需再写 `max`（见 §6「一侧声明即够」）。**注**：本列只记「这条宽度需求在模型里怎么表达」；**当前实现未把它交给分配器**——状态列宽仍由 `metricsFor` 公式算定、状态列 Box 不挂 `width`（见 §15.1） |
+| 会话区保底 | 与下一条共同决定状态列上限 | `{ mode:"fill", min: 10 }` |
+| 状态列宽 | `Math.min(max(20, ⌊cols/3⌋), cols−10)` | `{ mode:"ratio", value:1/3, min:20 }`——**上限由会话区的 `min` 自动产生**，无需再写 `max`（见 §6「一侧声明即够」）。**注**：本列只记「这条宽度需求在模型里怎么表达」；**当前实现未把它交给分配器**——状态列宽仍由 `metricsFor` 公式算定、状态列 Box 不挂 `width`（见 §15.1） |
 
-**为什么需要尺寸意图**：`measure` 只回答「内容自然有多大」（内容说了算），`allocate` 才回答「容器分配给你多少」——而**填满剩余（fill）、按比例（ratio）、固定行数（fixed rows）、保底（min）这些布局需求都与内容无关**，必须作为额外声明带给分配器，否则这些数字只能写死在布局函数里。因此：**尺寸意图 = 布局的需求侧声明，归属对象是分区（带 `id` 的 Box / 覆盖型的叶子）而非普通内容节点**。挂载点：`width`/`height` 在 `NodeBase`（Box 与 Paragraph 共享），内容节点**缺省不声明**（高度由折行决定），仅两类场景显式声明——分区（带 `id` 的 Box，如历史区 `fill+min:10`；**状态列宽当前仍由 `metricsFor` 算定、Box 不挂 `width`**）与覆盖型叶子（§3.2 表格每格 `width:fixed`、`Spacer`）。
+**为什么需要尺寸意图**：`measure` 只回答「内容自然有多大」（内容说了算），`allocate` 才回答「容器分配给你多少」——而**填满剩余（fill）、按比例（ratio）、固定行数（fixed rows）、保底（min）这些布局需求都与内容无关**，必须作为额外声明带给分配器，否则这些数字只能写死在布局函数里。因此：**尺寸意图 = 布局的需求侧声明，归属对象是分区（带 `id` 的 Box / 覆盖型的叶子）而非普通内容节点**。挂载点：`width`/`height` 在 `NodeBase`（Box 与 Paragraph 共享），内容节点**缺省不声明**（高度由折行决定），仅两类场景显式声明——分区（带 `id` 的 Box，如会话区 `fill+min:10`；**状态列宽当前仍由 `metricsFor` 算定、Box 不挂 `width`**）与覆盖型叶子（§3.2 表格每格 `width:fixed`、`Spacer`）。
 
 ### 取值域与交互边界
 
@@ -115,7 +115,7 @@ type Height =
 |---|---|---|
 | 一条用户输入 | `Node(v)`：右对齐收缩块，右缘竖线 = 逐行 `suffix`（**块级对齐，不用行级 `align`**） | 整体靠右的收缩块（一次输入 = 一条 buffer 行：显式换行保留在块内、按物理行折行取最大行宽作块宽、块内行首左对齐、右缘贴边） |
 | 一条 LLM 回复段落 | `Leaf(prefix: ┃, 右缘 gutter)` | 回复靠左 + 右缘 `messageGutter` 留空 |
-| 思考 | `Leaf(prefix:{┃,紫})`（块级 + 行内 markdown 同正文；围栏代码块走正文共用的构建器；markdown 表格 2026-10-23 起也识别） | 左侧紫色竖线区分；**2026-10-16 起与正文同口径渲染 markdown 子集**（表格同规格，左缘竖线取紫，见 §15.5「活动区思考行的 markdown 排版」） |
+| 思考 | `Leaf(prefix:{┃,紫})`（块级 + 行内 markdown 同正文；围栏代码块走正文共用的构建器；markdown 表格 2026-10-23 起也识别） | 左侧紫色竖线区分；**2026-10-16 起与正文同口径渲染 markdown 子集**（表格同规格，左缘竖线取紫，见 §15.5「回合区思考行的 markdown 排版」） |
 | 一条工具调用记录 | `Node(v([名字行, 参数行×N, 结果行?]))`（工具批三类行） | **2026-10-13 改版**：名字行 = `标记 + 空格 + 工具名`（标记列 0 / 名字列 2；标记由**帧层**按 1 toggle/s 相位整格改写，管线只写稳定字形）；参数行缩进 4、`名 值` **不对齐**（名字灰 / 值原色），值续行固定悬挂 6、折行上限 5 行（超出 → 前 2 + `…` + 后 2）；结果行缩进 2（标记只在名字行），按详情**原始换行**逐行渲染、同样 5 行上限；失败时名字行 `✗` 红 + 结果行整行红（参数行不染）；空详情且无 `(+N/-M)` 摘要不挂结果行；落单结果（无对应调用）行内自带 `✓` / `✗`。详见 `TUI/docs/archived/2026-10-13-tool-block-display.md` |
 | step 分组头 | `Leaf(tail:{char:"╌"})` | `stepHeaderLine(step, time, turn)`（本地时区 24 小时制逐段补零；顺序固定为**时间 → 回合号 → 步号**，任一片段缺失即省略——时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`；回合号标记 `⇆` 与回合分隔线同款、步号 `#M` 为 step 头独有；**内容驱动**——在该 step 首条回合区内容前渲染，该 step 没有回合区内容（被档位过滤 / 正文归会话区 / 只声明未产出）就不出这一行，「孤儿头」不再发） |
 | 恢复会话的 step 概要行 | `Leaf(tail:{char:"╌"})`（同形制） | P9：`╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数]`，由 `surfaceToBuffer` 注入、`replay.ts` 重放成节、`route.ts` 按同形制放位置 |
@@ -127,9 +127,9 @@ type Height =
 
 **结论**：内容元素 → `Node/Leaf` 的映射集中在 `structure.ts`；新增内容类型 = 加一条映射，不改布局主体；宽无关（§4）与宽相关（§5/§6）由此分层。
 
-**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs / Agents 四块**（块间虚线 `╌`，不再有 Mode 块；Agents 块无子代理数据时整块省略）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 绿 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 聚焦 / 收起状态列（2026-10-14 一键一区域）：未聚焦时聚焦（列已收起则一并显示），已聚焦时收起——收起时 `statusColWidth = 0`、右缘分隔竖线不画（系统状态区上方分隔行该列的交点随之不画，几何上 `dividerCol = −1`）、历史区吃满整区全宽，焦点回会话区（`focusedPanel = null`）；显隐随会话写入 `tui-state.json`。同族：`Ctrl+T` 聚焦 / 收起回合区（下半区）、`Ctrl+E` 聚焦 / 回无焦点会话区（会话区恒显示）；三键均只在普通输入态生效（面板态吞键不变），且**不在提示行露出**（用户裁定）。
+**顶部区域构成（结构规格）**：状态列 = **Goal / Todo / Jobs / Agents 四块**（块间虚线 `╌`，不再有 Mode 块；Agents 块无子代理数据时整块省略）；标题栏首行 = `[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，固定顺序：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`，符号取 Nerd Font 私有区字形（`TITLE_ICON`，各 1 列）、**颜色即语义值**（沙箱 `read-only` 绿 / `workspace-write` 黄 / `danger-full-access` 红 / 其它灰；policy `ask` 黄 / `never` 绿；四个开关 `on` 绿 / `off` 灰；preset 默认前景；`permission` 不显示），窄宽让位顺序 = ① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。`Ctrl+S` 聚焦 / 收起状态列（2026-10-14 一键一区域）：未聚焦时聚焦（列已收起则一并显示），已聚焦时收起——收起时 `statusColWidth = 0`、右缘分隔竖线不画（状态行上方分隔行该列的交点随之不画，几何上 `dividerCol = −1`）、会话区吃满整区全宽，焦点回会话区（`focusedPanel = null`）；显隐随会话写入 `tui-state.json`。同族：`Ctrl+T` 聚焦 / 收起回合区（下半区）、`Ctrl+E` 聚焦 / 回无焦点会话区（会话区恒显示）；三键均只在普通输入态生效（面板态吞键不变），且**不在提示行露出**（用户裁定）。
 
-**系统状态区分隔**：组内与组间统一 `•`（U+2022，默认前景色、1 列、两侧无空格；`h` 容器的 `separator` 以 `char:"•"` / `color:"plain"` 传入），因此组间不再有边框色竖线，其上/下横线也没有组间交点 `┬`（状态列右缘 D 列的 `┴` 保留）。
+**状态行分隔**：组内与组间统一 `•`（U+2022，默认前景色、1 列、两侧无空格；`h` 容器的 `separator` 以 `char:"•"` / `color:"plain"` 传入），因此组间不再有边框色竖线，其上/下横线也没有组间交点 `┬`（状态列右缘 D 列的 `┴` 保留）。
 
 ### 3.1 消息分块排版
 
@@ -157,9 +157,9 @@ markdown 解析因此分两级：**先切块（`parse.ts`）、再块内做行�
 
 块判定显式化为「块闭集 → 节点映射」（`parse.ts` 一次分类、`structure.ts` 一次映射），不再有按文本二次分类的状态机。
 
-**思考行同口径**（2026-10-16「思考内容也进行排版」）：活动区思考行的块级元素与行内 markdown 与正文走**同一套解析**（`parse.ts` → `structure.ts`），围栏代码块走同一条构建路径；差异只有左缘竖线配色（紫 `brightMagenta`）——**2026-10-23 起 markdown 表格也识别**（列宽在 `measure` 同正文计算，左缘竖线取紫）。口径与实现见 §15.5。
+**思考行同口径**（2026-10-16「思考内容也进行排版」）：回合区思考行的块级元素与行内 markdown 与正文走**同一套解析**（`parse.ts` → `structure.ts`），围栏代码块走同一条构建路径；差异只有左缘竖线配色（紫 `brightMagenta`）——**2026-10-23 起 markdown 表格也识别**（列宽在 `measure` 同正文计算，左缘竖线取紫）。口径与实现见 §15.5。
 
-**注入 notice 行**：`source.form:'notice'` 的 user 消息（如 rule-engine 注入）**不按用户块渲染**——摘要（`summary`；缺省取正文首个非空行，≤120 字符）渲染为**单行 notice 行**（log 灰、进活动区），不展开、不占用户消息块；实时路径（`agent/inbox/spliced` / `user/message`，按消息 id 去重）与恢复路径（`HistoryMessage.role='notice'` → buffer `kind='notice'`）同一口径，非 notice 形态的注入维持现状（实时不显示、恢复按普通用户块）。
+**注入 notice 行**：`source.form:'notice'` 的 user 消息（如 rule-engine 注入）**不按用户块渲染**——摘要（`summary`；缺省取正文首个非空行，≤120 字符）渲染为**单行 notice 行**（log 灰、进回合区），不展开、不占用户消息块；实时路径（`agent/inbox/spliced` / `user/message`，按消息 id 去重）与恢复路径（`HistoryMessage.role='notice'` → buffer `kind='notice'`）同一口径，非 notice 形态的注入维持现状（实时不显示、恢复按普通用户块）。
 
 ### 3.2 表格：解析 / 列宽 / 网格三段（不新增块类型）
 
@@ -228,7 +228,7 @@ fitCols(natural: number[], avail: number): number[] | null
 
    为什么不能强制"一个 box 一种样式"：那会逼出**跨 box 的行内折行**。例：`这是**粗体**文字，后面还有很多字要折行……` 若拆成 `h([Paragraph("这是"), Paragraph("粗体", bold), Paragraph("文字…")])`，由于 **box 边界不是换行点**，超宽时须由 `h` 容器把子 box 逐行流式摆放（兄弟 box 之间也要能断行）——等于重写一套富文本行内布局（HTML/CSS 最重的机器）。现状之所以简单：折行在**单个叶子内部**按纯文本宽度完成，样式在其后贴上（`parseInlineMarkdown` 产段、`wrapFrameSegments` 每行重开样式），样式不进入宽度计算。
 
-   **例外（该走"每 box 统一格式"的地方）**：**不跨 box 折行的单行组合行**——标题栏符号组（preset 图标 + 名称、最多 6 个状态符号 + 标题）、系统状态区（环境组 `•` LLM 组，各段按语义着色）、工具行头（工具名黄 + 参数默认）等，用"各自统一格式的 box + `h` 拼接"表达最自然（单行 + 截断，无需 inline flow）。
+   **例外（该走"每 box 统一格式"的地方）**：**不跨 box 折行的单行组合行**——标题栏符号组（preset 图标 + 名称、最多 6 个状态符号 + 标题）、状态行（环境组 `•` LLM 组，各段按语义着色）、工具行头（工具名黄 + 参数默认）等，用"各自统一格式的 box + `h` 拼接"表达最自然（单行 + 截断，无需 inline flow）。
 
 8. **对齐归属：块级走 `spacer`，行级走 `align`**——两种粒度分开，不要混用：
 
@@ -253,7 +253,7 @@ fitCols(natural: number[], avail: number): number[] | null
 
 1. **宽轴 = 自顶向下（分割）**：根矩形（终端尺寸）→ 逐层按 `Width` 意图切分宽度。该链与内容无关，纯分割（`metricsFor`/`contentW` 的活）。
 2. **高轴 = 自底向上（生长）**：**必须在宽度确定后才能计算**——段落折行必须知道可用宽（来自父链分配），折行行数即高度（`fill` 的活）。
-3. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 活动区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane **视觉**宽高比（列数 / 字符格高宽比 2）距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。历史区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
+3. **视口裁剪 = 再一次自顶向下**：行级高度预算（如 `activityH`）与内容行数比较，裁剪 + 定位（`topPaneHeights` 定高度、`positionAt` / `indexOfTop` 按段键位置模型切段）。区域（历史 + 回合区，位于状态列右侧）的排列方式（上下 / 左右）在此先定：`topPaneSplit` 按 pane **视觉**宽高比（列数 / 字符格高宽比 2）距黄金分割比 φ 的偏差选择排列，随后两 pane 各自按自身宽度换行（`activityPlacement` 缺省 `"vertical"`，见 `TUI/docs/DESIGN.md`「四区域布局」）。会话区排版量由**渐进窗口**限定（只物化尾部 `windowGroups` 个回合组，`windowSections`），视口位置由**段键位置模型**（`DialogueTop{key,row}`：段键 = 节身份 + 节内 box 序号）解析——两者合计使「重排 / 新增内容 / 扩窗插入段」不再移动视口所指的内容（见 `TUI/docs/DESIGN.md`「四区域布局」）。
 
 **次序不变量（长宽不可能同时自由）**：宽度分割先于高度测量；高度永远在宽度确定后计算。`measure(node, constraint)` 的 `constraint` 即「宽度来自父链」的入口——measure 并非无约束累加：宽锁（父分配）→ 高自由（内容生长）。至少一个轴被父链锁死，内容才在另一轴自由生长。
 
@@ -349,9 +349,9 @@ allocate(st: SizeTable, rect: Rect) -> Map<Node, Rect>:
 
 - **不精确的声明不会挤掉精确的声明**：`auto`/`fill` 必让位于 `fixed`/`min`/`max`/`ratio`——`h([spacer(fill), Paragraph(auto)])` 里 auto 取到内容宽、spacer 吃剩余（用户块由此成立）。
 
-- **一侧声明即够（不会互撞）**：`ratio` 基数取总宽、实际受可分配宽封顶，因此**历史区 `min: 10` 自动产生状态列的上限**，无需两侧各写一条——现状 `min(⌊cols/3⌋, cols−10)` 正是该结果。
+- **一侧声明即够（不会互撞）**：`ratio` 基数取总宽、实际受可分配宽封顶，因此**会话区 `min: 10` 自动产生状态列的上限**，无需两侧各写一条——现状 `min(⌊cols/3⌋, cols−10)` 正是该结果。
 
-- **底线强于一切声明**：宽度 **≥ 1 列**、高度 **≥ 0**；退化终端下即便违背某个 `min` 也保 1 列（同现状：`cols=10` 时状态列 1 / 历史区 9）。
+- **底线强于一切声明**：宽度 **≥ 1 列**、高度 **≥ 0**；退化终端下即便违背某个 `min` 也保 1 列（同现状：`cols=10` 时状态列 1 / 会话区 9）。
 
 - **过度约束让路顺序**：按精度**从低到高**让（`fill` → `auto` → `ratio` → `max` → `min` → `fixed`），让到满足底线为止。
 
@@ -381,7 +381,7 @@ fill(ctx: FrameContext, box: Box | Paragraph, rect: Rect, append: (row: FrameRow
 
 - **`Paragraph`（叶子）**：沉淀行 → 每行 `FrameSegment[]`（见下）→ 组装 `FrameRow`。折行宽度 = `rect.w − indent − prefix.width`（有 `suffix` 再 − `suffix.width`）；行内 markdown 在此解析（`parseInlineMarkdown` → 段式 `FrameSegment[]`）；`prefix` 先占列、逐行重复（引用/列表/思考）；`suffix` 末占列、逐行重复（如用户块右缘竖线，正文补白到 `rect.w − suffix.width` 后挂，竖线列恒定）；`tail` 在行尾把 `char` 重复补到 `rect.w`（铺满行，如 step 虚线 / turn 分隔），与正文不相干、只在文本空时整行铺满。`valign`：若自身行数 < `rect.h`，按 `top/center/bottom` 在行组前后补空白行（空白行 = 空 `FrameRow`）。`align ≠ left` 时右/中对齐按 `rect.w` 计算行内偏移。
 - **`Box(direction: v)`**：按 `rect` 纵向遍历子项，子项行接续 append；`separator` 在两子项之间产出 1 行横线（字符/颜色按 `Separator`，缺省 `╌` + border）。
-- **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 逐行横向拼接（同 y 对齐、子项间按 x 偏移补空格）；`separator` 在兄弟边界逐行插 1 列框线（字符/颜色按 `Separator`，缺省 `│` + border；每行同列、垂直贯通——横向排列的内部分隔列、状态列右缘与上/下横线相接成格；系统状态区组内 / 组间传 `{ char:"•", color:"plain" }`，不参与交点连接）。
+- **`Box(direction: h)`**：按 `rect` 的子项 `x`/`w` 逐行横向拼接（同 y 对齐、子项间按 x 偏移补空格）；`separator` 在兄弟边界逐行插 1 列框线（字符/颜色按 `Separator`，缺省 `│` + border；每行同列、垂直贯通——横向排列的内部分隔列、状态列右缘与上/下横线相接成格；状态行组内 / 组间传 `{ char:"•", color:"plain" }`，不参与交点连接）。
 
 **迭代 / 裁剪**：`fill` 只负责“把行追加进 append 的回调”，**滚动画布/裁剪由上层在拿到行数组后按 pane `rect.h` 做行级处理**（见 §6.8）。
 
@@ -405,8 +405,8 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 折叠决策依赖**可用高度**，因此全部落在 `fill`（拿 rect 之后）执行——内容树本身与尺寸无关，避免“建树要先知高度”的鸡生蛋：
 
 - **状态列分级折叠**（L0–L3）：按 rect 高逐级尝试、首次放下即采用；必保行与可折叠条目及其优先级由现状块结构（`head`/`items`）自然携带，**不发明“可折叠标注”**（现 `foldAt`）。Goal 块额外携带 `historyFrom`（`items[≥historyFrom]` 为旧 goal 条目）：L1 只保留最近 1 条历史并提示隐藏数，L2 起压成标题行
-- **历史区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`windowSections` 在**节**层切片 + 占位行（`MARKER_KEY`），未物化的节不排版）
-- **活动区压缩开关**：`/collapse [think|tool|reply|all] [on|off]` 按类别决定该类条目压 1 行（行尾省略号）还是完整折行；三项缺省全关。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（见 §15.5）
+- **会话区组折叠**：仅保最近 N 回复组，更早替换为灰占位（`windowSections` 在**节**层切片 + 占位行（`MARKER_KEY`），未物化的节不排版）
+- **回合区压缩开关**：`/collapse [think|tool|reply|all] [on|off]` 按类别决定该类条目压 1 行（行尾省略号）还是完整折行；三项缺省全关。**触发方式已定：显式命令切换**（不做按高度预算自动降级；实现见 §15.5.1）。另有**输出内容三档** `/verbose think|tool|step`（见 §15.5）
 - 滚动 viewport：按矩形高裁行 + 行级滚动偏移（段表算定后的窗口 = `Viewport { start, end }`；`followBottom` / `scrollOffset` 的旧字段已随七段流水线退场）
 
 **适配位置**（均为 `(内容, rect) → 行` 的纯函数，同输入同输出，支撑 §9 的摊平可复现不变量）：
@@ -414,8 +414,8 @@ setCell(row: FrameRow, col: number, ch: string, style?: FrameStyle): void
 | 适配 | 现实现 |
 |---|---|
 | 状态列分级折叠（L0-L3 逐级尝试、首次放下即用，兜底行级截断 `…(+N行)`） | `layout.ts` `foldAt(block, level)` + `capRows(rows, budget)` |
-| 历史区组折叠（保最近 N 回复组，更早替换为灰占位 `...(更早回复已折叠)`） | `pipeline/frame.ts` 的 `windowSections(sections, groups)` 在节层切片 + 占位行（排版量随窗口收敛，段键跨扩窗稳定） |
-| 活动区压缩（按类别：完整折行 / 该类条目 1 行 + 行尾省略号） | `pipeline/routeTable.ts` 的 `categoryVisible`（类别可见性）+ `pipeline/rows.ts` 的 `foldRows`（摊平后按类别压 1 行） |
+| 会话区组折叠（保最近 N 回复组，更早替换为灰占位 `...(更早回复已折叠)`） | `pipeline/frame.ts` 的 `windowSections(sections, groups)` 在节层切片 + 占位行（排版量随窗口收敛，段键跨扩窗稳定） |
+| 回合区压缩（按类别：完整折行 / 该类条目 1 行 + 行尾省略号） | `pipeline/routeTable.ts` 的 `categoryVisible`（类别可见性）+ `pipeline/rows.ts` 的 `foldRows`（摊平后按类别压 1 行） |
 | 滚动 viewport（按矩形高裁行 + 行级滚动偏移） | `pipeline/rows.ts` 的行数表 / 视口定位 + `layout.ts` 的 `buildTopRegion` 按 pane 高切窗口 |
 
 ## 7. 面板场景原语 [spec]
@@ -437,7 +437,7 @@ panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行�
 ### 7.1 面板窗口与按键焦点
 
 - **共用窗口工具**：`windowStart(count, windowRows, anchor, mode)`（`layout/panel.ts`）——`center` 让锚点居中（长列表跟随焦点，通用状态选项面板用）、`tail` 让锚点贴窗口末行（问答选项窗口用）；`count ≤ windowRows` 不滚动（返回 0）。三处面板局部实现（问答选项窗口 / 状态选项面板 / 审批描述窗口）已统一到它。
-- **问答面板两窗**：面板体（`height − 1`，标题占 1 行）拆为「描述窗」（题干 + detail）与「选项窗」（选项 + 自定义兜底项）。分配为**动态制**：`descMaxRows = max(1, floor(maxBody × 2 / 3))` 为**描述窗上限**；描述窗可见行 = `min(描述内容行数, descMaxRows, maxBody)`——内容不足时只占实际行数（两窗紧邻、中间不留大段空白，空行只落在活动区下方）；选项窗 = `maxBody − 描述窗可见行`（不设上限，内容超出即滚动）——两段合计溢出时**由选项窗先滚动**，描述窗仅在自身超过 2/3 时才滚动。描述窗滚动上界恒按 `descMaxRows` 计算，滚动时不随内容抖动。
+- **问答面板两窗**：面板体（`height − 1`，标题占 1 行）拆为「描述窗」（题干 + detail）与「选项窗」（选项 + 自定义兜底项）。分配为**动态制**：`descMaxRows = max(1, floor(maxBody × 2 / 3))` 为**描述窗上限**；描述窗可见行 = `min(描述内容行数, descMaxRows, maxBody)`——内容不足时只占实际行数（两窗紧邻、中间不留大段空白，空行只落在回合区下方）；选项窗 = `maxBody − 描述窗可见行`（不设上限，内容超出即滚动）——两段合计溢出时**由选项窗先滚动**，描述窗仅在自身超过 2/3 时才滚动。描述窗滚动上界恒按 `descMaxRows` 计算，滚动时不随内容抖动。
 - **兜底项合并**：选项文案命中语义标记（`自定义` / `其它` / `其他` / `例外` / `以上都不是` / `都不对`）的预设**并入「自定义回答」兜底项**——从预设列表摘除（不可标记、也无空回退选中），其原文（label；带 description 时 `label（description）`；多命中按 `、` 连接）作为自定义项的**解释行**展示（与预设选项解释同形态），须输入文字才算作答。**提问方约定**：兜底 / 例外类选项按上述文案书写即可获得「解释行 + 纯自定义作答」的呈现；需要被直接选中的语义不要使用这些标记词。
 - **按键焦点窗**：`state.question.items[i].focus: "desc" | "options"`（缺省 `options`）；**Tab** 切换（`questionKeyDecision → { kind: "focus" }`）。焦点在选项窗时 ↑/↓ 移项（`question-move`）；焦点在描述窗时 ↑/↓ 逐行滚动（`question-desc-scroll`，上界由 `QuestionPrompt` 的 `maxDescScrollFor(item, height, width)` 按折行行数算出，App 随 action 传 `max` 再由 reducer clamp）。选项窗起点保证**焦点项**可见；焦点在描述窗时改锚定**首个已标记项**（标记不允许被滚出视野）。
 - **焦点可见性与滚动条**（2026-10-14 改）：**提示行不放装饰前缀**（统一 `[键]短标签` + `·` 分隔；当前焦点窗由面板内的焦点条 / 滚动条滑块呈现，不再用 `▶` 文字标记）；**例外（2026-10-15 用户要求）**：普通输入态两态（空输入 / 有输入）提示行最前加**输入模式提示符图例** `[> / ! $ <]`（只列符号、不写文字，`MODE_HINTS`，`·` 与后续条目分隔；面板态提示行不加）。**提示行收录口径（2026-10-16 用户裁定）**：普通输入态提示行只放**冷门 / 易忘键**（`C-d` / `C-l` / `C-n/p` / `/help` 一类），常用键（`↑/↓` / `Enter` / `Esc` / `←/→`）不因「有绑定」而补齐；**完整全局键表放 `/help`**（`App.helpLines()` 在「本地命令：」段之前插入「按键：」段，双列排版复用 `helpTableLines`，键列用 ≤ `HELP_CMD_MAX` 的紧凑记号，顺序固定为滚动 → 编辑 → 提交与模式 → 输入历史与清空 → 视图与焦点 → 退出，段末一行指路「面板内按键见提示行」）。**面板态不受该口径约束**：仍按「只列当前实际用到的键」列出，且与实际绑定对齐——审批列 `[y/n/1/2]直答` 与 `[←/→]选项`，模型选择列 `[Tab/←/→]切列`，列表族中 `/workflows` 的 `Enter` 为显式无操作故不列（`agents` 为 `[Enter]中断`、其余为 `[Enter]详情`）。提示行数仍为 1 至 2 行（`layout.hintRowsFor`），加宽后不得突破 2 行——超 2 行会被 `wrapHintLine` 截断丢条目。面板内描述窗**左侧 1 列**（题干 / detail / 计划卡片分隔行与折行续行同行同列，占原有缩进、不增宽、不改折行）按内容是否超屏分两态：
@@ -447,13 +447,13 @@ panelOptions(options: PanelOption[]): Box       // 选项列表（每项一行�
 - **面板内边距**：面板可用宽 = `width − 2`（右侧留 1 列）；此前为 `width − 4`，内容行右侧留白偏多（人工验收反馈）。
 - **标题类型标识**（2026-09-27 真机目视改判）：**问答面板不显示标题行**——**单题**标题区 0 行（首行即题干，不显示「请回答」字样、类型符号与状态 △）；**多题**标题区 1 行，按题序列出全部题「题号 + 符号」（如 ` 1● 2□ 3△`；**题号与符号同色**——当前题均黄、其余均灰；**当前题字形实心、其余空心**；超宽截断补灰 `…`、恒占 1 行不折行），其下直接是题干。符号**非当前题为空心几何符号**——单选 `○` / 多选 `□` / 审批 `△`（`intent.kind === "plan-review"` 视同审批）；**当前题切实心** `●` / `■` / `▲`（与空心等宽 1 列，截断口径不变），按当前题着色；**题号导航已移除**。审批面板标题 ` △ 等待审批` 整行黄（类型符号与状态标记 △ 合一，旧 `[审批]` 移除）。
 - **选项行形态**（标记改 `✓`）：首行 `${光标}${标记} ${编号}. ${选项正文}`，例如 ` >✓ 1. 生产环境`——行首 1 列缩进、光标 / 标记在前、编号居中靠左（宽度按最大编号位数：1 位 / 2 位）；**内容起点 = numW + 6 列**（1 缩进 + 光标 + 标记 + 1 空格 + 编号 + `.` + 1 空格）；折行**续行**与 `description` 一律缩进到内容起点（**数字悬挂**：续行不重复编号、解释与选项正文左对齐）；`>` 与 `✓` 只出现在选项首行（标记不再区分单 / 多选；类型只由多题符号行表达）。审批面板选项同格式（标记位留空）。
-- **面板内编辑光标**：焦点在「自定义回答」兜底项且该行落在选项窗内时，`QuestionPrompt` 产出 caret（面板内 **0 基行 + 0 基列**）；`buildFrame` 把该行写成对应帧行的 `caret`（列 = 活动区正文起始列 + 面板内列），`frameFocus` 的 `inputFocus` 相应为 true（面板态不再一律隐藏光标）。
-- **描述窗 markdown 渲染**：问答描述窗（题干 + detail）与审批草稿走**历史区同口径**的 markdown 子集——行内样式 / 标题 / 列表（含任务列表）/ 引用 / `---` 分隔线 / fenced 代码块（fence 状态由面板自持）；**表格退回纯文本行**（列宽是构建期定死的跨行约束，而面板先折行再按窗口切片，会丢表头与行间横线）。实现：`layout/panel.ts` 的 `panelMarkdownRows(text, width)` 产出**样式段行**（不含行首 1 列 bar 列），面板行模型由「纯文本 + 整行色」升级为「样式段行」（`PanelLine.segments`）。提问前正文段（青色）与选项行仍为纯文本；审批草稿里「命令：」之后那一行**按代码块渲染**（灰底、内部不解析——命令显示失真会误导审批判断）。
+- **面板内编辑光标**：焦点在「自定义回答」兜底项且该行落在选项窗内时，`QuestionPrompt` 产出 caret（面板内 **0 基行 + 0 基列**）；`buildFrame` 把该行写成对应帧行的 `caret`（列 = 回合区正文起始列 + 面板内列），`frameFocus` 的 `inputFocus` 相应为 true（面板态不再一律隐藏光标）。
+- **描述窗 markdown 渲染**：问答描述窗（题干 + detail）与审批草稿走**会话区同口径**的 markdown 子集——行内样式 / 标题 / 列表（含任务列表）/ 引用 / `---` 分隔线 / fenced 代码块（fence 状态由面板自持）；**表格退回纯文本行**（列宽是构建期定死的跨行约束，而面板先折行再按窗口切片，会丢表头与行间横线）。实现：`layout/panel.ts` 的 `panelMarkdownRows(text, width)` 产出**样式段行**（不含行首 1 列 bar 列），面板行模型由「纯文本 + 整行色」升级为「样式段行」（`PanelLine.segments`）。提问前正文段（青色）与选项行仍为纯文本；审批草稿里「命令：」之后那一行**按代码块渲染**（灰底、内部不解析——命令显示失真会误导审批判断）。
 - **审批描述窗**：`prompt` 折行后按 `state.approvalScroll` 滚动（不再硬截断），上界由 `ApprovalPrompt` 的 `maxApprovalScroll(approval, height, width)` 给出。
 - **审批面板交互**：审批面板与问答面板同构——描述窗放草稿（`允许工具 X 执行?` + 「命令：」命令全文 + 「参数：」单行摘要；命令来自 `tool/call` 参数经 `callId` 关联，未关联到时退化为单行旧文案），选项窗放**固定两项**「批准 / 拒绝」（带编号）。描述窗上限同样为面板体 2/3，选项窗吃剩余。
   - **焦点窗（与问答面板同构）**：`Tab` 在「描述窗（草稿）」与「选项窗（批准 / 拒绝）」间切换（打开时归选项窗）；`↑/↓` 语义随焦点窗——描述窗滚草稿、选项窗在两项间移动；描述窗聚焦时左侧 1 列着黄（可滚动时为滑块、内容不足时为整列焦点条），失焦转灰；选项光标行仅在选项窗聚焦时着黄（全屏只有一处焦点黄）；提示行**不标前缀**（2026-10-14 改：`[↑/↓]滚动` / `[↑/↓]选项`、`[Tab]选项` / `[Tab]草稿` 的文案差异即焦点窗指示）。
-  - **按键白名单**：`y` / `1` = 批准，`n` / `2` = 拒绝，`Enter` = 提交当前焦点项，`Tab` = 切焦点窗，`←/→` = 切选项（快捷），`↑/↓` = 见焦点窗语义，`Esc` = 取消审批（应答 `cancelled`，不打断 turn）；白名单外按键不落输入栏，改在**用户输入区**显示 `[无效键] …`——即屏幕左下、提示行**正上方**的那一行（问题交互态下输入区切换为临时消息显示区，不显示 `>`；提示优先占用该行、任意有效键即切回 notice 视图），**提示行始终显示常规按键**。
-  - **倒计时**：拒绝项行尾显示剩余秒数 `(XXs)`（`deadline − now` 向上取整；无 deadline 不显示，过期显示 `(0s)`）；**每秒重绘**由 App 专起的 1s 定时器驱动（仅「有审批且有 deadline」时存活，与系统状态区 ticker 节律解耦；面板内按过键后倒计时隐藏 → 定时器停）。
+  - **按键白名单**：`y` / `1` = 批准，`n` / `2` = 拒绝，`Enter` = 提交当前焦点项，`Tab` = 切焦点窗，`←/→` = 切选项（快捷），`↑/↓` = 见焦点窗语义，`Esc` = 取消审批（应答 `cancelled`，不打断 turn）；白名单外按键不落输入区，改在**用户输入区**显示 `[无效键] …`——即屏幕左下、提示行**正上方**的那一行（问题交互态下输入区切换为临时消息显示区，不显示 `>`；提示优先占用该行、任意有效键即切回 notice 视图），**提示行始终显示常规按键**。
+  - **倒计时**：拒绝项行尾显示剩余秒数 `(XXs)`（`deadline − now` 向上取整；无 deadline 不显示，过期显示 `(0s)`）；**每秒重绘**由 App 专起的 1s 定时器驱动（仅「有审批且有 deadline」时存活，与状态行 ticker 节律解耦；面板内按过键后倒计时隐藏 → 定时器停）。
   - **超时语义**：**完全无操作**到超时 → 裁定 `rejected`（默认拒绝）并发 `approval-closed`（`reason: "timeout"`）→ App 关闭面板并提示「审批已超时（按默认拒绝处理）」；**面板内按过任意键**（含无效键）后 → App 调 `adapter.stopApprovalTimeout(id)` 停止计时，此后不再自动裁定、倒计时隐藏（与问答面板「人在场就不催」一致）；手动 `Esc` 仍为 `cancelled`（与超时区分）；连接中断（abort）同样发 `approval-closed`（`reason: "abort"`）。超时值可配置：`tui.config.json` 的 `approval.timeoutMs`（最小 1000ms）> 宿主插件 config 的 `approvalTimeoutMs` > 缺省 **60000**（1 min，取用链 `main.ts` 的 `resolveApprovalTimeoutMs`；仓库自带 `tui.config.json` 亦为 60000）。
 - **提问上下文**：问答面板打开时，`recentQuestionSource` 取本回合**最近一块含正文**的全部 `assistant` / `plain` 行（整块取出，不设行数 / 扫描上限；本回合无正文则回退上一回合的最近一块，仍无为空串）作 `question.source`，渲染在描述窗**顶部**（回退来源段前加 `- 上文 -` 标记；青色、随描述窗滚动、与题干空一行分隔）；取不到时不占行。分块与回退口径见 §15.5。
 - **数字键直标**：问答与审批面板的选项前带编号，数字键 `1-9` 直接标记对应项（单选置唯一 / 多选切换）**不提交**（提交仍为 `Enter`）；「自定义回答」项上数字键仍按文本输入；越界吞掉。
@@ -481,9 +481,9 @@ FocusFrame(ctx: FrameContext, rects: Map<PaneId, Rect>, rows: FrameRow[]): void
 
 | 焦点 | 亮边与角字 |
 |---|---|
-| history | 标题栏下划线行（兼作顶边）左端 `├`、右端 `┐`；历史区左缘 D 列 `│`；活动区分隔行左端 `├`、右端 `┘`；D 列分隔竖线仅历史区行 + 下划线行（横向排列时右缘改内部分隔列 `┬`/`┴`） |
-| activity | 活动区分隔行左端 `├`、右端 `┐`；活动区左缘 D 列 `│`；系统状态区上行左端 `┴`、右端 `┘`；D 列分隔竖线仅分隔行 + 活动区行（横向排列时左缘改内部分隔列 `┬`/`┴`） |
-| status | 自屏幕最左列/最顶行起 `┌─┐`（右端止于 D 列）；状态列左缘框列 `│`；系统状态区上行左段 `└─` 收 `┴`；D 列分隔竖线全行 |
+| history | 标题栏下划线行（兼作顶边）左端 `├`、右端 `┐`；会话区左缘 D 列 `│`；回合区分隔行左端 `├`、右端 `┘`；D 列分隔竖线仅会话区行 + 下划线行（横向排列时右缘改内部分隔列 `┬`/`┴`） |
+| activity | 回合区分隔行左端 `├`、右端 `┐`；回合区左缘 D 列 `│`；状态行上行左端 `┴`、右端 `┘`；D 列分隔竖线仅分隔行 + 回合区行（横向排列时左缘改内部分隔列 `┬`/`┴`） |
+| status | 自屏幕最左列/最顶行起 `┌─┐`（右端止于 D 列）；状态列左缘框列 `│`；状态行上行左段 `└─` 收 `┴`；D 列分隔竖线全行 |
 | 无焦点 | 不覆写（全灰 / 空白占位，布局不重排） |
 
 - **期望字符**：`─` 水平边、`│` 垂直边、`┌┐└┘┴` 角 / 交叉字。
@@ -494,7 +494,7 @@ FocusFrame(ctx: FrameContext, rects: Map<PaneId, Rect>, rows: FrameRow[]): void
 ## 9. 排版管线 [spec]
 
 ```
-state --buildFrame--> 顶部区（pipelineContent 七段 → ContentRow[]）+ 系统状态区 / 输入区 / 提示行（Box 链）--组装--> FrameRow[] --renderer--> 终端
+state --buildFrame--> 顶部区（pipelineContent 七段 → ContentRow[]）+ 状态行 / 输入区 / 提示行（Box 链）--组装--> FrameRow[] --renderer--> 终端
 ```
 
 - 每帧从 state 派生（纯函数），无文档状态；`buildFrame(state, size): FrameRow[]` 契约不变（`renderer` 零改动）
@@ -533,7 +533,7 @@ state --buildFrame--> 顶部区（pipelineContent 七段 → ContentRow[]）+ �
 - **排队块**：`renderQueuedBlocks`（`rows.ts`）把 `state.queued` 逐条走新链 ④-⑥，产出 `geom.queuedRows`。
 - 设计与分批见 `docs/archived/2026-10-25-render-pipeline-refactor.md`（七段重构）；滚动位置模型见 `TUI/docs/archived/2026-10-09-layout-segment-cache.md`。
 - **留白空行不带竖线**（2026-10-16，条目「取消 pane 边界留白空行的竖线（会话区与回合区）」）：`route` 插入的 pane 边界空行（会话区「用户块 → 正文」、回合区「思考 ↔ 正文」、steer 留白）是显式 `Gap`，摊平为**裸空行**（无段、缩进 0），不继承相邻正文行的竖线；**块内**空行（同 kind 块内段落之间）的竖线连排由 `structure.ts` 的节点 `prefix` 逐行重复（不再有事后连排函数）。pane 末尾空行裁剪照旧（`renderPaneNew` 收尾）。守成测试：`tests/pipeline-frame.test.ts`（边界空行不带竖线）、`tests/layout4.test.ts`（会话流留白行）、`tests/pipeline-equivalence.test.ts`。
-- **本地输出旁路日志（模型侧工具 `tui_local_log`）**：TUI 里「只给用户看」的输出（`$` 模式命令与结果、命令 notice）**除渲染外还按会话落一份旁路日志** `<会话目录>/tui-local.jsonl`（每行一条 JSON：`ts / kind("shell"|"notice") / text / meta`；条目上限、截断、轮转见 `app/adapter/local-log.ts`）。展示口径**不变**（仍只进活动区、不进模型上下文）；旁路是额外数据面，供模型侧工具 `tui_local_log`（`app/adapter/local-log-tool.ts`，main.ts 经 `ctx.get("tools").register` 注册）按需读最近 N 条。开关与上限走 `tui.config.json` 的 `localLog` 段（缺省开启；`enabled:false` 关闭）。守成测试见 `tests/local-log.test.ts`（含 App 端到端：`$` 结果与 adapter notice 事件落盘后可读回）（2026-10-19）。
+- **本地输出旁路日志（模型侧工具 `tui_local_log`）**：TUI 里「只给用户看」的输出（`$` 模式命令与结果、命令 notice）**除渲染外还按会话落一份旁路日志** `<会话目录>/tui-local.jsonl`（每行一条 JSON：`ts / kind("shell"|"notice") / text / meta`；条目上限、截断、轮转见 `app/adapter/local-log.ts`）。展示口径**不变**（仍只进回合区、不进模型上下文）；旁路是额外数据面，供模型侧工具 `tui_local_log`（`app/adapter/local-log-tool.ts`，main.ts 经 `ctx.get("tools").register` 注册）按需读最近 N 条。开关与上限走 `tui.config.json` 的 `localLog` 段（缺省开启；`enabled:false` 关闭）。守成测试见 `tests/local-log.test.ts`（含 App 端到端：`$` 结果与 adapter notice 事件落盘后可读回）（2026-10-19）。
 - **宿主 notice 历史原文查询（模型侧工具 `notice_history`）**：宿主 `source.form:'notice'` 消息（subagent-settled / tool-jobs / model-selection / plan-mode / webhook / repeat-tool-reminder / tool-goal 等一次性事件交代）以 user-role 消息进模型上下文并**全量落会话持久日志**；compaction 折叠后从上下文消失的原文仍在日志。TUI 注册只读工具 **`notice_history`**（`app/adapter/notice-history-tool.ts`，main.ts 经 `ctx.get("tools").register` 注册；数据面 `app/adapter/notice-history.ts`）按需解压 `<会话目录>/session.v4.jsonl.zstd` 取最近 N 条：`kind` 按生产者 `source.kind` 过滤、`limit` 默认 20 上限 200、`session_id` 默认当前调用方会话。解压复刻宿主 `scanZstdFrames` 多帧定位 + `node:zlib.zstdDecompressSync` 逐帧解压（Node ≥23 自带，无新依赖），`.zstd` 缺失回落明文 `session.v4.jsonl`；notice 判别 `source.form==='notice'`，取 `user/message` 与 `agent/inbox/spliced.inserted` 两处按消息 id 去重（双现）。错误语义：会话 id 非法 / 持久化目录未定位 → 明确报错；日志缺失 → 明确说明「尚无记录」；帧损坏跳过并计数。**纯只读不落库**（不写 digest.db / memory-base / spill）。守成测试见 `tests/notice-history.test.ts`（含多帧 zstd 夹具）（2026-10-20）。
 
 ______________________________________________________________________
@@ -614,21 +614,21 @@ interface Renderer {
 interface FrameGeometry {
   cols: number; rows: number;              // 终端尺寸
   contentTopH: number;                     // 顶部内容行数（不含状态/输入/提示/分隔行）
-  statusHeight: number; footerHeight: number; hintHeight: number;  // hintHeight = 1..2（按当前提示文案与宽度折行，见 layout.hintRowsFor）；footerHeight = max(1, 交互区 − hintHeight)；问题交互态（问答/审批）时 footer 显示最近 notice 尾行，其余面板空白占位
+  statusHeight: number; footerHeight: number; hintHeight: number;  // hintHeight = 1..2（按当前提示文案与宽度折行，见 layout.hintRowsFor）；footerHeight = max(1, 输入区 + 提示行 − hintHeight)；问题交互态（问答/审批）时 footer 显示最近 notice 尾行，其余面板空白占位
   statusColWidth: number; historyWidth: number; contentW: number;  // contentW = 区域正文宽（historyWidth − 右缘框列）；Ctrl+S 收起状态列时 statusColWidth = 0、historyWidth = cols、dividerCol = −1（该列不存在，分隔行不画交点）
   leftFrame: boolean; rightFrame: boolean;  // 屏幕最左（状态列外缘）/最右（区域外缘）焦点框保留格是否占列
   mode: "vertical" | "horizontal"; titleRows: number;
   activityH: number; dialogueH: number;    // 两 pane 可视行数（横向等高）
   activityW: number; dialogueW: number;    // 两 pane 正文宽（纵向同宽；含文字右缘留白列）
-  dialogueTextW: number; activityTextW: number;  // 两 pane 文字排版宽（P3：只有右缘贴外框列的 pane 扣 1 列留白——横向历史 pane == dialogueW；边框按正文宽铺满）
-  queuedRows: ContentRow[];                // 排队块（钉在对话 pane 右下角；空=无排队）
+  dialogueTextW: number; activityTextW: number;  // 两 pane 文字排版宽（P3：只有右缘贴外框列的 pane 扣 1 列留白——横向会话区 == dialogueW；边框按正文宽铺满）
+  queuedRows: ContentRow[];                // 排队块（钉在会话区 右下角；空=无排队）
   viewportH: number;                       // 历史视口高 = dialogueH − queuedRows.length
-  dividerCol: number;                      // 状态列右缘/历史区左缘（= statusColWidth − 1）
+  dividerCol: number;                      // 状态列右缘/会话区左缘（= statusColWidth − 1）
   contentStartCol: number;                 // 区域正文起始列（= dividerCol + 1，标题栏与两 pane 自该列起）
   innerDividerCol?: number;                // 横向排列内部分隔竖线列（历史右缘/活动左缘）
-  activitySepRow: number;                  // 活动区分隔行（横向 = 对话 pane 底边下一行）
+  activitySepRow: number;                  // 回合区分隔行（横向 = 会话区 底边下一行）
   modalOpen: boolean;                      // 模态面板是否打开（提示行 1..2 行，文案见 layout/hints.ts）
-  statusLines: FrameRow[];                 // 系统状态区行（避免二次计算）
+  statusLines: FrameRow[];                 // 状态行行（避免二次计算）
 }
 ```
 
@@ -695,37 +695,37 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **Goal 块当前行**：`Goal <phase 符号>` + 尾随 `⟳` 自动续轮开关（**只要收到过 activation 边就显示** `⟳`——armed 绿 / disarmed 灰，**不再按相位门控**（paused / blocked / complete 也显示灰）；**无记录 → 不显示**（宿主重启 / 回放 / 会话切换后不再推导为 `disarmed`，用户 2026-10-06 裁定）；历史行一律不带符号）。**当前行正文只显示 objective 首个逻辑行**（概括位：按列宽**完整折行**——行数由列宽与内容共同决定、**不截断**；「一句概括」的字数在起草侧由 goal-contract 限为 ≤40 显示列——2026-10-07 裁定；**全文入口 = 宿主 `/goal` 输出**，TUI 不提供展开键位）；**历史行 objective 仍全文折行**（口径不变）。**当前行 2026-10-05 起不再出相位词**（10 格默认列宽会把 `active` 截成 `ac`，信息量低于噪声；语义由符号 + 颜色承担）——**历史行仍带词**（它们按约定无符号，`Goal <phase>` 是其唯一相位线索）。**phase 符号与取色**：`▷` active 绿 / `∥` U+2225 paused 黄 / `△` U+25B3 blocked 黄（2026-10-02 由红改黄，与 `turn/end blocked` 及阻塞原因行同口径）/ `✓` complete 绿；**activation**：`⟳` U+27F3，armed 绿（宿主会自动续轮）/ disarmed 灰（需用户驱动）。数据源 = 进程本地事件 `goal/activation-changed`（`goalActivationBySession` 存末条边），展示值由 `goalActivationDisplay` 直取末条边（**有边就显示、无记录不显示**，不按相位门控、不做推导）；**会话切换清边**：宿主 `agents.resume` 走 `sessions.prepare` 重建 Session（进程本地 activation 归 disarmed 且同值早退不发边），故 `resumeTo` 成功时补一条清空边，防沿用切换前的 armed。`⟳` 属**呈现不确定**字符（2026-10-04 起「数学符号 A + 补充箭头 A」并入宽表的不确定符号块 `[0x27C0,0x27FF]`）：静态表按 1 列出帧，运行期经 CPR 实测后按实测列宽自校正（详见 §宽度表）。
 - **状态列显隐与顶部三区焦点（P7 / 2026-10-14「一键一区域」）**：`state.statusColumnVisible`（缺省显示）+ reducer `focus-panel{panel}`（`Ctrl+E` 会话区 / `Ctrl+T` 回合区 / `Ctrl+S` 状态列；未聚焦则聚焦并显示，已聚焦则收起该区域 + 焦点回会话区）与 `status-column{visible}` / `lower-panes{visible}`（显式设值，供恢复回灌）；`frameGeometry` 收起时 `statusColWidth = 0`、`historyWidth = cols`，`buildTopRegion` 不构建该列内容也不拼分隔段（分隔竖线随之消失）。显隐经 `adapter/session-ui-state.ts` 的 `statusColumn` 字段随会话写入 `tui-state.json`，`restoreSessionState` 回灌。**`Tab` 不再切焦点**（回到「补全 / 面板内切窗」单一语义），`Esc`（空输入）退出焦点——**运行中同样生效**（2026-10-15 真机裁定：忙时 `Esc` 不打断运行，但要能回到默认状态 = 无焦点 / 跟随最新）。**区域焦点复位时机（2026-10-15 裁定 + 实测收窄）**：复位 action 只剩 `FOCUS_RESET_ACTIONS` 的 **2 项**——用户提交输入（`user-line` 提交回显 / `queued-push` 排队登记）；**其余一律不复位**：流式内容（`append`（stream 分支直派）/ `thinking` / `tool-*` / `retry` / `step` / `subagent` / `workflow` / `command` / `code-dispatch` / `hook` / `schedule` / `feedback` / `compaction*`）、回合边界（`turn-begin` / `turn-end`，`beginTurnIfNeeded` 在每个回合开始都会派发）与无内容载荷的状态刷新（`notice` / `goal-change` / `todo-write` / `jobs-changed` / `permission-catalog` / `agent-preset-catalog`）都保持——模型回复期间（含核心自发续轮）区域键设定的焦点不被清掉、该区域方向键持续可滚；`queued-claim` 也不在集合内，`beginTurnIfNeeded` 改为「队列非空才派发」。焦点只在**用户主动动作**（空输入 `Esc`（运行中同样生效）、再按同一区域键）与**用户提交输入**时退出；`/` 命令与 `$` shell 提交不派发复位项，故也不清焦点。守成测试见 `tests/focus-keep.test.ts`（含 App 端到端：流式期间焦点框保持、`Esc` 才熄灭）。
 - **标题栏**（`titleBarSegments` / `TITLE_ICON`）：首行 = `[preset 图标 + 空格 + 预设名] 空格 [≤6 个状态图标（空格分隔，顺序：sandbox / policy / plan / verbose / symbol-unify / bell）] 2 空格 [标题]`；图标是 Nerd Font 私有区字形（`boxClosed U+F03D7`（`md-package_variant_closed`）/ `boxOpen U+F03D6`（`md-package_variant`）、`policyAsk U+F1739` / `policyNever U+F1414`、`plan U+EDA6`、`verbose U+F09AA`、`symbolUnify U+F04C6`、`bell U+F009F`、`preset U+F0A66`，命中与宽度实测各 1 列）。颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰（`MODE_SHORT` 归一，取值未知回落灰）、policy ask 黄 / never 绿、四个开关 on 绿 / off 灰、preset 段默认前景。**让位顺序**（`MIN_TITLE = 8` 列保底）：① 去掉 preset 段 → ② 截断标题 → ③ 去掉整组图标 → ④ 既有标题栏降级（收下划线 / 整栏省略，`titleRows` 在 `frameGeometry`）。**字体依赖**：非 Nerd Font 终端显示豆腐块（本机验证字体 Maple Mono NF CN）。
-- **系统状态区**（`renderStatusLine`）：`dotJoin` 给组内逻辑段插 `•`，`h` 的 `separator` 传 `{ char:"•", color:"plain" }` 做组间分隔；状态符号段（符号 + `│` lead 段）整体删除，首行行首回到 1 空格留边。因此 `statusBarSeamCols` 在系统状态区行上取不到边框色竖线列——上/下横线不再画组间交点 `┬`，仅状态列右缘 D 列的 `┴` / `├` 保留（横向排列时内部分隔列的 `┬`/`┴` 属另一机制，不受影响）；`Ctrl+S` 收起状态列时 D 列不存在（几何 `dividerCol = −1`），该列交点一并不画（并排排列下该行只剩内部分隔列一个交点）。
-- **守成测试**：`tests/status-column-equivalence.test.ts`（**改造等价性证据**：13×6×4×5 组 state 快照 × 6 种正文宽 × 7 档高度逐行文本与可见 ANSI 与改造前实现一致 + 帧级断言「每行显示宽恒为 `statusColWidth`、行文本不含控制字符」+ 已知差异用例 completed todo 续行悬挂对齐；旧实现冻结在 `tests/fixtures/status-column-old.ts`）+ `tests/title-bar.test.ts`（段结构 / permission 不显示 / 沙箱四态取色 / 开关 on-off / 让位顺序）+ `tests/status-column.test.ts`（三块基础渲染与折叠 / phase 符号与取色 / `⟳` 两态取色 / 历史行无符号）+ `tests/status-column-agents.test.ts`（Agents 块：有数据出块 / 行文本 / 无数据省略 / 折叠分级 / 按会话隔离 / 即时刷新与定时保鲜）+ `tests/goal-activation.test.ts`（activation reducer 与展示值口径：有边就显示、无记录不显示、四相位一致，含重启守成测试）+ `tests/status.test.ts` / `tests/tee-glyph.test.ts`（系统状态区分隔与交点）。
+- **状态行**（`renderStatusLine`）：`dotJoin` 给组内逻辑段插 `•`，`h` 的 `separator` 传 `{ char:"•", color:"plain" }` 做组间分隔；状态符号段（符号 + `│` lead 段）整体删除，首行行首回到 1 空格留边。因此 `statusBarSeamCols` 在状态行行上取不到边框色竖线列——上/下横线不再画组间交点 `┬`，仅状态列右缘 D 列的 `┴` / `├` 保留（横向排列时内部分隔列的 `┬`/`┴` 属另一机制，不受影响）；`Ctrl+S` 收起状态列时 D 列不存在（几何 `dividerCol = −1`），该列交点一并不画（并排排列下该行只剩内部分隔列一个交点）。
+- **守成测试**：`tests/status-column-equivalence.test.ts`（**改造等价性证据**：13×6×4×5 组 state 快照 × 6 种正文宽 × 7 档高度逐行文本与可见 ANSI 与改造前实现一致 + 帧级断言「每行显示宽恒为 `statusColWidth`、行文本不含控制字符」+ 已知差异用例 completed todo 续行悬挂对齐；旧实现冻结在 `tests/fixtures/status-column-old.ts`）+ `tests/title-bar.test.ts`（段结构 / permission 不显示 / 沙箱四态取色 / 开关 on-off / 让位顺序）+ `tests/status-column.test.ts`（三块基础渲染与折叠 / phase 符号与取色 / `⟳` 两态取色 / 历史行无符号）+ `tests/status-column-agents.test.ts`（Agents 块：有数据出块 / 行文本 / 无数据省略 / 折叠分级 / 按会话隔离 / 即时刷新与定时保鲜）+ `tests/goal-activation.test.ts`（activation reducer 与展示值口径：有边就显示、无记录不显示、四相位一致，含重启守成测试）+ `tests/status.test.ts` / `tests/tee-glyph.test.ts`（状态行分隔与交点）。
 
-### 15.2 历史区回滚：段键位置模型 + 渐进窗口
+### 15.2 会话区回滚：段键位置模型 + 渐进窗口
 
 - **为什么**：旧的「距底部行数 + 全量物化」模型有三处弱点——底部新增 / 流式增长会改变同一偏移所指的内容；上方插入行（扩窗）会把视图整体推走；位置压在被裁剪行上时只能塌到窗口首行。改为**内容身份**表达位置后，这三种情况都不再需要补偿。
 - **位置 = 段键 + 段内行**（`layout/pipeline/rows.ts`：`DialogueTop{key,row}` / `positionAt` / `indexOfTop`）：段键由节身份 + 节内 box 序号构成（边界项另发 `blank@<后项键>` / `sep@<回合>` / `step@<turn:step>`），跨扩窗与改宽稳定；段键失效（被窗口丢弃 / 会话切换 / `/cls`）时回落「距底偏移」`scrollOffset`。
 - **渐进窗口**（`windowSections(sections, groups)` / `sectionGroupStarts`）：只物化尾部 `windowGroups` 个回合组（缺省 `DIALOGUE_KEEP_REPLIES = 3`），丢弃部分在会话区顶部画一行折叠占位（`MARKER_KEY = "@marker"`）；分组口径复用 `turnGroupStarts`，段身份与分组结果都不依赖宽度。
 - **增窗 / 复位**：`App.scrollDialogueBy(delta)` 在施加位移**之前**按当前段表判断——上滚且视口顶进入窗口顶部半屏区间（或窗口内已无可滚行）→ `windowGroups += WINDOW_GROW_STEP(3)`（封顶总组数），随后按**扩窗后的段表**施加位移；扩窗只在视口上方插段、位置按段键表达 → 画面不动、**位移恒等于按键量**。下滚回到底部时复位默认组数（`scroll-to-bottom`）。
 - **Home / End**：无面板焦点（输入区）时跳输入光标到开头 / 末尾；面板焦点下才是「翻到最旧已加载 / 回到最新」。
-- **滚动粒度**：裸 `↑` / `↓` = 一行；`Ctrl+↑` / `Ctrl+↓` = 半屏（`dialogueHalfPage(vh) = max(1, floor(vh/2))`）——**对话区与活动区（Turn 面板）同款**（活动区半屏基准 = `frameGeometry().activityH`；2026-10-10 真机验收：此前 Ctrl+↑ 在 Turn 面板与裸 ↑ 同效）。`PgUp` / `PgDn` = 跳上 / 下一条用户输入（`userRowJump`，行号口径）；目标不在**已物化**窗口内时先 `window-grow` 再跳（与 `↑` 的扩窗同口径）——恢复出的历史只物化最近 N 组，不扩窗则按键在窗口顶无反应（2026-10-10 真机验收缺陷）；`End` = 回最新并复位渐进窗口；`Home` = 翻到最旧「已加载」内容（**不**一次性全量物化），已在最旧处再按 → 再物化 `WINDOW_GROW_STEP` 组且视口锚点不变，更早回合已全部物化时不动作（2026-10-06 用户裁定，2026-10-10 落地）。例外：**内容不足一屏**（`dialogueMaxScroll === 0`）且正在跟随时，最旧已加载内容本就全在屏上 → `Home` 直接走「再物化一批」且不脱离跟随。
+- **滚动粒度**：裸 `↑` / `↓` = 一行；`Ctrl+↑` / `Ctrl+↓` = 半屏（`dialogueHalfPage(vh) = max(1, floor(vh/2))`）——**会话区与回合区（回合区）同款**（回合区半屏基准 = `frameGeometry().activityH`；2026-10-10 真机验收：此前 Ctrl+↑ 在 回合区与裸 ↑ 同效）。`PgUp` / `PgDn` = 跳上 / 下一条用户输入（`userRowJump`，行号口径）；目标不在**已物化**窗口内时先 `window-grow` 再跳（与 `↑` 的扩窗同口径）——恢复出的历史只物化最近 N 组，不扩窗则按键在窗口顶无反应（2026-10-10 真机验收缺陷）；`End` = 回最新并复位渐进窗口；`Home` = 翻到最旧「已加载」内容（**不**一次性全量物化），已在最旧处再按 → 再物化 `WINDOW_GROW_STEP` 组且视口锚点不变，更早回合已全部物化时不动作（2026-10-06 用户裁定，2026-10-10 落地）。例外：**内容不足一屏**（`dialogueMaxScroll === 0`）且正在跟随时，最旧已加载内容本就全在屏上 → `Home` 直接走「再物化一批」且不脱离跟随。
 - **App 接线**：`FrameScrollReport` 回填段表口径字段（`dialogueTotal` / `dialogueCounts` / `dialogueKeys` / `dialogueTopIdx` / `dialogueViewportH` / `dialogueUserRows`）；`paneMaxes()` 同口径回填 / 补算；`syncDialoguePos()` 在出帧后把收敛后的位置写回 state（派生缓存，帧已按该位置渲染故不触发重绘）。**窗口起点不滑走**：用户停在历史里（`dialogueTop !== null`）而尾部新增了回合组时，按新增组数把 `windowGroups` 撑住。
-- **阅读位置不被输出拽走**（「活动区输出大量文本后，历史区跟着一起向上滚动」的退化）：位置按段键表达 → 尾部追加 / 活动区增长都不改变视口顶所指的内容；缓冲头部裁剪（`trimBufferHead`）按上限裁剪（生产路径下缓冲只剩 UI 本地行，上限实际不再触达）。
+- **阅读位置不被输出拽走**（「回合区输出大量文本后，会话区跟着一起向上滚动」的退化）：位置按段键表达 → 尾部追加 / 回合区增长都不改变视口顶所指的内容；缓冲头部裁剪（`trimBufferHead`）按上限裁剪（生产路径下缓冲只剩 UI 本地行，上限实际不再触达）。
 - **会话切换**（`history-resume-ok` / `session-switch` / `/cls`）清掉位置回跟随底部，避免上一会话的位置跨会话残留。`/cls` 还要在 App 侧重置**接收层**（`createSections()` + 归零回合基线 / 画线判据）：`clearBuffer` 只换 `state.pipeline`，不重置 App 手里的节缓存 → 下一次交付会把清掉的内容带回来（2026-10-10 真机验收缺陷）。
 - **守成测试**：`tests/scroll-position.test.ts`（段表 / 位置互算与越界 / 段键失效回落）+ `tests/buffer-trim.test.ts`（按上限裁剪）+ `tests/layout4.test.ts`（窗口 / 占位 / 报告口径 / 扩窗位移恒等于半屏）+ `tests/app.test.ts`（键位路径：裸 ↑ 一行、`Ctrl+↑` 半屏、撞窗口顶那次不多滚）。
 
 ### 15.3 排版尺寸唯一来源：FrameGeometry
 
-- **问题**：`metricsFor` / `topPaneSplit` / `regionColumnWidth` / `renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径漂移即出现「帧里看到的 pane 高度」与「滚动 / 翻页用的 pane 高度」不一致（横向排列下活动区内容仍按纵向高度排就是这类缺陷）。
-- **做法**：`frameGeometry(state, size): FrameGeometry`（纯函数，`layout.ts`）把系统状态区行、模态 / 提示行判定、`metricsFor`、`topPaneSplit`、排队块行、视口高、分隔列、内部分隔列、焦点框矩形基准一次算定并返回；`buildFrame` / `buildTopRegion` / `buildStatusSeparator` 与 App（`focusedLineScroll` / `focusedPageScroll` / `userInputJump` / 补全可视行）只读这一份（字段清单见 `SPEC.md` §11.3）。
-- **语义保持**：面板开关不改变交互区总高——`footerHeight = max(1, interaction − hintRows)`，`hintRows` 由 `wrapHintLine` 按当前提示文案与宽度算出（**1 至 2 行**，按 `·` 边界折行、超 2 行截断，空文案占位 1 行）；**问题交互态（问答 / 审批打开）底部输入区改显最近 notice**（取活动区 buffer 的 `kind === "notice"` 行、折行后取末尾 `footerHeight` 行，tone 与 hanging 口径与活动区共用 `noticeLinePresentation`），其余面板空白占位；`frameGeometry` 同时产出 `statusLines`，`buildFrame` 不再重复调 `renderStatusLine`。
+- **问题**：`metricsFor` / `topPaneSplit` / `regionColumnWidth` / `renderStatusLine` 曾在 `buildFrame`、`buildTopRegion`、`inputPanelHeights`、`dialogueScrollMetrics` 各自算一遍（同一件事 4 份），口径漂移即出现「帧里看到的 pane 高度」与「滚动 / 翻页用的 pane 高度」不一致（横向排列下回合区内容仍按纵向高度排就是这类缺陷）。
+- **做法**：`frameGeometry(state, size): FrameGeometry`（纯函数，`layout.ts`）把状态行行、模态 / 提示行判定、`metricsFor`、`topPaneSplit`、排队块行、视口高、分隔列、内部分隔列、焦点框矩形基准一次算定并返回；`buildFrame` / `buildTopRegion` / `buildStatusSeparator` 与 App（`focusedLineScroll` / `focusedPageScroll` / `userInputJump` / 补全可视行）只读这一份（字段清单见 `SPEC.md` §11.3）。
+- **语义保持**：面板开关不改变输入区 + 提示行总高——`footerHeight = max(1, interaction − hintRows)`，`hintRows` 由 `wrapHintLine` 按当前提示文案与宽度算出（**1 至 2 行**，按 `·` 边界折行、超 2 行截断，空文案占位 1 行）；**问题交互态（问答 / 审批打开）底部输入区改显最近 notice**（取回合区 buffer 的 `kind === "notice"` 行、折行后取末尾 `footerHeight` 行，tone 与 hanging 口径与回合区共用 `noticeLinePresentation`），其余面板空白占位；`frameGeometry` 同时产出 `statusLines`，`buildFrame` 不再重复调 `renderStatusLine`。
 
 ### 15.4 文本留白与多行输入
 
 #### 对话左右交错留白（`messageGutter`）
 
 - **口径**：超长（英文）输入折行时，输入的最左侧与回复正文第 3 个字符同列。
-- **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`，P3）**：留白只作用于**右缘贴着外框列**的文字——横向历史 pane **不留白**（用户块右缘 `┃` 紧贴内部分隔竖线）、横向活动 pane 与纵向两 pane 各让 1 列（`paneTextWidth(paneW, reserve)`：`frameGeometry.dialogueTextW/activityTextW`，`reserve` 只在右缘是外框列时为真；排队块、活动区面板同口径）。**所有横线一概不缩**：标题栏下划线、活动区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、系统状态区上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**活动区行尾不补空格、也不画右边框**：`buildTopRegion` 对活动区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。守成测试：`tests/pane-text-margin.test.ts`。
+- **文字右缘留白（`PANE_TEXT_MARGIN_COLS=1`，P3）**：留白只作用于**右缘贴着外框列**的文字——横向会话区 **不留白**（用户块右缘 `┃` 紧贴内部分隔竖线）、横向回合区 与纵向两 pane 各让 1 列（`paneTextWidth(paneW, reserve)`：`frameGeometry.dialogueTextW/activityTextW`，`reserve` 只在右缘是外框列时为真；排队块、回合区面板同口径）。**所有横线一概不缩**：标题栏下划线、回合区分隔线、回合分隔线（`╌`，按 `ContentRow.kind === "separator"` 识别并补满）、状态行上下边框都铺满到屏幕最右列（区域外缘框列在横线行补 `─`/`╌`）。**回合区行尾不补空格、也不画右边框**：`buildTopRegion` 对回合区行跳过 `padSegs` 与外缘框列字形；`FocusFrame` 的 activity 分支只画左缘竖线，顶/底亮线铺到最右列收尾（无角字）。守成测试：`tests/pane-text-margin.test.ts`。
 - **列口径**：区域右缘框列是焦点框保留格（`FRAME_RIGHT_COLS=1`），正文区自区域正文起始列（状态列与分隔竖线之后，屏幕列 = `statusColWidth`）起算——回复行 `┃` 占正文区第 0 列、正文自第 1 列起；用户块铺满正文区，左缘留白 `gutter−1` 列（box 的 `padLeft`，符号格占其中 2 列）、块内右缘 `┃` 贴正文区最后一列。故输入正文起列 = 正文区起始列 + `gutter−1`（屏幕列），令其等于回复第 3 字符所在列（正文区第 3 列）解得 **`gutter = 4`**。
 - **两侧同源**：`gutter` 同时是用户块左缘留白与回复右缘留白（`finalSpace` 的 `spacer(fixed gutter−1)`），故默认 4 时两侧文本上限对称各收 4 列（宽 60 时：正文区 39 列 → 回复正文 35 列、用户文本 35 列）。
-- **只作用于历史 pane**：这套左右对称收窄不落在回合区（活动 pane）——活动区内容左缘贴 pane 第 0 列（逐行的 `┃` 前缀或工具行自身缩进），右侧只让 `PANE_TEXT_MARGIN_COLS=1`，且行尾不补空格、不画右边框。故思考 / 非 final 正文的折行宽 = 活动 pane 文字宽 − 左竖线 1 列（默认比历史区正文宽 4 列；横向排列下两 pane 各自取宽）。
+- **只作用于会话区**：这套左右对称收窄不落在回合区（回合区）——回合区内容左缘贴 pane 第 0 列（逐行的 `┃` 前缀或工具行自身缩进），右侧只让 `PANE_TEXT_MARGIN_COLS=1`，且行尾不补空格、不画右边框。故思考 / 非 final 正文的折行宽 = 回合区 文字宽 − 左竖线 1 列（默认比会话区正文宽 4 列；横向排列下两 pane 各自取宽）。
 - **连带**：竖线可见阈值 `USER_MIN_LEFT_GUTTER + 2` 由 6 上移到 8（w ≤ 7 不画竖线）——该常量是**窄列降级用的最小左缘留白**，与 `DEFAULT_MESSAGE_GUTTER` 各自独立（仍为 6，不随本条改动）；`DEFAULT_MESSAGE_GUTTER` 与 `normalizeTuiDisplayConfig` 缺省同步为 4。
 - **守成测试**：`tests/layout4.test.ts`「输入最长折行左缘与回复正文第 3 个字符同列（gutter=4）」+ `tests/fixtures/focus-frame-legacy.json`（w20 四场景按新口径冻结）。
 
@@ -743,33 +743,33 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **降级**（不支持该协议的终端）：粘贴以裸字节到达时，按**单批 read** 判「像粘贴」——批内出现成对 CRLF 且不止这两个字节，或批内换行 ≥ 2 处 → 批内 CR 归一为换行（`\n` = 换行插入）；其余情况 CR 仍是 `enter`（单次 `Enter` 恒为独立一块，打字时相邻按键被内核合并成一块也安全）。判据不引入时钟，解码层保持纯逻辑。
 - **守成测试**：`tests/input.test.ts`（载荷归一 / CRLF 多行 / CR-only 多行 / 单 Enter 不变）、`tests/renderer.test.ts`（启动与关闭写模式序列）、`tests/app.test.ts`（多行粘贴整段进输入区、未发送、光标末尾）。
 
-### 15.5 活动区渲染（生命周期 / 详略 / 排列）
+### 15.5 回合区渲染（生命周期 / 详略 / 排列）
 
-#### 活动区内容生命周期
+#### 回合区内容生命周期
 
-- **不按组数折叠**：工具调用历史只受**活动 pane 可视行数**约束——内容先自下往上填满整块 pane（`activityH`，横向排列时 = 整列可用行数），更早内容折叠在 pane 顶边之外，Tab 聚焦活动区后 `↑` / `PgUp` 可回看（`activityMaxScroll = 活动内容行数 − activityH`）。
-- **清空时机 = 用户输入**：`turn-begin` 带 `clearActivity` 参数——为 true 时整类清空活动区（thinking / tool / notice / 非 final assistant 一起清）并把 `activityScroll` 归零；`App.beginTurnIfNeeded(userInput)` 只在「用户输入开启的回合」传 true（空闲提交与排队消息被核心认领）；核心自发的回合（goal 轮次、定时唤醒等）只画分隔线、保留上一轮内容继续往上堆。
+- **不按组数折叠**：工具调用历史只受**回合区 可视行数**约束——内容先自下往上填满整块 pane（`activityH`，横向排列时 = 整列可用行数），更早内容折叠在 pane 顶边之外，Tab 聚焦回合区后 `↑` / `PgUp` 可回看（`activityMaxScroll = 活动内容行数 − activityH`）。
+- **清空时机 = 用户输入**：`turn-begin` 带 `clearActivity` 参数——为 true 时整类清空回合区（thinking / tool / notice / 非 final assistant 一起清）并把 `activityScroll` 归零；`App.beginTurnIfNeeded(userInput)` 只在「用户输入开启的回合」传 true（空闲提交与排队消息被核心认领）；核心自发的回合（goal 轮次、定时唤醒等）只画分隔线、保留上一轮内容继续往上堆。
 - **打字机不丢内容**：正文到达或延迟 `turn-end` 接管时，未放完的思考由 `drainThinking()` 整段放入缓冲；`dropThinking` 仅留给 `dispose`。
-- **守成测试**：`tests/app.test.ts`「活动区生命周期：核心自发回合不清空」+ `tests/layout4.test.ts`「工具历史不按组数折叠，只受活动 pane 可视行数约束」。
+- **守成测试**：`tests/app.test.ts`「回合区生命周期：核心自发回合不清空」+ `tests/layout4.test.ts`「工具历史不按组数折叠，只受回合区 可视行数约束」。
 
-#### 历史区正文分块（`final` 标记口径；#1）
+#### 会话区正文分块（`final` 标记口径；#1）
 
 - **分块边界 = `[step 变化 | 工具调用行]`**：按此把行切成块——step 分割线 / 回合分隔线同为硬边界，**thinking / notice / 空行不切割**；buffer 行由 `appendStream` 落 `step` 标（取自 `state.stepGroup.step`）以支持「step 变化」判定。
-- **取「最近一块含正文」整块**：`markFinalSummary`（`turn-end`）把本回合最近一块含正文的**全部 assistant 行**标 `final`（不再只标「最后一段连续 assistant 行」——被思考行打断的前段不再被丢在活动区）；最近一块无正文（只剩宿主补发的 `"\n\n"` 空锚点）→ **回退取本回合更早的含正文块**（用户 2026-10-01 追加裁定：空块不吞正文）。
+- **取「最近一块含正文」整块**：`markFinalSummary`（`turn-end`）把本回合最近一块含正文的**全部 assistant 行**标 `final`（不再只标「最后一段连续 assistant 行」——被思考行打断的前段不再被丢在回合区）；最近一块无正文（只剩宿主补发的 `"\n\n"` 空锚点）→ **回退取本回合更早的含正文块**（用户 2026-10-01 追加裁定：空块不吞正文）。
 - **问答面板来源段同口径**：`recentQuestionSource` 取本回合最近一块含正文的 `assistant` / `plain` 行（整块、不再限 6 行、不再设扫描上限）；本回合取不到 → 回退取**上一回合**的最近一块（先回退、不加相关性闸门）；仍无 → 空串。面板显示时在该段前加 `- 上文 -` 标记（纯文本行、不经 markdown 解析）、与题干之间保留空行。
 - **守成测试**：`tests/state-history-blocks.test.ts`（step 变化切 / 工具行切 / thinking-notice-空行不切 / 空锚点回退 / 跨回合回退 / 幂等）+ `tests/approval-panel.test.ts`（来源段整块与回退）。
 
-#### 活动区类型间隔（#5；2026-10-02 收窄）
+#### 回合区类型间隔（#5；2026-10-02 收窄）
 
-- **语义**：活动区内仅「**思考 ↔ 正文（非 final `assistant`）**」互切时插 **1 行空行**（双向：思考→正文、正文→思考）；同类连续只在边界插一次；活动区开头（无前一类）不插。
+- **语义**：回合区内仅「**思考 ↔ 正文（非 final `assistant`）**」互切时插 **1 行空行**（双向：思考→正文、正文→思考）；同类连续只在边界插一次；回合区开头（无前一类）不插。
 - **工具类不插**：工具行（step 头 / 调用行 / 结果行 / 辅助行）与任何类型相邻都不插空行——工具把思考与正文隔开时二者不再成对，故「思考 → 工具 → 正文」全程紧排（2026-10-02 用户裁定：只保留思考与正文之间的空行）。
 - **step 分割线与内容紧排**：step 头属工具类，分割行原有的「吸收拖尾空行」照常生效（旧 #5 为保住类型间隔空行而设的 `gapBlank` 豁免判据随本口径删除）→ 分割行与前后内容之间不留视觉空行。
 - **不算边界**：notice / shell / 已有空行既不引发间隔也不阻断判断。
 - **正文分片连排**：只被 thinking / notice 行隔开的**相邻非 final 正文分片**合并为**一段**——文本**直接相接**（不插换行 / 空格），渲染顺序为「思考块 … → 整段正文」（合并叶取该 run 最后一个分片的位置）；两处切点的间隔空行**收敛为恰 1 行、置于该段正前方**。**直接相邻的正文分片不合并**（同一 delta 含 `\n` 时本就产相邻行：列表 / 代码块分片各成一行）；工具 / step / 用户行 / 分隔线 / `final` / 空正文行 / fence / 表格仍是硬边界（不穿透、不合并）。
-- **实现**：间隔规则在 `pipeline/routeTable.ts`（`turnBlankBetween` 判定思考 ↔ 正文；`route.ts` 生成显式 `Gap`，空行唯一来源）。**正文合并**由 `sections.ts` 的节内同来源归并（同块流式续写并入同一节）+ `split.ts` 的交互切分承载；渲染侧不再有事后摘叶 / 记账式合并。活动 pane 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），显式 `Gap` 自动计入。
+- **实现**：间隔规则在 `pipeline/routeTable.ts`（`turnBlankBetween` 判定思考 ↔ 正文；`route.ts` 生成显式 `Gap`，空行唯一来源）。**正文合并**由 `sections.ts` 的节内同来源归并（同块流式续写并入同一节）+ `split.ts` 的交互切分承载；渲染侧不再有事后摘叶 / 记账式合并。回合区 可视行数与滚动上限按**实际渲染行数**计（`activityMaxScroll`），显式 `Gap` 自动计入。
 - **守成测试**：`tests/activity-type-gap.test.ts`（思考↔正文双向 / 同类连续 / 工具互切不插 / notice 与 step 不新增 / 开头不插）+ `tests/activity-verbose.test.ts`（紧凑模式按条目压 1 行）+ `tests/layout4.test.ts`（思考与下一个 step 分割行紧排）。
 
-#### 活动区六开关（`/verbose` 显示 + `/collapse` 压缩，各按三类）
+#### 回合区六开关（`/verbose` 显示 + `/collapse` 压缩，各按三类）
 
 - **语义**：两命令都按 `think` / `tool` / `reply` 三类维护布尔开关（类别可写 `all` = 三类同时），互相正交：
   - `/verbose [think|tool|reply|all] [on|off]` 管**是否显示**该类内容（缺省三项全开）；
@@ -780,23 +780,23 @@ segStyle(seg: FrameSegment, theme: Theme): string
 - **快照**：2026-10-18 起不再持久化（旧 `activityCompact` / `activityVerbose` 读到即丢，重启回缺省）。
 - **守成测试**：`tests/activity-level.test.ts`（显示三类矩阵 + 命令面 + 非法参数）+ `tests/activity-verbose.test.ts`（压缩三类矩阵 + 工具组压 1 行 + 端到端行数收敛）+ `tests/session-ui-state.test.ts`（旧字段丢弃）+ `tests/pipeline-equivalence.test.ts` / `tests/pipeline-panes.test.ts`（显示过滤等价）+ `tests/title-bar.test.ts`（指示符随压缩状态）。
 
-#### 活动区思考行的 markdown 排版（2026-10-16）
+#### 回合区思考行的 markdown 排版（2026-10-16）
 
 - **口径**：思考行与正文走**同一套** markdown 解析（`pipeline/parse.ts` 的块级 + 行内分类，折行走 `wrapLeaf`）——块级元素（标题 / 列表 / 引用 / 分隔线 / 任务列表）与行内（粗体 / 斜体 / 行内代码 / 链接 / 图片占位 / 删除线 / 下划线 / 转义）逐项同规格。列表支持面：无序 `-` / `*` / `+`（统一渲染 `• `）、有序编号风格 `1.` / `1)` / `a.` / `A.` / `a)` / `(1)`（编号 + 分隔符**原样保留**）、**嵌套层级缩进**（前导空白每 2 列 = 一层, 前缀补 `2 * depth` 空格；任务列表 `- [ ]` / `- [x]` 同为无序前缀, 嵌套缩进随层级一致生效；逐行独立判定, 无父子校验, 不做 `1. [ ]` 有序任务前缀 / 定义列表）；列表项折行同样悬挂缩进对齐**该层正文起列**（含嵌套缩进）。**围栏代码块**走正文与思考共用的构建路径（`structure.ts` 的 code 映射 → `measure.ts` 的 `expandCode`）：fence 开关行隐藏、语言标记行斜体（与代码列对齐、不占行号）、代码行 `行号 2 列 + 空白 1 列 + 代码`、续行再缩进 4 列并靠右对齐正文右缘、灰底补齐到内容区宽；围栏内 `\t` 先展开为固定 4 空格（不按 tab stop）再参与计宽与折行；窄窗（可用正文宽 < 23 列）省略行号列。
-- **差异**：左缘竖线配色（思考紫 `brightMagenta` / 正文蓝 `brightBlue`）；**markdown 表格 2026-10-23 起同样识别**（列宽在 `measure` 同正文计算，表格左缘竖线取紫，不再退回普通行）；折行宽 = 活动 pane 文字宽 − 左竖线 1 列（回合区没有历史区的对称留白，见 §15.4「只作用于历史 pane」）。
+- **差异**：左缘竖线配色（思考紫 `brightMagenta` / 正文蓝 `brightBlue`）；**markdown 表格 2026-10-23 起同样识别**（列宽在 `measure` 同正文计算，表格左缘竖线取紫，不再退回普通行）；折行宽 = 回合区 文字宽 − 左竖线 1 列（回合区没有会话区的对称留白，见 §15.4「只作用于会话区」）。
 - **实现**：思考块走 `parse` → `structure`（前缀 `┃` + 紫）→ `measure`（`wrapLeaf` 折行）→ `flatten`；围栏开关行隐藏与围栏内代码行收取在 `parse` 的围栏状态机（遇闭栅或非 thinking 行停止）。**紧凑路径（`/collapse`）保持单行压缩**（`rows.ts` 的 `foldRows`，不解析 markdown）；空思考行跳过、`/verbose` 档位过滤、思考 ↔ 正文类型间隔（1 行空行）、正文分片连排的归并口径均不变。
 - **守成测试**：`tests/thinking-markdown.test.ts`（块级逐行 / 行内 / 列表折行缩进 / 围栏代码块与未闭栅 / 档位与紧凑与类型间隔）+ `tests/layout4.test.ts`（原「thinking 不渲染」断言改为同口径渲染）。
 
-#### 活动区排列：按视觉宽高比与黄金分割比自动选上下 / 左右
+#### 回合区排列：按视觉宽高比与黄金分割比自动选上下 / 左右
 
 - **位置**：`layout.ts` 的 `topPaneSplit`（纯函数），唯一调用点是 `frameGeometry`（几何唯一来源）。
 - **判定**：pane **视觉**宽高比（列数 / 字符格高宽比 `CELL_ASPECT = 2`）与 φ≈1.618 的对数偏差（`|ln(w/h/2/φ)|`，取两 pane 较差者）小者胜；等分（divisor=2、纵向两 pane 等高）时等价于「区域正文宽 / 可用行数 > 2φ → 左右排列」（2026-10-17 加字符格校正前为 φ）。判据只吃区域正文宽 + 顶部内容高，不含状态列宽。
 - **为什么不放在 state**：判定是尺寸的纯函数，启动与 resize 各自重算即可；不做滞回（阈值处反复拖动终端时最多一次翻转，且翻转点本身就是重排点）。缺省 `"vertical"` 保持既有上下语义（含 `activityTopRow` 锚定与 `activityHeightDivisor` 比例）。
-- **两 pane 独立宽度**：横向时历史 pane 在左、活动 pane 在右；活动 pane 宽 = `floor(正文宽 / divisor)`，对话 pane 宽 = 正文宽 − 活动 pane 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）；**文字**排版另扣右缘留白（见「文字右缘留白」）。`pipelineContent` 的 `dialogueTextW` / `activityTextW` 让两 pane 各自 `renderPaneNew` 测量摊平（`structure → measure → flatten`）；**不做两次解析 / 两次测量**，表格列宽按各自 pane 宽在 `measure` 内算。
-- **拼行**：横向行 = 状态列 + D 列 `│` + 历史行（补空格到 `dialogueW`）+ 内部分隔 `│` + 活动行（补到 `activityW`）+ 区域右缘框列；活动区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，系统状态区分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。活动 pane 恒底部对齐（与纵向一致），面板仍顶部对齐且按 `activityW` 排版。**会话 pane 同样恒底部对齐**（2026-10-10）：内容不足视口时补白加在**上方**（`dialoguePadTop = max(0, viewportH − (vp.end − vp.start))`，与活动区 `topPad` 同口径），只影响行放置——视口 / 段表 / 报告字段不变（补白行不属分隔行：`dialogueRowAt` 返回空 → 按空格填充）；滚动中（`vp.start > 0`）补白恒为 0。守成测试：`tests/layout-horizontal.test.ts`、`tests/pipeline-frame.test.ts`。
+- **两 pane 独立宽度**：横向时会话区 在左、回合区 在右；回合区 宽 = `floor(正文宽 / divisor)`，会话区 宽 = 正文宽 − 回合区 宽 − 1（两侧各保底 20 列 → 正文宽 < 41 或可用行 < 2 时回落上下）；**文字**排版另扣右缘留白（见「文字右缘留白」）。`pipelineContent` 的 `dialogueTextW` / `activityTextW` 让两 pane 各自 `renderPaneNew` 测量摊平（`structure → measure → flatten`）；**不做两次解析 / 两次测量**，表格列宽按各自 pane 宽在 `measure` 内算。
+- **拼行**：横向行 = 状态列 + D 列 `│` + 历史行（补空格到 `dialogueW`）+ 内部分隔 `│` + 活动行（补到 `activityW`）+ 区域右缘框列；回合区分隔行消失，标题栏下划线行在内部分隔列让位 `┬`，状态行分隔行该列收束 `┴`（`buildStatusSeparator` 以几何为入参）。回合区 恒底部对齐（与纵向一致），面板仍顶部对齐且按 `activityW` 排版。**会话 pane 同样恒底部对齐**（2026-10-10）：内容不足视口时补白加在**上方**（`dialoguePadTop = max(0, viewportH − (vp.end − vp.start))`，与回合区 `topPad` 同口径），只影响行放置——视口 / 段表 / 报告字段不变（补白行不属分隔行：`dialogueRowAt` 返回空 → 按空格填充）；滚动中（`vp.start > 0`）补白恒为 0。守成测试：`tests/layout-horizontal.test.ts`、`tests/pipeline-frame.test.ts`。
 - **滚动**：`scrollOffset` / `activityScroll` 语义不变（距各自 pane 底部行数），换行宽度 / 视口高变化——所有跳转 / 半屏 / 翻页坐标统一读 `frameGeometry`。
 - **焦点框**：区域矩形左缘 = D 列（分隔竖线，与状态列共用 → 顶/底边用连接字 `├`/`┴`）、右缘 = 区域外缘框列（角字 `┐`/`┘`）；`FocusFrameContext.innerDividerCol` 非 undefined 即横向——history 右缘 / activity 左缘改为此列（顶边 `┬`、底边 `┴`），activity 右缘仍是区域外缘框列；rects 按左右并排构造。
-- **守成测试**：`tests/layout-horizontal.test.ts`（8 例：内部分隔列与 `┬`/`┴`、两 pane 定宽、滚动口径一致、焦点框角字、独立宽度换行、活动区底部对齐、排队块钉在历史 pane 右下角）+ `tests/config.test.ts` 的 `topPaneSplit` 判定表。
+- **守成测试**：`tests/layout-horizontal.test.ts`（8 例：内部分隔列与 `┬`/`┴`、两 pane 定宽、滚动口径一致、焦点框角字、独立宽度换行、回合区底部对齐、排队块钉在会话区 右下角）+ `tests/config.test.ts` 的 `topPaneSplit` 判定表。
 
 ### 15.6 表格与列表排版
 
@@ -859,7 +859,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 渲染层五项防闪烁机制（业界对照：Bubble Tea 行级跳过 + 60fps 合帧、pi 的 `firstChanged..lastChanged` 区间重写 + DEC 2026、Textual dirty region、Codewhale 去 `2J` 修复、Claude Code #37283）：
 
-- **变化行游程重写**（`renderer/index.ts` 的 `changedRuns` + `screen.renderRange/renderRanges`）：逐行比较新旧帧（按主题下序列化文本，`caret` 参与比较），把**连续变化行**各合成一段、段间独立绝对定位 + 逐行**先擦后写**重写（行首 `ESC[K` 擦整行，**不写行尾 `ESC[K`**：活动区行不补齐整行，行尾擦不掉新内容右侧的旧字——新回合清空活动区后「最顶上残留几行」即由此而来；且行尾 `ESC[K` 在光标停于右缘待折行时会擦掉整宽行的末字）；新帧更短时末尾以 `ESC[J` 清除下方残留。**只取「首末跨度」是不行的**：状态列（最左纵向窄列，贯穿整个顶部区域）与活动区（底部流式行）常在同一 tick 同时变化，取跨度会把中间大片未变化行一起擦除重写（实测 **18 行/tick** → 改游程后 **2~3 行/tick**，报文 3.1 KB → 0.7 KB）；无 DEC 2026 同步的终端上，逐行擦除+重写正是肉眼可见闪烁的来源。**增量帧绝不 `ESC[2J` 清屏**——这是符号闪烁/流式行内增长场景的主要修复点（旧实现只支持「帧尾纯追加」，其余一律全帧清屏）。
+- **变化行游程重写**（`renderer/index.ts` 的 `changedRuns` + `screen.renderRange/renderRanges`）：逐行比较新旧帧（按主题下序列化文本，`caret` 参与比较），把**连续变化行**各合成一段、段间独立绝对定位 + 逐行**先擦后写**重写（行首 `ESC[K` 擦整行，**不写行尾 `ESC[K`**：回合区行不补齐整行，行尾擦不掉新内容右侧的旧字——新回合清空回合区后「最顶上残留几行」即由此而来；且行尾 `ESC[K` 在光标停于右缘待折行时会擦掉整宽行的末字）；新帧更短时末尾以 `ESC[J` 清除下方残留。**只取「首末跨度」是不行的**：状态列（最左纵向窄列，贯穿整个顶部区域）与回合区（底部流式行）常在同一 tick 同时变化，取跨度会把中间大片未变化行一起擦除重写（实测 **18 行/tick** → 改游程后 **2~3 行/tick**，报文 3.1 KB → 0.7 KB）；无 DEC 2026 同步的终端上，逐行擦除+重写正是肉眼可见闪烁的来源。**增量帧绝不 `ESC[2J` 清屏**——这是符号闪烁/流式行内增长场景的主要修复点（旧实现只支持「帧尾纯追加」，其余一律全帧清屏）。
 - **帧段（box）切分**（`app/layout.ts` 的 `frameBands` / `frameSections` + `renderer` 的 `changedIntervals`）：由 `FrameGeometry` 纯推导行带表（top / status / footer / hint 的**行范围**，不含语义字段——决策 6；行带与焦点矩形同源，见 `frameBands`），`buildFrame` 经 `FrameBuildOutput` 回填、App 随帧传入；段表与上一帧一致时先把范围收敛到各段（多段同时变化只重写各段内变化行，不跨越中间未变化的段），段内再按变化行游程切成若干区间（不取跨度）；段表缺失/不一致（几何或行数变化）退化为整帧游程比较，保证不漏更新。
 - **DEC 2026 同步输出**（`screen.ts`）：整帧与区间报文首尾包 `ESC[?2026h` / `ESC[?2026l`，支持的终端（kitty / iTerm2 / WezTerm / Ghostty / Windows Terminal / tmux 3.4+）原子呈现整块更新；不支持的终端按未知私有模式忽略。`reset()` 补发结束序列兜底。
 - **覆盖式全帧**：仅**首帧**清屏一次（清终端既有内容），后续全帧（resize / 主题切换 / Ctrl+L）改为绝对定位原点 + 逐行覆盖重写（每行同样**先擦后写**）；帧下方残留以「定位到帧下一行行首 + `ESC[J`」清除（不在末行行尾就地 `ESC[J`——末行整宽时同样会吃掉末字），不再破坏性清屏。
@@ -871,9 +871,9 @@ segStyle(seg: FrameSegment, theme: Theme): string
 | --- | --- | --- |
 | `verify.mjs` | 符号翻转 / 流式行内增长 / 纯追加 / 内容滚动 | 全帧清屏均 0 次（修复前 10/10/0/1 次，输出 22.7 KB → 约 3 KB） |
 | `verify-real-frames.mjs` | 真实 24×80 布局帧：20 帧流式 + 符号交替 | 0 清屏、0 缺同步包裹/光标序列；纯符号帧 356 B |
-| `diag-rows.mjs` | 单 tick **重写行数**（游程改造前后对照） | 流式+符号 2 行/帧；状态列+活动区同 tick 3 行（取跨度时 18 行）；只符号翻转 1 行 |
+| `diag-rows.mjs` | 单 tick **重写行数**（游程改造前后对照） | 流式+符号 2 行/帧；状态列+回合区同 tick 3 行（取跨度时 18 行）；只符号翻转 1 行 |
 
-守成测试：`tests/renderer-diff.test.ts`（区间 diff 6 例 + 段切分 3 例 + 游程切分 2 例，含真实帧「状态列 + 活动区同 tick ≤ 4 行」）、`tests/screen.test.ts`（报文序列：同步包裹 / 仅首帧清屏 / 光标管理）、`tests/layout4.test.ts`（`frameSections` 覆盖性与行带一致性）。
+守成测试：`tests/renderer-diff.test.ts`（区间 diff 6 例 + 段切分 3 例 + 游程切分 2 例，含真实帧「状态列 + 回合区同 tick ≤ 4 行」）、`tests/screen.test.ts`（报文序列：同步包裹 / 仅首帧清屏 / 光标管理）、`tests/layout4.test.ts`（`frameSections` 覆盖性与行带一致性）。
 
 #### 15.9.1 已评估未采用（附实测，勿重复讨论）
 
@@ -888,7 +888,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 | 输出量 | 569 B/帧 |
 | 10Hz 出帧 CPU 上界 | 1.20 ms/s（约 0.12% 单核） |
 
-- **列级（单元格）局部重写（不做）**：状态列只占左侧 `statusColWidth` 列，理论上可只重写该列单元格（`ESC[r;cH` + 局部段）而不整行。但行级游程已把「状态列 + 活动区同 tick」压到 2~3 行/tick，收益只剩每行右半段（≈60 B/行）；代价是局部序列化必须自己处理宽字符跨界、样式收尾与右侧残留（`ESC[K` 不能用了），风险高于收益。
+- **列级（单元格）局部重写（不做）**：状态列只占左侧 `statusColWidth` 列，理论上可只重写该列单元格（`ESC[r;cH` + 局部段）而不整行。但行级游程已把「状态列 + 回合区同 tick」压到 2~3 行/tick，收益只剩每行右半段（≈60 B/行）；代价是局部序列化必须自己处理宽字符跨界、样式收尾与右侧残留（`ESC[K` 不能用了），风险高于收益。
 - **行序列化结果缓存（不做）**：收益上限即 0.0255 ms/帧（约总成本千分之五）；且 `buildFrame` 每帧新建 `FrameRow` 对象，按对象缓存（WeakMap）不会命中，须按内容做键，收益进一步缩水。
 - **滚动区（DECSTBM）「只移动不重画」（不做）**：滚动场景写入量约 1.5 KB/帧、10Hz 下 15 KB/s，远低于终端处理能力；JS 侧已非瓶颈（上表），收益无从测量，却引入终端状态污染风险——Bubble Tea 的 `insertTop`/`insertBottom` 已标 deprecated，Codewhale 亦有「子进程泄漏 DECSTBM/DECOM 致视口整体下移」的修复记录。
 - **重新评估的触发条件**：帧行数/宽度出现数量级增长（如 100+ 行帧 + 大量 CJK/emoji）致「比较」成本 > 10 ms/帧；或真机出现肉眼可见卡顿且定位到瓶颈为**终端写入量**（若瓶颈是终端自身重绘速度，程序侧优化无益，应排查终端 / tmux 配置）。

@@ -8,9 +8,9 @@ import type { StateAction } from "./state.ts";
  * status 偏移语义=距顶部（上滚=-），方向不可混用。
  *
  * `delta` = 位移行数（正 = 上滚）：裸 ↑/↓ 传 1，Ctrl+↑/↓ 传半屏
- * （`dialogueHalfPage(activityH)`，与对话区同款快速翻页）。
+ * （`dialogueHalfPage(activityH)`，与会话区同款快速翻页）。
  *
- * 对话区不在其中：它按「段键 + 段内行」定位，位移在 App 用本帧段表换算
+ * 会话区不在其中：它按「段键 + 段内行」定位，位移在 App 用本帧段表换算
  * （见 `App.scrollDialogueBy`）。
  */
 export function focusedLineScroll(
@@ -28,7 +28,7 @@ export function focusedLineScroll(
   return { type: "status-column-scroll", delta: -delta };
 }
 
-/** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数；对话区同上） */
+/** 焦点面板整页滚动 action 映射（页 = 该面板当前可视行数；会话区同上） */
 export function focusedPageScroll(
   panel: "activity" | "status",
   dir: 1 | -1, // 1=上一页, -1=下一页

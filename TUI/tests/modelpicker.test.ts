@@ -155,7 +155,7 @@ test("渲染：筛选后 `>` 焦点标记落在可见列表的焦点行（下标
   );
 });
 
-test("面板内不再渲染按键帮助行（提示统一到底部提示区，见 layout/hints.ts）", () => {
+test("面板内不再渲染按键帮助行（提示统一到提示行区，见 layout/hints.ts）", () => {
   const rows = renderModelPicker({ picker: picker(), height: 6, width: 80 });
   const text = rows.map((r) => stripAnsi(rowAnsi(r))).join("\n");
   assert.ok(!text.includes("[space]select"), "面板内不应有键位帮助行: " + text);
@@ -461,7 +461,7 @@ test("pickerColumnWidths：空间不足走水位法——短列保自然宽，�
   assert.deepEqual(pickerColumnWidths([7, 27, 7], 42), [7, 28, 7]);
   // 面板 42 列 → available 38：水位线 24 → [7,24,7]，provider/effort 不再被压到 6
   assert.deepEqual(pickerColumnWidths([7, 27, 7], 38), [7, 24, 7]);
-  // 横向排列下活动 pane 很窄：available 25 → [7,11,7]（短列完整、只压 model 列）
+  // 横向排列下回合区 很窄：available 25 → [7,11,7]（短列完整、只压 model 列）
   assert.deepEqual(pickerColumnWidths([7, 27, 7], 25), [7, 11, 7]);
   // 三列等长时超宽列共同压缩，余数补最长列
   const even = pickerColumnWidths([10, 10, 10], 25);

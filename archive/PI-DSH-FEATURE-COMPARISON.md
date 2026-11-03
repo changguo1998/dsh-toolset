@@ -13,7 +13,7 @@
 - 任务与编排：pi-goal-list-loop-audit（goal/list/loop/audit，拆 4 项，见 3.1）、@quintinshaw/pi-dynamic-workflows（大规模编排 / /workflows TUI / deep-research，拆 7 项，见 3.1）、pi-subagents（委派 + 多 agent 工作流）、@juicesharp/rpiv-advisor（更强模型二次意见）；
 - 上下文与记忆：context-mode（沙箱执行 + FTS5 知识库 + 意图检索，拆 6 项，见 3.2）、pi-hermes-memory（持久记忆 + 会话搜索 + 密文扫描 + 技能，拆 6 项，见 3.2）、@hypabolic/pi-hypa（输出压缩 + 代码索引 + 可恢复证据，拆 4 项，见 3.2）、@mrclrchtr/supi-context（上下文压力/token 报告，迁移时未启用）；
 - 代码、搜索与工具：pi-readseek（LINE:HASH 锚定 + 结构导航）、pi-lens（LSP / ast-grep / 结构分析）、pi-web-access（搜索/抓取/克隆/PDF/视频，拆 5 项，见 3.4）、pi-mcp-adapter（MCP 适配）、@firstpick/pi-extension-tools（活动工具管理）、pi-prompt-template-model（提示词模板 + 模型选择）；
-- 交互与安全：@juicesharp/rpiv-ask-user-question（结构化问卷）、@juicesharp/rpiv-todo（todo 列表）、pi-autoname（会话命名）、pi-intercom（跨会话经纪人）、pi-defender（危险命令/敏感文件）、@panzenbaby/pi-secure-extension（安全扩展，包描述为空，源码待核对）、pi-powerline-footer（状态栏）、@dietrichgebert/ponytail（懒人编码模式）、pi-simplify（改动代码审查）、pi-dsh-minimal（pi↔DSH 反向适配，不迁移）。
+- 交互与安全：@juicesharp/rpiv-ask-user-question（结构化问卷）、@juicesharp/rpiv-todo（todo 列表）、pi-autoname（会话命名）、pi-intercom（跨会话经纪人）、pi-defender（危险命令/敏感文件）、@panzenbaby/pi-secure-extension（安全扩展，包描述为空，源码待核对）、pi-powerline-footer（状态行）、@dietrichgebert/ponytail（懒人编码模式）、pi-simplify（改动代码审查）、pi-dsh-minimal（pi↔DSH 反向适配，不迁移）。
 
 **原生扩展（非 npm）**：percent-compact / notify-sound / lock-default-model / herdr-\* / B2-session-should-compact / hermes-async-shutdown / provider-guard（见 3.7）。
 
@@ -179,7 +179,7 @@
 
 | 子功能 | pi 载体 | dsh 0.1.5-rc.2 对应 / 差距 | 状态 |
 |--------|---------|---------------------------|------|
-| 状态栏分段（model/thinking/path/git/queue/token/cost/context%/time） | pi-powerline-footer | TUI 状态区（环境/LLM 组） | 已有 |
+| 状态行分段（model/thinking/path/git/queue/token/cost/context%/time） | pi-powerline-footer | TUI 状态区（环境/LLM 组） | 已有 |
 | 可配置 layout/placement/separator | 同包 | TUI 自有配置 | 已有 |
 | 简洁编码模式（lite/full/ultra） | ponytail | persona（人格配置表达） | 部分 |
 | 审查/债务/收益工具族 | ponytail-review/audit/debt/gain | 无（可作 workflow 模板/skill 内容） | 缺口 |
@@ -205,7 +205,7 @@
 
 ### 4.1 已有等效（仅对齐，无需迁移）
 
-ask-user-question、todo、会话命名、subagents 委派、MCP 客户端、沙箱执行（code-runtime）、会话搜索（FTS5）、程序化技能、LSP 诊断/符号导航、自动压缩策略、默认模型锁定、状态栏、主题、技能机制、agent 预设、审批/权限/沙箱、web 抓取基础、MCP 代理面。
+ask-user-question、todo、会话命名、subagents 委派、MCP 客户端、沙箱执行（code-runtime）、会话搜索（FTS5）、程序化技能、LSP 诊断/符号导航、自动压缩策略、默认模型锁定、状态行、主题、技能机制、agent 预设、审批/权限/沙箱、web 抓取基础、MCP 代理面。
 
 ### 4.2 部分覆盖（以插件形式按缺口补齐）
 
@@ -224,13 +224,13 @@ ask-user-question、todo、会话命名、subagents 委派、MCP 客户端、沙
 ### 4.3 完全缺口（迁移候选，按优先级）
 
 1. context-mode 知识库组合（跨会话知识库 + 压缩型工具 + 意图检索）。
-1. glla 拆分项：list（任务队列）、audit（分离审计），建议与 dynamic-workflow 结合——list 以 workflow 任务 DAG / 任务队列插件实现（experimental-agent-team 的 shared task DAG 可作底座）；audit 以 workflow 复核模板 + acp/sdk 外部桥做进程外 auditor；goal 复用 dsh-goal，loop 复用 workflow+schedule。
-1. dynamic-workflows：/workflows TUI、deep-research 等模板。
-1. pi-intercom（跨会话 broker 与状态同步）。
-1. 代码面：ast-grep 结构搜索、代码索引、readSeek_view（PDF 视图）。
-1. web 面：PDF 提取、视频理解。
-1. 审查/提醒：pi-simplify、notify-sound、ponytail 工具族。
-1. defender：issue 上报。
+2. glla 拆分项：list（任务队列）、audit（分离审计），建议与 dynamic-workflow 结合——list 以 workflow 任务 DAG / 任务队列插件实现（experimental-agent-team 的 shared task DAG 可作底座）；audit 以 workflow 复核模板 + acp/sdk 外部桥做进程外 auditor；goal 复用 dsh-goal，loop 复用 workflow+schedule。
+3. dynamic-workflows：/workflows TUI、deep-research 等模板。
+4. pi-intercom（跨会话 broker 与状态同步）。
+5. 代码面：ast-grep 结构搜索、代码索引、readSeek_view（PDF 视图）。
+6. web 面：PDF 提取、视频理解。
+7. 审查/提醒：pi-simplify、notify-sound、ponytail 工具族。
+8. defender：issue 上报。
 
 ### 4.4 不迁移
 
@@ -265,7 +265,7 @@ pi-dsh-minimal（反向桥）、herdr 集成、pi 内部补丁、配置数据。
 | 3.4-2 / 3.4-3 ast-grep | readSeek_search / ast_grep\_\* | ast-tools（#20：搜索/替换/大纲/规则） |
 | 3.5 危险命令/敏感文件 | pi-defender | security-guard（#27：pre-execute 黑名单 + 敏感文件策略层） |
 | 3.7 / 4.4 herdr 桥 | herdr-\* 原生扩展 | herdr-integration（#36：unix socket + 环境变量握手） |
-| 3.6 状态栏/主题/技能机制 | powerline / themes / skills | TUI（状态区、fffdark/fflight、技能加载机制） |
+| 3.6 状态行/主题/技能机制 | powerline / themes / skills | TUI（状态区、fffdark/fflight、技能加载机制） |
 | 4.3 dynamic-workflows | /workflows TUI、fan-out | TUI `/workflows` 面板（#16）、task-engine fan-out（#13） |
 | 4.3 advisor/council | council-mode / advisor | TUI `/council`（#18） |
 | 3.4 多 provider 搜索 | web_search | TUI `/search` 多 provider 聚合（#24） |

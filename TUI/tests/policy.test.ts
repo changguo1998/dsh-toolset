@@ -1,7 +1,7 @@
 // tests/policy.test.ts — P2 阶段 C：审批策略两态切换（/policy）+ 当前策略展示
 //
 // 覆盖：adapter 归一化 approval/policy → approval-policy（含 seq 守卫与非活跃会话）；
-// reducer policyBySession 按 sessionId latest-wins + 会话隔离；layout 状态栏策略徽标
+// reducer policyBySession 按 sessionId latest-wins + 会话隔离；layout 状态行策略徽标
 // （ask / never→auto / 缺省省略）；routeSlashCommand /policy；App /policy 显式/无参
 // toggle、宿主缺失 ctx.approval 时 notice「审批策略服务不可用」不崩溃。
 
@@ -368,7 +368,7 @@ test("/policy 无参：打开状态选项面板——空格预选、Enter 提交
   assert.ok(f0.includes("/policy 审批策略"), "面板标题: " + f0);
   assert.ok(
     f0.includes("ask") && f0.includes("auto"),
-    `两项选项（ask/auto，与状态栏一致）: ${f0}`,
+    `两项选项（ask/auto，与状态行一致）: ${f0}`,
   );
   assert.deepEqual(adapter.policies, [], "打开面板不直接生效（防误改）");
   // ↓ 到 never → 空格预选 → Enter 提交并关闭

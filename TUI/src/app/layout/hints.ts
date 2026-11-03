@@ -1,10 +1,10 @@
-// src/app/layout/hints.ts — 底部按键提示区文案（按状态取一行；BACKLOG 3.1.2）
+// src/app/layout/hints.ts — 底部按键提示行文案（按状态取一行；BACKLOG 3.1.2）
 //
 // 全部按键提示的唯一来源：面板内不再画提示行，提示统一由 layout.buildFrame 放在
-// 输入区下方的提示区。空串仍占 1 行（历史加载等「无可用键位」阶段）；**提示区允许
+// 输入区下方的提示行。空串仍占 1 行（历史加载等「无可用键位」阶段）；**提示行允许
 // 2 行折行**（2026-10-14 用户裁定：超宽按「 · 」边界折行，不再截断），占用行数由
-// layout.hintRowsFor 按当前文案与终端宽度算出，故「交互区总高」恒定仍成立
-// （footerHeight = interaction − hintRows）——面板开关不让活动区上下跳。
+// layout.hintRowsFor 按当前文案与终端宽度算出，故「输入区 + 提示行总高」恒定仍成立
+// （footerHeight = interaction − hintRows）——面板开关不让回合区上下跳。
 //
 // 统一格式（2026-10-14 口径，BACKLOG「按键提示信息与实际绑定对齐」）：
 //  - 每条提示行一律 `[键]短标签`，条目之间用 ` · `（两侧各一个空格）分隔；
@@ -47,7 +47,7 @@ export const HINT_LINE =
 export const HINT_LINE_WITH_INPUT =
   MODE_HINTS + " · [C-c]清空 · [C-j]换行 · [/help]";
 
-/** 补全候选打开（候选面板本身不占活动区行放提示） */
+/** 补全候选打开（候选面板本身不占回合区行放提示） */
 export const COMPLETION_HINT_LINE = "[Tab]补全 · [↑/↓]选择 · [Esc]收起";
 
 /** 文件提及候选打开（`@` 补全；Tab 插入提及——目录续开下一级） */
@@ -64,7 +64,7 @@ export const HISTORY_ERROR_HINT_LINE = "[Esc]关闭";
 export const HISTORY_CONFIRM_HINT_LINE = "[y/Enter]确认 · [n/Esc]取消";
 export const HISTORY_LOADING_HINT_LINE = "";
 
-/** 历史面板阶段 → 提示区文案（未列出的阶段按加载类处理：空白占位） */
+/** 历史面板阶段 → 提示行文案（未列出的阶段按加载类处理：空白占位） */
 export const HISTORY_HINTS: Record<string, string> = {
   list: HISTORY_LIST_HINT_LINE,
   view: HISTORY_VIEW_HINT_LINE,
@@ -128,7 +128,7 @@ export function questionHintLine(panel: QuestionPanelState): string {
     );
   }
   if (total > 1) parts.push("[←/→]切题");
-  // 七项全列时 84 列 ⟹ 80 列终端折成 2 行（提示区允许折行后不再需要紧凑分隔符）
+  // 七项全列时 84 列 ⟹ 80 列终端折成 2 行（提示行允许折行后不再需要紧凑分隔符）
   return parts.join(" · ");
 }
 
@@ -145,10 +145,10 @@ export function commandPanelHint(kind: CommandPanelKind): string {
 /**
  * 当前状态 → 提示行文案。优先级固定：面板态（审批 / 问答 / 状态选项 / 模型选择 /
  * 任务 / 列表族）> 历史会话 > 补全 > 普通输入；同一时刻只显示最高优先级的一条。
- * 返回空串表示「有提示区但无可用键位」（占位空行，交互区高度不变）。
+ * 返回空串表示「有提示行但无可用键位」（占位空行，输入区 + 提示行高度不变）。
  */
 export function hintLine(state: AppState): string {
-  // 审批态：底部提示区始终显示常规按键（无效键提示自 3.3.6 起画在面板内容区左上）
+  // 审批态：提示行区始终显示常规按键（无效键提示自 3.3.6 起画在面板内容区左上）
   if (state.approval) return approvalHintLine(state);
   if (state.question) return questionHintLine(state.question);
   if (state.statusPanel) return statusPanelHintLine(state.statusPanel);

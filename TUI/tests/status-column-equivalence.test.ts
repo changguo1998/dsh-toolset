@@ -517,7 +517,7 @@ test("帧级：状态列每行显示宽恒为 statusColWidth、行文本不含�
           geom.statusColWidth,
           `cols=${cols} rows=${rows} 第${ri}行状态列宽不符: ${JSON.stringify(cell)}`,
         );
-        // 分隔列字形：内容行 `│`、结构行（标题栏下划线 / 活动区分隔行）`├`（divFor 口径）
+        // 分隔列字形：内容行 `│`、结构行（标题栏下划线 / 回合区分隔行）`├`（divFor 口径）
         assert.ok(
           /^[│├]$/.test(cell.slice(-1)),
           `cols=${cols} rows=${rows} 第${ri}行分隔列字形异常: ${JSON.stringify(cell)}`,

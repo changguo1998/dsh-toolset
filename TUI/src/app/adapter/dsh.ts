@@ -507,7 +507,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   let liveScope: { turn: number; step: number } | undefined;
 
   // 上下文窗口缓存：provider:model → 模型上下文容量（LlmResolvedModelInfo.context.contextWindow，
-  // 供状态栏 ctx 占用百分比作分母）。undefined=已解析但模型未披露（不再重试）；缺失/异常视为未知。
+  // 供状态行 ctx 占用百分比作分母）。undefined=已解析但模型未披露（不再重试）；缺失/异常视为未知。
   const ctxWindowCache = new Map<string, number | undefined>();
   const resolveContextWindow = async (
     key: string,
@@ -652,7 +652,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
    *  - model：末条 `model/selection`（显式意图）→ 快照 `model` → 末条
    *    `request/header.header.config`（该会话最近一次**实际使用**的 provider/model/
    *    effort）。命中即写回 `opts.sessionModel.current`（agent/request 钩子的生效源，
-   *    也是 /model 面板与状态栏的显示源）；三者都没有 → 清空会话内引用回落宿主默认。
+   *    也是 /model 面板与状态行的显示源）；三者都没有 → 清空会话内引用回落宿主默认。
    *  - mode：`plan/mode` / `sandbox/mode` / `permission/preset`；`approval/policy`
    *    同理单独成事件。宿主无记录时退回快照，再退回 permissionPresets.defaultPreset
    *    捆绑（= pinInitialPermission 会给全新会话钉上的组合），plan 无记录即 off。
@@ -1033,7 +1033,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
     }
     // 单活跃会话：非当前活跃会话的事件一律丢弃——其他 live 会话（列表标 [不可续]）
-    // 不可注入输出/思考/标题到本会话 buffer 或状态栏
+    // 不可注入输出/思考/标题到本会话 buffer 或状态行
     if (sid !== activeSessionId) return;
     // P2 seq 守卫：同 seq 重复/倒序（<= lastSeq）丢弃防重放；间隙接受并更新游标
     // （seed 边界由宿主 session/end-seed 标记；缺 seq 的事件（旧 mock）跳过守卫）
@@ -1144,9 +1144,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // 更正事件（`SurfaceOp` 的 replace 形态，字符串或 `{op:"replace"}` 对象）在
         // append-only 显示面无法安全重写，跳过整条（口径与 rule-engine 一致）。
         if (isCorrectiveEvent(raw)) return;
-        // 单次模型调用 token 用量：与正文同行送达（阶段 2 依 state.usage 落状态栏槽位）。
+        // 单次模型调用 token 用量：与正文同行送达（阶段 2 依 state.usage 落状态行槽位）。
         // 占用百分比分母 = 所选模型窗口（resolveModelInfo.context.contextWindow）；
-        // 未知/未披露时省略（状态栏仅显绝对大小），懒解析命中后补发一次同载荷 usage。
+        // 未知/未披露时省略（状态行仅显绝对大小），懒解析命中后补发一次同载荷 usage。
         if (data.usage) {
           const input = data.usage.inputTokens ?? 0;
           const output = data.usage.outputTokens ?? 0;
@@ -1350,7 +1350,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "session/title": {
         // 官方 dsh-session-title 落盘事件（fallback/provider/user 任一 source）：
-        // 仅转发当前活跃会话（adapter 视角权威），状态栏标题优先该官方折叠结果
+        // 仅转发当前活跃会话（adapter 视角权威），状态行标题优先该官方折叠结果
         const title = (raw.data as { title?: unknown }).title;
         if (
           sid === activeSessionId &&
@@ -1614,7 +1614,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
       }
       case "approval/policy": {
         // C 阶段：既有审计对事件归一化为第 10 个 DshEvent（载荷 {policy: 'ask'|'never'}）；
-        // 显示当前策略（状态栏）。无效载荷整体丢弃（fail-safe）。
+        // 显示当前策略（状态行）。无效载荷整体丢弃（fail-safe）。
         const policy = (raw.data as { policy?: unknown }).policy;
         if (policy !== "ask" && policy !== "never") return;
         emit({ type: "approval-policy", sessionId: sid, policy });
@@ -1888,7 +1888,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
       case "agent-preset/selected": {
-        // P3：agent 预设选中（rc.2 会话事件；payload {agentPreset}）→ 状态栏 preset:<id>。
+        // P3：agent 预设选中（rc.2 会话事件；payload {agentPreset}）→ 状态行 preset:<id>。
         // 经上方通用 seq 守卫 + 非活跃会话丢弃（与其它会话事件同链）。
         const p = raw.data as { agentPreset?: unknown };
         if (typeof p.agentPreset !== "string" || p.agentPreset === "") return;
@@ -2148,7 +2148,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     async setApprovalPolicy(policy) {
       // C 阶段：两态切换写路径 → 宿主 ctx.approval.setPolicy(agent, policy)（A0 已核实
       // user-approval/src/index.ts L226 → session.append('approval/policy', {policy})，
-      // 即本调用是 approval/policy 事件的产生源，状态栏经事件回读 latest-wins）。
+      // 即本调用是 approval/policy 事件的产生源，状态行经事件回读 latest-wins）。
       // 宿主未挂载 ctx.approval 或活跃 agent 缺失 → reject，调用方 notice「审批策略服务不可用」。
       if (disposed) return;
       // SAFETY: DshRuntime 结构面仅声明 on()；ctx.approval 为可选宿主服务，
@@ -3412,7 +3412,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     async modelEfforts(provider, model) {
       return (await resolveModelReasoning(opts, provider, model))?.efforts;
     },
-    // 推理元数据（efforts + provider 默认等级）：状态栏/面板按实际生效值展示
+    // 推理元数据（efforts + provider 默认等级）：状态行/面板按实际生效值展示
     modelReasoning(provider, model) {
       return resolveModelReasoning(opts, provider, model);
     },
@@ -3622,7 +3622,7 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
     agent?: unknown;
     status?: string;
   }): void {
-    // 仅转发当前活跃 agent 的状态：其他 live agent（如平行会话）不得污染状态栏
+    // 仅转发当前活跃 agent 的状态：其他 live agent（如平行会话）不得污染状态行
     const agentSid = (
       payload?.agent as { session?: { id?: string } } | undefined
     )?.session?.id;

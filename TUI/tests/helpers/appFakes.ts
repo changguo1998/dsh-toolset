@@ -246,7 +246,7 @@ export class FakeAdapter implements DshAdapter {
       { id: "max", name: "max" },
     ];
   }
-  /** 模拟 provider 默认等级（未显式选择时状态栏/面板按它显示）；缺省 undefined=无默认 */
+  /** 模拟 provider 默认等级（未显式选择时状态行/面板按它显示）；缺省 undefined=无默认 */
   modelReasoningData: ModelReasoning | undefined = undefined;
   async modelReasoning(
     provider: string,
@@ -402,8 +402,8 @@ export class FakeAdapter implements DshAdapter {
     const mine = this.mirrorSessionId ?? this.sessionId;
     if (sid !== undefined && sid !== mine) return;
     // `turn-end` 之前补一条定型信号：生产里宿主在 assistant/message 定型时发 `finalize`
-    // （types.ts「标记该 step 可冻结」）；镜像漏了它 → 内容永不冻结、一直留在活动区
-    // （「用户输入后活动区清空」的用例必红）
+    // （types.ts「标记该 step 可冻结」）；镜像漏了它 → 内容永不冻结、一直留在回合区
+    // （「用户输入后回合区清空」的用例必红）
     if (e.type === "turn-end") {
       this.mirrorTo?.current?.({
         kind: "finalize",

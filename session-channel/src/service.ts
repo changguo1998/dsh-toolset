@@ -922,7 +922,7 @@ export class SessionChannelService {
 
   /**
    * 投递单条：注入本进程会话（失败则留流中，不写回执）。
-   * 正文来源与日志标签均按「别名优先、其次会话 id」解析（D6：正文与活动区都需可读）。
+   * 正文来源与日志标签均按「别名优先、其次会话 id」解析（D6：正文与回合区都需可读）。
    */
   async #deliver(sessionId: string, message: InboxMessage): Promise<boolean> {
     const conn = this.#conn;

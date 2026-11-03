@@ -36,7 +36,7 @@ export function buildOsc52(text: string): string {
 }
 
 /** 历史会话表面消息 → buffer 行（回合分隔线 + user/assistant 正文 + P9 的 step 概要行 +
- *  TUI#17 的 notice 摘要行）；历史 assistant 均为已完成回合的最终总结 → final: true（历史区展示）。
+ *  TUI#17 的 notice 摘要行）；历史 assistant 均为已完成回合的最终总结 → final: true（会话区展示）。
  *  P9：整条为空的消息不再产出行（恢复后成片空行的来源），step 行原样成行。
  *  宿主回合索引逐层保留：消息带 turn 且变化 → 产分隔线行（带真回合号），重放器据此
  *  还原真回合（不按序数重数），续接后的回合预测才与宿主一致。 */
@@ -480,12 +480,12 @@ export const LOCAL_COMMANDS: readonly {
   {
     name: "collapse",
     route: "collapse",
-    desc: "活动区压缩：/collapse [think|tool|reply|all] on|off（on = 该类条目压 1 行，all = 三类同时）",
+    desc: "回合区压缩：/collapse [think|tool|reply|all] on|off（on = 该类条目压 1 行，all = 三类同时）",
   },
   {
     name: "verbose",
     route: "verbose",
-    desc: "活动区显示：/verbose [think|tool|reply|all] on|off（on = 显示该类内容，all = 三类同时）",
+    desc: "回合区显示：/verbose [think|tool|reply|all] on|off（on = 显示该类内容，all = 三类同时）",
   },
   {
     name: "search",
@@ -526,7 +526,7 @@ export function isCommandTokenInput(text: string): boolean {
 type InputModeLike = "steer" | "followup" | "shell" | "slash" | "interrupt";
 
 /**
- * 取「命令 token」纯文本（不含前导 `/`）：slash 模式下输入框不含前导 `/`
+ * 取「命令 token」纯文本（不含前导 `/`）：slash 模式下输入区不含前导 `/`
  * （提交时才补，见 App.submit），故先归一为字面 `/name` 形式再判定；
  * 非 token 输入（含参数、非命令首字符、换行）返回 null。
  */
@@ -540,7 +540,7 @@ function commandToken(text: string, mode: InputModeLike): string | null {
  * 匹配=名称前缀命中（大小写不敏感）；排序=前缀更短（更贴近输入）优先、同长字典序，
  * 故 items[0] 恒为「最匹配」的默认候选（面板默认高亮它）。
  * extra 为宿主注册表命令（ctx.commands.list），同名不与本地目录重复；
- * mode=slash 时输入框文本无前导 `/`（归一后匹配）。
+ * mode=slash 时输入区文本无前导 `/`（归一后匹配）。
  */
 export function completeCommandInput(
   text: string,
@@ -560,8 +560,8 @@ export function completeCommandInput(
   items.sort(
     (a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name),
   );
-  // 候选不设硬上限：面板按活动区可视行截断（CommandCompletion 超出丢弃、焦点导航
-  // 由 App.completionVisibleRows() 同口径限制），候选池足够时活动区即可铺满。
+  // 候选不设硬上限：面板按回合区可视行截断（CommandCompletion 超出丢弃、焦点导航
+  // 由 App.completionVisibleRows() 同口径限制），候选池足够时回合区即可铺满。
   return { items, index: 0 };
 }
 

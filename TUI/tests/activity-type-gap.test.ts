@@ -20,7 +20,7 @@ const L = (text: string, kind: HistoryRow["kind"]): HistoryRow => ({
   kind,
 });
 
-/** 活动区渲染文本行 */
+/** 回合区渲染文本行 */
 const act = (buf: HistoryRow[]): string[] =>
   renderBuffer(buf, { dialogueTextW: W, activityTextW: W }).activity.map((r) =>
     rowText(r),
@@ -135,7 +135,7 @@ test("#5 正文 / 思考的拖尾空行 → 工具：吸收后紧排（不靠 st
   );
 });
 
-test("#5 活动区开头（无前一类）不插空行", () => {
+test("#5 回合区开头（无前一类）不插空行", () => {
   const rows = act([L("提示行", "notice"), L("思考一", "thinking")]);
   assert.deepEqual(blanks(rows), []);
 });

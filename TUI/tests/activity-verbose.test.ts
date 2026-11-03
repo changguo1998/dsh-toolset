@@ -1,4 +1,4 @@
-// tests/activity-verbose.test.ts —— 活动区压缩开关（SPEC §6.8；/collapse [think|tool|reply] on|off）
+// tests/activity-verbose.test.ts —— 回合区压缩开关（SPEC §6.8；/collapse [think|tool|reply] on|off）
 //
 // 缺省三项全关（完整折行）；某类开启后该类条目压 1 行 + 行尾省略号。
 // notice 与 step 头不归三类，恒按完整形态显示。
@@ -42,8 +42,8 @@ function typeAndEnter(renderer: FakeRenderer, text: string): void {
   renderer.press(key("enter"));
 }
 
-/** 覆盖各活动区条目类型的长文本（思考/工具调用/工具结果/非 final 中间输出） */
-const LONG = "很长的活动区文本内容".repeat(6); // 显示宽 10×6 = 60，超 40 列窗
+/** 覆盖各回合区条目类型的长文本（思考/工具调用/工具结果/非 final 中间输出） */
+const LONG = "很长的回合区文本内容".repeat(6); // 显示宽 10×6 = 60，超 40 列窗
 
 const buf: HistoryRow[] = [
   { text: LONG, kind: "thinking" },
@@ -54,7 +54,7 @@ const buf: HistoryRow[] = [
 
 const W = 40;
 
-test("活动区完整模式（缺省）：长条目折行成多行", () => {
+test("回合区完整模式（缺省）：长条目折行成多行", () => {
   const panes = renderBuffer(buf, { dialogueTextW: W, activityTextW: W });
   assert.ok(
     panes.activity.length > buf.length,
@@ -114,7 +114,7 @@ test("压缩开关 tool：工具组压 1 行（名字行 + 行尾省略号）", 
   );
 });
 
-test("活动区紧凑模式：短条目不加省略号（原样）", () => {
+test("回合区紧凑模式：短条目不加省略号（原样）", () => {
   const short: HistoryRow[] = [{ text: "短", kind: "thinking" }];
   const panes = renderBuffer(short, {
     dialogueTextW: W,
@@ -124,8 +124,8 @@ test("活动区紧凑模式：短条目不加省略号（原样）", () => {
   assert.equal(rowText(panes.activity[0]!).trimEnd(), "┃短");
 });
 
-test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽", () => {
-  // 条目 16 段 C1：活动区内容改走交付流（不再写缓冲行 + 靠回退重放）
+test("端到端：/collapse off 后 buildFrame 回合区行数收敛且不越宽", () => {
+  // 条目 16 段 C1：回合区内容改走交付流（不再写缓冲行 + 靠回退重放）
   const s = {
     ...initialState(),
     pipeline: sectionsFromScript([
@@ -177,7 +177,7 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
   const g = frameGeometry(s, size);
   const countAct = (state: AppState): number => {
     const rows = buildFrame(state, size).map(rowText);
-    // 活动 pane 行数：横向=右列带；纵向=底部 activityH 行带；数带内非空、非纯分隔线内容行
+    // 回合区 行数：横向=右列带；纵向=底部 activityH 行带；数带内非空、非纯分隔线内容行
     let band: string[];
     if (g.mode === "horizontal") {
       const start = g.contentStartCol + g.dialogueW;
@@ -198,7 +198,7 @@ test("端到端：/collapse off 后 buildFrame 活动区行数收敛且不越宽
   const compactRows = countAct(compactState);
   assert.ok(
     compactRows <= verboseRows,
-    `紧凑后活动区行数不应增加（${verboseRows} → ${compactRows}）`,
+    `紧凑后回合区行数不应增加（${verboseRows} → ${compactRows}）`,
   );
   assert.equal(compactState.activityCompact.tool, true);
   assert.ok(g.activityH > 0);

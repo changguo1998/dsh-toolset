@@ -1,16 +1,16 @@
-// src/app/components/CommandCompletion.ts — 输入补全候选面板（活动区窗口）
+// src/app/components/CommandCompletion.ts — 输入补全候选面板（回合区窗口）
 //
 // 两类候选共用一套面板：命令候选（输入仍处于首个命令 token）与文件提及候选（提示文本
 // 里光标处有活动 `@` token）。两者都是「标题行 + 候选行」（焦点行 `> …` 黄色，默认高亮
-// 最匹配项），候选尽可能铺满活动区可视行（面板不放按键提示——键位统一放在输入区下方的
-// 按键提示区，见 src/app/layout/hints.ts 的 COMPLETION_HINT_LINE / FILE_MENTION_HINT_LINE）。
+// 最匹配项），候选尽可能铺满回合区可视行（面板不放按键提示——键位统一放在输入区下方的
+// 按键提示行，见 src/app/layout/hints.ts 的 COMPLETION_HINT_LINE / FILE_MENTION_HINT_LINE）。
 // 判定与排序在 commands.ts / file-mention.ts 的纯函数，本组件只渲染。
 // 输出恰 height 行：标题 + (height-1) 行候选（**超出的候选直接丢弃，不滚动**；
 // 焦点导航同口径由 App.completionVisibleRows() 限制在可视范围内）。
 //
 // 宽度契约：每行都必须 ≤ width（显示列）。行内容先按显示宽截断（truncateToWidth
 // 会剥 ANSI 计宽、不切半个 CJK），再着色——着色后宽度计算会被转义序列打乱，
-// 一旦超宽会把活动区右缘框线挤偏并让终端折行。
+// 一旦超宽会把回合区右缘框线挤偏并让终端折行。
 
 import type { FrameRow } from "../../renderer/index.ts";
 import { truncateToWidth } from "../layout.ts";
@@ -114,7 +114,7 @@ export function buildFileMentionCompletionBox(
   return v(leaves.map((l) => l));
 }
 
-/** 候选类别 → 面板 Box（命令 / 文件提及共用活动区窗口） */
+/** 候选类别 → 面板 Box（命令 / 文件提及共用回合区窗口） */
 export function buildCompletionBox(view: CompletionBoxView): Box {
   return view.completion.kind === "command"
     ? buildCommandCompletionBox({
@@ -129,7 +129,7 @@ export function buildCompletionBox(view: CompletionBoxView): Box {
       });
 }
 
-/** 候选类别 → 活动区行（渲染层唯一入口） */
+/** 候选类别 → 回合区行（渲染层唯一入口） */
 export function renderCompletion(view: CompletionBoxView): FrameRow[] {
   return fillBoxTree(buildCompletionBox(view), view.height, view.width);
 }

@@ -12,7 +12,7 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 
 | 包 | 功能 |
 |----|------|
-| **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/活动区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；**零第三方运行时依赖**（源码零第三方 import，仅复用本仓 `clock-base` 的时钟探测，颜色走 manual ANSI） |
+| **TUI**（`TUI/`，`@dsh-toolset/tui`） | 终端 UI：会话/回合区/状态列/输入区四区布局，事件化渲染、slash 命令、会话切换与清理、模型/审批面板；**零第三方运行时依赖**（源码零第三方 import，仅复用本仓 `clock-base` 的时钟探测，颜色走 manual ANSI） |
 | **clock-base** | 定时器统一面：服务 `clock`（`now()` + `scope(ctx)` 返回的 `schedule(delayMs, cb)` / `interval(delayMs, cb)`；撤销动作登记在调用方 `ctx.effect` 上，插件卸载不留活定时器，句柄默认 `unref`），另导出可手控的 `ManualClock`（推进时间、按到期顺序触发）供测试用。与宿主 `cordis-plugin-timer` 并存、不包装：宿主无 `schedule`、不支持 `unref`、mixin 需硬 `inject`，包装代价更大 |
 | **herdr-integration** | herdr 面板桥：agent 状态经 unix socket 上报 herdr 面板，并桥接 blocked 事件（ask-user 提问、approval 审批、turn 阻塞三类信号源） |
 | **herdr-use** | herdr 终端读写：十个模型侧工具 `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`（无 `action` 参数）；一个终端 = 一个 tab + 自带 root pane，`terminal_id` 取 root pane id，模型不接触 pane / tab / workspace；前台 lane 继承父 herdr 会话，后台 lane 落在 `dshbg` 会话并在缺会话时自动拉起 headless server；每个 dsh 会话按 lane 严格绑定一个 workspace；另向进程内提供 `herdrUse` 服务面，与工具面共用同一 registry 与同一把锁；写类工具过 read-only 沙箱闸与 security-guard 登记 |

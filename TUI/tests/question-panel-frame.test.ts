@@ -252,7 +252,7 @@ test("面板位移：终端比帧矮（钳制路径）不得滚屏，可见部�
   }
 });
 
-test("面板位移：活动区有流式行时开面板 + ↓，屏幕仍等于当前帧", () => {
+test("面板位移：回合区有流式行时开面板 + ↓，屏幕仍等于当前帧", () => {
   let emu!: ScreenEmu;
   const real = createRenderer({
     write: (s) => emu?.feed(s),
@@ -263,7 +263,7 @@ test("面板位移：活动区有流式行时开面板 + ↓，屏幕仍等于�
   emu = new ScreenEmu(size.cols, size.rows, { scroll: true });
   let s = questionState(THREE_OPTIONS);
   try {
-    // 面板打开期间活动区仍有流式内容（真实时序：工具/子代理输出与提问并发）
+    // 面板打开期间回合区仍有流式内容（真实时序：工具/子代理输出与提问并发）
     let frame = (st: AppState) => buildFrame(st, size);
     // 条目 16 段 A：流式内容不再写 buffer，改走交付流（帧内容源 = state.pipeline）
     let pipe = sectionsFromScript([

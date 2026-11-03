@@ -58,7 +58,7 @@ export interface RealAdapterOptions {
   runtime: DshRuntime;
   sessionId: string;
   /** TUI#40：本次进程**启动即恢复**了持久化会话（CLI `--resume` / `-c`）——
-   *  adapter 据此暴露 `resumedAtLaunch`，App 启动时补一次历史折叠（历史区直接可见既有消息） */
+   *  adapter 据此暴露 `resumedAtLaunch`，App 启动时补一次历史折叠（会话区直接可见既有消息） */
   resumedAtLaunch?: boolean;
   /** 六步流水线接收层 sink（由 App 注入）：adapter 把宿主
    *  两条线（持久线结算 / 实时线增量）归一成「块交付」投递到这里；缺省不投递、零开销。 */

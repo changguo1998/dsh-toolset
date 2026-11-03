@@ -259,7 +259,7 @@ test("/jobs：面板关闭后迟到 jobs-changed 不重开面板、jobs 状态�
   // 迟到 jobs-changed（活跃会话）→ 面板保持关闭，jobs 状态仍更新
   // （初始 refreshJobs 快照 DEMO_JOBS=1 运行中/2 总数 → 状态列 Jobs 1/2；
   //  迟到快照带 2 个运行中 → 状态列 Jobs 2/2，证明 state 确实被更新；
-  //  水平状态栏不显示 jobs 徽标）
+  //  水平状态行不显示 jobs 徽标）
   adapter.emit({
     type: "jobs-changed",
     sessionId: "s1",
@@ -308,7 +308,7 @@ test("/jobs：非活跃会话 jobs-changed / agent-preset 事件被丢弃（会�
   await tick();
   let f = frames(renderer);
   assert.ok(!f.includes("Jobs"), "非活跃会话 jobs 不得入状态列: " + f);
-  // 非活跃会话 s2 的 agent-preset → 丢弃（状态栏不出现 preset 徽标）
+  // 非活跃会话 s2 的 agent-preset → 丢弃（状态行不出现 preset 徽标）
   adapter.emit({
     type: "agent-preset",
     sessionId: "s2",

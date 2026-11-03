@@ -3,7 +3,7 @@
 // 以文本面板呈现 DSH 提问（与 ApprovalPrompt 同风格）：标题区 + 单题视图
 // （描述窗 + 选项窗两段）。标题区（BACKLOG TUI#4）：单题 = 0 行（不显示标题与
 // 类型符号，首行即题干），多题 = 1 行（按题序列出「题号 + 符号」，如 ` 1○ 2□`）。
-// 按键提示**不在面板内**，统一由底部提示区按状态显示（见 src/app/layout/hints.ts 的 questionHintLine）。
+// 按键提示**不在面板内**，统一由提示行区按状态显示（见 src/app/layout/hints.ts 的 questionHintLine）。
 //
 // 两窗模型（BACKLOG 3.2.1）：面板体按高度拆为
 //   - **描述窗**：题干 + detail（plan-review 追加计划卡片分隔行）；
@@ -64,7 +64,7 @@ const SYM_FILLED: Record<QuestionSym, string> = {
 /** 选项标记（BACKLOG TUI#4）：单 / 多选不再由标记区分（多题的类型由符号行表达），统一对勾 */
 const OPTION_MARK = "✓";
 
-/** 面板内光标位置（0 基行 + 0 基列；活动区列偏移由 layout 拼装时补上） */
+/** 面板内光标位置（0 基行 + 0 基列；回合区列偏移由 layout 拼装时补上） */
 export interface PanelCaret {
   row: number;
   col: number;
@@ -96,7 +96,7 @@ interface QuestionLayout {
 
 /** 问答面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
  *  替换。标题 + 描述窗 + 选项窗按高度分配，逐行产 styled 叶子——**描述窗（题干 / detail）
- *  走 markdown 子集**（与历史区同口径，BACKLOG TUI#6），选项行不解析（选中绿 / 未选中的
+ *  走 markdown 子集**（与会话区同口径，BACKLOG TUI#6），选项行不解析（选中绿 / 未选中的
  *  光标行黄）。按键提示不在面板内（见 src/app/layout/hints.ts）。 */
 export function buildQuestionPanelBox(
   panel: QuestionPanelState,
@@ -165,7 +165,7 @@ function layoutQuestionPanel(
   const avail = Math.max(4, width - 2);
   // 标题区：单题 = 0 行（无标题行、无类型符号）；多题 = 1 行（该行列出全部题符号）
   // ——BACKLOG TUI#4；2026-09-27 真机目视改判：标题行「请回答 / 计划审批」与状态 △ 一并去掉。
-  // 按键提示移到底部提示区，不占面板行
+  // 按键提示移到提示行区，不占面板行
   const total = panel.items.length;
   const headerRows = total > 1 ? 1 : 0;
   const maxBody = Math.max(0, height - headerRows);
@@ -189,7 +189,7 @@ function layoutQuestionPanel(
     // 滚动条 / 焦点条（见第 6 步）——占原有缩进、不增宽、不改折行
     /** 描述窗内容宽（扣除行首 1 列占位） */
     const descW = Math.max(1, avail - 1);
-    /** markdown 行（BACKLOG TUI#6）：题干 / detail 走历史区同口径解析 */
+    /** markdown 行（BACKLOG TUI#6）：题干 / detail 走会话区同口径解析 */
     const pushMarkdown = (text: string): void => {
       for (const segs of panelMarkdownRows(text, descW)) {
         descRows.push({ text: "", segments: segs });
@@ -340,7 +340,7 @@ function layoutQuestionPanel(
   }
 
   // 3) 两窗高度分配（BACKLOG 3.2.11 规则）：描述窗上限 = 面板体 2/3（向下取整，至少 1 行），
-  //    内容不足时只占实际行数——两窗紧邻、中间不留大段空白，空行只落在活动区下方
+  //    内容不足时只占实际行数——两窗紧邻、中间不留大段空白，空行只落在回合区下方
   const descMaxRows = Math.max(1, Math.floor((maxBody * 2) / 3));
 
   // 4) 描述窗起点：偏移按**固定上限** descMaxRows clamp（不随内容抖动，到底后反向按键即时

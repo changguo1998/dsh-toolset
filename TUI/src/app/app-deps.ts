@@ -18,7 +18,7 @@ import type { LocalLogWriteOptions } from "./adapter/local-log.ts";
 export interface AppDeps {
   renderer: Renderer;
   adapter: DshAdapter;
-  /** 可选：系统状态区数据源；提供后 App 自动启动合并节流 ticker */
+  /** 可选：状态行数据源；提供后 App 自动启动合并节流 ticker */
   status?: {
     queries: StatusQueries;
     intervalMs?: number;
@@ -33,14 +33,14 @@ export interface AppDeps {
   frameIntervalMs?: number;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4，经 initialState 落到 state) */
   messageGutter?: number;
-  /** 交互区绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
+  /** 输入区 + 提示行绝对行数（tui.config.json layout.footerHeight；缺省自动 1/5 上限 4） */
   footerHeight?: number;
-  /** 活动区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
+  /** 回合区高分母（tui.config.json layout.activityHeightDivisor；1/2 → 2） */
   activityHeightDivisor?: number;
-  /** 活动区分隔行锚定（tui.config.json layout.activityTopRow；"half" = floor(rows/2) 或绝对行号；
+  /** 回合区分隔行锚定（tui.config.json layout.activityTopRow；"half" = floor(rows/2) 或绝对行号；
    *  配置后替代 activityHeightDivisor 的比例分配，缺省走 divisor） */
   activityTopRow?: "half" | number;
-  /** 活动区排列方式（tui.config.json layout.activityPlacement；"auto" 按黄金分割比
+  /** 回合区排列方式（tui.config.json layout.activityPlacement；"auto" 按黄金分割比
    *  自动在上下/左右间选择，缺省恒上下排列。见 layout.ts topPaneSplit） */
   activityPlacement?: ActivityPlacement;
   /** 状态列宽分母（tui.config.json layout.statusColumnDivisor；1/3 → 3） */
@@ -64,11 +64,11 @@ export interface AppDeps {
   /** 符号服务读取器（懒读，容忍插件装载顺序）：返回 undefined = symbol-normalizer 未挂载，
    *  此时展示层原文透传、无 notice（BACKLOG TUI#18 / 项目级 #48） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
-  /** 会话通道读取器（懒读）：返回 undefined = session-channel 未挂载，状态栏不显示别名段
+  /** 会话通道读取器（懒读）：返回 undefined = session-channel 未挂载，状态行不显示别名段
    *  （BACKLOG TUI#48） */
   getSessionChannel?: () => SessionChannelLike | undefined;
   /** rule-engine 服务读取器（懒读）：返回 undefined（或未实现 onNotice）= 告警不经总线，
-   *  由插件侧 stderr 兜底（BACKLOG「rule-engine 的用户提示应显示在活动区」） */
+   *  由插件侧 stderr 兜底（BACKLOG「rule-engine 的用户提示应显示在回合区」） */
   getRuleEngine?: () => RuleEngineLike | undefined;
   /** 运行期告警出口（缺省静默；真实接线由 main.ts 写 stderr，格式 `warn: …`） */
   logger?: (message: string) => void;

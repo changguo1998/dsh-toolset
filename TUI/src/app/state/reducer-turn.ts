@@ -18,7 +18,7 @@ export function reduceTurn(
       // run 边界 = 两次用户输入之间（见 runVirt 注释）：仅用户输入开启的回合
       // （clearActivity=true，含排队消息被认领）才重置虚拟状态与本 step 累计；
       // 核心自发的回合（goal 轮次/定时唤醒，clearActivity=false）属同一 run，保留。
-      // 活动区本地行（notice / 工具行）一并清掉（否则底部 toast 挂着上一回合的提示）。
+      // 回合区本地行（notice / 工具行）一并清掉（否则底部 toast 挂着上一回合的提示）。
       const clearActivity = action.clearActivity ?? true;
       return {
         ...state,

@@ -4,7 +4,7 @@
 // 面板渲染（行数恒等 height、加载中/空态/错误占位、窗口平移、超宽截断不切半个 CJK）；
 // /skills 命令（stub 列表 → 面板行、filter 透传、服务缺失 → warn 且不开面板、空列表占位、
 // 无参重复调用 = 关闭、Enter 详情、Esc 关闭）；面板态 footer/focus 接线
-// （按键提示行让位、交互区高度不变）与翻页键位（reducer 精确 + App 接线）。
+// （按键提示行让位、输入区 + 提示行高度不变）与翻页键位（reducer 精确 + App 接线）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -390,7 +390,7 @@ test("routeSlashCommand: /skills → skills", () => {
   assert.equal(routeSlashCommand("skills"), "skills");
 });
 
-test("/skills：stub 列表 → 面板渲染名称与计数（活动区）", async () => {
+test("/skills：stub 列表 → 面板渲染名称与计数（回合区）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
   const app = new App({ renderer, adapter });
@@ -472,7 +472,7 @@ test("/skills：Enter 读取详情（skillDetail）→ 关面板 + notice 展示
   await tick();
   assert.deepEqual(adapter.detailCalls, ["ponytail"], "Enter 取高亮行载荷");
   const f = frames(renderer);
-  // 面板占活动区会遮住瞬态 notice → Enter 先关面板再提示详情（与 /jobs 面板体验一致）
+  // 面板占回合区会遮住瞬态 notice → Enter 先关面板再提示详情（与 /jobs 面板体验一致）
   assert.ok(!f.includes("技能（"), "Enter 后关闭面板: " + f);
   assert.ok(
     f.includes("ponytail（无详情）"),
@@ -496,7 +496,7 @@ test("/skills：Esc 关闭面板", async () => {
 
 // ---------- 键位：翻页与移动（App 接线） ----------
 
-test("键位：PgDn 页高 = 活动区可视行数、PgUp 回退（钉死接线点 ⑤）", async () => {
+test("键位：PgDn 页高 = 回合区可视行数、PgUp 回退（钉死接线点 ⑤）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
   adapter.skills = Array.from({ length: 40 }, (_, i) => ({
@@ -507,9 +507,9 @@ test("键位：PgDn 页高 = 活动区可视行数、PgUp 回退（钉死接线�
   app.start();
   typeAndEnter(renderer, "/skills");
   await tick();
-  // 页高 = 活动区可视行数（80×24 基线 = 8）：若接线点 ⑤ 退化为 page=1，下面的断言必失败
+  // 页高 = 回合区可视行数（80×24 基线 = 8）：若接线点 ⑤ 退化为 page=1，下面的断言必失败
   const page = frameGeometry(initialState(), renderer.size).activityH;
-  assert.equal(page, 8, "80×24 基线：活动区可视行数 = 8");
+  assert.equal(page, 8, "80×24 基线：回合区可视行数 = 8");
   press(renderer, "pagedown");
   await tick();
   assert.ok(
@@ -549,7 +549,7 @@ test("键位：↑/↓ 单行移动且不越界", async () => {
 
 // ---------- 面板态 footer/focus 接线 ----------
 
-test("接线：面板态提示区换为面板键位（面板内不再内嵌提示；前后都是 1 行）", async () => {
+test("接线：面板态提示行换为面板键位（面板内不再内嵌提示；前后都是 1 行）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSkillsAdapter();
   const app = new App({ renderer, adapter });
@@ -562,12 +562,12 @@ test("接线：面板态提示区换为面板键位（面板内不再内嵌提�
   assert.ok(!after.includes("[C-d]退出"), "面板态不再显示默认提示: " + after);
   assert.ok(
     after.includes("[↑/↓]选择"),
-    "面板态提示区显示面板键位（见 layout/hints.ts）: " + after,
+    "面板态提示行显示面板键位（见 layout/hints.ts）: " + after,
   );
   app.dispose();
 });
 
-test("接线：面板态交互区几何不变（底线位置一致，提示区恒 1 行，接线点 ②④）", () => {
+test("接线：面板态输入区 + 提示行几何不变（底线位置一致，提示行恒 1 行，接线点 ②④）", () => {
   const size: Size = { cols: 80, rows: 24 };
   const base = initialState();
   const open = reduceState(base, {
@@ -576,15 +576,15 @@ test("接线：面板态交互区几何不变（底线位置一致，提示区�
   });
   const baseRows = buildFrame(base, size).map(rowText);
   const openRows = buildFrame(open, size).map(rowText);
-  // 帧总行数 + 活动区底边（含 ┴ 的行）位置一致 → 面板开关不改变交互区几何
+  // 帧总行数 + 回合区底边（含 ┴ 的行）位置一致 → 面板开关不改变输入区 + 提示行几何
   assert.equal(openRows.length, baseRows.length, "总行数一致");
   const baseBottom = baseRows.findIndex((l) => l.includes("┴"));
   const openBottom = openRows.findIndex((l) => l.includes("┴"));
-  assert.ok(baseBottom > 0, "找到活动区底边: " + JSON.stringify(baseRows));
+  assert.ok(baseBottom > 0, "找到回合区底边: " + JSON.stringify(baseRows));
   assert.equal(
     openBottom,
     baseBottom,
-    "底线位置一致（footerHeight 不变、提示区恒 1 行）",
+    "底线位置一致（footerHeight 不变、提示行恒 1 行）",
   );
   assert.ok(
     baseRows.some((l) => l.includes("[C-d]退出")),
@@ -592,7 +592,7 @@ test("接线：面板态交互区几何不变（底线位置一致，提示区�
   );
   assert.ok(
     !openRows.some((l) => l.includes("[C-d]退出")),
-    "面板态不再显示默认提示（提示区换为面板键位，同为 1 行）",
+    "面板态不再显示默认提示（提示行换为面板键位，同为 1 行）",
   );
 });
 

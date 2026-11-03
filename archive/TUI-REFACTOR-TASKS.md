@@ -44,11 +44,11 @@
 推进分三波（顺序推进为主，勾选并行仅在文件边界清晰的任务间开 worktree——一任务一 worktree，且「内容映射替换 `wrapBufferLines`」与「`layout.ts` 拆文件」绝不同时开）：
 
 1. **接口冻结（已完成 cc743d7）**：定义 `Box`/`Paragraph`/`NodeBase` 类型 + `measure/allocate` 签名（纯函数）；同步修订 `SPEC.md` §6 契约歧义（SizeTable.root / separator 仅纵向 Box / Paragraph 总宽含 indent+prefix）。
-1. **接口冻结后的有限并行**：① 契约迁移（已并入主线 A）；② measure/allocate 实现 + 单测（宽度规则/保底/比例/悬挂缩进）——**已完成 eea8196**（`layout/measure.ts` + `tests/measure.test.ts` 完整 measure/allocate 契约测试；advisor 两轮复核修复：spacer 轴显式互斥、多 ratio 归一、min>max、fill max 截断回流、v 过度约束压缩顺序）；③ 内容映射（`state.buffer` → 内容 Box 树，替换 `wrapBufferLines` 的分类处理）——**已完成**（`layout/build-box.ts`+`layout/fill.ts`+`layout/content-rules.ts`；双轨对照冻结 fixture + cutover 提交 b84d4b5，`wrapBufferLines` 已删、两处调用点走 `buildContentRows`）；④ 测试序列化辅助（`FrameRow[]` ↔ 字符串，复用旧断言）；⑤ 随子系统实现**逐步抽文件**（不再单设大规模拆文件并行道：`layout.ts` 按 DESIGN Part II §6 目标结构边做边拆，行为不变）。
-1. **接线汇合**：各区域改造为 `fill(ctx, rect)`；`FocusFrame` 实现与测试（对照现有焦点框线各焦点态的帧断言）；面板改造为 Box 生成器（`TUI/docs/DESIGN.md` Part II §7；场景原语 `SPEC.md` §7）。——**已完成**（`layout/focus-frame.ts` 焦点框全局覆写 + `layout/panel.ts` 场景原语 + 7 面板组件改 Box 生成器 `buildXxxBox`；buildFrame 末尾单次 `focusFrame` 覆写；冻结 fixture 对照 `focus-frame-legacy.json` 16 场景逐行等价）。
-1. **依赖基元迁移（防循环依赖，接线前必做）**：`measure.ts` 目前从 `layout.ts` import `wrapLine/truncateToWidth`、从 `layout/markdown.ts` import `displayWidth`。接线里程碑必须先把这些共享宽/折行原语迁到中立模块（如 `layout/width.ts`），再让 `layout.ts` import `measure.ts`，避免双向依赖。——**已完成 fd96d27**（抽取 `layout/primitives.ts`：seg/rowWidth2/truncateSegs/truncateToWidth/wrapLine/wrapLines；measure 改 import primitives.ts，layout.ts 改 import+re-export）。
-1. 全量回归：`npm run check/test/build` + `demo -- --smoke` + `smoke:pty`。——**已完成**（tsc 0；TUI 686/686；根级 11 包 0 fail；demo 冒烟 SMOKE_PASS 36；`smoke:pty` 真机冒烟 SMOKE OK）。
-1. 文档同步：`SPEC.md` 引用、`TUI/docs/DESIGN.md`「四区域布局」改为「由 Box 树声明」、`TUI/docs/design/REFACTOR.md` 归属登记。——**已完成**（SPEC 保留既有设计引述；DESIGN 标题注明由 Box 树声明 + 术语节「已收敛」；REFACTOR 已登记 layout/box|focus-frame|panel 等归属）。
+2. **接口冻结后的有限并行**：① 契约迁移（已并入主线 A）；② measure/allocate 实现 + 单测（宽度规则/保底/比例/悬挂缩进）——**已完成 eea8196**（`layout/measure.ts` + `tests/measure.test.ts` 完整 measure/allocate 契约测试；advisor 两轮复核修复：spacer 轴显式互斥、多 ratio 归一、min>max、fill max 截断回流、v 过度约束压缩顺序）；③ 内容映射（`state.buffer` → 内容 Box 树，替换 `wrapBufferLines` 的分类处理）——**已完成**（`layout/build-box.ts`+`layout/fill.ts`+`layout/content-rules.ts`；双轨对照冻结 fixture + cutover 提交 b84d4b5，`wrapBufferLines` 已删、两处调用点走 `buildContentRows`）；④ 测试序列化辅助（`FrameRow[]` ↔ 字符串，复用旧断言）；⑤ 随子系统实现**逐步抽文件**（不再单设大规模拆文件并行道：`layout.ts` 按 DESIGN Part II §6 目标结构边做边拆，行为不变）。
+3. **接线汇合**：各区域改造为 `fill(ctx, rect)`；`FocusFrame` 实现与测试（对照现有焦点框线各焦点态的帧断言）；面板改造为 Box 生成器（`TUI/docs/DESIGN.md` Part II §7；场景原语 `SPEC.md` §7）。——**已完成**（`layout/focus-frame.ts` 焦点框全局覆写 + `layout/panel.ts` 场景原语 + 7 面板组件改 Box 生成器 `buildXxxBox`；buildFrame 末尾单次 `focusFrame` 覆写；冻结 fixture 对照 `focus-frame-legacy.json` 16 场景逐行等价）。
+4. **依赖基元迁移（防循环依赖，接线前必做）**：`measure.ts` 目前从 `layout.ts` import `wrapLine/truncateToWidth`、从 `layout/markdown.ts` import `displayWidth`。接线里程碑必须先把这些共享宽/折行原语迁到中立模块（如 `layout/width.ts`），再让 `layout.ts` import `measure.ts`，避免双向依赖。——**已完成 fd96d27**（抽取 `layout/primitives.ts`：seg/rowWidth2/truncateSegs/truncateToWidth/wrapLine/wrapLines；measure 改 import primitives.ts，layout.ts 改 import+re-export）。
+5. 全量回归：`npm run check/test/build` + `demo -- --smoke` + `smoke:pty`。——**已完成**（tsc 0；TUI 686/686；根级 11 包 0 fail；demo 冒烟 SMOKE_PASS 36；`smoke:pty` 真机冒烟 SMOKE OK）。
+6. 文档同步：`SPEC.md` 引用、`TUI/docs/DESIGN.md`「四区域布局」改为「由 Box 树声明」、`TUI/docs/design/REFACTOR.md` 归属登记。——**已完成**（SPEC 保留既有设计引述；DESIGN 标题注明由 Box 树声明 + 术语节「已收敛」；REFACTOR 已登记 layout/box|focus-frame|panel 等归属）。
 
 ## 3. 验收
 
@@ -57,7 +57,7 @@ npm run check          # 类型通过
 npm run test           # 全量测试通过（含新增序列化/排版产出断言）
 npm run build
 npm run demo -- --smoke   # 帧断言 SMOKE_PASS 不变
-npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
+npm run smoke:pty      # 真机冒烟（工具行/状态行 usage）
 ```
 
 实施完成后文档同步：`TUI/docs/DESIGN.md` 术语节「现状偏差」→「样式链路已收敛」、「核心接口契约」更新为 `FrameRow`；`IMPLEMENTATION.md` 增补「段序列化」要点。
@@ -100,4 +100,4 @@ npm run smoke:pty      # 真机冒烟（工具行/状态栏 usage）
 
 ## 7. 开放点
 
-- **内容树的测量代价**：✓ 已缓解（折行/宽度纯函数有界缓存 + `charWidth` 码点表，开关 `TUI_LAYOUT_CACHE=0`，见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」；`npm --prefix TUI run bench` 三档报告 off/on 中位耗时与倍数，cold 33×、warm 72×、incremental 70× 量级）。**剩余未做**（本次明确不纳入）：区域级帧输出 memo（状态列/状态栏/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）。
+- **内容树的测量代价**：✓ 已缓解（折行/宽度纯函数有界缓存 + `charWidth` 码点表，开关 `TUI_LAYOUT_CACHE=0`，见 `IMPLEMENTATION.md`「排版缓存与绘制合帧」；`npm --prefix TUI run bench` 三档报告 off/on 中位耗时与倍数，cold 33×、warm 72×、incremental 70× 量级）。**剩余未做**（本次明确不纳入）：区域级帧输出 memo（状态列/状态行/footer，实测仅占单帧 1-4%）与「只测量可见窗口」的懒排版（需块高度前缀和 + 折叠/滚动边界处理）。

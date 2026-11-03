@@ -27,7 +27,7 @@ const L = (text: string, kind: HistoryRow["kind"]): HistoryRow => ({
   kind,
 });
 
-/** 活动区渲染结果（FrameRow 原样 + 纯文本行），两 pane 同宽 */
+/** 回合区渲染结果（FrameRow 原样 + 纯文本行），两 pane 同宽 */
 function act(
   buf: HistoryRow[],
   opts: {
@@ -133,13 +133,13 @@ test("思考内围栏代码块：fence 隐藏 / 语言行斜体 / 行号 + 灰�
     `fence 外行内 markdown 照常解析: ${joined}`,
   );
   const codeRow = rows.find((r) => rowText(r).includes("const a = 1;"));
-  assert.ok(codeRow !== undefined, "代码行在活动区");
+  assert.ok(codeRow !== undefined, "代码行在回合区");
   assert.ok(
     /\x1b\[48;2;\d+;\d+;\d+m/.test(rowAnsi(codeRow!)),
     `代码行灰底: ${rowAnsi(codeRow!)}`,
   );
   const langRow = rows.find((r) => rowText(r).includes("ts"));
-  assert.ok(langRow !== undefined, "语言标记行在活动区");
+  assert.ok(langRow !== undefined, "语言标记行在回合区");
   // 新链形制：语言行不占行号（行号列留空），且不再加斜体
   assert.match(
     rowText(langRow!),
@@ -155,7 +155,7 @@ test("思考内未闭栅（流式）：围栏内行仍按代码块出行、fence
   ]);
   assert.ok(!text.join("\n").includes("```"), "fence 记号不显示");
   const row = rows.find((r) => rowText(r).includes("partial"));
-  assert.ok(row !== undefined, "围栏内行在活动区");
+  assert.ok(row !== undefined, "围栏内行在回合区");
   assert.ok(
     rowText(row!).includes("1┃partial"),
     `未闭栅同样带行号（与正文同口径）: ${rowText(row!)}`,

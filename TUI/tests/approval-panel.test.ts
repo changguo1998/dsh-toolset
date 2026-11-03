@@ -246,7 +246,7 @@ test("审批按键白名单：Esc 取消、非白名单键由决策层吞掉（B
   assert.equal(s.approvalFocus, "approve", "缺省焦点在批准项");
   const hinted = reduceState(s, { type: "approval-hint", text: "[无效键] …" });
   assert.equal(hinted.approvalHint, "[无效键] …");
-  // 切换焦点会清掉无效键提示（下一次有效键操作即恢复正常提示区）
+  // 切换焦点会清掉无效键提示（下一次有效键操作即恢复正常提示行）
   const cleared = reduceState(hinted, {
     type: "approval-focus",
     focus: "reject",
@@ -331,8 +331,8 @@ test("审批草稿：命令段按代码块渲染，内部不被行内语法改�
   assert.ok(text.includes("参数：{}"), "命令段之后的草稿行照常渲染: " + text);
 });
 
-test("App：审批倒计时每秒重绘（独立于状态栏 ticker）；应答 / 按键后停", (t) => {
-  // 只 mock setInterval + Date：不依赖状态栏 ticker（本用例不传 status deps）
+test("App：审批倒计时每秒重绘（独立于状态行 ticker）；应答 / 按键后停", (t) => {
+  // 只 mock setInterval + Date：不依赖状态行 ticker（本用例不传 status deps）
   t.mock.timers.enable({ apis: ["setInterval", "Date"] });
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();

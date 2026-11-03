@@ -7,7 +7,7 @@
 //    其它灰（package_variant 开口包裹）；policy ask 黄 / never 绿；四个开关 on 绿 / off 灰；
 //    permission 不再显示；
 //  - 窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号；
-//  - Ctrl+S 切换垂直状态列（隐藏时列宽 0、历史区吃满整宽），随会话写入 tui-state.json。
+//  - Ctrl+S 切换垂直状态列（隐藏时列宽 0、会话区吃满整宽），随会话写入 tui-state.json。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -48,7 +48,7 @@ function sliceCols(line: string, from: number, to: number): string {
   }
   return out;
 }
-/** 标题栏首行明文（只取历史 pane 区段，跳过左侧状态列与分隔竖线） */
+/** 标题栏首行明文（只取会话区 区段，跳过左侧状态列与分隔竖线） */
 const titleText = (s: AppState, cols: number): string => {
   const g = frameGeometry(s, { rows: 24, cols });
   const row = rowText(buildFrame(s, { rows: 24, cols })[0]!);
@@ -131,7 +131,7 @@ test("P7 标题栏：preset 名字 → 6 个状态符号 → 2 空格 → 标题
     "  ",
     `符号组与标题之间 2 空格: ${JSON.stringify(text.slice(0, titleAt))}`,
   );
-  assert.ok(!text.includes("•"), "标题栏不用圆点分隔（与状态栏区分）");
+  assert.ok(!text.includes("•"), "标题栏不用圆点分隔（与状态行区分）");
 });
 
 test("P7 标题栏：permission 不再展示（只显示 sandbox 箱形符号）", () => {
@@ -218,7 +218,7 @@ test("P7 标题栏：符号按列宽各占 1 列（窄宽让位计算不因字�
   }
 });
 
-test("P7 Ctrl+S：聚焦 / 收起垂直状态列（收起 → 列宽 0、历史区吃满整宽）", () => {
+test("P7 Ctrl+S：聚焦 / 收起垂直状态列（收起 → 列宽 0、会话区吃满整宽）", () => {
   const { app, renderer, dispose } = makeApp();
   const size = { rows: 24, cols: 100 };
   const st = (): AppState => (app as unknown as { state: AppState }).state;
@@ -236,9 +236,9 @@ test("P7 Ctrl+S：聚焦 / 收起垂直状态列（收起 → 列宽 0、历史�
   assert.equal(st().focusedPanel, null, "收起后焦点回会话区");
   const hidden = frameGeometry(st(), size);
   assert.equal(hidden.statusColWidth, 0, "收起后状态列宽 0");
-  assert.equal(hidden.historyWidth, size.cols, "收起后历史区吃满整宽");
+  assert.equal(hidden.historyWidth, size.cols, "收起后会话区吃满整宽");
   assert.equal(hidden.leftFrame, false, "收起后不再画左缘框格");
-  // 帧内该列不再出现分隔竖线：内容行（历史区）不再以 `│` 起头（原状态列右缘）
+  // 帧内该列不再出现分隔竖线：内容行（会话区）不再以 `│` 起头（原状态列右缘）
   const row = rowText(buildFrame(st(), size)[3]!);
   assert.ok(row.length > 0, "内容行非空");
   assert.ok(
@@ -308,7 +308,7 @@ test("P7 Ctrl+S：隐藏状态列后分隔行不留旧交点（并排只剩内�
   assert.equal(
     gh.innerDividerCol,
     gh.contentStartCol + gh.dialogueW,
-    "内部分隔列 = 有效正文起始列 + 历史 pane 宽",
+    "内部分隔列 = 有效正文起始列 + 会话区 宽",
   );
   assert.deepEqual(
     junctions(hHidden),

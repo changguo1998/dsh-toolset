@@ -61,7 +61,7 @@ export type StateAction =
       error?: boolean;
       tone?: NoticeTone;
     }
-  /** `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，仅活动区本地显示 */
+  /** `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，仅回合区本地显示 */
   | {
       type: "shell-lines";
       lines: readonly { text: string; tone?: NoticeTone }[];
@@ -161,7 +161,7 @@ export type StateAction =
   | { type: "input-history"; action: "push" | "prev" | "next" }
   | { type: "move-cursor"; delta: number }
   /**
-   * 对话区滚动到指定视口顶（位移换算在 App：拿到本帧段表与可视高，`null` = 贴底跟随最新）。
+   * 会话区滚动到指定视口顶（位移换算在 App：拿到本帧段表与可视高，`null` = 贴底跟随最新）。
    * `offset` = 距底行数（段键失配时的回落基准）。
    */
   | { type: "dialogue-scroll"; top: DialogueTop | null; offset: number }
@@ -173,7 +173,7 @@ export type StateAction =
       type: "pipeline-state";
       pipeline: SectionsState | undefined;
     }
-  /** clearActivity：是否清空活动区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
+  /** clearActivity：是否清空回合区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | {
       type: "turn-begin";
       clearActivity?: boolean;
@@ -188,11 +188,11 @@ export type StateAction =
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
   | { type: "activity-compact"; categories: ActivityCategory[]; on: boolean }
-  /** BACKLOG #8：活动区输出内容档位（think / tool / step） */
+  /** BACKLOG #8：回合区输出内容档位（think / tool / step） */
   | { type: "activity-show"; categories: ActivityCategory[]; on: boolean }
   /** P7：垂直状态列显隐（visible 缺省 = 取反；`Ctrl+S` 走 focus-panel 的聚焦 / 收起两态，本 action 供恢复或显式设值） */
   | { type: "status-column"; visible?: boolean }
-  /** #9：下半区（Turn 流 + Tool 面板区）显隐（visible 缺省 = 取反；`Ctrl+T` 走 focus-panel） */
+  /** #9：下半区（Turn 流 + 工具区）显隐（visible 缺省 = 取反；`Ctrl+T` 走 focus-panel） */
   | { type: "lower-panes"; visible?: boolean }
   | { type: "symbol-unify"; on: boolean }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
@@ -370,7 +370,7 @@ export type StateAction =
       top?: DialogueTop | null;
       offset?: number;
     }
-  /** max = 可视候选数上界（App 按活动区行数给；超出可视区的候选不参与焦点导航） */
+  /** max = 可视候选数上界（App 按回合区行数给；超出可视区的候选不参与焦点导航） */
   | { type: "completion-move"; delta: number; max?: number }
   | { type: "completion-close" }
   /** 异步文件候选回填（App 请求宿主 fileReferences 后回写；token 与当前不一致则丢弃） */

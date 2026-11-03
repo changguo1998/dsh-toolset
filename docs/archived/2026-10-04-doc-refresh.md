@@ -70,7 +70,7 @@
 - 中间态（15 模块合并后）与**终态**各跑一次全仓：`npm run check` exit 0；`npm run test` → **21 包全绿 / 0 失败**。
 - 各包测试例数（终态；用于核对模块文档里的「测试例数」声明，被本次刷新校正的计数均与此一致）：TUI 1325、task-engine 136、security-guard 122、rule-engine 87、fs-digest 66、knowledge-base 57、md-logic 57、hash-edit 52、md-map 49、session-channel 47、output-compress 45、metric-loop 44、context-report 44、symbol-normalizer 39、ast-tools 38、goal-contract 37、herdr-integration 35、command-template 26、code-map 23、session-title-cutoff 8、ponytail 5。
 - 「一模块一提交」核对：`git log --oneline 87480af..HEAD` = 21 条，模块名与条目标题一一对应。
-- 抽检复核（主库侧，非子代理自述）：TUI 核心层提交的三处事实性注释分别对回 `layout/tool-line.ts` 的 `turnHeaderLine`（`⇆N`）、`layout.ts` 的状态栏分隔（`separator: { char: "•", color: "plain" }`）、`statusBarSeamCols` 恒空（状态栏行已无 border 色 `│`）；symbol-normalizer 符号表与 `src/symbols.ts` 的白名单 / 别名表逐项一致；`command-template/templates/code-review.md` 的缩进缺陷（`bestOf: 2` 落在 `prompt: |` 块内）实读确认。
+- 抽检复核（主库侧，非子代理自述）：TUI 核心层提交的三处事实性注释分别对回 `layout/tool-line.ts` 的 `turnHeaderLine`（`⇆N`）、`layout.ts` 的状态行分隔（`separator: { char: "•", color: "plain" }`）、`statusBarSeamCols` 恒空（状态行行已无 border 色 `│`）；symbol-normalizer 符号表与 `src/symbols.ts` 的白名单 / 别名表逐项一致；`command-template/templates/code-review.md` 的缩进缺陷（`bestOf: 2` 落在 `prompt: |` 块内）实读确认。
 
 ## 收尾
 

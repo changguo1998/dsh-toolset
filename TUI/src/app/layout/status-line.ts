@@ -1,4 +1,4 @@
-// src/app/layout/status-line.ts — 底部状态栏渲染（模型 / 用量 / 分支 / 沙箱等段）
+// src/app/layout/status-line.ts — 底部状态行渲染（模型 / 用量 / 分支 / 沙箱等段）
 
 import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import type { AppState, InputStatus } from "../state.ts";
@@ -8,7 +8,7 @@ import type { Box } from "./box.ts";
 import { charWidth, displayWidth } from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
 
-// src/app/layout/status-line.ts — 底部状态栏渲染（模型 / 用量 / 分支 / 沙箱等段）
+// src/app/layout/status-line.ts — 底部状态行渲染（模型 / 用量 / 分支 / 沙箱等段）
 
 /** 模型段标签：provider/model[:reasoningEffort]，无 effort 时不带冒号后缀 */
 export function modelLabel(sel: {
@@ -20,7 +20,7 @@ export function modelLabel(sel: {
 }
 
 /** provider 紫，模型名青，:后缀 正常前景色；无 "/" 时整体青（占位 "—" 保持无色）。
- *  状态栏段配色约定：相邻段不同色、不用红/黄/绿状态色、不用亮色系（bright*）。 */
+ *  状态行段配色约定：相邻段不同色、不用红/黄/绿状态色、不用亮色系（bright*）。 */
 function colorModel(s: string): FrameSegment[] {
   const slash = s.indexOf("/");
   if (slash < 0) return s === "—" ? [seg(s)] : [seg(s, { fg: "cyan" })];
@@ -45,7 +45,7 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-/** state.usage → 状态栏 contextLen/cacheHit 段（total<=0 或无用量时 undefined，保留占位） */
+/** state.usage → 状态行 contextLen/cacheHit 段（total<=0 或无用量时 undefined，保留占位） */
 function usageStatus(u: {
   input: number;
   output: number;
@@ -135,7 +135,7 @@ export function renderStatusLine(
   cols: number,
   /** 最新一次模型调用 token 用量（有且 total>0 时覆盖 contextLen/cacheHit 占位） */
   usage?: AppState["usage"],
-  /** 输入状态（签名保留兼容调用方）：P1 起状态栏不再渲染状态符号段
+  /** 输入状态（签名保留兼容调用方）：P1 起状态行不再渲染状态符号段
    *  （✓/✗/●/○/△/? 已迁至用户块首行，见 userBlockSymbol），本参数当前未参与排版 */
   inputStatus?: InputStatus,
   /** 运行中 ●/○ 交替相位（本回合虚拟总 token；running 且缺省时回落 ○） */
@@ -151,12 +151,12 @@ export function renderStatusLine(
   const thinkState = status.modelThinking ?? (thinkOn ? "on" : "none");
   const modelSeg = `${modelBase}:${thinkState}`;
 
-  // 状态栏按类分组（组间 `•` 分隔、组内 `•` 分隔）：
+  // 状态行按类分组（组间 `•` 分隔、组内 `•` 分隔）：
   //   环境组：time • git • cwd            （本机/工作区信息，与会话无关）
   //   LLM 组：model:{后缀} • ctx • cache  （最近一次模型调用指标）
   // 每个「逻辑段」= 多个 FrameSegment（点击色可分多段，如 provider/model/:后缀），
   // 组内逻辑段之间插 `•`、物理段之间不插。
-  // P1：状态符号段已迁至**用户块首行左侧**（见 userBlockSymbol），状态栏不再承载符号；
+  // P1：状态符号段已迁至**用户块首行左侧**（见 userBlockSymbol），状态行不再承载符号；
   // 首行行首回到 1 空格留边（与其他行一致）
   const maxSegW = Math.max(1, cols - 2); // 留首尾各 1 列
   // 段配色：time 默认 / git 洋红 / cwd 蓝 / title 青 / provider 紫 / model 青
@@ -258,10 +258,10 @@ export function renderStatusLine(
 }
 
 /**
- * 状态栏行内**框线竖线**（border 色 `│`）的列位置列表（0 基，升序去重）。
+ * 状态行行内**框线竖线**（border 色 `│`）的列位置列表（0 基，升序去重）。
  * buildFrame 用它在上/下横线对应列画交点（┬/┴），使竖线两端与横线相接成格。
  * P1 起状态符号段迁至用户块首行、组间分隔改为 `•` 圆点（color="plain"），
- * 状态栏行内已无 border 色 `│` 段 → 对当前状态栏行恒返回空数组（不画交点）。
+ * 状态行行内已无 border 色 `│` 段 → 对当前状态行行恒返回空数组（不画交点）。
  */
 export function statusBarSeamCols(row: FrameRow | undefined): number[] {
   if (!row) return [];

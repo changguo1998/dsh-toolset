@@ -66,7 +66,7 @@
 | 已切换到会话「\<title>」 | resumeToSession（/session Enter） | success |
 | 已复制最后一条回复到剪贴板 | handleCopy（/copy） | success |
 | theme: \<id> (\<palette>) | handleThemeCommand | success |
-| 活动区：collapse on（紧凑：每条目 1 行 + 省略号）/ collapse off（完整折行） | handleCollapseCommand | success |
+| 回合区：collapse on（紧凑：每条目 1 行 + 省略号）/ collapse off（完整折行） | handleCollapseCommand | success |
 | verbose → think/tool/step | handleVerboseLevelCommand | success |
 | 模型输出符号统一：on（替换 + 提醒）/ off（原样） | handleSymbolUnifyCommand | success |
 | current model -> \<label> | handleModelCommand | success |
@@ -130,7 +130,7 @@
 | [\<commandId>] \<text>（命令成功输出） | finish（kind = success） | success（命令结果落 result 级） |
 | 注入消息 notice 摘要（`source.form:'notice'` 的 `summary`；缺省取正文首行，≤120 字符） | agent/inbox/spliced · user/message（按消息 id 去重） | log（一行提示，不展开、不占用户块） |
 
-## C. reducer 层活动区行（src/app/state.ts）
+## C. reducer 层回合区行（src/app/state.ts）
 
 | 提示 / 行 | 事件 | 等级 |
 | --- | --- | --- |
@@ -161,5 +161,5 @@
 ## 边界说明
 
 - 高频行的「成功」不进 success 级（tool settle、command done ok、hook 通过均静默 / 低调），与「success = 重要的操作成功」一致。
-- `error: true`（旧失败标记）仍驱动输入栏红色，属输入状态子系统，不在本条 notice 行分级内。
+- `error: true`（旧失败标记）仍驱动输入区红色，属输入状态子系统，不在本条 notice 行分级内。
 - demo / mock（`demo/mockAdapter.ts`）为演示夹具，随真实通道同步，不单独列入本表。

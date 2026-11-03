@@ -1,6 +1,6 @@
-// tests/startup-resume-history.test.ts — 启动即恢复的历史区渲染（BACKLOG TUI#40）
+// tests/startup-resume-history.test.ts — 启动即恢复的会话区渲染（BACKLOG TUI#40）
 //
-// 覆盖：`resumedAtLaunch`（CLI --resume / -c 成功）时启动补一次 surface 折叠——历史区直接
+// 覆盖：`resumedAtLaunch`（CLI --resume / -c 成功）时启动补一次 surface 折叠——会话区直接
 // 可见既有消息、标题本地兜底、`followBottom` 生效；非恢复启动不读取；空会话保持空历史；
 // 读取失败给提示且不抛（不阻塞启动）。
 
@@ -86,14 +86,14 @@ test("启动即恢复：既有消息折叠入历史（节缓存；用户/回复�
   }
 });
 
-test("非恢复启动（resumedAtLaunch 缺省 false）：不读取 surface，历史区保持空", async () => {
+test("非恢复启动（resumedAtLaunch 缺省 false）：不读取 surface，会话区保持空", async () => {
   const { adapter, st, app } = makeApp(false, {
     s1: [{ role: "user", text: "不应被读" }],
   });
   try {
     await sleep(0);
     assert.deepEqual(adapter.readSurfaceCalls, [], "不读取既有消息");
-    assert.deepEqual(st().local, [], "历史区为空（全新会话）");
+    assert.deepEqual(st().local, [], "会话区为空（全新会话）");
   } finally {
     app.dispose();
   }
@@ -155,7 +155,7 @@ test("启动期外部日志：恢复启动时先挂起，折叠落定后补发�
       await sleep(0);
     }
     const notice = st().local.find((l) => l.kind === "notice");
-    assert.ok(notice, "折叠落定后补发进活动区: " + JSON.stringify(st().local));
+    assert.ok(notice, "折叠落定后补发进回合区: " + JSON.stringify(st().local));
     // 统一前缀在入列前就写好（时间取到达时刻，补发时不重算），补发只还原正文
     assert.match(
       notice?.text ?? "",

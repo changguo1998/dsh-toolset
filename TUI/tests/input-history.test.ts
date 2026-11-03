@@ -2,8 +2,8 @@
 //
 // 覆盖：提交入栈（普通输入与 `/` 命令共用一份）、**Ctrl+P 上翻 / Ctrl+N 下翻**回到草稿、
 // 到最早一条停住、相邻重复与空串不入栈、手动编辑退出翻看态。
-// 2026-10-10 用户裁定：↑/↓ 归历史区翻页（到顶加载更旧回合），输入历史改用 Ctrl+P / Ctrl+N
-// —— 历史非空时 ↑ 也必须滚历史区（见本文件「↑ 专用于历史区」用例与 app.test.ts 的半屏回归）。
+// 2026-10-10 用户裁定：↑/↓ 归会话区翻页（到顶加载更旧回合），输入历史改用 Ctrl+P / Ctrl+N
+// —— 历史非空时 ↑ 也必须滚会话区（见本文件「↑ 专用于会话区」用例与 app.test.ts 的半屏回归）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -199,9 +199,9 @@ test("翻看态下编辑 → 退出翻看（游标归零，编辑文本成为新
   assert.equal(st().inputHistoryDraft, "旧输", "编辑后的文本成为新草稿");
 });
 
-test("↑ 专用于历史区：会话区聚焦时 ↑ 滚历史、不回溯输入（真机循环缺陷回归）", () => {
-  // 真机报告（2026-10-10）：按 ↑ 时输入框在旧输入之间循环、历史区纹丝不动 —— 根因是
-  // 「空输入 + 历史非空」也让 ↑ 接管输入历史。现在 ↑ 只滚历史区，回溯走 Ctrl+P / Ctrl+N。
+test("↑ 专用于会话区：会话区聚焦时 ↑ 滚历史、不回溯输入（真机循环缺陷回归）", () => {
+  // 真机报告（2026-10-10）：按 ↑ 时输入区在旧输入之间循环、会话区纹丝不动 —— 根因是
+  // 「空输入 + 历史非空」也让 ↑ 接管输入历史。现在 ↑ 只滚会话区，回溯走 Ctrl+P / Ctrl+N。
   const { renderer, adapter, st } = makeApp();
   renderer.size = { cols: 100, rows: 30 };
   for (let i = 1; i <= 8; i++) {
@@ -219,8 +219,8 @@ test("↑ 专用于历史区：会话区聚焦时 ↑ 滚历史、不回溯输�
   renderer.press(key("e", { ctrl: true }));
   const before = st().dialogueTop;
   renderer.press(key("up"));
-  assert.equal(st().inputText, "", "↑ 不写输入框（不再回溯）");
-  assert.ok(st().dialogueTop !== null, "↑ 改为滚历史区（位置从贴底变为持顶）");
+  assert.equal(st().inputText, "", "↑ 不写输入区（不再回溯）");
+  assert.ok(st().dialogueTop !== null, "↑ 改为滚会话区（位置从贴底变为持顶）");
   assert.notDeepEqual(st().dialogueTop, before, "视口顶确实移动了");
   // 回溯仍可用：先 Esc 退出面板焦点（Ctrl+P 只在编辑态生效），再取上一条
   renderer.press(key("escape"));

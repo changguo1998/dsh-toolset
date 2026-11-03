@@ -778,7 +778,7 @@ test("agent/status payload → agent-status 事件", () => {
   ]);
 });
 
-test("agent/status：非活跃 agent 状态不转发（不污染状态栏）", () => {
+test("agent/status：非活跃 agent 状态不转发（不污染状态行）", () => {
   const t = makeAdapter();
   t.runtime.fire("agent/status", {
     agent: { session: { id: "other" } },

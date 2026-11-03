@@ -187,7 +187,7 @@
 | P4-04 | 修 7 条非归档断链 | 7 份包文档 | 目标均在 `docs/archived/`; 全仓非归档断链实测 0 | ✓ |
 | P4-05 | 工具数、动作数去数字 | herdr-use / auto-approve / coagent / hash-edit / ast-tools / agent-group | 计划列的行均改; 无「十个工具」「10 个动作」命中 | ✓ |
 | P4-06 | 包数改 34 | `md-logic/README.md` | `:55` 已改 | ✓ |
-| P4-07 | 界面四组术语 | TUI / security-guard | 状态栏 / 输入框 / 底部提示 0 命中; 旧界面名全量替换转 `docs/BACKLOG.md` #3, 按后续条目接受 | △ |
+| P4-07 | 界面四组术语 | TUI / security-guard | 状态行 / 输入框 / 底部提示 0 命中; 旧界面名全量替换转 `docs/BACKLOG.md` #3, 按后续条目接受 | △ |
 | P4-08 | 评审改审阅 | 包文档 / 两模板 | 模板 0 命中; TUI README `:351` 与 DESIGN `:378` 仍有旧称, 转 `BACKLOG #5` | △ |
 | P4-09 | 34 笔文档提交, 一包一笔 | 34 个 docs(\<包>) | 34 笔; 合并用 cherry-pick (偏差) | ✓ |
 | P4-10 | `format` 与 `pnpm run check` | 75 个文件 | `-04:86-89` 记录退出 0 | ✓ |

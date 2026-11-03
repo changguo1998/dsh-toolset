@@ -42,7 +42,7 @@ const apply = (steps: readonly Step[]): AppState =>
 const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
 
 /**
- * 回合区（活动区）渲染行文本——step 头与工具行都在这里。
+ * 回合区（回合区）渲染行文本——step 头与工具行都在这里。
  * 走 `pipelineContent`（第 ⑤ 步出口：与 `buildFrame` 同一份内容行，但不含状态列 / 边框），
  * 逐行剥掉行首竖线装饰：竖线由区块宽度门限决定，本文件断言的是文本与顺序。
  */

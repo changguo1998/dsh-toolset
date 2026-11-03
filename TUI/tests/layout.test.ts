@@ -417,7 +417,7 @@ test("行内 markdown：粗斜/删除线/下划线/转义/自动链接/图片（
 
 // ---- 补全面板两态（命令候选 / 文件提及候选，TUI#3）----
 
-test("补全面板两态：提示行区分命令补全与文件提及，面板占用同一活动区窗口", () => {
+test("补全面板两态：提示行区分命令补全与文件提及，面板占用同一回合区窗口", () => {
   const size = { cols: 100, rows: 30 };
   const base = initialState();
   const cmd = reduceState(base, { type: "input", text: "/mo", cursor: 3 });
@@ -459,7 +459,7 @@ test("补全面板两态：提示行区分命令补全与文件提及，面板�
     rows.some((l) => l.includes("[Tab]插入")),
     "提示行",
   );
-  // 面板与命令补全共用活动区窗口：帧几何不因候选类别改变
+  // 面板与命令补全共用回合区窗口：帧几何不因候选类别改变
   assert.equal(
     buildFrame(file, size).length,
     buildFrame(base, size).length,
@@ -549,6 +549,6 @@ test("提示行宽度契约：80 列下 1 至 2 行，折行只按 ` · ` 边界
   assert.equal(
     wrapHintLine(PICKER_HINT_LINE, 80).length,
     2,
-    "模型选择提示 80 列折 2 行（提示区契约允许）",
+    "模型选择提示 80 列折 2 行（提示行契约允许）",
   );
 });

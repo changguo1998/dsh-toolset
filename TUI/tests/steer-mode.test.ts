@@ -45,7 +45,7 @@ const key = (
   shift: false,
 });
 
-/** 帧纯文本（含用户块/输入区/提示区） */
+/** 帧纯文本（含用户块/输入区/提示行） */
 function plainFrame(renderer: FakeRenderer): string {
   return renderer.lastRender.join("\n");
 }
@@ -152,7 +152,7 @@ test("宿主不支持 steer：默认路径降级 followup 并给提示（消息�
   typeAndEnter(renderer, "hi");
   assert.deepEqual(adapter.sent, ["hi"], "消息仍发出（降级 followup）");
   assert.deepEqual(adapter.steered, [], "未走 steer 投递");
-  // 断言状态而非帧：用户块回显后活动区可能已把提示挤出可视窗
+  // 断言状态而非帧：用户块回显后回合区可能已把提示挤出可视窗
   assert.ok(
     st().local.some(
       (l) => l.kind === "notice" && l.text.includes("宿主不支持 steer"),

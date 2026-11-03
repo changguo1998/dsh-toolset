@@ -2,7 +2,7 @@
 //
 // 覆盖：
 //  1) buildFrame 回填 focus：输入态 inputFocus=true 且 caret 指向输入行；面板态 inputFocus=false
-//  2) 真实 renderer 消费 focus：活动区刷新（批次不含输入行）仍把光标定位回输入位置并显示
+//  2) 真实 renderer 消费 focus：回合区刷新（批次不含输入行）仍把光标定位回输入位置并显示
 //  3) 非输入态：不定位、不显示光标（沿用报文开头的隐藏）
 //  4) 未传 focus：沿用旧行为（无 caret 批次也保持光标可见）
 //  5) 面板内编辑焦点（BACKLOG 3.2.7）：问答面板「自定义回答」编辑态产出 caret 并允许显示光标
@@ -83,13 +83,13 @@ test("buildFrame 回填 focus：审批面板态 inputFocus=false 且无输入位
   );
 });
 
-test("真实 renderer：活动区刷新批次仍定位回输入位置并显示光标", (t) => {
+test("真实 renderer：回合区刷新批次仍定位回输入位置并显示光标", (t) => {
   const { chunks, renderer } = collector(t);
   const first = frameWith();
   renderer.render(first.rows, first.out.sections, first.out.focus);
   const mark = chunks.length;
 
-  // 第二帧只有活动区一行变化（模拟流式刷新）：该批 intervals 不含输入行
+  // 第二帧只有回合区一行变化（模拟流式刷新）：该批 intervals 不含输入行
   renderer.render(
     withChangedRow(first.rows, 3, "streamed"),
     first.out.sections,

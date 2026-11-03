@@ -32,7 +32,7 @@ export interface PipelineFrameOptions {
   activityTextW: number;
   /** 渐进窗口：物化的尾部回合组数（旧口径 `DIALOGUE_KEEP_REPLIES`） */
   windowGroups: number;
-  /** 活动区档位 / 紧凑 / 主题 / gutter 等（透传第 4 步） */
+  /** 回合区档位 / 紧凑 / 主题 / gutter 等（透传第 4 步） */
   render: RenderOptions;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传） */
   normalize?: (text: string) => string;
@@ -54,7 +54,7 @@ export interface PipelineContent {
   dialogueUserRows: readonly number[];
   /** 回合区每段行数（页滚上限用） */
   activityCounts: readonly number[];
-  /** 回合区段键（与 `activityCounts` 齐——活动区「节键 + 行偏移」视口定位用） */
+  /** 回合区段键（与 `activityCounts` 齐——回合区「节键 + 行偏移」视口定位用） */
   activityKeys: readonly string[];
 }
 

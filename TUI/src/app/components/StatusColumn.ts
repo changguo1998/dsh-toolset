@@ -127,7 +127,7 @@ export interface StatusColumnData {
 }
 
 /**
- * 状态列 Box 生成器（与 8 个工具面板的生成器同构）：按折叠等级产出整列 Box 树。
+ * 状态列 Box 生成器（与 8 个工具区的生成器同构）：按折叠等级产出整列 Box 树。
  * 内容层不含宽度——`measure` / `allocate` 由组装层（layout.ts）负责。
  */
 export function buildStatusColumnBox(
@@ -452,7 +452,7 @@ function agentItem(a: AgentRowInfo, tick: number): StatusItem {
   // 显示名 = 别名 ?? label；工作内容 = 最近一次工具调用摘要（无记录省略）；
   // 不再输出状态词与短 id（状态由符号/配色表达，详细见 /agents 面板）。
   const text = `${sym}${a.alias ?? a.label}${a.work ? ` · ${a.work}` : ""}`;
-  // 续行停在首行**文字**起点（跳过符号宽度）——与活动区 Box 的 hanging 语义一致
+  // 续行停在首行**文字**起点（跳过符号宽度）——与回合区 Box 的 hanging 语义一致
   return {
     segments: [seg(text.trimEnd(), { fg })],
     hanging: displayWidth(sym),

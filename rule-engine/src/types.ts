@@ -191,7 +191,7 @@ export interface Injector {
 }
 
 /** 插件告警事件（告警总线；`text` = 完整展示行，含 `[rule-engine] ` 前缀）。
- *  消费侧（TUI）按 tone 渲染进活动区；经 provide("ruleEngine") 的 `onNotice` 订阅。 */
+ *  消费侧（TUI）按 tone 渲染进回合区；经 provide("ruleEngine") 的 `onNotice` 订阅。 */
 export interface NoticeEvent {
   text: string;
   tone: "log" | "warn" | "error";

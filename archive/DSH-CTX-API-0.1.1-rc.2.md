@@ -91,7 +91,7 @@ usage{usage} / finish{reason, replayState?}
 - 事件子集关注：stream（`assistant/chunk` 的 `text-delta/reasoning-delta`）、message（`user/message`、`assistant/message`）、approval（`approval/request`+审计对）、agentStatus（`agent/status`）。
 - **surface/transcript 规则**：TUI 展示会话历史取 append-origin 事件；chunk 按 `{turn,step,index}` 折叠。
 - 退出契约：宿主侧 `shutdown`（flush→dispose root→exit 0）；进程外桥 stdout 归协议；`dsh` bin 管 EOF/信号退出。
-- 状态标注：`session.status`(idle/running) 与 `agent/status` 用于 header 状态栏。
+- 状态标注：`session.status`(idle/running) 与 `agent/status` 用于 header 状态行。
 
 ## 7. 验证口径
 

@@ -281,7 +281,7 @@ function stateOf(app: App): AppState {
   return (app as unknown as { state: AppState }).state;
 }
 
-/** 模拟在输入框输入文本并回车（与 app.test.ts 的 typeAndEnter 同口径） */
+/** 模拟在输入区输入文本并回车（与 app.test.ts 的 typeAndEnter 同口径） */
 function typeAndEnter(renderer: FakeRenderer, text: string): void {
   for (const ch of Array.from(text)) {
     renderer.press({ name: ch, ctrl: false, meta: false, shift: false });

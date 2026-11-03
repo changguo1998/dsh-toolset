@@ -1,11 +1,11 @@
-# session-channel 首连失败后台重试（接取条目：`docs/BACKLOG.md`「session-channel 启动首连失败即整会话降级（假超时），状态栏别名段消失并打 warn」）
+# session-channel 首连失败后台重试（接取条目：`docs/BACKLOG.md`「session-channel 启动首连失败即整会话降级（假超时），状态行别名段消失并打 warn」）
 
 状态：关闭　　开启：2026-10-08　　关闭：2026-10-08
 本文件是本任务唯一的过程记录与文档变更落点；计划外的文件不改。
 
 ## 目标
 
-用户报启动警告：`[tui] warn: 会话别名读取失败（状态栏不显示别名段）：Redis 连接失败（unix:/run/user/1000/dsh-session-channel.sock）：连接超时`。目标 = 去掉这条假失败并让通道自愈：① 插件首连失败不再等于整会话降级（后台重试直到连上）；② TUI 不在启动窗口内为此打 warn；③ 若真因是沙箱拒连，日志要留下真实 errno。
+用户报启动警告：`[tui] warn: 会话别名读取失败（状态行不显示别名段）：Redis 连接失败（unix:/run/user/1000/dsh-session-channel.sock）：连接超时`。目标 = 去掉这条假失败并让通道自愈：① 插件首连失败不再等于整会话降级（后台重试直到连上）；② TUI 不在启动窗口内为此打 warn；③ 若真因是沙箱拒连，日志要留下真实 errno。
 
 跨模块（`session-channel` + `TUI`），条目按规范放项目级。
 
@@ -37,11 +37,11 @@
 计划改动文件清单（按顺序）：
 
 1. `docs/BACKLOG.md` —— 项目级条目（进行中 → 完成后清理移除）
-1. `docs/implementation/2026-10-08-session-channel-connect-retry.md` —— 本追踪文档
-1. `session-channel/src/index.ts` —— 重试循环 + `#afterConnect` + `#stopped` + `deps.retryDelayMs` + unref 等待
-1. `TUI/src/app/index.ts` —— 别名读取失败阈值（`aliasFailStreak` + 常量）
-1. `session-channel/tests/service.test.ts` —— 回归用例（首连失败 → 重试 → 连上、`error` 清空、通道可用）
-1. 关闭后按需回写：`session-channel/README.md`（连接失败语义由「一次失败即降级」改为「转后台重试」）、`session-channel/docs/DESIGN.md`（若其连接时序一节需同步）、`TUI/docs/DESIGN.md`（若 TUI#48 一节口径需同步）
+2. `docs/implementation/2026-10-08-session-channel-connect-retry.md` —— 本追踪文档
+3. `session-channel/src/index.ts` —— 重试循环 + `#afterConnect` + `#stopped` + `deps.retryDelayMs` + unref 等待
+4. `TUI/src/app/index.ts` —— 别名读取失败阈值（`aliasFailStreak` + 常量）
+5. `session-channel/tests/service.test.ts` —— 回归用例（首连失败 → 重试 → 连上、`error` 清空、通道可用）
+6. 关闭后按需回写：`session-channel/README.md`（连接失败语义由「一次失败即降级」改为「转后台重试」）、`session-channel/docs/DESIGN.md`（若其连接时序一节需同步）、`TUI/docs/DESIGN.md`（若 TUI#48 一节口径需同步）
 
 明确不做：见「决策」末条。
 
@@ -54,9 +54,9 @@
    - 新增 `#retryConnect()`：每 `deps.retryDelayMs ?? RETRY_DELAY_MS`（2 s）一次，连上即清 `status.error`、记一行 `重试 N 次后连接成功`、跑启动步骤；`stop()` 置 `#stopped` 后退出（在途尝试最长 3 s 内收敛）。
    - 原「连接就绪后的启动步骤」抽为 `#afterConnect()`（首连与后台重试共用，心跳定时器仍 unref）。
    - 新增 `sleepUnref()`（unref 定时器：后台重试不阻止进程退出）与 `SessionChannelDeps.retryDelayMs`（测试注入用，与既有 `deps.now` / `deps.random` 同风格）。
-1. `TUI/src/app/index.ts`
+2. `TUI/src/app/index.ts`
    - 新增常量 `ALIAS_WARN_AFTER_FAILS = 3` 与字段 `aliasFailStreak`：别名读取连续失败 3 次（StatusTicker 5 s → 约 10-15 s）才写一次 warn，成功即清零；仍保持「每进程一次」不刷屏。
-1. 回归用例 `session-channel/tests/service.test.ts`
+3. 回归用例 `session-channel/tests/service.test.ts`
    - 「首连失败转后台重试：连上后补齐启动步骤并清空 error」：注入 `connect`（首调抛 `unavailable/连接超时`，次调走真实连接）→ 断言降级立即返回、重试后 `connected` / `error` 清空 / `peers` 可用 / 恰好调 2 次。
    - 「重试期间 stop()：不再继续重试（不连上）」：`stop()` 后等待 80 ms，连接调用次数不再增长。
 
@@ -69,11 +69,11 @@
 - `cd session-channel && npm test` → `tests 49 / pass 49 / fail 0`，8.9 s，进程正常退出（此前失败态：单文件跑完不退出，即上面那条临时 redis 泄漏）。
 - `npm run test:tui -- app.test.ts` → `tests 167 / pass 167 / fail 0`（TUI 侧改动触达面）。
 - `npm run test`（全仓 21 包并行）→ exit 0，逐包 `fail 0`（合计 pass 2421；TUI pass 1345、session-channel pass 49）。
-- 真机验证（2026-10-08，用户执行，人工确认通过）：重启 `dsh --profile fff` 与新建会话均正常——启动不再出现别名 warn，状态栏别名段正常显示。原「沙箱拒连」备选成因据此排除（若为拒连，重试不会连上）。
+- 真机验证（2026-10-08，用户执行，人工确认通过）：重启 `dsh --profile fff` 与新建会话均正常——启动不再出现别名 warn，状态行别名段正常显示。原「沙箱拒连」备选成因据此排除（若为拒连，重试不会连上）。
 
 ## 收尾
 
-- 条目：`docs/BACKLOG.md`「session-channel 启动首连失败即整会话降级（假超时），状态栏别名段消失并打 warn」已标「完成」，并按规范从 BACKLOG 清理移除（该文件只留未完成项）→ §2 回到空清单。
+- 条目：`docs/BACKLOG.md`「session-channel 启动首连失败即整会话降级（假超时），状态行别名段消失并打 warn」已标「完成」，并按规范从 BACKLOG 清理移除（该文件只留未完成项）→ §2 回到空清单。
 - 回写：`session-channel/docs/DESIGN.md` §5（补「首连失败转后台重试」的机制与动机，替换原「任何失败只降级不抛」单条）、`session-channel/README.md`（新增「连接失败不阻塞启动」一段）。**TUI 侧无需回写**：`TUI/docs/DESIGN.md` 只描述别名段的取数与保鲜节律，未定义告警时机。
 - 遗留项：无。「进程内被沙箱拒连」这一备选成因经真机验证排除（若为拒连，重试不会连上）。
 - 归档：本文件移入 `docs/archived/`（`docs/implementation/` 随之为空，不预建）。

@@ -1,4 +1,4 @@
-// src/app/status.ts — 系统状态区数据源（合并节流读取）
+// src/app/status.ts — 状态行数据源（合并节流读取）
 //
 // StatusTicker 以固定间隔 tick；每个 tick 内对 cwd/git/time 等做"一次合并查询"，
 // 聚合为单个 Partial<SystemStatus> 交给 App 更新状态。queries 与 schedule 均可注入：
@@ -155,7 +155,7 @@ export function parseGitStatus(stdout: string): GitStatusSummary | null {
 }
 
 /**
- * 摘要 → 状态栏文本：`分支 ↑N ↓N +N ~N -N`（各类符号不同，计数为 0 省略）。
+ * 摘要 → 状态行文本：`分支 ↑N ↓N +N ~N -N`（各类符号不同，计数为 0 省略）。
  * 符号：`↑`领先提交 / `↓`落后提交 / `+`未暂存新增 / `~`未暂存修改 / `-`未暂存删除。
  * 分支名为空 → `—` 占位。
  */

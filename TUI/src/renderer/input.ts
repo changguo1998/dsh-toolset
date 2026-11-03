@@ -392,7 +392,7 @@ function decodeCodepoint(
 }
 
 /**
- * paste 载荷 → 文本：行尾归一（剪贴板常带 CRLF，输入框行分隔符是 `\n`，与 Ctrl+J 同源；
+ * paste 载荷 → 文本：行尾归一（剪贴板常带 CRLF，输入区行分隔符是 `\n`，与 Ctrl+J 同源；
  * 不归一会把 `\r` 当可打印字符插进正文）。
  */
 function decodePasteText(bytes: readonly number[]): string {

@@ -3,7 +3,7 @@
 // 同一语料两条路径：
 //   旧：`state.local` → `dialogueWindow` + `buildContentRows`（生产路径）；
 //   新：`state.pipeline`（节缓存）→ 节 → box → pane → 行（六步流水线，开关开启）。
-// 断言 `buildFrame` 输出的**整帧逐行**一致（含标题栏 / 两 pane / 状态列 / 状态栏 / 输入区）。
+// 断言 `buildFrame` 输出的**整帧逐行**一致（含标题栏 / 两 pane / 状态列 / 状态行 / 输入区）。
 //
 // 覆盖：多 step、多回合（> 窗口组数，含顶部「更早回复已折叠」占位行）、代码块、表格、
 // 工具批、思考、notice、窄宽（折行）与宽窗。

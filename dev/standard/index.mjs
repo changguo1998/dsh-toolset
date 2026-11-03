@@ -101,15 +101,16 @@ function checkSymbols(rule, file, line, text) {
 }
 
 /** 术语: 旧称命中；豁免行与「同时含替换后术语」的规则说明行。 */
-function checkTerms(file, line, text) {
+function checkTerms(file, line, text, onlyInterface = false) {
   if (isExemptLine(text) || isTermExemptFile(file)) return;
   for (const row of glossary) {
     if (row.conditional) continue;
+    if (onlyInterface && row.ruleId !== "term.interface") continue;
     const hit = row.from.find((name) => text.includes(name));
     if (hit === undefined || isTermFalsePositive(hit, text)) continue;
     const replacement = row.to.split(" / ")[0];
     if (replacement !== undefined && text.includes(replacement)) continue;
-    const severity = row.ruleId === "term.interface" ? "warn" : "error";
+    const severity = "error";
     report(row.ruleId, severity, file, line, `旧称 \`${hit}\` → \`${row.to}\``);
   }
 }
@@ -241,10 +242,15 @@ const pathToken =
   /(?:^|[\s(（`"'])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+\.(?:ts|mts|mjs|json|md|yml|sh))/g;
 const buildNames = ["dist", "node_modules"];
 
-/** `.ts` 注释: 符号、仓内路径完整性与存在性、数量断言、旧名。 */
+/** `.ts`: 注释查符号 / 路径 / 数量 / 旧名，整行查界面旧称（命令描述与 help 文本也算现行文案）。 */
 for (const absolute of tsFiles) {
   const file = relative(ROOT, absolute);
-  const comments = collectComments(readFileSync(absolute, "utf8"));
+  const source = readFileSync(absolute, "utf8");
+  const comments = collectComments(source);
+  const lines = source.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    checkTerms(file, i + 1, lines[i] ?? "", true);
+  }
   for (const comment of comments) {
     checkSymbols("symbol", file, comment.line, comment.text);
     checkCounts(file, comment.line, comment.text);

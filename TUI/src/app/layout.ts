@@ -9,11 +9,11 @@
 //
 // markdown 子集渲染（行内/块级）与宽度原语见 ./layout/markdown.ts；本文件只做入口重导出，
 // 帧组装实现按层拆在 ./layout/ 下：
-//  - `layout/frame-rows.ts`：行文本、提示区折行、渐进窗口常量、半屏与用户块跳转量
+//  - `layout/frame-rows.ts`：行文本、提示行折行、渐进窗口常量、半屏与用户块跳转量
 //  - `layout/geometry.ts`：三区高度、顶部切分、FrameGeometry
 //  - `layout/title-bar.ts`：标题栏状态符号与状态列渲染
-//  - `layout/top-region.ts`：顶部区域装配（状态列 + 会话区 + 活动区面板选型）
-//  - `layout/status-line.ts`：底部状态栏渲染
+//  - `layout/top-region.ts`：顶部区域装配（状态列 + 会话区 + 回合区面板选型）
+//  - `layout/status-line.ts`：底部状态行渲染
 //  - `layout/run-virt.ts`：运行指示（虚拟速度 / 虚拟 token / ●○ 与用户块符号）
 //  - `layout/frame-build.ts`：分区、滚动回落、buildFrame 与焦点
 //

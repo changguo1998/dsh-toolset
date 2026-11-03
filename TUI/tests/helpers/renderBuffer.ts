@@ -19,9 +19,9 @@ export interface RenderBufferOptions {
   activityTextW?: number;
   /** 用户 / 助手右缘留白 */
   gutter?: number;
-  /** 活动区显示档位（/verbose） */
+  /** 回合区显示档位（/verbose） */
   activityShow?: Partial<ActivitySwitches>;
-  /** 活动区紧凑档位（/collapse） */
+  /** 回合区紧凑档位（/collapse） */
   activityCompact?: Partial<ActivitySwitches>;
   /** 按历史节重放（缺省 true = 定型内容进会话区） */
   history?: boolean;

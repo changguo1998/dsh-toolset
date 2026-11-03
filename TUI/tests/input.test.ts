@@ -175,7 +175,7 @@ test("bracketed paste 载荷行尾归一：CRLF / 裸 CR 折成换行", () => {
   assert.equal(
     evs[0]!.text,
     "第一行\n第二行\n第三行",
-    "输入框行分隔符是 \n（与 Ctrl+J 同源）",
+    "输入区行分隔符是 \n（与 Ctrl+J 同源）",
   );
 });
 

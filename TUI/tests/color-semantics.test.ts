@@ -91,7 +91,7 @@ test("帧层：底部全宽分隔（makeSep）恒边框色（border），四种�
     const want = rgb(borderHex(t));
     for (const f of ["none", "history", "activity", "status"] as const) {
       const rows = frame(t, f);
-      // 状态区下方 makeSep：全宽横线行（含状态栏框线竖线交点 ┴），恒边框色
+      // 状态区下方 makeSep：全宽横线行（含状态行框线竖线交点 ┴），恒边框色
       const pureSep = rows.find((r) => {
         const c = r.replace(/\x1b\[[0-9;]*m/g, "");
         return /^[─┴]+$/.test(c);
@@ -144,7 +144,7 @@ test("基底前景：theme.foreground=源文件值，正文默认可读（对比
         `${t} 前景应暗于背景`,
       );
     // 帧首铺设基底前景：输入提示行（`> Type a message...`）提示符与占位均
-    // 无样式段（状态色已移至状态栏符号），由渲染层以基底前景铺设
+    // 无样式段（状态色已移至状态行符号），由渲染层以基底前景铺设
     const rows = frame(t, "none");
     const input = rows.find((r) => r.includes("Type a message"));
     assert.ok(input, `${t} 存在输入提示行`);

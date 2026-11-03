@@ -2,7 +2,7 @@
 
 /** ctx.get('ruleEngine') 服务面（rule-engine 插件 provide；缺失或未实现 onNotice 时 TUI
  *  不订阅，告警仍走插件侧 stderr 兜底。消费侧懒读，容忍插件装载顺序，见 index.ts
- *  App.ruleEngine()；BACKLOG「rule-engine 的用户提示应显示在活动区」方案 B）。 */
+ *  App.ruleEngine()；BACKLOG「rule-engine 的用户提示应显示在回合区」方案 B）。 */
 export interface RuleEngineLike {
   /** 订阅插件告警（完整展示行 + tone）；返回注销函数。 */
   onNotice?(listener: (event: RuleEngineNotice) => void): () => void;
@@ -15,7 +15,7 @@ export interface RuleEngineNotice {
 }
 
 /** ctx.get('sessionChannel') 只读面（session-channel 插件 provide；缺失或未设别名时
- *  状态栏不显示别名段，见 BACKLOG TUI#48）。消费侧懒读，容忍插件装载顺序。 */
+ *  状态行不显示别名段，见 BACKLOG TUI#48）。消费侧懒读，容忍插件装载顺序。 */
 export interface SessionChannelLike {
   /** 别名清单（含在线标记）；插件未连接等失败情形返回 `{ ok: false, error }`。 */
   aliasList(): Promise<{

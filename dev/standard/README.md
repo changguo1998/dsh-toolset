@@ -20,7 +20,7 @@ node dev/standard/index.mjs --rule term.interface   # 只看一条规则, 有命
 | `symbol.variant` | 错误 | 20 条变体映射（`✔` → `✓` 等） | Markdown 正文、`.ts` 注释 |
 | `symbol.emoji` | 错误 | 36 个白名单符号之外的 emoji | 同上 |
 | `term.replace` | 错误 | `docs/GLOSSARY.md`「需要替换」表的条件型以外旧称 | 现行 Markdown |
-| `term.interface` | 警告 | 界面旧称（`活动区` / `历史区` / `状态栏` 等） | 同上 |
+| `term.interface` | 错误 | 界面旧称（`活动区` / `历史区` / `状态栏` 等），与 `term.replace` 同表同规则 | 同上 |
 | `count.packages` / `count.plugins` | 错误 | 「本仓 N 个包」「N 个包（TUI 与 M 个插件）」的数量断言 | 同上 |
 | `link.file` | 错误 | 相对链接的目标文件是否存在 | Markdown |
 | `link.anchor` | 警告 | `#锚点` 与目标文件的标题 slug 是否对得上 | Markdown |
@@ -43,4 +43,4 @@ node dev/standard/index.mjs --rule term.interface   # 只看一条规则, 有命
 
 ## 存量与严重度
 
-警告档的规则都是已登记的真实存量，不是误报: 界面旧称约 190 处由 `docs/BACKLOG.md` #1 清理，`.ts` 注释简写路径与失效路径约 650 处单独登记。存量清完后把对应规则的严重度改为「错误」，`pnpm run check` 侧即可当门禁用。
+警告档的规则都是已登记的真实存量，不是误报: `.ts` 注释简写路径 588 处与失效路径 60 处登记在 `docs/BACKLOG.md` #1。界面旧称已于 2026-11-03 清零（规则已改为错误档）。存量清完后把对应规则的严重度改为「错误」，`pnpm run check` 侧即可当门禁用。

@@ -265,7 +265,7 @@ function agentItemRows(a: AgentRowInfo, width: number, tick = 0): StatusRow[] {
   const text =
     `${sym}${a.alias ?? a.label}${a.work ? ` · ${a.work}` : ""}`.trimEnd();
   // BACKLOG「Agents 条目改列表式悬挂对齐」：续行停在首行**文字**起点（跳过符号宽度），
-  // 与活动区 Box 的 hanging 语义一致（复用 wrapWithHanging）。
+  // 与回合区 Box 的 hanging 语义一致（复用 wrapWithHanging）。
   return wrapWithHanging(text, Math.max(1, width), displayWidth(sym)).map(
     (line) => ({
       segments: [seg(line, { fg })],
@@ -441,7 +441,7 @@ function statusStartFor(len: number, offset: number, rows: number): number {
 
 /** 顶部状态列（最左侧列）：输出恰 height 行，每行宽 statusColWidth（末位竖线为分隔竖线边线，
  *  由 buildTopRegion 剥去后重新构图左缘外框格/右缘分隔竖线）。
- *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）。 */
+ *  滚动独立于会话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）。 */
 export function oldRenderStatusColumn(
   goals: GoalHistory | undefined,
   todos: TodoItemLike[] | undefined,
@@ -503,7 +503,7 @@ export function oldRenderStatusColumn(
 
 /**
  * 折行并让续行停靠 `hanging` 列（首行按整宽、续行按 width − hanging 重折后补空格）——
- * 与活动区 Box 的 hanging 语义一致（BACKLOG 3.1.1 的底部 notice 视图用）。
+ * 与回合区 Box 的 hanging 语义一致（BACKLOG 3.1.1 的底部 notice 视图用）。
  */
 function wrapWithHanging(
   text: string,

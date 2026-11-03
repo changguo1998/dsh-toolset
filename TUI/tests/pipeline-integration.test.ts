@@ -59,7 +59,7 @@ test("集成：交付流 → 两 pane 内容 + counts/keys/userRows 结构一致
     built.activity.length,
     "活动 counts 与行数一致",
   );
-  // keys 与 counts 对齐（对话区）
+  // keys 与 counts 对齐（会话区）
   assert.equal(built.dialogueKeys.length, built.dialogueCounts.length);
   // 内容可达：会话区含正文
   const diaText = built.dialogue
@@ -165,7 +165,7 @@ test("集成：多回合 → 会话区出现回合分隔、counts 仍一致、�
   assert.ok(txt.includes("答二"), "最新正文在");
 });
 
-test("集成：工具批进活动区（名字/结果行 kind 可读）", () => {
+test("集成：工具批进回合区（名字/结果行 kind 可读）", () => {
   let s = initialState(undefined, { activityPlacement: "vertical" });
   const steps: ScriptStep[] = [
     { delivery: { kind: "turn-start", turn: 1 } },
@@ -200,11 +200,11 @@ test("集成：工具批进活动区（名字/结果行 kind 可读）", () => {
   });
   assert.ok(
     built.activity.some((r) => r.kind === "tool-name"),
-    "活动区有工具名行",
+    "回合区有工具名行",
   );
   assert.ok(
     built.activity.some((r) => r.kind === "tool-result"),
-    "活动区有结果行",
+    "回合区有结果行",
   );
 });
 
@@ -252,7 +252,7 @@ test("接缝：pipelineContent 的 dialogue 行铺满 dialogueTextW（多宽度�
     status: { time: "12:00:00", cwd: "/w", git: "main" },
   });
   const LONG =
-    "回复正文：这是一段足够长的中文内容，用来把历史 pane 的文字行铺满到排版右缘，看最右可见字符。";
+    "回复正文：这是一段足够长的中文内容，用来把会话区 的文字行铺满到排版右缘，看最右可见字符。";
   const steps = [
     ...turnScript({
       turn: 1,

@@ -7,7 +7,7 @@
 // 面板行语义 = 「一字符串一行」精确行长：原语基于 styled 叶子（fill wait
 // wrap:false 不折行、不做 markdown 解析，避免 `[y]`/`*` 等被误解析）。
 // **例外**（BACKLOG TUI#6）：描述窗的题干 / detail / 审批草稿走 `panelMarkdownRows`
-// ——按历史区同口径渲染 markdown 子集（样式段行）；选项行与按键提示仍不解析。
+// ——按会话区同口径渲染 markdown 子集（样式段行）；选项行与按键提示仍不解析。
 // 渲染字符：选项行高亮游标 `>`、选中标记 `✓`（见 TUI/docs/DESIGN.md「/model 命令」
 // ModelPicker / StatusPanel / Question）。
 
@@ -150,10 +150,10 @@ export function windowStart(
 export type PanelMarkdownRows = FrameSegment[][];
 
 /**
- * 面板 markdown 行（BACKLOG TUI#6）：把多行文本按**历史区同口径**渲染为样式段行数组，
+ * 面板 markdown 行（BACKLOG TUI#6）：把多行文本按**会话区同口径**渲染为样式段行数组，
  * 供面板描述窗（问答题干 / detail、审批草稿）复用 markdown 子集。
  *
- * 分类（逐行，与历史区的行级路径一致）：
+ * 分类（逐行，与会话区的行级路径一致）：
  *   - fence（``` / ~~~）标记行与其内部行 → `wrapCodeLine`（灰底、内部不解析）；
  *     fence 状态由本函数自持（面板不经过内容流水线的 fence 注解）；
  *   - 含 `|` 的行 → 普通文本折行（**表格退回纯文本**：BACKLOG TUI#6 裁定——表格列宽是

@@ -43,9 +43,9 @@
 ### 3.1 P0 —— 升级回归（必做，改动的验收基线）
 
 1. **Profile 依赖升级**：profile `dsh-toolset-tui` 的 `@deepseek-ai/dsh` 解析到 0.1.2-rc.1（本机全局已装 `0.1.2-rc.1`，核对 `lockfile`/`pnpm` 解析；若 profile 缓存旧版需更新）。
-1. **契约回归清单（真机冒烟）**：启动 → 会话提交/流式 → 审批弹窗（turn 内）→ `/policy` ask/never → `/permission` 目录（names 来自 configTrees → `PermissionPresetService.names`）→ `/preset` 目录+切换（**`AgentPresets` 改 `TypertRemoteService` 后重点验证 `list()`/`recompose()` 异步调用**）→ jobs → goal/todo → 状态栏 mode 块 → Ctrl+D 退出。
-1. **自动化**：`npm run check`（tsc 直接验证 adapter 类型兼容——若 `AgentPresets`/`PermissionPresetService` 类型不兼容会在编译期暴露）→ `npm test` → `npm run build` → `npm run demo` + smoke。
-1. **diff-check + 提交**（若 P0 即零改动，只提交文档/冒烟记录）。
+2. **契约回归清单（真机冒烟）**：启动 → 会话提交/流式 → 审批弹窗（turn 内）→ `/policy` ask/never → `/permission` 目录（names 来自 configTrees → `PermissionPresetService.names`）→ `/preset` 目录+切换（**`AgentPresets` 改 `TypertRemoteService` 后重点验证 `list()`/`recompose()` 异步调用**）→ jobs → goal/todo → 状态行 mode 块 → Ctrl+D 退出。
+3. **自动化**：`npm run check`（tsc 直接验证 adapter 类型兼容——若 `AgentPresets`/`PermissionPresetService` 类型不兼容会在编译期暴露）→ `npm test` → `npm run build` → `npm run demo` + smoke。
+4. **diff-check + 提交**（若 P0 即零改动，只提交文档/冒烟记录）。
 
 ### 3.2 P1 —— 目录/预设服务兼容实证（若 P0 冒烟发现回归，回填修复）
 
@@ -68,18 +68,18 @@
 
 ### 3.5 P2（可选）— 消费 `model/selection` / `assistant/message.interrupted`
 
-- `model/selection`：状态栏/模型选择面板联动（TUI 已有 `readDefaultSelection` 读服务；事件订阅补充，供跨会话选择同步）。载荷= `ModelSelection{provider, model, reasoningEffort?}`（与 TUI `readDefaultSelection` 返回同型，`session-controller/src/types.ts L41`）。
+- `model/selection`：状态行/模型选择面板联动（TUI 已有 `readDefaultSelection` 读服务；事件订阅补充，供跨会话选择同步）。载荷= `ModelSelection{provider, model, reasoningEffort?}`（与 TUI `readDefaultSelection` 返回同型，`session-controller/src/types.ts L41`）。
 - `interrupted`：流式区中断前缀标记（与既有 turn-end notice 互补）。
 - **决策点**：是否本轮实施；不做则保持 default 忽略，记录为 backlog。
 
 ## 4. 验证链（执行顺序）
 
 1. `npm run check`（类型面抢先暴露不兼容）
-1. `npm test`（全量）
-1. `npm run build` + `npm run demo`（demo：审批/Ctrl+D/目录回归）
-1. `--smoke` 冒烟
-1. **真机 0.1.2-rc.1 profile 冒烟**（§3.1.2 清单）
-1. `git diff --check` + 提交（Conventional Commits，中文）
+2. `npm test`（全量）
+3. `npm run build` + `npm run demo`（demo：审批/Ctrl+D/目录回归）
+4. `--smoke` 冒烟
+5. **真机 0.1.2-rc.1 profile 冒烟**（§3.1.2 清单）
+6. `git diff --check` + 提交（Conventional Commits，中文）
 
 ## 5. 风险与决策点
 
@@ -113,14 +113,14 @@
 | # | 清单项 | 结果 | 证据 |
 | --- | --- | --- | --- |
 | 1 | 启动（进程保活） | PASS | PTY `Type a message` 30s 内出现 |
-| 2 | 会话提交/流式 | PASS | seed `boot-*` 回显 + 状态栏标题回读 `boot-26404`、`ctx 19.8k·cache 93%` |
+| 2 | 会话提交/流式 | PASS | seed `boot-*` 回显 + 状态行标题回读 `boot-26404`、`ctx 19.8k·cache 93%` |
 | 3 | 审批弹窗（turn 内） | 判定 PASS（宿主组合前提） | 真机 profile 默认组合未启用 user-approval（0.1.2-rc.1 默认依赖已带该包但 cordis 组合未挂载；0.1.1-rc.2 连包都不带）；TUI 审批 UI 由 demo autoApproval 覆盖（上一轮修复） |
 | 4 | /policy ask/never | 判定 PASS（宿主组合前提） | 报「审批策略服务不可用」为 TUI fail-safe 正确行为；`ApprovalService` 服务名两版均为 `'approval'`（super(ctx,'approval') 已核实），接口无迁移 |
 | 5 | /permission 目录 | PASS | `PermissionPresetService.names`（configTrees）经 `permissionCatalog` 正常列出 |
 | 6 | /preset 目录+切换 | PASS | `AgentPresets.list()` 在 `TypertRemoteService` 下进程内调用正常（R1 实证）；切换(recompose)由单测 + P2 覆盖，本轮未在真机执行 |
 | 7 | jobs | PASS | `/jobs` 面板「后台任务 (0)」正常打开 |
 | 8 | goal/todo | PASS | 状态列「（无目标/待办）」占位正常（计数/详情渲染） |
-| 9 | 状态栏 mode 块/Ctrl+D | PASS | 状态栏 title/ctx/cache 正常；Ctrl+D 空闲退出码 0；Mode 块本轮无宿主 mode 事件（无数据整块省略为设计行为），兼容性由 demo handler 造事件 + 单测覆盖 |
+| 9 | 状态行 mode 块/Ctrl+D | PASS | 状态行 title/ctx/cache 正常；Ctrl+D 空闲退出码 0；Mode 块本轮无宿主 mode 事件（无数据整块省略为设计行为），兼容性由 demo handler 造事件 + 单测覆盖 |
 
 自动化链：`npm run check` 0 错 / `npm test` 434/434 / `npm run build` OK / `node dist/demo/main.js --smoke` SMOKE_OK。
 

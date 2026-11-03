@@ -119,7 +119,7 @@ export function main(opts: {
   getTimers?: () => TimersLike | undefined;
   /** 符号服务读取器（懒读，容忍插件装载顺序；symbol-normalizer 未挂载时返回 undefined） */
   getSymbols?: () => SymbolNormalizerLike | undefined;
-  /** 会话通道读取器（懒读；session-channel 未挂载时返回 undefined → 状态栏不显示别名段，TUI#48） */
+  /** 会话通道读取器（懒读；session-channel 未挂载时返回 undefined → 状态行不显示别名段，TUI#48） */
   getSessionChannel?: () => SessionChannelLike | undefined;
   /** rule-engine 服务读取器（懒读；未挂载 / 未实现 onNotice 时告警不经总线，走 stderr 兜底） */
   getRuleEngine?: () => RuleEngineLike | undefined;
@@ -219,8 +219,8 @@ export function main(opts: {
     };
     configSink.notice = (text) => app.appendExternalLog(text, "warn");
   }
-  // 运行期 stderr 桥（BACKLOG「rule-engine 的用户提示应显示在活动区」方案 A）：安装后
-  // 运行期告警按行进入活动区（避免裸写落在输入区光标处）；启动前写入不受影响，dispose 时还原。
+  // 运行期 stderr 桥（BACKLOG「rule-engine 的用户提示应显示在回合区」方案 A）：安装后
+  // 运行期告警按行进入回合区（避免裸写落在输入区光标处）；启动前写入不受影响，dispose 时还原。
   const stderrBridge = installStderrBridge((line, tone) =>
     app.appendExternalLog(line, tone),
   );
@@ -386,7 +386,7 @@ function stableJson(value: unknown): string {
 
 /**
  * 配置热更新出口（`apply()` 内创建、`main()` 就绪后挂上实现）。
- * `apply` = 就地应用可热应用的键；`notice` = 需重启的键在活动区提示一句。
+ * `apply` = 就地应用可热应用的键；`notice` = 需重启的键在回合区提示一句。
  */
 export interface LiveConfigSink {
   apply?: (patch: LiveConfigPatch) => void;
@@ -924,7 +924,7 @@ export async function apply(
       SymbolNormalizerLike | undefined;
 
   // 会话通道服务（ctx.get('sessionChannel')，session-channel 插件 provide）：
-  // 同上，懒读以容忍插件装载顺序；未挂载时状态栏不显示别名段（BACKLOG TUI#48）
+  // 同上，懒读以容忍插件装载顺序；未挂载时状态行不显示别名段（BACKLOG TUI#48）
   const getSessionChannel = (): SessionChannelLike | undefined =>
     (ctx as { get?: (name: string) => unknown }).get?.("sessionChannel") as
       SessionChannelLike | undefined;

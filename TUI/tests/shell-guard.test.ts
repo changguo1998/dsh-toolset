@@ -183,7 +183,7 @@ test("`$` 命中 guard：命令未执行，回执（来源 tui:$ + 规则 id）�
     st()
       .local.filter((l) => l.kind === "shell")
       .every((l) => l.final !== true),
-    "shell 行不进历史区（与既有 `$` 输出同口径）",
+    "shell 行不进会话区（与既有 `$` 输出同口径）",
   );
   assert.equal(lines[0]?.text, `$ ${cmd}`, "首行仍是命令回显");
   assert.equal(lines[0]?.tone, "info", "回显行 info 色");
@@ -284,7 +284,7 @@ test("`$` guard 未挂载：fail-open 照常执行，告警一次（warn 前缀�
   const lines = shellLines(st());
   assert.ok(
     lines.some((l) => l.text.includes("ran")),
-    "输出照常进活动区",
+    "输出照常进回合区",
   );
   // 每次执行都留痕（与 metric-loop / task-engine 的 guardSkipped 同口径）
   assert.deepEqual(

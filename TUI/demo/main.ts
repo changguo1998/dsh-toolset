@@ -188,7 +188,7 @@ if (smoke) {
         status: "tool",
       });
       // P1：状态符号随用户块——△ 只出现在**最新未终态块**上。先提交一条（mock 尚未回包），
-      // 再打开审批面板，帧内即可见 `△ <文本>`（状态栏已不再承载状态符号）
+      // 再打开审批面板，帧内即可见 `△ <文本>`（状态行已不再承载状态符号）
       typeLine("等待审批的输入");
       await sleep(120);
       adapter.emitEvent({
@@ -304,7 +304,7 @@ if (smoke) {
         !plain.includes("$> "),
         "prompt should be single char (no '$> ' two-char prompt)",
       );
-      // P1：状态符号在**用户块首行左侧**（`符号 + 1 空格 + 文本`），状态栏不再承载：
+      // P1：状态符号在**用户块首行左侧**（`符号 + 1 空格 + 文本`），状态行不再承载：
       // 终态绿 ✓ / 灰 ■（中止）/ 无终态 `?`；活跃块在忙时 ●/○、审批·问答面板打开时 △
       ok(
         "userblock-aborted-mark",
@@ -332,7 +332,7 @@ if (smoke) {
         plain.includes("允许执行?"),
         "approval text absent from frames",
       );
-      // 按键提示统一到底部提示区（BACKLOG 3.1.2）：审批键位在最后一行提示区，
+      // 按键提示统一到提示行区（BACKLOG 3.1.2）：审批键位在最后一行提示行，
       // 面板内不再内嵌键位（原先面板内的红/绿着色随迁移取消）。
       // 2026-10-15：提示行格式统一后（去 `▶` 装饰、`[键]标签` + ` · ` 分隔、
       // `↑/↓` 文案随焦点窗切换）断言文本长期未跟改，改为按 `approvalHintLine()`
@@ -405,8 +405,8 @@ if (smoke) {
         adapter.interrupts === 1,
         "question Esc must not interrupt, interrupts=" + adapter.interrupts,
       );
-      // 10. 状态栏会话徽标（mode/policy/preset/jobs；goal/todo 在
-      //     左侧顶部状态列详显，状态栏不显示）；/goal 只提示查看信息栏（面板已移除）
+      // 10. 状态行会话徽标（mode/policy/preset；jobs/goal/todo 在
+      //     左侧顶部状态列详显，状态行不显示）；/goal 只提示查看信息栏（面板已移除）
       const badgePlain = smokeOut.replace(/\x1b\[[0-9;]*m/g, "");
       /** 折行归一化：去掉 ANSI / 空白 / pane 边框 `│`——通知文本可能被 pane 宽折成多行，
        *  逐行子串匹配会漏（同一行内才匹配），故按「拼接后的连续文本」断言 */
@@ -446,7 +446,7 @@ if (smoke) {
       );
       ok(
         "compaction-summary-toast",
-        // 带统一前缀且被活动区视口截断（`[hh:mm:ss tui] 压缩完成…`）→ 断言前缀 + 文案首部；
+        // 带统一前缀且被回合区视口截断（`[hh:mm:ss tui] 压缩完成…`）→ 断言前缀 + 文案首部；
         // flatFrames 已去空白与 pane 边框，跨帧折行也能匹配
         flatFrames().includes("tui]压缩完成"),
         "no compaction-summary toast in frames",
@@ -483,7 +483,7 @@ if (smoke) {
         "status-col-elements",
         panelPlain.includes("Goal ▷") &&
           panelPlain.includes("Todo 1/4") &&
-          panelPlain.includes("● 状态栏 goal 徽标") &&
+          panelPlain.includes("● 状态列 goal 徽标") &&
           // 列总高 > 窗口 17：折叠等级 L2（仅进行中）隐藏三合一+长待办 2 项
           // 并压 goal 为标题行（…(+2项已隐藏)）
           panelPlain.includes("…(+2项已隐藏)"),
@@ -505,11 +505,11 @@ if (smoke) {
       renderer.emitKey(key("escape")); // 关闭面板
       await sleep(100);
 
-      // —— 活动区混合断言：思考/中间输出/工具/notice 按时间顺序混合 ——
-      // 先 /cls 清掉旧活动区瞬态（turn-begin 是内部 reducer 动作，adapter 事件面不可
+      // —— 回合区混合断言：思考/中间输出/工具/notice 按时间顺序混合 ——
+      // 先 /cls 清掉旧回合区瞬态（turn-begin 是内部 reducer 动作，adapter 事件面不可
       // 发），再注入一个混合回合：thinking → stream(中间，非 final) → 工具调用/结果
-      // → notice → stream(最终总结)；turn-end 后中间输出/工具/notice 留在活动区（按
-      // 时间同屏），最终总结标 final 进历史区。
+      // → notice → stream(最终总结)；turn-end 后中间输出/工具/notice 留在回合区（按
+      // 时间同屏），最终总结标 final 进会话区。
       typeLine("/cls");
       await sleep(300);
       adapter.emitEvent({
@@ -557,8 +557,8 @@ if (smoke) {
       const aTool = lineIdx("mixed-check");
       const aN = lineIdx("混合 notice"); // notice 带 `[hh:mm:ss 来源]` 前缀，80 列下会折行
       const aSum = lineIdx("混合最终总结");
-      // 只断言活动条目的**时间顺序**（行号递增）与总结可见。原先另有一条「总结在活动区
-      // 分隔行之前」的判据，实测站不住：80×24 的 auto 排列是左右分栏、没有活动区分隔行，
+      // 只断言活动条目的**时间顺序**（行号递增）与总结可见。原先另有一条「总结在回合区
+      // 分隔行之前」的判据，实测站不住：80×24 的 auto 排列是左右分栏、没有回合区分隔行，
       // 而按 `/^─+$/` 搜到的恒是状态区下方那条全宽横线（帧 chrome）→ 判据恒真，已删；
       // 「总结落在哪个 pane」改由下方两条**按列**断言覆盖（见 BACKLOG 条目）
       ok(
@@ -598,7 +598,7 @@ if (smoke) {
         `divCol=${divCol} sumRow=${aSum} midRow=${midRow} row=` +
           JSON.stringify(mixedLines[midRow] ?? ""),
       );
-      // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态栏 ask 徽标；
+      // C 阶段：/policy 审批策略。启动注入 approval/policy(ask) → 状态行 ask 徽标；
       // `/policy never` → notice + mock 回发 approval/policy(never) → 徽标变 auto
       // ask 生效时 policy 行文本恒为 "policy ask auto"，当前项以绿色高亮——
       // 用 raw 帧的绿色 SGR（dark #61D383）断言 ask 为生效项（区分色而非文本）

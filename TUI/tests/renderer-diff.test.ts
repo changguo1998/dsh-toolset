@@ -1,6 +1,6 @@
 // tests/renderer-diff.test.ts — Renderer 区间 diff（帧中任意位置变化只重写该区间）
 //
-// 覆盖：中部单行变化（状态栏符号）、末行行内增长（流式）、纯追加、行数减少
+// 覆盖：中部单行变化（状态行符号）、末行行内增长（流式）、纯追加、行数减少
 // （尾部残留 ESC[J 清除）、两帧一致不出报文、未变化行不重写。
 // 关键不变量：增量帧不得出现 ESC[2J（清屏）。
 
@@ -30,7 +30,7 @@ function collector(): {
   return { chunks, renderer };
 }
 
-test("区间 diff：中部单行变化只重写该行（状态栏符号，无清屏）", () => {
+test("区间 diff：中部单行变化只重写该行（状态行符号，无清屏）", () => {
   const { chunks, renderer } = collector();
   // 帧高需 ≤ 渲染器认为的终端高度（#3 起超高行会被钳掉，杜绝触底滚屏）
   const frame = (sym: string): FrameRow[] => [
@@ -168,11 +168,11 @@ test("帧段切分：top 与 status 两段同时变化只重写各自段内变�
   renderer.render(sectionFrame("top B", "○"), SECTIONS);
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  // 两个独立区间：top 段第 1 行、status 段状态栏行（第 7 行）
+  // 两个独立区间：top 段第 1 行、status 段状态行行（第 7 行）
   assert.ok(out.includes("\x1b[1;1H"), "top 段区间应定位第 1 行");
   assert.ok(out.includes("\x1b[7;1H"), "status 段区间应定位第 7 行");
   assert.ok(out.includes("top B"), "重写 top 变化行");
-  assert.ok(out.includes("status ○"), "重写状态栏变化行");
+  assert.ok(out.includes("status ○"), "重写状态行变化行");
   assert.ok(!out.includes("t1"), "段内未变化行不重写");
   assert.ok(!out.includes("> input"), "footer 段未变化不重写");
   assert.ok(!out.includes("hint"), "hint 段未变化不重写");
@@ -233,8 +233,8 @@ test("区间 diff：同段内不连续的两处变化各自成区间（不跨越
   renderer.close();
 });
 
-test("区间 diff：真实帧里状态列与活动区同 tick 变化只重写变化行（回归：曾整段 18 行）", () => {
-  // 状态列（最左窄列，纵向贯穿顶部区域）与活动区（底部流式行）在同一 tick 同时
+test("区间 diff：真实帧里状态列与回合区同 tick 变化只重写变化行（回归：曾整段 18 行）", () => {
+  // 状态列（最左窄列，纵向贯穿顶部区域）与回合区（底部流式行）在同一 tick 同时
   // 变化时，中间大段行其实未变；取「首末跨度」会把整段逐行擦除重写。
   const size = { rows: 24, cols: 80 };
   const { chunks, renderer } = collector();
@@ -267,7 +267,7 @@ test("区间 diff：真实帧里状态列与活动区同 tick 变化只重写变
   };
   paint(s);
   const mark = chunks.length;
-  // 同一 tick：活动区末行增长 + 状态列 todo 更新
+  // 同一 tick：回合区末行增长 + 状态列 todo 更新
   // 同一 tick 的末行增长：同块追加（流式续写，`full: false`）
   const base = s.pipeline ?? sectionsFromScript([]);
   let next: typeof s = {

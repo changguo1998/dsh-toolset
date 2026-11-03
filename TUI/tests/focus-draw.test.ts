@@ -28,7 +28,7 @@ function frameOf(rows: number, cols: number): FrameRow[] {
  */
 function stdRects(
   cols: number,
-  sepRow: number, // 活动区分隔行（history 底边 = activity 顶边）
+  sepRow: number, // 回合区分隔行（history 底边 = activity 顶边）
   statusRow: number, // 状态区上方分隔行（activity/status 底边）
 ): Map<PaneId, Rect> {
   const statusW = Math.floor(cols / 3);
@@ -140,7 +140,7 @@ test("focusFrame：history 焦点只给既有框线上色（字形不变）", ()
   for (const [row, why] of [
     [rows[1]!, "顶边（标题栏下划线行）"],
     [rows[2]!, "左缘竖线"],
-    [rows[3]!, "底边（活动区分隔行）"],
+    [rows[3]!, "底边（回合区分隔行）"],
   ] as const) {
     assert.ok(
       row.segments.some((s) => s.style?.fg === "focus"),
@@ -176,7 +176,7 @@ test("focusFrame：activity 焦点只给既有框线上色（不画右边框）"
   const rects = stdRects(cols, 3, 5);
   const r = rects.get("activity")!;
   const lEdge = r.x; // 纵向排列：左缘 = D 列
-  // 既有框线：左缘竖线（活动区行）+ 顶/底横线；右边框本就不存在（留白）
+  // 既有框线：左缘竖线（回合区行）+ 顶/底横线；右边框本就不存在（留白）
   for (let i = 4; i < 5; i++) setCell(rows[i]!, lEdge, "│");
   for (let c = lEdge; c <= r.x + r.w - 1; c++) {
     setCell(rows[3]!, c, "─");

@@ -45,7 +45,7 @@ export type ShellRunner = (
   options?: ShellRunOptions,
 ) => Promise<ShellRunResult>;
 
-/** 展开 `~`：状态栏 cwd 是**显示用缩写**（`~/Projects/x`，见 status.ts `shortenHome`），
+/** 展开 `~`：状态行 cwd 是**显示用缩写**（`~/Projects/x`，见 status.ts `shortenHome`），
  *  不能直接当文件系统路径用（`~` 不展开 → spawn ENOENT，真机 2026-09-27 踩到）。 */
 function expandTilde(path: string): string {
   if (path === "~") return homedir();
@@ -169,7 +169,7 @@ export interface ShellOutputLine {
   tone?: "success" | "warn" | "error" | "info" | "log";
 }
 
-/** 把「命令 + 结果」折成活动区行：命令回显 → stdout → stderr → 退出摘要。
+/** 把「命令 + 结果」折成回合区行：命令回显 → stdout → stderr → 退出摘要。
  *  空输出不产行；行内不含 ANSI（渲染层统一着色）。 */
 export function shellResultLines(
   command: string,

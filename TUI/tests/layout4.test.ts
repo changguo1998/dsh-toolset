@@ -114,16 +114,16 @@ function histContent(line: string, cols: number): string {
   return histBody(line, cols).trimEnd();
 }
 
-/** 活动区分隔行索引——对话历史 ↔ 流输出边界：左半（历史区正文）全实线 ─；
+/** 回合区分隔行索引——对话历史 ↔ 流输出边界：左半（会话区正文）全实线 ─；
  *  turn 分隔为虚线 ╌ 不冲突；状态区上方/下方分隔是全宽 ─（更靠后，findIndex
- *  取首个即活动区分隔，故跳过 row0 顶部边框行与标题栏分隔行（history 焦点时
+ *  取首个即回合区分隔，故跳过 row0 顶部边框行与标题栏分隔行（history 焦点时
  *  顶部边框行也是 ─ 全；标题栏下划线在 index TITLE_BAR_ROWS=2，24/30 行终端
  *  标题栏恒为 2 行，下划线行亦为全 ─） */
 function activitySepIdx(lines: string[], cols: number): number {
   return lines.findIndex((l, i) => i > TITLE_BAR_ROWS && isSepRow(l, cols));
 }
 
-/** 活动区分隔行判定：区域正文段为整行横线——焦点活动区/历史区时两端被焦点框
+/** 回合区分隔行判定：区域正文段为整行横线——焦点回合区/会话区时两端被焦点框
  *  角字覆写（┌/└/┐/┘），故允许边框类字形收尾，只要足够长的横线主体仍在 */
 function isSepRow(line: string, cols: number): boolean {
   const c = histContent(line, cols)
@@ -132,7 +132,7 @@ function isSepRow(line: string, cols: number): boolean {
   return /^[─┬┴┌┐└┘├┤]+$/.test(c) && (c.match(/─/g)?.length ?? 0) >= 10;
 }
 
-/** 思考行判定：历史区正文以 2 空格缩进开头（活动区瞬态，无 [思考] 前缀）。
+/** 思考行判定：会话区正文以 2 空格缩进开头（回合区瞬态，无 [思考] 前缀）。
  *  内容行补齐到整屏宽后，空白对话行 = 空格 + 右缘框线 │，须排除（trim 后剩 │）。 */
 const isThinkingRow = (l: FrameRow, cols: number): boolean => {
   const b = histBody(rowText(l), cols);
@@ -164,7 +164,7 @@ const turnSepRows = (frame: FrameRow[], cols: number): number =>
 
 /**
  * 条目 16 段 C2：生产口径的「用户输入开启回合」= 状态 action `turn-begin`（分隔线记账 /
- * 活动区滚动偏移归零 / run 边界清零）+ 节缓存交付 `turn-start`（分隔线随交付画在会话区）。
+ * 回合区滚动偏移归零 / run 边界清零）+ 节缓存交付 `turn-start`（分隔线随交付画在会话区）。
  * helper 的 `withTurnStart` 只做后者；断言状态层副作用的用例补上前者。
  */
 const userTurnBegin = (state: AppState, turn?: number): AppState =>
@@ -187,50 +187,50 @@ function frameWith(rows: number, cols: number) {
     status: { time: "12:00:00", cwd: "/home/u", git: "main" },
   });
   s = withText(s, "第一行\n第二行内容");
-  // 回合结束标记最终总结 → 历史区展示（流式中 assistant 在活动区）
+  // 回合结束标记最终总结 → 会话区展示（流式中 assistant 在回合区）
   s = withTurnEnd(s);
   const frame = buildFrame(s, { rows, cols });
   return { s, frame };
 }
 
-test("metricsFor: 交互区(输入+提示)占 1/5 且至少 2 行；历史区 = cols - 状态列", () => {
-  // rows=24 → 交互区 = floor(24/5) = 4：输入区 3 + 提示区 1
+test("metricsFor: 输入区 + 提示行占 1/5 且至少 2 行；会话区 = cols - 状态列", () => {
+  // rows=24 → 输入区 + 提示行 = floor(24/5) = 4：输入区 3 + 提示行 1
   const m = metricsFor({ rows: 24, cols: 60 });
-  assert.equal(m.footerHeight, 3, "输入区 = 交互区 4 - 提示区 1");
+  assert.equal(m.footerHeight, 3, "输入区 = 4 - 提示行 1");
   assert.equal(m.topHeight, 24 - 1 - 3 - 1 - 2);
-  // 按键提示区独立计入（不进 footerHeight）：输入态 hintRows=1
+  // 按键提示行独立计入（不进 footerHeight）：输入态 hintRows=1
   const withHint = metricsFor({ rows: 24, cols: 60 }, 1, 1);
   assert.equal(withHint.footerHeight, 3);
   assert.equal(withHint.hintHeight, 1);
-  // 不足时每区至少 1 行：rows=10 → 交互区 max(2, floor(10/5)) = 2
+  // 不足时每区至少 1 行：rows=10 → 输入区 + 提示行 max(2, floor(10/5)) = 2
   const small = metricsFor({ rows: 10, cols: 60 }, 1, 1);
   assert.equal(small.footerHeight, 1, "输入区最小 1 行");
-  assert.equal(small.hintHeight, 1, "提示区最小 1 行");
+  assert.equal(small.hintHeight, 1, "提示行最小 1 行");
   assert.equal(m.historyWidth, 60 - m.statusColWidth);
   assert.equal(
     m.statusColWidth,
     Math.min(Math.max(20, Math.floor(60 / 3)), Math.max(1, 60 - 10)),
-    "状态列窄列约 1/3 且最低 20 列、历史区保底 10 列",
+    "状态列窄列约 1/3 且最低 20 列、会话区保底 10 列",
   );
 });
 
-test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / 分隔线 / 输入区 3 行 + 按键提示区 1 行）", () => {
+test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / 分隔线 / 输入区 3 行 + 按键提示行 1 行）", () => {
   const { s, frame } = frameWith(24, 60);
   assert.equal(frame.length, 24, "帧恰好铺满 24 行");
   // 主题给边框/分隔线上色后带 ANSI 前缀，先剥离再断言
   const plain = (l: FrameRow) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
   // 顶部区域：前 topHeight=17 行（24 - 状态1 - 输入3 - 提示1 - 分隔2）。
-  // 对调后：历史/活动区在左（左缘框格 │）、详细状态列在右（分隔竖线在 D 列）
+  // 对调后：历史/回合区在左（左缘框格 │）、详细状态列在右（分隔竖线在 D 列）
   const top = frame.slice(0, 17);
   assert.ok(
     top.every((l) => !plain(l).startsWith("│")),
-    "默认无焦点：历史/活动区左缘框格空白占位（Tab 后 history 焦点才画 │）",
+    "默认无焦点：历史/回合区左缘框格空白占位（Tab 后 history 焦点才画 │）",
   );
   assert.ok(
     top.slice(1).every((l) => /[│─╌]/.test(plain(l))),
-    "分隔竖线保留（对话区右缘/状态列左缘，内容行均有；活动区分隔行两端的角为 ┘/┐）",
+    "分隔竖线保留（会话区右缘/状态列左缘，内容行均有；回合区分隔行两端的角为 ┘/┐）",
   );
-  // 标题栏即顶部（无独立顶部边框行）：title 占位 + 实线下划线，历史区内容在其后
+  // 标题栏即顶部（无独立顶部边框行）：title 占位 + 实线下划线，会话区内容在其后
   assert.ok(
     rowAnsi(top[0]!).includes("<title>"),
     "顶部首行为标题栏（会话标题占位）",
@@ -246,7 +246,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     2 + frameGeometry(s, { rows: 24, cols: 60 }).dialogueH,
   );
   const firstText = paneRows.findIndex((l) => rowAnsi(l).includes("第一行"));
-  assert.ok(firstText >= 0, "历史区内容在会话 pane 内（标题栏之后）");
+  assert.ok(firstText >= 0, "会话区内容在会话 pane 内（标题栏之后）");
   assert.ok(
     paneRows
       .slice(0, firstText)
@@ -261,12 +261,12 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.ok(rowAnsi(status).includes("/home/u"), "状态含当前目录");
   assert.ok(rowAnsi(status).includes("main"), "状态含 git(branch)");
   // 标题已移入纵向状态列顶部（水平栏不再承载；此处验证水平栏不含标签行）
-  assert.ok(!rowAnsi(status).includes("标题"), "水平状态栏不含标题段");
+  assert.ok(!rowAnsi(status).includes("标题"), "水平状态行不含标题段");
   assert.ok(
     rowAnsi(status).includes("•"),
     "组内段与组间分隔统一为圆点 •（P2）",
   );
-  assert.ok(!rowAnsi(status).includes("│"), "状态栏内不再有竖线（P2）");
+  assert.ok(!rowAnsi(status).includes("│"), "状态行内不再有竖线（P2）");
   assert.ok(rowAnsi(status).includes("none"), "LLM 组含模型思考后缀");
   // 第二个横线分隔行，然后输入区（3 行，多行框顶部对齐：首行占位提示）
   const separator2 = frame[19]!;
@@ -276,7 +276,7 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
     "idle 显示输入占位提示（输入区首行）",
   );
   assert.ok(plain(frame[22]!).trim() === "", "输入区第 3 行留空");
-  // 按键提示区（独立区域，与输入区之间不画横线；提示区 1 至 2 行，末行起为提示）
+  // 按键提示行（独立区域，与输入区之间不画横线；提示行 1 至 2 行，末行起为提示）
   const hintRows = frameGeometry(initialState(), {
     rows: 24,
     cols: 60,
@@ -288,24 +288,24 @@ test("buildFrame: 四区顺序与高度正确（顶部 / 分隔线 / 状态 / �
   assert.ok(
     plain(frame[24 - hintRows]!).startsWith("[> / ! $ <]") &&
       hintText.includes("[C-d]退出"),
-    "提示区首行为按键提示区（模式图例前缀 + 默认提示）",
+    "提示行首行为按键提示行（模式图例前缀 + 默认提示）",
   );
 });
 
-test("输入栏单字符提示符：当前模式符号（默认前景色）；状态符号渲染在用户块首行左侧", () => {
+test("输入区单字符提示符：当前模式符号（默认前景色）；状态符号渲染在用户块首行左侧", () => {
   const strip = (l: FrameRow): string =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, "");
   const sgr = (l: FrameRow): string =>
     /\x1b\[38;2;\d+;\d+;\d+m/.exec(rowAnsi(l))?.[0] ?? ""; // 行内首个 SGR（行首为前导空格）
   const inputRow = (s: ReturnType<typeof initialState>): FrameRow => {
-    // 输入区行号按几何反推（提示区 1 至 2 行，不能按「倒数第二行」取）
+    // 输入区行号按几何反推（提示行 1 至 2 行，不能按「倒数第二行」取）
     const g = frameGeometry(s, { rows: 10, cols: 40 });
     const top = g.rows - g.statusHeight - 2 - g.footerHeight - g.hintHeight;
     return buildFrame(s, { rows: 10, cols: 40 })[top + 1 + g.statusHeight + 1]!;
   };
   /** 探针用户块文本：符号挂在用户块首行，读数前把它补到 buffer 末尾（恒在视口内） */
   const LIVE = "活跃用户块";
-  /** 用户块首行所在帧行：历史 pane 正文段含该块文本的首行 */
+  /** 用户块首行所在帧行：会话区 正文段含该块文本的首行 */
   const userRow = (
     s: ReturnType<typeof initialState>,
     text: string,
@@ -320,7 +320,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
   /** 用户块首行状态符号 + 符号的生效前景色 SGR（P1：符号 + 1 空格 = 块内 2 列前缀）。
    *  符号是块内独立染色段，其色 = 紧邻符号（中间只隔空白填充）的最近一个 SGR；
    *  回退 `?` 无色段，取到的是块默认前景色（非任何状态色）。整行最左的状态列里也有
-   *  ✓/✗，故先把范围收到「本块文本之前」，只从历史 pane 正文段取。 */
+   *  ✓/✗，故先把范围收到「本块文本之前」，只从会话区 正文段取。 */
   const mark = (
     s: ReturnType<typeof initialState>,
     text: string = "用户输入文本",
@@ -377,7 +377,7 @@ test("输入栏单字符提示符：当前模式符号（默认前景色）；�
     "占位提示固定",
   );
 
-  // 状态符号在用户块首行左侧（P1，不再在状态栏）：终态按 turn-end reason 打标
+  // 状态符号在用户块首行左侧（P1，不再在状态行）：终态按 turn-end reason 打标
   assert.equal(ended("completed").sym, "✓", "成功 = 勾");
   assert.equal(ended("error").sym, "✗", "失败 = 叉");
   assert.equal(ended("aborted").sym, "■", "中止 = 实心方块");
@@ -792,13 +792,13 @@ test("usage 校准（P5）：真值/估算比例 EMA 更新 tokenCalib；无真�
   assert.equal(s.tokenCalib, TOKEN_CALIB_MAX, "校准系数 clamp 到上限");
 });
 
-test("buildFrame: 审批弹窗时交互区高度与输入态一致（不上下调整）", () => {
+test("buildFrame: 审批弹窗时输入区 + 提示行高度与输入态一致（不上下调整）", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "approval",
     approval: { id: "a1", prompt: "允许?" },
   });
-  // 提示区恒 1 行，面板态 footer=交互区高度−1，与输入态同高
+  // 提示行恒 1 行，面板态 footer=输入区 + 提示行高度−1，与输入态同高
   const m = metricsFor({ rows: 24, cols: 60 });
   assert.equal(m.footerHeight, 3);
   assert.equal(m.topHeight, metricsFor({ rows: 24, cols: 60 }, 1, 1).topHeight);
@@ -831,11 +831,11 @@ test("turn-begin: 回合开始时在会话区画分隔线；流式续写合入�
     ["中间输出 more"],
     "流式内容仍实时合入同一条节条目",
   );
-  // 中间输出所属节未打 final → 不归会话区（历史区），仍在回合区
+  // 中间输出所属节未打 final → 不归会话区（会话区），仍在回合区
   assert.equal(
     allSectionsOf(s).some((sec) => sec.final === true),
     false,
-    "非 final 中间输出不进历史区",
+    "非 final 中间输出不进会话区",
   );
 });
 
@@ -876,14 +876,14 @@ test("turn-begin: 同一回合重复交付只画一条分隔线；turn-end 不�
   );
 });
 
-test("turn-begin: 新回合不再清空活动区（内容持续可见），仅画分隔线并归零滚动", () => {
+test("turn-begin: 新回合不再清空回合区（内容持续可见），仅画分隔线并归零滚动", () => {
   // 条目 16 段 C2：内容都在节缓存里、`state.local` 只剩 UI 本地行，旧断言数的是缓冲行；
-  // 且「新回合清空活动区瞬态」语义已由用户 2026-10-11 裁定**取消**（内容持续可见）。
-  // 端到端口径见 tests/app.test.ts「活动区生命周期：新回合不再清空上一回合内容」，
-  // UI 本地行的清理见 tests/buffer-retire.test.ts「用户输入开启的回合：清掉活动区提示行」。
+  // 且「新回合清空回合区瞬态」语义已由用户 2026-10-11 裁定**取消**（内容持续可见）。
+  // 端到端口径见 tests/app.test.ts「回合区生命周期：新回合不再清空上一回合内容」，
+  // UI 本地行的清理见 tests/buffer-retire.test.ts「用户输入开启的回合：清掉回合区提示行」。
   let s = initialState();
-  s = reduceState(s, { type: "activity-scroll", delta: 5 }); // 先上滚活动区
-  assert.equal(s.activityScroll, 5, "前置：活动区已上滚 5 行");
+  s = reduceState(s, { type: "activity-scroll", delta: 5 }); // 先上滚回合区
+  assert.equal(s.activityScroll, 5, "前置：回合区已上滚 5 行");
   s = withUser(s, "问题 1");
   s = withText(s, "思考 1", "reasoning");
   s = withToolCall(s, "bash", "cmd 1");
@@ -948,7 +948,7 @@ test("activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clea
   assert.equal(s.activityScroll, 2, "前置：再次上滚 2 行");
   s = reduceState(s, { type: "turn-begin" }); // 已画过线的回合再 begin
   assert.equal(s.activityScroll, 0, "已有分隔线路径同样归零");
-  // /cls 清屏：活动区随之清空，偏移归零
+  // /cls 清屏：回合区随之清空，偏移归零
   s = reduceState(s, { type: "activity-scroll", delta: 9 });
   s = reduceState(s, { type: "clear-buffer" });
   assert.equal(s.local.length, 0, "清屏后 buffer 空");
@@ -963,7 +963,7 @@ test("activityScroll 归零：turn-begin 空 buffer/已有分隔线路径 + clea
   assert.equal(s.activityScroll, 0, "clear-buffer 后 activityScroll 归零");
 });
 
-test("turn-end 标 final：中间输出留活动区、总结进历史区；幂等与跨回合", () => {
+test("turn-end 标 final：中间输出留回合区、总结进会话区；幂等与跨回合", () => {
   // 条目 16 段 C2：final 是**节**标记（旧路径是缓冲行的 `final` 字段），旧断言读 `state.local`。
   // 归属口径（panes 层）：final 节的 assistant 正文进会话区，非 final 节（思考 / 工具 / 中间
   // 输出）留回合区——故中间输出与总结用 step 边界分开（同节内则整节一起进会话区）。
@@ -975,11 +975,11 @@ test("turn-end 标 final：中间输出留活动区、总结进历史区；幂�
   s = withToolCall(s, "bash", "ls");
   s = withStep(s, 2);
   s = withText(s, "最终总结");
-  // turn-end 前：无 final 节（中间输出在活动区）
+  // turn-end 前：无 final 节（中间输出在回合区）
   assert.equal(
     allSectionsOf(s).filter((sec) => sec.final === true).length,
     0,
-    "回合进行中无 final 节（中间输出在活动区）",
+    "回合进行中无 final 节（中间输出在回合区）",
   );
   s = withTurnEnd(s);
   const finals = allSectionsOf(s).filter((sec) => sec.final === true);
@@ -996,7 +996,7 @@ test("turn-end 标 final：中间输出留活动区、总结进历史区；幂�
     1,
     "重复 turn-end 幂等",
   );
-  // 帧级：总结进会话区（历史区），中间输出与思考留活动区
+  // 帧级：总结进会话区（会话区），中间输出与思考留回合区
   const rows = buildFrame(s, SIZE).map((l) =>
     histContent(rowText(l), SIZE.cols),
   );
@@ -1006,18 +1006,18 @@ test("turn-end 标 final：中间输出留活动区、总结进历史区；幂�
   );
   assert.ok(
     rows.some((r) => r.includes("中间回复 1")),
-    "非 final 中间输出留在活动区",
+    "非 final 中间输出留在回合区",
   );
   assert.ok(
     rows.some((r) => r.includes("思考")),
-    "思考留在活动区",
+    "思考留在回合区",
   );
-  // 新回合 turn-begin：final 节保留（历史区），非 final 中间输出也不清（内容持续可见）
+  // 新回合 turn-begin：final 节保留（会话区），非 final 中间输出也不清（内容持续可见）
   s = withTurnStart(s);
   assert.equal(
     allSectionsOf(s).filter((sec) => sec.final === true).length,
     1,
-    "final 总结保留（历史区）",
+    "final 总结保留（会话区）",
   );
   assert.ok(
     itemTexts(s, "assistant").includes("中间回复 1"),
@@ -1114,7 +1114,7 @@ test("renderStatusLine: 相邻段颜色不同且不含红/黄/绿状态色", () 
     }
   }
   for (const c of sgrs) {
-    // dark 主题红/黄/绿：#FD0013 / #E9C944 / #61D383——状态栏段不使用状态色
+    // dark 主题红/黄/绿：#FD0013 / #E9C944 / #61D383——状态行段不使用状态色
     assert.ok(
       !/#FD0013|#E9C944|#61D383/.test(c),
       `不应使用状态色(红/黄/绿): ${c}`,
@@ -1150,10 +1150,10 @@ test("会话流：用户靠右、模型靠左，用户续行保持右侧缩进(�
   let s = initialState();
   s = withUser(
     s,
-    "用户消息很长用于验证历史区的右侧缩进和续行换行行为这是一段更长的内容",
+    "用户消息很长用于验证会话区的右侧缩进和续行换行行为这是一段更长的内容",
   );
   s = withText(s, "模型回答");
-  // 回合结束：最后一段 assistant 标为 final 总结 → 历史区展示
+  // 回合结束：最后一段 assistant 标为 final 总结 → 会话区展示
   s = withTurnEnd(s);
   // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证用户块全部可见
   const top = buildFrame(s, { rows: 24, cols: 40 }).slice(0, 10);
@@ -1304,7 +1304,7 @@ test("renderStatusLine: 思考后缀 none/off/on/实际等级名", () => {
   }
 });
 
-test("会话流：短用户消息为右对齐收缩块，右缘竖线贴历史区右缘", () => {
+test("会话流：短用户消息为右对齐收缩块，右缘竖线贴会话区右缘", () => {
   let s = initialState();
   s = withUser(s, "你好");
   const plain = buildFrame(s, { rows: 10, cols: 40 }).map((line) =>
@@ -1334,7 +1334,7 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
     "第一行内容\n第二行更长的内容会触发软换行继续向下一行展示直到超出三十六列宽度限制为止",
   );
   // 标题栏占左列顶部 2 行：加高终端（rows=24 → dialogueH=5）保证首行块可见；
-  // cols=50（状态列最低 20 → 历史区 30）确保两个用户块都在可视窗口内
+  // cols=50（状态列最低 20 → 会话区 30）确保两个用户块都在可视窗口内
   const plain = buildFrame(s, { rows: 24, cols: 50 }).map((line) =>
     rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -1342,7 +1342,7 @@ test("会话流：用户消息软换行续行共享同一左边界；显式换�
     (l) => l.includes("第一行") || l.includes("第二行") || l.includes("展示"),
   );
   assert.ok(rows.length >= 3, "应至少三行(显式换行 1 + 软换行 2)");
-  // 左边界按历史区正文量测（跳过状态列）：appendStream 按 \n 拆出独立块，
+  // 左边界按会话区正文量测（跳过状态列）：appendStream 按 \n 拆出独立块，
   // 每个块各自右对齐（左缘随块宽不同），块内软换行续行共享同一左边界
   const indents = rows.map((l) => {
     const b = histBody(l, 50);
@@ -1375,7 +1375,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   let s = initialState();
   s = withUser(s, "问题");
   s = withText(s, "答案");
-  // 回合结束：答案标 final → 历史区展示
+  // 回合结束：答案标 final → 会话区展示
   s = withTurnEnd(s);
   // 标题栏占左列顶部 2 行：加高终端（rows=19 → dialogueH=3）保证问题+空行+答案可见
   let plain = buildFrame(s, { rows: 19, cols: 40 }).map((l) =>
@@ -1393,7 +1393,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   );
   assert.ok(!between[0]!.startsWith("|"), "空行最左侧无插件竖线");
 
-  // user → thinking：思考归属活动区（分隔线之下展示），不再要求与用户消息间空行
+  // user → thinking：思考归属回合区（分隔线之下展示），不再要求与用户消息间空行
   let t = withUser(initialState(), "q");
   t = withText(t, "思考中", "reasoning");
   plain = buildFrame(t, { rows: 16, cols: 40 }).map((l) =>
@@ -1403,11 +1403,11 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   assert.ok(tt >= 0, "思考应在帧内可见");
   assert.ok(
     plain.slice(0, tt).some((l2) => l2.includes("─")),
-    "思考应位于活动区实线分隔之下",
+    "思考应位于回合区实线分隔之下",
   );
 
-  // 活动区分隔线：灰色实线（ANSI 直方）；turn 分隔线灰色虚线；状态栏上 = 下 -
-  // 标题栏下划线行也是全 ─（index 2），须跳过以定位真正的活动区分隔行
+  // 回合区分隔线：灰色实线（ANSI 直方）；turn 分隔线灰色虚线；状态行上 = 下 -
+  // 标题栏下划线行也是全 ─（index 2），须跳过以定位真正的回合区分隔行
   const graySGR = "\x1b[38;2;";
   const dt = buildFrame(withText(initialState(), "x", "reasoning"), {
     rows: 16,
@@ -1416,18 +1416,18 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const dotRaw = dt.find(
     (l, i) => i > TITLE_BAR_ROWS && /^─+$/.test(histContent(rowAnsi(l), 40)),
   );
-  assert.ok(dotRaw, "活动区分隔线为实线");
+  assert.ok(dotRaw, "回合区分隔线为实线");
   assert.ok(
     rowAnsi(dotRaw!).includes(graySGR),
-    "活动区分隔线为灰色（含 truecolor SGR）",
+    "回合区分隔线为灰色（含 truecolor SGR）",
   );
   let ts = withText(initialState(), "正文");
-  ts = withTurnEnd(ts); // 正文标 final 进历史区
+  ts = withTurnEnd(ts); // 正文标 final 进会话区
   ts = withTurnStart(ts);
   const turnRaw = buildFrame(ts, { rows: 10, cols: 40 }).find((l) =>
     /^╌+$/.test(histContent(rowAnsi(l), 40)),
   );
-  assert.ok(turnRaw, "turn 分隔线(虚线)仍在历史区");
+  assert.ok(turnRaw, "turn 分隔线(虚线)仍在会话区");
   assert.ok(
     rowAnsi(turnRaw!).includes(graySGR),
     "turn 分隔线为灰色（含 truecolor SGR）",
@@ -1436,8 +1436,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     rows: 16,
     cols: 40,
   }).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
-  // 状态栏行定位（P1）：状态栏不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
-  // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态栏行 / 下分隔行
+  // 状态行行定位（P1）：状态行不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
+  // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态行行 / 下分隔行
   const seps = st
     .map((l, i) => (i > TITLE_BAR_ROWS && isSepRow(l, 40) ? i : -1))
     .filter((i) => i >= 0);
@@ -1446,12 +1446,12 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const statIdx = seps[pair]! + 1;
   assert.ok(
     st[statIdx]!.includes("•"),
-    "状态栏行在上下分隔行之间（组间 • 分隔）",
+    "状态行行在上下分隔行之间（组间 • 分隔）",
   );
-  assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态栏上方 ─ 分隔");
+  assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态行上方 ─ 分隔");
   assert.ok(
     st[statIdx + 1]!.trimStart().startsWith("─"),
-    "状态栏下方仍 ─ 分隔",
+    "状态行下方仍 ─ 分隔",
   );
 
   // user → 下回合 begin 分隔线：不加空行
@@ -1475,15 +1475,15 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   s = withUser(s, "问题");
   s = withText(s, "第一段\n");
   s = withText(s, "第三段\n");
-  s = withTurnEnd(s); // 正文标 final → 历史区
+  s = withTurnEnd(s); // 正文标 final → 会话区
   s = withTurnStart(s);
-  // 标题栏占左列顶部 2 行：活动区 1/2 后加高终端（rows=24 → dialogueH=6）保证正文尾段可见
+  // 标题栏占左列顶部 2 行：回合区 1/2 后加高终端（rows=24 → dialogueH=6）保证正文尾段可见
   const plain = buildFrame(s, { rows: 24, cols: 40 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
   const codeIdx = plain.findIndex((l) => l.includes("第三段"));
-  // 历史区内的 turn 分隔线（灰色虚线 ╌）；底部全屏横线不在此列
-  // 分隔线行 = 历史区正文全为 `╌`（活动区分隔为全 ─、顶部边框行 i>0 排除，均不冲突）
+  // 会话区内的 turn 分隔线（灰色虚线 ╌）；底部全屏横线不在此列
+  // 分隔线行 = 会话区正文全为 `╌`（回合区分隔为全 ─、顶部边框行 i>0 排除，均不冲突）
   const sepIdx = plain.findIndex(
     (l, i) => i > 0 && /^╌+$/.test(histContent(l, 40)),
   );
@@ -1494,7 +1494,7 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   // 正文段落之间的空行（一段\n\n二段）必须保留
   let p = initialState();
   p = withText(p, "一段\n\n二段\n");
-  p = withTurnEnd(p); // 正文标 final → 历史区
+  p = withTurnEnd(p); // 正文标 final → 会话区
   const plainP = buildFrame(p, { rows: 24, cols: 40 }).map((l) =>
     rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""),
   );
@@ -1504,13 +1504,13 @@ test("会话流：模型回复尾部空行不显示；正文段落间空行保�
   assert.equal(i2 - i1, 2, "两段正文之间的空行保留");
 });
 
-test("会话流：思考在活动区按视口截断；正文(输出)到达保留、turn-end 与下回合仍保留", () => {
+test("会话流：思考在回合区按视口截断；正文(输出)到达保留、turn-end 与下回合仍保留", () => {
   let s = initialState();
   s = withText(s, "t1\nt2\nt3\nt4\nt5\nt6", "reasoning");
   const frame = buildFrame(s, { rows: 16, cols: 60 });
   const thinkingLines = frame.filter((l) => isThinkingRow(l, 60));
-  // 活动区视口 = activityH 行（rows=16 → activityH=4）：只显示最近 4 行，可滚动回看
-  assert.ok(thinkingLines.length <= 4, "思考最多占满活动区视口");
+  // 回合区视口 = activityH 行（rows=16 → activityH=4）：只显示最近 4 行，可滚动回看
+  assert.ok(thinkingLines.length <= 4, "思考最多占满回合区视口");
   assert.ok(frame.some((line) => rowAnsi(line).includes("t6")));
   assert.ok(!frame.some((line) => rowAnsi(line).includes("t1")));
 
@@ -1519,7 +1519,7 @@ test("会话流：思考在活动区按视口截断；正文(输出)到达保留
   s = withText(s, "正文");
   assert.ok(
     itemTexts(s, "reasoning").includes("t1\nt2\nt3\nt4\nt5\nt6"),
-    "正文到达后思考仍保留（思考/中间输出属活动区，总结属历史区）",
+    "正文到达后思考仍保留（思考/中间输出属回合区，总结属会话区）",
   );
 
   s = withText(s, "残留思考", "reasoning");
@@ -1528,14 +1528,14 @@ test("会话流：思考在活动区按视口截断；正文(输出)到达保留
     itemTexts(s, "reasoning").includes("残留思考"),
     "turn-end 后思考保留显示（输出结束后不立即清空）",
   );
-  s = withTurnStart(s); // 下回合：2026-10-11 裁定取消「新回合清空活动区」→ 仍保留
+  s = withTurnStart(s); // 下回合：2026-10-11 裁定取消「新回合清空回合区」→ 仍保留
   assert.ok(
     itemTexts(s, "reasoning").includes("残留思考"),
     "下回合后思考仍保留（内容持续可见）",
   );
 });
 
-test("会话流：思考不再单独折叠，活动区整体按视口高度截断（可滚动回看）", () => {
+test("会话流：思考不再单独折叠，回合区整体按视口高度截断（可滚动回看）", () => {
   // rows=24 → contentTopH=16 → activityH=8：12 行思考 → 视口显示最近 8 行，无折叠提示
   let s = initialState();
   for (let i = 1; i <= 12; i++) {
@@ -1546,7 +1546,7 @@ test("会话流：思考不再单独折叠，活动区整体按视口高度截�
   const thinking = frame.filter((l) => isThinkingRow(l, 60));
   assert.ok(
     thinking.length <= 8,
-    "活动区视口=activityH（rows=24 → activityH=8），实际:" + thinking.length,
+    "回合区视口=activityH（rows=24 → activityH=8），实际:" + thinking.length,
   );
   assert.ok(frame.some((line) => rowAnsi(line).includes("a12")));
   assert.ok(!frame.some((line) => rowAnsi(line).includes("a01")));
@@ -1555,7 +1555,7 @@ test("会话流：窄终端仍保留用户与思考文本", () => {
   let s = initialState();
   s = withUser(s, "用户");
   s = withText(s, "思考", "reasoning");
-  // 标题栏占左列顶部：加高到 rows=17（cols=8 时状态栏折 2 行，dialogueH=2）
+  // 标题栏占左列顶部：加高到 rows=17（cols=8 时状态行折 2 行，dialogueH=2）
   // 保证用户块两行（窄列换行）可见
   const plain = buildFrame(s, { rows: 17, cols: 8 }).map((line) =>
     rowAnsi(line).replace(/\x1b\[[0-9;]*m/g, ""),
@@ -1573,7 +1573,7 @@ test("会话流：cols=2 极限宽度不丢失宽字符", () => {
   assert.ok(plain.some((line) => line.includes("中")));
 });
 
-test("会话流：turn 分隔线在历史区铺满宽度", () => {
+test("会话流：turn 分隔线在会话区铺满宽度", () => {
   let s = withUser(initialState(), "x");
   s = withTurnEnd(s);
   const plain = buildFrame(s, { rows: 10, cols: 20 }).map((line) =>
@@ -1594,7 +1594,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   const bodyW = textW - DEFAULT_MESSAGE_GUTTER;
   let s = initialState();
   s = withText(s, "0123456789012345678901234567890123456789");
-  s = withTurnEnd(s); // 正文标 final → 历史区
+  s = withTurnEnd(s); // 正文标 final → 会话区
   // 标题栏占左列顶部 2 行：加高终端（rows=16 → dialogueH=2）保证两行正文可见
   const rows = buildFrame(s, { rows: 16, cols: 40 })
     .map((l) => strip(rowAnsi(l)))
@@ -1614,7 +1614,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
     bodyW + BODY_BAR,
     `默认 gutter=4：正文(含左侧竖线) = 排版宽 − gutter（右缘留 3 列文字留白）`,
   );
-  // 用户块铺满宽度：右缘竖线贴历史区右缘（不随内容宽收缩）
+  // 用户块铺满宽度：右缘竖线贴会话区右缘（不随内容宽收缩）
   let u = initialState();
   u = withUser(u, "hi");
   const uf = buildFrame(u, { rows: 11, cols: 40 })
@@ -1626,7 +1626,7 @@ test("交错布局：模型正文右缘保留与用户块左缘对称的空位(g
   );
 });
 
-test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满历史区右缘", () => {
+test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满会话区右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
   let s = initialState(undefined, { messageGutter: 0 });
   s = withText(s, "0123456789012345678901234567890123456789");
@@ -1740,7 +1740,7 @@ test("交错布局：多行输入为一块——块内行首左对齐、块铺�
 test("用户块：长输入折行后状态符号占左侧留白、正文各行同列（符号不参与正文换行）", () => {
   const cols = 60;
   const text =
-    "这是一条很长的用户输入，用来把历史区用户块撑到可用宽度上限，" +
+    "这是一条很长的用户输入，用来把会话区用户块撑到可用宽度上限，" +
     "看看折行之后符号和文本各自落在哪一列上。";
   let s = initialState();
   // 条目 16 段 C2：内容走交付（用户块本体在节缓存里，缓冲不再有用户行）
@@ -1751,7 +1751,7 @@ test("用户块：长输入折行后状态符号占左侧留白、正文各行�
   const frameRows = buildFrame(s, { rows: 24, cols });
   const rows = frameRows.map(strip).filter((l) => l.includes("┃"));
   assert.ok(rows.length >= 3, `长输入折成多行: ${rows.length}`);
-  /** 行内首个匹配字符的显示列（相对历史区 pane 起点，0 基） */
+  /** 行内首个匹配字符的显示列（相对会话区 pane 起点，0 基） */
   const colOf = (line: string, re: RegExp): number => {
     const m = re.exec(line);
     if (m === null) return -1;
@@ -1879,7 +1879,7 @@ test("markdown 子集扩展：• 列表/有序列表/任务完成/引用隐藏 
 });
 
 test("markdown 列表长项折行：续行悬挂对齐到条目正文列", () => {
-  // 集成：对话区真实渲染——续行在 assistant 左竖线壳（`┃ `）之后按**标记宽度悬挂**
+  // 集成：会话区真实渲染——续行在 assistant 左竖线壳（`┃ `）之后按**标记宽度悬挂**
   // 对齐到条目正文列（2026-10-26 口径：悬挂不再靠文本前导空格，而由标记盒定宽产生）
   let s = initialState();
   s = withText(s, "- ".concat("ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(3)) + "\n");
@@ -1887,8 +1887,8 @@ test("markdown 列表长项折行：续行悬挂对齐到条目正文列", () =>
   const lines = raw
     .map((l) => stripAnsi(rowText(l)))
     .filter((l) => l.includes("ABCDEFG"));
-  assert.ok(lines.length >= 2, "列表项在对话区折出多行");
-  // 取历史区正文段：最后一个框线竖线 `│` 之后；首行正文段再越过左缘 `┃`
+  assert.ok(lines.length >= 2, "列表项在会话区折出多行");
+  // 取会话区正文段：最后一个框线竖线 `│` 之后；首行正文段再越过左缘 `┃`
   const body = (t: string): string => t.slice(t.lastIndexOf("\u2502") + 1);
   const cont0 = body(lines[0]!).replace(/^\u2503/, "");
   // 续行：`┃` 之后是标记宽度的空白（悬挂缩进 2 列），正文因此与条目首行同列
@@ -1902,7 +1902,7 @@ test("markdown 列表长项折行：续行悬挂对齐到条目正文列", () =>
   );
 });
 
-// ===== 阶段 2：usage 状态栏槽位 + 工具行/notice tone 着色 =====
+// ===== 阶段 2：usage 状态行槽位 + 工具行/notice tone 着色 =====
 
 const baseStatus = {
   time: "10:00",
@@ -2015,7 +2015,7 @@ test("buildFrame: notice tone 行在帧内灰/蓝/黄/红/绿着色", () => {
   assert.ok(joined.includes("\x1b[38;2;97;211;131m绿"), "success → 绿");
 });
 
-test("buildFrame: 工具历史不按组数折叠，只受活动 pane 可视行数约束（超出可上滚回看）", () => {
+test("buildFrame: 工具历史不按组数折叠，只受回合区 可视行数约束（超出可上滚回看）", () => {
   let s = initialState();
   // 6 次调用组（每次 * + +）：过去按固定组数上限（=4）折叠掉前两组，
   // 现在全部保留（只受 pane 高约束，pane 外的内容可上滚回看）
@@ -2036,7 +2036,7 @@ test("buildFrame: 工具历史不按组数折叠，只受活动 pane 可视行�
     !plain.includes("更早工具调用已隐藏"),
     "不再出现按组数折叠的占位行",
   );
-  assert.ok(plain.includes("cmd 6"), "最新调用应保留在活动区窗口");
+  assert.ok(plain.includes("cmd 6"), "最新调用应保留在回合区窗口");
   assert.ok(plain.includes("ok 6"), "最新结果应保留");
   // 折叠点 = pane 高：可见行数恰为 activityH，更早内容在 pane 外（内容仍在缓冲里）
   const g = frameGeometry(s, SIZE);
@@ -2070,7 +2070,7 @@ test("buildFrame: step 分组头渲染为 `╌╌ hh:mm:ss ⇆N #M ╌╌╌` �
   );
   const sep = lines.findIndex((l) => l.includes(stepHead(123)));
   assert.ok(sep >= 0, "虚线 step 分隔行存在: " + lines.join("|"));
-  // 活动区行带左缩进 + 右缘竖线：段头前后均为与 turn 一致的历史虚线段（╌，到竖线前）
+  // 回合区行带左缩进 + 右缘竖线：段头前后均为与 turn 一致的历史虚线段（╌，到竖线前）
   const head = stepHead(123);
   const after = lines[sep]!.slice(lines[sep]!.indexOf(head) + head.length);
   assert.ok(
@@ -2222,7 +2222,7 @@ test("buildFrame: 工具名（黄）独立着色，结果 ✓ 绿 / ✗ 整行�
 });
 
 test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，续行不再按首个空格染黄", () => {
-  // 回归：活动区工具行超宽换行时，旧实现按 buffer 行号 li===0 染黄，
+  // 回归：回合区工具行超宽换行时，旧实现按 buffer 行号 li===0 染黄，
   // 续行（参数被截断的中段）也会把「第一个空格前的内容」染黄。
   // 修复后仅调用行的首换行行（ri===0）染工具名，续行为普通前景色。
   const LONG =
@@ -2259,7 +2259,7 @@ test("buildFrame: 工具调用长参数换行——仅首行工具名着黄，�
   }
 });
 
-test("buildFrame: usage 入帧 → 状态栏显示 ctx/cache（取代占位 —）", () => {
+test("buildFrame: usage 入帧 → 状态行显示 ctx/cache（取代占位 —）", () => {
   let s = initialState();
   s = reduceState(s, {
     type: "usage",
@@ -2272,8 +2272,8 @@ test("buildFrame: usage 入帧 → 状态栏显示 ctx/cache（取代占位 —�
     .map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""))
     .join("\n");
   // total=12000 → ctx 12k；cache=4000/12000≈33%
-  assert.ok(plain.includes("ctx 12k"), "帧内状态栏应有 ctx 12k");
-  assert.ok(plain.includes("cache 33%"), "帧内状态栏应有 cache 33%");
+  assert.ok(plain.includes("ctx 12k"), "帧内状态行应有 ctx 12k");
+  assert.ok(plain.includes("cache 33%"), "帧内状态行应有 cache 33%");
   assert.ok(!plain.includes("ctx —"), "usage 后 contextLen 不再显示占位 —");
 });
 
@@ -2332,7 +2332,7 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   assert.ok(!t.includes("新会话"), "窄列下标题段省略");
 
   // --- 会话徽标位于顶部状态列 Mode 块（见 modeBlock）：plan/sandbox/permission/
-  //     ask/preset/jobs；水平状态栏不承载会话徽标 ---
+  //     ask/preset/jobs；水平状态行不承载会话徽标 ---
 
   test("renderStatusLine: 会话徽标已全部移除（已移入顶部状态列 Mode 块；jobs 不再显示）", () => {
     const t = renderStatusLine(baseStatus, 120, undefined)
@@ -2354,7 +2354,7 @@ test("renderStatusLine: 极窄列(<24 列)省略标题段时 usage ctx/cache 段
   });
 });
 
-// ===== 顶部三面板焦点与活动区滚动（Ctrl+E/T/S / activityScroll）=====
+// ===== 顶部三面板焦点与回合区滚动（Ctrl+E/T/S / activityScroll）=====
 
 test("顶部面板：hint 行为隐藏 Enter/Esc 且不带面板标签；聚焦键由 reducer 断言", () => {
   // 100 列：hint 行完整展示（无面板标签后可整体断言）
@@ -2488,8 +2488,8 @@ test("reduceState: 焦点只在用户提交输入时复位；流式内容 / 回�
   assert.equal(ui.focusedPanel, "history", "UI action 不重置焦点");
 });
 
-test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早；clamp 到顶部）", () => {
-  // rows=30 → topHeight=23 → 活动区 11 行；notice 20 行 → maxOffset=9
+test("回合区：activityScroll 滚动窗口（默认尾部；上滚看更早；clamp 到顶部）", () => {
+  // rows=30 → topHeight=23 → 回合区 11 行；notice 20 行 → maxOffset=9
   const n = 20;
   let s = initialState();
   s = reduceState(s, {
@@ -2503,11 +2503,11 @@ test("活动区：activityScroll 滚动窗口（默认尾部；上滚看更早�
         : reduceState(s, { type: "activity-scroll", delta: scrollDelta });
     const plain = buildFrame(st, { rows: 30, cols: 60 }).map((l) => rowAnsi(l));
     const sep = activitySepIdx(plain, 60);
-    // 状态栏上方 ─ 分隔行：D 列交点恒为灰 ┴、框线竖线交点 ┬（无焦点不再延续活动区点线）
+    // 状态行上方 ─ 分隔行：D 列交点恒为灰 ┴、框线竖线交点 ┬（无焦点不再延续回合区点线）
     const end = plain.findIndex(
       (l, i) => i > sep && /^[─┴┬]+$/.test(stripAnsi(l)),
     );
-    assert.ok(sep >= 0 && end > sep, "活动区分隔线与状态栏存在");
+    assert.ok(sep >= 0 && end > sep, "回合区分隔线与状态行存在");
     return plain
       .slice(sep + 1, end)
       .map((l) => histContent(l, 60))
@@ -2594,13 +2594,13 @@ test("焦点面板：只改既有框线颜色（字形与无焦点态逐行一�
   }
   assert.equal(focusFrameColor(), "focus", "焦点色单源：语义色名");
 });
-test("对话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩窗露出更早回复）", () => {
+test("会话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩窗露出更早回复）", () => {
   let s = initialState();
   // 8 组回复（> DIALOGUE_KEEP_REPLIES=3），每组多行 → 3 组物化即超出 24 行终端的一屏
   for (let i = 1; i <= 8; i++) {
     s = withUser(s, `Q${i}`);
     for (let k = 0; k < 4; k++) s = withText(s, `A${i} 的回复正文第 ${k} 行`);
-    s = withTurnEnd(s); // 回复标 final 进历史区
+    s = withTurnEnd(s); // 回复标 final 进会话区
   }
   const size = { rows: 24, cols: 80 };
   const reportOf = (st: AppState): FrameScrollReport => {
@@ -2658,9 +2658,9 @@ test("对话区：渐进窗口（跟底只物化最近 N 组，上滚逐步扩�
   assert.equal(s.dialogueTop, null, "回底 = 贴底（dialogueTop null）");
 });
 
-test("活动区新输出不推历史：非 final 中间输出不算窗口组，不折叠旧回复", () => {
-  // 回归：turnGroupStarts 曾把活动区（思考/工具/非 final assistant）也算组起点，
-  // agent 持续输出会把历史窗口向前挤、折叠旧回复——历史区被活动区“推着滚动”。
+test("回合区新输出不推历史：非 final 中间输出不算窗口组，不折叠旧回复", () => {
+  // 回归：turnGroupStarts 曾把回合区（思考/工具/非 final assistant）也算组起点，
+  // agent 持续输出会把历史窗口向前挤、折叠旧回复——会话区被回合区“推着滚动”。
   let s = initialState();
   // 5 个真实回合（用户 + turn-begin + 回复 + turn-end）
   for (let i = 1; i <= 5; i++) {
@@ -2676,7 +2676,7 @@ test("活动区新输出不推历史：非 final 中间输出不算窗口组，�
     return r;
   };
   const g0 = reportOf(s);
-  // 只来活动区内容：思考 + 工具 + 非 final 中间输出（均不进历史区）
+  // 只来回合区内容：思考 + 工具 + 非 final 中间输出（均不进会话区）
   s = withText(s, "思考…", "reasoning");
   s = withToolCall(s, "bash", "ls");
   for (const t of ["中间输出1", "中间输出2"]) {
@@ -2690,12 +2690,12 @@ test("活动区新输出不推历史：非 final 中间输出不算窗口组，�
     "历史窗口各段行数不变",
   );
   assert.equal(g1.dialogueTotal, g0.dialogueTotal, "历史行数不变");
-  assert.equal(s.windowGroups, 3, "窗口组数不被活动区撑大");
+  assert.equal(s.windowGroups, 3, "窗口组数不被回合区撑大");
 });
 
-test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
-  // 回归：活动区内容若受渐进窗口切片影响，滚动历史会改变活动区显示。
-  // 固定横向排列（历史 pane 在左、活动 pane 在右），滚动历史只许改左侧历史 pane。
+test("滚动会话区不改变回合区：两 pane 滚动独立", () => {
+  // 回归：回合区内容若受渐进窗口切片影响，滚动历史会改变回合区显示。
+  // 固定横向排列（会话区 在左、回合区 在右），滚动历史只许改左侧会话区。
   let s = initialState(undefined, {
     activityPlacement: "horizontal" as const,
   });
@@ -2705,7 +2705,7 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
     s = withText(s, `回复正文行${i}`);
     s = withTurnEnd(s);
   }
-  // 当前回合：大量活动区内容（非 final 中间输出 + 工具 + step）
+  // 当前回合：大量回合区内容（非 final 中间输出 + 工具 + step）
   s = withTurnStart(s);
   for (let n = 1; n <= 12; n++) {
     s = reduceState(s, {
@@ -2754,7 +2754,7 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
     region(g.contentStartCol, g.contentStartCol + g.dialogueW);
   const actBase = act();
   const diaBase = dia();
-  // 滚动历史区（对话）：与 App 同口径（先扩窗、再按段表施加位移）
+  // 滚动会话区（对话）：与 App 同口径（先扩窗、再按段表施加位移）
   let s2 = s;
   for (let i = 0; i < 6; i++) s2 = appScrollDialogue(s2, size, 1);
   const old = s;
@@ -2762,23 +2762,23 @@ test("滚动历史区不改变活动区：两 pane 滚动独立", () => {
   const actAfter = act();
   const diaAfter = dia();
   s = old;
-  assert.notDeepEqual(diaAfter, diaBase, "历史 pane 本身确实滚动了");
-  // 锚定语义（项目裁定）：活动区内容允许随历史窗口增长（新历史节 `1:1:1:calls` 从上方
+  assert.notDeepEqual(diaAfter, diaBase, "会话区 本身确实滚动了");
+  // 锚定语义（项目裁定）：回合区内容允许随历史窗口增长（新历史节 `1:1:1:calls` 从上方
   // 长出）——**上部空白被新内容填充**是正常的; 要求的是**原有内容行不被挤到一边/位移**:
   // 即 actAfter 的底部非空行 = actBase 的底部非空行（逐字节不变），且新内容只出现在其上。
   const nonBlank = (arr: string[]): string[] => arr.filter((l) => l !== "");
   const b = nonBlank(actBase);
   const a = nonBlank(actAfter);
-  assert.ok(b.length > 0, "base 活动区应有内容");
+  assert.ok(b.length > 0, "base 回合区应有内容");
   assert.deepEqual(
     a.slice(-b.length),
     b,
-    "活动 pane 原有内容行不位移(底部逐字节不变), 只允许上部空白被填充",
+    "回合区 原有内容行不位移(底部逐字节不变), 只允许上部空白被填充",
   );
 });
 
 /**
- * 对话区滚动（与 `App.scrollDialogueBy` 同口径）：**先扩窗、再按扩窗后的段表施加位移** ——
+ * 会话区滚动（与 `App.scrollDialogueBy` 同口径）：**先扩窗、再按扩窗后的段表施加位移** ——
  * 撞窗口顶那一次也只多物化、不多滚（位置按「段键 + 段内行」表达，扩窗只在视口上方插段）。
  */
 function appScrollDialogue(
@@ -2831,7 +2831,7 @@ function emptyReportForTest(): FrameScrollReport {
   };
 }
 
-// --- /session 历史面板在活动区（modalPanel）的回归：标题对齐 + 按键提示位置 ---
+// --- /session 历史面板在回合区（modalPanel）的回归：标题对齐 + 按键提示位置 ---
 
 /** 历史面板帧：打开（all=true 切到「全部」范围）+ list/error 阶段记录（两个目录） */
 function historyFrame(
@@ -2875,9 +2875,9 @@ function historyFrame(
   );
 }
 
-test("/session 历史面板：标题按显示宽补齐，活动区右缘框线不错位（CJK 标题顶不开）", () => {
+test("/session 历史面板：标题按显示宽补齐，回合区右缘框线不错位（CJK 标题顶不开）", () => {
   // 旧实现 title.padEnd(width) 按 JS 字符串长度补齐：CJK 显示宽 2 → 标题行
-  // 显示宽超 contentW，右缘框线 │ 被顶开。面板上移到活动区后此问题暴露。
+  // 显示宽超 contentW，右缘框线 │ 被顶开。面板上移到回合区后此问题暴露。
   // 比较须用「│ 的显示列」（lastIndexOf 是字符索引，CJK 会偏移）。
   const borderDispCol = (row: string): number => {
     const i = row.lastIndexOf("│");
@@ -2905,7 +2905,7 @@ test("/session 历史面板：标题按显示宽补齐，活动区右缘框线�
   }
 });
 
-test("/session 历史面板：按键提示在输入区下方提示区，不内嵌面板标题行", () => {
+test("/session 历史面板：按键提示在输入区下方提示行，不内嵌面板标题行", () => {
   const plain = historyFrame("list");
   const titleRow = plain.find((l) => l.includes("历史会话 ["));
   assert.ok(titleRow, "list 阶段标题行存在");
@@ -2913,27 +2913,27 @@ test("/session 历史面板：按键提示在输入区下方提示区，不内�
     !titleRow!.includes("[↑/↓]") && !titleRow!.includes("[Enter]"),
     "标题行不再内嵌按键提示",
   );
-  // 末尾 1 至 2 行 = 输入区下方提示区（历史列表提示 86 列 → 80 列折 2 行），
+  // 末尾 1 至 2 行 = 输入区下方提示行（历史列表提示 86 列 → 80 列折 2 行），
   // 显示历史面板键位；提示行之上为空白占位（输入区）
   const hints = plain.slice(plain.length - 2).join(" ");
   assert.ok(
     hints.includes("[↑/↓]移动") && hints.includes("[Enter]切换"),
-    "提示区显示历史面板按键提示: " + hints,
+    "提示行显示历史面板按键提示: " + hints,
   );
   const footerRow = plain[plain.length - 3]!;
   assert.equal(footerRow.trim(), "", "输入区空白占位");
 });
 
-test("/session 历史面板 error 阶段：标题短、提示区显示 [Esc]关闭", () => {
+test("/session 历史面板 error 阶段：标题短、提示行显示 [Esc]关闭", () => {
   const plain = historyFrame("error");
   const titleRow = plain.find((l) => l.includes("加载失败"));
   assert.ok(titleRow, "error 标题行存在");
   assert.ok(!titleRow!.includes("[Esc]"), "标题行不内嵌 [Esc]关闭");
   const last = plain[plain.length - 1]!;
-  assert.ok(last.includes("[Esc]关闭"), "提示区显示关闭键位: " + last);
+  assert.ok(last.includes("[Esc]关闭"), "提示行显示关闭键位: " + last);
 });
 
-// ===== 对话区翻页：↑/↓ 半屏 + PgUp/PgDn 用户输入跳转 =====
+// ===== 会话区翻页：↑/↓ 半屏 + PgUp/PgDn 用户输入跳转 =====
 
 test("dialogueHalfPage：半屏取整且至少 1 行", () => {
   assert.equal(dialogueHalfPage(6), 3);
@@ -2944,10 +2944,10 @@ test("dialogueHalfPage：半屏取整且至少 1 行", () => {
 
 test("frameGeometry：正文宽/可视高与 buildFrame 同口径（rows=24/cols=80）", () => {
   const m = frameGeometry(initialState(), { rows: 24, cols: 80 });
-  assert.equal(m.dialogueH, 6, "对话区可视行（标题栏 2 行由对话区承担后）");
-  assert.equal(m.viewportH, 6, "无排队块 → 历史视口 = 对话 pane 高");
+  assert.equal(m.dialogueH, 6, "会话区可视行（标题栏 2 行由会话区承担后）");
+  assert.equal(m.viewportH, 6, "无排队块 → 历史视口 = 会话区 高");
   // historyWidth = 80 - floor(80/3) = 54，col0 左缘框格占 1 → contentW=53
-  assert.equal(m.dialogueW, 53, "对话区正文宽 = historyWidth - 左缘框列");
+  assert.equal(m.dialogueW, 53, "会话区正文宽 = historyWidth - 左缘框列");
 });
 
 test("userRowJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足一屏时收敛到底对齐", () => {
@@ -2995,7 +2995,7 @@ test("userRowJump：PgDn 无下一条用户消息 → undefined（调用方回�
   assert.equal(userRowJump([0], 2, 4, 5, -1), undefined);
   // 无任何用户块 → undefined
   assert.equal(userRowJump([], 0, 4, 5, 1), undefined);
-  // 对话区不可见（viewportH <= 0）→ undefined
+  // 会话区不可见（viewportH <= 0）→ undefined
   assert.equal(userRowJump([0], 0, 0, 5, 1), undefined);
 });
 
@@ -3016,7 +3016,7 @@ test("/session 历史面板：标题标明列表范围（当前目录 可见/全
     "他目录会话默认隐藏",
   );
   const hint = project.slice(project.length - 2).join(" ");
-  assert.ok(hint.includes("[Tab]范围"), "提示区含 [Tab]范围: " + hint);
+  assert.ok(hint.includes("[Tab]范围"), "提示行含 [Tab]范围: " + hint);
 
   const all = historyFrame("list", 24, 80, true);
   const allTitle = all.find((l) => l.includes("历史会话 ["));
@@ -3117,14 +3117,14 @@ test("buildFrame 回填滚动几何：上限随物化窗口（渐进），初始
     s = withText(s, `回复正文行 ${i}甲\n回复正文行 ${i}乙`);
     s = withTurnEnd(s);
   }
-  // 条目 16 段 C2：活动区内容是节缓存里的 notice 交付（只写 `state.local` 的本地 action 不上屏）
+  // 条目 16 段 C2：回合区内容是节缓存里的 notice 交付（只写 `state.local` 的本地 action 不上屏）
   for (let i = 0; i < 40; i++)
-    s = withDelivery(s, { kind: "notice", text: `活动区行 ${i}` });
+    s = withDelivery(s, { kind: "notice", text: `回合区行 ${i}` });
   const size = { rows: 24, cols: 80 };
   const report = emptyReport();
   buildFrame(s, size, report);
-  assert.ok(report.dialogueMaxScroll > 0, "对话区可滚上限 > 0");
-  assert.ok(report.activityMaxScroll > 0, "活动区可滚上限 > 0");
+  assert.ok(report.dialogueMaxScroll > 0, "会话区可滚上限 > 0");
+  assert.ok(report.activityMaxScroll > 0, "回合区可滚上限 > 0");
   assert.ok(report.dialogueTotal > 0, "回填物化行数");
   // 旧判据是「物化行数 < 缓冲行数」；内容不落缓冲后改为等价语义：窗口未覆盖最旧内容
   assert.equal(
@@ -3171,7 +3171,7 @@ test("frameSections：段表覆盖整帧、行带连续且与几何一致", () =
     cursor += sec.lineCount;
   }
   assert.equal(cursor, rows.length, "段表应恰好覆盖整帧行数");
-  // 状态段 = 状态栏行数 + 上下两条分隔行
+  // 状态段 = 状态行行数 + 上下两条分隔行
   const geom = frameGeometry(state, size);
   assert.equal(
     sections[1]!.lineCount,

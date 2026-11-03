@@ -345,14 +345,14 @@ TUI 一个包占了前四名与 `TUI/src/main.ts` 一处, 单文件 6601 行的 
 | --- | --- | --- | --- | --- |
 | 对话主区域 | 活动区 (`activityH` / `activityW` / `activityScroll`) | 回合区、对话区 | 143 / 18 / 9 | `TUI/README.md`、`TUI/docs/BACKLOG.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md` |
 | 底部输入区域 | 输入区 (`inputText` / `inputCursor` / `inputMode`) | 输入框 | 42 / 24 | `TUI/README.md`、`TUI/docs/COMMANDS-SPEC.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md` |
-| 顶部状态区域 | 状态列 (`statusColumn` / `StatusColumn.ts`) | 状态栏 | 89 / 34 | `TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md`、`TUI/docs/design/AUDIT-colors.md` |
+| 顶部状态区域 | 状态列 (`statusColumn` / `StatusColumn.ts`) | 状态行 | 89 / 34 | `TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md`、`TUI/docs/design/AUDIT-colors.md` |
 | 底部提示行 | 提示行 | 底部提示 | 15 / 3 | `TUI/README.md`、`TUI/docs/DESIGN.md`、`TUI/docs/SPEC.md` |
 | 跨会话消息包 | `session-channel` | `intercom` | 现行文档只剩历史说明 | 无 |
 | 记忆包 | `memory-base` | `knowledge-base` | 现行文档只剩「原名」说明 | 无 |
 | 终端工具包 | `herdr-use` | `herdr-pane` | 现行文档只剩历史说明与归档文件名 | 无 |
 | 定时器包 | `clock-base` | `timer` | 现行文档只剩历史说明 | 无 |
 
-界面四组的代码侧命名分别是 `activity*`、`input*`、`statusColumn` 与 `TUI/src/app/components/StatusColumn.ts`;文档里的「回合区」「对话区」「输入框」「状态栏」在代码中找不到对应标识符。包名四组只出现在历史说明与归档文件名里。
+界面四组的代码侧命名分别是 `activity*`、`input*`、`statusColumn` 与 `TUI/src/app/components/StatusColumn.ts`;文档里的「回合区」「对话区」「输入框」「状态行」在代码中找不到对应标识符。包名四组只出现在历史说明与归档文件名里。
 
 ### 3. 当前明确的规范
 
@@ -983,7 +983,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 | 影子覆盖事件 | 4 | 指 `surfaceOp: replace` 的情况时改「更正事件」;2 处现行文档改, 2 处 `docs/host` 的影子表不动 |
 | 回合区 / 对话区 | 18 / 9 | 当前用法改「活动区」;句子里新旧名对照时保留旧名并注「原名」 |
 | 输入框 | 24 | 改「输入区」(`input*`) |
-| 状态栏 | 34 | 改「状态列」(`statusColumn`) |
+| 状态行 | 34 | 改「状态列」(`statusColumn`) |
 | 底部提示 | 3 | 改「提示行」 |
 | 落点 | 96 | 按语境分写: 存储写「存放位置」「存储路径」;审计写「审计双写」「两处写入」;实现写「实现位置」「代码位置」;投递写「投递目标」「写入目标」;文档写「文档改动位置」「改动归口」;BACKLOG 条目写「改动位置」;不找统一替换词 |
 | 翻译腔术语 | 兜底 120 / 落盘 82 / 服务面 109 / 事件面 14 / 挂载 386 / 冒烟 16 / 灰区 13 / 旁路 9 / 骨架 6 | 不改 |
@@ -1308,7 +1308,7 @@ SemVer 2.0.0 规定 MAJOR 为不兼容变更、MINOR 为向后兼容的新增、
 | `preference-analysis` | `README.md` / `docs/DESIGN.md`; `docs/BACKLOG.md` 命令/术语 |
 | `rule-engine` | `README.md` / `docs/DESIGN.md`; 7 条断链; `docs/BACKLOG.md` 命令/术语 |
 | `script-interpreter` | `README.md`; 命令/术语 |
-| `security-guard` | `README.md`: `状态栏` 改「状态列」; 命令/术语 |
+| `security-guard` | `README.md`: `状态行` 改「状态列」; 命令/术语 |
 | `session-channel` | `README.md` / `docs/DESIGN.md`: `回执` / `返回体` 统一「回执」, 命令改 pnpm; 断链复核 (当前扫描 0) |
 | `session-paths` | `README.md`; 命令/术语 |
 | `session-title-cutoff` | `README.md`; 命令/术语 |

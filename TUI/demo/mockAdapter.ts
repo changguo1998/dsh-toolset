@@ -166,7 +166,7 @@ export class MockDshAdapter implements DshAdapter {
   }
 
   async setApprovalPolicy(policy: "ask" | "never"): Promise<void> {
-    // 模拟宿主 ctx.approval.setPolicy：记录 + 回发 approval/policy 事件（状态栏经事件回读）
+    // 模拟宿主 ctx.approval.setPolicy：记录 + 回发 approval/policy 事件（状态行经事件回读）
     this.setApprovalPolicyCalls++;
     this.lastPolicy = policy;
     this.emit({
@@ -227,7 +227,7 @@ export class MockDshAdapter implements DshAdapter {
     this.emit({ type: "agent-preset", sessionId: this.sessionId, preset: id });
   }
 
-  /** jobs 快照（状态列 jobs 块 / 状态栏 / /jobs 面板共用） */
+  /** jobs 快照（状态列 jobs 块 / 状态行 / /jobs 面板共用） */
   private jobsSnapshot() {
     return [
       {
@@ -247,7 +247,7 @@ export class MockDshAdapter implements DshAdapter {
   }
 
   async refreshJobs(): Promise<void> {
-    // 模拟 ctx.jobs.list()：回发 jobs-changed 全量快照（/jobs 面板 + 状态栏计数）
+    // 模拟 ctx.jobs.list()：回发 jobs-changed 全量快照（/jobs 面板 + 状态行计数）
     this.emit({
       type: "jobs-changed",
       sessionId: this.sessionId,
@@ -303,7 +303,7 @@ export class MockDshAdapter implements DshAdapter {
         60,
       ),
     );
-    // P2 B1+B2 demo：注入 goal/todo/mode 事件（状态栏徽标 + /goal 面板场景）
+    // P2 B1+B2 demo：注入 goal/todo/mode 事件（状态列与状态行徽标 + /goal 面板场景）
     this.timers.push(
       setTimeout(
         () =>
@@ -314,7 +314,7 @@ export class MockDshAdapter implements DshAdapter {
             goal: {
               id: "demo-goal-1",
               revision: 1,
-              objective: "P2 阶段 B1+B2：/goal 迷你面板与状态栏模式徽标",
+              objective: "P2 阶段 B1+B2：/goal 迷你面板与状态行模式徽标",
               phase: "active",
               maxGoalRounds: 10,
             },
@@ -333,7 +333,7 @@ export class MockDshAdapter implements DshAdapter {
             sessionId: this.sessionId,
             todos: [
               {
-                content: "状态栏 goal 徽标与 todo 计数",
+                content: "状态列 goal 徽标与 todo 计数",
                 status: "in_progress",
               },
               { content: "/goal 迷你面板", status: "in_progress" },
@@ -367,7 +367,7 @@ export class MockDshAdapter implements DshAdapter {
         ),
       );
     }
-    // C 阶段 demo：启动注入 approval/policy（ask）→ 状态栏 ask 徽标（切换由 /policy 命令回发）
+    // C 阶段 demo：启动注入 approval/policy（ask）→ 状态行 ask 徽标（切换由 /policy 命令回发）
     this.timers.push(
       setTimeout(
         () =>
@@ -379,7 +379,7 @@ export class MockDshAdapter implements DshAdapter {
         150,
       ),
     );
-    // 启动注入 jobs 快照：状态列 jobs 块默认可见（水平状态栏不显示 jobs 徽标）；
+    // 启动注入 jobs 快照：状态列 jobs 块默认可见（水平状态行不显示 jobs 徽标）；
     // /jobs 打开仍走 refreshJobs 重拉（行为不变）
     this.timers.push(
       setTimeout(
@@ -392,7 +392,7 @@ export class MockDshAdapter implements DshAdapter {
         170,
       ),
     );
-    // 0.1.2-rc.1：会话内生效模型选择事件（state.modelBySession 消费；状态栏 model 显示仍走服务）
+    // 0.1.2-rc.1：会话内生效模型选择事件（state.modelBySession 消费；状态行 model 显示仍走服务）
     this.timers.push(
       setTimeout(
         () =>
@@ -405,7 +405,7 @@ export class MockDshAdapter implements DshAdapter {
         175,
       ),
     );
-    // 官方会话标题事件（状态栏 <title> 占位 → 实际标题）
+    // 官方会话标题事件（状态行 <title> 占位 → 实际标题）
     this.timers.push(
       setTimeout(
         () =>
@@ -436,22 +436,22 @@ export class MockDshAdapter implements DshAdapter {
         delay,
       ),
     );
-    // 分片思考流：文本加长（总行数超出活动区可视高度），
+    // 分片思考流：文本加长（总行数超出回合区可视高度），
     // 验证思考折叠上限=瞬态显示区高度，以及正文到达后清除。
     const thoughts = [
       "先理解问题：用户想了解 DSH 的交互模型，需要拆解为几个子问题。",
       "检查现有状态：面板布局、滚动语义与主题切换都是最近调整过的区域。",
-      "活动区高度由终端行数动态计算，思考内容超过可视高度时折叠到最新几行。",
-      "工具调用前后需要记录运行状态与输出摘要，避免把原始输出直接铺进活动区。",
+      "回合区高度由终端行数动态计算，思考内容超过可视高度时折叠到最新几行。",
+      "工具调用前后需要记录运行状态与输出摘要，避免把原始输出直接铺进回合区。",
       "通知行标题要保留，正文过长时截断到一行并补齐宽度，保持右缘对齐。",
       "组织回答结构：先结论后细节，把影响使用的差异点单独列出。",
-      "历史区视口跟随底部开关在回答到达时复位，避免停留在旧位置。",
+      "会话区视口跟随底部开关在回答到达时复位，避免停留在旧位置。",
       "思考在正文首条到达或回合结束时整体清除，避免残留到下一回合。",
       "分隔线在回合开始时先画，正文使用打字机节奏逐字符铺出。",
       "顶部三面板用 Tab 循环，焦点面板由五行滚动键控制，状态列独立滚动。",
       "准备输出：检查主题色板与边框色在浅色下的对比度是否满足中性要求。",
       "对比官方会话事件词汇表，确认本轮要归一化的载荷形状与可选字段。",
-      "状态栏按类分组聚合：环境组时间分支、会话组标题、LLM 组模型与上下文。",
+      "状态行按类分组聚合：环境组时间分支、会话组标题、LLM 组模型与上下文。",
       "审批弹窗由 approval/request 瀑布驱动，返回 outcome 即完成裁定。",
       "问答面板支持单选多选与自定义文本，Enter 逐题推进、末题整体提交。",
       "历史会话切换先切活跃引用再释放旧 handle，防止迟到异步结果误入面板。",
@@ -459,7 +459,7 @@ export class MockDshAdapter implements DshAdapter {
       "notice 按 tone 分级着色，命令通知与压缩提示不污染对话正文。",
       "键盘解码区分 CSI 与 SS3 序列，方向键在普通与元键组合下对称响应。",
       "帧渲染按显示宽度切分，ANSI 转义不计宽、宽字符不在换行处被切断。",
-      "缩放窗口时四区高度重新分配，活动区与对话区共用同一套计算口径。",
+      "缩放窗口时四区高度重新分配，回合区与会话区共用同一套计算口径。",
       "浅色主题下边框转为黑色中性色，正文与背景保持足够的对比度。",
       "思考内容是瞬态展示，回合开始先画分隔线、正文到达后整体清除。",
       "完成推理：以上问题均已在实现中落地，直接输出最终回答。",
@@ -522,7 +522,7 @@ export class MockDshAdapter implements DshAdapter {
       ),
     );
     // 阶段 2 演示场景：工具调用/结果行、compaction/retry toast、错误回合红字、
-    // token 用量（状态栏 contextLen/cacheHit，cacheRead 随 seq 递增演示命中率）
+    // token 用量（状态行 contextLen/cacheHit，cacheRead 随 seq 递增演示命中率）
     const sceneAt = replyStart + chunks.length * 90 + 45;
     this.timers.push(
       setTimeout(() => {
@@ -906,11 +906,11 @@ export class MockDshAdapter implements DshAdapter {
       "  - 输入消息后回车 → 触发模拟流式回复",
       "  - ↑/↓/PageUp/PageDown 在 scrollback 里翻页（上滚暂停跟随）",
       "  - 等第二次回复后出现审批弹窗 → y 批准 / n 拒绝",
-      "  - 每次回复演示阶段 2：工具行 ○/✓/✗、状态栏 ctx/cache、retry/compaction toast、错误回合红字",
+      "  - 每次回复演示阶段 2：工具行 ○/✓/✗、状态行 ctx/cache、retry/compaction toast、错误回合红字",
       "  - 第 5 条回复演示 markdown 表格（列分隔/表头横线/三态对齐/超宽折行压缩）",
       "  - 输入 /help /clearscreen /cls /quit 体验本地渲染命令",
       "  - 其他 /xxx 在 demo 模式回提示（真实模式走 commands 注册表）",
-      "  - 输入框为空按 $ / / / < / ! 切模式（空输入 Backspace 回退）；`!` 模式回车 = 打断并发送（空输入只打断）；退出用 /quit",
+      "  - 输入区为空按 $ / / / < / ! 切模式（空输入 Backspace 回退）；`!` 模式回车 = 打断并发送（空输入只打断）；退出用 /quit",
       "",
     ].join("\n");
   }

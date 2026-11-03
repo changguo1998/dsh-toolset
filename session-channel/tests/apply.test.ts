@@ -117,7 +117,7 @@ redisTest(
         return res.peers?.some((p) => p.sessionId === "sess-x") === true;
       });
       const face = provided.get("sessionChannel") as ServiceFace;
-      // 回归（TUI#48）：别名方法必须在服务面上，否则消费方（TUI 状态栏）调用即抛错
+      // 回归（TUI#48）：别名方法必须在服务面上，否则消费方（TUI 状态行）调用即抛错
       for (const method of ["aliasSet", "aliasList", "aliasClear"] as const) {
         assert.equal(
           typeof (face as unknown as Record<string, unknown>)[method],

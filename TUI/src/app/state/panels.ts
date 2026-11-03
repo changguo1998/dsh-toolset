@@ -124,7 +124,7 @@ export function inputHistoryPush(
  * **模式随条目恢复**（真机缺陷修复 2026-09-27）：条目保存提交时的 `InputMode`，回溯时
  * 一并写回 `inputMode`——否则 `/agents` 这类 slash 提交回溯后变成普通输入
  * （提示符 `>` + 文本 `agents`，提交语义也变了）；`$` shell、`<` steer 同理。
- * 输入框文本与游标同步更新（文本尾 = 光标位），候选按「新文本 + 新模式」重算。
+ * 输入区文本与游标同步更新（文本尾 = 光标位），候选按「新文本 + 新模式」重算。
  */
 export function reduceInputHistory(
   state: AppState,
@@ -214,7 +214,7 @@ export function moveStatusPanel(
   return { ...state, statusPanel: { ...p, index } };
 }
 
-/** 命令补全面板焦点移动：在可视候选数内 clamp（↑/↓，不循环；max=活动区可容纳的候选数） */
+/** 命令补全面板焦点移动：在可视候选数内 clamp（↑/↓，不循环；max=回合区可容纳的候选数） */
 export function moveCompletion(
   state: AppState,
   action: Extract<StateAction, { type: "completion-move" }>,

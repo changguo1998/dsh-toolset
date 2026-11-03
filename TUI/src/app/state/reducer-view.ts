@@ -52,8 +52,8 @@ export function reduceView(
       };
     }
     case "lower-panes": {
-      // #9：Ctrl+T 切换下半区（Turn 流 + Tool 面板区）显隐（缺省取反）；
-      // 隐藏时把焦点从下半区移开（隐藏即不聚焦），输入栏不受影响
+      // #9：Ctrl+T 切换下半区（Turn 流 + 工具区）显隐（缺省取反）；
+      // 隐藏时把焦点从下半区移开（隐藏即不聚焦），输入区不受影响
       const visible = action.visible ?? !state.lowerPanesVisible;
       return {
         ...state,
@@ -65,13 +65,13 @@ export function reduceView(
       };
     }
     case "activity-compact": {
-      // 活动区压缩（按类别）：true=该类条目压 1 行 + 省略号；false=完整折行
+      // 回合区压缩（按类别）：true=该类条目压 1 行 + 省略号；false=完整折行
       const next = { ...state.activityCompact };
       for (const category of action.categories) next[category] = action.on;
       return { ...state, activityCompact: next };
     }
     case "activity-show": {
-      // 活动区显示（按类别）：true=显示该类内容；false=不显示
+      // 回合区显示（按类别）：true=显示该类内容；false=不显示
       const next = { ...state.activityShow };
       for (const category of action.categories) next[category] = action.on;
       return { ...state, activityShow: next };
@@ -80,7 +80,7 @@ export function reduceView(
       // 模型输出符号统一开关：true=变体替换为推荐并提醒；false=原样（不替换不提醒）
       return { ...state, symbolUnify: action.on };
     case "status-column-scroll":
-      // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入对话区滚动
+      // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入会话区滚动
       return {
         ...state,
         statusColumnScroll: Math.max(
@@ -120,10 +120,10 @@ export function reduceView(
       };
     }
     case "activity-scroll": {
-      // 活动区（流输出）滚动。带 `top` 时按「节键 + 行」定位（App 先算好 positionAt）:
+      // 回合区（流输出）滚动。带 `top` 时按「节键 + 行」定位（App 先算好 positionAt）:
       // 位置用内容段身份表达, 上方插段不改画面; `null` = 跟随最新。
       // 缺 `top`(旧路径) 偏移累加(距底行数), 0=跟随最新; `max` = 上一帧回填的可滚动上限,
-      // 先收敛越界再叠加、不超上限(避免"按了没反应"的假死, 与对话区 scrollBy 同口径)。
+      // 先收敛越界再叠加、不超上限(避免"按了没反应"的假死, 与会话区 scrollBy 同口径)。
       if ("top" in action) {
         return {
           ...state,

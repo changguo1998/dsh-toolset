@@ -74,7 +74,7 @@ export interface StructureOptions {
   /** 左缘 chrome 竖线（┃）开关：只属于对话(session)面板；活动(turn)面板不画
    *  （思考/流式正文为裸文本，legacy 同口径）。缺省 true。 */
   bar?: boolean;
-  /** 目标 pane：盒形按面板区分（会话区形状已定，活动区未定） */
+  /** 目标 pane：盒形按面板区分（会话区形状已定，回合区未定） */
   pane?: "session" | "turn";
 }
 
@@ -698,7 +698,7 @@ function shadowed(item: PaneItem, opts?: StructureOptions): boolean {
 }
 
 /** 会话区右缘留白（`gutter − 1` 个空格；gutter 记左右合计、竖线占 1 列）：正文盒与
- *  分隔线头共用同一份，保证两者的右缘落在同一列。活动区无右缘留白。 */
+ *  分隔线头共用同一份，保证两者的右缘落在同一列。回合区无右缘留白。 */
 function edgeSuffix(opts?: StructureOptions): { text: string } | undefined {
   if (opts?.pane === "turn") return undefined;
   const gutter = Math.max(0, opts?.gutter ?? 0);
@@ -710,7 +710,7 @@ function edgeSuffix(opts?: StructureOptions): { text: string } | undefined {
  *  - **会话区**（形状已定）：`h[prefix "┃", 内容 v, suffix 空格]`——竖线后**不带空格**，
  *    正文直接接在竖线之后（前缀计 1 列）；右缘留白 = `gutter − 1` 个空格（gutter 记左右
  *    合计：gutter=4 → 3 个空格），逐行绘制。
- *  - **活动区**（形状未定）：单竖线 `┃`、无右缘留白。 */
+ *  - **回合区**（形状未定）：单竖线 `┃`、无右缘留白。 */
 function toBarBox(
   barP: { text: string; style?: FrameStyle; minWidth?: number },
   children: (Node | Leaf)[],
@@ -744,8 +744,8 @@ export function buildTrees(
   turn: readonly PaneItem[],
   opts?: StructureOptions,
 ): PaneTrees {
-  // 每棵树锁定自己的 pane 形状：会话区 prefix "┃ " + 右缘留白，活动区单竖线无留白
-  // （此前调用方漏传 pane 时活动区会被套成会话壳）
+  // 每棵树锁定自己的 pane 形状：会话区 prefix "┃ " + 右缘留白，回合区单竖线无留白
+  // （此前调用方漏传 pane 时回合区会被套成会话壳）
   const sess = toPaneTree(session, { ...opts, pane: "session" });
   const turnTree = toPaneTree(turn, { ...opts, pane: "turn" });
   return {

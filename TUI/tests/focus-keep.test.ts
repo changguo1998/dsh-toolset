@@ -320,16 +320,16 @@ test("App 端到端：运行中聚焦回合区后方向键可滚该区域，流�
   renderer.size = size;
   const strip = (l: string): string => l.replace(/\u001b\[[0-9;]*m/g, "");
   const { statusColWidth } = metricsFor(size);
-  /** 回合区（活动 pane）正文段：默认排列「状态列 | 会话区 | 回合区」→
-   *  活动区左缘框线竖线之后即正文（分隔/边框行不含竖线，返回 null 由调用方跳过） */
+  /** 回合区（回合区）正文段：默认排列「状态列 | 会话区 | 回合区」→
+   *  回合区左缘框线竖线之后即正文（分隔/边框行不含竖线，返回 null 由调用方跳过） */
   const bodyOf = (l: string): string | null => {
     const raw = strip(l).replace(/\s+$/, "");
-    // 活动区左缘框线列在 `statusColWidth`（0 基）；正文可能自带 `┃`（思考前缀）等
+    // 回合区左缘框线列在 `statusColWidth`（0 基）；正文可能自带 `┃`（思考前缀）等
     // 其它竖线字形，故从该列起找**第一个** `│`
     const at = raw.indexOf("│", statusColWidth - 1);
     return at >= 0 ? raw.slice(at + 1) : null;
   };
-  /** 回合区（活动 pane）首行可见文本：标题栏分隔行 → 状态区上分隔行之间的正文首行 */
+  /** 回合区（回合区）首行可见文本：标题栏分隔行 → 状态区上分隔行之间的正文首行 */
   /** 回合区顶边分隔行（带窗口标题 `── Turn ──`，唯一的定位锚点） */
   const turnTopRow = (): number => {
     const top = renderer.lastRender.findIndex(
@@ -383,7 +383,7 @@ test("App 端到端：运行中聚焦回合区后方向键可滚该区域，流�
   assert.ok(actLines().includes("turn1 行 0"), "上滚越过可视上限后钳到最早行");
 
   // 期间继续到达的流式 chunk：焦点与视口位置都不被打断。
-  // 2026-10-18 起活动区按「距底偏移 + 增长补偿」保持视口（见 App.syncActivityPos）：
+  // 2026-10-18 起回合区按「距底偏移 + 增长补偿」保持视口（见 App.syncActivityPos）：
   // 内容增长时偏移会等量增大，故断言从「偏移不变」改为「偏移只增不减 + 视口仍在最早行」。
   const held = scroll();
   for (let i = 0; i < 3; i++)
@@ -395,7 +395,7 @@ test("App 端到端：运行中聚焦回合区后方向键可滚该区域，流�
   // ↓ 连续按回底部 → 恢复跟随最新（后续新内容才可见）
   for (let i = 0; i < 60; i++) down();
   assert.equal(scroll(), 0, "↓ 回到底部跟随最新");
-  // 注：正文行经六步流水线归入会话区（历史 pane），回合区只承载思考/工具/notice 等
+  // 注：正文行经六步流水线归入会话区（会话区），回合区只承载思考/工具/notice 等
   // 活动行——故这里不断言正文可见，只验证「回到底部」这一滚动语义本身
   assert.equal(focused(), "activity", "↓ 之后焦点仍在回合区");
 });

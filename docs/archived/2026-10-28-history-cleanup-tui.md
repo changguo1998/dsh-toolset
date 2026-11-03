@@ -71,7 +71,7 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 ## 实现记录
 
-- 集成层: 新增 `TUI/tests/assemble.ts`（装配器, 不以 `.test.ts` 结尾）与 `TUI/tests/integration/app.test.ts`（12 条）。装配器用真实 `App` + 真实 `createRenderer`（注入 `write` 捕获报文, `rawMode: false` 不写模式序列, `exitOnClose: false` 不结束进程）+ 假适配器 `FakeAdapter` + 可选假状态查询; 唯一被替换的终端能力是 CPR 宽度实测（立即回空表, App 走「终端不支持 CPR」分支沿用静态宽度表, 真探测归 `smoke:pty` 与 `width-probe` 单测）。断言分三类: 命令分派（未知 `/` 命令进宿主注册表、`/help`、`/theme`、`/new`）、视图投影（用户块、思考 / 正文 / 工具调用与结果、审批面板、问答面板、交付直灌）、帧文本（首帧 80x24 骨架、状态栏时间 / 分支 / cwd、底部提示行、面板提示行）。
+- 集成层: 新增 `TUI/tests/assemble.ts`（装配器, 不以 `.test.ts` 结尾）与 `TUI/tests/integration/app.test.ts`（12 条）。装配器用真实 `App` + 真实 `createRenderer`（注入 `write` 捕获报文, `rawMode: false` 不写模式序列, `exitOnClose: false` 不结束进程）+ 假适配器 `FakeAdapter` + 可选假状态查询; 唯一被替换的终端能力是 CPR 宽度实测（立即回空表, App 走「终端不支持 CPR」分支沿用静态宽度表, 真探测归 `smoke:pty` 与 `width-probe` 单测）。断言分三类: 命令分派（未知 `/` 命令进宿主注册表、`/help`、`/theme`、`/new`）、视图投影（用户块、思考 / 正文 / 工具调用与结果、审批面板、问答面板、交付直灌）、帧文本（首帧 80x24 骨架、状态行时间 / 分支 / cwd、底部提示行、面板提示行）。
 
 - 起始态: 装配器在 `start()` 之后推一条 `session-title` 事件确立活跃会话（生产适配器同为接线后时序）。少了它 `activeSessionId` 停在 null, `/new` 走 `sectionsSessionId === null` 的「会话建立过渡」分支, 旧会话内容不会随切换重建节缓存。
 
@@ -101,7 +101,7 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
     | `layout/geometry.ts` | 464 | 三区高度、顶部切分、`FrameGeometry` 与面板可见性判定 |
     | `layout/title-bar.ts` | 211 | 标题栏状态符号、状态列渲染 |
     | `layout/top-region.ts` | 606 | 顶部区域装配（状态列 + 会话区 + 活动区面板选型） |
-    | `layout/status-line.ts` | 278 | 底部状态栏（模型 / 用量 / 分支 / 沙箱段） |
+    | `layout/status-line.ts` | 278 | 底部状态行（模型 / 用量 / 分支 / 沙箱段） |
     | `layout/run-virt.ts` | 270 | 运行指示（虚拟速度 / 虚拟 token / ●○ 与用户块符号） |
     | `layout/frame-build.ts` | 442 | 分区、滚动回落、`buildFrame` 与焦点 |
   - `src/app/layout.ts` 只剩入口重导出（外部既有 import 路径 `./layout.ts` 不变, 包内其它模块与 `tests/` 全部不改 import）。跨模块复用的私有辅助（`capRows` / `panelShownInActivity` / `MODE_SYMBOL` / `runningSymbol` / `userBlockSymbolResolver` / `activeSessionFields` / `buildTopRegion`）只在子模块间 `export`, 不加入口重导出, 对外可见集合与拆分前一致。

@@ -11,8 +11,8 @@
 
 | # | 问题 | 严重度 | 状态 |
 |---|------|--------|------|
-| P1 | 状态提示符位置的修改（状态栏最左 → 用户输入块首行左侧） | 体验 | 已修复 |
-| P2 | 水平状态栏分隔符统一为圆点（去掉组间竖线与小圆点） | 体验 | 已修复 |
+| P1 | 状态提示符位置的修改（状态行最左 → 用户输入块首行左侧） | 体验 | 已修复 |
+| P2 | 水平状态行分隔符统一为圆点（去掉组间竖线与小圆点） | 体验 | 已修复 |
 | P3 | 行尾真空只作用于两个 pane 的文字行（历史区标记线紧贴边框） | 体验 | 已修复 |
 | P4 | 活动区工具行续行缩进由 4 列改为 2 列 | 体验 | 已修复 |
 | P5 | 活动区流式思考被空行打断（宿主每步的空白文本块） | 缺陷 | 已修复 |
@@ -27,10 +27,10 @@
 
 ### P1 · 状态提示符位置的修改
 
-- **现象**：状态提示符（`✓` / `✗` / `● ○` / `△` / `?`）现在渲染在水平状态栏最左，与会话历史里各条用户输入分离——从历史区看不出「这条输入是什么结果」，且符号只反映会话级最后一次提交的状态。
-- **触发 / 复现**：启动 TUI 提交任意输入即可看到：符号恒在状态栏首行最左，输入块左侧为空白。
+- **现象**：状态提示符（`✓` / `✗` / `● ○` / `△` / `?`）现在渲染在水平状态行最左，与会话历史里各条用户输入分离——从历史区看不出「这条输入是什么结果」，且符号只反映会话级最后一次提交的状态。
+- **触发 / 复现**：启动 TUI 提交任意输入即可看到：符号恒在状态行首行最左，输入块左侧为空白。
 - **期望**：
-  - 状态栏最左的符号段整体**移除**（符号 + 其后 `" │ "` 分隔一并去掉），环境组自首列（保留 1 列留白）起。
+  - 状态行最左的符号段整体**移除**（符号 + 其后 `" │ "` 分隔一并去掉），环境组自首列（保留 1 列留白）起。
   - **每个**用户输入块**首行**左侧显示该条输入自身的执行结果，位置就是块左侧缩进腾出的空白里，紧贴文本首字符左侧并隔 1 个空格（`符号 + " " + 文本`）。用户块排版（折行、整块右对齐、右缘 `┃`、左 gutter 留白）**不变**。
   - 取值：成功 `✓` 绿（`green`）／失败 `✗` 红（`red`）／**中止 `■` 实心方块 灰（`gray`）**／无终态 `?` 默认前景。
   - 只有**最新活跃块**显示进行中 `●`/`○`（沿用现有虚拟 token 交替机制）与等待交互 `△`（黄）；历史块只显示各自终态，不交替、不出现 `△`。
@@ -39,17 +39,17 @@
 - **口径补充**：turn 中止归 `■` 灰（原议空心方块，已改）；`?` 用于「已进历史区但未收到终态」的块。
 - **状态**：已修复
 
-### P2 · 水平状态栏分隔符统一为圆点
+### P2 · 水平状态行分隔符统一为圆点
 
-- **现象**：水平状态栏里两种分隔符并存——**组间**是 1 列 `│`（border 色，由 Box separator 产出，并在状态栏上/下横线画 `┬`/`┴` 与竖线「相接成格」）；**组内**逻辑段之间是 1 列 `·`（默认前景色，无空格），如 `time·git·cwd`。
+- **现象**：水平状态行里两种分隔符并存——**组间**是 1 列 `│`（border 色，由 Box separator 产出，并在状态行上/下横线画 `┬`/`┴` 与竖线「相接成格」）；**组内**逻辑段之间是 1 列 `·`（默认前景色，无空格），如 `time·git·cwd`。
 - **期望**：
   - 分隔符**全部统一为 `•`（U+2022，较大圆点）**：组间由 `│` 换成 `•`，组内原 `·` 一并换成 `•`；均为 1 列、无空格、默认前景色（与组内圆点同色，不再用 border 蓝）。
-  - 状态栏内部不再有竖线：`statusBarSeamCols()`（只认 border 色段里的 `│`）自然扫不到 seam，状态栏上/下横线的 `┬` 交点随之消失，无需专门改。
-  - 来自**别处竖线**的交点保留：D 列（状态列右缘）与内部分隔列（历史/活动区之间）的 `┴` 不属于状态栏分隔符，维持现状。
+  - 状态行内部不再有竖线：`statusBarSeamCols()`（只认 border 色段里的 `│`）自然扫不到 seam，状态行上/下横线的 `┬` 交点随之消失，无需专门改。
+  - 来自**别处竖线**的交点保留：D 列（状态列右缘）与内部分隔列（历史/活动区之间）的 `┴` 不属于状态行分隔符，维持现状。
   - 折行口径不变：折行处不留尾巴圆点，续行行首不加圆点（维持现有 1 空格留边）。
-  - 范围：只动**水平状态栏**；竖直状态列（Mode 块由 P7 移除，其余内容不动）与各面板框线均不动。
-- **影响面**：`TUI/src/app/layout.ts`（`dotJoin` 的 `·`（:2046）、行组装的 Box `separator: { char: "│" }`（:2090）、`maxSegW` 里组间 1 列 gap 的预算口径、`statusBarSeamCols`（:2103）、`buildStatusSeparator`（:2420）与 `topSeams`（:2624））；文档 `TUI/docs/DESIGN.md` §状态区（组间框线与 `┬`/`┴` 相接成格的描述）、`TUI/README.md`（状态栏分隔说明）、`TUI/docs/design/AUDIT-colors.md`（分隔列与框格连接字 `│ ┤ ┬ ┴` 的列举）；冻结帧基线 `TUI/tests/fixtures/focus-frame-legacy.json` 与状态栏相关测试需同步更新。
-- **关联**：与 P1 同属状态栏改造。P1 移除最左符号段（含其后的 `" │ "`）后，状态栏里剩下的竖线就只有组间分隔符，P2 把它一并换掉。
+  - 范围：只动**水平状态行**；竖直状态列（Mode 块由 P7 移除，其余内容不动）与各面板框线均不动。
+- **影响面**：`TUI/src/app/layout.ts`（`dotJoin` 的 `·`（:2046）、行组装的 Box `separator: { char: "│" }`（:2090）、`maxSegW` 里组间 1 列 gap 的预算口径、`statusBarSeamCols`（:2103）、`buildStatusSeparator`（:2420）与 `topSeams`（:2624））；文档 `TUI/docs/DESIGN.md` §状态区（组间框线与 `┬`/`┴` 相接成格的描述）、`TUI/README.md`（状态行分隔说明）、`TUI/docs/design/AUDIT-colors.md`（分隔列与框格连接字 `│ ┤ ┬ ┴` 的列举）；冻结帧基线 `TUI/tests/fixtures/focus-frame-legacy.json` 与状态行相关测试需同步更新。
+- **关联**：与 P1 同属状态行改造。P1 移除最左符号段（含其后的 `" │ "`）后，状态行里剩下的竖线就只有组间分隔符，P2 把它一并换掉。
 - **状态**：已修复
 
 ### P3 · 行尾真空只作用于两个 pane 的文字行
@@ -59,8 +59,8 @@
   - 兜底留白改为**行尾属性**：历史区 / 活动区的**文字行**最多写到 `cols-3`，最后的 2 列（`cols-2`、`cols-1`）**完全不写**（不是补空格）。
   - **横向**：历史区文字宽 = `dialogueW`（不再 −1），用户块 `┃` **紧贴内部分隔竖线**（间隔 0）；活动区文字宽维持 `activityW-1`（右缘到 `cols-3`）。
   - **纵向**：两个 pane 文字宽 = `paneW-1`（不再 −2），文字右缘到 `cols-3`；右侧没有边框线，直接接真空。
-  - **横线照旧顶满**到最右列：标题栏下划线、回合分隔线 `╌`、状态栏上/下边框、活动区分隔线不受影响。
-  - 范围：只改历史区 / 活动区的**文字行**；状态栏文字、输入区、按键提示区、状态列不动（补不补空格随意）。
+  - **横线照旧顶满**到最右列：标题栏下划线、回合分隔线 `╌`、状态行上/下边框、活动区分隔线不受影响。
+  - 范围：只改历史区 / 活动区的**文字行**；状态行文字、输入区、按键提示区、状态列不动（补不补空格随意）。
 - **实测数值**（`cols=100`，现状 → 目标）：纵向两 pane 文字宽 64 → 65；横向历史 31 → 32（`┃` 63 → 64，紧贴 `│@65`）、活动 32 不变。文字宽变化会带动两 pane 的折行位置。
 - **影响面**：`TUI/src/app/layout.ts`（`PANE_TEXT_MARGIN_COLS`（:482）与 `paneTextWidth`（:486）、`frameGeometry` 里 `dialogueTextW` / `activityTextW` 的取值（:828）、文字行拼装处的补齐与行尾处理 `padTo`）；文档 `TUI/docs/DESIGN.md:154`、`TUI/docs/IMPLEMENTATION.md:134`（「横向各让 1 列、纵向各让 2 列」的口径）；`tests/pane-text-margin.test.ts`（`paneTextWidth` 断言与「文字不落在留白列」）与冻结帧基线 `TUI/tests/fixtures/focus-frame-legacy.json`。
 - **关联**：与 P1 同处用户块首行（`┃` 与符号的相对位置需一起验证）；与 P2 同属顶部区域框线口径（本条保留横线顶满到最右列）。
@@ -98,7 +98,7 @@
 - **时间来源**：优先宿主事件 `time`（事件信封必填字段，`docs/host/DSH-CTX-API.md:42`，Unix epoch 毫秒，按本地时区格式化）；取不到时回退 `Date.now()`（只会发生在 mock/demo 合成事件与测试直接 push 的事件上）。**不设 `--:--:--` 占位**。
 - **落地路径**：`step/start` 归一化（`adapter/dsh.ts:1635`）补上 `time` → `DshEvent` 的 `step` 分支增时间字段（`adapter/types.ts`）→ App 的 `case "step"`（`index.ts:1012`）透传 → reducer 存入 `state.stepGroup`（字段定义 `state.ts:428`、写入 `state.ts:1771`）→ `stepHeaderLine(step, time)` 产出 `"22:31:05 #3"` → `build-box.ts:170` 的 step 正则与 `content-rules.ts:99` 的 `"step "` 前缀判定同步改。
 - **影响面**：`TUI/src/app/layout/tool-line.ts`、`TUI/src/app/layout/build-box.ts`、`TUI/src/app/layout/content-rules.ts`、`TUI/src/app/state.ts`、`TUI/src/app/adapter/dsh.ts` 与 `adapter/types.ts`、`TUI/src/app/index.ts`、`TUI/demo/mockAdapter.ts`（4 处 step 事件走回退分支即可）；测试：step 分组头相关用例与含 step 行的冻结帧基线；文档 `TUI/docs/DESIGN.md:213`（接口对照里的「分组头 `step N`」）、`TUI/README.md:88`（`╌╌ step N ╌╌╌…`）需同步。
-- **关联**：与 P4 同属活动区排版；本行时间戳是界面上**第一个按行的时间标记**（现状只有状态栏环境组的本机时钟）。
+- **关联**：与 P4 同属活动区排版；本行时间戳是界面上**第一个按行的时间标记**（现状只有状态行环境组的本机时钟）。
 - **状态**：已修复
 
 ### P7 · Mode 块符号化并迁入标题栏
@@ -124,11 +124,11 @@
     顺序 = `preset`（符号 + 名字）→ 六个状态符号（`sandbox` `policy` `plan` `verbose` `symbol-unify` `bell`）→ 2 空格 → 标题文本；**段间与符号组内部一律用空格**（不用圆点）；空标题仍显示灰色 `<title>` 占位以保持行稳定。
   - **宽度不足时的让位顺序**：① **先隐藏 `preset`**（整体，含名字）→ ② 再截断标题（可截到空）→ ③ 仍放不下则六个符号**整体**让位 → ④ 沿用现有的「极矮终端先收下划线、再整栏省略」。
   - **Mode 块整体移除**：垂直状态列不再有 `Mode` 标题行与上述各项（Goal / Todo / Jobs 块保留）。
-  - **水平状态栏不新增任何内容**（本条与状态栏改造 P1/P2 无交叉）。
+  - **水平状态行不新增任何内容**（本条与状态行改造 P1/P2 无交叉）。
   - **Ctrl+S 切换垂直状态列**：切换显示 / 隐藏，**初始显示**；隐藏时该列宽 0、分隔竖线（D 列）不再绘制、历史区变宽需重排；切换状态**随会话持久化**（写 `tui-state.json`，与 `verbose` / `symbol-unify` 同口径）；按键提示行加 `[Ctrl+S]状态列`。
 - **现状取证（实测，`cols=100`）**：Mode 块 6 行；`charWidth` 对所用图标均返回 1；标题行渲染在 `layout.ts` 的 `rc === 0` 分支、现以 `truncateToWidth(rawTitle, contentW)` 截断；raw 模式已关 `IXON`，`Ctrl+S`（0x13）可作为按键到达 App，不与现有 `Ctrl+D`/`Ctrl+L`/`Ctrl+J`/`Ctrl+C` 冲突；`SessionUiState`（`adapter/session-ui-state.ts:22`）已有 `verbose`/`symbolUnify`/`modes` 字段，可加一个布尔字段承载状态列开关。
 - **影响面**：`TUI/src/app/layout.ts`（`modeBlock`（:1144）退役；标题行 `rc === 0` 分支改为「preset + 符号组 + 标题」三段拼接与按让位顺序的截断；`titleRows` 与极矮兜底路径；状态列宽为 0 时的几何/拼接路径）、`TUI/src/app/state.ts`（新增状态列可见性状态与 action）、`TUI/src/app/adapter/session-ui-state.ts`（`SessionUiState` 增字段）、`TUI/src/app/index.ts`（Ctrl 分支加 `Ctrl+S`（:1556 一带）、会话状态恢复与落盘（:615-660）、提示行文本）；文档 `TUI/docs/DESIGN.md:151`（状态列 Mode 块描述）、`TUI/README.md:72-74`（会话标题栏说明）、`TUI/README.md:88` 一带、必要时 `TUI/docs/SPEC.md`；冻结帧基线 `TUI/tests/fixtures/focus-frame-legacy.json` 与状态列/标题栏相关测试需重生成或更新。
-- **关联**：与 P4/P6 同属状态列与活动区之外的顶部区域改造；与 P1/P2 **无交叉**（早先草案曾计划迁入水平状态栏，已废弃）。
+- **关联**：与 P4/P6 同属状态列与活动区之外的顶部区域改造；与 P1/P2 **无交叉**（早先草案曾计划迁入水平状态行，已废弃）。
 - **状态**：已修复
 
 ### P8 · 会话压缩期间算作 active
@@ -166,16 +166,16 @@
 | P4 | `layout/content-rules.ts`（`TOOL_CONT_INDENT = 2`，注释与 `wrapToolCallText` 折宽同步） | `tests/content-rules.test.ts`、`tests/tool-call-wrap.test.ts`、`tests/app.test.ts`（tool-call 续行 2 空格）；`TUI/docs/SPEC.md:110`、`:212` |
 | P5 | `state.ts` `appendStream`（`dropBlankChunk` 丢弃异 kind 纯空白分片；`streamBreak` 断行标志，避免两段思考粘连） | 新增 `tests/p5-blank-chunk.test.ts`（5 例）；临时复现脚本核对（空行消失、思考两行相邻；脚本已清理） |
 | P6 | `layout/tool-line.ts` `stepHeaderLine(step, time)`、`app/clock.ts` `clockHms`；adapter `step` 事件带 `time`（`:1643`）；`layout/build-box.ts` step 分支、`content-rules.ts` `isStepHeader`（原 `"step "` 前缀退役） | `tests/step.test.ts`（10 例，含缺 `time` 回退当前时刻）、`tests/layout4.test.ts`、`tests/content-mapping.test.ts`、`tests/adapter.dsh.test.ts` |
-| P2 | `layout.ts` `dotJoin`（`·`→`•`）、状态栏行组装的 `separator: { char: "•", color: "plain" }`；`layout/fill.ts` 新增 `"plain"`（默认前景）语义 | `tests/layout4.test.ts`（状态栏断言：含 `•`、不含 `│`）；冻结帧基线重生成 |
+| P2 | `layout.ts` `dotJoin`（`·`→`•`）、状态行行组装的 `separator: { char: "•", color: "plain" }`；`layout/fill.ts` 新增 `"plain"`（默认前景）语义 | `tests/layout4.test.ts`（状态行断言：含 `•`、不含 `│`）；冻结帧基线重生成 |
 | P3 | `layout.ts` `paneTextWidth(paneW, reserve)` 与 `frameGeometry`（横向历史不留白、活动与纵向各让 1 列）；顺带修复 `buildContentRows` 第 4 个参数未传——活动 pane 原先按**对话**文字宽折行 | `tests/pane-text-margin.test.ts`（4 例，含「文字不落在留白列」） |
-| P1 | `state.ts` `BufferLine.status` / `TurnEndReason` / `markUserBlockStatus`（turn-end 按 reason 打终态）；`index.ts` `case "turn-end"` **转发 adapter 的 `reason`**（独立核对时发现的断链：不转发则真实路径永不打标）；`layout.ts` `USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（活跃块 ●/○/△、其余 ?）；`layout/build-box.ts` 用户块首行 2 列前缀；状态栏符号段移除 | `tests/layout4.test.ts`、`tests/app.test.ts`（符号位置/取值/配色；含真实事件路径回归：临时回退 `index.ts` 转发后该用例失败）；`tests/p8-compaction-active.test.ts`（压缩中显示运行中） |
+| P1 | `state.ts` `BufferLine.status` / `TurnEndReason` / `markUserBlockStatus`（turn-end 按 reason 打终态）；`index.ts` `case "turn-end"` **转发 adapter 的 `reason`**（独立核对时发现的断链：不转发则真实路径永不打标）；`layout.ts` `USER_BLOCK_SYMBOL` + `userBlockSymbolResolver`（活跃块 ●/○/△、其余 ?）；`layout/build-box.ts` 用户块首行 2 列前缀；状态行符号段移除 | `tests/layout4.test.ts`、`tests/app.test.ts`（符号位置/取值/配色；含真实事件路径回归：临时回退 `index.ts` 转发后该用例失败）；`tests/p8-compaction-active.test.ts`（压缩中显示运行中） |
 | P8 | `state.ts` `compactingBySession` / `isCompacting`；`index.ts` `agentBusy()` 并入压缩、`canExitOnCtrlD()` 守卫；adapter `compaction` 事件带 `sessionId` | 新增 `tests/p8-compaction-active.test.ts`（4 例：标记/隔离/符号/退出守卫）、`tests/adapter.dsh.test.ts`（事件形状） |
 | P7 | `layout.ts` 移除 Mode 块（`modeBlock`、`SWITCH_ON/OFF`）、新增 `TITLE_ICON` + `titleBarSegments`（preset + 6 符号 + 标题，含让位顺序）；`frameGeometry`/`buildTopRegion` 支持状态列隐藏；`state.ts` `statusColumnVisible` + `status-column` action（**隐藏时把焦点移开 + Tab 循环跳过该列**，否则 0 宽面板会被 focusFrame 画出退化边框压掉内容首列；`frameGeometry`/`focusFrame` 亦有防御）；`index.ts` **Ctrl+S** + 提示行；`adapter/session-ui-state.ts` 快照字段 `statusColumn` | 新增 `tests/title-bar.test.ts`（9 例：组合/顺序/沙箱四态色/开关 on-off/让位顺序/图标单列/Ctrl+S 显隐与隐藏态无退化焦点框/快照往返）、`tests/status-column.test.ts`（15 例）、`tests/policy.test.ts`（11 例） |
 | P9 | `adapter/dsh.ts` `normalizeHistoryMessages` 事件折叠（`step/start` 分组、`tool/call` 名字去重计数、`tool/result` 失败计数、`step/end` 收口，空消息丢弃）；`commands.ts` `surfaceToBuffer` 映射 `role:"step"` → `BufferKind:"step"`；`layout/build-box.ts` step 行渲染（`╌╌ ` 前缀 + 尾部 `╌` 铺满） | 新增 `tests/resume-summary.test.ts`（2 例）、`tests/adapter.dsh.test.ts`（3 例 P9）；真实会话日志核对：1629 事件 → 372 条消息、229 行 step 概要、**0 条空消息** |
 
 **基线与环境改动**：`TUI/tests/fixtures/focus-frame-legacy.json` 按新渲染重生成（`TUI/scripts/freeze-focus-frame.mts`，15 场景）；`tests/helpers/screenEmu.ts` 改为按**码点**解析（星平面 Nerd Font 图标原被当两个 UTF-16 单元，导致模拟屏假性折行）。
 
-**冒烟脚本随改（`TUI/demo/main.ts`）**：11 条断言按新口径重写——① 状态符号断言从「状态栏最左」改为「用户块首行」（`? / ✓ / ■ / △ / ●○`，并新增可驱动的 aborted 场景）；② Mode 块断言改为标题栏图标组（按码点，含「状态列不再有 Mode 块」反向断言）；③ step 头断言改为 `hh:mm:ss #N`；④ policy/preset 徽标断言改为标题栏图标的着色与 `preset 图标 + 名字`；⑤ 通知类断言改为**按整帧取证**（新增冒烟期整帧捕获：stdout 只有增量行，折行文本会被其它行插入打断）；⑥ 混合内容顺序断言不再假定上下排列（P1 让状态栏少占 5 列 → 80 列下状态栏由 2 行变 1 行 → `activityPlacement: auto` 在该尺寸改选左右排列）。结果：`SMOKE_PASS 41 / SMOKE_FAIL 0`。
+**冒烟脚本随改（`TUI/demo/main.ts`）**：11 条断言按新口径重写——① 状态符号断言从「状态行最左」改为「用户块首行」（`? / ✓ / ■ / △ / ●○`，并新增可驱动的 aborted 场景）；② Mode 块断言改为标题栏图标组（按码点，含「状态列不再有 Mode 块」反向断言）；③ step 头断言改为 `hh:mm:ss #N`；④ policy/preset 徽标断言改为标题栏图标的着色与 `preset 图标 + 名字`；⑤ 通知类断言改为**按整帧取证**（新增冒烟期整帧捕获：stdout 只有增量行，折行文本会被其它行插入打断）；⑥ 混合内容顺序断言不再假定上下排列（P1 让状态行少占 5 列 → 80 列下状态行由 2 行变 1 行 → `activityPlacement: auto` 在该尺寸改选左右排列）。结果：`SMOKE_PASS 41 / SMOKE_FAIL 0`。
 
 **独立核对**（子代理只读复核，逐条按源码/实测给结论）：P1–P8 全部**符合**；抽查有效（故意改坏 `state.ts` 的 P5 判据 → 对应用例确实失败，还原后 sha256 一致、无残留）。核对发现并已修复 1 处低危偏差：**活跃块**原先取「最后一个 status 未定的 user 行」（会往前找到上一回合 `blocked` 收尾的老块，使其长期闪 ●/○/△），现收紧为「**最后一条**用户输入且终态未定」，并加用例（`tests/app.test.ts`，忙时老块只显示 `?`）。另自查修复 1 处 P7 缺陷：状态列隐藏但焦点仍在 status 时会画出 0 宽退化焦点框压掉内容首列——现隐藏即移开焦点、Tab 循环跳过该列，并在 `focusFrame` 前置防御（回归用例见 `tests/title-bar.test.ts`）。
 

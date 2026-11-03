@@ -1,8 +1,8 @@
-// tests/ctrl-t-panes.test.ts — #9 Ctrl+T 聚焦 / 收起下半区（Turn 流 + Tool 面板区）
+// tests/ctrl-t-panes.test.ts — #9 Ctrl+T 聚焦 / 收起下半区（Turn 流 + 工具区）
 //
 // 契约：缺省显示；`Ctrl+T` 未聚焦时聚焦（可见但未聚焦只聚焦、不隐藏）、已聚焦时收起 +
-// 焦点回会话区；收起后活动区高度/宽度归零、空间并入对话区，输入栏不受影响；
-// 显式隐藏时焦点从下半区移开；活动区内有交互面板打开时仍照常显示。
+// 焦点回会话区；收起后回合区高度/宽度归零、空间并入会话区，输入区不受影响；
+// 显式隐藏时焦点从下半区移开；回合区内有交互面板打开时仍照常显示。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -55,30 +55,30 @@ test("#9 显式隐藏已聚焦的下半区：焦点被移开", () => {
   assert.equal(st.focusedPanel, null, "隐藏即不聚焦");
 });
 
-test("#9 隐藏时几何：活动区高度归零、空间并入对话区", () => {
+test("#9 隐藏时几何：回合区高度归零、空间并入会话区", () => {
   const shown = frameGeometry(initialState(), SIZE);
   const st = reduceState(initialState(), {
     type: "lower-panes",
     visible: false,
   });
   const hidden = frameGeometry(st, SIZE);
-  assert.ok(shown.activityH > 0, "缺省有活动区");
-  assert.equal(hidden.activityH, 0, "隐藏后活动区高度 0");
+  assert.ok(shown.activityH > 0, "缺省有回合区");
+  assert.equal(hidden.activityH, 0, "隐藏后回合区高度 0");
   assert.ok(
     hidden.dialogueH > shown.dialogueH,
-    `对话区吃掉腾出的高度（${shown.dialogueH} → ${hidden.dialogueH}）`,
+    `会话区吃掉腾出的高度（${shown.dialogueH} → ${hidden.dialogueH}）`,
   );
   assert.ok(
     !rowsOf(st).some((r) => r.includes("── Turn ──")),
-    "隐藏后不再有 Turn 标题（活动区分隔行消失）",
+    "隐藏后不再有 Turn 标题（回合区分隔行消失）",
   );
-  // 视作「只有会话 pane」：活动区宽归零、会话 pane 吃满区域宽（横向排列下也不会
+  // 视作「只有会话 pane」：回合区宽归零、会话 pane 吃满区域宽（横向排列下也不会
   // 残留内部分隔竖线贴正文）
-  assert.equal(hidden.activityW, 0, "活动区宽归零");
+  assert.equal(hidden.activityW, 0, "回合区宽归零");
   assert.equal(hidden.dialogueW, hidden.contentW, "会话 pane 整宽");
   assert.equal(hidden.mode, "vertical", "隐藏态按纵向出图");
   // 隐藏态：内容行都补齐到整屏宽（右缘框线恒在固定列，不贴正文）；
-  // 提示区（末尾 hintHeight 行）例外——提示文案按实际宽度出帧，右侧留白由渲染层补
+  // 提示行（末尾 hintHeight 行）例外——提示文案按实际宽度出帧，右侧留白由渲染层补
   const cols = 80;
   const hintRows = frameGeometry(st, SIZE).hintHeight;
   const short = rowsOf(st)
@@ -109,7 +109,7 @@ test("#9 隐藏状态下交互面板仍照常显示（临时显示，不改可�
   assert.equal(st.lowerPanesVisible, false, "可见性状态未被面板改变");
   assert.ok(
     frameGeometry(st, SIZE).activityH > 0,
-    "面板打开时活动区恢复高度（面板可见）",
+    "面板打开时回合区恢复高度（面板可见）",
   );
   assert.ok(
     rowsOf(st).some((r) => r.includes("── Tool ──")),

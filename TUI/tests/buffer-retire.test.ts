@@ -6,7 +6,7 @@
 //     `tests/p5-blank-chunk.test.ts` 与 `tests/pipeline-app.test.ts`）；
 //   - UI 本地行（notice / shell / 辅助工具行 / 重试提示）仍写缓冲——底部 toast 与 App 的
 //     事件补投需要它们（见追踪文档第四阶段）；
-//   - 用户输入开启的回合清掉活动区提示行；历史恢复 / 会话切换清空缓冲（不带上一会话的本地行）。
+//   - 用户输入开启的回合清掉回合区提示行；历史恢复 / 会话切换清空缓冲（不带上一会话的本地行）。
 //
 // 已退场的口径：`bufferRetainsContent` / `CONTENT_ACTIONS` 的「内容写缓冲闸门」与
 // 「缺省仍承载内容（测试 / 嵌入用法）」——C2 后内容类 action 只承载状态事实
@@ -104,7 +104,7 @@ test("UI 本地行照写（toast / 事件补投的来源）", () => {
   );
 });
 
-test("用户输入开启的回合：清掉活动区提示行（toast 不挂上一回合的提示）", () => {
+test("用户输入开启的回合：清掉回合区提示行（toast 不挂上一回合的提示）", () => {
   const s = applyAll(prod(), [
     { type: "notice", text: "上一回合的提示" },
     { type: "subagent", sessionId: "s1", label: "a", mode: "one-shot" },

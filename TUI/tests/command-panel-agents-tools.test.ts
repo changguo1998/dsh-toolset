@@ -366,7 +366,7 @@ test("/tools：服务缺失 → warn 且不开面板", async () => {
   app.dispose();
 });
 
-test("/tools：数十条时 PgDn 整页前进、PgUp 回退（页高 = 活动区）", async () => {
+test("/tools：数十条时 PgDn 整页前进、PgUp 回退（页高 = 回合区）", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeAgentsToolsAdapter();
   adapter.tools = Array.from({ length: 40 }, (_, i) => ({
@@ -385,7 +385,7 @@ test("/tools：数十条时 PgDn 整页前进、PgUp 回退（页高 = 活动区
   await tick();
   assert.ok(
     frames(renderer).includes("> tool-08"),
-    "PgDn 后高亮前进一页（活动区 8 行）: " + frames(renderer),
+    "PgDn 后高亮前进一页（回合区 8 行）: " + frames(renderer),
   );
   press(renderer, "pageup");
   await tick();
@@ -450,7 +450,7 @@ test("渲染：agents 的 running 黄、inactive/diagnostic 灰（statusMark 口
   );
 });
 
-test("底部提示按 kind 区分：agents = Enter 中断，skills/tools = Enter 详情", () => {
+test("提示行按 kind 区分：agents = Enter 中断，skills/tools = Enter 详情", () => {
   assert.ok(
     commandPanelHint("agents").includes("[Enter]中断"),
     commandPanelHint("agents"),

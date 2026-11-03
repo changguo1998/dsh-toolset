@@ -1,7 +1,7 @@
 // tests/shell-mode.test.ts — `$`（shell）模式的本地执行（BACKLOG TUI#37）
 //
 // 覆盖：`$` 提交走**本地执行器**（不经模型/adapter）；命令回显 + stdout/stderr + 退出摘要
-// 以 kind="shell" 行落活动区（不进会话与模型上下文、不进历史区）；非零退出/超时摘要着色；
+// 以 kind="shell" 行落回合区（不进会话与模型上下文、不进会话区）；非零退出/超时摘要着色；
 // 提交后回退 normal；空命令不执行。
 
 import assert from "node:assert/strict";
@@ -79,7 +79,7 @@ function shellLines(st: AppState): { text: string; tone?: string }[] {
     .map((l) => ({ text: l.text, ...(l.tone ? { tone: l.tone } : {}) }));
 }
 
-test("`$` 提交走本地执行器：回显 + stdout + 退出摘要进活动区，不经 adapter", async () => {
+test("`$` 提交走本地执行器：回显 + stdout + 退出摘要进回合区，不经 adapter", async () => {
   const { runner, calls } = fakeRunner({ stdout: "hello\nworld\n", code: 0 });
   const { renderer, adapter, st } = makeApp(runner);
   renderer.press(key("$")); // 进 shell 模式
@@ -114,7 +114,7 @@ test("`$` 提交走本地执行器：回显 + stdout + 退出摘要进活动区�
   assert.deepEqual(adapter.sent, ["x"], "回退后走普通消息");
 });
 
-test("stderr 与非零退出码 → error tone；输出行不进历史区（非 final）", async () => {
+test("stderr 与非零退出码 → error tone；输出行不进会话区（非 final）", async () => {
   const { runner } = fakeRunner({ stdout: "out\n", stderr: "boom\n", code: 2 });
   const { renderer, st } = makeApp(runner);
   renderer.press(key("$"));
@@ -129,11 +129,11 @@ test("stderr 与非零退出码 → error tone；输出行不进历史区（非 
   );
   assert.match(lines[3]?.text ?? "", /^→ 退出码 2 · \d+ms$/, "非零退出摘要");
   assert.equal(lines[3]?.tone, "error", "非零退出摘要红");
-  // 不进历史区：shell 行不带 final（历史区只收 final 行）
+  // 不进会话区：shell 行不带 final（会话区只收 final 行）
   const shellBuf = st().local.filter((l) => l.kind === "shell");
   assert.ok(
     shellBuf.every((l) => l.final !== true),
-    "shell 行不进历史区（无 final 标记）",
+    "shell 行不进会话区（无 final 标记）",
   );
 });
 

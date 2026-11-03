@@ -106,7 +106,7 @@ test("renderDelta 非满高帧：输入行写内容后定位，位置正确", ()
   );
 });
 
-test("满高帧 render：输入行与提示区各自绝对定位，全程无 CRLF", () => {
+test("满高帧 render：输入行与提示行各自绝对定位，全程无 CRLF", () => {
   const input: FrameRow = {
     segments: [{ text: "> Type a message..." }],
     caret: 2,
@@ -123,13 +123,13 @@ test("满高帧 render：输入行与提示区各自绝对定位，全程无 CRL
   const idx = out.lastIndexOf(rowText(input));
   assert.ok(
     out.slice(idx + rowText(input).length).startsWith("\x1b[24;1H"),
-    "输入行后直接绝对定位到提示区所在行（第24行）",
+    "输入行后直接绝对定位到提示行所在行（第24行）",
   );
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
     "\x1b[23;3H\x1b[?25h\x1b[?2026l",
-    "提示区（末行）后无 CRLF，光标定位输入行（第23行）第3列",
+    "提示行（末行）后无 CRLF，光标定位输入行（第23行）第3列",
   );
   assert.ok(!out.includes("\r\n"), "全程无 CRLF（CRLF 会在底行触发滚屏）");
 });
@@ -137,17 +137,17 @@ test("满高帧 render：输入行与提示区各自绝对定位，全程无 CRL
 test("renderDelta 满高帧：delta 两行各自绝对定位，全程无 CRLF", () => {
   const input: FrameRow = { segments: [{ text: "> hello" }], caret: 7 };
   const hint: FrameRow = { segments: [{ text: "[Enter]发送" }] };
-  const out = capture([input, hint], 40, 24, 23, true); // 输入行=23 行，提示区=24 行(底行)
+  const out = capture([input, hint], 40, 24, 23, true); // 输入行=23 行，提示行=24 行(底行)
   const idx = out.lastIndexOf(rowText(input));
   assert.ok(
     out.slice(idx + rowText(input).length).startsWith("\x1b[24;1H"),
-    "输入行后绝对定位到提示区行",
+    "输入行后绝对定位到提示行行",
   );
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(
     out.slice(hidx + rowText(hint).length),
     "\x1b[23;8H\x1b[?25h\x1b[?2026l",
-    "提示区后无 CRLF，光标定位输入行第8列",
+    "提示行后无 CRLF，光标定位输入行第8列",
   );
   assert.ok(!out.includes("\r\n"), "全程无 CRLF（CRLF 会在底行触发滚屏）");
 });

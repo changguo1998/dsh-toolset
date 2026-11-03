@@ -84,7 +84,7 @@ import { maxApprovalScroll } from "./components/ApprovalPrompt.ts";
 /** 审批超时回落值（ms）= 1 min：adapter 未提供 `approvalTimeoutMs()` 时使用（BACKLOG 3.2.5 / 3.3.2） */
 const APPROVAL_TIMEOUT_FALLBACK_MS = 60_000;
 
-/** 审批倒计时重绘间隔（ms）：秒数每秒变 → 独立 1s 定时器（不靠状态栏 ticker 节律） */
+/** 审批倒计时重绘间隔（ms）：秒数每秒变 → 独立 1s 定时器（不靠状态行 ticker 节律） */
 const APPROVAL_COUNTDOWN_TICK_MS = 1000;
 
 /** 帧前实测的超时上限(ms)：探测期间不出帧，故取小值；整批无回包即判定不支持 CPR */
@@ -247,7 +247,7 @@ export const SMALL_TERMINAL_ROWS = 9;
 export const SMALL_TERMINAL_NOTICE =
   "终端尺寸过小（宽 ≤ 16 或高 ≤ 9），显示可能不可用，请调大窗口";
 
-/** 活动区三类开关的解析（`/verbose` 与 `/collapse` 共用）。 */
+/** 回合区三类开关的解析（`/verbose` 与 `/collapse` 共用）。 */
 const ACTIVITY_CATEGORIES: readonly ActivityCategory[] = [
   "think",
   "tool",
@@ -415,7 +415,7 @@ export class App {
   private sessionStatePendingSid: string | null = null;
   /** paneScrollMax 对应的 state 引用（同一 state 不重复补算） */
   private paneScrollMaxState: AppState | null = null;
-  /** 上一帧活动区可滚动上限（新内容增长时据此补偿 activityScroll；null = 尚无基准） */
+  /** 上一帧回合区可滚动上限（新内容增长时据此补偿 activityScroll；null = 尚无基准） */
   private activityMax: number | null = null;
   /** 上一帧 buffer 的回合组数（用户停在历史里时按新增组数撑住窗口起点） */
   private groupCount: number | null = null;
@@ -434,7 +434,7 @@ export class App {
    */
   private pipelineSepPending = false;
   /**
-   * 流水线是否收到过任何内容交付（画线判据的不清活动区分支：核心自发回合下，旧口径
+   * 流水线是否收到过任何内容交付（画线判据的不清回合区分支：核心自发回合下，旧口径
    * 「缓冲非空」= 任何行都算内容，含 step 头 / 工具行 / notice）。
    */
   private pipelineAnyContent = false;
@@ -680,10 +680,10 @@ export class App {
   }
 
   /**
-   * 出帧后同步活动区滚动锚点：内容增长时按增量抬高 `activityScroll`，使视口顶停在
+   * 出帧后同步回合区滚动锚点：内容增长时按增量抬高 `activityScroll`，使视口顶停在
    * 同一绝对行。返回 `true` 表示 state 被调整过，调用方需按新 state 重排一帧。
    *
-   * 与对话区不同：活动区没有段键，只有距底偏移（`activityScroll`），布局按
+   * 与会话区不同：回合区没有段键，只有距底偏移（`activityScroll`），布局按
    * `activity.length - activityH - offset` 切片，内容追加会直接推高上限把视口带向最新。
    * 故用户上滚（offset > 0）时必须等量补偿；贴底（offset = 0）继续跟随最新。
    */
@@ -703,7 +703,7 @@ export class App {
 
   /**
    * 排版一帧并把滚动派生状态收敛到「画面上那一行」：先按当前 state 出帧回填
-   * `paneScrollMax`，再同步对话区段键锚点与活动区距底偏移；后者调整了 state 时
+   * `paneScrollMax`，再同步会话区段键锚点与回合区距底偏移；后者调整了 state 时
    * 重排一次（仅「用户上滚 + 新内容增长」才会走到，正常跟随路径零额外排版）。
    */
   private layoutFrame(size: Size, out: FrameBuildOutput): FrameRow[] {
@@ -719,7 +719,7 @@ export class App {
   }
 
   /**
-   * 对话区按键滚动（`delta` 行：正 = 上滚看更早内容）。
+   * 会话区按键滚动（`delta` 行：正 = 上滚看更早内容）。
    *
    * 顺序：**先扩窗、再按扩窗后的段表施加位移** —— 位置按段键表达，扩窗只在视口上方插段，
    * 画面不动；位移量因此始终等于 `delta`（撞窗口顶那次也只是多物化，不多滚）。
@@ -767,8 +767,8 @@ export class App {
   }
 
   /**
-   * 活动区按键滚动（`delta` 行：正 = 上滚看更早内容）。位置按**节键 + 行偏移**表达
-   * （与对话区同口径）：从当前视口顶行 `activityTopIdx` 加减 `delta` → clamp → 经
+   * 回合区按键滚动（`delta` 行：正 = 上滚看更早内容）。位置按**节键 + 行偏移**表达
+   * （与会话区同口径）：从当前视口顶行 `activityTopIdx` 加减 `delta` → clamp → 经
    * `positionAt` 换成活动段表键 + 行, 写入 `activityTop`。滚回底部 → 恢复跟随最新。
    * 内容按节键锚定, 上方插段 / 扩窗不动画面。
    */
@@ -806,7 +806,7 @@ export class App {
   }
 
   /**
-   * 活动区按「Step」跳转页（PgUp/PgDn 等级错开：会话区整 Turn、回合区整 Step）。
+   * 回合区按「Step」跳转页（PgUp/PgDn 等级错开：会话区整 Turn、回合区整 Step）。
    * 从当前顶行所在段出发, 向 dir 找下一个 `turn:step` 前缀不同的段, 把视口钉到它首行。
    */
   private scrollActivityStep(dir: 1 | -1): void {
@@ -873,7 +873,7 @@ export class App {
     );
   }
 
-  /** 活动区 Home：一次 → 顶部（首行）；已到顶再按 → 无操作（回合区不加载更旧） */
+  /** 回合区 Home：一次 → 顶部（首行）；已到顶再按 → 无操作（回合区不加载更旧） */
   private scrollActivityHome(): void {
     const r = this.paneMaxes();
     const max = Math.max(0, r.activityMaxScroll);
@@ -1187,7 +1187,7 @@ export class App {
     this.unbindEvents.push(
       this.deps.adapter.onEvent((e) => this.handleEvent(e)),
     );
-    // 系统状态区：合并节流 ticker（tick 一次批量查 cwd/git/time）
+    // 状态行：合并节流 ticker（tick 一次批量查 cwd/git/time）
     if (this.deps.status) {
       this.statusTicker = new StatusTicker({
         queries: this.deps.status.queries,
@@ -1255,7 +1255,7 @@ export class App {
     // 启动自检 kickoff（BACKLOG TUI「启动后自动触发首轮工具调用」）：先挂起，再由下面的
     // 历史折叠决定发送时机（新会话走启动宏任务；恢复会话等折叠落定，见 flushKickoffPending）
     this.startBootstrapKickoff();
-    // TUI#40：CLI 启动即恢复（--resume / -c）→ 补一次历史折叠，历史区直接可见既有消息
+    // TUI#40：CLI 启动即恢复（--resume / -c）→ 补一次历史折叠，会话区直接可见既有消息
     this.restoreStartupHistory();
     // 启动自动清理空会话（session.autoCleanEmpty=true 时后台执行，不阻塞 UI）
     if (this.autoCleanEmpty) {
@@ -1302,7 +1302,7 @@ export class App {
 
   /**
    * 启动时自动清理空会话（session.autoCleanEmpty=true）：与退出清理共享判据与删除核心，
-   * 结果经 notice 汇报（UI 尚在，走对话区提示）。依赖宿主 sessionQuery
+   * 结果经 notice 汇报（UI 尚在，走会话区提示）。依赖宿主 sessionQuery
    * （listSessions/deleteSession）已挂载；缺失或执行失败静默跳过（清理属于维护性功能，
    * 不让启动失败）。当前活跃/live 会话由判据天然排除。
    */
@@ -1327,7 +1327,7 @@ export class App {
 
   /**
    * 退出时清理其他空会话（复用 session.autoCleanEmpty 开关；优雅退出路径在关渲染器前调用）。
-   * 有可清理项才把提示渲染到**活动区**并等待清理完成，完成后才继续后续收尾（释放 adapter/
+   * 有可清理项才把提示渲染到**回合区**并等待清理完成，完成后才继续后续收尾（释放 adapter/
    * 关闭渲染器退出）；无清理项/无可清理服务时静默直接返回，不拖慢退出。
    */
   private async runExitCleanEmptySessions(): Promise<void> {
@@ -1350,7 +1350,7 @@ export class App {
   }
 
   /**
-   * 退出清理提示：绕过 disposed 守卫与 10Hz 合帧，把消息直接渲染到活动区。
+   * 退出清理提示：绕过 disposed 守卫与 10Hz 合帧，把消息直接渲染到回合区。
    * dispose() 已置 disposed=true（常规 notice/paint 均被守卫拦截），且主接线
    * frameIntervalMs>0 时标脏可能被窗口定时器推迟到关终端之后——此处同步 apply + render，
    * 保证提示在 close() 前真实落屏。
@@ -1425,7 +1425,7 @@ export class App {
    * 回填当前会话状态（启动、切换会话成功后调用）：模型选择、plan/sandbox/permission/
    * policy、goal/todo、TUI 本地开关（verbose/symbol-unify）。宿主日志里的 log-only
    * 事件启动不产生、切会话也不重放，故主动折叠一次；TUI 本地开关只在会话状态快照里。
-   * 回填后刷新状态栏模型徽标（会话内模型引用已被 adapter 写回）。
+   * 回填后刷新状态行模型徽标（会话内模型引用已被 adapter 写回）。
    */
   private restoreSessionState(): void {
     const a = this.deps.adapter;
@@ -1447,7 +1447,7 @@ export class App {
    * TUI#40：CLI **启动即恢复**（`--resume <id>` / `-c`）时把既有消息折叠进 buffer。
    *
    * 背景：启动路径只走 `main.ts` 的 `agents.resume` + `restoreSessionState()`（model/mode/
-   * goal/todo 回填），历史行折叠原先只在 `/session` 面板切换路径发生 → 启动后历史区为空、
+   * goal/todo 回填），历史行折叠原先只在 `/session` 面板切换路径发生 → 启动后会话区为空、
    * 需手动再切一次会话才可见内容（agent 侧上下文其实已恢复）。
    *
    * 口径：复用 `/session` 路径同一段折叠（`surfaceToBuffer` → `history-restore`），
@@ -1596,7 +1596,7 @@ export class App {
     if (runPhase(this.state.runVirt.tokens) !== before) this.paint();
   }
 
-  /** 读取生效模型(会话切换 ?? 宿主默认)写入状态栏 model+思考徽标；无变化时跳过 */
+  /** 读取生效模型(会话切换 ?? 宿主默认)写入状态行 model+思考徽标；无变化时跳过 */
   private async refreshModelStatus(): Promise<void> {
     const catalog = await this.deps.adapter.modelCatalog();
     if (this.disposed) return;
@@ -1620,9 +1620,9 @@ export class App {
     this.paint();
   }
 
-  /** 解析思考后缀（写状态栏 model 段）：none=不支持、off=未开启、on=单等级开启、
+  /** 解析思考后缀（写状态行 model 段）：none=不支持、off=未开启、on=单等级开启、
    *  多等级开启时返回实际等级名（如 high/low/max）。
-   *  未显式选择等级时返回 provider 默认等级（defaultEffort），保证状态栏显示的
+   *  未显式选择等级时返回 provider 默认等级（defaultEffort），保证状态行显示的
    *  与实际请求生效的 effort 一致（后台按 provider 级 reasoning 配置兜底，如 max）。 */
   private async resolveThinking(
     provider: string,
@@ -1827,7 +1827,7 @@ export class App {
    * 事件路径仍作即时加速（见 `subagent-activity` 分支；BACKLOG TUI#55）。
    */
   /** 会话别名保鲜（TUI#48）：懒读 session-channel 别名清单，值变化才重绘。
-   *  插件未挂载 / 未设别名 / 读取失败 → 静默跳过（状态栏增强项，不影响主流程）。 */
+   *  插件未挂载 / 未设别名 / 读取失败 → 静默跳过（状态行增强项，不影响主流程）。 */
   private async maybeRefreshSessionAlias(): Promise<void> {
     const get = this.deps.getSessionChannel;
     if (get === undefined) return;
@@ -1848,7 +1848,7 @@ export class App {
         ) {
           this.aliasWarned = true;
           this.deps.logger?.(
-            `warn: 会话别名读取失败（状态栏不显示别名段）：${result.error ?? "未知原因"}`,
+            `warn: 会话别名读取失败（状态行不显示别名段）：${result.error ?? "未知原因"}`,
           );
         }
         return;
@@ -1992,7 +1992,7 @@ export class App {
       }
       case "question":
         // DSH 提问：整批题一次打开（一次 ask() 一批；面板内逐题导航，提交整批）
-        // 3.2.10：带上活动区最近一条非思考正文（通常是提问前的题干说明），面板期间展示
+        // 3.2.10：带上回合区最近一条非思考正文（通常是提问前的题干说明），面板期间展示
         this.apply((s) =>
           reduceState(s, {
             type: "question-open",
@@ -2009,7 +2009,7 @@ export class App {
         break;
       case "notice": {
         // 命令通知(结果/提示/错误)只进 UI 缓冲，绝不进模型历史；
-        // error 标记(如未知 slash 命令 fail-close)→ 输入栏失败色(红)；
+        // error 标记(如未知 slash 命令 fail-close)→ 输入区失败色(红)；
         // tone 标记（turn/end finish reason 等）→ 渲染层按红/黄/灰着色
         // 展示文本补统一前缀（`[hh:mm:ss 来源] 正文`）；旁路日志记原文。
         const shown = formatNoticeLine(e.text, Date.now());
@@ -2070,7 +2070,7 @@ export class App {
       case "retry-started":
       case "command-panel-data":
         // 阶段 1 pass-through：事件结构 = StateAction 同型，入 reducer 落 buffer 行；
-        // 阶段 2 按事件落 toast / 状态栏槽位；P2 B 阶段渲染前同此处理
+        // 阶段 2 按事件落 toast / 状态行槽位；P2 B 阶段渲染前同此处理
         // 条目 7 批 A：这条分支写下的可见行（retry / subagent / hook / feedback /
         // 压缩提示 / 重试中 …）过去只进缓冲、不投块 → 流水线看不到，这里补投块。
         // **adapter 已直接交付的事件不桥接**（重复投递会在回合区出现两行）：
@@ -2206,9 +2206,9 @@ export class App {
    * 回合开始：先画分隔线(仅首个回合空历史时跳过)；submit 与首条思考/正文均需走这里。
    * 新回合开始 = 核心认领最早一条排队消息（每回合认领一条）→ 该条转入历史流。
    *
-   * @param userInput 本次回合是否由用户输入开启（提交）。活动区内容只在
+   * @param userInput 本次回合是否由用户输入开启（提交）。回合区内容只在
    *   「用户输入开启的回合」整体清空（含排队消息被认领）；核心自发的回合
-   *   （goal 轮次/定时唤醒等）保留上一轮内容继续往上堆——活动区只在下一次
+   *   （goal 轮次/定时唤醒等）保留上一轮内容继续往上堆——回合区只在下一次
    *   输入后清空，且清空时思考/工具/notice 一起清，不做单类清除。
    */
   private beginTurnIfNeeded(userInput = false): void {
@@ -2226,11 +2226,11 @@ export class App {
       // 这里按上一已知回合 +1 预测（首回合 1），分隔线时间随预测号登记
       predictedTurn = (this.pipelineLastTurn ?? 0) + 1;
       // 画线判据（条目 7 选项 1：改读节模型 / 交付事实，不再回查缓冲）：与旧路径
-      // appendTurnSeparator 镜像——「活动区清理后仍有内容」才算有历史，首回合空历史不画
+      // appendTurnSeparator 镜像——「回合区清理后仍有内容」才算有历史，首回合空历史不画
       // （frame 层不预置重复线）；末尾刚投过 turn-start（其后无内容）也不重复画。
-      // 清理活动区的回合（用户输入开启）只看会留下的内容（用户块 / 最终总结 / shell——
+      // 清理回合区的回合（用户输入开启）只看会留下的内容（用户块 / 最终总结 / shell——
       // 思考、工具、notice、非 final 正文随后会被清掉，不算）；
-      // 核心自发回合不清活动区 → 任何内容交付都算（旧口径「缓冲非空」）。
+      // 核心自发回合不清回合区 → 任何内容交付都算（旧口径「缓冲非空」）。
       const all = allSections(this.sections);
       const hasContent = clearActivity
         ? all.some((section) =>
@@ -2321,7 +2321,7 @@ export class App {
   }
 
   /**
-   * 外部告警行入口（stderr 桥 / 插件 notice 总线）：进活动区、可回溯（tone 缺省 log）。
+   * 外部告警行入口（stderr 桥 / 插件 notice 总线）：进回合区、可回溯（tone 缺省 log）。
    * 接线见 main.ts（桥）与 ruleEngine()（总线）。
    * 行文本在此补统一前缀（`[hh:mm:ss 来源] 正文`，见 app/notice-format.ts）：时间取
    * 到达时刻，故启动挂起（bootLogPending）在入列前就格式化，补发时不再重算。
@@ -2336,7 +2336,7 @@ export class App {
   }
 
   /**
-   * rule-engine 服务懒读：首次可用时订阅告警总线（`onNotice` → 活动区）。
+   * rule-engine 服务懒读：首次可用时订阅告警总线（`onNotice` → 回合区）。
    * 容忍插件装载顺序；未挂载 / 未实现 onNotice → undefined（插件侧 stderr 兜底）。
    */
   private ruleEngine(): RuleEngineLike | undefined {
@@ -2484,7 +2484,7 @@ export class App {
       );
     },
     "jobs-page": (k) => {
-      // 翻页页高 = 活动区可视行数（与 shared commandPanel 同一 frameGeometry 口径）
+      // 翻页页高 = 回合区可视行数（与 shared commandPanel 同一 frameGeometry 口径）
       const page = frameGeometry(
         this.state,
         this.deps.renderer.getSize(),
@@ -2510,7 +2510,7 @@ export class App {
       );
     },
     "panel-page": (k) => {
-      // 翻页页高 = 活动区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §4 接线点 5）
+      // 翻页页高 = 回合区可视行数（与面板窗口同口径，见 COMMANDS-SPEC.md §4 接线点 5）
       const page = frameGeometry(
         this.state,
         this.deps.renderer.getSize(),
@@ -2530,7 +2530,7 @@ export class App {
         void this.showGuardPolicy();
       } else if (!row.payload) {
         // 无可中断 id 的条目（agents 的 diagnostic / 一次性等）：灰显 + 说明，不发服务调用；
-        // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的活动区遮住
+        // 与其它 Enter 行为一致先关面板——否则说明 notice 会被面板占用的回合区遮住
         this.apply((s) => reduceState(s, { type: "command-panel-close" }));
         this.notice(
           row.blockedReason ??
@@ -2634,7 +2634,7 @@ export class App {
       }
       // Esc：自 2026-10-15 起**不再打断**运行、也**不再退回排队登记**（打断收敛到 `!` 模式，
       // 见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）——排队内容留在核心 next-turn
-      // 队列里等下一回合认领，退回输入框会让同一条消息既在队列又在输入框而重复发送。
+      // 队列里等下一回合认领，退回输入区会让同一条消息既在队列又在输入区而重复发送。
       // 剩余语义 = 空输入时退出面板焦点（有焦点 → 回到无焦点 = 跟随最新；聚焦改用
       // Ctrl+E / T / S，Tab 不再进焦点）——**运行中同样生效**（2026-10-15 真机裁定：
       // 忙时 Esc 不打断，但要能回到默认状态）；补全候选与各面板（picker / 审批 / 问答）
@@ -2659,7 +2659,7 @@ export class App {
           reduceState(s, {
             type: "completion-move",
             delta: name === "down" ? 1 : -1,
-            // 超出活动区可视行的候选已丢弃：焦点导航同样不超出可视范围
+            // 超出回合区可视行的候选已丢弃：焦点导航同样不超出可视范围
             max: this.completionVisibleRows(),
           }),
         );
@@ -2667,11 +2667,11 @@ export class App {
         return;
       }
       // 输入历史见 Ctrl+P / Ctrl+N（readline 惯例）：↑/↓ 不再接管输入历史 ——
-      // 用户 2026-10-10 裁定，↑/↓ 专用于历史区翻页（含到顶加载更旧回合）
+      // 用户 2026-10-10 裁定，↑/↓ 专用于会话区翻页（含到顶加载更旧回合）
       // 焦点面板滚动（2026-10-10 用户裁定，两处同款）：裸 ↑/↓ = **一行**；Ctrl+↑/↓ =
-      // **半屏**（快速翻页）。对话区（history 焦点/无焦点默认）走 scrollDialogueBy；
-      // 活动区（Turn 面板）走 focusedLineScroll —— 半屏在此前只落在对话区，
-      // Turn 面板按 Ctrl+↑ 与裸 ↑ 同效（用户真机缺陷）
+      // **半屏**（快速翻页）。会话区（history 焦点/无焦点默认）走 scrollDialogueBy；
+      // 回合区（回合区）走 focusedLineScroll —— 半屏在此前只落在会话区，
+      // 回合区按 Ctrl+↑ 与裸 ↑ 同效（用户真机缺陷）
       const dir: 1 | -1 = name === "up" ? 1 : -1;
       const panel = this.state.focusedPanel;
       // 无面板焦点 = 正在编辑输入：↑/↓ 在输入区上下移一行（同显示列），不翻页
@@ -2700,7 +2700,7 @@ export class App {
                   .activityH,
               )
             : 1;
-        // 活动区按「节键 + 行偏移」滚动（与对话区同口径）: 位置锚在活动段键,
+        // 回合区按「节键 + 行偏移」滚动（与会话区同口径）: 位置锚在活动段键,
         // 扩窗/上方插段不动画面
         this.scrollActivityBy(dir * step);
       } else if (panel === "status") {
@@ -2718,8 +2718,8 @@ export class App {
     },
     "editor-page": (k) => {
       const name = k.name;
-      // 焦点面板翻页：活动区/状态列保持整页滚动（页 = 面板当前可视行数）；
-      // 对话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
+      // 焦点面板翻页：回合区/状态列保持整页滚动（页 = 面板当前可视行数）；
+      // 会话区（history 焦点/无焦点默认）PgUp/PgDn 跳上/下一条用户输入
       const dir: 1 | -1 = name === "pageup" ? 1 : -1;
       const panel = this.state.focusedPanel;
       // 无面板焦点 = 编辑输入：PgUp = 行首、PgDn = 行尾（不翻页）
@@ -2803,7 +2803,7 @@ export class App {
       }
     },
     "editor-home": () => {
-      // 无面板焦点（输入区）时：Home = 光标跳到输入开头；面板焦点下仍走历史区滚动
+      // 无面板焦点（输入区）时：Home = 光标跳到输入开头；面板焦点下仍走会话区滚动
       if (this.state.focusedPanel === null) {
         this.apply((s) =>
           reduceState(s, { type: "move-cursor", delta: -s.inputCursor }),
@@ -2964,7 +2964,7 @@ export class App {
         this.apply((s) => reduceState(s, { type: "approval-no-timeout" }));
       }
       // 审批按键白名单（BACKLOG 3.2.4 / 3.2.6 / 3.3.1）：y/n 与数字键直答、Enter 提交
-      // 焦点项、←/→ 切换焦点、↑/↓ 滚草稿、Esc 取消；白名单外按键不落输入栏，改在提示区
+      // 焦点项、←/→ 切换焦点、↑/↓ 滚草稿、Esc 取消；白名单外按键不落输入区，改在提示行
       // 给出「无效键」提示（提示由 state.approvalHint 承载，任一有效键即清空）。
       const action = lookupKey(APPROVAL_KEYS, name);
       if (action !== undefined) {
@@ -2983,7 +2983,7 @@ export class App {
 
     // 问答面板：↑/↓ 移动选项高亮，←/→ 切换题目（第 n/m 题），Tab 选项<->自定义切换，
     // 空格标记/取消标记选项，Enter 提交整批答案，Esc 仅取消问答（reject ask，不打断 turn）；
-    // 自定义输入焦点时可打印字符/退格编辑文本；其余按键吞掉不落入输入栏。
+    // 自定义输入焦点时可打印字符/退格编辑文本；其余按键吞掉不落入输入区。
     if (this.state.question) {
       this.handleQuestionKey(k);
       return;
@@ -3025,7 +3025,7 @@ export class App {
       return;
     }
 
-    // /jobs 任务面板：↑/↓ 移动高亮、PgUp/PgDn 整页（页高=活动区可视行数，与共享面板
+    // /jobs 任务面板：↑/↓ 移动高亮、PgUp/PgDn 整页（页高=回合区可视行数，与共享面板
     // 同 frameGeometry 口径）、Enter 取消高亮任务、Esc 关闭；其余按键吞掉
     if (this.state.jobsPanel) {
       const action = lookupKey(JOBS_PANEL_KEYS, name);
@@ -3077,7 +3077,7 @@ export class App {
 
     // Ctrl+S：聚焦状态列；该列已聚焦时收起（隐藏）+ 焦点回会话区。
     // 「一键一区域」（2026-10-14 用户裁定，取代「Tab 焦点循环 + 纯显隐开关」两态）；
-    // 收起后历史区变宽，需要整帧重排；显隐状态随会话持久化（tui-state.json）。
+    // 收起后会话区变宽，需要整帧重排；显隐状态随会话持久化（tui-state.json）。
     if (ctrl && name === "s") {
       this.apply((s) =>
         reduceState(s, { type: "focus-panel", panel: "status" }),
@@ -3087,8 +3087,8 @@ export class App {
       return;
     }
 
-    // Ctrl+T：聚焦回合区（下半区：Turn 流 + Tool 面板区）；已聚焦时收起 + 焦点回会话区（同上口径）。
-    // 收起后对话区变高，需要整帧重排；显隐状态随会话持久化（tui-state.json）。
+    // Ctrl+T：聚焦回合区（下半区：Turn 流 + 工具区）；已聚焦时收起 + 焦点回会话区（同上口径）。
+    // 收起后会话区变高，需要整帧重排；显隐状态随会话持久化（tui-state.json）。
     if (ctrl && name === "t") {
       this.apply((s) =>
         reduceState(s, { type: "focus-panel", panel: "activity" }),
@@ -3098,7 +3098,7 @@ export class App {
       return;
     }
 
-    // Ctrl+E：聚焦会话区（历史 pane）；已聚焦时回到无焦点（= 跟随最新）。会话区恒显示，
+    // Ctrl+E：聚焦会话区（会话区）；已聚焦时回到无焦点（= 跟随最新）。会话区恒显示，
     // 无显隐可持久化，故不触发 sessionStateSave。
     if (ctrl && name === "e") {
       this.apply((s) =>
@@ -3109,9 +3109,9 @@ export class App {
     }
 
     // Ctrl+P / Ctrl+N：输入历史回溯（BACKLOG TUI#34；readline 惯例）。
-    // 2026-10-10 裁定（用户）：**↑/↓ 专用于历史区翻页**（含到顶加载更旧回合），
+    // 2026-10-10 裁定（用户）：**↑/↓ 专用于会话区翻页**（含到顶加载更旧回合），
     // 输入历史改用 Ctrl+P / Ctrl+N —— 原先 ↑ 在「空输入 + 历史非空」时也会接管，
-    // 按 ↑ 看到的是输入框在旧输入之间循环、历史区纹丝不动。
+    // 按 ↑ 看到的是输入区在旧输入之间循环、会话区纹丝不动。
     if (ctrl && (name === "p" || name === "n")) {
       if (this.state.focusedPanel !== null) return; // 面板焦点下不接管（面板自有键位）
       this.apply((s) =>
@@ -3187,7 +3187,7 @@ export class App {
       this.paint();
       return;
     }
-    // 可打印字符：插入输入框（Esc/Ctrl+C 已在上方 Ctrl 分支处理，不落入此处）
+    // 可打印字符：插入输入区（Esc/Ctrl+C 已在上方 Ctrl 分支处理，不落入此处）
     if (name.length === 1 && !ctrl) this.insertChar(name);
     this.paint();
   }
@@ -3287,7 +3287,7 @@ export class App {
         );
         break;
       case "none":
-        // 其余按键吞掉（不落入主输入栏）
+        // 其余按键吞掉（不落入主输入区）
         return;
     }
     this.paint();
@@ -3512,7 +3512,7 @@ export class App {
   }
 
   /** 启动历史折叠已落定（或不会发生）→ 补发挂起的 kickoff，随后补发挂起的启动期告警行
-   *  （顺序固定：kickoff 先——它开新回合会清活动区，先补发告警会被清掉）；无挂起则无操作。 */
+   *  （顺序固定：kickoff 先——它开新回合会清回合区，先补发告警会被清掉）；无挂起则无操作。 */
   private flushKickoffPending(): void {
     const text = this.kickoffPending;
     this.kickoffPending = null;
@@ -3572,7 +3572,7 @@ export class App {
       reduceState(s, { type: "input-status", status: "running" }),
     );
     // 真实 DSH 不回显 user/message,由 app 在发送前本地追加用户行。
-    // 回合开始时先画分隔线(上一轮内容 → 新回合内容)；用户输入开启 → 清空活动区
+    // 回合开始时先画分隔线(上一轮内容 → 新回合内容)；用户输入开启 → 清空回合区
     this.beginTurnIfNeeded(true);
     this.apply((s) => reduceState(s, { type: "user-line", text: echoText }));
     // 双写：流水线用户节。回合刚开 → 预测新回合（step 0）；回合仍开（打断后立即
@@ -3598,7 +3598,7 @@ export class App {
   /** /init：当前目录无 AGENTS.md 时注入初始化指令（模型阅读目录并生成）；
    *  已存在则提示并直接结束（不发送任何消息） */
   private runInit(): void {
-    // BACKLOG TUI#45：状态栏 cwd 是显示用缩写（`~/…`，status.ts shortenHome），
+    // BACKLOG TUI#45：状态行 cwd 是显示用缩写（`~/…`，status.ts shortenHome），
     // 与 `$` shell 同口径走 resolveShellCwd（`~` 展开 + 目录存在校验，失败回落进程 cwd）
     const dir = resolveShellCwd(this.state.systemStatus.cwd) ?? process.cwd();
     if (existsSync(join(dir, "AGENTS.md"))) {
@@ -3619,13 +3619,13 @@ export class App {
   }
 
   /**
-   * 排队消息退回输入框（`!` 模式提交时用）：按提交顺序排在已有输入之前
+   * 排队消息退回输入区（`!` 模式提交时用）：按提交顺序排在已有输入之前
    * （核心打断时会清空自己的 next-turn 队列，本机登记的先留底，避免静默丢输入）。
    * 2026-10-15 起 Esc 不再调用它：Esc 不打断运行，核心队列照旧认领，退回会重复发送。
    */
   private restoreQueued(): boolean {
     if (this.state.queued.length === 0) return false;
-    // TUI#43：队列项带类型（followup / steer）→ 退回输入框只取文本，按**提交顺序**拼接
+    // TUI#43：队列项带类型（followup / steer）→ 退回输入区只取文本，按**提交顺序**拼接
     // （渲染时的 steer 优先排序不影响这里，避免打乱用户实际输入顺序）
     const text = this.state.queued.map((q) => q.text).join("\n");
     const cur = this.state.inputText;
@@ -3651,7 +3651,7 @@ export class App {
       }
       return;
     }
-    // `!` 模式：先把排队登记并回输入框，再打断当前回合，然后整条直发（普通 Enter 走排队/直发
+    // `!` 模式：先把排队登记并回输入区，再打断当前回合，然后整条直发（普通 Enter 走排队/直发
     // 分流）。已排队内容按时间顺序并入本次提交文本（restoreQueued 前置），避免「新文本先发、
     // 排队内容后发」的顺序颠倒；**仅忙时打断** —— 空闲没有可打断的回合，而 `interrupt()` 落到
     // 宿主是 `rawAgent.cancel({kind:'user'})`，会连带清空核心 next-turn 队列（BACKLOG 决策 2）
@@ -3677,7 +3677,7 @@ export class App {
       return;
     }
     // `<` followup 模式：排队等**下一回合**（运行中进排队块、走核心 next-turn 队列；
-    // 空闲时直接发送）。`!` 模式打断后已空闲 → 直发（排队内容已并回输入框）
+    // 空闲时直接发送）。`!` 模式打断后已空闲 → 直发（排队内容已并回输入区）
     if (mode === "followup") {
       if (!interrupt && this.agentBusy()) {
         this.apply((s) => reduceState(s, { type: "queued-push", text }));
@@ -3693,7 +3693,7 @@ export class App {
       return;
     }
     // shell 模式（BACKLOG TUI#37）：提交内容按**本地命令**执行（不经模型、不进会话与模型
-    // 上下文、不占审批链）；命令回显与输出进活动区本地行。异步执行、不阻塞输入。
+    // 上下文、不占审批链）；命令回显与输出进回合区本地行。异步执行、不阻塞输入。
     if (mode === "shell") {
       void this.runLocalShell(text);
       this.apply((s) => reduceState(s, { type: "input", text: "", cursor: 0 }));
@@ -3732,7 +3732,7 @@ export class App {
         // 打断后**不带** next-step（打断即放弃当前回合，按「打断并发送」口径直发）
         this.sendUserText(text, text, interrupt ? undefined : target);
       }
-      // 降级提示放在发送**之后**：发送路径可能开回合（turn-begin 清活动区），先提示会被清掉
+      // 降级提示放在发送**之后**：发送路径可能开回合（turn-begin 清回合区），先提示会被清掉
       if (!canSteer) {
         this.shortNotice("宿主不支持 steer，已按 followup 投递", "warn");
       }
@@ -3743,7 +3743,7 @@ export class App {
 
   /**
    * `$` 模式本地命令执行（BACKLOG TUI#37）：
-   *  1. 命令回显先行入活动区（用户即时看到「已提交了什么」，也是审计线索）；
+   *  1. 命令回显先行入回合区（用户即时看到「已提交了什么」，也是审计线索）；
    *  2. 异步执行——不阻塞输入与渲染；完成后追加 stdout/stderr 与退出摘要行；
    *  3. 结果**只进 buffer**（kind="shell"）：不经 adapter、不进会话事件流与模型上下文。
    * 执行前经 security-guard 复查一次（命中即不执行、回执进输出区；guard 不可用 fail-open，
@@ -3816,7 +3816,7 @@ export class App {
         lines: resultLines,
       }),
     );
-    // 双写：本地 shell 回执进活动区（流水线 shell 节；命令回显行已先行交付）
+    // 双写：本地 shell 回执进回合区（流水线 shell 节；命令回显行已先行交付）
     this.deliverLocal({
       kind: "shell",
       text: resultLines.map((l) => l.text).join("\n"),
@@ -3929,7 +3929,7 @@ export class App {
         this.handleCollapseCommand(line);
         return;
       case "verbose":
-        // BACKLOG #8：/verbose 改为活动区**输出内容**档位（think / tool / step）
+        // BACKLOG #8：/verbose 改为回合区**输出内容**档位（think / tool / step）
         this.handleVerboseLevelCommand(line);
         return;
       case "symbol-unify":
@@ -4216,12 +4216,12 @@ export class App {
   }
 
   /**
-   * /collapse on|off：活动区详略切换（SPEC §6.8 两态）。
+   * /collapse on|off：回合区详略切换（SPEC §6.8 两态）。
    * on = 紧凑（状态 2：每条目 1 行 + 行尾省略号）；off = 每条目完整折行（状态 1，缺省）。
    * 无参数/非法参数 → 只提示用法与当前状态，不切换。
    */
   /**
-   * `/collapse [think|tool|reply] [on|off]`：活动区**压缩开关**（按类别）。
+   * `/collapse [think|tool|reply] [on|off]`：回合区**压缩开关**（按类别）。
    * on = 该类条目压 1 行 + 行尾省略号；off = 完整折行。无参 / 非法参数只提示用法与当前值。
    */
   private handleCollapseCommand(line: string): void {
@@ -4243,19 +4243,19 @@ export class App {
         ? "all"
         : categories.join(",");
     this.notice(
-      `活动区压缩：${label} → ${on ? "on（压 1 行）" : "off（完整折行）"}`,
+      `回合区压缩：${label} → ${on ? "on（压 1 行）" : "off（完整折行）"}`,
       "success",
     );
   }
 
   /**
-   * `/verbose think|tool|step`：活动区**输出内容**档位（BACKLOG #8；只作用于活动区）。
+   * `/verbose think|tool|step`：回合区**输出内容**档位（BACKLOG #8；只作用于回合区）。
    * think = 思考 + 正文 + 工具调用（全量，缺省）；tool = 正文 + 工具调用（去思考）；
    * step = 正文 + 工具调用的**调用行**（去结果行 / 辅助行；step 头与 notice 保留）。
    * 无参数 / 非法参数 → 只提示用法与当前档位，不切换（沿用既有口径）。
    */
   /**
-   * `/verbose [think|tool|reply] [on|off]`：活动区**显示开关**（按类别）。
+   * `/verbose [think|tool|reply] [on|off]`：回合区**显示开关**（按类别）。
    * on = 显示该类内容；off = 不显示（notice 与 step 头恒显）。无参 / 非法参数只提示用法与当前值。
    */
   private handleVerboseLevelCommand(line: string): void {
@@ -4277,7 +4277,7 @@ export class App {
         ? "all"
         : categories.join(",");
     this.notice(
-      `活动区显示：${label} → ${on ? "on（显示）" : "off（不显示）"}`,
+      `回合区显示：${label} → ${on ? "on（显示）" : "off（不显示）"}`,
       "success",
     );
   }
@@ -4534,8 +4534,8 @@ export class App {
     this.confirmClean();
   }
 
-  /** 面板内提示 + 缓冲 notice：面板占满活动区时 notice 不可见（notice 归活动区），
-   *  故删除/清理结果与护栏文案需在面板内呈现；notice 仍留痕于对话区（关面板后可见） */
+  /** 面板内提示 + 缓冲 notice：面板占满回合区时 notice 不可见（notice 归回合区），
+   *  故删除/清理结果与护栏文案需在面板内呈现；notice 仍留痕于会话区（关面板后可见） */
   private historyNotice(text: string, tone?: NoticeTone): void {
     this.apply((st) => reduceState(st, { type: "history-result", text }));
     this.notice(text, tone);
@@ -4638,7 +4638,7 @@ export class App {
     void this.openHistoryView; // 保留只读查看方法引用（list Enter 现走切换，需要时可恢复引出）
     const resumeTo = this.deps.adapter.resumeTo;
     if (!resumeTo) {
-      // 无持久化能力：面板已上移到活动区（占满该区），关面板让 notice 可见
+      // 无持久化能力：面板已上移到回合区（占满该区），关面板让 notice 可见
       this.apply((s) => reduceState(s, { type: "history-close" }));
       this.notice("会话切换不可用（宿主未配置会话持久化）", "warn");
       return;
@@ -5055,7 +5055,7 @@ export class App {
   }
 
   /** /stats（别名 /usage、`/context`）：token 用量**双口径**——「最近一次调用」（`state.usage`，
-   *  状态栏 ctx 段同源）与「本会话累计」（`state.usageTotals`，逐次 usage 事件求和、会话切换清零）。
+   *  状态行 ctx 段同源）与「本会话累计」（`state.usageTotals`，逐次 usage 事件求和、会话切换清零）。
    *  contextWindow 缺失或为 0 → 只显绝对量（不除零）。 */
   private handleStatsCommand(): void {
     const usage = this.state.usage;
@@ -5073,7 +5073,7 @@ export class App {
       return;
     }
     const { input, output, cacheRead, contextWindow } = usage;
-    // 上下文口径与状态栏 ctx 段一致：input + cacheRead（均为最近一次调用）
+    // 上下文口径与状态行 ctx 段一致：input + cacheRead（均为最近一次调用）
     const context = input + cacheRead;
     const lines = [
       `最近一次调用：输入 ${input} · 输出 ${output} · 缓存读 ${cacheRead}`,
@@ -5806,7 +5806,7 @@ export class App {
   }
 
   /** 通用列表面板命令（/skills、/agents、/tools）：服务缺失 → warn 且不空开面板
-   *  （面板占活动区、会盖住瞬态输出）；无参重复调用同 kind = 关闭（交互路径需先 Esc，
+   *  （面板占回合区、会盖住瞬态输出）；无参重复调用同 kind = 关闭（交互路径需先 Esc，
    *  面板态按键被吞、与 /jobs 一致）；打开时互斥关闭 history / picker / jobsPanel；
    *  随后经 refresh 拉数据（filter 为空时传 undefined）。 */
   private openListPanel(opts: {
@@ -5841,7 +5841,7 @@ export class App {
       .call(this.deps.adapter, filter === "" ? undefined : filter)
       .catch(() => {
         // 拉取失败（如 /search 全部 provider 失败、服务缺失返回 reject）：
-        // 先关面板再 notice——面板占满活动区会遮住瞬态 notice；也不留空面板。
+        // 先关面板再 notice——面板占满回合区会遮住瞬态 notice；也不留空面板。
         this.stopPanelRefresh();
         this.apply((s) =>
           s.commandPanel ? reduceState(s, { type: "command-panel-close" }) : s,
@@ -5857,7 +5857,7 @@ export class App {
   }
 
   /** 面板 Enter（详情型 kind：skills / tools）：读取正文并以 info notice 展示；
-   *  服务缺失/失败 → warn。面板占满活动区会遮住瞬态 notice（与 /jobs 一致），
+   *  服务缺失/失败 → warn。面板占满回合区会遮住瞬态 notice（与 /jobs 一致），
    *  故先关面板再提示详情。 */
   private async showPanelDetail(
     kind: "skills" | "tools" | "task" | "loop" | "search",
@@ -5897,7 +5897,7 @@ export class App {
   }
 
   /** 面板 Enter（kind=guard）：展示策略快照（policy() → 4 行摘要）；先关面板再 notice
-   *  （面板占满活动区会遮住瞬态输出）；服务缺失 → warn。 */
+   *  （面板占满回合区会遮住瞬态输出）；服务缺失 → warn。 */
   private async showGuardPolicy(): Promise<void> {
     const adapter = this.deps.adapter;
     const policy = adapter.guardPolicy;
@@ -5940,7 +5940,7 @@ export class App {
   private handleJobsCommand(): void {
     const refresh = this.deps.adapter.refreshJobs;
     if (!refresh) {
-      // 宿主未挂载 ctx.jobs：不开空面板（面板后置活动区、会盖住 hint），仅提示
+      // 宿主未挂载 ctx.jobs：不开空面板（面板后置回合区、会盖住 hint），仅提示
       this.notice("jobs 服务不可用", "warn");
       return;
     }
@@ -6034,7 +6034,7 @@ export class App {
    * 终端过小警告（BACKLOG〈启动时终端尺寸过小警告〉）：过小 → 弹一条 warning notice；
    * 够大 → 什么都不做（不清旧警告，见决策细节 2）。
    *
-   * 走 `notice()`（= 置状态 + 写流水线通知节）而非只置状态：流水线下活动区只渲染节缓存，
+   * 走 `notice()`（= 置状态 + 写流水线通知节）而非只置状态：流水线下回合区只渲染节缓存，
    * 只写 `state.local` 的 notice **在真机不可见**（见追踪文档「计划外偏差」）。首帧路径上紧接
    * `paintNow()` 会清掉这里的待绘标记，故不多绘一帧。
    */
@@ -6067,11 +6067,11 @@ export class App {
       },
       {
         cmd: "/collapse on|off",
-        desc: "活动区详略：on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行",
+        desc: "回合区详略：on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行",
       },
       {
         cmd: "/verbose think|tool|step",
-        desc: "活动区输出内容：think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行",
+        desc: "回合区输出内容：think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行",
       },
       {
         cmd: "/symbol-unify on|off",
@@ -6175,19 +6175,19 @@ export class App {
     // 按键表（2026-10-16 新增，BACKLOG「按键提示信息与实际绑定对齐」决策 3）：全局键全量，
     // 含提示行按「只放冷门 / 易忘键」口径不再列出的常用键；**固定顺序**（滚动 → 编辑 →
     // 提交与模式 → 历史 / 清空 → 视图与焦点 → 退出），不走 sortHelpRows——键位按功能相邻好查。
-    // 键列记号沿用提示区口径（`C-` / `A-` 缩写），并压在 HELP_CMD_MAX 内避免长键拆行。
+    // 键列记号沿用提示行口径（`C-` / `A-` 缩写），并压在 HELP_CMD_MAX 内避免长键拆行。
     const keys: { cmd: string; desc: string }[] = [
       {
         cmd: "↑/↓",
-        desc: "滚动一行（活动区 / 状态列 / 对话区）；补全候选间移动",
+        desc: "滚动一行（回合区 / 状态列 / 会话区）；补全候选间移动",
       },
-      { cmd: "C-↑/↓", desc: "半屏滚动（活动区 / 对话区）" },
-      { cmd: "PgUp/PgDn", desc: "面板整页滚动；对话区跳上 / 下一条用户输入" },
+      { cmd: "C-↑/↓", desc: "半屏滚动（回合区 / 会话区）" },
+      { cmd: "PgUp/PgDn", desc: "面板整页滚动；会话区跳上 / 下一条用户输入" },
       {
         cmd: "Home/End",
         desc: "翻到最旧已加载内容（再按再物化一批）/ 回到最新",
       },
-      { cmd: "←/→", desc: "输入框光标移动" },
+      { cmd: "←/→", desc: "输入区光标移动" },
       {
         cmd: "Backspace",
         desc: "删除光标前字符；输入为空时回退输入模式到 `>`",
@@ -6205,8 +6205,8 @@ export class App {
         desc: "等效 `Enter`（旧「打断并发送」入口，2026-10-15 起废弃）",
       },
       { cmd: "C-p/n", desc: "输入历史回溯（上一条 / 下一条）" },
-      { cmd: "C-j", desc: "输入框插入换行（Enter 仍为提交）" },
-      { cmd: "C-c", desc: "清空输入框；750ms 内双击请求退出" },
+      { cmd: "C-j", desc: "输入区插入换行（Enter 仍为提交）" },
+      { cmd: "C-c", desc: "清空输入区；750ms 内双击请求退出" },
       { cmd: "C-l", desc: "强制整帧重绘" },
       {
         cmd: "C-e/t/s",
@@ -6222,7 +6222,7 @@ export class App {
     return [
       { text: "按键：", noCompact: true },
       ...helpTableLines(keys),
-      { text: "面板内按键见底部提示区（随面板切换）。", noCompact: true },
+      { text: "面板内按键见提示行区（随面板切换）。", noCompact: true },
       { text: "本地命令：", noCompact: true },
       // 条目按命令名字母序展示（口径：整体字母序、不保留手写分组）
       ...helpTableLines(sortHelpRows(commands)),
@@ -6233,9 +6233,9 @@ export class App {
     ];
   }
 
-  /** 接受补全候选（Tab）：候选名写入输入框并补尾随空格（便于接参数），
+  /** 接受补全候选（Tab）：候选名写入输入区并补尾随空格（便于接参数），
    *  列表随输入重算自动收起（`/name ` 已非命令 token）。 */
-  /** 补全面板可显示的候选行数（活动区可视行 - 标题行；与 CommandCompletion 渲染同口径） */
+  /** 补全面板可显示的候选行数（回合区可视行 - 标题行；与 CommandCompletion 渲染同口径） */
   private completionVisibleRows(): number {
     const activityH = frameGeometry(
       this.state,
@@ -6380,7 +6380,7 @@ export class App {
    * 标脏 + 同 tick 合帧：同一 tick 内多次调用只产生一次 renderer.render。
    *
    * 事件 burst（如 assistant/attempt 展开出的逐 delta 流式事件）与定时器
-   * （状态栏 ticker / 思考打字机 / 面板刷新）都走这里：标脏后排队一个 microtask，
+   * （状态行 ticker / 思考打字机 / 面板刷新）都走这里：标脏后排队一个 microtask，
    * 本 tick 内后续标脏复用同一次冲刷。microtask 仍在同一事件循环 tick 内执行，
    * 用户可见时序不变（按键回显、审批弹窗不会跨 tick 延迟）。
    * 需要「立即拿到帧」的路径（启动首帧、测试断言）用 paintNow()。
@@ -6474,7 +6474,7 @@ export class App {
 
   /**
    * 审批倒计时重绘（BACKLOG 3.2.5）：`deadline − now` 的秒数每秒都会变，但重绘不能
-   * 依赖状态栏 ticker 的节律（那个间隔可配、也会因别的需求调整）——有审批且有 deadline
+   * 依赖状态行 ticker 的节律（那个间隔可配、也会因别的需求调整）——有审批且有 deadline
    * 时单起一个 1s 定时器，到点重绘一帧；审批关闭 / 倒计时隐藏（面板内按过键，3.3.5）
    * 即停。判据只读 state，故在 `apply()` 里统一同步，覆盖按键与事件两条路径。
    */

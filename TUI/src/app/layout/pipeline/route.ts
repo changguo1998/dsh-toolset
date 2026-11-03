@@ -23,9 +23,9 @@ import type {
 type GapKind = "think" | "reply";
 
 export interface RouteOptions {
-  /** 活动区显示档位（/verbose think|tool|reply）：按类别决定该类内容是否进回合区 */
+  /** 回合区显示档位（/verbose think|tool|reply）：按类别决定该类内容是否进回合区 */
   activityShow?: Partial<ActivitySwitches>;
-  /** 活动区压缩档位（/collapse think|tool|reply）：结构层按它压单行（本层只透传） */
+  /** 回合区压缩档位（/collapse think|tool|reply）：结构层按它压单行（本层只透传） */
   activityCompact?: Partial<ActivitySwitches>;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传） */
   normalize?: (text: string) => string;

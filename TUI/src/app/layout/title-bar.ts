@@ -35,7 +35,7 @@ const MODE_SHORT: Record<string, string> = {
 /** P7 起：会话开关态（verbose / symbol-unify / 声音提醒）不再由状态列 Mode 块展示，
  *  而是作为**标题栏状态符号**的取值来源（on = 默认前景，off = 灰）。 */
 export interface StatusSwitches {
-  /** 活动区详略（`/collapse on|off`） */
+  /** 回合区详略（`/collapse on|off`） */
   verbose: boolean;
   /** 输出符号统一（`/symbol-unify on|off`） */
   symbolUnify: boolean;
@@ -159,7 +159,7 @@ function fillStatusColumnBox(box: Box, width: number): ContentRow[] {
  *  buildTopRegion 统一构图（与其它区域同口径）。
  *  折叠策略：无强制行数上限——从 L0 到 L3 依次尝试折叠等级，首次放下即采用；全部等级
  *  用尽仍放不下（goal 大头）→ 整列行级截断兜底（capRows）。
- *  滚动独立于对话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）：
+ *  滚动独立于会话区（statusColumnScroll，↑/↓ 仍滚历史，PgUp/PgDn 滚状态列）：
  *  `scroll == 0` = 折叠视图（默认视图）；`scroll > 0` = 在 L0 完整行集上开窗（见函数内注释）。 */
 export function renderStatusColumn(
   goals: GoalHistory | undefined,

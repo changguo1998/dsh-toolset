@@ -1,16 +1,16 @@
 // src/app/config.ts — TUI 用户配置文件（tui.config.json）
 //
 // 布局尺寸配置（语义「总：目标」——比例类配置项为分母 divisor，目标=总数/divisor）：
-//   - footerHeight:          交互区（输入框+按键提示）绝对行数（缺省自动：min(4,max(2,rows/5))）
-//   - activityHeightDivisor: 活动区高 = floor(contentTopH / divisor)（缺省 2 ≈ 1/2）
-//   - activityTopRow:        活动区分隔行锚定（"half" = 屏幕中线行 floor(rows/2)，或绝对行号；
+//   - footerHeight:          底部两行（输入区 + 提示行）绝对行数（缺省自动：min(4,max(2,rows/5))）
+//   - activityHeightDivisor: 回合区高 = floor(contentTopH / divisor)（缺省 2 ≈ 1/2）
+//   - activityTopRow:        回合区分隔行锚定（"half" = 屏幕中线行 floor(rows/2)，或绝对行号；
 //                            配置后替代 activityHeightDivisor 的比例分配，缺省 null = 走 divisor）
-//   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，历史区仍保底 10 列）
-//   - activityPlacement:     活动区排列方式（缺省 "vertical" 恒上下）：
+//   - statusColumnDivisor:   状态列宽 = floor(cols / divisor)（缺省 3 ≈ 1/3，会话区仍保底 10 列）
+//   - activityPlacement:     回合区排列方式（缺省 "vertical" 恒上下）：
 //                             "auto" = 按黄金分割比自动在上下/左右间选择，使分割后各 pane
 //                             的**视觉**宽高比尽量接近 φ（列数先按字符格高宽比 2 折成等效
 //                             高度再比，见 layout.ts 的 CELL_ASPECT）；"horizontal" = 固定左右并排。
-//                             左右排列时活动区宽 = floor(左列正文宽 / activityHeightDivisor)，
+//                             左右排列时回合区宽 = floor(左列正文宽 / activityHeightDivisor)，
 //                             两侧各保底 20 列（不足则回落上下），activityTopRow 不再生效。
 // 会话维护段：
 //   - session.autoCleanEmpty: 自动清理空会话（持久化+非 live+非当前+无用户消息），
@@ -25,19 +25,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export interface TuiLayoutConfig {
-  /** 交互区绝对行数（输入框+按键提示；缺省自动 1/5 上限 4） */
+  /** 底部两行绝对行数（输入区 + 按键提示行；缺省自动 1/5 上限 4） */
   footerHeight?: number;
-  /** 活动区高分母（contentTopH / divisor；1/2 → 2） */
+  /** 回合区高分母（contentTopH / divisor；1/2 → 2） */
   activityHeightDivisor?: number;
-  /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例，缺省走 divisor） */
+  /** 回合区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例，缺省走 divisor） */
   activityTopRow?: "half" | number;
-  /** 活动区排列方式（缺省 "vertical"）："auto" 按视觉宽高比与黄金分割比自动选上下/左右，"horizontal" 固定左右 */
+  /** 回合区排列方式（缺省 "vertical"）："auto" 按视觉宽高比与黄金分割比自动选上下/左右，"horizontal" 固定左右 */
   activityPlacement?: ActivityPlacement;
   /** 状态列宽分母（cols / divisor；1/3 → 3） */
   statusColumnDivisor?: number;
 }
 
-/** 活动区排列方式（layout.activityPlacement）：auto = 按黄金比自动选；其余固定 */
+/** 回合区排列方式（layout.activityPlacement）：auto = 按黄金比自动选；其余固定 */
 export type ActivityPlacement = "auto" | "vertical" | "horizontal";
 
 export interface TuiNotifyConfig {

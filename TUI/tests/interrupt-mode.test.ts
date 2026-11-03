@@ -48,7 +48,7 @@ const key = (
   shift: false,
 });
 
-/** 帧纯文本（含用户块/输入区/提示区） */
+/** 帧纯文本（含用户块/输入区/提示行） */
 function plainFrame(renderer: FakeRenderer): string {
   return renderer.lastRender.join("\n");
 }
@@ -65,7 +65,7 @@ test("空输入按 `!` 进入 interrupt 模式：提示符 `! `、`!` 被吞、�
   );
   renderer.press(key("!"));
   assert.equal(st().inputMode, "interrupt", "空输入按 `!` 切模式");
-  assert.equal(st().inputText, "", "`!` 被吞、不进输入框");
+  assert.equal(st().inputText, "", "`!` 被吞、不进输入区");
   assert.ok(
     plainFrame(renderer).includes("! Type a message..."),
     "提示符应切为 `!`: " + JSON.stringify(plainFrame(renderer)),

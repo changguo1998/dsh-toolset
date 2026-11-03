@@ -25,8 +25,8 @@ TUI 的 `$` 模式（`TUI/src/app/local-shell.ts`）直接执行**用户手输**
 ## 待办
 
 1. 交子代理审阅本文件「决策」。
-1. 实现 + 测试 + 反向验证 + 全仓 `check` / `build` / `test`。
-1. 关闭条目 → 归档 → 提交（一次提交）。
+2. 实现 + 测试 + 反向验证 + 全仓 `check` / `build` / `test`。
+3. 关闭条目 → 归档 → 提交（一次提交）。
 
 ## 实现记录（2026-10-02）
 
@@ -52,7 +52,7 @@ TUI 的 `$` 模式（`TUI/src/app/local-shell.ts`）直接执行**用户手输**
 | P2-c D4 缺 5 条锚点 + D5 反向验证太弱 | 五条锚点全部落测；D5 加强为「runner 调用数 0 + source 透传 + 拦截块首行=回显」，并加**错序变异**态（专门排除「检查排在 runner 之后」） |
 | P3-a 拦截块缺 `→` 收尾行；自加来源与回执首行重复 | 已补 `→ 已拦截（未执行） · security-guard`；去掉自加来源 |
 | P3-b 计划外文件未列（main.ts / adapter/types.ts） | 已记偏离清单（见上） |
-| P3-d 敏感层看不到 cwd | 已在 `security-guard/README.md` 补同款边界句（TUI 的 cwd 来自状态栏） |
+| P3-d 敏感层看不到 cwd | 已在 `security-guard/README.md` 补同款边界句（TUI 的 cwd 来自状态行） |
 | 漏项：SPEC.md 无 `$` 段；COMMANDS\*.md 不需同步；guard README 落点；D7 真机四步 | 已按此执行（落 `TUI/README.md:169`；COMMANDS\* 明确不做；guard README 调用方列表加 TUI 子条目） |
 | P3-c adapter 的 `guard` 仍是 apply 期快照、与惰读并存 | **不在本条目不扩范围** → 已立项 BACKLOG 观察项 |
 

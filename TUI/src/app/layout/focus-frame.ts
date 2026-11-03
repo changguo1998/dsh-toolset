@@ -24,7 +24,7 @@ export interface FocusFrameContext {
   /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列归属 history 顶边，
    *  status 焦点时不强调（保持灰） */
   titleUnderlineRow?: number;
-  /** 横向排列（历史区在左、活动区在右）时的内部分隔竖线列：
+  /** 横向排列（会话区在左、回合区在右）时的内部分隔竖线列：
    *  history 右缘 / activity 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
   innerDividerCol?: number;
 }
@@ -224,12 +224,12 @@ export function focusFrame(
       const rEdge = horizontal ? divCol : right;
       // 顶边框**整行**染色（含标题文字两侧的边框线；只染既有框线字形）
       emphasizeH(rows, top, dCol, rEdge + 1, style);
-      // 左右缘竖线（历史区行）
+      // 左右缘竖线（会话区行）
       for (let r = top + 1; r < bottom; r++) {
         emphasize(rows, r, dCol, style);
         emphasize(rows, r, rEdge, style);
       }
-      // 底边 = 活动区分隔行（纵向）/ 状态区分隔行（横向）：只强调既有横线
+      // 底边 = 回合区分隔行（纵向）/ 状态区分隔行（横向）：只强调既有横线
       emphasizeH(rows, bottom, dCol, rEdge + 1, style);
       break;
     }

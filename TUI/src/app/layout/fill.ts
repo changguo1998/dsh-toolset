@@ -167,7 +167,7 @@ function fillBox(
           if (c2 < target) segs.push(seg(" ".repeat(target - c2)));
         }
         // 兄弟边界插分隔框线（非末项；缺行行也画，保证竖线贯通）；
-        // color="plain" = 默认前景（不染色，状态栏圆点分隔用）
+        // color="plain" = 默认前景（不染色，状态行圆点分隔用）
         if (box.separator && ci < box.children.length - 1)
           segs.push(
             sepColor === "plain"

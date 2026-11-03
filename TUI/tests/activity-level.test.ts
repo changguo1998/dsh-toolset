@@ -1,4 +1,4 @@
-// tests/activity-level.test.ts —— 活动区显示开关（SPEC §6.8；/verbose [think|tool|reply] on|off）
+// tests/activity-level.test.ts —— 回合区显示开关（SPEC §6.8；/verbose [think|tool|reply] on|off）
 //
 // 三项全开（缺省）：思考 / 正文 / 工具块都显示；关某项即隐藏该类内容。
 // notice 与 step 分隔头恒显，不归三类。
@@ -20,7 +20,7 @@ const L = (text: string, kind: HistoryRow["kind"]): HistoryRow => ({
   kind,
 });
 
-/** 活动区渲染文本行（show 缺省 = 三项全开） */
+/** 回合区渲染文本行（show 缺省 = 三项全开） */
 const act = (
   buf: HistoryRow[],
   show?: { think?: boolean; tool?: boolean; reply?: boolean },
@@ -63,7 +63,7 @@ test("显示开关 tool off：隐藏工具块，step 分隔头恒显", () => {
     assert.ok(joined.includes(t), `tool off 仍应含「${t}」：${joined}`);
 });
 
-test("显示开关 reply off：隐藏活动区非 final 正文，final 正文与 notice 不受影响", () => {
+test("显示开关 reply off：隐藏回合区非 final 正文，final 正文与 notice 不受影响", () => {
   const buf: HistoryRow[] = [
     L("中间正文", "assistant"),
     { ...L("最终正文", "assistant"), final: true },

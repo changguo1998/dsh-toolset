@@ -358,7 +358,7 @@ export interface NodeBase {
 export interface Separator {
   /** 缺省：纵向 `╌` / 横向 `│` */
   char?: string;
-  /** 缺省 border（灰）；`"plain"` = 默认前景（不染色，如状态栏圆点分隔） */
+  /** 缺省 border（灰）；`"plain"` = 默认前景（不染色，如状态行圆点分隔） */
   color?: ColorName | "plain";
 }
 

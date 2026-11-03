@@ -60,7 +60,7 @@ for (const key of Object.keys(FIXTURE)) {
 }
 
 /**
- * `panel-picker@w60` 的输入区 + 提示区形态（2026-10-14 重冻后它已是基线的一部分，
+ * `panel-picker@w60` 的输入区 + 提示行形态（2026-10-14 重冻后它已是基线的一部分，
  * 不再走「豁免 + 专用断言」）：输入区让位给 2 行提示后为 2 行（首行筛选输入、次行空），
  * 提示行按 ` · ` 边界折 2 行。
  */
@@ -68,7 +68,7 @@ test("focus-frame：panel-picker@w60 的输入区改显筛选行、提示行折 
   const got = rowsOf(stateFor("panel-picker@w60"), 60);
   // 输入区首行 = 筛选输入行（`筛选 <焦点列>: <词>`；词空 → placeholder, caret 在词尾）
   assert.equal(got[20]!.text, "筛选 provider: 输入以筛选 (匹配度排序)");
-  // 输入区第 2 行仍是空行（提示区占 2 行 ⟹ footer 由 3 行缩为 2 行，交互区总高恒 4 行）
+  // 输入区第 2 行仍是空行（提示行占 2 行 ⟹ footer 由 3 行缩为 2 行，输入区 + 提示行总高恒 4 行）
   assert.equal(got[21]!.text, "");
   // 提示行 = 键位文案按 ` · ` 边界折行（60 列 ⟹ 2 行）
   const expected = wrapHintLine(PICKER_HINT_LINE, 60);

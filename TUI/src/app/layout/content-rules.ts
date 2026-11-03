@@ -1,7 +1,7 @@
 // TUI/src/app/layout/content-rules.ts — 内容规则共享层（buildBox 与 layout.ts 共同依赖）
 //
 // 不依赖 layout.ts（避免循环）；primitives.ts 只放宽度/换行基元，不放内容规则。
-// 信息：工具行分组/折叠参数、tone 着色映射、对话/活动区分隔字形、判定谓词。
+// 信息：工具行分组/折叠参数、tone 着色映射、对话/回合区分隔字形、判定谓词。
 
 import type { FrameSegment } from "../../renderer/screen.ts";
 import type { ColorName } from "../../renderer/theme.ts";
@@ -14,10 +14,10 @@ import { seg } from "./primitives.ts";
 /** 对话 turn 之间的分隔线字形：用点更少的虚线（double dash），与窗口间实线区分 */
 export const TURN_SEPARATOR_CHAR = "╌";
 
-/** 活动区分隔线字形：对话历史 ↔ 流输出边界实线（窗口间统一实线） */
+/** 回合区分隔线字形：对话历史 ↔ 流输出边界实线（窗口间统一实线） */
 export const ACTIVITY_SEPARATOR = "─";
 
-/** 对话区窗口下边框/状态区上方分隔线（其余横线一致的单线 `─`） */
+/** 会话区窗口下边框/状态区上方分隔线（其余横线一致的单线 `─`） */
 export const STATUS_TOP_SEPARATOR = "─";
 
 /** 水平分隔线字符（顶边 / 状态区下方横线等窗口间分隔；box-drawing 可与竖线连成连续线） */
@@ -138,7 +138,7 @@ export const NOTICE_TONE_COLOR: Record<NoticeTone, ColorName> = {
 
 /**
  * 横线交点字形：上/下是否都有竖线 → `┼`（贯通）、仅上 → `┴`、仅下 → `┬`。
- * 用于「状态列右边框（上竖线）与状态栏段分隔竖线（下竖线）落在同一列」的场景，
+ * 用于「状态列右边框（上竖线）与状态行段分隔竖线（下竖线）落在同一列」的场景，
  * 避免只按一侧选字导致另一侧竖线断开。
  */
 export function teeGlyph(hasUp: boolean, hasDown: boolean): "┼" | "┴" | "┬" {

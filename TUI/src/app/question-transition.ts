@@ -64,7 +64,7 @@ function customInsert(
  * - up/down → 焦点在选项窗：move；焦点在描述窗：desc-scroll（BACKLOG 3.2.1）
  * - left/right → 自定义项**编辑态**：串内移动光标（TUI#35）；否则切题 nav
  * - Tab → focus（描述窗 <-> 选项窗切换，BACKLOG 3.2.1）
- * - 其余 → 吞掉（不落入主输入栏）
+ * - 其余 → 吞掉（不落入主输入区）
  */
 export function questionKeyDecision(
   panel: QuestionPanelState,

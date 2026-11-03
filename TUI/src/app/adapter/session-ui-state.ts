@@ -1,7 +1,7 @@
 // app/adapter/session-ui-state.ts — TUI 侧会话状态快照（tui-state.json）
 //
 // 宿主只在会话日志里记它自己掌握的状态（模型选择、plan/sandbox/permission/policy、
-// goal/todo）。TUI 本地开关（活动区详略 /collapse、符号统一 /symbol-unify）与
+// goal/todo）。TUI 本地开关（回合区详略 /collapse、符号统一 /symbol-unify）与
 // 「已选但尚未发起请求」的模型选择宿主并不知情，重启后无法恢复——这里把它们
 // **按会话**落一份小快照到会话目录旁（`<会话目录>/tui-state.json`）：
 //  - 随会话目录删除一起清理（`deleteSessionDir` 删的是整个目录）；
@@ -27,7 +27,7 @@ export interface SessionUiState {
   symbolUnify?: boolean;
   /** P7：垂直状态列是否显示（Ctrl+S 切换；TUI 本地。缺省 = 显示） */
   statusColumn?: boolean;
-  /** #9：下半区（Turn 流 + Tool 面板区）是否显示（Ctrl+T 切换；TUI 本地。缺省 = 显示） */
+  /** #9：下半区（Turn 流 + 工具区）是否显示（Ctrl+T 切换；TUI 本地。缺省 = 显示） */
   lowerPanes?: boolean;
   /** 模式值兜底（宿主日志无对应事件时使用；plan/sandbox/permission + 审批策略）；
    *  P7 起状态列 Mode 块已移除，本组值仍供回填下发 mode / approval-policy 事件。 */
@@ -67,7 +67,7 @@ function parseSessionUiState(raw: unknown): SessionUiState | undefined {
       };
     }
   }
-  // 2026-10-18：活动区两开关改为六开关并按缺省重置——旧快照的 collapse / verbose 读到即丢
+  // 2026-10-18：回合区两开关改为六开关并按缺省重置——旧快照的 collapse / verbose 读到即丢
   if (typeof o.symbolUnify === "boolean") out.symbolUnify = o.symbolUnify;
   if (typeof o.statusColumn === "boolean") out.statusColumn = o.statusColumn;
   const modes = o.modes as Record<string, unknown> | undefined;

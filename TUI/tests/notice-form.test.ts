@@ -2,7 +2,7 @@
 //
 // 覆盖：noticeSummaryOf 判定（summary 优先 / 缺省取正文首行 / 截断 ≤120 / 非 notice
 // → undefined）；surfaceToBuffer 的 notice 行（log 灰、单行、空白不产出）；恢复后渲染
-// （活动区单行提示行，不产生用户块）。
+// （回合区单行提示行，不产生用户块）。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

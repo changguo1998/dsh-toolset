@@ -33,8 +33,8 @@ export const CURSOR_SHOW = "\x1b[?25h";
 
 // ---------- 行擦除口径：先擦后写 ----------
 // 每行写内容前先 `ESC[K` 擦整行（写到行首时擦到行尾），**不写行尾 `ESC[K`**：
-//  1) 活动区行不补齐整行（见 layout 的 PANE_TEXT_MARGIN/活动区行不补空格），新内容
-//     比旧内容短或整行清空时，若只在行尾擦，旧字会留在屏幕上——新回合清空活动区后
+//  1) 回合区行不补齐整行（见 layout 的 PANE_TEXT_MARGIN/回合区行不补空格），新内容
+//     比旧内容短或整行清空时，若只在行尾擦，旧字会留在屏幕上——新回合清空回合区后
 //     「最顶上残留几行」即由此而来（Ctrl+L 全帧重绘才消失）。
 //  2) 行尾 `ESC[K` 在「光标停在右缘待折行」状态下会擦到本行最后一格（整宽行会丢
 //     末字）；先擦后写不存在这个风险。
@@ -73,7 +73,7 @@ export interface FrameRow {
  *  - 其余：不定位、不 SHOW（沿用报文开头的 `CURSOR_HIDE`）
  */
 export interface FrameFocus {
-  /** 是否允许输入（底部输入框活跃）；false = 非输入态（面板等），光标保持隐藏 */
+  /** 是否允许输入（底部输入区活跃）；false = 非输入态（面板等），光标保持隐藏 */
   inputFocus: boolean;
   /** 输入位置（**帧内 1 基行号 + 0 基列**）；无输入行时缺省 */
   caret?: { row: number; col: number };
@@ -182,7 +182,7 @@ export class Screen {
       }
     }
     // 清除帧下方可能残留的旧行（尺寸/行数变化时）：定位到**帧下一行行首**再
-    // `ESC[J` 擦到屏尾。不在末行行尾就地 `ESC[J`——末行写满整行时（状态栏/提示区
+    // `ESC[J` 擦到屏尾。不在末行行尾就地 `ESC[J`——末行写满整行时（状态行/提示行
     // 等）光标停在右缘「待折行」状态，此处 ESC[J 会连带擦掉末行最后一格。
     const below = visible + 1;
     if (below <= this.rows) out.push(`\x1b[${below};1H\x1b[J`);
@@ -220,7 +220,7 @@ export class Screen {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]!;
         // 逐行绝对定位（不用 CRLF 前进，理由同 render()：CRLF 在底行会触发滚屏）
-        // 先擦整行再写：活动区行不补齐整行，新内容变短/变空时必须擦掉旧字
+        // 先擦整行再写：回合区行不补齐整行，新内容变短/变空时必须擦掉旧字
         out.push(`\x1b[${iv.startLine + i};1H`);
         out.push(base + eraseBeforeWrite + serializeFrameRow(row, this.theme));
         if (row.caret !== undefined) {

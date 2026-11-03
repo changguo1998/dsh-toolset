@@ -880,7 +880,7 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
     rec({ id: "tui-cur00001", live: true, current: true, cwd: "/proj" }),
     rec({ id: "tui-empty001", isEmpty: true, cwd: "/proj", title: "空会话" }),
   ];
-  /** 提示区文本：帧末 2 行（提示区 1 至 2 行；历史列表提示 86 列 → 80 列折 2 行） */
+  /** 提示行文本：帧末 2 行（提示行 1 至 2 行；历史列表提示 86 列 → 80 列折 2 行） */
   const hintLine = (): string => {
     const lines = frame().split("\n");
     return lines.slice(-2).join(" ");
@@ -902,7 +902,7 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
   assert.ok(frame().includes("删除中"), "面板显示删除中");
   assert.ok(
     !frame().includes("[C-d]退出") && !frame().includes("[d]删除"),
-    "deleting 阶段提示区无键位（也不透传默认提示）",
+    "deleting 阶段提示行无键位（也不透传默认提示）",
   );
   release();
   await flush();
@@ -918,7 +918,7 @@ test("面板提示行：确认阶段给 y/n 提示，进行中阶段留空（不
   assert.ok(frame().includes("清理中"), "面板显示清理中");
   assert.ok(
     !frame().includes("[C-d]退出") && !frame().includes("[y/Enter]确认"),
-    "cleaning 阶段提示区无键位（也不透传默认提示）",
+    "cleaning 阶段提示行无键位（也不透传默认提示）",
   );
   release();
   await flush();
@@ -1131,10 +1131,10 @@ test("启动自动清理：关闭（缺省/autoCleanEmpty=false）或不挂会�
 });
 
 // ---------------------------------------------------------------------------
-// 退出自动清理（复用 session.autoCleanEmpty：提示渲染到活动区，等待完成后再收尾退出）
+// 退出自动清理（复用 session.autoCleanEmpty：提示渲染到回合区，等待完成后再收尾退出）
 // ---------------------------------------------------------------------------
 
-test("退出自动清理（autoCleanEmpty=true）：提示渲染到活动区并等待清理完成再关渲染器", async () => {
+test("退出自动清理（autoCleanEmpty=true）：提示渲染到回合区并等待清理完成再关渲染器", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSessionsAdapter();
   const app = new TrackedApp({
@@ -1160,7 +1160,7 @@ test("退出自动清理（autoCleanEmpty=true）：提示渲染到活动区并�
   // 全目录空会话（持久化+非 live+非当前+无用户消息）；当前活跃/带对话/未持久化不动
   assert.deepEqual(adapter.deleteCalls, ["tui-empty001", "tui-empty002"]);
   assert.equal(renderer.closes, 1, "清理完成后才关渲染器");
-  // 「正在清理」提示帧 + 结果帧都渲染到活动区（绕过 disposed/合帧，close 前落屏）
+  // 「正在清理」提示帧 + 结果帧都渲染到回合区（绕过 disposed/合帧，close 前落屏）
   assert.ok(
     renderer.renders - rendersBefore >= 2,
     "先出「正在清理」帧、再出结果帧",
@@ -1170,7 +1170,7 @@ test("退出自动清理（autoCleanEmpty=true）：提示渲染到活动区并�
   // 而流水线已是唯一渲染源 → 生产（`src/main.ts:322/679` 注入 sink）退出清理提示不可见。
   assert.ok(
     renderer.lastRender.join("\n").includes("已自动清理 2 个空会话"),
-    "结果渲染到活动区",
+    "结果渲染到回合区",
   );
 });
 
@@ -1197,7 +1197,7 @@ test("退出自动清理：无可清理项时静默（不出提示帧），仍�
   assert.equal(renderer.renders - rendersBefore, 0, "无可清理项不出提示帧");
 });
 
-test("退出自动清理：部分失败计数渲染到活动区，仍完成收尾", async () => {
+test("退出自动清理：部分失败计数渲染到回合区，仍完成收尾", async () => {
   const renderer = new FakeRenderer();
   const adapter = new FakeSessionsAdapter();
   adapter.failOn.add("tui-boom0001");
@@ -1222,7 +1222,7 @@ test("退出自动清理：部分失败计数渲染到活动区，仍完成收�
     renderer.lastRender
       .join("\n")
       .includes("已自动清理 1 个空会话（1 个失败）"),
-    "部分失败计数渲染到活动区",
+    "部分失败计数渲染到回合区",
   );
 });
 

@@ -53,7 +53,7 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
 - 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
 - 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
 - `docs/BACKLOG.md`: 同文件的命令与术语同步改; 条目内容、状态与顺序不动.
-- `README.md` 的「状态栏」改「状态列」.
+- `README.md` 的「状态行」改「状态列」.
 - 验收: 六节齐 (无配置可省)、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
 - 提交: `docs(security-guard): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
 
@@ -81,7 +81,7 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
   - `README.md` 六节归并: 首段加 `## 定位`; `## 使用示例` 改 `## 用法`; `## 边界与限制` 改 `## 边界`; `## 目录结构` 降为 `## 定位` 下的 `### 目录结构`; `## 能力` / `## 配置` / `## 测试` 节名不变。最终二级标题: 定位 / 能力 / 配置 / 用法 / 边界 / 测试。
   - 重复段落合并: 「拦截面」表里「敏感文件」一行原有两个逐字相同的表格行, 合并为一行。
   - 命令: 测试节四条命令由 `npm` 改 `pnpm`, 并按 `package.json` 补 `test:integration` / `test:coverage` 两行; 引述脚本提示的一处 `npm run build` 同改 `pnpm run build`。
-  - 术语: `状态栏 cwd` 改 `状态列 cwd`; `2026-10-02 收口` 改 `收尾`; `不回归` 改 `不退化`; `含本仓 28 插件` 改 `含本仓 33 个插件`。
+  - 术语: `状态行 cwd` 改 `状态列 cwd`; `2026-10-02 收口` 改 `收尾`; `不回归` 改 `不退化`; `含本仓 28 插件` 改 `含本仓 33 个插件`。
   - 事实同步 (阶段 3 偏差里移交本阶段的一项): 目录结构表按 `src/` 拆分结果重写 —— `src/index.ts` 只留入口与挂接, 新增 `tool-registry.ts` / `arg-scan.ts` / `config.ts` / `engine.ts` 四行, `DEFAULT_COMMAND_RULES` 由 15 条改 18 条 (源码实测), 用例数由 142 例改 160 例并补集成用例一行; 正文三处「`src/index.ts` 的登记表 / `TOOL_SURFACE`」改指 `src/tool-registry.ts`。
   - 用例数按本分支实测: 单元 160 例 (blacklist 23 / guard 103 / script 22 / sensitive 12, 1 例发布形态用例在无 `dist` 时跳过) + 集成 14 例, 替换原有的 135 例 (9 / 97 / 22 / 7)。
   - `docs/BACKLOG.md`: 模板字段「落点」按 `docs/GLOSSARY.md` 改「改动位置」; 其余不动 (当前无未完成条目)。
@@ -160,7 +160,7 @@ rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V
 | --- | --- |
 | 六节 | ✓ 定位 / 能力 / 配置 / 用法 / 边界 / 测试 (顺序与模板一致) |
 | 正文 `npm` 命中 | 0 (`grep -nE "(^\|[^p])npm "` 于 `README.md` / `docs/BACKLOG.md`) |
-| 术语命中 | 0 (`状态栏` / `落点` / `收口` / `回归` / `插件包` / `返回体` / `评审` 均无) |
+| 术语命中 | 0 (`状态行` / `落点` / `收口` / `回归` / `插件包` / `返回体` / `评审` 均无) |
 | 符号变体命中 | 0 (20 条映射逐条扫两文件) |
 | 非归档断链 | 0 (两文件无相对链接) |
 | 用例数实测 | 单元 160 例 (23 + 103 + 22 + 12; 159 通过 / 1 跳过) / 集成 14 例 (14 通过) |

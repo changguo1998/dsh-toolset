@@ -234,9 +234,9 @@ export interface RenderOptions {
   activityWidth?: number;
   /** 用户 / 助手右缘留白（gutter） */
   gutter?: number;
-  /** 活动区显示档位（`/verbose`：按类显隐） */
+  /** 回合区显示档位（`/verbose`：按类显隐） */
   activityShow?: Partial<ActivitySwitches>;
-  /** 活动区紧凑档位（`/collapse`：按类折叠单行） */
+  /** 回合区紧凑档位（`/collapse`：按类折叠单行） */
   activityCompact?: Partial<ActivitySwitches>;
 }
 
@@ -252,7 +252,7 @@ export interface PaneRenderOptions {
   userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
   /** symbol-normalizer 服务（缺省原文透传） */
   normalize?: (text: string) => string;
-  /** 活动区紧凑档位（/collapse；只对 activity pane 应用） */
+  /** 回合区紧凑档位（/collapse；只对 activity pane 应用） */
   activityCompact?: Partial<ActivitySwitches>;
   /** 压缩剪枝遮蔽的块 id（整块打灰；来自 `route.shadowedBlockIds`） */
   shadowedIds?: ReadonlySet<string>;
@@ -366,7 +366,7 @@ function isNewUserItem(item: NewPaneItem): boolean {
   return item.kind === "paragraph" && sourceOf(item) === "user";
 }
 
-/** 活动区紧凑类别（/collapse think|tool|reply；会话区不折叠） */
+/** 回合区紧凑类别（/collapse think|tool|reply；会话区不折叠） */
 function compactCategory(
   item: NewPaneItem,
 ): "think" | "tool" | "reply" | undefined {
@@ -426,7 +426,7 @@ function cutSegs(segs: readonly FrameSegment[], cols: number): FrameSegment[] {
 /**
  * 紧凑折叠：多行条目压成首行 + 行尾省略号（`/collapse`）。
  *
- * 只取首行（单行放得下就原样），不把整块文本压平重排——首行已自带前缀（活动区的 `┃ `）
+ * 只取首行（单行放得下就原样），不把整块文本压平重排——首行已自带前缀（回合区的 `┃ `）
  * 与各类样式，压平会让前缀降级成纯文本、颜色全丢。宽预算 = `width − 1`（给省略号留 1 列）。
  */
 function foldRows(rows: readonly NewRow[], width: number): NewRow[] {
@@ -459,9 +459,9 @@ export function renderPaneNew(
   lastPaneWidth.set(pane, width);
   const struct: StructureOptions = {
     userSym: options.userSym,
-    // 右缘 gutter 只作用于对话区（正文右缘留白）；活动区右缘由 pane 自身宽承担
+    // 右缘 gutter 只作用于会话区（正文右缘留白）；回合区右缘由 pane 自身宽承担
     gutter: pane === "dialogue" ? options.gutter : undefined,
-    // pane 形状（会话区 prefix "┃ " + 右缘留白 / 活动区单竖线无留白）由 buildTrees
+    // pane 形状（会话区 prefix "┃ " + 右缘留白 / 回合区单竖线无留白）由 buildTrees
     // 按树锁定，这里不再重复传
     normalize: options.normalize,
     ...(options.shadowedIds === undefined

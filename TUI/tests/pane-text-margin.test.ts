@@ -1,9 +1,9 @@
-// tests/pane-text-margin.test.ts — 历史区/活动区「文字右缘留白」（PANE_TEXT_MARGIN_COLS）
+// tests/pane-text-margin.test.ts — 会话区/回合区「文字右缘留白」（PANE_TEXT_MARGIN_COLS）
 //
 // 覆盖：**只有文字排版宽度收窄**（P3：留白是行尾属性，只给右缘贴外框列的 pane）——
-// 横向历史 pane 不留白（`┃` 紧贴内部分隔竖线）、横向活动 pane 让 1 列、纵向两 pane 同列各让 1 列；
+// 横向会话区 不留白（`┃` 紧贴内部分隔竖线）、横向回合区 让 1 列、纵向两 pane 同列各让 1 列；
 // **边框/分隔线一概不动**：
-// 标题栏下划线、活动区分隔线仍铺满整行到区域外缘框列，顶区帧行宽恒 = cols，
+// 标题栏下划线、回合区分隔线仍铺满整行到区域外缘框列，顶区帧行宽恒 = cols，
 // 焦点框矩形也不变。文字不落在留白列（字形宽度算错时多出的列落在留白里，不整行溢出）。
 
 import { test } from "node:test";
@@ -42,16 +42,16 @@ function state(placement: "vertical" | "horizontal") {
       time: T,
       user: "检查文字右缘留白",
       assistant:
-        "回复正文：这是一段足够长的中文内容，用来把历史 pane 的文字行铺满到排版右缘，看最右可见字符落在哪一列（末尾还有 ABCdef）。",
+        "回复正文：这是一段足够长的中文内容，用来把会话区 的文字行铺满到排版右缘，看最右可见字符落在哪一列（末尾还有 ABCdef）。",
       reason: "completed",
     }),
-    // 回合 2：用户块 + 思考（活动区内容，铺满一行观察最右可见列）
+    // 回合 2：用户块 + 思考（回合区内容，铺满一行观察最右可见列）
     ...turnScript({
       turn: 2,
       time: T + 60_000,
       user: "第二轮",
       reasoning:
-        "活动区内容：同样需要铺满一行来观察最右可见列，中文与 ASCII 混排 mixed-content-tail。",
+        "回合区内容：同样需要铺满一行来观察最右可见列，中文与 ASCII 混排 mixed-content-tail。",
     }),
   ];
   return { ...s, pipeline: sectionsFromScript(steps) };
@@ -115,12 +115,12 @@ test("文字右缘留白：横向历史不留白 / 横向活动让 1 列 / 纵�
         assert.equal(
           g.dialogueTextW,
           g.dialogueW,
-          `${tag}: 横向历史 pane 不留白（┃ 紧贴内部分隔竖线）`,
+          `${tag}: 横向会话区 不留白（┃ 紧贴内部分隔竖线）`,
         );
         assert.equal(
           g.activityTextW,
           g.activityW - PANE_TEXT_MARGIN_COLS,
-          `${tag}: 活动 pane 文字让 1 列`,
+          `${tag}: 回合区 文字让 1 列`,
         );
         assert.equal(
           g.dialogueW + 1 + g.activityW,
@@ -152,7 +152,7 @@ test("文字右缘留白：横线中的回合分隔线只铺到正文右缘（�
       const top = rows.slice(0, g.contentTopH);
       const tag = `${size.rows}x${size.cols}/${placement}`;
       const r = paneRanges(g);
-      // 标题栏/边框行满宽；内容行不超宽（活动区行尾不补空格）
+      // 标题栏/边框行满宽；内容行不超宽（回合区行尾不补空格）
       assert.ok(
         top.slice(0, r.actRows[0]).every((t) => displayWidth(t) === size.cols),
         `${tag}: 标题与边框行满宽`,
@@ -169,12 +169,12 @@ test("文字右缘留白：横线中的回合分隔线只铺到正文右缘（�
         size.cols - 1,
         `${tag}: 标题下划线铺满到屏幕最右列`,
       );
-      // 纵向：活动区分隔线同样铺满整行
+      // 纵向：回合区分隔线同样铺满整行
       if (g.mode === "vertical") {
         assert.equal(
           rightMostInk(rows[g.activitySepRow]!, 0, size.cols),
           size.cols - 1,
-          `${tag}: 活动区分隔线铺满到屏幕最右列`,
+          `${tag}: 回合区分隔线铺满到屏幕最右列`,
         );
       }
       // 回合分隔线（╌）：与正文同宽——右端停在正文排版右缘（不再是 pane/屏幕右缘）
@@ -213,7 +213,7 @@ test("文字右缘留白：文字不落在留白列（长文本铺满到排版�
         r.histFrom + g.dialogueTextW - 1,
         `${tag}: 历史文字铺到排版右缘`,
       );
-      // 活动区按可视高截取尾部（且常被截断），只要求不越界、且有内容可见
+      // 回合区按可视高截取尾部（且常被截断），只要求不越界、且有内容可见
       const actMax = Math.max(
         ...actRows.map((t) => rightMostInk(t, r.actFrom, r.actTo)),
       );
@@ -221,7 +221,7 @@ test("文字右缘留白：文字不落在留白列（长文本铺满到排版�
         actMax <= r.actFrom + g.activityTextW - 1,
         `${tag}: 活动文字不越排版右缘（实际 ${actMax}）`,
       );
-      assert.ok(actMax > r.actFrom, `${tag}: 活动区有可见文本`);
+      assert.ok(actMax > r.actFrom, `${tag}: 回合区有可见文本`);
       // 留白列（文字宽之后的区域正文列）不得有任何字符
       const reserved = [
         ...histRows.flatMap((t) =>

@@ -65,7 +65,7 @@ test("completeCommandInput：大小写不敏感 + 别名可补全", () => {
   ]);
 });
 
-test("completeCommandInput：slash 模式下输入框无前导 `/`（归一后匹配）", () => {
+test("completeCommandInput：slash 模式下输入区无前导 `/`（归一后匹配）", () => {
   assert.deepEqual(names(completeCommandInput("mo", [], "slash")?.items), [
     "model",
   ]);
@@ -134,11 +134,11 @@ test("renderCommandCompletion：标题 + 默认高亮首项 + 恰 height 行", (
     rowAnsi(focused).includes("\x1b[38;2;233;201;68m"),
     `默认高亮最匹配项(黄): ${rowAnsi(focused)}`,
   );
-  // 末行是候选行（面板不放提示行：键位统一在输入区下方的按键提示区）
+  // 末行是候选行（面板不放提示行：键位统一在输入区下方的按键提示行）
   // height=10 → 标题 1 行 + 9 行候选，本地候选数足够铺满
   assert.ok(
     rowAnsi(rows[9]!).includes("/"),
-    `末行应为候选行（铺满活动区）: ${JSON.stringify(rowAnsi(rows[9]!))}`,
+    `末行应为候选行（铺满回合区）: ${JSON.stringify(rowAnsi(rows[9]!))}`,
   );
   assert.ok(
     !rows.some((r) => rowAnsi(r).includes("[tab]")),

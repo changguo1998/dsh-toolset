@@ -57,11 +57,11 @@ export const DEFAULT_MESSAGE_GUTTER = 4;
  *  Alt+Enter 不再有独立语义，见 BACKLOG「Esc 取消打断，打断统一由 `!` 模式承担」）。 */
 export type InputMode = "steer" | "followup" | "shell" | "slash" | "interrupt";
 
-/** 活动区**输出内容档位**（BACKLOG #8，`/verbose think|tool|step`；缺省 `think`）：
+/** 回合区**输出内容档位**（BACKLOG #8，`/verbose think|tool|step`；缺省 `think`）：
  *  - `think`：思考 + 正文 + 工具调用（调用行 / 参数 / 结果 / 辅助行全显示）；
  *  - `tool`：正文 + 工具调用（去思考行）；
  *  - `step`：正文 + 工具调用的**调用行**（去结果行 / 辅助行；step 头与 notice 保留）。 */
-/** 活动区内容类别（`/verbose` 显示开关与 `/collapse` 压缩开关各按三类维护）。 */
+/** 回合区内容类别（`/verbose` 显示开关与 `/collapse` 压缩开关各按三类维护）。 */
 export type ActivityCategory = "think" | "tool" | "reply";
 
 /** 三类开关的取值表。 */
@@ -95,7 +95,7 @@ export interface QueuedItem {
   kind: "followup" | "steer";
 }
 
-/** 输入状态（P1 起用于**用户块首行**符号，不再渲染在状态栏最左侧）：绿✓=成功 /
+/** 输入状态（P1 起用于**用户块首行**符号，不再渲染在状态行最左侧）：绿✓=成功 /
  *  红✗=失败 / 黄●/○=运行中（实心/空心圆按流式输出节奏交替，见 RUN_TOGGLE_CHARS）/
  *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
 export type InputStatus =
@@ -150,7 +150,7 @@ export interface HistoryRow {
   hanging?: number;
   /** 紧凑模式（/collapse off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
   noCompact?: boolean;
-  /** #1：落行时的活动 step 号（历史区正文分块与问答来源段共用该标） */
+  /** #1：落行时的活动 step 号（会话区正文分块与问答来源段共用该标） */
   step?: number;
   /** 活跃用户块标记（由节模型 `panes.ts` 打标；解析器直接读本字段） */
   active?: boolean;
@@ -172,7 +172,7 @@ export type BufferLine = HistoryRow & { kind: BufferKind };
 /** 行表（`state.local`；渲染与重放按通用形态消费） */
 export type Buffer = HistoryRow[];
 
-/** 系统状态区各字段：time/cwd/git 由 StatusTicker 合并节流读取，其余为占位 */
+/** 状态行各字段：time/cwd/git 由 StatusTicker 合并节流读取，其余为占位 */
 export interface SystemStatus {
   time: string;
   cwd: string;
@@ -187,7 +187,7 @@ export interface SystemStatus {
   alias?: string;
 }
 
-/** turn 分隔线（横线占位；实际宽度由历史区换行决定） */
+/** turn 分隔线（横线占位；实际宽度由会话区换行决定） */
 export const TURN_SEPARATOR = "--------";
 
 /** P2 goal 条目（`goal/change` set 分支：完整快照 + 事件元数据；clear 分支即出栈不留条目） */
@@ -277,7 +277,7 @@ export interface HistoryPanelState {
   /** confirm-clean/cleaning 阶段的当前项目路径（确认文案展示） */
   cleanCwd?: string;
   /** 面板内结果提示（删除/清理结果与护栏文案；首行展示，下次操作时清除）。
-   *  面板占满活动区时 notice 不可见（notice 归活动区），故结果需面板内呈现 */
+   *  面板占满回合区时 notice 不可见（notice 归回合区），故结果需面板内呈现 */
   result?: string;
   /** 列表范围：project=仅当前目录（默认）/ all=全部目录；list 阶段 [Tab] 切换 */
   scope?: "project" | "all";
@@ -436,7 +436,7 @@ export interface AppState {
   /** 距底部行数（派生缓存：每帧由布局回填；段键失配时的回落基准，供既有断言口径使用） */
   scrollOffset: number;
   /**
-   * 对话区视口顶位置（段键 + 段内行；`null` = 跟随底部/最新）。
+   * 会话区视口顶位置（段键 + 段内行；`null` = 跟随底部/最新）。
    * 位置按**内容段身份**表达：上方插入段（扩窗纳入更早回合）不动画面；宽度变化按段键重定位；
    * 段消失时回落 `scrollOffset`（距底偏移）。
    */
@@ -467,7 +467,7 @@ export interface AppState {
   queued: QueuedItem[];
   /** 输入模式（符号代表模式；提交后自动回退默认 steer） */
   inputMode: InputMode;
-  /** 输入状态（用户块首行符号来源；P1 起状态栏不再渲染该符号）：绿✓=成功 /
+  /** 输入状态（用户块首行符号来源；P1 起状态行不再渲染该符号）：绿✓=成功 /
    *  红✗=失败 / 黄●/○=运行中（按流式输出节奏交替）/
    *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
   inputStatus: InputStatus;
@@ -480,12 +480,12 @@ export interface AppState {
   approvalWindow: "desc" | "options";
   /** 审批超时时刻（epoch ms，BACKLOG 3.2.5 倒计时来源；null = 无倒计时） */
   approvalDeadline: number | null;
-  /** 审批态无效键提示（BACKLOG 3.3.1）：非空时提示区显示它；切换焦点/提交/关闭时清空 */
+  /** 审批态无效键提示（BACKLOG 3.3.1）：非空时提示行显示它；切换焦点/提交/关闭时清空 */
   approvalHint: string | null;
   agentStatus: AgentStatus;
-  /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态栏 contextLen/cacheHit 读取）。
+  /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态行 contextLen/cacheHit 读取）。
    *  会话切换/恢复（`history-resume-ok` / `session-switch`）**清空**——换会话后该值不可知，
-   *  状态栏与 `/stats` 相应槽位回落 `—` 占位（BACKLOG TUI#12）。 */
+   *  状态行与 `/stats` 相应槽位回落 `—` 占位（BACKLOG TUI#12）。 */
   usage?: {
     input: number;
     output: number;
@@ -507,11 +507,11 @@ export interface AppState {
   messageGutter: number;
   /** 布局配置（false 语义：footerHeight/divisor undefined=默认） */
   footerHeight: number | undefined;
-  /** 活动区高分母（contentTopH / divisor；默认 2 ≈ 1/2） */
+  /** 回合区高分母（contentTopH / divisor；默认 2 ≈ 1/2） */
   activityDivisor: number | undefined;
-  /** 活动区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例；undefined = 走 divisor） */
+  /** 回合区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例；undefined = 走 divisor） */
   activityTopRow: "half" | number | undefined;
-  /** 活动区排列方式（tui.config.json layout.activityPlacement；undefined = 恒上下排列，
+  /** 回合区排列方式（tui.config.json layout.activityPlacement；undefined = 恒上下排列，
    *  "auto" = 按黄金比自动在上下/左右间选择，见 topPaneSplit） */
   activityPlacement: ActivityPlacement | undefined;
   /** 状态列宽分母（cols / divisor；默认 3 ≈ 1/3） */
@@ -524,7 +524,7 @@ export interface AppState {
   history: HistoryPanelState | null;
   /** 通用状态选项面板（/policy /permission 无参打开；↑/↓ 选、空格预选、Enter 提交关闭） */
   statusPanel: StatusPanelState | null;
-  /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态栏以 <title> 占位） */
+  /** 当前会话标题（resume 后由 surface 首条用户消息生成；新会话为空，状态行以 <title> 占位） */
   sessionTitle: string;
   /** P2：按 sessionId 隔离的 goal 状态（判别联合；完整保留原始载荷字段） */
   goalBySession: Record<string, GoalHistory>;
@@ -557,7 +557,7 @@ export interface AppState {
   compactingBySession: Record<string, boolean>;
   /** P3：按 sessionId 隔离的 agent 预设（agent-preset/selected 事件 latest-wins；无=未收到） */
   presetBySession: Record<string, string>;
-  /** 事件回读的生效模型（model/selection）；状态栏模型徽标 fallback 来源 */
+  /** 事件回读的生效模型（model/selection）；状态行模型徽标 fallback 来源 */
   modelBySession: Record<string, ModelSelectionLike | undefined>;
   /** 权限预设目录（ctx.permissionPresets.names；原状态列 Mode 块的可选项，
    *  P7 移除该块后暂无消费方；[]=未同步降级三档） */
@@ -581,23 +581,23 @@ export interface AppState {
   statusColumnScroll: number;
   /** 顶部三面板键盘选中：null=无焦点（新输入/输出后回到无焦点，Tab 才进入）；history=对话历史 / activity=流输出 / status=详细状态列 */
   focusedPanel: PanelId | null;
-  /** 活动区（流输出）滚动偏移（距活动区底部行数；0=跟随最新，渲染层 clamp） */
+  /** 回合区（流输出）滚动偏移（距回合区底部行数；0=跟随最新，渲染层 clamp） */
   activityScroll: number;
-  /** 活动区**压缩开关**（`/collapse [think|tool|reply] [on|off]`）：按类别决定该条目
+  /** 回合区**压缩开关**（`/collapse [think|tool|reply] [on|off]`）：按类别决定该条目
    *  是否压成 1 行 + 行尾省略号；三项全关（缺省）= 完整折行 */
   activityCompact: ActivitySwitches;
-  /** 活动区**显示开关**（`/verbose [think|tool|reply] [on|off]`）：按类别决定这类内容
+  /** 回合区**显示开关**（`/verbose [think|tool|reply] [on|off]`）：按类别决定这类内容
    *  是否显示；三项全开（缺省）。与压缩开关正交 */
   activityShow: ActivitySwitches;
   /** 模型输出符号统一（symbol-unify）：true=把变体符号替换为推荐符号并提醒（缺省）；
    *  false=关闭（原样展示，不替换不提醒）。`/symbol-unify on|off` 切换 */
   symbolUnify: boolean;
   /** P7：垂直状态列是否显示（`Ctrl+S` = 聚焦 / 收起两态；随会话持久化 tui-state.json；缺省显示）。
-   *  隐藏时状态列宽 0、分隔竖线不绘制、历史区变宽 */
+   *  隐藏时状态列宽 0、分隔竖线不绘制、会话区变宽 */
   statusColumnVisible: boolean;
-  /** #9：下半区（Turn 流 + Tool 面板区）是否显示（`Ctrl+T` = 聚焦 / 收起两态；随会话持久化；缺省显示）。
-   *  隐藏时活动区高度/宽度归零、空间并入对话区；输入栏不受影响，
-   *  活动区内的交互面板（问答/审批等）仍照常弹出。 */
+  /** #9：下半区（Turn 流 + 工具区）是否显示（`Ctrl+T` = 聚焦 / 收起两态；随会话持久化；缺省显示）。
+   *  隐藏时回合区高度/宽度归零、空间并入会话区；输入区不受影响，
+   *  回合区内的交互面板（问答/审批等）仍照常弹出。 */
   lowerPanesVisible: boolean;
   /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
    *  标题栏状态符号组按当前值只读展示（on 绿 / off 灰） */
@@ -693,6 +693,6 @@ export interface QuestionPanelState {
   items: QuestionPanelItem[];
   /** 当前显示题号（0-based） */
   itemIndex: number;
-  /** 面板打开时的问题前正文（活动区最近一条非思考正文，BACKLOG 3.2.10；缺省/空串 = 不显示） */
+  /** 面板打开时的问题前正文（回合区最近一条非思考正文，BACKLOG 3.2.10；缺省/空串 = 不显示） */
   source?: string;
 }

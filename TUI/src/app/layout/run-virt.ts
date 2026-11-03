@@ -241,7 +241,7 @@ export const MODE_SYMBOL: Record<InputMode, string> = {
   interrupt: "!",
 };
 
-/** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态栏与整页高度共用口径） */
+/** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态行与整页高度共用口径） */
 export function activeSessionFields(state: AppState): {
   goals?: GoalHistory;
   todos?: TodoItemLike[];

@@ -1,7 +1,7 @@
-// tests/layout-horizontal.test.ts — 活动区排列方式（上下/左右，黄金比自动选择）回归
+// tests/layout-horizontal.test.ts — 回合区排列方式（上下/左右，黄金比自动选择）回归
 //
 // 覆盖：topPaneSplit 在帧内的落地（内部分隔列 + 下划线行 ┬ / 状态区分隔行 ┴）、
-// 两 pane 独立宽度（各自补齐、活动 pane 按自身宽度换行）、滚动口径与帧一致
+// 两 pane 独立宽度（各自补齐、回合区 按自身宽度换行）、滚动口径与帧一致
 // （原 dialogueScrollMetrics / inputPanelHeights 已并入 frameGeometry）、焦点框落到内部分隔列。
 
 import { test } from "node:test";
@@ -63,7 +63,7 @@ function turnState(placement: "auto" | "vertical" | "horizontal"): AppState {
           step: 1,
           index: 0,
           source: "reasoning",
-          text: `思考 ${i}：这是一段较长的思考内容，用来观察活动 pane 自身宽度下的换行结果。`,
+          text: `思考 ${i}：这是一段较长的思考内容，用来观察回合区 自身宽度下的换行结果。`,
         },
       },
       {
@@ -83,7 +83,7 @@ function turnState(placement: "auto" | "vertical" | "horizontal"): AppState {
           step: 1,
           index: 1,
           source: "assistant",
-          text: `回复 ${i}：这是一段较长的回复内容，用来观察对话 pane 自身宽度下的换行结果。`,
+          text: `回复 ${i}：这是一段较长的回复内容，用来观察会话区 自身宽度下的换行结果。`,
         },
       },
       { delivery: { kind: "turn-end", turn: i, step: 1, reason: "completed" } },
@@ -113,13 +113,13 @@ function cols(line: string, from: number, to: number): string {
 
 const SIZE = { rows: 18, cols: 140 };
 const M = metricsFor(SIZE, 1, 1, {});
-/** 主分隔竖线列（状态列右缘/历史区左缘） */
+/** 主分隔竖线列（状态列右缘/会话区左缘） */
 const D = M.statusColWidth - 1;
 /** 区域正文起始列（标题栏与两 pane 正文自该列起算） */
 const CONTENT_START = M.statusColWidth;
 const CONTENT_W = regionColumnWidth(M.historyWidth);
 const SPLIT = topPaneSplit(12, CONTENT_W, 2, undefined, "auto");
-/** 内部分隔竖线帧列（区域正文起始列 + 历史 pane 宽；历史区在左、活动区在右） */
+/** 内部分隔竖线帧列（区域正文起始列 + 会话区 宽；会话区在左、回合区在右） */
 const DIV_COL = CONTENT_START + SPLIT.dialogueW;
 
 test("横向排列：宽而矮终端 auto 选左右并落地内部分隔列与交汇字形", () => {
@@ -137,15 +137,15 @@ test("横向排列：宽而矮终端 auto 选左右并落地内部分隔列与�
   // 状态区上方分隔行：内部分隔列收束为 ┴（与 D 列 ┴ 并存）
   assert.equal(cols(rows[12]!, DIV_COL, DIV_COL + 1), "┴");
   assert.equal(cols(rows[12]!, D, D + 1), "┴", "D 列交点不变");
-  // 两个 pane 都不越界：历史 pane（左）右缘紧邻分隔列、活动 pane（右）右缘为区域外缘
+  // 两个 pane 都不越界：会话区（左）右缘紧邻分隔列、回合区（右）右缘为区域外缘
   for (let r = 2; r < 12; r++) {
     assert.equal(cols(rows[r]!, D, D + 1), "│", `D 列竖线 rc=${r}`);
     const dia = cols(rows[r]!, CONTENT_START, DIV_COL);
-    assert.equal(displayWidth(dia), SPLIT.dialogueW, `历史 pane 定宽 rc=${r}`);
+    assert.equal(displayWidth(dia), SPLIT.dialogueW, `会话区 定宽 rc=${r}`);
     const act = cols(rows[r]!, DIV_COL + 1, SIZE.cols - 1);
     assert.ok(
       displayWidth(act) <= SPLIT.activityW,
-      `活动 pane 不越界 rc=${r}（行尾不补空格 → 内容到文字右缘为止）`,
+      `回合区 不越界 rc=${r}（行尾不补空格 → 内容到文字右缘为止）`,
     );
   }
 });
@@ -154,7 +154,7 @@ test("横向排列：固定 placement 不受黄金比影响（vertical 仍纵向
   const vert = buildFrame(turnState("vertical"), SIZE).map(rowText);
   // 纵向：内部分隔列位置是正文（不是竖线），状态区分隔行也不该出现额外 ┴
   assert.notEqual(cols(vert[12]!, DIV_COL, DIV_COL + 1), "┴");
-  // 纵向仍有活动区分隔行（历史底边）：第 12-2-1=9 行左右为 ─ 全横线
+  // 纵向仍有回合区分隔行（历史底边）：第 12-2-1=9 行左右为 ─ 全横线
   const horz = buildFrame(turnState("horizontal"), SIZE).map(rowText);
   assert.equal(cols(horz[1]!, DIV_COL, DIV_COL + 1), "┬");
 });
@@ -162,18 +162,10 @@ test("横向排列：固定 placement 不受黄金比影响（vertical 仍纵向
 test("横向排列：滚动口径与帧内 pane 宽高一致（半屏/翻页/跳转坐标）", () => {
   const s = turnState("auto");
   const m = frameGeometry(s, SIZE);
-  assert.equal(m.dialogueW, SPLIT.dialogueW, "跳转坐标按对话 pane 宽度换算");
-  assert.equal(
-    m.viewportH,
-    SPLIT.dialogueH,
-    "无排队块 → 视口高 = 对话 pane 高",
-  );
+  assert.equal(m.dialogueW, SPLIT.dialogueW, "跳转坐标按会话区 宽度换算");
+  assert.equal(m.viewportH, SPLIT.dialogueH, "无排队块 → 视口高 = 会话区 高");
   assert.equal(m.dialogueH, SPLIT.dialogueH);
-  assert.equal(
-    m.activityH,
-    SPLIT.activityH,
-    "活动 pane 满高（翻页页高随之变大）",
-  );
+  assert.equal(m.activityH, SPLIT.activityH, "回合区 满高（翻页页高随之变大）");
 });
 
 test("横向排列：焦点框落在内部分隔列（历史右缘 / 活动左缘）", () => {
@@ -238,7 +230,7 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
     );
   assert.ok(
     actWidth(narrow.activity) <= 20,
-    "活动 pane 按自身宽度换行（窄 pane 不溢出）",
+    "回合区 按自身宽度换行（窄 pane 不溢出）",
   );
   assert.ok(
     wide.activity.length < narrow.activity.length,
@@ -246,12 +238,12 @@ test("横向排列：两 pane 各自宽度换行（buildContentRows 独立宽度
   );
   assert.ok(
     actWidth(narrow.dialogue) <= 20 && actWidth(wide.dialogue) <= 60,
-    "对话 pane 同样受自身宽度约束",
+    "会话区 同样受自身宽度约束",
   );
 });
 
-test("横向排列：活动 pane 的围栏代码块按活动 pane 宽折行", () => {
-  // 回归：代码块曾用 `opts.width`（对话 pane 宽）算可用宽 → 横向排列下折行超出活动 pane。
+test("横向排列：回合区 的围栏代码块按回合区 宽折行", () => {
+  // 回归：代码块曾用 `opts.width`（会话区 宽）算可用宽 → 横向排列下折行超出回合区。
   // 新链口径：每 pane 用自己的宽测量/摊平；行号列**恒在**（2 列），续行不做 `↪` 箭头。
   const long = "const value = " + "x".repeat(60) + ";";
   const codeRows = (final: boolean): HistoryRow[] => [
@@ -263,7 +255,7 @@ test("横向排列：活动 pane 的围栏代码块按活动 pane 宽折行", ()
     r.segments.map((s) => s.text).join("");
   const maxW = (rows: { segments: { text: string }[] }[]): number =>
     Math.max(...rows.map((r) => displayWidth(textOf(r))));
-  // 对话 pane 60 列 / 活动 pane 20 列（同一次横向排列下的两个 pane）
+  // 会话区 60 列 / 回合区 20 列（同一次横向排列下的两个 pane）
   const act = renderBuffer(codeRows(false), {
     dialogueTextW: 60,
     activityTextW: 20,
@@ -279,7 +271,7 @@ test("横向排列：活动 pane 的围栏代码块按活动 pane 宽折行", ()
   const lines = act.activity.map(textOf);
   assert.ok(
     maxW(act.activity) <= 20,
-    "活动 pane 代码块每行总宽 ≤ 活动 pane 文字宽（不按对话 pane 宽折行）",
+    "回合区 代码块每行总宽 ≤ 回合区 文字宽（不按会话区 宽折行）",
   );
   assert.ok(
     lines.some((t) => /\d┃/.test(t)),
@@ -292,15 +284,15 @@ test("横向排列：活动 pane 的围栏代码块按活动 pane 宽折行", ()
   );
   assert.ok(
     maxW(dia.dialogue) <= 60 && maxW(dia.dialogue) > 20,
-    "对话 pane（final 行）仍按对话 pane 宽出图",
+    "会话区（final 行）仍按会话区 宽出图",
   );
   assert.ok(
     act.activity.length > wide.activity.length,
-    "活动 pane 越窄折出的物理行越多（宽度确实生效）",
+    "回合区 越窄折出的物理行越多（宽度确实生效）",
   );
 });
 test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴ 同列（两 pane 不等宽时也不偏）", () => {
-  // 100 列（状态列 33）→ 区域正文宽 66 → 历史 pane 32 / 活动 pane 33：两 pane
+  // 100 列（状态列 33）→ 区域正文宽 66 → 会话区 32 / 回合区 33：两 pane
   // 不等宽，正是「交汇字形取错了 pane 宽」会偏一列的情形
   const size = { rows: 18, cols: 100 };
   const m = metricsFor(size, 1, 1, {});
@@ -321,7 +313,7 @@ test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴
 });
 
 test("会话区内容底部对齐（两种排列一致）：内容不足一屏时空白留在上方", () => {
-  // 条目「会话区内容不足时贴顶」：与活动区同语义——内容自 pane 底部往上排（最新一行贴底），
+  // 条目「会话区内容不足时贴顶」：与回合区同语义——内容自 pane 底部往上排（最新一行贴底），
   // 补白行数 = 视口高 − 内容行数，且补白只影响放置（视口模型仍是「不足一屏」）。
   const size = { rows: 24, cols: 140 };
   const short = (
@@ -400,7 +392,7 @@ function emptyReport(): FrameScrollReport {
   };
 }
 
-test("活动区内容底部对齐（两种排列一致）：内容从下往上填满 pane 后才折叠最早内容", () => {
+test("回合区内容底部对齐（两种排列一致）：内容从下往上填满 pane 后才折叠最早内容", () => {
   const size = { rows: 24, cols: 140 };
   const short = (placement: "auto" | "vertical"): AppState =>
     withText(
@@ -451,7 +443,7 @@ test("活动区内容底部对齐（两种排列一致）：内容从下往上�
     // pane 高（横向 = 整列可用行数 15；纵向 = 可用行数的一半 4）决定折叠点：
     // 可见内容恒为「尾部 activityH 行」，即填满整块 pane 后才折叠最早内容
     const first = 60 - m.activityH + 1;
-    assert.ok(m.activityH >= 4, `${m.mode}: 活动 pane 至少 4 行`);
+    assert.ok(m.activityH >= 4, `${m.mode}: 回合区 至少 4 行`);
     assert.ok(
       rows[paneTop]!.includes(`L${String(first).padStart(2, "0")}`) &&
         rows[paneBottom]!.includes("L60"),
@@ -460,7 +452,7 @@ test("活动区内容底部对齐（两种排列一致）：内容从下往上�
   }
 });
 
-test("排队块：钉在历史 pane 右下角（右对齐 + 灰色右缘竖线），历史视口高相应收缩", () => {
+test("排队块：钉在会话区 右下角（右对齐 + 灰色右缘竖线），历史视口高相应收缩", () => {
   const base = turnState("auto");
   const size = { rows: 18, cols: 140 };
   const before = frameGeometry(base, size);
@@ -472,11 +464,11 @@ test("排队块：钉在历史 pane 右下角（右对齐 + 灰色右缘竖线�
   assert.equal(
     g.viewportH,
     g.dialogueH - 2,
-    "历史视口高 = 对话 pane 高 − 排队块行数",
+    "历史视口高 = 会话区 高 − 排队块行数",
   );
   const rows = buildFrame(s, size);
   const text = rows.map(rowText);
-  // 排队块占据对话 pane 最后两行（右下角），历史内容下移一行不覆盖
+  // 排队块占据会话区 最后两行（右下角），历史内容下移一行不覆盖
   const last = g.titleRows + g.dialogueH - 1;
   assert.ok(text[last - 1]!.includes("排队一"), "排队一在 pane 倒数第二行");
   assert.ok(text[last]!.includes("排队二"), "排队二在 pane 末行（右下角）");

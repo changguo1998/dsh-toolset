@@ -150,7 +150,7 @@ export function reducePanel(
       return { ...state, jobsPanel: { index } };
     }
     case "jobs-panel-page": {
-      // PgUp/PgDn 整页移动（页高由调用方按活动区可视行数给出；与 command-panel-page 同口径）
+      // PgUp/PgDn 整页移动（页高由调用方按回合区可视行数给出；与 command-panel-page 同口径）
       const size = state.jobs.length;
       if (size === 0 || !state.jobsPanel) return state;
       const step = Math.max(1, action.page) * action.delta;
@@ -183,7 +183,7 @@ export function reducePanel(
       return { ...state, commandPanel: { ...panel, index } };
     }
     case "command-panel-page": {
-      // PgUp/PgDn 整页移动（页高由调用方按活动区可视行数给出）
+      // PgUp/PgDn 整页移动（页高由调用方按回合区可视行数给出）
       const panel = state.commandPanel;
       if (!panel || panel.rows.length === 0) return state;
       const step = Math.max(1, action.page) * action.delta;

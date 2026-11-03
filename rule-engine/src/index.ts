@@ -14,7 +14,7 @@
  * `sessions.flush(...)`）。时序红线见 inject.ts 文件头。
  *
  * 告警出口：缺省写 stderr；`provide("ruleEngine")` 上出现 `onNotice` 订阅者（TUI）后改发
- * 总线（活动区展示，项目级 #61 方案 B）；无订阅者（headless）回退 stderr。
+ * 总线（回合区展示，项目级 #61 方案 B）；无订阅者（headless）回退 stderr。
  *
  * 规则来源两层：apply 的 `config.rules`（只读基线）+ 模型面工具族运行时增删改
  * （落 `~/.dsh/rule-engine/rules.json`，可用 `RULE_ENGINE_STATE_DIR` 覆盖目录）。
@@ -196,8 +196,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   // 告警总线：有订阅者（TUI 经 provide("ruleEngine").onNotice）时发总线、不写 stderr；
   // 无订阅者（headless）回退 stderr。展示通道失败不回流、不向宿主抛（项目级 #61 方案 B）。
   const noticeListeners = new Set<(event: NoticeEvent) => void>();
-  // 装载期告警缓冲（BACKLOG TUI「装载期告警不进活动区」）：插件装载早于 TUI 的 stderr 桥 /
-  // 总线的订阅，此时直写 stderr 的告警在活动区看不到；先挂起，首个订阅者注册时重放。
+  // 装载期告警缓冲（BACKLOG TUI「装载期告警不进回合区」）：插件装载早于 TUI 的 stderr 桥 /
+  // 总线的订阅，此时直写 stderr 的告警在回合区看不到；先挂起，首个订阅者注册时重放。
   // headless 兜底不变：无订阅者时仍写 stderr。
   const pendingNotices: string[] = [];
   const MAX_PENDING_NOTICES = 64;

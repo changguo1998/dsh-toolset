@@ -26,24 +26,24 @@
 - **服务缺失**（`ctx.get` 返回 undefined 或 `adapter.<method>` 不存在）→ `notice("<svc> 服务不可用", "warn")` 后 return，**不开空面板**（先例 `/jobs`）。
 - **调用失败**（Promise reject / 同步抛错）→ `catch` 后同一提示（warn），面板保持原状，不崩。
 - **级别**遵循 `TUI/docs/design/NOTICE-LEVELS.md`：服务不可用 = warn；命令结果失败 = error；成功且重要 = success；信息展示 = info；进度 = log。新增 notice 调用点须在同一变更补入该文件 A 表。
-- 面板命令在拉取失败且面板已开时：先关面板再提示——面板占满活动区会遮住瞬态 notice。
+- 面板命令在拉取失败且面板已开时：先关面板再提示——面板占满回合区会遮住瞬态 notice。
 
 ## 3. 输出三型
 
 | 型 | 形态 | 实现 |
 |----|------|------|
-| notice | 活动区瞬态行（info / log / warn / error / success） | `this.notice(text, tone)` |
-| 面板 | 活动区窗口内的列表面板（§4） | 共享 `buildCommandListPanelBox` |
+| notice | 回合区瞬态行（info / log / warn / error / success） | `this.notice(text, tone)` |
+| 面板 | 回合区窗口内的列表面板（§4） | 共享 `buildCommandListPanelBox` |
 | 预填型 | `reduceState(s, { type: "input", text, cursor })` 写回输入区 | 为后续命令预留，当前无命令使用 |
 
 ## 4. 面板通用契约
 
-**渲染位置（重要）**：面板渲染在**活动区窗口**，不是底部交互区。
+**渲染位置（重要）**：面板渲染在**回合区窗口**，不是底部两行（输入区 + 提示行）。
 
-- 选型点在 `layout.ts` `buildActivePanelBox(state, activityH, contentW)`，优先级：`approval` > `question` > `picker` > `statusPanel` > `jobsPanel` > `commandPanel` > `history` > `completion`；返回 `null` 时活动区显示瞬态行。
-- 面板用活动区高度 `activityH` 与内容宽度 `contentW` 构建并 fill 进活动区窗口；面板态底部输入区在**问题交互态（问答 / 审批）改显最近 notice**（尾 `footerHeight` 行、tone 与 hanging 口径同活动区），其余面板为空白占位；提示行 **1 至 2 行**（显示该面板键位，文案见 `layout/hints.ts` 的 `hintLine(state)`；行数由 `layout.hintRowsFor(state, cols)` 按当前文案与终端宽算出——按 `·` 边界折行、超 2 行截断，空文案占位 1 行），`footerHeight = max(1, interaction − hintRows)`——面板开关不改变交互区高度（避免顶区跳动）；**面板内不再内嵌键位提示**。
+- 选型点在 `layout.ts` `buildActivePanelBox(state, activityH, contentW)`，优先级：`approval` > `question` > `picker` > `statusPanel` > `jobsPanel` > `commandPanel` > `history` > `completion`；返回 `null` 时回合区显示瞬态行。
+- 面板用回合区高度 `activityH` 与内容宽度 `contentW` 构建并 fill 进回合区窗口；面板态底部输入区在**问题交互态（问答 / 审批）改显最近 notice**（尾 `footerHeight` 行、tone 与 hanging 口径同回合区），其余面板为空白占位；提示行 **1 至 2 行**（显示该面板键位，文案见 `layout/hints.ts` 的 `hintLine(state)`；行数由 `layout.hintRowsFor(state, cols)` 按当前文案与终端宽算出——按 `·` 边界折行、超 2 行截断，空文案占位 1 行），`footerHeight = max(1, interaction − hintRows)`——面板开关不改变输入区 + 提示行高度（避免顶区跳动）；**面板内不再内嵌键位提示**。
 
-**接线点（现状）**：`buildActivePanelBox` 按优先级选型（`commandPanel` 插在 `jobsPanel` 之后、`history` 之前）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history）——提示行不再随面板隐藏（`FrameGeometry.showHint` 已移除，提示文案由 `layout/hints.ts` 按状态给出；`normalInput` 局部亦于 2026-10-10 死代码清理删除），布局层无独立的 `&& !commandPanel` 条件；PgUp/PgDn 页高取活动区可视行数——在 `index.ts` 按键分支内按 `frameGeometry(state, renderer.getSize()).activityH` 计算（`jobs-panel-page` 与 `command-panel-page` 同一口径）。（`fillPanelBox` / `modalPanel` 与活动区渲染由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
+**接线点（现状）**：`buildActivePanelBox` 按优先级选型（`commandPanel` 插在 `jobsPanel` 之后、`history` 之前）；`frameGeometry` 的 `modalOpen` 一次性判定 7 类面板非空（approval / question / picker / statusPanel / jobsPanel / commandPanel / history）——提示行不再随面板隐藏（`FrameGeometry.showHint` 已移除，提示文案由 `layout/hints.ts` 按状态给出；`normalInput` 局部亦于 2026-10-10 死代码清理删除），布局层无独立的 `&& !commandPanel` 条件；PgUp/PgDn 页高取回合区可视行数——在 `index.ts` 按键分支内按 `frameGeometry(state, renderer.getSize()).activityH` 计算（`jobs-panel-page` 与 `command-panel-page` 同一口径）。（`fillPanelBox` / `modalPanel` 与回合区渲染由 `buildActivePanelBox` 返回值驱动，无需额外改动。）
 
 **共享面板模型（不复制 N 套 state/reducer）**：所有列表面板共用一个判别联合与一套实现，kind = `skills` / `agents` / `tools` / `task` / `guard` / `loop` / `workflows` / `search`：
 
@@ -60,13 +60,13 @@ commandPanel: {
 // reducer：三件套 + 翻页 + 数据推送
 "command-panel-open"   // { kind }
 "command-panel-move"   // { delta }   （↑/↓；clamp + 窗口平移）
-"command-panel-page"   // { delta: ±1 页；page = 活动区可视行数 }
+"command-panel-page"   // { delta: ±1 页；page = 回合区可视行数 }
 "command-panel-close"
 "command-panel-data"   // { kind, rows, loading?, error? }
 ```
 
 - 渲染：单一 `buildCommandListPanelBox(panel, height, width): Box` + 薄包装 `fillBoxTree`。
-- 键位：↑/↓ 移动、PgUp/PgDn 整页翻页（页高 = 活动区可视行数）、Enter 主操作（各 kind 语义：详情 / 中断 / 无操作）、Esc 关闭、其余按键吞掉；无参重复调用同 kind = 关闭。
+- 键位：↑/↓ 移动、PgUp/PgDn 整页翻页（页高 = 回合区可视行数）、Enter 主操作（各 kind 语义：详情 / 中断 / 无操作）、Esc 关闭、其余按键吞掉；无参重复调用同 kind = 关闭。
 - 行样式：首行标题（青）+ 计数，右侧按键提示（灰，按剩余宽截断）；行 = `> ` 高亮前缀 + 状态符号 + 主文本，符号着色沿用 `JobsPanel.statusMark` 口径。
 - 空态：灰占位，仍输出恰 `height` 行；超宽 `truncateToWidth`，不切半个 CJK。
 - 互斥：打开时关闭 `history` / `picker` / `jobsPanel` / 其他 `commandPanel`。

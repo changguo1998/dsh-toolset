@@ -1,4 +1,4 @@
-// tests/tool-call-wrap.test.ts — 活动区工具调用行折行宽度回归
+// tests/tool-call-wrap.test.ts — 回合区工具调用行折行宽度回归
 //
 // 回归点：工具调用长参数软折行时，续行统一 2 空格缩进，折行宽度必须按缩进扣除，
 // 缩进后每行总宽 ≤ 窗口宽（修复前续行仍按全宽折行，缩进后超出 2 列、溢出右边框）。
@@ -57,7 +57,7 @@ test("wrapToolCallText：窄窗口（width ≤ 缩进）降级不缩进，仍不
   assert.equal(rows.join(""), "abcdefgh");
 });
 
-test("buildFrame：活动区工具调用长参数折行后不溢出边框", () => {
+test("buildFrame：回合区工具调用长参数折行后不溢出边框", () => {
   const cols = 60;
   const cases = [
     "bash command=" + "a".repeat(140),

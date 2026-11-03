@@ -24,7 +24,7 @@ import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 const W = 40;
 const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
 
-/** 交付脚本 → 活动 pane 行文本（去掉 step 头行） */
+/** 交付脚本 → 回合区 行文本（去掉 step 头行） */
 const pipeline = (script: BlockDelivery[]): string[] =>
   pipelineContent(
     sectionsFromScript(script.map((delivery) => ({ delivery }))),
