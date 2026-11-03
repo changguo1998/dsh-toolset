@@ -103,6 +103,24 @@ interface Delivery {
   readonly seq?: number;
 }
 
+/** 用户输入块（`BlockDelivery` 的 user 分支）。 */
+export type UserDelivery = Extract<BlockDelivery, { kind: "user" }>;
+
+/**
+ * 用户输入块的类型守卫。
+ *
+ * 布局层在 `case "user" | "notice" | "shell"` 里需要按分支取 `turn` / `status` 等字段；
+ * 直接用字符串比较会在多处重复，且 `isUserMessage(value: unknown)` 只收窄字符串、收窄不了
+ * 交付对象。这里把判别式收进一个守卫，供布局层统一调用。
+ * @param delivery - 待判定的块交付。
+ * @returns 是否为用户输入块（收窄到 user 分支）。
+ */
+export function isUserDelivery(
+  delivery: BlockDelivery,
+): delivery is UserDelivery {
+  return delivery.kind === "user";
+}
+
 /**
  * 归一化「块交付」——第 1 步的输入。
  *

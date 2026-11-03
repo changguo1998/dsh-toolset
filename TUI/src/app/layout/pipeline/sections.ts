@@ -18,6 +18,7 @@
 import type { NoticeTone } from "../../adapter/types.ts";
 import {
   blockKey,
+  isUserDelivery,
   stepKey,
   type BlockDelivery,
   type Item,
@@ -637,18 +638,16 @@ export function applyDelivery(
     case "user":
     case "notice":
     case "shell": {
-      const scope =
-        delivery.kind === "user"
-          ? { turn: delivery.turn, step: delivery.step }
-          : state.lastScope;
+      const scope = isUserDelivery(delivery)
+        ? { turn: delivery.turn, step: delivery.step }
+        : state.lastScope;
       const sealed =
         state.current === undefined ? state : sealedOf(state, state.current);
-      const source: Source =
-        delivery.kind === "user"
-          ? "user"
-          : delivery.kind === "notice"
-            ? "notice"
-            : "shell";
+      const source: Source = isUserDelivery(delivery)
+        ? "user"
+        : delivery.kind === "notice"
+          ? "notice"
+          : "shell";
       const tone = delivery.kind === "notice" ? delivery.tone : undefined;
       // notice 排版参数（条目 7 选项 1）：/help 的悬挂缩进与紧凑豁免随交付进节模型
       const hanging = delivery.kind === "notice" ? delivery.hanging : undefined;
@@ -668,24 +667,24 @@ export function applyDelivery(
             // 标记都随条目走，不再依赖它回查 buffer
             ...(delivery.seq === undefined ? {} : { seqs: [delivery.seq] }),
             // 恢复路径按缓冲行原样透传的终态与「被 steer 续接」标记（批 B1）
-            ...(delivery.kind === "user" && delivery.status !== undefined
+            ...(isUserDelivery(delivery) && delivery.status !== undefined
               ? { userStatus: delivery.status }
               : {}),
-            ...(delivery.kind === "user" && delivery.steerContinued === true
+            ...(isUserDelivery(delivery) && delivery.steerContinued === true
               ? { steerContinued: true }
               : {}),
             // 注入块标记（rule-engine / channel / goal 回合）：`turn-end` 归属时让位给人工输入
-            ...(delivery.kind === "user" && delivery.injected === true
+            ...(isUserDelivery(delivery) && delivery.injected === true
               ? { injected: true }
               : {}),
             // 回合世代（用户块终态的作用域门，见 `Item.generation`）：自成节，交付即定代
-            ...(delivery.kind === "user" ? { generation: state.turnEnds } : {}),
+            ...(isUserDelivery(delivery) ? { generation: state.turnEnds } : {}),
           },
         ],
         frozen: false,
         standalone: true,
         // steer 插队送达：与上一条输入之间留空行（第 3 步按此插 blank，旧口径同款留白）
-        ...(delivery.kind === "user" &&
+        ...(isUserDelivery(delivery) &&
         (delivery.queued === "steer" || delivery.spaceBefore === true)
           ? { steer: true }
           : {}),
