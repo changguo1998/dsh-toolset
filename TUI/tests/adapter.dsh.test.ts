@@ -592,6 +592,76 @@ test("assistant/message：无 text 块(tool-call/reasoning)不输出；replace �
   assert.equal(joinStreams(t.events), "第二步正文");
 });
 
+test("更正事件：对象形态 replace 与 user/tool 上的 replace 一律跳过（三类 surface 事件同口径）", () => {
+  const t = makeAdapter();
+  const corrective = { op: "replace", startSeq: 1, endSeq: 2 };
+  // 1. assistant/message：对象形态不再被当作 append 补发
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "assistant/message",
+    seq: 1,
+    time: Date.now(),
+    surfaceOp: corrective,
+    data: {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: "text", text: "被对象形态覆盖的正文" }] },
+    },
+  } as unknown as SessionEvent<"assistant/message">);
+  // 2. user/message：notice 形态的更正事件同样不渲染
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "user/message",
+    seq: 2,
+    time: Date.now(),
+    surfaceOp: "replace",
+    data: {
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "被替换的注入消息" }],
+      },
+      source: { form: "notice", summary: "旧提示" },
+    },
+  } as unknown as SessionEvent<"user/message">);
+  // 3. tool/result：replace 形态不产生工具行
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "tool/result",
+    seq: 3,
+    time: Date.now(),
+    surfaceOp: corrective,
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "c1",
+            content: [{ type: "text", text: "被替换的工具结果" }],
+          },
+        ],
+      },
+    },
+  } as unknown as SessionEvent<"tool/result">);
+  assert.deepEqual(t.events, []);
+  // 对照：append / 缺省形态照常渲染（门只对更正事件生效）
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "user/message",
+    seq: 4,
+    time: Date.now(),
+    surfaceOp: "append",
+    data: {
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "正常注入消息" }],
+      },
+      source: { form: "notice", summary: "正常提示" },
+    },
+  } as unknown as SessionEvent<"user/message">);
+  assert.deepEqual(t.events, [
+    { type: "notice", text: "正常提示", tone: "log" },
+  ]);
+});
+
 test("assistant/message 不跨 turn 复用：同 turn/step 键在 turn-end 后被清除", () => {
   const t = makeAdapter();
   // step 0 有 chunk；turn 结束清除累计后，同样 turn/step 键的新一组事件按新 step 处理

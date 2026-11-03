@@ -369,9 +369,10 @@ export class RuleEngine {
         const state = this.#session(sessionId, session);
         const turn = numberOr(data["turn"], state.turn);
         state.turn = Math.max(state.turn, turn);
-        // `surfaceOp: "replace"` 的影子覆盖事件不进回合正文——与 TUI 显示面一致（该 step 正文在
-        // 画面上被覆盖、不存在），否则消费者会要求「修正」用户看不到的内容。
-        if (surfaceOpOf(event, data) === "replace") return;
+        // 更正事件（宿主 `SurfaceOp` 的 replace 形态：字符串或 `{op:"replace",startSeq,endSeq}`）
+        // 不进回合正文——与 TUI 显示面一致（该区间在画面上被覆盖、不再代表模型可见内容），
+        // 否则消费者会要求「修正」用户看不到的内容。
+        if (isCorrectiveEvent(event, data)) return;
         this.#buffer(state, turn, messageText(data["message"]));
         return;
       }
@@ -380,6 +381,8 @@ export class RuleEngine {
         return;
       }
       case "user/message": {
+        // 更正事件（replace 形态）不入缓冲：与 `assistant/message` 同口径。
+        if (isCorrectiveEvent(event, data)) return;
         // 排除本引擎自己的注入（避免 `user-message` 节点自触发）
         const message = data["message"];
         const kind = (message as { source?: { kind?: unknown } } | null)?.source
@@ -415,6 +418,8 @@ export class RuleEngine {
         return;
       }
       case "tool/result": {
+        // 更正事件（replace 形态）不入缓冲：与正文 / 用户消息同口径。
+        if (isCorrectiveEvent(event, data)) return;
         this.#entry(
           sessionId,
           data,
@@ -582,12 +587,22 @@ function numberOr(value: unknown, fallback: number): number {
 }
 
 /**
- * `assistant/message` 的表面操作标记：宿主写在**事件顶层**（TUI 同口径读 `raw.surfaceOp`），
- * 兼容放在 `data` 内的写法；两者都没有 / 非字符串时返回空串（= 非 replace）。
+ * 更正事件判定：宿主 `SurfaceOp = 'append' | { op: 'replace', startSeq, endSeq }`
+ * （`docs/host/DSH-CTX-API.md`），写在**事件顶层**（TUI 同口径），兼容放在 `data` 内；
+ * 缺省（无标记）不是更正事件。
  */
-function surfaceOpOf(event: unknown, data: Record<string, unknown>): string {
+function isCorrectiveEvent(
+  event: unknown,
+  data: Record<string, unknown>,
+): boolean {
   const top = (event as { surfaceOp?: unknown } | null)?.surfaceOp;
-  if (typeof top === "string") return top;
-  const inner = data["surfaceOp"];
-  return typeof inner === "string" ? inner : "";
+  if (top !== undefined) return isReplaceOp(top);
+  return isReplaceOp(data["surfaceOp"]);
+}
+
+/** `SurfaceOp` 是否为 replace 形态（字符串 `"replace"` 或 `{ op: "replace", … }`）。 */
+function isReplaceOp(op: unknown): boolean {
+  if (typeof op === "string") return op === "replace";
+  if (op === null || typeof op !== "object") return false;
+  return (op as { op?: unknown }).op === "replace";
 }

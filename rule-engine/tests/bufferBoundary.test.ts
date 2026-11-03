@@ -50,7 +50,7 @@ function assistantMessage(
 function assistantMessageWithOp(
   turn: number,
   text: string,
-  surfaceOp: string,
+  surfaceOp: unknown,
 ): SessionEventLike {
   return {
     ...assistantMessage(turn, text),
@@ -159,11 +159,14 @@ test("P2 缓冲边界：超限截断告警（略超上限有告警且载荷为�
   });
 });
 
-test("P2 缓冲边界：surfaceOp = \"replace\" 不进缓冲，后续 append 照常累积", () => {
+test('P2 缓冲边界：surfaceOp = "replace" 不进缓冲，后续 append 照常累积', () => {
   bench(({ engine, points }) => {
     engine.handle(SESSION, turnStart(1));
     engine.handle(SESSION, assistantMessage(1, "被覆盖的正文"));
-    engine.handle(SESSION, assistantMessageWithOp(1, "影子覆盖正文", "replace"));
+    engine.handle(
+      SESSION,
+      assistantMessageWithOp(1, "影子覆盖正文", "replace"),
+    );
     engine.handle(SESSION, assistantMessage(1, "追加正文", 1));
     engine.handle(SESSION, turnEnd(1));
     assert.deepEqual(
@@ -194,6 +197,81 @@ test("P2 缓冲边界：surfaceOp = \"replace\" 不进缓冲，后续 append 照
       "append / 缺省照常累积；data 内的 replace 同样丢弃",
     );
   });
+});
+
+test("更正事件：对象形态 replace 不进缓冲（与字符串形态同口径）", () => {
+  bench(({ engine, points }) => {
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(SESSION, assistantMessage(1, "保留正文"));
+    engine.handle(
+      SESSION,
+      assistantMessageWithOp(1, "对象形态覆盖正文", {
+        op: "replace",
+        startSeq: 1,
+        endSeq: 2,
+      }),
+    );
+    engine.handle(SESSION, turnEnd(1));
+    assert.deepEqual(
+      points.map(([, text]) => text),
+      ["保留正文"],
+      "对象形态的更正事件不当作 append 入缓冲",
+    );
+  });
+});
+
+test("更正事件：user/message 与 tool/result 上的 replace 不派发（缺省 / append 照常）", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "corrective-"));
+  const points: [string, string][] = [];
+  try {
+    const engine = new RuleEngine({
+      baseline: [],
+      stateDir: dir,
+      injector: { inject: () => {} },
+      warn: () => {},
+    });
+    engine.registerConsumer({
+      id: "probe",
+      sources: ["user-message", "tool-result"] as [RuleSource, ...RuleSource[]],
+      delivery: "followup",
+      dedupeInRecord: 0,
+      decide: (context: { text: string; trigger: string }) => {
+        points.push([context.trigger, context.text]);
+        return null;
+      },
+    } satisfies ConsumerRegistration);
+    const corrective = { op: "replace", startSeq: 1, endSeq: 2 };
+    const surface = (
+      type: "user/message" | "tool/result",
+      text: string,
+      surfaceOp?: unknown,
+    ): SessionEventLike =>
+      ({
+        type,
+        ...(surfaceOp === undefined ? {} : { surfaceOp }),
+        data: { message: { role: "user", content: [{ type: "text", text }] } },
+      }) as unknown as SessionEventLike;
+
+    engine.handle(SESSION, turnStart(1));
+    engine.handle(
+      SESSION,
+      surface("user/message", "被替换的用户消息", "replace"),
+    );
+    engine.handle(
+      SESSION,
+      surface("tool/result", "被替换的工具结果", corrective),
+    );
+    engine.handle(SESSION, surface("user/message", "正常用户消息"));
+    engine.handle(SESSION, surface("tool/result", "正常工具结果", "append"));
+    engine.handle(SESSION, turnEnd(1));
+
+    assert.deepEqual(points, [
+      ["user-message", "正常用户消息"],
+      ["tool-result", "正常工具结果"],
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("P2 缓冲边界：空白串与换行串照常入缓冲（只跳过长度 0）", () => {

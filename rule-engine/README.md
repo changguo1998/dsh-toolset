@@ -16,10 +16,10 @@ DSH（DeepSeek Harness）进程内插件：**规则触发的自动注入**。按
 
 | source | 判定时机 | 判定文本 |
 | --- | --- | --- |
-| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; `surfaceOp: "replace"` 的更正事件**不进缓冲**（与 TUI 显示面一致）; 单条 step 正文超 200 000 字符**被截断并发告警**（见「已知限制」） |
-| `user-message` | `user/message` 到达 | 用户消息 text 块（本引擎自己的注入消息被排除，避免自触发） |
+| `assistant-text`（缺省） | 回合结束（`turn/end`） | 该回合全部 `assistant/message` 正文按 step 顺序 **以 `\n` 连接**; 更正事件（`SurfaceOp` 的 replace 形态: 字符串 `"replace"` 或 `{ op: "replace", startSeq, endSeq }`）**不进缓冲**（与 TUI 显示面一致）; 单条 step 正文超 200 000 字符**被截断并发告警**（见「已知限制」） |
+| `user-message` | `user/message` 到达 | 用户消息 text 块（本引擎自己的注入消息被排除，避免自触发；更正事件同样不入缓冲） |
 | `tool-call` | `tool/call` 到达 | 工具名 + 模型原始参数 JSON 串 |
-| `tool-result` | `tool/result` 到达 | 工具结果消息的 text 块 |
+| `tool-result` | `tool/result` 到达 | 工具结果消息的 text 块（更正事件不入缓冲） |
 | `turn-start` | `turn/start` 到达 | 空串（边界类） |
 | `turn-end` | 回合结束（`turn/end`） | 回合正文；`match` 可省 = **无条件命中** |
 | `step-start` | `step/start` 到达 | 空串（边界类） |
@@ -227,7 +227,7 @@ bundle 契约：`name = "rule-engine"` / `inject: ["agents", "sessions"]`（硬�
 - `inject` 路径需要宿主 rc.2+（`agent.inject`）；旧宿主上记 warning 跳过（不回退 followup）。`steer` 缺 API 时回退 `inject` 并记 warning（内容不丢，只是不唤醒）。
 - 节流记账是**进程内**内存态：`dsh` 重启后 cooldown 计数清零（规则本身持久化）；需要跨重启不重复的规则用 `dedupeInRecord`（按会话记录去重：可见投影 + 未消费 inbox）。
 - 逐 delta 实时匹配未实现：文本类规则只在回合结束判定（实时需订阅 `agent/assistant-stream`）。
-- **观测口径与 TUI 显示不完全一致（2026-10-16 实测，同日修正并放宽两项）**：显示面是各 step 正文**直接相接**（TUI 丢弃 `surfaceOp: "replace"` 的正文、但空白 step 照常显示）, 而本引擎的 `assistant-text` 是各 step 正文用 `\n` 连接（N step 多 N-1 个换行）。因此行号 / 片段定位可能与界面差若干字符。两项已处理: ① `surfaceOp: "replace"` 的消息**不进缓冲**（与显示面一致，不再要求「修正」屏幕上不存在的内容）; ② 单条 step 超 200 000 字符时判定只见截断后的前缀，**截断时发一条告警**（文案含「截断」与上限数字），不再静默丢内容。
+- **观测口径与 TUI 显示不完全一致（2026-10-16 实测，同日修正并放宽两项）**：显示面是各 step 正文**直接相接**（TUI 丢弃 `surfaceOp: "replace"` 的正文、但空白 step 照常显示）, 而本引擎的 `assistant-text` 是各 step 正文用 `\n` 连接（N step 多 N-1 个换行）。因此行号 / 片段定位可能与界面差若干字符。两项已处理: ① 宿主 `SurfaceOp` 的 replace 形态（字符串 `"replace"` 或 `{ op: "replace", startSeq, endSeq }`，顶层优先、兼容 `data` 内）在 `assistant/message`、`user/message`、`tool/result` 三类事件上**一律不进缓冲**（与显示面一致，不再要求「修正」屏幕上不存在的内容；也不做按 seq 的范围重写）; ② 单条 step 超 200 000 字符时判定只见截断后的前缀，**截断时发一条告警**（文案含「截断」与上限数字），不再静默丢内容。
 
 ## 测试
 

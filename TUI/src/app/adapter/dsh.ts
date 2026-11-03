@@ -334,6 +334,30 @@ export function installSessionModelSelection(
   };
 }
 
+/**
+ * 更正事件判定：宿主 `SurfaceOp = 'append' | { op: 'replace', startSeq, endSeq }`
+ * （`docs/host/DSH-CTX-API.md`），写在**事件顶层**，兼容放在 `data` 内。缺省（无标记）
+ * 按 append 处理。TUI 显示面是 append-only（缓冲行不保留源事件 seq 的完整映射），无法
+ * 安全重写已展示区间，故三类 surface 事件命中后一律跳过整条；口径与 `rule-engine` 一致，
+ * 不支持范围替换的替代路径见 `TUI/docs/DESIGN.md`。
+ */
+function isCorrectiveEvent(raw: unknown): boolean {
+  if (raw === null || typeof raw !== "object") return false;
+  const event = raw as { surfaceOp?: unknown; data?: unknown };
+  const top = event.surfaceOp;
+  if (top !== undefined) return isReplaceOp(top);
+  const data = event.data;
+  if (data === null || typeof data !== "object") return false;
+  return isReplaceOp((data as { surfaceOp?: unknown }).surfaceOp);
+}
+
+/** `SurfaceOp` 是否为 replace 形态（字符串 `"replace"` 或 `{ op: "replace", … }`）。 */
+function isReplaceOp(op: unknown): boolean {
+  if (typeof op === "string") return op === "replace";
+  if (op === null || typeof op !== "object") return false;
+  return (op as { op?: unknown }).op === "replace";
+}
+
 export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
   const { runtime } = opts;
   const sessionQuery = opts.sessionQuery;
@@ -1117,9 +1141,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         // 每 step 结束必发的完整正文表面事件（append 语义）。流式链路已按 delta
         // 输出正文，这里只按 step 补发缺失后缀；非流式 provider 无任何 chunk 时
         // stepEmitted 为空 → 直接输出完整正文，保证不支持流式/思考的模型回复可见。
-        // surfaceOp 为 replace 的影子覆盖事件跳过（append-only 无法安全重写）。
-        const op = (raw as { surfaceOp?: string }).surfaceOp;
-        if (op === "replace") return;
+        // 更正事件（`SurfaceOp` 的 replace 形态，字符串或 `{op:"replace"}` 对象）在
+        // append-only 显示面无法安全重写，跳过整条（口径与 rule-engine 一致）。
+        if (isCorrectiveEvent(raw)) return;
         // 单次模型调用 token 用量：与正文同行送达（阶段 2 依 state.usage 落状态栏槽位）。
         // 占用百分比分母 = 所选模型窗口（resolveModelInfo.context.contextWindow）；
         // 未知/未披露时省略（状态栏仅显绝对大小），懒解析命中后补发一次同载荷 usage。
@@ -1220,6 +1244,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
 
       case "user/message":
       case "agent/inbox/spliced": {
+        // 更正事件（replace 形态）不携带对用户可见的新增内容，append-only 显示面无法重写
+        // 被覆盖区间，故跳过整条；`agent/inbox/spliced` 不是 surface 事件，不受此门影响。
+        if (raw.type === "user/message" && isCorrectiveEvent(raw)) return;
         // TUI#43：`removedCount > 0` = 核心摘除了**已认领**的排队项（steer 在 step 边界、
         // followup 在回合开始）→ 通知 App 把对应排队项转入历史流（App 只处理 next-step，
         // next-turn 的认领仍由回合开始路径处理，避免一条被认领两次）
@@ -1377,6 +1404,8 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         return;
       }
       case "tool/result": {
+        // 更正事件（replace 形态）跳过：与正文 / 用户消息同一口径（见 isCorrectiveEvent）。
+        if (isCorrectiveEvent(raw)) return;
         // 工具结果：成功/失败一行；error 分支（结构化错误 {name, code}）标记失败
         const failed = toolResultFailed(data);
         const detail = toolResultDetail(data.message);
