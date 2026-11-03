@@ -1,7 +1,7 @@
 // tests/assemble.ts — TUI 集成层装配器（不以 `.test.ts` 结尾, 不被单元层 glob 命中）
 //
 // 集成层管「装配」: 用三个假面拼起生产链路, 单元层已各自覆盖的纯函数不再重测。
-// 三个假面的形状与 `docs/implementation/2026-10-28-history-cleanup.md` 4.2 一致:
+// 三个假面的形状与 `docs/archived/2026-10-28-history-cleanup.md` 4.2 一致:
 //  - 假事件面: `helpers/appFakes.ts` 的 FakeAdapter（事件 → 交付镜像可开, 会话 / 模型 / 审批
 //    等服务面缺省给空实现）;
 //  - 假服务面: 可选的假状态查询（`status` 选项; 调度器换成手动 no-op, 不落真定时器）;

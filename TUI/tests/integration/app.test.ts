@@ -1,6 +1,6 @@
 // tests/integration/app.test.ts — TUI 集成层: 装配状态层 / 排版层 / 渲染层
 //
-// 与单元层的分工（`docs/implementation/2026-10-28-history-cleanup.md` 4.2）:
+// 与单元层的分工（`docs/archived/2026-10-28-history-cleanup.md` 4.2）:
 // 单元层用 FakeRenderer 直接看 `App` 的状态迁移; 本层走**真实** `createRenderer`
 // （`Screen` 报文 / 帧行 / 主题切换），只把适配器、状态查询与 CPR 宽度实测换成假面
 // （见 `tests/assemble.ts`）。断言对象是「一帧里读到的文本」与「适配器收到的调用」,

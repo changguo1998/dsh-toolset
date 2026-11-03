@@ -1,0 +1,242 @@
+# herdr-use 整理 (所属总追踪: `docs/archived/2026-10-28-history-cleanup.md`)
+
+状态: 规划
+本文件是 herdr-use 的分包追踪文档; 主分支写目标 / 现状 / 实现规划, 分支 agent 只追加「实现记录」「偏差」「测试与证据」, 不改实现规划与总追踪.
+
+## 目标
+
+阶段 2 测试锚定: 给 `herdr-use` 补单元锚点与集成层, 落地 `test:integration` / `test:coverage`, 记录改前改后覆盖率, 为阶段 3 的代码整理提供回归网.
+
+阶段 3 代码整理: 按总追踪 5.1 的步骤改本包, 行为不变.
+
+## 现状
+
+- 单元层: `tests/` 下 12 个 `.test.ts` (见 `tests/`); 阶段 1 末 `pnpm -C herdr-use run test` 通过.
+- 集成层: 无 `tests/integration/`; `apply` 与宿主接线未验证.
+- 覆盖率基线 (阶段 1 末): 行 84.5% (2952/3494); 分支 71.3% (464/651).
+- 脚本: 只有 `test`; 缺 `test:integration` / `test:coverage`.
+- 专项: 无; 按 4.4 复核本包 `skip` / `todo` / 夹具.
+- 阶段 3 开工前: 全量 `check` / `test` / `test:coverage` 通过, 明细见阶段 2 证据.
+
+## 实现规划
+
+### 测试
+
+- 基线: 在分支上先跑 `pnpm -C herdr-use run test`, 记通过数与耗时; 再按现状记录覆盖率基线.
+- 单元锚点: 对 `src/index.ts` 的导出与判定分支补锚点, 优先未被现有用例走到的分支与错误路径; 现有断言不改语义.
+- 集成层: 新增 `tests/integration/plugin.test.ts` 与 `tests/assemble.ts` (不以 `.test.ts` 结尾, 三个假面形状与 4.2 一致), 装配本包 `apply` 与宿主接线: 工具注册名与 `execute` 的 canonical 值、`output.render` 投影、事件消费者注入内容、服务 provide / get; 落盘写临时目录.
+- 脚本: `package.json` 加 `test:integration` = `node --experimental-transform-types --test 'tests/integration/*.test.ts'`; 加 `test:coverage` = 下面的命令.
+- 覆盖率: 跑 `test:coverage` 并把改前 / 改后表写「测试与证据」; 只升不降, 删代码除外.
+
+```sh
+rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE=../tmp/cov-herdr-use node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-herdr-use tmp/cov-herdr-use/report.json
+```
+
+- 专项: -.
+- 验收: `pnpm -C herdr-use run check` / `test` / `test:integration` / `test:coverage` 全绿; 本文件追加「实现记录」「测试与证据」; 在分支提交, 提交信息 `test: 补 herdr-use 测试锚定`.
+
+### 代码
+
+- 分支 `history-cleanup/03-code-herdr-use`, worktree `.worktree/03-code/herdr-use`; 只改本包源码、本包测试的 import、`package.json` / `pnpm-lock.yaml` 与本文件.
+- 前置: `clock-base` 已合并, 本分支从含它的 `main` 开.
+- 开工: 在 worktree 的本包目录跑 `pnpm install --frozen-lockfile`; 有 `link:` 依赖时先在 worktree 里构建被依赖包 (`pnpm -C <被依赖包> run build`), 再跑本包 `check`.
+- 顺序: 删失效 → 并定时器族 → 拆长文件 → 收拢判断 → 改注释; 每步跑 `pnpm -C herdr-use run check` 与 `pnpm -C herdr-use run test`.
+- 任务:
+  - 删失效导出 `src/workspace.ts:255` `defaultConfig`.
+  - 删 `src/timers.ts`; 入口 import 改从 `clock-base` 引; `tests/clock.test.ts` 改从入口引.
+  - 沙箱模式枚举与判定留在 `src/types.ts` / `src/policy.ts` 并作为唯一出口, 供 `script-interpreter` 与 `TUI` 引.
+  - `src/tools.ts:2` 与 `:258` 的「十个工具」按实际去数字.
+  - `package.json` / `pnpm-lock.yaml` 加 `link:../clock-base`.
+- 验收: `pnpm -C herdr-use run check` 与 `pnpm -C herdr-use run test` 全绿, 用例断言不因组织改动而改; 行为不变 (工具名、参数面、`output.render` 投影、配置键、注入文案、帧内容都不动).
+- 提交: `refactor(herdr-use): <动作>`, 一个逻辑一笔; 不改本节实现规划, 不改总追踪与阶段追踪.
+
+### 包文档
+
+- 分支 `history-cleanup/04-package-docs-herdr-use`, worktree `.worktree/04-package-docs/herdr-use`; 只改本包文档, 不动 `src` / `tests` / 配置文件.
+- 文件: `README.md` / `docs/BACKLOG.md`.
+- `README.md`: 现有 12 个二级标题按总追踪 3.9 归并为六节 `## 定位` / `## 能力` / `## 配置` / `## 用法` / `## 边界` / `## 测试`; 无配置项可省 `## 配置`; 只改节名、合并重复段落, 不删内容、不新增结论.
+- 命令: 正文与示例里的 `npm` 一律改 `pnpm`, 与根 `package.json` 的脚本名一致.
+- 术语: 按 `docs/GLOSSARY.md` 与总追踪 6.6 校一遍本包术语、界面名与旧称.
+- `docs/BACKLOG.md`: 同文件的命令与术语同步改; 条目内容、状态与顺序不动.
+- 断链: `README.md` 里指向 `docs/implementation/` 的归档链接改为 `../docs/archived/2026-10-23-herdr-use-terminal-surface.md` (归档后的真实路径).
+- `README.md` `:24` 的能力标题与 `:41` / `:93` / `:143` 去工具数量硬编码.
+- 验收: 六节齐 (无配置可省)、正文命令全 `pnpm`、本包非归档断链 0、符号变体 0、术语与 `docs/GLOSSARY.md` 一致; `format` 后自查 diff; 文档改动不跑代码门禁.
+- 提交: `docs(herdr-use): 归并包文档为六节`; DESIGN / BACKLOG / 专项改动按文件分笔或并入同一笔.
+
+## 实现记录
+
+### 改动文件
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/tests/assemble.ts` | 新增集成层装配器（不以 `.test.ts` 结尾）：假工具面 / 假事件面 / 假服务面（`guard` / `sandboxPolicy` / `clock`），外加假 herdr CLI runner、假 socket connector、假后台会话控制器与假时钟 |
+| `herdr-use/tests/integration/plugin.test.ts` | 新增 22 条集成用例 |
+| `herdr-use/tests/actions.test.ts` | 追加 3 条单元锚点（create 响应缺字段、label 部分失败、wait stable 读失败） |
+| `herdr-use/tests/main.test.ts` | 追加 2 条单元锚点（探活抛错、pre-execute 参数面边界） |
+| `herdr-use/tests/workspace.test.ts` | 追加 2 条单元锚点（cwd 四级回退、label 归一与回退） |
+| `herdr-use/package.json` | 加 `test:integration` 与 `test:coverage` |
+
+### 集成层覆盖的接线
+
+- 注册面：十个工具名与顺序、`provide("herdrUse")`、`tools/pre-execute` 订阅、`effect` 卸载器、`clock.scope` 装配期调用两次。
+- canonical 回执：`herdr_create`（前台 / 后台）、`herdr_read`、`herdr_list`、`herdr_wait`（stable / match）、`herdr_info` / `label` / `text` / `key` / `close`。
+- `output.render` 投影：上述动作逐条断言文本（含 lane 标记、命中行、判稳依据、失败行与放行提示）。
+- lane：后台命令统一带 `--session dshbg`；读通道前台取握手的 `HERDR_SOCKET_PATH`，后台取 `dshbg` 探活返回的 socket。
+- 失败路径：guard 拒绝（命令未送达）、guard 抛错（fail-open 且只告警一次）、CLI 错误信封、`session-unavailable`、后台会话起不来（不回退前台）、后台 socket 不可用（首次报错、二次走缓存）、二进制不可解析、探活失败、探活抛错、`ctx.tools` 缺席、`register` 抛错。
+- 卸载：`apply` 返回的卸载器与 `ctx.effect` 卸载器都解绑 `tools/pre-execute` 并清空登记，服务面仍可读且幂等。
+
+### 单元锚点
+
+- `actions.ts`：`tab create` 缺 `tab_id` / 缺 `root_pane.pane_id` 均为 `herdr-bad-response`（后者不登记）；`label` 的 pane rename 失败带「tab 标题已改」notes 且登记 label 不变；`wait stable` 读通道失败归一为 `socket-error`。
+- `main.ts`：`preExecuteVerdict` 对非对象参数按空参数处理、缺 `name` 放行、只读回执带目标终端；探活抛错时告警一次且不注册。
+- `workspace.ts`：`readSessionContext` 的 cwd 依次取 `header` / `meta` / `session` / `process.cwd()`，id 缺失即无会话；`workspaceLabel` 的空白与斜杠归一、取不到目录名回退 `dsh`。
+
+### 阶段 3 代码整理（本轮: 不依赖 clock-base 的三项）
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/src/workspace.ts` | 删失效导出 `defaultConfig`（原 253-257 行, 含其文档注释）与随之无用的 `resolveConfig` import; `ResolvedConfig` 类型 import 保留（`ensureWorkspace` 仍在用） |
+| `herdr-use/src/tools.ts` | 头部 `:2` 与 `createHerdrTools` 文档 `:258` 去掉工具数量, 另把 `:13` 的「那十项」改为「那批工具」 |
+
+- 删前全仓扫描: `defaultConfig` 除定义处外只出现在 `docs/implementation/` 的两份追踪文档里; 本包源码、测试、`README.md`、其他包、TUI 均无引用, `src/index.ts` 也未导出它.
+- 沙箱模式核对（只核对, 未改代码）: 封闭词汇 `SandboxMode` 只在 `src/types.ts:89` 定义一份; 判定与解析（`asSandboxMode` / `makeSandboxModeReader` / `sandboxDenialReason` / `isSandboxWrite`）集中在 `src/policy.ts`, 无第二份副本; `src/index.ts` 经 `policy.ts` 导出判定函数与 `SandboxModeReader`, 但未导出 `SandboxMode` 类型本身（与偏差 5 同一现状, 本轮按要求不改导出名）. `tests/main.test.ts:65` 的 `"read-only" | "workspace-write"` 是测试替身的参数收窄, 不算第二份枚举.
+- 未做: 删 `src/timers.ts`、入口 import 改从 `clock-base` 引、`package.json` / `pnpm-lock.yaml` 加 `link:../clock-base`.
+
+### 阶段 3 代码整理（第二批: 定时器迁移）
+
+- 开工先 `git rebase main`: 分支从 `bbb9cadf` 变基到 `3d04c043`（rebase 时的 `main` 头, 已含 `clock-base` 收拢提交 `1df62e2a` 与其合并 `7265223a`）; 变基后本分支提交 `eec896c8`. 收尾时 `main` 已前进到 `289fb72e`, 未再追.
+- 取到 `@dsh-toolset/clock-base` 入口的 12 个导出: `systemTimers` / `isTimers` / `readClock` / `resolveClock` / `createDeadline` / `delayOf` / `runDisposer` / `attachEffect` 与类型 `TimersLike` / `ClockTimers` / `Deadline` / `DeadlineReason`.
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/src/timers.ts` | 删除整份本地副本（205 行） |
+| `herdr-use/src/main.ts` | `createDeadline` / `resolveClock` 改从 `@dsh-toolset/clock-base` 引, 删本地 `./timers.ts` import |
+| `herdr-use/src/socket.ts` | `Deadline` / `TimersLike` 类型改从 `@dsh-toolset/clock-base` 引 |
+| `herdr-use/src/cli.ts` | `Deadline` 类型改从 `@dsh-toolset/clock-base` 引 |
+| `herdr-use/tests/clock.test.ts` | `createDeadline` / `resolveClock` / `ManualClock` 统一改从 `@dsh-toolset/clock-base` 入口引, 不再跨包引 `clock-base/src/timers.ts` |
+| `herdr-use/package.json` | `dependencies` 加 `"@dsh-toolset/clock-base": "link:../clock-base"` |
+| `herdr-use/pnpm-lock.yaml` | 本包 importer 记上 `link:../clock-base` |
+
+- 与仓内既有跨包依赖同形: `code-map` → `ast-tools`、`md-map` → `md-logic` 都按包名从入口 import, 不引内部模块.
+- 落地顺序: 改 `package.json` → 本包 `pnpm install`（生成 `node_modules/@dsh-toolset/clock-base` 软链）→ `pnpm -C ../clock-base run build`（包入口指向 `dist/`, 未构建则类型与运行时都解析不到）→ 删副本改 import → `check` / `test`.
+- 行为面未动: `resolveClock` / `createDeadline` / `systemTimers` 现在吃 `clock-base` 的同一份实现（`createDeadline` / `systemTimers` 与原副本逐字一致; `resolveClock` 只差告警文案的标点, 随 `clock-base` 的英文标点口径, 语义不变, 本包无用例断言该文案）; 工具面、参数面、`output.render` 投影、配置键、注入文案不变.
+
+### 阶段 3 补丁: 入口导出 `SandboxMode` 类型
+
+- 背景: `script-interpreter` 要引本包的沙箱模式枚举, 但入口未导出该类型, 只能走 `dist` 深路径. 本轮只补类型级导出, 不改实现、不改枚举定义位置（仍留 `src/types.ts`）、不改其它对外签名.
+
+| 文件 | 改动 |
+| --- | --- |
+| `herdr-use/src/index.ts` | `./types.ts` 的 `export type` 列表加 `SandboxMode`（排在 `ResolvedConfig` 与 `TerminalRecord` 之间, 按字母序） |
+| `herdr-use/tests/assemble.ts` | `SandboxMode` 的 type import 从 `../src/types.ts` 改为并入 `../src/index.ts` 的类型列表（编译期断言入口导出可用, 不计新用例） |
+
+- 导出写法: `export type { …, ResolvedConfig, SandboxMode, TerminalRecord, … } from "./types.ts";` —— 与同文件其余类型同一出口, 无独立 re-export 行、无运行时产物.
+- 类型锚点: 装配器原先显式绕开入口（偏差 5）; 改走入口后, `check` 通过即证明入口类型可用, 故未加新用例.
+
+## 偏差
+
+01. 装配器不建临时目录：本包 `src` 无落盘路径（只有 `homedir()` 参与 socket 路径推导），4.2 的「落盘写临时目录再断言」没有对象。
+02. 退出清理的 `spawnSync` 不进集成层：装配器缺省 `closeOnExit: false`，dispose 只清登记，不在用例里起子进程；`tab close` / `workspace close` 的 argv 面已由 `tests/registry.test.ts` 的单元用例锁住。
+03. 集成层经 `apply(ctx, config, deps)` 的第三参注入替身（包内既有的测试注入面，`HerdrUseDeps`），未改 `src`；握手缺省仍走真实 `readHerdrHandshake` 读 env，路径指向当前 node 可执行文件。
+04. `tests/clock.test.ts` 的 `tsconfig` `exclude` 与跨包 import 未动（按任务留在阶段 2/3 收口）；2026-11-01 补丁 `25fce711` 已删除 8 处 `exclude` 并收口跨包 import。阶段 2 覆盖率表曾带出 `clock-base`，该历史数字不计入本包结论。
+05. 装配器从 `src/types.ts` 取 `SandboxMode`（`src/index.ts` 未导出该类型；仅类型级 import，不触运行时）。
+06. 文件级覆盖率的行 / 分支分母随新增执行路径增长（V8 block range 计数变化），个别文件百分比有 1 至 3 个百分点波动；整包行与分支均上升，未退化。
+07. 阶段 3 本轮只做规划「代码」节里不依赖 `clock-base` 的三项: 删 `defaultConfig`、核对沙箱模式唯一出口、去工具数量注释; `src/timers.ts`、入口 import 改 `clock-base`、`package.json` / `pnpm-lock.yaml` 的 `link:../clock-base` 待 `clock-base` 合并到 `main` 后再做（届时先 `git rebase main`, 再补 `pnpm install --frozen-lockfile`）. 因无新依赖, 本轮未跑 `pnpm install`.
+08. `src/tools.ts:13` 的「那十项」同样带工具数量, 规划只点名 `:2` / `:258`; 按同一口径一并改为「那批工具」. `:264` 的「其余 6 个待 P1 批次」是待办批次说明而非工具面数量, 未动.
+09. 阶段 3 代码整理第二批完成: 定时器族已改用 `clock-base` 入口导出, 本地副本删除, 本包 `dependencies` 记 `link:../clock-base`. 规划要求的「开工先 `pnpm install --frozen-lockfile`」按实际改为新增依赖后再做一次普通 `pnpm install`（`--frozen-lockfile` 会因 lockfile 需变更而失败）. 另 `clock-base` 包入口指向 `dist/`, 本包 `check` / `test` 前必须先在 worktree 里 `pnpm -C ../clock-base run build`（`dist` 不入库, 故这是跨包依赖的固有前置）.
+10. 原规划未列入入口导出: 「代码」节只写「沙箱模式枚举与判定留在 `src/types.ts` / `src/policy.ts` 并作为唯一出口, 供 `script-interpreter` 与 `TUI` 引」, 未点明「唯一出口」是否含包入口的类型导出. 本轮按 `script-interpreter` 的实际需要（避免 `dist` 深路径）补 `SandboxMode` 类型导出; 定义位置与判定逻辑均未动, 偏差 5 提到的绕行 import 已随本轮消除.
+
+- 1000 至 1200 行档的不拆理由 (2026-11-01 阶段 3b 补记): `src/actions.ts` 1083 行不拆, 因为其中约 700 行是 `targetOf` 的单个 `switch` (266 至 967), 每个分支只做参数取值与一条 herdr CLI 调用, 共用同一 `DispatchDeps` / `TargetResult` 形状与末尾的结果归一; 按动作组拆会把同一张分派表切到多文件, 还要为中间类型开新导出面, 而本文件没有独立状态机可分层.
+
+## 测试与证据
+
+### 四条入口（改后）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C herdr-use run check` | 通过（`tsc --noEmit`，无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过 |
+| `pnpm -C herdr-use run test:integration` | 22 条通过 / 0 失败 / 0 跳过 |
+| `pnpm -C herdr-use run test:coverage` | 165 条通过 / 0 失败 / 0 跳过；报告写入 `tmp/cov-herdr-use/report.json` |
+| `pnpm -C herdr-use run build` | 通过 |
+
+基线（改前）：`test` 136 条通过 / 0 失败 / 0 跳过；`check` 通过。
+
+### 覆盖率（改前 → 改后，只统 `src`）
+
+| 范围 | 行 | 分支 |
+| --- | --- | --- |
+| `herdr-use` 整包 | 84.5% (2952/3494) → 88.6% (3246/3664) | 71.3% (464/651) → 75.1% (537/715) |
+
+| 文件 | 行（改前 → 改后） | 分支（改前 → 改后） | 未覆盖行（改后） |
+| --- | --- | --- | --- |
+| `src/actions.ts` | 80.2% (779/971) → 83.2% (808/971) | 67.9% (133/196) → 73.2% (150/205) | 57,59,90,91,133-137,140,141,147-154,157-163,174,177,222,223,240,253-256,270-273,280,282,283,294-297,301,311-314,317,322,378-382,385-389,397,398,401-417,458,480-485,487-489,494,507,508,530,535,539,542,543,546-549,557,563-567,594-601,617,654,682-687,717-720,731-743,775,776,794-800,810-814,904,949-953 |
+| `src/background.ts` | 81.3% (157/193) → 81.3% (157/193) | 72.3% (34/47) → 72.3% (34/47) | 68,71,78,79,83-87,92,108-110,114,115,118-120,123-130,138,153-155,177,178,184-186,195 |
+| `src/cli.ts` | 87.6% (248/283) → 87.6% (248/283) | 80.4% (78/97) → 80.4% (78/97) | 28,29,91,149-155,195-203,206-213,217-220,258,262,292,293 |
+| `src/index.ts` | 未计入 → 100.0% (170/170) | 未计入 → n/a | - |
+| `src/main.ts` | 76.7% (244/318) → 93.1% (296/318) | 57.1% (32/56) → 78.5% (62/79) | 75,103,105,117,131,139,146-148,177,180,193,194,228-230,248-250,256,264,265 |
+| `src/policy.ts` | 100.0% (129/129) → 100.0% (129/129) | 96.6% (28/29) → 97.0% (32/33) | - |
+| `src/registry.ts` | 91.7% (188/205) → 91.7% (188/205) | 65.6% (21/32) → 63.6% (21/33) | 61,76,136,149-151,157-159,162,198,199,209,210,238-240 |
+| `src/service.ts` | 95.5% (147/154) → 95.5% (147/154) | 100.0% (2/2) → 100.0% (2/2) | 59-65 |
+| `src/socket.ts` | 89.4% (288/322) → 89.8% (289/322) | 79.7% (47/59) → 79.7% (47/59) | 67,68,92,93,98,126-129,135-140,145,209-213,245-250,292,331,351,352,365,370 |
+| `src/timers.ts` | 69.7% (108/155) → 69.0% (107/155) | 30.0% (6/20) → 28.6% (6/21) | 16-19,31-34,37,39,41,47,57-62,69,72,73,91-93,102-107,113-117,122-125,127-129,133,134,144,157-159 |
+| `src/tools.ts` | 83.3% (369/443) → 92.6% (410/443) | 68.2% (30/44) → 67.6% (46/68) | 38-41,46,49,55,63,64,77,79,89,101,102,124,129,130,133-135,141,147,151-154,164,166-169,175,176 |
+| `src/types.ts` | 97.6% (123/126) → 97.6% (123/126) | 82.6% (19/23) → 82.6% (19/23) | 98,133,141 |
+| `src/workspace.ts` | 88.2% (172/195) → 89.2% (174/195) | 73.9% (34/46) → 83.3% (40/48) | 29,56,108,109,112,183-190,194,196-201,219 |
+
+### 用例增删与跳过
+
+| 项 | 数量 |
+| --- | --- |
+| 新增单元用例 | 7（136 → 143） |
+| 新增集成用例 | 22 |
+| 新增装配器 | 1（`tests/assemble.ts`） |
+| 删除用例 / 夹具 | 0 |
+| `skip` / `todo` | 0 / 0（改前改后一致；本包无 skip、无夹具） |
+
+### 阶段 3 代码整理（本轮）
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C herdr-use run check` | 通过（`tsc -p tsconfig.json --noEmit`, 无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过（与阶段 2 收尾同数, 用例未增删） |
+| `format src/tools.ts src/workspace.ts` | 两个文件均 unchanged |
+
+断言未改, 行为面（工具名、参数面、`output.render` 投影、配置键、注入文案）未动.
+
+### 阶段 3 代码整理（第二批: 定时器迁移）
+
+| 命令 | 结果 |
+| --- | --- |
+| `git rebase main` | 成功, 变基到 `3d04c043` |
+| `pnpm install`（本包目录） | 成功, `+ @dsh-toolset/clock-base 0.1.0 <- ../clock-base` |
+| `pnpm -C ../clock-base run build` | 通过（供包入口 `dist/` 解析） |
+| `pnpm -C herdr-use run check` | 通过（`tsc -p tsconfig.json --noEmit`, 无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过（与上一批同数, 用例未增删） |
+| `pnpm -C herdr-use run test:integration` | 22 条通过 / 0 失败 / 0 跳过 |
+| `pnpm -C herdr-use run build` | 通过 |
+| `format package.json src/cli.ts src/socket.ts src/main.ts tests/clock.test.ts` | 三个源文件 unchanged; `tests/clock.test.ts` 重排 import 顺序后定稿 |
+
+删行: `src/timers.ts` 整份 205 行; 本批 diff 共 7 个文件、20 插入 / 212 删除.
+
+### 阶段 3 补丁: 入口导出 `SandboxMode` 类型
+
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C ../clock-base run build` | 通过（`tsc -p tsconfig.json`, 供包入口 `dist/` 解析） |
+| `pnpm -C herdr-use run check` | 通过（`tsc -p tsconfig.json --noEmit`, 无输出） |
+| `pnpm -C herdr-use run test` | 143 条通过 / 0 失败 / 0 跳过（用例未增删, 与上一批同数） |
+| `format src/index.ts tests/assemble.ts` | 两个文件均 unchanged |
+
+- 入口类型可用性由 `tests/assemble.ts` 的 import 改动在编译期验证（`check` 通过即证明 `SandboxMode` 可从入口取到）; 未新增用例.
+- 未跑 `test:integration` / `test:coverage`: 本轮只动入口类型导出与测试 import, 不改运行时逻辑.
+- 本批 diff 共 2 个代码文件（`src/index.ts` 1 插入, `tests/assemble.ts` 1 增 1 删）与本追踪文档.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

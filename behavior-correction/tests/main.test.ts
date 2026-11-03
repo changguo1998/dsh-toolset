@@ -136,6 +136,7 @@ test("缺省规则：bash 里跑 herdr → 拒绝并指向十个具名工具", (
   ]) {
     assert.match(reason, new RegExp(tool), `拒绝理由要指向专用工具 ${tool}`);
   }
+  // 负断言保留旧名: 验证拒绝理由不再指向已删除工具, 不是旧名调用.
   assert.doesNotMatch(
     reason,
     /herdr_use|pane_|tab_/,

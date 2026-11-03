@@ -64,11 +64,15 @@
 
 ## 2. 未完成项
 
-**#1 整理历史代码和文档**〔进行中: 2026-10-28〕（登记: 2026-10-28）：仓库累计 494 个 Markdown，其中已归档 378 个；实测 106 条引用指向不存在的归档路径（`docs/implementation/` 43、`TUI/docs/` 25、`herdr-pane` 改名残留 3 等）；代码侧另有 `TODO` / `FIXME` 与疑似遗留垫片待核，根 `tmp/` 有 110M 未跟踪临时产物 → 期望盘出一份带「保留 / 归档 / 删除 / 改口径」判定的清单，分批清理，让历史资产有单一可信来源 → 优先级 P2 → 来源: 用户 2026-10-28 指示。
-
 **#2 修正 surfaceOp: replace 的识别与处理**〔待办: 2026-10-28〕（登记: 2026-10-28）：TUI 与 rule-engine 只在 `assistant/message` 上按字符串 `surfaceOp === "replace"` 跳过，宿主契约的 `SurfaceOp` 是 `'append' | { op: 'replace', startSeq, endSeq }` 的范围替换，`user/message` 与 `tool/result` 的 replace 未见同样处理；现在遇到 replace 是整条丢弃、旧内容保留，画面不会更正 → 期望按契约识别对象形态并覆盖各 surface 事件，明确「完整实现范围替换」或「记录为不支持并给替代」，补 TUI / rule-engine 对齐用例，文档与注释统一叫「更正事件」 → 优先级 P2 → 来源: 2026-10-28 文档整理讨论（surfaceOp replace 的机制核对）。
 
 **#3 统一界面名称**〔待办: 2026-11-02〕（登记: 2026-11-02）：现行非归档文档对 TUI 界面仍有多套叫法——审计时 `活动区` 146 处、`历史区` 47 处、`系统状态区` 53 处、`对话区` 11 处、`交互区` 12 处, 合计约 280 处; 用户 2026-11-02 裁定统一为 **状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行** 七个名称, 其余叫法全部替换 → 期望按 `docs/GLOSSARY.md`「界面名称」表逐文件替换现行文档与代码注释; 归档文档不改, 代码标识符与英文 `activity` / `dialogue` 等不改; 替换后现行非归档文档旧称 0 命中 (规则句、GLOSSARY 替换表、历史对照除外), `format` 幂等, 表格列数与链接不变 → 改动位置 `TUI/README.md` / `TUI/docs/DESIGN.md` / `TUI/docs/SPEC.md` / `TUI/docs/COMMANDS.md` / `TUI/docs/COMMANDS-SPEC.md` / `TUI/docs/STATUS.md` / `TUI/docs/BACKLOG.md` / 项目与包文档 → 验收: 旧称扫描 0, 文档 `format` 幂等, 人工复核 `状态列` / `状态行` 与 `回合区` / `工具区` 不混 → 优先级 P2 → 来源: 用户 2026-11-02 界面名称裁定; 因影响面大, 本次只记录, 待专门任务接取.
+
+**#4 覆盖率报告排除 dist 并统一口径**〔待办: 2026-11-02〕（登记: 2026-11-02）：`dev/coverage/report.mjs` 的 `isPackageSource` 只排除仓库外路径与 `tests`, 未排除 `dist`, 依赖包的构建产物会被计入; 阶段 3 记 87.7% / 80.1%, 阶段 5 记 86.6% / 80.0%, 均只有百分比、无分子分母, 跨阶段无法直接比较 → 期望排除 `dist/`, 复跑 `pnpm run test:coverage`, 在同一 commit 记录行 / 分支分子分母, 阶段 3 与阶段 5 文档按同一口径回写 → 改动位置 `dev/coverage/report.mjs` / 阶段 3 与阶段 5 追踪 → 验收: `dist` 条目 0, 同 commit 两次报告一致, 百分比可由分子分母复算 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P1-09 / P5-25 / E-15.
+
+**#5 历史清理文档残留修正**〔待办: 2026-11-02〕（登记: 2026-11-02）：审计收尾后仍有少量文档残留——`TUI/README.md:351` 与 `TUI/docs/DESIGN.md:378` 仍用旧称 (见审计 P4-08); `docs/GLOSSARY.md` 场景表缺 `BACKLOG 条目` 行; `security-guard/scripts/tool-surface-check.mjs:925` 与 `tests/script.test.ts:505` 仍写 `npm --prefix security-guard run build`; `session-paths/README.md:75` 写 `两个 program`; `profiles/README.md:25` 写 `npm run build` → 期望按 `docs/GLOSSARY.md` 与 pnpm 口径逐处修正, 归档与历史对照不改 → 改动位置如上五处 → 验收: 五处旧文案 0 命中, `security-guard` 的 `check` / `test` 退出 0, 改动文档 `format` 幂等 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P4-08 / P5-12 / E-10 / E-16.
+
+**#6 迁出 34 包测试产物数据**〔待办: 2026-11-02〕（登记: 2026-11-02）：34 份包追踪已补「四份测试产物」索引, 但覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑数字仍分散在「实现记录」「测试与证据」, 没有独立数据节 → 期望逐包把四类数据搬到索引节或生成一份汇总, 保留原节链接 → 改动位置 34 份 `docs/archived/2026-10-28-history-cleanup-<包>.md` → 验收: 34/34 四类数据可直接读取, 索引链接不指向缺失节, 数字与既有测试记录一致 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P2-16 补正记录.
 
 > 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`pnpm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；追踪文档 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
 
