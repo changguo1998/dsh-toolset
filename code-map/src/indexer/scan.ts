@@ -171,6 +171,7 @@ function toCodeMapSymbol(
       startLine: sym.range.start.line,
       endLine: sym.range.end.line,
       signature: sym.signature ?? "",
+      ...(sym.symbolType ? { symbolType: sym.symbolType } : {}),
       exported: sym.isExported,
     },
   ];

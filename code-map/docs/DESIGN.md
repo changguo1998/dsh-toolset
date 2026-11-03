@@ -48,7 +48,7 @@ CodeGraph
 
 ### 报告聚合（`src/report/builder.ts`）
 
-在图上做一轮聚合，产出 `CodeMapReport`：文件/符号/import 计数、`unresolvedImportCount`、`languageCounts`、`kindCounts`（ast-grep `astKind` 归一为 class/interface/enum/function/variable/type/import/other 粗类）、模块统计与模块依赖边（文件 import 上卷到模块，去重、去自环）、文件级依赖环、`unimportedExportFiles`（有导出符号但无任何文件 import 它）。
+在图上做一轮聚合，产出 `CodeMapReport`：文件/符号/import 计数、`unresolvedImportCount`、`languageCounts`、`kindCounts`（优先按 outline 的 `symbolType` 归一为 class/interface/enum/function/variable/type/import/other 粗类，缺失时退回 `astKind` 词根匹配）、模块统计与模块依赖边（文件 import 上卷到模块，去重、去自环）、文件级依赖环、`unimportedExportFiles`（有导出符号但无任何文件 import 它）。
 
 形态参考 dependency-cruiser 的聚合报告：只给模块级环比与清单，不渲染大图——模型消费的是可 grep/可计数的结构化数据。
 

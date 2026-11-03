@@ -22,6 +22,8 @@ export interface CodeMapSymbol {
   endLine: number;
   /** ast-grep 签名文本（方法/类成员签名等），可为空串。 */
   signature: string;
+  /** ast-grep outline 的语义 kind（class/interface/enum/struct/function/constant/field/method/enumMember/module）；缺失时只有 astKind。 */
+  symbolType?: string;
   /** 是否导出（isExported）。 */
   exported: boolean;
 }

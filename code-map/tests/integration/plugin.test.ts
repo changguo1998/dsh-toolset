@@ -249,12 +249,12 @@ test("工具: report 未索引给错误, 索引后出项目报告", async () => 
     assert.equal(report["importCount"], 2, "只算仓库内已解析的边");
     assert.equal(report["unresolvedImportCount"], 1);
     assert.deepEqual(report["languageCounts"], { typescript: 4 });
-    // lexical_declaration 与空 astKind 都落 other (kindBucket 只认 class/interface/
-    // enum/function/variable/type/import 词根, 见包追踪文档「实现记录」的观察项)
+    // outline 的 symbolType 优先: 导出 class/function/const 归入对应粗类; 只剩空 astKind 落 other
     assert.deepEqual(report["kindCounts"], {
       class: 1,
       function: 3,
-      other: 2,
+      variable: 1,
+      other: 1,
     });
     assert.deepEqual(report["moduleCycles"], []);
     assert.deepEqual(report["unimportedExportFiles"], [

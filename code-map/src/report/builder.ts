@@ -9,8 +9,38 @@ import type { CodeMapReport, CycleInfo, ModuleStats } from "../types.ts";
 import type { CodeGraph } from "../graph/graph.ts";
 import { moduleOf } from "../graph/query.ts";
 
-/** 把符号 kind 归一为可聚合的粗类（astKind 到报告槽位）。 */
-function kindBucket(kind: string): string {
+/** ast-grep outline 的语义 kind 到报告粗类的映射（覆盖导出声明与成员）。 */
+const SYMBOL_TYPE_BUCKETS: Readonly<Record<string, string>> = {
+  class: "class",
+  interface: "interface",
+  enum: "enum",
+  enummember: "enum",
+  struct: "type",
+  type: "type",
+  typealias: "type",
+  function: "function",
+  method: "function",
+  constant: "variable",
+  field: "variable",
+  variable: "variable",
+  module: "other",
+};
+
+/**
+ * 把符号归一为可聚合的粗类。
+ *
+ * 优先用 outline 的 `symbolType`（语义 kind）：导出声明在 ast-grep 里的 `astKind` 恒为
+ * `export_statement`，只看 `astKind` 会把 class/interface/function/const 全落 `other`。
+ * 缺失 `symbolType` 时退回旧的 `astKind` 词根匹配（兼容只带 astKind 的图与旧夹具）。
+ * @param kind - ast-grep astKind（或旧调用方给的语法节点名）。
+ * @param symbolType - ast-grep outline 的语义 kind，可缺省。
+ * @returns 报告粗类：class / interface / enum / function / variable / type / import / other。
+ */
+function kindBucket(kind: string, symbolType?: string): string {
+  if (symbolType !== undefined && symbolType !== "") {
+    const bucket = SYMBOL_TYPE_BUCKETS[symbolType.toLowerCase()];
+    if (bucket !== undefined) return bucket;
+  }
   const k = kind.toLowerCase();
   if (k.includes("class")) return "class";
   if (k.includes("interface")) return "interface";
@@ -57,7 +87,7 @@ export function buildReport(
     for (const sym of f.symbols) {
       symbolCount++;
       m.symbolCount++;
-      const bucket = kindBucket(sym.kind);
+      const bucket = kindBucket(sym.kind, sym.symbolType);
       kindCounts[bucket] = (kindCounts[bucket] ?? 0) + 1;
       if (sym.exported) exportedFiles.add(f.path);
     }

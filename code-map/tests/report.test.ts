@@ -8,7 +8,12 @@ import type { CodeMapSymbol } from "../src/types.ts";
 import { CodeGraph } from "../src/graph/graph.ts";
 import { buildReport } from "../src/report/builder.ts";
 
-function sym(name: string, kind: string, file: string): CodeMapSymbol {
+function sym(
+  name: string,
+  kind: string,
+  file: string,
+  symbolType?: string,
+): CodeMapSymbol {
   return {
     id: `${file}::0:${name}`,
     name,
@@ -18,6 +23,7 @@ function sym(name: string, kind: string, file: string): CodeMapSymbol {
     startLine: 0,
     endLine: 2,
     signature: "",
+    ...(symbolType === undefined ? {} : { symbolType }),
     exported: true,
   };
 }
@@ -82,6 +88,40 @@ test("buildReport：符号 kind 归一为粗类（class / interface / enum / fun
     type: 1,
     import: 1,
     other: 1, // namespace_declaration 不在词根表里
+  });
+});
+
+test("buildReport：kindBucket 优先 symbolType，导出声明与成员不再落 other", () => {
+  const g = new CodeGraph();
+  const rows: [string, string, string][] = [
+    ["export_statement", "class", "Foo"],
+    ["export_statement", "interface", "Bar"],
+    ["export_statement", "enum", "E"],
+    ["export_statement", "struct", "T"],
+    ["export_statement", "function", "fn"],
+    ["export_statement", "constant", "v"],
+    ["method_definition", "method", "baz"],
+    ["property_signature", "field", "qux"],
+    ["property_identifier", "enumMember", "A"],
+    ["variable_declarator", "constant", "local"],
+    ["internal_module", "module", "N"],
+  ];
+  g.addFile({
+    path: "/r/k.ts",
+    language: "typescript",
+    symbols: rows.map(([kind, symbolType, name]) =>
+      sym(name, kind, "/r/k.ts", symbolType),
+    ),
+  });
+  const r = buildReport("/r", g, 0);
+  assert.deepEqual(r.kindCounts, {
+    class: 1,
+    interface: 1,
+    enum: 2,
+    type: 1,
+    function: 2,
+    variable: 3,
+    other: 1,
   });
 });
 
