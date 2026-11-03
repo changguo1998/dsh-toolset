@@ -126,3 +126,12 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 - 未覆盖行的构成（逐条核对）: 多数是注释与类型声明行（如 `index.ts:66`、`indexer.ts:48, 53, 89, 104, 143, 180`、`query.ts:3-9`）, 以及多行对象展开的行归属偏差（如 `indexer.ts:378-381` 的 `external` 带 `text` 分支、`render.ts:107-108` 的报告首行, 用例已实际执行却仍记未覆盖）; 真实未测路径只剩少数边界（`links.ts` 的等长反引号跨行切段与目录相对候选、`indexer.ts` 的 `ref` 目录兜底越界分支）, 本阶段不补, 留代码阶段一并处置。
 - `output.render` 投影、`index` 六类边、`callers` / `impact` / `orphans` / `report` / `summary` 的 canonical 值均由集成用例钉住: 文档集覆盖 internal / wiki / file / external / broken(missing-file, missing-anchor, outside-root) / ref 六类边与入口判定。
 - 豁免台账: 无。原两项 (`apply(undefined)` 无守卫、`warn` 双写) 已在阶段 3 补丁轮修掉, 对应用例见 `tests/integration/plugin.test.ts:102` 与 `:131`。
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

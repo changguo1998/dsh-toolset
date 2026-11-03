@@ -160,3 +160,12 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 | `pnpm -C auto-approve run build` (辅助核对) | 退出 0 |
 
 拆分后文件与行数: 原 `src/learn.ts` 1222 行 → `src/learn-rules.ts` 505 行 + `src/learn-observe.ts` 716 行 + `src/learn-decide.ts` 25 行; 另删 `src/timers.ts` 205 行. 改动文件: `src/audit.ts` / `src/decide.ts` / `src/index.ts` / `src/review.ts` / `src/rules.ts` / `tests/clock.test.ts` / `tests/timers.test.ts` / `tests/learn.test.ts` / `package.json` / `pnpm-lock.yaml`.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

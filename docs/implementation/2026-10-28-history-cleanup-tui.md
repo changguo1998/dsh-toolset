@@ -282,3 +282,12 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 - 只搬一组: 「审批链的 tool/call 参数登记表」→ `TUI/src/app/adapter/approval-tool-calls.ts`（60 行）; `TUI/src/app/adapter/dsh.ts` 3639 → 3604 行。
 - 断言一字未改, 1828 条全过; 行为不变, 工具名 / 配置键 / 注入文案 / 帧内容均未动。
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段; TUI 另有 `test:e2e` |

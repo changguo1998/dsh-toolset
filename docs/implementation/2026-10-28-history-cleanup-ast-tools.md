@@ -147,3 +147,12 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 | `pnpm -C ast-tools run test:integration` | 9 例, pass 9, fail 0, skipped 0 |
 
 改动量: 删 `src/timers.ts` 205 行; 改 6 个文件（`src/index.ts` / `src/types.ts` / `src/binary.ts` / `src/tools.ts` / `tests/clock.test.ts` / `package.json`）与 `pnpm-lock.yaml`, 合计 +21 / -9 行（不含删除的 205 行）.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

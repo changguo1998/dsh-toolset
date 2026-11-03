@@ -231,3 +231,12 @@ rm -rf ../tmp/cov-herdr-use && mkdir -p ../tmp/cov-herdr-use && NODE_V8_COVERAGE
 - 入口类型可用性由 `tests/assemble.ts` 的 import 改动在编译期验证（`check` 通过即证明 `SandboxMode` 可从入口取到）; 未新增用例.
 - 未跑 `test:integration` / `test:coverage`: 本轮只动入口类型导出与测试 import, 不改运行时逻辑.
 - 本批 diff 共 2 个代码文件（`src/index.ts` 1 插入, `tests/assemble.ts` 1 增 1 删）与本追踪文档.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

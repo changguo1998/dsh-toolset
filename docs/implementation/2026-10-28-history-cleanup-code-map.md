@@ -179,3 +179,12 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 `class` 与导出 `function` / `interface` / `type` / `enum`): `report.kindCounts` 为
 `{"variable":3,"function":1,"class":1,"other":7}`; 顶层声明实际 `astKind` 为 `variable_declarator` /
 `export_statement`, 不出现 `lexical_declaration`.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

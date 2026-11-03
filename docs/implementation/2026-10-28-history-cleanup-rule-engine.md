@@ -149,3 +149,12 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 | `src/timers.ts` | 205 | 0 (改引 `clock-base`) |
 
 用例断言未改: 阶段 3 两笔提交对 `tests/` 的唯一改动是 `tests/clock.test.ts` 的两条 import (定时器族改从 `clock-base` 入口引), 拆分那笔提交里 `git diff --name-only -- tests` 为空. 提交: `d30fc86a` (定时器族改引 `clock-base`), `13b75663` (拆 `engine.ts`), 均未 push.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

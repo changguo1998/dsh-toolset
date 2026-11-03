@@ -93,3 +93,12 @@ rm -rf ../tmp/cov-session-title-cutoff && mkdir -p ../tmp/cov-session-title-cuto
 | `src/index.ts` | 98.0% (386/394) | 89.2% (91/102) | 100, 115, 139, 323, 335, 362, 370, 381 |
 
 新增 / 删除用例: 新增 `tests/integration/plugin.test.ts` 18 条、`tests/assemble.ts` 1 个装配器、`tests/main.test.ts` 补 5 条; 未删除用例; 未删除夹具。`skip` 计数: 0 (本机 helper 已安装, 条件式 `skip` 未触发)。
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

@@ -137,3 +137,12 @@ rm -rf ../tmp/cov-herdr-integration && mkdir -p ../tmp/cov-herdr-integration && 
 | `pnpm -C herdr-integration run test:integration` | ✓ 11 pass / 0 fail, 3 suites, 约 2.9s |
 
 用例断言一条未改(仅改 import 来源);删 `src/timers.ts` 205 行, 全量 diff 为 6 文件 +18 / -212。
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

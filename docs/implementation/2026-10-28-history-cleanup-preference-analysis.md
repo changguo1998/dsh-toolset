@@ -132,3 +132,12 @@ pnpm -C preference-analysis run test  -> tests 98, pass 98, fail 0, skipped 0, t
 - 用例断言未改 (98 条与阶段 2 末一致, 无新增 / 删除).
 - 非对象 ctx 实跑 (临时脚本, 用后已删): `apply` 与 `createPlugin` 传 `null` / `undefined` / `42` / `"x"` / `true` / `[]` / `{}` 均不抛错, `memoryAvailable` 皆为 `false`, `createPlugin` 告警各 1 条; 与改前判定一致.
 - 5.2 零引用导出: 0 个 (逐符号在 `src` / `tests` / `docs` / `scripts` 中核对, 无「全仓无引用」符号).
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

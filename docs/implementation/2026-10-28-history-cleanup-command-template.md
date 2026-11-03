@@ -133,3 +133,12 @@ rm -rf ../tmp/cov-command-template && mkdir -p ../tmp/cov-command-template && NO
 | `pnpm -C command-template run build` | 通过 (`tsc -p tsconfig.json`) |
 
 改动量: 删 `src/timers.ts` 205 行、`declaredModels` 9 行、`availableProviders` 10 行; 改 5 个文件 (`src/index.ts` / `src/steps.ts` / `src/subagent.ts` / `tests/clock.test.ts` / `package.json`) 与 `pnpm-lock.yaml`, 合计 +27 / -33 行 (不含删除的 205 行). 用例数不变 (单元 48, 集成 12), 断言未改.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

@@ -138,3 +138,12 @@ rm -rf ../tmp/cov-clock-base && mkdir -p ../tmp/cov-clock-base && NODE_V8_COVERA
 | `pnpm -C clock-base run build` | 通过; `dist/src/index.d.ts` 可见 12 个新符号, 构建产物随后清理 |
 
 用例增减: 单元 33 → 35（+2）; 集成 12 不变; 新增两例分别用 `ManualClock.advance` 与 `t.mock.timers.tick`, 不依赖真实等待.
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

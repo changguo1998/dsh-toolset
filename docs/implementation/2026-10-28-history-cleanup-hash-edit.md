@@ -167,3 +167,12 @@ rm -rf ../tmp/cov-hash-edit && mkdir -p ../tmp/cov-hash-edit && NODE_V8_COVERAGE
 | Markdown 引用 | `docs/host/DSH-CTX-API.md` / `ast-tools/README.md` / `docs/ARCHITECTURE-REUSE.md` 三个目标均存在 |
 
 本阶段为文档改动, 未跑代码门禁 (`check` / `test` / `build`); 未改 `src` / `tests` / `package.json` / `tsconfig.json` / `cordis.patch.yml`。
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |

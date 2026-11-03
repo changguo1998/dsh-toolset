@@ -91,3 +91,12 @@ rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction
 | `tests/contract.test.ts` | 删除 | 1 | 对 `@dsh-toolset/rule-engine` 的契约探针（本机不可解析，永远 skip），由 `rule-engine/tests/rules.test.ts` 接管 |
 
 `skip` 与豁免台账：本包当次触发 `skip` 0 条、`todo` 0 条、豁免 0 条。
+
+## 四份测试产物
+
+| 产物 | 位置 |
+| --- | --- |
+| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
+| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
+| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
+| 四个入口实跑 | 见「测试与证据」的入口段 |
