@@ -301,7 +301,7 @@ export function buildFrame(
   report?: FrameScrollReport,
   out?: FrameBuildOutput,
 ): FrameRow[] {
-  // 尺寸唯一来源：几何一次算定（顶部内容行数/两 pane 宽高/排列/排队块占位/状态行行）
+  // 尺寸唯一来源：几何一次算定（顶部内容行数/两 pane 宽高/排列/排队块占位/状态行）
   const geom = frameGeometry(state, size);
   const {
     cols: fullWidth,

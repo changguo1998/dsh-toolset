@@ -48,7 +48,7 @@ function sliceCols(line: string, from: number, to: number): string {
   }
   return out;
 }
-/** 标题栏首行明文（只取会话区 区段，跳过左侧状态列与分隔竖线） */
+/** 标题栏首行明文（只取会话区的区段，跳过左侧状态列与分隔竖线） */
 const titleText = (s: AppState, cols: number): string => {
   const g = frameGeometry(s, { rows: 24, cols });
   const row = rowText(buildFrame(s, { rows: 24, cols })[0]!);

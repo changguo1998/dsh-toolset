@@ -1436,8 +1436,8 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
     rows: 16,
     cols: 40,
   }).map((l) => rowAnsi(l).replace(/\x1b\[[0-9;]*m/g, ""));
-  // 状态行行定位（P1）：状态行不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
-  // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态行行 / 下分隔行
+  // 状态行定位（P1）：状态行不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
+  // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态行 / 下分隔行
   const seps = st
     .map((l, i) => (i > TITLE_BAR_ROWS && isSepRow(l, 40) ? i : -1))
     .filter((i) => i >= 0);
@@ -1446,7 +1446,7 @@ test("会话流：用户块与回答/思考之间恰有一行空行；无回复�
   const statIdx = seps[pair]! + 1;
   assert.ok(
     st[statIdx]!.includes("•"),
-    "状态行行在上下分隔行之间（组间 • 分隔）",
+    "状态行在上下分隔行之间（组间 • 分隔）",
   );
   assert.ok(st[statIdx - 1]!.trimStart().startsWith("─"), "状态行上方 ─ 分隔");
   assert.ok(
@@ -3171,7 +3171,7 @@ test("frameSections：段表覆盖整帧、行带连续且与几何一致", () =
     cursor += sec.lineCount;
   }
   assert.equal(cursor, rows.length, "段表应恰好覆盖整帧行数");
-  // 状态段 = 状态行行数 + 上下两条分隔行
+  // 状态段 = 状态行占的行数 + 上下两条分隔行
   const geom = frameGeometry(state, size);
   assert.equal(
     sections[1]!.lineCount,

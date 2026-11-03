@@ -28,11 +28,11 @@ import { seg } from "./primitives.ts";
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示行 - 分隔行（剩余高度全给上方两个） */
   topHeight: number;
-  /** 状态行行数（可 >1：状态内容溢出到多行时按实际行数） */
+  /** 状态行占的行数（可 >1：状态内容溢出到多行时按实际行数） */
   statusHeight: number;
-  /** 输入区行数 = interaction − 提示行行数（面板态与输入态同高，不随面板开关变化） */
+  /** 输入区行数 = interaction − 提示行占的行数（面板态与输入态同高，不随面板开关变化） */
   footerHeight: number;
-  /** 按键提示行行数（独立区域，位于输入区下方、之间不画横线；1 至 2 行，空文案也占位） */
+  /** 按键提示行占的行数（独立区域，位于输入区下方、之间不画横线；1 至 2 行，空文案也占位） */
   hintHeight: number;
   /** 顶部状态列宽（详细 goal/todo；窄列约 1/3，含右缘分隔竖线，状态列位于最左侧列） */
   statusColWidth: number;
@@ -44,7 +44,7 @@ export function metricsFor(
   size: Size,
   /** 状态区行数（默认 1；可多行溢出时按实际行数压缩顶部区域） */
   statusHeight = 1,
-  /** 按键提示行行数（独立区域，与输入区共同构成底部两行（输入区 + 提示行）；1 至 2 行——按文案与宽度由
+  /** 按键提示行占的行数（独立区域，与输入区共同构成底部两行（输入区 + 提示行）；1 至 2 行——按文案与宽度由
    *  hintRowsFor 算出，空文案也占位 1 行） */
   hintRows = 1,
   /** 布局配置（tui.config.json；缺省某字段 → 原默认公式） */
@@ -274,7 +274,7 @@ export interface FrameGeometry {
   rows: number;
   /** 顶部区域内容行数（rows − 状态区 − 输入区 − 提示行 − 分隔行；不含任何边框行） */
   contentTopH: number;
-  /** 状态区行数 / 输入区 + 提示行行数 / 按键提示行行数（帧底部三段；提示行输入态为 1） */
+  /** 状态区行数 / 输入区 + 提示行合计行数 / 按键提示行占的行数（帧底部三段；提示行输入态为 1） */
   statusHeight: number;
   footerHeight: number;
   hintHeight: number;
@@ -317,7 +317,7 @@ export interface FrameGeometry {
   activitySepRow: number;
   /** 模态面板是否打开（焦点框置空 + footer 空白占位） */
   modalOpen: boolean;
-  /** 状态行行（整屏宽；buildFrame 直接拼接，避免二次计算） */
+  /** 状态行（整屏宽；buildFrame 直接拼接，避免二次计算） */
   statusLines: FrameRow[];
 }
 

@@ -19,7 +19,7 @@ test("集成装配: 启动首帧出满一屏, 含会话区 / 回合区骨架与�
   assert.ok(text.includes("── Session ──"), "会话区节标题");
   assert.ok(text.includes("── Turn ──"), "回合区节标题");
   assert.ok(text.includes("> Type a message..."), "输入区占位提示");
-  assert.ok(text.includes("[/help]"), "提示行行");
+  assert.ok(text.includes("[/help]"), "提示行");
   assert.ok(tui.frames() >= 1, "启动至少出一帧");
   assert.match(tui.output(), /\u001b\[/, "渲染层确实写出了终端报文");
 });
@@ -156,7 +156,7 @@ test("视图投影: 审批事件开面板, Enter 批准并回传适配器", asyn
   const panel = tui.text();
   assert.ok(panel.includes("等待审批"), "面板标题");
   assert.ok(panel.includes("1. 批准") && panel.includes("2. 拒绝"), "选项可见");
-  assert.ok(panel.includes("[Enter]提交"), "提示行行切换为面板按键");
+  assert.ok(panel.includes("[Enter]提交"), "提示行切换为面板按键");
   tui.key("enter");
   await tui.flush();
   assert.deepEqual(tui.adapter.approvals, [{ id: "a1", allow: true }]);

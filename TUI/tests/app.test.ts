@@ -4465,8 +4465,8 @@ test("顶部面板：Ctrl+T 聚焦回合区，↑/PgUp 滚动帮助", async () =
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
-    // 状态行行定位（P1）：状态行不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
-    // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态行行 / 下分隔行
+    // 状态行定位（P1）：状态行不再以「符号 + 空格 + │」起头（符号已移到用户块首行、
+    // 组间改 • 分隔），改按状态区三段结构定位——上分隔行 / 状态行 / 下分隔行
     const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
     assert.ok(sep >= 0 && statusSep > sep, "回合区窗口存在");
     return lines
@@ -4612,8 +4612,8 @@ test("回合区分隔：回合清空后 activityScroll 归零，新回合 ↓ �
     const sep = lines.findIndex(
       (l, i) => i > TITLE_BAR_ROWS && isSepRow(l, 120),
     );
-    // 状态行行定位（P1）：不再按「符号 + 空格 + │」前缀找状态行，改按状态区三段结构
-    // ——上分隔行 / 状态行行 / 下分隔行（回合区 底界 = 状态区上边分隔行）
+    // 状态行定位（P1）：不再按「符号 + 空格 + │」前缀找状态行，改按状态区三段结构
+    // ——上分隔行 / 状态行 / 下分隔行（回合区 底界 = 状态区上边分隔行）
     const statusSep = lines.findIndex((l, i) => i > sep && isSepRow(l, 120));
     assert.ok(sep >= 0 && statusSep > sep, "回合区窗口存在");
     return (

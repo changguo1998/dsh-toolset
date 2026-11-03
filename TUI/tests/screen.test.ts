@@ -141,7 +141,7 @@ test("renderDelta 满高帧：delta 两行各自绝对定位，全程无 CRLF", 
   const idx = out.lastIndexOf(rowText(input));
   assert.ok(
     out.slice(idx + rowText(input).length).startsWith("\x1b[24;1H"),
-    "输入行后绝对定位到提示行行",
+    "输入行后绝对定位到提示行",
   );
   const hidx = out.lastIndexOf(rowText(hint));
   assert.equal(

@@ -168,7 +168,7 @@ test("帧段切分：top 与 status 两段同时变化只重写各自段内变�
   renderer.render(sectionFrame("top B", "○"), SECTIONS);
   const out = chunks.slice(mark).join("");
   assert.ok(!out.includes("\x1b[2J"), "增量帧不得清屏");
-  // 两个独立区间：top 段第 1 行、status 段状态行行（第 7 行）
+  // 两个独立区间：top 段第 1 行、status 段状态行（第 7 行）
   assert.ok(out.includes("\x1b[1;1H"), "top 段区间应定位第 1 行");
   assert.ok(out.includes("\x1b[7;1H"), "status 段区间应定位第 7 行");
   assert.ok(out.includes("top B"), "重写 top 变化行");

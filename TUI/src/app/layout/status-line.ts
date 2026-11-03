@@ -258,10 +258,10 @@ export function renderStatusLine(
 }
 
 /**
- * 状态行行内**框线竖线**（border 色 `│`）的列位置列表（0 基，升序去重）。
+ * 状态行内**框线竖线**（border 色 `│`）的列位置列表（0 基，升序去重）。
  * buildFrame 用它在上/下横线对应列画交点（┬/┴），使竖线两端与横线相接成格。
  * P1 起状态符号段迁至用户块首行、组间分隔改为 `•` 圆点（color="plain"），
- * 状态行行内已无 border 色 `│` 段 → 对当前状态行行恒返回空数组（不画交点）。
+ * 状态行内已无 border 色 `│` 段 → 对当前状态行恒返回空数组（不画交点）。
  */
 export function statusBarSeamCols(row: FrameRow | undefined): number[] {
   if (!row) return [];
