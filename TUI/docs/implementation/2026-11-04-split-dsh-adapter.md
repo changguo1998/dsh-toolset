@@ -69,7 +69,7 @@
 6. **迁移规约**: 每一步只搬位置与改调用签名（`x` → `ctx.state.x` / `emit` → `ctx.emit`）, 函数体、注释、条件与分支顺序逐字保留; 不合并、不重命名、不顺手修.发现真缺陷只记「偏差」并在 BACKLOG 追加新条目, 不在本任务修.
 7. **验证门**: 每步结束跑 `pnpm -C TUI run check` + `pnpm run test:tui`, 步骤 6 与 7 追加 `demo -- --smoke` 与 `tests/focus-frame.test.ts` 专项.
 8. **测试零改动**: `tests/**` 不在改动清单内; 若某步必须改测试才能绿, 说明对内契约被改坏, 停下记偏差并请示, 不改测试迁就实现.
-9. **提交粒度**: 决策点已答「否」（用户 2026-11-04 裁定）——本次文档变更留到关闭后合并; 后续三个提交点（实现后 / 测试后 / 关闭后）仍按 `docs/WORKFLOW-STANDARD.md` §5 各问一次, 默认建议合并为关闭后一次提交.
+9. **提交粒度**: 决策点先答「否」, 后按用户裁定「提交然后继续」单独提交规划文档（`acfd3837`）; 后续三个提交点（实现后 / 测试后 / 关闭后）仍按 `docs/WORKFLOW-STANDARD.md` §5 各问一次, 默认建议合并.
 
 ## 规划
 
@@ -122,19 +122,52 @@
 ## 用户裁定记录（2026-11-04）
 
 1. **拆分范围**: 追加「面板查询」第四组 —— 新增 `adapter/dsh-panels.ts`, `dsh.ts` 目标约 800 行（见决策 3）.
-2. **决策点提交**: 答「否」—— 文档变更留到关闭后合并, 与代码同一提交（见决策 9）.
+2. **决策点提交**: 先答「否」, 后裁定「可以, 提交然后继续」—— 规划文档单独提交为 `acfd3837`（`docs(tui): 拆分 DSH 适配层的规划与追踪文档`）, 实现继续; 其余提交点仍按 §5 逐点询问.
 
 ## 实现记录
 
-（未开始）
+按「机械搬迁 + 后缀改写」一次成型（未逐步落盘, 见偏差 1）:
+
+1. 用一次性脚本 `tmp/split-dsh.mjs` 从原 `dsh.ts` 抽取: 状态声明 → `context.ts` 的 `createState()` 对象; `emit` / `deliverFinalize` / `deliverText` / `deliver` → `context.ts` 的 `createAdapterContext()`; 事件转接（`isCorrectiveEvent` / `applyChunk` / `onAssistantFrame` / `onSessionEvent` / `recordAgentRate` / `emitAgentStatus`, 原 337-359 与 859-1901 行）→ `dsh-events.ts`; 会话面（`resolveContextWindow` / `withTurnBoundaries` / `doReadSessionSurface` / `restoreSessionState` 与 23 个成员）→ `dsh-session.ts`; 审批桥（`settle` / `approvalAnswerer` / `questionAnswerer` 与 7 个成员）→ `dsh-approval.ts`; 面板查询（`workflowRows` 与 32 个成员）→ `dsh-panels.ts`.
+2. 改写规则: 状态标识符加 `s.`（`context.ts` 内加 `state.`）、`emit` / `deliver*` 加 `ctx.`、`toolCallsByCallId` → `ctx.toolCalls`; 只在代码段替换（注释 / 字符串 / 模板字面量按词法跳过）。
+3. 对象成员按起始行切分（65 个成员逐一归类, 脚本断言总数）, 成员前的说明注释回挂到该成员, 避免串组。
+4. `dsh.ts` 只剩: `assembleAdapter`（`Object.defineProperties` 合并, 保留 getter）、工厂装配、`runtime.on` 接线（顺序不变）、jobs 订阅、`dispatchCommand` / `finish` / `formatCommandError` / `collectUnbind`、`runCommand` / `dispose` 两个成员、`installSessionModelSelection` 与全部兼容重导。
+5. 生成后清理: 未使用 import 删除、同源 import 合并、`format`（prettier）统一格式、新文件头注释改为仓库根相对路径（`TUI/src/app/...`）。
+6. 文档回写: `TUI/docs/DESIGN.md` 文件树 adapter 段（第 109-111 行）与两处行为说明（第 416 / 553 行）改点到新文件。
+
+行数变化（`wc -l`）:
+
+| 文件 | 行数 |
+| --- | --- |
+| `adapter/dsh.ts` | 3633 → 577 |
+| `adapter/context.ts` | 新增 206 |
+| `adapter/dsh-events.ts` | 新增 1161 |
+| `adapter/dsh-session.ts` | 新增 766 |
+| `adapter/dsh-approval.ts` | 新增 179 |
+| `adapter/dsh-panels.ts` | 新增 992 |
 
 ## 偏差
 
-（未开始）
+1. **未按计划逐步落盘**: 计划是「每步一搬、每步 check + test 绿」; 实际用一次性脚本搬完全部四组后统一验证（`check` → 单测 → 冒烟）。原因: 五组改动都在同一文件内互相引用, 只搬一组时状态前缀与成员归属仍会二次改写, 分步的中间态无法独立编译。证据: 脚本一次生成, 首轮 `tsc` 仅剩 import / 状态声明边界类错误, 修完即绿。
+2. **两处为目标结构必需的微改（非纯搬迁）**: ① jobs 订阅里的局部 `const events = jobsSvc.events` 与注入的 `events` 桥重名 → 改名 `jobsEvents`（3 行）; ② 被搬代码里 state 标识符作对象简写（`{ activeSessionId }`）与 getter 名（`get workflowRuns()`）不能加前缀 → 改写为 `{ activeSessionId: s.activeSessionId }` / 保留 getter 名（语义等价）。
+3. **`dsh.ts` 比计划的约 800 行更小（577 行）**: 面板成员与 `workflowRows` 全部搬走后, 装配与接线本身只有约 240 行, 其余是兼容重导（`export type` 大块）与 `installSessionModelSelection`。
+4. **`isCorrectiveEvent` / `isReplaceOp` 位置**: 原为 `dsh.ts` 的模块级私有函数, 现搬进 `dsh-events.ts`（唯一使用方）; 未新增导出。
+5. **`TUI/docs/DESIGN.md` 的 `src/app/adapter/dsh.ts:1` 类注释路径警告**: 沿用仓库现有写法（`src/app/...`）与既有 588 处存量同类, 未在本任务一并改（属项目级 backlog「清理 .ts 注释里的简写路径」）。新文件头改用完整路径, 不新增该类警告。
 
 ## 测试与证据
 
-（未开始）
+| 命令 | 结果 |
+| --- | --- |
+| `pnpm -C TUI run check` | 退出 0（`tsc -p tsconfig.json --noEmit`） |
+| `pnpm run test:tui` | tests 1829 / pass 1829 / fail 0 / skipped 0, 8208 ms（与拆分前基线同为 1829） |
+| `pnpm run test:tui -- tests/focus-frame.test.ts` | pass 1 / fail 0（帧逐行基线未重冻, 内容一致） |
+| `pnpm -C TUI run demo -- --smoke` | 末行 `SMOKE_OK` |
+| `pnpm -C TUI run build` | 退出 0（`tsc -p tsconfig.json`） |
+| `pnpm run check`（全仓 34 包） | 退出 0 |
+| `node dev/standard/index.mjs` | `check:docs` 通过: 错误 0 / 警告 653（新增 0 条, 见偏差 5） |
+
+拆分前后对拍: 适配器对外导出集合未变（`src/app/{index.ts,main.ts,state,components}` 与 `tests/` 的 import 路径零改动）; 事件注册顺序未变（`user-questions` → `session/event` → `goal/activation` → `assistant-stream` → `agent/status` → `subagent/*` → `approval/request` → jobs, 与拆分前一致）。
+未验证: 真机 `smoke:pty`（需模型凭据, 与拆分前同样的环境限制）; `install.sh --sync` 后的主 profile 行为（属用户按需执行）。
 
 ## 收尾
 

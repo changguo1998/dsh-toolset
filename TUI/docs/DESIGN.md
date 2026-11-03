@@ -106,8 +106,9 @@ TUI/
       local-shell.ts     # `$` 模式本地子进程执行（非交互、超时与输出截断）
       question-transition.ts / model-transition.ts   # 问答 / 模型选择纯状态转换
       components/        # Box 生成器：TextInput、审批、问答、ModelPicker、各列表面板…
-      adapter/           # 插拔边界：dsh.ts（ctx 订阅与归一化）、types.ts、normalize.ts、
-                         #   session-paths.ts、session-ui-state.ts、tool-bootstrap.ts
+      adapter/           # 插拔边界：dsh.ts（装配 + 兼容重导）、context.ts（状态与事件出口）、
+                         #   dsh-events.ts / dsh-session.ts / dsh-approval.ts / dsh-panels.ts（按面拆分）、
+                         #   types.ts、normalize.ts、session-paths.ts、session-ui-state.ts、tool-bootstrap.ts
       stderr-bridge.ts   # 运行期 stderr 桥：按行转交回合区（项目级「插件告警改道回合区」方案 A）
       index.ts           # App：组装层，副作用（adapter 调用 / paint / notice / 异步）都在此
   bench/                 # 排版性能基准（pnpm run bench → bench/layout-bench.mts）
@@ -412,7 +413,7 @@ adapter / state 为每个 session 记录 `lastSeq`：`event.seq <= lastSeq` → 
 - **非流式回复补发**：`assistant/message` 是每个 step 结束必发的完整正文 surface 事件。adapter 按 `(session:turn:step)` 累计已流式输出的正文（reasoning 不计），该事件只补发缺失后缀；非流式 / 无思考 provider（无任何 chunk）累计为空 → 直接输出完整正文。`surfaceOp` 按宿主 `SurfaceOp` 形态识别（`'append'` 或 `{ op: 'replace', startSeq, endSeq }`；事件顶层优先，兼容 `data` 内），`assistant/message`、`user/message`、`tool/result` 三类 surface 事件命中 replace 一律跳过整条（`isCorrectiveEvent`）；**不支持**按 `startSeq` / `endSeq` 做范围重写（缓冲行不保留源事件 seq 的映射），更正内容需重现时由模型重新整段 append，或用 `/session` 重载会话从持久化事件重建画面。；`turn/end` 与 dispose 清空累计。
 - **消息 identified**：`buildUserMessage` 用 `crypto.randomUUID()` 生成稳定消息 `id`——`agent/inbox/spliced` 与 `user/message` 均带 identified 标记；缺 id 会导致后续 `agents.resume` 全量校验抛 `SessionPersistenceCorruptionError`（会话永久不可 resume）。
 - **空白分片丢弃（P5）**：宿主每个 step 末尾常补发「只有换行」的文本块（实测 190 个文本分片里 154 个是 `"\n\n"`），逐行落 buffer 会在思考 / 工具行之后留下成片空行。判据：整段仅空白 **且**（上一行是异 kind 或 buffer 为空）才丢弃；同 kind 内部的空白分片维持现状（软换行与段落空行语义不变），也不做段尾空行清理。丢弃后置 `streamBreak`，使下一条流式分片另起一行（不并入末行、不粘行：否则两个思考分片会被粘成一行、原本的空行变成缺空格）；流式分片消费后清位、非流式分片不动。守成测试：`tests/p5-blank-chunk.test.ts`。
-- **恢复会话的工具记录（2026-10-10 改口径）**：resume **逐条还原**工具批（`adapter/dsh.ts` 的 `normalizeHistoryMessages`）：`step/start` → `role:"step"` 的 step 头行（`stepHeaderLine(step, time, turn)`，与 P6 实时形制一致）、`tool/call` → `role:"tool"` 的调用行（`toolCallLine(name, summarizeToolArguments(args))`）、`tool/result` → `role:"tool"` 的结果行（`toolResultLine(!error, toolResultDetail(message), meta)`；失败判定与实时同口径——`tool/result.error` 存在即失败）。`commands.ts` 的 `surfaceToBuffer` 把 `"step"` / `"tool"` 原样转成 buffer `kind:"step"` / `kind:"tool"`，`layout/pipeline/replay.ts` 再按行形制还原 `tool-call` / `tool-result` 交付（callId 用 `replay:<turn>:<step>:<index>`）→ 与实时路径同形制、三类可区分（用户块带终态符号 / 正文段 / 工具批）。thinking 仍不还原；整条纯空白文本直接丢弃，不产出空行。守成测试：`tests/resume-summary.test.ts`、`tests/adapter.dsh.test.ts`。
+- **恢复会话的工具记录（2026-10-10 改口径）**：resume **逐条还原**工具批（`adapter/dsh-session.ts`，归一化函数 `normalizeHistoryMessages` 见 `adapter/history-normalize.ts`）：`step/start` → `role:"step"` 的 step 头行（`stepHeaderLine(step, time, turn)`，与 P6 实时形制一致）、`tool/call` → `role:"tool"` 的调用行（`toolCallLine(name, summarizeToolArguments(args))`）、`tool/result` → `role:"tool"` 的结果行（`toolResultLine(!error, toolResultDetail(message), meta)`；失败判定与实时同口径——`tool/result.error` 存在即失败）。`commands.ts` 的 `surfaceToBuffer` 把 `"step"` / `"tool"` 原样转成 buffer `kind:"step"` / `kind:"tool"`，`layout/pipeline/replay.ts` 再按行形制还原 `tool-call` / `tool-result` 交付（callId 用 `replay:<turn>:<step>:<index>`）→ 与实时路径同形制、三类可区分（用户块带终态符号 / 正文段 / 工具批）。thinking 仍不还原；整条纯空白文本直接丢弃，不产出空行。守成测试：`tests/resume-summary.test.ts`、`tests/adapter.dsh.test.ts`。
 - **零宽字符宽度**：`charWidth` 对组合附加符 / 变体选择符 / ZWJ / ZWSP / emoji 肤色修饰符等计 0 列（对齐 Markus Kuhn wcwidth 零宽表），避免工具内容夹带特殊字符时总宽度虚高或提前换行。
 
 #### 事件 → 状态 → 渲染
@@ -549,7 +550,7 @@ plan 无记录即 off）。模型命中即写回 `sessionModel.current`（`agent
 
 **审批交互族与提问上下文（3.2.4 / 3.2.5 / 3.2.6 / 3.2.10 / 3.3.1 / 3.3.2 / 3.3.3 / 3.3.4 / 3.3.5 / 3.3.6）**
 
-- `adapter/dsh.ts`：`tool/call` 归一额外登记 `callId → { tool, command, summary }`（LRU 上限 64；裁定 / 超时 / abort 后清理）；超时裁定为 `rejected`（3.3.5）并提供 `stopApprovalTimeout(id)`（用户已操作后停止计时）；`approvalAnswerer` 用 `buildApprovalPrompt(req, detail)` 生成多行草稿；`settle(id, outcome, reason?)` 在宿主侧裁定（超时 / abort）时补发 `approval-closed`；新增 `cancelApproval(id)`（Esc → `cancelled`）。
+- `adapter/dsh-events.ts` / `adapter/dsh-approval.ts`：`tool/call` 归一额外登记 `callId → { tool, command, summary }`（LRU 上限 64；裁定 / 超时 / abort 后清理）；超时裁定为 `rejected`（3.3.5）并提供 `stopApprovalTimeout(id)`（用户已操作后停止计时）；`approvalAnswerer` 用 `buildApprovalPrompt(req, detail)` 生成多行草稿；`settle(id, outcome, reason?)` 在宿主侧裁定（超时 / abort）时补发 `approval-closed`；新增 `cancelApproval(id)`（Esc → `cancelled`）。
 - `adapter/normalize.ts`：`buildApprovalPrompt` 支持 `ApprovalDetail`（「命令：」全文 + 「参数：」摘要），无明细退化为单行旧文案。
 - `state.ts`：审批态新增 `approvalFocus` / `approvalWindow`（焦点窗，3.3.4）/ `approvalDeadline` / `approvalHint` 与 `focusApproval` / `toggleApprovalWindow` / `setApprovalHint`；`question.source` 与纯函数 `recentQuestionSource(buffer)`；`question-move.delta` 放宽为 number（数字键跨多项跳转）。
 - `components/ApprovalPrompt.ts`：描述窗 + 选项窗两窗（2/3 规则）、选项固定「批准 / 拒绝」带编号与焦点标记、拒绝项倒计时；`ApprovalView`（focus / deadline / now / window（焦点窗 3.3.4）/ hint（面板内提示 3.3.6））为渲染参数；焦点窗决定左侧列与选项光标着色（3.2.8 口径），`hint` 行先占 1 行再分配两窗（面板总高不变）。
