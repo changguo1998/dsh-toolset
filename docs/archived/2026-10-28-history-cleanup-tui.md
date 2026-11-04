@@ -71,17 +71,9 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 ## 实现记录
 
-- 集成层: 新增 `TUI/tests/assemble.ts`（装配器, 不以 `.test.ts` 结尾）与 `TUI/tests/integration/app.test.ts`（12 条）。装配器用真实 `App` + 真实 `createRenderer`（注入 `write` 捕获报文, `rawMode: false` 不写模式序列, `exitOnClose: false` 不结束进程）+ 假适配器 `FakeAdapter` + 可选假状态查询; 唯一被替换的终端能力是 CPR 宽度实测（立即回空表, App 走「终端不支持 CPR」分支沿用静态宽度表, 真探测归 `smoke:pty` 与 `width-probe` 单测）。断言分三类: 命令分派（未知 `/` 命令进宿主注册表、`/help`、`/theme`、`/new`）、视图投影（用户块、思考 / 正文 / 工具调用与结果、审批面板、问答面板、交付直灌）、帧文本（首帧 80x24 骨架、状态行时间 / 分支 / cwd、底部提示行、面板提示行）。
-
-- 起始态: 装配器在 `start()` 之后推一条 `session-title` 事件确立活跃会话（生产适配器同为接线后时序）。少了它 `activeSessionId` 停在 null, `/new` 走 `sectionsSessionId === null` 的「会话建立过渡」分支, 旧会话内容不会随切换重建节缓存。
-
-- 单元锚点: 新增 `TUI/tests/terminal.test.ts`（7 条）, 覆盖 `src/renderer/terminal.ts` 的 `setRawMode` 三种判定（非 TTY 静默失败 / TTY 成功 / 底层抛错回落 `isRaw`）与 `createTerminal` 的 raw 开关、`close`、尺寸回落（TTY 读数、非 TTY 与零尺寸回 80x24）、`onResize` 订阅。
+> 测试锚点、装配器、夹具与覆盖率缺口的说明见「四份测试产物」; 本节保留脚本与阶段 3 实现记录.
 
 - 脚本: `TUI/package.json` 增 `test:integration`（`node --experimental-transform-types --test 'tests/integration/*.test.ts'`）、`test:coverage`（单元 + 集成两轮 glob; 覆盖率原始 JSON 落 `../tmp/cov-tui`（相对 `TUI/`）, 报告落 `tmp/cov-tui/report.json`（相对仓库根））、`test:e2e`（`pnpm run demo:build -- --smoke` 与 `pnpm run smoke:pty` 串联）。
-
-- 专项复核: `tests/app.test.ts:354` 的条件 `skip` 属 4.4 允许的「仓库不在家目录」一类, 保留不动; 本机仓库在家目录下, 本轮实测 `skipped` 为 0。`tests/fixtures/` 两个夹具均在用: `focus-frame-legacy.json` 由 `tests/focus-frame.test.ts` 读取（冻结基线）, `status-column-old.ts` 由 `tests/status-column-equivalence.test.ts` 导入（旧实现快照）, 都保留。
-
-- 缺口取舍: `src/main.ts` 仍是最大未覆盖面（行 47.1%）, 其 `apply()` 属宿主接线, 留代码阶段与包文档阶段; 按「少量缺口锚点」本次只补 `renderer/terminal.ts`。
 
 - 阶段 3 第一批（2026-10-28, 分支 `history-cleanup/03-code-tui`）: 长文件拆分留第二批, 本轮只做五步里的删失效、收拢判断与注释。逐项:
 
@@ -156,35 +148,8 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 ## 测试与证据
 
-工作目录 `TUI/`, node v24.16.0。四条入口实跑:
+> 覆盖率、用例清单、`skip` 与四入口实跑数据见「四份测试产物」; 本节保留阶段 3 各批实跑与判断说明.
 
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm -C TUI run check` | ✓ 0 error（`tsc --noEmit`, 含 `tests/` / `demo/` / `bench/`） |
-| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo, 8.3s |
-| `pnpm -C TUI run test:integration` | ✓ 12 pass / 0 fail |
-| `pnpm -C TUI run test:coverage` | ✓ 1840 pass / 0 fail, 产物 `tmp/cov-tui/report.json` |
-| `pnpm -C TUI run test:e2e` | ✗ `demo:build -- --smoke` ✓（`SMOKE_OK`）; `smoke:pty` ✗（缺凭据, 见偏差） |
-
-覆盖率（只统 `src`）:
-
-| 指标 | 改前 | 改后 |
-| --- | --- | --- |
-| 行 | 24160/27645 = 87.39% | 24183/27645 = 87.48% |
-| 分支 | 6255/7976 = 78.42% | 6270/7996 = 78.41%（分母 +20, 见偏差） |
-
-分文件（只列有变化的行数 / 分支数）:
-
-| 文件 | 行 | 分支 |
-| --- | --- | --- |
-| `TUI/src/renderer/terminal.ts` | 67.9% → 96.3% | 33.3% → 92.3% |
-| `TUI/src/renderer/index.ts` | 90.5% → 91.1% | 76.0% → 76.0% |
-| `TUI/src/app/index.ts` | 82.3% → 82.3%（覆盖行 -1） | 67.5% → 67.4% |
-| `TUI/src/app/layout.ts` | 96.2% → 96.1%（覆盖行 -2） | 88.7% → 88.7% |
-
-- 新增与删除用例: 新增 19 条（集成 12、单元 7）与装配器 1 个（`tests/assemble.ts`）; 删除 0 条; 存量断言未改语义。
-- `skip` 计数: 0（本机环境探测未触发）; 条件式 `skip` 仍保留 1 处（`tests/app.test.ts:354`）。
-- 夹具: 2 个保留, 均有引用（见实现记录）; 未删任何夹具。
 - 边界: 未改 `src`; 未改总追踪 / 阶段追踪 / 其它包; 未 push / 未合并。
 
 ### 阶段 3 第一批（2026-10-28）
@@ -285,9 +250,50 @@ rm -rf ../tmp/cov-TUI && mkdir -p ../tmp/cov-TUI && NODE_V8_COVERAGE=../tmp/cov-
 
 ## 四份测试产物
 
-| 产物 | 位置 |
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+覆盖率 (只统 `src`):
+
+| 指标 | 改前 | 改后 |
+| --- | --- | --- |
+| 行 | 24160/27645 = 87.39% | 24183/27645 = 87.48% |
+| 分支 | 6255/7976 = 78.42% | 6270/7996 = 78.41%（分母 +20, 见偏差） |
+
+分文件 (只列有变化的行数 / 分支数):
+
+| 文件 | 行 | 分支 |
+| --- | --- | --- |
+| `TUI/src/renderer/terminal.ts` | 67.9% → 96.3% | 33.3% → 92.3% |
+| `TUI/src/renderer/index.ts` | 90.5% → 91.1% | 76.0% → 76.0% |
+| `TUI/src/app/index.ts` | 82.3% → 82.3%（覆盖行 -1） | 67.5% → 67.4% |
+| `TUI/src/app/layout.ts` | 96.2% → 96.1%（覆盖行 -2） | 88.7% → 88.7% |
+
+- 缺口取舍: `src/main.ts` 仍是最大未覆盖面（行 47.1%）, 其 `apply()` 属宿主接线, 留代码阶段与包文档阶段; 按「少量缺口锚点」本次只补 `renderer/terminal.ts`。
+
+### 用例清单
+
+- 集成层: 新增 `TUI/tests/assemble.ts`（装配器, 不以 `.test.ts` 结尾）与 `TUI/tests/integration/app.test.ts`（12 条）。装配器用真实 `App` + 真实 `createRenderer`（注入 `write` 捕获报文, `rawMode: false` 不写模式序列, `exitOnClose: false` 不结束进程）+ 假适配器 `FakeAdapter` + 可选假状态查询; 唯一被替换的终端能力是 CPR 宽度实测（立即回空表, App 走「终端不支持 CPR」分支沿用静态宽度表, 真探测归 `smoke:pty` 与 `width-probe` 单测）。断言分三类: 命令分派（未知 `/` 命令进宿主注册表、`/help`、`/theme`、`/new`）、视图投影（用户块、思考 / 正文 / 工具调用与结果、审批面板、问答面板、交付直灌）、帧文本（首帧 80x24 骨架、状态行时间 / 分支 / cwd、底部提示行、面板提示行）。
+- 起始态: 装配器在 `start()` 之后推一条 `session-title` 事件确立活跃会话（生产适配器同为接线后时序）。少了它 `activeSessionId` 停在 null, `/new` 走 `sectionsSessionId === null` 的「会话建立过渡」分支, 旧会话内容不会随切换重建节缓存。
+- 单元锚点: 新增 `TUI/tests/terminal.test.ts`（7 条）, 覆盖 `src/renderer/terminal.ts` 的 `setRawMode` 三种判定（非 TTY 静默失败 / TTY 成功 / 底层抛错回落 `isRaw`）与 `createTerminal` 的 raw 开关、`close`、尺寸回落（TTY 读数、非 TTY 与零尺寸回 80x24）、`onResize` 订阅。
+- 新增与删除用例: 新增 19 条（集成 12、单元 7）与装配器 1 个（`tests/assemble.ts`）; 删除 0 条; 存量断言未改语义。
+- 夹具: 2 个保留, 均有引用。`tests/fixtures/` 的 `focus-frame-legacy.json` 由 `tests/focus-frame.test.ts` 读取（冻结基线）, `status-column-old.ts` 由 `tests/status-column-equivalence.test.ts` 导入（旧实现快照）, 都保留; 未删任何夹具。
+
+### skip 计数与豁免台账
+
+- `skip` 计数: 0（本机环境探测未触发）; 条件式 `skip` 仍保留 1 处（`tests/app.test.ts:354`）。
+- 专项复核: 该条件 `skip` 属 4.4 允许的「仓库不在家目录」一类, 保留不动; 本机仓库在家目录下, 本轮实测 `skipped` 为 0。
+- 豁免台账: 无 (原文未记).
+
+### 四入口实跑
+
+工作目录 `TUI/`, node v24.16.0。四条入口实跑:
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段; TUI 另有 `test:e2e` |
+| `pnpm -C TUI run check` | ✓ 0 error（`tsc --noEmit`, 含 `tests/` / `demo/` / `bench/`） |
+| `pnpm -C TUI run test` | ✓ 1828 pass / 0 fail / 0 skip / 0 todo, 8.3s |
+| `pnpm -C TUI run test:integration` | ✓ 12 pass / 0 fail |
+| `pnpm -C TUI run test:coverage` | ✓ 1840 pass / 0 fail, 产物 `tmp/cov-tui/report.json` |
+| `pnpm -C TUI run test:e2e` | ✗ `demo:build -- --smoke` ✓（`SMOKE_OK`）; `smoke:pty` ✗（缺凭据, 见偏差） |
