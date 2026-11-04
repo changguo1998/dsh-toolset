@@ -53,11 +53,8 @@ rm -rf ../tmp/cov-symbol-normalizer && mkdir -p ../tmp/cov-symbol-normalizer && 
 
 ## 实现记录
 
-- 基线: `pnpm -C symbol-normalizer run test` 43 条通过 (0 失败 / 0 跳过 / 0 todo); `check` 通过. 覆盖率行 96.9% (628/648)、分支 81.9% (113/138), 与「现状」一致.
-- 单元锚点: `tests/review.test.ts` 追加 3 条 —— 别名映射到空串时的「请删除」文案与同 emoji 去重、只有警示时 notice 的格式 (`未推荐符号: ...` 无前导 `；`)、emoji 冷却期内跳过且过期恢复. 现有断言语义未改.
-- 集成层: 新增 `tests/assemble.ts` (假消费者注册面 + 假事件派发面 + 假展示面, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (10 条). 装配方式为 `apply` → 注册消费者 → 按 `sources` 派发 `turn-end` / `session-start` / `compaction` / `step-end` → 审查 → 按 `delivery` 投影 `[RULE]` 消息; 展示面经 `provide("symbolNormalizer")` 取服务并订阅 `onReview`.
-- 集成覆盖点: 两个消费者注册参数、服务面 `normalize` / `status` 与配置透传、回合审查注入正文与 `source.summary`、代码围栏与内联代码豁免、`warnModel=false` 只推 notice、按符号冷却、开局指南触发面与 `injectGuide=false`、`effect` 注销与 `onReview` 退订、rule-engine 缺席、注册面 / `provide` 抛错降级、监听器抛错不影响注入.
-- 脚本: `package.json` 增加 `test:integration` 与 `test:coverage`; 覆盖率命令照包文档, 目录 `tmp/cov-symbol-normalizer`.
+> 基线、单元锚点、集成层与脚本见「四份测试产物」; 本节保留范围说明与偏差.
+
 - `src` 未改; 无新增 / 删除夹具与 `skip`.
 
 ## 偏差
@@ -66,16 +63,16 @@ rm -rf ../tmp/cov-symbol-normalizer && mkdir -p ../tmp/cov-symbol-normalizer && 
 
 ## 测试与证据
 
-四条命令全绿 (本机, 2026-11-01):
+> 四入口、覆盖率、分层贡献与跳过计数见「四份测试产物」.
 
-```text
-pnpm -C symbol-normalizer run check             -> 通过 (tsc --noEmit, 无输出)
-pnpm -C symbol-normalizer run test              -> 46 通过 / 0 失败 / 0 跳过 / 0 todo
-pnpm -C symbol-normalizer run test:integration  -> 10 通过 / 0 失败 / 0 跳过 / 0 todo
-pnpm -C symbol-normalizer run test:coverage     -> 56 通过 / 0 失败
-```
+## 四份测试产物
 
-覆盖率 (只统 `src`; 未覆盖行按报告口径, 为 0 基行号):
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+- 基线: 覆盖率行 96.9% (628/648)、分支 81.9% (113/138), 与「现状」一致.
+- 覆盖率 (只统 `src`; 未覆盖行按报告口径, 为 0 基行号):
 
 | 文件 | 改前行 | 改后行 | 改前分支 | 改后分支 | 改后未覆盖行 |
 | --- | --- | --- | --- | --- | --- |
@@ -87,13 +84,28 @@ pnpm -C symbol-normalizer run test:coverage     -> 56 通过 / 0 失败
 
 - 分层贡献: 两轮跑取差 —— 单元层单跑行 97.1% (629/648) / 分支 83.5% (116/139); 单元加集成后行 98.5% (638/648) / 分支 87.2% (123/141), 集成层贡献 9 行、7 个分支.
 - 剩余未覆盖行经实跑核对为 V8 range 映射伪差: 对应的 `emojiInstrs.push` (review 61-62)、`let variantCount` (review 68)、`provide` 的 catch (index 183-185)、`resolveSymbolRules` 的别名合并与返回 (symbols 302-303) 均由新增用例执行; 类型声明行 (index 50、review 25) 为 transform 期残留. 无不可达防御分支需要豁免.
+
+### 用例清单
+
+- 基线: `pnpm -C symbol-normalizer run test` 43 条通过 (0 失败 / 0 跳过 / 0 todo); `check` 通过.
+- 单元锚点: `tests/review.test.ts` 追加 3 条 —— 别名映射到空串时的「请删除」文案与同 emoji 去重、只有警示时 notice 的格式 (`未推荐符号: ...` 无前导 `；`)、emoji 冷却期内跳过且过期恢复. 现有断言语义未改.
+- 集成层: 新增 `tests/assemble.ts` (假消费者注册面 + 假事件派发面 + 假展示面, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (10 条). 装配方式为 `apply` → 注册消费者 → 按 `sources` 派发 `turn-end` / `session-start` / `compaction` / `step-end` → 审查 → 按 `delivery` 投影 `[RULE]` 消息; 展示面经 `provide("symbolNormalizer")` 取服务并订阅 `onReview`.
+- 集成覆盖点: 两个消费者注册参数、服务面 `normalize` / `status` 与配置透传、回合审查注入正文与 `source.summary`、代码围栏与内联代码豁免、`warnModel=false` 只推 notice、按符号冷却、开局指南触发面与 `injectGuide=false`、`effect` 注销与 `onReview` 退订、rule-engine 缺席、注册面 / `provide` 抛错降级、监听器抛错不影响注入.
+- 脚本: `package.json` 增加 `test:integration` 与 `test:coverage`; 覆盖率命令照包文档, 目录 `tmp/cov-symbol-normalizer`.
+- 新增与删除: 新增 3 条单元用例与 10 条集成用例; 删除 0 条.
+
+### skip 计数与豁免台账
+
 - `skipped` 0 / `todo` 0; 未删用例与夹具.
+- 豁免台账: 无 (原文未记).
 
-## 四份测试产物
+### 四入口实跑
 
-| 产物 | 位置 |
+四条命令全绿 (本机, 2026-11-01):
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C symbol-normalizer run check` | 通过 (tsc --noEmit, 无输出) |
+| `pnpm -C symbol-normalizer run test` | 46 通过 / 0 失败 / 0 跳过 / 0 todo |
+| `pnpm -C symbol-normalizer run test:integration` | 10 通过 / 0 失败 / 0 跳过 / 0 todo |
+| `pnpm -C symbol-normalizer run test:coverage` | 56 通过 / 0 失败 |
