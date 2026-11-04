@@ -188,7 +188,7 @@ export interface PreferencePlugin {
 /** 创建实例的依赖。 */
 export interface PluginDeps {
   ctx?: unknown;
-  config?: Config;
+  config?: Config | undefined;
   /** 注入时钟（测试推进老化用）。 */
   now?: () => number;
   warn?: (message: string) => void;
