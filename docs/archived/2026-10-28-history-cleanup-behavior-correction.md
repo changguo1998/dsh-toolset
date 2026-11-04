@@ -51,12 +51,9 @@ rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction
 
 ## 实现记录
 
-- 基线：`pnpm -C behavior-correction run test` 33 条（32 通过、1 skip = `contract.test.ts` 的 `@dsh-toolset/rule-engine` 契约探针）；`run check` 通过；覆盖率 行 90.8%（326/359）、分支 85.3%（87/102）。
-- 单元锚点：新增 `behavior-correction/tests/index.test.ts`（13 条），补 `src/index.ts` 未被现有用例走到的分支与错误路径 —— `resolveConfig` 的 rules 缺席 / 非数组兜底；`compileRules` 的 `tool` 非法（数字、空数组、全非法项）、`match` 非对象、`match.keywords` / `match.regex` 非字符串数组、`exclude` 非对象、`exclude.keywords` / `exclude.regex` 非法、`exclude` 正则无效、混合列表只留合法项、`g` / `y` 从 flags 去掉、无 `id` 规则的序号标签；`matchRule` 的 tool 限定跳过与 exclude 弃权、空上下文；`apply` 的 `ctx` 为 null / undefined、严格模式直读 `ctx.ruleEngine` 抛错回退 `ctx.get`、直接属性非注册面、`registerConsumer` 不返回注销函数、宿主不给 `ctx.on`。
-- 集成层：新增 `behavior-correction/tests/assemble.ts`（装配器，不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（13 条）。装配器按总规范 4.2 拼三个假面 —— 假工具面是 `tools/pre-execute` 的 waterfall（按注册顺序派发，首个 `deny` 胜出、`undefined` 弃权交下一位）、假事件面是 `ctx.on` / `emit("dispose")`、假服务面是 `ctx.get("ruleEngine")` 的 `registerConsumer` 注册面；另支持直接属性暴露、严格模式直读抛错、注册被拒与无注销函数四种接线形态。断言覆盖：注册项 `id` / `sources`、拒绝回执 `kind: "deny"` 且 `reason` 等于 `DEFAULT_RULES[0].reason`、waterfall 弃权与命中、`dispose` 事件注销一次且返回值幂等、服务缺席 / 严格模式 / 注册被拒 / 非注册面四种降级、`enabled: false` 与自定义规则整体替换、非法正则告警后其余规则照常。本包无工具注册、无服务 provide、不落盘，故集成层不涉及临时目录。
-- 专项：删除 `tests/contract.test.ts`（文件内容只有那个探针；本仓布局下 `@dsh-toolset/rule-engine` 不可解析、本机永远 skip，`CONSUMER_SOURCES` 已由 `rule-engine/tests/rules.test.ts` 锁定）。删后本包 `skip` 计数 0，夹具 0 个（无需复核）。`tests/main.test.ts` 未改，原因见「偏差」。
+> 测试基线、单元锚点、集成层、专项与覆盖率见「四份测试产物」; 本节保留脚本与偏差.
+
 - 脚本：`behavior-correction/package.json` 增加 `test:integration` 与 `test:coverage`（后者按包文档的命令写，报告目录用 `tmp/cov-behavior-correction`，与 `auto-approve` 同形）。
-- 覆盖率：行 90.8% → 98.6%，分支 85.3% → 98.4%（单元 + 集成，分母 359 行 / 122 分支）；只跑单元层为 98.6% / 99.2%（120/121 分支），集成层不增加 `src` 行覆盖，作用是锚定 `apply` 的接线值。
 
 ## 偏差
 
@@ -65,14 +62,16 @@ rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction
 
 ## 测试与证据
 
-命令（均在 `behavior-correction/` 下执行，分支 `history-cleanup/02-tests-behavior-correction`）：
+> 四入口、覆盖率、用例清单与 `skip` 见「四份测试产物」.
 
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm run check` | ✓ 通过（`tsc -p tsconfig.json --noEmit`，无输出） |
-| `pnpm run test` | ✓ 46 条通过 / 0 失败 / 0 skip / 0 todo（改前 33 条、1 skip） |
-| `pnpm run test:integration` | ✓ 13 条通过 / 0 失败 / 0 skip |
-| `pnpm run test:coverage` | ✓ 单元 + 集成全跑通，报告 `tmp/cov-behavior-correction/report.json` |
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+- 基线: 覆盖率 行 90.8%（326/359）、分支 85.3%（87/102）。
+- 结果: 行 90.8% → 98.6%，分支 85.3% → 98.4%（单元 + 集成，分母 359 行 / 122 分支）；只跑单元层为 98.6% / 99.2%（120/121 分支），集成层不增加 `src` 行覆盖，作用是锚定 `apply` 的接线值。
 
 覆盖率（`dev/coverage/report.mjs`）：
 
@@ -80,6 +79,13 @@ rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction
 | --- | --- | --- | --- | --- | --- |
 | `behavior-correction/src/index.ts` | 90.8% (326/359) | 85.3% (87/102) | 98.6% (354/359) | 98.4% (120/122) | 373-377（统计残余，见「偏差」） |
 | 合计 | 90.8% | 85.3% | 98.6% | 98.4% | - |
+
+### 用例清单
+
+- 基线: `pnpm -C behavior-correction run test` 33 条（32 通过、1 skip = `contract.test.ts` 的 `@dsh-toolset/rule-engine` 契约探针）；`run check` 通过。
+- 单元锚点：新增 `behavior-correction/tests/index.test.ts`（13 条），补 `src/index.ts` 未被现有用例走到的分支与错误路径 —— `resolveConfig` 的 rules 缺席 / 非数组兜底；`compileRules` 的 `tool` 非法（数字、空数组、全非法项）、`match` 非对象、`match.keywords` / `match.regex` 非字符串数组、`exclude` 非对象、`exclude.keywords` / `exclude.regex` 非法、`exclude` 正则无效、混合列表只留合法项、`g` / `y` 从 flags 去掉、无 `id` 规则的序号标签；`matchRule` 的 tool 限定跳过与 exclude 弃权、空上下文；`apply` 的 `ctx` 为 null / undefined、严格模式直读 `ctx.ruleEngine` 抛错回退 `ctx.get`、直接属性非注册面、`registerConsumer` 不返回注销函数、宿主不给 `ctx.on`。
+- 集成层：新增 `behavior-correction/tests/assemble.ts`（装配器，不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（13 条）。装配器按总规范 4.2 拼三个假面 —— 假工具面是 `tools/pre-execute` 的 waterfall（按注册顺序派发，首个 `deny` 胜出、`undefined` 弃权交下一位）、假事件面是 `ctx.on` / `emit("dispose")`、假服务面是 `ctx.get("ruleEngine")` 的 `registerConsumer` 注册面；另支持直接属性暴露、严格模式直读抛错、注册被拒与无注销函数四种接线形态。断言覆盖：注册项 `id` / `sources`、拒绝回执 `kind: "deny"` 且 `reason` 等于 `DEFAULT_RULES[0].reason`、waterfall 弃权与命中、`dispose` 事件注销一次且返回值幂等、服务缺席 / 严格模式 / 注册被拒 / 非注册面四种降级、`enabled: false` 与自定义规则整体替换、非法正则告警后其余规则照常。本包无工具注册、无服务 provide、不落盘，故集成层不涉及临时目录。
+- 专项：删除 `tests/contract.test.ts`（文件内容只有那个探针；本仓布局下 `@dsh-toolset/rule-engine` 不可解析、本机永远 skip，`CONSUMER_SOURCES` 已由 `rule-engine/tests/rules.test.ts` 锁定）。删后本包 `skip` 计数 0，夹具 0 个（无需复核）。`tests/main.test.ts` 未改，原因见「偏差」。
 
 新增与删除用例清单：
 
@@ -90,13 +96,18 @@ rm -rf ../tmp/cov-behavior-correction && mkdir -p ../tmp/cov-behavior-correction
 | `tests/integration/plugin.test.ts` | 新增 | 13 | 注册面值、拒绝文案、waterfall、dispose 事件、四种服务面降级、配置面 |
 | `tests/contract.test.ts` | 删除 | 1 | 对 `@dsh-toolset/rule-engine` 的契约探针（本机不可解析，永远 skip），由 `rule-engine/tests/rules.test.ts` 接管 |
 
-`skip` 与豁免台账：本包当次触发 `skip` 0 条、`todo` 0 条、豁免 0 条。
+### skip 计数与豁免台账
 
-## 四份测试产物
+- `skip` 0 条、`todo` 0 条、豁免 0 条.
+- 豁免台账: 无 (原文未记).
 
-| 产物 | 位置 |
+### 四入口实跑
+
+命令（均在 `behavior-correction/` 下执行，分支 `history-cleanup/02-tests-behavior-correction`）：
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm run check` | ✓ 通过（`tsc -p tsconfig.json --noEmit`，无输出） |
+| `pnpm run test` | ✓ 46 条通过 / 0 失败 / 0 skip / 0 todo（改前 33 条、1 skip） |
+| `pnpm run test:integration` | ✓ 13 条通过 / 0 失败 / 0 skip |
+| `pnpm run test:coverage` | ✓ 单元 + 集成全跑通，报告 `tmp/cov-behavior-correction/report.json` |
