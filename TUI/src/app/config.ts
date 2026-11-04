@@ -1,4 +1,4 @@
-// src/app/config.ts — TUI 用户配置文件（tui.config.json）
+// TUI/src/app/config.ts — TUI 用户配置文件（tui.config.json）
 //
 // 布局尺寸配置（语义「总：目标」——比例类配置项为分母 divisor，目标=总数/divisor）：
 //   - footerHeight:          底部两行（输入区 + 提示行）绝对行数（缺省自动：min(4,max(2,rows/5))）
@@ -85,7 +85,7 @@ export interface TuiConfig {
   session?: TuiSessionConfig;
   /** 审批交互段（BACKLOG 3.3.7）：超时等参数；缺省见 main.ts 的回落值 */
   approval?: TuiApprovalConfig;
-  /** 本地输出旁路日志段（模型侧工具 `tui_local_log` 的数据源；见 src/app/adapter/local-log.ts） */
+  /** 本地输出旁路日志段（模型侧工具 `tui_local_log` 的数据源；见 TUI/src/app/adapter/local-log.ts） */
   localLog?: TuiLocalLogConfig;
 }
 
@@ -261,7 +261,7 @@ function normalizeApprovalSection(v: unknown): TuiApprovalConfig | undefined {
 
 /**
  * 本地输出旁路日志段归一：`enabled` 只认布尔；`maxBytes` 取整且不小于 4 KB；
- * `maxTextChars` 取整且不小于 256；非法字段忽略（回落 src/app/adapter/local-log.ts 的缺省）。
+ * `maxTextChars` 取整且不小于 256；非法字段忽略（回落 TUI/src/app/adapter/local-log.ts 的缺省）。
  */
 function normalizeLocalLogSection(v: unknown): TuiLocalLogConfig | undefined {
   if (typeof v !== "object" || v === null) return undefined;

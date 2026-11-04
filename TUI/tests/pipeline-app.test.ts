@@ -1,4 +1,4 @@
-// tests/pipeline-app.test.ts — App 级接管等价：同一条事件序列两条路径逐帧一致
+// TUI/tests/pipeline-app.test.ts — App 级接管等价：同一条事件序列两条路径逐帧一致
 //
 // 与 `pipeline-frame.test.ts` 的区别：这里走**真实 App 装配**（sink 注册 → 接收 → 节缓存 →
 // state.pipeline → buildTopRegion → 帧），逐步（流式增量 / 工具 / notice / 回合结束）比对

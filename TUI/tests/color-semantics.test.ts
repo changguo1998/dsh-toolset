@@ -1,4 +1,4 @@
-// tests/color-semantics.test.ts — 语义色槽位集中断言
+// TUI/tests/color-semantics.test.ts — 语义色槽位集中断言
 //
 // 语义契约（theme.ts 语义槽位 semantics，数据驱动，非按主题名分支）：
 //   次要文字 = gray   = dark bright[0] #80878E / light bright[0] #475863

@@ -1,4 +1,4 @@
-// tests/pipeline-parse.test.ts — §2 解析 整体模块测试（一次只测这一个阶段）
+// TUI/tests/pipeline-parse.test.ts — §2 解析 整体模块测试（一次只测这一个阶段）
 //
 // 模块口径：Section（reasoning / body 槽位）→ `parse` → Block[]，断言
 // 块级分类（fence→Code / table→Table / quote→Quote / list→List / heading→样式段落 /

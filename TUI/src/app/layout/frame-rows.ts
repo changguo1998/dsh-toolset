@@ -1,4 +1,4 @@
-// src/app/layout/frame-rows.ts — 帧行基础（行文本 / 提示行折行 / 窗口常量 / 滚动量）
+// TUI/src/app/layout/frame-rows.ts — 帧行基础（行文本 / 提示行折行 / 窗口常量 / 滚动量）
 
 import type { FrameRow } from "../../renderer/index.ts";
 import type { AppState } from "../state.ts";
@@ -9,7 +9,7 @@ import { focusColor } from "./focus-frame.ts";
 import { displayWidth } from "./markdown.ts";
 import { wrapLine } from "./primitives.ts";
 
-// src/app/layout/frame-rows.ts — 帧行基础（行文本 / 提示行折行 / 窗口常量 / 滚动量）
+// TUI/src/app/layout/frame-rows.ts — 帧行基础（行文本 / 提示行折行 / 窗口常量 / 滚动量）
 
 /** 行纯文本 = 各段 text 拼接（剥离样式；测试/宽度计算用） */
 export function rowText(row: FrameRow): string {

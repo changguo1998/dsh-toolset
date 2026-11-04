@@ -1,4 +1,4 @@
-// tests/file-mention.test.ts — `@` 文件提及语法纯函数单测
+// TUI/tests/file-mention.test.ts — `@` 文件提及语法纯函数单测
 //
 // 覆盖（逐条对齐宿主 dsh-file-reference/grammar 的语义）：
 // 活动 token 识别（行首 / 空白后触发、邮箱不触发、光标在 token 中间、引号形式、多行末行）；

@@ -1,4 +1,4 @@
-// tests/policy.test.ts — P2 阶段 C：审批策略两态切换（/policy）+ 当前策略展示
+// TUI/tests/policy.test.ts — P2 阶段 C：审批策略两态切换（/policy）+ 当前策略展示
 //
 // 覆盖：adapter 归一化 approval/policy → approval-policy（含 seq 守卫与非活跃会话）；
 // reducer policyBySession 按 sessionId latest-wins + 会话隔离；layout 状态行策略徽标

@@ -1,4 +1,4 @@
-// tests/frame-contract.test.ts — 段级渲染契约（FrameRow/FrameSegment/segStyle）
+// TUI/tests/frame-contract.test.ts — 段级渲染契约（FrameRow/FrameSegment/segStyle）
 //
 // 主线 A 提交 1：新增段级序列化纯函数（segStyle/serializeFrameRow）与
 // Frame 契约类型的单测。旧 RenderLine API 仍并存，本文件只测新契约。

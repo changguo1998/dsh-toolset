@@ -1,4 +1,4 @@
-// tests/hmr-teardown-no-exit.test.ts — 宿主卸载 TUI 行不得结束进程
+// TUI/tests/hmr-teardown-no-exit.test.ts — 宿主卸载 TUI 行不得结束进程
 //
 // 背景（BACKLOG「非 TUI 行的 HMR 重载不连带退出会话」）：dsh-hmr 的 reconcileProfile 在
 // 模块比对后会 stopPlanned 停掉 TUI 条目（改任一非 TUI 行都可能触发整轮 recompose），

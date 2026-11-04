@@ -1,4 +1,4 @@
-// tests/pipeline-layout.test.ts — 七段重构阶段 2（宽相关三段：测量 / 摊平 / 组装）
+// TUI/tests/pipeline-layout.test.ts — 七段重构阶段 2（宽相关三段：测量 / 摊平 / 组装）
 //
 // 契约（追踪文档 T30-T40）：
 //  - measure：叶子 height === wrapLeaf(…).length（唯一折行行数即高度）；

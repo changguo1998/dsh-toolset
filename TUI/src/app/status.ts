@@ -1,4 +1,4 @@
-// src/app/status.ts — 状态行数据源（合并节流读取）
+// TUI/src/app/status.ts — 状态行数据源（合并节流读取）
 //
 // StatusTicker 以固定间隔 tick；每个 tick 内对 cwd/git/time 等做"一次合并查询"，
 // 聚合为单个 Partial<SystemStatus> 交给 App 更新状态。queries 与 schedule 均可注入：

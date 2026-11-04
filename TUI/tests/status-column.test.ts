@@ -1,7 +1,7 @@
-// tests/status-column.test.ts — 顶部状态列渲染单测（renderStatusColumn）
+// TUI/tests/status-column.test.ts — 顶部状态列渲染单测（renderStatusColumn）
 //
 // P7 起状态列**只承载 Goal / Todo / Jobs 三块**：Mode 块（运行模式/权限/策略/预设/开关）
-// 已移除，改由标题栏状态符号承载（见 tests/title-bar.test.ts）。
+// 已移除，改由标题栏状态符号承载（见 TUI/tests/title-bar.test.ts）。
 //
 // 覆盖：goal 列表（index 0 = 当前，其后为历史旧 goal；当前行 `Goal <相位符号>`（2026-10-05 起
 // 不出相位词）、历史行 `Goal <phase>` 蓝标题+phase 状态色 +

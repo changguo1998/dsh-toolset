@@ -178,7 +178,7 @@ export interface CreateRendererOptions {
  * - `{kind:"stop", value:"..."}`：达到上限后停止转储的收尾标记。
  *
  * 用法：`TUI_FRAME_DUMP=/tmp/tui-frames.jsonl dsh --profile fff` → 复现 → 退出。复盘时把
- * `kind:"out"` 的报文**按序**喂给 `tests/helpers/screenEmu.ts` 的 `ScreenEmu.feed()`
+ * `kind:"out"` 的报文**按序**喂给 `TUI/tests/helpers/screenEmu.ts` 的 `ScreenEmu.feed()`
  * 重放，得到「屏幕上实际留下什么」，再与同刻 `kind:"frame"` 的 `lines` 逐行比对，
  * 差异行即残留 / 复制位置；`kind:"size"` 用来看认知偏差是否发生（及何时发生）。
  *

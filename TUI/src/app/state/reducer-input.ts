@@ -1,4 +1,4 @@
-// src/app/state/reducer-input.ts — 纯 reducer 分组：输入区与光标
+// TUI/src/app/state/reducer-input.ts — 纯 reducer 分组：输入区与光标
 
 import type { AppState } from "./types.ts";
 import { statusFor } from "./updates.ts";

@@ -1,4 +1,4 @@
-// src/app/adapter/history-normalize.ts — 历史事件 → app 消息列表（P9 折叠口径）
+// TUI/src/app/adapter/history-normalize.ts — 历史事件 → app 消息列表（P9 折叠口径）
 
 import type { TurnEndReason } from "../state.ts";
 import { isUserMessage } from "../state.ts";

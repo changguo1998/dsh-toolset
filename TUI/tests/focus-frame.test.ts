@@ -1,6 +1,6 @@
-// tests/focus-frame.test.ts — 焦点构图与面板渲染双轨对照
+// TUI/tests/focus-frame.test.ts — 焦点构图与面板渲染双轨对照
 //
-// 冻结基线：fixtures/focus-frame-legacy.json（scripts/freeze-focus-frame.mts
+// 冻结基线：fixtures/focus-frame-legacy.json（TUI/scripts/freeze-focus-frame.mts
 // 生成，其调用了迁移前的内联焦点构图 buildFrame）。本测试从 fixture 读取
 // 基线并重新生成逐行精确比较（text + ansi），确保新 Box/FocusFrame 管线
 // 与冻结行为逐一等价。新增场景须双处同步（冻结脚本 + 本测试）。

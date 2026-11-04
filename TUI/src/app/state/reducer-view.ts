@@ -1,4 +1,4 @@
-// src/app/state/reducer-view.ts — 纯 reducer 分组：视图、焦点与滚动
+// TUI/src/app/state/reducer-view.ts — 纯 reducer 分组：视图、焦点与滚动
 
 import { DIALOGUE_KEEP_REPLIES } from "../layout.ts";
 import type { AppState } from "./types.ts";

@@ -1,4 +1,4 @@
-// tests/footer-notice.test.ts — 问题交互态底部输入区显示 notice（BACKLOG 3.1.1）
+// TUI/tests/footer-notice.test.ts — 问题交互态底部输入区显示 notice（BACKLOG 3.1.1）
 //
 // 覆盖：审批 / 问答面板打开时底部输入区显示最近 notice（含面板打开前的）；
 // tone 着色保留；超长 notice 折行后只取末尾若干行（最新可见、更早的被裁）；

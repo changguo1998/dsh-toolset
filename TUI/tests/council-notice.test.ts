@@ -1,4 +1,4 @@
-// tests/council-notice.test.ts — P2#18：/council 二次意见命令（notice 型）
+// TUI/tests/council-notice.test.ts — P2#18：/council 二次意见命令（notice 型）
 //
 // 覆盖：路由；并行 N 个评审子代理（默认 2）→ 汇总 notice；带参 count 生效；
 // 宿主无 subagents.start → warn 不假启动；部分失败降级保留其余；全部失败 → 失败提示。

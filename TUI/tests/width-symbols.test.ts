@@ -1,4 +1,4 @@
-// tests/width-symbols.test.ts — 「呈现不确定」符号列表落盘（profile 目录内 tui-width-symbols.json）
+// TUI/tests/width-symbols.test.ts — 「呈现不确定」符号列表落盘（profile 目录内 tui-width-symbols.json）
 //
 // 只记「哪些码点值得实测」，**不记宽度**：宽度每次会话重新实测（内存表 `WIDTH_OVERRIDES`），
 // 于是换终端 / tmux / 字体 / 字号自动正确（用户 2026-10-12 裁定，见 layout/width-symbols.ts）。

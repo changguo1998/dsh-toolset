@@ -1,4 +1,4 @@
-// src/app/clock.ts — 时间戳格式化（P6 实时 step 头与 P9 恢复概要行共用同一口径）
+// TUI/src/app/clock.ts — 时间戳格式化（P6 实时 step 头与 P9 恢复概要行共用同一口径）
 //
 // 刻意做成零依赖叶子模块：state → layout/tool-line 已存在引用链，若把助手放 state.ts
 // 会让 tool-line 反向依赖 state（成环）。放在 app 根下，两侧各自 import 即可。

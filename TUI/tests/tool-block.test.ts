@@ -1,6 +1,6 @@
-// tests/tool-block.test.ts — 回合区工具块形制（2026-10-13 改版；2026-10-26 迁新链）
+// TUI/tests/tool-block.test.ts — 回合区工具块形制（2026-10-13 改版；2026-10-26 迁新链）
 //
-// 裁定见 TUI/docs/implementation/2026-10-13-tool-block-display.md（决策 1 / 8 + 细节 01-11）。
+// 裁定见 TUI/docs/archived/2026-10-13-tool-block-display.md（决策 1 / 8 + 细节 01-11）。
 // 覆盖（均走新流水线）：参数解析兜底、结果配对（callId / 到达顺序）、静默工具、
 // 并发多调用各出一行标记、帧层在飞相位标记。
 //

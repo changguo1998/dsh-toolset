@@ -1,4 +1,4 @@
-// src/app/adapter/types/channel.ts — 规则告警、会话通道、工作流与搜索
+// TUI/src/app/adapter/types/channel.ts — 规则告警、会话通道、工作流与搜索
 
 /** ctx.get('ruleEngine') 服务面（rule-engine 插件 provide；缺失或未实现 onNotice 时 TUI
  *  不订阅，告警仍走插件侧 stderr 兜底。消费侧懒读，容忍插件装载顺序，见 index.ts

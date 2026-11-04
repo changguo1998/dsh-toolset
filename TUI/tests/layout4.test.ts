@@ -1,4 +1,4 @@
-// tests/layout4.test.ts — 四区域布局回归单测
+// TUI/tests/layout4.test.ts — 四区域布局回归单测
 //
 // 覆盖：buildFrame 输出四区顺序与尺寸（顶部插件+历史 / 状态区 / 输入区）；
 // 顶部高度 = rows - 状态(1) - 输入(1)；turn-begin 分隔线；历史按 top 宽换行。
@@ -842,8 +842,8 @@ test("turn-begin: 回合开始时在会话区画分隔线；流式续写合入�
 test("turn-begin: 同一回合重复交付只画一条分隔线；turn-end 不画线、末段正文打 final", () => {
   // 条目 16 段 C2：分隔线 / final 都不再有缓冲行形态，旧的 `state.local` 断言改为
   // 帧级（分隔线行数）+ 节级（final 标记）断言。原用例里「首回合空历史不画孤立分隔线」
-  // 一条属 App 层判据（src/app/index.ts 的 drawsSeparator），已由
-  // tests/app.test.ts「首回合空历史不画孤立线」覆盖，此处不再重复。
+  // 一条属 App 层判据（TUI/src/app/index.ts 的 drawsSeparator），已由
+  // TUI/tests/app.test.ts「首回合空历史不画孤立线」覆盖，此处不再重复。
   let s = initialState();
   s = withTurnStart(s, 1);
   s = withUser(s, "q", 1);
@@ -879,8 +879,8 @@ test("turn-begin: 同一回合重复交付只画一条分隔线；turn-end 不�
 test("turn-begin: 新回合不再清空回合区（内容持续可见），仅画分隔线并归零滚动", () => {
   // 条目 16 段 C2：内容都在节缓存里、`state.local` 只剩 UI 本地行，旧断言数的是缓冲行；
   // 且「新回合清空回合区瞬态」语义已由用户 2026-10-11 裁定**取消**（内容持续可见）。
-  // 端到端口径见 tests/app.test.ts「回合区生命周期：新回合不再清空上一回合内容」，
-  // UI 本地行的清理见 tests/buffer-retire.test.ts「用户输入开启的回合：清掉回合区提示行」。
+  // 端到端口径见 TUI/tests/app.test.ts「回合区生命周期：新回合不再清空上一回合内容」，
+  // UI 本地行的清理见 TUI/tests/buffer-retire.test.ts「用户输入开启的回合：清掉回合区提示行」。
   let s = initialState();
   s = reduceState(s, { type: "activity-scroll", delta: 5 }); // 先上滚回合区
   assert.equal(s.activityScroll, 5, "前置：回合区已上滚 5 行");
@@ -2092,7 +2092,7 @@ test("buildFrame: step 分割行前吸收空活动行（前文结束即接分割
   s = withToolResult(s, true, "ok 1", "c1");
   // 前文之后积一空 notice 行（空段拖尾，如多行 notice 的末尾换行）——分割行须吸收。
   // 条目 16 段 C2：notice 只写 `state.local` 的本地 action **不上屏**，进帧须按生产口径交付
-  // （src/app/index.ts 的 `deliverLocal`）；两次调用也要各自 callId，否则同批被并成一行。
+  // （TUI/src/app/index.ts 的 `deliverLocal`）；两次调用也要各自 callId，否则同批被并成一行。
   s = withDelivery(s, { kind: "notice", tone: "info", text: "中间提示\n" });
   s = withStep(s, 2, STEP_TIME);
   s = withToolCall(s, "bash", "pwd", "c2");
@@ -2447,7 +2447,7 @@ test("reduceState: 焦点只在用户提交输入时复位；流式内容 / 回�
   assert.equal(s.focusedPanel, "history");
   // 条目 16 段 C2：内容改由**交付**进节缓存（action 类型 `pipeline-state`），而焦点复位挂在
   // 旧内容 action 上（`FOCUS_RESET_ACTIONS`）——生产里每条内容事件仍是「旧 action + 交付」
-  // 成对派发（src/app/index.ts 的 stream / thinking / notice 分支），故这里按生产口径成对调用。
+  // 成对派发（TUI/src/app/index.ts 的 stream / thinking / notice 分支），故这里按生产口径成对调用。
   // 2026-10-15 裁定：流式内容（append / thinking / tool-* / notice…）**不再复位焦点**，
   // 否则运行中聚焦的区域键会被每个 chunk 清掉（BACKLOG「模型回复期间区域焦点被内容推进清空」）。
   const afterOut = reduceState(withText(s, "模型输出"), {

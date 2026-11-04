@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/split.ts — §1 分节：旧节缓存 → 新一次模型交互 Section[]
+// TUI/src/app/layout/pipeline/split.ts — §1 分节：旧节缓存 → 新一次模型交互 Section[]
 //
 // 职责（追踪文档 T16-T17）：
 //   - `splitSections(SectionsState) → Section[]`：把旧节缓存（`sections.ts` 的事件累积

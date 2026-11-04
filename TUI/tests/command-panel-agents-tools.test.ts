@@ -1,4 +1,4 @@
-// tests/command-panel-agents-tools.test.ts — 批次 3：/agents 与 /tools（共享面板 kind 复制）
+// TUI/tests/command-panel-agents-tools.test.ts — 批次 3：/agents 与 /tools（共享面板 kind 复制）
 //
 // 覆盖：路由（agents/tools）；服务缺失降级（各自 warn 且不空开面板）；/agents 列表渲染
 // （label/mode/activity，diagnostic 条目灰显）；Enter 直接中断（断言 interruptAgent 收到

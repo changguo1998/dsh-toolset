@@ -1,4 +1,4 @@
-// src/app/state/reducer-session.ts — 纯 reducer 分组：历史会话恢复、删除与切换
+// TUI/src/app/state/reducer-session.ts — 纯 reducer 分组：历史会话恢复、删除与切换
 
 import { createSections } from "../layout/pipeline/sections.ts";
 import { DIALOGUE_KEEP_REPLIES } from "../layout.ts";

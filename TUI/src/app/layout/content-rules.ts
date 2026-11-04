@@ -51,7 +51,7 @@ export const TOOL_CONT_INDENT = 2;
 
 // ---------------- 工具块三类行（2026-10-13 改版：名字 / 参数 / 结果） ----------------
 //
-// 形制与裁定见 TUI/docs/implementation/2026-10-13-tool-block-display.md 决策 1 / 8。
+// 形制与裁定见 TUI/docs/archived/2026-10-13-tool-block-display.md 决策 1 / 8。
 
 /** 名字行的**在飞**标记：管线写死的稳定字形（行缓存友好），帧层按 1 toggle/s 相位改写 */
 export const TOOL_PENDING_GLYPH = "●";

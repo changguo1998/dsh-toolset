@@ -1,4 +1,4 @@
-// tests/helpers/statusFrame.ts — 状态列「帧内可见行」还原（内容层产出 → 屏幕所见）
+// TUI/tests/helpers/statusFrame.ts — 状态列「帧内可见行」还原（内容层产出 → 屏幕所见）
 //
 // 2026-10-12 改造后：`renderStatusColumn` 只产**正文行**（`ContentRow[]`，不含右缘竖线、
 // 不补白）——截断 / 补白 / 分隔竖线由拼帧层（`buildTopRegion` 的 statusBody +

@@ -1,4 +1,4 @@
-// src/app/adapter/normalize.ts — DSH 纯归一化函数（自 dsh.ts 拆出，无副作用）
+// TUI/src/app/adapter/normalize.ts — DSH 纯归一化函数（自 dsh.ts 拆出，无副作用）
 //
 // 只依赖 ./types.ts 的纯类型；dsh.ts 内部调用并以具名重导保持原导出不变。
 

@@ -1,10 +1,10 @@
-// tests/goal-activation.test.ts — goal 自动续轮开关（activation）状态单测
+// TUI/tests/goal-activation.test.ts — goal 自动续轮开关（activation）状态单测
 //
 // 覆盖：reduceState 的 `goal-activation`（armed / disarmed 边覆盖、无 `activation` = 清记录、
 // 按 sessionId 隔离、不落 tui-state.json）、selector `goalActivationDisplay` 的取值口径（有边就显示、无记录不显示）——
 // 无 goal / 非 active 相位 → 不显示（undefined）；active 且**无记录** → `disarmed`
 // （宿主重启后 setActivation(disarmed) 与初值相同、不发事件，靠该推导兜底）；收到过边则取末条。
-// 渲染面（⟳ 符号与颜色）见 tests/status-column.test.ts；事件归一化见 tests/adapter.dsh.test.ts。
+// 渲染面（⟳ 符号与颜色）见 TUI/tests/status-column.test.ts；事件归一化见 TUI/tests/adapter.dsh.test.ts。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

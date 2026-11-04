@@ -1,4 +1,4 @@
-// tests/config.test.ts — tui.config.json 布局配置：归一化、载入与渲染层生效
+// TUI/tests/config.test.ts — tui.config.json 布局配置：归一化、载入与渲染层生效
 //
 // 覆盖：normalizeConfig 合法/非法/缺省回落；loadTuiConfig 读取缺省文件与缺失路径；
 // metricsFor 的 footerHeight/statusDivisor、activityHeight 的 divisor 生效（默认 2≈1/2）。

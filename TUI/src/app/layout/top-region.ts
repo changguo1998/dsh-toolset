@@ -1,4 +1,4 @@
-// src/app/layout/top-region.ts — 顶部区域装配：状态列 + 会话区 + 回合区面板选型
+// TUI/src/app/layout/top-region.ts — 顶部区域装配：状态列 + 会话区 + 回合区面板选型
 
 import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import type { FrameGeometry } from "./geometry.ts";
@@ -48,7 +48,7 @@ import {
 } from "./content-rules.ts";
 import { rowWidth2, seg, truncateSegs } from "./primitives.ts";
 
-// src/app/layout/top-region.ts — 顶部区域装配：状态列 + 会话区 + 回合区面板选型
+// TUI/src/app/layout/top-region.ts — 顶部区域装配：状态列 + 会话区 + 回合区面板选型
 
 /** 顶部区域：最左详细状态列、右侧对话历史+回合区（可独立滚动）；焦点面板四边框亮色 */
 /** 当前激活的回合区面板 Box（approval/question/picker/statusPanel/jobs/

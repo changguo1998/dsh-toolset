@@ -1,4 +1,4 @@
-// demo/mockAdapter.ts — Mock DshAdapter
+// TUI/demo/mockAdapter.ts — Mock DshAdapter
 //
 // 无 DSH 环境：喂模拟的流式文本（分片、跨行）+ 审批请求，走通 renderer→app 全栈。
 // 实现 DshAdapter 契约，阶段 2 以真实实现替换。

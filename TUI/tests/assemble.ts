@@ -1,4 +1,4 @@
-// tests/assemble.ts — TUI 集成层装配器（不以 `.test.ts` 结尾, 不被单元层 glob 命中）
+// TUI/tests/assemble.ts — TUI 集成层装配器（不以 `.test.ts` 结尾, 不被单元层 glob 命中）
 //
 // 集成层管「装配」: 用三个假面拼起生产链路, 单元层已各自覆盖的纯函数不再重测。
 // 三个假面的形状与 `docs/archived/2026-10-28-history-cleanup.md` 4.2 一致:
@@ -7,7 +7,7 @@
 //  - 假服务面: 可选的假状态查询（`status` 选项; 调度器换成手动 no-op, 不落真定时器）;
 //  - 假终端面: 真实 `createRenderer` 但注入 `write` 捕获报文、`rawMode: false` 不写模式序列、
 //    `exitOnClose: false` 不结束进程。唯一被替换的终端能力是 CPR 宽度实测——真应答只有在真
-//    pty 里才有, 归 `smoke:pty` 与 `tests/width-probe.test.ts`; 这里立即返回空表, App 据此走
+//    pty 里才有, 归 `smoke:pty` 与 `TUI/tests/width-probe.test.ts`; 这里立即返回空表, App 据此走
 //    「终端不支持 CPR」分支, 沿用静态宽度表（帧因此可重复）。
 //
 // 状态层 / 排版层 / 渲染层全部走生产实现: `App` → `buildFrame` → `renderer.render` →
@@ -79,7 +79,7 @@ export function keyEvent(
 /**
  * 装配一条完整的 TUI 链路（状态层 + 排版层 + 真实渲染层 + 假适配器 / 假状态服务）。
  *
- * 返回的帧文本取自渲染层实际收到的 `FrameRow[]`，与 `demo/main.ts --smoke` 的取证方式同源;
+ * 返回的帧文本取自渲染层实际收到的 `FrameRow[]`，与 `TUI/demo/main.ts --smoke` 的取证方式同源;
  * 行数 = 终端缺省 80x24 的帧高（无 TTY 时 `createTerminal().getSize()` 回落的尺寸）。
  */
 export function assembleTui(opts: AssembleOptions = {}): AssembledTui {

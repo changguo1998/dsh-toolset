@@ -1,4 +1,4 @@
-// tests/memory-edit.test.ts — /memory 的 list / remove / replace / add（memory-base 管理面）
+// TUI/tests/memory-edit.test.ts — /memory 的 list / remove / replace / add（memory-base 管理面）
 //
 // 覆盖：list 行带 #id 与 tier/kind；remove / replace 的 (tier, kind, id) 寻址与结果提示；
 // S 层与非法 id 的前置拒绝；add 走管理面（kind 必填、S 层拒绝）；search 行带 id；

@@ -1,4 +1,4 @@
-// tests/completion.test.ts — 命令输入补全单测（纯函数层）
+// TUI/tests/completion.test.ts — 命令输入补全单测（纯函数层）
 //
 // 覆盖：命令 token 判定（含 slash 模式下无前导 `/` 的归一）、前缀匹配与排序
 // （items[0]=最匹配）、宿主命令并入与去重、候选全量（不设硬上限，面板按可视行截断）、

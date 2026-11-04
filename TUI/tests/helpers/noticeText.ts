@@ -1,4 +1,4 @@
-// tests/helpers/noticeText.ts — notice 行统一前缀的测试口径（`[hh:mm:ss 来源] 正文`）
+// TUI/tests/helpers/noticeText.ts — notice 行统一前缀的测试口径（`[hh:mm:ss 来源] 正文`）
 //
 // 前缀带实时时钟（`app/notice-format.ts`），逐字断言正文前先用本模块归一：
 // - stripNoticePrefix：去掉**行首**前缀（保留正文，用于「首行是什么」这类断言）；

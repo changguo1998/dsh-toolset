@@ -530,7 +530,7 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
       }
       case "turn/start": {
         // turn/start 本身不插入历史分隔线（用户本地回显后应紧邻模型响应），但把**回合号**
-        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss ⇆N`（符号见 src/app/layout/tool-line.ts 的
+        // 转给上层（#3）：会话区回合分隔线要显示 `hh:mm:ss ⇆N`（符号见 TUI/src/app/layout/tool-line.ts 的
         // turnHeaderLine），而本地 turn-begin 早于本事件。
         const turn = (data as { turn?: unknown }).turn;
         ctx.emit({

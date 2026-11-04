@@ -1,4 +1,4 @@
-// tests/focus-draw.test.ts — focus-frame.ts 模块单测（setCell + 焦点覆写规则）
+// TUI/tests/focus-draw.test.ts — focus-frame.ts 模块单测（setCell + 焦点覆写规则）
 //
 // setCell：显示列定位、CJK 不切、多段行拆分、幂等。
 // focusFrame：四焦点态在合成矩形上的覆写（history/activity/status）、

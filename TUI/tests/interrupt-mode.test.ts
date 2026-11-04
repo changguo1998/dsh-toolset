@@ -1,10 +1,10 @@
-// tests/interrupt-mode.test.ts — `!` 输入模式（「打断并发送」）语义
+// TUI/tests/interrupt-mode.test.ts — `!` 输入模式（「打断并发送」）语义
 //
 // 2026-10-15 起：「打断并发送」从 `Alt+Enter` 快捷键改为**第五种输入模式** `!`——空输入按 `!`
 // 进入（提示符切 `!`、`!` 被吞、同符号幂等、空输入 Backspace 回退 `>`、任何提交后回退 `>`）；
 // 该模式 Enter = 忙时**打断后直发**（不带 `next-step`、不登记排队块）、空闲时直发；空输入提交
 // = 只打断。打断入口收敛到本模式：Esc 不再打断、Alt+Enter 不再有独立语义（覆盖见
-// tests/app.test.ts；解码层合并仍由 tests/input.test.ts 覆盖）。
+// TUI/tests/app.test.ts；解码层合并仍由 TUI/tests/input.test.ts 覆盖）。
 
 import assert from "node:assert/strict";
 import test from "node:test";

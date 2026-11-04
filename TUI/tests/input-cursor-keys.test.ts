@@ -1,4 +1,4 @@
-// tests/input-cursor-keys.test.ts — 输入区光标键 vs 面板翻页键的分派
+// TUI/tests/input-cursor-keys.test.ts — 输入区光标键 vs 面板翻页键的分派
 //
 // 2026-10-27 用户裁定：只有会话区 / 回合区处于焦点时，↑/↓、PgUp/PgDn、Home/End 才当成翻页；
 // 否则在用户输入区移动光标——↑/↓ 一次一行（落同显示列）、←/→ 一次一格、

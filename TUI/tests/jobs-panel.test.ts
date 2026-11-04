@@ -1,4 +1,4 @@
-// tests/jobs-panel.test.ts — jobs 后台任务面板（/jobs）：reducer + 面板渲染 + App 按键
+// TUI/tests/jobs-panel.test.ts — jobs 后台任务面板（/jobs）：reducer + 面板渲染 + App 按键
 //
 // 覆盖：DshEvent jobs-changed → reducer jobs 快照；jobs-panel-open/move/close；
 // App /jobs 打开面板并调用 refreshJobs；jobs-changed 更新后面板渲染任务状态行

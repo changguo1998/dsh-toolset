@@ -1,4 +1,4 @@
-// tests/stats-rename.test.ts — 批次 1：/stats 与 /rename（notice 型命令）
+// TUI/tests/stats-rename.test.ts — 批次 1：/stats 与 /rename（notice 型命令）
 //
 // 覆盖：路由（stats/usage/context → stats；rename → rename）；/stats 读 state.usage
 // 输出「最近一次调用行 / 本会话累计行 / 上下文行 / 命中率行」、contextWindow 缺失或为 0

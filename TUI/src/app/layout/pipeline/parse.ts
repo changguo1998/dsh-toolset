@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/parse.ts — §2 解析：Section（一次模型交互）→ Block[]
+// TUI/src/app/layout/pipeline/parse.ts — §2 解析：Section（一次模型交互）→ Block[]
 //
 // 职责（追踪文档 T18-T22）：把 Section 的两个纯文本槽位——reasoning 与 body.text——
 // 里的格式控制字符（块级 `#`/`|`/`>`/`-`/围栏，行内 `**`/`` ` ``/`\*`）消费成结构化

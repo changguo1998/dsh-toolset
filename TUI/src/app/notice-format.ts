@@ -1,4 +1,4 @@
-// src/app/notice-format.ts — notice 行统一前缀：`[hh:mm:ss <来源>] 正文`
+// TUI/src/app/notice-format.ts — notice 行统一前缀：`[hh:mm:ss <来源>] 正文`
 //
 // 口径（2026-10-24 用户要求）：用户可见的 notice 行统一带本地时间与来源名。
 // 来源取正文自带的 `[来源]` 前缀（插件 stderr / rule-engine 总线的既有惯例），

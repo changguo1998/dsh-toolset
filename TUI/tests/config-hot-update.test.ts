@@ -1,4 +1,4 @@
-// tests/config-hot-update.test.ts — profile 配置热更新（cordis `internal/update` 钩子）
+// TUI/tests/config-hot-update.test.ts — profile 配置热更新（cordis `internal/update` 钩子）
 //
 // 背景：宿主 profile 的 cordis.patch.yml 被改写时，cordis 默认重启本行 fiber = 卸载插件 →
 // disposeApp() → renderer.close() → process.exit()，整个 dsh 进程随之退出。修法：钩子对**任何**

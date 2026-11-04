@@ -1,4 +1,4 @@
-// src/app/components/TextInput.ts — 输入区渲染（纯函数）
+// TUI/src/app/components/TextInput.ts — 输入区渲染（纯函数）
 //
 // 渲染输入区（可多行）+ 光标位置。光标不在文本里画反色块，而是返回 caret(显示列)
 // 由 Screen 把硬件光标移动到该列——保证可见光标与真实输入位置一致(含 CJK 宽度)。

@@ -1,4 +1,4 @@
-// tests/step.test.ts — step 分步分割线（#7 起：step/start 即画）
+// TUI/tests/step.test.ts — step 分步分割线（#7 起：step/start 即画）
 //
 // 条目 16 段 C2：step 头不再是缓冲行（reducer 的 `step` / `tool-call` / `tool-result` 内容
 // 写缓冲路径删除）——头由 `step-start` **交付**声明、第 3 步**内容驱动**画：该 step 的
@@ -9,7 +9,7 @@
 //   3. 新 step 声明另起分组头（新口径无 `step/end` 概念：线随声明出，不由结束关闭）
 //   4. 无 step 声明 / 落在未声明 step 上的工具行不产线（append-only 兼容）
 //
-// 「声明过但无内容 → 孤儿头」的口径差异由 `tests/pipeline-equivalence.test.ts`
+// 「声明过但无内容 → 孤儿头」的口径差异由 `TUI/docs/archived/2026-10-10-orphan-step-heads.md`
 // 「已裁定差异二」钉住；纯文本函数（`stepHeaderLine` / `isStepHeader` / `stepOf`）仍由本文件覆盖。
 
 import { test } from "node:test";
@@ -257,7 +257,7 @@ test("P6 step-start 缺 time：头只出回合号与步号（不再回退当前�
   // 条目 16 段 C2：时间真源是交付（`adapter/dsh.ts` 转发事件信封时间）。旧路径「缺 time
   // 回退 `Date.now()`」长在 reducer 的落行点（随内容写缓冲一起删除）；缺时间即按
   // `stepHeaderLine` 的「缺项省略」降级——与适配器恢复路径同口径（见
-  // tests/adapter.dsh.test.ts「恢复：每个 step 起点出一条 step 头；缺 time 时头为 `⇆N #M`」）。
+  // TUI/tests/adapter.dsh.test.ts「恢复：每个 step 起点出一条 step 头；缺 time 时头为 `⇆N #M`」）。
   const rows = run([
     (s) => withStep(s, 7),
     (s) => withToolCall(s, "bash", "ls", "c1"),

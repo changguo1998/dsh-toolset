@@ -1,4 +1,4 @@
-// src/app/adapter/dsh.ts — DSH 适配层：装配与兼容重导
+// TUI/src/app/adapter/dsh.ts — DSH 适配层：装配与兼容重导
 //
 // 2026-11-04 按面拆分（行为不变）:
 //   - ./context.ts     上下文对象: 全部可变状态 + emit / deliver 三件套（原闭包变量）

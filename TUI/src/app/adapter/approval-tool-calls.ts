@@ -1,4 +1,4 @@
-// src/app/adapter/approval-tool-calls.ts — 审批链的 tool/call 参数短期登记表
+// TUI/src/app/adapter/approval-tool-calls.ts — 审批链的 tool/call 参数短期登记表
 //
 // 3.3.3：tool/call 事件把宿主 callId → 审批草稿明细（工具名 / 摘要 / 命令全文）
 // 登记进有容量上限的短期表；审批应答者按 req.callId 取回，裁定 / 超时 / abort

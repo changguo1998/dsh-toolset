@@ -1,4 +1,4 @@
-// src/app/state/updates.ts — 状态更新入口（缓冲追加、面板开关、光标移动）
+// TUI/src/app/state/updates.ts — 状态更新入口（缓冲追加、面板开关、光标移动）
 
 import type {
   ApprovalItem,
@@ -12,7 +12,7 @@ import { estimateOutputTokens, nextRunVirt } from "../layout.ts";
 import type { AppState, InputStatus, SystemStatus } from "./types.ts";
 import { trimBufferHead } from "./types.ts";
 
-// src/app/state/updates.ts — 状态更新入口（缓冲追加、面板开关、光标移动）
+// TUI/src/app/state/updates.ts — 状态更新入口（缓冲追加、面板开关、光标移动）
 
 /** 清理文本中的非打印控制字符（渲染保护）：CRLF/孤立 CR 归一为 LF，
  *  其余 C0/C1 控制字符（含 \t）剔除；返回清理后文本与被剔除字符数。

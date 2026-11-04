@@ -1,4 +1,4 @@
-// tests/pipeline-content.test.ts — 新链桥模块级测试（自底向上：函数式 → 桥）
+// TUI/tests/pipeline-content.test.ts — 新链桥模块级测试（自底向上：函数式 → 桥）
 //
 // 目标（T42/T44 中间门禁）：`rows.renderPaneNew`（§3-§7 新链桥）产出 RenderedPane
 // 契约（rows/counts/keys/userRows + 每行 kind/seq），在整体流水线测试之前先钉住。

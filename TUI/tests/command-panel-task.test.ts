@@ -1,4 +1,4 @@
-// tests/command-panel-task.test.ts — A1：/task 面板命令（TaskEngine 只读查询面接线）
+// TUI/tests/command-panel-task.test.ts — A1：/task 面板命令（TaskEngine 只读查询面接线）
 //
 // 覆盖：路由；列表渲染（标题/状态/待拆分标记/嵌套缩进）；空任务占位（无任务）；
 // 服务缺失降级（warn 且不空开面板）；Enter 详情（taskDetail）；翻页键位基线。

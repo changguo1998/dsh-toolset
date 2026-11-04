@@ -1,4 +1,4 @@
-// src/app/adapter/types/runtime.ts — 宿主运行时结构面（cordis ctx / agent / llm）
+// TUI/src/app/adapter/types/runtime.ts — 宿主运行时结构面（cordis ctx / agent / llm）
 
 // ---------------------------------------------------------------------------
 // 阶段 2 真实实现：createRealDshAdapter
@@ -35,8 +35,8 @@ export interface DshUserMessageLike {
 /**
  * 结构面：官方 @deepseek-ai/dsh-commands 注册表（ctx.commands.execute）。
  * execute(agent, line, images, signal) → CommandExecution | undefined；
- * undefined 表示未命中注册表(fail-close)。与官方 packages/interaction/commands/
- * src/types.ts 契约一致(docs/host/DSH-CTX-API.md)。
+ * undefined 表示未命中注册表(fail-close)。与官方 packages/interaction/commands 的
+ * types.ts 契约一致(docs/host/DSH-CTX-API.md)。
  */
 export interface DshCommandLike {
   execute(

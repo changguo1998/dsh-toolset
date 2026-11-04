@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/flatten.ts — §6 摊平：已量好的 LayoutTree → Row[]
+// TUI/src/app/layout/pipeline/flatten.ts — §6 摊平：已量好的 LayoutTree → Row[]
 //
 // 职责（追踪文档 T35-T38）：
 //   - 逐 Leaf 取 wrapLeaf 行，按 prefix / suffix / align 展开成 Row；

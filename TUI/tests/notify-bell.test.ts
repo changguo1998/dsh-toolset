@@ -1,4 +1,4 @@
-// tests/notify-bell.test.ts — 声音提醒事件钩子（P2#33 / BACKLOG 3.4.1-3.4.3）
+// TUI/tests/notify-bell.test.ts — 声音提醒事件钩子（P2#33 / BACKLOG 3.4.1-3.4.3）
 //
 // 契约（2026-09-26 更新）：
 //  1) turn-end（任务运行结束）→ **只响一声**（BACKLOG 3.4.2：去掉原「随后 idle 补响一次」，

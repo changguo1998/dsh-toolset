@@ -1,4 +1,4 @@
-// tests/scroll-position.test.ts — 滚动位置模型（段键 + 段内行）的契约
+// TUI/tests/scroll-position.test.ts — 滚动位置模型（段键 + 段内行）的契约
 //
 // 取代旧的 `scroll-anchor.test.ts`（语义锚点模型 2026-10-09 退场）。口径见
 // `TUI/docs/archived/2026-10-09-layout-segment-cache.md`「滚动位置模型」：

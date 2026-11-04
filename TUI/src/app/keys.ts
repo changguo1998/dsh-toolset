@@ -1,4 +1,4 @@
-// src/app/keys.ts — 按键表（唯一分派口径）
+// TUI/src/app/keys.ts — 按键表（唯一分派口径）
 //
 // 一张表对应一个按键上下文：`Record<键名, 动作名>`。键名取 `KeyEvent.name`（renderer 已把
 // 空格归一成 `" "`，此处连带接受 `"space"` 别名）；动作名由 `App.keyActions` 表执行。

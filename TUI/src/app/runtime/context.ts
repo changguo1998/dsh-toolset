@@ -94,7 +94,7 @@ export interface AppContext {
   /** 待绘制脏标记：同一 tick 内多次标脏合并为一次 render（见 paint/flushPaint） */
   paintDirty: boolean;
 
-  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 src/app/layout/width-symbols.ts） */
+  /** 实测宽度表落盘目录（`profileDir`；"" = 不落盘，见 TUI/src/app/layout/width-symbols.ts） */
   profileDir: string;
 
   /** 宽度实测在途：同一时刻只发一批，在途期间不再登记新批（探测字节叠发会串台） */
@@ -347,7 +347,7 @@ export function createAppContext(deps: AppDeps): AppContext {
   // 启动自动清理空会话（tui.config.json session.autoCleanEmpty；main.ts 接线缺省 true，
   // 未接线时为关闭）
   ctx.autoCleanEmpty = deps.autoCleanEmpty === true;
-  // 符号列表落盘目录（缺省 "" = 不落盘；见 src/app/layout/width-symbols.ts）
+  // 符号列表落盘目录（缺省 "" = 不落盘；见 TUI/src/app/layout/width-symbols.ts）
   ctx.profileDir = deps.profileDir ?? "";
   ctx.state = initialState(
     normalizeThemeId(ctx.deps.initialTheme ?? DEFAULT_THEME),

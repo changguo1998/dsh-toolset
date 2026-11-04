@@ -1,4 +1,4 @@
-// tests/command-panel.test.ts — 共享列表面板（批次 2：commandPanel 基础设施 + /skills）
+// TUI/tests/command-panel.test.ts — 共享列表面板（批次 2：commandPanel 基础设施 + /skills）
 //
 // 覆盖：reducer 五件套（open/move/page/close/data，含 clamp 与 kind 守卫）；
 // 面板渲染（行数恒等 height、加载中/空态/错误占位、窗口平移、超宽截断不切半个 CJK）；

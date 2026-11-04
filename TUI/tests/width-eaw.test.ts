@@ -1,4 +1,4 @@
-// tests/width-eaw.test.ts — EAW 精确宽度表（N/W/A 分层判定）
+// TUI/tests/width-eaw.test.ts — EAW 精确宽度表（N/W/A 分层判定）
 //
 // 背景：旧实现把 0x2B00-0x2BFF、0x2600-0x27BF 等区间**整段**按 2 列，导致
 // EAW=N（中性、无歧义窄）字符被高估 1 列（终端按 1 列渲染 → 多留空格）。

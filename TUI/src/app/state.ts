@@ -1,4 +1,4 @@
-// src/app/state.ts — 状态层入口（状态模型 + 纯 reducer）
+// TUI/src/app/state.ts — 状态层入口（状态模型 + 纯 reducer）
 //
 // buffer 持有会话文本行（无界，超出 MAX_BUFFER_LINES 裁剪旧行）。
 // 滚动状态：followBottom 跟随底部；scrollOffset = 上滚的行单位偏移。

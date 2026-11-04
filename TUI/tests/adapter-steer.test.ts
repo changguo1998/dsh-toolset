@@ -1,4 +1,4 @@
-// tests/adapter-steer.test.ts — real adapter 的 steer 派发（BACKLOG TUI#36 真机缺陷回归）
+// TUI/tests/adapter-steer.test.ts — real adapter 的 steer 派发（BACKLOG TUI#36 真机缺陷回归）
 //
 // 背景：`<` 提交在真机恒降级成普通 followup——根因是 adapter 只看**瘦 agent**
 // （`opts.agent`，main.ts/resumeTo 里只转发 followup），而 steer 只存在于宿主**原始 agent**。

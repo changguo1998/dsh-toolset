@@ -1,4 +1,4 @@
-// tests/startup-resume-history.test.ts — 启动即恢复的会话区渲染（BACKLOG TUI#40）
+// TUI/tests/startup-resume-history.test.ts — 启动即恢复的会话区渲染（BACKLOG TUI#40）
 //
 // 覆盖：`resumedAtLaunch`（CLI --resume / -c 成功）时启动补一次 surface 折叠——会话区直接
 // 可见既有消息、标题本地兜底、`followBottom` 生效；非恢复启动不读取；空会话保持空历史；

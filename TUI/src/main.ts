@@ -1,4 +1,4 @@
-// src/main.ts — 程序入口
+// TUI/src/main.ts — 程序入口
 //
 // 双角色：
 //   1. DSH 插件(bundle)入口：导出 `{ name, inject, apply }`(注意：cordis 要求
@@ -145,7 +145,7 @@ export function main(opts: {
    *  实现，供 cordis `internal/update` 钩子调用；见 makeConfigHotUpdateHandler */
   configSink?: LiveConfigSink;
   /** profile 目录（`ctx.get('profileContext').dir`）：符号列表落盘位置；缺省不落盘
-   *  （不落盘时仍按需实测，只是不跨会话复用；见 src/app/layout/width-symbols.ts） */
+   *  （不落盘时仍按需实测，只是不跨会话复用；见 TUI/src/app/layout/width-symbols.ts） */
   profileDir?: string;
   /** 合并后的 TUI 配置（patch > 配置文件 > 默认；apply 侧算好传入）。
    *  缺省 = 只读配置文件（测试 / demo 路径保持原行为） */
@@ -1003,7 +1003,7 @@ export async function apply(
     bootstrapKickoffForNewSession: kickoffForNewSession,
     // 启动器（如用户的 fffdsh 循环）经此变量声明「会处理退出码 75」（BACKLOG #51）
     restartHandoffPath: process.env.DSH_RESTART_FILE,
-    // profile 目录（符号列表落盘位置，见 src/app/layout/width-symbols.ts）：宿主启动器提供
+    // profile 目录（符号列表落盘位置，见 TUI/src/app/layout/width-symbols.ts）：宿主启动器提供
     // profileContext（`dsh --profile` 启动恒有）；独立 main() 启动时无此服务 → 不落盘
     profileDir: readProfileDir(ctx),
     initialTheme:

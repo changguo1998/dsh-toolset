@@ -1,4 +1,4 @@
-// tests/pipeline-route.test.ts — §3 分流 整体模块测试（一次只测这一个阶段）
+// TUI/tests/pipeline-route.test.ts — §3 分流 整体模块测试（一次只测这一个阶段）
 //
 // 模块口径：Section[] → parse → EventGroup[] → `route` → {session, turn},
 // 断言 pane 归属、间隔 Gap、step 头内容驱动、回合分隔、工具批组合、档位过滤、

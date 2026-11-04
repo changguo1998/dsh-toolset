@@ -1,4 +1,4 @@
-// tests/code-block-tab.test.ts — 代码块制表符展开（BACKLOG「代码块排版：\t 展开为 4 个空格」）
+// TUI/tests/code-block-tab.test.ts — 代码块制表符展开（BACKLOG「代码块排版：\t 展开为 4 个空格」）
 //
 // 契约：围栏代码块内的 `\t` 出行前固定展开为 4 个空格（不按终端 tab stop 8 列推进），
 // 展开后宽度计算、折行与底色补齐都按 4 列算，输出不残留 `\t`；思考区代码块同口径。

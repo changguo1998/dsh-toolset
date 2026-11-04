@@ -1,6 +1,6 @@
-// src/app/adapter/types/core.ts — 核心词汇：状态、目标、待办、审批与内容块
+// TUI/src/app/adapter/types/core.ts — 核心词汇：状态、目标、待办、审批与内容块
 
-// src/app/adapter/types.ts — DSH 适配层类型契约（自 dsh.ts 拆出，零运行时值）
+// TUI/src/app/adapter/types.ts — DSH 适配层类型契约（自 dsh.ts 拆出，零运行时值）
 //
 // 全部为纯类型（type/interface），无运行时依赖；dsh.ts 与 normalize.ts 从这里导入，
 // 外部消费方（app/demo/tests）继续从 ./adapter/dsh.ts 的显式重导取得。

@@ -1,4 +1,4 @@
-// tests/fullscreen-alt-screen.test.ts — 全屏（备用屏）进出
+// TUI/tests/fullscreen-alt-screen.test.ts — 全屏（备用屏）进出
 //
 // 2026-10-27 用户裁定：启动即切到备用屏（ESC[?1049h），退出还原原屏幕（ESC[?1049l）；
 // **不把当前帧内容写回普通屏幕**——终端回滚缓冲因此不参与翻页，PgUp/PgDn 只归应用。

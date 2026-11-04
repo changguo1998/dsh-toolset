@@ -1,4 +1,4 @@
-// src/app/adapter/contracts.ts — Done-when 契约与群组状态的文本面
+// TUI/src/app/adapter/contracts.ts — Done-when 契约与群组状态的文本面
 
 import type {
   DshEvent,

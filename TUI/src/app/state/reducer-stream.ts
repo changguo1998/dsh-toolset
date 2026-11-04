@@ -1,4 +1,4 @@
-// src/app/state/reducer-stream.ts — 纯 reducer 分组：流式内容、通知与排队
+// TUI/src/app/state/reducer-stream.ts — 纯 reducer 分组：流式内容、通知与排队
 
 import { virtTick } from "../layout.ts";
 import type { AppState } from "./types.ts";

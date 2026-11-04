@@ -1,7 +1,7 @@
-// src/app/components/ApprovalPrompt.ts — 审批弹窗渲染（纯函数）
+// TUI/src/app/components/ApprovalPrompt.ts — 审批弹窗渲染（纯函数）
 //
 // 以文本面板呈现审批请求：标题（类型标识 `[审批]`，BACKLOG 3.2.2）+ 草稿
-// （描述窗，换行适配 / 滚动）；按键提示见 src/app/layout/hints.ts（提示行区按状态显示），
+// （描述窗，换行适配 / 滚动）；按键提示见 TUI/src/app/layout/hints.ts（提示行区按状态显示），
 // 面板内不内嵌键位。
 // 两窗（BACKLOG 3.2.1 / 3.2.11 规则）：描述窗放审批草稿（prompt 折行，按
 // state.approvalScroll 逐行滚动，草稿超屏时左侧画滚动条），选项窗放

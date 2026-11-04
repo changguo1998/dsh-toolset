@@ -1,4 +1,4 @@
-// tests/tool-meta.test.ts — 工具行展示纯函数（tool/result.meta 行级 diff 摘要：
+// TUI/tests/tool-meta.test.ts — 工具行展示纯函数（tool/result.meta 行级 diff 摘要：
 // 宽容解析 + 降级；以及显示期工作区根前缀缩短 `shortenWorkspacePath`）
 import { test } from "node:test";
 import assert from "node:assert/strict";

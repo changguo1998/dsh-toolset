@@ -1,4 +1,4 @@
-// src/app/adapter/types/session.ts — 历史会话记录、查询与标题面
+// TUI/src/app/adapter/types/session.ts — 历史会话记录、查询与标题面
 
 /** 单条历史会话记录（宿主 @deepseek-ai/dsh-session-query SessionRecord 的归一化面） */
 export interface SessionInfo {

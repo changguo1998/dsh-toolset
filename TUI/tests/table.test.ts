@@ -1,4 +1,4 @@
-// tests/table.test.ts — markdown 表格解析与列宽算法（SPEC.md §3.2）
+// TUI/tests/table.test.ts — markdown 表格解析与列宽算法（SPEC.md §3.2）
 //
 // 口径：本文件只测**解析与算法**（`splitCells` / `isTableStart` / `parseTableAt` /
 // `fitCols`）——表格渲染（拼盒、列对齐、网格线、窄宽回退）已全部落在新流水线的

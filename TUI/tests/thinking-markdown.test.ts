@@ -1,4 +1,4 @@
-// tests/thinking-markdown.test.ts — 思考内容排版（BACKLOG「思考内容也进行排版（块级元素 +
+// TUI/tests/thinking-markdown.test.ts — 思考内容排版（BACKLOG「思考内容也进行排版（块级元素 +
 //   代码块；行内 markdown 留后续）」）：
 //   - 思考行与正文同口径渲染 markdown 子集：块级元素（标题 / 无序与有序列表 / 引用 /
 //     分隔线 / 任务列表）+ 行内（粗体 / 行内代码，随复用 wrapAssistantLine 一并生效）；

@@ -57,7 +57,7 @@ export function createLifecyclePart(ctx: AppContext) {
   /**
    * 首帧前载入「呈现不确定」符号列表（`<profile 目录>/tui-width-symbols.json`）：只记
    * **哪些码点值得实测**，宽度不落盘（每次会话重新实测）——换终端 / tmux / 字体 / 字号
-   * 因此自动正确（用户 2026-10-12 裁定，见 `src/app/layout/width-symbols.ts`）。
+   * 因此自动正确（用户 2026-10-12 裁定，见 `TUI/src/app/layout/width-symbols.ts`）。
    *
    * `TUI_WIDTH_PROBE=0`：整体关闭按需实测（不读列表、不登记、不探测、不落盘），用于对照
    * 排查「静态表基线」。

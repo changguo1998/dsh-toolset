@@ -1,4 +1,4 @@
-// src/app/adapter/types/tools.ts — 工具 / 设置 / 配置编辑面
+// TUI/src/app/adapter/types/tools.ts — 工具 / 设置 / 配置编辑面
 
 /** 宿主工具 schema 结构面（dsh-llm ToolSchema 子集） */
 export interface ToolSchemaLike {

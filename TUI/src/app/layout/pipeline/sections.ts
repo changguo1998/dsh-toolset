@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/sections.ts — 第 1 步「接收」：块交付 → 节缓存
+// TUI/src/app/layout/pipeline/sections.ts — 第 1 步「接收」：块交付 → 节缓存
 //
 // 职责（口径见追踪文档「分节规则」「节内合并」「冻结 / 活跃 两套」）：
 //   - 幂等：带 `seq` 的交付按事件号去重；不带 seq 的文本按「已入账文本」重对账；

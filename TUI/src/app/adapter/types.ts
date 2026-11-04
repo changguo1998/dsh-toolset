@@ -1,4 +1,4 @@
-// src/app/adapter/types.ts — DSH 适配层类型契约（按类型域拆在 ./types/ 下，本文件只做入口重导出）
+// TUI/src/app/adapter/types.ts — DSH 适配层类型契约（按类型域拆在 ./types/ 下，本文件只做入口重导出）
 
 export type {
   AgentRowInfo,

@@ -1,4 +1,4 @@
-// tests/question-window.test.ts — 面板分窗滚动 / 类型标识 / 选项形态 / 编辑光标
+// TUI/tests/question-window.test.ts — 面板分窗滚动 / 类型标识 / 选项形态 / 编辑光标
 // （BACKLOG 3.2.1 / 3.2.2 / 3.2.3 / 3.2.7 的纯函数级验收）
 //
 // 覆盖：

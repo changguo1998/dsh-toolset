@@ -1,11 +1,11 @@
-// tests/status-column-equivalence.test.ts — 状态列 Box 改造的**行为等价性**证据（任务 5）
+// TUI/tests/status-column-equivalence.test.ts — 状态列 Box 改造的**行为等价性**证据（任务 5）
 //
-// 硬约束（追踪文档 docs/archived/2026-10-12-status-column-boxes.md「口径澄清」）：
+// 硬约束（追踪文档 TUI/docs/archived/2026-10-12-status-column-boxes.md「口径澄清」）：
 // 本次是**行为等价改造（视觉零回归）**——四块顺序、块间 `╌`、块内条目顺序、状态符号与配色、
 // 灰色删除线、符号后的悬挂缩进、运行中闪烁、按帧高折叠分级、`Ctrl+S` 显隐、`PgUp`/`PgDn`
 // 滚动都必须与改造前一致。这些细节没有既有自动化覆盖，故以「同一批 state 快照下新旧实现
-// 逐行 diff 一致」为可执行证据（做法照 tests/pipeline-equivalence.test.ts 的旧路径 vs 新路径
-// 先例：旧实现从改造前提交 `cca30c3` 取出后**冻结**在 tests/fixtures/status-column-old.ts）。
+// 逐行 diff 一致」为可执行证据（做法照 TUI/docs/archived/2026-10-12-status-column-boxes.md 的旧路径 vs 新路径
+// 先例：旧实现从改造前提交 `cca30c3` 取出后**冻结**在 TUI/tests/fixtures/status-column-old.ts）。
 //
 // 三部分：
 //  A. 等价矩阵：无裸 `\n` 的输入（旧实现表现正确的场景）逐行文本 + ANSI 逐行一致；

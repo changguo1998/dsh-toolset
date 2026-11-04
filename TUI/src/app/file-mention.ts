@@ -1,12 +1,12 @@
-// src/app/file-mention.ts — `@` 文件提及语法（纯函数：活动 token 识别 + 提及拼写 + 就地替换）
+// TUI/src/app/file-mention.ts — `@` 文件提及语法（纯函数：活动 token 识别 + 提及拼写 + 就地替换）
 //
 // 与宿主 @deepseek-ai/dsh-file-reference 的 grammar 同源复刻。为什么不 import 官方模块：
 // TUI 零运行时依赖，src 内无任何 @deepseek-ai/* import，宿主服务一律经结构面 + ctx.get
-// 访问（见 src/app/adapter/types.ts）；静态 import 官方 grammar 会让**未挂 file-reference 的
+// 访问（见 TUI/src/app/adapter/types.ts）；静态 import 官方 grammar 会让**未挂 file-reference 的
 // profile 直接 ERR_MODULE_NOT_FOUND**（整包起不来），而本特性本应可降级。官方 Web 客户端
 // （dsh-client-ui-input-trigger / dsh-client-ui-reference）同样把这段语法内联进自己的
 // bundle，故复刻与本仓既有约定一致。
-// 漂移风险由 tests/file-mention.test.ts 兜底：空白后触发 / 邮箱不触发 / 光标位于 token
+// 漂移风险由 TUI/tests/file-mention.test.ts 兜底：空白后触发 / 邮箱不触发 / 光标位于 token
 // 中间 / 含空格走引号 / 目录保持引号 / 不可表示路径返回 undefined。
 //
 // 语义来源（FILE_REFERENCE_PROMPT）：`@` 前缀 = 用户显式引用的工作区路径，尾随 `/` 表示

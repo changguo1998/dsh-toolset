@@ -1,4 +1,4 @@
-// tests/pipeline-frame.test.ts — 批 5 接管接缝：整帧逐行等价（新旧内容行来源）
+// TUI/tests/pipeline-frame.test.ts — 批 5 接管接缝：整帧逐行等价（新旧内容行来源）
 //
 // 同一语料两条路径：
 //   旧：`state.local` → `dialogueWindow` + `buildContentRows`（生产路径）；
@@ -796,7 +796,7 @@ test("段 D · 会话切换 / 重放：同一份历史行重放两次（含切�
 test("段 D · 重放 vs 实时交付：同内容整帧逐字节一致（差异口径见注释）", () => {
   // 语料只用「每回合都已定型」的文本内容：恢复重放把整节标 `history`——正文与工具批都归
   // 会话区；实时路径把未定型内容（思考 / 工具批 / 中间正文）归回合区。这是既定分派口径
-  // （见 `tests/pipeline-equivalence.test.ts` 的等价协议），故不纳入本用例的逐字节比较。
+  // （既定分派口径），故不纳入本用例的逐字节比较。
   const T = 1_700_000_000_000;
   const live: BlockDelivery[] = [];
   const rows: HistoryRow[] = [];

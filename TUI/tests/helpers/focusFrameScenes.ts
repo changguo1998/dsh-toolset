@@ -1,6 +1,6 @@
-// tests/helpers/focusFrameScenes.ts — 焦点构图双轨对照的场景构造（**唯一来源**）
+// TUI/tests/helpers/focusFrameScenes.ts — 焦点构图双轨对照的场景构造（**唯一来源**）
 //
-// tests/focus-frame.test.ts（对照断言）与 scripts/freeze-focus-frame.mts（重冻夹具）
+// TUI/tests/focus-frame.test.ts（对照断言）与 TUI/scripts/freeze-focus-frame.mts（重冻夹具）
 // 共用本模块，保证「重冻出的基线」与「断言用的 state」逐字同源——此前两处各写一份
 // 构造，冻结脚本停在「内容不进 pipeline」的旧写法，夹具与断言长期错位。
 //

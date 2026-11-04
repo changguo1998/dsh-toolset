@@ -1,4 +1,4 @@
-// src/app/state/panels.ts — 面板 / 输入历史 / 滚动 的 action 实现
+// TUI/src/app/state/panels.ts — 面板 / 输入历史 / 滚动 的 action 实现
 
 import type { QuestionItem } from "../adapter/dsh.ts";
 import {
@@ -18,7 +18,7 @@ import type {
 } from "./types.ts";
 import type { StateAction } from "./actions.ts";
 
-// src/app/state/panels.ts — 面板 / 输入历史 / 滚动 的 action 实现
+// TUI/src/app/state/panels.ts — 面板 / 输入历史 / 滚动 的 action 实现
 
 export function recomputeCompletion(
   state: AppState,
@@ -398,7 +398,7 @@ export function setPickerEfforts(
 }
 
 /** 兜底项语义标记（BACKLOG TUI#5）：选项文案命中即并入「自定义回答」。
- *  TUI 不调模型，只做可判定规则；对提问方的约定见 docs/SPEC.md（§7 问答面板）。 */
+ *  TUI 不调模型，只做可判定规则；对提问方的约定见 TUI/docs/SPEC.md（§7 问答面板）。 */
 const FALLBACK_OPTION_MARKERS = [
   "自定义",
   "其它",

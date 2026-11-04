@@ -1,4 +1,4 @@
-// src/app/state/reducer.ts — 纯 reducer 入口：StateAction 到 AppState
+// TUI/src/app/state/reducer.ts — 纯 reducer 入口：StateAction 到 AppState
 
 import type { AppState } from "./types.ts";
 import type { StateAction } from "./actions.ts";

@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/tool-units.ts — 工具批的逻辑行单元（`toolUnits`）
+// TUI/src/app/layout/pipeline/tool-units.ts — 工具批的逻辑行单元（`toolUnits`）
 //
 // 历史：本文件曾是第 2 步「结构」的旧 box 树构建器（`buildBoxes` / 细分盒 / 盒子缓存）。
 // 六段旧链与渐进窗口分组的旧口径都已迁到新模型，只剩**工具批的逻辑行单元**——温平按它

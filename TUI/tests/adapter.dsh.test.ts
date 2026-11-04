@@ -1,4 +1,4 @@
-// tests/adapter.dsh.test.ts — real adapter 单测（fake runtime 注入）
+// TUI/tests/adapter.dsh.test.ts — real adapter 单测（fake runtime 注入）
 // 覆盖：session/event 归一化、approval/request 应答者、sendMessage/followup。
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/types.ts — 六步流水线的类型骨架（第 1 / 2 步）
+// TUI/src/app/layout/pipeline/types.ts — 六步流水线的类型骨架（第 1 / 2 步）
 //
 // 口径见 TUI/docs/archived/2026-10-09-layout-segment-cache.md「设计」：
 //   ① 接收（宿主事件 → 节缓存）② 结构（节 → box 序列，宽无关）

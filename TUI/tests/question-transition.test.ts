@@ -1,4 +1,4 @@
-// tests/question-transition.test.ts — 问答面板「选中/标记」提交语义（纯函数级）
+// TUI/tests/question-transition.test.ts — 问答面板「选中/标记」提交语义（纯函数级）
 //
 // 术语约定：选中 = 面板内临时高亮的选项（optionIndex，行首 >）；标记 = 空格写入、
 // Enter 会提交生效的选项（selected，* / +）。

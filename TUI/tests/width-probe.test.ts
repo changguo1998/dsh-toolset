@@ -1,4 +1,4 @@
-// tests/width-probe.test.ts — 终端宽度探测（方案 ② 的探测侧）
+// TUI/tests/width-probe.test.ts — 终端宽度探测（方案 ② 的探测侧）
 //
 // 覆盖：KeyDecoder 识别 CPR 响应（不产生按键）、probeSymbolWidths 批量列差解析与分块、
 // 终端无响应时的超时回退、setWidthOverrides 实测值优先于静态表并使缓存失效、

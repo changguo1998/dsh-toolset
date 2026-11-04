@@ -1,10 +1,10 @@
-// src/app/picker-filter.ts — /model 面板筛选（纯函数：匹配分档 / 可见列表 / 键判定）
+// TUI/src/app/picker-filter.ts — /model 面板筛选（纯函数：匹配分档 / 可见列表 / 键判定）
 //
 // 只筛**当前焦点列**：provider 列与 model 列各记各的筛选词（`PickerState.providerFilter`
 // / `modelFilter`），effort 列不筛（3 项上下即达，无筛选价值）。可见列表 = 原列表里
 // 命中的项按匹配程度排序；筛选词为空 → 原序返回（默认序，当前生效值恒首位）。
 //
-// **可见序是唯一真源**：渲染（src/app/components/ModelPicker.ts）、reducer（state.ts 的
+// **可见序是唯一真源**：渲染（TUI/src/app/components/ModelPicker.ts）、reducer（state.ts 的
 // picker-move / picker-select）、resolvePickerSelection（model-transition.ts）与
 // reloadPickerEfforts（index.ts）全部经本模块取列表或焦点值 —— 各自按下标读原列表
 // 会「显示一套、取值另一套」（空格选中 / Enter 提交落到别的行）。

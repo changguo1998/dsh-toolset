@@ -1,4 +1,4 @@
-// tests/question-panel-frame.test.ts — 问答面板交互下的「帧 == 屏幕」不变量
+// TUI/tests/question-panel-frame.test.ts — 问答面板交互下的「帧 == 屏幕」不变量
 //
 // 定位「按 ↓ 时首项跟着选中标记向下复制一份」：在**纯终端语义**（无 tmux/herdr，
 // 只有真实 VT 触底滚屏行为）下重放每一帧，断言屏幕内容与当前帧逐行一致——

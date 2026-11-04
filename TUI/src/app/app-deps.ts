@@ -1,4 +1,4 @@
-// src/app/app-deps.ts — App 装配依赖面（main.ts 与测试注入的接线契约）
+// TUI/src/app/app-deps.ts — App 装配依赖面（main.ts 与测试注入的接线契约）
 
 import type { Renderer } from "../renderer/index.ts";
 import type { ThemeId } from "../renderer/theme.ts";
@@ -97,9 +97,9 @@ export interface AppDeps {
   getGuard?: () => SecurityGuardLike | undefined;
   /** profile 目录（main.ts 从 `ctx.get('profileContext').dir` 接线）：实测宽度表
    *  落盘位置（`<profile 目录>/tui-width-symbols.json`）。缺省 / 空串 = 不落盘
-   *  （仍按需实测，只是不跨会话复用）；见 src/app/layout/width-symbols.ts。 */
+   *  （仍按需实测，只是不跨会话复用）；见 TUI/src/app/layout/width-symbols.ts。 */
   profileDir?: string;
-  /** 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源；见 src/app/adapter/local-log.ts）：
+  /** 本地输出旁路日志（模型侧工具 `tui_local_log` 的数据源；见 TUI/src/app/adapter/local-log.ts）：
    *  main.ts 从 tui.config.json 的 localLog 段归一化后传入（缺省开启）。
    *  缺省不传 = 不落盘（测试与嵌入方保持原行为）。 */
   localLog?: LocalLogWriteOptions;

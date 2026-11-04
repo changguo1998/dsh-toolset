@@ -1,11 +1,11 @@
-// src/app/layout/eaw-table.ts — 字符宽度静态表（生成物，勿手改）
+// TUI/src/app/layout/eaw-table.ts — 字符宽度静态表（生成物，勿手改）
 //
-// 由 scripts/gen-width-table.mts 生成（EAW: Python unicodedata Unicode 15.0.0；
+// 由 TUI/scripts/gen-width-table.mts 生成（EAW: Python unicodedata Unicode 15.0.0；
 // emoji 属性: Node \p{Emoji} / \p{Emoji_Presentation}）。
 // 每两个数字为一对 [lo, hi] 闭区间，按 lo 升序；运行期二分查找。
 // 判定顺序见 markdown.ts computeCharWidth：零宽 → 文本符号例外 → 本表三张 → 默认 1 列。
 // 第四张 WIDTH_UNCERTAIN_RANGES 不进宽度判定，只用于「运行时按需实测」的字符筛选
-// （见 src/app/layout/width-symbols.ts）。
+// （见 TUI/src/app/layout/width-symbols.ts）。
 
 /** EAW ∈ {W, F}：无歧义宽字符（CJK/全角/多数 emoji），2 列 */
 export const EAW_WIDE_RANGES: readonly number[] = [

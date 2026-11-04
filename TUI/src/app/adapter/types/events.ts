@@ -1,4 +1,4 @@
-// src/app/adapter/types/events.ts — 宿主事件面（DshEvent 联合）
+// TUI/src/app/adapter/types/events.ts — 宿主事件面（DshEvent 联合）
 
 import type { TurnEndReason } from "../../state.ts";
 

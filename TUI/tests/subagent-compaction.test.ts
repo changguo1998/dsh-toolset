@@ -1,4 +1,4 @@
-// tests/subagent-compaction.test.ts — P2 阶段 B4+B5：subagent 行 + compaction 摘要 toast
+// TUI/tests/subagent-compaction.test.ts — P2 阶段 B4+B5：subagent 行 + compaction 摘要 toast
 //
 // B4：subagent/descriptor → buffer 行 `@ <label> <os|ct>`（append-only 不配对不折叠；
 //     one-shot→os / continuable→ct；label 由 adapter 归一化保证非空）。

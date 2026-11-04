@@ -1,4 +1,4 @@
-// src/app/state/types.ts — 状态模型（类型、常量、纯查询与默认值）
+// TUI/src/app/state/types.ts — 状态模型（类型、常量、纯查询与默认值）
 
 import type {
   ApprovalItem,
@@ -29,7 +29,7 @@ import { initialState } from "./initial.ts";
 import { appendStream } from "./updates.ts";
 import { inputHistoryPush } from "./panels.ts";
 
-// src/app/state/types.ts — 状态模型（类型、常量、纯查询与默认值）
+// TUI/src/app/state/types.ts — 状态模型（类型、常量、纯查询与默认值）
 
 /** 顶部三面板（会话区 / 回合区 / 状态列）：`Ctrl+E` / `Ctrl+T` / `Ctrl+S` 一键一区域 */
 export type PanelId = "history" | "activity" | "status";
@@ -155,7 +155,7 @@ export interface HistoryRow {
   /** 活跃用户块标记（由节模型 `panes.ts` 打标；解析器直接读本字段） */
   active?: boolean;
   /**
-   * 工具块行角色（2026-10-13 工具块改版，见 `TUI/docs/implementation/2026-10-13-tool-block-display.md`）：
+   * 工具块行角色（2026-10-13 工具块改版，见 `TUI/docs/archived/2026-10-13-tool-block-display.md`）：
    * `name` = 名字行（标记 + 空格 + 工具名）/ `param` = 参数行 / `result` = 结果行。
    * 缺省 = 旧口径的单文本工具行（辅助行 / 恢复产物）。
    */

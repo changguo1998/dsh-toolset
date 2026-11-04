@@ -1,4 +1,4 @@
-// tests/layout-cache.test.ts — 排版缓存等价性 + App 合帧语义回归
+// TUI/tests/layout-cache.test.ts — 排版缓存等价性 + App 合帧语义回归
 //
 // A. 折行/宽度缓存（TUI_LAYOUT_CACHE / setLayoutCacheEnabled）在同输入下必须与
 //    关闭缓存时**逐行一致**：固定语料覆盖 markdown 分支、CJK/emoji/组合符/ANSI/

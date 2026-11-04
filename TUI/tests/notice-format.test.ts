@@ -1,6 +1,6 @@
-// tests/notice-format.test.ts — notice 行统一前缀（`[hh:mm:ss 来源] 正文`）
+// TUI/tests/notice-format.test.ts — notice 行统一前缀（`[hh:mm:ss 来源] 正文`）
 //
-// 口径见 `src/app/notice-format.ts`：来源取正文自带的 `[来源]` 前缀，缺前缀记 `tui`；
+// 口径见 `TUI/src/app/notice-format.ts`：来源取正文自带的 `[来源]` 前缀，缺前缀记 `tui`；
 // 多行与已带前缀（幂等）原样返回；正文其余部分逐字保留。
 
 import { test } from "node:test";

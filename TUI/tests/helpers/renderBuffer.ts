@@ -1,4 +1,4 @@
-// tests/helpers/renderBuffer.ts — 缓冲行 → 新链渲染（旧 `buildContentRows` 的替代口）
+// TUI/tests/helpers/renderBuffer.ts — 缓冲行 → 新链渲染（旧 `buildContentRows` 的替代口）
 //
 // 背景：内容渲染已全部迁到新流水线（§1 分节 → §7 组装”，`pipelineContent`）。仍用
 // `HistoryRow[]` 造语料的测试从这里走：缓冲行先经 `sectionsFromBuffer` 重放成节缓存，

@@ -1,4 +1,4 @@
-// tests/settings-fork.test.ts — 批次 4：/settings 与 /fork（收尾 notice 型命令）
+// TUI/tests/settings-fork.test.ts — 批次 4：/settings 与 /fork（收尾 notice 型命令）
 //
 // 覆盖：路由（settings/fork）；/settings 只读展示（多行 `ns：value`、空态占位）；
 // 服务缺失降级（warn 且不空开任何面板）；/fork 成功（success + 新会话 id +

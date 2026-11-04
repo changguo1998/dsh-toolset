@@ -1,4 +1,4 @@
-// src/app/state/initial.ts — 初始状态装配
+// TUI/src/app/state/initial.ts — 初始状态装配
 
 import type { ActivityPlacement } from "../config.ts";
 import { DIALOGUE_KEEP_REPLIES, emptyRunVirt } from "../layout.ts";
@@ -11,7 +11,7 @@ import {
 } from "./types.ts";
 import type { AppState } from "./types.ts";
 
-// src/app/state/initial.ts — 初始状态装配
+// TUI/src/app/state/initial.ts — 初始状态装配
 
 export function initialState(
   themeId: ThemeId = DEFAULT_THEME,

@@ -1,4 +1,4 @@
-// tests/exit-handlers.test.ts — 退出路径的信号口径（renderer/terminal.ts）
+// TUI/tests/exit-handlers.test.ts — 退出路径的信号口径（renderer/terminal.ts）
 //
 // 覆盖：SIGINT/SIGTERM 照旧走退出处理器（130/143）；**SIGHUP 不退出**——只通知 onHangup，
 // 因为 tmux detach / 客户端断开都会发 SIGHUP，而把「终端挂断」当退出会直接丢会话

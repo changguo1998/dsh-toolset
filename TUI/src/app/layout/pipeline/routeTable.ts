@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/routeTable.ts — §3 分流的规则表（纯数据，route 消费）
+// TUI/src/app/layout/pipeline/routeTable.ts — §3 分流的规则表（纯数据，route 消费）
 //
 // 追踪文档 T24：来源 × 块类型 × pane × 可见性 × 间隔以**数据表**承载，禁止散落在
 // `panes.push` / `noteActKind` / `absorbActivityBlank` 等处。本文件只放数据与从数据

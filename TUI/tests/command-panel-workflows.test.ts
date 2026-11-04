@@ -1,4 +1,4 @@
-// tests/command-panel-workflows.test.ts — #16：/workflows 面板（只读运行列表）
+// TUI/tests/command-panel-workflows.test.ts — #16：/workflows 面板（只读运行列表）
 //
 // 覆盖：路由；列表渲染（name/阶段·成员数 done；running 黄 active）；空运行 → 占位；
 // 服务缺失（无 workflowEngine）→ warn 不空开面板；tool-workflow 增量事件更新行；

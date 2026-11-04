@@ -1,4 +1,4 @@
-// tests/small-terminal-warning.test.ts — 启动时终端尺寸过小警告
+// TUI/tests/small-terminal-warning.test.ts — 启动时终端尺寸过小警告
 // （BACKLOG〈启动时终端尺寸过小警告〉）
 //
 // 覆盖：判据边界（宽 ≤ 16 / 高 ≤ 9；0 = 未知不算过小）；启动即过小 → 首帧出现警告

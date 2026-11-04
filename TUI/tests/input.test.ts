@@ -1,4 +1,4 @@
-// tests/input.test.ts — KeyDecoder ANSI 输入解码单测（node --test 直跑源码）
+// TUI/tests/input.test.ts — KeyDecoder ANSI 输入解码单测（node --test 直跑源码）
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { KeyDecoder, type KeyEvent } from "../src/renderer/input.ts";

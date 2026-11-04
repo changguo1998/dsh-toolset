@@ -1,4 +1,4 @@
-// src/app/question-transition.ts — 问答面板纯状态转换（无副作用）
+// TUI/src/app/question-transition.ts — 问答面板纯状态转换（无副作用）
 //
 // 自 App（index.ts）拆出：按键路由决策（questionKeyDecision）与整批答案聚合
 // （buildQuestionAnswers）。cancel/submit 的适配器调用（adapter.cancelQuestion /

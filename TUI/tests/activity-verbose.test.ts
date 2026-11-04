@@ -1,4 +1,4 @@
-// tests/activity-verbose.test.ts —— 回合区压缩开关（SPEC §6.8；/collapse [think|tool|reply] on|off）
+// TUI/tests/activity-verbose.test.ts —— 回合区压缩开关（SPEC §6.8；/collapse [think|tool|reply] on|off）
 //
 // 缺省三项全关（完整折行）；某类开启后该类条目压 1 行 + 行尾省略号。
 // notice 与 step 头不归三类，恒按完整形态显示。

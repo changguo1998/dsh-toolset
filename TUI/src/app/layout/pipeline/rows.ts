@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/rows.ts — 第 4 步的**行数表与位置模型**（宽度相关）
+// TUI/src/app/layout/pipeline/rows.ts — 第 4 步的**行数表与位置模型**（宽度相关）
 //
 // 口径（追踪文档「行数表」「滚动位置模型（不加 follow）」）：
 //   - 每段一行数 + 前缀和：查总行数、「第 N 行在哪段」都是 O(log n)，不必重排；

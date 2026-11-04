@@ -1,4 +1,4 @@
-// tests/fill.test.ts — fill 通用摊平引擎测试（SPEC §6.5/§6.7）
+// TUI/tests/fill.test.ts — fill 通用摊平引擎测试（SPEC §6.5/§6.7）
 //
 // Paragraph 折行/prefix/suffix/tail/对齐/valign + Box v/h 递归 + separator。
 // 单段落单元测试用固定 rect（fillFixed，不涉布局）；Box 集成测试用

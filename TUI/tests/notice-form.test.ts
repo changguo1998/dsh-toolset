@@ -1,4 +1,4 @@
-// tests/notice-form.test.ts — TUI#17：`source.form:'notice'` 注入消息的归一与渲染
+// TUI/tests/notice-form.test.ts — TUI#17：`source.form:'notice'` 注入消息的归一与渲染
 //
 // 覆盖：noticeSummaryOf 判定（summary 优先 / 缺省取正文首行 / 截断 ≤120 / 非 notice
 // → undefined）；surfaceToBuffer 的 notice 行（log 灰、单行、空白不产出）；恢复后渲染

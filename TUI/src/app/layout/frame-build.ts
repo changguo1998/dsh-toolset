@@ -1,4 +1,4 @@
-// src/app/layout/frame-build.ts — 帧组装：分区、滚动回落、buildFrame 与焦点
+// TUI/src/app/layout/frame-build.ts — 帧组装：分区、滚动回落、buildFrame 与焦点
 
 import type {
   FrameFocus,
@@ -24,7 +24,7 @@ import type { Box, PaneId, Rect } from "./box.ts";
 import { SEPARATOR, STATUS_TOP_SEPARATOR, teeGlyph } from "./content-rules.ts";
 import { seg, truncateToWidth, wrapLine } from "./primitives.ts";
 
-// src/app/layout/frame-build.ts — 帧组装：分区、滚动回落、buildFrame 与焦点
+// TUI/src/app/layout/frame-build.ts — 帧组装：分区、滚动回落、buildFrame 与焦点
 
 /** 状态行上方分隔行（焦点四边框的底边）：按焦点面板分段着色 + 角字（└/┴/┘）；
  * 无焦点/模态态全边框色 `─`。左侧状态列底边（status 焦点亮、col0 左下角 └），

@@ -1,4 +1,4 @@
-// tests/helpers/frameWithLocalReplay.ts — 条目 16 段 C1 的过渡包装（逐文件迁移完成后删除）
+// TUI/tests/helpers/frameWithLocalReplay.ts — 条目 16 段 C1 的过渡包装（逐文件迁移完成后删除）
 //
 // 背景：生产侧的「无 sink 回退」（`sectionsOf` 按 `state.local` 重放节缓存）已剥离，实现搬进
 // `replay.ts` 的显式助手 `sectionsFromLocal()`。仍用 `reduceState` 造缓冲行再直接出帧的测试文件，

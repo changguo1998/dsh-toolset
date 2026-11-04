@@ -1,4 +1,4 @@
-// tests/helpers/paintFlush.ts — 测试侧合帧冲刷登记
+// TUI/tests/helpers/paintFlush.ts — 测试侧合帧冲刷登记
 //
 // App.paint() 现在是「标脏 + 同 tick 合并」：同一 tick 内多次标脏只画一次，
 // 帧在 microtask 里冲刷。同步测试体（断言前没有 await）读帧时必须先显式冲刷，

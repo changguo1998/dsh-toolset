@@ -1,4 +1,4 @@
-// tests/pipeline-structure.test.ts — §4 结构 整体模块测试（一次只测这一个阶段）
+// TUI/tests/pipeline-structure.test.ts — §4 结构 整体模块测试（一次只测这一个阶段）
 //
 // 模块口径：PaneItem[]（parse 产的 Block + 手搓 头/Gap）→ `buildTrees` → Node/Leaf 树，
 // 断言段落/思考前缀、用户块 toUser（符号+fill）、代码/表格/工具载荷、头 tail、Gap 空叶。

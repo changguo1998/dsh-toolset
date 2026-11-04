@@ -1,4 +1,4 @@
-// src/app/scroll-helpers.ts — 焦点面板行/整页滚动的 action 映射
+// TUI/src/app/scroll-helpers.ts — 焦点面板行/整页滚动的 action 映射
 
 import type { FrameGeometry } from "./layout.ts";
 import type { StateAction } from "./state.ts";

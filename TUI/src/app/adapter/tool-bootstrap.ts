@@ -1,4 +1,4 @@
-// src/app/adapter/tool-bootstrap.ts — 锚定工具引导（anchored tool bootstrap）
+// TUI/src/app/adapter/tool-bootstrap.ts — 锚定工具引导（anchored tool bootstrap）
 //
 // 完整移植自 dsh-anchored-standard/preset/tool-bootstrap.mjs（v2）：
 // 任务感知的两阶段工具锁定-释放，作用于 TUI 持有的真实 agent：

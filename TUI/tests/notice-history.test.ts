@@ -1,6 +1,6 @@
-// tests/notice-history.test.ts — 宿主 notice 历史原文数据面与模型侧工具
+// TUI/tests/notice-history.test.ts — 宿主 notice 历史原文数据面与模型侧工具
 //
-// 数据面见 src/app/adapter/notice-history.ts：解压会话持久日志（`session.v4.jsonl.zstd`
+// 数据面见 TUI/src/app/adapter/notice-history.ts：解压会话持久日志（`session.v4.jsonl.zstd`
 // 拼接多帧 zstd，复刻宿主 scanZstdFrames）+ 抽取 `source.form:'notice'` 消息（user/message
 // 与 agent/inbox/spliced.inserted 两处、按消息 id 去重），供模型侧工具 `notice_history`
 // 按需读取（compaction 折叠出上下文的 notice 原文可从日志取回）。

@@ -1,4 +1,4 @@
-// src/app/adapter/types/session-events.ts — 会话事件与流式分片（阶段 2 原生形态）
+// TUI/src/app/adapter/types/session-events.ts — 会话事件与流式分片（阶段 2 原生形态）
 
 import type {
   CompactionSummaryPayloadLike,

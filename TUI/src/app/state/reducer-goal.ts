@@ -1,4 +1,4 @@
-// src/app/state/reducer-goal.ts — 纯 reducer 分组：目标、待办与目录刷新
+// TUI/src/app/state/reducer-goal.ts — 纯 reducer 分组：目标、待办与目录刷新
 
 import type { AppState, GoalEntry, GoalHistory } from "./types.ts";
 import type { StateAction } from "./actions.ts";

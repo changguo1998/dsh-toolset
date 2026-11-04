@@ -1,4 +1,4 @@
-// tests/pipeline-flatten.test.ts — §6 摊平 整体模块测试（一次只测这一个阶段）
+// TUI/tests/pipeline-flatten.test.ts — §6 摊平 整体模块测试（一次只测这一个阶段）
 //
 // 模块口径：`flatten` 对已量好的树产 Row[] —— 叶折行+prefix/suffix/tail、
 // 代码/表格/工具网格、Gap 空行、h 补白合并、v 顺序拼接。

@@ -1,11 +1,11 @@
-// tests/fixtures/status-column-old.ts — 改造前状态列实现的**冻结副本**（等价性对照用）
+// TUI/tests/fixtures/status-column-old.ts — 改造前状态列实现的**冻结副本**（等价性对照用）
 //
 // 来源：`git show cca30c3:TUI/src/app/layout.ts` 的 renderStatusColumn + 四个行生成器 +
 // foldAt / capRows / wrapWithHanging / statusStartFor 与相关常量与类型，按模块边界原样搬运
 // （只改导出名、只补 import 与搬运段外的常量声明；函数体一字未动）。
 //
-// 用途：`tests/status-column-equivalence.test.ts` 把同一批 state 快照分别喂旧实现与新实现
-// （`src/app/components/StatusColumn.ts` + `renderStatusColumn`），断言逐行文本与行数一致
+// 用途：`TUI/tests/status-column-equivalence.test.ts` 把同一批 state 快照分别喂旧实现与新实现
+// （`TUI/src/app/components/StatusColumn.ts` + `renderStatusColumn`），断言逐行文本与行数一致
 // ——行为等价改造（视觉零回归）的可执行证据。
 //
 // **不要**按新实现修改本文件：它是历史快照，改了证据就失效。

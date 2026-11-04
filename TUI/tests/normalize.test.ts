@@ -1,4 +1,4 @@
-// tests/normalize.test.ts — content 块 → 纯文本 的拼接口径
+// TUI/tests/normalize.test.ts — content 块 → 纯文本 的拼接口径
 //
 // 口径（2026-10-04 起）：多 `text` 块**直连**，不插分隔换行——块是同一段正文的连续
 // 切片，插 `\n` 会在正文开头 / 句中多出换行；模型自己写的换行在块内，原样保留。

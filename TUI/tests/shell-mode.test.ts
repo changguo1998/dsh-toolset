@@ -1,4 +1,4 @@
-// tests/shell-mode.test.ts — `$`（shell）模式的本地执行（BACKLOG TUI#37）
+// TUI/tests/shell-mode.test.ts — `$`（shell）模式的本地执行（BACKLOG TUI#37）
 //
 // 覆盖：`$` 提交走**本地执行器**（不经模型/adapter）；命令回显 + stdout/stderr + 退出摘要
 // 以 kind="shell" 行落回合区（不进会话与模型上下文、不进会话区）；非零退出/超时摘要着色；

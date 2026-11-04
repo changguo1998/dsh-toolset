@@ -1,4 +1,4 @@
-// src/app/commands.ts — slash 命令纯逻辑（解析/决策，无副作用）
+// TUI/src/app/commands.ts — slash 命令纯逻辑（解析/决策，无副作用）
 //
 // 只处理「输入文本/状态 → 决策结果」的纯函数；副作用编排
 // （adapter 调用、paint、notice）留在 App 执行。

@@ -1,6 +1,6 @@
-// tests/p8-compaction-active.test.ts — P8：会话压缩期间算作 active
+// TUI/tests/p8-compaction-active.test.ts — P8：会话压缩期间算作 active
 //
-// 口径（docs/PENDING-FIXES.md P8）：
+// 口径（历史 PENDING-FIXES P8）：
 //  1. `compaction/start` → 该会话标记压缩中；`compaction/end` → 清除；
 //  2. 压缩期间用户块符号显示「进行中」●/○（不是 ?）；
 //  3. 压缩期间 Ctrl+D 退出守卫不触发（`canExitOnCtrlD`）；

@@ -1,4 +1,4 @@
-// src/app/adapter/types/adapter-contract.ts — DshAdapter 对外契约
+// TUI/src/app/adapter/types/adapter-contract.ts — DshAdapter 对外契约
 
 import type { SessionUiState } from "../session-ui-state.ts";
 import type { FileMentionCandidate } from "../../file-mention.ts";

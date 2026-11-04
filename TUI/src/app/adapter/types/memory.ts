@@ -1,4 +1,4 @@
-// src/app/adapter/types/memory.ts — 知识库 / 记忆层级 / 指标循环
+// TUI/src/app/adapter/types/memory.ts — 知识库 / 记忆层级 / 指标循环
 
 /** memory-base 概要（C4 前置；`KnowledgeBundleSummary` 的 TUI 侧宽松子集） */
 export interface KnowledgeBundleSummaryLike {

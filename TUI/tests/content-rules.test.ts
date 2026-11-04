@@ -1,4 +1,4 @@
-// tests/content-rules.test.ts — 内容规则共享层（buildBox 与 layout.ts 共用）
+// TUI/tests/content-rules.test.ts — 内容规则共享层（buildBox 与 layout.ts 共用）
 //
 // 规则搬移等价验证：wrapToolCallText / userMaxBodyWidth / 分组判定 /
 // tone 映射。与原 layout.ts 定义逐一对应（双轨共用一套避免漂移）。

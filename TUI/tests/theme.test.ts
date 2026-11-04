@@ -1,4 +1,4 @@
-// tests/theme.test.ts — 主题模块 + Screen/渲染器主题化单测
+// TUI/tests/theme.test.ts — 主题模块 + Screen/渲染器主题化单测
 //
 // 覆盖：内置兜底两套配色精确值（= 当前上游 terminal-colortheme 快照）、ANSI
 // 槽位→hex 解析（含语义槽位 gray/border/code/focus 数据化）、Screen 整帧/delta

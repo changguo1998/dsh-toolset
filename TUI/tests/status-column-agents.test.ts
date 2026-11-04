@@ -1,4 +1,4 @@
-// tests/status-column-agents.test.ts — 状态列 Agents 块（BACKLOG TUI#39）
+// TUI/tests/status-column-agents.test.ts — 状态列 Agents 块（BACKLOG TUI#39）
 //
 // 覆盖：有数据出块（标题 `Agents 运行中/总数`；运行中黄 ● / 空闲灰 ○ / 异常态红 !）、
 // 行文本 = 别名 ?? label（+ 工作内容；不带状态词与短 id）、

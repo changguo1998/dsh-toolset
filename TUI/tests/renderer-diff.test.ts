@@ -1,4 +1,4 @@
-// tests/renderer-diff.test.ts — Renderer 区间 diff（帧中任意位置变化只重写该区间）
+// TUI/tests/renderer-diff.test.ts — Renderer 区间 diff（帧中任意位置变化只重写该区间）
 //
 // 覆盖：中部单行变化（状态行符号）、末行行内增长（流式）、纯追加、行数减少
 // （尾部残留 ESC[J 清除）、两帧一致不出报文、未变化行不重写。

@@ -1,4 +1,4 @@
-// tests/command-panel-guard.test.ts — A2：/guard 面板命令（security-guard 只读查询面接线）
+// TUI/tests/command-panel-guard.test.ts — A2：/guard 面板命令（security-guard 只读查询面接线）
 //
 // 覆盖：路由；列表渲染（工具名/拦截·放行/原因摘要）；空记录占位；服务缺失降级
 //（warn 且不空开面板）；Enter 策略快照（policy() 4 行）；翻页基线。

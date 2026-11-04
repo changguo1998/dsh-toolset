@@ -1,4 +1,4 @@
-// src/app/components/CommandListPanel.ts — 共享列表面板渲染（/skills、/agents、/tools；纯函数）
+// TUI/src/app/components/CommandListPanel.ts — 共享列表面板渲染（/skills、/agents、/tools；纯函数）
 //
 // 输出恰 height 行，渲染于**回合区窗口**（见 COMMANDS-SPEC.md §4：面板由
 // layout.buildActivePanelBox 选型，用回合区高度与内容宽度构建）。
@@ -47,7 +47,7 @@ const EMPTY_TEXTS: Record<CommandPanelKind, string> = {
 /**
  * 共享列表面板 Box 生成器：标题 + 计数（青）头部行、行窗口（高亮 `> ` + 可选
  * 符号 + 主/副文本）、占位态。按键提示不在面板内——统一由提示行区显示
- * （见 `src/app/layout/hints.ts` 的 `commandPanelHint`）。
+ * （见 `TUI/src/app/layout/hints.ts` 的 `commandPanelHint`）。
  * 叶子 styled wrap:false；滚动窗口与截断算法保留在 build 内。
  */
 export function buildCommandListPanelBox(
@@ -58,7 +58,7 @@ export function buildCommandListPanelBox(
   const rows = Math.max(1, height);
   const leaves = [];
 
-  // 首行：标题 + 计数（青）；按键提示统一由提示行区显示（见 src/app/layout/hints.ts）
+  // 首行：标题 + 计数（青）；按键提示统一由提示行区显示（见 TUI/src/app/layout/hints.ts）
   const header = `${PANEL_TITLES[panel.kind]}（${panel.rows.length}）`;
   const headerVisible = truncateToWidth(header, width);
   leaves.push(

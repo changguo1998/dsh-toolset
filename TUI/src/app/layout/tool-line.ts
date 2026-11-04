@@ -1,4 +1,4 @@
-// src/app/layout/tool-line.ts — 工具行展示纯函数
+// TUI/src/app/layout/tool-line.ts — 工具行展示纯函数
 //
 // 状态层（state.ts）用它构建工具调用/结果行的 buffer 文本（工具调用 ○ / 结果 ✓|✗ 前缀），
 // 渲染层按 BufferKind="tool" + tone 着色。summary/detail 的启发式提取已由
@@ -15,7 +15,7 @@ function escapeRe(s: string): string {
 
 /**
  * 显示期路径缩短：把**工作区根**（缺省 = dsh 进程 cwd，即状态行那个项目路径）前缀从
- * 展示文本里省掉 —— `<根>/TUI/src/x.ts` → `TUI/src/x.ts`；裸 `<根>` → `.`。
+ * 展示文本里省掉 —— `<根>/TUI/src/x.ts` → `TUI/src/<file>.ts`；裸 `<根>` → `.`。
  *
  * - 只做字面量替换，不解析 shell / JSON：命令、参数、文件路径一视同仁（审批文案里
  *   的命令同样缩短，但执行与审批记录用的是原始文本）；

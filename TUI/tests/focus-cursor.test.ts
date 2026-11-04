@@ -1,4 +1,4 @@
-// tests/focus-cursor.test.ts — 输入焦点与光标收尾（BACKLOG 3.1.3）
+// TUI/tests/focus-cursor.test.ts — 输入焦点与光标收尾（BACKLOG 3.1.3）
 //
 // 覆盖：
 //  1) buildFrame 回填 focus：输入态 inputFocus=true 且 caret 指向输入行；面板态 inputFocus=false

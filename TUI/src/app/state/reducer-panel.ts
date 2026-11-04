@@ -1,4 +1,4 @@
-// src/app/state/reducer-panel.ts — 纯 reducer 分组：面板与弹窗
+// TUI/src/app/state/reducer-panel.ts — 纯 reducer 分组：面板与弹窗
 
 import type { AppState } from "./types.ts";
 import {

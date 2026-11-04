@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/gen-width-table.mts — 生成 src/app/layout/eaw-table.ts（宽度静态表）
+// TUI/scripts/gen-width-table.mts — 生成 TUI/src/app/layout/eaw-table.ts（宽度静态表）
 //
 // 数据源与规则：
 //   EAW（UAX #11）来自 scripts/eaw-dump.py（Python unicodedata）；

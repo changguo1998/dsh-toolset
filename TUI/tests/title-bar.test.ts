@@ -1,6 +1,6 @@
-// tests/title-bar.test.ts — P7：标题栏状态符号 + Ctrl+S 显隐垂直状态列
+// TUI/tests/title-bar.test.ts — P7：标题栏状态符号 + Ctrl+S 显隐垂直状态列
 //
-// 口径（docs/PENDING-FIXES.md P7）：
+// 口径（历史 PENDING-FIXES P7）：
 //  - Mode 块从垂直状态列移除，改由**标题栏首行**承载：
 //    `[preset 符号+名字] [sandbox policy plan verbose symbol-unify bell] 2 空格 标题`；
 //  - 符号即变量名、颜色即取值：sandbox ro 绿 package_variant_closed / wr 黄、full 红、

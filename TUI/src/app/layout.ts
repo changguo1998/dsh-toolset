@@ -1,4 +1,4 @@
-// src/app/layout.ts — 布局层入口（视口切分 + 帧组装，纯函数，可单测）
+// TUI/src/app/layout.ts — 布局层入口（视口切分 + 帧组装，纯函数，可单测）
 //
 // 语义（DESIGN scrollback 行为）：
 //  - 长行按列宽软换行（wrapping）

@@ -1,4 +1,4 @@
-// tests/tui-config-merge.test.ts — TUI 配置来源合并（patch > 配置文件 > 默认）
+// TUI/tests/tui-config-merge.test.ts — TUI 配置来源合并（patch > 配置文件 > 默认）
 //
 // 2026-10-27 用户裁定：`tui.config.json` 的内容改为写进 profile 的 cordis.patch.yml
 // （`- id: tui` 的 config 扁平展开，主题段改名 `colorschema`）；patch 值优先于包内配置文件。

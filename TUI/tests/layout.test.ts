@@ -1,4 +1,4 @@
-// tests/layout.test.ts — layout 视口/换行纯函数单测
+// TUI/tests/layout.test.ts — layout 视口/换行纯函数单测
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {

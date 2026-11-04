@@ -1,4 +1,4 @@
-// tests/config-edit.test.ts — /config：插件条目配置编辑面（config-editor）
+// TUI/tests/config-edit.test.ts — /config：插件条目配置编辑面（config-editor）
 //
 // 覆盖：命令解析（列表 / show / set / unset / usage 各失败分支）、值解析（JSON 优先、裸串
 // 回落）、点路径写入与删除（不可变、中间层非对象拒绝、保留名拒绝）、列表与明细格式化；

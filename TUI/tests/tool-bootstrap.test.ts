@@ -1,4 +1,4 @@
-// tests/tool-bootstrap.test.ts — 锚定工具引导（两阶段工具锁定-释放）单测
+// TUI/tests/tool-bootstrap.test.ts — 锚定工具引导（两阶段工具锁定-释放）单测
 //
 // 覆盖：classifyTask 三分类、coreFor 三种首请求目录（不含 glob/grep）、
 // personaFor、isDeepseekModel 门控、sessionMode/isPromotedFromEvents 从 durable

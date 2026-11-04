@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/replay.ts — 会话恢复：已有行 → 节缓存
+// TUI/src/app/layout/pipeline/replay.ts — 会话恢复：已有行 → 节缓存
 //
 // 恢复（`--resume` / 历史折叠）时没有逐块事件可放，但有状态层已归一化的行。本模块按
 // **历史行**（`HistoryRow`）把它们重放成节（与 `frame.ts` 的 `sectionGroupStarts` 恰好相反：

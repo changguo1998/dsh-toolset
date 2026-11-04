@@ -1,4 +1,4 @@
-// src/app/layout/geometry.ts — 帧几何：三区高度、顶部切分、状态列/回合区尺寸
+// TUI/src/app/layout/geometry.ts — 帧几何：三区高度、顶部切分、状态列/回合区尺寸
 
 import type { FrameRow } from "../../renderer/index.ts";
 import {
@@ -23,7 +23,7 @@ import { focusFrame } from "./focus-frame.ts";
 import type { ContentRow } from "./fill.ts";
 import { seg } from "./primitives.ts";
 
-// src/app/layout/geometry.ts — 帧几何：三区高度、顶部切分、状态列/回合区尺寸
+// TUI/src/app/layout/geometry.ts — 帧几何：三区高度、顶部切分、状态列/回合区尺寸
 
 export interface FrameMetrics {
   /** 顶部区域行数 = rows - 状态区 - 输入区 - 按键提示行 - 分隔行（剩余高度全给上方两个） */

@@ -1,4 +1,4 @@
-// tests/session-alias-status.test.ts — 会话别名状态行段（BACKLOG TUI#48）
+// TUI/tests/session-alias-status.test.ts — 会话别名状态行段（BACKLOG TUI#48）
 //
 // 覆盖：设别名后水平状态行出现 `@<别名>` 段；未设别名时该段不出现（不占位）；
 // ticker 的合并写入不会吞掉别名；窄宽度下仍可渲染。

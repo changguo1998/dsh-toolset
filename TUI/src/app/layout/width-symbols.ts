@@ -1,4 +1,4 @@
-// src/app/layout/width-symbols.ts — 「呈现不确定」符号列表落盘（profile 目录内）
+// TUI/src/app/layout/width-symbols.ts — 「呈现不确定」符号列表落盘（profile 目录内）
 //
 // 只记**哪些码点值得实测**，不记宽度：宽度每次会话重新实测（内存表 `WIDTH_OVERRIDES`，
 // 见 markdown.ts）——于是换终端 / tmux / 字体 / 字号都自动正确，不需要终端标识、不需要

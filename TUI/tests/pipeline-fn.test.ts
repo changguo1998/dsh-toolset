@@ -1,4 +1,4 @@
-// tests/pipeline-fn.test.ts — 新链路函数接口单测（自底向上第 1 层：纯函数契约）
+// TUI/tests/pipeline-fn.test.ts — 新链路函数接口单测（自底向上第 1 层：纯函数契约）
 //
 // 只测「输入 → 输出」即确定的纯函数，不构造整链：
 //  - routeTable：ruleFor / turnBlankBetween / categoryVisible（T24 规则表）

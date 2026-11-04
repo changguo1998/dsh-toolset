@@ -1,4 +1,4 @@
-// tests/turn-separator.test.ts — 回合分隔线（#3）
+// TUI/tests/turn-separator.test.ts — 回合分隔线（#3）
 //
 // 条目 16 段 C2：分隔线不再落缓冲行——由 `turn-start` 交付驱动，渲染由流水线给出
 // （`rows.ts` 的 TURN_SEPARATOR 行）；显示时间存 `pipeline.turnMeta`（按回合号为键）：

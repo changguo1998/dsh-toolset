@@ -1,4 +1,4 @@
-// src/app/components/StatusColumn.ts — 状态列（顶部最左列）内容层：条目模型 + Box 生成器
+// TUI/src/app/components/StatusColumn.ts — 状态列（顶部最左列）内容层：条目模型 + Box 生成器
 //
 // 状态列四个**子面板**（Goal / Todo / 后台任务 / 子代理）的内容在此构建成一棵 Box 树，
 // 出行交排版库（`measure` → `allocate` → `fillToList`，见 layout.ts 的 renderStatusColumn）：

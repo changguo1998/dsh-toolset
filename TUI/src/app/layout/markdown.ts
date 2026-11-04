@@ -1,4 +1,4 @@
-// src/app/layout/markdown.ts — markdown 子集渲染（行内 + 块级，纯函数，可单测）
+// TUI/src/app/layout/markdown.ts — markdown 子集渲染（行内 + 块级，纯函数，可单测）
 //
 // 自 layout.ts 拆出：行内 markdown 解析（parseInlineMarkdown）、块级分类渲染
 // （wrapAssistantLine/wrapCodeLine）。段级样式合成在此完成，ANSI 序列化移交渲染层
@@ -403,7 +403,7 @@ registerCacheReset(() => CHAR_WIDTH_TABLE.fill(0));
 
 /**
  * 终端实测宽度覆盖表（码点 → 列数）：来源有二——① 启动时按 profile 目录内的**符号列表**
- * 预探测（`src/app/layout/width-symbols.ts`；宽度本身不落盘，每次会话重新实测）；② 运行中按需实测
+ * 预探测（`TUI/src/app/layout/width-symbols.ts`；宽度本身不落盘，每次会话重新实测）；② 运行中按需实测
  * （`Renderer.probeSymbolWidths`，见 `takePendingWidthProbes`）。不同终端对
  * 「呈现不确定」字符的解析不同（1 或 2 列），静态表只能保守取值，实测值优先于全部静态判定。
  */
@@ -554,7 +554,7 @@ function computeCharWidth(cp: number): number {
   if (isWidthUncertainChar(cp)) noteWidthProbeCandidate(cp);
   // 文本呈现符号例外（✓/✗ 等 UI 状态标记按 1 列，见 NARROW_TEXT_SYMBOLS）
   if (NARROW_TEXT_SYMBOLS.has(cp)) return 1;
-  // EAW 精确表（scripts/gen-width-table.mts 生成，替代原「粗粒度区间整段按 2 列」）：
+  // EAW 精确表（TUI/scripts/gen-width-table.mts 生成，替代原「粗粒度区间整段按 2 列」）：
   // - W/F：无歧义宽字符（CJK/全角/多数 emoji）按 2 列；
   // - A（歧义）仅在几何/符号/CJK/emoji 保守区间内按 2 列（可能被 CJK 字体按全角
   //   设计，防低估撑破窗口），其余 A 类（→ × ± 等）按 1 列，与主流终端一致；

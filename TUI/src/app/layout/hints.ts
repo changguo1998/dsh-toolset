@@ -1,4 +1,4 @@
-// src/app/layout/hints.ts — 底部按键提示行文案（按状态取一行；BACKLOG 3.1.2）
+// TUI/src/app/layout/hints.ts — 底部按键提示行文案（按状态取一行；BACKLOG 3.1.2）
 //
 // 全部按键提示的唯一来源：面板内不再画提示行，提示统一由 layout.buildFrame 放在
 // 输入区下方的提示行。空串仍占 1 行（历史加载等「无可用键位」阶段）；**提示行允许

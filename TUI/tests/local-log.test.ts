@@ -1,6 +1,6 @@
-// tests/local-log.test.ts — TUI 本地输出旁路日志（tui-local.jsonl）与模型侧工具
+// TUI/tests/local-log.test.ts — TUI 本地输出旁路日志（tui-local.jsonl）与模型侧工具
 //
-// 数据面见 src/app/adapter/local-log.ts：TUI 里「只给用户看」的输出（`$` 命令与结果、
+// 数据面见 TUI/src/app/adapter/local-log.ts：TUI 里「只给用户看」的输出（`$` 命令与结果、
 // 命令 notice）按会话落 <会话根>/<slug>/<id>/tui-local.jsonl，模型经工具 `tui_local_log`
 // 按需读。写入 fire-and-forget（不抛错）：目录缺失 / 关闭 / 空正文都静默丢弃。
 

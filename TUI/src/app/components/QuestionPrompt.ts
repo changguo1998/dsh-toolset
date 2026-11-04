@@ -1,9 +1,9 @@
-// src/app/components/QuestionPrompt.ts — 问答面板渲染（纯函数）
+// TUI/src/app/components/QuestionPrompt.ts — 问答面板渲染（纯函数）
 //
 // 以文本面板呈现 DSH 提问（与 ApprovalPrompt 同风格）：标题区 + 单题视图
 // （描述窗 + 选项窗两段）。标题区（BACKLOG TUI#4）：单题 = 0 行（不显示标题与
 // 类型符号，首行即题干），多题 = 1 行（按题序列出「题号 + 符号」，如 ` 1○ 2□`）。
-// 按键提示**不在面板内**，统一由提示行区按状态显示（见 src/app/layout/hints.ts 的 questionHintLine）。
+// 按键提示**不在面板内**，统一由提示行区按状态显示（见 TUI/src/app/layout/hints.ts 的 questionHintLine）。
 //
 // 两窗模型（BACKLOG 3.2.1）：面板体按高度拆为
 //   - **描述窗**：题干 + detail（plan-review 追加计划卡片分隔行）；
@@ -97,7 +97,7 @@ interface QuestionLayout {
 /** 问答面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：整棵 activity 内容树
  *  替换。标题 + 描述窗 + 选项窗按高度分配，逐行产 styled 叶子——**描述窗（题干 / detail）
  *  走 markdown 子集**（与会话区同口径，BACKLOG TUI#6），选项行不解析（选中绿 / 未选中的
- *  光标行黄）。按键提示不在面板内（见 src/app/layout/hints.ts）。 */
+ *  光标行黄）。按键提示不在面板内（见 TUI/src/app/layout/hints.ts）。 */
 export function buildQuestionPanelBox(
   panel: QuestionPanelState,
   height: number,

@@ -1,4 +1,4 @@
-// tests/terminal.test.ts — 终端控制面（renderer/terminal.ts）的缺口锚点
+// TUI/tests/terminal.test.ts — 终端控制面（renderer/terminal.ts）的缺口锚点
 //
 // 现有用例只经 `createRenderer` 间接碰到 raw mode（非 TTY 下静默失败）；这里直接对
 // `setRawMode` / `createTerminal` 注入假流, 钉住四类判定:

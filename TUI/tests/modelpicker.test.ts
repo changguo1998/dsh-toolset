@@ -1,4 +1,4 @@
-// tests/modelpicker.test.ts — /model 交互选择面板渲染 + picker reducer 单测
+// TUI/tests/modelpicker.test.ts — /model 交互选择面板渲染 + picker reducer 单测
 //
 // 覆盖：三列独立列表同屏（provider/model/thinking）、当前生效
 // provider/model/effort 各列标 `*`、焦点行 `>`、Tab 三区循环、thinking

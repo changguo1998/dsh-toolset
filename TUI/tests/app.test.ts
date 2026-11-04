@@ -1,4 +1,4 @@
-// tests/app.test.ts — App 层 slash 命令路由单测
+// TUI/tests/app.test.ts — App 层 slash 命令路由单测
 //
 // 覆盖：submit() 对 / 前缀行走 slash 路由；本地表 /help /clearscreen /cls /quit；
 // 未知命令 fail-close(不经 sendMessage)；notice 事件进入缓冲。

@@ -1,4 +1,4 @@
-// src/app/adapter/session-records.ts — 历史会话列举 / 续接目标 / 删除
+// TUI/src/app/adapter/session-records.ts — 历史会话列举 / 续接目标 / 删除
 
 import { isUserMessage } from "../state.ts";
 import type {

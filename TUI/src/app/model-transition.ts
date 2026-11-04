@@ -1,4 +1,4 @@
-// src/app/model-transition.ts — 模型选择面板纯状态转换（无副作用）
+// TUI/src/app/model-transition.ts — 模型选择面板纯状态转换（无副作用）
 //
 // 自 App（index.ts）拆出：面板初始构建（buildPickerInit）、思考等级预设索引
 // （pickerEffortIndex）、各列选中值解析（resolvePickerSelection）、切换决策

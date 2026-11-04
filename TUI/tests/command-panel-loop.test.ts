@@ -1,4 +1,4 @@
-// tests/command-panel-loop.test.ts — A4：/loop 面板命令（metric-loop list() 接线）
+// TUI/tests/command-panel-loop.test.ts — A4：/loop 面板命令（metric-loop list() 接线）
 //
 // 覆盖：路由；列表渲染（measureCmd/状态·方向·轮数·best·更新时间）；空占位；
 // 服务缺失降级（warn 不空开面板）；Enter 详情（loopDetail 4 行）；翻页基线。

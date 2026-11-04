@@ -1,4 +1,4 @@
-// src/app/adapter/types/adapter-options.ts — 适配器装配选项
+// TUI/src/app/adapter/types/adapter-options.ts — 适配器装配选项
 
 import type { BlockDelivery } from "../../layout/pipeline/types.ts";
 

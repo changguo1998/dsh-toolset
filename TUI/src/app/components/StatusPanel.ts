@@ -1,4 +1,4 @@
-// src/app/components/StatusPanel.ts — 通用状态选项面板（/policy /permission）
+// TUI/src/app/components/StatusPanel.ts — 通用状态选项面板（/policy /permission）
 //
 // 以文本面板呈现一组状态选项（回合区窗口，与审批/问答/模型选择同区域）：
 // 标题行 + 选项列表。↑/↓ 移动焦点（>），空格预选（*，再按取消），
@@ -14,7 +14,7 @@ import { seg } from "../layout/primitives.ts";
 /**
  * 状态选项面板 Box 生成器（TUI/docs/DESIGN.md §7 / SPEC.md §7）：标题行（命令名蓝
  * + 当前生效值）+ 选项列表（预选`*`绿优先 / 未预选焦点`>`黄）。按键提示不在面板内
- * （见 src/app/layout/hints.ts 的 statusPanelHintLine）。选项滚动窗口算法保留在 build 内
+ * （见 TUI/src/app/layout/hints.ts 的 statusPanelHintLine）。选项滚动窗口算法保留在 build 内
  * （跟随焦点滚动）；叶子 styled wrap:false 精确行长。
  */
 export function buildStatusPanelBox(
@@ -60,7 +60,7 @@ export function buildStatusPanelBox(
 
   // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）。窗口起点走共用工具
   // windowStart（BACKLOG 3.2.1：三处面板局部实现统一），center = 焦点居中并 clamp。
-  // 按键提示不在面板内（统一由提示行区显示，见 src/app/layout/hints.ts 的 statusPanelHintLine）
+  // 按键提示不在面板内（统一由提示行区显示，见 TUI/src/app/layout/hints.ts 的 statusPanelHintLine）
   const maxBody = Math.max(0, height - 1);
   let window: typeof rows = rows;
   if (rows.length > maxBody) {

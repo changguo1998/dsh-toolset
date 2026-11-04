@@ -1,4 +1,4 @@
-// src/app/state/reducer-turn.ts — 纯 reducer 分组：回合边界与模式
+// TUI/src/app/state/reducer-turn.ts — 纯 reducer 分组：回合边界与模式
 
 import { emptyRunVirt, VIRT_SPEED_MIN } from "../layout.ts";
 import type { AppState } from "./types.ts";

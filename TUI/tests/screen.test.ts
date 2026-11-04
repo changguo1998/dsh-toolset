@@ -1,4 +1,4 @@
-// tests/screen.test.ts — Screen 帧写出（光标定位）单测
+// TUI/tests/screen.test.ts — Screen 帧写出（光标定位）单测
 //
 // 行前进契约（2026-10-04 起）：**逐行绝对定位**（每行先 `CSI n;1H`），全程不发
 // CRLF——CRLF 在终端底行会触发滚屏，把整屏顶掉若干行，而帧间 diff 认为这些行

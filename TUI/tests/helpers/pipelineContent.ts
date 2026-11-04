@@ -1,4 +1,4 @@
-// tests/helpers/pipelineContent.ts — 条目 16 段 C2 的测试内容构造器
+// TUI/tests/helpers/pipelineContent.ts — 条目 16 段 C2 的测试内容构造器
 //
 // 背景：段 C2 之后 `state.local` 只承载 UI 本地行（notice / shell / tool / plain），
 // 内容（用户块、正文、思考、工具批、step 头）**不再有缓冲行形态**，唯一来源是节缓存

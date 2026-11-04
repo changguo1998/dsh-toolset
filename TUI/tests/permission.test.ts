@@ -1,4 +1,4 @@
-// tests/permission.test.ts — 权限预设选择（/permission）：route + App 命令
+// TUI/tests/permission.test.ts — 权限预设选择（/permission）：route + App 命令
 //
 // 覆盖：routeSlashCommand /permission；App 无参（读 ctx.permissionPresets 目录 →
 // notice 列当前 + 可用列表）、带参（转发宿主 /permission 写路径）、宿主未挂载

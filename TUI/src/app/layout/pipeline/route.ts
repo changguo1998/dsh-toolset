@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/route.ts — §3 分流：EventGroup[] → { session, turn } PaneItem[]
+// TUI/src/app/layout/pipeline/route.ts — §3 分流：EventGroup[] → { session, turn } PaneItem[]
 //
 // 职责（追踪文档 T23-T26）：把每个模型交互（EventGroup）的解析块按来源分派到
 // 会话区（正文 / 用户块 / step 概要）与回合区（思考 / 工具 / 非 final 正文），

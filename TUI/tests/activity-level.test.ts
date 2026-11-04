@@ -1,4 +1,4 @@
-// tests/activity-level.test.ts —— 回合区显示开关（SPEC §6.8；/verbose [think|tool|reply] on|off）
+// TUI/tests/activity-level.test.ts —— 回合区显示开关（SPEC §6.8；/verbose [think|tool|reply] on|off）
 //
 // 三项全开（缺省）：思考 / 正文 / 工具块都显示；关某项即隐藏该类内容。
 // notice 与 step 分隔头恒显，不归三类。

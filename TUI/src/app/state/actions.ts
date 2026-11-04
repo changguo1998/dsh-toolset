@@ -1,4 +1,4 @@
-// src/app/state/actions.ts — reducer 的 action 联合类型
+// TUI/src/app/state/actions.ts — reducer 的 action 联合类型
 
 import type {
   ApprovalItem,
@@ -37,7 +37,7 @@ import type {
 } from "./types.ts";
 import type { NoticeLine } from "./updates.ts";
 
-// src/app/state/actions.ts — reducer 的 action 联合类型
+// TUI/src/app/state/actions.ts — reducer 的 action 联合类型
 
 export type StateAction =
   | { type: "append"; text: string; time?: number }

@@ -1,4 +1,4 @@
-// tests/agent-preset.test.ts — agent 预设：路由 + reducer 隔离 + DshEvent 归一化
+// TUI/tests/agent-preset.test.ts — agent 预设：路由 + reducer 隔离 + DshEvent 归一化
 //
 // 覆盖：`/preset` 命令已删除（2026-10-02，项目级 BACKLOG「slash 命令命名规范：不用缩写」）
 // → routeSlashCommand 落 registry；agent-preset 事件 → reducer presetBySession 按 sessionId

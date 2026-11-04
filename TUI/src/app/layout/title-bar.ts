@@ -1,4 +1,4 @@
-// src/app/layout/title-bar.ts — 标题栏与状态列渲染（纯函数）
+// TUI/src/app/layout/title-bar.ts — 标题栏与状态列渲染（纯函数）
 
 import type { FrameSegment } from "../../renderer/index.ts";
 import { RUN_TOGGLE_TOKENS } from "./run-virt.ts";
@@ -24,7 +24,7 @@ import type { ContentRow } from "./fill.ts";
 import { displayWidth } from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
 
-// src/app/layout/title-bar.ts — 标题栏与状态列渲染（纯函数）
+// TUI/src/app/layout/title-bar.ts — 标题栏与状态列渲染（纯函数）
 
 /** 权限/沙箱等级缩写（标题栏沙箱状态符号的等级缩写来源） */
 const MODE_SHORT: Record<string, string> = {

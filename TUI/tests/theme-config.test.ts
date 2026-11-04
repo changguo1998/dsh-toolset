@@ -1,4 +1,4 @@
-// tests/theme-config.test.ts — 主题调色板配置解析（resolveThemes）单测
+// TUI/tests/theme-config.test.ts — 主题调色板配置解析（resolveThemes）单测
 //
 // 覆盖：无配置/默认链、paletteDir 文件读取（内联 > 文件 > 内置优先级）、
 // 非法 hex/8 项回落与告警、semantics 槽位引用（ansi.N/bright.N/字面 hex）、

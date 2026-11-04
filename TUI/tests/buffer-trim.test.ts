@@ -1,4 +1,4 @@
-// tests/buffer-trim.test.ts — 缓冲头部裁剪的现行契约
+// TUI/tests/buffer-trim.test.ts — 缓冲头部裁剪的现行契约
 //
 // 会话内容真源已迁到节缓存（`state.pipeline`），缓冲不再参与构帧（视口顶按「段键 + 段内行」
 // 定位，见 `layout/pipeline/rows.ts`），故裁剪**不再为阅读位置让路**：一律按上限裁。

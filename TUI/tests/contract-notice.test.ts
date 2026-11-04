@@ -1,4 +1,4 @@
-// tests/contract-notice.test.ts — A5：/contract 命令（goal-contract 契约概览，notice 型）
+// TUI/tests/contract-notice.test.ts — A5：/contract 命令（goal-contract 契约概览，notice 型）
 //
 // 覆盖：路由；无当前目标 → warn；目标含 Done-when 契约 → info 展示目标+条款数+前几条
 // （check/等级）；目标无契约 → info 说明未附条款；解析失败 → warn。数据源为

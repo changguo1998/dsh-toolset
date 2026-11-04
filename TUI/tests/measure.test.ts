@@ -1,4 +1,4 @@
-// tests/measure.test.ts — Box 布局契约测试（SPEC.md §6；2026-10 起节点自持尺寸 + 多轮收敛）
+// TUI/tests/measure.test.ts — Box 布局契约测试（SPEC.md §6；2026-10 起节点自持尺寸 + 多轮收敛）
 //
 // 覆盖：分配优先级（fixed > ratio > auto > fill）、ratio 归一与让路、
 // auto 平摊与 min/max、fill 均分与余数、prefix/indent/hanging 折行、

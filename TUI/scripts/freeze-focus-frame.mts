@@ -1,12 +1,12 @@
 // TUI/scripts/freeze-focus-frame.mts — 冻结焦点构图与面板渲染基线（接线汇合里程碑前置）
 //
 // 一次性工具：调用当前 buildFrame 输出固化为 fixtures/focus-frame-legacy.json，
-// 以供 tests/focus-frame.test.ts 从 fixture 读取基线做双轨对照（旧实现删除后
-// 对照测试仍独立可回归）。**场景构造与测试共用 tests/helpers/focusFrameScenes.ts**
+// 以供 TUI/tests/focus-frame.test.ts 从 fixture 读取基线做双轨对照（旧实现删除后
+// 对照测试仍独立可回归）。**场景构造与测试共用 TUI/tests/helpers/focusFrameScenes.ts**
 // ——此前两处各写一份，冻结脚本停在「内容不进 pipeline」的旧写法，夹具与断言长期错位
 // （2026-10-14 修复：重冻出的基线即测试所断言的 state）。
 //
-// 用法：node --experimental-transform-types scripts/freeze-focus-frame.mts
+// 用法：node --experimental-transform-types TUI/scripts/freeze-focus-frame.mts
 //
 // 重冻记录：2026-10-14（提示行统一格式 + 提示行 1 至 2 行动态高：焦点场景换新提示文案、
 // `panel-picker@w60` 提示行折 2 行）—— 见 TUI/docs/implementation/

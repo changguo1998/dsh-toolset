@@ -1,4 +1,4 @@
-// tests/picker-filter.test.ts — /model 面板筛选（picker-filter 纯函数 + reducer）
+// TUI/tests/picker-filter.test.ts — /model 面板筛选（picker-filter 纯函数 + reducer）
 //
 // 覆盖：匹配分档与排序（全等 / 前缀 / 段首前缀 / 子串 / 子序列 + 稳定 tie-break）、
 // 空词默认序、逐键编辑（追加 / 删尾 / Ctrl 与功能键交回）、焦点列与筛选词、

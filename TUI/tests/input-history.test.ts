@@ -1,4 +1,4 @@
-// tests/input-history.test.ts — 输入历史（BACKLOG TUI#34）
+// TUI/tests/input-history.test.ts — 输入历史（BACKLOG TUI#34）
 //
 // 覆盖：提交入栈（普通输入与 `/` 命令共用一份）、**Ctrl+P 上翻 / Ctrl+N 下翻**回到草稿、
 // 到最早一条停住、相邻重复与空串不入栈、手动编辑退出翻看态。

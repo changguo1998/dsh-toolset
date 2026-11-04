@@ -1,4 +1,4 @@
-// tests/focus-keep.test.ts — 区域焦点在内容推进期间保持（BACKLOG「模型回复期间区域焦点被
+// TUI/tests/focus-keep.test.ts — 区域焦点在内容推进期间保持（BACKLOG「模型回复期间区域焦点被
 // 内容推进清空（运行中切换不保持）」，2026-10-15 实现）
 //
 // 事件边界（`FOCUS_RESET_ACTIONS`，src/app/state.ts）：
@@ -237,7 +237,7 @@ test("App 端到端：聚焦会话区后流式输出期间焦点框保持，提�
   // 本条缺陷的用户可见现象（BACKLOG「模型回复期间区域焦点被内容推进清空」）：
   // 运行时按 Ctrl+E 聚焦会话区，焦点框立刻被下一个流式 chunk（或下一个回合开始）清掉。
   // 焦点框判据 = 会话区既有框线转焦点色（dark 主题 focus = 159;238;250，
-  // 与 tests/app.test.ts 的 Esc 退出用例同口径）。
+  // 与 TUI/tests/app.test.ts 的 Esc 退出用例同口径）。
   const { app, renderer, adapter } = makeApp();
   renderer.size = { cols: 100, rows: 24 };
   const hasFocusVBar = (): boolean =>

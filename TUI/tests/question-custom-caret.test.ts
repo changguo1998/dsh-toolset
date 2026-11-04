@@ -1,4 +1,4 @@
-// tests/question-custom-caret.test.ts — 问题面板自定义答案的光标移动（BACKLOG TUI#35）
+// TUI/tests/question-custom-caret.test.ts — 问题面板自定义答案的光标移动（BACKLOG TUI#35）
 //
 // 覆盖（纯决策/reducer 层）：
 //   1) 编辑态 ←/→ 在串内移动光标（右端到头不动、不切题）；左端再按仍不切题

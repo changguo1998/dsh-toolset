@@ -1,4 +1,4 @@
-// src/app/adapter/search-aggregate.ts — 多源搜索聚合与循环行 detail
+// TUI/src/app/adapter/search-aggregate.ts — 多源搜索聚合与循环行 detail
 
 import type {
   DshEvent,

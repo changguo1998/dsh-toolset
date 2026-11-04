@@ -1,4 +1,4 @@
-// tests/resume-summary.test.ts — 恢复会话的行还原（映射 + 渲染）
+// TUI/tests/resume-summary.test.ts — 恢复会话的行还原（映射 + 渲染）
 //
 // 口径：恢复只加载历史缓冲里已有的行与少量辅助，**不自行计算总结**——
 //   旧版 P9 的 `╌╌ read ×2, bash ×1` 概要行已下线（生成端更早删除，消费端本轮删除）；

@@ -1,4 +1,4 @@
-// tests/steer-queued-display.test.ts — steer 排队显示（BACKLOG TUI#43）
+// TUI/tests/steer-queued-display.test.ts — steer 排队显示（BACKLOG TUI#43）
 //
 // 覆盖：排队项带类型（followup / steer）；忙时提交进排队块（独立成行、不写 buffer）、
 // 空闲时直达回显；渲染顺序 steer 在 followup 之上；右缘竖线 steer 黄 / followup 灰 /
@@ -111,7 +111,7 @@ test("reducer：排队项带类型；认领按类型各取最早一条（互不�
   );
   // 条目 16 段 C2：内容不再有缓冲行形态——「认领即转入历史流」改由 App 认领时随交付发出
   // （`index.ts` 的 `queued-claim` 分支 → 节缓存），本用例只钉队列事实。等价覆盖：
-  // `tests/app.test.ts`「agent 运行中 Enter → 官方流程」断言被认领的 followup 成为节缓存
+  // `TUI/tests/app.test.ts`「agent 运行中 Enter → 官方流程」断言被认领的 followup 成为节缓存
   // 里的用户块；steer 认领的节缓存断言见下方「核心在 step 边界认领」用例。
 
   // step 边界：认领最早 **steer**（不误吃 followup）

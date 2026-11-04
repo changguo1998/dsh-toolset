@@ -1,4 +1,4 @@
-// tests/helpers/screenEmu.ts — 测试侧极简终端模拟器
+// TUI/tests/helpers/screenEmu.ts — 测试侧极简终端模拟器
 //
 // 只实现渲染层用到的控制序列（CSI H/K/J、CR、LF、SGR 与私有模式忽略），
 // 用于把 Screen/Renderer 写出的报文还原成「屏幕单元格」，断言**屏幕上实际留下的

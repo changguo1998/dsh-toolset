@@ -1,4 +1,4 @@
-// tests/panel.test.ts — 面板场景原语（panel.ts）结构单测
+// TUI/tests/panel.test.ts — 面板场景原语（panel.ts）结构单测
 //
 // 覆盖：panelTitle/panelQuestion/panelExplanation 返回 Paragraph 形状与
 // 默认样式；panelOptions 的标记语义（焦点 `>` 黄 / 单选选中 `*` 绿 / 多选

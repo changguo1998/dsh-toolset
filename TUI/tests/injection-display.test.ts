@@ -1,4 +1,4 @@
-// tests/injection-display.test.ts — rule-engine 注入的用户块显示（BACKLOG TUI#49）
+// TUI/tests/injection-display.test.ts — rule-engine 注入的用户块显示（BACKLOG TUI#49）
 //
 // 覆盖 App 侧：adapter 的 `rule-injection` 事件 → 用户行进入 buffer（实时可见）、
 // 同 id 去重（重放 / 双通道不重复）。历史路径与消息形状由 adapter.dsh.test.ts

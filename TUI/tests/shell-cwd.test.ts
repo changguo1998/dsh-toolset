@@ -1,4 +1,4 @@
-// tests/shell-cwd.test.ts — `$` 的 cwd 归一与启动失败呈现（BACKLOG TUI#37 真机缺陷回归）
+// TUI/tests/shell-cwd.test.ts — `$` 的 cwd 归一与启动失败呈现（BACKLOG TUI#37 真机缺陷回归）
 //
 // 真机现象（2026-09-27）：`$ls` 报 `spawn 失败：spawn /bin/sh ENOENT` + `→ 被信号 ? 终止`。
 // 根因：状态行 `systemStatus.cwd` 是**显示用缩写**（`~/Projects/x`，status.ts `shortenHome`），

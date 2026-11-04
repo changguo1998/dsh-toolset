@@ -1,4 +1,4 @@
-// tests/steer-mode.test.ts — 输入模式的投递语义（默认 `>` = steer、`<` = followup）
+// TUI/tests/steer-mode.test.ts — 输入模式的投递语义（默认 `>` = steer、`<` = followup）
 //
 // 2026-10-13 交换后：**默认模式**（提示符 `>`）提交走 `agent.steer`（adapter target='next-step'，
 // 运行中下一 step 认领、空闲立即起一轮）；`<` 模式 = followup（运行中进排队块等下一回合、

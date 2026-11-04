@@ -1,4 +1,4 @@
-// src/app/config-edit.ts — /config 命令的纯逻辑（解析 / 点路径 / 值校验 / 格式化，无副作用）
+// TUI/src/app/config-edit.ts — /config 命令的纯逻辑（解析 / 点路径 / 值校验 / 格式化，无副作用）
 //
 // 编辑动作本身经 adapter 交给宿主 config-editor（`configEditor.edit()`：完整候选值校验 →
 // 原子写 profile patch → 与 profile 变更 / HMR 串行 → 经 Loader 立即应用）；本模块只做

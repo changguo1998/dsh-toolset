@@ -1,4 +1,4 @@
-// tests/pipeline-wrap.test.ts — §5/§6 唯一折行入口 wrapLeaf 的契约（阶段 0 R15/阶段 0 基建）
+// TUI/tests/pipeline-wrap.test.ts — §5/§6 唯一折行入口 wrapLeaf 的契约（阶段 0 R15/阶段 0 基建）
 //
 // 契约（追踪文档 T14/T15）：
 //  - 折行只此一处：宽字符（EAW）按列计；prefixW 占首行；hanging 让续行缩进；

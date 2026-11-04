@@ -1,4 +1,4 @@
-// src/app/layout/status-line.ts — 底部状态行渲染（模型 / 用量 / 分支 / 沙箱等段）
+// TUI/src/app/layout/status-line.ts — 底部状态行渲染（模型 / 用量 / 分支 / 沙箱等段）
 
 import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import type { AppState, InputStatus } from "../state.ts";
@@ -8,7 +8,7 @@ import type { Box } from "./box.ts";
 import { charWidth, displayWidth } from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
 
-// src/app/layout/status-line.ts — 底部状态行渲染（模型 / 用量 / 分支 / 沙箱等段）
+// TUI/src/app/layout/status-line.ts — 底部状态行渲染（模型 / 用量 / 分支 / 沙箱等段）
 
 /** 模型段标签：provider/model[:reasoningEffort]，无 effort 时不带冒号后缀 */
 export function modelLabel(sel: {

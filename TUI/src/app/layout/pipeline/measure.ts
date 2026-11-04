@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/measure.ts — §5 测量：LayoutTree + 宽 → 各节点宽高
+// TUI/src/app/layout/pipeline/measure.ts — §5 测量：LayoutTree + 宽 → 各节点宽高
 //
 // 职责（追踪文档 T30-T34）：根拿屏幕宽（每个 pane 各自量），后序填各节点 width/height。
 //   - 文本叶：height = wrapLeaf(leaf.text, bodyW, …).length（**唯一折行**，禁止估算）；

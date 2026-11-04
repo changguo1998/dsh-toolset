@@ -1,4 +1,4 @@
-// src/app/exit-guards.ts — 退出守卫与退出/重启/清理的约定常量
+// TUI/src/app/exit-guards.ts — 退出守卫与退出/重启/清理的约定常量
 
 import type { AppState } from "./state.ts";
 import { isCompacting } from "./state.ts";

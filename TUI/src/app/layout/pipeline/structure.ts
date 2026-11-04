@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/structure.ts — §4 结构：PaneItem[] → Node/Leaf 树
+// TUI/src/app/layout/pipeline/structure.ts — §4 结构：PaneItem[] → Node/Leaf 树
 //
 // 职责（追踪文档 T27-T29）：把 §3 产出的扁平 PaneItem[]（markdown 块成品 + step /
 // turn / gap / 概要占位 + 工具批）映射成 Node/Leaf 布局树。**宽无关**：宽度 / 折行 /

@@ -1,4 +1,4 @@
-// tests/helpers/rowText.ts — 测试侧 FrameRow/段序列化辅助
+// TUI/tests/helpers/rowText.ts — 测试侧 FrameRow/段序列化辅助
 //
 // 布局层自 RenderLine[] 迁移到 FrameRow[] 后，测试需要从段结构还原「纯文本」
 // 与「旧式 ANSI 文本」来断言（等价旧 RenderLine.text 语义），并直接检查段样式。

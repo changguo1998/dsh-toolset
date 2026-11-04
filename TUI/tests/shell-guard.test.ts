@@ -1,6 +1,6 @@
-// tests/shell-guard.test.ts — `$` 模式执行前的 security-guard 复查
+// TUI/tests/shell-guard.test.ts — `$` 模式执行前的 security-guard 复查
 // （BACKLOG「TUI `$` 模式执行面不经 guard」；追踪文档
-// docs/implementation/2026-10-02-tui-local-shell-guard.md 决策 D1/D2/D4/D5）
+// docs/archived/2026-10-02-tui-local-shell-guard.md 决策 D1/D2/D4/D5）
 //
 // 覆盖：① 假 guard 命中 → 命令**未执行**（runner 调用数 0）、回执（含来源标注 `tui:$` 与规则 id）
 // 进输出区、首行仍是命令回显、**无**执行摘要行；② 放行 → 照常执行；

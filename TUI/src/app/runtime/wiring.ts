@@ -396,7 +396,7 @@ export function createWiringPart(ctx: AppContext) {
         // 压缩提示 / 重试中 …）过去只进缓冲、不投块 → 流水线看不到，这里补投块。
         // **adapter 已直接交付的事件不桥接**（重复投递会在回合区出现两行）：
         // `tool-call` / `tool-result`（批与结果）、`step`（step-start）、
-        // `compaction-prune`（shadow）—— 见 src/app/adapter/dsh.ts 的 deliver 调用点。
+        // `compaction-prune`（shadow）—— 见 TUI/src/app/adapter/dsh.ts 的 deliver 调用点。
         const tailBefore = ctx.state.local.length;
         ctx.self.apply((s) => reduceState(s, e));
         const bridged =

@@ -1,4 +1,4 @@
-// tests/session-ui-state.test.ts — TUI 侧会话状态快照（tui-state.json）读写
+// TUI/tests/session-ui-state.test.ts — TUI 侧会话状态快照（tui-state.json）读写
 //
 // 快照随会话目录走（<会话根>/<slug>/<id>/tui-state.json）：只承载宿主日志不记录的
 // 状态（verbose/symbol-unify）与模型/模式的兜底值。读写一律 best-effort：

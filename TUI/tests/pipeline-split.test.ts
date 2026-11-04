@@ -1,4 +1,4 @@
-// tests/pipeline-split.test.ts — §1 分节 整体模块测试（一次只测这一个阶段）
+// TUI/tests/pipeline-split.test.ts — §1 分节 整体模块测试（一次只测这一个阶段）
 //
 // 模块口径：HistoryRow 缓冲（现实输入来源）→ `sectionsFromBuffer` → `splitSections`，
 // 断言按模型交互边界分组、来源更换断点、final/standalone/user 态归位。

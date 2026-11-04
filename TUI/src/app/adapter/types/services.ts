@@ -1,4 +1,4 @@
-// src/app/adapter/types/services.ts — 任务引擎、守卫、群组服务面
+// TUI/src/app/adapter/types/services.ts — 任务引擎、守卫、群组服务面
 
 /** task-engine 只读查询面快照（C1 前置；host `TaskEngine.query()` 返回形态的 TUI 侧宽松子集） */
 export interface TaskEngineTaskLike {

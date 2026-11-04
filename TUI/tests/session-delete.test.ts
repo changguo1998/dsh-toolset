@@ -1,4 +1,4 @@
-// tests/session-delete.test.ts — 历史会话清理（删除单条 + 清理当前项目空会话）
+// TUI/tests/session-delete.test.ts — 历史会话清理（删除单条 + 清理当前项目空会话）
 //
 // 三层覆盖：
 // 1) 文件级安全（真实临时目录）：只删目标会话目录、符号链接逃逸被拒、非法 id / 未找到无副作用
@@ -1166,8 +1166,8 @@ test("退出自动清理（autoCleanEmpty=true）：提示渲染到回合区并�
     "先出「正在清理」帧、再出结果帧",
   );
   // 已知产品缺口（条目 16 段 C1 暴露，测试侧不可迁）：`paintExitNotice`
-  // （`src/app/index.ts:1000`）只 `reduceState` 写缓冲、不 `deliverLocal` 投节缓存，
-  // 而流水线已是唯一渲染源 → 生产（`src/main.ts:322/679` 注入 sink）退出清理提示不可见。
+  // （`TUI/src/app/index.ts:1000`）只 `reduceState` 写缓冲、不 `deliverLocal` 投节缓存，
+  // 而流水线已是唯一渲染源 → 生产（`TUI/src/main.ts:322/679` 注入 sink）退出清理提示不可见。
   assert.ok(
     renderer.lastRender.join("\n").includes("已自动清理 2 个空会话"),
     "结果渲染到回合区",

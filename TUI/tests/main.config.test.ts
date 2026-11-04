@@ -1,4 +1,4 @@
-// tests/main.config.test.ts — 展示类配置归一化（main.ts 配置边界）
+// TUI/tests/main.config.test.ts — 展示类配置归一化（main.ts 配置边界）
 //
 // 覆盖：默认值；合法值透传；非法值（非有限数/越界/小数）回退默认并告警。
 // normalizeTuiDisplayConfig 为纯函数，真实链路在 apply() 一次性归一化，

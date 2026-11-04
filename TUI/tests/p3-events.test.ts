@@ -1,4 +1,4 @@
-// tests/p3-events.test.ts — P3 事件显示增强（workflow/command/code-dispatch/hook/
+// TUI/tests/p3-events.test.ts — P3 事件显示增强（workflow/command/code-dispatch/hook/
 // schedule/compaction-prune/feedback）reducer 层测试：断言缓冲行文本与 tone。
 //
 // 归一化（raw session 事件 → DshEvent）由 adapter.dsh.test.ts 覆盖；本文件只测

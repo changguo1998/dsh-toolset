@@ -1,8 +1,8 @@
-// src/app/local-shell.ts — `$`（shell）模式的本地执行（BACKLOG TUI#37）
+// TUI/src/app/local-shell.ts — `$`（shell）模式的本地执行（BACKLOG TUI#37）
 //
 // 语义（条目决策）：
 //   - **本地子进程**执行（`sh -c` / Windows 走 `cmd.exe`），**不经模型**、不占审批链；
-//   - 非交互（`node-pty` 已评估、暂不引入，见 docs/DESIGN.md 技术选型）——只收 stdout/stderr；
+//   - 非交互（`node-pty` 已评估、暂不引入，见 TUI/docs/DESIGN.md 技术选型）——只收 stdout/stderr；
 //   - 有界超时（缺省 30s）到点先 SIGTERM、宽限后 SIGKILL；输出有界（缺省 2 万字符）截断；
 //   - 不做危险命令黑名单：命令回显本身即审计，护栏职责归 security-guard（避免两套口径）；
 //   - 执行前**复查一次**（惰性 `ctx.get("guard").inspectCommand(command, "tui:$")`）：命中即不执行、

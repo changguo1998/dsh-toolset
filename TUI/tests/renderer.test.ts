@@ -1,4 +1,4 @@
-// tests/renderer.test.ts — Renderer 合成按键注入（emitKey）与 close 生命周期
+// TUI/tests/renderer.test.ts — Renderer 合成按键注入（emitKey）与 close 生命周期
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

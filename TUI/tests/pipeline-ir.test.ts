@@ -1,4 +1,4 @@
-// tests/pipeline-ir.test.ts — 七段重构阶段 1（宽无关前三段：分节 / 解析 / 分流 / 结构）
+// TUI/tests/pipeline-ir.test.ts — 七段重构阶段 1（宽无关前三段：分节 / 解析 / 分流 / 结构）
 //
 // 契约（追踪文档 T16-T29）：
 //  - split：旧节缓存 → 一次模型交互 Section[]（思考 / 正文 / 工具声明并进同一条）；

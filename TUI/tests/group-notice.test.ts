@@ -1,4 +1,4 @@
-// tests/group-notice.test.ts — BACKLOG TUI /group：群组状态命令（notice 型，只读）
+// TUI/tests/group-notice.test.ts — BACKLOG TUI /group：群组状态命令（notice 型，只读）
 //
 // 覆盖：路由；服务未挂载 → warn；空清单 → 「无群组」；带群组 → 清单（计数 + 每组紧凑
 // 摘要）；带组名命中 → 单组详情（建组/成员/连接/指令）；带组名未命中 → warn（失败面

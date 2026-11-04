@@ -1,4 +1,4 @@
-// tests/approval-panel.test.ts — 审批交互族与提问上下文（BACKLOG 3.2.4 / 3.2.5 / 3.2.6 /
+// TUI/tests/approval-panel.test.ts — 审批交互族与提问上下文（BACKLOG 3.2.4 / 3.2.5 / 3.2.6 /
 // 3.2.10 / 3.3.1）：
 //   - 审批面板两窗渲染：草稿描述窗（≤ 面板体 2/3）+「批准 / 拒绝」选项窗（编号 + 焦点）
 //   - 拒绝项倒计时（deadline 注入固定 now，避免依赖真实时钟）

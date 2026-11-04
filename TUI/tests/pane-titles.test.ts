@@ -1,4 +1,4 @@
-// tests/pane-titles.test.ts — #5 窗口标题（Session / Turn / Tool）
+// TUI/tests/pane-titles.test.ts — #5 窗口标题（Session / Turn / Tool）
 //
 // 覆盖：① Session 标题在标题栏下划线行左端、Turn 标题在回合区分隔行左端（未聚焦=边框色）；
 // ② 聚焦时对应标题转焦点色（语义色 focus = 青）；③ 回合区显示交互面板时该标题位写 Tool；

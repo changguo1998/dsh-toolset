@@ -1,4 +1,4 @@
-// demo/main.ts — demo 入口：mock adapter 喂数据，走通 renderer→app 全栈
+// TUI/demo/main.ts — demo 入口：mock adapter 喂数据，走通 renderer→app 全栈
 //
 // 独立入口，无 DSH 依赖（不读取 profile 的 cordis.patch.yml 配置）。
 // 构建后运行 dist/demo/main.js；可选参数：
@@ -31,7 +31,7 @@ import { createMockDshAdapter, type MockDshAdapter } from "./mockAdapter.ts";
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 // 帧取证复用测试侧终端模拟器（BACKLOG TUI#2）：渲染器逐行绝对定位（行间无 `\r\n`），
 // 只有按 VT 语义重放报文才能还原「屏幕上实际留下的行」。同源用法见
-// `src/renderer/index.ts` 的排查配方与 `tests/screen-residue.test.ts`。
+// `TUI/src/renderer/index.ts` 的排查配方与 `TUI/tests/screen-residue.test.ts`。
 import { ScreenEmu } from "../tests/helpers/screenEmu.ts";
 
 const tuiConfig = loadTuiConfig();
@@ -433,7 +433,7 @@ if (smoke) {
       // 形制 = `╌╌ hh:mm:ss ⇆N #M `（条目「step 分隔线补回合号」）；step 头**内容驱动**
       // （条目「孤儿步骤分隔线」）——本场景里只有 (回合 2, 步 2) 的头会被画出（步 1 的头是
       // 首个头，被 `suppressFirstHead` 压掉），故断言 `⇆2 #2` 而非旧的 `⇆N #1`
-      // （2026-10-12 期望漂移重设，见 `docs/implementation/2026-10-12-demo-smoke-drift.md`）
+      // （2026-10-12 期望漂移重设，见 `TUI/docs/archived/2026-10-12-demo-smoke-drift.md`）
       ok(
         "step-header",
         /\d{2}:\d{2}:\d{2} ⇆2 #2 /.test(badgePlain),

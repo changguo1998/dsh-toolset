@@ -1,4 +1,4 @@
-// src/app/adapter/types/agent.ts — 代理注册表、权限预设、技能与子代理
+// TUI/src/app/adapter/types/agent.ts — 代理注册表、权限预设、技能与子代理
 
 import type { ContentBlockLike } from "./core.ts";
 

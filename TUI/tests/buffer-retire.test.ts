@@ -1,9 +1,9 @@
-// tests/buffer-retire.test.ts — 条目 7 选项 1 / 条目 16 段 C2：生产路径的 `local` 只承载 UI 本地行
+// TUI/tests/buffer-retire.test.ts — 条目 7 选项 1 / 条目 16 段 C2：生产路径的 `local` 只承载 UI 本地行
 //
 // 条目 16 段 C2 之后，内容（用户块 / 正文 / 思考 / step 头 / 工具批）的唯一来源是节缓存
 // `state.pipeline`（交付驱动），`local` 只剩 UI 本地行：
 //   - 交付把内容送进节缓存，缓冲里没有内容行（本文件用交付构造器造内容；App 级同型断言见
-//     `tests/p5-blank-chunk.test.ts` 与 `tests/pipeline-app.test.ts`）；
+//     `TUI/tests/p5-blank-chunk.test.ts` 与 `TUI/tests/pipeline-app.test.ts`）；
 //   - UI 本地行（notice / shell / 辅助工具行 / 重试提示）仍写缓冲——底部 toast 与 App 的
 //     事件补投需要它们（见追踪文档第四阶段）；
 //   - 用户输入开启的回合清掉回合区提示行；历史恢复 / 会话切换清空缓冲（不带上一会话的本地行）。
@@ -12,7 +12,7 @@
 // 「缺省仍承载内容（测试 / 嵌入用法）」——C2 后内容类 action 只承载状态事实
 // （`inputStatus` / 回合号 / `strippedChars` …），不再有内容类缓冲写入。
 //
-// 读侧迁移的 App 级回归（`/copy` 取节模型）见 `tests/pipeline-app.test.ts`。
+// 读侧迁移的 App 级回归（`/copy` 取节模型）见 `TUI/tests/pipeline-app.test.ts`。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

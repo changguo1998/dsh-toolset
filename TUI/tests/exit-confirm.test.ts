@@ -1,4 +1,4 @@
-// tests/exit-confirm.test.ts — 退出前问题面板确认（BACKLOG「tmux 断连后 dsh 退出」）
+// TUI/tests/exit-confirm.test.ts — 退出前问题面板确认（BACKLOG「tmux 断连后 dsh 退出」）
 //
 // 语义：Ctrl+D（idle 且输入区为空）与 750ms 双击 Ctrl+C 不再直接退出，改为弹出合成问答
 // 面板确认——默认高亮「取消/留在 TUI」，Esc 取消，Enter 确认高亮项；仅确认「退出 dsh」

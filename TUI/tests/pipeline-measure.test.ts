@@ -1,4 +1,4 @@
-// tests/pipeline-measure.test.ts — §5 测量 整体模块测试（一次只测这一个阶段）
+// TUI/tests/pipeline-measure.test.ts — §5 测量 整体模块测试（一次只测这一个阶段）
 //
 // 模块口径：`measure` 对树写 width/height —— 叶高=wrapLeaf 行数、代码/表格/工具
 // 各自高度模型、v 高求和、h 高取 max 且 fixed/auto/fill 分派宽。

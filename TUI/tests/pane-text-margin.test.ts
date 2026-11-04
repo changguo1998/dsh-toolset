@@ -1,4 +1,4 @@
-// tests/pane-text-margin.test.ts — 会话区/回合区「文字右缘留白」（PANE_TEXT_MARGIN_COLS）
+// TUI/tests/pane-text-margin.test.ts — 会话区/回合区「文字右缘留白」（PANE_TEXT_MARGIN_COLS）
 //
 // 覆盖：**只有文字排版宽度收窄**（P3：留白是行尾属性，只给右缘贴外框列的 pane）——
 // 横向会话区 不留白（`┃` 紧贴内部分隔竖线）、横向回合区 让 1 列、纵向两 pane 同列各让 1 列；

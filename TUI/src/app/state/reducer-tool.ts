@@ -1,4 +1,4 @@
-// src/app/state/reducer-tool.ts — 纯 reducer 分组：工具过程与回合内输出
+// TUI/src/app/state/reducer-tool.ts — 纯 reducer 分组：工具过程与回合内输出
 
 import {
   TOKEN_CALIB_ALPHA,

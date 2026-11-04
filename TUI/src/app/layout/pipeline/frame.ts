@@ -1,4 +1,4 @@
-// src/app/layout/pipeline/frame.ts — 批 5 接管接缝：新流水线 → 两 pane 内容行
+// TUI/src/app/layout/pipeline/frame.ts — 批 5 接管接缝：新流水线 → 两 pane 内容行
 //
 // 职责：把节缓存（第 1 步产物）经 box / pane / 行三层做成 `ContentRow[]`，与旧路径
 // `buildTopRegion` 里 `dialogueWindow + buildContentRows` 的那一段**同口径**：
@@ -10,7 +10,7 @@
 //
 // 内容来源唯一：`state.pipeline`（App 注入）。未注入时 `sectionsOf` 返回**空节**——条目 16
 // 段 C1 已剥离「无 sink 回退」；需要按缓冲重放的调用方（测试 / 嵌入用法）显式用
-// `replay.ts` 的 `sectionsFromLocal()` 或 `tests/helpers/frameWithLocalReplay.ts` 的包装。
+// `replay.ts` 的 `sectionsFromLocal()` 或 `TUI/tests/helpers/frameWithLocalReplay.ts` 的包装。
 
 import type { RenderOptions } from "./rows.ts";
 import { renderPaneNew } from "./rows.ts";

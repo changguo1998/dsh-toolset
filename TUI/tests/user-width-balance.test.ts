@@ -1,4 +1,4 @@
-// tests/user-width-balance.test.ts —— 会话区用户块平衡折行（行数不变、按 C = ceil(L/R) 收窄）
+// TUI/tests/user-width-balance.test.ts —— 会话区用户块平衡折行（行数不变、按 C = ceil(L/R) 收窄）
 //
 // 算法：总显示宽 L、最大列宽 Cmax → R = ceil(L / Cmax)，C = ceil(L / R)；
 // 宽字符取整可能多折一行时右移列宽直到行数回到 R。只作用于用户块。

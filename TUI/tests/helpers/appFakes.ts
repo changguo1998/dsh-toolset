@@ -1,4 +1,4 @@
-// tests/helpers/appFakes.ts — App 层测试共用假件（原在 app.test.ts，input-history.test.ts 亦复用）
+// TUI/tests/helpers/appFakes.ts — App 层测试共用假件（原在 app.test.ts，input-history.test.ts 亦复用）
 //
 // FakeRenderer：记录渲染帧与按键回调；FakeAdapter：记录发送/命令/事件的最小 DshAdapter 形状。
 // 从 app.test.ts 抽出以免「跨测试文件 import」导致被导入文件的用例被重复执行。

@@ -1,4 +1,4 @@
-// src/app/adapter/types/model.ts — 模型目录 / 选择 / 用量
+// TUI/src/app/adapter/types/model.ts — 模型目录 / 选择 / 用量
 
 export interface ModelInfo {
   provider: string;

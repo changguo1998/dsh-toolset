@@ -1,4 +1,4 @@
-// tests/pipeline-integration.test.ts — 模块组合后的整体流水线测试（集成层）
+// TUI/tests/pipeline-integration.test.ts — 模块组合后的整体流水线测试（集成层）
 //
 // 目的：把 §1 split → §2 parse → §3 route → §4 structure → §5 measure → §6 flatten
 // → §7 compose（经 `pipelineContent` 接线桥）串成一个整体，再经 `buildFrame` 到整帧，

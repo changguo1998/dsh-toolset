@@ -1,4 +1,4 @@
-// src/app/state/reducer-history.ts — 纯 reducer 分组：历史会话浏览
+// TUI/src/app/state/reducer-history.ts — 纯 reducer 分组：历史会话浏览
 
 import {
   deletableSession,

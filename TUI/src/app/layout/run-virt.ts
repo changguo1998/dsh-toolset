@@ -1,4 +1,4 @@
-// src/app/layout/run-virt.ts — 运行指示：虚拟速度 / 虚拟 token / ●○ 与用户块符号
+// TUI/src/app/layout/run-virt.ts — 运行指示：虚拟速度 / 虚拟 token / ●○ 与用户块符号
 
 import type { AppState, InputMode, GoalHistory, ModeState } from "../state.ts";
 import { isCompacting } from "../state.ts";
@@ -8,7 +8,7 @@ import type { UserRowInfo } from "./pipeline/ir.ts";
 import { layout } from "./measure.ts";
 import { charWidth } from "./markdown.ts";
 
-// src/app/layout/run-virt.ts — 运行指示：虚拟速度 / 虚拟 token / ●○ 与用户块符号
+// TUI/src/app/layout/run-virt.ts — 运行指示：虚拟速度 / 虚拟 token / ●○ 与用户块符号
 
 /**
  * 运行中符号交替阈值：每累计 RUN_TOGGLE_TOKENS 个**虚拟 token** 切换一次 ●/○。

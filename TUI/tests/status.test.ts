@@ -1,4 +1,4 @@
-// tests/status.test.ts — 状态行合并节流读取单测
+// TUI/tests/status.test.ts — 状态行合并节流读取单测
 //
 // 覆盖：StatusTicker 一次 tick 内合并查询 cwd/git/time(不重复 fork，可计数)；
 // schedule 可注入(tick 次数可数)；占位路径渲染不抛错。

@@ -1,4 +1,4 @@
-// tests/ctrl-t-panes.test.ts — #9 Ctrl+T 聚焦 / 收起下半区（Turn 流 + 工具区）
+// TUI/tests/ctrl-t-panes.test.ts — #9 Ctrl+T 聚焦 / 收起下半区（Turn 流 + 工具区）
 //
 // 契约：缺省显示；`Ctrl+T` 未聚焦时聚焦（可见但未聚焦只聚焦、不隐藏）、已聚焦时收起 +
 // 焦点回会话区；收起后回合区高度/宽度归零、空间并入会话区，输入区不受影响；
