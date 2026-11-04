@@ -25,8 +25,8 @@ node dev/standard/index.mjs --rule term.interface   # 只看一条规则, 有命
 | `link.file` | 错误 | 相对链接的目标文件是否存在 | Markdown |
 | `link.anchor` | 警告 | `#锚点` 与目标文件的标题 slug 是否对得上 | Markdown |
 | `table.columns` | 错误 | 表格表头与数据行的列数是否一致 | Markdown |
-| `comment.path-shorthand` | 警告 | `.ts` 注释里 `src/...` 这类包内简写路径 | `.ts` 注释 |
-| `comment.path-missing` | 警告 | 注释里从仓库根算起的路径是否存在 | 同上 |
+| `comment.path-shorthand` | 错误 | `.ts` 注释里 `src/...` 这类包内简写路径 | `.ts` 注释 |
+| `comment.path-missing` | 错误 | 注释里从仓库根算起的路径是否存在 | 同上 |
 | `pkg.structure` | 错误 | `package.json` 的 `main` / `types` 配套与源文件、`files` / `dsh.bundle.patch` 路径 | 各包 |
 | `tsconfig.structure` | 错误 | `extends` / `include` / `exclude` 路径与 4 个基线编译选项 | 各包 |
 
@@ -43,4 +43,4 @@ node dev/standard/index.mjs --rule term.interface   # 只看一条规则, 有命
 
 ## 存量与严重度
 
-警告档的规则都是已登记的真实存量，不是误报: `.ts` 注释简写路径 588 处与失效路径 60 处登记在 `docs/BACKLOG.md` #1。界面旧称已于 2026-11-03 清零（规则已改为错误档）。存量清完后把对应规则的严重度改为「错误」，`pnpm run check` 侧即可当门禁用。
+警告档只余 `link.anchor`. `.ts` 注释的简写路径与失效路径已于 2026-11-04 清零（实测 587 + 60, 规则已改为错误档); 界面旧称已于 2026-11-03 清零. `pnpm run check` 侧即可当门禁用.

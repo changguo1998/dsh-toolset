@@ -277,7 +277,7 @@ for (const absolute of tsFiles) {
         if (shorthand) {
           report(
             "comment.path-shorthand",
-            "warn",
+            "error",
             file,
             comment.line,
             `注释路径 \`${token}\` 应写成从仓库根算起的完整路径`,
@@ -288,7 +288,7 @@ for (const absolute of tsFiles) {
       if (!existsSync(join(ROOT, token))) {
         report(
           "comment.path-missing",
-          "warn",
+          "error",
           file,
           comment.line,
           `注释路径 \`${token}\` 指向的文件不存在`,

@@ -64,11 +64,11 @@
 
 ## 2. 未完成项
 
-**#1 清理 .ts 注释里的简写路径与失效路径**〔进行中: 2026-11-04〕（登记: 2026-11-03）：`check:docs` 的警告档跑出现行 `.ts` 注释里 588 处包内简写路径（`src/...` / `tests/...` 而非从仓库根算起）与 60 处失效路径（指向已归档或已删文件）→ 期望逐包按「引用仓内文件写完整路径」口径改写, 失效路径改指现存文档或删掉 → 改动位置 各包 `src/` 与 `tests/` 注释、`TUI/scripts/` 注释 → 验收: `node dev/standard/index.mjs --rule comment.path-shorthand` 与 `--rule comment.path-missing` 均为 0, 之后把两条规则从 `warn` 改回 `error`（`dev/standard/index.mjs` 的 `report` 严重度） → 优先级 P3 → 来源: `docs/archived/2026-11-03-docs-standard-checker.md`.
+**#1 迁出 34 包测试产物数据**（前置: 覆盖率报告口径条目, 口径定稿后再搬数字）〔待办: 2026-11-02〕（登记: 2026-11-02）：34 份包追踪已补「四份测试产物」索引, 但覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑数字仍分散在「实现记录」「测试与证据」, 没有独立数据节 → 期望逐包把四类数据搬到索引节或生成一份汇总, 保留原节链接 → 改动位置 34 份 `docs/archived/2026-10-28-history-cleanup-<包>.md` → 验收: 34/34 四类数据可直接读取, 索引链接不指向缺失节, 数字与既有测试记录一致 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P2-16 补正记录.
 
-**#2 迁出 34 包测试产物数据**（前置: 覆盖率报告口径条目, 口径定稿后再搬数字）〔待办: 2026-11-02〕（登记: 2026-11-02）：34 份包追踪已补「四份测试产物」索引, 但覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑数字仍分散在「实现记录」「测试与证据」, 没有独立数据节 → 期望逐包把四类数据搬到索引节或生成一份汇总, 保留原节链接 → 改动位置 34 份 `docs/archived/2026-10-28-history-cleanup-<包>.md` → 验收: 34/34 四类数据可直接读取, 索引链接不指向缺失节, 数字与既有测试记录一致 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P2-16 补正记录.
+**#2 分阶段开启 5 个 TypeScript 严格检查**〔待办: 2026-11-02〕（登记: 2026-11-02）：总追踪决定本轮不开 `noUnusedLocals` / `noUnusedParameters` / `noImplicitReturns` / `exactOptionalPropertyTypes` / `noFallthroughCasesInSwitch`, 留后续 → 期望逐包评估与修复, 一包一笔提交, 行为不变; `check` / `build` / `test` 与受影响包的覆盖率逐包核对, 不一次全仓打开 → 改动位置 34 份 `tsconfig.json` 与命中代码 → 验收: 五项逐一落地或有逐包豁免理由, 全量 `check` / `build` / `test` 退出 0 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:534,791,1337`.
 
-**#3 分阶段开启 5 个 TypeScript 严格检查**〔待办: 2026-11-02〕（登记: 2026-11-02）：总追踪决定本轮不开 `noUnusedLocals` / `noUnusedParameters` / `noImplicitReturns` / `exactOptionalPropertyTypes` / `noFallthroughCasesInSwitch`, 留后续 → 期望逐包评估与修复, 一包一笔提交, 行为不变; `check` / `build` / `test` 与受影响包的覆盖率逐包核对, 不一次全仓打开 → 改动位置 34 份 `tsconfig.json` 与命中代码 → 验收: 五项逐一落地或有逐包豁免理由, 全量 `check` / `build` / `test` 退出 0 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:534,791,1337`.
+> 2026-11-04 关闭: 「清理 .ts 注释里的简写路径与失效路径」完成并移出清单（追踪文档 `docs/archived/2026-11-04-comment-paths.md`): 587 处简写路径（按所属包补全前缀, 8 处语义改写）与 60 处失效路径（项目级 / 包级 implementation→archived、包内 docs / scripts、跨包 main→index、9 处占位与已删文档改写）清零, 500 个 `.ts` / `.mts` 文件只改注释; `comment.path-shorthand` / `comment.path-missing` 已从 warn 改 error, `dev/standard/README.md` 同步; 每批均跑全仓 check / test, 最终 `check:docs` 0 / 0、build 退出 0.
 
 > 2026-11-03 关闭：条目「统一界面名称」完成并移出清单（追踪文档 `docs/archived/2026-11-03-unified-ui-names.md`）：现行文档、`.ts` 注释与命令描述 / help 文本 / 测试断言里的旧称全部按 `docs/GLOSSARY.md` 替换为七个名称（`状态栏` 按位置分流到 `状态列` / `状态行`），`node dev/standard/index.mjs --rule term.interface` 为 0，规则从警告档改回错误档；TUI 1829 例、`demo -- --smoke` 输出 `SMOKE_OK`、全仓 `check` / `test` 退出 0。
 

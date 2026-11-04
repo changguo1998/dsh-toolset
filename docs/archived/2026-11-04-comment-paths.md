@@ -1,6 +1,6 @@
 # 清理 `.ts` 注释里的简写路径与失效路径（接取条目: `docs/BACKLOG.md`「清理 .ts 注释里的简写路径与失效路径」）
 
-状态: 实现　　开启: 2026-11-04
+状态: 关闭　　开启: 2026-11-04　　关闭: 2026-11-04
 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改.
 
 ## 目标
@@ -154,16 +154,53 @@
 
 ## 实现记录
 
-（待实现阶段补记）
+按 B0 至 B5 分批执行; 每批: 脚本只改该批包的注释区间 → `format` → 逐文件「去注释正文」与 HEAD 对拍 → 本批规则计数 0 → `pnpm run check` + `pnpm run test` → 直接提交.
+
+| 批 | 范围 | 文件 | 命中 | 提交 |
+| --- | --- | --- | --- | --- |
+| B0 | 规划文档 + BACKLOG 状态 | 2 | — | `e1c29b61` |
+| B1 | `TUI` | 254 | 347 | `a12d3ff3` |
+| B2 | 集成类 10 包 | 120 | 149 | `1c4a6e9f` |
+| B3 | 内容与工具类 18 包 | 98 | 120 | `cb2d5331` |
+| B4 | 规则与守卫类 5 包 | 28 | 31 | `c7155ef8` |
+| B5 | 规则改错误档 + README + 关闭 | — | — | 本提交 |
+
+- 合计 500 个 `.ts` / `.mts` 文件、647 处命中（shorthand 587 + missing 60）清零.
+- 脚本 `tmp/paths-rewrite.mjs`（一次性, 已删）读两条规则的 `--all` 输出, 按包过滤; 只在注释区间替换, 每文件校验行数不变、去注释正文与 HEAD 完全一致; 替换目标逐条 `existsSync` 校验（特殊改写除外）.
+- **prettier 重排回退**: 4 批共 10 个文件（B1 2 / B2 3 / B3 3 / B4 2）在 `format` 时被重排了既有代码（原文件本就不是 prettier 格式）; 已 `git checkout HEAD` 还原, 再用脚本只重贴注释, 不再对这些文件跑 `format`; 最终 `git diff` 只含注释行.
+- **规则改错误档**: 清零后 `dev/standard/index.mjs` 两处 `"warn"` → `"error"`; `dev/standard/README.md` 规则表与「存量与严重度」同步; 判定逻辑未改.
 
 ## 偏差
 
-1. **计数差 1**: 条目与 `dev/standard/README.md` 记 shorthand 588 处, 当前实测 587 处; 可能由 2026-11-03 后的界面名称 / 文档改动顺带消掉一处, 未逐条追溯. 本任务按实测 587 清零, README 的存量说明在收尾时改为「已清零」.
+1. **计数差 1**: 条目与旧 README 记 shorthand 588 处, 实测 587 处; 可能由 2026-11-03 后的界面名称 / 文档改动顺带消掉一处, 未逐条追溯. 本任务按实测 587 清零, README 改为「已清零」.
+2. **format 重排回退 10 文件**: 见实现记录; 原因 = 这些文件本就不符合 prettier 格式, 重排会引入与注释无关的代码 diff. 处理 = 还原后只重贴注释; 未再跑 format, 以「去注释正文与 HEAD 全等」替代格式门禁.
+3. **一次测试失败未复现**: B4 期间一次 `pnpm run test` 退出 1, 日志因命令级 `/tmp` 隔离未保留; 随后连续两次重跑 34 包全绿（TUI 1829 例、其它包 0 fail）, 同期 `pnpm run check` 与 `check:docs` 均绿, 未复现, 无证据指向本次注释改动.
+4. **Markdown 失效引用未改**: `TUI/docs/SPEC.md` 仍引用已删除的 `tests/pipeline-equivalence.test.ts` / `tests/pipeline-panes.test.ts`; 该文件属 Markdown, 不在这两条 `.ts` 注释规则范围, 记入遗留.
+5. **`link.anchor` 仍为警告档**: 本任务只按条目要求改两条路径规则; `link.anchor` 的存量与严重度不在范围.
 
 ## 测试与证据
 
-拆分前基线见「调研」; 清零后的两条规则计数、正文对拍与全仓命令结果待实现完成后补记.
+| 命令 / 检查 | 结果 |
+| --- | --- |
+| B1 `pnpm run check` / `pnpm run test` | 0 / 0（254 文件, 代码对拍 0 变化） |
+| B2 `pnpm run check` / `pnpm run test` | 0 / 0（120 文件, 代码对拍 0 变化） |
+| B3 `pnpm run check` / `pnpm run test` | 0 / 0（98 文件, 代码对拍 0 变化） |
+| B4 `pnpm run check` / `pnpm run test` | 0 / 0（重跑两次; 28 文件, 代码对拍 0 变化） |
+| `pnpm run check`（全仓 34 包, 最终） | 退出 0 |
+| `pnpm run test`（全仓 34 包, 最终） | 退出 0（TUI 1829 例 / 其它包 0 fail） |
+| `pnpm run build`（全仓） | 退出 0 |
+| `pnpm run check:docs` | 错误 0 / 警告 0 |
+| `pnpm run check:docs:strict` | 通过（0 / 0） |
+| `node dev/standard/index.mjs --rule comment.path-shorthand --all` | 0 命中 |
+| `node dev/standard/index.mjs --rule comment.path-missing --all` | 0 命中 |
+| 逐文件对拍（`tmp/paths-verify.mjs`, 500 文件） | 去注释正文与 HEAD 全等, 0 变化 |
+| 拆分前后规则计数 | shorthand 587 → 0; missing 60 → 0 |
 
 ## 收尾
 
-（待关闭阶段补记）
+- **回写**: `dev/standard/README.md`（规则表两条改「错误」, 存量段改为已清零）; `docs/BACKLOG.md` 条目标完成并移出; 本文档归档.
+- **BACKLOG**: 条目「清理 .ts 注释里的简写路径与失效路径」完成并移出清单, 关闭注记留在 `docs/BACKLOG.md` 的 `## 待办`; 项目级清单现无本条目.
+- **归档**: 本文件已移入 `docs/archived/2026-11-04-comment-paths.md`.
+- **临时文件**: `tmp/paths-rewrite.mjs` / `tmp/paths-verify.mjs` / `tmp/paths-dry.mjs` / `tmp/paths-dry2.mjs` / `tmp/batching.md` / `tmp/shorthand.txt` / `tmp/missing.txt` / `tmp/batch-files*.txt` / 各批日志已删除.
+- **人工确认**: 用户 2026-11-04 指示分批执行、每批测试后直接提交, 并授权提交无需再请求; 本任务为注释与检查器改动, 未另跑真机.
+- **遗留**: `TUI/docs/SPEC.md` 的 Markdown 失效引用（见偏差 4）; `link.anchor` 仍为警告档（偏差 5）.
