@@ -162,7 +162,7 @@ export function createAudit(options: {
   }
 
   /** 达上限截断：保留最近一半并写 marker。 */
-  function truncate(path: string, maxBytes: number): void {
+  function truncate(path: string, _maxBytes: number): void {
     const raw = readFileSync(path, "utf8");
     const lines = raw.split("\n").filter((line) => line.length > 0);
     const keep = lines.slice(Math.floor(lines.length / 2));

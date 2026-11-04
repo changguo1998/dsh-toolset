@@ -74,7 +74,7 @@ export function checkReadonly(
 
 /** 命令原文（`bash` / `pwsh` / `shell` 的 `command` / `script`）。 */
 export function commandOf(
-  config: ResolvedConfig,
+  _config: ResolvedConfig,
   call: CallInfo,
 ): string | undefined {
   if (!matchesAnyTool(SHELL_TOOLS, call.name)) return undefined;
@@ -83,7 +83,7 @@ export function commandOf(
 
 /** 路径原文列表（文件工具的路径参数；写工具会有多个）。 */
 export function pathsOf(
-  config: ResolvedConfig,
+  _config: ResolvedConfig,
   call: CallInfo,
 ): readonly string[] {
   const single = pickString(call.arguments, PATH_KEYS);

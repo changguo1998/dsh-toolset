@@ -452,7 +452,7 @@ export function createLearner(options: LearnerOptions): Learner {
     }
   }
 
-  function onDecided(sessionId: string, data: Record<string, unknown>): void {
+  function onDecided(_sessionId: string, data: Record<string, unknown>): void {
     const id = nonEmptyString(data["id"]);
     if (id === undefined) return;
     const ask = pendingAsks.get(id);

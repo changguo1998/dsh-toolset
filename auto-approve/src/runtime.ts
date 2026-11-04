@@ -14,7 +14,7 @@ import {
 } from "./decide.ts";
 import type { CallTable } from "./calls.ts";
 import type { SessionObserver } from "./sessions.ts";
-import type { AutoApproveMode, Decision, PluginHost } from "./types.ts";
+import type { AutoApproveMode, Decision } from "./types.ts";
 import type { ResolvedConfig } from "./config.ts";
 
 /** 一次裁定的最终去向（应答者用）。 */

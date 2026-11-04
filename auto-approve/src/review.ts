@@ -16,7 +16,7 @@
 import type { ResolvedConfig } from "./config.ts";
 import { canonicalize } from "./fingerprint.ts";
 import type { Deadline } from "@dsh-toolset/clock-base";
-import type { CallInfo, RiskLevel } from "./types.ts";
+import type { RiskLevel } from "./types.ts";
 
 /** 审查输入（由调用方组装；不含环境变量、不含 assistant 正文与工具结果原文）。 */
 export interface ReviewRequest {

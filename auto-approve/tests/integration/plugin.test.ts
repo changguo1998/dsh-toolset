@@ -7,7 +7,7 @@ import { AUDIT_FILE_NAME } from "../../src/audit.ts";
 import { COMMAND_NAME } from "../../src/command.ts";
 import { inject, name, provide } from "../../src/index.ts";
 import { REVIEW_POLICY } from "../../src/review.ts";
-import type { AuditLine, PreToolDecision } from "../../src/types.ts";
+import type { AuditLine } from "../../src/types.ts";
 import {
   approvalRequest,
   assemble,

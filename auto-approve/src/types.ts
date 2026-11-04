@@ -50,19 +50,19 @@ export interface CallInfo {
   name: string;
   /** 解析后的参数（解析失败时保留原始字符串）。 */
   arguments: unknown;
-  sessionId?: string;
-  agentId?: string;
+  sessionId?: string | undefined;
+  agentId?: string | undefined;
   /** 会话 cwd（路径解析用；取自 `request/header` 或 `agent.options`）。 */
-  cwd?: string;
+  cwd?: string | undefined;
   /** 该调用是否带 `sandbox_permissions` 升级意图（`pre-execute` 侧可见）。 */
-  escalationTarget?: string;
+  escalationTarget?: string | undefined;
 }
 
 /** 审批请求（宿主 `ApprovalRequestEvent` 的结构化子集）。 */
 export interface ApprovalRequestLike {
   toolName: string;
-  callId?: string;
-  reason?: string;
+  callId?: string | undefined;
+  reason?: string | undefined;
   signal?: AbortSignal;
   agent?: unknown;
 }
@@ -111,9 +111,9 @@ export interface AuditHealth {
   /** 会话那份是否可用；`false` = 已降级（退回人工面板 + 一次警告）。 */
   sessionWritable: boolean;
   /** 降级原因（服务缺失 / 目录不可写 / 截断失败）。 */
-  degradedReason?: string;
+  degradedReason?: string | undefined;
   /** 当前会话审计文件路径（不可用时省略）。 */
-  sessionFilePath?: string;
+  sessionFilePath?: string | undefined;
   /** 项目那份（memory-base）是否可用。 */
   projectWritable: boolean;
   /** 项目那份被跳过的行数。 */

@@ -60,7 +60,7 @@ function setup(
     outcome: "rejected" as ApprovalOutcome,
   };
   host.on("approval/request", ((
-    req: ApprovalRequestLike,
+    _req: ApprovalRequestLike,
     next: () => unknown,
   ) =>
     (async () => {
