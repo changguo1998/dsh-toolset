@@ -628,6 +628,8 @@ tool-consult/tests/integration/plugin.test.ts
 | session-channel | 10 | 78 | 89.0% (3461/3888) | 65.2% (454/696) | `5a9bccb4` |
 | task-engine | 10 | 171 | 82.7% (2721/3291) | 74.4% (618/831) | `f37b5d8a` |
 
+- 2026-11-04: 批 4 完成 `auto-approve`. `check` / `build` / `test` / `test:coverage` 退出 0, 183 例与基线一致; 批末全仓 `pnpm run check` / `pnpm run test` 退出 0. 覆盖率行 89.5% (3653/4082) / 分支 75.7% (902/1192), 提交 `7b168706`. 至此 33 / 34 包完成, 只剩 TUI.
+
 ## 偏差
 
 - `md-table-check` 未按原计划放在批 1, 移到批 3. 原因: 该包 `check` 为 `tsc -p tsconfig.json && tsc -p tests/tsconfig.json`; 根 `tsconfig.json` 的 `exclude` 排除了 `tests/surfaceDifferential.test.ts` / `tests/reasoningSeparation.test.ts` / `tests/integration.test.ts`, 初始扫描只跑根配置, 漏掉 `tests/tsconfig.json` 这条路径. 该配置 `include: ["."]` 且直接编译 `../rule-engine/src/`, 打开五项后暴露 `rule-engine` 的 3 条与自身 1 条报错. 已在批 3 先做 `rule-engine` 再做本包, 两笔提交与结果见「实现记录」.
@@ -690,6 +692,17 @@ pnpm run check                  → 0
 pnpm run test                   → 第一次 FAIL session-channel（entry.test.ts:34 计时抖动, ticks=1）
 pnpm -C session-channel run test → 78/78 通过
 pnpm run test                   → 第二次 34/34 OK; 4573 例
+```
+
+批 4（2026-11-04）:
+
+```text
+pnpm -C auto-approve run check         → 0
+pnpm -C auto-approve run build         → 0
+pnpm -C auto-approve run test          → 183/183; 与基线一致
+pnpm -C auto-approve run test:coverage → 0; 89.5% (3653/4082) / 75.7% (902/1192)
+pnpm run check                         → 0
+pnpm run test                          → 34/34 OK; 4573 例
 ```
 
 ## 收尾
