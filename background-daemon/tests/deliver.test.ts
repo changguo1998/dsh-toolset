@@ -275,7 +275,7 @@ test("命令：命中即执行（规范化 slash 行 + 空附件 + signal）", a
   }[] = [];
   const signal = new AbortController().signal;
   const commands: CommandRuntimeLike = {
-    find: (agent, name) => (name === "memory" ? { name } : undefined),
+    find: (_agent, name) => (name === "memory" ? { name } : undefined),
     execute: async (_agent, line, attachments, passedSignal) => {
       seen.push({ line, attachments, signal: passedSignal });
       return { result: { kind: "success", text: "检索完成" } };
