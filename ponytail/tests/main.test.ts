@@ -48,9 +48,9 @@ test("阶梯文本含 7 级判据与关键规则（文案漂移守卫）", () =>
 test("apply：注册消费者；开启注入、关闭不注入；返回 dispose", () => {
   const calls: {
     id: string;
-    sources?: readonly string[];
-    delivery?: string;
-    dedupeInRecord?: number;
+    sources?: readonly string[] | undefined;
+    delivery?: string | undefined;
+    dedupeInRecord?: number | undefined;
   }[] = [];
   let disposed = 0;
   let registered:
