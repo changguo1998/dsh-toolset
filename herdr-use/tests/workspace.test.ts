@@ -11,7 +11,6 @@ import {
   shortSessionId,
   workspaceLabel,
 } from "../src/workspace.ts";
-import type { SessionContext } from "../src/workspace.ts";
 import {
   errorEnvelope,
   fakeExec,
@@ -83,25 +82,6 @@ test("laneRunner：后台命令自动带前缀", async () => {
   await laneRunner(runner, "foreground").run(["tab", "list"], 1000);
   assert.equal(runner.calls[1]?.[0], "tab");
 });
-
-async function ensure(
-  overrides: {
-    session?: SessionContext;
-    lane?: "foreground" | "background";
-    runner?: ReturnType<typeof fakeHerdr>["runner"];
-    registry?: TerminalRegistry;
-  } = {},
-) {
-  const { runner } = fakeHerdr();
-  const registry = overrides.registry ?? new TerminalRegistry("dsh-pane");
-  return ensureWorkspace({
-    runner: overrides.runner ?? runner,
-    registry,
-    config: resolveConfig(),
-    session: overrides.session ?? fakeSession,
-    lane: overrides.lane ?? "foreground",
-  });
-}
 
 test("ensureWorkspace：首次建、二次复用", async () => {
   const registry = new TerminalRegistry("dsh-pane");

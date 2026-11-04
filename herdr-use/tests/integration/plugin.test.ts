@@ -19,7 +19,7 @@ import {
   provide,
 } from "../../src/index.ts";
 import type { Assembly, AssemblyOptions } from "../assemble.ts";
-import { EXPECTED_TOOLS, assemble, defaultEnv } from "../assemble.ts";
+import { EXPECTED_TOOLS, assemble } from "../assemble.ts";
 import {
   argvOf,
   errorEnvelope,
