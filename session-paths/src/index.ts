@@ -26,7 +26,6 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import {
-  encodeSegment,
   projectDir as encodeProjectDir,
   projectKey as encodeProjectKey,
   sessionDir as encodeSessionDir,
