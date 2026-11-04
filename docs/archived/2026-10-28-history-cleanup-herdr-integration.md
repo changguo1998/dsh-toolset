@@ -60,10 +60,8 @@ rm -rf ../tmp/cov-herdr-integration && mkdir -p ../tmp/cov-herdr-integration && 
 
 ## 实现记录
 
-- 单元锚点: `tests/herdr.test.ts` 新增 3 条 —— `reportSession` 无启动来源时省略 `session_start_source`、仅 `path` 的引用走 `agent_session_path`;`releaseSync` 经同步子进程把 `pane.release_agent` 送达 socket;`releaseSync` 在 socket 不存在时静默返回。同文件的 socket 测试服务端补一个 `error` 忽略(客户端收到响应即 destroy, 回写竞态不该让用例红), 断言语义未改。
-- 集成层: 新增 `tests/assemble.ts`(装配器, 不以 `.test.ts` 结尾)与 `tests/integration/plugin.test.ts`。装配器给三个假面: 事件面(`on` / `fire`)、服务面(`get` + services 表)、生命周期面(`effect` / `unload`), 另给手控排期表与按 `clock` 形状包装的假时钟、临时目录里的真 unix socket 上游、握手环境变量的设置与还原。上游逐行解析 JSON 报文并回一行 `ok`, 用例只等收包(带超时守卫)与失败沉降。
-- 集成用例 11 条分三组: 入口与宿主接线(握手不全空转、`name` / `inject` 契约、四个事件监听各一次、启动期同步与卸载 release)、事件投影(`agent/status` 的 working / idle、提问与审批的 blocked 桥与解除、`session/event` 的 turn 阻塞 / 压缩在途)、服务面缺失与失败路径(`agents` 缺席、`roots` 非数组、socket 不可达、`clock` 服务可用时排期走服务面并在卸载撤销)。
-- 脚本: `package.json` 加 `test:integration`(`tests/integration/*.test.ts`)与 `test:coverage`(两轮 glob 一起跑, `NODE_V8_COVERAGE` 落 `../tmp/cov-herdr-integration`, 再调 `dev/coverage/report.mjs tmp/cov-herdr-integration tmp/cov-herdr-integration/report.json`)。
+> 单元锚点、集成层与脚本见「四份测试产物」; 本节保留范围说明与阶段 3 实现记录.
+
 - 未改 `src`; `tsconfig.json` 的 `exclude` 与空 `LICENSE` 等归阶段 3 / 4; 2026-11-01 补丁 `25fce711` 已删除 `exclude`。
 
 阶段 3 (分支 `history-cleanup/03-code-herdr-integration`):
@@ -85,46 +83,7 @@ rm -rf ../tmp/cov-herdr-integration && mkdir -p ../tmp/cov-herdr-integration && 
 
 ## 测试与证据
 
-### 命令结果(分支 `history-cleanup/02-tests-herdr-integration`, Node v24.16.0)
-
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm -C herdr-integration run check` | ✓ 通过(无输出) |
-| `pnpm -C herdr-integration run test` | ✓ 60 pass / 0 fail(基线 57), 5 suites, 约 0.54s |
-| `pnpm -C herdr-integration run test:integration` | ✓ 11 pass / 0 fail, 3 suites, 约 2.9s;连跑 3 次全绿 |
-| `pnpm -C herdr-integration run test:coverage` | ✓ 71 pass / 0 fail(单元 60 + 集成 11), 覆盖率见下表 |
-
-`skip` / `todo` 均为 0;集成层的实时等待只有 socket 收包与失败沉降, 全部带超时守卫。
-
-### 覆盖率(只统 `src`, 装配器与夹具不计;分母为 V8 实际观测到的 range)
-
-改前 = 基线(只跑单元层);改后 = 单元 + 集成。
-
-| 文件 | 行(改前) | 行(改后) | 分支(改前) | 分支(改后) |
-| --- | --- | --- | --- | --- |
-| `src/herdr.ts` | 86.3% (183/212) | 93.9% (199/212) | 56.5% (13/23) | 67.9% (19/28) |
-| `src/index.ts` | 89.0% (219/246) | 95.5% (235/246) | 80.4% (45/56) | 86.2% (56/65) |
-| `src/state.ts` | 100.0% (49/49) | 100.0% (49/49) | 100.0% (15/15) | 100.0% (15/15) |
-| `src/timers.ts` | 79.4% (123/155) | 80.0% (124/155) | 32.1% (9/28) | 36.7% (11/30) |
-| 包合计 | 86.7% (574/662) | 91.7% (607/662) | 67.2% (82/122) | 73.2% (101/138) |
-
-行 +5.0 个百分点, 分支 +6.0 个百分点, 无下降项。分支分母变化来自新用例走到的 range 变多(V8 只报已执行函数的 block)。
-
-剩余未覆盖分两类: 多行对象字面量与函数声明处的 range 归属偏差(报告把 `const sender = new HerdrClient({...})` 一类标成未覆盖, 实际已被集成用例执行); 以及 `src/herdr.ts:126-129` 的 win32 命名管道分支 —— 本机 Linux 不可达, 按 4.3 记为豁免分支。
-
-### 新增 / 删除用例
-
-新增 14 条(单元 3、集成 11), 见「实现记录」;删除 0 条。
-
-### 豁免台账
-
-| 缺什么 | 为什么补不了 | 触发条件 | 交给谁 |
-| --- | --- | --- | --- |
-| win32 命名管道分支(`src/herdr.ts:126-129`) | 本机 Linux, `process.platform === "win32"` 不可达 | 在 Windows 上跑本包测试 | 阶段 3 复核时按平台条件补 |
-
-### 集成层贡献(两轮跑取差)
-
-只跑单元层即改前一行(行 574/662);加集成层后为 607/662, 差值为行 +33、分支 +19, 集中在 `src/index.ts` 的生产发送器与生产 `readRoots` 装配, 以及 `src/herdr.ts` 的构造与超时接线。
+> 四入口、覆盖率、用例增减、豁免与分层贡献见「四份测试产物」; 本节保留阶段 3 实跑.
 
 ### 阶段 3 命令结果(分支 `history-cleanup/03-code-herdr-integration`, Node v24.16.0, pnpm 11.7.0)
 
@@ -140,9 +99,52 @@ rm -rf ../tmp/cov-herdr-integration && mkdir -p ../tmp/cov-herdr-integration && 
 
 ## 四份测试产物
 
-| 产物 | 位置 |
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+覆盖率(只统 `src`, 装配器与夹具不计;分母为 V8 实际观测到的 range):
+
+改前 = 基线(只跑单元层);改后 = 单元 + 集成。
+
+| 文件 | 行(改前) | 行(改后) | 分支(改前) | 分支(改后) |
+| --- | --- | --- | --- | --- |
+| `src/herdr.ts` | 86.3% (183/212) | 93.9% (199/212) | 56.5% (13/23) | 67.9% (19/28) |
+| `src/index.ts` | 89.0% (219/246) | 95.5% (235/246) | 80.4% (45/56) | 86.2% (56/65) |
+| `src/state.ts` | 100.0% (49/49) | 100.0% (49/49) | 100.0% (15/15) | 100.0% (15/15) |
+| `src/timers.ts` | 79.4% (123/155) | 80.0% (124/155) | 32.1% (9/28) | 36.7% (11/30) |
+| 包合计 | 86.7% (574/662) | 91.7% (607/662) | 67.2% (82/122) | 73.2% (101/138) |
+
+行 +5.0 个百分点, 分支 +6.0 个百分点, 无下降项。分支分母变化来自新用例走到的 range 变多(V8 只报已执行函数的 block)。
+
+剩余未覆盖分两类: 多行对象字面量与函数声明处的 range 归属偏差(报告把 `const sender = new HerdrClient({...})` 一类标成未覆盖, 实际已被集成用例执行); 以及 `src/herdr.ts:126-129` 的 win32 命名管道分支 —— 本机 Linux 不可达, 按 4.3 记为豁免分支。
+
+集成层贡献(两轮跑取差): 只跑单元层即改前一行(行 574/662);加集成层后为 607/662, 差值为行 +33、分支 +19, 集中在 `src/index.ts` 的生产发送器与生产 `readRoots` 装配, 以及 `src/herdr.ts` 的构造与超时接线。
+
+### 用例清单
+
+- 单元锚点: `tests/herdr.test.ts` 新增 3 条 —— `reportSession` 无启动来源时省略 `session_start_source`、仅 `path` 的引用走 `agent_session_path`;`releaseSync` 经同步子进程把 `pane.release_agent` 送达 socket;`releaseSync` 在 socket 不存在时静默返回。同文件的 socket 测试服务端补一个 `error` 忽略(客户端收到响应即 destroy, 回写竞态不该让用例红), 断言语义未改。
+- 集成层: 新增 `tests/assemble.ts`(装配器, 不以 `.test.ts` 结尾)与 `tests/integration/plugin.test.ts`。装配器给三个假面: 事件面(`on` / `fire`)、服务面(`get` + services 表)、生命周期面(`effect` / `unload`), 另给手控排期表与按 `clock` 形状包装的假时钟、临时目录里的真 unix socket 上游、握手环境变量的设置与还原。上游逐行解析 JSON 报文并回一行 `ok`, 用例只等收包(带超时守卫)与失败沉降。
+- 集成用例 11 条分三组: 入口与宿主接线(握手不全空转、`name` / `inject` 契约、四个事件监听各一次、启动期同步与卸载 release)、事件投影(`agent/status` 的 working / idle、提问与审批的 blocked 桥与解除、`session/event` 的 turn 阻塞 / 压缩在途)、服务面缺失与失败路径(`agents` 缺席、`roots` 非数组、socket 不可达、`clock` 服务可用时排期走服务面并在卸载撤销)。
+- 脚本: `package.json` 加 `test:integration`(`tests/integration/*.test.ts`)与 `test:coverage`(两轮 glob 一起跑, `NODE_V8_COVERAGE` 落 `../tmp/cov-herdr-integration`, 再调 `dev/coverage/report.mjs tmp/cov-herdr-integration tmp/cov-herdr-integration/report.json`)。
+- 新增 14 条(单元 3、集成 11);删除 0 条.
+
+### skip 计数与豁免台账
+
+- `skip` / `todo` 均为 0;集成层的实时等待只有 socket 收包与失败沉降, 全部带超时守卫。
+- 豁免台账:
+
+| 缺什么 | 为什么补不了 | 触发条件 | 交给谁 |
+| --- | --- | --- | --- |
+| win32 命名管道分支(`src/herdr.ts:126-129`) | 本机 Linux, `process.platform === "win32"` 不可达 | 在 Windows 上跑本包测试 | 阶段 3 复核时按平台条件补 |
+
+### 四入口实跑
+
+命令结果(分支 `history-cleanup/02-tests-herdr-integration`, Node v24.16.0):
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C herdr-integration run check` | ✓ 通过(无输出) |
+| `pnpm -C herdr-integration run test` | ✓ 60 pass / 0 fail(基线 57), 5 suites, 约 0.54s |
+| `pnpm -C herdr-integration run test:integration` | ✓ 11 pass / 0 fail, 3 suites, 约 2.9s;连跑 3 次全绿 |
+| `pnpm -C herdr-integration run test:coverage` | ✓ 71 pass / 0 fail(单元 60 + 集成 11), 覆盖率见下表 |
