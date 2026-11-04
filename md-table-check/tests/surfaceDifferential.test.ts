@@ -393,7 +393,12 @@ test("对拍: 随机序列（确定性种子, 300 条 + 2000 条各一轮）", {
           blocks.push(typeof pick === "string" ? t(pick) : pick);
         }
         const surfaceOp = rnd() < 0.15 ? "replace" : undefined;
-        steps.push({ turn, step, content: blocks, surfaceOp });
+        steps.push({
+          turn,
+          step,
+          content: blocks,
+          ...(surfaceOp === undefined ? {} : { surfaceOp }),
+        });
       }
       const reason = reasons[Math.floor(rnd() * reasons.length)];
       const result = differ(steps, [{ turn, reason }]);
