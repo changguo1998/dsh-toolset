@@ -71,7 +71,10 @@ export interface AppContext {
   /** 启动期外部日志（stderr 桥 / 插件告警总线的早到行）：恢复会话时先挂起，等启动历史
    *  折叠落定后补发——`history-restore` 会整表替换 buffer，早发会被替换掉（BACKLOG TUI#9）。
    *  null = 非挂起态（未恢复会话或已落定）。 */
-  bootLogPending: Array<{ text: string; tone?: NoticeTone }> | null;
+  bootLogPending: Array<{
+    text: string;
+    tone?: NoticeTone | undefined;
+  }> | null;
 
   /** 退出确认面板已打开（合成问答面板 `EXIT_CONFIRM_PANEL_ID`）：确认「退出 dsh」才 dispose，
    *  取消/Esc 只关面板；防止单字节误触（BACKLOG「tmux 断连后 dsh 退出」）直接结束会话 */

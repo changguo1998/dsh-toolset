@@ -45,7 +45,10 @@ export function metricsFor(
    *  hintRowsFor 算出，空文案也占位 1 行） */
   hintRows = 1,
   /** 布局配置（tui.config.json；缺省某字段 → 原默认公式） */
-  layout?: { footerHeight?: number; statusDivisor?: number },
+  layout?: {
+    footerHeight?: number | undefined;
+    statusDivisor?: number | undefined;
+  },
 ): FrameMetrics {
   // 「底部两行」= 输入区 + 按键提示行，总高恒为 interaction（默认 4 行：输入 3 + 提示 1；
   // 矮终端按 1/5 收缩、保底 2 行）。footer 由 hint 反推是**唯一事实**——面板态与输入态
@@ -309,7 +312,7 @@ export interface FrameGeometry {
    *  标题栏与两 pane 正文自该列起算） */
   contentStartCol: number;
   /** 横向排列的内部分隔竖线列（会话区 右缘/回合区 左缘）；纵向 undefined */
-  innerDividerCol?: number;
+  innerDividerCol?: number | undefined;
   /** 回合区分隔行行号（纵向 = 实线分隔行；横向 = 会话区 底边下一行，该行无分隔线） */
   activitySepRow: number;
   /** 模态面板是否打开（焦点框置空 + footer 空白占位） */

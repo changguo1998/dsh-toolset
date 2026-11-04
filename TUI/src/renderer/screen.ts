@@ -44,25 +44,25 @@ const eraseBeforeWrite = "\x1b[K";
 
 /** 段级样式：语义色名 + 字型开关。排版层唯一样式类型（规范见 SPEC.md §11.1） */
 export interface FrameStyle {
-  fg?: ColorName | `#${string}`;
-  bg?: ColorName | `#${string}`;
-  bold?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  strike?: boolean;
+  fg?: ColorName | `#${string}` | undefined;
+  bg?: ColorName | `#${string}` | undefined;
+  bold?: boolean | undefined;
+  italic?: boolean | undefined;
+  underline?: boolean | undefined;
+  strike?: boolean | undefined;
 }
 
 /** 行内一段：纯文本 + 段级样式（text 绝不含 ANSI，不变量 #1） */
 export interface FrameSegment {
   text: string;
-  style?: FrameStyle;
+  style?: FrameStyle | undefined;
 }
 
 /** 一行：排版输出最小单位（段级结构与序列化契约） */
 export interface FrameRow {
   segments: FrameSegment[];
   /** 输入行硬件光标停留列（0 基显示列）；仅输入行设置 */
-  caret?: number;
+  caret?: number | undefined;
 }
 
 /**

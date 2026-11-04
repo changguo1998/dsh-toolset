@@ -32,7 +32,7 @@ export interface SectionsState {
   /** 已封闭的节（append-only；迟到交付回写时替换其中的元素并撤销冻结） */
   sections: readonly Section[];
   /** 当前可写节（惰性创建；不存在 = 下一块内容落地时才开节） */
-  current?: Section;
+  current?: Section | undefined;
   /** 待封闭：下一块内容落地时先封闭当前节（工具批结果到齐 / 回合结束置位） */
   pendingOpen: boolean;
   /** step 元数据（`step-start` 记录，开节时取用：时间戳供 step 头显示） */

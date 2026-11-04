@@ -129,38 +129,38 @@ export interface HistoryRow {
   text: string;
   kind: HistoryRowKind;
   /** 着色分级（notice / tool 行） */
-  tone?: NoticeTone;
+  tone?: NoticeTone | undefined;
   /** 回合最终总结（进会话区） */
-  final?: boolean;
+  final?: boolean | undefined;
   /** 回合分隔线 / step 概要的时间戳与回合号 */
-  time?: number;
-  turn?: number;
+  time?: number | undefined;
+  turn?: number | undefined;
   /** 用户块终态符号（完成 ✓ / 失败 ✗ / 中止 ■）；缺省 = 未收到终态（渲染 `?`） */
-  status?: "success" | "failure" | "aborted";
+  status?: "success" | "failure" | "aborted" | undefined;
   /** 与上一条输入之间留空行（steer 插队送达） */
-  spaceBefore?: boolean;
+  spaceBefore?: boolean | undefined;
   /** 「被 steer 续接」标记（终态符号显示 ←） */
-  steerContinued?: boolean;
+  steerContinued?: boolean | undefined;
   /** 排队中的用户消息（followup 右缘竖线灰 / steer 黄） */
-  queued?: "followup" | "steer";
+  queued?: "followup" | "steer" | undefined;
   /** 悬垂缩进（notice 用，/help 双列表格）：本行折行时续行停靠列（描述列起点） */
-  hanging?: number;
+  hanging?: number | undefined;
   /** 紧凑模式（/collapse off）豁免：本行仍完整折行显示（/help 用，不被压成 1 行隐藏） */
-  noCompact?: boolean;
+  noCompact?: boolean | undefined;
   /** #1：落行时的活动 step 号（会话区正文分块与问答来源段共用该标） */
-  step?: number;
+  step?: number | undefined;
   /** 活跃用户块标记（由节模型 `panes.ts` 打标；解析器直接读本字段） */
-  active?: boolean;
+  active?: boolean | undefined;
   /**
    * 工具块行角色（2026-10-13 工具块改版，见 `TUI/docs/archived/2026-10-13-tool-block-display.md`）：
    * `name` = 名字行（标记 + 空格 + 工具名）/ `param` = 参数行 / `result` = 结果行。
    * 缺省 = 旧口径的单文本工具行（辅助行 / 恢复产物）。
    */
-  toolRole?: "name" | "param" | "result";
+  toolRole?: "name" | "param" | "result" | undefined;
   /** 参数行的名与值（名染灰、值原色；折行 / 悬挂 6 列 / 5 行上限在渲染层按宽度做） */
-  toolParam?: { name: string; value: string };
+  toolParam?: { name: string; value: string } | undefined;
   /** 该调用 / 结果的成败（失败：名字行 `✗` 红 + 结果行整行红）；缺省 = 尚无结果（在飞） */
-  toolOk?: boolean;
+  toolOk?: boolean | undefined;
 }
 
 /** 缓冲行（UI 本地行；`kind` 收窄到 `BufferKind` 的 `HistoryRow`） */
@@ -227,9 +227,9 @@ export function goalActivationDisplay(
 
 /** P2 模式徽标状态（plan 用 "on"/"off"；sandbox/permission 存原始值字符串；缺省省略） */
 export interface ModeState {
-  plan?: "on" | "off";
-  sandbox?: string;
-  permission?: string;
+  plan?: "on" | "off" | undefined;
+  sandbox?: string | undefined;
+  permission?: string | undefined;
 }
 
 /** 历史会话面板阶段：列表加载 → 列表 → 会话加载 → 浏览 → 错误（任一阶段可关闭） */
@@ -253,31 +253,31 @@ export interface HistoryPanelState {
   /** 列表高亮索引 */
   index: number;
   /** view 阶段浏览的会话 id */
-  currentId?: string;
+  currentId?: string | undefined;
   /** view 阶段归一化消息列表 */
   messages: HistoryMessage[];
   /** view 阶段滚动行偏移（渲染层按可视高度 clamp） */
   scroll: number;
   /** error 阶段错误消息 */
-  error?: string;
+  error?: string | undefined;
   /** resume 切换的目标会话 id（resuming 阶段）；成功后清空 */
-  pendingResume?: string;
+  pendingResume?: string | undefined;
   /** confirm-delete/deleting 阶段的目标会话 id（确认后由调用方经 adapter 删除） */
-  pendingDelete?: string;
+  pendingDelete?: string | undefined;
   /** confirm-delete/deleting 阶段的**批量**目标会话 id（有标记时按标记集删除；
    *  与 pendingDelete 互斥，二者恰有其一非空） */
-  pendingDeleteIds?: string[];
+  pendingDeleteIds?: string[] | undefined;
   /** 批量删除标记集（Space 标记/取消、a 全选当前范围、c 清空；按 id 记录，跨范围切换保留） */
-  marked?: string[];
+  marked?: string[] | undefined;
   /** confirm-clean/cleaning 阶段待清理的空会话 id 列表（范围=当前列表范围） */
-  pendingClean?: string[];
+  pendingClean?: string[] | undefined;
   /** confirm-clean/cleaning 阶段的当前项目路径（确认文案展示） */
-  cleanCwd?: string;
+  cleanCwd?: string | undefined;
   /** 面板内结果提示（删除/清理结果与护栏文案；首行展示，下次操作时清除）。
    *  面板占满回合区时 notice 不可见（notice 归回合区），故结果需面板内呈现 */
-  result?: string;
+  result?: string | undefined;
   /** 列表范围：project=仅当前目录（默认）/ all=全部目录；list 阶段 [Tab] 切换 */
-  scope?: "project" | "all";
+  scope?: "project" | "all" | undefined;
 }
 
 /** 当前项目路径：活跃会话记录的 cwd 优先，回退状态区 cwd（占位符不算）；未知 → undefined */
@@ -446,7 +446,7 @@ export interface AppState {
    * 六步流水线的节缓存（App 注入；内容真源）。
    * 缺省（测试 / 嵌入用法）由 `layout.ts` 的 `sectionsOf` 按 `buffer` 重放一份。
    */
-  pipeline?: SectionsState;
+  pipeline?: SectionsState | undefined;
   inputText: string;
   inputCursor: number;
   /** 输入历史（已提交输入连同**提交时的输入模式**；仅本会话生命周期，不持久化）。
@@ -483,12 +483,14 @@ export interface AppState {
   /** 最新一次模型调用的 token 用量（assistant/message.usage 归一化；阶段 2 状态行 contextLen/cacheHit 读取）。
    *  会话切换/恢复（`history-resume-ok` / `session-switch`）**清空**——换会话后该值不可知，
    *  状态行与 `/stats` 相应槽位回落 `—` 占位（BACKLOG TUI#12）。 */
-  usage?: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    contextWindow?: number;
-  };
+  usage?:
+    | {
+        input: number;
+        output: number;
+        cacheRead: number;
+        contextWindow?: number | undefined;
+      }
+    | undefined;
   /** 本会话累计 token 用量（`usage` 事件逐次累加；BACKLOG TUI#9）——与会话切换同步清零
    *  （`history-resume-ok` / `session-switch`），`/clearscreen` 等只清显示的路径不清零。
    *  与 `usage`（**最近一次**调用）是两个口径，`/stats` 两者并列展示。 */
@@ -547,7 +549,7 @@ export interface AppState {
     sessionId: string;
     step: number;
     /** 分组头时间戳（epoch ms；渲染为 `hh:mm:ss ⇆N #M`） */
-    time?: number;
+    time?: number | undefined;
   } | null;
   /** P8：按 sessionId 隔离的「上下文压缩中」标记——压缩期间该会话算活跃
    *  （用户块显示运行中、新消息走排队、Ctrl+D 不退出）；compaction/end 清除 */
@@ -644,15 +646,15 @@ export interface PickerState {
   /** 焦点区：0=provider 列，1=model 列，2=thinking 列（Tab 循环切换三列同屏） */
   phase: 0 | 1 | 2;
   /** 待提交选中（各列星号标记；Enter 提交它，独立于焦点箭头） */
-  selectedProvider?: string;
-  selectedModel?: string;
-  selectedEffort?: string;
+  selectedProvider?: string | undefined;
+  selectedModel?: string | undefined;
+  selectedEffort?: string | undefined;
   /** provider 列筛选词（键入选入；空 = 默认序，只作用于本列，见 picker-filter.ts） */
-  providerFilter?: string;
+  providerFilter?: string | undefined;
   /** model 列筛选词（同上，与 provider 列各自独立） */
-  modelFilter?: string;
+  modelFilter?: string | undefined;
   /** 当前生效选择（各列浅绿显示） */
-  current?: ModelSelection;
+  current?: ModelSelection | undefined;
 }
 
 /** 问答面板单题交互状态 */
@@ -660,11 +662,11 @@ export interface QuestionPanelItem {
   id: string;
   question: string;
   /** 待审计划正文（plan-review intent 展示用） */
-  detail?: string;
-  header?: string;
-  options: { label: string; description?: string }[];
+  detail?: string | undefined;
+  header?: string | undefined;
+  options: { label: string; description?: string | undefined }[];
   multiSelect: boolean;
-  intent?: { kind: "plan-review"; approve: string };
+  intent?: { kind: "plan-review"; approve: string } | undefined;
   /** 列表高亮索引：0..options.length（=options.length 表示高亮在“自定义回答”兜底项） */
   optionIndex: number;
   /** 已选选项 label（单选最多 1 项；多选可多项） */
@@ -676,7 +678,7 @@ export interface QuestionPanelItem {
   customCaret?: number | null;
   /** 被并兜底项的原文（BACKLOG TUI#5）：选项文案命中语义标记（自定义/其它/…）时
    *  从预设列表摘除、原文并入自定义项作为解释文字展示；缺省 = 无合并。 */
-  customHint?: string;
+  customHint?: string | undefined;
   /** 焦点窗（BACKLOG 3.2.1）：desc=描述窗（↑/↓ 滚动题干/detail），options=选项窗（↑/↓ 移项） */
   focus: "desc" | "options";
   /** 描述窗首行偏移（0 基；上界由渲染层按折行行数算出，App 按键时传 max 进 action） */

@@ -24,19 +24,19 @@ type GapKind = "think" | "reply";
 
 export interface RouteOptions {
   /** 回合区显示档位（/verbose think|tool|reply）：按类别决定该类内容是否进回合区 */
-  activityShow?: Partial<ActivitySwitches>;
+  activityShow?: Partial<ActivitySwitches> | undefined;
   /** 回合区压缩档位（/collapse think|tool|reply）：结构层按它压单行（本层只透传） */
-  activityCompact?: Partial<ActivitySwitches>;
+  activityCompact?: Partial<ActivitySwitches> | undefined;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传） */
-  normalize?: (text: string) => string;
+  normalize?: (text: string) => string | undefined;
   /** 抑制首个内容节的 step 头（渐进窗口起点落在节中间时） */
-  suppressFirstHead?: boolean;
+  suppressFirstHead?: boolean | undefined;
   /** 已声明的 step（`SectionsState.stepMeta` 键，按到达顺序）：step 头按此发放 */
-  declaredSteps?: readonly string[];
+  declaredSteps?: readonly string[] | undefined;
   /** step 时间戳（`SectionsState.stepMeta`）：暂无内容的 step 画头时取这里的时间 */
-  stepTimes?: ReadonlyMap<string, { time?: number }>;
+  stepTimes?: ReadonlyMap<string, { time?: number }> | undefined;
   /** 回合开始时间（`SectionsState.turnMeta`）：回合分隔线的时间真源 */
-  turnTimes?: ReadonlyMap<string, number | undefined>;
+  turnTimes?: ReadonlyMap<string, number | undefined> | undefined;
 }
 
 /** EventGroup 的终态（final / history 交互 → 正文与工具批归会话区） */

@@ -74,9 +74,9 @@ export interface PanelCaret {
 interface PanelLine {
   /** 纯文本行（**含**行首 1 列占位：滚动时该列被 `bar` 覆盖） */
   text: string;
-  color?: FrameStyle;
+  color?: FrameStyle | undefined;
   /** markdown 行：样式段**不含**行首 1 列（渲染时补空格 / bar） */
-  segments?: FrameSegment[];
+  segments?: FrameSegment[] | undefined;
   /** 行首 1 列的滚动条 / 焦点条：字符与样式在窗口算定后回填（占原有缩进、不增宽） */
   bar?: { char: string; style: FrameStyle };
 }

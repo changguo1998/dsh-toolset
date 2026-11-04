@@ -7,26 +7,26 @@ export interface SessionInfo {
   createdAt: number;
   /** 编辑时间（Unix 毫秒；TUI#1）：会话日志末条事件 `time`（listEvents），
    *  缺失/读取失败回退 `createdAt`。列表与「最近退出」选择一律按它从晚到早。 */
-  updatedAt?: number;
+  updatedAt?: number | undefined;
   /** 会话启动时工作目录（列表展示用） */
-  cwd?: string;
+  cwd?: string | undefined;
   /** 是否 live 会话（内存 store 中）：当前活跃标 [当前]、其余 live 标 [不可续] 不可选中 */
   live: boolean;
   /** 是否当前活跃 live 会话（adapter 视角权威：初始 opts.sessionId、resume 后切换）；
    *  列表行标记 [当前] */
-  current?: boolean;
+  current?: boolean | undefined;
   /** 是否已持久化到磁盘 */
   persisted: boolean;
   /** 空会话（persisted 且从未有用户消息）：供列表标注与“清理空会话”的计数与范围判定；
    *  读取面不可用或未判定时省略（不臆断为空） */
-  isEmpty?: boolean;
+  isEmpty?: boolean | undefined;
   /** surface 探针确认「已有用户消息」（TUI#23）：`false` = 读取面可读且确无用户消息
    *  （刚起的新会话）；`true` / 省略 = 有内容或未判定（保守视为已使用）。
    *  `/continue` 用它区分「用过的当前会话」与「刚起的新会话」。 */
-  hasPrompt?: boolean;
+  hasPrompt?: boolean | undefined;
   /** 会话标题：官方 session/title 事件标题，缺失时本地兜底（首条用户消息前 30 字符）；
    *  两者皆无 → 省略（列表渲染占位（新会话）） */
-  title?: string;
+  title?: string | undefined;
 }
 
 /** 删除会话结果：ok=false 时 reason 为可见失败原因（不可删 / 未找到 / 越界 / IO 失败） */

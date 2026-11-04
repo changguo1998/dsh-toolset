@@ -71,7 +71,11 @@ export const TITLE_ICON = {
  *  窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。 */
 export function titleBarSegments(
   state: AppState,
-  fields: { mode?: ModeState; policy?: "ask" | "never"; preset?: string },
+  fields: {
+    mode?: ModeState | undefined;
+    policy?: "ask" | "never" | undefined;
+    preset?: string | undefined;
+  },
   switches: StatusSwitches,
   width: number,
 ): FrameSegment[] {
@@ -167,13 +171,14 @@ export function renderStatusColumn(
   height: number,
   width: number,
   /** TUI#39：子代理目录快照（Agents 块；缺省 = 不显示该块，保持既有调用口径） */
-  agents?: AgentRowInfo[],
+  agents?: AgentRowInfo[] | undefined,
   /** 当前 goal 的自动续轮开关展示值（`goalActivationDisplay`；缺省 = 不显示 ⟳） */
-  activation?: GoalActivation,
+  activation?: GoalActivation | undefined,
   /** BACKLOG #1：Agents 块前导符号的闪烁相位来源（虚拟 token 累计；缺省 0 = 静态） */
   runTokens = 0,
   /** 条目 30：goal 进度（当前轮 / 上限） */
-  goalRounds?: { started?: number; max?: number },
+  goalRounds?:
+    { started?: number | undefined; max?: number | undefined } | undefined,
 ): ContentRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);

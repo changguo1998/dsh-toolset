@@ -316,8 +316,9 @@ export function createRealDshAdapter(opts: RealAdapterOptions): DshAdapter {
         s.emittedByBlock.clear();
         s.stepEmitted.clear();
         s.listeners.clear();
-        if (s.activeDispose) {
-          void s.activeDispose().catch(() => {});
+        const activeDispose = s.activeDispose;
+        if (activeDispose) {
+          void activeDispose().catch(() => {});
           s.activeDispose = undefined;
         }
       },

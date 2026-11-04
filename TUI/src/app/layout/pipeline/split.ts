@@ -36,7 +36,7 @@ interface Group {
   hanging?: number;
   userStatus?: "success" | "failure" | "aborted";
   steerContinued?: boolean;
-  queued?: "followup" | "steer";
+  queued?: "followup" | "steer" | undefined;
   userActive?: boolean;
   injected?: boolean;
   generation?: number;

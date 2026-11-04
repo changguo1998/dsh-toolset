@@ -42,7 +42,7 @@ test("titleBarSegments: policy ask → 黄色询问图标；never → 绿色移�
     return { text: segs.map((x) => x.text).join(""), segs };
   };
   const fgOf = (
-    segs: { text: string; style?: { fg?: string } }[],
+    segs: { text: string; style?: { fg?: string | undefined } | undefined }[],
     icon: string,
   ) => segs.find((x) => x.text === icon)?.style?.fg;
   const ask = segsOf("ask");

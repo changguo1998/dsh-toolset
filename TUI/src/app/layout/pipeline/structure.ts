@@ -62,18 +62,20 @@ export type LayoutTree = Node | Leaf;
 /** §4 结构阶段的 width 无关选项（块形态按它决定；width 相关一律留给 measure/flatten） */
 export interface StructureOptions {
   /** P1/P7：用户块首行左侧状态符号（会话态解析；传入块携带的 UserRowInfo；undefined = 不显示） */
-  userSym?: (info?: UserRowInfo) => { text: string; fg?: string } | undefined;
+  userSym?:
+    | ((info?: UserRowInfo) => { text: string; fg?: string } | undefined)
+    | undefined;
   /** 用户/助手右缘留白（旧 `gutter` 口径；右缘竖线占 1 列） */
-  gutter?: number;
+  gutter?: number | undefined;
   /** 压缩剪枝遮蔽的块 id（`route.shadowedBlockIds`）：命中的块整块打灰（颜色 → gray） */
-  shadowedIds?: ReadonlySet<string>;
+  shadowedIds?: ReadonlySet<string> | undefined;
   /** 符号替换（symbol-normalizer 服务；缺省原文透传，作用于正文文本） */
-  normalize?: (text: string) => string;
+  normalize?: ((text: string) => string | undefined) | undefined;
   /** 左缘 chrome 竖线（┃）开关：只属于对话(session)面板；活动(turn)面板不画
    *  （思考/流式正文为裸文本，legacy 同口径）。缺省 true。 */
-  bar?: boolean;
+  bar?: boolean | undefined;
   /** 目标 pane：盒形按面板区分（会话区形状已定，回合区未定） */
-  pane?: "session" | "turn";
+  pane?: "session" | "turn" | undefined;
 }
 
 /** 左缘竖线（正文蓝 / 思考紫；窄窗降级阈值 = 最小留白 + 2） */
@@ -517,10 +519,10 @@ function paragraphLeaf(block: Paragraph, opts?: StructureOptions): Leaf | Node {
 /** 对段落文本逐 StyledStr 应用文本替换（保留样式，仅改 text） */
 function applyNormalize(
   text: StyledText,
-  normalize: (t: string) => string,
+  normalize: (t: string) => string | undefined,
 ): StyledText {
   return text.map((s) =>
-    s.text === "" ? s : { ...s, text: normalize(s.text) },
+    s.text === "" ? s : { ...s, text: normalize(s.text) ?? s.text },
   );
 }
 

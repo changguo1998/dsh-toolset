@@ -610,7 +610,10 @@ export function createSessionBridge(ctx: AdapterContext) {
     },
     /** /fork：`sessions.fork(activeSessionId)`（省略 boundary/childSessionId =
      *  源会话当前最后事件 + store id 策略）；错误码 5 个映射中文后 reject（不抛穿）。 */
-    async forkCurrentSession(): Promise<{ id: string; title?: string }> {
+    async forkCurrentSession(): Promise<{
+      id: string;
+      title?: string | undefined;
+    }> {
       const svc = opts.sessions;
       if (!svc || typeof svc.fork !== "function") {
         throw new Error("sessions 未挂载（宿主无会话 fork 服务）");

@@ -236,7 +236,7 @@ export function createPanelsPart(ctx: AppContext) {
     kind: CommandPanelKind;
     /** 服务名（notice 文案：`<label> 服务不可用`） */
     label: string;
-    refresh?: (filter?: string) => Promise<void>;
+    refresh?: ((filter?: string) => Promise<void>) | undefined;
     /** 命令参数（skills/tools 作 filter；agents 传 ""） */
     filter: string;
   }): void {

@@ -4,13 +4,13 @@ export interface ModelInfo {
   provider: string;
   id: string;
   name: string;
-  description?: string;
+  description?: string | undefined;
 }
 
 export interface ModelSelection {
   provider: string;
   model: string;
-  reasoningEffort?: string;
+  reasoningEffort?: string | undefined;
 }
 
 /** 模型推理元数据（状态行/面板展示用，不触发请求）：
@@ -27,7 +27,7 @@ export interface SessionModelSelectionRef {
 }
 
 export interface ModelCatalog {
-  providers: { provider: string; name?: string }[];
+  providers: { provider: string; name?: string | undefined }[];
   models: ModelInfo[];
   current: ModelSelection | undefined;
 }

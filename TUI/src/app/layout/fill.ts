@@ -30,15 +30,15 @@ export interface FillContext {
 /** fill 产出行：语义扩展（kind/blockId 供回复组切分/userInputJump 等） */
 export interface ContentRow extends FrameRow {
   /** 来源 buffer 行类型（结构分类，buildBox 标注） */
-  kind?: string;
+  kind?: string | undefined;
   /** 逻辑块 id（同一用户消息/回复/tool 组共享；折叠/跳转定位用） */
-  blockId?: number;
+  blockId?: number | undefined;
   /** 来源 buffer 行号（绝对行号；调试/分组口径） */
-  line?: number;
+  line?: number | undefined;
   /** 行身份（由 `frame.seqRows` 按 box 盖；旧锚点模型用） */
-  seq?: number;
+  seq?: number | undefined;
   /** 行级缩进（已并入 segments；冗余供快速读取） */
-  indent?: number;
+  indent?: number | undefined;
 }
 
 /** 便捷：Box 树摊平到 ContentRow[]（面板 Box 生成器统一入口；矩形恒从

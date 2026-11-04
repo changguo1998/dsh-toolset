@@ -102,8 +102,8 @@ export function pickerVisibleModels(picker: PickerState): string[] {
  * 由调用方按「星号 ?? 焦点行」的既有口径处理。
  */
 export function pickerFocusedValues(picker: PickerState): {
-  provider?: string;
-  model?: string;
+  provider?: string | undefined;
+  model?: string | undefined;
 } {
   return {
     provider: pickerVisibleProviders(picker)[picker.providerIndex],

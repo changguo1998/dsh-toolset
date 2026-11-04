@@ -15,14 +15,14 @@ import type { AppState } from "./types.ts";
 export function initialState(
   themeId: ThemeId = DEFAULT_THEME,
   opts?: {
-    messageGutter?: number;
-    footerHeight?: number;
-    activityDivisor?: number;
-    activityTopRow?: "half" | number;
-    activityPlacement?: ActivityPlacement;
-    statusDivisor?: number;
+    messageGutter?: number | undefined;
+    footerHeight?: number | undefined;
+    activityDivisor?: number | undefined;
+    activityTopRow?: "half" | number | undefined;
+    activityPlacement?: ActivityPlacement | undefined;
+    statusDivisor?: number | undefined;
     /** 声音提醒总开关（缺省 true，与 App 的 `deps.notify?.enabled ?? true` 同口径） */
-    notifyEnabled?: boolean;
+    notifyEnabled?: boolean | undefined;
   },
 ): AppState {
   const messageGutter =

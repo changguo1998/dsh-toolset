@@ -287,7 +287,8 @@ function statusBlocks(
   /** 闪烁节拍（整数，运行期单调递增）：条目行符号按各自 tps 分档取相位 */
   tick = 0,
   /** 条目 30：goal 自动续轮进度（当前轮 / 上限；两者皆缺 → 整段不显） */
-  goalRounds?: { started?: number; max?: number },
+  goalRounds?:
+    { started?: number | undefined; max?: number | undefined } | undefined,
 ): StatusBlock[] {
   const blocks: StatusBlock[] = [];
   const sep = (): StatusRow => ({
@@ -456,7 +457,8 @@ export function oldRenderStatusColumn(
   /** BACKLOG #1：Agents 块前导符号的闪烁相位来源（虚拟 token 累计；缺省 0 = 静态） */
   runTokens = 0,
   /** 条目 30：goal 进度（当前轮 / 上限） */
-  goalRounds?: { started?: number; max?: number },
+  goalRounds?:
+    { started?: number | undefined; max?: number | undefined } | undefined,
 ): FrameRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);

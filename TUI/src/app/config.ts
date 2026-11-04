@@ -26,15 +26,15 @@ import { fileURLToPath } from "node:url";
 
 export interface TuiLayoutConfig {
   /** 底部两行绝对行数（输入区 + 按键提示行；缺省自动 1/5 上限 4） */
-  footerHeight?: number;
+  footerHeight?: number | undefined;
   /** 回合区高分母（contentTopH / divisor；1/2 → 2） */
-  activityHeightDivisor?: number;
+  activityHeightDivisor?: number | undefined;
   /** 回合区分隔行锚定（"half" = floor(rows/2)，或绝对行号；配置后替代 divisor 比例，缺省走 divisor） */
-  activityTopRow?: "half" | number;
+  activityTopRow?: "half" | number | undefined;
   /** 回合区排列方式（缺省 "vertical"）："auto" 按视觉宽高比与黄金分割比自动选上下/左右，"horizontal" 固定左右 */
-  activityPlacement?: ActivityPlacement;
+  activityPlacement?: ActivityPlacement | undefined;
   /** 状态列宽分母（cols / divisor；1/3 → 3） */
-  statusColumnDivisor?: number;
+  statusColumnDivisor?: number | undefined;
 }
 
 /** 回合区排列方式（layout.activityPlacement）：auto = 按黄金比自动选；其余固定 */
@@ -42,9 +42,9 @@ export type ActivityPlacement = "auto" | "vertical" | "horizontal";
 
 export interface TuiNotifyConfig {
   /** 声音提醒总开关（任务结束 / 等待输入超阈值 → 终端 BEL）；缺省 true（即可用） */
-  enabled?: boolean;
+  enabled?: boolean | undefined;
   /** 等待用户输入超过该阈值(ms)触发 bell；缺省 8000（8s） */
-  idleThresholdMs?: number;
+  idleThresholdMs?: number | undefined;
 }
 
 export interface TuiThemePaletteConfig {
@@ -73,20 +73,20 @@ export interface TuiSessionConfig {
   /** 自动清理空会话（持久化 + 非 live + 非当前 + 无用户消息）；缺省 true（开启，
    *  main.ts 接线默认，可显式 false 关闭）。
    *  开启后启动时后台清理并 notice 汇报，优雅退出时打印提示并等待清理完成再退出。 */
-  autoCleanEmpty?: boolean;
+  autoCleanEmpty?: boolean | undefined;
 }
 
 export interface TuiConfig {
-  layout?: TuiLayoutConfig;
-  notify?: TuiNotifyConfig;
+  layout?: TuiLayoutConfig | undefined;
+  notify?: TuiNotifyConfig | undefined;
   /** 主题段（调色板解析见 renderer/theme-config.ts） */
-  theme?: TuiThemeConfig;
+  theme?: TuiThemeConfig | undefined;
   /** 会话维护段（启动自动清理空会话等） */
-  session?: TuiSessionConfig;
+  session?: TuiSessionConfig | undefined;
   /** 审批交互段（BACKLOG 3.3.7）：超时等参数；缺省见 main.ts 的回落值 */
-  approval?: TuiApprovalConfig;
+  approval?: TuiApprovalConfig | undefined;
   /** 本地输出旁路日志段（模型侧工具 `tui_local_log` 的数据源；见 TUI/src/app/adapter/local-log.ts） */
-  localLog?: TuiLocalLogConfig;
+  localLog?: TuiLocalLogConfig | undefined;
 }
 
 /**
@@ -97,9 +97,9 @@ export interface TuiConfig {
  *  - `maxTextChars`：单条正文上限（字符，最小 256；缺省 8 KB）。
  */
 export interface TuiLocalLogConfig {
-  enabled?: boolean;
-  maxBytes?: number;
-  maxTextChars?: number;
+  enabled?: boolean | undefined;
+  maxBytes?: number | undefined;
+  maxTextChars?: number | undefined;
 }
 
 /** 审批交互段：`timeoutMs` = 无操作超时（ms，≥ 1000）；缺省 1 min（取用链见 main.ts 的

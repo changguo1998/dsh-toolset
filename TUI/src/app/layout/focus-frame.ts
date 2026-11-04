@@ -23,10 +23,10 @@ export interface FocusFrameContext {
   focusedPanel: PaneId | null;
   /** 标题栏下划线行（=diaStart-1；无下划线时 0/-1）——该行 D 列归属 history 顶边，
    *  status 焦点时不强调（保持灰） */
-  titleUnderlineRow?: number;
+  titleUnderlineRow?: number | undefined;
   /** 横向排列（会话区在左、回合区在右）时的内部分隔竖线列：
    *  history 右缘 / activity 左缘改为此列，底边不再有纵向分隔行（缺省 = 纵向排列） */
-  innerDividerCol?: number;
+  innerDividerCol?: number | undefined;
 }
 
 /** 焦点框亮色（语义色名 "focus"，取色由渲染层经主题 semantics 解析）；不再按主题 ID 推断（旧 dark=brightWhite / light=black） */

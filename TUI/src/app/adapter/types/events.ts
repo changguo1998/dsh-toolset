@@ -29,7 +29,7 @@ export type DshEvent =
   | { type: "agent-status"; sessionId: string; status: AgentStatus }
   | { type: "notice"; text: string; error?: boolean; tone?: NoticeTone }
   /** #3：宿主的 `turn/start`（携带回合号）——会话区回合分隔线要显示 `⇆N` */
-  | { type: "turn-start"; turn?: number }
+  | { type: "turn-start"; turn?: number | undefined }
   /** P1：收尾原因（宿主 turn/end reason.kind）→ 用户块终态符号依据 */
   | { type: "turn-end"; reason?: TurnEndReason }
   | {
@@ -38,21 +38,21 @@ export type DshEvent =
       name: string;
       summary: string;
       /** 宿主工具调用 id：审批草稿据此回查命令/参数（3.3.3） */
-      callId?: string;
+      callId?: string | undefined;
     }
   | {
       type: "tool-result";
       sessionId: string;
       ok: boolean;
       detail: string;
-      meta?: unknown;
+      meta?: unknown | undefined;
     }
   | {
       type: "model-selection";
       sessionId: string;
-      provider?: string;
-      model?: string;
-      reasoningEffort?: unknown;
+      provider?: string | undefined;
+      model?: string | undefined;
+      reasoningEffort?: unknown | undefined;
     }
   | {
       type: "usage";
@@ -60,7 +60,7 @@ export type DshEvent =
       input: number;
       output: number;
       cacheRead: number;
-      contextWindow?: number;
+      contextWindow?: number | undefined;
     }
   /** P8：sessionId 供「压缩中算活跃」按会话标记 */
   | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
@@ -80,7 +80,7 @@ export type DshEvent =
       max: number;
       delayMs: number;
       code: string;
-      message?: string;
+      message?: string | undefined;
     }
   // --- P2 阶段 A 新增（按 sessionId 隔离；goal 为判别联合，compaction 摘要携完整 raw） ---
   | {
@@ -88,24 +88,24 @@ export type DshEvent =
       sessionId: string;
       operation: Exclude<GoalOperation, "clear">;
       goal: GoalSnapshotLike;
-      roundsStarted?: number;
-      createdAt?: number;
-      updatedAt?: number;
+      roundsStarted?: number | undefined;
+      createdAt?: number | undefined;
+      updatedAt?: number | undefined;
     }
   | {
       type: "goal-change";
       sessionId: string;
       operation: "clear";
       cleared: GoalRefLike;
-      clearedAt?: number;
+      clearedAt?: number | undefined;
     }
   /** goal 自动续轮开关变化（`goal/activation-changed` 总线事件；**进程本地**态：
    *  `activation` 缺省 = 宿主该会话已无当前 goal → 清该会话记录） */
   | {
       type: "goal-activation";
       sessionId: string;
-      goalId?: string;
-      activation?: GoalActivation;
+      goalId?: string | undefined;
+      activation?: GoalActivation | undefined;
     }
   | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
   | {
@@ -120,11 +120,11 @@ export type DshEvent =
       type: "ui-flags";
       sessionId: string;
       /** 模型输出符号统一（/symbol-unify）；缺省 = 该会话无记录 */
-      symbolUnify?: boolean;
+      symbolUnify?: boolean | undefined;
       /** P7：垂直状态列是否显示（Ctrl+S 切换）；缺省 = 该会话无记录（默认显示） */
-      statusColumn?: boolean;
+      statusColumn?: boolean | undefined;
       /** #9：下半区（Turn 流 + 工具区）是否显示（Ctrl+T 切换）；缺省 = 该会话无记录（默认显示） */
-      lowerPanes?: boolean;
+      lowerPanes?: boolean | undefined;
     }
   | {
       type: "step";
@@ -133,7 +133,7 @@ export type DshEvent =
       step: number;
       phase: "start" | "end";
       /** P6：事件信封时间（epoch ms）——分组头时间戳；缺省由 reducer 回退当前时刻 */
-      time?: number;
+      time?: number | undefined;
     }
   | {
       type: "subagent";
@@ -158,7 +158,7 @@ export type DshEvent =
       phase: "run-start" | "agent-start" | "agent-end" | "run-end";
       /** run-start=工作流名；agent-start=成员 label；agent-end/run-end 缺省用序号 */
       label: string;
-      detail?: string;
+      detail?: string | undefined;
       /** tool-workflow run id（/workflows 运行集合分组用） */
       runId: string;
     }
@@ -167,8 +167,8 @@ export type DshEvent =
       sessionId: string;
       phase: "run" | "done";
       name: string;
-      text?: string;
-      ok?: boolean;
+      text?: string | undefined;
+      ok?: boolean | undefined;
     }
   | {
       type: "code-dispatch";
@@ -183,14 +183,14 @@ export type DshEvent =
       sessionId: string;
       phase: "invoked" | "result";
       point: string;
-      decision?: string;
+      decision?: string | undefined;
       ok: boolean;
     }
   | {
       type: "schedule";
       sessionId: string;
       operation: "create" | "delete" | "dispatch";
-      id?: string;
+      id?: string | undefined;
     }
   | {
       type: "compaction-prune";
@@ -206,7 +206,7 @@ export type DshEvent =
       type: "command-panel-data";
       kind: CommandPanelKind;
       rows: CommandPanelRow[];
-      error?: string;
+      error?: string | undefined;
     };
 
 /** 应用层对 adapter 的唯一依赖面：事件流入 + 出站回调（消息/命令/审批/打断） */

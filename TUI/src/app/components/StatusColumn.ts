@@ -113,17 +113,18 @@ interface FoldedBlock {
 
 /** 状态列数据（内容层入参；宽度不进内容层——折行归排版库） */
 export interface StatusColumnData {
-  goals?: GoalHistory;
-  todos?: TodoItemLike[];
-  jobs?: JobInfo[];
+  goals?: GoalHistory | undefined;
+  todos?: TodoItemLike[] | undefined;
+  jobs?: JobInfo[] | undefined;
   /** 子代理目录快照（Agents 块；缺省 / 空数组 = 整块省略） */
-  agents?: AgentRowInfo[];
+  agents?: AgentRowInfo[] | undefined;
   /** 当前 goal 的自动续轮开关展示值（undefined = 不显示 ⟳） */
-  activation?: GoalActivation;
+  activation?: GoalActivation | undefined;
   /** 条目行符号的闪烁节拍（整数；Agents 条目按各自 tps 分档取相位） */
-  tick?: number;
+  tick?: number | undefined;
   /** goal 自动续轮进度（当前轮 / 上限；两者皆缺 → 整段不显） */
-  goalRounds?: { started?: number; max?: number };
+  goalRounds?:
+    { started?: number | undefined; max?: number | undefined } | undefined;
 }
 
 /**
@@ -284,7 +285,8 @@ function statusColumnBlocks(data: StatusColumnData): StatusBlock[] {
 function goalHead(
   current: GoalEntry,
   activation: GoalActivation | undefined,
-  goalRounds: { started?: number; max?: number } | undefined,
+  goalRounds:
+    { started?: number | undefined; max?: number | undefined } | undefined,
 ): FrameSegment[] {
   // 进度文本（` 53/999`；缺上限只显轮数；轮次缺失 → 整段不显）
   const roundsText =

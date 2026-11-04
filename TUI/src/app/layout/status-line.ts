@@ -13,7 +13,7 @@ import { seg, truncateToWidth } from "./primitives.ts";
 export function modelLabel(sel: {
   provider: string;
   model: string;
-  reasoningEffort?: string;
+  reasoningEffort?: string | undefined;
 }): string {
   return `${sel.provider}/${sel.model}${sel.reasoningEffort ? ":" + sel.reasoningEffort.toLowerCase() : ""}`;
 }
@@ -49,7 +49,7 @@ function usageStatus(u: {
   input: number;
   output: number;
   cacheRead: number;
-  contextWindow?: number;
+  contextWindow?: number | undefined;
 }): { ctx: string; cache: string } | undefined {
   const total = u.input + u.cacheRead;
   if (total <= 0) return undefined;

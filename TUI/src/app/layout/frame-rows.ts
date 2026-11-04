@@ -93,7 +93,7 @@ export const DIALOGUE_MORE = "...(更早回复已折叠)";
  * 首行不属于任何起点时补一个 0 起点（头部残段自成一组）。
  */
 export function turnGroupStarts(
-  local: readonly { kind: string; final?: boolean }[],
+  local: readonly { kind: string; final?: boolean | undefined }[],
 ): number[] {
   const starts: number[] = [];
   for (let i = 0; i < local.length; i++) {

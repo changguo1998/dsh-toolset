@@ -67,13 +67,13 @@ export interface CommandPanelRow {
   /** 主文本（skill 名 / agent label / 工具名） */
   title: string;
   /** 副文本（描述 / detail；可空） */
-  detail?: string;
+  detail?: string | undefined;
   /** 状态语义（可选；渲染层经 JobsPanel.statusMark 映射符号与颜色，无则默认前景） */
-  status?: string;
+  status?: string | undefined;
   /** 主操作载荷（Enter 时回传，如 skill 名称） */
-  payload?: string;
+  payload?: string | undefined;
   /** Enter 被禁用时的原因说明（如 agents 的一次性条目不可中断）：设置时 Enter 只提示不改状态 */
-  blockedReason?: string;
+  blockedReason?: string | undefined;
 }
 
 /** 宿主 skills 服务条目结构面（dsh-skill SkillSummary 子集） */

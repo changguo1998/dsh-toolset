@@ -107,13 +107,13 @@ export function main(opts: {
   adapter: DshAdapter;
   logger?: (m: string) => void;
   /** 初始主题（默认 dark） */
-  initialTheme?: ThemeId;
+  initialTheme?: ThemeId | undefined;
   /** 用户块左缘/回复右缘对称留空(列数，默认 4；由 apply 归一化，域 0..20) */
-  messageGutter?: number;
+  messageGutter?: number | undefined;
   /** 测试注入：替代真实终端 renderer（缺省 createRenderer()） */
-  renderer?: Renderer;
+  renderer?: Renderer | undefined;
   /** 测试注入：替代真实状态查询（缺省 createProcessStatusQueries()） */
-  statusQueries?: StatusQueries;
+  statusQueries?: StatusQueries | undefined;
   /** 定时器统一面读取器（懒读；clock-base 插件的 `clock` 服务未挂载 / 未就绪返回 undefined →
    *  StatusTicker 回落 setInterval，行为不变） */
   getTimers?: () => TimersLike | undefined;
@@ -132,27 +132,28 @@ export function main(opts: {
    *  恒传 undefined；实现原样保留，恢复 = 取消那两处注释、**补回被清理的 import**
    *  （`installToolBootstrap` / `shouldAutoKickoff` / `newSessionKickoffText` /
    *  `BOOTSTRAP_KICKOFF_TEXT`）并删占位赋值。 */
-  bootstrapKickoffText?: string;
+  bootstrapKickoffText?: string | undefined;
   /** `/new` 的启动自检惰性门控（BACKLOG TUI#57）：每次新建会话切换完成后调用，返回正文
    *  则补发 kickoff；不传 / 返回 undefined = 不发。2026-10-05 起调用点恒返回 undefined（同关掉）。 */
   bootstrapKickoffForNewSession?: () => string | undefined;
   /** 重启交接文件路径（`process.env.DSH_RESTART_FILE`；非空 = 由处理退出码 75 的启动器启动，
    *  退出确认面板才提供「重启 dsh（保留会话）」；BACKLOG #51 / DESIGN「退出确认 ·「重启」方案」） */
-  restartHandoffPath?: string;
+  restartHandoffPath?: string | undefined;
   /** 六步流水线 sink 容器（apply 内创建并传给 adapter） */
-  pipelineSink?: { current?: (delivery: BlockDelivery) => void };
+  pipelineSink?: { current?: (delivery: BlockDelivery) => void } | undefined;
   /** 配置热更新出口（apply 内创建并传入）：App 就绪后挂上「就地应用」与「提示需重启」两个
    *  实现，供 cordis `internal/update` 钩子调用；见 makeConfigHotUpdateHandler */
-  configSink?: LiveConfigSink;
+  configSink?: LiveConfigSink | undefined;
   /** profile 目录（`ctx.get('profileContext').dir`）：符号列表落盘位置；缺省不落盘
    *  （不落盘时仍按需实测，只是不跨会话复用；见 TUI/src/app/layout/width-symbols.ts） */
-  profileDir?: string;
+  profileDir?: string | undefined;
   /** 合并后的 TUI 配置（patch > 配置文件 > 默认；apply 侧算好传入）。
    *  缺省 = 只读配置文件（测试 / demo 路径保持原行为） */
-  tuiConfig?: TuiConfig;
+  tuiConfig?: TuiConfig | undefined;
   /** 启动参数模型覆盖（apply 解析 `--provider` / `--model` / `--effort` 后传入；
    *  App 启动后按目录校验并落地，见 App.applyStartupModel） */
-  startupModel?: { provider?: string; model?: string; effort?: string };
+  startupModel?:
+    { provider?: string; model?: string; effort?: string } | undefined;
 }): (options?: TuiTeardownOptions) => void {
   // 主题调色板配置解析（patch 的 colorschema 段 > tui.config.json theme 段；告警经 logger 输出）
   const tuiConfig = opts.tuiConfig ?? loadTuiConfig();

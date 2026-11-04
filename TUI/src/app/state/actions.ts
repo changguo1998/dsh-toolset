@@ -57,9 +57,9 @@ export type StateAction =
       type: "notice";
       text: string;
       /** 结构化多行（/help 表格）：每条独立成行并可带悬垂缩进；缺省走 text */
-      lines?: NoticeLine[];
-      error?: boolean;
-      tone?: NoticeTone;
+      lines?: NoticeLine[] | undefined;
+      error?: boolean | undefined;
+      tone?: NoticeTone | undefined;
     }
   /** `$` 模式本地 shell 输出行（BACKLOG TUI#37）：kind="shell"，仅回合区本地显示 */
   | {
@@ -72,7 +72,7 @@ export type StateAction =
       type: "approval";
       approval: ApprovalItem | null;
       /** 审批超时时刻（epoch ms；仅打开时有意义，3.2.5） */
-      deadline?: number | null;
+      deadline?: number | null | undefined;
     }
   | { type: "approval-focus"; focus: "approve" | "reject" }
   | { type: "approval-tab" }
@@ -89,7 +89,7 @@ export type StateAction =
       type: "picker-efforts";
       efforts: { id: string; name: string }[];
       /** 非 0 时代表预设高亮等级（模型行自带等级时的默认选中），匹配不到回退 0 */
-      effortIndex?: number;
+      effortIndex?: number | undefined;
     }
   | { type: "picker-close" }
   | {
@@ -97,7 +97,7 @@ export type StateAction =
       id: string;
       questions: QuestionItem[];
       /** 问题前正文（3.2.10） */
-      source?: string;
+      source?: string | undefined;
     }
   | { type: "question-move"; delta: number } // 数字键直标需要跨多项跳转（BACKLOG 3.2.6）
   | { type: "question-nav"; delta: 1 | -1 }
@@ -176,14 +176,14 @@ export type StateAction =
   /** clearActivity：是否清空回合区内容（缺省 true；核心自发回合传 false，见 appendTurnSeparator） */
   | {
       type: "turn-begin";
-      clearActivity?: boolean;
-      time?: number;
-      turn?: number;
+      clearActivity?: boolean | undefined;
+      time?: number | undefined;
+      turn?: number | undefined;
     }
   /** #3：宿主 `turn/start` 的回合号回填（本地 turn-begin 早于该事件，分隔线先落行后补号） */
   | { type: "turn-number"; turn: number }
   /** P1：reason 决定最新用户块的终态符号（completed→✓ / aborted→■ / error→✗ / 其余→?） */
-  | { type: "turn-end"; reason?: TurnEndReason }
+  | { type: "turn-end"; reason?: TurnEndReason | undefined }
   | { type: "clear-stripped" }
   | { type: "status"; status: Partial<SystemStatus> }
   | { type: "set-theme"; themeId: ThemeId }
@@ -199,23 +199,23 @@ export type StateAction =
   | {
       type: "model-selection";
       sessionId: string;
-      provider?: string;
-      model?: string;
-      reasoningEffort?: unknown;
+      provider?: string | undefined;
+      model?: string | undefined;
+      reasoningEffort?: unknown | undefined;
     }
   | {
       type: "tool-result";
       sessionId: string;
       ok: boolean;
       detail: string;
-      meta?: unknown;
+      meta?: unknown | undefined;
     }
   | {
       type: "model-selection";
       sessionId: string;
-      provider?: string;
-      model?: string;
-      reasoningEffort?: unknown;
+      provider?: string | undefined;
+      model?: string | undefined;
+      reasoningEffort?: unknown | undefined;
     }
   | {
       type: "usage";
@@ -223,7 +223,7 @@ export type StateAction =
       input: number;
       output: number;
       cacheRead: number;
-      contextWindow?: number;
+      contextWindow?: number | undefined;
     }
   /** P8：sessionId 用于把「压缩中」记到该会话（缺省回退当前活跃会话） */
   | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
@@ -233,7 +233,7 @@ export type StateAction =
       max: number;
       delayMs: number;
       code: string;
-      message?: string;
+      message?: string | undefined;
     }
   // --- P2 阶段 A 新增（goal 为判别联合，compaction 摘要携完整 raw；step/subagent 阶段 A 透传） ---
   | {
@@ -241,22 +241,22 @@ export type StateAction =
       sessionId: string;
       operation: Exclude<GoalOperation, "clear">;
       goal: GoalSnapshotLike;
-      roundsStarted?: number;
-      createdAt?: number;
-      updatedAt?: number;
+      roundsStarted?: number | undefined;
+      createdAt?: number | undefined;
+      updatedAt?: number | undefined;
     }
   | {
       type: "goal-change";
       sessionId: string;
       operation: "clear";
       cleared: GoalRefLike;
-      clearedAt?: number;
+      clearedAt?: number | undefined;
     }
   /** goal 自动续轮开关（进程本地事件；`activation` 缺省 = 该会话已无当前 goal → 清记录） */
   | {
       type: "goal-activation";
       sessionId: string;
-      activation?: GoalActivation;
+      activation?: GoalActivation | undefined;
     }
   | { type: "todo-write"; sessionId: string; todos: TodoItemLike[] }
   /** TUI#39：子代理目录快照（状态列 Agents 块；last-write-wins，按会话隔离） */
@@ -274,7 +274,7 @@ export type StateAction =
       step: number;
       phase: "start" | "end";
       /** P6：step 事件时间（epoch ms）——分组头时间戳；缺省回退当前时刻 */
-      time?: number;
+      time?: number | undefined;
     }
   | {
       type: "subagent";
@@ -298,15 +298,15 @@ export type StateAction =
       sessionId: string;
       phase: "run-start" | "agent-start" | "agent-end" | "run-end";
       label: string;
-      detail?: string;
+      detail?: string | undefined;
     }
   | {
       type: "command";
       sessionId: string;
       phase: "run" | "done";
       name: string;
-      text?: string;
-      ok?: boolean;
+      text?: string | undefined;
+      ok?: boolean | undefined;
     }
   | {
       type: "code-dispatch";
@@ -321,14 +321,14 @@ export type StateAction =
       sessionId: string;
       phase: "invoked" | "result";
       point: string;
-      decision?: string;
+      decision?: string | undefined;
       ok: boolean;
     }
   | {
       type: "schedule";
       sessionId: string;
       operation: "create" | "delete" | "dispatch";
-      id?: string;
+      id?: string | undefined;
     }
   | {
       type: "compaction-prune";
@@ -358,7 +358,7 @@ export type StateAction =
       type: "command-panel-data";
       kind: CommandPanelKind;
       rows: CommandPanelRow[];
-      error?: string;
+      error?: string | undefined;
     }
   | { type: "status-column-scroll"; delta: number }
   /** 聚焦指定面板（`Ctrl+E` 会话区 / `Ctrl+T` 回合区 / `Ctrl+S` 状态列）：已聚焦则收起 + 回会话区 */
@@ -366,9 +366,9 @@ export type StateAction =
   | {
       type: "activity-scroll";
       delta: number;
-      max?: number;
-      top?: DialogueTop | null;
-      offset?: number;
+      max?: number | undefined;
+      top?: DialogueTop | null | undefined;
+      offset?: number | undefined;
     }
   /** max = 可视候选数上界（App 按回合区行数给；超出可视区的候选不参与焦点导航） */
   | { type: "completion-move"; delta: number; max?: number }

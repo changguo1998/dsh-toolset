@@ -424,7 +424,7 @@ export function openQuestion(
     id: string;
     questions: QuestionItem[];
     /** 问题前正文（3.2.10；缺省空串 = 不显示来源段） */
-    source?: string;
+    source?: string | undefined;
   },
 ): AppState {
   if (action.questions.length === 0) return state;

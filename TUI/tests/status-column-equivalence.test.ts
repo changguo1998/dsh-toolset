@@ -39,14 +39,15 @@ import type {
 
 /** 一批 state 快照：两侧实现共用同一输入（`bodyW` = 状态列正文宽） */
 interface Snapshot {
-  goals?: GoalHistory;
-  todos?: TodoItemLike[];
-  jobs?: JobInfo[];
-  agents?: AgentRowInfo[];
-  activation?: GoalActivation;
-  runTokens?: number;
-  goalRounds?: { started?: number; max?: number };
-  scroll?: number;
+  goals?: GoalHistory | undefined;
+  todos?: TodoItemLike[] | undefined;
+  jobs?: JobInfo[] | undefined;
+  agents?: AgentRowInfo[] | undefined;
+  activation?: GoalActivation | undefined;
+  runTokens?: number | undefined;
+  goalRounds?:
+    { started?: number | undefined; max?: number | undefined } | undefined;
+  scroll?: number | undefined;
 }
 
 /** goal 列表构造（index 0 = 当前；其后为历史旧 goal） */
@@ -591,10 +592,10 @@ test("帧级：Ctrl+S 隐藏状态列后整帧不含状态列内容（宽度归 
 
 /** 造一个带状态列内容的 AppState（活跃会话 s1） */
 function withSession(fields: {
-  goals?: GoalHistory;
-  todos?: TodoItemLike[];
-  jobs?: JobInfo[];
-  agents?: AgentRowInfo[];
+  goals?: GoalHistory | undefined;
+  todos?: TodoItemLike[] | undefined;
+  jobs?: JobInfo[] | undefined;
+  agents?: AgentRowInfo[] | undefined;
 }): AppState {
   let s = initialState();
   s = reduceState(s, { type: "session-identify", id: "s1", title: "会话" });

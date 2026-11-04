@@ -77,7 +77,7 @@ export interface RunVirtState {
   /** 虚拟总 token（按虚拟速度对时间积分；触发 ●/○ 切换；run 边界见 state.ts） */
   tokens: number;
   /** 上次流式更新时刻（ms；undefined = 本 run 尚无时间基准） */
-  lastTime?: number;
+  lastTime?: number | undefined;
   /** 速率估计窗口：指数加权累计数据量（估算 token） */
   winTokens: number;
   /** 速率估计窗口：指数加权累计时长（秒）；速率 = winTokens / winSecs */
@@ -242,11 +242,11 @@ export const MODE_SYMBOL: Record<InputMode, string> = {
 
 /** 当前活跃会话的目标/todo/模式/策略/预设/运行中任务数（状态行与整页高度共用口径） */
 export function activeSessionFields(state: AppState): {
-  goals?: GoalHistory;
-  todos?: TodoItemLike[];
-  mode?: ModeState;
-  policy?: "ask" | "never";
-  preset?: string;
+  goals?: GoalHistory | undefined;
+  todos?: TodoItemLike[] | undefined;
+  mode?: ModeState | undefined;
+  policy?: "ask" | "never" | undefined;
+  preset?: string | undefined;
 } {
   const goals = state.activeSessionId
     ? state.goalBySession[state.activeSessionId]

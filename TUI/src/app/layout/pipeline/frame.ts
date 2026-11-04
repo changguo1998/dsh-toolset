@@ -71,7 +71,7 @@ export function sectionGroupStarts(sections: readonly Section[]): {
   starts: number[];
   midSection: boolean[];
 } {
-  const kinds: { kind: string; final?: boolean }[] = [];
+  const kinds: { kind: string; final?: boolean | undefined }[] = [];
   const owner: number[] = [];
   const firstLine: number[] = [];
   sections.forEach((section, index) => {
@@ -264,7 +264,7 @@ export function pipelineContent(
  *
  */
 export function sectionsOf(state: {
-  pipeline?: SectionsState;
+  pipeline?: SectionsState | undefined;
   local: unknown;
 }): SectionsState {
   return state.pipeline ?? createSections();

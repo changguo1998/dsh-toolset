@@ -907,7 +907,9 @@ test("压缩剪枝遮蔽：shadow 交付命中的节整块打灰（内容与行�
   assert.deepEqual(textOf(dim.dialogue), textOf(plain.dialogue), "文本不变");
   // 命中的正文段颜色 = gray（dark 主题 #80878E）；未遮蔽时是默认前景
   const colors = (
-    rows: readonly { segments: readonly { style?: { fg?: string } }[] }[],
+    rows: readonly {
+      segments: readonly { style?: { fg?: string | undefined } | undefined }[];
+    }[],
   ) => rows.flatMap((row) => row.segments.map((segment) => segment.style?.fg));
   assert.ok(colors(dim.dialogue).includes("gray"), "遮蔽后正文着 gray");
   assert.ok(!colors(plain.dialogue).includes("gray"), "未遮蔽不着 gray");

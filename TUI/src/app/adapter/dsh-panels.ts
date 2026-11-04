@@ -857,7 +857,7 @@ export function createPanelBridge(ctx: AdapterContext) {
     async memoryReplace(
       ref: MemoryRowRef,
       patch: { content: string; title?: string; importance?: number },
-    ): Promise<{ ok: boolean; skipped?: string }> {
+    ): Promise<{ ok: boolean; skipped?: string | undefined }> {
       const update = opts.knowledge?.update;
       if (typeof update !== "function") {
         return {
@@ -882,7 +882,7 @@ export function createPanelBridge(ctx: AdapterContext) {
       content: string;
       kind: string;
       tier: "project" | "user";
-    }): Promise<{ ok: boolean; skipped?: string }> {
+    }): Promise<{ ok: boolean; skipped?: string | undefined }> {
       const remember = opts.knowledge?.remember;
       if (typeof remember !== "function") {
         return {

@@ -54,7 +54,7 @@ export interface Section {
    * 终态标记（旧节 `final` 透传）：turn-end 给回合最后一次交互打标 →
    * §3 route 据此把正文与工具批归会话区（非终态交互的正文进回合区，现状同口径）
    */
-  final?: boolean;
+  final?: boolean | undefined;
   /** 历史节（恢复重放产出）→ 正文与工具批都归会话区（旧 `history` 透传） */
   history?: boolean;
   /** 独立自足节（用户输入 / notice / shell 各自成节）→ §3 不产 step 头 */
@@ -73,7 +73,7 @@ export function sourceOf(item: PaneItem): BlockSource | undefined {
 
 export interface UserRowInfo {
   /** 排队中（未发出的 followup / steer 用户消息） */
-  queued?: "followup" | "steer";
+  queued?: "followup" | "steer" | undefined;
   /** steer 认领转入历史的续接块 */
   steerContinued?: boolean;
   /** 终态（成功 / 失败 / 中断） */
@@ -87,17 +87,17 @@ export interface UserRowInfo {
 /** 行内格式化段（格式控制字符已消费成类；需要更多行内样式时在此补充） */
 export interface StyledStr {
   text: string;
-  color?: ColorName;
-  bold?: boolean;
-  italic?: boolean;
+  color?: ColorName | undefined;
+  bold?: boolean | undefined;
+  italic?: boolean | undefined;
   /** 行内代码 */
-  code?: boolean;
+  code?: boolean | undefined;
   /** 链接（目标 URL；显示为蓝色下划线） */
-  link?: string;
+  link?: string | undefined;
   /** 删除线（~~…~~ / 勾选任务正文） */
-  strike?: boolean;
+  strike?: boolean | undefined;
   /** 下划线（__…__） */
-  underline?: boolean;
+  underline?: boolean | undefined;
 }
 
 /** 行内内容一律此类型（数组：一段多格式） */
@@ -368,17 +368,19 @@ export interface Separator {
 export interface Node extends NodeBase {
   direction: "v" | "h";
   children: (Node | Leaf)[];
-  separator?: Separator;
+  separator?: Separator | undefined;
   /** 分区身份（可寻址 pane 才挂） */
-  id?: PaneId;
+  id?: PaneId | undefined;
   /** 代码节点载荷（structure 由 Code 块产出） */
-  code?: { lang: string; rows: readonly string[]; closed: boolean };
+  code?: { lang: string; rows: readonly string[]; closed: boolean } | undefined;
   /** 表格节点载荷（structure 由 Table 块产出；measure 按 fitCols 定列宽） */
-  table?: {
-    aligns: readonly TableAlign[];
-    header: readonly Paragraph[];
-    rows: readonly Paragraph[][];
-  };
+  table?:
+    | {
+        aligns: readonly TableAlign[];
+        header: readonly Paragraph[];
+        rows: readonly Paragraph[][];
+      }
+    | undefined;
   /** box 左缘符号（如用户状态 `?`；仅首行显示，续行补等宽空白）；不传给子级 */
   prefix?: { text: string; style?: FrameStyle; minWidth?: number };
   /** box 右缘后缀（如用户块右侧 `┃`）；flatten 展平子内容后给每行补满到宽 + 挂此符 */

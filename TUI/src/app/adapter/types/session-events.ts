@@ -67,16 +67,17 @@ export type StreamChunk =
   | {
       type: "tool-call-delta";
       index: number;
-      id?: string;
-      name?: string;
-      argumentsDelta?: string;
+      id?: string | undefined;
+      name?: string | undefined;
+      argumentsDelta?: string | undefined;
     }
   | {
       type: "block-end";
       index: number;
-      blockType?: string;
+      blockType?: string | undefined;
       /** 真实 DSH 载荷:完整块文本嵌套在 block.text(与 docs/host/DSH-CTX-API.md StreamChunk 契约一致) */
-      block?: { type?: string; text?: string; [k: string]: unknown };
+      block?:
+        { type?: string; text?: string; [k: string]: unknown } | undefined;
     }
   | { type: "usage"; index?: number; usage: Record<string, unknown> }
   | { type: "finish"; reason: string; replayState?: unknown };
@@ -105,8 +106,8 @@ export type AssistantStreamRecord =
       time0: number;
       index: number;
       dt: readonly number[];
-      id?: string;
-      name?: string;
+      id?: string | undefined;
+      name?: string | undefined;
       args: readonly string[];
     }
   | { type: "chunk"; time: number; chunk: StreamChunk };
@@ -115,9 +116,9 @@ export type AssistantStreamRecord =
 export interface ApprovalRequest {
   agent: unknown;
   toolName: string;
-  callId?: string;
-  reason?: string;
-  signal?: AbortSignal;
+  callId?: string | undefined;
+  reason?: string | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 /** DSH 审批裁定词表（应答者返回其一，规范化） */
@@ -127,7 +128,7 @@ export type ApprovalOutcome =
 /** 问答单个选项（镜像 dsh-user-questions AskUserQuestionOption） */
 export interface QuestionOption {
   label: string;
-  description?: string;
+  description?: string | undefined;
 }
 
 /** 问答呈现意图（plan-review：detail 为待审计划，approve 命名的选项即批准） */
@@ -140,18 +141,18 @@ export interface QuestionIntent {
 export interface QuestionItem {
   id: string;
   question: string;
-  detail?: string;
-  header?: string;
-  options?: QuestionOption[];
-  multiSelect?: boolean;
-  intent?: QuestionIntent;
+  detail?: string | undefined;
+  header?: string | undefined;
+  options?: QuestionOption[] | undefined;
+  multiSelect?: boolean | undefined;
+  intent?: QuestionIntent | undefined;
 }
 
 /** 单个回答（镜像 AskUserQuestionAnswerItem） */
 export interface QuestionAnswerItem {
   id: string;
   selected: string[];
-  custom?: string;
+  custom?: string | undefined;
 }
 
 /** 整批回答（镜像 AskUserQuestionAnswer） */
@@ -162,16 +163,16 @@ export interface QuestionAnswer {
 /** AskUserQuestionRequest 结构面（agent 存活/委托校验由宿主 ask() 完成） */
 export interface UserQuestionRequestLike {
   questions: QuestionItem[];
-  agent?: unknown;
-  signal?: AbortSignal;
+  agent?: unknown | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 /** 各 type 的 data 载荷（阶段 2 用到的子集） */
 /** model/selection 事件载荷宽容视口（ModelSelection{provider,model,reasoningEffort?} 渲染所需字段） */
 export interface ModelSelectionLike {
-  provider?: string;
-  model?: string;
-  reasoningEffort?: unknown;
+  provider?: string | undefined;
+  model?: string | undefined;
+  reasoningEffort?: unknown | undefined;
 }
 
 export interface SessionEventDataMap {
@@ -188,16 +189,16 @@ export interface SessionEventDataMap {
   "assistant/message": {
     turn: number;
     step: number;
-    interrupted?: boolean;
-    message?: { content?: unknown[] };
+    interrupted?: boolean | undefined;
+    message?: { content?: unknown[] } | undefined;
   };
   "tool/call": { callId: string; name: string; arguments: string };
   "tool/result": { callId: string; meta?: unknown };
   "approval/asked": {
     id: string;
     toolName: string;
-    callId?: string;
-    reason?: string;
+    callId?: string | undefined;
+    reason?: string | undefined;
   };
   "approval/decided": { id: string; outcome: ApprovalOutcome };
   "approval/policy": { policy: "ask" | "never" };
@@ -213,65 +214,65 @@ export interface SessionEventDataMap {
   "model/selection": ModelSelectionLike;
   "tool-workflow/run-start": { runId?: string; name?: string };
   "tool-workflow/agent-start": {
-    runId?: string;
-    seq?: number;
-    label?: string;
-    phase?: string;
-    childId?: string;
+    runId?: string | undefined;
+    seq?: number | undefined;
+    label?: string | undefined;
+    phase?: string | undefined;
+    childId?: string | undefined;
   };
   "tool-workflow/agent-end": { runId?: string; seq?: number; outcome?: string };
   "tool-workflow/run-end": { runId?: string; stopReason?: string };
   "command/run": { commandId?: string; name?: string; args?: string };
   "command/done": {
-    commandId?: string;
-    kind?: "success" | "error" | "cancel";
-    text?: string;
+    commandId?: string | undefined;
+    kind?: "success" | "error" | "cancel" | undefined;
+    text?: string | undefined;
   };
   "tool/ptc-dispatch-start": {
-    subCallId?: string;
-    name?: string;
-    arguments?: string;
+    subCallId?: string | undefined;
+    name?: string | undefined;
+    arguments?: string | undefined;
   };
   "tool/ptc-dispatch": {
-    subCallId?: string;
-    name?: string;
-    isError?: boolean;
-    content?: unknown[];
+    subCallId?: string | undefined;
+    name?: string | undefined;
+    isError?: boolean | undefined;
+    content?: unknown[] | undefined;
   };
   "hook/invoked": {
-    turn?: number;
-    point?: string;
-    handlerId?: string;
-    matcher?: string;
+    turn?: number | undefined;
+    point?: string | undefined;
+    handlerId?: string | undefined;
+    matcher?: string | undefined;
   };
   "hook/result": {
-    turn?: number;
-    point?: string;
-    handlerId?: string;
-    decision?: string;
-    exitCode?: number;
-    durationMs?: number;
+    turn?: number | undefined;
+    point?: string | undefined;
+    handlerId?: string | undefined;
+    decision?: string | undefined;
+    exitCode?: number | undefined;
+    durationMs?: number | undefined;
   };
   "schedule/change": {
-    version?: number;
-    operation?: string;
-    id?: string;
-    schedule?: unknown;
-    acceptedAt?: number;
+    version?: number | undefined;
+    operation?: string | undefined;
+    id?: string | undefined;
+    schedule?: unknown | undefined;
+    acceptedAt?: number | undefined;
   };
   "compaction/prune": {
-    shadowedRange?: { start: number; end: number };
-    shadowedSeqs?: unknown[];
-    shadowedTokenCount?: number;
+    shadowedRange?: { start: number; end: number } | undefined;
+    shadowedSeqs?: unknown[] | undefined;
+    shadowedTokenCount?: number | undefined;
   };
   "feedback/record": { text?: string };
   "feedback/message-delete": Record<string, unknown>;
   "feedback/message-put": Record<string, unknown>;
   "llm/retry-started": {
-    retryId?: string;
-    turn?: number;
-    step?: number;
-    retry?: number;
+    retryId?: string | undefined;
+    turn?: number | undefined;
+    step?: number | undefined;
+    retry?: number | undefined;
   };
   "deliverables/presented": Record<string, unknown>;
   "subagent/catalog": Record<string, unknown>;

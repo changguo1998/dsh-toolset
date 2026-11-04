@@ -86,10 +86,10 @@ export interface SearchProviderLike {
 
 /** goal-contract 契约条款（`Done-when:` 段 JSON 数组元素；TUI 侧只读子集） */
 export interface ContractClauseLike {
-  id?: string;
+  id?: string | undefined;
   check: string;
-  level?: string;
-  command?: string;
+  level?: string | undefined;
+  command?: string | undefined;
 }
 
 /** 契约回读结果（TUI 内置与 goal-contract `parseContract` 同构：定位 `Done-when:`

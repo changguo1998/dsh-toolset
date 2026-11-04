@@ -38,8 +38,8 @@ export interface GoalRefLike {
 export interface GoalSnapshotLike extends GoalRefLike {
   objective: string;
   phase: "active" | "paused" | "blocked" | "complete";
-  blockedReason?: { code: string; message: string };
-  maxGoalRounds?: number;
+  blockedReason?: { code: string; message: string } | undefined;
+  maxGoalRounds?: number | undefined;
 }
 
 /** goal/change 载荷（判别联合：非 clear 全量快照 / clear 墓碑） */

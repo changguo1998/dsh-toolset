@@ -1090,7 +1090,8 @@ test("parseSlashCommand: 非法输入返回 null", () => {
 
 /** 可编程 fake 注册表 */
 class FakeCommands implements DshCommandLike {
-  calls: { agent: unknown; line: string; signal?: AbortSignal }[] = [];
+  calls: { agent: unknown; line: string; signal?: AbortSignal | undefined }[] =
+    [];
   outcome: unknown;
   error: unknown;
   async execute(
@@ -5743,7 +5744,7 @@ test("真实 adapter /loop：metricLoop 缺失 → refreshLoops reject", async (
 // 清单与失败面信封原样返回）；agentGroup 缺失（未 provide）→ reject「agentGroup 未挂载」。
 
 test("真实 adapter /group：readGroupStatus 透传 status（清单/失败面/入参）", async () => {
-  const calls: { sessionId: string; groupName?: string }[] = [];
+  const calls: { sessionId: string; groupName?: string | undefined }[] = [];
   const svc = {
     status: async (sessionId: string, groupName?: string) => {
       calls.push({ sessionId, groupName });

@@ -318,7 +318,7 @@ class ProbeRenderer extends FakeRenderer {
   events: string[] = [];
   private pending: Array<{
     chars: string[];
-    voids?: ProbeVoid[];
+    voids?: ProbeVoid[] | undefined;
     resolve: (m: Map<string, number>) => void;
   }> = [];
   render(rows: FrameRow[]): void {

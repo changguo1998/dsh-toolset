@@ -159,7 +159,9 @@ export class FakeAdapter implements DshAdapter {
   deletedForExit: string[] = [];
   /** 删除结果（用例可改造成 { ok: false, reason } 断言失败告警）；置 undefined 模拟无会话服务 */
   deleteSessionForExitResult: SessionDeleteResult = { ok: true };
-  deleteSessionForExit?: (id: string) => SessionDeleteResult = (id) => {
+  deleteSessionForExit?: ((id: string) => SessionDeleteResult) | undefined = (
+    id,
+  ) => {
     this.deletedForExit.push(id);
     return this.deleteSessionForExitResult;
   };
