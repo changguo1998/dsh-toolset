@@ -36,7 +36,23 @@ export function externalLogTone(line: string): ExternalLogTone {
 }
 
 /**
+ * 纯噪声行判定：宿主 provider 插件在**每次**拉取模型目录成功后打一行 info
+ * （`[llm-deepseek-api-key] model listing from <url> loaded N model(s), skipped M row(s)`，
+ * 默认 `modelsMaxAgeMs` 10 分钟过期后下次访问即刷新，故约每 10 分钟一条）。
+ * 该行对用户无信息量且会持续刷屏，按显示层丢弃；同一插件的失败行（含 `failed`）照常显示，
+ * 保证真问题不被一起吞掉。
+ * @param line - 已按 `\n` 切出的完整行（不含换行符）。
+ * @returns 命中纯噪声 → `true`（不交 sink）。
+ */
+export function isSuppressedHostLog(line: string): boolean {
+  return /^\[llm-deepseek-api-key\] model listing from \S+ loaded \d+ model\(s\), skipped \d+ row\(s\)$/.test(
+    line.trim(),
+  );
+}
+
+/**
  * 安装桥：替换 `target.write`，按 `\n` 分行把完整行交给 `sink`。
+ * 命中 {@link isSuppressedHostLog} 的行直接丢弃（只影响显示，不改宿主行为）。
  * @param sink - 完整行交付口（App 侧入回合区）。
  * @param target - 被接管的流（缺省 `process.stderr`；测试传假流）。
  * @returns 还原句柄（App dispose 时调用）。
@@ -56,6 +72,7 @@ export function installStderrBridge(
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
     for (const line of lines) {
+      if (isSuppressedHostLog(line)) continue;
       delivering = true;
       try {
         sink(line, externalLogTone(line));

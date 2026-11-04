@@ -9,6 +9,7 @@ import { test } from "node:test";
 import {
   externalLogTone,
   installStderrBridge,
+  isSuppressedHostLog,
   type ExternalLogTone,
 } from "../src/app/stderr-bridge.ts";
 
@@ -41,6 +42,36 @@ test("stderr-bridge：按行交付 + 跨 chunk 缓冲 + tone 判定", () => {
   ]);
   bridge.restore();
   assert.deepEqual(raw, ["third"], "未成行残行在 restore 时透传原始流");
+});
+
+test("stderr-bridge：纯噪声行判定（模型目录成功日志丢弃，失败行保留）", () => {
+  assert.equal(
+    isSuppressedHostLog(
+      "[llm-deepseek-api-key] model listing from https://api.deepseek.com/models loaded 2 model(s), skipped 0 row(s)",
+    ),
+    true,
+  );
+  assert.equal(
+    isSuppressedHostLog(
+      "[llm-deepseek-api-key] model listing from https://api.deepseek.com/models failed (TIMEOUT); keeping the previous catalog",
+    ),
+    false,
+    "失败行必须仍能显示",
+  );
+  assert.equal(isSuppressedHostLog("[rule-engine] warn: a"), false);
+});
+
+test("stderr-bridge：噪声行不进 sink，其余行照常交付", () => {
+  const { raw, stream } = fakeStream();
+  const got: string[] = [];
+  const bridge = installStderrBridge((line) => got.push(line), stream);
+  stream.write(
+    "[llm-deepseek-api-key] model listing from https://api.deepseek.com/models loaded 2 model(s), skipped 0 row(s)\n",
+  );
+  stream.write("[tui] 普通日志\n");
+  assert.deepEqual(got, ["[tui] 普通日志"]);
+  bridge.restore();
+  assert.deepEqual(raw, [], "丢弃行不落到原始流");
 });
 
 test("stderr-bridge：tone 判定（error / warn 变体 / 默认 log）", () => {
