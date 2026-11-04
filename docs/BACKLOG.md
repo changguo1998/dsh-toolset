@@ -64,7 +64,7 @@
 
 ## 2. 未完成项
 
-**#1 分阶段开启 5 个 TypeScript 严格检查**〔进行中: 2026-11-04〕（登记: 2026-11-02）：总追踪决定本轮不开 `noUnusedLocals` / `noUnusedParameters` / `noImplicitReturns` / `exactOptionalPropertyTypes` / `noFallthroughCasesInSwitch`, 留后续 → 期望逐包评估与修复, 一包一笔提交, 行为不变; `check` / `build` / `test` 与受影响包的覆盖率逐包核对, 不一次全仓打开 → 改动位置 34 份 `tsconfig.json` 与命中代码 → 验收: 五项逐一落地或有逐包豁免理由, 全量 `check` / `build` / `test` 退出 0 → 优先级 P3 → 来源: `docs/archived/2026-10-28-history-cleanup.md:534,791,1337`.
+> 2026-11-04 关闭: 「分阶段开启 5 个 TypeScript 严格检查」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-strict-check-flags.md`): 34 包五项全开, 731 条报错清零, 35 笔包提交 (TUI 拆两笔); 全仓 4573 例、行 89.6% / 分支 80.2%, `check` / `build` / `test` / `test:coverage` / `check:docs` / `test:e2e` 退出 0, TUI `demo -- --smoke` 输出 `SMOKE_OK`; 未改运行时行为 (TUI `exactOptionalPropertyTypes` 的修复取向见追踪文档「偏差」).
 
 > 2026-11-04 关闭: 「迁出 34 包测试产物数据」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-test-artifacts.md`): 34 份包追踪的覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑全部收进 `## 四份测试产物` 的四个小节, 原节留指针, 数字照录; 每包一笔提交, 34/34 结构校验与数字保留校验通过, `check:docs` 0 / 0; 未改代码.
 

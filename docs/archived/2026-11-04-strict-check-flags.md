@@ -1,6 +1,6 @@
 # 分阶段开启 5 个 TypeScript 严格检查（接取条目: `docs/BACKLOG.md`「分阶段开启 5 个 TypeScript 严格检查」）
 
-状态: 测试　　开启: 2026-11-04　　关闭: -
+状态: 关闭　　开启: 2026-11-04　　关闭: 2026-11-04
 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改。
 
 ## 目标
@@ -631,7 +631,7 @@ tool-consult/tests/integration/plugin.test.ts
 - 2026-11-04: 批 4 完成 `auto-approve`. `check` / `build` / `test` / `test:coverage` 退出 0, 183 例与基线一致; 批末全仓 `pnpm run check` / `pnpm run test` 退出 0. 覆盖率行 89.5% (3653/4082) / 分支 75.7% (902/1192), 提交 `7b168706`. 至此 33 / 34 包完成, 只剩 TUI.
 - 2026-11-04: 批 5 完成 TUI 的非 `exactOptionalPropertyTypes` 四项（309 条: 未读局部 / 参数 308、隐式返回 1）. 处理以删除死代码为主: 53 个文件、575 行删除 / 44 行新增, 包括 5 个 adapter 文件里搬走后遗留的类型 import、未接线的表格单元格 builder、`naturalWidthOf` / `measureWidthAt` 死链、`inStep` 收口标记、`RETIRED_COMMAND_NOTICE` 等; `App` 的兼容 getter / 方法由 `private` 改为 `protected`（`noUnusedLocals` 不再判死, 运行时不变）. `check` / `build` / `test` / `test:coverage` 退出 0, 1829 例与基线一致; 覆盖率行 87.9% (24815/28244) / 分支 78.4% (6229/7949); `demo -- --smoke` 输出 `SMOKE_OK`; 提交 `07d81637`.
 - 2026-11-04: 批 6 完成 TUI 的 `exactOptionalPropertyTypes`（292 条）. 48 个文件、502 行新增 / 453 行删除, 均为类型声明与测试 fake 对齐; 主要动作: 18 个 fake adapter 类涉及的 `DshAdapter` 可选方法改成 `fn | undefined` 属性签名, 事件 / 配置 / 状态等数据类型的可选字段补 `| undefined`, 测试里的 `Partial<T>` 构造改为不再显式塞 `undefined`. 运行时只多了一句 `void _blockKindGuard;`（保留块闭集编译期守卫）, 以及 `applyNormalize` 的 `normalize(s.text) ?? s.text` 兜底; 其余无求值变化. `check` / `build` / `test` / `test:coverage` 退出 0, 1829 例与基线一致; 覆盖率行 87.8% (24802/28244) / 分支 78.4% (6226/7946)（与批 5 差 13 行, 属测试运行波动, 见「偏差」）; `demo -- --smoke` 输出 `SMOKE_OK`; 提交 `96d49e1f`.
-- 2026-11-04: 批 7 全仓验收. 34 份 `tsconfig.json` 五项全为 `true`; `pnpm run check` / `build` / `test` / `test:coverage` / `check:docs` / `test:e2e` 均退出 0, TUI `demo -- --smoke` 输出 `SMOKE_OK`; 全仓 4573 例通过, 覆盖率行 89.6% / 分支 80.2%（与基线一致）, 文档检查 0 错误 / 0 警告, 端到端 33/33. 待用户确认后进入收尾.
+- 2026-11-04: 批 7 全仓验收. 34 份 `tsconfig.json` 五项全为 `true`; `pnpm run check` / `build` / `test` / `test:coverage` / `check:docs` / `test:e2e` 均退出 0, TUI `demo -- --smoke` 输出 `SMOKE_OK`; 全仓 4573 例通过, 覆盖率行 89.6% / 分支 80.2%（与基线一致）, 文档检查 0 错误 / 0 警告, 端到端 33/33. 用户确认通过, 进入收尾.
 
 ## 偏差
 
@@ -746,4 +746,9 @@ npm_config_verify_deps_before_run=false pnpm run demo -- --smoke → SMOKE_OK
 
 ## 收尾
 
-待补: 34 包提交清单、全仓四入口结果、BACKLOG 条目完成与移除、追踪文档归档、临时文件清理.
+- 提交: 33 个包各一笔 `chore(<pkg>): 开启 5 项 TypeScript 严格检查`, TUI 两笔（`07d81637` 四项、`96d49e1f` `exactOptionalPropertyTypes`）, 共 35 笔包提交; 另有计划 / 批 1-4 / 批 5-7 的文档提交.
+- 全仓: `check` / `build` / `test` / `test:coverage` / `check:docs` / `test:e2e` 退出 0; 4573 例通过; 行 89.6% / 分支 80.2%; 端到端 33/33; TUI `demo -- --smoke` 输出 `SMOKE_OK`.
+- BACKLOG: `docs/BACKLOG.md` 的「分阶段开启 5 个 TypeScript 严格检查」已移除并写关闭注记; 新发现的 `session-channel` 计时抖动另立包级条目 `session-channel/docs/BACKLOG.md` #1.
+- 归档: 本文件移入 `docs/archived/2026-11-04-strict-check-flags.md`.
+- 清理: 本次产生的 `tmp/` 扫描脚本、诊断输出、覆盖率目录已删除.
+- 遗留: `coagent` 的 npm 布局 `node_modules` 会让 pnpm 触发仓库外 store 写入, 本次用 `npm_config_verify_deps_before_run=false` 绕过; 属本机环境问题, 未进 BACKLOG.

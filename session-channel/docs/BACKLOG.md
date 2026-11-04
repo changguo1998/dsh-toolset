@@ -9,7 +9,7 @@
 
 ## 1. 缺陷
 
-（暂无）
+**#1 全仓并行测试下 `systemTimers` 计时用例偶发只触发 1 次**〔待办: 2026-11-04〕: `tests/entry.test.ts:34` 用 5 ms interval 等 40 ms 要求至少 2 次 tick, 全仓 34 包并行时偶发 `ticks=1`; 单跑 78/78 与重跑全仓均通过 → 期望改用假定时器, 或把间隔 / 等待放宽到负载下稳定 → 改动位置 `session-channel/tests/entry.test.ts` → 验收: 连续多轮全仓 `test` 不再抖动 → 来源: `docs/archived/2026-11-04-strict-check-flags.md` 偏差 → 优先级 P3.
 
 ## 2. 功能
 
