@@ -7,9 +7,12 @@
  * 规则表（工具名 + 参数字符串）判定，命中返回 `{ kind: "deny", reason }`（回执写明该改用哪个专用
  * 工具），未命中返回 `undefined`（弃权，交给其它消费者与宿主继续）。
  *
- * 缺省规则只有一条：`bash` 命令里出现 `herdr` → 拒绝并指向 herdr 的专用工具（写类 `herdr_run` /
- * `herdr_text` / `herdr_key`，查看类 `herdr_read` / `herdr_list`）；走 bash 会绕过插件面板与状态绑定。
- * 规则表可在 profile `config` 里整体替换；`rules: []` 或 `enabled: false` 等于不拦。
+ * 缺省规则共有四条：`bash` 命令里出现 `herdr` → 拒绝并指向 herdr 的专用工具（写类
+ * `herdr_run` / `herdr_text` / `herdr_key`，查看类 `herdr_read` / `herdr_list`）；
+ * `python` → **命令位**调用 `python` / `python3` 时报错并指向 `script_run`；`node` → 同前，
+ * 指向 `script_run`；查看文本类（`cat` / `head` / `tail` / `sed -n`…）→ 指路 read / grep /
+ * fs_digest。走 bash 会绕过专用工具与状态绑定。规则表可在 profile `config` 里整体替换；
+ * `rules: []` 或 `enabled: false` 等于不拦。
  *
  * 设计取舍：
  * - **写进 `inject`**（2026-10-22 真机修正）：`ruleEngine` 服务由 rule-engine 插件在 apply 时 provide，
@@ -94,7 +97,9 @@ export interface Config {
  * 内置缺省规则：
  * 1. bash 里跑 herdr CLI → 指路 herdr 专用工具（写类 `herdr_run` / `herdr_text` / `herdr_key`，
  *    查看类 `herdr_read` / `herdr_list`）；
- * 2. bash 里跑 python → 指路 `script_run`（script-interpreter 插件）。
+ * 2. bash 里跑 python → 指路 `script_run`（script-interpreter 插件）；
+ * 3. bash 里跑 node → 指路 `script_run`（script-interpreter 插件）;
+ * 4. bash 里查看文本（cat / head / tail / sed -n…）→ 指路 read / grep / fs_digest。
  */
 export const DEFAULT_RULES: readonly RuleSpec[] = [
   {
@@ -127,6 +132,23 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       "bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句",
     description:
       "Python 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
+  },
+  {
+    id: "no-node-in-bash",
+    tool: "bash",
+    // 同一套命令位判定：行首 / `;` `&` `|` 之后 / `$( ` 之后，允许前置 `VAR=值` 与路径；
+    // 只认 `node`（script-interpreter 的 node 后端也只探测 `node`）；`nodejs` 识别为
+    // 不在可承接范围，`npm` / `npx` 是包管理入口不拦（与 python 规则不拦 `pip` 同口径）。
+    match: {
+      regex: [
+        "(?:^|[;&|]\\s*|\\$\\(\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?node(?=\\s|$)",
+      ],
+      flags: "im",
+    },
+    reason:
+      "bash 里不要跑 node: 改用 script_run 工具（script-interpreter 插件）执行 Node 脚本或语句",
+    description:
+      "Node 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
   },
   {
     id: "no-view-text-in-bash",

@@ -103,7 +103,12 @@ test("resolveConfig：缺省开启 + 内置规则；rules 给即整体替换；�
   assert.equal(defaults.enabled, true);
   assert.deepEqual(
     defaults.rules.map((rule) => rule.id),
-    ["no-herdr-in-bash", "no-python-in-bash", "no-view-text-in-bash"],
+    [
+      "no-herdr-in-bash",
+      "no-python-in-bash",
+      "no-node-in-bash",
+      "no-view-text-in-bash",
+    ],
   );
   assert.equal(resolveConfig({ enabled: false }).enabled, false);
 
@@ -213,6 +218,47 @@ test("缺省规则：正文提到 python / .py 扩展名 / pip 不拦", () => {
     "ls scripts/run.py",
     "pip install requests",
     "git commit -m 'docs: python -> script_run'",
+  ]) {
+    assert.equal(
+      registration.guard(guardContext("bash", { command })),
+      undefined,
+      command,
+    );
+  }
+});
+
+test("缺省规则：bash 命令位跑 node → 拒绝并指向 script_run", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "node",
+    "node -e 'console.log(1)'",
+    "node --version",
+    "node scripts/gen.js",
+    "ls && node tools/gen.mjs",
+    "FOO=1 /usr/bin/node -v",
+    "x=$(node -p '1+1')",
+  ]) {
+    const decision = registration.guard(guardContext("bash", { command }));
+    assert.equal(decision?.kind, "deny", command);
+    assert.match(
+      (decision as { reason: string }).reason,
+      /script_run/,
+      "拒绝理由要指向 script_run",
+    );
+  }
+});
+
+test("缺省规则：正文提到 node / npm / npx 或可执行名带 node 前缀不拦", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "echo node",
+    "grep -rn node src/",
+    "npm install",
+    "npx tsc",
+    "nodemon src/index.ts",
+    "node-gyp rebuild",
+    "cd node_modules",
+    "git commit -m 'docs: node -> script_run'",
   ]) {
     assert.equal(
       registration.guard(guardContext("bash", { command })),

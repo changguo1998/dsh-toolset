@@ -97,12 +97,12 @@ function guardContext(toolName: string, args: unknown): ToolGuardContext {
 }
 
 test("resolveConfig: rules 缺席或 undefined 都回退内置规则表", () => {
-  assert.equal(resolveConfig({}).rules.length, 3);
-  assert.equal(resolveConfig({ rules: undefined }).rules.length, 3);
+  assert.equal(resolveConfig({}).rules.length, 4);
+  assert.equal(resolveConfig({ rules: undefined }).rules.length, 4);
   assert.equal(resolveConfig({ enabled: true }).enabled, true);
   // 非法形状按内置规则表兜底 (告警由 compileRules 负责)
   const raw = resolveConfig({ rules: "oops" as unknown as RuleSpec[] });
-  assert.equal(raw.rules.length, 3);
+  assert.equal(raw.rules.length, 4);
   assert.equal(resolveConfig({ rules: [] }).rules.length, 0);
 });
 
