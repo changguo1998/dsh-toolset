@@ -51,11 +51,9 @@ rm -rf ../tmp/cov-escalation-hint && mkdir -p ../tmp/cov-escalation-hint && NODE
 
 ## 实现记录
 
-- 基线: `pnpm -C escalation-hint run check` 通过; `pnpm -C escalation-hint run test` 34 条全绿 (80.9 ms); 单元层覆盖率与阶段 1 末一致 (行 92.1%, 分支 79.4%).
-- 单元锚点: 沿用 `tests/main.test.ts` (`resolveConfig` 边界、告警分支、无下游决定、`exec` / `result` 缺失) 与 `tests/judge.test.ts` (`resultText` / `resultErrorCode` / `commandOf` / `normalizeCommand`、层 1 优先于层 2、`value` / `sandbox` 非对象、`denied: true` 兜底); 现有断言未改语义.
-- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts`. 装配器给出三个假面: 假事件面 (`ctx.on` 记 `prepend` 选项与监听器, 按注册序注销), 假工具面 (`tools/post-execute` 的 waterfall, `next` 递归走到下一位再落宿主兜底), 假日志面 (`ctx.logger.warn` 记告警, 另留 stderr 捕获兜底). 断言覆盖沙箱拒绝判定 (`DENIAL_MARKER_PREFIX` / `FS_SANDBOX_DENIED` / 层 3 结构化兜底)、`additionalContexts` 注入内容 (role / source / 文案关键词 / 追加保序)、覆盖的工具类 (缺省 `bash` / `pwsh` / `write` / `edit` / `str_replace_editor` 全线命中, 自定义名单整体替换).
+> 测试基线、单元锚点、集成层与脚本见「四份测试产物」; 本节保留范围说明与偏差.
+
 - 本包没有工具注册、`output.render` 与服务面, 4.2 里那三项断言面在本包为空, 集成层只覆盖事件消费者注入链路; 也不落盘, 「写临时目录再断言」不适用.
-- 脚本: `package.json` 补 `test:integration` 与 `test:coverage` (覆盖率目录 `../tmp/cov-escalation-hint`, 报告落 `tmp/cov-escalation-hint/report.json`), 与 4.2 / 4.3 的命令逐字一致.
 - `src` 未改.
 
 ## 偏差
@@ -64,18 +62,20 @@ rm -rf ../tmp/cov-escalation-hint && mkdir -p ../tmp/cov-escalation-hint && NODE
 
 ## 测试与证据
 
-### 命令实跑
+> 四入口、覆盖率、覆盖豁免与新增用例清单见「四份测试产物」; 本节保留人工确认.
 
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm -C escalation-hint run check` | ✓ 通过 (`tsc -p tsconfig.json --noEmit` 无输出) |
-| `pnpm -C escalation-hint run test` | ✓ 50 条全绿, 失败 0, 跳过 0 |
-| `pnpm -C escalation-hint run test:integration` | ✓ 17 条全绿, 失败 0, 跳过 0 |
-| `pnpm -C escalation-hint run test:coverage` | ✓ 出表, 见下 |
+### 人工确认
 
-改前单元层: 34 条; 改后: 50 条单元 + 17 条集成 = 67 条. 删除用例 0 条, `skip` / `todo` 均 0 条.
+本阶段只补测试、`src` 未改, 无行为需要人工验收; 真机上的注入效果仍按 4.6 留到 `scripts/install.sh --sync` 之后由合并方确认.
 
-### 覆盖率 (改前 / 改后)
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+- 基线: 单元层覆盖率与阶段 1 末一致 (行 92.1%, 分支 79.4%).
+- 覆盖率 (改前 / 改后):
 
 | 文件 | 改前行 | 改后行 | 改前分支 | 改后分支 | 未覆盖行 (改后) |
 | --- | --- | --- | --- | --- | --- |
@@ -85,11 +85,13 @@ rm -rf ../tmp/cov-escalation-hint && mkdir -p ../tmp/cov-escalation-hint && NODE
 
 分支分母随走到的代码路径变多而变大 (38→45、64→80), 百分比按同一轮统计口径比较, 未见下降.
 
-### 覆盖豁免 (按 4.3)
+### 用例清单
 
-- `src/index.ts` 未覆盖行 73 / 102: 两处是对象字面量的属性键 (`maxHints` 的 `typeof` 判定与 `{ type: "text" }` 的属性值), V8 把它们记成独立的零命中 branch range, 所在行本身已被更大范围覆盖; 报告按「最小跨度的 range」取行归属, 所以显示成未覆盖行, 没有走不到的语句. 剩余分支同理, 是对象字面量与类型断言产生的块范围, 不是可独立到达的分支.
-
-### 新增用例清单
+- 基线: `pnpm -C escalation-hint run check` 通过; `pnpm -C escalation-hint run test` 34 条全绿 (80.9 ms).
+- 单元锚点: 沿用 `tests/main.test.ts` (`resolveConfig` 边界、告警分支、无下游决定、`exec` / `result` 缺失) 与 `tests/judge.test.ts` (`resultText` / `resultErrorCode` / `commandOf` / `normalizeCommand`、层 1 优先于层 2、`value` / `sandbox` 非对象、`denied: true` 兜底); 现有断言未改语义.
+- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts`. 装配器给出三个假面: 假事件面 (`ctx.on` 记 `prepend` 选项与监听器, 按注册序注销), 假工具面 (`tools/post-execute` 的 waterfall, `next` 递归走到下一位再落宿主兜底), 假日志面 (`ctx.logger.warn` 记告警, 另留 stderr 捕获兜底). 断言覆盖沙箱拒绝判定 (`DENIAL_MARKER_PREFIX` / `FS_SANDBOX_DENIED` / 层 3 结构化兜底)、`additionalContexts` 注入内容 (role / source / 文案关键词 / 追加保序)、覆盖的工具类 (缺省 `bash` / `pwsh` / `write` / `edit` / `str_replace_editor` 全线命中, 自定义名单整体替换).
+- 脚本: `package.json` 补 `test:integration` 与 `test:coverage` (覆盖率目录 `../tmp/cov-escalation-hint`, 报告落 `tmp/cov-escalation-hint/report.json`), 与 4.2 / 4.3 的命令逐字一致.
+- 改前单元层: 34 条; 改后: 50 条单元 + 17 条集成 = 67 条. 删除用例 0 条.
 
 单元层 `tests/main.test.ts` (6 条): `resolveConfig` 的 `maxHints` 取整与非有限值回退; 名单过滤非字符串与空串; `ctx.on` 缺失时告警走 `logger.warn`; `ctx.on` 不返回注销函数时给空操作; 宿主未给下游决定时自建 `accept`; `exec` / `result` 缺失时原样返回.
 
@@ -97,15 +99,16 @@ rm -rf ../tmp/cov-escalation-hint && mkdir -p ../tmp/cov-escalation-hint && NODE
 
 集成层 `tests/integration/plugin.test.ts` (17 条): 装配与 `prepend` 及注销; waterfall 先取下游决定; 命令族注入文案; 文件族注入文案; 缺省与自定义工具名单; 同 `callId` 去重; 下游 `additionalContexts` 追加保序; 宿主已提示 / 下游 block / 无判据三种不注入; 无下游决定时自建 `accept`; 层 3 兜底只对命令类; `maxHints` 淘汰最旧; `enabled: false` 不订阅; `ctx.on` 缺失的两种告警路径; `ctx.on` 不返回注销函数; `hintMessage` 的 id 唯一; `resolveConfig` 结果直接喂 `apply`.
 
-### 人工确认
+### skip 计数与豁免台账
 
-本阶段只补测试、`src` 未改, 无行为需要人工验收; 真机上的注入效果仍按 4.6 留到 `scripts/install.sh --sync` 之后由合并方确认.
+- `skip` / `todo` 均 0 条.
+- 覆盖豁免 (按 4.3): `src/index.ts` 未覆盖行 73 / 102: 两处是对象字面量的属性键 (`maxHints` 的 `typeof` 判定与 `{ type: "text" }` 的属性值), V8 把它们记成独立的零命中 branch range, 所在行本身已被更大范围覆盖; 报告按「最小跨度的 range」取行归属, 所以显示成未覆盖行, 没有走不到的语句. 剩余分支同理, 是对象字面量与类型断言产生的块范围, 不是可独立到达的分支.
 
-## 四份测试产物
+### 四入口实跑
 
-| 产物 | 位置 |
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C escalation-hint run check` | ✓ 通过 (`tsc -p tsconfig.json --noEmit` 无输出) |
+| `pnpm -C escalation-hint run test` | ✓ 50 条全绿, 失败 0, 跳过 0 |
+| `pnpm -C escalation-hint run test:integration` | ✓ 17 条全绿, 失败 0, 跳过 0 |
+| `pnpm -C escalation-hint run test:coverage` | ✓ 出表, 见下 |
