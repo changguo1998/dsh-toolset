@@ -63,12 +63,7 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 
 ## 实现记录
 
-- 脚本: `rule-engine/package.json` 加 `test:integration` 与 `test:coverage`, 命令与 `metric-loop` / `memory-base` 同构; 覆盖率临时目录 `tmp/cov-rule-engine`, 报告 `tmp/cov-rule-engine/report.json`.
-- 装配器: `rule-engine/tests/assemble.ts` (不以 `.test.ts` 结尾, 不参与覆盖率统计)。三个假面按 `src/index.ts` 的结构面声明拼装: 工具面记注册定义并给 `call` / `render` 两个入口; 事件面给 `session/event` / `session/created` / `tools/pre-execute` 三个派发口, 其中 pre-execute 按宿主 waterfall 语义串监听器; 服务面记 `provide` 并让 `ctx.get` 返回 tools / sessionProjections / clock。选项覆盖工具面缺席与注册抛错、服务面缺席与 provide 抛错、`ctx.get` 整体抛错 (cordis 严格模式)、clock 缺席。状态目录用系统临时目录, `dispose()` 删除并撤销未触发排期; 告警从 stderr 抓取。
-- 集成层: `rule-engine/tests/integration/plugin.test.ts` 13 条, 覆盖工具注册名与参数面、`execute` 的 canonical 返回值与落盘、`output.render` 投影、事件派发到注入消息形状 (含 `turn/end` 与 `session/created`)、消费者 `decide` / `guard` 的唤醒与注销、`tools/pre-execute` 的 deny 短路与放行、服务面 `onNotice` 订阅退订、`dedupeInRecord` 读 inbox 去重、以及工具面 / 服务面 / 严格读面三条降级路径。
-- 单元锚点: `tests/main.test.ts` 补 `guardContextOf` 一条, 断导出面的 canonical 上下文 (name / arguments / callId / sessionId) 与结构性缺省 (空 callId、非字符串 name、agent 畸形一律省略 sessionId)。其余存量的 174 条用例语义未改。
-- 专项: `tests/main.test.ts` 两处与 `tests/consumerGuard.test.ts` 两处 `herdr_use` 改 `herdr_run` (用例自造的拒绝理由, 与 `behavior-correction` 实际文案一致)。
-- `skip` / `todo` / 夹具: 本包测试代码里 0 处 `skip`、0 处 `todo`, 无 `tests/fixtures` 目录, 无删除项.
+> 脚本、装配器、集成层、单元锚点、专项与 skip 见「四份测试产物」; 本节保留阶段 3 实现记录.
 
 阶段 3 代码整理:
 
@@ -93,40 +88,7 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 
 ## 测试与证据
 
-四条命令 (分支 `history-cleanup/02-tests-rule-engine`, 提交前实跑):
-
-| 入口 | 结果 |
-| --- | --- |
-| `pnpm -C rule-engine run check` | 通过, 无输出 (exit 0) |
-| `pnpm -C rule-engine run test` | 175 条全过, 175 pass / 0 fail / 0 skipped / 0 todo, 297ms |
-| `pnpm -C rule-engine run test:integration` | 13 条全过, 13 pass / 0 fail / 0 skipped / 0 todo, 132ms |
-| `pnpm -C rule-engine run test:coverage` | 通过, 报告 `tmp/cov-rule-engine/report.json` |
-
-覆盖率 (只统 `src`; 改前 = 只跑单元层, 改后 = 单元加集成):
-
-| 阶段 | 行 | 分支 |
-| --- | --- | --- |
-| 改前 (单元层) | 94.7% (2335/2465) | 88.7% (638/719) |
-| 改后 (单元 + 集成) | 94.8% (2337/2465) | 88.8% (647/729) |
-
-集成层贡献 +2 行 / +9 分支; 分支分母由 719 变 729 是两轮 V8 range 合并后多出的 range, 占比口径以百分比为准。分层两轮跑: 单元层 `tmp/cov-re-unit2`, 合并层 `tmp/cov-rule-engine`。
-
-改后每文件表:
-
-| 文件 | 行 | 分支 | 未覆盖行 |
-| --- | --- | --- | --- |
-| `src/engine.ts` | 96.4% (975/1011) | 87.8% (317/361) | 158, 224, 323, 347-348, 363, 409, 441, 449, 464-466, 469-470, 553, 588, 762, 862-863, 877, 906, 981, 997, 1002-1008, 1017-1018, 1053, 1080, 1145, 1188 |
-| `src/index.ts` | 96.9% (315/325) | 93.8% (75/80) | 196, 210-213, 329-330, 332-334 |
-| `src/inject.ts` | 98.6% (139/141) | 91.2% (31/34) | 81, 93 |
-| `src/match.ts` | 100.0% (106/106) | 93.2% (41/44) | - |
-| `src/persist.ts` | 100.0% (104/104) | 96.0% (24/25) | - |
-| `src/rules.ts` | 96.0% (313/326) | 89.8% (115/128) | 99, 106-107, 111-113, 179, 274-278, 336 |
-| `src/timers.ts` | 60.6% (94/155) | 62.5% (10/16) | 17-19, 33-34, 37, 39, 41, 47, 57-60, 91-93, 102-107, 113-117, 120-134, 137-148, 150-159 |
-| `src/tools.ts` | 98.0% (291/297) | 82.9% (34/41) | 116-117, 207, 256, 292, 323 |
-
-缺口说明: `timers.ts` 的裸定时器回落 (`systemTimers`) 与 `detached` 面、`engine.ts` 的若干防御分支是既有代码, 本阶段只补锚点不改写法; 阶段 3 代码整理时一并处理, 不在此处补空跑用例。报告里的行号取自 `--experimental-transform-types` 的 V8 range, 与源码行存在一两行偏移, 只作定位参考。
-
-新增 / 删除用例: 新增 `tests/integration/plugin.test.ts` 13 条、`tests/main.test.ts` 补 1 条 (`guardContextOf`); 未删除用例; 未删除夹具。`skip` 计数: 0。
+> 四入口、覆盖率、缺口说明与用例增减见「四份测试产物」; 本节保留阶段 3 实跑.
 
 阶段 3 代码整理 (分支 `history-cleanup/03-code-rule-engine`, 提交前实跑):
 
@@ -152,9 +114,56 @@ rm -rf ../tmp/cov-rule-engine && mkdir -p ../tmp/cov-rule-engine && NODE_V8_COVE
 
 ## 四份测试产物
 
-| 产物 | 位置 |
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+覆盖率 (只统 `src`; 改前 = 只跑单元层, 改后 = 单元加集成):
+
+| 阶段 | 行 | 分支 |
+| --- | --- | --- |
+| 改前 (单元层) | 94.7% (2335/2465) | 88.7% (638/719) |
+| 改后 (单元 + 集成) | 94.8% (2337/2465) | 88.8% (647/729) |
+
+集成层贡献 +2 行 / +9 分支; 分支分母由 719 变 729 是两轮 V8 range 合并后多出的 range, 占比口径以百分比为准。分层两轮跑: 单元层 `tmp/cov-re-unit2`, 合并层 `tmp/cov-rule-engine`。
+
+改后每文件表:
+
+| 文件 | 行 | 分支 | 未覆盖行 |
+| --- | --- | --- | --- |
+| `src/engine.ts` | 96.4% (975/1011) | 87.8% (317/361) | 158, 224, 323, 347-348, 363, 409, 441, 449, 464-466, 469-470, 553, 588, 762, 862-863, 877, 906, 981, 997, 1002-1008, 1017-1018, 1053, 1080, 1145, 1188 |
+| `src/index.ts` | 96.9% (315/325) | 93.8% (75/80) | 196, 210-213, 329-330, 332-334 |
+| `src/inject.ts` | 98.6% (139/141) | 91.2% (31/34) | 81, 93 |
+| `src/match.ts` | 100.0% (106/106) | 93.2% (41/44) | - |
+| `src/persist.ts` | 100.0% (104/104) | 96.0% (24/25) | - |
+| `src/rules.ts` | 96.0% (313/326) | 89.8% (115/128) | 99, 106-107, 111-113, 179, 274-278, 336 |
+| `src/timers.ts` | 60.6% (94/155) | 62.5% (10/16) | 17-19, 33-34, 37, 39, 41, 47, 57-60, 91-93, 102-107, 113-117, 120-134, 137-148, 150-159 |
+| `src/tools.ts` | 98.0% (291/297) | 82.9% (34/41) | 116-117, 207, 256, 292, 323 |
+
+缺口说明: `timers.ts` 的裸定时器回落 (`systemTimers`) 与 `detached` 面、`engine.ts` 的若干防御分支是既有代码, 本阶段只补锚点不改写法; 阶段 3 代码整理时一并处理, 不在此处补空跑用例。报告里的行号取自 `--experimental-transform-types` 的 V8 range, 与源码行存在一两行偏移, 只作定位参考。
+
+### 用例清单
+
+- 脚本: `rule-engine/package.json` 加 `test:integration` 与 `test:coverage`, 命令与 `metric-loop` / `memory-base` 同构; 覆盖率临时目录 `tmp/cov-rule-engine`, 报告 `tmp/cov-rule-engine/report.json`.
+- 装配器: `rule-engine/tests/assemble.ts` (不以 `.test.ts` 结尾, 不参与覆盖率统计)。三个假面按 `src/index.ts` 的结构面声明拼装: 工具面记注册定义并给 `call` / `render` 两个入口; 事件面给 `session/event` / `session/created` / `tools/pre-execute` 三个派发口, 其中 pre-execute 按宿主 waterfall 语义串监听器; 服务面记 `provide` 并让 `ctx.get` 返回 tools / sessionProjections / clock。选项覆盖工具面缺席与注册抛错、服务面缺席与 provide 抛错、`ctx.get` 整体抛错 (cordis 严格模式)、clock 缺席。状态目录用系统临时目录, `dispose()` 删除并撤销未触发排期; 告警从 stderr 抓取。
+- 集成层: `rule-engine/tests/integration/plugin.test.ts` 13 条, 覆盖工具注册名与参数面、`execute` 的 canonical 返回值与落盘、`output.render` 投影、事件派发到注入消息形状 (含 `turn/end` 与 `session/created`)、消费者 `decide` / `guard` 的唤醒与注销、`tools/pre-execute` 的 deny 短路与放行、服务面 `onNotice` 订阅退订、`dedupeInRecord` 读 inbox 去重、以及工具面 / 服务面 / 严格读面三条降级路径。
+- 单元锚点: `tests/main.test.ts` 补 `guardContextOf` 一条, 断导出面的 canonical 上下文 (name / arguments / callId / sessionId) 与结构性缺省 (空 callId、非字符串 name、agent 畸形一律省略 sessionId)。其余存量的 174 条用例语义未改。
+- 专项: `tests/main.test.ts` 两处与 `tests/consumerGuard.test.ts` 两处 `herdr_use` 改 `herdr_run` (用例自造的拒绝理由, 与 `behavior-correction` 实际文案一致)。
+- 新增 / 删除用例: 新增 `tests/integration/plugin.test.ts` 13 条、`tests/main.test.ts` 补 1 条 (`guardContextOf`); 未删除用例; 未删除夹具。
+
+### skip 计数与豁免台账
+
+- `skip` / `todo` / 夹具: 本包测试代码里 0 处 `skip`、0 处 `todo`, 无 `tests/fixtures` 目录, 无删除项.
+- `skip` 计数: 0。
+- 豁免台账: 无 (原文未记).
+
+### 四入口实跑
+
+四条命令 (分支 `history-cleanup/02-tests-rule-engine`, 提交前实跑):
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C rule-engine run check` | 通过, 无输出 (exit 0) |
+| `pnpm -C rule-engine run test` | 175 条全过, 175 pass / 0 fail / 0 skipped / 0 todo, 297ms |
+| `pnpm -C rule-engine run test:integration` | 13 条全过, 13 pass / 0 fail / 0 skipped / 0 todo, 132ms |
+| `pnpm -C rule-engine run test:coverage` | 通过, 报告 `tmp/cov-rule-engine/report.json` |
