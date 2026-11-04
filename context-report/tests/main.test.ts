@@ -349,7 +349,6 @@ test("工具面：report / state / list 三个 action 与错误分支", async ()
     provide: (key: string, value: unknown) => provided.set(key, value),
   } as unknown as BundleHost & Record<string, unknown>;
   apply(ctx, {});
-  const service = provided.get("contextReport") as ContextReportService;
   const tool = registered[0] as {
     name: string;
     description: string;

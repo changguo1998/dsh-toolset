@@ -8,7 +8,7 @@ import type { ReportEvent } from "../src/types.ts";
 /** 一条测试事件的宽松形态（type + data + 可选 time）。 */
 export interface FixtureEvent {
   type: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> | undefined;
   time?: number;
   seq?: number;
 }
