@@ -549,7 +549,12 @@ consistency="$(node -e '
 const fs = require("fs");
 const [pkgJson, canonical] = process.argv.slice(1);
 const scripts = JSON.parse(fs.readFileSync(pkgJson, "utf8")).scripts;
-const extract = (name) => (scripts[name].match(/--prefix (\S+) run /g) || []).map((s) => s.split(" ")[1]);
+const extract = (name) =>
+  scripts[name]
+    .split("&&")
+    .map((segment) => segment.trim().match(/^pnpm (?:-C (\S+)|--prefix (\S+)) run /))
+    .filter((hit) => hit)
+    .map((hit) => hit[1] || hit[2]);
 const check = extract("check");
 const build = extract("build");
 const canon = canonical.trim().split(/\s+/);
