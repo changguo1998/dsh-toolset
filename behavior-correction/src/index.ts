@@ -87,7 +87,7 @@ export interface Config {
   /** 是否拦截（缺省 `true`；`false` 时不注册消费者）。 */
   enabled?: boolean;
   /** 规则表：给了就**整体替换**内置规则；`[]` = 不拦任何东西。 */
-  rules?: readonly RuleSpec[];
+  rules?: readonly RuleSpec[] | undefined;
 }
 
 /**
