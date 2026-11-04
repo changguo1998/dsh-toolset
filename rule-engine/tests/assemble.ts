@@ -1,7 +1,7 @@
 /**
  * 集成层装配器: 假工具面 + 假事件面 + 假服务面, 拼出本插件 `apply` 的宿主接线。
  *
- * 三个假面的形状照 `src/index.ts` 的结构面声明抄 (结构化类型, 不 import 宿主实现):
+ * 三个假面的形状照 `rule-engine/src/index.ts` 的结构面声明抄 (结构化类型, 不 import 宿主实现):
  * - 工具面: `tools.register(def)` 记下工具定义, 另给 `call` / `render` 两个调用入口, 等价宿主
  *   把工具交给模型后回传的 `execute` 与 `output.render` 投影;
  * - 事件面: `on(event, listener)` 记下监听器, 给 `emitSessionEvent` / `emitCreated` /

@@ -1,5 +1,5 @@
 /**
- * `scripts/tool-surface-check.mjs` 单测：fixture 假宿主树 + 退出码纪律。
+ * `security-guard/scripts/tool-surface-check.mjs` 单测：fixture 假宿主树 + 退出码纪律。
  *
  * 覆盖（决策 D5）：
  * - 逐工具解析 `parameters`（顶层键即参数名；数组元素键在 `items.properties`）→

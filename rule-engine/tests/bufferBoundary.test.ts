@@ -12,7 +12,7 @@
  * - **每回合须先有 `turn/start`**: 它是 `*-end` 节点的对齐 flag 清零点, 缺它时只有第 1 个回合会唤醒
  *   （见下「bookkeep 清零点」用例）—— 本文件的用例都按真实宿主的「turn/start → assistant/message → turn/end」序列发事件。
  *
- * 证据与结论见追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 C。
+ * 证据与结论见追踪文档 `docs/archived/2026-10-16-three-surface-text-consistency.md` 任务 C。
  */
 
 import assert from "node:assert/strict";

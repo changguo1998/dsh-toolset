@@ -1,6 +1,6 @@
 /**
  * 判定层: `GuardEngine` (纯判定, 不做宿主 I/O) 与判定记录 / 策略快照 / 服务面类型.
- * 对外面只经 `src/index.ts` 统一 re-export.
+ * 对外面只经 `security-guard/src/index.ts` 统一 re-export.
  */
 import { isCommandAllowed, matchCommand } from "./blacklist.ts";
 import {

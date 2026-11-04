@@ -13,7 +13,7 @@
  *
  * 与 `engine.test.ts` 的既有用例互补: 那些按节点逐个断言行为, 本文件按「事件 → 节点集合 + 载荷」整体列表断言。
  *
- * 证据与结论见追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 C。
+ * 证据与结论见追踪文档 `docs/archived/2026-10-16-three-surface-text-consistency.md` 任务 C。
  */
 
 import assert from "node:assert/strict";

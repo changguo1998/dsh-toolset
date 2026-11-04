@@ -1,6 +1,6 @@
 /**
  * 学习层观测面：把「用户在审批面板人工放行」的调用学成本会话的**段形态集合**，让同会话内
- * 后续等价调用不再弹面板（追踪文档 `docs/archived/2026-10-21-manual-approval-fingerprint.md`）。
+ * 后续等价调用不再弹面板（追踪文档 `auto-approve/docs/archived/2026-10-21-manual-approval-fingerprint.md`）。
  *
  * 本层是事件状态机：`approval/asked` 建配对表 → `approval/decided` 收尾（`allowed-once`
  * 且非本插件裁定 = 人工放行）→ `tool/result` 按 `toolCallId` 记「成功执行」（只推进 B，A 不看

@@ -1,6 +1,6 @@
 /**
  * 命令解析: 从工具入参里提取命令文本与路径 (含未登记工具的键面 / 值面扫描).
- * 只做提取与归一, 不做判定; 对外面只经 `src/index.ts` 统一 re-export.
+ * 只做提取与归一, 不做判定; 对外面只经 `security-guard/src/index.ts` 统一 re-export.
  */
 import { extractCommandPaths } from "./sensitive.ts";
 import {

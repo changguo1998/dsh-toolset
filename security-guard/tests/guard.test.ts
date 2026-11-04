@@ -1381,7 +1381,7 @@ test("配置覆盖：allowedPaths 放行读面四工具（hash_read / fs_digest 
 // ---------------------------------------------------------------------------
 // 外部命令复查（inspectCommand）：给「命令不在工具入参里」的场景补执行前检查点
 // （metric-loop 的 tick 执行状态文件里的 spec.measureCmd；追踪文档
-// docs/implementation/2026-10-02-metric-loop-state-cmd-check.md）。
+// docs/archived/2026-10-02-metric-loop-state-cmd-check.md）。
 // ---------------------------------------------------------------------------
 
 /** 命中 sudo 规则的无害命令文本（拼接构造：仓库内不出现真实危险命令字面量）。 */

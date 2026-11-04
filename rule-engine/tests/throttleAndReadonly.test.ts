@@ -12,7 +12,7 @@
  * - **注入链路**：`delivery: "inject"` 的请求带路径与 `consumer:<id>` 来源、正文/摘要正确;
  *   无 `summary` 时由正文首行折叠。
  *
- * 证据与结论见追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 C。
+ * 证据与结论见追踪文档 `docs/archived/2026-10-16-three-surface-text-consistency.md` 任务 C。
  */
 
 import assert from "node:assert/strict";

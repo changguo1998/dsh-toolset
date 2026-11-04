@@ -9,7 +9,7 @@
  *   → 不唤醒**且告警**（文案含 `reason` 与「非法」，消费者侧可观测）；
  * - 畸形事件（无 `type` / `data` 非对象）安全跳过。
  *
- * 证据与结论见追踪文档 `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 C。
+ * 证据与结论见追踪文档 `docs/archived/2026-10-16-three-surface-text-consistency.md` 任务 C。
  */
 
 import assert from "node:assert/strict";

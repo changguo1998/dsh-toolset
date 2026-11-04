@@ -1,7 +1,7 @@
 /**
  * 消费者 guard 面单测（`tools/pre-execute`）。
  *
- * 覆盖口径（与 `docs/implementation/2026-10-21-consumer-guard.md`「决策 / 验收」对齐）：
+ * 覆盖口径（与 `rule-engine/docs/archived/2026-10-21-consumer-guard.md`「决策 / 验收」对齐）：
  * - 注册校验：`sources: ["tools/pre-execute"]` + `guard` 成功；缺 `guard` / 同时给 `decide` /
  *   带 `delivery` / `dedupeInRecord` / `directWrite` / `cooldownTurns` / `cooldownMs` → 拒绝注册并告警；
  * - 汇总：注册顺序串行、`deny` 胜出且立即返回（后续消费者不再被调用）、`allow` 不否决后续 `deny`、

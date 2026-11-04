@@ -1,7 +1,7 @@
 /**
  * 进程内总开关：守护**默认关闭**，`/daemon start` 开启、`/daemon stop` 关闭。
  *
- * 口径（追踪文档 `docs/implementation/2026-10-21-daemon-switch-and-target-check.md` 决策 D1）：
+ * 口径（追踪文档 `background-daemon/docs/archived/2026-10-21-daemon-switch-and-target-check.md` 决策 D1）：
  * 状态**不落盘**——重启复位为关闭，需人工重新开启；不做跨实例同步（各进程各持一份）。
  * 关闭态由装配层保证「调度器未启动」（D2）：`Scheduler.arm()` 在未运行时是空转，
  * 故关闭态不排任何 timer，到点也不投递。

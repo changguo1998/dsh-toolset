@@ -1,7 +1,7 @@
 /**
  * 共享控制帐：跨实例的任务控制事件（取消 / 暂停 / 恢复）。
  *
- * 口径（追踪文档 `docs/implementation/2026-10-20-daemon-cross-instance-cancel.md` 决策 D1/D2）：
+ * 口径（追踪文档 `background-daemon/docs/archived/2026-10-20-daemon-cross-instance-cancel.md` 决策 D1/D2）：
  * - 与 `tasks.json` / `journal.jsonl` 同作用域（同一状态目录）：同一 DSH_HOME 的多个 dsh
  *   实例天然共享；不依赖任何可选服务（`session-channel` 缺失时仍生效）；
  * - **append-only JSONL**：`{taskId, action, at}`；同一任务取**最后一条**为当前意图；

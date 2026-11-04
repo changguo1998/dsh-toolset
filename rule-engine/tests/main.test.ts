@@ -94,7 +94,7 @@ function fakeCtx() {
           };
         }
         // 定时器统一面：假宿主提供 clock，避免每次装配都走回落告警（回落路径由
-        // tests/clock.test.ts 专门覆盖）。
+        // rule-engine/tests/clock.test.ts 专门覆盖）。
         if (name === "clock") {
           return {
             now: () => Date.now(),

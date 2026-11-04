@@ -1,6 +1,6 @@
 /**
  * 配置层: 用户配置 (`SecurityGuardConfig` / `Config`) 与解析后的内部配置 (`ResolvedConfig`).
- * 只做缺省归一与编译, 不做判定; 对外面只经 `src/index.ts` 统一 re-export.
+ * 只做缺省归一与编译, 不做判定; 对外面只经 `security-guard/src/index.ts` 统一 re-export.
  */
 import { homedir } from "node:os";
 import {

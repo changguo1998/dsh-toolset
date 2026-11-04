@@ -60,7 +60,7 @@ const config: Config = {
   maxInjectionsPerTurn: 2,
 };
 
-/** 假注入器：把注入消息按宿主形态打印出来（真实注入器见 src/inject.ts）。 */
+/** 假注入器：把注入消息按宿主形态打印出来（真实注入器见 rule-engine/src/inject.ts）。 */
 function createPrintInjector(): {
   injector: { inject(request: InjectionRequest): void };
   count: () => number;

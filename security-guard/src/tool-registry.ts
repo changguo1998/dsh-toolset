@@ -1,6 +1,6 @@
 /**
  * 规则表: 拦截面登记表与未登记工具的键集 / 键深 / 遍历上限.
- * 只放纯数据与查表函数, 不做配置解析与判定; 对外面只经 `src/index.ts` 统一 re-export.
+ * 只放纯数据与查表函数, 不做配置解析与判定; 对外面只经 `security-guard/src/index.ts` 统一 re-export.
  */
 /**
  * 拦截面：shell 工具 → command 文本；run_code → code 文本；文件工具 → 路径参数；
@@ -136,7 +136,7 @@ export function pluginCommandTool(
 }
 
 /**
- * 未登记工具的路径参数键名（**键集单一来源**：本包唯一一份，`scripts/tool-surface-check.mjs`
+ * 未登记工具的路径参数键名（**键集单一来源**：本包唯一一份，`security-guard/scripts/tool-surface-check.mjs`
  * 经 `TOOL_SURFACE` 复用，脚本与引擎不再各维护一套）。
  * 键名按**小写归一**比较（`filePath` → `filepath`、`measureCmd` → `measurecmd`）。
  */
@@ -187,7 +187,7 @@ const UNKNOWN_TOOL_WATCHED: ReadonlySet<string> = new Set<string>([
 
 /**
  * 键名启发 / check 值面扫描的**键深上限**（**单一来源**：`TOOL_SURFACE.keyDepth` 供
- * `scripts/tool-surface-check.mjs` 复用，脚本与引擎不各维护一份）。
+ * `security-guard/scripts/tool-surface-check.mjs` 复用，脚本与引擎不各维护一份）。
  * **3 层**：顶层 → 数组元素 → 其对象成员 → 再一层数组元素 —— **数组透明、不消费键深**
  * （数组元素对象与数组自身同键深）；更深处的同形嵌套不再纳入（**语义**上限，避免深层误伤）。
  * 命中的键以**完整键路径**表示（`children[].acceptance[].command`，与登记表 `commandPaths` 同形）。
@@ -195,7 +195,7 @@ const UNKNOWN_TOOL_WATCHED: ReadonlySet<string> = new Set<string>([
 export const UNKNOWN_TOOL_KEY_DEPTH = 3;
 
 /**
- * 工具覆盖面快照：给 `scripts/tool-surface-check.mjs` 复用的**机器可读单一来源**
+ * 工具覆盖面快照：给 `security-guard/scripts/tool-surface-check.mjs` 复用的**机器可读单一来源**
  * （已登记工具名 + 三类 watched 键集 + 键深上限）。登记表本身仍是本文件内的常量，
  * 此处只是只读快照。
  */

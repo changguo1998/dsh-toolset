@@ -1,6 +1,6 @@
 // security-guard 集成层: 经假宿主调 `apply`, 断言服务面 `guard` 的注册与 canonical 形状、
 // 单调守卫面与 waterfall 降级两条挂载路径的判定结果、以及经宿主接线后的读/写拦截面。
-// 装配器见 `tests/assemble.ts`（不以 `.test.ts` 结尾, 不计入覆盖率）。
+// 装配器见 `security-guard/tests/assemble.ts`（不以 `.test.ts` 结尾, 不计入覆盖率）。
 //
 // 本包不注册工具、不订阅除 `tools/pre-execute` 以外的事件, 也没有 `output.render` 投影,
 // 故"工具注册名 / execute / render / 事件注入内容"四类断言是零值断言, 真正的契约面是

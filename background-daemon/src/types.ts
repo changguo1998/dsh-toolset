@@ -1,7 +1,7 @@
 /**
  * 后台守护的公共类型（任务、流水、渠道契约）。
  *
- * 设计依据：`docs/implementation/2026-10-15-background-daemon-design.md`。
+ * 设计依据：`docs/archived/2026-10-15-background-daemon-design.md`。
  * 本包只做结构面访问宿主服务（不 import 宿主类型）, 因此这些类型是**本包自己的**契约,
  * 与宿主的 `Agent` / `CommandRuntime` 之间用最小结构子集对接。
  */

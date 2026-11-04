@@ -7,7 +7,7 @@
  * - 服务面：`get` / `provide` / `inject`, 记录已提供值与待就绪的子分叉。
  *
  * 宿主 ctx 把三个面合成一个对象（cordis 也把 registry 方法混在 ctx 上）。用例只经
- * `src/index.ts` 的公开面驱动插件, 断工具返回的 canonical 值、`output.render` 投影、
+ * `background-daemon/src/index.ts` 的公开面驱动插件, 断工具返回的 canonical 值、`output.render` 投影、
  * 事件回调后的状态与服务的 provide / get。
  */
 

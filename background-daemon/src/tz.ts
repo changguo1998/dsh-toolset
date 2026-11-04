@@ -1,7 +1,7 @@
 /**
  * IANA 时区算术（纯函数, 只依赖 `Intl`）。
  *
- * 设计依据（`docs/implementation/2026-10-15-background-daemon-design.md` §C①）：
+ * 设计依据（`docs/archived/2026-10-15-background-daemon-design.md` §C①）：
  * 选择器要支持 `daily` / `weekly` 这类「显式 IANA 时区的本地钟表时间」, 因此需要
  * ① 由瞬时取当地墙钟；② 由墙钟反求瞬时（DST 缺口无解 / 重叠有两解）。
  * 缺口由调用方**跳过**、重叠由本模块取**较早**的实现（见 `instantForWallClock`）。

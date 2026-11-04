@@ -3,7 +3,7 @@
  *
  * 这一层只有纯函数与表结构，不碰会话事件、不调模型；观测层（`learn-observe.ts`）决定
  * 「何时学」，本层决定「学成什么形状」（口径见
- * `docs/archived/2026-10-21-manual-approval-fingerprint.md`）：
+ * `auto-approve/docs/archived/2026-10-21-manual-approval-fingerprint.md`）：
  *
  * - **词法层（纯函数）**：按 `security-guard` 的口径切段（引号内分隔符不切）→ 词法切 token
  *   （处理 `-m"b"` 这类无空格粘连）→ 固定抹值（引号串 `<msg>` / 长 hex `<hex>` / 纯数字 `<n>`）；

@@ -1,6 +1,6 @@
 /**
  * 记录底座适配：`memory-base` **冻结接口**（2026-10-17，见
- * `memory-base/docs/implementation/2026-10-17-slim-and-storage-surfaces.md`）。
+ * `memory-base/docs/archived/2026-10-17-slim-and-storage-surfaces.md`）。
  *
  * 契约要点（消费方视角，全部是结构面，不 import 对方代码）：
  * - `registerKind(spec): MemoryScope` **同步**返回写入句柄；句柄绑定 kind 与可写层；
