@@ -8,7 +8,6 @@ import type {
   ApprovalOutcome,
   QuestionAnswer,
   UserQuestionRequestLike,
-  DshRuntime,
 } from "./types.ts";
 import { buildApprovalPrompt } from "./normalize.ts";
 import type { AdapterContext } from "./context.ts";

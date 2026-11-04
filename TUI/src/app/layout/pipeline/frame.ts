@@ -159,9 +159,6 @@ export function windowSections(
   };
 }
 
-/** 合成行序号基数（与宿主事件号区间错开） */
-const SYNTHETIC_BASE = 1_000_000_000;
-
 /**
  * 合成行序号：由**稳定段键**（节身份 + 节内 box 序号）派生（FNV-1a 双轮 → 48 位，低于
  * `Number.MAX_SAFE_INTEGER`），**不依赖对象身份**——重放 / 渐进扩窗 / 会话切换后同一逻辑行

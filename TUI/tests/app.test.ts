@@ -969,7 +969,6 @@ test("P1：活跃块只看最后一条用户输入——更早的未终态块不
   const { app, renderer, adapter } = makeApp();
   // 放大窗口：三条用户块需同屏（横向排列下会话区 行数有限）
   renderer.resize(140, 40);
-  const cols = 140;
   typeAndEnter(renderer, "第一条");
   adapter.push({ type: "turn-end", reason: "blocked" }); // blocked 不落终态 → 第一条保持未定
   typeAndEnter(renderer, "第二条");

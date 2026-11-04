@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRenderer, type FrameRow } from "../src/renderer/index.ts";
 import { buildFrame, displayWidth } from "../src/app/layout.ts";
-import { initialState, reduceState } from "../src/app/state.ts";
+import { initialState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
 import { ScreenEmu } from "./helpers/screenEmu.ts";
 import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";

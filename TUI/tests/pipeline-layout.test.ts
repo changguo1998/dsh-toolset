@@ -62,7 +62,7 @@ function heightSum(tree: Node | Leaf): number {
 }
 
 test("measure：叶子 height === wrapLeaf 行数（行数即高度，不变量）", () => {
-  const { root, rows, width } = measureFlatten("hello world", "assistant", 30);
+  const { root, rows } = measureFlatten("hello world", "assistant", 30);
   // 单行文本 → 1 行
   const single = rows.length;
   assert.equal(single, heightSum(root), "摊平行数 === Σ高度");
@@ -83,7 +83,7 @@ test("measure/flatten：折行与高度一致（长文本多行）", () => {
 });
 
 test("flatten：前缀竖线按声明展开且行数正确", () => {
-  const { root, rows } = measureFlatten("正文", "assistant", 20);
+  const { rows } = measureFlatten("正文", "assistant", 20);
   assert.equal(rows.length >= 1, true);
   const rowText = rows[0]!.segments.map((s) => s.text).join("");
   assert.equal(rowText.startsWith("┃"), true, "正文行带左缘竖线");

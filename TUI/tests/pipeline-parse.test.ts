@@ -68,7 +68,6 @@ test("parse：引用/列表/分隔线 → Quote / List / rule=Paragraph", () => 
     blocks.some((b) => b.kind === "list"),
     "有 List",
   );
-  const rule = blocks.find((b) => b.kind === "paragraph");
   // 分隔线 `---` → 段落带 rule 标记
   assert.ok(
     blocks.some(

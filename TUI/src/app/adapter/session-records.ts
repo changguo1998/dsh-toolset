@@ -1,64 +1,8 @@
 // TUI/src/app/adapter/session-records.ts — 历史会话列举 / 续接目标 / 删除
 
 import { isUserMessage } from "../state.ts";
-import type {
-  DshEvent,
-  DshAdapter,
-  AgentRowInfo,
-  AgentGroupViewLike,
-  ModelInfo,
-  ModelSelection,
-  SessionModelSelectionRef,
-  ModelCatalog,
-  ModelReasoning,
-  StreamChunk,
-  AssistantStreamRecord,
-  ApprovalRequest,
-  ApprovalOutcome,
-  QuestionAnswer,
-  UserQuestionRequestLike,
-  SessionEvent,
-  DshRuntime,
-  DshAgentLike,
-  RealAdapterOptions,
-  LiveSessionHandle,
-  HistoryMessage,
-  SessionInfo,
-  SessionQueryLike,
-  SessionSurfaceView,
-  TokenUsage,
-  TaskEngineTaskLike,
-  CommandPanelRow,
-  KnowledgeBundleSummaryLike,
-  MemoryRowRef,
-  LoopSummaryLike,
-  ContractParseResult,
-  ContractClauseLike,
-  WorkflowRunLike,
-  SearchSourceLike,
-  GoalChangeLike,
-  TodoItemLike,
-  SubagentDescriptorLike,
-  ContentBlockLike,
-  CompactionSummaryPayloadLike,
-  AgentPresetInfo,
-  PermissionPresetServiceLike,
-  JobInfo,
-  ConfigEntrySummary,
-} from "./types.ts";
-import {
-  type ApprovalDetail,
-  buildApprovalPrompt,
-  buildUserMessage,
-  extractTextBlocks,
-  localTitleFromText,
-  normalizeAgentStatus,
-  noticeSummaryOf,
-  parseSlashCommand,
-  readDefaultSelection,
-  ruleInjectionTextOf,
-  summarizeToolArguments,
-} from "./normalize.ts";
+import type { HistoryMessage, SessionInfo, SessionQueryLike } from "./types.ts";
+import { localTitleFromText } from "./normalize.ts";
 import { rmSync } from "node:fs";
 import { locateSessionDir, sessionRoots } from "./session-paths.ts";
 

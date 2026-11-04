@@ -20,7 +20,6 @@ import {
   EAW_AMBIGUOUS_CONSERVATIVE,
   EAW_WIDE_RANGES,
   EMOJI_CONSERVATIVE,
-  WIDTH_UNCERTAIN_RANGES,
 } from "./eaw-table.ts";
 
 // ---------- 宽度原语（由 layout.ts 重导 charWidth/displayWidth） ----------

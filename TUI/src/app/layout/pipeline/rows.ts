@@ -208,7 +208,7 @@ export function indexOfTop(
 import type { ActivitySwitches } from "../../state.ts";
 import type { ContentRow } from "../fill.ts";
 // ---- 新链路（§3-§7）接线桥 ----
-import { isLeaf, sourceOf } from "./ir.ts";
+import { sourceOf } from "./ir.ts";
 import type {
   PaneItem as NewPaneItem,
   UserRowInfo,

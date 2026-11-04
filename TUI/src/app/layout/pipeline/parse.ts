@@ -21,7 +21,7 @@
 //   - 标题显示 `┃标题`（`#` 剥掉、bold + brightCyan，本层已加样式）。
 //   - 分隔线显示 `┃────…`（rule 在 flatten 铺满；本层产一个尾随铺满标记的 Paragraph）。
 
-import { isTableStart, parseTableAt, type TableAlign } from "../table.ts";
+import { isTableStart, parseTableAt } from "../table.ts";
 import { parseInlineMarkdown, parseUserInline } from "../markdown.ts";
 import { NOTICE_TONE_COLOR } from "../content-rules.ts";
 import type { NoticeTone } from "../../adapter/types.ts";

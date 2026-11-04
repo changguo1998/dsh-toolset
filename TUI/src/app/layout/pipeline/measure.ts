@@ -7,14 +7,13 @@
 //   - 不变式（测试）：叶子 height === wrapLeaf(…).length；摊平总行数 === Σ节点 height。
 
 import { fitCols, type TableAlign } from "../table.ts";
-import { expandCodeTabs, displayWidth, charWidth } from "../markdown.ts";
+import { expandCodeTabs, displayWidth } from "../markdown.ts";
 import type { ColorName } from "../../../renderer/theme.ts";
 import type { FrameStyle } from "../../../renderer/screen.ts";
 import { balancedWidth } from "../fill.ts";
 import { wrapLeaf, styledToSegments } from "./wrap.ts";
-import type { Leaf, Node, Paragraph, StyledText } from "./ir.ts";
+import type { Leaf, Node, Paragraph } from "./ir.ts";
 import { isLeaf } from "./ir.ts";
-import type { ToolUnit } from "./tool-units.ts";
 
 export interface MeasureOptions {
   /** 视口宽（prefix/suffix 的 minWidth 降级判定基准） */

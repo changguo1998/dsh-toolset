@@ -25,9 +25,6 @@ import { type RunVirtState } from "../layout.ts";
 import type { DialogueTop } from "../layout/pipeline/rows.ts";
 import { type CommandCandidate } from "../commands.ts";
 import { type ThemeId } from "../../renderer/theme.ts";
-import { initialState } from "./initial.ts";
-import { appendStream } from "./updates.ts";
-import { inputHistoryPush } from "./panels.ts";
 
 // TUI/src/app/state/types.ts — 状态模型（类型、常量、纯查询与默认值）
 

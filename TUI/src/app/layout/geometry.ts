@@ -17,9 +17,6 @@ import type { Size } from "../../renderer/index.ts";
 import type { AppState } from "../state.ts";
 import type { ActivityPlacement } from "../config.ts";
 import { renderQueuedBlocks } from "./pipeline/rows.ts";
-import { layout } from "./measure.ts";
-import { h } from "./box.ts";
-import { focusFrame } from "./focus-frame.ts";
 import type { ContentRow } from "./fill.ts";
 import { seg } from "./primitives.ts";
 

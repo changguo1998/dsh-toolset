@@ -21,12 +21,10 @@ import { stepHeaderLine, turnHeaderLine } from "../tool-line.ts";
 import type { FrameStyle } from "../../../renderer/screen.ts";
 import type {
   Block,
-  BlockSource,
   Leaf,
   Node,
   Paragraph,
   PaneItem,
-  PaneId,
   StyledStr,
   StyledText,
   ToolBatch,

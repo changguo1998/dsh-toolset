@@ -3,11 +3,9 @@
 // 不依赖 layout.ts（避免循环）；primitives.ts 只放宽度/换行基元，不放内容规则。
 // 信息：工具行分组/折叠参数、tone 着色映射、对话/回合区分隔字形、判定谓词。
 
-import type { FrameSegment } from "../../renderer/screen.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import type { NoticeTone } from "../adapter/dsh.ts";
 import { charWidth } from "./markdown.ts";
-import { seg } from "./primitives.ts";
 
 // ---------------- 字形与分隔 ----------------
 

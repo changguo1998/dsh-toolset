@@ -5,7 +5,6 @@ import { isCompacting } from "../state.ts";
 import type { TodoItemLike } from "../adapter/dsh.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import type { UserRowInfo } from "./pipeline/ir.ts";
-import { layout } from "./measure.ts";
 import { charWidth } from "./markdown.ts";
 
 // TUI/src/app/layout/run-virt.ts — 运行指示：虚拟速度 / 虚拟 token / ●○ 与用户块符号

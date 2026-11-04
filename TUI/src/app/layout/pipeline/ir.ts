@@ -16,7 +16,6 @@ import type { FrameSegment, FrameStyle } from "../../../renderer/screen.ts";
 import type { ColorName } from "../../../renderer/theme.ts";
 import type { NoticeTone } from "../../adapter/types.ts";
 import type { ToolCall, ToolResult } from "./types.ts";
-import type { ToolUnit } from "./tool-units.ts";
 
 // ================= §1 分节：一次模型交互 =================
 
@@ -193,6 +192,7 @@ const _blockKindGuard: Record<Block["kind"], true> = {
   code: true,
   table: true,
 };
+void _blockKindGuard;
 
 /**
  * 深度冻结一棵块树（Block 不可变；parse 阶段对每棵块树调用一次）。

@@ -94,5 +94,6 @@ class FakeAdapterRuntime {
     const set = this.listeners.get(event);
     if (!set) return undefined;
     for (const cb of [...set]) cb(...args);
+    return undefined;
   }
 }

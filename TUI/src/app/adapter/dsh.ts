@@ -37,56 +37,14 @@
 // signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
 import type {
-  DshEvent,
   DshAdapter,
-  AgentRowInfo,
-  ModelInfo,
   ModelSelection,
   SessionModelSelectionRef,
-  ModelCatalog,
-  ModelReasoning,
-  StreamChunk,
-  ApprovalRequest,
-  ApprovalOutcome,
-  QuestionAnswer,
-  UserQuestionRequestLike,
   SessionEvent,
   DshRuntime,
-  DshAgentLike,
   RealAdapterOptions,
-  HistoryMessage,
-  SessionInfo,
-  SessionQueryLike,
-  SessionSurfaceView,
-  TokenUsage,
-  TaskEngineTaskLike,
-  CommandPanelRow,
-  KnowledgeBundleSummaryLike,
-  MemoryRowRef,
-  LoopSummaryLike,
-  ContractParseResult,
-  ContractClauseLike,
-  WorkflowRunLike,
-  SearchSourceLike,
-  GoalChangeLike,
-  TodoItemLike,
-  SubagentDescriptorLike,
-  ContentBlockLike,
-  CompactionSummaryPayloadLike,
-  AgentPresetInfo,
-  PermissionPresetServiceLike,
-  JobInfo,
-  ConfigEntrySummary,
 } from "./types.ts";
-import {
-  buildApprovalPrompt,
-  buildUserMessage,
-  normalizeAgentStatus,
-  noticeSummaryOf,
-  parseSlashCommand,
-  readDefaultSelection,
-  ruleInjectionTextOf,
-} from "./normalize.ts";
+import { parseSlashCommand } from "./normalize.ts";
 
 // 会话目录定位/删除（兼容旧 import 路径：实现已移到 ./session-paths.ts）
 export { isSafeSessionId, sessionRoots } from "./session-paths.ts";
@@ -201,7 +159,6 @@ export {
 } from "./normalize.ts";
 
 // 启动自检 kickoff：本文件只在适配器方法里构造该消息（其余纯函数经下方重导暴露）
-import { buildBootstrapKickoffMessage } from "./tool-bootstrap.ts";
 
 export {
   classifyTask,

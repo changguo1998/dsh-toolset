@@ -10,18 +10,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildFrame, displayWidth, rowText } from "../src/app/layout.ts";
+import { buildFrame, rowText } from "../src/app/layout.ts";
 import { pipelineContent } from "../src/app/layout/pipeline/frame.ts";
 import { toolParams } from "../src/app/adapter/normalize.ts";
-import {
-  initialState,
-  type AppState,
-  type HistoryRow,
-} from "../src/app/state.ts";
+import { initialState, type AppState } from "../src/app/state.ts";
 import type { BlockDelivery } from "../src/app/layout/pipeline/types.ts";
 import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 
-const W = 40;
 const T0 = new Date(2026, 0, 2, 3, 4, 5).getTime();
 
 /** 交付脚本 → 回合区 行文本（去掉 step 头行） */

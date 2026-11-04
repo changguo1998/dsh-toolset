@@ -8,9 +8,9 @@
 
 import type { FrameSegment } from "../../../renderer/screen.ts";
 import { seg } from "../primitives.ts";
-import { displayWidth, expandCodeTabs } from "../markdown.ts";
+import { displayWidth } from "../markdown.ts";
 import { wrapLeaf, styledToSegments } from "./wrap.ts";
-import type { Leaf, Node, StyledStr, StyledText } from "./ir.ts";
+import type { Leaf, Node, StyledStr } from "./ir.ts";
 import { isLeaf } from "./ir.ts";
 import {
   prefixVisibleOf,
@@ -18,8 +18,7 @@ import {
   sepStyle,
   suffixVisibleOf,
 } from "./measure.ts";
-import { fitCols, type TableAlign } from "../table.ts";
-import type { Paragraph, Row } from "./ir.ts";
+import type { Row } from "./ir.ts";
 
 export interface FlattenOptions {
   /** 视口宽（prefix/suffix 的 minWidth 降级判定基准） */

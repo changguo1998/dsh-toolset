@@ -4,7 +4,6 @@ import type { FrameSegment } from "../../renderer/index.ts";
 import { RUN_TOGGLE_TOKENS } from "./run-virt.ts";
 import { capRows } from "./geometry.ts";
 import type { AppState, GoalHistory, ModeState } from "../state.ts";
-import { goalActivationDisplay } from "../state.ts";
 import type {
   JobInfo,
   TodoItemLike,
@@ -18,7 +17,6 @@ import {
 import type { ColorName } from "../../renderer/theme.ts";
 import { layout } from "./measure.ts";
 import { fillToList } from "./fill.ts";
-import { h } from "./box.ts";
 import type { Box } from "./box.ts";
 import type { ContentRow } from "./fill.ts";
 import { displayWidth } from "./markdown.ts";

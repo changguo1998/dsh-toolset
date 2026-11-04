@@ -71,8 +71,6 @@ export function isValidSessionId(id: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id);
 }
 
-const ZSTD_MAGIC = 4247762216; // 0xFD2FB528
-
 /**
  * 复刻宿主 `scanZstdFrames`（dsh-session-persistence-jsonl）：按帧头 + 块结构定位完整帧
  * 的字节区间，不做解压。返回 `{ frames, tornStart? }`——`tornStart` 非空表示文件末尾有

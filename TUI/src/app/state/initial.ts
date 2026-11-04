@@ -7,7 +7,6 @@ import {
   ACTIVITY_COMPACT_DEFAULT,
   ACTIVITY_SHOW_DEFAULT,
   DEFAULT_MESSAGE_GUTTER,
-  goalActivationDisplay,
 } from "./types.ts";
 import type { AppState } from "./types.ts";
 

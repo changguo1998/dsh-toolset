@@ -8,7 +8,6 @@
 import type { BlockDelivery } from "../layout/pipeline/types.ts";
 import type {
   DshEvent,
-  AgentRowInfo,
   ApprovalOutcome,
   QuestionAnswer,
   DshRuntime,

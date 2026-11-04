@@ -10,11 +10,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  App,
-  DSH_RESTART_EXIT_CODE,
-  EXIT_CONFIRM_CLEAN_LABEL,
-} from "../src/app/index.ts";
+import { App, EXIT_CONFIRM_CLEAN_LABEL } from "../src/app/index.ts";
 import type { KeyEvent } from "../src/renderer/index.ts";
 import type { ShellRunner } from "../src/app/local-shell.ts";
 import { flushApp, registerApp } from "./helpers/paintFlush.ts";

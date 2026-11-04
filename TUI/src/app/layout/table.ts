@@ -13,17 +13,7 @@
 // measure 会把 `**` 等标记算进宽度，行高与 fill 折行口径不一致）；行高由引擎自身
 // measure 在分配列宽下算得后显式声明，供 valign:center 补白矮格。
 
-import type { Box, Node, StyledText } from "./box.ts";
-import { v, h, styled, spacer } from "./box.ts";
-import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
-import {
-  displayWidth,
-  parseInlineMarkdown,
-  wrapFrameSegments,
-} from "./markdown.ts";
-import { seg } from "./primitives.ts";
-
-/** 列对齐：`:---` 左（缺省）/ `:--:` 中 / `---:` 右 */
+// 列对齐：`:---` 左（缺省）/ `:--:` 中 / `---:` 右
 export type TableAlign = "left" | "center" | "right";
 
 /** 解析后的表格：表头、列对齐、数据行（单元格为行内 markdown 源码） */
@@ -235,59 +225,4 @@ export function fitCols(natural: number[], avail: number): number[] | null {
   // 抬到 minW 后超预算（ΣminW 本身仍放得下）→ 以纯水位线为准（不牺牲窄列）
   const base = fairSum <= avail ? fair : natural.map((n) => Math.min(n, level));
   return fitTo(base, base, natural, avail);
-}
-
-// ---------------- 构建 ----------------
-
-/** 单元格解析后的纯文本（自然宽测量口径：与 fill 渲染文本一致，不计标记） */
-function cellPlainText(cell: string): string {
-  return parseInlineMarkdown(cell)
-    .map((s) => s.text)
-    .join("");
-}
-
-/** 单元格叶子：行内 markdown 解析 + 固定列宽 + 列对齐（表头加粗；#6 起**不做格内截断**） */
-function cellLeaf(
-  cell: string,
-  colW: number,
-  align: TableAlign,
-  header: boolean,
-): StyledText {
-  let segs: FrameSegment[] = parseInlineMarkdown(cell);
-  if (header)
-    segs = segs.map((s) => ({
-      text: s.text,
-      style: { ...(s.style ?? {}), bold: true },
-    }));
-  return styled(segs, {
-    widthStyle: "fixed",
-    widthFixed: colW,
-    align,
-    valign: "center",
-  });
-}
-
-/**
- * 单元格叶子在自身固定列宽下的行数（**与渲染同源**）。
- *
- * 不能按 `ceil(显示宽 / 列宽)` 估算：`wrapFrameSegments` 在「下一个字符放不进剩余列」时
- * 提前换行（宽字符 2 列落进最后 1 列时该行只填一半），估算值会**低估**行数 → `rowBox`
- * 把偏小值写死成 `heightFixed` → 折行多出的行溢出到行 box 之外，该行左缘 `┃` 与列分隔
- * `│` 全丢（A3 复现之一，2026-10-23）。故直接调用渲染用的同一个折行函数取行数。
- */
-function measureLeafRows(leaf: StyledText): number {
-  const width = Math.max(1, leaf.width ?? 1);
-  const suffixW = leaf.suffix ? displayWidth(leaf.suffix.text) : 0;
-  const bodyW = Math.max(1, width - suffixW);
-  // 单元格正常不含显式换行；含时按物理行分别折行再累加（与 fill 的 Paragraph 口径一致）
-  return leaf.segments
-    .map((s) => s.text)
-    .join("")
-    .split("\n")
-    .reduce(
-      (rows, line) =>
-        rows +
-        Math.max(1, wrapFrameSegments(parseInlineMarkdown(line), bodyW).length),
-      0,
-    );
 }

@@ -283,7 +283,7 @@ function statusBlocks(
   agents: AgentRowInfo[] | undefined,
   width: number,
   /** 当前 goal 的自动续轮开关展示值（undefined = 不显示 ⟳；仅 active 相位有值） */ activation?: GoalActivation,
-  phase: 0 | 1 = 0,
+  _phase: 0 | 1 = 0,
   /** 闪烁节拍（整数，运行期单调递增）：条目行符号按各自 tps 分档取相位 */
   tick = 0,
   /** 条目 30：goal 自动续轮进度（当前轮 / 上限；两者皆缺 → 整段不显） */

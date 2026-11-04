@@ -6,7 +6,6 @@ import type {
   SubagentDescriptorLike,
   TodoItemLike,
 } from "./core.ts";
-import type { ModelSelection } from "./model.ts";
 
 // ---------- 以下 DSH 原生类型仅供阶段 2 adapter 实现参考（app 层不消费） ----------
 

@@ -109,34 +109,34 @@ export class App {
   /** 预留日志注入点（当前无内部消费方，保持 API 兼容为 no-op） */
   setLogger(_fn: (msg: string) => void): void {}
 
-  // 兼容层: 既有测试经 `as unknown as { state }` 读私有状态; 状态搬进 ctx 后用私有 getter
-  // 保持读路径可用（TS 私有, 不进公开类型面; 运行时落在原型上）.
-  private get state(): AppState {
+  // 兼容层: 既有测试经 `as unknown as { state }` 读私有状态; 状态搬进 ctx 后用受保护 getter
+  // 保持读路径可用（不进公开类型面; 受保护而非私有, 供测试强转读取时不被 noUnusedLocals 判死）.
+  protected get state(): AppState {
     return this.ctx.state;
   }
 
-  private set state(state: AppState) {
+  protected set state(state: AppState) {
     this.ctx.state = state;
   }
 
-  private get sections(): SectionsState | null {
+  protected get sections(): SectionsState | null {
     return this.ctx.sections;
   }
 
-  private get groupCount(): number | null {
+  protected get groupCount(): number | null {
     return this.ctx.groupCount;
   }
 
   // 兼容层: 少数既有用例经 cast 直接调用内部方法; 转调到扁平成员面, 行为与原来一致.
-  private apply(fn: (s: AppState) => AppState): void {
+  protected apply(fn: (s: AppState) => AppState): void {
     this.ctx.self.apply(fn);
   }
 
-  private resumeToSession(id: string): Promise<void> {
+  protected resumeToSession(id: string): Promise<void> {
     return this.ctx.self.resumeToSession(id);
   }
 
-  private startNewSession(): void {
+  protected startNewSession(): void {
     this.ctx.self.startNewSession();
   }
 }

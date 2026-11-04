@@ -4,9 +4,7 @@
 // resolveContextWindow（会话面）与 settle（审批桥）。
 
 import type {
-  DshEvent,
   DshAdapter,
-  ModelSelection,
   StreamChunk,
   AssistantStreamRecord,
   ApprovalOutcome,

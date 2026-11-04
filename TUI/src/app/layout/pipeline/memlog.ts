@@ -9,7 +9,7 @@
  * 设 `off` 与不设等价（都关闭）。
  */
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 const rss = (): string => {
   try {

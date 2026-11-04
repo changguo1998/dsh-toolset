@@ -15,11 +15,7 @@ import {
   categoryVisible,
 } from "../src/app/layout/pipeline/routeTable.ts";
 import { freezeBlock } from "../src/app/layout/pipeline/ir.ts";
-import type {
-  Block,
-  Paragraph,
-  Section,
-} from "../src/app/layout/pipeline/ir.ts";
+import type { Block, Paragraph } from "../src/app/layout/pipeline/ir.ts";
 import { allSections } from "../src/app/layout/pipeline/sections.ts";
 import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import {
@@ -32,10 +28,8 @@ import {
   suffixVisibleOf,
 } from "../src/app/layout/pipeline/measure.ts";
 import { toUserBox, buildTrees } from "../src/app/layout/pipeline/structure.ts";
-import { isNode, type Node } from "../src/app/layout/pipeline/ir.ts";
+import { type Node } from "../src/app/layout/pipeline/ir.ts";
 import { parse } from "../src/app/layout/pipeline/parse.ts";
-import type { ToolUnit } from "../src/app/layout/pipeline/tool-units.ts";
-import type { Row } from "../src/app/layout/pipeline/ir.ts";
 import type { HistoryRow } from "../src/app/state.ts";
 
 // ---------------- routeTable ----------------

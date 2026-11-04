@@ -4,7 +4,6 @@ import type { FrameRow } from "../../renderer/index.ts";
 import type { AppState } from "../state.ts";
 import { isUserMessage } from "../state.ts";
 import { hintLine } from "./hints.ts";
-import { layout } from "./measure.ts";
 import { focusColor } from "./focus-frame.ts";
 import { displayWidth } from "./markdown.ts";
 import { wrapLine } from "./primitives.ts";

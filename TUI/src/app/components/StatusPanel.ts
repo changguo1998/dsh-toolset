@@ -20,7 +20,7 @@ import { seg } from "../layout/primitives.ts";
 export function buildStatusPanelBox(
   panel: StatusPanelState,
   height: number,
-  width: number,
+  _width: number,
 ): Box {
   const current = panel.selected ?? panel.options[panel.index]?.id ?? "";
   // 标题行：命令名（蓝）+ 当前生效值（保留现状 replace 行为）

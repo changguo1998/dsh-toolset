@@ -31,10 +31,8 @@ import { pipelineContent, sectionsOf } from "./pipeline/frame.ts";
 import { MARKER_KEY, createLineTable, indexOfTop } from "./pipeline/rows.ts";
 import { layout } from "./measure.ts";
 import { fillToList } from "./fill.ts";
-import { h } from "./box.ts";
-import { focusFrame, focusColor } from "./focus-frame.ts";
+import { focusColor } from "./focus-frame.ts";
 import { dividerGlyph, gridRole, rightEdgeGlyph } from "./grid.ts";
-import type { Box } from "./box.ts";
 import type { ContentRow } from "./fill.ts";
 import { displayWidth } from "./markdown.ts";
 import {

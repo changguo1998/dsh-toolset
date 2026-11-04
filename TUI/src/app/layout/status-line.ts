@@ -4,7 +4,6 @@ import type { FrameRow, FrameSegment } from "../../renderer/index.ts";
 import type { AppState, InputStatus } from "../state.ts";
 import { fillBoxTree } from "./fill.ts";
 import { h, styled } from "./box.ts";
-import type { Box } from "./box.ts";
 import { charWidth, displayWidth } from "./markdown.ts";
 import { seg, truncateToWidth } from "./primitives.ts";
 
@@ -137,9 +136,9 @@ export function renderStatusLine(
   usage?: AppState["usage"],
   /** 输入状态（签名保留兼容调用方）：P1 起状态行不再渲染状态符号段
    *  （✓/✗/●/○/△/? 已迁至用户块首行，见 userBlockSymbol），本参数当前未参与排版 */
-  inputStatus?: InputStatus,
+  _inputStatus?: InputStatus,
   /** 运行中 ●/○ 交替相位（本回合虚拟总 token；running 且缺省时回落 ○） */
-  runVirtTokens?: number,
+  _runVirtTokens?: number,
 ): FrameRow[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;

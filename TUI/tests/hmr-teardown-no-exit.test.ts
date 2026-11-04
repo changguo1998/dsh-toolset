@@ -18,7 +18,7 @@ import type {
   ModelSelection,
 } from "../src/app/adapter/dsh.ts";
 import type { Renderer, KeyEvent } from "../src/renderer/index.ts";
-import type { FrameRow, Size } from "../src/renderer/screen.ts";
+import type { Size } from "../src/renderer/screen.ts";
 import type { ThemeId } from "../src/renderer/theme.ts";
 import { createRenderer } from "../src/renderer/index.ts";
 

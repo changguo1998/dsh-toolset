@@ -13,13 +13,6 @@ import {
   parseTableAt,
   splitCells,
 } from "../src/app/layout/table.ts";
-import type { TableSpec } from "../src/app/layout/table.ts";
-
-const parse = (table: readonly string[]): TableSpec => {
-  const parsed = parseTableAt(table, 0);
-  assert.ok(parsed, "应识别为表格：" + JSON.stringify(table));
-  return parsed.table;
-};
 
 // ---------------- 解析 ----------------
 

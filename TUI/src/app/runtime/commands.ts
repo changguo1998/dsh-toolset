@@ -50,8 +50,6 @@ function formatActivitySwitches(switches: {
   ).join(" / ");
 }
 
-const RETIRED_COMMAND_NOTICE = "该命令已下线（待重新设计）";
-
 export function createCommandsPart(ctx: AppContext) {
   /**
    * Slash 命令路由：

@@ -20,8 +20,6 @@ import type {
 } from "../src/app/layout/pipeline/ir.ts";
 import { isNode } from "../src/app/layout/pipeline/ir.ts";
 
-const ROOT = { direction: "v", id: undefined } as const;
-
 function sec(partial: Partial<Section> & { id: string }): Section {
   return { turn: 1, step: 1, seqs: [], ...partial };
 }

@@ -63,40 +63,6 @@ function seedWidth(node: Node, width: number): void {
   }
 }
 
-/** 取自然宽参考值（满宽铺底时记录；未记录则按满宽现量一次） */
-function naturalWidthOf(node: Node, maxW: number): number {
-  const hit = naturalWidths.get(node);
-  if (hit !== undefined) return hit;
-  const natural = measureWidthAt(node, maxW);
-  naturalWidths.set(node, natural);
-  return natural;
-}
-
-/** 在给定可用宽下量节点自然宽（叶子按折行、Box 按子项宽度累加） */
-function measureWidthAt(node: Node, maxW: number): number {
-  if (node.kind === "box") {
-    const box = node as Box;
-    const sep =
-      box.children.length > 1 && box.separator ? box.children.length - 1 : 0;
-    let w = 0;
-    for (const c of box.children) {
-      const cw = measureWidthAt(c, maxW);
-      w = box.direction === "h" ? w + cw : Math.max(w, cw);
-    }
-    return w + (box.direction === "h" ? sep : 0);
-  }
-  const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
-  const text = node.kind === "styled" ? styledText(node) : node.text;
-  const firstBase = Math.max(1, maxW - indent - prefixW - suffixW);
-  const balance = node.balance === true && !text.includes("\n");
-  const wrapW = balance ? balancedWidthFor(text, firstBase) : firstBase;
-  const rows = paragraphRows(text, wrapW, node.wrap !== false);
-  const firstTotal = indent + prefixW + displayWidth(rows[0] ?? "");
-  const contTotal =
-    hanging + Math.max(0, ...rows.slice(1).map((r) => displayWidth(r)));
-  return Math.max(firstTotal, contTotal) + suffixW;
-}
-
 /** 每个容器自己推进：取自己第一个“还有子项未锁定”的类型；全锁则跑 fill */
 function firstPendingWidth(box: Box): WidthStyle | undefined {
   for (const style of WIDTH_ORDER) {

@@ -12,7 +12,6 @@ import { surfaceToBuffer } from "../src/app/commands.ts";
 import { normalizeHistoryMessages } from "../src/app/adapter/dsh.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
-import { sectionsFromScript } from "./helpers/deliveriesFromScript.ts";
 import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 
 test("P9 surfaceToBuffer：step 行原样成行；整条空文本不产行", () => {
@@ -294,13 +293,3 @@ test("恢复：用户消息的 inbox 注入副本不重复出块（副本无终�
 });
 
 /** step 行前后不留空行（迁移后替代原「缓冲不含空行」断言） */
-function absenceOfBlankAround(lines: string[], target: string): boolean {
-  const i = lines.findIndex((t) => t === target);
-  if (i < 0) return false;
-  const prev = i > 0 ? lines[i - 1]! : undefined;
-  const next = i + 1 < lines.length ? lines[i + 1]! : undefined;
-  return (
-    (prev === undefined || prev.trim() !== "") &&
-    (next === undefined || next.trim() !== "")
-  );
-}

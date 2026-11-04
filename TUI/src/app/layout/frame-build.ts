@@ -18,9 +18,8 @@ import { renderTextInput } from "../components/TextInput.ts";
 import { pickerFilterColumn, pickerFilterText } from "../picker-filter.ts";
 import type { ColorName } from "../../renderer/theme.ts";
 import { noticeLinePresentation } from "./notice-line.ts";
-import { h } from "./box.ts";
 import { focusFrame } from "./focus-frame.ts";
-import type { Box, PaneId, Rect } from "./box.ts";
+import type { PaneId, Rect } from "./box.ts";
 import { SEPARATOR, STATUS_TOP_SEPARATOR, teeGlyph } from "./content-rules.ts";
 import { seg, truncateToWidth, wrapLine } from "./primitives.ts";
 
@@ -305,7 +304,6 @@ export function buildFrame(
   const geom = frameGeometry(state, size);
   const {
     cols: fullWidth,
-    contentTopH,
     statusColWidth,
     titleRows,
     innerDividerCol,

@@ -199,7 +199,7 @@ test("视图投影: 直灌交付经 App 投影为回合区 notice", async (t) =>
   assert.ok(tui.text().includes("直灌提示"), "交付文本进帧");
 });
 
-test("收尾: dispose 释放适配器与渲染层, 之后的按键不再出帧", async (t) => {
+test("收尾: dispose 释放适配器与渲染层, 之后的按键不再出帧", async () => {
   const tui = assembleTui();
   const before = tui.frames();
   tui.dispose();

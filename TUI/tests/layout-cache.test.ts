@@ -19,15 +19,12 @@ import {
 } from "../src/app/layout/cache.ts";
 import { wrapLine } from "../src/app/layout/primitives.ts";
 import {
-  clearWidthOverrides,
   displayWidth,
   parseInlineMarkdown,
-  setWidthOverrides,
   wrapAssistantLine,
   wrapCodeLine,
   wrapInlineMarkdown,
 } from "../src/app/layout/markdown.ts";
-import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
 import type { DshAdapter, DshEvent } from "../src/app/adapter/dsh.ts";
 import type { KeyEvent, Renderer } from "../src/renderer/index.ts";

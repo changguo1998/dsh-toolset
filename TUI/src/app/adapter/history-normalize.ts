@@ -4,60 +4,14 @@ import type { TurnEndReason } from "../state.ts";
 import { isUserMessage } from "../state.ts";
 import type {
   DshEvent,
-  DshAdapter,
-  AgentRowInfo,
-  AgentGroupViewLike,
-  ModelInfo,
-  ModelSelection,
-  SessionModelSelectionRef,
-  ModelCatalog,
   ModelReasoning,
-  StreamChunk,
-  AssistantStreamRecord,
-  ApprovalRequest,
-  ApprovalOutcome,
-  QuestionAnswer,
-  UserQuestionRequestLike,
-  SessionEvent,
-  DshRuntime,
-  DshAgentLike,
   RealAdapterOptions,
-  LiveSessionHandle,
   HistoryMessage,
-  SessionInfo,
-  SessionQueryLike,
-  SessionSurfaceView,
-  TokenUsage,
-  TaskEngineTaskLike,
-  CommandPanelRow,
-  KnowledgeBundleSummaryLike,
-  MemoryRowRef,
-  LoopSummaryLike,
-  ContractParseResult,
-  ContractClauseLike,
-  WorkflowRunLike,
-  SearchSourceLike,
-  GoalChangeLike,
-  TodoItemLike,
-  SubagentDescriptorLike,
-  ContentBlockLike,
-  CompactionSummaryPayloadLike,
-  AgentPresetInfo,
-  PermissionPresetServiceLike,
   JobInfo,
-  ConfigEntrySummary,
 } from "./types.ts";
 import {
-  type ApprovalDetail,
-  buildApprovalPrompt,
-  buildUserMessage,
   extractTextBlocks,
-  localTitleFromText,
-  normalizeAgentStatus,
   noticeSummaryOf,
-  parseSlashCommand,
-  readDefaultSelection,
-  ruleInjectionTextOf,
   summarizeToolArguments,
 } from "./normalize.ts";
 import {
@@ -66,7 +20,6 @@ import {
   toolResultLine,
   retryStartedLine,
 } from "../layout/tool-line.ts";
-import { createRealDshAdapter } from "./dsh.ts";
 
 // ---------------------------------------------------------------------------
 // 阶段 2 真实实现：createRealDshAdapter
@@ -89,8 +42,6 @@ export function normalizeHistoryMessages(
   events: readonly Record<string, unknown>[],
 ): HistoryMessage[] {
   const out: HistoryMessage[] = [];
-  /** 是否处于某个 step 内（`step/start` → `step/end`）：工具行按到达顺序落行，标记只用于收口 */
-  let inStep = false;
   /** 宿主回合号（跟随事件流的 data.turn）：恢复路径保留宿主索引（真回合号） */
   let curTurn: number | undefined;
   /** 回合 → 用户块终态（`turn/end` 的 reason 归一；循环后落到该回合最后一个用户消息上） */
@@ -103,10 +54,6 @@ export function normalizeHistoryMessages(
       text: stepHeaderLine(n, time, curTurn),
       ...(curTurn === undefined ? {} : { turn: curTurn }),
     });
-  };
-  /** 收口当前 step（step/end 或截断日志）：摘要行已由「step 头 + 工具行」取代，这里只清状态 */
-  const flushStep = (): void => {
-    inStep = false;
   };
   /** 正文消息：整条纯空白 → 丢弃（P9 空行来源） */
   const pushText = (
@@ -165,13 +112,9 @@ export function normalizeHistoryMessages(
       }
     }
     if (e.type === "step/start") {
-      flushStep(); // 防御：上一个 step 未发 step/end（截断日志）时先收口
       const n = typeof data.step === "number" ? data.step : 0;
       const time = typeof e.time === "number" ? e.time : undefined;
-      inStep = true;
       pushStepHead(n, time);
-    } else if (e.type === "step/end") {
-      flushStep();
     } else if (e.type === "tool/call") {
       // 工具批**逐条还原**（BACKLOG「恢复的记录要能区分输入 / 正文 / 工具调用」）：调用行
       // 与结果行按到达顺序落行，交给重放器还原成 tool-call / tool-result 交付（与实时路径
@@ -314,7 +257,6 @@ export function normalizeHistoryMessages(
       }
     }
   }
-  flushStep(); // 末尾收口（最后一步可能没有 step/end）
   // 回填用户块终态：`turn/end` 在用户消息之后到达，故按回合号回溯该回合的用户块。
   // **优先人工输入**：宿主把注入（rule-engine / system-reminder / goal 回合 / 子代理结果…）
   // 也记成 user 行，它们常排在人工输入之后——按「最后一个用户块」落符号会让注入块把符号
