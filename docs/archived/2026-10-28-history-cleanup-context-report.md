@@ -51,35 +51,27 @@ rm -rf ../tmp/cov-context-report && mkdir -p ../tmp/cov-context-report && NODE_V
 
 ## 实现记录
 
-- 基线 (分支起点, 未改任何文件): `pnpm -C context-report run check` 通过; `test` 41/41 通过 (87ms); 覆盖率 行 93.3% (760/815)、分支 87.3% (268/307), 与阶段 1 末记录一致.
-- 单元锚点: 新增 10 条, 只补未走到的判定与边界, 既有断言不改语义.
-  - `tests/fold.test.ts`: step/end 无起始步 (不计样本、推进水位)、assistant/message 无打开步 (忽略 usage)、事件缺 seq 或 seq 非有限数 (按下标补位).
-  - `tests/report.test.ts`: formatCount 非有限数与负数、formatMs 非有限数与非正数、occupancyOf 非正读数与非法容量、withDefaults 无外部构成.
-  - `tests/main.test.ts`: pressureFromMeasure 逐字段丢弃非法读数、routeOf 缺 model 或非字符串、schema 数组拒绝与 asOfSeq 负数放行与可选路由置空.
-- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (16 条).
-  - 三个假面照 4.2: 假工具面 (收 register 定义, 按名取用)、假事件面 (断言本包零订阅)、假服务面 (`provide` / `get` 同表, 重复注册抛错); 另加假投影注册表 (按会话惰性整段折叠并缓存, 可 `drive` 逐事件 eager 驱动)、假 `tokenMeter`、假 logger.
-  - 覆盖: 契约符号与一次注册、投影折叠 canonical token、工具三条 action 的 canonical 值、`output.render` 投影文本 (逐行锁定 standard 报告)、显式 session_id 与 camelCase 别名、细节级别取舍、会话不唯一与未知 id 两条失败路径、投影/统计/tokenMeter 三类读面抛错、缺 `sessionProjections`、注册被拒、工具注册抛错或缺席、provide 抛错或缺席、无 tokenMeter、`projection=false` 与配置缺省 detail.
-- 脚本: `context-report/package.json` 加 `test:integration` 与 `test:coverage`; 覆盖率参数照包文档用 `tmp/cov-context-report`.
+> 测试基线、单元锚点、集成层与脚本见「四份测试产物」; 本节保留范围说明与偏差.
+
 - `src` 未改.
 
 ## 偏差
 
 - 代码读的是 `ctx.logger.info(...)` (对象形态), 与 `BundleHost.logger?(ns)` 的类型声明不一致; 集成装配器按代码实际读法提供对象 logger, 该不一致记下留待阶段 3 代码整理, 本阶段未动 `src`.
 - 本包没有落盘面 (报告只读投影与 token 读数), 实现规划里「落盘写临时目录」不适用, 集成层不写临时目录.
-- `src/schema.ts` 分支分母由 30 变 32、已覆盖分支数由 23 变 24, 百分比 76.7% 降到 75.0%; 分母变化来自 V8 跨测试进程的分支块发现 (新增集成用例多导入一次 schema), 不是退化; 包级行与分支均上升.
 
 ## 测试与证据
 
-四条命令实跑 (分支 `history-cleanup/02-tests-context-report`):
+> 四入口、覆盖率、用例增减与 `skip` 见「四份测试产物」.
 
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm run check` | 通过 (`tsc --noEmit` 无输出) |
-| `pnpm run test` | 51 通过, 0 失败, 0 skip, 0 todo, 88ms |
-| `pnpm run test:integration` | 16 通过, 0 失败, 0 skip, 0 todo, 81ms |
-| `pnpm run test:coverage` | 67 通过 (单元 51 + 集成 16), 0 失败; 覆盖率见下表 |
+## 四份测试产物
 
-覆盖率 (改前 = 仅单元层; 改后 = 单元 + 集成):
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+- 基线 (分支起点, 未改任何文件): 覆盖率 行 93.3% (760/815)、分支 87.3% (268/307), 与阶段 1 末记录一致.
+- 覆盖率 (改前 = 仅单元层; 改后 = 单元 + 集成):
 
 | 文件 | 改前行 | 改后行 | 改前分支 | 改后分支 | 改后未覆盖行 |
 | --- | --- | --- | --- | --- | --- |
@@ -90,16 +82,34 @@ rm -rf ../tmp/cov-context-report && mkdir -p ../tmp/cov-context-report && NODE_V
 | `src/schema.ts` | 87.5% (49/56) | 87.5% (49/56) | 76.7% (23/30) | 75.0% (24/32) | 47, 48, 52, 53, 55, 56, 57 |
 | 合计 | 93.3% (760/815) | 95.8% (782/816) | 87.3% (268/307) | 90.3% (290/321) | - |
 
-- 新增用例 26 条 (单元 10 + 集成 16); 删除 0 条; 夹具无增删.
-- `skip` 0 条, `todo` 0 条; 本包无 4.4 所列失效用例, 无豁免台账.
-- 断言只经 `src/index.ts` 公开导出与装配器, 未 mock `src` 内部函数; 报告文本逐行锁定, 重构后不改断言即应通过.
+- `src/schema.ts` 分支分母由 30 变 32、已覆盖分支数由 23 变 24, 百分比 76.7% 降到 75.0%; 分母变化来自 V8 跨测试进程的分支块发现 (新增集成用例多导入一次 schema), 不是退化; 包级行与分支均上升.
 - 覆盖率为未覆盖行按 dev/coverage 的 V8 range 聚合口径; 剩余行多为 V8 行号归因噪声 (类型声明行、catch 已执行行) 与 schema 类型块, 未为数字补空跑用例.
 
-## 四份测试产物
+### 用例清单
 
-| 产物 | 位置 |
+- 基线: `pnpm -C context-report run check` 通过; `test` 41/41 通过 (87ms).
+- 单元锚点: 新增 10 条, 只补未走到的判定与边界, 既有断言不改语义.
+  - `tests/fold.test.ts`: step/end 无起始步 (不计样本、推进水位)、assistant/message 无打开步 (忽略 usage)、事件缺 seq 或 seq 非有限数 (按下标补位).
+  - `tests/report.test.ts`: formatCount 非有限数与负数、formatMs 非有限数与非正数、occupancyOf 非正读数与非法容量、withDefaults 无外部构成.
+  - `tests/main.test.ts`: pressureFromMeasure 逐字段丢弃非法读数、routeOf 缺 model 或非字符串、schema 数组拒绝与 asOfSeq 负数放行与可选路由置空.
+- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (16 条).
+  - 三个假面照 4.2: 假工具面 (收 register 定义, 按名取用)、假事件面 (断言本包零订阅)、假服务面 (`provide` / `get` 同表, 重复注册抛错); 另加假投影注册表 (按会话惰性整段折叠并缓存, 可 `drive` 逐事件 eager 驱动)、假 `tokenMeter`、假 logger.
+  - 覆盖: 契约符号与一次注册、投影折叠 canonical token、工具三条 action 的 canonical 值、`output.render` 投影文本 (逐行锁定 standard 报告)、显式 session_id 与 camelCase 别名、细节级别取舍、会话不唯一与未知 id 两条失败路径、投影/统计/tokenMeter 三类读面抛错、缺 `sessionProjections`、注册被拒、工具注册抛错或缺席、provide 抛错或缺席、无 tokenMeter、`projection=false` 与配置缺省 detail.
+- 脚本: `context-report/package.json` 加 `test:integration` 与 `test:coverage`; 覆盖率参数照包文档用 `tmp/cov-context-report`.
+- 新增用例 26 条 (单元 10 + 集成 16); 删除 0 条; 夹具无增删.
+- 断言只经 `src/index.ts` 公开导出与装配器, 未 mock `src` 内部函数; 报告文本逐行锁定, 重构后不改断言即应通过.
+
+### skip 计数与豁免台账
+
+- `skip` 0 条, `todo` 0 条; 本包无 4.4 所列失效用例, 无豁免台账.
+
+### 四入口实跑
+
+四条命令实跑 (分支 `history-cleanup/02-tests-context-report`):
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm run check` | 通过 (`tsc --noEmit` 无输出) |
+| `pnpm run test` | 51 通过, 0 失败, 0 skip, 0 todo, 88ms |
+| `pnpm run test:integration` | 16 通过, 0 失败, 0 skip, 0 todo, 81ms |
+| `pnpm run test:coverage` | 67 通过 (单元 51 + 集成 16), 0 失败; 覆盖率见下表 |
