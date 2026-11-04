@@ -59,31 +59,11 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 
 ## 实现记录
 
-- 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾): 假工具面 / 假事件面 / 假服务面 + 假 astTools 面.
-  假 ast 按固定表回放 `outline` / `search` (含 import 整行形态、`signature` 缺失、空 `astKind`),
-  并让 `broken/gen.ts` 一律抛错; 项目落 `os.tmpdir()` 的临时目录, 用例结束删除, 不依赖 ast-grep 二进制.
-
-- 新增 `tests/integration/plugin.test.ts`, 15 条: `apply` 注册与 `provide` 面; `index` / `refresh` /
-  `callers` / `callees` / `impact` / `cycles` / `report` / `summary` 八个 action 的 canonical 值与未索引错误;
-  `output.render` 投影 (含 `undefined` / 字符串兜底与形参顺序哨兵); `codeMap.getSummary` / `getBundle`;
-  宿主形态 (缺 `tools` / 缺 `provide` / `register` 抛错 / 无 logger 落 stderr); `ctx.get("lsp")` 语义层接线
-  (`precision=lsp` 且不搜候选); 临时目录清理.
-
-- 单元锚点 12 条 (24 → 36): `graph` 2 条 (`addImport` 任一端不在图时忽略、自环不入依赖环);
-  `report` 2 条 (符号 kind 归一全桶、跨模块 import 上卷去重与 `.` 模块); `scan` 3 条
-  (绝对说明符按仓库内外分流、噪音目录跳过、`outline` 抛错或返回空数组时跳过且 `filesScanned` 仍计数);
-  `semantic` 4 条 (`ctx.get` 抛错回落直接属性、`query` 非函数、结果形状 fail-open 与非法条目丢弃、
-  `AbortSignal` 透传、`symbolPositionAt` 入参守卫); `bundle` 1 条 (惰性索引、并发 `inflight` 去重、
-  已索引摘要、`refresh` 与 `index({ root })` 重扫). 存量断言未改语义, 只补 `inject` 契约一条.
-
-- `package.json` 加 `test:integration` / `test:coverage` (后者含单元与集成两层 glob, 输出到 `tmp/cov-code-map`).
+> 测试装配器、集成层、单元锚点与脚本见「四份测试产物」; 本节保留观察项与阶段 3 实现记录.
 
 - 观察项 (留阶段 3): `src/report/builder.ts` 的 `kindBucket` 只认 `class` / `interface` / `enum` /
   `function|method|arrow` / `variable|let|const` / `type` / `import` 词根, ast-grep 的 `lexical_declaration`
   与空 `astKind` 都落 `other`; 本阶段按现状锁定 (`kindCounts` 断言写 `other: 2`), 未改实现.
-
-- 另记: `src/index.ts` 的 `callees` / `impact` / `report` / `summary` 等方法在集成跑里被逐个调用,
-  但报告仍按未覆盖计 (见「测试与证据」的口径说明); 未为凑数加用例.
 
 - 阶段 3 (代码整理): 上下文对象守卫收进 `apply` 入口 (`src/index.ts` 新增 `host` 归一);
   `resolveLspReferences` 改收已归一的 `object` (缺省空对象), `src/semantic/lsp.ts` 的 `readLspSurface`
@@ -117,16 +97,33 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 
 ## 测试与证据
 
-命令 (均在 `code-map/` 下实跑, 2026-11-01):
+> 四入口、用例数、覆盖率、契约面与豁免台账见「四份测试产物」; 本节保留阶段 3 实跑.
+
+阶段 3 (代码整理, 2026-11-02, 均在 `code-map/` 下实跑):
 
 | 命令 | 结果 |
 | --- | --- |
 | `pnpm run check` | 通过 (tsc --noEmit 无输出) |
-| `pnpm run test` | 36 条通过 / 0 失败 / skipped 0 / todo 0, 约 213ms |
+| `pnpm run test` | 36 条通过 / 0 失败 / skipped 0 / todo 0, 约 206ms |
 | `pnpm run test:integration` | 15 条通过 / 0 失败 / skipped 0 / todo 0, 约 104ms |
-| `pnpm run test:coverage` | 行 93.6% (987/1055), 分支 87.9% (225/256) |
 
-用例数: 单元 24 → 36 (+12), 集成 0 → 15 (+15); 未删用例, 无 `skip` / `todo`, 包内无夹具.
+守卫行为实测 (临时脚本调 `apply`, 未改用例): `undefined` / `null` / `42` / `"x"` / `{}` 五种入参均不抛,
+`getCodeMapSummary()` 均为 `undefined`; 与改前语义一致 (无宿主面 → 无服务). 改前仅 `undefined` / `null`
+在读 `ctx.logger` 处抛 `TypeError` (数字 / 字符串 / 空对象本就不抛), 现一并收敛为空上下文.
+
+零引用导出复查: 44 个模块级导出逐名扫 worktree (含 `src` / `tests` / `docs` / 配置文件, 排除
+`node_modules` / `dist` / `tmp`), 最少命中 2 行 (声明 + 一处引用), 零引用 0 个, 故无删除.
+
+`kindBucket` 复核实测 (ast-grep 0.51.0, 临时目录 3 个文件: 未导出 `const` / `var` / `function` /
+`class` 与导出 `function` / `interface` / `type` / `enum`): `report.kindCounts` 为
+`{"variable":3,"function":1,"class":1,"other":7}`; 顶层声明实际 `astKind` 为 `variable_declarator` /
+`export_statement`, 不出现 `lexical_declaration`.
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
 
 覆盖率 (改前 / 改后, 同一命令):
 
@@ -152,7 +149,32 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 对比, 未逐行追该偏移. 另: `report.mjs` 不排除 `dist`, 依赖包 `ast-tools/dist/src/*` 会一并进汇总表的
 `ast-tools` 行 (合计行含对端), 本包数字按 `code-map` 行取.
 
-豁免台账:
+- 另记: `src/index.ts` 的 `callees` / `impact` / `report` / `summary` 等方法在集成跑里被逐个调用,
+  但报告仍按未覆盖计 (见上条口径说明); 未为凑数加用例.
+
+### 用例清单
+
+- 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾): 假工具面 / 假事件面 / 假服务面 + 假 astTools 面.
+  假 ast 按固定表回放 `outline` / `search` (含 import 整行形态、`signature` 缺失、空 `astKind`),
+  并让 `broken/gen.ts` 一律抛错; 项目落 `os.tmpdir()` 的临时目录, 用例结束删除, 不依赖 ast-grep 二进制.
+- 新增 `tests/integration/plugin.test.ts`, 15 条: `apply` 注册与 `provide` 面; `index` / `refresh` /
+  `callers` / `callees` / `impact` / `cycles` / `report` / `summary` 八个 action 的 canonical 值与未索引错误;
+  `output.render` 投影 (含 `undefined` / 字符串兜底与形参顺序哨兵); `codeMap.getSummary` / `getBundle`;
+  宿主形态 (缺 `tools` / 缺 `provide` / `register` 抛错 / 无 logger 落 stderr); `ctx.get("lsp")` 语义层接线
+  (`precision=lsp` 且不搜候选); 临时目录清理.
+- 单元锚点 12 条 (24 → 36): `graph` 2 条 (`addImport` 任一端不在图时忽略、自环不入依赖环);
+  `report` 2 条 (符号 kind 归一全桶、跨模块 import 上卷去重与 `.` 模块); `scan` 3 条
+  (绝对说明符按仓库内外分流、噪音目录跳过、`outline` 抛错或返回空数组时跳过且 `filesScanned` 仍计数);
+  `semantic` 4 条 (`ctx.get` 抛错回落直接属性、`query` 非函数、结果形状 fail-open 与非法条目丢弃、
+  `AbortSignal` 透传、`symbolPositionAt` 入参守卫); `bundle` 1 条 (惰性索引、并发 `inflight` 去重、
+  已索引摘要、`refresh` 与 `index({ root })` 重扫). 存量断言未改语义, 只补 `inject` 契约一条.
+- `package.json` 加 `test:integration` / `test:coverage` (后者含单元与集成两层 glob, 输出到 `tmp/cov-code-map`).
+- 用例数: 单元 24 → 36 (+12), 集成 0 → 15 (+15); 未删用例.
+
+### skip 计数与豁免台账
+
+- 无 `skip` / `todo`, 包内无夹具.
+- 豁免台账:
 
 | 位置 | 缺什么 / 为什么补不了 | 触发条件 | 交给谁 |
 | --- | --- | --- | --- |
@@ -160,31 +182,13 @@ rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=.
 | `src/indexer/scan.ts:72,78-81` (`readdirSync` / `statSync` 失败的防御分支) | 需不可读目录或悬空符号链接; 当前用户权限下临时目录造不出 | 权限受限或扫描中并发删文件 | 阶段 3 判定是否可删该防御 |
 | `src/index.ts:341,346-347,361,365` (工具描述与参数文案) | 纯文案 (总追踪 4.1 的 P4) | - | 不补 |
 
-阶段 3 (代码整理, 2026-11-02, 均在 `code-map/` 下实跑):
+### 四入口实跑
 
-| 命令 | 结果 |
+命令 (均在 `code-map/` 下实跑, 2026-11-01):
+
+| 入口 | 结果 |
 | --- | --- |
 | `pnpm run check` | 通过 (tsc --noEmit 无输出) |
-| `pnpm run test` | 36 条通过 / 0 失败 / skipped 0 / todo 0, 约 206ms |
+| `pnpm run test` | 36 条通过 / 0 失败 / skipped 0 / todo 0, 约 213ms |
 | `pnpm run test:integration` | 15 条通过 / 0 失败 / skipped 0 / todo 0, 约 104ms |
-
-守卫行为实测 (临时脚本调 `apply`, 未改用例): `undefined` / `null` / `42` / `"x"` / `{}` 五种入参均不抛,
-`getCodeMapSummary()` 均为 `undefined`; 与改前语义一致 (无宿主面 → 无服务). 改前仅 `undefined` / `null`
-在读 `ctx.logger` 处抛 `TypeError` (数字 / 字符串 / 空对象本就不抛), 现一并收敛为空上下文.
-
-零引用导出复查: 44 个模块级导出逐名扫 worktree (含 `src` / `tests` / `docs` / 配置文件, 排除
-`node_modules` / `dist` / `tmp`), 最少命中 2 行 (声明 + 一处引用), 零引用 0 个, 故无删除.
-
-`kindBucket` 复核实测 (ast-grep 0.51.0, 临时目录 3 个文件: 未导出 `const` / `var` / `function` /
-`class` 与导出 `function` / `interface` / `type` / `enum`): `report.kindCounts` 为
-`{"variable":3,"function":1,"class":1,"other":7}`; 顶层声明实际 `astKind` 为 `variable_declarator` /
-`export_statement`, 不出现 `lexical_declaration`.
-
-## 四份测试产物
-
-| 产物 | 位置 |
-| --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm run test:coverage` | 行 93.6% (987/1055), 分支 87.9% (225/256) |
