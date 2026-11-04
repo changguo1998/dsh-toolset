@@ -66,11 +66,9 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 
 - 阶段 2 测试锚定（分支 `history-cleanup/02-tests-ast-tools`）:
 
-  - 基线: 单元 47 例全通过, 0 skip; 覆盖率 行 84.2% (886/1052), 分支 62.6% (117/187).
-  - 单元锚点: 新增 35 例, 覆盖二进制探测与回落、子进程启动失败 / 超时 / JSON 解析错误、定时器统一面形状兜底与卸载路径、工具 canonical 入参 / 渲染兜底与截断、bundle 工厂与 `apply` 极简宿主.
-  - 集成层: 新增 `tests/assemble.ts` (假工具面 / 假事件面 / 假服务面 + 假 ast-grep CLI + 假时钟, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 例): 工具注册名、`execute` canonical 值、`output.render` 投影、服务面 `clock` 读取、事件面零订阅、降级装配.
+  > 测试基线、单元锚点、集成层与结果见「四份测试产物」; 本段保留脚本.
+
   - 脚本: `package.json` 加 `test:integration` 与 `test:coverage`.
-  - 结果: 单元 82 例 + 集成 9 例全通过; 覆盖率 行 96.3% (1013/1052), 分支 87.6% (218/249).
 
 - 阶段 3 代码整理（分支 `history-cleanup/03-code-ast-tools`）:
 
@@ -90,16 +88,25 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 
 ## 测试与证据
 
-### 四个入口实跑
+> 四入口、覆盖率、用例增减与豁免台账见「四份测试产物」; 本节保留阶段 3 代码整理实跑.
+
+### 阶段 3 代码整理实跑
+
+前置: `pnpm -C ../clock-base run build`（产出 `dist/`, 供包名 import 解析）; 本包目录 `pnpm install`（建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`）.
 
 | 命令 | 结果 |
 | --- | --- |
 | `pnpm -C ast-tools run check` | 通过 (tsc --noEmit, 无输出) |
-| `pnpm -C ast-tools run test` | 82 例, pass 82, fail 0, skipped 0 |
+| `pnpm -C ast-tools run test` | 82 例, pass 82, fail 0, skipped 0, todo 0 |
 | `pnpm -C ast-tools run test:integration` | 9 例, pass 9, fail 0, skipped 0 |
-| `pnpm -C ast-tools run test:coverage` | 91 例全通过, 报告见下 |
 
-### 覆盖率 (改前 / 改后)
+改动量: 删 `src/timers.ts` 205 行; 改 6 个文件（`src/index.ts` / `src/types.ts` / `src/binary.ts` / `src/tools.ts` / `tests/clock.test.ts` / `package.json`）与 `pnpm-lock.yaml`, 合计 +21 / -9 行（不含删除的 205 行）.
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
 
 只统 `ast-tools/src`; 同次报告里的 `clock-base/src/timers.ts` 来自 `tests/clock.test.ts` 跨包 import `ManualClock`, 不属本包口径, 不计入合计.
 
@@ -118,7 +125,12 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 
 分层贡献 (两轮跑): 只跑单元层 行 96.1% (1011/1052) / 分支 87.2% (212/243); 单元加集成 行 96.3% / 分支 87.6%, 集成层贡献 +2 行 / +6 分支 (search / outline / rules 的参数装配行).
 
-### 用例增减
+### 用例清单
+
+- 基线: 单元 47 例全通过, 0 skip.
+- 单元锚点: 新增 35 例, 覆盖二进制探测与回落、子进程启动失败 / 超时 / JSON 解析错误、定时器统一面形状兜底与卸载路径、工具 canonical 入参 / 渲染兜底与截断、bundle 工厂与 `apply` 极简宿主.
+- 集成层: 新增 `tests/assemble.ts` (假工具面 / 假事件面 / 假服务面 + 假 ast-grep CLI + 假时钟, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 例): 工具注册名、`execute` canonical 值、`output.render` 投影、服务面 `clock` 读取、事件面零订阅、降级装配.
+- 结果: 单元 82 例 + 集成 9 例全通过.
 
 | 类别 | 改前 | 改后 | 增减 |
 | --- | --- | --- | --- |
@@ -128,7 +140,10 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 | todo | 0 | 0 | 0 |
 | 删除用例 | - | 0 | 0 |
 
-### 豁免台账
+### skip 计数与豁免台账
+
+- `skip` 0 / `todo` 0 (见「用例清单」的用例增减表).
+- 豁免台账:
 
 | 位置 | 缺什么 | 为什么补不了 | 触发条件 | 交给谁 |
 | --- | --- | --- | --- | --- |
@@ -136,23 +151,11 @@ rm -rf ../tmp/cov-ast-tools && mkdir -p ../tmp/cov-ast-tools && NODE_V8_COVERAGE
 | `src/binary.ts:196` `Array.isArray` 兜底 | 公开入口 | 解析片段固定从 `[` 到 `]`, `JSON.parse` 结果必为数组 | 无 | 阶段 3 代码整理评估 |
 | `src/index.ts:104-107` / `:125-127` | 非可执行行 | 接口 / 类型声明行, 非可执行代码, V8 仍按行计入 | 无 | 不处理 |
 
-### 阶段 3 代码整理实跑
+### 四入口实跑
 
-前置: `pnpm -C ../clock-base run build`（产出 `dist/`, 供包名 import 解析）; 本包目录 `pnpm install`（建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`）.
-
-| 命令 | 结果 |
+| 入口 | 结果 |
 | --- | --- |
 | `pnpm -C ast-tools run check` | 通过 (tsc --noEmit, 无输出) |
-| `pnpm -C ast-tools run test` | 82 例, pass 82, fail 0, skipped 0, todo 0 |
+| `pnpm -C ast-tools run test` | 82 例, pass 82, fail 0, skipped 0 |
 | `pnpm -C ast-tools run test:integration` | 9 例, pass 9, fail 0, skipped 0 |
-
-改动量: 删 `src/timers.ts` 205 行; 改 6 个文件（`src/index.ts` / `src/types.ts` / `src/binary.ts` / `src/tools.ts` / `tests/clock.test.ts` / `package.json`）与 `pnpm-lock.yaml`, 合计 +21 / -9 行（不含删除的 205 行）.
-
-## 四份测试产物
-
-| 产物 | 位置 |
-| --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C ast-tools run test:coverage` | 91 例全通过, 报告见下 |
