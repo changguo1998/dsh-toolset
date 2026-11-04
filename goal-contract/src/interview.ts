@@ -39,7 +39,7 @@ export interface InterviewState {
   /** 当前阶段重问次数。 */
   attempts: number;
   /** 上一轮答案的校验错误（随下次提问反馈给用户）。 */
-  error?: string;
+  error?: string | undefined;
   /** 中止原因（phase=aborted 时）。 */
   abortReason?: string;
   /** 累计提问数（观测用）。 */
