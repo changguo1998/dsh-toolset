@@ -37,7 +37,7 @@ export interface MdBlock {
   /** 1 基结束行（含）。 */
   endLine: number;
   /** 所属节的标题行号（1 基）；块在首个标题之前时省略。 */
-  section?: number;
+  section?: number | undefined;
   /** 列表：条目总数（含嵌套）；表格：数据行数（不含表头与分隔行）；frontmatter：键数；引用：块行数。 */
   count?: number;
   /** 列表 / 引用的最大嵌套层数（1 = 不嵌套）。 */
@@ -54,11 +54,11 @@ export interface MdLink {
   /** 链接文本（图片为其 alt 文本；定义为 `tag`）。 */
   text: string;
   href: string;
-  title?: string;
+  title?: string | undefined;
   /** 1 基行号。 */
   line: number;
   /** 所属节的标题行号（1 基）；无节归属时省略。 */
-  section?: number;
+  section?: number | undefined;
 }
 
 /** frontmatter 摘要。 */

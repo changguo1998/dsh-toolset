@@ -98,15 +98,15 @@ export function sectionAt(
 
 /** 块筛选条件。 */
 export interface BlockQuery {
-  kind?: MdBlockKind[];
+  kind?: MdBlockKind[] | undefined;
   /** 只保留归属该标题行（1 基）的节内块。 */
-  section?: number;
+  section?: number | undefined;
   /** 只保留落在 `[from, to]`（1 基，含）内的块。 */
-  from?: number;
-  to?: number;
+  from?: number | undefined;
+  to?: number | undefined;
   /** 只保留覆盖该行的块。 */
-  line?: number;
-  limit?: number;
+  line?: number | undefined;
+  limit?: number | undefined;
 }
 
 /** 查询块。 */
@@ -138,10 +138,10 @@ export function queryBlocks(
 
 /** 链接筛选条件。 */
 export interface LinkQuery {
-  kind?: MdLinkKind[];
+  kind?: MdLinkKind[] | undefined;
   /** 匹配 href / 文本 / title 的子串（大小写不敏感）。 */
-  pattern?: string;
-  limit?: number;
+  pattern?: string | undefined;
+  limit?: number | undefined;
 }
 
 /** 查询链接、图片与引用式定义。 */
