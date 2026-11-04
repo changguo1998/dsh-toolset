@@ -13,6 +13,7 @@ import type {
   Acceptance,
   AcceptanceLevel,
   ChildSpec,
+  Enumeration,
   ExecutorSpec,
   FrameId,
   NestedTaskItem,
@@ -136,6 +137,8 @@ function parseChildren(raw: unknown): ChildSpec[] | undefined {
       if (validateExecutor(executorRaw) !== null) return undefined;
       executor = executorRaw as ExecutorSpec;
     }
+    // 枚举来源条目（超阈值时门禁按它做一一对应校验；阈值以内忽略）
+    const enumItem = asString(o.enum_item);
     out.push({
       id,
       title,
@@ -145,9 +148,22 @@ function parseChildren(raw: unknown): ChildSpec[] | undefined {
       coverage,
       ...(deps === undefined ? {} : { deps }),
       ...(executor === undefined ? {} : { executor }),
+      ...(enumItem === undefined ? {} : { enumItem }),
     });
   }
   return out;
+}
+
+/** 把工具入参 enumeration 转成 Enumeration；结构非法返回 undefined（打回带格式反馈） */
+function parseEnumeration(raw: unknown): Enumeration | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const o = raw as Record<string, unknown>;
+  const source = asString(o.source);
+  const items = o.items;
+  if (source === undefined || !Array.isArray(items)) return undefined;
+  if (items.some((x) => typeof x !== "string" || x.length === 0))
+    return undefined;
+  return { source, items: items as string[] };
 }
 
 function ok(v: Record<string, unknown> = {}): Record<string, unknown> {
@@ -209,7 +225,12 @@ export function createTools(
                 type: "array",
                 required: true,
                 description:
-                  "子任务列表：{id, title, spec, acceptance, need_decompose, coverage, deps}",
+                  "子任务列表：{id, title, spec, acceptance, need_decompose, coverage, deps, enum_item}",
+              },
+              enumeration: {
+                type: "object",
+                description:
+                  "子任务数超过 8 个时的枚举来源：{source, items}。source = 清单来源说明，items = 逐条清单条目；每个子任务的 enum_item 须与其中一条一一对应",
               },
             }
           : name === "implement"
@@ -246,10 +267,22 @@ export function createTools(
             );
           }
           const semantic = ctx.makeSemanticHooks?.(exec);
+          let enumeration: Enumeration | undefined;
+          if (args.enumeration !== undefined) {
+            const raw = args.enumeration;
+            const parsed = parseEnumeration(raw);
+            if (parsed === undefined) {
+              return fail(
+                "task_decompose 参数非法：enumeration 需为 {source: 非空字符串, items: 非空字符串数组}。",
+              );
+            }
+            enumeration = parsed;
+          }
           const r = await engine.decompose(
             parentId,
             children,
             semantic?.entail,
+            enumeration,
           );
           // step 级裁决（#5）：accepted/next 原样透出给模型（打回时 next 指向重做目标）
           return r.ok
@@ -342,6 +375,7 @@ export function createTools(
       "decompose",
       "用途: 把一个待细化任务拆成子任务, 每次只细化一层。\n" +
         '用法: 机械 + 语义蕴含双门禁通过才挂树; 对已完成的当前轮根再分解会自动开新一轮(新根 `root-2` / `root-3…`, 沿用同一根契约, 旧轮只读保留; 跨轮子帧 id 必须唯一); `parent_id: "root"` 始终指当前轮根。\n' +
+        "边界: 子任务数不设上限, 但超过 8 个时必须带 enumeration(source + 逐条 items) 并给每个子任务填 enum_item, 门禁校验「条目数 = 子任务数、双向一一对应」; 只是把一个任务切碎会被打回, 请合并或再抽象一层。\n" +
         "相关: task_implement、task_execute、task_status。",
     ),
     decompose(

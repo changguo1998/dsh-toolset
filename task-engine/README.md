@@ -66,7 +66,7 @@ docs/             # DESIGN.md（架构与设计取舍）、BACKLOG.md（包待�
   - ③ **只有终态（`done` / `failed`）才回收**：打回重试（非终态失败）保留现场供二次执行复用（同 leafId 复用同一 worktree，不重复 `add`）；插件 unload 时 best-effort 回收在册工作区（脏树同样保留）。
     机制细节（id 安全化与 `rule: "isolate-id"`、注册表幂等与 `prune` 兜底、`execFile` + guard 复查、跨进程残留 / 无 `node_modules`）见 `docs/DESIGN.md`「取舍 12」。
 
-- **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`（**自动开轮路径除外**：临时新根未落盘即打回，不留空轮、也不把重试计数记到新根），达 `maxRetries` 置 `failed`。
+- **分解双重门禁**：先跑机械门禁——粒度四规则（越级 / 过粗 / 过细 / 数量）+ **枚举来源**（子任务数超过阈值 8 时必须带 `enumeration`（`source` + 逐条 `items`）并给每个子任务填 `enum_item`，校验「条目数 = 子任务数、双向一一对应」；数量本身不设上限）+ coverage 完备性（父每条验收须有本次子任务覆盖）+ `deps` 前置传递（只允许引用前序兄弟，自引用/前向引用/未知 id 拒绝）+ `executor` 声明校验；通过后若配置 `entail` hook，再跑语义蕴含（合取是否蕴含父契约）。任一拒绝都带反馈打回并记 `retryCount`（**自动开轮路径除外**：临时新根未落盘即打回，不留空轮、也不把重试计数记到新根），达 `maxRetries` 置 `failed`。
 
 - **RET 验收路由**：mechanical → `/bin/sh -c` 退出码 0；human → `ctx.approval.request`（`allowed-once` 视为通过，拒绝 / 无人应答 / 抛错一律 fail-closed）；semantic → 注入式 `audit` hook 的独立 audit run（缺 hook，或声明了 `outputSchema` 却无 `structured`，均 fail-closed 打回）。
 
@@ -92,7 +92,7 @@ docs/             # DESIGN.md（架构与设计取舍）、BACKLOG.md（包待�
 | `semantic.entail` | `true` | 拆解第二道门的 entail run（`false` → 该门跳过，回到旧行为） |
 | `semantic.timeoutMs` | `120000` | 单次裁决 run 超时（超时/失败：audit **fail-closed** 打回；entail **跳过该门**并告警——不烧重试预算） |
 
-门禁默认值 `maxChildren=7`、`maxRetries=3`、`maxConcurrent=4` 定义在 `DEFAULT_GATE`；插件 config 只暴露 `maxConcurrent`（其余两项供引擎级调用覆盖）。
+门禁默认值 `enumerationThreshold=8`、`maxRetries=3`、`maxConcurrent=4` 定义在 `DEFAULT_GATE`；插件 config 只暴露 `maxConcurrent`（其余两项供引擎级调用覆盖）。`enumerationThreshold` 是**声明阈值**不是数量上限：超过只要求声明枚举来源并逐条对应，不拦数量。
 
 ## 用法
 

@@ -127,6 +127,60 @@ type StatusRound = {
   children: { id: string }[];
 };
 
+describe("task_decompose 枚举来源（超过阈值 8）", () => {
+  /** 超阈值用的非叶子子任务：跳过过粗/过细，覆盖父验收 r-q */
+  function enumChild(id: string, enumItem?: string): Record<string, unknown> {
+    return {
+      id,
+      title: id,
+      spec: `继续细分 ${id}`,
+      acceptance: [],
+      need_decompose: true,
+      coverage: { "r-q": [id] },
+      ...(enumItem === undefined ? {} : { enum_item: enumItem }),
+    };
+  }
+
+  it("9 条且无 enumeration → 打回，反馈指向枚举声明", async () => {
+    const { byName } = bench();
+    const children = Array.from({ length: 9 }, (_, i) => enumChild(`c${i}`));
+    const r = await byName("task_decompose").execute({
+      parent_id: "root",
+      children,
+    });
+    assert.equal(r.ok, false);
+    assert.match(String(r.feedback), /枚举/);
+  });
+
+  it("enumeration 结构非法（items 含非字符串）→ 参数反馈而非抛错", async () => {
+    const { byName } = bench();
+    const r = await byName("task_decompose").execute({
+      parent_id: "root",
+      children: [enumChild("c0", "条目0")],
+      enumeration: { source: "清单", items: ["条目0", 1] },
+    });
+    assert.equal(r.ok, false);
+    assert.match(String(r.feedback), /enumeration/);
+  });
+
+  it("9 条逐条对应 → 挂树，children 带 enumItem 落盘", async () => {
+    const { byName, engine } = bench();
+    const items = Array.from({ length: 9 }, (_, i) => `条目${i}`);
+    const children = items.map((item, i) => enumChild(`c${i}`, item));
+    const r = await byName("task_decompose").execute({
+      parent_id: "root",
+      children,
+      enumeration: { source: "清单", items },
+    });
+    assert.equal(r.ok, true);
+    assert.equal(engine.frames().get("c0")?.status, "pending");
+    const expanded = engine.log.find((e) => e.type === "plan/node-expanded");
+    assert.ok(expanded && expanded.type === "plan/node-expanded");
+    assert.equal(expanded.children.length, 9);
+    assert.equal(expanded.children[0]?.enumItem, "条目0");
+  });
+});
+
 describe("task_status 多轮视图：当前轮完整 + 旧轮根摘要", () => {
   /** 跑完一轮：decompose(root) → implement → stop（叶子 mechanical 通过） */
   const runRound = async (

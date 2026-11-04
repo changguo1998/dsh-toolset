@@ -7,14 +7,18 @@
 import type {
   Acceptance,
   ChildSpec,
+  Enumeration,
   ExecutorKind,
   Frame,
   FrameId,
 } from "./types.ts";
 
 export interface GateConfig {
-  /** 一次 decompose 的子任务数量上限（默认 7，§10 ③） */
-  maxChildren: number;
+  /**
+   * 子任务数阈值（默认 8）：**数量本身不设上限**，超过阈值时必须声明枚举来源
+   * （`Enumeration` + 每个子任务的 `enumItem`），按「条目数 = 子任务数、双向一一对应」校验。
+   */
+  enumerationThreshold: number;
   /** 打回重试上限（默认 3，§15.2 bounded retry） */
   maxRetries: number;
   /** fan-out 并发上限：active 帧数 >= 此数时不再弹栈（BACKLOG #13，默认 4） */
@@ -22,7 +26,7 @@ export interface GateConfig {
 }
 
 export const DEFAULT_GATE: GateConfig = {
-  maxChildren: 7,
+  enumerationThreshold: 8,
   maxRetries: 3,
   maxConcurrent: 4,
 };
@@ -32,6 +36,7 @@ export type GateRule =
   | "too-coarse"
   | "too-fine"
   | "too-many"
+  | "enumeration"
   | "coverage"
   | "deps"
   | "executor"
@@ -270,8 +275,9 @@ export function checkDecomposition(
   parent: Frame,
   children: ChildSpec[],
   cfg: GateConfig = DEFAULT_GATE,
+  enumeration?: Enumeration,
 ): GateResult {
-  // 数量：0 或超上限
+  // 数量：0 条拒绝；超过阈值时不再卡数量，改为校验「确是清单枚举」
   if (children.length === 0) {
     return {
       ok: false,
@@ -279,12 +285,13 @@ export function checkDecomposition(
       feedback: "decompose 不能拆出 0 个子任务：请给出至少 1 个子任务。",
     };
   }
-  if (children.length > cfg.maxChildren) {
-    return {
-      ok: false,
-      rule: "too-many",
-      feedback: `子任务数量 ${children.length} 超过上限 ${cfg.maxChildren}：请合并或再抽象一层。`,
-    };
+  if (children.length > cfg.enumerationThreshold) {
+    const bad = checkEnumeration(
+      children,
+      enumeration,
+      cfg.enumerationThreshold,
+    );
+    if (bad !== null) return { ok: false, rule: "enumeration", feedback: bad };
   }
 
   for (const c of children) {
@@ -352,6 +359,60 @@ export function checkDecomposition(
   if (depsError) return depsError;
 
   return { ok: true, feedback: "decompose 通过门禁" };
+}
+
+/**
+ * 超阈值时的枚举校验（2026-11-04）：来源说明非空、条目数 = 子任务数、双向一一对应
+ * （无漏项 / 无重复 / 无多余），不满足即返回带反馈的拒绝理由。
+ */
+function checkEnumeration(
+  children: ChildSpec[],
+  enumeration: Enumeration | undefined,
+  threshold: number,
+): string | null {
+  const head = `子任务数量 ${children.length} 超过枚举阈值 ${threshold}：`;
+  if (enumeration === undefined) {
+    return (
+      `${head}数量本身不设上限，但超阈值必须是清单逐条枚举而来——请带 ` +
+      "enumeration（source + 逐条 items），并给每个子任务填 enum_item；" +
+      "若只是把一个任务切碎，请合并或再抽象一层。"
+    );
+  }
+  const source = enumeration.source.trim();
+  if (source === "") {
+    return `${head}enumeration.source 不能为空：请写明这份清单从哪来（如「BACKLOG 未完成项」）。`;
+  }
+  const items = enumeration.items.map((x) => x.trim());
+  if (items.length !== children.length) {
+    return `${head}enumeration.items ${items.length} 条与子任务 ${children.length} 个不一致：清单条目与子任务必须一一对应。`;
+  }
+  const blank = items.findIndex((x) => x === "");
+  if (blank >= 0) {
+    return `${head}enumeration.items 第 ${blank + 1} 条为空：请逐条填写清单条目。`;
+  }
+  const itemSet = new Set(items);
+  if (itemSet.size !== items.length) {
+    return `${head}enumeration.items 有重复条目：每条清单条目只能对应一个子任务。`;
+  }
+  const used = new Set<string>();
+  for (const c of children) {
+    const raw = (c.enumItem ?? "").trim();
+    if (raw === "") {
+      return `${head}子任务「${c.title}」缺 enum_item：请填它对应的清单条目。`;
+    }
+    if (!itemSet.has(raw)) {
+      return `${head}子任务「${c.title}」的 enum_item「${raw}」不在 enumeration.items 里：请逐条对照清单。`;
+    }
+    if (used.has(raw)) {
+      return `${head}清单条目「${raw}」被多个子任务对应：一条目只对应一个子任务。`;
+    }
+    used.add(raw);
+  }
+  const unmatched = items.filter((x) => !used.has(x));
+  if (unmatched.length > 0) {
+    return `${head}清单条目「${unmatched[0] ?? ""}」没有对应的子任务：请补上子任务或从 items 去掉。`;
+  }
+  return null;
 }
 
 /** coverage 映射校验：父验收条目 → 覆盖它的子任务 id 集，缺映射/空映射/未知 id 机械拒绝 */

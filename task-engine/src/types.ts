@@ -77,6 +77,22 @@ export interface ChildSpec {
   deps?: FrameId[];
   /** 叶子执行后端声明（仅叶子合法，门禁校验；缺省 = model 语义） */
   executor?: ExecutorSpec;
+  /**
+   * 枚举来源条目：本子任务对应 `Enumeration.items` 中的哪一条。
+   * 仅子任务数超过门禁阈值（默认 8）时必填，门禁按它做一一对应校验。
+   */
+  enumItem?: string;
+}
+
+/**
+ * 一次超阈值 decompose 的枚举来源声明（2026-11-04）：证明这批子任务由清单
+ * **逐条枚举**而来，而不是把一个任务过度切碎。门禁校验「条目数 = 子任务数」且双向一一对应。
+ */
+export interface Enumeration {
+  /** 清单来源说明（例：BACKLOG 未完成项 / 验收条目清单）。不可为空 */
+  source: string;
+  /** 逐条清单条目：每条对应一个子任务的 `enumItem` */
+  items: string[];
 }
 
 /** 树上的帧（物化视图节点） */

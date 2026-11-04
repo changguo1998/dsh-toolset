@@ -36,6 +36,7 @@ import { logEvent, restore } from "./events.ts";
 import { checkDecomposition, DEFAULT_GATE, type GateConfig } from "./gate.ts";
 import type {
   ChildSpec,
+  Enumeration,
   Frame,
   FrameId,
   LoggedPlanEvent,
@@ -216,12 +217,15 @@ export class TaskEngine {
   /**
    * decompose(parent, children)：双重门禁（机械 + 语义蕴含）裁决后挂树，子任务入就绪池。
    * 第二迭代：async（承载独立 entail run）；返回 step 级 accepted/next（BACKLOG #5）。
+   * 子任务数超阈值（默认 8）时须带 `enumeration` 并给每个子任务填 `enumItem`（机械门禁校验）。
    */
   async decompose(
     parentId: FrameId,
     children: ChildSpec[],
     /** 按次注入的语义蕴含 hook（缺省用实例级） */
     entail?: EntailHook,
+    /** 超阈值时的枚举来源声明（阈值以内忽略） */
+    enumeration?: Enumeration,
   ): Promise<DecomposeResult> {
     const entailHook = entail ?? this.entail;
     // `"root"` 始终指**当前轮**的根（多轮后第一轮根 id 仍是 `root`，直接查表会落到旧轮）
@@ -284,8 +288,8 @@ export class TaskEngine {
         feedback: `父帧 ${parentId} 已展开过：请先处理子任务或对其 stop。`,
       });
 
-    // 第一道：机械门禁（§17.2 第一道：粒度四规则 + coverage + 前置传递）
-    const gate = checkDecomposition(parent, children, this.config);
+    // 第一道：机械门禁（§17.2 第一道：粒度四规则 + 枚举来源 + coverage + 前置传递）
+    const gate = checkDecomposition(parent, children, this.config, enumeration);
     if (!gate.ok) {
       // 自动开轮路径下父帧是临时新根：不把打回计数记到已完成的旧轮上
       if (autoRoundId === undefined) {
