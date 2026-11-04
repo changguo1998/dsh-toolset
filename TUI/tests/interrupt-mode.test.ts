@@ -176,3 +176,46 @@ test("`!` 模式提交后 Ctrl+P 回溯：模式一并恢复为 `!`（草稿模�
   assert.equal(st().inputText, "", "下翻回到空草稿");
   assert.equal(st().inputMode, "steer", "草稿模式 = 默认 steer");
 });
+
+test("`!` 打断并直发后用户块终态正确：被打断块 ■、直发块运行中 ●/○（帧断言）", () => {
+  // BACKLOG「`!` 打断并直发后用户块终态符号错位」：原实现直发块与被打断块同号同世代，
+  // `turn-end(aborted)` 错落给直发块（它显示 ■）、被打断块留 `?`；正确语义是打断块 ■、
+  // 正在处理的新块保持运行中黄 ●/○。
+  const renderer = new FakeRenderer();
+  const adapter = new FakeAdapter();
+  const sink: NonNullable<FakeAdapter["mirrorTo"]> = {};
+  const app = new TrackedApp({
+    renderer,
+    adapter,
+    pipelineSink: sink,
+    notify: { enabled: false },
+  });
+  app.start();
+  adapter.mirrorTo = sink; // start() 之后 sink.current 才就绪
+  const st = () => (app as unknown as { state: AppState }).state;
+
+  typeText(renderer, "先发");
+  renderer.press(key("enter")); // A 直发（回合 1）
+  adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
+  renderer.press(key("!"));
+  typeText(renderer, "打断发");
+  renderer.press(key("enter")); // 忙时打断 + 直发 B（预测新回合）
+  assert.equal(adapter.interrupts, 1);
+  assert.equal(st().queued.length, 0, "打断直发不登记排队块");
+  adapter.push({ type: "turn-end", reason: "aborted" });
+
+  const rowOf = (text: string): string | undefined =>
+    plainFrame(renderer)
+      .split("\n")
+      .find((line) => line.includes(text));
+  const abortedRow = rowOf("先发");
+  const runningRow = rowOf("打断发");
+  assert.ok(
+    abortedRow !== undefined && abortedRow.includes("■"),
+    `被打断块应显示 ■（灰方块）: ${JSON.stringify(abortedRow)}`,
+  );
+  assert.ok(
+    runningRow !== undefined && /[●○]/.test(runningRow),
+    `正在处理的新块应显示 ●/○: ${JSON.stringify(runningRow)}`,
+  );
+});

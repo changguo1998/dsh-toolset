@@ -15,6 +15,10 @@
 
 > 2026-11-03 关闭：`拆 TUI/src/app/state/reducer.ts 的 reduceState 状态机` 完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-03-split-reducer.md`）：`switch` 的 133 个 `case` 块按 action 前缀搬到 9 个 `state/reducer-*.ts`（块文本逐字节一致），入口只留子 reducer 链与焦点复位；TUI 1829 例全过、`demo -- --smoke` 输出 `SMOKE_OK`、全仓 `check` / `test` 退出 0。
 
+> 2026-11-04 接取〔进行中: 2026-11-04〕：`!` 打断并直发后用户块终态符号错位（用户报告）。现象：`!` 模式打断当前回合并发送新输入后，原来的输入（被打断回合）状态符号变 `?`，正在处理的新输入变 `□`/`■`；期望：原输入被中断显示 `■`（方灰块），新输入保持运行中 `●`/`○` 闪烁。疑似范围：`layout/pipeline/sections.ts` 的 `applyTurnEnd` 按**回合世代**取「最后一条未定态用户块」落终态，打断直发的新块与被打断块同世代（同一次 `turn-end` 之前交付），`aborted` 错误落给新块；且 `runtime/session.ts` 的 `sendUserText` 把打断直发块归入被打断回合的回合号（`sameTurn` 判定）。复现：同世代两用户块 + `turn-end reason="aborted"`（已用临时脚本复现：A 留 `?`、B 得 `■`）。验收：打断并直发后原输入 `■`、正在处理的新输入 `●/○` 闪烁；正常回合终态、恢复会话回合号漂移（`pipeline-sections.test.ts` 既有用例）不退化（守成）。来源：用户报告·优先级：高。
+
+> 2026-11-04 关闭：`!` 打断并直发后用户块终态符号错位完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-04-interrupt-user-block-status.md`）：根因两处——① `runtime/session.ts` 打断提交不关本地回合, 直发块与被打断块同号同世代; ② `layout/pipeline/sections.ts` 的 `applyTurnEnd` 只按世代取「最后一条未定态用户块」落终态。修法：`!` 打断提交提前置 `ctx.turnOpen = false` 使直发开新回合（预测新号）; `applyTurnEnd` 落终态改为「按回合号精确匹配优先 + 世代兜底」（漂移场景不退化）。TUI 1834 例全过、`demo -- --smoke` 42 PASS + SMOKE_OK、根级 check / build / check:docs 全绿。遗留: 真机打断流程人工确认。
+
 > 2026-11-03 关闭：`收拢布局层的 delivery.kind === "user" 判断` 完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-03-is-user-delivery.md`）：类型守卫 `isUserDelivery` 与 `UserDelivery` 落在 `layout/pipeline/types.ts`，`sections.ts` 7 处比较统一改调；TUI 1829 例全过、`demo -- --smoke` 输出 `SMOKE_OK`。
 
 > 2026-10-27 关闭：`/model`、`/provider`、`/effort` 带参切换（含 `:effort` 后缀）与目录组合校验、启动参数指定 provider / model / effort 三条完成并移出清单（`pnpm run check` 0、`pnpm test` 1821/1821、build 成功、live profile 已同步 dist；追踪文档 `TUI/docs/archived/2026-10-27-provider-effort-args.md` / `2026-10-27-model-name-validation.md` / `2026-10-27-startup-model-flags.md`）。

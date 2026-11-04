@@ -544,34 +544,46 @@ function applyTurnEnd(
   // 符号渲染不再回查 buffer。已有终态不覆盖（同 `markUserBlockStatus`）
   const status = userStatusOfReason(reason);
   if (status !== undefined) {
-    // 本世代的用户条目（上一次 `turn-end` 之后交付、尚无终态、非 steer 续接块）：
-    // **不按回合号匹配**——用户块由 App 在发送时按本地预测回合号交付（`index.ts` 的
-    // `sendUserText`），宿主的 `turn-end` 带它自己的号；恢复会话后两者不同步时精确匹配
-    // 永远落空，用户块会一直停在 `?`（BACKLOG「用户块终态符号始终是 `?`」）。也不能改成
-    // 「往回合号之外回溯最后一个未定态块」：上一个以 interrupted / max-tokens / blocked
-    // 收尾的回合**不落终态**（设计如此），回溯会把它误标成本回合的 ✓。
-    // 归属优先级：**人工输入优先** —— 注入块（rule-engine / channel / goal 回合）也走用户块
-    // 通道且常排在人工输入之后，按「最新一条未定态用户块」落符号会让注入块抢走符号、人工输入
-    // 留 `?`（真机实例见 BACKLOG 该条）。两轮都只在**本世代**里找；没有人工输入才退回旧口径。
-    let fallback: { section: number; item: number } | undefined;
-    let human: { section: number; item: number } | undefined;
-    for (let i = sections.length - 1; i >= 0; i--) {
-      const section = sections[i]!;
-      const at = section.items.findIndex(
-        (item) =>
-          item.source === "user" &&
-          item.userStatus === undefined &&
-          item.steerContinued !== true &&
-          item.generation === sealed.turnEnds,
-      );
-      if (at < 0) continue;
-      if (fallback === undefined) fallback = { section: i, item: at };
-      if (section.items[at]!.injected !== true) {
-        human = { section: i, item: at };
-        break;
+    // 归属策略（两层）：
+    // 1. **按回合号精确匹配优先**（不要求世代）：`turn-end` 终结它自己回合的用户块。
+    //    `!` 打断并直发场景（BACKLOG「`!` 打断并直发后用户块终态符号错位」）：直发块已按
+    //    预测新回合号入节，两个同世代用户块靠 `section.turn` 区分——aborted 只落被打断块，
+    //    不误标正在运行的新块。
+    // 2. 精确匹配落空 → **世代兜底**（上一次 `turn-end` 之后交付的最后一条未定态块）：用户块
+    //    由 App 按本地预测回合号交付，宿主的 `turn-end` 带自己的号；恢复会话后两者不同步时
+    //    按号精确匹配永远落空（BACKLOG「用户块终态符号始终是 `?`」），兜底让块仍能落终态。
+    //    不能改成「往回合号之外回溯最后一个未定态块」：上一个以 interrupted / max-tokens /
+    //    blocked 收尾的回合**不落终态**（设计如此），回溯会把它误标成本回合的 ✓。
+    // 归属优先级（两轮同规则）：**人工输入优先** —— 注入块（rule-engine / channel / goal
+    // 回合）也走用户块通道且常排在人工输入之后，按「最新一条未定态用户块」落符号会让注入块
+    // 抢走符号、人工输入留 `?`（真机实例见 BACKLOG 该条）。没有人工输入才退回旧口径。
+    const pick = (
+      turnOk: (section: Section) => boolean,
+      genOnly: boolean,
+    ): { section: number; item: number } | undefined => {
+      let fallback: { section: number; item: number } | undefined;
+      let human: { section: number; item: number } | undefined;
+      for (let i = sections.length - 1; i >= 0; i--) {
+        const section = sections[i]!;
+        if (!turnOk(section)) continue;
+        const at = section.items.findIndex(
+          (item) =>
+            item.source === "user" &&
+            item.userStatus === undefined &&
+            item.steerContinued !== true &&
+            (!genOnly || item.generation === sealed.turnEnds),
+        );
+        if (at < 0) continue;
+        if (fallback === undefined) fallback = { section: i, item: at };
+        if (section.items[at]!.injected !== true) {
+          human = { section: i, item: at };
+          break;
+        }
       }
-    }
-    const target = human ?? fallback;
+      return human ?? fallback;
+    };
+    const target =
+      pick((section) => section.turn === turn, false) ?? pick(() => true, true);
     if (target !== undefined) {
       const section = sections[target.section]!;
       const items = [...section.items];

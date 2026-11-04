@@ -595,6 +595,40 @@ test("用户块终态：本世代只有注入块时仍按旧口径落符号（�
   );
 });
 
+// —— `!` 打断并直发的用户块终态（BACKLOG「`!` 打断并直发后用户块终态符号错位」）——
+// 场景事实：被打断块与新直发块在同一次 `turn-end` 之前交付（同世代）；直发块经打断路径
+// 归入**预测的新回合号**。`turn-end(aborted)` 必须只终结被打断块，不能误标正在运行的新块。
+test("用户块终态：打断并直发（新块异号）→ aborted 只落被打断块，直发块保持未定", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 1, step: 0, text: "原问" },
+    { kind: "user", turn: 2, step: 0, text: "打断重发" },
+    { kind: "turn-end", turn: 1, step: 1, reason: "aborted" },
+  ]);
+  const users = allSections(state)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "user");
+  assert.equal(users[0]?.userStatus, "aborted", "被打断块落 aborted（灰 ■）");
+  assert.equal(users[1]?.userStatus, undefined, "直发块保持未定（运行中 ●/○）");
+});
+
+test("用户块终态：打断直发块在下一回合正常落终态（不受同世代未终结影响）", () => {
+  const state = applyAll(createSections(), [
+    { kind: "user", turn: 1, step: 0, text: "原问" },
+    { kind: "user", turn: 2, step: 0, text: "打断重发" },
+    { kind: "turn-end", turn: 1, step: 1, reason: "aborted" },
+    { kind: "turn-end", turn: 2, step: 1, reason: "completed" },
+  ]);
+  const users = allSections(state)
+    .flatMap((section) => section.items)
+    .filter((item) => item.source === "user");
+  assert.equal(users[0]?.userStatus, "aborted");
+  assert.equal(
+    users[1]?.userStatus,
+    "success",
+    "直发块在 turn2 结束时落 success",
+  );
+});
+
 // —— 辅助行与工具批分槽（BACKLOG「辅助行独立成段」+「辅助行 → 工具调用顺序让辅助行消失」） ——
 test("辅助行独立成条：辅助行 → 工具调用 两个方向都不丢、不并进批", () => {
   const helper = (text: string, index: number): BlockDelivery => ({

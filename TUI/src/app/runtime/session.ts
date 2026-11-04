@@ -365,6 +365,11 @@ export function createSessionPart(ctx: AppContext) {
     if (interrupt) {
       restoreQueued();
       if (agentBusy()) ctx.deps.adapter.interrupt();
+      // 打断 = 放弃当前回合：本地回合边界提前关闭，使直发走 `sendUserText` 里的
+      // `beginTurnIfNeeded` 开**新回合**（预测新回合号）。否则直发块与被打断块同号同世代，
+      // 宿主 `turn-end(aborted)` 的终态会错落给新块（BACKLOG「`!` 打断并直发后用户块终态
+      // 符号错位」）；`turnOpen` 在 host `turn-end` 事件处理里也会置 false，此处幂等。
+      ctx.turnOpen = false;
     }
     const text = ctx.state.inputText.trim();
     if (!text) return;
