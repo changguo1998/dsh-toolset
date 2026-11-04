@@ -128,16 +128,16 @@ test("apply：rule-engine 缺席时只告警不抛，展示服务仍可用", asy
   assert.equal(service.normalize("失败 ❌").text, "失败 ✗");
 });
 
-test("apply：开局指南消费者按统一标准注册（sources + directWrite + delivery + dedupeInRecord），decide 恒返回指南内容", async () => {
+test("apply：开局指南消费者按统一标准注册（sources + delivery + dedupeInRecord，不直写），decide 恒返回指南内容", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
   const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
   assert.ok(guide !== undefined);
-  // 触发与去重由 rule-engine 统一负责：会话建立（含恢复）/ 压缩完成直写，
-  // 步末按记录判断（可见投影 + 未消费 inbox；最多 1 条）；
+  // 触发与去重由 rule-engine 统一负责：三个节点都按记录判断（可见投影 + 未消费 inbox；
+  // 最多 1 条）；不声明 directWrite，故会话建立（含恢复）与压缩完成也先看投影；
   // 与 skill 自加载规则同节点同 delivery → 同一次触发合并成一条注入
   assert.deepEqual(guide.sources, ["session-start", "compaction", "step-end"]);
-  assert.deepEqual(guide.directWrite, ["session-start", "compaction"]);
+  assert.equal(guide.directWrite, undefined, "不直写：所有节点都先查记录");
   assert.equal(guide.delivery, "steer");
   assert.equal(guide.dedupeInRecord, 1);
   const context = { sessionId: "s1", turn: 1, text: "", trigger: "step-end" };

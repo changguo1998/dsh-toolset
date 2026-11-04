@@ -58,6 +58,8 @@ export interface Delivery {
 
 /** 装配体: 注册记录 / 派发 / 投影 / 展示面 / 告警 / 注销。 */
 export interface Assembly {
+  /** 记录里当前可见的注入摘要 (模拟「可见投影 + 未消费 inbox」, 按 sessionId 分账)。 */
+  readonly record: ReadonlyMap<string, readonly string[]>;
   /** 注册项 (按注册顺序)。 */
   readonly registrations: readonly ConsumerRegistration[];
   /** 当前仍生效的注册项条数 (dispose 后归零)。 */
@@ -81,6 +83,8 @@ export interface Assembly {
     text: string,
     options?: { sessionId?: string; turn?: number },
   ): Delivery[];
+  /** 清空记录 (模拟压缩把旧注入挤出可见投影 / 恢复会话投影里本来就看得见)。 */
+  clearRecord(sessionId?: string): void;
   /** 注销消费者 (模拟 cordis 卸载: 调用 effect 返回的清理函数)。 */
   dispose(): void;
 }
@@ -150,6 +154,8 @@ export async function assemble(
   const active = new Set<ConsumerRegistration>();
   const delivered: Delivery[] = [];
   const events: ReviewEvent[] = [];
+  // 记录里的注入摘要 (模拟宿主 `deriveMessages()` 可见投影 + inbox 未消费注入)
+  const record = new Map<string, string[]>();
   const warnings: string[] = [];
   const effects: Array<() => unknown> = [];
   let service: SymbolNormalizerService | undefined;
@@ -202,6 +208,7 @@ export async function assemble(
     emitOptions: { sessionId?: string; turn?: number } = {},
   ): Delivery[] => {
     const before = delivered.length;
+    const id = emitOptions.sessionId ?? sessionId;
     for (const registration of [...active]) {
       const sources = registration.sources ?? ["turn-end"];
       if (!sources.includes(trigger)) continue;
@@ -212,7 +219,7 @@ export async function assemble(
         ...captureStderr(() => {
           outcomes.push(
             decide({
-              sessionId: emitOptions.sessionId ?? sessionId,
+              sessionId: id,
               turn: emitOptions.turn ?? 1,
               text,
               trigger,
@@ -222,16 +229,31 @@ export async function assemble(
       );
       const feedback = outcomes[0] ?? null;
       if (feedback === null) continue;
+      // 记录去重 (顺序照 rule-engine consumers.ts: 先 decide 取 summary, 再按
+      // dedupeInRecord 判断; 声明在 directWrite 里的节点跳过该判断)
+      const summary = feedback.summary ?? "";
+      const limit = registration.dedupeInRecord ?? 0;
+      const direct = (registration.directWrite ?? []).includes(trigger);
+      const visible = record.get(id) ?? [];
+      if (
+        !direct &&
+        limit > 0 &&
+        visible.filter((item) => item === summary).length >= limit
+      )
+        continue;
+      visible.push(summary);
+      record.set(id, visible);
       delivered.push({
         trigger,
         via: registration.delivery ?? "followup",
-        message: projectFeedback(feedback, feedback.summary ?? ""),
+        message: projectFeedback(feedback, summary),
       });
     }
     return delivered.slice(before);
   };
 
   return {
+    record,
     registrations,
     get activeCount(): number {
       return active.size;
@@ -245,6 +267,10 @@ export async function assemble(
     emit: dispatch,
     emitTurnEnd(text, emitOptions = {}) {
       return dispatch("turn-end", text, emitOptions);
+    },
+    clearRecord(id) {
+      if (id === undefined) record.clear();
+      else record.delete(id);
     },
     dispose() {
       for (const effect of effects) {

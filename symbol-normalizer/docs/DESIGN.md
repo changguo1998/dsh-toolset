@@ -33,7 +33,7 @@ guide.ts    会话开局指南文案：白名单 / 变体映射由 config 生成
 2. **冷却按会话隔离**：迁移前 TUI 为进程级；独立插件服务多会话，故 `Map<sessionId, Map<symbol, rec>>`。冷却语义（双维度任一未过期即冷却、每次审查推进 run 计数、登记时重置）与迁移前一致。
 3. **notice 经服务回调（`onReview`）**：审查只算一次（冷却只消费一次），展示层订阅事件；避免展示层自行计算导致口径不一致。
 4. **可观测性**：apply 写 stderr 自证日志（推荐 / 别名 / 冷却 / warnModel）；`decide` 内异常不外抛（rule-engine 侧也会隔离）。
-5. **开局指南按 rule-engine 统一标准注册**（2026-10-01「注入标准统一与合并」起；2026-10-02「注入时机直写」改为多节点 + 直写）：`sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1` + `directWrite: ["session-start", "compaction"]`——`session-start`（含恢复）与 `compaction` 跳过记录去重判断直接写入，`step-end` 按会话记录（可见投影 + 未消费 inbox）判断（最多 1 条，压缩挤出后补回）；与 skill 自加载规则同节点同组 → 合并成一条注入；不再自管进程内 gate 与历史判空（那份逻辑已删）。`提醒` 类回合反馈仍不走去重（每次违规都该说）。
+5. **开局指南按 rule-engine 统一标准注册**（2026-10-01「注入标准统一与合并」起；2026-11-05「所有注入前都查投影」定稿）：`sources: ["session-start", "compaction", "step-end"]` + `delivery: "steer"` + `dedupeInRecord: 1`，**不声明 `directWrite`**——三个节点都先读会话记录（可见投影 + 未消费 inbox），已有 1 条同 `summary` 的指南就不再注入，看不见才注入（最多 1 条；压缩把旧注入挤出后补回）。故恢复会话在投影里看得见旧指南时跳过、压缩未遮蔽旧指南时也不重复注入（压缩只遮蔽 `shadowedRange`，区间外的尾部消息仍在投影里，不保证挤出）。与 skill 自加载规则同节点同组 → 合并成一条注入；不再自管进程内 gate 与历史判空（那份逻辑已删）。`提醒` 类回合反馈仍不走去重（每次违规都该说）。
 
 ## 取舍
 

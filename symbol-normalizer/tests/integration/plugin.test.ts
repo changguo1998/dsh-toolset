@@ -32,7 +32,7 @@ test("apply 接线: 注册审查与指南两个消费者, provide 服务面, 装
       "compaction",
       "step-end",
     ]);
-    assert.deepEqual(guide?.directWrite, ["session-start", "compaction"]);
+    assert.equal(guide?.directWrite, undefined, "不声明直写：三个节点都查记录");
     assert.equal(guide?.delivery, "steer");
     assert.equal(guide?.dedupeInRecord, 1);
     assert.equal(assembly.warnings.length, 0);
@@ -152,11 +152,11 @@ test("回合审查边界: warnModel=false 只推 notice 不注入; 冷却期内�
   }
 });
 
-test("开局指南: session-start / compaction 直写, step-end 去重, turn-end 不唤醒", async () => {
+test("开局指南: 三个节点都按记录去重 (投影里已有就跳过), turn-end 不唤醒", async () => {
   const assembly = await assemble();
   try {
     const started = assembly.emit("session-start", "");
-    assert.equal(started.length, 1);
+    assert.equal(started.length, 1, "首条指南注入");
     assert.equal(started[0]?.via, "steer");
     const source = started[0]?.message["source"] as
       { summary?: string } | undefined;
@@ -164,8 +164,27 @@ test("开局指南: session-start / compaction 直写, step-end 去重, turn-end
     const text = projectedText(started[0]!);
     assert.match(text, /^\[符号规范\]/);
     assert.match(text, /推荐符号白名单/);
-    assert.equal(assembly.emit("compaction", "").length, 1, "压缩完成同样直写");
-    assert.equal(assembly.emit("step-end", "").length, 1, "步末也注入");
+    // 投影里仍看得见这条指南 → 会话开始 / 压缩 / 步末都不再注入
+    assert.equal(
+      assembly.emit("session-start", "").length,
+      0,
+      "恢复会话不重复",
+    );
+    assert.equal(
+      assembly.emit("compaction", "").length,
+      0,
+      "压缩未遮蔽旧指南 → 跳过",
+    );
+    assert.equal(assembly.emit("step-end", "").length, 0, "步末同样跳过");
+    assert.deepEqual(
+      assembly.record.get("s1"),
+      [GUIDE_SUMMARY],
+      "记录里仍 1 条",
+    );
+    // 压缩把旧指南挤出投影 (或新会话投影为空) → 下一个节点补回一条
+    assembly.clearRecord();
+    assert.equal(assembly.emit("compaction", "").length, 1, "挤出后补注入");
+    assert.equal(assembly.emit("step-end", "").length, 0, "补回后再次跳过");
     assert.equal(assembly.emitTurnEnd("").length, 0, "turn-end 不唤醒指南");
     assert.equal(assembly.events.length, 0, "指南不进展示面 notice");
   } finally {

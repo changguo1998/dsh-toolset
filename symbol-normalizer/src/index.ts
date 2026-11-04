@@ -133,10 +133,10 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     }
 
     // 会话开局指南：注入「推荐白名单 + 使用标准」文案。
-    // 触发与去重全交 rule-engine 统一标准：`session-start` + `compaction` **直写**
-    // （跳过记录去重判断；`session-start` 含恢复，故恢复会话也会再注入一次）、
-    // `step-end` 按 `dedupeInRecord: 1` 判断（记录 = 可见投影 + 未消费 inbox，已有就跳过；
-    // 压缩把注入挤出记录后自然补回）。
+    // 触发与去重全交 rule-engine 统一标准：`session-start` / `compaction` / `step-end`
+    // 三个节点**都**按 `dedupeInRecord: 1` 判断（读面 = 可见投影 + 未消费 inbox；已有
+    // 1 条同 summary 的指南就跳过，压缩把注入挤出记录后自然补回）。不声明 `directWrite`：
+    // 会话建立（含恢复）与压缩完成也先看投影，避免投影里还看得见旧指南时重复注入。
     // `delivery: "steer"` 与 skill 自加载规则同节点同组 → 同一次触发合并为一条注入。
     let disposeGuide: (() => void) | undefined;
     if (
@@ -150,7 +150,6 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
           sources: ["session-start", "compaction", "step-end"],
           delivery: "steer",
           dedupeInRecord: 1,
-          directWrite: ["session-start", "compaction"],
           decide: () => ({
             text: buildSymbolGuide(rules),
             summary: GUIDE_SUMMARY,

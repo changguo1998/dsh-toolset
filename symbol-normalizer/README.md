@@ -42,7 +42,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 ### 3. 会话开局指南（消费者 `symbol-normalizer-guide`）
 
 - 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、**英文标点且标点后留一个空格**、**非 ASCII 符号后留一个空格（不紧贴文字）**、变体必须用推荐对应符、使用场景口径、代码段豁免说明），末尾以空行分隔附一条**不编号**的工作流指令「若本会话有正在进行的工作, 了解后继续原任务; 否则停下等待指令, 不要自行去工作区找任务.」（不与 1~7 条符号规范混列）；文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容。
-- 触发与去重照 rule-engine 统一标准（`sources` / `delivery` / `dedupeInRecord` / `directWrite` 四项取值、直写与同组合并口径见 `docs/DESIGN.md` 的「机制」第 5 条）；`injectGuide: false` 关闭。**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
+- 触发与去重照 rule-engine 统一标准（`sources` / `delivery` / `dedupeInRecord` 三项取值、同组合并口径见 `docs/DESIGN.md` 的「机制」第 5 条）：`session-start` / `compaction` / `step-end` 三个节点**都**先读会话记录（可见投影 + 未消费 inbox），投影里已有 1 条指南就不再注入，看不见才注入（故恢复会话与未挤出旧指南的压缩都不重复注入）；`injectGuide: false` 关闭。**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
 
 ### 4. 服务（`provide("symbolNormalizer")`）
 
