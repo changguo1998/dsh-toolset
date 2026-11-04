@@ -52,16 +52,7 @@ rm -rf ../tmp/cov-metric-loop && mkdir -p ../tmp/cov-metric-loop && NODE_V8_COVE
 ## 实现记录
 
 - 阶段 2 测试锚定（分支 `history-cleanup/02-tests-metric-loop`）:
-  - 基线（改前, 本 worktree 实测）: `pnpm -C metric-loop run test` 47 条全过（116ms）; `check` 绿; 覆盖率行 90.5% (801/885) / 分支 83.3% (174/209).
-  - 单元层: 新增 `tests/measure.test.ts`（7 条: 单数字解析的正负例 / stdout+stderr 合并输出 / 成功 / 无数字 / 非零退出 / 50ms 超时 / 尾部 500 字符截断 / `cwd` 透传）; `tests/persist.test.ts` 追加 2 条（缺必填字段报字段名、历史超 500 轮只留尾部）。既有用例语义未改.
-  - 集成层: 新增 `tests/assemble.ts`（假工具面 / 假事件面 / 假服务面 + 假时钟, 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（17 条, 6 个 describe）:
-    - 注册与元数据: `metric_loop` 单工具、四动作与枚举、`output.schema` 为 object; 导出 `name` / `inject` / `provide`; 事件面零订阅、服务面出现 `clock` 与 `metricLoop`; `ctx` 缺 `tools` 时降级告警.
-    - `execute` canonical 值: `start` 的完整 `TickResult`（round / state / schedule / summary / `guardScope=tool-args`）与落盘一致; `start` 缺省 id / metricless; `tick` 的 cadence 节流（`deferred`、`nextWakeSec=40`、state 不变）与 explicit 紧急唤醒（累计 token、`nextWakeSec=60`）; `tick` 未知 id 转结构化错误; `status` / `stop` / 未知 action.
-    - 停止与超时（假时钟拨表, 无真实等待）: `maxRounds` 到顶、时间边界到点（轮前停止、`round=null`、`schedule=null`）、已停止再 tick 不增轮、测量失败记无改进.
-    - `output.render`: 对象投影为缩进 JSON、字符串原样、`undefined` 给占位.
-    - 服务面: `metricLoop` 的 `list` / `status` 与状态文件一致; 读钟走 `ctx.get('clock').now()`, `clock` 缺席回落 `Date.now`; `security-guard` 复查按 `guardScope` 分工（`start` 不复查、`tick` 复查并记录来源）、拦截回执转结构化错误且状态文件不变、无可达性依赖.
-  - 脚本: `metric-loop/package.json` 增 `test:integration` 与 `test:coverage`（命令与规划一致, 报告写 `tmp/cov-metric-loop`）.
-  - `skip` / `todo`: 本包 0 处; 无夹具, 无豁免台账条目; 4.4 专项无需处置.
+  > 测试基线、单元层、集成层与脚本见「四份测试产物」; 本段保留阶段说明.
 
 ## 偏差
 
@@ -69,6 +60,14 @@ rm -rf ../tmp/cov-metric-loop && mkdir -p ../tmp/cov-metric-loop && NODE_V8_COVE
 2. 覆盖率报告里会出现 `clock-base/src/*` 两行: 来自偏差 1 的跨包 import, 不属本包口径, 不计入本包合计（与 `ast-tools` 追踪文档同一处理口径）.
 
 ## 测试与证据
+
+> 覆盖率、未覆盖行、分层贡献、四入口与用例增减见「四份测试产物」.
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
 
 改前 / 改后覆盖率（只统本包 `src`; 报告行号为 0 基, 照报告原样转述）:
 
@@ -84,22 +83,31 @@ rm -rf ../tmp/cov-metric-loop && mkdir -p ../tmp/cov-metric-loop && NODE_V8_COVE
 
 分层贡献（两轮取差, 改后）: 只跑单元层 93.6% (828/885) / 86.4% (191/221); 单元加集成 94.8% (839/885) / 91.6% (219/239) → 集成层贡献行 +1.2pp、分支 +5.2pp。
 
+### 用例清单
+
+- 基线（改前, 本 worktree 实测）: `pnpm -C metric-loop run test` 47 条全过（116ms）; `check` 绿。
+- 单元层: 新增 `tests/measure.test.ts`（7 条: 单数字解析的正负例 / stdout+stderr 合并输出 / 成功 / 无数字 / 非零退出 / 50ms 超时 / 尾部 500 字符截断 / `cwd` 透传）; `tests/persist.test.ts` 追加 2 条（缺必填字段报字段名、历史超 500 轮只留尾部）。既有用例语义未改。
+- 集成层: 新增 `tests/assemble.ts`（假工具面 / 假事件面 / 假服务面 + 假时钟, 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts`（17 条, 6 个 describe）:
+  - 注册与元数据: `metric_loop` 单工具、四动作与枚举、`output.schema` 为 object; 导出 `name` / `inject` / `provide`; 事件面零订阅、服务面出现 `clock` 与 `metricLoop`; `ctx` 缺 `tools` 时降级告警.
+  - `execute` canonical 值: `start` 的完整 `TickResult`（round / state / schedule / summary / `guardScope=tool-args`）与落盘一致; `start` 缺省 id / metricless; `tick` 的 cadence 节流（`deferred`、`nextWakeSec=40`、state 不变）与 explicit 紧急唤醒（累计 token、`nextWakeSec=60`）; `tick` 未知 id 转结构化错误; `status` / `stop` / 未知 action.
+  - 停止与超时（假时钟拨表, 无真实等待）: `maxRounds` 到顶、时间边界到点（轮前停止、`round=null`、`schedule=null`）、已停止再 tick 不增轮、测量失败记无改进.
+  - `output.render`: 对象投影为缩进 JSON、字符串原样、`undefined` 给占位.
+  - 服务面: `metricLoop` 的 `list` / `status` 与状态文件一致; 读钟走 `ctx.get('clock').now()`, `clock` 缺席回落 `Date.now`; `security-guard` 复查按 `guardScope` 分工（`start` 不复查、`tick` 复查并记录来源）、拦截回执转结构化错误且状态文件不变、无可达性依赖.
+- 脚本: `metric-loop/package.json` 增 `test:integration` 与 `test:coverage`（命令与规划一致, 报告写 `tmp/cov-metric-loop`）.
+- 用例增减: 单元 47 → 56（新增 9, 删除 0）; 集成 0 → 17（新增 17, 删除 0）。
+
+### skip 计数与豁免台账
+
+- `skip` / `todo`: 本包 0 处; 无夹具, 无豁免台账条目; 4.4 专项无需处置。
+- `skip` 计数 0（本机未触发环境探测类跳过）; 豁免台账空。端到端不适用（本轮只 `TUI` 做端到端, 见总追踪「后续意向」）。
+
+### 四入口实跑
+
 四条命令实跑（本 worktree）:
 
-| 命令 | 结果 |
+| 入口 | 结果 |
 | --- | --- |
 | `pnpm -C metric-loop run check` | 退出 0（无诊断） |
 | `pnpm -C metric-loop run test` | 56 tests / 56 pass / 0 fail / 0 skipped / 0 todo（约 200ms） |
 | `pnpm -C metric-loop run test:integration` | 17 tests / 17 pass / 0 fail / 0 skipped / 0 todo（约 110ms） |
 | `pnpm -C metric-loop run test:coverage` | 绿; 合计行 94.8% (839/885) / 91.6% (219/239); 报告 `tmp/cov-metric-loop/report.json` |
-
-用例增减: 单元 47 → 56（新增 9, 删 0）; 集成 0 → 17（新增 17, 删 0）。`skip` 计数 0（本机未触发环境探测类跳过）; 豁免台账空。端到端不适用（本轮只 `TUI` 做端到端, 见总追踪「后续意向」）。
-
-## 四份测试产物
-
-| 产物 | 位置 |
-| --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
