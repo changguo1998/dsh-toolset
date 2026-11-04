@@ -394,7 +394,7 @@ test("层 3: 没有命令参数 / stderr 是裸字符串都按形状判断", () 
 });
 
 test("重定向到 /dev/null 不算写形状；其它目标 + 拒绝文本才算", () => {
-  const denied = (command: string, stderr: string): ToolResultLike => ({
+  const denied = (_command: string, stderr: string): ToolResultLike => ({
     content: [{ type: "text", text: stderr }],
     value: {
       kind: "foreground",

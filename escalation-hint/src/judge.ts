@@ -12,7 +12,7 @@
 
 /** 工具调用面（宿主 `ToolExecution` 的结构面子集）。 */
 export interface ToolExecLike {
-  readonly name?: string;
+  readonly name?: string | undefined;
   readonly arguments?: unknown;
   readonly callId?: string;
 }
