@@ -1,5 +1,5 @@
 /**
- * src/registry.ts — 终端登记、会话 × lane 的 workspace 绑定与生命周期
+ * herdr-use/src/registry.ts — 终端登记、会话 × lane 的 workspace 绑定与生命周期
  *
  * 口径（2026-10-23 终端面重构）：
  *   - 登记的是**终端**（tab + 自带 root pane）：所有驱动动作只认登记过的 `terminal_id`；

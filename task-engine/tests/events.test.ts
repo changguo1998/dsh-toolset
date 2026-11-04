@@ -1,4 +1,4 @@
-// tests/events.test.ts — 事件溯源：物化、嵌套视图、快照
+// task-engine/tests/events.test.ts — 事件溯源：物化、嵌套视图、快照
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 

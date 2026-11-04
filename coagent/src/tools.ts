@@ -1,5 +1,5 @@
 /**
- * src/tools.ts — 模型侧工具 `coagent` 的定义（单工具 + `action` 分派三个动作）。
+ * coagent/src/tools.ts — 模型侧工具 `coagent` 的定义（单工具 + `action` 分派三个动作）。
  *
  * Schema 与动作层同源：`additionalProperties: false`，每个参数都写清用途与缺省；
  * `target` / `task` / `text` 等已删除或从未支持的键不在 schema 里（模型看不到），动作层仍会

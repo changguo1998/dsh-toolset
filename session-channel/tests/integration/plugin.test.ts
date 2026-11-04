@@ -3,7 +3,7 @@
  * `output.render` 的投影文本、事件消费者的注入内容、`sessionChannel` 服务面的 provide / get,
  * 以及消息通道 (broker) 与委托任务管理路径.
  *
- * 装配见上一级 `tests/assemble.ts` (三个假面: 工具 / 事件 / 服务); 全程不连 Redis、不建
+ * 装配见上一级 `session-channel/tests/assemble.ts` (三个假面: 工具 / 事件 / 服务); 全程不连 Redis、不建
  * socket: 连接态由 `createFakeRedis()` 的内存 broker 经 `SessionChannelDeps.connect` 注入,
  * 再用 `wireLive()` 把 apply 注册的工具与服务面接到这份真服务上. 本包不落盘, 故不建临时目录.
  */

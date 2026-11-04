@@ -1,7 +1,7 @@
 /**
  * 动作内核: `GroupService` 持每管理者会话的状态缓存、串行锁与镜像计数, 按 action 分派;
- * 具体编排按职责分在 `src/group.ts`（组）/ `src/member.ts`（成员）/ `src/link.ts`（连接）/
- * `src/instruction.ts`（指令与结算）, 各层只经 `GroupActionHost` 协作面读写内核状态。
+ * 具体编排按职责分在 `agent-group/src/group.ts`（组）/ `agent-group/src/member.ts`（成员）/ `agent-group/src/link.ts`（连接）/
+ * `agent-group/src/instruction.ts`（指令与结算）, 各层只经 `GroupActionHost` 协作面读写内核状态。
  *
  * 并发：同一管理者的动作串在一条 promise 链上（同会话内不会两次读到同一份旧状态）。
  */

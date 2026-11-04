@@ -1,8 +1,8 @@
-// src/tools.ts — session-channel 的工具面（四个模型可见工具的定义与出口归一）。
+// session-channel/src/tools.ts — session-channel 的工具面（四个模型可见工具的定义与出口归一）。
 //
 // 工具：`session_channel`（消息 / 别名 / 忙闲 / 状态）、`channel_delegate`（委托任务）、
 // `channel_task`（任务管理）、`channel_task_result`（worker 显式回传）。
-// 行为契约见包 README；服务实现在 `src/service.ts`，任务层在 `src/task-layer.ts`。
+// 行为契约见包 README；服务实现在 `session-channel/src/service.ts`，任务层在 `session-channel/src/task-layer.ts`。
 
 import type { SessionChannelService } from "./service.ts";
 import type { TaskRecord } from "./types.ts";
@@ -379,7 +379,7 @@ export function toTaskResultTool(service: SessionChannelService) {
 
 /**
  * 服务面（`provide("sessionChannel", …)`）暴露的方法键清单：新增公开方法时须同步进服务面
- * （D5 根因：别名三件套曾只加在类上、漏进服务面，消费方调用即抛错），由 `tests/apply.test.ts` 守卫。
+ * （D5 根因：别名三件套曾只加在类上、漏进服务面，消费方调用即抛错），由 `session-channel/tests/apply.test.ts` 守卫。
  * `start` / `stop` / `noteSession` 属宿主生命周期 / 内部面，故意不暴露。
  */
 export const SERVICE_FACE_METHODS = [

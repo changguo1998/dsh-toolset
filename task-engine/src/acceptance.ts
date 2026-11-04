@@ -1,4 +1,4 @@
-// src/acceptance.ts — RET 验收路由器（机械/人工/语义三级）
+// task-engine/src/acceptance.ts — RET 验收路由器（机械/人工/语义三级）
 //
 // 对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §17.4：按 acceptance.level 分派：
 // mechanical → 命令退出码定性；human → approval 链（fail-closed）；semantic →

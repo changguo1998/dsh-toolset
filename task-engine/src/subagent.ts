@@ -1,4 +1,4 @@
-// src/subagent.ts — 子代理发起器与计量：executor 后端与 audit / entail 裁决 run 共用
+// task-engine/src/subagent.ts — 子代理发起器与计量：executor 后端与 audit / entail 裁决 run 共用
 //
 // 一次 run 的完整生命周期：能力位检查、请求拼装、工具面收窄（含去 filter 重试）、
 // 超时 / 取消竞速、终态判定与文本提取、token 计量口径回退。

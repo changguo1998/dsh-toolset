@@ -1060,7 +1060,7 @@ export const AUTO_ALIAS_WORDS_SCIENCE = [
 
 /**
  * 自动别名词表全集（原表 + 扩容表 + 自然科学表）：仍须满足「名词、`[A-Za-z]{2,8}`、
- * 非保留字、无重复」，由 `tests/alias.test.ts` 守卫。
+ * 非保留字、无重复」，由 `session-channel/tests/alias.test.ts` 守卫。
  */
 export const AUTO_ALIAS_POOL: readonly string[] = [
   ...new Set([

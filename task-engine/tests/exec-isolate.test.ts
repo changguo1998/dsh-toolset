@@ -1,4 +1,4 @@
-// tests/exec-isolate.test.ts — executor 隔离（自建简易 worktree）
+// task-engine/tests/exec-isolate.test.ts — executor 隔离（自建简易 worktree）
 //
 // 经**真实** `apply(fakeCtx)` 接线（工具族 / executor 适配器 / 终态钩子 / 卸载收尾都走 main.ts
 // 的真实路径），隔离对象是**临时 git 仓库**（`mkdtemp` + `git init` + 一次提交；只放系统 temp，

@@ -1,5 +1,5 @@
 /**
- * tests/net.test.ts — 真实 unix socket 连接器（`createNetConnector`）
+ * herdr-use/tests/net.test.ts — 真实 unix socket 连接器（`createNetConnector`）
  *
  * 单测不依赖 herdr：本文件起一个**本地假服务端**，验证三件 CLI 层看不见的事——
  *   1. 响应**分片到达**时的 framing（只在收到换行后才算完整响应）；

@@ -1,5 +1,5 @@
 /**
- * src/actions.ts — 十个动作的参数校验、argv / 报文拼装与结果解析（库面核心）
+ * herdr-use/src/actions.ts — 十个动作的参数校验、argv / 报文拼装与结果解析（库面核心）
  *
  * 通道划分：
  *   CLI：create / list / close / label / text / key / run / info，以及 wait 的 `match` / `regex`

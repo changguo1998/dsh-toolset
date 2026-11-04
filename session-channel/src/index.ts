@@ -9,8 +9,8 @@
  * - `apply(ctx, config)`：连接专用 Redis（`$XDG_RUNTIME_DIR/dsh-session-channel.sock`），
  *   跟踪本进程活跃会话（`session/event`）并维护在线心跳，后台阻塞读邮箱流 → 注入目标会话。
  *
- * 分层（阶段 3 代码整理后）：本文件只做接线与对外 re-export；会话层 `src/service.ts`、
- * 任务层 `src/task-layer.ts`、工具面 `src/tools.ts`。拆出的模块不新增包入口，仍只从这里导出。
+ * 分层（阶段 3 代码整理后）：本文件只做接线与对外 re-export；会话层 `session-channel/src/service.ts`、
+ * 任务层 `session-channel/src/task-layer.ts`、工具面 `session-channel/src/tools.ts`。拆出的模块不新增包入口，仍只从这里导出。
  *
  * 降级：连接失败/未启用一律 fail-safe——插件仍在、工具返回错误提示，不抛不影响 dsh 启动。
  */

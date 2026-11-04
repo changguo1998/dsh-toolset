@@ -1,8 +1,8 @@
-// src/task-layer.ts — session-channel 服务层中的任务层（跨会话委托 / 回收，planner-worker 语义）。
+// session-channel/src/task-layer.ts — session-channel 服务层中的任务层（跨会话委托 / 回收，planner-worker 语义）。
 //
 // 职责：任务表读写（`broker.ts`）、注入对位（`user/message`）、轮末自动回收（`turn/end`）、
 // 结果通知。服务实例把连接、时钟、日志与标签解析经 `TaskLayerHost` 传进来；公开方法的
-// 连接判定外壳留在 `src/service.ts`（错误文案与判定顺序不变）。
+// 连接判定外壳留在 `session-channel/src/service.ts`（错误文案与判定顺序不变）。
 //
 // 契约见包 README「委托任务」一节；记录落在 Redis 任务表（`task:<id>`）。
 

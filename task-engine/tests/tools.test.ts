@@ -1,4 +1,4 @@
-// tests/tools.test.ts — 模型侧工具族：executor 声明的解析与反馈（① 发起 / ② 计量）
+// task-engine/tests/tools.test.ts — 模型侧工具族：executor 声明的解析与反馈（① 发起 / ② 计量）
 //
 // 覆盖：task_decompose 解析 children[].executor（合法挂树 / 非法给精确反馈）、
 // task_execute 的发起与证据透出、task_status 的 executorKind 可见性。

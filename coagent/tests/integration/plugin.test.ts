@@ -2,7 +2,7 @@
  * 集成层：本包 `apply` 与宿主接线的验收 —— 工具注册名与参数面、`execute` 的 canonical 回执、
  * `output.render` 的投影文本、服务面缺席 / 降级时的告警与失败码，以及落盘位置。
  *
- * 装配见上一级 `tests/assemble.ts`（三个假面：工具 / 事件 / 服务）；全程不连 Redis、不起
+ * 装配见上一级 `coagent/tests/assemble.ts`（三个假面：工具 / 事件 / 服务）；全程不连 Redis、不起
  * 真宿主，落盘写 `mkdtemp` 的临时目录。时钟用真实时间，故 config 把认领与优雅退出的等待
  * 压到毫秒级。
  */

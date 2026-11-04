@@ -1,5 +1,5 @@
 /**
- * src/types.ts — herdr-use 的共享类型面
+ * herdr-use/src/types.ts — herdr-use 的共享类型面
  *
  * 终端单层口径（2026-10-23 重构）：一个**终端** = 插件用 `tab create` 建出的一个 tab +
  * 它自带的 root pane；工具面只露 `terminal_id`（= root pane id），不出现 pane / tab /

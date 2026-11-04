@@ -1,5 +1,5 @@
 /**
- * tests/harness.ts — 组装 fake 服务面 + 假时钟 + 临时目录，给各用例一个 `coagent` 工具。
+ * coagent/tests/harness.ts — 组装 fake 服务面 + 假时钟 + 临时目录，给各用例一个 `coagent` 工具。
  *
  * 只用测试目录，不碰真实 session-channel / herdr / $DSH_HOME；每个用例结束删目录。
  */

@@ -1,5 +1,5 @@
 /**
- * tests/guard.test.ts — T2 / T3 的接入面与守门断言：服务面缺席不注册、参数面收窄、
+ * coagent/tests/guard.test.ts — T2 / T3 的接入面与守门断言：服务面缺席不注册、参数面收窄、
  * 源码不跨包 import、不自己起进程。
  */
 

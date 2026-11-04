@@ -1,5 +1,5 @@
 /**
- * tests/store.test.ts — T12：记录上限与配额墓碑、落盘权限、索引损坏、退出钩子。
+ * coagent/tests/store.test.ts — T12：记录上限与配额墓碑、落盘权限、索引损坏、退出钩子。
  *
  * 直接驱动 `FileCoagentStore`（不经动作层），另用 harness 覆盖 `maxLive` 的拒绝路径与
  * `markParentExitSync` 的记录收尾。

@@ -1,4 +1,4 @@
-// src/plugin.ts — cordis 插件入口：配置面、装配与生命周期
+// task-engine/src/plugin.ts — cordis 插件入口：配置面、装配与生命周期
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
 // name / inject / provide / Config / apply，Config 以类型声明给出（interface Config；

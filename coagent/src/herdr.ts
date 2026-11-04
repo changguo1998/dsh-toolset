@@ -1,5 +1,5 @@
 /**
- * src/herdr.ts — herdr-use 服务面回执的窄化适配：只做字段提取与错误归一，不封装调用。
+ * coagent/src/herdr.ts — herdr-use 服务面回执的窄化适配：只做字段提取与错误归一，不封装调用。
  *
  * 服务面（`ctx.get("herdrUse")`）的契约见追踪文档「herdr-use 服务面契约」节：回执统一
  * `ActionResult`（成功带 `payload`，失败带 `error.code` / `message` / `hint`），错误码是

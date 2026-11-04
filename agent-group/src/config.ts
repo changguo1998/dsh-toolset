@@ -18,7 +18,7 @@ function positiveNumber(value: unknown, fallback: number): number {
     : fallback;
 }
 
-/** 归一配置（缺省值见 `src/types.ts` 的 `AgentGroupConfig`）。 */
+/** 归一配置（缺省值见 `agent-group/src/types.ts` 的 `AgentGroupConfig`）。 */
 export function resolveConfig(config: AgentGroupConfig = {}): ResolvedConfig {
   const requested = config.stateFileName;
   const fileName =

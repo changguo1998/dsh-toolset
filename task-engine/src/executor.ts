@@ -1,4 +1,4 @@
-// src/executor.ts — executor 适配器：把叶子声明的执行后端翻成宿主调用
+// task-engine/src/executor.ts — executor 适配器：把叶子声明的执行后端翻成宿主调用
 //
 // 三类后端（command / subagent / workflow）各自 fail-closed：宿主面缺失、能力位不足、
 // 同步抛错都返回可读反馈而非中断引擎；失败可重试性由后端给（声明 / 环境问题不计重试）。

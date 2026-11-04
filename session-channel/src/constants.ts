@@ -1,4 +1,4 @@
-// src/constants.ts — 默认参数（可被 `SessionChannelConfig` 覆盖的项集中在此）。
+// session-channel/src/constants.ts — 默认参数（可被 `SessionChannelConfig` 覆盖的项集中在此）。
 //
 // 取值口径：AI 会话的交互尺度——心跳 5s / TTL 15s（3 倍容错）；
 // 邮箱流上限 1000 条（约几十 KB，足够排障且不膨胀）；回执 60s（发送方等待窗口远小于它）。

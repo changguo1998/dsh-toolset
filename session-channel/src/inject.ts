@@ -1,4 +1,4 @@
-// src/inject.ts — 把收到的消息注入目标会话（宿主 agent 面）。
+// session-channel/src/inject.ts — 把收到的消息注入目标会话（宿主 agent 面）。
 //
 // **时序红线**（rule-engine 已实证）：`session/event` 监听器运行在 `Session.append` 的同步
 // 派发窗口内，此刻直接调用 `agent.followup()` 会撞重入保护（异常被宿主 logger 吞掉，现象是

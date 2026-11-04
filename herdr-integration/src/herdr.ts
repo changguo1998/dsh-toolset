@@ -1,4 +1,4 @@
-// src/herdr.ts — herdr 面板协议客户端
+// herdr-integration/src/herdr.ts — herdr 面板协议客户端
 //
 // 协议仿 pi 原生扩展 `~/.pi/agent/extensions/herdr-agent-state.ts`（该文件由 herdr
 // 安装管理，本实现仅对齐协议与行为，代码重写）。协议要点：

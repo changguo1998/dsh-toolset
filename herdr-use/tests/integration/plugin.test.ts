@@ -3,7 +3,7 @@
  * `output.render` 的投影文本、`tools/pre-execute` 的判定、`herdrUse` 服务面、前后台 lane
  * 的 argv / socket 分叉，以及失败路径的错误码与放行提示。
  *
- * 装配见上一级 `tests/assemble.ts`（三个假面：工具 / 事件 / 服务）；全程不连 herdr socket、
+ * 装配见上一级 `herdr-use/tests/assemble.ts`（三个假面：工具 / 事件 / 服务）；全程不连 herdr socket、
  * 不起 herdr 子进程、不用真实时钟。本包不落盘，故不建临时目录。
  */
 

@@ -1,4 +1,4 @@
-// src/tools.ts — 模型侧工具族：task_decompose / task_implement / task_execute /
+// task-engine/src/tools.ts — 模型侧工具族：task_decompose / task_implement / task_execute /
 // task_stop / task_status（+ 嵌套任务列表：parent_id + order）
 //
 // 零 DSH 依赖的纯数据 + 处理器：工具定义供 cordis 适配层结构注册（plugin.ts），

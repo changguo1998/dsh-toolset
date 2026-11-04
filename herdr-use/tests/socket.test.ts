@@ -1,5 +1,5 @@
 /**
- * tests/socket.test.ts — socket 读通道与 stable 判稳
+ * herdr-use/tests/socket.test.ts — socket 读通道与 stable 判稳
  *
  * 覆盖：`pane.read` 报文拼装（source 下划线映射、format/strip_ansi 联动）、响应解析
  * （含分片到达的 framing、错误信封）、连接层三种失败、stable 判稳三例（revision 收敛 /

@@ -1,5 +1,5 @@
 /**
- * src/main.ts — 插件入口（DSH bundle 接入面）：注册模型侧工具 `coagent`。
+ * coagent/src/main.ts — 插件入口（DSH bundle 接入面）：注册模型侧工具 `coagent`。
  *
  * 契约对齐 `docs/host/DSH-CTX-API.md` §0（`export { name, inject, Config, apply }`）：
  * - `inject = ["tools", "herdrUse", "sessionChannel"]`：注册面与服务面都是必需依赖，

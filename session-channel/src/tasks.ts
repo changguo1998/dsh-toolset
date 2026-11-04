@@ -1,4 +1,4 @@
-// src/tasks.ts — 委托任务的纯函数面（常量、注入/通知文案、结果截断、状态判定）。
+// session-channel/src/tasks.ts — 委托任务的纯函数面（常量、注入/通知文案、结果截断、状态判定）。
 //
 // 与 IO 解耦：便于单测；Redis 读写见 broker.ts，服务面组装见 index.ts。
 

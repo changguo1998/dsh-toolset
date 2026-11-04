@@ -1,5 +1,5 @@
 /**
- * tests/assemble.ts — 集成层装配器（不以 `.test.ts` 结尾）
+ * herdr-use/tests/assemble.ts — 集成层装配器（不以 `.test.ts` 结尾）
  *
  * 把「假工具面 / 假事件面 / 假服务面」拼成一个最小宿主 ctx，交给本包 `apply(ctx, config, deps)`，
  * 再把注册出来的十个工具、`herdrUse` 服务面与 `tools/pre-execute` 监听器交回用例。三个假面
@@ -20,7 +20,7 @@
  * - 后台会话：控制器替身，不 spawn headless server。
  *
  * 退出清理：缺省 `closeOnExit: false`，dispose 只清登记，不 spawnSync；退出清理的 argv 面由
- * 单元层 `tests/registry.test.ts` 锁住。本包不落盘，故装配器不建临时目录。
+ * 单元层 `herdr-use/tests/registry.test.ts` 锁住。本包不落盘，故装配器不建临时目录。
  */
 
 import { apply, TOOL_NAMES } from "../src/index.ts";

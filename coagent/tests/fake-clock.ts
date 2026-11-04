@@ -1,5 +1,5 @@
 /**
- * tests/fake-clock.ts — 手控假时钟：`now()` 读当前时刻，`sleep(ms)` 推进并触发一次回调。
+ * coagent/tests/fake-clock.ts — 手控假时钟：`now()` 读当前时刻，`sleep(ms)` 推进并触发一次回调。
  *
  * 认领与优雅退出都按 `now()` 判上限；用假时钟避免单测真的等 180 s，也让「第 N 轮才上线」
  * 这类时序可精确构造。

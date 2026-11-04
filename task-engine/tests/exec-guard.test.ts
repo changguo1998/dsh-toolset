@@ -1,4 +1,4 @@
-// tests/exec-guard.test.ts — 执行期命令复查（security-guard 服务面）
+// task-engine/tests/exec-guard.test.ts — 执行期命令复查（security-guard 服务面）
 //
 // 引擎执行命令的两条缝都补了「执行前复查」：① executor 的 command 后端（task_execute
 // 发起前）；② mechanical 验收（`acc.command`，含**不在** task_decompose 登记表里的

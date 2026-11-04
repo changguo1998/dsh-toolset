@@ -1,5 +1,5 @@
 /**
- * src/service.ts — 进程内服务面 `herdrUse`（供编排类插件复用）
+ * herdr-use/src/service.ts — 进程内服务面 `herdrUse`（供编排类插件复用）
  *
  * 与十个工具**同源**：每个方法都直接调 `dispatchAction(action, args, dispatchDeps, context)`，
  * 因此共用同一份 registry、同一把写锁、同一套会话绑定。服务面不经宿主

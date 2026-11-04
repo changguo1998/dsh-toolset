@@ -3,7 +3,7 @@
  * 拦截被遮罩工具的调用、在 turn/end 收敛 turn 档授权。
  *
  * 宿主面全部用结构类型（不 import @deepseek-ai/*），契约与证据见
- * `docs/implementation/2026-10-22-tool-consult.md`（R2 / R3 / R4 / D3 / D4）。
+ * `tool-consult/docs/archived/2026-10-22-tool-consult.md`（R2 / R3 / R4 / D3 / D4）。
  * 关键约束：
  * - `tools.restrict()` 只能从 agent 作用域调用，故遮罩在 `agent/created` 里对 `agent.ctx` 应用；
  * - 同一代理只保留**一条**活动遮罩：每次先 dispose 旧遮罩再追加新名单；

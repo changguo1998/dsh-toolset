@@ -1,7 +1,7 @@
 /**
  * 集成层：本包 `apply` 与宿主接线的验收 —— 工具注册名与 `execute` 的 canonical 值、
  * `output.render` 的投影文本、只读服务面 `agentGroup` 的 provide / 读取，以及服务缺失时的
- * 调用期错误。装配见同目录上一级的 `tests/assemble.ts`（三个假面：工具 / 事件 / 服务）。
+ * 调用期错误。装配见同目录上一级的 `agent-group/tests/assemble.ts`（三个假面：工具 / 事件 / 服务）。
  *
  * 落盘写 `mkdtemp` 的临时目录，不连 Redis、不起真宿主。
  */

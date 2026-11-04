@@ -1,5 +1,5 @@
 /**
- * src/channel.ts — 认领新会话：轮询 session-channel 的 `peers()`，按 profile + cwd + 启动时刻
+ * coagent/src/channel.ts — 认领新会话：轮询 session-channel 的 `peers()`，按 profile + cwd + 启动时刻
  * 匹配，并用「不在已有记录里」排除旧会话；同时取屏找 `fffdsh` 自己的报错（快速失败）。
  *
  * 为什么必须轮询（调研 §4）：session-channel 不做启动枚举、事件无回放，子会话要先产生第一条

@@ -1,4 +1,4 @@
-// src/command.ts — 命令执行：真实链路 /bin/sh -c（mechanical 验收与 command 后端共用）
+// task-engine/src/command.ts — 命令执行：真实链路 /bin/sh -c（mechanical 验收与 command 后端共用）
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

@@ -1,4 +1,4 @@
-// tests/semantic.test.ts — 语义面接线（audit / entail）：经 `apply` 真接线 + 假宿主 `subagents`。
+// task-engine/tests/semantic.test.ts — 语义面接线（audit / entail）：经 `apply` 真接线 + 假宿主 `subagents`。
 //
 // 覆盖：entail 通过/不通过/输出不可解析/服务缺失；audit 通过/不通过/不可解析；
 // Config.semantic 开关回到旧行为；裁决 prompt 口径（含验收项 / 产出 / 子项清单）。

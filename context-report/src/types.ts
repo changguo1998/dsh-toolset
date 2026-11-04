@@ -1,4 +1,4 @@
-// src/types.ts — 纯类型层（不 import 任何宿主包）
+// context-report/src/types.ts — 纯类型层（不 import 任何宿主包）
 //
 // 契约对齐 docs/host/DSH-CTX-API.md 与宿主类型声明（dsh 0.1.5-rc.2）：
 //   - `fold.ts` 只吃宿主 `SessionEvent` 的结构子集（`ReportEvent`），故本包零宿主运行期依赖、

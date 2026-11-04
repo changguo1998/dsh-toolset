@@ -1,4 +1,4 @@
-// src/worktree.ts — executor 隔离（自建简易 worktree）：建 / 复用 / 回收
+// task-engine/src/worktree.ts — executor 隔离（自建简易 worktree）：建 / 复用 / 回收
 //
 // 语义见下方原注释；所有 git 调用一律 execFile 直调（不经 shell），且复用命令复查器
 // （命中即不执行，回执原文原样返回）。本模块只管现场，不关心引擎状态机。

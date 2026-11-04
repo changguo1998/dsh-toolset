@@ -1,5 +1,5 @@
 /**
- * tests/fake-herdr.ts — fake herdr-use 服务面（结构与契约里的 `HerdrUseService` 一致）。
+ * coagent/tests/fake-herdr.ts — fake herdr-use 服务面（结构与契约里的 `HerdrUseService` 一致）。
  *
  * 只实现 coagent 消费的六个方法 + 可选自检；每次调用都记账（`calls`），便于断言
  * 「只走服务面」「回滚只 close 一次」「run 只调一次且命令是 fffdsh」。

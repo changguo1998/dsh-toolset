@@ -1,4 +1,4 @@
-// tests/assemble.ts — 集成层装配器: 假宿主 ctx / 本地上游 unix socket / 环境握手
+// herdr-integration/tests/assemble.ts — 集成层装配器: 假宿主 ctx / 本地上游 unix socket / 环境握手
 //
 // 三个假面与总追踪 4.2 一致: 事件面(`on` / `fire`)、服务面(`get` + services 表)、
 // 生命周期面(`effect` / `unload`, 模拟 cordis fiber 卸载时跑 disposer)。

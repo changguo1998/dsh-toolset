@@ -1,4 +1,4 @@
-// src/main.ts — cordis 插件入口（DSH bundle 接入面）
+// context-report/src/main.ts — cordis 插件入口（DSH bundle 接入面）
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（`export { name, inject, provide, Config, apply }`）与
 // dsh 0.1.5-rc.2 宿主实现（0.1.7-rc.2 → 0.2.0-rc.2 升级复核：本包消费面零 diff，见

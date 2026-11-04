@@ -1,4 +1,4 @@
-// src/main.ts — dsh-herdr 集成插件入口（bundle 形态；运行时依赖只有 clock-base 的定时器族）
+// herdr-integration/src/index.ts — dsh-herdr 集成插件入口（bundle 形态；运行时依赖只有 clock-base 的定时器族）
 //
 // 职责：
 //   1. 环境变量握手（HERDR_ENV / HERDR_SOCKET_PATH / HERDR_PANE_ID），未启用即空转。

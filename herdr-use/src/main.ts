@@ -1,11 +1,11 @@
 /**
- * src/main.ts — herdr-use 插件入口（DSH bundle 接入面）
+ * herdr-use/src/main.ts — herdr-use 插件入口（DSH bundle 接入面）
  *
  * 职责：
  *   1. **可用性判定**：二进制可解析（`resolveHerdrBin`）+ 服务端可达（`herdr status --json` 探活）
  *      才启用；`HERDR_*` 全部可选（dsh 不一定跑在 herdr 内：tmux / 普通终端也可用）。探活失败只记
  *      一行日志、不注册。
- *   2. **工具注册**：十个模型侧工具（`src/tools.ts`；`herdr_list` / `herdr_read` / `herdr_info` /
+ *   2. **工具注册**：十个模型侧工具（`herdr-use/src/tools.ts`；`herdr_list` / `herdr_read` / `herdr_info` /
  *      `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` /
  *      `herdr_run`），工具即动作，无 `action` 参数。
  *   3. **服务面**：`ctx.provide("herdrUse", …)`，与十个工具共用同一个 `dispatchDeps`

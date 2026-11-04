@@ -1,4 +1,4 @@
-// src/state.ts — 上报状态推导（纯函数，便于单测）
+// herdr-integration/src/state.ts — 上报状态推导（纯函数，便于单测）
 //
 // 语义对齐 pi 原生扩展 herdr-agent-state.ts 的 desiredState()：
 //   - 任一阻塞来源活跃（blocked 集合非空）→ blocked（携带最近一次阻塞 message）；

@@ -1,4 +1,4 @@
-// src/gate.ts — 分解双重校验门禁：粒度四规则 + coverage 映射（机械部分）
+// task-engine/src/gate.ts — 分解双重校验门禁：粒度四规则 + coverage 映射（机械部分）
 //
 // 对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §10 与 §17.2 第一道门：
 // 越级 / 过粗 / 过细 / 数量 四规则，加 coverage 完备性 + 前置传递（机械拒绝，带反馈打回）。

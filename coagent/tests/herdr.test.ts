@@ -1,5 +1,5 @@
 /**
- * tests/herdr.test.ts — herdr-use 服务面回执的窄化适配：字段提取、错误归一与缺省回退。
+ * coagent/tests/herdr.test.ts — herdr-use 服务面回执的窄化适配：字段提取、错误归一与缺省回退。
  *
  * 这些函数是动作层判「终端还在不在 / 有没有前台进程」的唯一入口，纯函数，直接喂形状。
  */

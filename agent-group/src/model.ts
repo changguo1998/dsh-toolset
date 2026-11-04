@@ -1,6 +1,6 @@
 /**
  * 组状态的数据模型与**纯**状态迁移（不碰传输、不落盘、不读时钟）—— 与动作层
- * （`src/group.ts` / `src/member.ts` / `src/link.ts` / `src/instruction.ts`）分开，
+ * （`agent-group/src/group.ts` / `agent-group/src/member.ts` / `agent-group/src/link.ts` / `agent-group/src/instruction.ts`）分开，
  * 便于把连接规则、等级、未结指令、移除下推逐条写成可单测的纯函数。
  *
  * 不变量（决策项 7-10、14）：

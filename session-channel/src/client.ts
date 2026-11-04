@@ -1,4 +1,4 @@
-// src/client.ts — Redis 连接层：地址解析、连接、健康自检、关闭。
+// session-channel/src/client.ts — Redis 连接层：地址解析、连接、健康自检、关闭。
 //
 // 两个连接（职责隔离）：
 //  - main：常规命令（presence / send / inbox / 回执）；

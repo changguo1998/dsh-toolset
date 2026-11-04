@@ -1,5 +1,5 @@
 /**
- * src/workspace.ts — 会话 × lane ↔ herdr workspace 的内部绑定（**不出工具面**）
+ * herdr-use/src/workspace.ts — 会话 × lane ↔ herdr workspace 的内部绑定（**不出工具面**）
  *
  * 口径（2026-10-23 终端面重构）：
  *   - 严格按 dsh 会话绑定：`(session id, lane)` 各一个 workspace，会话之间不共享。

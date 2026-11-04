@@ -1,5 +1,5 @@
 /**
- * src/actions.ts — `spawn` / `list` / `close` 的实现与按 id 串行。
+ * coagent/src/actions.ts — `spawn` / `list` / `close` 的实现与按 id 串行。
  *
  * 三段职责（2026-10-23 裁定）：
  * - `spawn`：前置校验 → `create` 新终端 → `run fffdsh` → 轮询 `peers` 认领；任一步失败即

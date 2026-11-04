@@ -39,7 +39,7 @@ interface ToolDef {
 
 /**
  * 按宿主四条规则检查 `value`，返回首个违规点的说明（undefined = 合法）。
- * 与 `src/index.ts` 的 `toLosslessJson` 独立实现：归一错了这里必须能抓到。
+ * 与 `session-channel/src/index.ts` 的 `toLosslessJson` 独立实现：归一错了这里必须能抓到。
  */
 function losslessProblem(value: unknown, path = "$"): string | undefined {
   if (value === undefined) return `${path} 为 undefined`;

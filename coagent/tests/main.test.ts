@@ -1,8 +1,8 @@
 /**
- * tests/main.test.ts — 入口层的纯函数与退出钩子：记录根目录推导、store 登记、父进程退出
+ * coagent/tests/main.test.ts — 入口层的纯函数与退出钩子：记录根目录推导、store 登记、父进程退出
  * 收尾的容错。
  *
- * `apply` 与工具接入面归集成层（`tests/integration/plugin.test.ts`），这里只驱动可单测的部分。
+ * `apply` 与工具接入面归集成层（`coagent/tests/integration/plugin.test.ts`），这里只驱动可单测的部分。
  */
 
 import assert from "node:assert/strict";

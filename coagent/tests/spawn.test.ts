@@ -1,5 +1,5 @@
 /**
- * tests/spawn.test.ts — T1 至 T8、T13：拉起链路、只走服务面、前台约束、失败回滚与认领超时。
+ * coagent/tests/spawn.test.ts — T1 至 T8、T13：拉起链路、只走服务面、前台约束、失败回滚与认领超时。
  *
  * 全部由 fake herdrUse + fake sessionChannel + 假时钟 + 临时目录驱动；断言口径按新契约：
  * 回执只有 `terminal_id`（无 `pane_id` / `tab_id`），回滚只调一次 `close`。

@@ -1,4 +1,4 @@
-// tests/gate.test.ts — 分解门禁：粒度四规则 + coverage
+// task-engine/tests/gate.test.ts — 分解门禁：粒度四规则 + coverage
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 

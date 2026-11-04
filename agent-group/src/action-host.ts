@@ -1,7 +1,7 @@
 /**
  * 动作层共享面: 组 / 成员 / 连接 / 指令与结算四层只依赖这里的协作接口与参数小工具。
  *
- * 内核 `GroupService`（`src/service.ts`）实现 `GroupActionHost`, 状态缓存、串行锁与
+ * 内核 `GroupService`（`agent-group/src/service.ts`）实现 `GroupActionHost`, 状态缓存、串行锁与
  * 镜像计数留在内核; 动作模块只表达「这一步怎么编排」, 便于分别阅读与测试。
  */
 

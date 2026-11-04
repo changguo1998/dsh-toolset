@@ -1,4 +1,4 @@
-// tests/main.test.ts — 插件组装与状态上报单测
+// herdr-integration/tests/main.test.ts — 插件组装与状态上报单测
 //
 // 用 fake ctx + 记录器 sender 注入，验证：握手禁用空转、启动期同步、
 // agent/status → working/idle、ask-user / approval waterfall 观察型 blocked 桥、

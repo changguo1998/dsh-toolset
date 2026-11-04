@@ -1,5 +1,5 @@
 /**
- * src/socket.ts — herdr unix socket 读通道（单请求连接）
+ * herdr-use/src/socket.ts — herdr unix socket 读通道（单请求连接）
  *
  * 为什么只有读走 socket（设计文档决策项 1）：socket 相对 CLI 的**硬优势只有一处**——
  * `pane.read` 返回 `revision` / `truncated`，而 CLI 的 `pane read` 只输出纯文本。

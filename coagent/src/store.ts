@@ -1,5 +1,5 @@
 /**
- * src/store.ts — coagent 的状态落盘：索引原子读写、每记录一目录、配额裁剪与墓碑。
+ * coagent/src/store.ts — coagent 的状态落盘：索引原子读写、每记录一目录、配额裁剪与墓碑。
  *
  * 落点（决策项 11）：`<父会话目录>/coagent/`（目录 0700）；
  * 索引 `index.json` 用 tmp + rename 原子写（0600），记录目录 `<coagent_id>/` 放

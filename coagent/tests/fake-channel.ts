@@ -1,5 +1,5 @@
 /**
- * tests/fake-channel.ts — fake session-channel 服务面（只实现 `peers` 与可选 `statusOf`）。
+ * coagent/tests/fake-channel.ts — fake session-channel 服务面（只实现 `peers` 与可选 `statusOf`）。
  *
  * 认领相关用例的套路：先空列表，在 `sleep` 回调里 `addPeer`，让下一轮轮询命中。
  */

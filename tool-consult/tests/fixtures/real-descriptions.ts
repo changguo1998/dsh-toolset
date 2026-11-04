@@ -4,7 +4,7 @@
  *
  * 来历: 2026-10-25 从各包源码逐字提取 44 个工具的工具级 description（不含
  * 参数名; 参数键名权重 1, 不影响本语料要守的加成 / 长度参数）。此前
- * `tests/retrieval.test.ts` 用的是手写「目标措辞」, 与源码漂移（如「改文件」
+ * `tool-consult/tests/retrieval.test.ts` 用的是手写「目标措辞」, 与源码漂移（如「改文件」
  * 断言 edit top-1, 源码里 hash_edit 的描述含「按 LINE:HASH 锚点改文件」）, 守
  * 的是假想措辞。本文件让守护测试反映源码现状。
  *
@@ -131,7 +131,7 @@ export const CORPUS_DOCS: readonly ToolDoc[] = [
 ].map(([name, description]) => ({ name, description }));
 
 /**
- * 生产检索索引: `consult_tools` 是查询入口本身, 由 `src/index.ts` 的
+ * 生产检索索引: `consult_tools` 是查询入口本身, 由 `tool-consult/src/index.ts` 的
  * `buildMatcher` 过滤掉; 这里同样排除, 让守护测试与线上索引同口径。
  */
 export const INDEXED_DOCS: readonly ToolDoc[] = CORPUS_DOCS.filter(

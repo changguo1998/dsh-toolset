@@ -1,7 +1,7 @@
 /**
- * tests/launch.test.ts — 拉起守门的锚点：`cwd` 校验、命令拼装、参数面校验与脱管痕迹自检。
+ * coagent/tests/launch.test.ts — 拉起守门的锚点：`cwd` 校验、命令拼装、参数面校验与脱管痕迹自检。
  *
- * 纯函数 + 临时目录；只驱动 `src/launch.ts` 的导出。
+ * 纯函数 + 临时目录；只驱动 `coagent/src/launch.ts` 的导出。
  */
 
 import assert from "node:assert/strict";

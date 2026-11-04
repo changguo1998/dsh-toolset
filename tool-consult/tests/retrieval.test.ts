@@ -1,7 +1,7 @@
-// tests/retrieval.test.ts — 重叠工具检索回归（决策 5，见
+// tool-consult/tests/retrieval.test.ts — 重叠工具检索回归（决策 5，见
 // docs/archived/2026-10-25-tool-consult-matcher-review.md）。
 //
-// 语料改成「真实措辞」（tests/fixtures/real-descriptions.ts）：44 条从各包源码
+// 语料改成「真实措辞」（tool-consult/tests/fixtures/real-descriptions.ts）：44 条从各包源码
 // 逐字提取的工具级描述 + 8 条占位（6 宿主核心 + script_run + consult_tools）。
 // 此前的 fixture 是手写「目标措辞」，与源码漂移（如「改文件」断言 edit top-1，
 // 源码里 hash_edit 的描述含「按 LINE:HASH 锚点改文件」），守的是假想措辞。

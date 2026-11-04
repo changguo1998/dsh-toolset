@@ -61,7 +61,7 @@ interface PluginCtx {
  * `exec.agent?.session.header.cwd`）。宿主未传 exec / 非 agent 调用方 / 会话无
  * cwd → 回退 `process.cwd()`（裸进程语义，仅在无会话上下文时生效）。
  * 注意：不可读 `ctx.cwd`——cordis 上下文代理上未 inject 的属性读取会直接抛错
- * （见 `docs/archived/2026-09-27-cwd-injection.md`：旧实现的 `ctx.cwd ?? process.cwd()` 兜底永远走不到）。
+ * （见 `fs-digest/docs/archived/2026-09-27-cwd-injection.md`：旧实现的 `ctx.cwd ?? process.cwd()` 兜底永远走不到）。
  */
 function resolveExecCwd(exec: unknown): string {
   const agent = (exec as ToolExecCtx | undefined)?.agent;

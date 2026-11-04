@@ -1,5 +1,5 @@
 /**
- * src/tools.ts — herdr 终端工具的模型面定义与回执渲染
+ * herdr-use/src/tools.ts — herdr 终端工具的模型面定义与回执渲染
  *
  * 形态（2026-10-23 终端面重构）：**工具即动作**——`herdr_list` / `herdr_read` / `herdr_info` /
  * `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` /

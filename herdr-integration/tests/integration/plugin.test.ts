@@ -1,4 +1,4 @@
-// tests/integration/plugin.test.ts — 集成层: `apply` 与宿主接线
+// herdr-integration/tests/integration/plugin.test.ts — 集成层: `apply` 与宿主接线
 //
 // 用假宿主 ctx(事件面 / 服务面 / 生命周期面) 加本机临时 unix socket 拼 `apply`, 断言:
 // 事件订阅面、启动期同步与事件投影的 canonical 报文值、`agents` / `clock` 服务面读取、

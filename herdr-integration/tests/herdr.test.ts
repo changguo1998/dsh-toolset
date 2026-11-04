@@ -1,4 +1,4 @@
-// tests/herdr.test.ts — herdr 协议客户端单测
+// herdr-integration/tests/herdr.test.ts — herdr 协议客户端单测
 //
 // readHerdrEnv 握手判定 + 真实 unix socket 端到端（消息形状 / seq 单调 / 会话引用随附）。
 import { after, describe, test } from "node:test";

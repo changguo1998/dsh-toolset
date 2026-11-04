@@ -1,4 +1,4 @@
-// src/fold.ts — token 分桶折叠（纯函数，零宿主运行期依赖）
+// context-report/src/fold.ts — token 分桶折叠（纯函数，零宿主运行期依赖）
 //
 // 职责边界（2026-10-06 去重）：回合 / 步 / 墙钟 / 首 token / 解码统计由宿主官方
 // `sessionStats` 投影提供，本折叠**不再重复计算**；这里只折官方空缺的 token 分桶。

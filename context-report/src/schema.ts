@@ -1,4 +1,4 @@
-// src/schema.ts — 极简 JSON 状态 schema（宿主通用 Schema 结构面）
+// context-report/src/schema.ts — 极简 JSON 状态 schema（宿主通用 Schema 结构面）
 //
 // 为什么自建而不引 schemastery：本包零运行期依赖（与其余 dsh-toolset 包口径一致）。
 // 宿主 `SessionProjectionRegistry.register` 只在**恢复持久化缓存行**时调用 `stateSchema.parse`

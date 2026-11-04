@@ -1,4 +1,4 @@
-// src/dsh-tools.ts — 工具面适配：纯工具定义 → dsh tools.register 接受的形态
+// task-engine/src/dsh-tools.ts — 工具面适配：纯工具定义 → dsh tools.register 接受的形态
 //
 // 补上宿主 defineTool 那层参数 schema 编译与 output.render（后者是宿主硬要求），
 // 纯工具语义仍在 tools.ts。

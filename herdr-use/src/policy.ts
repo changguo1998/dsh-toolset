@@ -1,5 +1,5 @@
 /**
- * src/policy.ts — 安全闸门的判定（纯函数 + 两个可注入的接线）
+ * herdr-use/src/policy.ts — 安全闸门的判定（纯函数 + 两个可注入的接线）
  *
  * 2026-10-23 终端面重构后只剩两层：
  *   ① **guard 复查**（本包本地加固）：执行前 `ctx.get("guard")?.inspectCommand(text,

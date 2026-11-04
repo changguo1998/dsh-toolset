@@ -1,4 +1,4 @@
-// src/index.ts — 包入口（唯一对外入口）：插件契约 + 分层的公开导出
+// task-engine/src/index.ts — 包入口（唯一对外入口）：插件契约 + 分层的公开导出
 //
 // 分层（按职责）：plugin（装配 / 生命周期）、engine（状态机与就绪池）、
 // executor / subagent / command / worktree（执行面）、guard（执行前复查）、

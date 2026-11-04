@@ -1,4 +1,4 @@
-// src/keys.ts — Redis 键位命名。
+// session-channel/src/keys.ts — Redis 键位命名。
 //
 // 全部键统一 `dsh:session-channel:` 前缀：便于整体识别、排障与清理；
 // 约定：绝不调用 FLUSHDB/FLUSHALL，清理只用 SCAN + DEL（避免误伤同实例其他应用）。

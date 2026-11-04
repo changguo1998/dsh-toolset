@@ -1,5 +1,5 @@
 /**
- * src/types.ts — coagent 的类型面：配置、记录、状态、稳定错误码，以及三个被消费服务的
+ * coagent/src/types.ts — coagent 的类型面：配置、记录、状态、稳定错误码，以及三个被消费服务的
  * **窄化结构声明**。
  *
  * 依赖姿态（2026-10-23 裁定）：本包不 import 任何 `@dsh-toolset/*` 包，跨包只走服务契约。
@@ -186,7 +186,7 @@ export interface HerdrReadOptions {
  * herdr-use 共用服务面（`ctx.get("herdrUse")`）：与工具面共用同一份登记表、同一把写锁、
  * 同一套会话绑定。本包只声明消费到的六个方法（外加可选的 `isRegistered` 自检）。
  *
- * 契约来源：`docs/implementation/2026-10-23-herdr-use-terminal-surface.md` §「服务面」。
+ * 契约来源：`docs/archived/2026-10-23-herdr-use-terminal-surface.md` §「服务面」。
  */
 export interface HerdrUseFace {
   create(

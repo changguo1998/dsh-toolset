@@ -1,4 +1,4 @@
-// src/broker.ts — 消息、在线状态、共享 KV 与委托任务表的 Redis 操作层（纯函数式：入参 client，无内部状态）。
+// session-channel/src/broker.ts — 消息、在线状态、共享 KV 与委托任务表的 Redis 操作层（纯函数式：入参 client，无内部状态）。
 //
 // 键位见 `keys.ts`；语义约定：
 //  - 在线 = 在线键存在（TTL 内）且 pid 存活（本机快检）；崩溃残留由懒 GC 删除；

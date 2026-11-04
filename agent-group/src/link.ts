@@ -1,7 +1,7 @@
 /**
  * 连接层: 主从连接 / 平等连接的建立, 以及经连接的「发完即走」通知（send_peer / broadcast）。
  *
- * 通知语义不产生未结指令; 需要回报的任务走指令与结算层（`src/instruction.ts`）。
+ * 通知语义不产生未结指令; 需要回报的任务走指令与结算层（`agent-group/src/instruction.ts`）。
  */
 
 import { stringArg, type GroupActionHost } from "./action-host.ts";

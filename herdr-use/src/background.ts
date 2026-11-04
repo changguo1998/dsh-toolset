@@ -1,7 +1,7 @@
 /**
- * src/background.ts — 后台 lane（`dshbg`）的会话自动拉起
+ * herdr-use/src/background.ts — 后台 lane（`dshbg`）的会话自动拉起
  *
- * 真机结论（docs/implementation/2026-10-23-real-machine-verification.md #2）：
+ * 真机结论（docs/archived/2026-10-23-real-machine-verification.md #2）：
  * `herdr --session dshbg <cmd>` 只有在 `dshbg` 的 herdr server 已运行时才可用；
  * 「使用或创建」不成立。正解是显式 headless server：
  *   `herdr --session dshbg server`（CLI reference「Server」节）。

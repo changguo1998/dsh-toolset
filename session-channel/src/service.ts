@@ -1,9 +1,9 @@
-// src/service.ts — session-channel 服务层（会话 / 任务 / 工具面三层中的会话层）。
+// session-channel/src/service.ts — session-channel 服务层（会话 / 任务 / 工具面三层中的会话层）。
 //
 // 职责：连接专用 Redis、跟踪本进程活跃会话并维护在线心跳、把邮箱流里的消息注入目标会话、
 // 维护别名与共享 KV、暴露服务面（`provide("sessionChannel", …)` 的值）。
-// 委托任务（planner-worker）在 `src/task-layer.ts`；工具定义在 `src/tools.ts`；包入口
-// `src/index.ts` 只做 bundle 接线与对外 re-export。
+// 委托任务（planner-worker）在 `session-channel/src/task-layer.ts`；工具定义在 `session-channel/src/tools.ts`；包入口
+// `session-channel/src/index.ts` 只做 bundle 接线与对外 re-export。
 //
 // 降级：连接失败 / 未启用一律 fail-safe——插件仍在、工具返回错误提示，不抛不影响 dsh 启动。
 

@@ -1,7 +1,7 @@
 /**
  * 集成层装配器: 假工具面 + 假服务面 + 假提供面 + 假 `effect` 面, 拼本包 `apply`。
  *
- * 三个假面的形状照 `src/index.ts` 实际消费的结构面抄 (结构化类型, 不 import 宿主包):
+ * 三个假面的形状照 `task-engine/src/index.ts` 实际消费的结构面抄 (结构化类型, 不 import 宿主包):
  * - 工具面: `ctx.tools.register(def)` 收下 `toDshTool` 产物 (含 `parameters` 与 `output.render`);
  * - 服务面: `ctx.get(name)` 按名给 `clock` / `approval` / `guard` / `subagents`,
  *   缺省一律缺席 (fail-closed / fail-open 路径照真实接线走);
@@ -10,7 +10,7 @@
  * 事件面: 本包**不向宿主发事件**, 事件是内部事件流 (`plan/*`) 的 JSON 快照, 故这里用
  * `snapshotPath` + `events()` 当事件面读 —— 与宿主侧「事件注入后的注入内容」等价可断言。
  *
- * 时钟用 `clock-base` 入口导出的真实 `ManualClock` (跨包只经对端 `src/index.ts`), 超时 /
+ * 时钟用 `clock-base` 入口导出的真实 `ManualClock` (跨包只经对端 `task-engine/src/index.ts`), 超时 /
  * 卸载收尾都能手控推进, 用例不依赖真实等待。本装配器不以 `.test.ts` 结尾, 不计入覆盖率
  * (只统 `src`)。
  */

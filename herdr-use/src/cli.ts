@@ -1,5 +1,5 @@
 /**
- * src/cli.ts — herdr CLI 薄封装、可用性握手与探活
+ * herdr-use/src/cli.ts — herdr CLI 薄封装、可用性握手与探活
  *
  * 通道口径：**CLI 为缺省通道**，仅 `pane_read` / `pane_wait` 的 stable 模式走 socket。本模块做四件事：
  *   1. 可用性握手 —— **只要二进制可解析**就返回握手；`HERDR_*` 全部可选（dsh 不一定跑在

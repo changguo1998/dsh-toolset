@@ -1,4 +1,4 @@
-// src/engine.ts — TaskStack 引擎：Frame 状态机、decompose/implement/execute/stop、
+// task-engine/src/engine.ts — TaskStack 引擎：Frame 状态机、decompose/implement/execute/stop、
 // 就绪池（fan-out 多执行器 + 有界并发）、join 续体激活、bounded retry
 //
 // 对齐 docs/host/AGENT-ARCHITECTURE-ANALOGY.md §13/§14/§15/§17：事件溯源驱动，树 = 事件回放；

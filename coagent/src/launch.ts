@@ -1,5 +1,5 @@
 /**
- * src/launch.ts — 拉起的守门：命令白名单、脱管痕迹自检、`spawn` 参数面与 `cwd` 校验。
+ * coagent/src/launch.ts — 拉起的守门：命令白名单、脱管痕迹自检、`spawn` 参数面与 `cwd` 校验。
  *
  * 裁定（决策项 5）：只允许在**用户可见**的终端里**前台**运行 `fffdsh`，不做任意命令透传；
  * 任何脱管痕迹（`nohup` / `setsid` / `&` / `disown` / `bg` / `screen` / `tmux`）一律

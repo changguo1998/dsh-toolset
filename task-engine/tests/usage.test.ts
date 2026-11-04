@@ -1,4 +1,4 @@
-// tests/usage.test.ts — 子会话计量：usage 投影优先、pressure 回退、双缺不写字段。
+// task-engine/tests/usage.test.ts — 子会话计量：usage 投影优先、pressure 回退、双缺不写字段。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

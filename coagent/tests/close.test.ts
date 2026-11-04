@@ -1,5 +1,5 @@
 /**
- * tests/close.test.ts — T9 至 T11：优雅关闭、关闭失败与强制、外部关闭后的幂等归档。
+ * coagent/tests/close.test.ts — T9 至 T11：优雅关闭、关闭失败与强制、外部关闭后的幂等归档。
  *
  * 断言口径按新契约：关闭只有 `close(terminal_id)`（关整个终端），没有 closePane / closeTab。
  */

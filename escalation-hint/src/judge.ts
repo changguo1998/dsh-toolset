@@ -1,7 +1,7 @@
 /**
  * escalation-hint 判定层（纯函数，不依赖宿主类型）。
  *
- * 三层判据（见 `docs/implementation/2026-10-24-escalation-hint-package.md` 决策 3）：
+ * 三层判据（见 `docs/archived/2026-10-24-escalation-hint-package.md` 决策 3）：
  *   1. 结果里已有宿主升级提示（`[sandbox: escalation available …`）→ 跳过，不重复提示；
  *   2. 结果里出现宿主策略拒绝标记（`[sandbox: file access denied under <mode> mode]`）或
  *      `FS_SANDBOX_DENIED` 码，却没有升级提示 → 补提示；

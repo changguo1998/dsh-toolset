@@ -1,4 +1,4 @@
-// tests/state.test.ts — 状态推导纯函数单测（BlockTracker + desiredState）
+// herdr-integration/tests/state.test.ts — 状态推导纯函数单测（BlockTracker + desiredState）
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 

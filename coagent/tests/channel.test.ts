@@ -1,5 +1,5 @@
 /**
- * tests/channel.test.ts — 认领判定的锚点：`matchPeer` 的四个过滤条件、屏文本快速失败的两条
+ * coagent/tests/channel.test.ts — 认领判定的锚点：`matchPeer` 的四个过滤条件、屏文本快速失败的两条
  * pattern，以及 `claimSession` 的三种结局与日志。
  *
  * 时间用 `ManualClock`，服务面用 fake；不落盘、不起宿主。

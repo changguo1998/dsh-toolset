@@ -1,7 +1,7 @@
 /**
  * agent-group 的类型面：配置、组状态（落盘形状）、端口（传输 / 存储 / 镜像）与结果信封。
  *
- * 设计依据：`docs/implementation/2026-10-16-peer-group-protocol-design.md` 的决策项 1-20。
+ * 设计依据：`docs/archived/2026-10-16-peer-group-protocol-design.md` 的决策项 1-20。
  * 落盘与工具返回一律要求 lossless JSON：可选字段**缺失即不存在**，不写 `undefined`
  * （宿主 `INVALID_TOOL_OUTPUT` 的成因，见 session-channel 的同名口径）。
  */
@@ -155,7 +155,7 @@ export interface GroupSuccess {
 
 export type ActionResult = GroupSuccess | GroupFailure;
 
-/** 传输端口：本包对 session-channel 的唯一依赖面（实现见 `src/transport.ts`）。 */
+/** 传输端口：本包对 session-channel 的唯一依赖面（实现见 `agent-group/src/transport.ts`）。 */
 export interface GroupTransport {
   /** 解析寻址（会话 id 精确 → 别名）；离线 / 歧义由实现报。 */
   resolve(
@@ -213,13 +213,13 @@ export interface MemberStateView {
   at?: number;
 }
 
-/** 状态存储端口（实现见 `src/store.ts`：文件 / 内存）。 */
+/** 状态存储端口（实现见 `agent-group/src/store.ts`：文件 / 内存）。 */
 export interface BookStore {
   load(managerSessionId: string): Promise<AgentGroupBook>;
   save(book: AgentGroupBook): Promise<void>;
 }
 
-/** 可选镜像端口（实现见 `src/mirror.ts`：memory-base）。 */
+/** 可选镜像端口（实现见 `agent-group/src/mirror.ts`：memory-base）。 */
 export interface GroupMirror {
   put(input: {
     managerSessionId: string;

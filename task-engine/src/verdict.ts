@@ -1,4 +1,4 @@
-// src/verdict.ts — 裁决面：audit / entail 的提示词、信封 schema 与取值
+// task-engine/src/verdict.ts — 裁决面：audit / entail 的提示词、信封 schema 与取值
 //
 // 裁决 run 只输出一个 JSON 对象（宿主 outputSchema 校验过的 structured 优先），
 // 解析失败一律由调用方按各自口径降级（audit fail-closed / entail 跳过）。

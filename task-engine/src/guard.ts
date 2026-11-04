@@ -1,4 +1,4 @@
-// src/guard.ts — 命令复查（security-guard 服务面）：执行前检查点与跳过留痕
+// task-engine/src/guard.ts — 命令复查（security-guard 服务面）：执行前检查点与跳过留痕
 //
 // 执行期惰性读 ctx.get("guard")；服务缺失 / 形状不符 / 抛错一律 fail-open 放行，
 // 但每种失效模式只告警一次，并以 skipped 标记让调用方在事件流与反馈里留痕。

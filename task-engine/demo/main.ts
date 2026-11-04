@@ -1,4 +1,4 @@
-// demo/main.ts — mock demo：无 DSH 依赖的脚本化模型，驱动引擎走通
+// task-engine/demo/main.ts — mock demo：无 DSH 依赖的脚本化模型，驱动引擎走通
 //
 // 演示链路（对齐 BACKLOG #1-#4 验收）：
 //   decompose（门禁越级拒绝带反馈打回 → 重新拆）→ implement → stop

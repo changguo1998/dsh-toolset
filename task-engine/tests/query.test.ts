@@ -1,4 +1,4 @@
-// tests/query.test.ts — 只读查询面：query()/frameStack() 暴露任务清单、
+// task-engine/tests/query.test.ts — 只读查询面：query()/frameStack() 暴露任务清单、
 // 当前帧栈、active 计数与完成态；只读（不消费就绪池、不改事件流）
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";

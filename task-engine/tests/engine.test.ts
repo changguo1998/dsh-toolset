@@ -1,4 +1,4 @@
-// tests/engine.test.ts — TaskStack 引擎：状态机、就绪池、join、bounded retry、
+// task-engine/tests/engine.test.ts — TaskStack 引擎：状态机、就绪池、join、bounded retry、
 // fan-out 有界并发、语义验收 audit、step 裁决、语义蕴含、abort 恢复
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";

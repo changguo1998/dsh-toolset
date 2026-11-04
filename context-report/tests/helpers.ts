@@ -1,4 +1,4 @@
-// tests/helpers.ts — 测试夹具：构造宿主形态的事件序列（不依赖 dsh 运行时）
+// context-report/tests/helpers.ts — 测试夹具：构造宿主形态的事件序列（不依赖 dsh 运行时）
 //
 // 事件形状对齐宿主 dsh-session 的 SessionEventMap（dsh 0.1.5-rc.2）：turn/step 计数、
 // assistant/message.usage、tool/call↔tool/result 按 callId 配对、session/end-seed 标记。
