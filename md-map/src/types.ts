@@ -102,7 +102,7 @@ export interface MdMapIndex {
 /** 索引选项。 */
 export interface MdMapOptions {
   /** 仓库根（缺省：调用方给的 root → 进程 cwd）。 */
-  root?: string;
+  root?: string | undefined;
   /** 文件数上限（缺省 2000；超出截断并标 truncated）。 */
   maxFiles?: number;
   /** 追加排除的目录名 / 相对路径前缀。 */

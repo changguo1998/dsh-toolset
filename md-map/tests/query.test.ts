@@ -5,16 +5,22 @@ import { writeFileSync } from "node:fs";
 import { before, describe, it } from "node:test";
 
 import { buildIndex } from "../src/indexer.ts";
-import { callers, impact, orphans, report, resolveDocRef, summary, topBacklinks } from "../src/query.ts";
+import {
+  callers,
+  impact,
+  orphans,
+  report,
+  resolveDocRef,
+  summary,
+  topBacklinks,
+} from "../src/query.ts";
 import type { MdMapIndex } from "../src/types.ts";
-import { withTempDir, writeFile, writeFixture } from "./helpers.ts";
+import { withTempDir, writeFixture } from "./helpers.ts";
 
 let index: MdMapIndex;
-let cleanup: () => void;
 
 before(async () => {
   const tmp = withTempDir();
-  cleanup = tmp.cleanup;
   writeFixture(tmp.dir);
   index = await buildIndex({ root: tmp.dir });
 });
@@ -22,7 +28,11 @@ before(async () => {
 describe("callers", () => {
   it("列出引用来源（含行号与锚点）", () => {
     assert.deepEqual(
-      callers(index, "docs/a.md").map((row) => [row.from, row.line, row.anchor ?? "-"]),
+      callers(index, "docs/a.md").map((row) => [
+        row.from,
+        row.line,
+        row.anchor ?? "-",
+      ]),
       [
         ["docs/a.md", 6, "小节"],
         ["README.md", 3, "-"],
@@ -33,8 +43,16 @@ describe("callers", () => {
   });
 
   it("锚点过滤与「唯一后缀 / 文件名」解析", () => {
-    assert.equal(callers(index, "docs/a.md", { anchor: "小节" }).length, 2, "自引用 + README");
-    assert.equal(callers(index, "a.md").length, 3, "按文件名唯一匹配（与全路径同结果）");
+    assert.equal(
+      callers(index, "docs/a.md", { anchor: "小节" }).length,
+      2,
+      "自引用 + README",
+    );
+    assert.equal(
+      callers(index, "a.md").length,
+      3,
+      "按文件名唯一匹配（与全路径同结果）",
+    );
     assert.equal(resolveDocRef(index, "./docs/a.md#小节"), "docs/a.md");
     assert.deepEqual(callers(index, "docs/none.md"), []);
   });
@@ -74,7 +92,10 @@ describe("orphans / report / summary", () => {
       writeFixture(tmp.dir);
       writeFileSync(`${tmp.dir}/docs/LOOSE.md`, "# 无人引用\n");
       const loose = await buildIndex({ root: tmp.dir });
-      assert.ok(orphans(loose).includes("docs/LOOSE.md"), "非入口且零入边：默认就在孤儿里");
+      assert.ok(
+        orphans(loose).includes("docs/LOOSE.md"),
+        "非入口且零入边：默认就在孤儿里",
+      );
       writeFileSync(`${tmp.dir}/index.md`, "# 入口且零入边\n");
       const withEntry = await buildIndex({ root: tmp.dir });
       assert.ok(!orphans(withEntry).includes("index.md"), "入口默认排除");
