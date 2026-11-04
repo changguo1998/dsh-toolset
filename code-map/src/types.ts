@@ -127,15 +127,15 @@ export interface CodeMapReport {
 
 /** 代码地图服务（bundle 暴露面，提供 codeMap）。 */
 export interface CodeMapService {
-  index(opts?: { root?: string }): Promise<IndexResult>;
-  refresh(opts?: { root?: string }): Promise<IndexResult>;
+  index(opts?: { root?: string | undefined }): Promise<IndexResult>;
+  refresh(opts?: { root?: string | undefined }): Promise<IndexResult>;
   callers(
     symbol: string,
-    opts?: { file?: string; kind?: string },
+    opts?: { file?: string | undefined; kind?: string | undefined },
   ): Promise<CallersResult>;
   callees(
     symbol: string,
-    opts?: { file?: string },
+    opts?: { file?: string | undefined },
   ): Promise<{ files: string[] }>;
   impact(target: string): Promise<ImpactResult>;
   cycles(): CycleInfo[];

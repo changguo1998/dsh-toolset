@@ -24,7 +24,7 @@ export interface QueryDeps {
 
 /** callers：候选引用（排除定义行）。精度字段由上层（core）按是否走 LSP 语义层补。 */
 export async function callers(
-  graph: CodeGraph,
+  _graph: CodeGraph,
   symbol: CodeMapSymbol,
   deps: QueryDeps,
 ): Promise<Omit<CallersResult, "precision">> {

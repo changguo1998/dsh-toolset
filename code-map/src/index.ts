@@ -71,12 +71,12 @@ export interface BundleHost {
 
 export interface CodeMapConfig {
   /** 仓库根（缺省 process.cwd()）。 */
-  root?: string;
+  root?: string | undefined;
   /** 注入 ast-tools bundle（可测）；缺省自建（ast-grep 缺失时降级为不可用）。 */
-  ast?: AstToolsBundle;
+  ast?: AstToolsBundle | undefined;
   /** 注入 LSP 引用提供器（可测/嵌入）；缺省由 `apply()` 从宿主 `ctx.lsp` 解析
    *  （三件套不随 dsh 分发 → 缺省解析不到，回落结构层同名候选）。 */
-  lsp?: LspReferencesProvider;
+  lsp?: LspReferencesProvider | undefined;
 }
 
 /**
@@ -150,11 +150,11 @@ class CodeMapServiceCore implements CodeMapService {
     };
   }
 
-  index(opts: { root?: string } = {}): Promise<IndexResult> {
+  index(opts: { root?: string | undefined } = {}): Promise<IndexResult> {
     return opts.root ? this.reindex(opts.root) : this.ensureIndexed();
   }
 
-  refresh(opts: { root?: string } = {}): Promise<IndexResult> {
+  refresh(opts: { root?: string | undefined } = {}): Promise<IndexResult> {
     return this.reindex(opts.root ?? (this.indexedRoot || this.root));
   }
 
@@ -179,7 +179,7 @@ class CodeMapServiceCore implements CodeMapService {
 
   async callers(
     symbol: string,
-    opts: { file?: string; kind?: string } = {},
+    opts: { file?: string | undefined; kind?: string | undefined } = {},
   ): Promise<CallersResult> {
     await this.ensureIndexed();
     const sym = this.resolveSymbol(symbol, opts.file);
