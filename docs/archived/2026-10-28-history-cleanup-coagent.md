@@ -62,28 +62,9 @@ rm -rf ../tmp/cov-coagent && mkdir -p ../tmp/cov-coagent && NODE_V8_COVERAGE=../
 
 ## 实现记录
 
-基线(分支上先跑): `pnpm -C coagent run test` 33 通过 / 0 失败 / 0 `skip` / 0 `todo`, 耗时约 135 ms; `pnpm -C coagent run check` 通过; 覆盖率行 79.9% (1574/1970)、分支 62.4% (227/364), 与「现状」一致。
+> 测试基线、用例表、判定取舍与覆盖率见「四份测试产物」; 本节保留范围说明与阶段 3 实现记录.
 
-新增与改动(全部在 `tests/` 与 `package.json`, `src` 未改):
-
-| 文件 | 内容 |
-| --- | --- |
-| `coagent/tests/assemble.ts` | 集成层装配器(不以 `.test.ts` 结尾): 假工具面收集 `register`, 假事件面记录 `on`, 假服务面经 `ctx.get` 与 ctx 属性两路给出 `herdrUse` / `sessionChannel` / `sessionPaths`; 可切换 `herdrShape` / `tools` / `get` / `logger` / `with` 以覆盖缺席与降级路径 |
-| `coagent/tests/integration/plugin.test.ts` | 18 条: 工具注册与参数面、`spawn` / `list` / `close` 的 canonical 回执、`output.render` 投影、`enabled=false`、服务缺失与形状残缺、`sessionPaths` 降级落盘、`ctx.get` 抛错退化、`logger` 退到 info / 抛错不阻断、索引损坏 → `record_write_failed`、探测抛错保留原状态、认领超时 → `claim_timeout` + `lost`、`sessionDirFor` 抛错 → `session_paths_unavailable`、无调用方会话 → `session_unavailable` |
-| `coagent/tests/herdr.test.ts` | 7 条: `payloadOf` / `terminalIdOf` / `screenTextOf` / `runningOf` / `isTerminalGone` / `errorTextOf` / `notesOf` 的字段提取与缺省回退 |
-| `coagent/tests/probe.test.ts` | 9 条: 探测判定表(缺 `terminal_id` / 已 `terminal_closed` / 未登记 / herdr 不可用 / 有前台进程 / 掉线 / `peers` 读失败 / 已 `closed`)与 `findPeer` 三态 |
-| `coagent/tests/channel.test.ts` | 11 条: `matchPeer` 四个过滤条件(已知会话 / 5 s 容差 / profile / cwd 归一)、`screenFailureOf` 两条证据、`claimSession` 的 claimed / screen-failed / timeout 与日志 |
-| `coagent/tests/launch.test.ts` | 9 条: `checkCwd` 四态、`buildLaunchCommand`、脱管痕迹词边界、`optionalString` / `positiveInt` / `booleanArg` / `rejectUnknownKeys` / `launchValueArg` / `parseSpawnArgs` |
-| `coagent/tests/main.test.ts` | 3 条: `coagentRootOf` 两条推导路径(含 `DSH_HOME` 缺省)、`resolveConfig` 显式与缺省、`markParentExitSync` 坏索引不阻塞且跳过 `closed` / 墓碑 |
-| `coagent/tests/spawn.test.ts` | 追加 1 条: 服务面调用抛错不裸抛(`create` → `terminal_create_failed`, `run` → `launch_failed` 且回滚 `close` 一次) |
-| `coagent/tests/store.test.ts` | 追加 5 条: 索引形状逐字段拒绝、非 ENOENT 读失败与同步读坏 JSON、记录目录被文件占位时的 `StoreError` 与删除幂等、`saveSync` 根目录不可写、并发 `update` 串行不丢写 |
-| `coagent/package.json` | 加 `test:integration` 与 `test:coverage`(覆盖率目录 `../tmp/cov-coagent`, 报告 `dev/coverage/report.mjs`) |
-
-判定与取舍:
-
-- 集成层走真实时钟, 但 `config` 把 `claimTimeoutSec` / `graceSec` / `pollIntervalMs` / `gracePollMs` 压到毫秒级, 单条最慢 1 s(认领超时那条), 全套集成约 1.1 s; 不新增对 `apply` 注入时钟的 `src` 改动。
-- 未写 `todo`, 未新增 `skip`; 存量 0 处 `skip` 未动, 无夹具增删。
-- 未碰 `src`; 装配器与用例只经 `src/index.ts` 与 `src/*.ts` 的公开导出。
+- 未碰 `src`; 装配器与用例只经 `src/index.ts` 与 `src/*.ts` 的公开导出.
 
 ### 阶段 3 代码整理
 
@@ -104,18 +85,16 @@ rm -rf ../tmp/cov-coagent && mkdir -p ../tmp/cov-coagent && NODE_V8_COVERAGE=../
 | `pnpm -C coagent run check` | 通过 (tsc `--noEmit`, 无输出) |
 | `pnpm -C coagent run test` | 77 通过 / 0 失败 / 0 `skip` (较阶段 2 少 1 条, 随 `notesOf` 一起删除) |
 
-### 阶段 2 实跑
+> 阶段 2 的四入口、覆盖率、用例与豁免见「四份测试产物」; 本节保留阶段 3 实跑.
 
-四条入口(分支上实跑):
+## 四份测试产物
 
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm -C coagent run check` | 通过(tsc `--noEmit`, 无输出) |
-| `pnpm -C coagent run test` | 78 通过 / 0 失败 / 0 `skip` / 0 `todo`, 约 176 ms |
-| `pnpm -C coagent run test:integration` | 18 通过 / 0 失败 / 0 `skip` / 0 `todo`, 约 1.1 s |
-| `pnpm -C coagent run test:coverage` | 96 通过 / 0 失败, 报告落 `tmp/cov-coagent/report.json` |
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
 
-覆盖率(改前 = 基线单元层; 改后 = 单元 + 集成):
+### 覆盖率
+
+- 基线: 覆盖率行 79.9% (1574/1970)、分支 62.4% (227/364), 与「现状」一致。
+- 覆盖率(改前 = 基线单元层; 改后 = 单元 + 集成):
 
 | 包 | 改前行 | 改后行 | 改前分支 | 改后分支 |
 | --- | --- | --- | --- | --- |
@@ -134,19 +113,40 @@ rm -rf ../tmp/cov-coagent && mkdir -p ../tmp/cov-coagent && NODE_V8_COVERAGE=../
 | `src/tools.ts` | 91.7% (132/144) | 97.9% (141/144) | 83.3% (10/12) | 82.4% (14/17) |
 | `src/types.ts` | 88.0% (81/92) | 100.0% (92/92) | 84.6% (11/13) | 100.0% (16/16) |
 
-分层贡献(同一份用例两轮跑): 只跑单元层 84.9% (1672/1970) / 分支 76.8% (331/431); 单元 + 集成 88.1% (1744/1980) / 分支 78.6% (368/468), 集成层贡献行 +3.2 个百分点、分支 +1.8 个百分点。
+- 分层贡献(同一份用例两轮跑): 只跑单元层 84.9% (1672/1970) / 分支 76.8% (331/431); 单元 + 集成 88.1% (1744/1980) / 分支 78.6% (368/468), 集成层贡献行 +3.2 个百分点、分支 +1.8 个百分点。
+- `tools.ts` 分支比例微降(83.3% → 82.4%)来自分母增大(12 → 17 块, 新增被加载函数的未命中块), 绝对值 10 → 14, 非退化。
 
-`tools.ts` 分支比例微降(83.3% → 82.4%)来自分母增大(12 → 17 块, 新增被加载函数的未命中块), 绝对值 10 → 14, 非退化。
+### 用例清单
 
-用例与夹具: 新增单元用例 45 条(33 → 78)、集成用例 18 条; 未删除用例、未增删夹具; `skip` 0 处、`todo` 0 处; 本机无环境探测类 `skip` 触发。
+- 基线: `pnpm -C coagent run test` 33 通过 / 0 失败 / 0 `skip` / 0 `todo`, 耗时约 135 ms; `pnpm -C coagent run check` 通过。
+- 新增与改动(全部在 `tests/` 与 `package.json`, `src` 未改):
 
-未覆盖的防御分支(按 4.3 豁免, 不补用例): `actions.ts` 的 `#archive` 记录落盘失败后二次失败提示(需在 `create` 成功后精确注入写盘失败, 现有用例只能覆盖到读盘阶段的 `record_write_failed`)、`claimSession` 的 `attempts >= 10_000` 兜底(时钟不推进才可达)、`main.ts` 的 `markParentExitSync` 内层写盘失败吞异常(退出路径尽力而为)。
-
-## 四份测试产物
-
-| 产物 | 位置 |
+| 文件 | 内容 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `coagent/tests/assemble.ts` | 集成层装配器(不以 `.test.ts` 结尾): 假工具面收集 `register`, 假事件面记录 `on`, 假服务面经 `ctx.get` 与 ctx 属性两路给出 `herdrUse` / `sessionChannel` / `sessionPaths`; 可切换 `herdrShape` / `tools` / `get` / `logger` / `with` 以覆盖缺席与降级路径 |
+| `coagent/tests/integration/plugin.test.ts` | 18 条: 工具注册与参数面、`spawn` / `list` / `close` 的 canonical 回执、`output.render` 投影、`enabled=false`、服务缺失与形状残缺、`sessionPaths` 降级落盘、`ctx.get` 抛错退化、`logger` 退到 info / 抛错不阻断、索引损坏 → `record_write_failed`、探测抛错保留原状态、认领超时 → `claim_timeout` + `lost`、`sessionDirFor` 抛错 → `session_paths_unavailable`、无调用方会话 → `session_unavailable` |
+| `coagent/tests/herdr.test.ts` | 7 条: `payloadOf` / `terminalIdOf` / `screenTextOf` / `runningOf` / `isTerminalGone` / `errorTextOf` / `notesOf` 的字段提取与缺省回退 |
+| `coagent/tests/probe.test.ts` | 9 条: 探测判定表(缺 `terminal_id` / 已 `terminal_closed` / 未登记 / herdr 不可用 / 有前台进程 / 掉线 / `peers` 读失败 / 已 `closed`)与 `findPeer` 三态 |
+| `coagent/tests/channel.test.ts` | 11 条: `matchPeer` 四个过滤条件(已知会话 / 5 s 容差 / profile / cwd 归一)、`screenFailureOf` 两条证据、`claimSession` 的 claimed / screen-failed / timeout 与日志 |
+| `coagent/tests/launch.test.ts` | 9 条: `checkCwd` 四态、`buildLaunchCommand`、脱管痕迹词边界、`optionalString` / `positiveInt` / `booleanArg` / `rejectUnknownKeys` / `launchValueArg` / `parseSpawnArgs` |
+| `coagent/tests/main.test.ts` | 3 条: `coagentRootOf` 两条推导路径(含 `DSH_HOME` 缺省)、`resolveConfig` 显式与缺省、`markParentExitSync` 坏索引不阻塞且跳过 `closed` / 墓碑 |
+| `coagent/tests/spawn.test.ts` | 追加 1 条: 服务面调用抛错不裸抛(`create` → `terminal_create_failed`, `run` → `launch_failed` 且回滚 `close` 一次) |
+| `coagent/tests/store.test.ts` | 追加 5 条: 索引形状逐字段拒绝、非 ENOENT 读失败与同步读坏 JSON、记录目录被文件占位时的 `StoreError` 与删除幂等、`saveSync` 根目录不可写、并发 `update` 串行不丢写 |
+| `coagent/package.json` | 加 `test:integration` 与 `test:coverage`(覆盖率目录 `../tmp/cov-coagent`, 报告 `dev/coverage/report.mjs`) |
+
+- 集成层走真实时钟, 但 `config` 把 `claimTimeoutSec` / `graceSec` / `pollIntervalMs` / `gracePollMs` 压到毫秒级, 单条最慢 1 s(认领超时那条), 全套集成约 1.1 s; 不新增对 `apply` 注入时钟的 `src` 改动。
+- 用例与夹具: 新增单元用例 45 条(33 → 78)、集成用例 18 条; 未删除用例、未增删夹具。
+
+### skip 计数与豁免台账
+
+- `skip` 0 处、`todo` 0 处; 本机无环境探测类 `skip` 触发; 存量 0 处 `skip` 未动, 无夹具增删。
+- 未覆盖的防御分支(按 4.3 豁免, 不补用例): `actions.ts` 的 `#archive` 记录落盘失败后二次失败提示(需在 `create` 成功后精确注入写盘失败, 现有用例只能覆盖到读盘阶段的 `record_write_failed`)、`claimSession` 的 `attempts >= 10_000` 兜底(时钟不推进才可达)、`main.ts` 的 `markParentExitSync` 内层写盘失败吞异常(退出路径尽力而为)。
+
+### 四入口实跑
+
+| 入口 | 结果 |
+| --- | --- |
+| `pnpm -C coagent run check` | 通过(tsc `--noEmit`, 无输出) |
+| `pnpm -C coagent run test` | 78 通过 / 0 失败 / 0 `skip` / 0 `todo`, 约 176 ms |
+| `pnpm -C coagent run test:integration` | 18 通过 / 0 失败 / 0 `skip` / 0 `todo`, 约 1.1 s |
+| `pnpm -C coagent run test:coverage` | 96 通过 / 0 失败, 报告落 `tmp/cov-coagent/report.json` |
