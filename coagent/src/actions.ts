@@ -12,11 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 
-import {
-  CLAIM_TIMEOUT_REASONS,
-  claimSession,
-  type ClaimResult,
-} from "./channel.ts";
+import { claimSession, type ClaimResult } from "./channel.ts";
 import {
   errorTextOf,
   isTerminalGone,

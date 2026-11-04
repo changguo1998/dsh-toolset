@@ -107,8 +107,6 @@ test("T12 记录上限：51 条终态 → 删最老目录、索引留墓碑", as
 });
 
 test("T12 记录上限：非终态不裁剪（maxLive 已挡住并行）", async () => {
-  const root = await tempRoot();
-  const store = new FileCoagentStore(root, { maxRecords: 2 });
   const index: CoagentIndex = { version: 1, records: {} };
   for (let i = 0; i < 3; i += 1) {
     const record = recordAt(i, "ready");

@@ -121,9 +121,9 @@ export interface CoagentRecord {
   /** 最近一次推进时刻（epoch ms；配额裁剪按它排序）。 */
   updated_at: number;
   /** herdr 终端 id（`create` 回执的 root pane id）；建终端失败时无。 */
-  terminal_id?: string;
+  terminal_id?: string | undefined;
   /** 认领到的子会话 id。 */
-  session_id?: string;
+  session_id?: string | undefined;
   claimed_at?: number;
   closed_at?: number;
   close_reason?: "quit" | "terminal_close" | "parent-exit";
@@ -148,7 +148,7 @@ export interface CoagentIndex {
 /** 探测结果：新状态 + 终端是否有前台进程 + 是否有变化（`list` 只在变化时落盘）。 */
 export interface ProbeOutcome {
   state: CoagentState;
-  terminal_running?: boolean;
+  terminal_running?: boolean | undefined;
 }
 
 /** herdr-use 服务面的成功回执（窄化：只取本包用到的字段）。 */

@@ -73,15 +73,15 @@ const SPAWN_KEYS: readonly string[] = [
 
 /** 解析后的 `spawn` 参数。 */
 export interface SpawnArgs {
-  cwd?: string;
-  label?: string;
-  claimTimeoutSec?: number;
+  cwd?: string | undefined;
+  label?: string | undefined;
+  claimTimeoutSec?: number | undefined;
   /** 转发为 `fffdsh --provider <value>` */
-  provider?: string;
+  provider?: string | undefined;
   /** 转发为 `fffdsh --model <value>`（裸 id 或 provider/model，可带 `:effort`） */
-  model?: string;
+  model?: string | undefined;
   /** 转发为 `fffdsh --effort <value>` */
-  effort?: string;
+  effort?: string | undefined;
 }
 
 /**
@@ -89,9 +89,9 @@ export interface SpawnArgs {
  * shell 元字符），直接拼接即可；无参数时返回常量 `fffdsh`。
  */
 export function buildLaunchCommand(args: {
-  provider?: string;
-  model?: string;
-  effort?: string;
+  provider?: string | undefined;
+  model?: string | undefined;
+  effort?: string | undefined;
 }): string {
   const parts = [LAUNCH_COMMAND];
   if (args.provider !== undefined) parts.push("--provider", args.provider);

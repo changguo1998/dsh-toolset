@@ -30,7 +30,7 @@ export interface ProbeDeps {
 export async function findPeer(
   channel: SessionChannelFace,
   sessionId: string,
-): Promise<{ known: boolean; peer?: PeerLike }> {
+): Promise<{ known: boolean; peer?: PeerLike | undefined }> {
   const listed = await channel.peers();
   if (!listed.ok) return { known: false };
   return {
