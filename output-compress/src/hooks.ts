@@ -96,13 +96,13 @@ export interface CompressOptions {
    * digest.db 落点（决策项 9）：`undefined` = 未配置，按会话经 sessionPaths 推导；
    * `null` = 配了显式覆盖但目录不可用（跳过，不回落推导）；字符串 = 显式覆盖路径。
    */
-  digestDbPath?: string | null;
+  digestDbPath?: string | null | undefined;
   /** memory-base 的 `digest` 分类写入句柄（缺失 = 不入库，digest 行保持 `none` 待重推）。 */
-  scope?: MemoryScopeLike;
+  scope?: MemoryScopeLike | undefined;
   /** 句柄的惰性解析（句柄可能晚于本包挂载；每次写入前重试一次）。 */
-  getScope?: () => MemoryScopeLike | undefined;
+  getScope?: (() => MemoryScopeLike | undefined) | undefined;
   /** session-paths 服务（缺失 = 落点不可推导 → `skipped.session-dir-missing`）。 */
-  sessionPaths?: SessionPathsLike;
+  sessionPaths?: SessionPathsLike | undefined;
   sandbox: SandboxRunner;
   logger: { info(message: string): void };
 }

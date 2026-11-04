@@ -255,7 +255,7 @@ function createFaces(options: AssembleOptions): {
   >();
 
   /** memory 服务的位置: 可中途挂上 / 摘掉, 每次写入前经属性重新读取 (惰性解析)。 */
-  const memoryHolder: { service?: MemoryService } = {};
+  const memoryHolder: { service?: MemoryService | undefined } = {};
   const makeMemory = (): MemoryService => ({
     registerKind(spec: unknown): unknown {
       registerKindCalls.push(spec);

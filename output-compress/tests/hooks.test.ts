@@ -1084,14 +1084,6 @@ function makeHooks(options: Partial<CompressOptions> = {}): {
 }
 
 /** 等钩子处理完一条事件 (20 ms 轮询, 上限 2 s)。 */
-async function waitFor(predicate: () => boolean, hint: string): Promise<void> {
-  const deadline = Date.now() + 2000;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  assert.ok(predicate(), `等待超时: ${hint}`);
-}
 
 test("extractText：字符串 / 数组 / {text} / {content} / {message} 各自取证，其余为空串", () => {
   assert.equal(extractText("abc"), "abc");

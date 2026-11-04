@@ -43,7 +43,7 @@ export interface OutputCompressConfig {
    * （existsSync 判据、**不 mkdir**；缺失 = 解析失败：告警 + 跳过写入，不静默换路径）。
    * 缺省 undefined = 按会话经 `sessionPaths.sessionDirFor(sessionId)` 推导。
    */
-  sessionDir?: string;
+  sessionDir?: string | undefined;
   /** 无 spill 通知时触发压缩的最小文本字节数（UTF-8），默认 16384（16KB）。 */
   minBytes?: number;
   /** 从 spill 文件读取完整输出的字节上限，默认 524288（512KB）。 */
