@@ -17,8 +17,8 @@
  * 宿主依赖姿态：不写进 `inject`，`apply` 只接收 ctx；没有宿主也照常加载（服务面即可用）。
  */
 
-import { createTimers, ManualClock } from "./timers.ts";
-import type { CreateTimersOptions, Disposer, Timers } from "./timers.ts";
+import { createTimers } from "./timers.ts";
+import type { CreateTimersOptions, Timers } from "./timers.ts";
 
 export {
   attachEffect,
