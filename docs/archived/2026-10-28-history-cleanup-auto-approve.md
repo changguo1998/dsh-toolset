@@ -66,15 +66,9 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 
 2026-10-28 在分支 `history-cleanup/02-tests-auto-approve` 完成, 只动 `auto-approve/tests/` 与 `auto-approve/package.json`.
 
-- 基线: `pnpm -C auto-approve run check` 退出 0; `pnpm -C auto-approve run test` 157 条全过 (0 skip / 0 todo, 约 260 ms); 覆盖率 行 87.2% (3679/4217), 分支 72.1% (838/1162).
-- 单元锚点 (新增 3 个文件, 24 条; 原有用例的断言语义不改):
-  - `tests/calls.test.ts` (6 条): `CallTable` 首次记录 / 同 id 补写且参数不被 `undefined` 覆盖 / 容量淘汰与容量归一 (0 归一为 1、非整数向下取整) / 裁定缓存只认已记录 callId / `begin` 并发去重与 `end` / 未给 callId 的各查询.
-  - `tests/timers.test.ts` (10 条): `systemTimers` 的排期-取消-间隔-负数与非有限延迟; `resolveClock` 的六类回落形状 (缺 ctx / 缺 get / get 抛错 / clock 形状不符 / `scope` 抛错 / `scope` 返回非定时器) 与两组排期器的绑定参数; `createDeadline` 的到点、取消、卸载、`effect` 缺席与抛错、disposer 抛错与拒绝.
-  - `tests/index.test.ts` (8 条): `lastRoute` 的三路取值 (观测优先 / live 日志 / 都取不到) 与字段不全时的继续回溯; `activeSessionId` 的结构面; `createInstructionReader` 空白跳过与按 cwd 缓存; `statusOf` 的 `off` 与学习关闭; `apply` 的兜底 (无 `provide` / 无 logger / `on` 返回非函数 / 日志出口抛错 / 单个 disposer 抛错).
-- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (12 条). 装配器拼三类假面: 假工具面 (`tools/pre-execute` waterfall + `commands.register` 定义捕获)、假事件面 (`ctx.on` 监听器表与 waterfall 链)、假服务面 (`ctx.get` / `provide` 同一张表); 面板应答者注册在插件之后, 复现宿主装载顺序.
-- 集成断言: 契约符号与三个监听器 / 命令各注册一次及启动日志; `provide("autoApprove")` 与 `ctx.get` 同一份、`status` 名单计数; `approval/request` 的 canonical 词表 (`allowed-once` / `rejected` / `cancelled` / `unavailable`) 与「命中不调面板」; `tools/pre-execute` 的 `{kind:"deny", reason}` 与 `{kind:"allow"}` 透传、`enabled: false` 不拦; 两处裁定共用 `callId → 参数` 表; `session/event` 消费者供参数与模型路由; 会话 JSONL 与 memory-base `project` 层同形且不含参数原文; LLM 审查提示注入 `ENVIRONMENT` / `PROJECT_INSTRUCTIONS` (真实读临时目录的 `AGENTS.md`) / `FILTERED_HISTORY` / `PENDING_ACTION`; 命令面 `status` / `mode` / `log` / `clear-fingerprints` / `learn` 的投影文本与错误用法; `dispose` 撤销监听器与命令; `commands` 缺席路径.
+> 测试基线、单元锚点、集成层与分层贡献见「四份测试产物」; 本节保留脚本与阶段 3 实现记录.
+
 - 脚本: `package.json` 加 `test:integration` (跑 `tests/integration/*.test.ts`) 与 `test:coverage` (单元 + 集成一次采集, 再调 `dev/coverage/report.mjs`), 口径见「偏差 2」.
-- 分层贡献: 只跑单元层 行 89.8% (3788/4217) / 分支 75.6% (925/1224); 单元 + 集成 行 90.3% (3806/4217) / 分支 75.7% (940/1242); 集成层 +18 行 / +15 分支.
 
 2026-10-28 在分支 `history-cleanup/03-code-auto-approve` 完成阶段 3 代码整理, 只动本包源码、本包测试的 import、`package.json` / `pnpm-lock.yaml` 与本文件; 用例断言只按「偏差 6」改了一处正则.
 
@@ -107,15 +101,29 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 
 ## 测试与证据
 
-分支末 (2026-10-28) 四条命令实跑, 均在仓库根经 `pnpm -C auto-approve run <脚本>` 调起:
+> 四入口、覆盖率、用例增减与 `skip` 见「四份测试产物」; 本节保留提交记录与阶段 3 实跑.
+
+- 提交: 分支提交 `test: 补 auto-approve 测试锚定`.
+
+### 阶段 3 代码整理实跑 (2026-10-28, 分支 `history-cleanup/03-code-auto-approve`)
+
+前置: `pnpm -C ../clock-base run build` (产出 `dist/`, 供包名 import 解析); 本包目录 `pnpm install` (建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`).
 
 | 命令 | 结果 |
 | --- | --- |
-| `check` | 退出 0 |
-| `test` | 181 条, pass 181, fail 0, skipped 0, todo 0 (约 470 ms) |
-| `test:integration` | 12 条, pass 12, fail 0, skipped 0, todo 0 (约 106 ms) |
-| `test:coverage` | 退出 0, 产出 `tmp/cov-auto-approve/report.json` 与下表 |
-| `build` (辅助核对) | 退出 0 |
+| `pnpm -C auto-approve run check` | 退出 0 (tsc --noEmit, 无输出) |
+| `pnpm -C auto-approve run test` | 181 条, pass 181, fail 0, skipped 0, todo 0 (约 0.4 s) |
+| `pnpm -C auto-approve run build` (辅助核对) | 退出 0 |
+
+拆分后文件与行数: 原 `src/learn.ts` 1222 行 → `src/learn-rules.ts` 505 行 + `src/learn-observe.ts` 716 行 + `src/learn-decide.ts` 25 行; 另删 `src/timers.ts` 205 行. 改动文件: `src/audit.ts` / `src/decide.ts` / `src/index.ts` / `src/review.ts` / `src/rules.ts` / `tests/clock.test.ts` / `tests/timers.test.ts` / `tests/learn.test.ts` / `package.json` / `pnpm-lock.yaml`.
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+基线: 覆盖率 行 87.2% (3679/4217), 分支 72.1% (838/1162).
 
 覆盖率 (只统 `src`; 改前 = 分支开工时基线, 改后 = 单元 + 集成):
 
@@ -145,27 +153,33 @@ rm -rf ../tmp/cov-auto-approve && mkdir -p ../tmp/cov-auto-approve && NODE_V8_CO
 | src/timers.ts | 74.2% (115/155) | 96.8% (150/155) | 21.4% (6/28) | 80.8% (42/52) | 47, 59, 123-124, 144 |
 | src/types.ts | 90.9% (20/22) | 90.9% (20/22) | 50.0% (4/8) | 55.6% (5/9) | 12, 22 |
 
+- 分层贡献: 只跑单元层 行 89.8% (3788/4217) / 分支 75.6% (925/1224); 单元 + 集成 行 90.3% (3806/4217) / 分支 75.7% (940/1242); 集成层 +18 行 / +15 分支.
+
+### 用例清单
+
+- 基线: `pnpm -C auto-approve run check` 退出 0; `pnpm -C auto-approve run test` 157 条全过 (0 skip / 0 todo, 约 260 ms).
+- 单元锚点 (新增 3 个文件, 24 条; 原有用例的断言语义不改):
+  - `tests/calls.test.ts` (6 条): `CallTable` 首次记录 / 同 id 补写且参数不被 `undefined` 覆盖 / 容量淘汰与容量归一 (0 归一为 1、非整数向下取整) / 裁定缓存只认已记录 callId / `begin` 并发去重与 `end` / 未给 callId 的各查询.
+  - `tests/timers.test.ts` (10 条): `systemTimers` 的排期-取消-间隔-负数与非有限延迟; `resolveClock` 的六类回落形状 (缺 ctx / 缺 get / get 抛错 / clock 形状不符 / `scope` 抛错 / `scope` 返回非定时器) 与两组排期器的绑定参数; `createDeadline` 的到点、取消、卸载、`effect` 缺席与抛错、disposer 抛错与拒绝.
+  - `tests/index.test.ts` (8 条): `lastRoute` 的三路取值 (观测优先 / live 日志 / 都取不到) 与字段不全时的继续回溯; `activeSessionId` 的结构面; `createInstructionReader` 空白跳过与按 cwd 缓存; `statusOf` 的 `off` 与学习关闭; `apply` 的兜底 (无 `provide` / 无 logger / `on` 返回非函数 / 日志出口抛错 / 单个 disposer 抛错).
+- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (12 条). 装配器拼三类假面: 假工具面 (`tools/pre-execute` waterfall + `commands.register` 定义捕获)、假事件面 (`ctx.on` 监听器表与 waterfall 链)、假服务面 (`ctx.get` / `provide` 同一张表); 面板应答者注册在插件之后, 复现宿主装载顺序.
+- 集成断言: 契约符号与三个监听器 / 命令各注册一次及启动日志; `provide("autoApprove")` 与 `ctx.get` 同一份、`status` 名单计数; `approval/request` 的 canonical 词表 (`allowed-once` / `rejected` / `cancelled` / `unavailable`) 与「命中不调面板」; `tools/pre-execute` 的 `{kind:"deny", reason}` 与 `{kind:"allow"}` 透传、`enabled: false` 不拦; 两处裁定共用 `callId → 参数` 表; `session/event` 消费者供参数与模型路由; 会话 JSONL 与 memory-base `project` 层同形且不含参数原文; LLM 审查提示注入 `ENVIRONMENT` / `PROJECT_INSTRUCTIONS` (真实读临时目录的 `AGENTS.md`) / `FILTERED_HISTORY` / `PENDING_ACTION`; 命令面 `status` / `mode` / `log` / `clear-fingerprints` / `learn` 的投影文本与错误用法; `dispose` 撤销监听器与命令; `commands` 缺席路径.
 - 用例增减: 新增 24 条单元用例 + 12 条集成用例; 删除 0 条; `skip` 0 / `todo` 0 (与改前一致). `tests/` 现有 18 个单元 `.test.ts`、1 个集成用例 (`tests/integration/plugin.test.ts`)、1 个装配器 (`assemble.ts`) 与 1 个假件 (`fakes.ts`).
 - 夹具: 无新增夹具文件; 临时目录由 `tempDir()` 落在系统 tmp, 覆盖率原始数据与报告落在仓库 `tmp/` (已忽略), 都不入库.
-- 提交: 分支提交 `test: 补 auto-approve 测试锚定`.
 
-### 阶段 3 代码整理实跑 (2026-10-28, 分支 `history-cleanup/03-code-auto-approve`)
+### skip 计数与豁免台账
 
-前置: `pnpm -C ../clock-base run build` (产出 `dist/`, 供包名 import 解析); 本包目录 `pnpm install` (建 `node_modules/@dsh-toolset/clock-base -> ../clock-base` 并更新 `pnpm-lock.yaml`).
+- `skip` 0 / `todo` 0 (与改前一致).
+- 豁免台账: 无 (原文未记).
 
-| 命令 | 结果 |
+### 四入口实跑
+
+分支末 (2026-10-28) 四条命令实跑, 均在仓库根经 `pnpm -C auto-approve run <脚本>` 调起:
+
+| 入口 | 结果 |
 | --- | --- |
-| `pnpm -C auto-approve run check` | 退出 0 (tsc --noEmit, 无输出) |
-| `pnpm -C auto-approve run test` | 181 条, pass 181, fail 0, skipped 0, todo 0 (约 0.4 s) |
-| `pnpm -C auto-approve run build` (辅助核对) | 退出 0 |
-
-拆分后文件与行数: 原 `src/learn.ts` 1222 行 → `src/learn-rules.ts` 505 行 + `src/learn-observe.ts` 716 行 + `src/learn-decide.ts` 25 行; 另删 `src/timers.ts` 205 行. 改动文件: `src/audit.ts` / `src/decide.ts` / `src/index.ts` / `src/review.ts` / `src/rules.ts` / `tests/clock.test.ts` / `tests/timers.test.ts` / `tests/learn.test.ts` / `package.json` / `pnpm-lock.yaml`.
-
-## 四份测试产物
-
-| 产物 | 位置 |
-| --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `check` | 退出 0 |
+| `test` | 181 条, pass 181, fail 0, skipped 0, todo 0 (约 470 ms) |
+| `test:integration` | 12 条, pass 12, fail 0, skipped 0, todo 0 (约 106 ms) |
+| `test:coverage` | 退出 0, 产出 `tmp/cov-auto-approve/report.json` 与下表 |
+| `build` (辅助核对) | 退出 0 |
