@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 
-import { assemble, renderText } from "../assemble.ts";
+import { assemble } from "../assemble.ts";
 import type { AssembledHost, ToolDefLike } from "../assemble.ts";
 import {
   apply,
@@ -452,7 +452,7 @@ describe("假服务面: metricLoop 查询面与 clock 读钟", () => {
 
 describe("假服务面: security-guard 命令复查", () => {
   it("start (tool-args) 不复查, tick (engine-side) 复查并透出拦截回执", async () => {
-    const calls: Array<{ command: string; source?: string }> = [];
+    const calls: Array<{ command: string; source?: string | undefined }> = [];
     const host = hostWith({
       services: {
         guard: {

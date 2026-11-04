@@ -36,7 +36,10 @@ function runSeries(
   values: Array<number | null>,
   opts: { window?: number; maxRounds?: number } = {},
 ) {
-  let state = stateWith({ window: opts.window, maxRounds: opts.maxRounds });
+  let state = stateWith({
+    ...(opts.window === undefined ? {} : { window: opts.window }),
+    ...(opts.maxRounds === undefined ? {} : { maxRounds: opts.maxRounds }),
+  });
   let now = 1_000;
   for (const v of values) {
     now += 1_000;

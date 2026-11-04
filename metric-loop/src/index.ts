@@ -232,7 +232,7 @@ export class MetricLoopController {
 
   constructor(opts: {
     stateDir: string;
-    timeoutMs?: number;
+    timeoutMs?: number | undefined;
     now?: () => number;
     measure?: (
       cmd: string,

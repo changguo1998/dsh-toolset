@@ -533,9 +533,9 @@ function riskyCommand(): string {
 /** 假复查器（与 guard 服务面同契约）：命中危险文本 → 回执；记录每次调用的命令与来源。 */
 function makeFakeGuard(): {
   checker: (command: string, source?: string) => CommandCheckResult;
-  calls: { command: string; source?: string }[];
+  calls: { command: string; source?: string | undefined }[];
 } {
-  const calls: { command: string; source?: string }[] = [];
+  const calls: { command: string; source?: string | undefined }[] = [];
   const marker = `su${"do"}`;
   return {
     calls,
@@ -678,7 +678,7 @@ test("tick 前复查：未配置（无 guard 服务）不拦；状态文件缺�
 test("apply 接线：ctx.get('guard').inspectCommand 在 tick 生效（拦危险 / 放行普通）", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "metric-loop-guard-apply-"));
   const registered: Array<Record<string, unknown>> = [];
-  const calls: { command: string; source?: string }[] = [];
+  const calls: { command: string; source?: string | undefined }[] = [];
   const marker = `su${"do"}`;
   const ctx = {
     tools: {
