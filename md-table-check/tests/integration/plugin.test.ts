@@ -1,9 +1,9 @@
 /**
  * 集成层: 本插件 `apply` 与宿主接线 (假 rule-engine 注册面 + 假 `assistant-text` 派发面)。
  *
- * 与单元层 `tests/main.test.ts` 的分工: 单元层只断注册参数与 `decide` 的两态; 这里走完整接线 ——
+ * 与单元层 `md-table-check/tests/main.test.ts` 的分工: 单元层只断注册参数与 `decide` 的两态; 这里走完整接线 ——
  * 注册 → 事件派发 → 反馈 → 按 `delivery` 投影成宿主消息, 断言送达路径、消息形状与注入正文。
- * 与 `tests/integration.test.ts` 的分工: 那个文件装真实的 rule-engine 插件, 这里只用假面。
+ * 与 `md-table-check/tests/integration.test.ts` 的分工: 那个文件装真实的 rule-engine 插件, 这里只用假面。
  */
 
 import { test } from "node:test";

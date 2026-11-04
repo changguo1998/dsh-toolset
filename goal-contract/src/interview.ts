@@ -1,4 +1,4 @@
-// src/interview.ts — 访谈式起草状态机（纯函数，无宿主依赖，可单测）
+// goal-contract/src/interview.ts — 访谈式起草状态机（纯函数，无宿主依赖，可单测）
 //
 // 流程：objective → clauses → confirm。预填字段跳过对应提问；
 // 每阶段最多重问 maxAttempts 次，超限中止（防无限循环）。

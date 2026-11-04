@@ -1,4 +1,4 @@
-// tests/render.test.ts — 工具面文本渲染：节树 / 块 / 链接 / replace 结果的投影与截断。
+// md-logic/tests/render.test.ts — 工具面文本渲染：节树 / 块 / 链接 / replace 结果的投影与截断。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

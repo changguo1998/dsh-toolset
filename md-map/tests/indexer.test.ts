@@ -1,4 +1,4 @@
-// tests/indexer.test.ts — 项目索引：发现 / 排除 / 边分类 / 断链 / 入边计数。
+// md-map/tests/indexer.test.ts — 项目索引：发现 / 排除 / 边分类 / 断链 / 入边计数。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

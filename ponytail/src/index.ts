@@ -8,7 +8,7 @@
  *
  * 缺省**开启**（2026-10-05 起；仅显式 `enabled: false` 关闭）：编码行为由本阶梯承担——
  * `karpathy-guidelines` 已从默认注入取消，不再有双份注入问题。
- * 调研结论与取舍见 `docs/ponytail-investigation.md`（项目级）与 `docs/DESIGN.md`（本包）。
+ * 调研结论与取舍见 `docs/ponytail-investigation.md`（项目级）与 `ponytail/docs/DESIGN.md`（本包）。
  */
 
 import { LADDER_SUMMARY, LADDER_TEXT } from "./ladder.ts";

@@ -47,7 +47,7 @@ export interface MemoryScope {
   forget(refs: readonly ForgetRef[]): Promise<number>;
 }
 
-/** 句柄依赖的宿主能力（由 `src/index.ts` 的 bundle 提供）。 */
+/** 句柄依赖的宿主能力（由 `memory-base/src/index.ts` 的 bundle 提供）。 */
 export interface ScopeHost {
   /** 该层可写库；层库尚未创建时按需创建，不可用（路径解析失败 / 库打开失败）抛明示例外。 */
   openWritable(tier: Tier, sessionId?: string): Promise<KnowledgeService>;

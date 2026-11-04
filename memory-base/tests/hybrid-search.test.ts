@@ -2,7 +2,7 @@
  * 混合检索测试：纯函数（词项切分 / trigram 查询 / 邻近窗口 / RRF）、固定查询命中序夹具、
  * 缺省策略不回归、无命中与上限语义、`memory_query` 的 `mode` 透传、延迟不劣化证据。
  *
- * 期望命中序来自**改造前实现**在固定语料上的实测结果（`docs/implementation/2026-10-22-memory-hybrid-retrieval.md`
+ * 期望命中序来自**改造前实现**在固定语料上的实测结果（`docs/archived/2026-10-22-memory-hybrid-retrieval.md`
  * 的「调研」），故同时充当缺省行为的回归基线。
  */
 

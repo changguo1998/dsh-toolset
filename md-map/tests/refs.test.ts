@@ -1,4 +1,4 @@
-// tests/refs.test.ts — 行内代码路径引用（kind:"ref"）与代码区两类漏判。
+// md-map/tests/refs.test.ts — 行内代码路径引用（kind:"ref"）与代码区两类漏判。
 //
 // 覆盖：容器缩进围栏里的 wiki 不误判、跨行 code span 里的 wiki 不误判、
 // ref token 提取与解析（命中 / 多解按候选序 / 未命中不计断链但计入未解析计数）、report / summary 计数。
@@ -106,7 +106,7 @@ test("indexer：ref 边命中 / 多解跳过 / 未命中不计断链 + report �
   try {
     for (const [path, text] of Object.entries(FIXTURE))
       writeFile(dir, path, text);
-    // 多解场景：`b.md` 同时命中根下 b.md（root 相对）与 docs/b.md（源目录相对）
+    // 多解场景：`b.md` 同时命中根下 `b.md`（root 相对）与 `docs` 下的 `b.md`（源目录相对）
     writeFile(dir, "b.md", "# B 根\n");
     writeFile(dir, "docs/b.md", "# B docs\n");
     writeFile(
@@ -133,7 +133,7 @@ test("indexer：ref 边命中 / 多解跳过 / 未命中不计断链 + report �
       ["docs/a.md", "docs/a.md", "README.md", "docs/b.md"],
       JSON.stringify(refs),
     );
-    // 多解时优先**源目录**形态（docs/refs.md 里的 `b.md` → docs/b.md），与 wiki 同串同解
+    // 多解时优先**源目录**形态（`refs.md` 里的 `b.md` → 同目录 `b.md`），与 wiki 同串同解
     // 未命中 / 多解都不产边、不进断链
     assert.ok(
       !index.broken.some(
@@ -235,7 +235,7 @@ test("indexer：ref 三处补口（锚点拆分 / 目录形态 file 兜底 / 跨
     const index = await buildIndex({ root: dir });
     const doc = index.docs.find((d) => d.path === "docs/refs.md");
     assert.ok(doc !== undefined);
-    // ① 锚点拆分：落到 docs/a.md 并把锚点带上（原先整串当路径 → 永不命中）
+    // ① 锚点拆分：落到 `a.md` 并把锚点带上（原先整串当路径 → 永不命中）
     const anchored = doc.edges.find(
       (e) => e.kind === "ref" && e.to === "docs/a.md",
     );

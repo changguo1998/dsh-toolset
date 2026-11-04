@@ -1,4 +1,4 @@
-// src/query.ts — 结构查询（纯函数，零宿主依赖；供工具面与其它插件消费）。
+// md-logic/src/query.ts — 结构查询（纯函数，零宿主依赖；供工具面与其它插件消费）。
 
 import type {
   MdBlock,

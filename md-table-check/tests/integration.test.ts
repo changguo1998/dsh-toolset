@@ -1,5 +1,5 @@
 /**
- * 真实 rule-engine 端到端注入（条目 4）：装载**真实的 rule-engine 插件**（`rule-engine/src/main.ts` 的
+ * 真实 rule-engine 端到端注入（条目 4）：装载**真实的 rule-engine 插件**（`rule-engine/src/index.ts` 的
  * `apply`）拿到它 `provide("ruleEngine", …)` 的真实消费者面，再把本插件的 `apply` 注册进去 —— 于是
  * 链路里的 RuleEngine、注入器（`createAgentInjector`）、消费者注册面全是真实实现，不用假 engine、
  * 不用探针消费者。

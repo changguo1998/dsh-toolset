@@ -1,7 +1,7 @@
-// tests/index.test.ts — 插件服务面：加载 / 注册 / 分派 / 运行 / 配置的判定分支。
+// command-template/tests/index.test.ts — 插件服务面：加载 / 注册 / 分派 / 运行 / 配置的判定分支。
 //
 // 只测 `CommandTemplateService` 的对外方法（不拼 apply，apply 的宿主接线在
-// `tests/integration/plugin.test.ts`）；宿主面用最小假命令面 + 记录型 logger 替身。
+// `command-template/tests/integration/plugin.test.ts`）；宿主面用最小假命令面 + 记录型 logger 替身。
 
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

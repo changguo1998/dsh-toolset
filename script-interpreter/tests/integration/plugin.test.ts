@@ -1,7 +1,7 @@
 /**
  * 集成层: 本包 `apply` 与宿主接线 (假工具面 + 假事件面 + 假服务面).
  *
- * 与单元层 (`tests/index.test.ts` / `tests/tool.test.ts`) 的分工: 单元层直接构造 runtime 与
+ * 与单元层 (`script-interpreter/tests/index.test.ts` / `script-interpreter/tests/tool.test.ts`) 的分工: 单元层直接构造 runtime 与
  * 替身; 这里从 `apply` 出发, 经 `ctx.get` 注入沙箱 / 审批服务, 断言工具注册、canonical 值、
  * `output.render` 投影、路径守卫与失败路径。脚本落 `os.tmpdir()` 下的临时工作区, 用后删除。
  *

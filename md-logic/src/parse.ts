@@ -1,4 +1,4 @@
-// src/parse.ts — Markdown 逻辑结构解析（唯一解析入口）。
+// md-logic/src/parse.ts — Markdown 逻辑结构解析（唯一解析入口）。
 //
 // 解析器：`marked` 实例（唯一运行时依赖，零传递依赖）。做法与理由（见 README / 追踪文档）：
 // - marked 的块级 token 按文档顺序给出 `raw`，且 **`raw` 拼接 === 输入文本**——这里的输入是

@@ -1,4 +1,4 @@
-// src/tool.ts — goal_contract_draft 工具工厂（宿主无关胶水层，可单测）
+// goal-contract/src/tool.ts — goal_contract_draft 工具工厂（宿主无关胶水层，可单测）
 //
 // 流程：解析预填（objective / clauses / clauses_text / max_goal_rounds）
 //   → 访谈（仅补缺失字段，经 userQuestions 面，对齐 tool-ask-user）

@@ -1,4 +1,4 @@
-// tests/interview.test.ts — 访谈状态机（objective → clauses → confirm）
+// goal-contract/tests/interview.test.ts — 访谈状态机（objective → clauses → confirm）
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

@@ -7,7 +7,7 @@
  * 无问题表时为 `表0 行0 | —`。角色 `delim` = 分隔行、`row` = 数据行。
  *
  * 形态编号沿用 `md-table-check/docs/BACKLOG.md` 的「待查形态」; 裁定与证据见追踪文档
- * `docs/implementation/2026-10-16-three-surface-text-consistency.md` 任务 B 的 S2–S4 与「决策」。
+ * `docs/archived/2026-10-16-three-surface-text-consistency.md` 任务 B 的 S2–S4 与「决策」。
  * 快照含义: 「已裁定不修」的两项（行内代码竖线多报一处、表头与分隔行间空行不报）也在其中, 属有意固定。
  */
 

@@ -36,7 +36,7 @@ function captureStderr(run: () => void): string[] {
   return writes;
 }
 
-/** rule-engine 消费者注册项的结构面（与 src/main.ts 的声明对齐） */
+/** rule-engine 消费者注册项的结构面（与 rule-engine/src/index.ts 的声明对齐） */
 interface Registered {
   id: string;
   sources?: readonly string[];

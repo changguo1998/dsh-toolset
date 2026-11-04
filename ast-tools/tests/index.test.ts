@@ -1,5 +1,5 @@
 /**
- * 入口与核心工厂测试（src/index.ts）：
+ * 入口与核心工厂测试（ast-tools/src/index.ts）：
  * - `createAstToolsBundle` 绑定二进制与四个操作、缺二进制抛 MissingError；
  * - `dispose` 无持久资源（幂等、不抛）；
  * - `apply` 在无工具面 / 无服务面的极简宿主上不崩（降级与降级注册）；

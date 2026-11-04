@@ -1,8 +1,8 @@
-// src/links.ts — 锚点 slug、wiki 链接补扫、链接目标解析（纯函数，文件系统访问由 indexer 注入）。
+// md-map/src/links.ts — 锚点 slug、wiki 链接补扫、链接目标解析（纯函数，文件系统访问由 indexer 注入）。
 //
 // 分工：单文件结构由 `@dsh-toolset/md-logic` 提供（标题树 + link/image/definition 三类链接）；
 // 本模块补 md-logic 不产的两件事——**GitHub 风格锚点**与 **wiki 链接**——并提供目标解析 / 候选序 /
-// 行内代码路径 token 提取的纯函数（边的最终分类在 `src/indexer.ts` 的 `classify()`：
+// 行内代码路径 token 提取的纯函数（边的最终分类在 `md-map/src/indexer.ts` 的 `classify()`：
 // internal / wiki / file / external / broken / ref）。
 
 import { flattenSections, type SectionNode } from "@dsh-toolset/md-logic";
@@ -402,7 +402,7 @@ export function resolveDocPath(
   return resolved.escaped ? null : resolved.path;
 }
 
-/** 无扩展名的文档链接尝试：`docs/x` → `docs/x.md` / `docs/x/README.md` / `docs/x/index.md`（按序，调用方取首个命中）。 */
+/** 无扩展名的文档链接尝试：`docs/x` → 补 `.md` / `docs/x/README.md` / `docs/x/index.md`（按序，调用方取首个命中）。 */
 export function candidateDocPaths(
   resolved: string,
   isIndexed: (path: string) => boolean,

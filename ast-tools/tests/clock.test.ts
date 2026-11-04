@@ -1,4 +1,4 @@
-// tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
+// ast-tools/tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
 // 定时器族从 `@dsh-toolset/clock-base` 入口引（含假时钟 `ManualClock`），不跨包引其内部模块；
 // 本文件随 tests 一起纳入主 program 的类型检查（跨包只取对端 `.d.ts`），

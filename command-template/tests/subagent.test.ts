@@ -1,7 +1,7 @@
-// tests/subagent.test.ts — 一次性子代理运行（宿主服务面 start；command-template BACKLOG #1）。
+// command-template/tests/subagent.test.ts — 一次性子代理运行（宿主服务面 start；command-template BACKLOG #1）。
 //
 // 全部用注入替身（不依赖宿主安装）：fake ctx/runtime + 注入 `loadHostModule`；
-// 真机联调见 `docs/implementation/2026-09-30-one-shot-service-start.md`。
+// 真机联调见 `command-template/docs/archived/2026-09-30-one-shot-service-start.md`。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

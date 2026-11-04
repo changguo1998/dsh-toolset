@@ -1,4 +1,4 @@
-// tests/edit.test.ts — 按节改写：漂移即拒、整批原子、风格保留、工具面。
+// md-logic/tests/edit.test.ts — 按节改写：漂移即拒、整批原子、风格保留、工具面。
 //
 // 安全语义：`heading`（标题文本）+ `startLine` / `endLine`（来自 structure）必须与**当前**解析一致；
 // 任一条不符 → 整体拒绝且不落盘；写盘走临时文件 + rename。

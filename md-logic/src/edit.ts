@@ -1,4 +1,4 @@
-// src/edit.ts — 按节改写：结构漂移检测 + 整批原子写。
+// md-logic/src/edit.ts — 按节改写：结构漂移检测 + 整批原子写。
 //
 // 安全语义（与工具描述一致）：
 // - **漂移即拒**：每条 edit 带 `heading`（标题文本，与 `structure` 输出一致）+ `startLine` / `endLine`
@@ -30,7 +30,7 @@ import { flattenSections } from "./query.ts";
  * 「≤3 空格 + 列表记号（`-` / `*` / `+` / `1.` / `1)`，记号后须跟空白）」，返回容器正文。
  * 用途：CommonMark 解析围栏 / 注释时容器记号会被剥离、内容按剩余缩进进入块级解析——
  * 若只看行首 ≤3 空格，容器内的围栏会与真实相位错开一格（缩进闭行被当开栏 → 误拒或漏拦，
- * 见 `docs/archived/2026-10-05-unclosed-block-container-aware.md`）。
+ * 见 `md-logic/docs/archived/2026-10-05-unclosed-block-container-aware.md`）。
  * @param line - 原始行（不含换行）
  * @returns 剥掉容器记号后的正文（无容器记号 → 原行）
  */

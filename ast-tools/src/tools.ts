@@ -1,4 +1,4 @@
-// src/tools.ts — ast-tools 的模型侧工具面（库面在 index.ts 与各操作模块）。
+// ast-tools/src/tools.ts — ast-tools 的模型侧工具面（库面在 index.ts 与各操作模块）。
 // 契约：def = { name, description, parameters(JSON Schema), execute(args), output{ schema, render(_args, value) } }；
 // render 形参顺序是「args 第一、value 第二」（宿主契约，写反会导致模型只拿到入参回显）。
 // 渲染：紧凑文本而不是 JSON dump；坐标**转 1 基**（库 API 与 ast-grep 输出均为 0 基，见 README）。

@@ -1,5 +1,5 @@
 /**
- * src/types.ts — md-logic 的结构模型：单文件 Markdown 的「逻辑结构」（节树 + 块 + 链接）。
+ * md-logic/src/types.ts — md-logic 的结构模型：单文件 Markdown 的「逻辑结构」（节树 + 块 + 链接）。
  *
  * 约定：
  * - 行号一律 **1 基**，行范围含两端（`line..endLine`）；

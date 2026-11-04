@@ -1,6 +1,6 @@
 /**
- * 集成层用例（`tests/integration/plugin.test.ts`）：
- * 用 `tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面拼宿主并调用 `apply`，
+ * 集成层用例（`md-logic/tests/integration/plugin.test.ts`）：
+ * 用 `md-logic/tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面拼宿主并调用 `apply`，
  * 断言工具注册名、`execute` 的 canonical 值、`output.render` 投影、事件与服务面接线。
  *
  * Markdown 一律落盘在 `os.tmpdir()` 的临时目录，用例结束统一删除；不连宿主运行时。

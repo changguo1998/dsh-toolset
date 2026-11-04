@@ -1,4 +1,4 @@
-// src/render.ts — 工具面文本渲染（模型侧唯一可见面；工具 JSON 值不直接面向模型）。
+// md-logic/src/render.ts — 工具面文本渲染（模型侧唯一可见面；工具 JSON 值不直接面向模型）。
 // 口径：行号 1 基、范围 `L{起}-{止}`（起止相同折叠为 `L{n}`）、每类独立 80 行预算并带省略标记。
 
 import { flattenSections, type FlatSection } from "./query.ts";

@@ -1,4 +1,4 @@
-// tests/digest-db.test.ts — 自持 digest.db（设计 §3.1 / 决策 D60 修订）：
+// output-compress/tests/digest-db.test.ts — 自持 digest.db（设计 §3.1 / 决策 D60 修订）：
 // 指纹守卫 / 底线闸 / 去重幂等 / referenced_at 刷新 / 100MB 容量兜底 / 落点判据。
 
 import { DatabaseSync } from "node:sqlite";

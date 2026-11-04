@@ -1,6 +1,6 @@
 /**
- * 集成层用例（`tests/integration/plugin.test.ts`）：
- * 用 `tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面拼宿主并调用 `apply`，
+ * 集成层用例（`ast-tools/tests/integration/plugin.test.ts`）：
+ * 用 `ast-tools/tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面拼宿主并调用 `apply`，
  * 断言工具注册名、`execute` 的 canonical 值、`output.render` 投影、事件与服务面接线。
  *
  * 二进制用假 ast-grep 脚本（输出预置 JSON），不依赖本机是否安装 ast-grep；

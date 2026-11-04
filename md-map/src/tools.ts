@@ -1,4 +1,4 @@
-// src/tools.ts — 模型侧工具 `md_map`（action 分派，形状对标 code_map）。
+// md-map/src/tools.ts — 模型侧工具 `md_map`（action 分派，形状对标 code_map）。
 //
 // 契约：def = { name, description, parameters, execute(args, exec), output{schema, render(_args, value)} }；
 // render 形参顺序为「args 第一、value 第二」，且必须是全函数（畸形值不抛）。

@@ -1,4 +1,4 @@
-// tests/clauses.test.ts — 条款 schema 校验与文本解析（对齐 task-engine Acceptance 语义）
+// goal-contract/tests/clauses.test.ts — 条款 schema 校验与文本解析（对齐 task-engine Acceptance 语义）
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

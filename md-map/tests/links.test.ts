@@ -1,4 +1,4 @@
-// tests/links.test.ts — 锚点 slug、wiki 链接补扫、目标解析（纯函数）。
+// md-map/tests/links.test.ts — 锚点 slug、wiki 链接补扫、目标解析（纯函数）。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

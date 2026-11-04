@@ -1,6 +1,6 @@
 // session-title-cutoff 集成层：经假宿主调 `apply`，断言唯一标题 provider 的注册契约、
 // `all-prompts` 触发不变、参考窗口取最近一次 `git commit` 之后、无提交回退与失败路径。
-// 装配器见 `tests/assemble.ts`。
+// 装配器见 `session-title-cutoff/tests/assemble.ts`。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

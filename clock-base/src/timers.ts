@@ -16,7 +16,7 @@
  * 为什么自己实现而不包装宿主 `cordis-plugin-timer`：宿主只提供 `timeout(cb, delay)` /
  * `interval(cb, delay)`，没有 `schedule(delay, cb)`；只返回 disposer、拿不到句柄因此无法
  * `unref`；且它的 mixin 需要调用方声明 `inject: ["timer"]`（cordis 无可选注入）。详见
- * 追踪文档 `docs/implementation/2026-10-19-timer-plugin.md` 的「决策项 3」。
+ * 追踪文档 `docs/archived/2026-10-19-timer-plugin.md` 的「决策项 3」。
  */
 
 /** 取消句柄（幂等）：调用一次即撤销对应排期，重复调用无副作用。 */

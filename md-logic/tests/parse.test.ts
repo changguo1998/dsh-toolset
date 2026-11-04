@@ -1,4 +1,4 @@
-// tests/parse.test.ts — 解析：frontmatter / 节树行范围 / 块 / 链接 / 文本边界。
+// md-logic/tests/parse.test.ts — 解析：frontmatter / 节树行范围 / 块 / 链接 / 文本边界。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

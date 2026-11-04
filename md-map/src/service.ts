@@ -1,4 +1,4 @@
-// src/service.ts — md-map 服务面：持有最近一次索引，提供索引 / 查询（工具面与库面共用）。
+// md-map/src/service.ts — md-map 服务面：持有最近一次索引，提供索引 / 查询（工具面与库面共用）。
 
 import { buildIndex } from "./indexer.ts";
 import {

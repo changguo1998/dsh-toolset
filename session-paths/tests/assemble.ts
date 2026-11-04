@@ -2,7 +2,7 @@
  * 集成层装配器: 假服务面 (`ctx.get` / `ctx.provide`) + 假宿主 `sessions`, 拼出本插件
  * `apply` 的宿主接线。
  *
- * 两个假面的形状照 `src/index.ts` 的结构面声明抄 (结构化类型, 不 import 宿主实现):
+ * 两个假面的形状照 `session-paths/src/index.ts` 的结构面声明抄 (结构化类型, 不 import 宿主实现):
  * - 服务提供面: `provide(name, value)` 记账, `ctx.get(name)` 按宿主注入返回已挂的服务,
  *   消费方走 `ctx.get("sessionPaths")` 与真实接线同一条路;
  * - 宿主会话面: `sessions.get(id)` 返回 `{ header: { cwd } }`, 只服务 `sessionDirFor`。

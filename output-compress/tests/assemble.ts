@@ -3,7 +3,7 @@
  *
  * 三个假面的形状照宿主契约抄 (结构化类型, 不 import 宿主包):
  * - 工具面: `register(tool)` 记下注册项并返回注销函数 —— 本包不注册工具, 该面用来断
- *   「零工具」这条边界 (`src/index.ts` 只订阅事件);
+ *   「零工具」这条边界 (`output-compress/src/index.ts` 只订阅事件);
  * - 事件面: `on("session/event", cb)` 留下回调并返回反订阅函数, `emit(sessionId, event)`
  *   按宿主口径派发;
  * - 服务面: `memory.registerKind(spec)` 返回作用域句柄 (记账 `put` 入参), 可中途挂上 /
@@ -29,7 +29,7 @@ import {
 import type { SessionEventLike } from "../src/hooks.ts";
 import type { CodeRuntimeLike } from "../src/sandbox.ts";
 
-/** 宿主 spill 通知里的取回指引 (与 `src/trigger.ts` 的严格正则同字面量)。 */
+/** 宿主 spill 通知里的取回指引 (与 `output-compress/src/trigger.ts` 的严格正则同字面量)。 */
 export const SPILL_HINT =
   "Use read with offset/limit, or grep this path to search within it.";
 
@@ -220,7 +220,7 @@ export function digestRows(dbPath: string): DigestRow[] {
   }
 }
 
-/** sha256(源文本), 与 `src/hooks.ts` 的 content_hash 口径同。 */
+/** sha256(源文本), 与 `output-compress/src/hooks.ts` 的 content_hash 口径同。 */
 export function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }

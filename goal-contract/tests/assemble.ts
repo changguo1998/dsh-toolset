@@ -5,7 +5,7 @@
  * 结尾，也不计入覆盖率（dev/coverage 只统 `src`）。集成用例一律经本装配器接宿主，
  * 不直接 import 宿主运行时。
  *
- * 服务取用顺序按 `src/index.ts` 的实现：`ctx.get("<name>")` 优先、直连属性回落。
+ * 服务取用顺序按 `goal-contract/src/index.ts` 的实现：`ctx.get("<name>")` 优先、直连属性回落。
  * 装配器用 `services` 选项切换这两种宿主形态，并额外提供「完全缺席」形态。
  */
 

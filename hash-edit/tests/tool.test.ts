@@ -1,4 +1,4 @@
-// tests/tool.test.ts — 工具面契约：注册形状 + `render` 形参顺序（args 第一、value 第二）。
+// hash-edit/tests/tool.test.ts — 工具面契约：注册形状 + `render` 形参顺序（args 第一、value 第二）。
 //
 // 为什么需要它：本包原先 `render` 写成单形参，宿主 `output.render(exec.arguments, value)`
 // 于是把**入参**当成渲染值 → 模型只看到入参回显（`hash_read` 拿不到 `hashlines`），

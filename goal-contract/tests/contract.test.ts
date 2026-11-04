@@ -1,4 +1,4 @@
-// tests/contract.test.ts — 契约嵌入与回读（objective 内 Done-when 段往返）
+// goal-contract/tests/contract.test.ts — 契约嵌入与回读（objective 内 Done-when 段往返）
 import assert from "node:assert/strict";
 import { test } from "node:test";
 

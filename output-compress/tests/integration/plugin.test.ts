@@ -6,7 +6,7 @@
  * 所以这里的「canonical 值」指 digest 行的列值与句柄 `put` 的入参, 「投影」指
  * `renderSummaryRecord` 产出的确定性 markdown (落库为 preview、推送为 content)。
  *
- * 与单元层 `tests/hooks.test.ts` 的分工: 那里直接拿 `createOutputCompressBundle` 的句柄
+ * 与单元层 `output-compress/tests/hooks.test.ts` 的分工: 那里直接拿 `createOutputCompressBundle` 的句柄
  * 驱动管线; 这里只经宿主接线 (`apply`) 派发事件, 断言注册面、落库值与投影文本, 落盘全在
  * `os.tmpdir()` 的临时目录, 用后删除。
  */

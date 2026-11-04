@@ -1,4 +1,4 @@
-// src/host.ts — 宿主面访问助手（受保护读取 + 宿主侧模块解析）。
+// command-template/src/host.ts — 宿主面访问助手（受保护读取 + 宿主侧模块解析）。
 
 import { createRequire } from "node:module";
 import { homedir } from "node:os";

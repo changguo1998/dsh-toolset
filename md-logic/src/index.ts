@@ -7,7 +7,7 @@
  *
  * 解析器为 `marked`（唯一运行时依赖，零传递依赖；选型理由见 README「解析选型」）；
  * 解析本身是纯函数（读面不写文件、不注册命令）；唯一副作用是注册 `md_logic` 工具——工具面
- * 含唯一写动作 `replace`（按节整节替换 / 删除，安全语义见 src/edit.ts 与 README「改写面」）。
+ * 含唯一写动作 `replace`（按节整节替换 / 删除，安全语义见 md-logic/src/edit.ts 与 README「改写面」）。
  */
 
 import { DEFAULT_MAX_BYTES, mdLogicTool } from "./tools.ts";

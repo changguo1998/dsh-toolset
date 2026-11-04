@@ -1,4 +1,4 @@
-// src/index.ts — goal-contract 插件入口（DSH bundle 接入面）
+// goal-contract/src/index.ts — goal-contract 插件入口（DSH bundle 接入面）
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, Config, apply }）：本包导出
 // name / inject / apply；apply 不收配置形参（无 Config 可导出，宿主配置原样透传且被忽略）。

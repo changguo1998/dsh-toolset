@@ -1,4 +1,4 @@
-// src/semantic/lsp.ts — LSP 语义层缝适配（精确引用裁决）。
+// code-map/src/semantic/lsp.ts — LSP 语义层缝适配（精确引用裁决）。
 //
 // 对接官方 `ctx.lsp`（@deepseek-ai/dsh-lsp）的查询缝：四个操作
 // （goToDefinition / findReferences / goToImplementation / hover），导航类结果

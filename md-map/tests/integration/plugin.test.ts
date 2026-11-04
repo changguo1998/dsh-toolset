@@ -1,5 +1,5 @@
 // md-map 集成层: 经假宿主调 `apply`, 断言 md_map 的 canonical 值、`output.render` 投影、
-// `mdMap` 服务面与失败路径. 装配器见 `tests/assemble.ts`; 文档集一律落 `os.tmpdir()` 的
+// `mdMap` 服务面与失败路径. 装配器见 `md-map/tests/assemble.ts`; 文档集一律落 `os.tmpdir()` 的
 // 临时目录, 用例结束删除.
 
 import assert from "node:assert/strict";

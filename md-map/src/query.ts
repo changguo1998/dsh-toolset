@@ -1,4 +1,4 @@
-// src/query.ts — 关系查询（纯函数，输入是已构建的索引）。
+// md-map/src/query.ts — 关系查询（纯函数，输入是已构建的索引）。
 
 import type {
   MdCaller,
@@ -17,7 +17,7 @@ export function getDoc(index: MdMapIndex, path: string): MdDoc | undefined {
 /**
  * 谁引用了该文档（或该锚点）。
  * `anchor` 给出时只统计指向该锚点的入边；`kind` 给出时只统计这些边种类（allowlist，
- * 如 `["internal","wiki"]` 排除 ref 噪声）；`path` 可用相对 root 的路径或其后缀（如 `docs/x.md`）。
+ * 如 `["internal","wiki"]` 排除 ref 噪声）；`path` 可用相对 root 的路径或其后缀（如 `x.md`）。
  */
 export function callers(
   index: MdMapIndex,

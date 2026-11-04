@@ -6,7 +6,7 @@
  * 缺省与非法值由本包 `resolveSettings` 回退）。
  *
  * 形态与范围（用户 2026-10-16 / 10-17 裁定，见
- * docs/implementation/2026-10-16-script-interpreter-design.md）：
+ * docs/archived/2026-10-16-script-interpreter-design.md）：
  * **模型侧工具**（给 LLM 用，不是 TUI 的 `$` 模式）、主功能是**按语言自动探测并
  * 切换执行环境**、单包多语言（`langs/<语言>.ts` + 统一 LangBackend）、逐次审批缺省关闭、
  * 不做 REPL / 状态保持 / TUI 入口。

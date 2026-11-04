@@ -11,7 +11,7 @@
  * 假会话事件: `fire(source)` 按 `sources` 节点找消费者并调 `decide`, 模拟 rule-engine 在
  * `session-start` / `step-end` 唤醒消费者取注入正文; 本包不落盘, 装配器不建临时目录.
  *
- * 只装配与派发, 不放断言; 断言在 `tests/integration/plugin.test.ts`.
+ * 只装配与派发, 不放断言; 断言在 `ponytail/tests/integration/plugin.test.ts`.
  */
 
 import type { Config } from "../src/index.ts";

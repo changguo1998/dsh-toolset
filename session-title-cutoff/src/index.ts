@@ -10,7 +10,7 @@
  * `createRequire($DSH_HOME/profiles/node_modules/x.js)` 解析并动态 `import()` 官方 LLM helper
  * （宿主官方兜底解析路径，解析到与宿主同版的副本）；解析失败 → 告警且不注册 provider。
  *
- * 契约与工期记录见 `docs/archived/2026-09-29-title-cutoff-provider.md`。
+ * 契约与工期记录见 `session-title-cutoff/docs/archived/2026-09-29-title-cutoff-provider.md`。
  */
 
 import { createRequire } from "node:module";

@@ -1,7 +1,7 @@
 /**
  * 集成层: 本插件 `apply` 与宿主接线 (假服务面 + 假宿主 `sessions`, 临时 HOME)。
  *
- * 与单元层 `tests/service.test.ts` 的分工: 单元层按单个方法 / 分支断言; 这里走完整链路 ——
+ * 与单元层 `session-paths/tests/service.test.ts` 的分工: 单元层按单个方法 / 分支断言; 这里走完整链路 ——
  * `apply` 挂服务 → 消费方 `ctx.get("sessionPaths")` 取用 → 五个服务方法给出 canonical 值,
  * 其中 `ensureSessionDir` 真的落到临时 HOME 的 `~/.dsh/sessions` 下, `sessionDirFor` 走假
  * `sessions` 面取 `header.cwd`。断言一律逐字符相等 (路径不靠「包含」判断)。

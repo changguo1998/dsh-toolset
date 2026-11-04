@@ -2,7 +2,7 @@
  * 混合检索的纯函数层（策略常量 / 词项切分 / 邻近窗口 / RRF 融合）。
  *
  * 分工：本文件只做字符串与数学，**不碰 SQLite**——SQL 与结果行留在 `knowledge.ts`。
- * 口径见 `docs/implementation/2026-10-22-memory-hybrid-retrieval.md` 的「决策」：
+ * 口径见 `docs/archived/2026-10-22-memory-hybrid-retrieval.md` 的「决策」：
  * - 策略只有两档：`bm25`（缺省，等价改造前的单词面行为）与 `hybrid`（多路召回 + RRF）；
  * - 各路的分数（BM25 / trigram / LIKE 常量 0 / 邻近跨度）量纲不可比，故融合只用**路内名次**；
  * - 融合分取负后写进 `SearchHit.score`，沿用「分数越小越相关」的既有语义。

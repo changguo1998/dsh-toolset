@@ -1,5 +1,5 @@
 // clock-base 集成层：经假宿主调 `apply`，断言服务面 `clock` 的 now / schedule / interval、
-// `ManualClock` 的确定性行为，以及排期随 fiber 卸载撤销。装配器见 `tests/assemble.ts`。
+// `ManualClock` 的确定性行为，以及排期随 fiber 卸载撤销。装配器见 `clock-base/tests/assemble.ts`。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

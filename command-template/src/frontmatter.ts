@@ -1,4 +1,4 @@
-// src/frontmatter.ts — 模板文件解析：YAML 子集 front-matter + 正文。
+// command-template/src/frontmatter.ts — 模板文件解析：YAML 子集 front-matter + 正文。
 //
 // 只支持手写模板需要的子集（零依赖）：标量、嵌套映射（缩进）、块序列（`- `）、
 // 块标量（`|` 字面 / `>` 折叠）、单双引号字符串、整行注释。

@@ -1,7 +1,7 @@
 /**
  * 集成层装配器: 假工具面 + 假事件面 + 假服务面拼 `apply`.
  *
- * 三个假面的形状照宿主面 (`src/index.ts` 的 `BundleHost` / `src/types.ts` 的工具注册表与服务替身):
+ * 三个假面的形状照宿主面 (`script-interpreter/src/index.ts` 的 `BundleHost` / `script-interpreter/src/types.ts` 的工具注册表与服务替身):
  * - 假工具面: `register(def)` 收集注册项, 等价宿主 `ctx.tools`;
  * - 假事件面: `on` / `emit` 记录订阅, 用来钉住「本包无事件消费者, apply 不订阅任何事件」;
  * - 假服务面: `ctx.get(name)` 受保护读取 `sandbox` / `sandboxPolicy` / `approval` / `clock`,

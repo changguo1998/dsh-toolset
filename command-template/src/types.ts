@@ -1,4 +1,4 @@
-// src/types.ts — 模板体系的类型面与错误码。
+// command-template/src/types.ts — 模板体系的类型面与错误码。
 //
 // 与实现解耦：模板格式（TemplateSpec）、步骤（StepSpec）、运行结果（RunOutcome）、错误码。
 // 执行机制不在本包：步骤执行经注入的依赖（会话注入 / 子代理运行）落到宿主面。

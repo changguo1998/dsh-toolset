@@ -12,7 +12,7 @@
  *
  * 与宿主 `cordis-plugin-timer` 的关系：**并存**，不包装、不替代。宿主只提供
  * `timeout(cb, delay)` / `interval(cb, delay)`（无 `schedule`、不支持 `unref`、mixin 需
- * 声明 `inject`），本包按仓内语义自实现（见 `src/timers.ts` 文件头）。
+ * 声明 `inject`），本包按仓内语义自实现（见 `clock-base/src/timers.ts` 文件头）。
  *
  * 宿主依赖姿态：不写进 `inject`，`apply` 只接收 ctx；没有宿主也照常加载（服务面即可用）。
  */

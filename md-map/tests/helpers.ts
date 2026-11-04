@@ -1,4 +1,4 @@
-// tests/helpers.ts — 测试公共辅助：临时「文档项目」fixture（含内部链 / 锚点 / wiki / 文件引用 / 断链）。
+// md-map/tests/helpers.ts — 测试公共辅助：临时「文档项目」fixture（含内部链 / 锚点 / wiki / 文件引用 / 断链）。
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,4 +1,4 @@
-// src/tools.ts — md-logic 的模型侧工具面（唯一工具 `md_logic`，action 分派）。
+// md-logic/src/tools.ts — md-logic 的模型侧工具面（唯一工具 `md_logic`，action 分派）。
 //
 // 契约同 ast-tools：def = { name, description, parameters, execute(args, exec), output{schema, render(_args, value)} }；
 // render 形参顺序是「args 第一、value 第二」；render 全函数（畸形值不抛）。

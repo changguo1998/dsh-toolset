@@ -10,7 +10,7 @@
  * （选型依据见 README「二进制选型」）；二进制缺失时 apply 走降级：
  * 记录含安装路径的日志，并注册**降级版工具**——每次调用返回含 `INSTALL_GUIDANCE` 的错误值，
  * 不假装成功（fail-closed），但模型侧仍可发现该能力并读到安装指引（口径对齐 code-map）。
- * 模型侧工具面：`ast_query`（search/outline/rules）+ `ast_replace`（默认 dry-run），见 src/tools.ts。
+ * 模型侧工具面：`ast_query`（search/outline/rules）+ `ast_replace`（默认 dry-run），见 ast-tools/src/tools.ts。
  */
 
 import {

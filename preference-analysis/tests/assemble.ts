@@ -4,7 +4,7 @@
  * 三个假面形状统一 —— 每个面只有「注册入口 + 调用记录 + 解绑计数」，不引宿主代码：
  * - 事件面：`on` 收集监听器，`emit` 喂事件，`off` 摘除并计数；
  * - 工具面：`register` 收集工具定义，`call` / `render` 走定义里的 `execute` / `output.render`；
- * - 服务面：memory 用 `tests/fakes.ts` 的冻结句柄面，ruleEngine 收集消费者并可代调 `decide`。
+ * - 服务面：memory 用 `preference-analysis/tests/fakes.ts` 的冻结句柄面，ruleEngine 收集消费者并可代调 `decide`。
  *
  * ctx 按 cordis 语义造：服务只能经 `ctx.get` 取（直接读属性抛错）；`viaGet: false` 时
  * 退回直接属性，覆盖非 cordis 测试宿主的兜底路径。状态一律落临时目录，`cleanup` 删除。

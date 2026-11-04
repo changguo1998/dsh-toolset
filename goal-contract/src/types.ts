@@ -1,11 +1,11 @@
-// src/types.ts — goal-contract 领域类型与宿主结构化接口
+// goal-contract/src/types.ts — goal-contract 领域类型与宿主结构化接口
 //
 // 领域类型对齐 task-engine 的 Acceptance 契约（见 task-engine/src/types.ts）：
 // 单条 Done-when 条款字段与 Acceptance（id/check/level/command/outputSchema）
 // 完全一致；本包不引入对 task-engine 的 npm 依赖，schema 通过对齐源文件获得，
 // 跨插件通信只经宿主 ctx 服务面（userQuestions / goals）。
 //
-// 宿主接口为结构化最小型（参照 task-engine/src/main.ts 模式）：不 import
+// 宿主接口为结构化最小型（参照 task-engine/src/index.ts 模式）：不 import
 // @deepseek-ai/cordis（dsh workspace 包，非 npm 依赖），服务惰性取用与降级。
 
 /** 三级验收 level（对齐 task-engine AcceptanceLevel）。 */

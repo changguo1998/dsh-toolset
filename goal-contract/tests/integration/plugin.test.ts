@@ -1,7 +1,7 @@
-// tests/integration/plugin.test.ts — 插件装配层：apply 注册、服务取用与失败路径
+// goal-contract/tests/integration/plugin.test.ts — 插件装配层：apply 注册、服务取用与失败路径
 //
 // 对象是宿主接线（不是单个纯函数）：假工具面 / 假事件面 / 假服务面由
-// tests/assemble.ts 拼出，断言工具注册的 canonical 值、`execute` 的返回、
+// goal-contract/tests/assemble.ts 拼出，断言工具注册的 canonical 值、`execute` 的返回、
 // `output.render` 的投影文本，以及服务缺席与抛错时的降级反馈。
 import assert from "node:assert/strict";
 import { test } from "node:test";

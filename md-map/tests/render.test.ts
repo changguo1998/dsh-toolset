@@ -1,4 +1,4 @@
-// tests/render.test.ts — 工具面文本渲染：截断预算 / 过滤标注 / 空结果 / 报告预览。
+// md-map/tests/render.test.ts — 工具面文本渲染：截断预算 / 过滤标注 / 空结果 / 报告预览。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

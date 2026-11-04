@@ -1,4 +1,4 @@
-// tests/frontmatter.test.ts — 模板解析：YAML 子集的正向形态与逐条错误路径。
+// command-template/tests/frontmatter.test.ts — 模板解析：YAML 子集的正向形态与逐条错误路径。
 //
 // 正向用例锁定支持的子集（折叠块 / 字面块 / 引号标量 / 注释 / 嵌套映射与序列 / 步骤 id 缺省），
 // 错误用例逐个锁定 TemplateParseError 的可读消息（模板作者的唯一诊断面）。

@@ -1,4 +1,4 @@
-// tests/query.test.ts — 查询面：节筛选、行定位、块过滤、链接过滤。
+// md-logic/tests/query.test.ts — 查询面：节筛选、行定位、块过滤、链接过滤。
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

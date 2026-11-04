@@ -22,7 +22,7 @@ const { ManualClock } = (await import(
   new URL("../../clock-base/src/index.ts", import.meta.url).href
 )) as { ManualClock: new (startMs?: number) => ManualClockLike };
 
-/** apply 的配置形态 (与 `src/index.ts` 的 `Config` 同形, 不跨包引类型). */
+/** apply 的配置形态 (与 `metric-loop/src/index.ts` 的 `Config` 同形, 不跨包引类型). */
 export type ApplyConfig = NonNullable<Parameters<typeof apply>[1]>;
 
 /** 工具定义的最小结构面 (`ctx.tools.register` 的入参形状). */

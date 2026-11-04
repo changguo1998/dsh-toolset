@@ -1,4 +1,4 @@
-// src/semantic/locate.ts — 符号定义行内的光标定位（LSP 查询入参）。
+// code-map/src/semantic/locate.ts — 符号定义行内的光标定位（LSP 查询入参）。
 //
 // 图里符号只有 file / startLine / endLine / name；官方缝要 `{ line, character }`。
 // 只读定义所在的那一行（不缓存全量源码），按名称首次出现取列号（UTF-16 码元，

@@ -230,7 +230,7 @@ test("选项非法值回退缺省（负数 / NaN 不抛）", () => {
 
 // ---------------- 漏检形态筛查（任务 B）: 逐形态断言 ----------------
 // 形态编号沿用 md-table-check/docs/BACKLOG.md 的「待查形态」; 证据与裁定见追踪文档
-// docs/implementation/2026-10-16-three-surface-text-consistency.md 任务 B 的 S2–S4 与「决策」。
+// docs/archived/2026-10-16-three-surface-text-consistency.md 任务 B 的 S2–S4 与「决策」。
 
 test("形态 ①+② 组合：分隔行与数据行同时不符 → 两处不一致且按行号排序", () => {
   const result = checkTables(

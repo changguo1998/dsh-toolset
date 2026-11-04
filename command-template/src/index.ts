@@ -1,4 +1,4 @@
-// src/index.ts — cordis 入口：加载双源模板 → 注册宿主命令 → 执行模板（步骤落到宿主面）。
+// command-template/src/index.ts — cordis 入口：加载双源模板 → 注册宿主命令 → 执行模板（步骤落到宿主面）。
 //
 // 契约对齐 docs/host/DSH-CTX-API.md §0（export { name, inject, provide, Config, apply }）：
 // - `inject: ["commands"]`：命令注册面（缺失则告警，不使加载失败）；
@@ -64,7 +64,7 @@ export const SERVICE_FACE_METHODS = [
 
 /**
  * 服务面对象（`provide("commandTemplate", …)` 的实际内容）：键清单必须与
- * `SERVICE_FACE_METHODS` 一致——`tests/template.test.ts` 的守卫用例断言两者相等，
+ * `SERVICE_FACE_METHODS` 一致——`command-template/tests/template.test.ts` 的守卫用例断言两者相等，
  * 并把每个键回指到 `CommandTemplateService` 的同名方法（方法改名 / 键漂移即红）。
  */
 export function serviceFace(service: CommandTemplateService): {

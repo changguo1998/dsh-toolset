@@ -2,7 +2,7 @@
  * 集成层: `apply` 与宿主接线 (工具注册与 execute、`output.render` 投影、
  * `codeMap` 服务面、`ctx.get("lsp")` 语义层接线、宿主形态防御).
  *
- * 用 `tests/assemble.ts` 的假 astTools / 假工具面 / 假服务面拼宿主, 项目落在
+ * 用 `code-map/tests/assemble.ts` 的假 astTools / 假工具面 / 假服务面拼宿主, 项目落在
  * `os.tmpdir()` 的临时目录, 用例结束删除; 不依赖 ast-grep 二进制.
  */
 

@@ -1,4 +1,4 @@
-// src/contract.ts — 契约嵌入与回读（objective 内 Done-when 段）
+// goal-contract/src/contract.ts — 契约嵌入与回读（objective 内 Done-when 段）
 //
 // 官方 dsh GoalSnapshot 无独立契约字段（dsh-goal GoalSnapshot 仅
 // objective/phase/revision 等），故条款集以机器可读的 "Done-when:" 标记段

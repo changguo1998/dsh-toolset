@@ -1,6 +1,6 @@
 /**
- * 集成层用例 (`tests/integration/plugin.test.ts`):
- * 用 `tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面与 `clock-base` 的 `ManualClock`
+ * 集成层用例 (`metric-loop/tests/integration/plugin.test.ts`):
+ * 用 `metric-loop/tests/assemble.ts` 的假工具面 / 假事件面 / 假服务面与 `clock-base` 的 `ManualClock`
  * 拼宿主并调用 `apply`, 断言 `metric_loop` 工具注册、`execute` 的 canonical 值、
  * `output.render` 投影、停止 / 时间边界 / 节流路径与服务面接线.
  *

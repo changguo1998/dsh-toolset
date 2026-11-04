@@ -13,7 +13,7 @@ export type LanguageId = string;
 
 /**
  * 沙箱文件效果模式（宿主 `dsh-sandbox` 词汇表，原样沿用）。
- * 唯一来源是 `herdr-use` 的 `src/types.ts`（总追踪 5.1 的枚举持有者），本包不另存副本；
+ * 唯一来源是 `herdr-use` 的 `script-interpreter/src/types.ts`（总追踪 5.1 的枚举持有者），本包不另存副本；
  * 其包入口已导出该类型，此处从入口作类型级 import 再以原名 re-export。
  */
 export type SandboxMode = HerdrSandboxMode;

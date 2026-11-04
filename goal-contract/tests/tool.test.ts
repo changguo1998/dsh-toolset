@@ -1,4 +1,4 @@
-// tests/tool.test.ts — goal_contract_draft 工具胶水层（fake userQuestions / goals）
+// goal-contract/tests/tool.test.ts — goal_contract_draft 工具胶水层（fake userQuestions / goals）
 //
 // fake goals 模拟 dsh-goal：create 记录 goal/change 事件（op=create），
 // get 回读当前 goal 视图；fake userQuestions 按脚本逐题应答。

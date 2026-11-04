@@ -1,4 +1,4 @@
-// tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
+// script-interpreter/tests/clock.test.ts — 定时器统一面接线（假时钟 / 卸载撤销 / 服务缺失降级）
 //
 // 定时器族与假时钟 `ManualClock` 一律从 clock-base 包入口 import。
 // 纳入类型检查（不再 exclude）: 断言里的 `fired` 用显式泛型 `deepEqual<string[]>`，

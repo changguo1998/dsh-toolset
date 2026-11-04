@@ -1,4 +1,4 @@
-// tests/query.test.ts — 关系查询：callers / impact / orphans / report / summary。
+// md-map/tests/query.test.ts — 关系查询：callers / impact / orphans / report / summary。
 
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";

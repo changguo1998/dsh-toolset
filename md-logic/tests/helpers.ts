@@ -1,4 +1,4 @@
-// tests/helpers.ts — 测试公共辅助：临时工作区与 fixture 写入。
+// md-logic/tests/helpers.ts — 测试公共辅助：临时工作区与 fixture 写入。
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

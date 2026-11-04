@@ -1,4 +1,4 @@
-// src/clauses.ts — Done-when 条款 schema 校验与文本解析
+// goal-contract/src/clauses.ts — Done-when 条款 schema 校验与文本解析
 //
 // 字段对齐 task-engine Acceptance 契约（见 task-engine/src/types.ts 与
 // task-engine/src/acceptance.ts parseAcceptance）：

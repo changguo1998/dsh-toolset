@@ -1,4 +1,4 @@
-// src/subagent.ts — agent 步骤的一次性子代理运行（宿主 subagents 服务面）。
+// command-template/src/subagent.ts — agent 步骤的一次性子代理运行（宿主 subagents 服务面）。
 //
 // 走宿主 sanctioned 路径：`ctx.subagents` 选 provider（优先 spawn）→ **服务面**
 // `start(name, request)`（携带 parent agent 与 provider/model 覆盖，仅本次运行）——

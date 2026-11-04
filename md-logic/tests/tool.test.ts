@@ -1,4 +1,4 @@
-// tests/tool.test.ts — 模型侧工具面：注册、契约面、参数校验、渲染、路径与读取守卫。
+// md-logic/tests/tool.test.ts — 模型侧工具面：注册、契约面、参数校验、渲染、路径与读取守卫。
 
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";

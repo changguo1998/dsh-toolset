@@ -1,5 +1,5 @@
 /**
- * tests/assemble.ts — 集成层装配器（不以 `.test.ts` 结尾）
+ * memory-base/tests/assemble.ts — 集成层装配器（不以 `.test.ts` 结尾）
  *
  * 把「假工具面 / 假事件面 / 假服务面」拼成一个最小宿主 ctx，交给本包 `apply(ctx, config)`，
  * 再把暴露出来的 `memory` 服务、`memory_query` 工具与事件订阅交回用例。三个假面的形状与

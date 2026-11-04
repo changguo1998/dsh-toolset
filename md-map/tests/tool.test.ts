@@ -1,4 +1,4 @@
-// tests/tool.test.ts — 模型侧工具面：注册 / 契约 / 参数校验 / 端到端流程 / 渲染。
+// md-map/tests/tool.test.ts — 模型侧工具面：注册 / 契约 / 参数校验 / 端到端流程 / 渲染。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

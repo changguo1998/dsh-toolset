@@ -1,4 +1,4 @@
-// src/registry.ts — 模板目录扫描与双源合并（仓库随包目录 + 用户目录，同名用户优先）。
+// command-template/src/registry.ts — 模板目录扫描与双源合并（仓库随包目录 + 用户目录，同名用户优先）。
 //
 // 纯文件 IO + 解析；失败逐个文件容错（坏模板不拖垮整次加载，记入 errors 供 `/playbook list` 展示）。
 

@@ -1,4 +1,4 @@
-// tests/service.test.ts — 服务面：配置 root 的合并与覆盖、未索引时的空结果、dispose 复位。
+// md-map/tests/service.test.ts — 服务面：配置 root 的合并与覆盖、未索引时的空结果、dispose 复位。
 
 import assert from "node:assert/strict";
 import { test } from "node:test";

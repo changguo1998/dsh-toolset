@@ -1,4 +1,4 @@
-// src/render.ts — 工具面文本渲染（模型侧唯一可见面）：紧凑文本、行号 1 基、每类 80 行预算。
+// md-map/src/render.ts — 工具面文本渲染（模型侧唯一可见面）：紧凑文本、行号 1 基、每类 80 行预算。
 
 import type {
   MdBrockenLink,

@@ -1,5 +1,5 @@
 // hash-edit 集成层: 经假宿主调 `apply`, 断言两个工具的 canonical 值、`output.render` 投影、
-// 落盘结果与失败路径. 装配器见 `tests/assemble.ts`; 落盘一律在 `os.tmpdir()` 的临时目录,
+// 落盘结果与失败路径. 装配器见 `hash-edit/tests/assemble.ts`; 落盘一律在 `os.tmpdir()` 的临时目录,
 // 用例结束删除.
 
 import assert from "node:assert/strict";
@@ -9,7 +9,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { hashLine, name, inject } from "../../src/index.ts";
 import { assemble, makeWorkspace } from "../assemble.ts";
 
-/** 基线内容 2 行与它的固定向量（sha256 前 8 位, 与 tests/hashline.test.ts 同口径） */
+/** 基线内容 2 行与它的固定向量（sha256 前 8 位, 与 hash-edit/tests/hashline.test.ts 同口径） */
 const CONTENT = "alpha\nbeta\n";
 const ALPHA_HASH = "8ed3f6ad";
 const BETA_HASH = "f44e64e7";

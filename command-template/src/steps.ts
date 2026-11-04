@@ -1,4 +1,4 @@
-// src/steps.ts — 步骤执行：prompt 注入 / agent 子代理 / chain / best-of-N + 裁判。
+// command-template/src/steps.ts — 步骤执行：prompt 注入 / agent 子代理 / chain / best-of-N + 裁判。
 //
 // 执行机制全部经 `StepDeps` 注入（宿主面接线在 index.ts，测试注入替身）：
 // 本模块只负责展开、串链、并发候选与裁判选择，不依赖任何 DSH API。
