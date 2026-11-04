@@ -64,7 +64,7 @@
 
 ## 2. 未完成项
 
-**#1 清理 .ts 注释里的简写路径与失效路径**〔待办: 2026-11-03〕（登记: 2026-11-03）：`check:docs` 的警告档跑出现行 `.ts` 注释里 588 处包内简写路径（`src/...` / `tests/...` 而非从仓库根算起）与 60 处失效路径（指向已归档或已删文件）→ 期望逐包按「引用仓内文件写完整路径」口径改写, 失效路径改指现存文档或删掉 → 改动位置 各包 `src/` 与 `tests/` 注释、`TUI/scripts/` 注释 → 验收: `node dev/standard/index.mjs --rule comment.path-shorthand` 与 `--rule comment.path-missing` 均为 0, 之后把两条规则从 `warn` 改回 `error`（`dev/standard/index.mjs` 的 `report` 严重度） → 优先级 P3 → 来源: `docs/archived/2026-11-03-docs-standard-checker.md`.
+**#1 清理 .ts 注释里的简写路径与失效路径**〔进行中: 2026-11-04〕（登记: 2026-11-03）：`check:docs` 的警告档跑出现行 `.ts` 注释里 588 处包内简写路径（`src/...` / `tests/...` 而非从仓库根算起）与 60 处失效路径（指向已归档或已删文件）→ 期望逐包按「引用仓内文件写完整路径」口径改写, 失效路径改指现存文档或删掉 → 改动位置 各包 `src/` 与 `tests/` 注释、`TUI/scripts/` 注释 → 验收: `node dev/standard/index.mjs --rule comment.path-shorthand` 与 `--rule comment.path-missing` 均为 0, 之后把两条规则从 `warn` 改回 `error`（`dev/standard/index.mjs` 的 `report` 严重度） → 优先级 P3 → 来源: `docs/archived/2026-11-03-docs-standard-checker.md`.
 
 **#2 迁出 34 包测试产物数据**（前置: 覆盖率报告口径条目, 口径定稿后再搬数字）〔待办: 2026-11-02〕（登记: 2026-11-02）：34 份包追踪已补「四份测试产物」索引, 但覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑数字仍分散在「实现记录」「测试与证据」, 没有独立数据节 → 期望逐包把四类数据搬到索引节或生成一份汇总, 保留原节链接 → 改动位置 34 份 `docs/archived/2026-10-28-history-cleanup-<包>.md` → 验收: 34/34 四类数据可直接读取, 索引链接不指向缺失节, 数字与既有测试记录一致 → 优先级 P3 → 来源: `docs/archived/2026-11-01-history-cleanup-audit.md` P2-16 补正记录.
 
