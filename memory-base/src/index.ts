@@ -28,13 +28,11 @@ import type {
   KnowledgeService,
   ListOptions,
   PutResult,
-  RowRef,
   SearchHit,
   SearchOptions,
   StoreRow,
   UpdateResult,
   UpdateRowPatch,
-  UpdateSkip,
 } from "./knowledge.ts";
 import { compileRules, matchDenyPattern, type PersistRules } from "./rules.ts";
 import { KindRegistry, TIERS, type KindSpec, type Tier } from "./router.ts";

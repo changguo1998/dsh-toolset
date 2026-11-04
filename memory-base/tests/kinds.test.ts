@@ -27,7 +27,7 @@ async function makeService(): Promise<{
         ? { accept: false, reason: "not allowed" }
         : {
             accept: true,
-            importance: input.content.includes("hook-boost") ? 5 : undefined,
+            ...(input.content.includes("hook-boost") ? { importance: 5 } : {}),
           },
   });
   registry.register({ kind: "default" });

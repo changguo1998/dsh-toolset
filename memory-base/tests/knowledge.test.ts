@@ -166,7 +166,7 @@ test("put 分块：超预算内容按 markdown 边界切多块", async () => {
 });
 
 test("search 过滤：project / kind", async () => {
-  const { db, kb, registry } = await makeService();
+  const { db, registry } = await makeService();
   try {
     registry.register({ kind: "other" });
     const kb2 = new KnowledgeService(db, { registry });

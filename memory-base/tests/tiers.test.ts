@@ -330,9 +330,7 @@ test("删除：真删并返回条数；未创建的层视为无行", async () =>
     );
     assert.equal(tiers.search({ query: "待删除" }).length, 0);
     assert.equal(
-      await tiers.forget([
-        { tier: "user", ids: [{ kind: "usr", id: 1 }], sessionId: undefined },
-      ]),
+      await tiers.forget([{ tier: "user", ids: [{ kind: "usr", id: 1 }] }]),
       0,
       "未创建的层不算删除",
     );
