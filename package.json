@@ -17,7 +17,7 @@
     "test:tui": "sh TUI/scripts/test.sh"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.1-rc.3"
+    "@deepseek-ai/dsh": "0.2.1-rc.5"
   },
   "pnpm": {
     "verifyDepsBeforeRun": false

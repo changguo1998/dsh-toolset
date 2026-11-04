@@ -61,11 +61,13 @@
 - `docs/host/HOST-PACKAGES.md`: 头部版本口径补 rc.5 复核注记 (包计数不重生成, 仍为 rc.2 安装树实测)。
 - `docs/host/DSH-CTX-API.md`: 补 rc.5 复核注记 (逐条研读基线不变)。
 - **未改**: `scripts/install.sh` / `scripts/test-install.sh` / 各包 smoke 的 `REQUIRED_VERSION` (安装树未升级, 抬门槛会与本机状态不一致)、`docs/STATUS.md`(按 `WORKFLOW-STANDARD.md` §4.6 由用户择时更新)。
+- **2026-11-04 追加 (升级任务)**: 上一条的「未改」已被后续任务取代 —— `scripts/install.sh` 默认版本、`scripts/test-install.sh` 假版本串、4 个包 smoke 的 `REQUIRED_VERSION` 与同名 README、根 `devDependencies` 与 `pnpm-lock.yaml`、`e2e/README.md`、`TUI/docs/COMMANDS.md`、`docs/ARCHITECTURE-REUSE.md` / `docs/STATUS.md` 基线、本文件与 `HOST-PACKAGES.md` 的版本口径全部改到 `rc.5`; 过程记录见 `docs/implementation/2026-11-04-host-upgrade-0.2.1-rc.5-install.md`。
 
 ## 7. 未做 / 待办
 
-- 本机仍为 rc.3: 升级安装树、重生成 `HOST-PACKAGES.md` 计数、抬版本门槛, 见 `docs/BACKLOG.md` 条目「本机宿主升级到 `0.2.1-rc.5` 并重建安装树口径」。
-- `0.2.2-alpha` 线: 主分支已在 `dsh-v0.2.2-alpha.3` 之后 555 个提交, 包目录 343 → 370 (+27), 且有 20 条 `v0.2.2-alpha.2` 升级指南 (事件与投影面含破坏性改动)。属独立复核任务, 见 `docs/BACKLOG.md` 条目「宿主升级复核: `0.2.2-alpha` 线的接口变化与新增包面」。
+- 升级已完成 (2026-11-04): 全局 `dsh` 与安装树 = `0.2.1-rc.5`, profile `fff` 已 `--sync` 重装 (35 个 bundle), 随包分发 **306 / 295** 与 fff 官方活跃包 **100** 个复测未变, `HOST-PACKAGES.md` 已按 rc.5 树补复测记录。过程记录见 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5-install.md`。
+- 唯一未做项: 4 个包 smoke (`goal-contract` / `metric-loop` / `output-compress` / `security-guard`) 的真跑 —— 需模型凭据与真机会话; 门槛已抬到 `rc.5`, 升级后可直接跑。
+- `0.2.2-alpha` 线: 用户 2026-11-04 裁定**不复核**, 相应 BACKLOG 条目已删除; 本节只留事实备查 (主分支在 `dsh-v0.2.2-alpha.3` 之后 555 个提交, 包目录 343 → 370, 20 条 `v0.2.2-alpha.2` 升级指南)。
 
 ## 8. 依据
 
