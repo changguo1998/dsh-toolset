@@ -30,13 +30,10 @@ const ENV_OPTS: HerdrClientOptions = {
 
 /** 记录 sender：同步记录所有上报。 */
 class RecordingSender implements HerdrSender {
-  sessions: Array<{ ref: SessionRef; source?: string }> = [];
+  sessions: Array<{ ref: SessionRef; source?: string | undefined }> = [];
   states: Array<{ state: AgentState; message?: string }> = [];
-  private currentRef: SessionRef | undefined;
 
-  setSessionRef(ref: SessionRef | undefined): void {
-    this.currentRef = ref;
-  }
+  setSessionRef(_ref: SessionRef | undefined): void {}
 
   async reportSession(ref: SessionRef, source?: string): Promise<void> {
     this.sessions.push({ ref, source });

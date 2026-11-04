@@ -33,7 +33,7 @@ import type {
   HerdrSender,
   SessionRef,
 } from "./herdr.ts";
-import { BlockTracker, COMPACTING_MESSAGE, desiredState } from "./state.ts";
+import { BlockTracker, desiredState } from "./state.ts";
 
 /** 根 agent 结构面（只消费 session.id 与 status）。 */
 export interface RootAgentLike {
@@ -75,7 +75,7 @@ export type Config = HerdrIntegrationConfig;
 /** 测试注入面。 */
 export interface HerdrPluginDeps {
   /** 替代真实 unix socket 发送器（单测用记录器） */
-  sender?: HerdrSender;
+  sender?: HerdrSender | undefined;
   /** 替代环境变量读取（单测用） */
   readHerdrEnv?: (env: NodeJS.ProcessEnv) => HerdrClientOptions | undefined;
   /** 替代 agents 注册表读取（单测用） */

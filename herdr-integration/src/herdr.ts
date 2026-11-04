@@ -49,7 +49,7 @@ export interface HerdrClientOptions {
   /** agent 标识（默认 "dsh"） */
   agent: string;
   /** 首档发送尝试的等待响应超时 ms（默认 500） */
-  attemptTimeoutMs?: number;
+  attemptTimeoutMs?: number | undefined;
   /** 超时排期（缺省进程内 `setTimeout`；插件装配时注入定时器统一面） */
   deadline?: Deadline;
 }
@@ -70,7 +70,7 @@ export interface HerdrSender {
 
 interface QueuedState {
   state: AgentState;
-  message?: string;
+  message?: string | undefined;
   seq: number;
 }
 

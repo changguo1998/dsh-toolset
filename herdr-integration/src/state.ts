@@ -10,7 +10,7 @@ export type AgentState = "working" | "blocked" | "idle";
 /** 一次待上报的状态（state + 可选 message）。 */
 export interface DesiredState {
   state: AgentState;
-  message?: string;
+  message?: string | undefined;
 }
 
 /**
