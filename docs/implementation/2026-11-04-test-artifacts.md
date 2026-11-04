@@ -111,6 +111,7 @@
 - `script-interpreter`: 覆盖率表 + 口径说明、23 单元 / 14 集成、sh 条件 skip、四入口就位.
 - `security-guard`: 基线 + 覆盖率表 + 分层贡献 + 契约面、18 单元 / 14 集成、skip 两轮、四入口就位.
 - `session-channel`: 改前 / 改后 + 分层贡献 + 逐文件表、4 单元 / 9 集成、redis 条件 skip、四入口就位.
+- `session-paths`: 改前 / 改后两表、7 单元 / 12 集成、V8 分支块说明、四入口就位.
 
 ## 测试与证据
 

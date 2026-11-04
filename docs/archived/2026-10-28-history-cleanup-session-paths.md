@@ -58,11 +58,8 @@ rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_
 
 ## 实现记录
 
-- 基线: `pnpm -C session-paths run test` 24 例通过 (73ms); `check` 通过; 覆盖率 (仅单元层) 行 93.8% (180/192) / 分支 85.5% (53/62), `src/index.ts` 未覆盖段 61, 63, 140, 145-146, 155-156, 158-162 (报告按 0 基行号).
-- 单元锚点: `tests/service.test.ts` 24 → 31 例, 补的都是原有未走到的防御分支 —— `resolveRoot` 空串与相对路径, `readService` 的 ctx 非对象 / `get` 是抛错 getter / `get` 返回 null 三条兜底, `apply` 的 ctx 为 null / ctx 不可写 / 读 `provide` getter 抛错三条降级路径; 现有断言未改语义.
-- 集成层: 新增装配器 `tests/assemble.ts` (假服务面 `get` / `provide` + 假宿主 `sessions`, 临时 HOME) 与 `tests/integration/plugin.test.ts` 12 例; 断言 `apply` 挂服务 → `ctx.get("sessionPaths")` 取用 → `root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir` 的 canonical 值, 其中 `ensureSessionDir` 真在临时 HOME 下落盘 (0700、幂等、`_no-cwd` 桶), `dispose` 删临时目录并还原 `HOME` / `DSH_HOME`.
-- 脚本: `package.json` 加 `test:integration` (实跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两层合并, `dev/coverage/report.mjs` 参数 `tmp/cov-session-paths`).
-- 包文档: `README.md` 的「测试」节改为四条命令与分层说明.
+> 测试基线、单元锚点、集成层与脚本见「四份测试产物」; 本节保留包文档与阶段 3 实现记录.
+
 - 阶段 3 上下文守卫: `src/index.ts:178` 的 `apply` 把 `ctx === null || typeof ctx !== "object"` 移到入口首句 (`src/index.ts:179-185`), 只判一次; 读 `provide` 与直接属性挂载都用同一收窄结果 `c`, 删掉尾部重复守卫与 `(ctx ?? {})` 兜底; 判定条件、告警文案与两条注册路径不变.
 - 阶段 3 零引用导出: 复查本包原有 12 个导出在全仓 (`src` / `tests` / `scripts` / `docs`) 的引用, 删掉 `Config` (`SessionPathsConfig` 的别名, 除 `dist/` 的 `.d.ts` 外无引用); 其余保留: `name` / `provide` / `apply` 属 bundle 装配面与入口, 四个纯函数与 `SessionPaths` / `SessionPathsConfig` / `resolveRoot` / `SessionPathsService` 被测试和 `README.md` 的 API 示例引用.
 - 阶段 3 路径注释: `src/index.ts:4` 的 `src/encode.ts` 补成 `session-paths/src/encode.ts`; 本包其余路径注释 (`docs/host/DSH-CTX-API.md`、宿主 `@deepseek-ai/dsh-session-persistence-jsonl/lib/index.js`) 已是完整路径或外部引用, 本包无计数注释.
@@ -77,33 +74,7 @@ rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_
 
 ## 测试与证据
 
-改前 (仅单元层, 24 例):
-
-| 文件 | 行 | 分支 | 未覆盖行 |
-| --- | --- | --- | --- |
-| session-paths/src/encode.ts | 100.0% (46/46) | 100.0% (26/26) | - |
-| session-paths/src/index.ts | 91.8% (134/146) | 75.0% (27/36) | 61, 63, 140, 145-146, 155-156, 158-162 |
-| 整包 | 93.8% (180/192) | 85.5% (53/62) | - |
-
-改后 (单元层 31 例 / 单元加集成 43 例):
-
-| 文件 | 行 | 分支 (单元) | 分支 (单元加集成) | 未覆盖行 |
-| --- | --- | --- | --- | --- |
-| session-paths/src/encode.ts | 100.0% (46/46) | 100.0% (26/26) | 100.0% (26/26) | - |
-| session-paths/src/index.ts | 100.0% (146/146) | 97.7% (42/43) | 93.5% (43/46) | - |
-| 整包 | 100.0% (192/192) | 98.6% (68/69) | 95.8% (69/72) | - |
-
-- 剩余 3 个未覆盖分支块: `src/index.ts` 76 行 (注释块)、152-155 与 155-163 (`sessions` 缺失与会话取不到的两处抛错). 这两处行为已由单元层「sessions 服务不可用」「不在宿主的 sessions」两条断言锚住; 计数为 0 是 `--experimental-transform-types` 映射回源码后的字面量块产物, 不为数字补空跑用例.
-- 加集成层后分支分母由 69 升到 72 (集成进程多报 3 个块), 覆盖率按整包仍从 85.5% 升到 95.8%.
-
-四条命令 (改后):
-
-| 命令 | 结果 |
-| --- | --- |
-| `pnpm -C session-paths run check` | ✓ 通过 (无输出) |
-| `pnpm -C session-paths run test` | ✓ 31/31 通过 |
-| `pnpm -C session-paths run test:integration` | ✓ 12/12 通过 |
-| `pnpm -C session-paths run test:coverage` | ✓ 行 100.0% (192/192), 分支 95.8% (69/72) |
+> 覆盖率、剩余分支说明与四条命令见「四份测试产物」; 本节保留阶段 3 代码整理.
 
 阶段 3 代码整理:
 
@@ -114,9 +85,50 @@ rm -rf ../tmp/cov-session-paths && mkdir -p ../tmp/cov-session-paths && NODE_V8_
 
 ## 四份测试产物
 
-| 产物 | 位置 |
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+- 基线: `pnpm -C session-paths run test` 24 例通过 (73ms); `check` 通过; 覆盖率 (仅单元层) 行 93.8% (180/192) / 分支 85.5% (53/62), `src/index.ts` 未覆盖段 61, 63, 140, 145-146, 155-156, 158-162 (报告按 0 基行号).
+- 改前 (仅单元层, 24 例):
+
+| 文件 | 行 | 分支 | 未覆盖行 |
+| --- | --- | --- | --- |
+| session-paths/src/encode.ts | 100.0% (46/46) | 100.0% (26/26) | - |
+| session-paths/src/index.ts | 91.8% (134/146) | 75.0% (27/36) | 61, 63, 140, 145-146, 155-156, 158-162 |
+| 整包 | 93.8% (180/192) | 85.5% (53/62) | - |
+
+- 改后 (单元层 31 例 / 单元加集成 43 例):
+
+| 文件 | 行 | 分支 (单元) | 分支 (单元加集成) | 未覆盖行 |
+| --- | --- | --- | --- | --- |
+| session-paths/src/encode.ts | 100.0% (46/46) | 100.0% (26/26) | 100.0% (26/26) | - |
+| session-paths/src/index.ts | 100.0% (146/146) | 97.7% (42/43) | 93.5% (43/46) | - |
+| 整包 | 100.0% (192/192) | 98.6% (68/69) | 95.8% (69/72) | - |
+
+- 剩余 3 个未覆盖分支块: `src/index.ts` 76 行 (注释块)、152-155 与 155-163 (`sessions` 缺失与会话取不到的两处抛错). 这两处行为已由单元层「sessions 服务不可用」「不在宿主的 sessions」两条断言锚住; 计数为 0 是 `--experimental-transform-types` 映射回源码后的字面量块产物, 不为数字补空跑用例.
+- 加集成层后分支分母由 69 升到 72 (集成进程多报 3 个块), 覆盖率按整包仍从 85.5% 升到 95.8%.
+
+### 用例清单
+
+- 单元锚点: `tests/service.test.ts` 24 → 31 例, 补的都是原有未走到的防御分支 —— `resolveRoot` 空串与相对路径, `readService` 的 ctx 非对象 / `get` 是抛错 getter / `get` 返回 null 三条兜底, `apply` 的 ctx 为 null / ctx 不可写 / 读 `provide` getter 抛错三条降级路径; 现有断言未改语义.
+- 集成层: 新增装配器 `tests/assemble.ts` (假服务面 `get` / `provide` + 假宿主 `sessions`, 临时 HOME) 与 `tests/integration/plugin.test.ts` 12 例; 断言 `apply` 挂服务 → `ctx.get("sessionPaths")` 取用 → `root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir` 的 canonical 值, 其中 `ensureSessionDir` 真在临时 HOME 下落盘 (0700、幂等、`_no-cwd` 桶), `dispose` 删临时目录并还原 `HOME` / `DSH_HOME`.
+- 脚本: `package.json` 加 `test:integration` (实跑 `tests/integration/*.test.ts`) 与 `test:coverage` (两层合并, `dev/coverage/report.mjs` 参数 `tmp/cov-session-paths`).
+- 包文档: `README.md` 的「测试」节改为四条命令与分层说明.
+- 新增与删除: 新增 7 条单元用例与 12 条集成用例; 删除 0 条.
+
+### skip 计数与豁免台账
+
+- `skip` / `todo`: 0 / 0; 豁免台账为空 (剩余 3 个分支块为 V8 字面量块产物, 见「覆盖率」).
+- 豁免台账: 无 (原文未记).
+
+### 四入口实跑
+
+四条命令 (改后):
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C session-paths run check` | ✓ 通过 (无输出) |
+| `pnpm -C session-paths run test` | ✓ 31/31 通过 |
+| `pnpm -C session-paths run test:integration` | ✓ 12/12 通过 |
+| `pnpm -C session-paths run test:coverage` | ✓ 行 100.0% (192/192), 分支 95.8% (69/72) |
