@@ -60,18 +60,8 @@ rm -rf ../tmp/cov-preference-analysis && mkdir -p ../tmp/cov-preference-analysis
 
 ## 实现记录
 
-- 基线 (分支起点): `pnpm -C preference-analysis run test` 68 通过 / 0 失败; `check` 通过; 覆盖率行 87.1% (1770/2032), 分支 75.5% (372/493).
-- 单元锚点 (+30 条, 68 -> 98): 按 4.4 只补现有用例没走到的分支与错误路径, 现有断言未改语义.
-  - `tests/main.test.ts`: 未成形观察只记账与 `dispose` 后零报告 / `api.add` 空正文与无法归一化及标题项目缺省与撤销后拒重登记 / `api.list` 倒序与 `limit` 截断 / memory 缺席时 `add` 与 `remove` 的拒绝 / `autoApply: all` 的候选档写库 / 退休删行失败保状态 / `ctx.on` 缺失与 `tools.register` 抛错的告警 / `DSH_HOME` 派生 / 待归纳观测 2000 条上限.
-  - `tests/apply.test.ts`: `applyEntry` 的 skipped 与抛错, `applyExplicit` 的隐私拦截与 skipped 与抛错, `retireEntry` 的 forget 抛错, `createMemoryPort` 的隐私闸崩溃与可写层不一致与注册抛错, 注入排序的同等重要度回退.
-  - `tests/ledger.test.ts`: 未载入时的 `snapshot` / 异步 `load` 的坏文件留档与版本只读 / 条目级畸形字段收敛 / `pruneEntries` 超 500 条淘汰顺序 / `writeLedger` rename 失败清理临时文件 / 读盘非 ENOENT 错误 / 空抑制键.
-  - `tests/observe.test.ts`: `turn/start` 与字符串 `turn/end.reason` / 自定义标记与码点上限 / 审批事件缺字段 / `paramHead` 非法 URL 与非 JSON 参数 / `messageText` 非对象块 / 审批配对表 500 条上限.
-  - `tests/induce.test.ts`: `findEntry` 多相似条目取最高分 / 最近证据窗口边界 / 合并时补标题不覆盖已有标题.
-- 集成层 (新增 `tests/assemble.ts` 与 `tests/integration/plugin.test.ts`, 11 条):
-  - 装配器用三个假面拼 `apply`: 假事件面 (`on` / `emit` / 解绑计数), 假工具面 (`register` / `call` / `render`), 假 memory 面 (复用 `tests/fakes.ts`) 与假 rule-engine 面; ctx 按 cordis 语义只经 `ctx.get` 取服务, `viaGet: false` 覆盖直接属性兜底.
-  - 用例覆盖: 注册面各一次与启动归纳落盘 / 三条信号 (S1, S2 加权, S3 审批拒绝) 写回同一账簿 / 高置信自动写库与库行引用及注入正文与消费者冻结值 / 工具 canonical 值与 `output.render` 投影 / 候选待审与撤销 / 撤销生效条目真删库行 / memory 缺席与 ruleEngine 缺席降级 / `enabled: false` / `dispose` 解绑 / 非 cordis 宿主.
-  - 状态一律 `mkdtemp` 临时目录, `cleanup` 解绑后删除; 无残留.
-- 脚本: `package.json` 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (按 4.2 的命令, 覆盖率目录 `tmp/cov-preference-analysis`).
+> 测试基线、单元锚点、集成层与脚本见「四份测试产物」; 本节保留范围说明与阶段 3 实现记录.
+
 - 未改 `src`.
 - 阶段 3 代码整理（分支 `history-cleanup/03-code-preference-analysis`）：
   - 上下文对象守卫收进入口：`src/index.ts` 新增 `contextObject`（非对象 ctx 归一为共用空容器 `EMPTY_CONTEXT`），`HostContext` 补索引签名；`getService` 删掉逐次 `ctx === null || typeof ctx !== "object"` 判断，改收归一后的对象；`apply` 与 `createPlugin` 各在入口判一次。判定结果不变：null / 原始值仍取不到服务。
@@ -90,7 +80,27 @@ rm -rf ../tmp/cov-preference-analysis && mkdir -p ../tmp/cov-preference-analysis
 
 ## 测试与证据
 
-### 覆盖率 (改前 / 改后)
+> 覆盖率、四入口与 4.4 复核见「四份测试产物」; 本节保留阶段 3 实跑.
+
+### 阶段 3 代码整理 (分支上)
+
+```text
+pnpm -C preference-analysis run check -> tsc --noEmit 通过 (exit 0)
+pnpm -C preference-analysis run test  -> tests 98, pass 98, fail 0, skipped 0, todo 0
+```
+
+- 用例断言未改 (98 条与阶段 2 末一致, 无新增 / 删除).
+- 非对象 ctx 实跑 (临时脚本, 用后已删): `apply` 与 `createPlugin` 传 `null` / `undefined` / `42` / `"x"` / `true` / `[]` / `{}` 均不抛错, `memoryAvailable` 皆为 `false`, `createPlugin` 告警各 1 条; 与改前判定一致.
+- 5.2 零引用导出: 0 个 (逐符号在 `src` / `tests` / `docs` / `scripts` 中核对, 无「全仓无引用」符号).
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+- 基线 (分支起点): 覆盖率行 87.1% (1770/2032), 分支 75.5% (372/493).
+- 覆盖率 (改前 / 改后):
 
 | 文件 | 行 (改前) | 行 (改后) | 分支 (改前) | 分支 (改后) |
 | --- | --- | --- | --- | --- |
@@ -107,37 +117,37 @@ rm -rf ../tmp/cov-preference-analysis && mkdir -p ../tmp/cov-preference-analysis
 - 导出覆盖率: `src/index.ts` 9 个运行时导出 (`name` / `inject` / `MAX_PENDING_OBSERVATIONS` / `DEFAULT_MIN_INTERVAL_MS` / `resolveConfig` / `createPlugin` / `CONSUMER_REGISTRATION` / `apply` / `DAY_MS`) 全部在用例中被引用, 9/9.
 - 错误码覆盖率: 本包不抛 `code` 常量, 错误一律以 `reason` 文本返回, n/a.
 
-### 四条入口实跑 (分支上)
+### 用例清单
 
-```text
-pnpm -C preference-analysis run check             -> tsc --noEmit 通过 (exit 0)
-pnpm -C preference-analysis run test              -> tests 98, pass 98, fail 0, skipped 0, todo 0
-pnpm -C preference-analysis run test:integration  -> tests 11, pass 11, fail 0, skipped 0, todo 0
-pnpm -C preference-analysis run test:coverage     -> tests 109, pass 109, fail 0; 报告 tmp/cov-preference-analysis/report.json
-```
+- 基线: `pnpm -C preference-analysis run test` 68 通过 / 0 失败; `check` 通过.
+- 单元锚点 (+30 条, 68 -> 98): 按 4.4 只补现有用例没走到的分支与错误路径, 现有断言未改语义.
+  - `tests/main.test.ts`: 未成形观察只记账与 `dispose` 后零报告 / `api.add` 空正文与无法归一化及标题项目缺省与撤销后拒重登记 / `api.list` 倒序与 `limit` 截断 / memory 缺席时 `add` 与 `remove` 的拒绝 / `autoApply: all` 的候选档写库 / 退休删行失败保状态 / `ctx.on` 缺失与 `tools.register` 抛错的告警 / `DSH_HOME` 派生 / 待归纳观测 2000 条上限.
+  - `tests/apply.test.ts`: `applyEntry` 的 skipped 与抛错, `applyExplicit` 的隐私拦截与 skipped 与抛错, `retireEntry` 的 forget 抛错, `createMemoryPort` 的隐私闸崩溃与可写层不一致与注册抛错, 注入排序的同等重要度回退.
+  - `tests/ledger.test.ts`: 未载入时的 `snapshot` / 异步 `load` 的坏文件留档与版本只读 / 条目级畸形字段收敛 / `pruneEntries` 超 500 条淘汰顺序 / `writeLedger` rename 失败清理临时文件 / 读盘非 ENOENT 错误 / 空抑制键.
+  - `tests/observe.test.ts`: `turn/start` 与字符串 `turn/end.reason` / 自定义标记与码点上限 / 审批事件缺字段 / `paramHead` 非法 URL 与非 JSON 参数 / `messageText` 非对象块 / 审批配对表 500 条上限.
+  - `tests/induce.test.ts`: `findEntry` 多相似条目取最高分 / 最近证据窗口边界 / 合并时补标题不覆盖已有标题.
+- 集成层 (新增 `tests/assemble.ts` 与 `tests/integration/plugin.test.ts`, 11 条):
+  - 装配器用三个假面拼 `apply`: 假事件面 (`on` / `emit` / 解绑计数), 假工具面 (`register` / `call` / `render`), 假 memory 面 (复用 `tests/fakes.ts`) 与假 rule-engine 面; ctx 按 cordis 语义只经 `ctx.get` 取服务, `viaGet: false` 覆盖直接属性兜底.
+  - 用例覆盖: 注册面各一次与启动归纳落盘 / 三条信号 (S1, S2 加权, S3 审批拒绝) 写回同一账簿 / 高置信自动写库与库行引用及注入正文与消费者冻结值 / 工具 canonical 值与 `output.render` 投影 / 候选待审与撤销 / 撤销生效条目真删库行 / memory 缺席与 ruleEngine 缺席降级 / `enabled: false` / `dispose` 解绑 / 非 cordis 宿主.
+  - 状态一律 `mkdtemp` 临时目录, `cleanup` 解绑后删除; 无残留.
+- 脚本: `package.json` 加 `test:integration` (`tests/integration/*.test.ts`) 与 `test:coverage` (按 4.2 的命令, 覆盖率目录 `tmp/cov-preference-analysis`).
+- 未改 `src`.
+- 新增与删除: 新增 30 条单元用例与 11 条集成用例; 删除 0 条.
 
-### 4.4 复核
+### skip 计数与豁免台账
 
 - `skip` / `todo`: 0 处 (`grep` 只命中 apply 用例里的 `result.skipped`, 是业务字段不是测试修饰).
 - 夹具: 无 `tests/fixtures/`; 临时状态都在 `mkdtemp` 目录, 用后删除.
 - 存量用例: 未改名, 未改语义.
+- 豁免台账: 无 (原文未记).
 
-### 阶段 3 代码整理 (分支上)
+### 四入口实跑
 
-```text
-pnpm -C preference-analysis run check -> tsc --noEmit 通过 (exit 0)
-pnpm -C preference-analysis run test  -> tests 98, pass 98, fail 0, skipped 0, todo 0
-```
+四条入口实跑 (分支上):
 
-- 用例断言未改 (98 条与阶段 2 末一致, 无新增 / 删除).
-- 非对象 ctx 实跑 (临时脚本, 用后已删): `apply` 与 `createPlugin` 传 `null` / `undefined` / `42` / `"x"` / `true` / `[]` / `{}` 均不抛错, `memoryAvailable` 皆为 `false`, `createPlugin` 告警各 1 条; 与改前判定一致.
-- 5.2 零引用导出: 0 个 (逐符号在 `src` / `tests` / `docs` / `scripts` 中核对, 无「全仓无引用」符号).
-
-## 四份测试产物
-
-| 产物 | 位置 |
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C preference-analysis run check` | tsc --noEmit 通过 (exit 0) |
+| `pnpm -C preference-analysis run test` | tests 98, pass 98, fail 0, skipped 0, todo 0 |
+| `pnpm -C preference-analysis run test:integration` | tests 11, pass 11, fail 0, skipped 0, todo 0 |
+| `pnpm -C preference-analysis run test:coverage` | tests 109, pass 109, fail 0; 报告 tmp/cov-preference-analysis/report.json |
