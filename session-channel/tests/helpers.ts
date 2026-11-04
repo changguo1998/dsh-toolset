@@ -89,7 +89,7 @@ export interface FakeHost {
 }
 
 /** 构造假宿主；`capture=true` 时把注入消息收进 `received`。 */
-export function makeFakeHost(options: { capture?: boolean } = {}): FakeHost {
+export function makeFakeHost(): FakeHost {
   const agents = new Map<string, { followup(message: unknown): void }>();
   const received: unknown[] = [];
   const listeners: Array<(session: unknown, event: unknown) => void> = [];

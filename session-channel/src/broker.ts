@@ -29,7 +29,6 @@ import {
   kvKey,
   kvKeyFromRedisKey,
   kvVersionKey,
-  sessionIdFromAliveKey,
   stateKey,
   TASK_ID_RE,
   TASK_PATTERN,

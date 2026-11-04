@@ -7,7 +7,6 @@ import { test } from "node:test";
 import {
   apply,
   getSessionChannelService,
-  pruneUndefined,
   SERVICE_FACE_METHODS,
   SessionChannelService,
   toToolDef,

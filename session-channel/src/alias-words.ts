@@ -1106,7 +1106,7 @@ export function autoAliasSuffix(sessionId: string): string {
 /** 取一个纯词名自动别名（`<前缀><词>`；随机源可注入，便于测试）。 */
 export function pickAutoAlias(
   prefix: "ui-" | "sub-",
-  sessionId: string,
+  _sessionId: string,
   random: () => number = Math.random,
 ): string {
   const idx = Math.min(

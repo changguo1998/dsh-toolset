@@ -77,11 +77,6 @@ function injectedText(message: unknown): string {
   return String(content?.[0]?.text ?? "");
 }
 
-/** 取注入消息的来源标签 (正文形如 `[CHANNEL](来源) 正文`). */
-function originOf(text: string): string {
-  return /^\[CHANNEL\]\(([^)]*)\)/.exec(text)?.[1] ?? "";
-}
-
 test("注册面: apply 注册四个工具、provide 十七个服务方法, 禁用态不订阅事件", (t) => {
   const assembly = open(t);
 

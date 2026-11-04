@@ -61,7 +61,7 @@ export interface SendRequest {
   /** 正文（注入时加前缀）。 */
   text: string;
   /** > 0 时等待回执的毫秒数（缺省不等）。 */
-  waitMs?: number;
+  waitMs?: number | undefined;
 }
 
 /** 发送结果。 */
@@ -176,7 +176,7 @@ export interface TaskRecord {
   /** 注入到 worker 会话的 `user/message` 事件 seq（自动回收按它对位；未注入时缺省）。 */
   triggerSeq?: number;
   /** 任务注入消息的流条目 id（排障用；缺省）。 */
-  messageId?: string;
+  messageId?: string | undefined;
   /** 结果全文（UTF-8 截断到上限后存储）。 */
   result?: string;
   /** 结果是否被截断（任务表与通知都标注）。 */

@@ -527,7 +527,7 @@ export class SessionChannelService {
   /** 读某会话的 agent 状态牌（BACKLOG #1）；无牌或形状不符 → `{ok:true}` 且 `state` 缺省。 */
   async statusOf(sessionId: string): Promise<{
     ok: boolean;
-    state?: AgentState;
+    state?: AgentState | undefined;
     error?: string;
   }> {
     const conn = this.#requireConnection();
@@ -614,8 +614,8 @@ export class SessionChannelService {
 
   /** 清别名：按别名或按会话（传哪个清哪个；两个都传则两个都清）。 */
   async aliasClear(opts: {
-    alias?: string;
-    sessionId?: string;
+    alias?: string | undefined;
+    sessionId?: string | undefined;
   }): Promise<{ ok: boolean; cleared?: string[]; error?: string }> {
     const conn = this.#requireConnection();
     if (typeof conn === "string") return { ok: false, error: conn };
@@ -671,7 +671,7 @@ export class SessionChannelService {
   /** 共享 KV 读单键（不存在 → `{ok:true}` 且 `entry` 缺省）。 */
   async kvGet(key: string): Promise<{
     ok: boolean;
-    entry?: KvEntry;
+    entry?: KvEntry | undefined;
     error?: string;
     message?: string;
   }> {
