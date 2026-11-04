@@ -598,6 +598,20 @@ tool-consult/tests/integration/plugin.test.ts
 | security-guard | 1 | 160 | 99.1% (1627/1642) | 94.1% (416/442) | `7271b7d2` |
 | session-paths | 1 | 31 | 100.0% (190/190) | 97.2% (69/71) | `f2d21744` |
 
+- 2026-11-04: 批 2 完成 9 包. 每包 `check` / `build` / `test` / `test:coverage` 退出 0, 用例数与基线一致; 批末全仓 `pnpm run check` / `pnpm run test` 退出 0. 逐包结果:
+
+| 包 | 原报错数 | 用例数 | 行覆盖 | 分支覆盖 | 提交 |
+| --- | --- | --- | --- | --- | --- |
+| clock-base | 2 | 35 | 88.1% (327/371) | 85.5% (59/69) | `be548b7d` |
+| context-report | 2 | 51 | 95.8% (782/816) | 90.3% (290/321) | `54d663fe` |
+| escalation-hint | 2 | 50 | 99.3% (275/277) | 96.0% (120/125) | `8d27baa9` |
+| fs-digest | 2 | 75 | 91.7% (1274/1389) | 80.5% (388/482) | `db690895` |
+| herdr-use | 2 | 143 | 89.5% (3135/3503) | 76.4% (531/695) | `45235a85` |
+| md-logic | 3 | 76 | 95.2% (1574/1654) | 88.5% (460/520) | `237ea01c` |
+| md-map | 3 | 65 | 94.3% (1430/1516) | 84.6% (441/521) | `8c357382` |
+| script-interpreter | 3 | 117 | 95.2% (1401/1471) | 87.3% (358/410) | `6d676201` |
+| agent-group | 4 | 108 | 90.9% (2725/2999) | 81.7% (515/630) | `d4b73f18` |
+
 ## 偏差
 
 - `md-table-check` 未按原计划放在批 1, 移到批 3. 原因: 该包 `check` 为 `tsc -p tsconfig.json && tsc -p tests/tsconfig.json`; 根 `tsconfig.json` 的 `exclude` 排除了 `tests/surfaceDifferential.test.ts` / `tests/reasoningSeparation.test.ts` / `tests/integration.test.ts`, 初始扫描只跑根配置, 漏掉 `tests/tsconfig.json` 这条路径. 该配置 `include: ["."]` 且直接编译 `../rule-engine/src/`, 打开五项后暴露 `rule-engine` 的 3 条与自身 1 条报错. 已 `git checkout -- md-table-check/tsconfig.json` 回退, 待批 3 先修 `rule-engine` 后再做.
@@ -619,6 +633,20 @@ pnpm run test:coverage
 
 ```text
 # 12 包逐包
+pnpm -C <pkg> run check         → 0
+pnpm -C <pkg> run build         → 0
+pnpm -C <pkg> run test          → 0; 用例数与基线一致
+pnpm -C <pkg> run test:coverage → 0; 见「实现记录」表
+
+# 批末
+pnpm run check                  → 0
+pnpm run test                   → 34/34 OK; 4573 例
+```
+
+批 2（2026-11-04）:
+
+```text
+# 9 包逐包
 pnpm -C <pkg> run check         → 0
 pnpm -C <pkg> run build         → 0
 pnpm -C <pkg> run test          → 0; 用例数与基线一致
