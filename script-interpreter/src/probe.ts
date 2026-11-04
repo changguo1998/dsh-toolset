@@ -11,12 +11,7 @@ import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, sep } from "node:path";
 
-import type {
-  InterpreterInfo,
-  InterpreterSource,
-  LangBackend,
-  ProbeOutcome,
-} from "./types.ts";
+import type { InterpreterSource, LangBackend, ProbeOutcome } from "./types.ts";
 
 /** 版本探测超时（毫秒）：只用于日志，卡住也不拖慢装配。 */
 export const VERSION_TIMEOUT_MS = 3_000;
@@ -111,7 +106,7 @@ export function readVersion(
 export function probeInterpreter(
   backend: LangBackend,
   options: {
-    config?: string;
+    config?: string | undefined;
     env?: NodeJS.ProcessEnv;
     /** 工作区目录：python 后端在 env 之后插入 `.venv` / `uv` 探测（execute 期才有）。 */
     workspace?: { readonly dir: string };
