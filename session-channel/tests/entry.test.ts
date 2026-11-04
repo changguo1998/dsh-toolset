@@ -2,7 +2,7 @@
  * 入口锚点: `session-channel/src/index.ts` 里未被既有用例走到的判定分支 —— 定时器统一面的四条回落路径
  * (缺服务 / 形状不符 / scope 返回形状不符 / scope 抛错) 与进程内定时器的撤销语义.
  *
- * 纯单元层: 不起宿主、不连 Redis; 定时器用毫秒级真实等待.
+ * 纯单元层: 不起宿主、不连 Redis; 计时用例用假定时器推进, 不依赖真实等待.
  */
 
 import assert from "node:assert/strict";
@@ -15,7 +15,9 @@ function hostWith(services: Record<string, unknown>): unknown {
   return { get: (key: string) => services[key] };
 }
 
-test("systemTimers: schedule 只触发一次, interval 重复触发, 撤销后不再触发", async () => {
+test("systemTimers: schedule 只触发一次, interval 重复触发, 撤销后不再触发", (t) => {
+  // 假定时器: 推进由测试控制, 全仓并行负载下不会因机器忙而少触发.
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const timers = systemTimers();
   assert.equal(typeof timers.now(), "number");
 
@@ -27,13 +29,13 @@ test("systemTimers: schedule 只触发一次, interval 重复触发, 撤销后�
   const stopInterval = timers.interval(5, () => {
     ticks += 1;
   });
-  await new Promise((resolve) => setTimeout(resolve, 40));
+  t.mock.timers.tick(40);
   stopSchedule();
   stopInterval();
   assert.equal(scheduled, 1, "schedule 只触发一次");
   assert.ok(ticks >= 2, `interval 应重复触发, 实际 ${ticks}`);
   const settled = ticks;
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  t.mock.timers.tick(20);
   assert.equal(ticks, settled, "撤销后不再触发");
 });
 
