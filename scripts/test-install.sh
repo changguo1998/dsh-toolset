@@ -131,6 +131,10 @@ assert_count_eq "$pdir/cordis.patch.yml" "    base: '$repo_root'" 1 "hmr base �
 assert_count_eq "$pdir/cordis.patch.yml" "    root: ['.']" 1 "hmr root 相对 base"
 assert_count_eq "$pdir/cordis.patch.yml" "      - '**/*.md'" 1 "hmr ignored 含 Markdown"
 assert_count_eq "$pdir/cordis.patch.yml" "      - '**/docs/**'" 1 "hmr ignored 含 docs 目录"
+# profile overrides 生成区（copy 模式）：把副本里嵌套的 link: 依赖改指仓库绝对路径，
+# 否则 pnpm 按 profile 目录解析会落到不存在的 ~/.dsh/profiles/<包>，每次装都刷 WARN
+assert_count_eq "$pdir/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 1 "生成区写入 overrides"
+assert_count_eq "$pdir/pnpm-workspace.yaml" "  \"@dsh-toolset/clock-base\": \"file:$repo_root/clock-base\"" 1 "overrides 指向仓库绝对路径"
 
 # 1b）手写 hmr 行：不追加生成区，保留用户配置
 install_ --plugins TUI --profile hmanual
@@ -530,11 +534,18 @@ assert_eq "$([ -d "$home/profiles/named-dev" ] && echo yes || echo no)" "yes" "-
 # 12d）--mode link：主 profile 也用软链接（开发期形态）
 install_ --plugins "TUI ponytail" --profile devlink --mode link
 assert_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "link:' "--mode link 时主 profile 用 link:"
+assert_count_eq "$home/profiles/devlink/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 0 "--mode link 不写 overrides 生成区"
 
 # 12e）协议切换：已有 link: 清单 → 默认 copy 的 --sync 改成 file:（旧 link 条目按本仓库条目处理）
 install_ --plugins "TUI ponytail" --profile devlink --sync
 assert_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "file:' "--sync 把 link: 切成 file:"
 assert_not_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "link:' "切换后不残留 link:"
+assert_count_eq "$home/profiles/devlink/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 1 "切到 copy 后写入 overrides 生成区"
+
+# 12e-补）再切回 link：生成区里的 file: 覆盖会让这些包钉成快照副本、link 语义失效，必须删掉
+install_ --plugins "TUI ponytail" --profile devlink --mode link
+assert_count_eq "$home/profiles/devlink/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 0 "--mode link 移除 overrides 生成区"
+assert_log_contains "已移除 overrides 生成区" "日志报出移除 overrides 生成区"
 
 # 12f）非法 --mode：写盘前被拒
 install_expect_fail "--mode 只接受 copy" --plugins TUI --profile badmode --mode tarball

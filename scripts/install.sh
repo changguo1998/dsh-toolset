@@ -677,12 +677,31 @@ else
         log "写入 $manifest（bundle 数：$(printf '%s' "$final" | wc -w) + dsh-base）"
     fi
 fi
-# hmr 生成区的 begin/end 标记：资产复制路径也要用它识别「差异只在生成区」的情况。
+# 生成区的 begin/end 标记：资产复制路径也要用它识别「差异只在生成区」的情况
+# （cordis.patch.yml 的 hmr 生成区、pnpm-workspace.yaml 的 overrides 生成区）。
 hmr_begin="# install.sh generated: hmr-root-begin v1"
 hmr_end="# install.sh generated: hmr-root-end v1"
+ws_file="$pdir/pnpm-workspace.yaml"
+ov_begin="# install.sh generated: overrides-begin v1"
+ov_end="# install.sh generated: overrides-end v1"
 patch_copied=0
+ws_copied=0
 for asset in pnpm-workspace.yaml cordis.patch.yml; do
     target="$pdir/$asset"
+    case "$asset" in
+        pnpm-workspace.yaml)
+            asset_begin="$ov_begin"
+            asset_end="$ov_end"
+            ;;
+        cordis.patch.yml)
+            asset_begin="$hmr_begin"
+            asset_end="$hmr_end"
+            ;;
+        *)
+            asset_begin=""
+            asset_end=""
+            ;;
+    esac
     if [ -f "$target" ] && [ "$force" != 1 ]; then
         log "保留已有 $target（--force 可覆盖）"
         continue
@@ -691,9 +710,9 @@ for asset in pnpm-workspace.yaml cordis.patch.yml; do
         log "内容未变，跳过备份与复制：$target"
         continue
     fi
-    # --force 覆盖 cordis.patch.yml 时，若与示例资产的差异只在 hmr 生成区，视为内容未变：
+    # --force 覆盖时，若与示例资产的差异只在我们的生成区，视为内容未变：
     # 避免每次 --force 都因生成区追加而备份并丢弃生成区。
-    if [ -f "$target" ] && [ "$asset" = cordis.patch.yml ] &&
+    if [ -f "$target" ] && [ -n "$asset_begin" ] &&
         node -e '
 const fs = require("fs");
 const [asset, target, begin, end] = process.argv.slice(1);
@@ -704,8 +723,8 @@ const stripped = (bi >= 0 && ei > bi ? [...lines.slice(0, bi), ...lines.slice(ei
   .join("\n")
   .replace(/\n*$/, "\n");
 process.exit(stripped === fs.readFileSync(asset, "utf8") ? 0 : 1);
-' "$profile_asset_dir/$asset" "$target" "$hmr_begin" "$hmr_end"; then
-        log "内容未变（仅 hmr 生成区随机器不同），跳过备份与复制：$target"
+' "$profile_asset_dir/$asset" "$target" "$asset_begin" "$asset_end"; then
+        log "内容未变（仅生成区随机器不同），跳过备份与复制：$target"
         continue
     fi
     if [ -f "$target" ] && [ "$force" = 1 ] &&
@@ -715,7 +734,148 @@ process.exit(stripped === fs.readFileSync(asset, "utf8") ? 0 : 1);
     backup "$target"
     run cp "$profile_asset_dir/$asset" "$target"
     [ "$asset" = cordis.patch.yml ] && patch_copied=1
+    [ "$asset" = pnpm-workspace.yaml ] && ws_copied=1
 done
+# ── profile overrides 生成区（copy 模式）────────────────────────────────────
+# copy 模式把包落成 `file:` 快照副本；pnpm 解析副本里嵌套的 `link:../clock-base` 时按
+# **消费方目录**（profile）算相对路径，于是指向 `~/.dsh/profiles/clock-base`（不存在），
+# 每次装 profile 都刷一串 `[WARN] Installing a dependency from a non-existent directory: ...`，
+# 并在 `.pnpm/<包>/node_modules/@dsh-toolset/` 下留悬空链接。这里把被嵌套引用的
+# `@dsh-toolset/*` 用 overrides 重写成指向仓库的绝对路径（pnpm 11 起 overrides 只认
+# workspace 根配置，写 profile package.json 的 `pnpm` 字段会被忽略）。
+# 生成区按 begin/end 标记维护（幂等）；检测到标记之外的手写 overrides 时不碰。
+# 顶层 profile 依赖同样是 `file:<仓库路径>`，override 只是把嵌套条目的目标改到同一处，
+# 不会带来额外副本。link 模式（包是指向仓库的符号链接）不需要，留在文件里反而是错口径。
+override_lines="$(
+    node -e '
+const fs = require("fs");
+const path = require("path");
+const [root, ...dirs] = process.argv.slice(1);
+const byName = new Map();
+for (const dir of fs.readdirSync(root)) {
+  const file = path.join(root, dir, "package.json");
+  if (!fs.existsSync(file)) continue;
+  const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (typeof manifest.name === "string") byName.set(manifest.name, dir);
+}
+const targets = new Set();
+for (const dir of dirs) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, dir, "package.json"), "utf8"));
+  for (const [name, spec] of Object.entries({ ...manifest.dependencies, ...manifest.devDependencies })) {
+    if (typeof spec === "string" && spec.startsWith("link:")) targets.add(name);
+  }
+}
+const rows = [];
+const unknown = [];
+for (const name of [...targets].sort()) {
+  const dir = byName.get(name);
+  if (dir === undefined) {
+    unknown.push(name);
+    continue;
+  }
+  rows.push(`  ${JSON.stringify(name)}: ${JSON.stringify(`file:${root}/${dir}`)}`);
+}
+process.stdout.write(rows.join("\n"));
+if (unknown.length) {
+  process.stderr.write(`找不到 link: 依赖的目标包目录：${unknown.join(", ")}\n`);
+  process.exit(3);
+}
+' "$repo_root" $final
+)" || warn "overrides 生成区：有 link: 依赖的目标包不在仓库目录，对应条目已跳过"
+render_overrides_block() {
+    printf '%s\n' "$ov_begin"
+    printf '# 嵌套 link: 依赖在快照副本里按 profile 目录解析会落到不存在的路径；改指仓库绝对路径。\n'
+    printf 'overrides:\n'
+    printf '%s\n' "$override_lines"
+    printf '%s\n' "$ov_end"
+}
+if [ -f "$ws_file" ] && [ "$dep_mode" != copy ] && grep -qF "$ov_begin" "$ws_file"; then
+    # link 模式：删掉生成区（否则这些包会被钉成 file: 快照，link 语义失效）
+    if [ "$dry_run" = 1 ]; then
+        printf '[dry-run] 移除 overrides 生成区（link 模式不需要）：%s\n' "$ws_file"
+    else
+        if ! ws_next="$(node -e '
+const fs = require("fs");
+const [file, begin, end] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const bi = lines.indexOf(begin);
+const ei = lines.indexOf(end);
+if (bi < 0 || ei < bi) process.exit(1);
+process.stdout.write(
+  [...lines.slice(0, bi), ...lines.slice(ei + 1)]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n*$/, "\n"),
+);
+' "$ws_file" "$ov_begin" "$ov_end")"; then
+            die "移除 overrides 生成区失败：$ws_file"
+        fi
+        backup "$ws_file"
+        printf '%s\n' "$ws_next" > "$ws_file"
+        log "已移除 overrides 生成区（link 模式不需要）：$ws_file"
+    fi
+fi
+if [ -f "$ws_file" ] && [ "$dep_mode" = copy ] && [ -n "$override_lines" ] &&
+    { [ "$ws_copied" = 1 ] || [ "$sync" = 1 ] || [ "$force" = 1 ]; }; then
+    if [ "$dry_run" = 1 ]; then
+        printf '[dry-run] 维护 profile overrides 生成区（%s 条）：%s\n' \
+            "$(printf '%s\n' "$override_lines" | wc -l | tr -d ' ')" "$ws_file"
+    else
+        ws_state="$(node -e '
+const fs = require("fs");
+const [file, begin, end] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const bi = lines.indexOf(begin);
+const ei = lines.indexOf(end);
+const manual = lines.some(
+  (l, i) => /^overrides\s*:/.test(l) && !(bi >= 0 && i >= bi && (ei < 0 || i <= ei)),
+);
+const mode = bi >= 0 && ei > bi ? "update" : bi >= 0 || ei >= 0 ? "broken" : manual ? "manual" : "append";
+process.stdout.write(mode);
+' "$ws_file" "$ov_begin" "$ov_end")" || die "读取 overrides 生成区状态失败：$ws_file"
+        case "$ws_state" in
+            manual) log "检测到手写 overrides，保留其配置（不写 install.sh 的 overrides 生成区）" ;;
+            *)
+                if [ "$ws_state" = broken ]; then
+                    warn "$ws_file 的 overrides 生成区标记不完整（begin/end 缺一）：按追加重建，旧残块请手工清理"
+                fi
+                ws_mode="$ws_state"
+                [ "$ws_mode" = broken ] && ws_mode=append
+                ov_block="$(mktemp "${TMPDIR:-/tmp}/dsh-install-overrides.XXXXXX")"
+                render_overrides_block > "$ov_block"
+                if ! ws_next="$(node -e '
+const fs = require("fs");
+const [file, begin, end, blockFile, mode] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const block = fs.readFileSync(blockFile, "utf8").replace(/\n$/, "").split("\n");
+let out;
+if (mode === "update") {
+  const bi = lines.indexOf(begin);
+  const ei = lines.indexOf(end);
+  out = [...lines.slice(0, bi), ...block, ...lines.slice(ei + 1)];
+} else {
+  const base = [...lines];
+  while (base.length > 0 && base[base.length - 1] === "") base.pop();
+  out = [...base, "", ...block];
+}
+process.stdout.write(out.join("\n").replace(/\n*$/, "\n"));
+' "$ws_file" "$ov_begin" "$ov_end" "$ov_block" "$ws_mode")"; then
+                    rm -f "$ov_block"
+                    die "更新 overrides 生成区失败：$ws_file"
+                fi
+                rm -f "$ov_block"
+                if [ "$ws_next" = "$(cat "$ws_file")" ]; then
+                    log "overrides 生成区未变，跳过写入：$ws_file"
+                else
+                    # 本轮刚由示例资产写出时不必再备份（复制路径已备份 / 首次安装无旧内容）
+                    [ "$ws_copied" = 1 ] || backup "$ws_file"
+                    printf '%s\n' "$ws_next" > "$ws_file"
+                    log "已写入 overrides 生成区（$(printf '%s\n' "$override_lines" | wc -l | tr -d ' ') 条）：$ws_file"
+                fi
+                ;;
+        esac
+    fi
+fi
 # --sync：标题 provider 接管是**显式开关**（--take-over-title）。
 # 文本判据分不清「宿主挂载的行」与「用户自己 insert 的行」，故 --sync 单独**绝不改写** patch
 # （只按内容提示）；带开关时才维护**本脚本的生成区**——判定全部以 patch 内容为准：命中条目按
