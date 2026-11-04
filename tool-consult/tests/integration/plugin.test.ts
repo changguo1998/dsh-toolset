@@ -317,7 +317,7 @@ test("applyTo: all 管子代理, roots 跳过子代理", (t) => {
   assert.deepEqual(roots.tools.names(), []);
 });
 
-test("服务缺失: 不注册、不遮罩并告警", (t) => {
+test("服务缺失: 不注册、不遮罩并告警", () => {
   const noTools = assemble({ toolsService: false, withAgentTools: false });
   noTools.apply({});
   assert.deepEqual(noTools.tools.names(), []);
@@ -360,7 +360,7 @@ test("agent/disposed: 撤遮罩与注销工具, 同 id 可重新挂载", (t) => 
   assert.deepEqual(app.host.activeMask(), CORE);
 });
 
-test("插件卸载: 多代理的遮罩与工具全部清理", (t) => {
+test("插件卸载: 多代理的遮罩与工具全部清理", () => {
   const app = assemble();
   app.apply({});
   app.addAgent({ id: "int-unload-a" });

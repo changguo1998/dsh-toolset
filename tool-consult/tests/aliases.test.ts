@@ -106,11 +106,6 @@ const LEGACY_TWO_CHAR = new Set([
   "按节",
 ]);
 
-/** 全部别名（去掉工具名键，只留词）。 */
-function allAliases(): string[] {
-  return Object.values(ALIASES).flatMap((list) => [...list]);
-}
-
 test("别名表：覆盖 46 个工具名清单，键都合法", () => {
   const hostTools = new Set([
     "bash",

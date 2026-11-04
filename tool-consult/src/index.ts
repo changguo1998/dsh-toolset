@@ -17,7 +17,6 @@ import {
   resolveConfig,
   type Config,
   type ResolvedConfig,
-  type RevealScope,
 } from "./config.ts";
 import {
   classifyRestrictError,

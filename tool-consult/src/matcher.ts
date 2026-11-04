@@ -14,7 +14,7 @@ export interface ToolDoc {
   name: string;
   description: string;
   /** JSON Schema 的 properties 键名参与检索（低权重）。 */
-  parameters?: Record<string, unknown>;
+  parameters?: Record<string, unknown> | undefined;
 }
 
 /** 一条命中。 */
