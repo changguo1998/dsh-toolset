@@ -53,21 +53,21 @@ test("P8：压缩标记按会话隔离（非活跃会话不影响当前视图）
   assert.equal(isCompacting(s), true, "切到该会话后算压缩中");
 });
 
-test("P8：压缩期间用户块显示进行中符号（●/○ 而非 ?）", () => {
+test("P8：压缩期间用户块显示进行中符号（●/○ / 发送中旋转而非 ?）", () => {
   const markOf = (s: ReturnType<typeof initialState>): string => {
     const row =
       buildFrame(s, { rows: 24, cols: 80 })
         .map((r) => rowText(r))
         .find((t) => t.includes("问一句")) ?? "";
     // 只认「符号 + 空格 + 用户文本」——行左侧状态列里也有 ✓/✗（开关项），不能取首个
-    return /([✓✗■●○△?]) 问一句/.exec(row)?.[1] ?? "";
+    return /([✓✗■●○△?⟳↻↲↺]) 问一句/.exec(row)?.[1] ?? "";
   };
   let s = withUser();
   assert.equal(markOf(s), "?", "空闲且无终态 → 回退占位 ?");
   s = reduceState(s, { type: "compaction", phase: "start" });
   assert.ok(
-    ["●", "○"].includes(markOf(s)),
-    `压缩中显示进行中圆点（实际 ${markOf(s)}）`,
+    ["●", "○", "⟳", "↻", "↲", "↺"].includes(markOf(s)),
+    `压缩中显示进行中符号（实际 ${markOf(s)}）`,
   );
   s = reduceState(s, { type: "compaction", phase: "end" });
   assert.equal(markOf(s), "?", "压缩结束后回到 ?（该块仍无终态）");

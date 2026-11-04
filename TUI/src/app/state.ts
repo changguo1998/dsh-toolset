@@ -53,6 +53,7 @@ export type {
   QuestionPanelState,
   QueuedItem,
   StatusPanelState,
+  StreamKind,
   SystemStatus,
   TurnEndReason,
 } from "./state/types.ts";

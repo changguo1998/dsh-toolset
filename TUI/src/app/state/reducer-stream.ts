@@ -80,9 +80,11 @@ export function reduceStream(
       return clearBuffer(state);
     case "agent-status":
       // 外部活动兜底：审批/问答打开保持等待交互(黄△)；thinking/tool 视为
-      // 进行中(黄●/○)；idle 不改状态色
+      // 进行中(黄●/○)；idle 不改状态色。tool 态 → 接收中类型色 = 工具黄
+      // （工具阶段可能没有文本流，靠 status 事件切换类型色）
       return {
         ...setAgentStatus(state, action.status),
+        ...(action.status === "tool" ? { streamKind: "tool" as const } : {}),
         inputStatus:
           state.approval || state.question
             ? "waiting"

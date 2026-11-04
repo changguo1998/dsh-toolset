@@ -30,8 +30,13 @@ export function reduceInput(
         ),
       };
     case "input-status":
-      // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色
-      return { ...state, inputStatus: statusFor(state, action.status) };
+      // 活跃守卫：agent 非 idle 时绿/红结果不暴露（压回黄），空闲后才显示结果色。
+      // 置 running = 新发送期开始 → 清空上一内容流类型（接收中类型色回到发送中旋转）
+      return {
+        ...state,
+        inputStatus: statusFor(state, action.status),
+        ...(action.status === "running" ? { streamKind: undefined } : {}),
+      };
     case "input-history":
       return reduceInputHistory(state, action);
     case "move-cursor":

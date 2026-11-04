@@ -177,10 +177,10 @@ test("`!` 模式提交后 Ctrl+P 回溯：模式一并恢复为 `!`（草稿模�
   assert.equal(st().inputMode, "steer", "草稿模式 = 默认 steer");
 });
 
-test("`!` 打断并直发后用户块终态正确：被打断块 ■、直发块运行中 ●/○（帧断言）", () => {
+test("`!` 打断并直发后用户块终态正确：被打断块 ■、直发块发送中旋转（帧断言）", () => {
   // BACKLOG「`!` 打断并直发后用户块终态符号错位」：原实现直发块与被打断块同号同世代，
   // `turn-end(aborted)` 错落给直发块（它显示 ■）、被打断块留 `?`；正确语义是打断块 ■、
-  // 正在处理的新块保持运行中黄 ●/○。
+  // 正在处理的新块保持运行中黄（打断后首字节未到 → 发送中旋转箭头）。
   const renderer = new FakeRenderer();
   const adapter = new FakeAdapter();
   const sink: NonNullable<FakeAdapter["mirrorTo"]> = {};
@@ -209,13 +209,13 @@ test("`!` 打断并直发后用户块终态正确：被打断块 ■、直发块
       .split("\n")
       .find((line) => line.includes(text));
   const abortedRow = rowOf("先发");
-  const runningRow = rowOf("打断发");
+  const sendingRow = rowOf("打断发");
   assert.ok(
     abortedRow !== undefined && abortedRow.includes("■"),
     `被打断块应显示 ■（灰方块）: ${JSON.stringify(abortedRow)}`,
   );
   assert.ok(
-    runningRow !== undefined && /[●○]/.test(runningRow),
-    `正在处理的新块应显示 ●/○: ${JSON.stringify(runningRow)}`,
+    sendingRow !== undefined && /[⟳↻↲↺]/.test(sendingRow),
+    `正在处理的新块应显示发送中旋转箭头: ${JSON.stringify(sendingRow)}`,
   );
 });

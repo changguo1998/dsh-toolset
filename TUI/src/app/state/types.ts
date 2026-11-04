@@ -98,6 +98,10 @@ export interface QueuedItem {
 export type InputStatus =
   "success" | "failure" | "running" | "waiting" | "idle";
 
+/** 当前接收中的流式内容类型（接收中运行符号着色依据; undefined = 未定/发送中）。
+ *  思考紫 / 正文蓝 / 工具黄 / notice 灰 / shell 青（见 run-virt 的 STREAM_KIND_COLOR）。 */
+export type StreamKind = "thinking" | "assistant" | "tool" | "notice" | "shell";
+
 /** turn/end 的收尾原因（宿主 `reason.kind`；缺省/未识别 = undefined）。
  *  P1 用它决定用户块终态符号：`completed`→✓ / `aborted`→■ / `error`→✗ / 其余→`?` */
 export type TurnEndReason =
@@ -465,9 +469,12 @@ export interface AppState {
   /** 输入模式（符号代表模式；提交后自动回退默认 steer） */
   inputMode: InputMode;
   /** 输入状态（用户块首行符号来源；P1 起状态行不再渲染该符号）：绿✓=成功 /
-   *  红✗=失败 / 黄●/○=运行中（按流式输出节奏交替）/
-   *  黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
+   *  红✗=失败 / 黄旋转箭头（首字节未到, 发送中）→ 黄●/○（接收中, 按流类型着色）
+   *  / 黄△=等待交互（审批/问答面板打开等用户决策）/ idle=尚无结果（渲染回退 ?） */
   inputStatus: InputStatus;
+  /** 当前接收中的流式内容类型（运行符号类型色; 发送期 / turn-end 时清空, 见
+   *  reducer-input / reducer-turn; undefined = 发送中或无活动流） */
+  streamKind?: StreamKind | undefined;
   approval: ApprovalItem | null;
   /** 审批面板描述窗口首行偏移（BACKLOG 3.2.1 统一窗口机制；打开/关闭归零） */
   approvalScroll: number;

@@ -47,10 +47,12 @@ export function reduceTurn(
       // 虚拟总 token **不清零**（run 边界 = 两次用户输入之间，到下次用户输入
       // turn-begin clearActivity=true 时才重置），lastTime/速率窗口保持。
       // 用户块终态符号（✓/■/✗）由节模型按 reason 打标（`sections.ts`）
+      // 回合结束 → 清空接收中流类型（新回合发送期重新开始）
       return {
         ...state,
         inputStatus: "success",
         runVirt: { ...state.runVirt, speed: VIRT_SPEED_MIN },
+        streamKind: undefined,
       };
     }
     case "mode": {

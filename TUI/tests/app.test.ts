@@ -1263,8 +1263,8 @@ test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、er
   const yellow = mark().sgr;
   assert.ok(yellow, "活跃任务用户块首行符号为黄（运行中）");
   assert.ok(
-    ["●", "○"].includes(mark().sym),
-    "运行中符号为 ●/○（虚拟 token 相位）",
+    ["⟳", "↻", "⟲", "↺"].includes(mark().sym),
+    "活跃无流式 = 发送中旋转箭头（首字节未到）",
   );
   // 成功 slash（/help 本地命令）→ 保持黄
   typeAndEnter(renderer, "/help");

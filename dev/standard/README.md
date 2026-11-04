@@ -18,7 +18,7 @@ node dev/standard/index.mjs --rule term.interface   # 只看一条规则, 有命
 | 规则 id | 严重度 | 查什么 | 范围 |
 | --- | --- | --- | --- |
 | `symbol.variant` | 错误 | 20 条变体映射（`✔` → `✓` 等） | Markdown 正文、`.ts` 注释 |
-| `symbol.emoji` | 错误 | 36 个白名单符号之外的 emoji | 同上 |
+| `symbol.emoji` | 错误 | 40 个白名单符号之外的 emoji | 同上 |
 | `term.replace` | 错误 | `docs/GLOSSARY.md`「需要替换」表的条件型以外旧称 | 现行 Markdown |
 | `term.interface` | 错误 | 界面旧称（`活动区` / `历史区` / `状态栏` 等），与 `term.replace` 同表同规则 | 同上 |
 | `count.packages` / `count.plugins` | 错误 | 「本仓 N 个包」「N 个包（TUI 与 M 个插件）」的数量断言 | 同上 |

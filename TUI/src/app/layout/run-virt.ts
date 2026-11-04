@@ -1,6 +1,12 @@
 // TUI/src/app/layout/run-virt.ts — 运行指示：虚拟速度 / 虚拟 token / ●○ 与用户块符号
 
-import type { AppState, InputMode, GoalHistory, ModeState } from "../state.ts";
+import type {
+  AppState,
+  InputMode,
+  GoalHistory,
+  ModeState,
+  StreamKind,
+} from "../state.ts";
 import { isCompacting } from "../state.ts";
 import type { TodoItemLike } from "../adapter/dsh.ts";
 import type { ColorName } from "../../renderer/theme.ts";
@@ -16,6 +22,10 @@ import { charWidth } from "./markdown.ts";
  * 相位停留时长 = 其倒数，完整周期（●→○→●）= 2 × 相位停留。
  */
 export const RUN_TOGGLE_TOKENS = 16;
+
+/** 发送中旋转箭头（4 态依次出现, 视觉旋转; 已加入符号白名单, 见 AGENTS.md「符号规范」）。
+ *  首字节未到时随 250ms virt-tick 进相位, 一圈约 1s。 */
+export const SPINNER = ["⟳", "↻", "⟲", "↺"] as const;
 
 // ---- 参数层次（P4）：语义参数（频率/时长）在前，派生量在后，调参只动语义参数 ----
 
@@ -82,6 +92,9 @@ export interface RunVirtState {
   winTokens: number;
   /** 速率估计窗口：指数加权累计时长（秒）；速率 = winTokens / winSecs */
   winSecs: number;
+  /** 发送中旋转相位（首字节未到前置位；`lastTime` 有值后不再使用）。
+   *  每 250ms virt-tick 进 1 拍，4 态一圈约 1s（`SPINNER`）。 */
+  sendPhase: number;
 }
 
 /** 空虚拟状态（run 开始/用户输入重置用）：速度为下限（保证 speed 恒在
@@ -93,6 +106,7 @@ export function emptyRunVirt(): RunVirtState {
     lastTime: undefined,
     winTokens: 0,
     winSecs: 0,
+    sendPhase: 0,
   };
 }
 
@@ -144,6 +158,7 @@ export function nextRunVirt(
     lastTime: time,
     winTokens,
     winSecs,
+    sendPhase: prev.sendPhase,
   };
 }
 
@@ -154,9 +169,15 @@ export function nextRunVirt(
  * 即使一段时间没有数据，闪烁也不停止，只逐渐降到最低频率。速率估计窗口同步
  * 按 VIRT_RATE_TAU 衰减（忘记旧数据，避免下次数据到达时速率被长期均值拖住）。
  * 无时间基准或时间未推进时原样返回。
+ * @扩展：首字节未到（`lastTime === undefined`）属**发送中**——旋转箭头按 tick 进相位
+ *  （`SPINNER` 4 态, 250ms 一拍），不积分 token；首块到达后 `lastTime` 有值, 走衰减分支。
  */
 export function virtTick(prev: RunVirtState, time: number): RunVirtState {
-  if (prev.lastTime === undefined || time <= prev.lastTime) return prev;
+  if (prev.lastTime === undefined) {
+    const sendPhase = (prev.sendPhase + 1) % SPINNER.length;
+    return { ...prev, sendPhase };
+  }
+  if (time <= prev.lastTime) return prev;
   const dtSec = (time - prev.lastTime) / 1000;
   const decay = Math.exp(-dtSec / VIRT_DECAY_TAU);
   const speed = Math.max(
@@ -174,6 +195,7 @@ export function virtTick(prev: RunVirtState, time: number): RunVirtState {
     lastTime: time,
     winTokens: prev.winTokens * winDecay,
     winSecs: prev.winSecs * winDecay,
+    sendPhase: prev.sendPhase,
   };
 }
 
@@ -195,10 +217,33 @@ const USER_BLOCK_SYMBOL: Record<
   aborted: { text: "■", fg: "gray" },
 };
 
+/** 接收中类型 → 运行符号着色（`streamKind` 记录当前流式内容类型; undefined 回退黄）。
+ *  思考紫 / 正文蓝 / 工具黄 / notice 灰 / shell 青。 */
+export const STREAM_KIND_COLOR: Record<StreamKind, ColorName> & {
+  undefined: ColorName;
+} = {
+  thinking: "brightMagenta",
+  assistant: "brightBlue",
+  tool: "yellow",
+  notice: "gray",
+  shell: "cyan",
+  undefined: "yellow",
+};
+
+/** 按流类型取运行符号颜色（undefined = 未定, 回退黄） */
+export function streamKindColor(kind: StreamKind | undefined): ColorName {
+  return kind === undefined
+    ? STREAM_KIND_COLOR.undefined
+    : STREAM_KIND_COLOR[kind];
+}
+
 /** P1：用户块首行符号解析器——状态在 layout 侧算定，结构层（pipeline/structure）只负责画。
  *  - 终态：取本行 `status`（`turn-end` 的原因经节 → 条目 → box 透传，批 B1）；
  *  - 活跃块（`line.active`：会话区最后一条终态未定的用户输入，由 `panes.ts` 打标）：
- *    等待交互（审批/问答面板打开）显示黄 △；运行中显示黄 ●/○（沿用虚拟 token 交替相位）；
+ *    等待交互（审批/问答面板打开）显示黄 △；运行中分两段——**发送中**（首字节未到,
+ *    `runVirt.lastTime === undefined`）显示黄旋转箭头（`SPINNER` 4 态随 tick 轮换）;
+ *    **接收中**（首字节已到）显示 `●`/`○`（沿用虚拟 token 交替相位）并按当前流类型
+ *    `state.streamKind` 着色（思考紫 / 正文蓝 / 工具黄 / notice 灰 / shell 青）;
  *  - 其余无终态块回退 `?`（恢复的历史、未收到 turn/end 的块）；
  *  - 排队块（布局层由 `state.queued` 单独渲染）不显示符号。 */
 export function userBlockSymbolResolver(
@@ -225,7 +270,17 @@ export function userBlockSymbolResolver(
     if (info.status) return USER_BLOCK_SYMBOL[info.status];
     if (info.active === true) {
       if (waiting) return { text: "△", fg: "yellow" as ColorName };
-      if (running) return { text: runSymbol, fg: "yellow" as ColorName };
+      if (running) {
+        // 发送中（首字节未到）：旋转箭头（4 态, 黄）
+        if (state.runVirt.lastTime === undefined) {
+          return {
+            text: SPINNER[state.runVirt.sendPhase % SPINNER.length]!,
+            fg: "yellow" as ColorName,
+          };
+        }
+        // 接收中：●/○ 闪烁, 按当前流类型着色
+        return { text: runSymbol, fg: streamKindColor(state.streamKind) };
+      }
     }
     return { text: "?" }; // 无终态
   };

@@ -33,6 +33,11 @@ test("resolveSymbolRules：内置默认白名单与 warnModel", () => {
     undefined,
     "⇆ 不归一（独立形状身份，非同族修饰变体）",
   );
+  // 家族 F（循环/旋转箭头 ⟳⟲↻↺；TUI 发送中 4 态轮换指示）：入白名单、不建别名
+  for (const s of ["⟳", "⟲", "↻", "↺"]) {
+    assert.ok(rules.recommendedSet.has(s), `循环箭头 ${s} 已推荐`);
+    assert.equal(rules.aliases[s], undefined, `${s} 无别名（同族不互相归一）`);
+  }
   // 三角箭头四向全推荐（与 ▶ 同风格）；方块、菱形也推荐
   for (const s of ["▶", "◀", "▲", "▼"]) {
     assert.ok(rules.recommendedSet.has(s), `三角方向 ${s} 已推荐`);
@@ -280,20 +285,24 @@ test("推荐符号 / 文字 / 常用标点不触发", () => {
   assert.equal(r.text, "✓ 完成 ✗ 失败 △ 注意 中文字符，标点…");
 });
 
-test("goal 状态符号不触发：白名单放行与治理区外放行并存，且不扩白名单", () => {
+test("goal 状态符号不触发：白名单放行与治理区外放行并存；旋转箭头已纳入白名单", () => {
   const rules = resolveSymbolRules();
   // TUI goal 状态行五符号：▷ △ ✓ 在推荐白名单；∥（U+2225，箭头区与杂项技术
-  // 符号区之间的空档）与 ⟳（U+27F3，高于框线/几何段上界 0x27bf）在治理区外
+  // 符号区之间的空档）与 ⟳（U+27F3，高于框线/几何段上界 0x27bf）在治理区外。
+  // ⟳ 家族（⟳⟲↻↺）已按用户 2026-11-04 裁定加入推荐白名单（TUI 发送中旋转指示，
+  // 见 BACKLOG「运行状态符号分阶段」）——治理区外不触发、白名单内也无需提醒。
   const r = normalizeSymbols("Goal ▷ ⟳  Goal ∥  Goal △  Goal ✓", rules);
   assert.equal(r.replacedCount, 0, "五符号零替换");
   assert.equal(r.text, "Goal ▷ ⟳  Goal ∥  Goal △  Goal ✓", "原文原样");
   assert.deepEqual(r.unrecommended, [], "五符号不进 unrecommended");
-  // 裁定锁：不做豁免档 / 不扩白名单——∥ ⟳ 不得进推荐集合或别名表（进了推荐
-  // 集合会随 guide 的 recommendedSet 泄漏进开局注入的「推荐符号」文案）
+  // 裁定更新：∥ 仍不扩白名单；⟳（家族 F 代表）已进推荐集合、不建别名
   assert.ok(!rules.recommendedSet.has("∥"), "∥ 不进推荐集合");
-  assert.ok(!rules.recommendedSet.has("⟳"), "⟳ 不进推荐集合");
+  assert.ok(
+    rules.recommendedSet.has("⟳"),
+    "⟳ 已进推荐集合（用户 2026-11-04 裁定）",
+  );
   assert.equal(rules.aliases["∥"], undefined, "∥ 无别名");
-  assert.equal(rules.aliases["⟳"], undefined, "⟳ 无别名");
+  assert.equal(rules.aliases["⟳"], undefined, "⟳ 无别名（家族 F 不互相归一）");
   // 反例：替换面（⚠ ✔）与提醒面（🚀）照常触发，避免退化成「整段零触发」假绿
   const ctl = normalizeSymbols("注意 ⚠ 完成 ✔ 发射 🚀", rules);
   assert.equal(ctl.text, "注意 △ 完成 ✓ 发射 🚀");

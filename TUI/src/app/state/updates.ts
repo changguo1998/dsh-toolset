@@ -9,7 +9,12 @@ import type {
 import { displayWidth } from "../layout/markdown.ts";
 import { createSections } from "../layout/pipeline/sections.ts";
 import { estimateOutputTokens, nextRunVirt } from "../layout.ts";
-import type { AppState, InputStatus, SystemStatus } from "./types.ts";
+import type {
+  AppState,
+  InputStatus,
+  StreamKind,
+  SystemStatus,
+} from "./types.ts";
 import { trimBufferHead } from "./types.ts";
 
 // TUI/src/app/state/updates.ts — 状态更新入口（缓冲追加、面板开关、光标移动）
@@ -103,6 +108,14 @@ export function appendStream(
     ...(virt
       ? { runVirt: virt, stepEstTokens: state.stepEstTokens + estTokens }
       : {}),
+    // 接收中流类型着色：模型流式到达即记录类型（用户行不扰，发送期由 reducer-input 清空）
+    ...(streamed
+      ? {
+          streamKind: (kind === "thinking"
+            ? "thinking"
+            : "assistant") as StreamKind,
+        }
+      : {}),
   };
 }
 
@@ -142,6 +155,7 @@ export function appendNotice(
   return {
     ...state,
     local: buffer,
+    streamKind: "notice",
     inputStatus: error ? statusFor(state, "failure") : state.inputStatus,
   };
 }
@@ -175,7 +189,7 @@ export function appendNoticeLines(
       });
   }
   trimBufferHead(buffer);
-  return { ...state, local: buffer };
+  return { ...state, local: buffer, streamKind: "notice" };
 }
 
 /**
@@ -195,7 +209,7 @@ export function appendShellLines(
     });
   }
   trimBufferHead(buffer);
-  return { ...state, local: buffer };
+  return { ...state, local: buffer, streamKind: "shell" };
 }
 
 /**
@@ -223,7 +237,7 @@ export function appendToolLine(
     ...(params?.time === undefined ? {} : { time: params.time }),
   });
   trimBufferHead(buffer);
-  return { ...state, local: buffer };
+  return { ...state, local: buffer, streamKind: "tool" };
 }
 
 /** P8：当前活跃会话是否正在压缩上下文（压缩期间视为活跃：状态符号显示运行中、
