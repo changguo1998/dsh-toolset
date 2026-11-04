@@ -106,7 +106,10 @@ pnpm run test    # run all subpackage tests in parallel (scripts/test-parallel.s
 pnpm run demo    # build the TUI and run the mock demo (no DSH dependency)
 pnpm run demo -- --smoke   # TUI smoke check (frame assertion SMOKE_PASS)
 pnpm run test:tui          # TUI single-package test shortcut (name regex / file-name filters)
+pnpm run test:smoke        # real-host smoke for goal-contract / metric-loop / output-compress / security-guard
 ```
+
+`test:smoke` delegates to `scripts/run-smoke.sh`: it keeps `DSH_HOME`, `TMPDIR` and logs under the repo `tmp/`, so the smokes work inside a sandbox (they never write `~/.dsh`). The model defaults to the local tollgate gateway (`TOLLGATE_API_KEY=local`, provider `tollgate`, model `qwen38`); override with `TOLLGATE_API_KEY` / `TOLLGATE_BASE_URL` / `SMOKE_PROVIDER` / `SMOKE_MODEL`.
 
 Inside a single subpackage you can run its own `pnpm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `AGENTS.md`.
 

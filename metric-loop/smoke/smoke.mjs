@@ -37,16 +37,44 @@ const PKG_ROOT = path.resolve(
   "..",
 );
 const PROFILE = "dsh-toolset-metric-loop";
-const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
+// 宿主 home：`DSH_HOME` 优先（沙箱 / CI 下指向仓库 tmp），缺省 ~/.dsh。
+const DSH_HOME = process.env.DSH_HOME ?? path.join(homedir(), ".dsh");
+const PROFILE_DIR = path.join(DSH_HOME, "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/metric-loop";
 const REQUIRED_VERSION = "0.2.1-rc.5";
 const LOOP_ID = "smoke";
+
+// 模型面：`SMOKE_PROVIDER` / `SMOKE_MODEL`（缺省本机 tollgate 网关上的 qwen38），
+// key 走 `TOLLGATE_API_KEY`（缺省占位值 local）。
+const MODEL_PROVIDER = process.env.SMOKE_PROVIDER ?? "tollgate";
+const MODEL_ID = process.env.SMOKE_MODEL ?? "qwen38";
 
 // profile 用户层配置：stateDir 优先取环境变量（smoke 重定向到临时目录），
 // 缺省落 ~/.dsh/metric-loop（dshHomePath 由宿主 !!js 提供）。
 const CORDIS_PATCH = `# 本 profile 用户层：metric-loop 插件配置（由 smoke 脚本管理，勿手改）。
 # stateDir 优先取 METRIC_LOOP_STATE_DIR 环境变量（smoke 重定向到临时目录），
 # 缺省落 ~/.dsh/metric-loop（dshHomePath 由宿主 !!js 提供）。
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: ${MODEL_PROVIDER}
+    model: ${MODEL_ID}
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      ${MODEL_PROVIDER}:
+        api: openai-completions
+        apiKeyEnv: TOLLGATE_API_KEY
+        baseURL: !!js process.env.TOLLGATE_BASE_URL || 'http://127.0.0.1:8787/v1'
+        compat:
+          supportsDeveloperRole: false
+        models:
+          - id: ${MODEL_ID}
+            contextWindow: 32768
+            maxTokens: 32768
+
 - id: metric-loop
   name: '@dsh-toolset/metric-loop'
   config:

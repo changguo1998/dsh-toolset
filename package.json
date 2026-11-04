@@ -14,7 +14,8 @@
     "check:docs": "node dev/standard/index.mjs",
     "check:docs:strict": "node dev/standard/index.mjs --strict",
     "demo": "pnpm -C TUI run demo --",
-    "test:tui": "sh TUI/scripts/test.sh"
+    "test:tui": "sh TUI/scripts/test.sh",
+    "test:smoke": "sh scripts/run-smoke.sh"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "0.2.1-rc.5"

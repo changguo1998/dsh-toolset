@@ -38,12 +38,40 @@ const PKG_ROOT = path.resolve(
   "..",
 );
 const PROFILE = "dsh-toolset-security-guard";
-const PROFILE_DIR = path.join(homedir(), ".dsh", "profiles", PROFILE);
+// 宿主 home：`DSH_HOME` 优先（沙箱 / CI 下指向仓库 tmp），缺省 ~/.dsh。
+const DSH_HOME = process.env.DSH_HOME ?? path.join(homedir(), ".dsh");
+const PROFILE_DIR = path.join(DSH_HOME, "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/security-guard";
 const REQUIRED_VERSION = "0.2.1-rc.5";
 
+// 模型面：`SMOKE_PROVIDER` / `SMOKE_MODEL`（缺省本机 tollgate 网关上的 qwen38），
+// key 走 `TOLLGATE_API_KEY`（缺省占位值 local）。
+const MODEL_PROVIDER = process.env.SMOKE_PROVIDER ?? "tollgate";
+const MODEL_ID = process.env.SMOKE_MODEL ?? "qwen38";
+
 // 用户层只声明挂载，不写 config —— 验证默认保守策略（无用户层放行）。
 const CORDIS_PATCH = `# 本 profile 用户层：security-guard 插件挂载（由 smoke 脚本管理，勿手改）。
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: ${MODEL_PROVIDER}
+    model: ${MODEL_ID}
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      ${MODEL_PROVIDER}:
+        api: openai-completions
+        apiKeyEnv: TOLLGATE_API_KEY
+        baseURL: !!js process.env.TOLLGATE_BASE_URL || 'http://127.0.0.1:8787/v1'
+        compat:
+          supportsDeveloperRole: false
+        models:
+          - id: ${MODEL_ID}
+            contextWindow: 32768
+            maxTokens: 32768
+
 - id: security-guard
   name: '@dsh-toolset/security-guard'
 `;
@@ -195,9 +223,9 @@ function runSession(taskDir) {
   return true;
 }
 
-/** 收集 ~/.dsh/sessions 下最近的 session.jsonl.zstd（mtime 倒序）。 */
+/** 收集 `$DSH_HOME/sessions` 下最近的 session.jsonl.zstd（mtime 倒序）。 */
 function recentSessionFiles(limit) {
-  const root = path.join(homedir(), ".dsh", "sessions");
+  const root = path.join(DSH_HOME, "sessions");
   if (!existsSync(root)) return [];
   const out = [];
   for (const cwdDir of readdirSync(root)) {
@@ -236,16 +264,22 @@ function decompress(file) {
   });
 }
 
-/** 从 jsonl 行中提取 tool/result 载荷（文本 + isError）。 */
+/** 从 jsonl 行中提取 tool/result 载荷（文本 + isError）。
+ * 兼容两种会话格式：v3 的条目是 `{type:'tool-result', content:[...], isError}`，
+ * v4（0.2.1-rc.5 起）把结果拍平成 `{type:'text', text}`，`isError` 提到 message 层。 */
 function collectToolResults(line) {
   const results = [];
   if (line?.type !== "tool/result") return results;
   const content = line.data?.message?.content;
   if (!Array.isArray(content)) return results;
+  const messageIsError = Boolean(line.data?.message?.isError);
   for (const entry of content) {
-    if (entry?.type !== "tool-result") continue;
-    const text = (entry.content ?? []).map((x) => x?.text ?? "").join("\n");
-    results.push({ text, isError: Boolean(entry.isError) });
+    if (entry?.type === "tool-result") {
+      const text = (entry.content ?? []).map((x) => x?.text ?? "").join("\n");
+      results.push({ text, isError: Boolean(entry.isError) });
+    } else if (entry?.type === "text") {
+      results.push({ text: entry.text ?? "", isError: messageIsError });
+    }
   }
   return results;
 }

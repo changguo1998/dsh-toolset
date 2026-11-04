@@ -31,6 +31,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -44,14 +45,39 @@ const TASK_ENGINE_ROOT = path.resolve(PKG_ROOT, "..", "task-engine");
 const PKG_NAME = "@dsh-toolset/goal-contract";
 const TASK_ENGINE_NAME = "@dsh-toolset/task-engine";
 const PROFILE = "dsh-toolset-goal-contract";
-const PROFILE_PKG = path.join(
-  homedir(),
-  ".dsh",
-  "profiles",
-  PROFILE,
-  "package.json",
-);
+// 宿主 home：`DSH_HOME` 优先（沙箱 / CI 下指向仓库 tmp），缺省 ~/.dsh。
+const DSH_HOME = process.env.DSH_HOME ?? path.join(homedir(), ".dsh");
+const PROFILE_DIR = path.join(DSH_HOME, "profiles", PROFILE);
+const PROFILE_PKG = path.join(PROFILE_DIR, "package.json");
 const REQUIRED_VERSION = "0.2.1-rc.5";
+
+// 模型面：`SMOKE_PROVIDER` / `SMOKE_MODEL`（缺省本机 tollgate 网关上的 qwen38），
+// key 走 `TOLLGATE_API_KEY`（缺省占位值 local）。
+const MODEL_PROVIDER = process.env.SMOKE_PROVIDER ?? "tollgate";
+const MODEL_ID = process.env.SMOKE_MODEL ?? "qwen38";
+// profile 用户层：模型面 + 双插件挂载（`plugin add` 只改 bundle 列表，这里管模型）。
+const CORDIS_PATCH = `# 本 profile 用户层：模型面 + goal-contract / task-engine 挂载（由 smoke 脚本管理，勿手改）。
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config:
+    provider: ${MODEL_PROVIDER}
+    model: ${MODEL_ID}
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      ${MODEL_PROVIDER}:
+        api: openai-completions
+        apiKeyEnv: TOLLGATE_API_KEY
+        baseURL: !!js process.env.TOLLGATE_BASE_URL || 'http://127.0.0.1:8787/v1'
+        compat:
+          supportsDeveloperRole: false
+        models:
+          - id: ${MODEL_ID}
+            contextWindow: 32768
+            maxTokens: 32768
+`;
 
 // 一次性会话任务：全量预填（非交互）→ 落 goal → 输出回读标记 → complete 收尾
 const SESSION_TASK = [
@@ -115,6 +141,7 @@ run("dsh", [
   "add",
   `${TASK_ENGINE_NAME}@link:${TASK_ENGINE_ROOT}`,
 ]);
+writeFileSync(path.join(PROFILE_DIR, "cordis.patch.yml"), CORDIS_PATCH, "utf8");
 
 // 2) 缺 dist 时先构建（task-engine 需先装依赖：worktree 初始无 node_modules）
 if (!existsSync(path.join(TASK_ENGINE_ROOT, "node_modules"))) {
@@ -141,12 +168,11 @@ try {
 }
 
 // 4) 断言：goal 已创建（官方事件源落盘后回读视图可取 id）且条款往返一致
-//    证据 = stdout + 本次运行产生的会话日志（~/.dsh/sessions/--<cwd 去首斜杠、
-//    斜杠转中划线>--/session-*.v3.jsonl.zstd；zstd -dc 解压）
+//    证据 = stdout + 本次运行产生的会话日志（`$DSH_HOME/sessions/--<cwd 去首斜杠、
+//    斜杠转中划线>--/session-*.v3.jsonl.zstd`；zstd -dc 解压）
 let evidence = out;
 const sessionDir = path.join(
-  homedir(),
-  ".dsh",
+  DSH_HOME,
   "sessions",
   `--${tmp.replace(/^\//, "").replace(/\//g, "-")}`,
   `--`,

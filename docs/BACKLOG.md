@@ -64,6 +64,8 @@
 
 ## 2. 未完成项
 
+> 2026-11-04 关闭: 「smoke 脚本在沙箱内不可跑, 且模型面写死」完成并移出清单 (用户直接指派, 追踪文档 `docs/archived/2026-11-04-smoke-sandbox-model.md`): 4 个 smoke 的 `DSH_HOME` / 会话证据路径改读 `$DSH_HOME`, 模型面接 `SMOKE_PROVIDER` / `SMOKE_MODEL`(缺省 `tollgate` / `qwen38`, key `TOLLGATE_API_KEY` 缺省 `local`); 新增 `scripts/run-smoke.sh` 与根 `test:smoke`, 把 `DSH_HOME` / `TMPDIR` / 日志收到仓库 `tmp/` 并向 profile 的 `pnpm-workspace.yaml` 注入 `storeDir` / `cacheDir`, 使 `dsh plugin add` 在沙箱内可用; 顺带修 `security-guard` 的 `tool/result` 解析(会话早已是 v4, 断言停在 v3); 全量 smoke 退出 0(21s / 24s / 36s / 17s), `check:docs` 0 / 0.
+
 > 2026-11-04 关闭: 「宿主升级复核: `dsh` 0.2.1-rc.5 相对 rc.3 的接口变化」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5.md`): rc.3 → rc.5 共 13 个提交 / 388 文件, `package.json` 差异只有版本号, 包目录 343 → 343; 工具面 / 事件 / 服务面 / `bundle/base` patch / 官方配置 schema 零变更, 本仓 34 包无需改代码; 两处行为面变更均不触本仓 (ACP stdout 诊断改 stderr 与 MCP 资源列举前置能力判定、web 思考块槽拆 `rawText` + `text`); `session-persistence-jsonl/src/format.ts` 无 diff, 编码四函数无漂移; 新增 `docs/host/HOST-UPGRADE-0.2.1-rc.5.md`, 同步 `HOST-PACKAGES.md` / `DSH-CTX-API.md` / README 双侧; 未升级安装树 (另立条目), `check:docs` 0 / 0.
 
 > 2026-11-04 关闭: 「本机宿主升级到 `0.2.1-rc.5` 并重建安装树口径」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5-install.md`): 全局 `dsh` 与安装树升到 rc.5、profile `fff` 已 `--sync` 重装 (35 个 bundle); 随包分发 306 / 295 与 fff 官方活跃包 100 个 (`--dump-config` 848 行 / 142 行 id) 复测未变; 仓库内全部 rc.3 引用改到 rc.5 (14 个文件: install.sh、test-install.sh、4 个 smoke 与 README、e2e/README、TUI/docs/COMMANDS、ARCHITECTURE-REUSE、STATUS、HOST-PACKAGES、HOST-UPGRADE-rc.5、package.json 与 pnpm-lock.yaml), 新增 `pnpm-workspace.yaml` 修好 pnpm 11 的构建批准与依赖前置检查; `check` / `test` / `test:e2e`(33) / `check:docs` 全绿; 4 个包 smoke 未真跑 (需模型凭据).

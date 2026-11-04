@@ -55,28 +55,32 @@ const MARKER_LINE = 1402;
 
 // 三包都插自身；两台存储插件都不配路径——`digest.db` 与 memory-base 的 S 层都由
 // `sessionPaths.sessionDirFor(sessionId)` 推导（2026-10-17 口径）。
+// 模型面由 `SMOKE_PROVIDER` / `SMOKE_MODEL` 指定（缺省本机 tollgate 网关上的 qwen38），
+// key 走 `TOLLGATE_API_KEY`（缺省占位值 local）。
+const MODEL_PROVIDER = process.env.SMOKE_PROVIDER ?? "tollgate";
+const MODEL_ID = process.env.SMOKE_MODEL ?? "qwen38";
 const CORDIS_PATCH = `# 本 profile 用户层：session-paths + memory-base + output-compress（由 smoke 脚本管理，勿手改）。
 # 不配 dbPath / sessionDir：两包都从 session-paths 服务推导会话目录。
 - id: agent-default-model
   name: '@deepseek-ai/dsh-agent-default-model'
   config:
-    provider: tollgate
-    model: deepseek-v4.1-flash
+    provider: ${MODEL_PROVIDER}
+    model: ${MODEL_ID}
 
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
     providers:
-      tollgate:
+      ${MODEL_PROVIDER}:
         api: openai-completions
         apiKeyEnv: TOLLGATE_API_KEY
         baseURL: !!js process.env.TOLLGATE_BASE_URL || 'http://127.0.0.1:8787/v1'
         compat:
           supportsDeveloperRole: false
         models:
-          - id: deepseek-v4.1-flash
-            contextWindow: 1000000
-            maxTokens: 393216
+          - id: ${MODEL_ID}
+            contextWindow: 32768
+            maxTokens: 32768
 
 - id: session-paths
   name: '@dsh-toolset/session-paths'

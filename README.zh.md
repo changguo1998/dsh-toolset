@@ -106,7 +106,10 @@ pnpm run test    # 全部子包测试并行运行（scripts/test-parallel.sh）
 pnpm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
 pnpm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
 pnpm run test:tui          # TUI 单包测试快捷入口（可接名字正则/文件名过滤）
+pnpm run test:smoke        # goal-contract / metric-loop / output-compress / security-guard 的真机 smoke
 ```
+
+`test:smoke` 委托 `scripts/run-smoke.sh`：把 `DSH_HOME`、`TMPDIR` 与日志都收进仓库 `tmp/`，因此在沙箱里也能跑（不写 `~/.dsh`）。模型缺省走本机 tollgate 网关（`TOLLGATE_API_KEY=local`、provider `tollgate`、model `qwen38`），可用 `TOLLGATE_API_KEY` / `TOLLGATE_BASE_URL` / `SMOKE_PROVIDER` / `SMOKE_MODEL` 覆盖。
 
 单个子包内直接运行各自的 `pnpm run check / build / test / demo`（TUI 另有 `bench`、`smoke:pty`）。命令细节、并行调度参数与过滤用法见 `AGENTS.md`。
 
