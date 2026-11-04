@@ -59,13 +59,9 @@ rm -rf ../tmp/cov-background-daemon && mkdir -p ../tmp/cov-background-daemon && 
 
 ## 实现记录
 
-- 单元锚点: 新增 `tests/guard.test.ts` 6 条, 覆盖引擎侧命令复查的缺失 / 形状不符 / 非空回执 / 空白回执 / 抛错 / 无效 ctx 六条路径（此前 `guard.ts` 分支覆盖 0%）。在既有文件追加 18 条:
-  - `tests/apply.test.ts` 5 条: `clock` 形状不符与 `scope` 抛错的回落、`ctx.inject` 读取抛错、`provide` / 工具注册 / dispose 事件面抛错的降级、memory 底座注册抛错、agents / sessions 缺失告警。
-  - `tests/commands.test.ts` 4 条: start / stop 幂等文案、任务表损坏时 `start` 失败并回滚开关、`run` 缺 id、`log` 条数非法回落 20。
-  - `tests/scheduler.test.ts` 4 条: 渠道未注册记 `failed(error)`、`runNow` 目标无活跃 agent、`runNow` 未知任务与渠道抛错、`durable:false` 的 volatile 告警。
-  - `tests/store.test.ts` 3 条: `validateDaemonTask` 逐字段拒绝表、顶层非对象 / 缺 `tasks` 数组、不可用时写类操作抛错。
-  - `tests/tools.test.ts` 2 条: 未暂停时 `resume` 报 `not_paused`、`log` 缺省取全局流水与 limit 回落。
-- 集成层: 新增 `tests/assemble.ts`（工具 / 事件 / 服务三个假面, 附假 clock 与临时目录; 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts` 10 条。装配 `apply` 后断言: `daemon_task` 注册名 / 参数面 / 描述、`execute` 的 canonical 值（create / list / show / pause / resume / cancel / log 与 `task_not_found` / `unknown_action` / `frequency_too_high`）、`output.render` 的单条 text JSON 投影、`/daemon` 命令注册与 handler 输出、文本与命令两条投递内容（注入前缀 / source / 目标会话 / 规范化 slash 行 / guardSkipped）、`dispose` 事件撤销调度器且幂等、服务面 `provide` 与 `get` 同一实例及状态视图字段、memory 底座经 `inject` 晚挂后状态与写透同步。
+> 单元锚点与集成层见「四份测试产物」; 本节保留脚本、范围说明与阶段 3 实现记录.
+> 单元锚点与集成层见「四份测试产物」; 本节保留脚本、范围说明与阶段 3 实现记录.
+
 - 脚本: `package.json` 增 `test:integration` 与 `test:coverage`; 覆盖率目录用 `../tmp/cov-background-daemon`（从包目录写入仓库根 `tmp/`）, `report.mjs` 的两个参数按仓库根解析写 `tmp/cov-background-daemon`。
 - `src` 未改（无偏差记录）。
 - 阶段 3（分支 `history-cleanup/03-code-background-daemon`）:
@@ -85,21 +81,39 @@ rm -rf ../tmp/cov-background-daemon && mkdir -p ../tmp/cov-background-daemon && 
 
 ## 测试与证据
 
-命令实跑（分支 `history-cleanup/02-tests-background-daemon`）:
+> 四入口、用例增减、`skip` 与覆盖率见「四份测试产物」; 本节保留阶段 3 实跑.
+
+### 阶段 3（分支 `history-cleanup/03-code-background-daemon`）
+
+命令实跑:
 
 | 入口 | 结果 |
 | --- | --- |
 | `pnpm -C background-daemon run check` | ✓ 通过（`tsc --noEmit`, 无输出） |
-| `pnpm -C background-daemon run test` | ✓ 190 pass / 0 fail / 0 skipped / 0 todo, 268.5 ms |
-| `pnpm -C background-daemon run test:integration` | ✓ 10 pass / 0 fail, 107.4 ms |
-| `pnpm -C background-daemon run test:coverage` | ✓ 200 pass / 0 fail, 行 89.8% (3093/3445), 分支 78.3% (624/797) |
+| `pnpm -C background-daemon run test` | ✓ 190 pass / 0 fail / 0 skipped / 0 todo, 261.6 ms |
+| `pnpm -C background-daemon run test:integration` | ✓ 10 pass / 0 fail, 107.6 ms |
+| `pnpm -C background-daemon run build` | ✓ 通过（`tsc`, 无输出） |
+| `pnpm -C background-daemon run test:coverage` | ✓ 200 pass / 0 fail, 行 90.0% (3099/3442), 分支 78.3% (626/799) |
 
-用例增减:
+删除符号（合计 4 个导出 + 1 个私有常量）与按文件的增删（`git diff --numstat`）:
 
-- 新增 34 条: 单元 24 条（`guard.test.ts` 6, `apply.test.ts` 5, `commands.test.ts` 4, `scheduler.test.ts` 4, `store.test.ts` 3, `tools.test.ts` 2）; 集成 10 条。
-- 删除 0 条; 改写 0 条（既有断言未动）。
-- `skip` / `todo`: 改前 0 / 0, 改后 0 / 0; 无豁免台账（本机无环境探测类 `skip`）。
-- 夹具: 本包无夹具目录, 未新增。
+| 文件 | 符号 | 性质 | 增 / 删 |
+| --- | --- | --- | --- |
+| `src/commands.ts` | `Subcommand` | 类型（规划列出） | +0 / -2 |
+| `src/tz.ts` | `daysBetween`、`calendarDayMs`、`MS_PER_DAY` | 函数（规划列出）、函数（连带, 仅被 `daysBetween` 调用）、私有常量（连带） | +0 / -17 |
+| `src/services.ts` | 新增 `contextContainer`, `readService` 改为调用它 | 上下文对象守卫唯一出口 | +17 / -2 |
+| `src/main.ts` | `readInject` 改调 `contextContainer` | 守卫重复判断删除 | +7 / -4 |
+| 合计 | - | - | +24 / -25 |
+
+用例: 断言未改, 190 / 10 条与阶段 2 一致; 覆盖率较阶段 2 末行 89.8%（3093/3445）→ 90.0%（3099/3442）, 分支 78.3%（624/797）→ 78.3%（626/799）, 分母随删除的行与分支同步变化。
+
+零引用导出复查: 用 `tmp/scan-zero.mjs` 按「导出符号在全仓 `src` + `tests` 仅出现于声明行」的口径扫描, 结果 `零引用导出: 0`（脚本为临时文件, 任务结束已删）。
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
 
 覆盖率（改前 = 阶段 1 末仅单元层; 改后 = 单元 + 集成）:
 
@@ -150,37 +164,31 @@ rm -rf ../tmp/cov-background-daemon && mkdir -p ../tmp/cov-background-daemon && 
 
 未覆盖部分的三类来源: 多行模板字符串 / 接口声明的续行被 `report.mjs` 按原始字节区间记为「未命中」（`commands.ts`、`deliver.ts`、`scheduler.ts` 的大部分条目）; 异步镜像与 journal 轮转的少数写盘失败分支（`journal.ts`、`records.ts`, 需人为造磁盘错误）; `tz.ts` 的 DST 稀有分支。均未用空跑用例凑数。
 
-### 阶段 3（分支 `history-cleanup/03-code-background-daemon`）
+### 用例清单
 
-命令实跑:
+- 单元锚点: 新增 `tests/guard.test.ts` 6 条, 覆盖引擎侧命令复查的缺失 / 形状不符 / 非空回执 / 空白回执 / 抛错 / 无效 ctx 六条路径（此前 `guard.ts` 分支覆盖 0%）。在既有文件追加 18 条:
+  - `tests/apply.test.ts` 5 条: `clock` 形状不符与 `scope` 抛错的回落、`ctx.inject` 读取抛错、`provide` / 工具注册 / dispose 事件面抛错的降级、memory 底座注册抛错、agents / sessions 缺失告警。
+  - `tests/commands.test.ts` 4 条: start / stop 幂等文案、任务表损坏时 `start` 失败并回滚开关、`run` 缺 id、`log` 条数非法回落 20。
+  - `tests/scheduler.test.ts` 4 条: 渠道未注册记 `failed(error)`、`runNow` 目标无活跃 agent、`runNow` 未知任务与渠道抛错、`durable:false` 的 volatile 告警。
+  - `tests/store.test.ts` 3 条: `validateDaemonTask` 逐字段拒绝表、顶层非对象 / 缺 `tasks` 数组、不可用时写类操作抛错。
+  - `tests/tools.test.ts` 2 条: 未暂停时 `resume` 报 `not_paused`、`log` 缺省取全局流水与 limit 回落。
+- 集成层: 新增 `tests/assemble.ts`（工具 / 事件 / 服务三个假面, 附假 clock 与临时目录; 不以 `.test.ts` 结尾）与 `tests/integration/plugin.test.ts` 10 条。装配 `apply` 后断言: `daemon_task` 注册名 / 参数面 / 描述、`execute` 的 canonical 值（create / list / show / pause / resume / cancel / log 与 `task_not_found` / `unknown_action` / `frequency_too_high`）、`output.render` 的单条 text JSON 投影、`/daemon` 命令注册与 handler 输出、文本与命令两条投递内容（注入前缀 / source / 目标会话 / 规范化 slash 行 / guardSkipped）、`dispose` 事件撤销调度器且幂等、服务面 `provide` 与 `get` 同一实例及状态视图字段、memory 底座经 `inject` 晚挂后状态与写透同步。
+- 新增 34 条: 单元 24 条（`guard.test.ts` 6, `apply.test.ts` 5, `commands.test.ts` 4, `scheduler.test.ts` 4, `store.test.ts` 3, `tools.test.ts` 2）; 集成 10 条。
+- 删除 0 条; 改写 0 条（既有断言未动）。
+- 夹具: 本包无夹具目录, 未新增。
+
+### skip 计数与豁免台账
+
+- `skip` / `todo`: 改前 0 / 0, 改后 0 / 0.
+- 无豁免台账（本机无环境探测类 `skip`）.
+
+### 四入口实跑
+
+命令实跑（分支 `history-cleanup/02-tests-background-daemon`）:
 
 | 入口 | 结果 |
 | --- | --- |
 | `pnpm -C background-daemon run check` | ✓ 通过（`tsc --noEmit`, 无输出） |
-| `pnpm -C background-daemon run test` | ✓ 190 pass / 0 fail / 0 skipped / 0 todo, 261.6 ms |
-| `pnpm -C background-daemon run test:integration` | ✓ 10 pass / 0 fail, 107.6 ms |
-| `pnpm -C background-daemon run build` | ✓ 通过（`tsc`, 无输出） |
-| `pnpm -C background-daemon run test:coverage` | ✓ 200 pass / 0 fail, 行 90.0% (3099/3442), 分支 78.3% (626/799) |
-
-删除符号（合计 4 个导出 + 1 个私有常量）与按文件的增删（`git diff --numstat`）:
-
-| 文件 | 符号 | 性质 | 增 / 删 |
-| --- | --- | --- | --- |
-| `src/commands.ts` | `Subcommand` | 类型（规划列出） | +0 / -2 |
-| `src/tz.ts` | `daysBetween`、`calendarDayMs`、`MS_PER_DAY` | 函数（规划列出）、函数（连带, 仅被 `daysBetween` 调用）、私有常量（连带） | +0 / -17 |
-| `src/services.ts` | 新增 `contextContainer`, `readService` 改为调用它 | 上下文对象守卫唯一出口 | +17 / -2 |
-| `src/main.ts` | `readInject` 改调 `contextContainer` | 守卫重复判断删除 | +7 / -4 |
-| 合计 | - | - | +24 / -25 |
-
-用例: 断言未改, 190 / 10 条与阶段 2 一致; 覆盖率较阶段 2 末行 89.8%（3093/3445）→ 90.0%（3099/3442）, 分支 78.3%（624/797）→ 78.3%（626/799）, 分母随删除的行与分支同步变化。
-
-零引用导出复查: 用 `tmp/scan-zero.mjs` 按「导出符号在全仓 `src` + `tests` 仅出现于声明行」的口径扫描, 结果 `零引用导出: 0`（脚本为临时文件, 任务结束已删）。
-
-## 四份测试产物
-
-| 产物 | 位置 |
-| --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C background-daemon run test` | ✓ 190 pass / 0 fail / 0 skipped / 0 todo, 268.5 ms |
+| `pnpm -C background-daemon run test:integration` | ✓ 10 pass / 0 fail, 107.4 ms |
+| `pnpm -C background-daemon run test:coverage` | ✓ 200 pass / 0 fail, 行 89.8% (3093/3445), 分支 78.3% (624/797) |
