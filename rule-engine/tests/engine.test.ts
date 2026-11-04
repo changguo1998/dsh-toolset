@@ -716,7 +716,7 @@ test("dedupeInRecord：投影里已有同 summary 注入则跳过；没有 / 读
   const text = "解锁后加载行为 skill";
   const cases: Array<{
     label: string;
-    messages?: readonly unknown[];
+    messages?: readonly unknown[] | undefined;
     expected: number;
   }> = [
     {
@@ -1077,7 +1077,11 @@ test("registerConsumer：非对象 / decide 非函数 / 非法 delivery 的校�
       } as unknown as ConsumerRegistration),
     ];
     for (const dispose of disposers) {
-      assert.equal(typeof dispose, "function", "非法注册仍返回可调用的 dispose");
+      assert.equal(
+        typeof dispose,
+        "function",
+        "非法注册仍返回可调用的 dispose",
+      );
       dispose(); // noop：调用不得抛
     }
     const text = warnings.join("\n");

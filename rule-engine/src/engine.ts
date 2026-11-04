@@ -96,7 +96,7 @@ export interface EngineOptions {
   /** 注入器（宿主送达面）。 */
   injector: Injector;
   /** 同一会话同一来源回合的注入上限，缺省 3。 */
-  maxInjectionsPerTurn?: number;
+  maxInjectionsPerTurn?: number | undefined;
   /** 会话记录读取（`dedupeInRecord` 判据；接线层合成「可见投影 + 未消费 inbox」）；
    *  缺省或读不到 → 去重失效、照旧注入。 */
   messagesOf?: (sessionId: string) => readonly unknown[];

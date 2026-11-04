@@ -67,7 +67,7 @@ export interface MatchSpec {
   /** 正则源串：任一匹配即命中。 */
   regex?: readonly string[];
   /** 正则 flags，缺省 "i"（所有 regex 共用）。 */
-  flags?: string;
+  flags?: string | undefined;
   /** 内置谓词名：全部满足才命中。 */
   predicates?: readonly PredicateName[];
 }

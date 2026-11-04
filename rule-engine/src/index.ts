@@ -55,9 +55,6 @@ export function isSubagentSession(session: unknown): boolean {
 
 export const name = "rule-engine";
 
-/** 会话事件订阅名。 */
-const SESSION_EVENT = "session/event";
-const SESSION_CREATED_EVENT = "session/created";
 /** 工具执行前拦截点（waterfall；消费者 guard 面的唤醒时机）。 */
 const PRE_EXECUTE_EVENT = "tools/pre-execute";
 

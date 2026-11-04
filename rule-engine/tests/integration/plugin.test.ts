@@ -15,7 +15,6 @@ import {
   messageText,
   registerConsumer,
   tick,
-  type Assembly,
 } from "../assemble.ts";
 
 /** 符号规则的工具参数 (测试内共用)。 */
@@ -42,13 +41,6 @@ function asList(value: unknown): unknown[] {
 function textOf(block: unknown): string {
   const text = asRecord(block)["text"];
   return typeof text === "string" ? text : "";
-}
-
-/** 取生效中的注入消息 (空则失败, 便于后续断言取值)。 */
-function onlyDelivery(assembly: Assembly): Record<string, unknown> {
-  const [delivery] = assembly.delivered;
-  assert.ok(delivery !== undefined, "应注入 1 条");
-  return delivery.message;
 }
 
 test("工具面: 经 ctx.get('tools') 注册 5 个工具, 参数面与事件面同时就位", async () => {
