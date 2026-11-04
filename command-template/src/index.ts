@@ -284,7 +284,7 @@ export class CommandTemplateService {
   }
 
   /** 管理子命令（list / show <模板> / reload）。 */
-  #manage(rawInput: string, invocation: InvocationLike): CommandResultLike {
+  #manage(rawInput: string, _invocation: InvocationLike): CommandResultLike {
     const [sub = "list", arg] = rawInput.trim().split(/\s+/, 2);
     if (sub === "reload") {
       const result = this.reload();
