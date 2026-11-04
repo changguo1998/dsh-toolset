@@ -179,12 +179,6 @@ const UNKNOWN_TOOL_COMMAND_KEY_SET: ReadonlySet<string> = new Set(
 const UNKNOWN_TOOL_CODE_KEY_SET: ReadonlySet<string> = new Set(
   UNKNOWN_TOOL_CODE_KEYS,
 );
-const UNKNOWN_TOOL_WATCHED: ReadonlySet<string> = new Set<string>([
-  ...UNKNOWN_TOOL_PATH_KEYS,
-  ...UNKNOWN_TOOL_COMMAND_KEYS,
-  ...UNKNOWN_TOOL_CODE_KEYS,
-]);
-
 /**
  * 键名启发 / check 值面扫描的**键深上限**（**单一来源**：`TOOL_SURFACE.keyDepth` 供
  * `security-guard/scripts/tool-surface-check.mjs` 复用，脚本与引擎不各维护一份）。
