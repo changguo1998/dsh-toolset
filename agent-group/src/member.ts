@@ -41,7 +41,7 @@ export interface MemberStateLookup {
  */
 export function judgeAgentState(input: {
   online: boolean;
-  state?: { status: "idle" | "running"; at: number };
+  state?: { status: "idle" | "running"; at: number } | undefined;
   now: number;
   stuckAfterMs: number;
 }): AgentStateVerdict {

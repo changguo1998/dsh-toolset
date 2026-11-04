@@ -61,7 +61,9 @@ export function fakeSessionPaths(root: string) {
 }
 
 /** 假 session-channel 服务面（真适配器会消费它；状态牌可缺省，模拟旧版）。 */
-export function fakeSessionChannel(options: { statusOf?: boolean } = {}) {
+export function fakeSessionChannel(
+  options: { statusOf?: boolean | undefined } = {},
+) {
   const online = new Set<string>();
   const aliases = new Map<string, string>();
   const tasks = new Map<

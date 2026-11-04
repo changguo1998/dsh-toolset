@@ -32,7 +32,7 @@ function fakeMemory(
     /** 替换 `registerKind` 返回的句柄（缺省给一个可写句柄）。 */
     scope?: MemoryScopeFace;
     /** 句柄 `put` 的返回体（缺省 `{ids, created}`）。 */
-    result?: Awaited<ReturnType<MemoryScopeFace["put"]>>;
+    result?: Awaited<ReturnType<MemoryScopeFace["put"]>> | undefined;
     registerThrows?: Error;
   } = {},
 ) {

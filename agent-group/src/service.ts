@@ -78,8 +78,6 @@ export class GroupService {
   readonly #timers: NonNullable<GroupServiceOptions["timers"]>;
   /** 动作层协作面（各层经它读写内核状态, 不直接碰缓存与串行锁）。 */
   readonly #host: GroupActionHost;
-  /** 状态轮询（2b，组长侧）：每组长一个 tick 遍历其全部组；`interval` 未引用。 */
-  #pollTimer: (() => void) | undefined;
   /** 状态巡查见过的组长集合（`run` 时记录调用方）。 */
   #knownManagers = new Set<string>();
   /** 组长名下各组的成员状态缓存（`<manager>\0<group>` → 判定视图；写动作后失效）。 */
@@ -116,7 +114,7 @@ export class GroupService {
     };
     if (this.#config.statusPollMs > 0) {
       // 2b：内建组长侧轮询（状态巡查），间隔可配（缺省 20 s；0 = 不轮询）
-      this.#pollTimer = this.#timers.interval(this.#config.statusPollMs, () => {
+      this.#timers.interval(this.#config.statusPollMs, () => {
         void this.refreshMemberStates().catch((err: unknown) =>
           this.#log(`状态巡查失败：${describe(err)}`),
         );
