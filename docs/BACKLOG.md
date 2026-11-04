@@ -64,6 +64,12 @@
 
 ## 2. 未完成项
 
+> 2026-11-04 关闭: 「宿主升级复核: `dsh` 0.2.1-rc.5 相对 rc.3 的接口变化」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5.md`): rc.3 → rc.5 共 13 个提交 / 388 文件, `package.json` 差异只有版本号, 包目录 343 → 343; 工具面 / 事件 / 服务面 / `bundle/base` patch / 官方配置 schema 零变更, 本仓 34 包无需改代码; 两处行为面变更均不触本仓 (ACP stdout 诊断改 stderr 与 MCP 资源列举前置能力判定、web 思考块槽拆 `rawText` + `text`); `session-persistence-jsonl/src/format.ts` 无 diff, 编码四函数无漂移; 新增 `docs/host/HOST-UPGRADE-0.2.1-rc.5.md`, 同步 `HOST-PACKAGES.md` / `DSH-CTX-API.md` / README 双侧; 未升级安装树 (另立条目), `check:docs` 0 / 0.
+
+- **#1 宿主升级复核: `0.2.2-alpha` 线的接口变化与新增包面**〔未接取〕（2026-11-04 登记）：上游主分支位于 `dsh-v0.2.2-alpha.3` 之后 555 个提交, 包目录 343 → 370（+27）, 新增 `v0.2.2-alpha.2` 的 20 条升级指南（含 `projection-event-frames` / `projection-snapshot-scope` / `projection-released-checkpoint` / `fs-observation-policy-default-off` / `llm-request-purpose-declarations` / `schedule-agent-tools` / `subagent-explicit-reasoning`）, 事件与投影面已有破坏性改动 → 按指南逐条判定对本仓 34 包的影响, 给出需提前适配项清单 → P1 → 来源: rc.3 → rc.5 复核途中发现（`docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5.md`「0.2.2-alpha 线」）。
+
+- **#2 本机宿主升级到 `0.2.1-rc.5` 并重建安装树口径**〔未接取〕（2026-11-04 登记）：本机 `dsh --version` 仍为 `0.2.1-rc.3`, 且 `docs/host/HOST-PACKAGES.md` 的包计数与挂载清单取自更早的 rc.2 安装树（rc.3 复核时已注明「升级后需重生成」） → 全局安装升级 + `scripts/install.sh --profile fff --sync` 重装 profile, 复测随包分发包计数（rc.2 实测 306 / 295）、fff 活跃挂载行数与 `--dump-config` 自检, 按新树重生成 `HOST-PACKAGES.md`, 并把 `install.sh` 默认版本、`test-install.sh` 与各包 smoke `REQUIRED_VERSION` 抬到 rc.5 → P1 → 来源: rc.3 → rc.5 复核决策（安装树未升级, 见 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5.md`「决策」2 / 3）。
+
 > 2026-11-04 关闭: 「分阶段开启 5 个 TypeScript 严格检查」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-strict-check-flags.md`): 34 包五项全开, 731 条报错清零, 35 笔包提交 (TUI 拆两笔); 全仓 4573 例、行 89.6% / 分支 80.2%, `check` / `build` / `test` / `test:coverage` / `check:docs` / `test:e2e` 退出 0, TUI `demo -- --smoke` 输出 `SMOKE_OK`; 未改运行时行为 (TUI `exactOptionalPropertyTypes` 的修复取向见追踪文档「偏差」).
 
 > 2026-11-04 关闭: 「迁出 34 包测试产物数据」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-test-artifacts.md`): 34 份包追踪的覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑全部收进 `## 四份测试产物` 的四个小节, 原节留指针, 数字照录; 每包一笔提交, 34/34 结构校验与数字保留校验通过, `check:docs` 0 / 0; 未改代码.

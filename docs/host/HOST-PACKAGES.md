@@ -6,6 +6,7 @@
 
 > 来源：本地安装的官方 deepseek-harness（全局 dsh `0.2.1-rc.2`（2026-10-21 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`，下文称**安装树口径**）；源码 clone（`~/GithubRepos/deepseek-harness`）已 checkout 到 tag `dsh-v0.2.1-rc.3`。**0.2.1-rc.3 增量**（2026-10-27 复核）：
 > 包目录 342 → 343，仅新增 web 专用 `@deepseek-ai/dsh-client-ui-entry-customization`；其余包只有版本号变化，接口面与 `dsh-base` patch 无变更（详见 `HOST-UPGRADE-0.2.1-rc.3.md`）。本文件的包计数仍为 rc.2 安装树实测，升级本机后重生成。
+> **0.2.1-rc.5 增量**（2026-11-04 复核）：包目录 **343 → 343**（无增删），非 manifest 变更只落在 web 客户端与 ACP / MCP 的 stdout 纪律；工具面 / 事件 / 服务面 / `dsh-base` patch 与官方配置 schema **零变更**，本文件的行清单与分类无需改动（详见 `HOST-UPGRADE-0.2.1-rc.5.md`）。
 > 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
 > 版本口径：**以 `0.2.1-rc.3` 实际随包分发的安装树为准**——`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **306** 个包（其中 `dsh-*` **295** 个；rc.2 时为 306 / 294，rc.3 新增 web 专用 `dsh-client-ui-entry-customization`），§2 的行清单与之一一对应。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。宿主升级后需整体重生成。
 > 采集时间：**2026-10-21**（宿主 `dsh --version` = `0.2.1-rc.2`；随包分发 306 包、fff 活跃挂载 100 个名字项（`--dump-config` 排除无条件 `disabled: true` 后），另树外加装 `session-title-all-prompts-llm`（disabled），其中 92 个计入 §1、1 个是 TUI 自插的 `tool-ask-user`。△ 该名字项计数**含被 `disabled` 关掉的行**，按 §0 判定细则修正后见 §1 与 §6）。接口与包增删的逐项对照：本次见同目录 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`，上一次见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
