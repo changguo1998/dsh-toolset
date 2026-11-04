@@ -109,6 +109,33 @@ pkg_name() {
 is_bundle() {
     node -e 'const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(m.dsh&&m.dsh.bundle?"1":"")' "$1/package.json"
 }
+# 子包依赖是否就绪：node_modules 存在，且 package.json 里声明的每条 link: 依赖都已落到
+# node_modules/<name>。只看目录存在会把旧装误判成已装——npm 时期留下的 node_modules 里没有
+# 后来才加进清单的 link: 链接（`@dsh-toolset/clock-base` 等），编译随即报 TS2307。
+deps_ready() { # deps_ready <包目录名>：就绪返回 0，未就绪时把缺的项打到 stdout 供调用方提示
+    check_deps_dir="$repo_root/$1"
+    if [ ! -d "$check_deps_dir/node_modules" ]; then
+        printf 'node_modules 目录'
+        return 1
+    fi
+    node -e '
+const fs = require("fs");
+const path = require("path");
+const dir = process.argv[1];
+const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+const specs = { ...manifest.dependencies, ...manifest.devDependencies };
+const missing = Object.entries(specs).filter(
+  ([name, spec]) =>
+    typeof spec === "string" &&
+    spec.startsWith("link:") &&
+    !fs.existsSync(path.join(dir, "node_modules", name)),
+);
+if (missing.length) {
+  process.stdout.write(missing.map(([name, spec]) => `${name}（${spec}）`).join(", "));
+  process.exit(1);
+}
+' "$check_deps_dir"
+}
 # 名字校验：与宿主 resolveProfileDir 的口径对齐，另拒空白（脚本内部按空白分词）。
 check_name() {
     case "$1" in
@@ -374,10 +401,17 @@ if [ "$skip_build" = 1 ]; then
     log "按 --skip-build 跳过依赖安装 / build（要求各包 dist/ 已存在）"
 else
     # 依赖安装仍串行：并发会争同一份缓存与 lock 文件，失败定位也更难。
+    # --ignore-workspace：仓库根的 pnpm-workspace.yaml 只有设置项、没有 packages 列表，pnpm
+    # 从子包向上找到它就当 workspace root，在子包里 install 会空转（Already up to date，
+    # 一条链接都不建）。带这个标志才真正在**该子包**目录独立安装（不写根 lockfile）。
     for d in $final; do
-        if [ ! -d "$repo_root/$d/node_modules" ]; then
-            log "安装依赖（pnpm）：$d"
-            run_in "$repo_root/$d" pnpm install
+        if ! missing="$(deps_ready "$d" 2>&1)"; then
+            # 删掉 pnpm 的「已是最新」标记：node_modules 在、只是缺链接时（旧装，或 link: 依赖
+            # 后来才加入清单），pnpm 只比对标记与 lockfile，会报 Already up to date 却一条链接都不建。
+            log "安装依赖（pnpm，子包独立安装）：$d（缺 $missing）"
+            run rm -f "$repo_root/$d/node_modules/.modules.yaml" \
+                "$repo_root/$d/node_modules/.pnpm-workspace-state-v1.json"
+            run_in "$repo_root/$d" pnpm install --ignore-workspace
         fi
     done
     # 构建并行。跨包源码依赖只有两处（code-map → ast-tools、md-map → md-logic），
