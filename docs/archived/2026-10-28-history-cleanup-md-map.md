@@ -61,15 +61,7 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 
 分支 `history-cleanup/02-tests-md-map`;`src` 未改（本次为可测性不需要动 `src`）。
 
-- 单元层新增两份用例, 并在 `tests/tool.test.ts` 追加两条边界用例（现有断言语义未改）:
-  - `tests/render.test.ts`（8 条）: `renderIndex` / `renderCallers` / `renderImpact` / `renderOrphans` / `renderReport` / `renderSummary` 的空结果、kind 过滤标注、`RENDER_LIMIT` 截断与余数、每层 20 条上限、报告孤儿 15 条预览、断链三类原因、`refEdges` 缺省按 0。
-  - `tests/service.test.ts`（5 条）: 未索引时各查询回空; `config.root` 作为缺省且显式 `root: undefined` 不冲掉它; 调用方 `root` 覆盖并覆盖旧索引; `hasDoc` 的后缀 / 文件名 / 锚点剥离; callers / impact / orphans / report / summary 转发; `refresh` 同义与 `dispose` 复位。
-  - `tests/tool.test.ts`: 追加「root 相对路径以会话 cwd 为基准」(含无会话回落进程 cwd) 与「root 不存在 / 不是目录」两条。
-- 集成层新增装配器与用例:
-  - `tests/assemble.ts`: 假工具面（`ctx.tools.register` 收集, 可注入拒绝注册）/ 假事件面（零订阅断言）/ 假服务面（`ctx.provide` 同名重复即抛）/ 假 logger（`ctx.logger(ns).info`）; 装配形态 `full` / `no-tools` / `no-provide` / `no-logger`; 文档集 `DOC_FIXTURE` 落 `os.tmpdir()` 临时目录, 用后删除。
-  - `tests/integration/plugin.test.ts`（15 条）: `md_map` 注册与参数 schema 面; `mdMap` 服务面 provide; 注册失败只告警; 缺 `ctx.tools` / 缺 `ctx.provide` / 无 logger 的降级; `index` 的六类边 canonical 值（含 `anchorOk`、`entry`、`backlinks`、三类 `broken` reason）与 render 投影; `callers` 的 anchor / kind 过滤回显与投影文本; `impact` 的 depth 缺省与逐层过滤; `orphans` / `report` / `summary` 的 canonical 值与投影; 未索引与非法入参的失败投影; root 相对解析与不存在 / 非目录; 服务面 `getSummary` 随索引变化; `output.render` 对畸形值不抛。
-- `md-map/package.json`: 新增 `test:integration` 与 `test:coverage`（命令与 `hash-edit` / `fs-digest` 同构, 覆盖率目录 `tmp/cov-md-map`）。
-- 删除用例与夹具: 无。`skip` / `todo`: 0 处（本机处理前后均为 0）。
+> 单元层、集成层、脚本与删除 / 跳过计数见「四份测试产物」; 本节保留范围说明与阶段 3 实现记录.
 
 ### 阶段 3 代码整理
 
@@ -96,17 +88,13 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 | `pnpm -C md-map run test` | 通过, 65 例 |
 | `pnpm -C md-map run test:integration` | 通过, 15 例 (阶段 3b 复跑) |
 
-### 阶段 2 实跑
+> 阶段 2 的四入口、覆盖率、分层贡献与豁免见「四份测试产物」; 本节保留阶段 3 实跑.
 
-命令（均在 `md-map/` 下实跑）:
+## 四份测试产物
 
-| 入口 | 结果 |
-| --- | --- |
-| `pnpm run check` | 通过（tsc --noEmit 无输出） |
-| `pnpm run build` | 通过 |
-| `pnpm run test` | 65 条通过, 0 失败, 0 跳过（基线 50 条） |
-| `pnpm run test:integration` | 15 条通过, 0 失败, 0 跳过 |
-| `pnpm run test:coverage` | 见下表（`tmp/cov-md-map/report.json`） |
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
 
 覆盖率（只统 `src`; 改前 = 阶段 1 末单元层单跑, 改后 = 单元 + 集成）:
 
@@ -125,13 +113,32 @@ rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tm
 - 分支分母随执行的函数数变化（未被调用的函数不上报 block range）: 改前 462、单元层改后 502、两层合计 518, 故分支覆盖以百分比为可比口径, 计数分母不跨轮比较。
 - 未覆盖行的构成（逐条核对）: 多数是注释与类型声明行（如 `index.ts:66`、`indexer.ts:48, 53, 89, 104, 143, 180`、`query.ts:3-9`）, 以及多行对象展开的行归属偏差（如 `indexer.ts:378-381` 的 `external` 带 `text` 分支、`render.ts:107-108` 的报告首行, 用例已实际执行却仍记未覆盖）; 真实未测路径只剩少数边界（`links.ts` 的等长反引号跨行切段与目录相对候选、`indexer.ts` 的 `ref` 目录兜底越界分支）, 本阶段不补, 留代码阶段一并处置。
 - `output.render` 投影、`index` 六类边、`callers` / `impact` / `orphans` / `report` / `summary` 的 canonical 值均由集成用例钉住: 文档集覆盖 internal / wiki / file / external / broken(missing-file, missing-anchor, outside-root) / ref 六类边与入口判定。
+
+### 用例清单
+
+- 单元层新增两份用例, 并在 `tests/tool.test.ts` 追加两条边界用例（现有断言语义未改）:
+  - `tests/render.test.ts`（8 条）: `renderIndex` / `renderCallers` / `renderImpact` / `renderOrphans` / `renderReport` / `renderSummary` 的空结果、kind 过滤标注、`RENDER_LIMIT` 截断与余数、每层 20 条上限、报告孤儿 15 条预览、断链三类原因、`refEdges` 缺省按 0。
+  - `tests/service.test.ts`（5 条）: 未索引时各查询回空; `config.root` 作为缺省且显式 `root: undefined` 不冲掉它; 调用方 `root` 覆盖并覆盖旧索引; `hasDoc` 的后缀 / 文件名 / 锚点剥离; callers / impact / orphans / report / summary 转发; `refresh` 同义与 `dispose` 复位。
+  - `tests/tool.test.ts`: 追加「root 相对路径以会话 cwd 为基准」(含无会话回落进程 cwd) 与「root 不存在 / 不是目录」两条。
+- 集成层新增装配器与用例:
+  - `tests/assemble.ts`: 假工具面（`ctx.tools.register` 收集, 可注入拒绝注册）/ 假事件面（零订阅断言）/ 假服务面（`ctx.provide` 同名重复即抛）/ 假 logger（`ctx.logger(ns).info`）; 装配形态 `full` / `no-tools` / `no-provide` / `no-logger`; 文档集 `DOC_FIXTURE` 落 `os.tmpdir()` 临时目录, 用后删除。
+  - `tests/integration/plugin.test.ts`（15 条）: `md_map` 注册与参数 schema 面; `mdMap` 服务面 provide; 注册失败只告警; 缺 `ctx.tools` / 缺 `ctx.provide` / 无 logger 的降级; `index` 的六类边 canonical 值（含 `anchorOk`、`entry`、`backlinks`、三类 `broken` reason）与 render 投影; `callers` 的 anchor / kind 过滤回显与投影文本; `impact` 的 depth 缺省与逐层过滤; `orphans` / `report` / `summary` 的 canonical 值与投影; 未索引与非法入参的失败投影; root 相对解析与不存在 / 非目录; 服务面 `getSummary` 随索引变化; `output.render` 对畸形值不抛。
+- `md-map/package.json`: 新增 `test:integration` 与 `test:coverage`（命令与 `hash-edit` / `fs-digest` 同构, 覆盖率目录 `tmp/cov-md-map`）。
+- 删除用例与夹具: 无。`skip` / `todo`: 0 处（本机处理前后均为 0）。
+
+### skip 计数与豁免台账
+
+- `skip` / `todo`: 0 处（本机处理前后均为 0）。
 - 豁免台账: 无。原两项 (`apply(undefined)` 无守卫、`warn` 双写) 已在阶段 3 补丁轮修掉, 对应用例见 `tests/integration/plugin.test.ts:102` 与 `:131`。
 
-## 四份测试产物
+### 四入口实跑
 
-| 产物 | 位置 |
+命令（均在 `md-map/` 下实跑）:
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm run check` | 通过（tsc --noEmit 无输出） |
+| `pnpm run build` | 通过 |
+| `pnpm run test` | 65 条通过, 0 失败, 0 跳过（基线 50 条） |
+| `pnpm run test:integration` | 15 条通过, 0 失败, 0 跳过 |
+| `pnpm run test:coverage` | 见下表（`tmp/cov-md-map/report.json`） |
