@@ -8,7 +8,6 @@ import type {
   Acceptance,
   ChildSpec,
   ExecutorKind,
-  ExecutorSpec,
   Frame,
   FrameId,
 } from "./types.ts";

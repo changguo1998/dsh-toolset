@@ -56,7 +56,10 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
   const leafWith = (
     id: FrameId,
     executor: ChildSpec["executor"],
-  ): ChildSpec => ({ ...leafChild(id, "做 C1", { "r-q": [id] }), executor });
+  ): ChildSpec => ({
+    ...leafChild(id, "做 C1", { "r-q": [id] }),
+    ...(executor === undefined ? {} : { executor }),
+  });
 
   const newEngine = (executor?: ExecutorRunner): TaskEngine =>
     new TaskEngine({
@@ -264,7 +267,7 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
     await e.decompose("root", [
       leafWith("c1", { kind: "subagent", budget: { maxTokens: 256 } }),
     ]);
-    const r = await e.execute("c1", async () => ({
+    await e.execute("c1", async () => ({
       ok: true,
       result: "产出。",
       tokens: 999999,
@@ -890,7 +893,9 @@ describe("多轮根帧（会话 = 解释器，不是一次性 main()；2026-10-0
 });
 
 describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / 撞名 / resume 契约）", () => {
-  const mkEngine = (over: Partial<{ needDecompose: boolean }> = {}): TaskEngine =>
+  const mkEngine = (
+    over: Partial<{ needDecompose: boolean }> = {},
+  ): TaskEngine =>
     new TaskEngine({
       root: {
         id: "root",
@@ -941,8 +946,16 @@ describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / �
     assert.ok(e.implement("c1", "产物").ok);
     for (let i = 0; i < 3; i += 1) await e.stop("c1");
     assert.equal(e.frames().get("c1")?.status, "failed");
-    assert.equal(e.frames().get("root")?.status, "failed", "根随子树失败一起终态");
-    assert.equal(e.isComplete(), false, "isComplete 只认 done（failed 不算完成）");
+    assert.equal(
+      e.frames().get("root")?.status,
+      "failed",
+      "根随子树失败一起终态",
+    );
+    assert.equal(
+      e.isComplete(),
+      false,
+      "isComplete 只认 done（failed 不算完成）",
+    );
     // 根终态 → 再分解走「开新一轮」，不会卡在已展开的旧根上
     const round2 = await e.decompose("root", [
       leafChild("c3", "做 C3", { "r-q": ["c3"] }),

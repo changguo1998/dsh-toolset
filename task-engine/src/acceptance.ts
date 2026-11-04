@@ -17,7 +17,7 @@ import type { Acceptance, FrameId } from "./types.ts";
 export interface AuditVerdict {
   pass: boolean;
   /** pass=false 时给模型的反馈 */
-  feedback?: string;
+  feedback?: string | undefined;
   /** 结构化裁决（声明 outputSchema 时必须有；宿主侧校验形状） */
   structured?: unknown;
 }
@@ -27,7 +27,7 @@ export interface AuditRequest {
   frame: FrameId;
   check: string;
   /** 被审的实现产出（叶子 implement 结果） */
-  result?: string;
+  result?: string | undefined;
   /** 声明的结构化裁决 schema（JSON Schema，宿主校验） */
   outputSchema?: unknown;
 }
@@ -60,7 +60,7 @@ export interface AcceptanceHooks {
   /** human 级：人工审批，返回是否批准（无人应答 fail-closed = false） */
   approve(req: { frame: FrameId; reason: string }): Promise<boolean>;
   /** semantic 级：独立 audit run（宿主侧）。未配置时语义级 fail-closed。 */
-  audit?(req: AuditRequest): Promise<AuditVerdict>;
+  audit?: ((req: AuditRequest) => Promise<AuditVerdict>) | undefined;
 }
 
 const SEMANTIC_NOT_IMPL =

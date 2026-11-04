@@ -142,7 +142,9 @@ describe("gate executor（① 执行后端声明）", () => {
     const r = checkDecomposition(parent, [
       {
         ...leaf("c1", "做 C1", { q1: ["c1"] }),
-        executor: { kind: "shell" } as unknown as ChildSpec["executor"],
+        executor: { kind: "shell" } as unknown as NonNullable<
+          ChildSpec["executor"]
+        >,
       },
     ]);
     assert.equal(r.ok, false);

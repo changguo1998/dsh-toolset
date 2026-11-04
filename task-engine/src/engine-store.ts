@@ -19,7 +19,7 @@ import type {
 export interface EngineStoreOptions {
   log?: LoggedPlanEvent[];
   config: GateConfig;
-  snapshotPath?: string;
+  snapshotPath?: string | undefined;
 }
 
 export class EngineStore {
@@ -30,7 +30,7 @@ export class EngineStore {
   /** 就绪池：DFS 栈（push 逆序、pop 先序）+ 去重集合 */
   private pool: FrameId[] = [];
   private inPool = new Set<FrameId>();
-  private snapshotPath?: string;
+  private snapshotPath?: string | undefined;
   /** 周期快照写盘串行链：避免并发 fire-and-forget 写乱序（新快照覆盖旧快照） */
   private snapshotChain: Promise<void> = Promise.resolve();
 

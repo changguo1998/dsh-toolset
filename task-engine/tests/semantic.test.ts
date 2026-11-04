@@ -21,7 +21,7 @@ function fakeSubagents(
   options?: {
     hang?: boolean;
     structured?: unknown;
-    toolFilter?: boolean;
+    toolFilter?: boolean | undefined;
     /** 带 `toolFilter` 的发起直接抛错（模拟 deny 名单里的名字在全局注册表已失效） */
     failWithFilter?: boolean;
   },

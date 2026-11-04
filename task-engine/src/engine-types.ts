@@ -132,7 +132,7 @@ export interface TaskEngineOptions {
   runCommand?: AcceptanceHooks["runCommand"];
   approve?: AcceptanceHooks["approve"];
   /** 语义级验收的独立 audit run（§16.2）。未配置时语义级 fail-closed。 */
-  audit?: (req: AuditRequest) => Promise<AuditVerdict>;
+  audit?: ((req: AuditRequest) => Promise<AuditVerdict>) | undefined;
   /** 语义蕴含第二道门（§17.2）。未配置时只做机械门禁（结构蕴含跳过）。 */
   entail?: EntailHook;
   /** executor 后端适配器（①）。未配置时声明了非 model 后端的帧 execute fail-closed。 */
@@ -140,7 +140,7 @@ export interface TaskEngineOptions {
   /** 帧进入终态时的钩子（executor 隔离的 worktree 回收走这里） */
   onFrameTerminal?: TerminalHook;
   /** 配置后每次变更自动写快照（周期快照，§15.1 L3） */
-  snapshotPath?: string;
+  snapshotPath?: string | undefined;
 }
 
 export type ActionResult =
