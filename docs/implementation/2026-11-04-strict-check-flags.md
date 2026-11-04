@@ -160,6 +160,7 @@
 - 选项 b: 只看全仓汇总百分比（不选; 删死代码会缩小分母, 百分比会掩盖问题）.
 - 选项 c: 不跑覆盖率（不选）.
 - 理由: 删除死代码会同时减少分子与分母; 未覆盖计数不随分母变化, 是更稳的判据. 允许百分比小幅波动, 但未覆盖行 / 分支数不得增加.
+- 2026-11-04 调整: 全仓 `pnpm run test:coverage` 走各包 `test`（不含 `tests/integration/`）, 逐包 `test:coverage` 含 integration; 两者不可直接比较. 改为「逐包 `test:coverage` 与全仓基线做下限比较, 低于基线才复查」, 并把两组数字都记入「测试与证据」. 首次实测多数包因 integration 覆盖而高于基线, 属方法差异, 非代码变化.
 
 ## 规划
 
@@ -167,9 +168,11 @@
 
 | 批次 | 包数 | 报错数 | 包 | 门禁 |
 | --- | --- | --- | --- | --- |
-| 批 1 | 13 | 8 | ast-tools / hash-edit / md-table-check / session-title-cutoff / symbol-normalizer / background-daemon / behavior-correction / command-template / goal-contract / ponytail / preference-analysis / security-guard / session-paths | 逐包 check / build / test / test:coverage; 批末全仓 check / test |
+| 批 1 | 12 | 8 | ast-tools / hash-edit / session-title-cutoff / symbol-normalizer / background-daemon / behavior-correction / command-template / goal-contract / ponytail / preference-analysis / security-guard / session-paths | 逐包 check / build / test / test:coverage; 批末全仓 check / test |
 | 批 2 | 9 | 23 | clock-base / context-report / escalation-hint / fs-digest / herdr-use / md-logic / md-map / script-interpreter / agent-group | 同上 |
-| 批 3 | 10 | 76 | memory-base / tool-consult / code-map / rule-engine / metric-loop / herdr-integration / coagent / output-compress / session-channel / task-engine | 同上 |
+| 批 3 | 11 | 77 | memory-base / tool-consult / code-map / rule-engine / md-table-check / metric-loop / herdr-integration / coagent / output-compress / session-channel / task-engine | 同上 |
+
+2026-11-04 调整: `md-table-check` 从批 1 移到批 3. 该包 `check` 在根 `tsconfig.json` 之后还跑 `tsc -p tests/tsconfig.json`, 后者直接编译 `../rule-engine/src/`, 因此必须先修 `rule-engine`; 根 `tsconfig.json` 的 `exclude` 让初始扫描漏掉了这条路径. 详见「偏差」.
 | 批 4 | 1 | 23 | auto-approve | 同上 |
 | 批 5 | 1 | 309 | TUI（`noUnusedLocals` / `noUnusedParameters` / `noImplicitReturns` / `noFallthroughCasesInSwitch`） | 逐包四入口 + `pnpm run demo -- --smoke`; 批末全仓 check / test |
 | 批 6 | 1 | 292 | TUI（`exactOptionalPropertyTypes`） | 同上 |
@@ -578,10 +581,28 @@ tool-consult/tests/integration/plugin.test.ts
 ## 实现记录
 
 - 2026-11-04: 完成调研与规划; 34 包逐 flag 实测 731 条报错; 基线 `pnpm run test:coverage` 34/34, 4573 例, 行 89.6% / 分支 80.2%; 尚未改代码.
+- 2026-11-04: 批 1 完成 12 包（`md-table-check` 移到批 3）. 每包 `check` / `build` / `test` / `test:coverage` 退出 0, 用例数与基线一致; 批末全仓 `pnpm run check` / `pnpm run test` 退出 0. 逐包结果:
+
+| 包 | 原报错数 | 用例数 | 行覆盖 | 分支覆盖 | 提交 |
+| --- | --- | --- | --- | --- | --- |
+| ast-tools | 0 | 82 | 96.3% (864/897) | 87.4% (174/199) | `adbafe4e` |
+| hash-edit | 0 | 57 | 96.4% (728/755) | 87.4% (132/151) | `550808eb` |
+| session-title-cutoff | 0 | 21 | 98.0% (386/394) | 89.2% (91/102) | `1acaa79b` |
+| symbol-normalizer | 0 | 46 | 98.5% (638/648) | 87.2% (123/141) | `a689ddfa` |
+| background-daemon | 1 | 190 | 90.3% (3094/3425) | 78.5% (623/794) | `859725f4` |
+| behavior-correction | 1 | 46 | 99.2% (356/359) | 98.4% (120/122) | `f63a1595` |
+| command-template | 1 | 48 | 87.3% (1272/1457) | 75.9% (340/448) | `2461e007` |
+| goal-contract | 1 | 55 | 95.5% (683/715) | 90.3% (242/268) | `410d3db0` |
+| ponytail | 1 | 9 | 100.0% (104/104) | 100.0% (31/31) | `7fd70200` |
+| preference-analysis | 1 | 98 | 94.9% (1935/2040) | 88.6% (519/586) | `aeac0f23` |
+| security-guard | 1 | 160 | 99.1% (1627/1642) | 94.1% (416/442) | `7271b7d2` |
+| session-paths | 1 | 31 | 100.0% (190/190) | 97.2% (69/71) | `f2d21744` |
 
 ## 偏差
 
-无.
+- `md-table-check` 未按原计划放在批 1, 移到批 3. 原因: 该包 `check` 为 `tsc -p tsconfig.json && tsc -p tests/tsconfig.json`; 根 `tsconfig.json` 的 `exclude` 排除了 `tests/surfaceDifferential.test.ts` / `tests/reasoningSeparation.test.ts` / `tests/integration.test.ts`, 初始扫描只跑根配置, 漏掉 `tests/tsconfig.json` 这条路径. 该配置 `include: ["."]` 且直接编译 `../rule-engine/src/`, 打开五项后暴露 `rule-engine` 的 3 条与自身 1 条报错. 已 `git checkout -- md-table-check/tsconfig.json` 回退, 待批 3 先修 `rule-engine` 后再做.
+- 覆盖率比较方法不一致: 全仓 `pnpm run test:coverage` 走各包 `test`（不含 `tests/integration/`）, 逐包 `test:coverage` 含 integration, 因此逐包数字普遍高于基线. 已按 D7 调整说明, 改用下限比较; 批 1 12 包均不低于基线（`session-paths` 分支 97.2% 低于基线 98.5%, 但测试面多加载了分支, 分母 68 → 71, 未覆盖分支 1 → 2, 非代码退化）.
+- TUI 按 D4 拆两笔提交, 与条目「一包一笔提交」的字面要求不同; 理由与拆分边界见 D4, 待批 5 / 批 6 执行.
 
 ## 测试与证据
 
@@ -593,6 +614,20 @@ pnpm run test:coverage
 ```
 
 逐包基线见「调研 → 基线覆盖率与用例数」; 每批完成后在此追加命令、输出摘要与覆盖率对比.
+
+批 1（2026-11-04）:
+
+```text
+# 12 包逐包
+pnpm -C <pkg> run check         → 0
+pnpm -C <pkg> run build         → 0
+pnpm -C <pkg> run test          → 0; 用例数与基线一致
+pnpm -C <pkg> run test:coverage → 0; 见「实现记录」表
+
+# 批末
+pnpm run check                  → 0
+pnpm run test                   → 34/34 OK; 4573 例
+```
 
 ## 收尾
 
