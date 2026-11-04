@@ -612,10 +612,29 @@ tool-consult/tests/integration/plugin.test.ts
 | script-interpreter | 3 | 117 | 95.2% (1401/1471) | 87.3% (358/410) | `6d676201` |
 | agent-group | 4 | 108 | 90.9% (2725/2999) | 81.7% (515/630) | `d4b73f18` |
 
+- 2026-11-04: 批 3 完成 11 包（含从批 1 移入的 `md-table-check`）. 每包 `check` / `build` / `test` / `test:coverage` 退出 0, 用例数与基线一致; 批末全仓 `pnpm run check` 退出 0, `pnpm run test` 首次因 `session-channel` 一个计时用例在并行负载下抖动失败, 单跑与重跑全仓均 34/34 通过（见「偏差」与「测试与证据」）. 逐包结果:
+
+| 包 | 原报错数 | 用例数 | 行覆盖 | 分支覆盖 | 提交 |
+| --- | --- | --- | --- | --- | --- |
+| rule-engine | 6 | 177 | 97.1% (2408/2481) | 89.2% (646/724) | `282dcb41` |
+| md-table-check | 1 | 74 | 100.0% (273/273) | 99.0% (99/100) | `32076edc` |
+| memory-base | 5 | 90 | 92.7% (1905/2054) | 82.9% (413/498) | `e75e034b` |
+| tool-consult | 5 | 103 | 96.2% (1397/1452) | 92.3% (334/362) | `585b4801` |
+| code-map | 6 | 37 | 92.5% (997/1078) | 86.5% (230/266) | `63f24710` |
+| metric-loop | 7 | 56 | 95.1% (840/883) | 91.5% (216/236) | `d78a5606` |
+| herdr-integration | 8 | 60 | 94.5% (479/507) | 82.6% (90/109) | `18198330` |
+| coagent | 9 | 77 | 88.0% (1735/1971) | 78.6% (367/467) | `434995c7` |
+| output-compress | 10 | 75 | 94.5% (1384/1464) | 85.2% (260/305) | `7738a956` |
+| session-channel | 10 | 78 | 89.0% (3461/3888) | 65.2% (454/696) | `5a9bccb4` |
+| task-engine | 10 | 171 | 82.7% (2721/3291) | 74.4% (618/831) | `f37b5d8a` |
+
 ## 偏差
 
-- `md-table-check` 未按原计划放在批 1, 移到批 3. 原因: 该包 `check` 为 `tsc -p tsconfig.json && tsc -p tests/tsconfig.json`; 根 `tsconfig.json` 的 `exclude` 排除了 `tests/surfaceDifferential.test.ts` / `tests/reasoningSeparation.test.ts` / `tests/integration.test.ts`, 初始扫描只跑根配置, 漏掉 `tests/tsconfig.json` 这条路径. 该配置 `include: ["."]` 且直接编译 `../rule-engine/src/`, 打开五项后暴露 `rule-engine` 的 3 条与自身 1 条报错. 已 `git checkout -- md-table-check/tsconfig.json` 回退, 待批 3 先修 `rule-engine` 后再做.
+- `md-table-check` 未按原计划放在批 1, 移到批 3. 原因: 该包 `check` 为 `tsc -p tsconfig.json && tsc -p tests/tsconfig.json`; 根 `tsconfig.json` 的 `exclude` 排除了 `tests/surfaceDifferential.test.ts` / `tests/reasoningSeparation.test.ts` / `tests/integration.test.ts`, 初始扫描只跑根配置, 漏掉 `tests/tsconfig.json` 这条路径. 该配置 `include: ["."]` 且直接编译 `../rule-engine/src/`, 打开五项后暴露 `rule-engine` 的 3 条与自身 1 条报错. 已在批 3 先做 `rule-engine` 再做本包, 两笔提交与结果见「实现记录」.
 - 覆盖率比较方法不一致: 全仓 `pnpm run test:coverage` 走各包 `test`（不含 `tests/integration/`）, 逐包 `test:coverage` 含 integration, 因此逐包数字普遍高于基线. 已按 D7 调整说明, 改用下限比较; 批 1 12 包均不低于基线（`session-paths` 分支 97.2% 低于基线 98.5%, 但测试面多加载了分支, 分母 68 → 71, 未覆盖分支 1 → 2, 非代码退化）.
+- 逐包 `test:coverage` 会把跨包源码计入总分母: `metric-loop` 的报表含 `clock-base`, `md-table-check` 的报表含 `rule-engine`（后者整合测试直接 import 源码）. 本文件表中的覆盖率一律取 `report.json` 里该包自身的 `packages[<pkg>]` 小计, 不用报表合计.
+- `coagent` 的 `node_modules` 是 npm 布局（含 `.package-lock.json`, 无 pnpm `.modules.yaml`）, `pnpm -C coagent run ...` 会触发依赖状态检查并尝试写仓库外的 pnpm store, 在当前文件沙箱下报 `ERR_SQLITE_ERROR` / `unable to open database file`. 该问题与本次改动无关; 对 `coagent` 与全仓命令统一加 `npm_config_verify_deps_before_run=false`（或 `--config.verify-deps-before-run=false`）绕过状态检查, 实际编译 / 测试仍由包内 `tsc` 与 `node --test` 执行.
+- `session-channel/tests/entry.test.ts:34` 的 `systemTimers` 计时用例（5 ms interval, 等 40 ms 要求至少 2 次）在全仓并行负载下偶发只触发 1 次; 单跑 `pnpm -C session-channel run test` 78/78 通过, 重跑全仓 34/34 通过. 属既有计时抖动, 本次未改该用例, 也未修计时实现; 建议另立条目改为假定时器或放宽等待.
 - TUI 按 D4 拆两笔提交, 与条目「一包一笔提交」的字面要求不同; 理由与拆分边界见 D4, 待批 5 / 批 6 执行.
 
 ## 测试与证据
@@ -655,6 +674,22 @@ pnpm -C <pkg> run test:coverage → 0; 见「实现记录」表
 # 批末
 pnpm run check                  → 0
 pnpm run test                   → 34/34 OK; 4573 例
+```
+
+批 3（2026-11-04）:
+
+```text
+# 11 包逐包（coagent 与全仓命令额外带 npm_config_verify_deps_before_run=false）
+pnpm -C <pkg> run check         → 0
+pnpm -C <pkg> run build         → 0
+pnpm -C <pkg> run test          → 0; 用例数与基线一致
+pnpm -C <pkg> run test:coverage → 0; 取该包自身小计, 见「实现记录」表
+
+# 批末
+pnpm run check                  → 0
+pnpm run test                   → 第一次 FAIL session-channel（entry.test.ts:34 计时抖动, ticks=1）
+pnpm -C session-channel run test → 78/78 通过
+pnpm run test                   → 第二次 34/34 OK; 4573 例
 ```
 
 ## 收尾
