@@ -66,18 +66,9 @@ rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVE
 
 2026-10-28 在分支 `history-cleanup/02-tests-agent-group` 完成, 未改 `src`.
 
-- 基线: `pnpm -C agent-group run test` 63 条通过 (0 fail / 0 skip), `duration_ms` 约 131; 覆盖率行 84.8% (2407/2840) / 分支 72.6% (398/548), 与「现状」一致.
-- 单元锚点 (4 个新文件 + 2 处追加):
-  - `tests/transport.test.ts` (19 条): `isSessionChannelFace` 判据; 寻址的精确命中 / 别名唯一命中 / 离线 / 歧义 / 别名列表读失败 / 端口抛错; 投递的入参透传 / 失败信封与 `candidates` / 缺 `task.id`; 发完即走的 `waitMs` 与 `delivered` 归一; 任务状态六值归一与 `task_not_found` / 未知状态; `peers` 与 `statusOf` (含旧版无该方法).
-  - `tests/store.test.ts` (12 条): 文件存储的 ENOENT 按空书 / 原子写与 0600 / 不留 `.tmp` / 可配文件名 / 以当前会话为准 / 旧版 `peerLinks` 补齐 / 非法 JSON / 形状校验 10 种 / 目录推导抛错 / 读失败非 ENOENT / 写失败不残留; 内存存储的深拷贝与注入失败.
-  - `tests/mirror.test.ts` (7 条): `registerKind` 只取一次 / 写入字段口径 / `project` 回落 / 句柄不可写 (不缓存、下次重试) / 注册抛错 / `skipped` 拒收 / 空 `skipped` 与缺返回体.
-  - `tests/json.test.ts` (5 条): `pruneUndefined` 的对象键与数组项清理 / 原始值 / 非平凡原型原样 / 同引用去重与环 / 无原型对象.
-  - `tests/core.test.ts` 追加 2 条: `resolveConfig` 缺省与非法值回落 / 状态文件名白名单 / `statusPollMs=0`; `memberStatesOf` 缺 lookup / 在线集读失败 / 单成员读失败 / 端口抛错的降级. 现有断言未改语义.
-- 集成层 (4.2):
-  - `tests/assemble.ts`: 装配器 (不以 `.test.ts` 结尾), 三个假面 —— 假工具面 (收集 `register`)、假事件面 (记录 `on`, 本包零订阅)、假服务面 (`get` / `provide`); 另带假 `sessionChannel` / `sessionPaths` / `sessions` / `memory`.
-  - `tests/integration/plugin.test.ts` (13 条): 注册面 (`agent_group` 与 `provide: agentGroup`、静态 `inject`、无 `tools` 面只警告、无 `provide` 面不抛、零事件订阅); 工具契约 (动作枚举与必填参数、建组→加成员→连接→发指令→结算→状态的 canonical 值、返回体 lossless JSON、状态落临时目录、缺调用方 `no_caller`、缺服务 `session_channel_unavailable` / `session_paths_unavailable`、服务解析成功后复用缓存); `output.render` 投影 (缩进 JSON / 字符串原样 / 循环引用回落 `String`); 只读服务面 (`status` 的组清单 / 指定组 / 缺组、缺 `sessionPaths`、状态文件损坏、`memberStates` 四态、只读不写盘不镜像、无 channel 时仍可读).
+> 测试基线、单元锚点、集成层与 4.4 复核见「四份测试产物」; 本节保留脚本与阶段 3 实现记录.
+
 - 脚本: `package.json` 加 `test:integration` (`node --experimental-transform-types --test 'tests/integration/*.test.ts'`) 与 `test:coverage` (临时目录 + `NODE_V8_COVERAGE` + `dev/coverage/report.mjs`).
-- 4.4 复核: 本包 `skip` 0 / `todo` 0 / 无夹具, 无失效或过时用例, 无需清理.
 
 2026-10-28 在分支 `history-cleanup/03-code-agent-group` 完成阶段 3 代码整理.
 
@@ -122,11 +113,17 @@ rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVE
 
 ## 测试与证据（阶段 2 留档）
 
-- `pnpm -C agent-group run check`: 退出 0 (`tsc -p tsconfig.json --noEmit`).
-- `pnpm -C agent-group run test`: 108 条通过, 0 fail / 0 skip / 0 todo, `duration_ms` 约 150.
-- `pnpm -C agent-group run test:integration`: 13 条通过, 0 fail / 0 skip / 0 todo.
-- `pnpm -C agent-group run test:coverage`: 退出 0; 报告 `tmp/cov-agent-group/report.json`.
-- 覆盖率 (行 / 分支, 改前 → 改后):
+> 覆盖率与四入口实跑见「四份测试产物」; 本节保留阶段 2 留档位置.
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
+基线: 覆盖率行 84.8% (2407/2840) / 分支 72.6% (398/548), 与「现状」一致.
+
+覆盖率 (行 / 分支, 改前 → 改后):
 
 | 文件 | 改前行 | 改后行 | 改前分支 | 改后分支 |
 | --- | --- | --- | --- | --- |
@@ -143,11 +140,37 @@ rm -rf ../tmp/cov-agent-group && mkdir -p ../tmp/cov-agent-group && NODE_V8_COVE
 - `model.ts` 未升: 本包纯迁移层已由 `tests/model.test.ts` 覆盖主要分支, 本阶段新增用例集中在传输 / 存储 / 镜像 / 集成接线, 未动该层.
 - 未覆盖余量集中在 `core.ts` 与 `model.ts` 的拒绝路径模板与条件表达式子表达式 (按行归因落到多行 `failure(...)` 的模板片段), 无 `skip` 兜底.
 
-## 四份测试产物
+### 用例清单
 
-| 产物 | 位置 |
+基线: `pnpm -C agent-group run test` 63 条通过 (0 fail / 0 skip), `duration_ms` 约 131.
+
+- 新增与删除: 新增 4 个单元用例文件与 2 处追加、13 条集成用例; 删除 0 条.
+
+- 单元锚点 (4 个新文件 + 2 处追加):
+
+  - `tests/transport.test.ts` (19 条): `isSessionChannelFace` 判据; 寻址的精确命中 / 别名唯一命中 / 离线 / 歧义 / 别名列表读失败 / 端口抛错; 投递的入参透传 / 失败信封与 `candidates` / 缺 `task.id`; 发完即走的 `waitMs` 与 `delivered` 归一; 任务状态六值归一与 `task_not_found` / 未知状态; `peers` 与 `statusOf` (含旧版无该方法).
+  - `tests/store.test.ts` (12 条): 文件存储的 ENOENT 按空书 / 原子写与 0600 / 不留 `.tmp` / 可配文件名 / 以当前会话为准 / 旧版 `peerLinks` 补齐 / 非法 JSON / 形状校验 10 种 / 目录推导抛错 / 读失败非 ENOENT / 写失败不残留; 内存存储的深拷贝与注入失败.
+  - `tests/mirror.test.ts` (7 条): `registerKind` 只取一次 / 写入字段口径 / `project` 回落 / 句柄不可写 (不缓存、下次重试) / 注册抛错 / `skipped` 拒收 / 空 `skipped` 与缺返回体.
+  - `tests/json.test.ts` (5 条): `pruneUndefined` 的对象键与数组项清理 / 原始值 / 非平凡原型原样 / 同引用去重与环 / 无原型对象.
+  - `tests/core.test.ts` 追加 2 条: `resolveConfig` 缺省与非法值回落 / 状态文件名白名单 / `statusPollMs=0`; `memberStatesOf` 缺 lookup / 在线集读失败 / 单成员读失败 / 端口抛错的降级. 现有断言未改语义.
+
+- 集成层 (4.2):
+
+  - `tests/assemble.ts`: 装配器 (不以 `.test.ts` 结尾), 三个假面 —— 假工具面 (收集 `register`)、假事件面 (记录 `on`, 本包零订阅)、假服务面 (`get` / `provide`); 另带假 `sessionChannel` / `sessionPaths` / `sessions` / `memory`.
+  - `tests/integration/plugin.test.ts` (13 条): 注册面 (`agent_group` 与 `provide: agentGroup`、静态 `inject`、无 `tools` 面只警告、无 `provide` 面不抛、零事件订阅); 工具契约 (动作枚举与必填参数、建组→加成员→连接→发指令→结算→状态的 canonical 值、返回体 lossless JSON、状态落临时目录、缺调用方 `no_caller`、缺服务 `session_channel_unavailable` / `session_paths_unavailable`、服务解析成功后复用缓存); `output.render` 投影 (缩进 JSON / 字符串原样 / 循环引用回落 `String`); 只读服务面 (`status` 的组清单 / 指定组 / 缺组、缺 `sessionPaths`、状态文件损坏、`memberStates` 四态、只读不写盘不镜像、无 channel 时仍可读).
+
+- 无失效或过时用例, 无需清理.
+
+### skip 计数与豁免台账
+
+- `skip` 0 / `todo` 0; 无夹具.
+- 豁免台账: 无 (原文未记).
+
+### 四入口实跑
+
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C agent-group run check` | 退出 0 (`tsc -p tsconfig.json --noEmit`). |
+| `pnpm -C agent-group run test` | 108 条通过, 0 fail / 0 skip / 0 todo, `duration_ms` 约 150. |
+| `pnpm -C agent-group run test:integration` | 13 条通过, 0 fail / 0 skip / 0 todo. |
+| `pnpm -C agent-group run test:coverage` | 退出 0; 报告 `tmp/cov-agent-group/report.json`. |
