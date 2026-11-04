@@ -66,12 +66,8 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 
 ## 实现记录
 
-- 单元锚点: 新增 `tests/entry.test.ts` (3 条) —— `systemTimers` 的 schedule / interval 撤销语义, `resolveTimers` 四条回落路径 (缺服务 / 缺 `scope` / `scope` 返回形状不符 / `scope` 抛错) 与合法 clock 原样使用; `tests/client.test.ts` 追加 1 条假客户端用例, 锁 `healthCheck` 的 PING 异常 / 版本过低 / 版本解析失败 / 标记键缺失写入四条分支; `tests/task.test.ts` 补 `truncateUtf8` 的两个边界 (单字符放不下 → 空串, 截断点落字符中间 → 前退)。
-- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 条)。
-  - 三个假面与 4.2 同形: 假工具面收集 `register`, 假事件面记录 / 手动 `emit`, 假服务面 `get` 提供 `agents` / `sessions` 替身、`provide` 记录服务。
-  - 假 broker: `createFakeRedis()` 内存版 Redis, 实现本包用到的 `get` / `set` (EX / KEEPTTL) / `del` / `expire` / `scanIterator` / `eval` (共享 KV 的 CAS 脚本按契约等价实现) / `xAdd` / `xRevRange` / `xRead` / `lPush` / `lTrim` / `lRange`; `xRead` 无消息时让出事件循环 5 ms, 模拟 `BLOCK` 且不忙等。
-  - 覆盖: 四个工具的注册名 / 参数面 / 出口 schema; 禁用态 13 组 canonical 回执与参数校验; 四个工具的 `output.render` 投影 (对象 / 字符串 / `undefined` / 循环引用兜底); 连接态四类事件订阅、会话发现、agent 状态牌三态 (转换写牌 / 同态不刷 `at` / 销毁删牌); send 注入正文与回执、inbox、别名 set / list / 按别名寻址 / clear; delegate → `user/message` 注入对位 → 显式回传 → 通知委托方 → 终态不可取消 / 非终态取消; 轮末自动回收与通知; 服务面经 `ctx.get("agents")` 注入并调 `flush`、共享 KV 版本自增 / CAS 冲突 / 删除; 无工具面只告警、无 provide 面不抛。
-- 脚本: `package.json` 加 `test:integration` 与 `test:coverage` (覆盖率参数 `tmp/cov-session-channel`)。
+> 单元锚点、集成层与脚本见「四份测试产物」; 本节保留范围说明与阶段 3 实现记录.
+
 - `src` 未改。
 
 ### 阶段 3 代码整理 (分支 `history-cleanup/03-code-session-channel`)
@@ -111,6 +107,24 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 
 ## 测试与证据
 
+> 阶段 2 的覆盖率、分层贡献、用例增减、skip 与四入口见「四份测试产物」; 本节保留阶段 3 实跑.
+
+阶段 3 (每步跑 `check` 与 `test`, 先 `pnpm -C clock-base run build`):
+
+- `pnpm -C session-channel run check`: 通过 (tsc --noEmit, 无输出), 四步各一次。
+- `pnpm -C session-channel run test`: 78 条通过, 0 失败, 0 跳过, 每步 10.1 s 左右。
+- `pnpm -C session-channel run test:integration`: 9 条通过, 0 失败, 0 跳过, 4.4 s (拆分后与守卫后各跑一次)。
+- `pnpm -C session-channel run build`: 通过 (先构建 `clock-base`)。
+- 冒烟: `apply(null, { disabled: true })` 不再抛, 打印「tools 未挂载」告警后返回。
+- 用例: 断言、标题、条数 (单元 78 / 集成 9) 与夹具均未改, 测试 import 路径未改。
+- 入口行数: `src/index.ts` 1928 → 161; 新层 `service.ts` 1055、`task-layer.ts` 471、`tools.ts` 404 (合计 2091 ≈ 拆分前 1928 + 接线与二层边界代码)。
+
+## 四份测试产物
+
+> 四类数据从「实现记录」「测试与证据」搬入本节; 原节保留指针; 数字照录, 未重新计算.
+
+### 覆盖率
+
 改前 (基线, 只跑单元层, 74 条): 行 86.9% (3327/3828), 分支 61.9% (409/661)。
 
 改后 (单元 + 集成, 87 条): 行 88.2% (3377/3828), 分支 66.2% (473/714)。
@@ -130,33 +144,29 @@ rm -rf ../tmp/cov-session-channel && mkdir -p ../tmp/cov-session-channel && NODE
 | session-channel/src/types.ts | 100.0% (11/11) | 100.0% (11/11) | n/a | n/a |
 | 合计 | 86.9% (3327/3828) | 88.2% (3377/3828) | 61.9% (409/661) | 66.2% (473/714) |
 
-新增 / 删除用例: 新增 13 条 (单元 4: `entry.test.ts` 3 + `client.test.ts` 1; 集成 9), 修改既有断言 1 处 (`tests/task.test.ts` 追加边界断言, 原断言语义不变); 未删除用例, 未改夹具。
+### 用例清单
 
-`skip` / `todo`: 本机 `skipped` 0、`todo` 0; 未新增条件式 `skip`; 豁免台账为空 (`tests/helpers.ts` 的 `redisTest` 属既有「缺 `redis-server`」探测, 本机触发 0 条)。
+- 单元锚点: 新增 `tests/entry.test.ts` (3 条) —— `systemTimers` 的 schedule / interval 撤销语义, `resolveTimers` 四条回落路径 (缺服务 / 缺 `scope` / `scope` 返回形状不符 / `scope` 抛错) 与合法 clock 原样使用; `tests/client.test.ts` 追加 1 条假客户端用例, 锁 `healthCheck` 的 PING 异常 / 版本过低 / 版本解析失败 / 标记键缺失写入四条分支; `tests/task.test.ts` 补 `truncateUtf8` 的两个边界 (单字符放不下 → 空串, 截断点落字符中间 → 前退)。
+- 集成层: 新增 `tests/assemble.ts` (装配器, 不以 `.test.ts` 结尾) 与 `tests/integration/plugin.test.ts` (9 条)。
+  - 三个假面与 4.2 同形: 假工具面收集 `register`, 假事件面记录 / 手动 `emit`, 假服务面 `get` 提供 `agents` / `sessions` 替身、`provide` 记录服务。
+  - 假 broker: `createFakeRedis()` 内存版 Redis, 实现本包用到的 `get` / `set` (EX / KEEPTTL) / `del` / `expire` / `scanIterator` / `eval` (共享 KV 的 CAS 脚本按契约等价实现) / `xAdd` / `xRevRange` / `xRead` / `lPush` / `lTrim` / `lRange`; `xRead` 无消息时让出事件循环 5 ms, 模拟 `BLOCK` 且不忙等。
+  - 覆盖: 四个工具的注册名 / 参数面 / 出口 schema; 禁用态 13 组 canonical 回执与参数校验; 四个工具的 `output.render` 投影 (对象 / 字符串 / `undefined` / 循环引用兜底); 连接态四类事件订阅、会话发现、agent 状态牌三态 (转换写牌 / 同态不刷 `at` / 销毁删牌); send 注入正文与回执、inbox、别名 set / list / 按别名寻址 / clear; delegate → `user/message` 注入对位 → 显式回传 → 通知委托方 → 终态不可取消 / 非终态取消; 轮末自动回收与通知; 服务面经 `ctx.get("agents")` 注入并调 `flush`、共享 KV 版本自增 / CAS 冲突 / 删除; 无工具面只告警、无 provide 面不抛。
+- 脚本: `package.json` 加 `test:integration` 与 `test:coverage` (覆盖率参数 `tmp/cov-session-channel`)。
+- 新增 / 删除用例: 新增 13 条 (单元 4: `entry.test.ts` 3 + `client.test.ts` 1; 集成 9), 修改既有断言 1 处 (`tests/task.test.ts` 追加边界断言, 原断言语义不变); 未删除用例, 未改夹具。
+
+### skip 计数与豁免台账
+
+- `skip` / `todo`: 本机 `skipped` 0、`todo` 0; 未新增条件式 `skip`; 豁免台账为空 (`tests/helpers.ts` 的 `redisTest` 属既有「缺 `redis-server`」探测, 本机触发 0 条)。
+
+### 四入口实跑
 
 四条入口实跑 (分支 `history-cleanup/02-tests-session-channel`, 本机 redis-server 7.0.15 在场):
 
-- `pnpm -C session-channel run check`: 通过 (tsc --noEmit, 无输出)。
-- `pnpm -C session-channel run test`: 78 条通过, 0 失败, 0 跳过, 10.1 s。
-- `pnpm -C session-channel run test:integration`: 9 条通过, 0 失败, 0 跳过, 4.4 s。
-- `pnpm -C session-channel run test:coverage`: 87 条通过, 0 失败, 0 跳过; 汇总见上表; 产物 `tmp/cov-session-channel/report.json`。
-- 真机验收: 未做 (本阶段不出网、不连真 Redis 之外的宿主面); 留 `scripts/install.sh --sync` 之后人工确认。
-
-阶段 3 (每步跑 `check` 与 `test`, 先 `pnpm -C clock-base run build`):
-
-- `pnpm -C session-channel run check`: 通过 (tsc --noEmit, 无输出), 四步各一次。
-- `pnpm -C session-channel run test`: 78 条通过, 0 失败, 0 跳过, 每步 10.1 s 左右。
-- `pnpm -C session-channel run test:integration`: 9 条通过, 0 失败, 0 跳过, 4.4 s (拆分后与守卫后各跑一次)。
-- `pnpm -C session-channel run build`: 通过 (先构建 `clock-base`)。
-- 冒烟: `apply(null, { disabled: true })` 不再抛, 打印「tools 未挂载」告警后返回。
-- 用例: 断言、标题、条数 (单元 78 / 集成 9) 与夹具均未改, 测试 import 路径未改。
-- 入口行数: `src/index.ts` 1928 → 161; 新层 `service.ts` 1055、`task-layer.ts` 471、`tools.ts` 404 (合计 2091 ≈ 拆分前 1928 + 接线与二层边界代码)。
-
-## 四份测试产物
-
-| 产物 | 位置 |
+| 入口 | 结果 |
 | --- | --- |
-| 覆盖率表 (改前 / 改后) | 见「测试与证据」的覆盖率表 |
-| 新增 / 删除用例清单 | 见「实现记录」的「单元锚点 / 集成层」段 |
-| `skip` 计数与豁免台账 | 见「测试与证据」的 `skip` / 豁免段 |
-| 四个入口实跑 | 见「测试与证据」的入口段 |
+| `pnpm -C session-channel run check` | 通过 (tsc --noEmit, 无输出)。 |
+| `pnpm -C session-channel run test` | 78 条通过, 0 失败, 0 跳过, 10.1 s。 |
+| `pnpm -C session-channel run test:integration` | 9 条通过, 0 失败, 0 跳过, 4.4 s。 |
+| `pnpm -C session-channel run test:coverage` | 87 条通过, 0 失败, 0 跳过; 汇总见上表; 产物 `tmp/cov-session-channel/report.json`。 |
+
+- 真机验收: 未做 (本阶段不出网、不连真 Redis 之外的宿主面); 留 `scripts/install.sh --sync` 之后人工确认。
