@@ -12,8 +12,8 @@ export const DEFAULT_MAX_TOKENS = 4000;
 
 /** pruned 选项（缺省取 DEFAULT_*）。 */
 export interface PruneOptions {
-  maxLines?: number;
-  maxTokens?: number;
+  maxLines?: number | undefined;
+  maxTokens?: number | undefined;
 }
 
 /** 裁剪输出结果（不含 path，由 digest 层补全）。 */

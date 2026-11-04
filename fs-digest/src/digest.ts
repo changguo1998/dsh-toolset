@@ -22,7 +22,7 @@ export interface DigestDeps {
   /** 路径解析注入点（单测）；缺省 path.resolve。 */
   resolvePath?: (input: string, cwd: string) => string;
   /** 尺寸上限（字节），缺省 2MB。 */
-  maxBytes?: number;
+  maxBytes?: number | undefined;
 }
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
