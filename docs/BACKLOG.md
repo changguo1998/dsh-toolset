@@ -64,15 +64,23 @@
 
 ## 2. 未完成项
 
-- **回合预算调整**（限制模型长推理, 改"推理一小步 → 执行一小步 → 再下一小步"的节奏; 跨包 / 宿主面, 落点待裁定, 优先级 P2 待确认）
+- **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 落点待裁定, 优先级 P2 待确认）
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
-  - **期望**: 提供可调的回合 / 思考预算, 让模型"推理一小步就落地一小步", 回合内无界思考可被约束到顶即止。
+  - **请求参数与入口对照**（`LlmCallConfig` 全字段, `dsh-llm/lib/types/call-config.d.ts`）:
+    - `provider` / `model`（路由）: 会话层**有**入口（`AgentOptions` / `agent-default-model`）
+    - `reasoningEffort`: 会话层**有**入口（`AgentOptions.reasoningEffort` / `agent-default-model`）
+    - `maxTokens`: 会话层**有**入口（`AgentOptions.maxTokens` / `llm-pi-ai` 模型级 / `task-engine` 预算）
+    - `temperature`: 会话层**无**入口（`AgentOptions` 无此字段; DeepSeek 推理模型下服务端忽略该值）→ 插件补
+    - `stop`: 会话层**无**入口 → 插件补
+    - 思考预算（`llm-pi-ai` 的 `thinkingTokenBudgetField` / `$var: thinking.budget`, 自托管网关支持时）: profile 路由级可配、无会话级入口 → 插件补
+    - 回合 / 步骤预算: 宿主无内置 → 插件补
+  - **期望**: 自研一个**会话级请求参数调整插件**: 任一请求层可调但宿主未提供入口的参数都经它按会话可配, 并支持"推理一小步 → 执行一小步"的回合预算控制, 回合内无界思考到顶即止。
   - **候选路线（接取时裁定）**:
     1. 配置级（近期）: `agent-default-model` 的 `reasoningEffort` + `llm-pi-ai` 各模型 `maxTokens` 调参, 验证对 tollgate 路由的实际约束效果（留意 `finish=max-tokens` 截断正文的风险）。
     2. 编排级（中期）: 目标拆小 + goal 回合制（`goal-round-driver` 一轮一拍, 且回合因 max-tokens 结束时停续）+ `task-engine` 小叶子预算（每次请求上限）, 用回合边界形成小步节奏。
-    3. 插件级（远期, 正规）: 自研回合预算插件, 挂官方指定的 `agent/turn-stopping` 扩展点; 或自托管网关支持时用 `llm-pi-ai` 的 `thinkingTokenBudgetField`（`$var: thinking.budget`）单独掐思考预算。
-  - **验收**: 真机会话里观察到推理 / 输出被预算约束、到顶即止且不无界思考; 大目标可按小步逐拍推进, 不出现"长推理一次性做大步"。
-  - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` README（见 `docs/host/HOST-PACKAGES.md`）。
+    3. 插件级（远期, 正规）: **通用请求参数调整插件** - 采样字段（`temperature` / `stop` / 思考预算等）挂 `ConfigureCall`（请求冻结前改写点, `dsh-llm/lib/types/call-config.d.ts:36`, 请求头 `LlmCallConfig` 同构）注入; 回合预算挂官方指定的 `agent/turn-stopping` 扩展点; 思考预算在自托管网关支持时透传 `thinkingTokenBudgetField` / `$var: thinking.budget`; 参数范围随 `LlmCallControls` 追加而扩。
+  - **验收**: 插件会话级配置对所有"请求可调但宿主无入口"参数生效（温度 / stop / 思考预算 / 回合预算）; 真机会话观察到推理 / 输出被预算约束、到顶即止且不无界思考; 大目标可按小步逐拍推进, 不出现"长推理一次性做大步"。
+  - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` / `dsh-llm` README 与 `dsh-llm/lib/types/call-config.d.ts`（见 `docs/host/HOST-PACKAGES.md`）。
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
