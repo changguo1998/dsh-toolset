@@ -64,7 +64,8 @@
 
 ## 2. 未完成项
 
-- **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 落点待裁定, 优先级 P2 待确认）
+- **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认）
+
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
   - **请求参数与入口对照**（`LlmCallConfig` 全字段, `dsh-llm/lib/types/call-config.d.ts`）:
     - `provider` / `model`（路由）: 会话层**有**入口（`AgentOptions` / `agent-default-model`）
@@ -83,6 +84,7 @@
   - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` / `dsh-llm` README 与 `dsh-llm/lib/types/call-config.d.ts`（见 `docs/host/HOST-PACKAGES.md`）。
 
 - **跨压缩上下文保持插件 `pin-note`**（模型可调用工具, 把内容登记为"跨压缩保持", 每轮重注入到模型可见上下文; 命名 2026-11-05 定稿 `pin-note`, 工具名 `pin_note` / `note_list` / `note_remove`; 跨包 / 宿主面, 优先级 P2 待确认）
+
   - **现状**: 宿主**没有通用 pin 工具**——压缩把 shadowed 历史节点替换成摘要节点, 历史内内容随压缩消失; 现成"跨压缩保持"通道只有四类（已核实源码）:
     1. 每轮重注入（`agent-instructions` 的 AGENTS.md 走 `agent/pre-step` + inbox, 被压缩后重新读盘注入）;
     2. 步骤级附加上下文（`tools/post-execute` 返回 `additionalContexts`, 不进会话日志, 天然免压缩; 本仓 `escalation-hint` 同通道）;
@@ -96,6 +98,14 @@
     3. 复用 goal 域: 只适合单目目标, 不适合任意内容登记, 不推荐。
   - **验收**: 内容登记后经手动压缩仍每轮出现在模型可见上下文; 多条 pin 去重 / 上限 / 删除有效; 与 memory-base / goal / todo 分工明确、互不挤占; 解挂插件后无残留注入。
   - 来源: 2026-11-05 用户提出（论证见本条上下文: 压缩机制与"模型可见投影"限界）; 宿主侧依据: `dsh-agent-instructions` / `dsh-goal-round-driver` / `dsh-tool-goal` / `dsh-tool-todo` / `dsh-session` / `dsh-compaction-basic`（`docs/host/DSH-CTX-API.md` 与 `docs/host/HOST-PACKAGES.md`）。
+
+- **术语表重构**〔进行中: 2026-11-05〕（`docs/GLOSSARY.md` 重排为「推荐术语」+「禁止术语」双主表, 同步改 `dev/standard` 检查源; 文档 / 工程流程, 优先级 P2）
+
+  - **现状**: 现表分「场景 → 应当使用」「界面名称」「需要替换」「保留」四节; `dev/standard/rules.mjs:154` 硬读 `## 需要替换` 表作 `term.replace` / `term.interface` 数据源, 界面旧称行在「界面名称」与「需要替换」两处重复。
+  - **期望**: 重排为「推荐术语」(人读主表: 推荐 / 场景 / 说明) 与「禁止术语」(人读主表且是规则数据源: 禁止 / 应当使用 / 条件与例外, 含全部界面旧称行) 双主表 + 保留「保留」节; 删除原「场景 → 应当使用」「界面名称」「需要替换」三节, 内容并入上两表。
+  - **候选路线（接取时裁定）**: 1. 双主表 + 规则改读 `## 禁止术语`（推荐）; 2. 双主表外另留独立「界面名称」节（界面旧称两处重复维护）; 3. 双表 + 改规则节标题与解析（改动面扩到 `dev/standard` 代码）。
+  - **验收**: `pnpm run check:docs` 通过且存量不误报; 界面旧称与条件型术语口径不变; 规则解析依赖的表结构在 `rules.mjs` 与 `README.md` 描述里一致; 归档文档不改。
+  - 来源: 2026-11-05 用户提出; 依据: `dev/standard/rules.mjs` / `dev/standard/README.md` / `docs/GLOSSARY.md`。
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。

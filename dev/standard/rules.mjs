@@ -148,11 +148,11 @@ export const ARCHIVE_PATTERNS = [
   /(^|\/)docs\/implementation\//,
 ];
 
-/** 解析 `docs/GLOSSARY.md` 的「需要替换」表，得到旧称 → 应当使用。 */
+/** 解析 `docs/GLOSSARY.md` 的「禁止术语」表，得到旧称 → 应当使用。 */
 export function loadGlossary(root) {
   const text = readFileSync(`${root}/docs/GLOSSARY.md`, "utf8");
-  const section = sectionText(text, "## 需要替换");
-  if (section === undefined) throw new Error("GLOSSARY 缺「需要替换」表");
+  const section = sectionText(text, "## 禁止术语");
+  if (section === undefined) throw new Error("GLOSSARY 缺「禁止术语」表");
   const byRow = [];
   for (const row of tableRows(section)) {
     const [rawFrom, rawTo, rawNote] = row;
