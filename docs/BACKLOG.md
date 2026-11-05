@@ -100,6 +100,7 @@
   - 来源: 2026-11-05 用户提出（论证见本条上下文: 压缩机制与"模型可见投影"限界）; 宿主侧依据: `dsh-agent-instructions` / `dsh-goal-round-driver` / `dsh-tool-goal` / `dsh-tool-todo` / `dsh-session` / `dsh-compaction-basic`（`docs/host/DSH-CTX-API.md` 与 `docs/host/HOST-PACKAGES.md`）。
 
 - **术语自动审查插件 `term-check`**（模型输出用词自动审查: 出现被禁术语就注入更正文字, 类似 `symbol-normalizer` 的符号规范操作; 跨包（rule-engine 消费者 + 术语数据源）; 优先级 P2 待确认, 命名待定）
+
   - **现状**: 术语表 `docs/GLOSSARY.md` 已有「禁止术语」三列表（被禁止 / 应当使用 / 对应情况）, 由 `dev/standard` 的 `term.replace` / `term.interface` 规则做**文档静态检查**; 但**模型回帖正文**不受此约束 —— 没有机制检查 assistant 输出是否误用被禁术语, 误用只在人工阅读时暴露。
   - **期望**: 新增插件（或在现有插件上扩展）, 让 agent 自动检查模型输出中的术语: 命中「禁止术语」表的词时, 按表里「应当使用」给出更正文字, 注入回模型要求其更正后重发。机制对齐 `symbol-normalizer`（符号规范: 展示归一 + 回合审查）与 `md-table-check`（表格列数: rule-engine 消费者 + `assistant-text` 唤醒 + `delivery: "followup"` 注入 + 只报不改）。
   - **候选路线（接取时裁定）**:
@@ -108,6 +109,17 @@
     3. 在 `symbol-normalizer` 上扩展（符号与术语混管, 职责混杂, 不推荐）。
   - **验收**: 模型回帖含被禁术语（如「回归」指行为变差、界面旧称）时, 下一回合收到包含"应当使用 X"的更正注入; 不含被禁术语时零注入; 条件型术语（模块 / 工具集 / 收口）不误报; 与 `dev/standard` 的 GLOSSARY 解析同源、不漂移; `delivery` / 去重 / 上限行为与 `md-table-check` 一致。
   - 来源: 2026-11-05 用户提出（类比符号规范: 展示归一 + 回合审查, 参照 `md-table-check`）; 依据: `docs/GLOSSARY.md`、`md-table-check/README.md`、`symbol-normalizer/README.md`。
+
+- **标准流程固化插件 `flow-track`**（把「标准流程各阶段」经 task-engine 建成阶段树, 流程正文与状态落 memory-base, 回合边界经 rule-engine 消费者注入模板与检查; 命名 2026-11-05 定稿 `flow-track`, 动词+对象风格与 `pin-note` / `term-check` 同构; 跨包（新插件 + task-engine + memory-base + rule-engine）; 优先级 P2; 状态: 进行中(2026-11-05 接取)）
+
+  - **现状**: 标准流程（`docs/WORKFLOW-STANDARD.md` / `AGENTS.md`）是文档规范 + agent 自觉, 无强制机制——登记 / 建追踪文档 / 过程中只写追踪文档 / 收尾归档 / 提交询问点全靠模型自律; task-engine 可承载流程状态机（`decompose` + `deps` 顺序 + RET 验收, human 验收走 `approval.request` = 提交询问点）, 但无每轮注入与合规检查; memory-base **不注册写工具**（模型只有只读 `memory_query`, 写权限留在各扩展的 `registerKind` 句柄——模型侧写通道必须由本插件补）; rule-engine 提供消费者（注入 / guard）与 `agent/pre-step` 注入面。
+  - **期望**: 新插件 `flow-track`, 三件组合——① task-engine 骨架: 根第一层分解 = 标准流程各阶段（登记 BACKLOG / 建追踪文档 / 实现 / 测试+人工确认 / 收尾归档 / 提交询问）, 各帧 `deps` 指前序、`acceptance` 设门, human 验收 = 提交询问点; ② memory-base 存储: `registerKind` 注册流程 kind（P 层 project 库）, 插件注册模型侧写工具, 追踪文档正文与流程状态落库, 与 task-engine 的 `plan/*` 事件（执行记录）并存互补; ③ rule-engine 消费者: 回合边界注入阶段模板 / 检查合规（改源码未登记、轮内未写追踪文档）/ 注入当前推进状态。粒度适配: 阶段帧 spec 写单动作（无「首先 / 然后 / 第 n 步」步骤标记、无实现细节, 防过细 / 越级打回）, 数量 ≤8 免枚举来源, coverage 覆盖根契约验收。
+  - **候选路线（接取时裁定）**:
+    1. 阶段模板来源: a. 模型照注入模板手动 `task_decompose`（零改引擎, 工具面现成; 推荐先落地）; b. 插件回合边界自动 `TaskEngine.decompose`（需 import 引擎内核, 或扩 `taskEngine` 服务面暴露写方法——现服务面只读 `query` / `frameStack`）。
+    2. 大 / 小流程分流: 标准流程走阶段树, 小改动（快速流程: 免条目免追踪文档）不建树; 分流判据接取时定。
+    3. 固化强度: 软（rule-engine 注入提醒）→ 中（每轮注入推进状态）→ 硬（guard 拦截未走流程的源码 / 文档改动）; 接取时定档。
+  - **验收**: 接取一次标准流程变更, 阶段树按 `deps` 顺序依次推进, 提交询问以 human 验收呈现; 追踪文档正文与流程状态可从 memory-base 读出; 不建树的小改动不受干扰; 全量 `pnpm run check` / `test` / `check:docs` 全绿。
+  - 来源: 2026-11-05 用户提出（task-engine 承载流程分解讨论定稿, 命名 `flow-track`）; 依据: `task-engine/README.md`、`memory-base/README.md`（不注册写工具口径）、`rule-engine/README.md`（消费者 / guard / 注入面）、`docs/WORKFLOW-STANDARD.md`。
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
