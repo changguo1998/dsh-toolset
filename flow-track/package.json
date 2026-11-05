@@ -1,0 +1,33 @@
+{
+  "name": "@dsh-toolset/flow-track",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）flow-track 插件：把标准流程八阶段固化——阶段模板注入、流程记录入库、推进状态与合规提示（只提示不拦截）",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-flow-track && mkdir -p ../tmp/cov-flow-track && NODE_V8_COVERAGE=../tmp/cov-flow-track node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-flow-track tmp/cov-flow-track/report.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}

@@ -1,0 +1,9 @@
+# flow-track 插件的 dsh bundle 声明。
+# 本包缺省开启：注册两个模型侧工具（flow_record / flow_status），并在回合边界经 rule-engine
+# 注入阶段模板、当前推进状态与合规提示（只提示不拦截）。
+# 依赖 rule-engine（消费者注册面）；memory-base 与 task-engine 缺席时各自降级，不阻断启动。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段：
+#   enabled / sources / delivery（缺省见 src/index.ts 的 resolveConfig）。
+- insert:
+    - id: flow-track
+      name: '@dsh-toolset/flow-track'
