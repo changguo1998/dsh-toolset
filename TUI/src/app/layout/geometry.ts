@@ -9,7 +9,6 @@ import {
   activityHeight,
   activityTopRowToLine,
   hintRowsFor,
-  paneTextWidth,
   regionColumnWidth,
 } from "./frame-rows.ts";
 import { renderStatusLine } from "./status-line.ts";
@@ -292,10 +291,10 @@ export interface FrameGeometry {
   /** 回合区 / 会话区 可视行数（横向两 pane 等高） */
   activityH: number;
   dialogueH: number;
-  /** 回合区 / 会话区 正文宽（纵向两 pane 同宽；含文字右缘留白列，边框按它铺满） */
+  /** 回合区 / 会话区 正文宽（纵向两 pane 同宽，边框按它铺满；文字按同宽排版，无右缘留白） */
   activityW: number;
   dialogueW: number;
-  /** 两 pane **文字**排版宽（正文宽扣右缘留白，见 PANE_TEXT_MARGIN_COLS；边框不受影响） */
+  /** 两 pane **文字**排版宽（= 正文宽；保留字段以隔离测量口径，右缘不再留白） */
   dialogueTextW: number;
   activityTextW: number;
   /** 排队块可见行（右对齐用户块，右缘竖线灰色；钉在会话区 底部右下角。
@@ -394,10 +393,10 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     split.mode = "vertical";
   }
   const horizontal = split.mode === "horizontal";
-  // 文字排版宽（P3）：横向会话区 不留白（`┃` 紧贴内部分隔竖线）；回合区 与
-  // 纵向两 pane 各让 1 列（右缘贴外缘框列，字形宽度估算偏差落在留白里）
-  const dialogueTextW = paneTextWidth(split.dialogueW, !horizontal);
-  const activityTextW = paneTextWidth(split.activityW);
+  // 文字排版宽 = pane 正文宽（2026-11-05 取消右缘防溢出留白：两 pane 都不再让 1 列，
+  // 文字可铺到正文右缘；横线与外框列仍由各自分支满宽绘制）
+  const dialogueTextW = split.dialogueW;
+  const activityTextW = split.activityW;
   // 排队块钉在会话区 底部：至多占 pane 高 − 1 行（至少留 1 行历史可见）；
   // 超出时取尾部（最新排队内容优先可见）
   const queuedAll = queuedBlockRows(state, dialogueTextW);

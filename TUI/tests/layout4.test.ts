@@ -19,7 +19,6 @@ import {
   userRowJump,
   WINDOW_GROW_STEP,
   regionColumnWidth,
-  paneTextWidth,
   emptyRunVirt,
   nextRunVirt,
   TOKEN_CALIB_MAX,
@@ -1614,9 +1613,9 @@ test("会话流：turn 分隔线在会话区铺满宽度", () => {
 
 test("交错布局：模型正文右缘保留与用户块左缘对称的空位(gutter)；用户块仍贴右缘", () => {
   const strip = (l: string): string => l.replace(/\x1b\[[0-9;]*m/g, "");
-  // cols=40 → historyWidth 依 metricsFor；文字排版宽再扣文字右缘留白（纵向 2 列）
+  // cols=40 → historyWidth 依 metricsFor；文字排版宽 = 正文宽（无右缘留白）
   const m = metricsFor({ rows: 16, cols: 40 });
-  const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
+  const textW = regionColumnWidth(m.historyWidth);
   // 会话区外壳 prefix = `┃`（1 列，竖线后直接接正文）；右缘 suffix = gutter − 1 个空格
   const BODY_BAR = 1;
   const bodyW = textW - DEFAULT_MESSAGE_GUTTER;
@@ -1662,8 +1661,8 @@ test("交错布局：messageGutter 配置生效——gutter=0 时正文顶满会
     .map((l) => strip(rowAnsi(l)))
     .filter((l) => /[0-9]/.test(l));
   const m = metricsFor({ rows: 16, cols: 40 });
-  // gutter=0 → 正文顶满文字排版宽（区域正文宽扣文字右缘留白 2 列）
-  const textW = paneTextWidth(regionColumnWidth(m.historyWidth), true);
+  // gutter=0 → 正文顶满文字排版宽（区域正文宽，无右缘留白）
+  const textW = regionColumnWidth(m.historyWidth);
   assert.ok(rows.length >= 2, "40 字符在窄历史宽下软换行");
   const body = histContent(rows[0]!, 40);
   assert.equal(
@@ -1750,10 +1749,7 @@ test("交错布局：多行输入为一块——块内行首左对齐、块铺�
     "块右缘竖线同列",
   );
   // 收缩块：块宽 = 最长行 + 符号 2 + 竖线 1，整块靠右 → 正文左缘随最长行推左，竖线贴右缘
-  const textW = paneTextWidth(
-    regionColumnWidth(metricsFor({ rows: 24, cols }).historyWidth),
-    true,
-  );
+  const textW = regionColumnWidth(metricsFor({ rows: 24, cols }).historyWidth);
   assert.ok(
     lead(rows[2]!) > DEFAULT_MESSAGE_GUTTER,
     "收缩块整体靠右（正文左缘远离 gutter）",

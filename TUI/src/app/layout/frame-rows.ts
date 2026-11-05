@@ -115,22 +115,6 @@ export function turnGroupStarts(
 export const FRAME_LEFT_COLS = 1;
 export const FRAME_RIGHT_COLS = 1;
 
-/** 区域 pane **文字**右缘留白（列）：只有**右缘贴着外框列**的文字排版宽需要再收窄。
- *  - 横向排列：会话区（左）右缘接内部分隔竖线 → **不留白**（`┃` 紧贴竖线）；
- *    回合区（右）右缘贴外缘框列 → 让 1 列。
- *  - 纵向排列：两 pane 同列同宽、共享右缘 → 让 1 列（原为各让 2 列）。
- *  - **只缩文字**：边框/分隔线一概不动——标题栏下划线、回合区分隔线、状态行框线与
- *    分隔行仍铺满整行（到区域外缘框列 `FRAME_RIGHT_COLS`），焦点框矩形也不变。
- *  - 目的：字形宽度算错（CJK/组合字符宽度估算偏差）时多出的列落在留白里，不顶到
- *    外缘框列、不把整行挤到下一行（整行溢出 = 帧行折行 → 全屏错位）。 */
-export const PANE_TEXT_MARGIN_COLS = 1;
-
-/** pane 文字排版宽：`reserve=true` 时扣掉右缘留白（P3：只给右缘贴外框列的 pane 留）。
- *  横向会话区 传 false（贴内部分隔竖线），回合区 与纵向两 pane 传 true。 */
-export function paneTextWidth(paneW: number, reserve = true): number {
-  return Math.max(1, paneW - (reserve ? PANE_TEXT_MARGIN_COLS : 0));
-}
-
 /** 区域正文宽（标题栏 + 历史/回合区）：historyWidth 扣外缘框格（buildTopRegion 与滚动口径同源） */
 export function regionColumnWidth(historyWidth: number): number {
   const useFrame = historyWidth >= FRAME_RIGHT_COLS + 1;

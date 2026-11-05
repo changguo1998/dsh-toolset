@@ -1,10 +1,9 @@
-// TUI/tests/pane-text-margin.test.ts — 会话区/回合区「文字右缘留白」（PANE_TEXT_MARGIN_COLS）
+// TUI/tests/pane-text-margin.test.ts — 会话区/回合区「无文字右缘留白」（2026-11-05 取消）
 //
-// 覆盖：**只有文字排版宽度收窄**（P3：留白是行尾属性，只给右缘贴外框列的 pane）——
-// 横向会话区 不留白（`┃` 紧贴内部分隔竖线）、横向回合区 让 1 列、纵向两 pane 同列各让 1 列；
-// **边框/分隔线一概不动**：
-// 标题栏下划线、回合区分隔线仍铺满整行到区域外缘框列，顶区帧行宽恒 = cols，
-// 焦点框矩形也不变。文字不落在留白列（字形宽度算错时多出的列落在留白里，不整行溢出）。
+// 覆盖：两 pane 的**文字排版宽 = 正文宽**（横向会话区 = dialogueW、回合区 = activityW；
+// 纵向两 pane 各 = contentW），文字可铺到正文右缘、行尾不再多出 1 列空白；
+// **边框/分隔线保持不变**：标题栏下划线、回合区分隔线仍铺满整行到区域外缘框列，
+// 顶区帧行宽恒 = cols，回合分隔线（╌）右端与正文右缘对齐；文字不超宽。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,8 +13,6 @@ import {
   displayWidth,
   metricsFor,
   regionColumnWidth,
-  paneTextWidth,
-  PANE_TEXT_MARGIN_COLS,
 } from "../src/app/layout.ts";
 import { initialState, reduceState } from "../src/app/state.ts";
 import { rowText } from "./helpers/rowText.ts";
@@ -40,7 +37,7 @@ function state(placement: "vertical" | "horizontal") {
     ...turnScript({
       turn: 1,
       time: T,
-      user: "检查文字右缘留白",
+      user: "检查文字右缘",
       assistant:
         "回复正文：这是一段足够长的中文内容，用来把会话区 的文字行铺满到排版右缘，看最右可见字符落在哪一列（末尾还有 ABCdef）。",
       reason: "completed",
@@ -81,7 +78,7 @@ const SIZES = [
   { rows: 30, cols: 100 },
 ];
 
-/** 两 pane 的行范围与列范围（按排列方式推导，供留白断言使用） */
+/** 两 pane 的行范围与列范围（按排列方式推导） */
 function paneRanges(g: ReturnType<typeof frameGeometry>) {
   const horizontal = g.mode === "horizontal";
   const bodyEnd = g.contentStartCol + g.contentW;
@@ -103,48 +100,39 @@ function paneRanges(g: ReturnType<typeof frameGeometry>) {
   };
 }
 
-test("文字右缘留白：横向历史不留白 / 横向活动让 1 列 / 纵向两 pane 各让 1 列", () => {
+test("无文字右缘留白：两 pane 文字宽 = 正文宽（横向与纵向都不再让 1 列）", () => {
   for (const size of SIZES) {
     for (const placement of ["vertical", "horizontal"] as const) {
       const g = frameGeometry(state(placement), size);
       const contentW = regionColumnWidth(metricsFor(size).historyWidth);
       const tag = `${size.rows}x${size.cols}/${placement}`;
-      // 区域正文宽（边框口径）不受影响
+      // 区域正文宽（边框口径）不变
       assert.equal(g.contentW, contentW, `${tag}: 区域正文宽不变`);
+      assert.equal(
+        g.dialogueTextW,
+        g.dialogueW,
+        `${tag}: 会话区文字宽 = 正文宽`,
+      );
+      assert.equal(
+        g.activityTextW,
+        g.activityW,
+        `${tag}: 回合区文字宽 = 正文宽`,
+      );
       if (g.mode === "horizontal") {
-        assert.equal(
-          g.dialogueTextW,
-          g.dialogueW,
-          `${tag}: 横向会话区 不留白（┃ 紧贴内部分隔竖线）`,
-        );
-        assert.equal(
-          g.activityTextW,
-          g.activityW - PANE_TEXT_MARGIN_COLS,
-          `${tag}: 回合区 文字让 1 列`,
-        );
         assert.equal(
           g.dialogueW + 1 + g.activityW,
           contentW,
           `${tag}: 两 pane + 内部分隔 = 区域正文宽（边框不变）`,
         );
       } else {
-        assert.equal(
-          g.dialogueW,
-          contentW,
-          `${tag}: 纵向两 pane 共占区域正文宽`,
-        );
-        assert.equal(
-          g.dialogueTextW,
-          paneTextWidth(g.dialogueW, true),
-          `${tag}: 纵向两 pane 文字同宽，各让 1 列`,
-        );
-        assert.equal(g.activityTextW, g.dialogueTextW);
+        assert.equal(g.dialogueW, contentW, `${tag}: 纵向两 pane 共占正文宽`);
+        assert.equal(g.activityW, contentW, `${tag}: 纵向两 pane 同宽`);
       }
     }
   }
 });
 
-test("文字右缘留白：横线中的回合分隔线只铺到正文右缘（边框行仍满宽）", () => {
+test("无文字右缘留白：横线与边框仍满宽，回合分隔线右端与正文右缘对齐", () => {
   for (const size of SIZES) {
     for (const placement of ["vertical", "horizontal"] as const) {
       const g = frameGeometry(state(placement), size);
@@ -177,7 +165,7 @@ test("文字右缘留白：横线中的回合分隔线只铺到正文右缘（�
           `${tag}: 回合区分隔线铺满到屏幕最右列`,
         );
       }
-      // 回合分隔线（╌）：与正文同宽——右端停在正文排版右缘（不再是 pane/屏幕右缘）
+      // 回合分隔线（╌）：与正文同宽——右端停在正文排版右缘（= 正文右缘）
       const ruleRow = rows.find((t) => t.includes("╌"))!;
       assert.ok(ruleRow !== undefined, `${tag}: 回合分隔线可见`);
       const ruleInk = rightMostInk(
@@ -194,7 +182,7 @@ test("文字右缘留白：横线中的回合分隔线只铺到正文右缘（�
   }
 });
 
-test("文字右缘留白：文字不落在留白列（长文本铺满到排版右缘为止）", () => {
+test("无文字右缘留白：文字铺到正文右缘，且不越过外框列", () => {
   for (const size of SIZES) {
     for (const placement of ["vertical", "horizontal"] as const) {
       const st = state(placement);
@@ -207,11 +195,11 @@ test("文字右缘留白：文字不落在留白列（长文本铺满到排版�
         .slice(r.histRows[0], r.histRows[1])
         .filter((t) => !t.includes("╌"));
       const actRows = rows.slice(r.actRows[0], r.actRows[1]);
-      // 文字恰好铺到「文字排版宽」的右缘（证明宽口径按文字宽，而不是 pane 宽）
+      // 文字恰好铺到「文字排版宽」的右缘（= 正文宽，不再让 1 列）
       assert.equal(
         Math.max(...histRows.map((t) => rightMostInk(t, r.histFrom, r.histTo))),
         r.histFrom + g.dialogueTextW - 1,
-        `${tag}: 历史文字铺到排版右缘`,
+        `${tag}: 历史文字铺到正文右缘`,
       );
       // 回合区按可视高截取尾部（且常被截断），只要求不越界、且有内容可见
       const actMax = Math.max(
@@ -219,24 +207,14 @@ test("文字右缘留白：文字不落在留白列（长文本铺满到排版�
       );
       assert.ok(
         actMax <= r.actFrom + g.activityTextW - 1,
-        `${tag}: 活动文字不越排版右缘（实际 ${actMax}）`,
+        `${tag}: 活动文字不越正文右缘（实际 ${actMax}）`,
       );
       assert.ok(actMax > r.actFrom, `${tag}: 回合区有可见文本`);
-      // 留白列（文字宽之后的区域正文列）不得有任何字符
-      const reserved = [
-        ...histRows.flatMap((t) =>
-          inkCols(t, r.histFrom + g.dialogueTextW, r.histTo),
-        ),
-        ...actRows.flatMap((t) =>
-          inkCols(t, r.actFrom + g.activityTextW, r.actTo),
-        ),
-      ];
-      assert.deepEqual(reserved, [], `${tag}: 留白列无字符（防整行溢出）`);
     }
   }
 });
 
-test("文字右缘留白：窄终端下文字宽至少 1 列（不出现负宽）", () => {
+test("无文字右缘留白：窄终端下文字宽至少 1 列（不出现负宽）", () => {
   for (const cols of [16, 22, 30, 40]) {
     const g = frameGeometry(state("vertical"), { rows: 24, cols });
     assert.ok(g.dialogueTextW >= 1, `cols=${cols} 历史文字宽 ≥ 1`);

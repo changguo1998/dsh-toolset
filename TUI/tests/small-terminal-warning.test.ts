@@ -15,10 +15,15 @@ function frame(renderer: FakeRenderer): string {
   return renderer.lastRender.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-/** 警告文案的短标记：窄终端下全文折行（16 列时逐段断开），故取首段判定 */
+/** 警告文案的短标记：窄终端下全文折行（16 列时逐段断开），故取首段并按压平文本判定 */
 const MARK = "终端尺寸";
 /** 「别的 notice」文案（/theme 非法参数的 usage 提示；经本地 notice 路径可见） */
 const OTHER = "usage: /theme";
+
+/** 压平帧文本：去掉换行、空格与框线/竖线字符，使被折行拆开的连续文案仍可匹配 */
+function squash(text: string): string {
+  return text.replace(/[\s│┃─┌┐└┘├┤┬┴┼]+/gu, "");
+}
 
 function typeAndEnter(renderer: FakeRenderer, text: string): void {
   for (const ch of Array.from(text)) {
@@ -47,9 +52,9 @@ function boot(
   return { app, renderer };
 }
 
-/** 警告在帧里出现的次数（重绘/重新记录会多一条） */
+/** 警告在帧里出现的次数（重绘/重新记录会多一条；按压平文本计数，跨折行也算） */
 function markCount(f: string): number {
-  return f.split(MARK).length - 1;
+  return squash(f).split(MARK).length - 1;
 }
 
 test("判据：宽 ≤ 16 或 高 ≤ 9 为过小，尺寸未知（0）不算过小", () => {
@@ -68,13 +73,13 @@ test("判据：宽 ≤ 16 或 高 ≤ 9 为过小，尺寸未知（0）不算过
 test("启动即过小（宽 16）→ 首帧出现警告", () => {
   const { renderer } = boot(16, 24);
   const f = frame(renderer);
-  assert.ok(f.includes(MARK), "过小应提示: " + JSON.stringify(f));
+  assert.ok(squash(f).includes(MARK), "过小应提示: " + JSON.stringify(f));
 });
 
 test("启动即过小（高 9）→ 首帧出现警告", () => {
   const { renderer } = boot(80, 9);
   const f = frame(renderer);
-  assert.ok(f.includes(MARK), "过小应提示: " + f);
+  assert.ok(squash(f).includes(MARK), "过小应提示: " + f);
 });
 
 test("启动尺寸正常 → 不提示", () => {

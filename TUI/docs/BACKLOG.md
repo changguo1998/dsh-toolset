@@ -56,6 +56,8 @@
 > 2026-10-23 关闭：`#2` 用户块折行后右侧大片留白完成并移出清单（实现 `3174373` 布局尺寸节点自持 + 多轮收敛、合并 `3f4b23d`；追踪文档 `TUI/docs/archived/2026-10-22-user-block-right-gap.md`；真机验收 2026-10-23：长中英混排消息折 4 行，四行右竖线均 82 列位置一致且贴右无空隙）。
 > 2026-10-23 关闭：`#3` 正文表格与排版后展示不一致完成并移出清单（实现 `61f63af`、合并 `844ec9f`；追踪文档 `TUI/docs/archived/2026-10-22-table-content-mismatch.md`；根因 = 排版链重新拼回 markdown 行时分隔行按 `aligns` 长度生成，上游少列时旧渲染器判不成表格、整表退回原文；修法 = 分隔行按表头格数生成 + `isTableStart` 列数只许少不许多，缺列按左对齐补齐）。同日顺带交付「思考行识别 markdown 表格」（紫竖线），该子项已登记并随本条关闭。
 
+> 2026-11-05 关闭：取消会话区 / 回合区的文字右缘留白完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-05-remove-pane-text-margin.md`）：删除 `PANE_TEXT_MARGIN_COLS` 与 `paneTextWidth`，两 pane 文字排版宽 = 正文宽（`dialogueTextW` / `activityTextW` 直接取 `dialogueW` / `activityW`），排队块与回合区面板同口径；横线与外框列不动。TUI 1834 例全过（15 条帧基线重冻 + 窄屏警告断言改压平匹配）、`demo -- --smoke` 42 PASS + `SMOKE_OK`、根级 check / build / check:docs 全绿。遗留：真机目视确认行尾空白与 CJK 混排折行。
+
 > 2026-11-04 接取〔进行中: 2026-11-04〕：运行状态符号分阶段：发送中四箭头旋转、接收中按类型着色（用户报告）。现象：目前运行中符号只有黄 `●`/`○`（runVirt 相位交替），无法区分「已发送等首字节」与「正在接收」，也没有按内容类型（思考/正文/工具…）的着色。期望：① 发送后首字节到达前，四个循环箭头依次出现（视觉旋转）；② 接收中保持闪烁，但颜色/类型对应——思考紫（magenta）、正文蓝（blue）、工具黄（yellow）、notice 灰、shell 青（cyan）；发送中保持默认黄。配套：旋转箭头符号（⟳ ⟲ ↻ ↺）加入 36 符白名单（dev/standard/rules.mjs + AGENTS.md + dev/standard/README.md），用户 2026-11-04 明确许可。来源：用户报告·优先级：中。
 
 > 2026-11-04 关闭：运行状态符号分阶段完成并移出清单（追踪文档 `TUI/docs/archived/2026-11-04-run-symbol-phases.md`）：发送中（首字节未到, `runVirt.lastTime` undefined）用户块首行显黄旋转箭头（`SPINNER` 4 态 ⟳↻↲↺ 随 250ms tick 轮换）; 接收中保持 `●`/`○` 相位闪烁并按 `streamKind` 着色（思考紫 / 正文蓝 / 工具黄 / notice 灰 / shell 青, undefined 回退黄）。白名单 36 → 40（`⟳ ⟲ ↻ ↺` 入 dev/standard/rules.mjs + AGENTS.md + symbol-normalizer 家族 F, 旧裁定「⟳ 不进推荐集合」按用户指示推翻）。TUI 1834 例全过、smoke 42 PASS + SMOKE_OK、symbol-normalizer 46 例全过、根级 check / build / check:docs 全绿。遗留: 真机分阶段闪烁人工确认。
