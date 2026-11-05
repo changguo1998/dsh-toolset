@@ -4,11 +4,7 @@
 
 ## 条目详情（待办）
 
-> 2026-10-22 完成并关闭：「tab_create 之后不必再建 pane: 工具描述与回执要说清『新 tab 自带 root pane』」已修并合入 main（提交 `5121690`，走快速流程）—— `src/tools.ts` 的主描述改写 `tab_create` 句（「新 tab 自带 root pane，回执的 pane_id 即该 pane，可直接 pane_run / pane_send_text / pane_read 等，无需再 pane_create」）并给 `pane_create` 句补「刚建完 tab 时不必调用，tab 自带 root pane」；`tab_create` 回执渲染点明自带 root pane。同步：`tests/tool.test.ts` 三条描述断言 + 回执断言、`README.md` 动作表两行。证据：包 `check` / `build` 通过、`pnpm test` 156 例全绿、全仓 30 包 `check` 通过。真机未复验（纯文案改动）。
-
-> 2026-10-21 关闭：「herdr 工具面添加 tab / workspace 操作」已完成并从本清单移除 —— 工具面 10 → 13 个动作（`tab_create` / `tab_list` / `tab_close`），workspace 面整体不出工具面（每个 dsh 会话由插件内部绑定一个 herdr workspace，`create` 建在该 workspace 的回合区，`tab_close` 只认本 workspace 已登记的 tab）；合并 `b3f45ea` / `b17ad5c` / `ef94191`；本包 155 例单测全绿；真机 `--with-tab --check-cascade` 20 步全链路通过（含 `send_text` / `send_keys` / `run` 静默成功修复生效），关掉 tab 的最后一个 pane 只级联关 tab、workspace 由插件退出清理关闭且无残留；追踪文档归档 `herdr-use/docs/archived/2026-10-21-herdr-pane-tab-workspace.md`。剩余未验证项：用户后来在 workspace 里开的 pane 会阻止内部关 workspace 的保护分支未在真机构造验证。
-
-> 2026-10-19 关闭：「沙箱模式联动：会话处于 `read-only` 时拒绝写类动作」已完成并从本清单移除 —— 新增沙箱门（闸④，`tools/pre-execute` 里先于审批返回 `deny`），模式问宿主 `ctx.sandboxPolicy.resolve()`；同处修正了审批门的载荷字段名（`name` / `arguments` / `agent`，原实现读 `toolName` / `args`，导致审批门在生产路径恒放行）；121 例单测（+12）与两次反向验证；追踪文档归档 `herdr-use/docs/archived/2026-10-19-herdr-pane-sandbox-mode.md`。
+（当前无未完成项。）
 
 ## 已知边界（不打算在本包解决）
 

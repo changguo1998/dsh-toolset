@@ -64,68 +64,7 @@
 
 ## 2. 未完成项
 
-> 2026-11-04 关闭: 「smoke 脚本在沙箱内不可跑, 且模型面写死」完成并移出清单 (用户直接指派, 追踪文档 `docs/archived/2026-11-04-smoke-sandbox-model.md`): 4 个 smoke 的 `DSH_HOME` / 会话证据路径改读 `$DSH_HOME`, 模型面接 `SMOKE_PROVIDER` / `SMOKE_MODEL`(缺省 `tollgate` / `qwen38`, key `TOLLGATE_API_KEY` 缺省 `local`); 新增 `scripts/run-smoke.sh` 与根 `test:smoke`, 把 `DSH_HOME` / `TMPDIR` / 日志收到仓库 `tmp/` 并向 profile 的 `pnpm-workspace.yaml` 注入 `storeDir` / `cacheDir`, 使 `dsh plugin add` 在沙箱内可用; 顺带修 `security-guard` 的 `tool/result` 解析(会话早已是 v4, 断言停在 v3); 全量 smoke 退出 0(21s / 24s / 36s / 17s), `check:docs` 0 / 0.
-
-> 2026-11-04 关闭: 「宿主升级复核: `dsh` 0.2.1-rc.5 相对 rc.3 的接口变化」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5.md`): rc.3 → rc.5 共 13 个提交 / 388 文件, `package.json` 差异只有版本号, 包目录 343 → 343; 工具面 / 事件 / 服务面 / `bundle/base` patch / 官方配置 schema 零变更, 本仓 34 包无需改代码; 两处行为面变更均不触本仓 (ACP stdout 诊断改 stderr 与 MCP 资源列举前置能力判定、web 思考块槽拆 `rawText` + `text`); `session-persistence-jsonl/src/format.ts` 无 diff, 编码四函数无漂移; 新增 `docs/host/HOST-UPGRADE-0.2.1-rc.5.md`, 同步 `HOST-PACKAGES.md` / `DSH-CTX-API.md` / README 双侧; 未升级安装树 (另立条目), `check:docs` 0 / 0.
-
-> 2026-11-04 关闭: 「本机宿主升级到 `0.2.1-rc.5` 并重建安装树口径」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5-install.md`): 全局 `dsh` 与安装树升到 rc.5、profile `fff` 已 `--sync` 重装 (35 个 bundle); 随包分发 306 / 295 与 fff 官方活跃包 100 个 (`--dump-config` 848 行 / 142 行 id) 复测未变; 仓库内全部 rc.3 引用改到 rc.5 (14 个文件: install.sh、test-install.sh、4 个 smoke 与 README、e2e/README、TUI/docs/COMMANDS、ARCHITECTURE-REUSE、STATUS、HOST-PACKAGES、HOST-UPGRADE-rc.5、package.json 与 pnpm-lock.yaml), 新增 `pnpm-workspace.yaml` 修好 pnpm 11 的构建批准与依赖前置检查; `check` / `test` / `test:e2e`(33) / `check:docs` 全绿; 4 个包 smoke 未真跑 (需模型凭据).
-
-> 2026-11-04 关闭: 「`scripts/test-install.sh` 的 check/build 链一致性检查仍按 `--prefix` 提取」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-test-install-chain-extract.md`): 内嵌 `extract` 改为按 `&&` 切段 + 每段匹配 `^pnpm (?:-C (\S+)|--prefix (\S+)) run `, 两种形态都认, 空链 / 同序 / 集合 / 目录存在四条判定不变; 修复前提取 0 / 0 条, 修复后 34 / 34 条且同序, 混合形态仍可解析、不同包仍判不一致 (校验强度未放松); `sh scripts/test-install.sh` 117 项全过 (原恒红的三条转绿), `pnpm run check` 退出 0, `check:docs` 0 / 0.
-
-> 2026-11-04 关闭: 「分阶段开启 5 个 TypeScript 严格检查」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-strict-check-flags.md`): 34 包五项全开, 731 条报错清零, 35 笔包提交 (TUI 拆两笔); 全仓 4573 例、行 89.6% / 分支 80.2%, `check` / `build` / `test` / `test:coverage` / `check:docs` / `test:e2e` 退出 0, TUI `demo -- --smoke` 输出 `SMOKE_OK`; 未改运行时行为 (TUI `exactOptionalPropertyTypes` 的修复取向见追踪文档「偏差」).
-
-> 2026-11-04 关闭: 「迁出 34 包测试产物数据」完成并移出清单 (追踪文档 `docs/archived/2026-11-04-test-artifacts.md`): 34 份包追踪的覆盖率表、用例清单、`skip` 计数与豁免台账、四入口实跑全部收进 `## 四份测试产物` 的四个小节, 原节留指针, 数字照录; 每包一笔提交, 34/34 结构校验与数字保留校验通过, `check:docs` 0 / 0; 未改代码.
-
-> 2026-11-04 关闭: 「清理 .ts 注释里的简写路径与失效路径」完成并移出清单（追踪文档 `docs/archived/2026-11-04-comment-paths.md`): 587 处简写路径（按所属包补全前缀, 8 处语义改写）与 60 处失效路径（项目级 / 包级 implementation→archived、包内 docs / scripts、跨包 main→index、9 处占位与已删文档改写）清零, 500 个 `.ts` / `.mts` 文件只改注释; `comment.path-shorthand` / `comment.path-missing` 已从 warn 改 error, `dev/standard/README.md` 同步; 每批均跑全仓 check / test, 最终 `check:docs` 0 / 0、build 退出 0.
-
-> 2026-11-03 关闭：条目「统一界面名称」完成并移出清单（追踪文档 `docs/archived/2026-11-03-unified-ui-names.md`）：现行文档、`.ts` 注释与命令描述 / help 文本 / 测试断言里的旧称全部按 `docs/GLOSSARY.md` 替换为七个名称（`状态栏` 按位置分流到 `状态列` / `状态行`），`node dev/standard/index.mjs --rule term.interface` 为 0，规则从警告档改回错误档；TUI 1829 例、`demo -- --smoke` 输出 `SMOKE_OK`、全仓 `check` / `test` 退出 0。
-
-> 2026-11-03 关闭：条目「文档检查器 `dev/standard/` 与 `check:docs`」完成并移出清单（追踪文档 `docs/archived/2026-11-03-docs-standard-checker.md`）：`dev/standard/` 六个零依赖 `.mjs` + 12 类规则（符号变体与 emoji、术语旧称、包与插件数量断言、断链、表格列数、注释路径、两个 JSON 的结构与路径），根 `check:docs` / `check:docs:strict` 接线，`--rule` 供单项验收；当前仓库 `pnpm run check:docs` 退出 0（错误 0 / 警告 840，警告档是界面旧称与注释路径的真实存量）；另修 4 行表格与 1 处注释，并把注释路径存量登记为 §2 #2。
-
-> 2026-11-03 关闭：§2 前四条全部完成并移出清单（追踪文档 `docs/archived/2026-11-03-backlog-batch-four.md`）：① 历史清理文档残留修正 —— GLOSSARY 场景表补「BACKLOG 条目」行、`security-guard` 两处与 `profiles/README.md` 一处改 pnpm 口径、`session-paths/README.md` 删「两个 program」；TUI 两处旧称实测已无（审计快照行号过期，记入偏差）。② 覆盖率报告排除 dist 并统一口径 —— `report.mjs` 加排 `dist/`，三次复跑 `dist` 文件 0，同 commit 行 89.5%（69437~69440/77567）/ 分支 80.2%（16269~16272/20298~20303）；条目三落地后 HEAD 复跑 行 89.6%（69481/77591）/ 分支 80.2%（16297/20329）；「两次完全一致」不可达（并行测试时序分支，记入偏差），阶段 3 / 阶段 5 追踪已按新口径补正注记。③ 修正 `surfaceOp: replace` —— 两侧识别字符串与 `{ op: 'replace', … }` 对象形态，`assistant/message` / `user/message` / `tool/result` 三类事件统一按「更正事件」跳过，范围重写记录为不支持并给替代；`rule-engine` 177 例、TUI `adapter.dsh` 218 例全过。④ 复用审计补审 3 包 —— `docs/ARCHITECTURE-REUSE.md` 总表 31 → 34 行，分布「改用 0 / 保留 24 / 并存 10」。全仓 `check` / `build` / `test` 退出 0；余下五条已按当前顺序重编号。
-
-> 2026-11-03 关闭：条目「auto-approve 在可选服务缺席时整插件不激活」完成并移出清单（追踪文档 `docs/archived/2026-11-03-auto-approve-degrade.md`）：`readService` 的兜底属性读取加 try/catch，cordis 未注入属性抛错按服务缺席处理；只挂 `dsh-base` 时插件激活、审计降级原因可读、`/autoapprove status` 可跑；包内 183 例（新增 2 例）与 `pnpm run test:e2e` 33/33 退出 0。
-
-> 2026-11-03 关闭：条目「33 个插件端到端用例」完成并移出清单（追踪文档 `docs/archived/2026-11-03-plugin-e2e-tests.md`）：根 `e2e/` 新增 33 条真宿主用例（`runProfile()` 装配 `dsh-base` + 被测包 + 服务依赖，临时 `DSH_HOME` / 独立 profile），工具执行、会话事件、消费投递、守卫拦截与落盘结果均有断言；根 `devDependencies` 钉 `@deepseek-ai/dsh@0.2.1-rc.3`，`pnpm run test:e2e` 全跑 33/33 退出 0（3 次，5.6–5.8 s），TUI 原端到端改为 `test:e2e:tui`；`pnpm run test` 包内用例面不变。途中发现 `auto-approve` 可选服务缺席时整插件不激活，已追加 §2 #5。
-
-> 2026-10-25 关闭：条目「tool-consult matcher 评估」完成并移出清单（单条提交 `fix(tool-consult): 预览上限对齐 128 并改用真实措辞守护语料`；交付：`oneLine` 上限 80 → 128 且句尾对齐 S1、真实措辞守护语料（44 条实描 + 8 条占位）、`consult_tools` 移出检索索引；`tool-consult` 包级 check / build 通过，`pnpm test` 81 例（80 pass / 1 skip）；未决三项（`task_status` 措辞、守护语料重同步、决策 7 运行时阈值）随条目移交 lint 任务；追踪文档 `docs/archived/2026-10-25-tool-consult-matcher-review.md`）。
-
-> 2026-10-25 关闭：条目「全仓工具描述 lint」完成并移出清单（提交 `0a41f00`；46 个工具描述统一为五字段格式，另修 `ask_user` → `ask_user_question`、补 11 个参数描述，check / build / test 全绿；追踪文档 `docs/archived/2026-10-25-tool-description-lint.md`）。
-
-> 2026-10-25 关闭：条目「定位 clock-base 测试在并行负载下的偶发失败」完成并移出清单（提交 `97b655d`；失败用例为 `clock-base/tests/timers.test.ts:182`，改为假定时器并补「忙时跳过」语义用例，连跑 10 次 25/25 稳定；全仓 93 处等待类用例已排查，无其他同类隐患；追踪文档 `docs/archived/2026-10-25-clock-base-parallel-flake.md`）。
-
-> 2026-10-25 关闭：条目「审阅本项目各工具的描述是否准确合理」完成并移出清单（提交 `e10371d`（46 个工具描述 + 别名表 + 守成测试）与 `30fe04f`（真机验证发现的检索排序退化）；真机 12 条查询预览均达标，追踪文档 `docs/archived/2026-10-24-tool-description-review.md`）。
-
-> 2026-10-25 关闭：条目「behavior-correction 拦截纯只读查看文本的 `sed` / `head` / `tail` 等 bash 命令并指路」完成并移出清单（提交 `75c6efb`；真机：`head` / `cat` / `sed -n` 被拒并指路，`head -c` / `tail -f` / `sed -i` / 重定向 / 管道上游放行；追踪文档 `docs/archived/2026-10-24-behavior-readonly-view-guard.md`）。
-
-> 2026-10-25 关闭：条目「security-guard 黑名单匹配增加命令拆分与命令/参数区分」完成并移出清单（提交 `09e80da`；真机：`echo sudo` / `grep sudo` 放行，`sudo id` / heredoc 喂 shell / `base64 -d | sh` 拒绝；追踪文档 `docs/archived/2026-10-24-security-guard-command-position.md`）。
-
-> 2026-10-25 关闭：条目「新增 `escalation-hint` 插件：补齐「沙箱拒绝但升级提示缺失」的一类问题」完成并移出清单（实现 + 根级接线已随 `031190b` 落地；误报收紧与补齐测试见后续提交；真机端到端：worktree 内 `git add` / `git commit` 被 EROFS 拒 → 同回合收到提示 → 带 `sandbox_permissions: danger-full-access` + `justification` 重试成功，审计两条 `outcome=allowed-once` / `ruleId=git-worktree-commit`，无审批面板；追踪文档 `docs/archived/2026-10-24-escalation-hint-package.md`）。
-
-> 2026-10-24 关闭（不立项）：条目「rule-engine 消费者的 `tool-result` 判定透传结构化上下文」移出清单 —— 查证发现 `tool/result` 会话事件只带 `message` / `error` / `meta`（`agent-loop/src/tool-calls.ts:282-295`），工具返回值不进事件流，透传无从谈起；改由 `tools/post-execute` 直接拿 `exec` + `result.value`，已落在 `escalation-hint`（追踪文档 `docs/archived/2026-10-24-rule-engine-tool-result-context.md`）。
-
-> 2026-10-24 关闭：条目「调研 worktree 内 git 提交的无人值守自动放行路径（越界写升级请求的发起）」完成并移出清单（结论：宿主把升级设计成模型显式发起，沙箱拒绝不发 `approval/request`；叠加 `denied` 靠英文签名判定，本地化报错无提示；a 不可行、b 过重、c 属产品取舍，改走「第 4 条零代码链路 + 提示消费者」；追踪文档 `docs/archived/2026-10-24-worktree-git-escalation.md`；实施拆分为 `escalation-hint` 新包与 `rule-engine` 透传两条）。
-
-> 2026-10-24 关闭：条目「示例 profile 资产对齐当前 fff 的通用配置（去个人化）」完成并移出清单（`profiles/example/cordis.patch.yml` 删 permission / schedule / invariants，补 fff 通用条目，`rule-engine` 只留启用的 `resumed-notice`，个人模型配置以 `PROVIDER` / `MODEL` 占位，`tui.theme` 改 `dark`；同步 `profiles/README.md`、`scripts/install.sh`（full-ask 提示）、`scripts/test-install.sh`（theme 断言）；`scripts/test-install.sh` 98 项通过；追踪文档 `docs/archived/2026-10-24-example-align-fff.md`）。
-
-> 2026-10-24 关闭：条目「安装脚本生成的 profile 与当前 fff 的通用配置对齐」完成并移出清单（实现 `a3f1e3b`：示例 patch 补 theme light / goal 999 / ponytail 停挂，`install.sh` 追加 hmr 生成区（`base` = 仓库根 + `root: ['.']` + 文档忽略，幂等且保留手写 hmr）；`scripts/test-install.sh` 98 项通过；追踪文档 `docs/archived/2026-10-24-install-profile-parity.md`；fff 已由用户执行 `--sync` 生效）。
-
-> 2026-10-23 关闭：条目「`/memory` 的 `replace` 与 `remove` 子命令」完成并移出清单（实现 `02d79c0`、合并 `6ab5b43`；追踪文档 `docs/archived/2026-10-22-memory-edit-subcommands.md`；复核：根 check 通过、memory-base 82/82、TUI 1745/1745；真机验收未做）。
-> 2026-10-23 关闭：条目「其余包接入定时器统一面 `clock`」完成并移出清单（实现 `190ee24`、假时钟与降级用例 `e40f5d0`；追踪文档 `docs/archived/2026-10-22-clock-unified-timers.md`）。
-> 2026-10-23 关闭：条目「MCP 脚本化（mcpScript）」按「不立项」关闭并移出清单（用户 2026-10-23 裁定: 本工作先不做, 等真正需要再做; 设计定稿见 `docs/archived/2026-10-22-mcp-script.md`，重开触发条件与两档预案在该文件）。
-> 2026-10-23 关闭：条目「把 `timer` 包改名为 `clock-base`」完成并移出清单（提交 `2d2fbd4`；追踪文档 `docs/archived/2026-10-23-clock-base-rename.md`）。
-> 2026-10-23 关闭：条目「memory-base 的意图 / 多策略混合检索」完成并移出清单（实现 `28a7a55`、测试 `abc3d14`，74 例全过；追踪文档 `docs/archived/2026-10-22-memory-hybrid-retrieval.md`）。
-> 2026-10-23 关闭：条目「coagent」完成并移出清单（实现 `ca2ee4d` + 测试 `90fd019`（`31/31`）+ 文档 `f9d0262`，合并 `3a99d90`；根级接线 `e99b863`、服务注入修复 `231f26a`；追踪文档 `coagent/docs/archived/2026-10-22-coagent.md`；真机验收通过：`spawn` 4.4 s 认领、`close` 走 `/quit` 子会话下线、服务面与工具面同源，证据见 `docs/archived/2026-10-23-real-machine-verification.md` #12 至 #14）。
-> 2026-10-24 关闭：条目「6. 共享文档与根级接线」完成并移出清单（根四链、`AGENTS.md`、README 双侧、`scripts/*.sh` 枚举、profile 模板全部落地；`~/.dsh/profiles/fff` 现为 dsh-base + 33 个包 = 34 个 bundle；追踪文档 `docs/archived/2026-10-23-new-package-wiring.md`）。
-> 2026-10-24 关闭：条目「7. herdr-use 终端面重构（10 个工具）与共用服务面」完成并移出清单（实现合并 `8de0816`，后台 lane 自动拉起在 `herdr-use/src/background.ts`；真机 #1–#7 通过，未了的 #8 / #9 / #10 记在 `docs/archived/2026-10-23-real-machine-verification.md`；追踪文档 `docs/archived/2026-10-23-herdr-use-terminal-surface.md`）。
-> 2026-10-24 关闭：条目「4. 工具咨询插件（按需揭示工具）」完成并移出清单（实现 + 遮罩接线合并；真机验证：9 核心 + `consult_tools` 生效、揭示链路可用、未揭示调用被拦并给可行动文案；期间修掉 `tools/change` 自激死循环与 3 处工作流文案缺陷，提交 `105bb23` / `4d68858`；包内 49 例通过；追踪文档 `tool-consult/docs/archived/2026-10-22-tool-consult.md`）。
-> 2026-10-22 接取：§2 全部 6 条标〔进行中: 2026-10-22〕，各建追踪文档（`tool-consult` 与 `coagent` 的在新包目录内，其余在 `docs/implementation/`）；本次只建文档，调研与实现未开始。
-
-> 2026-10-27 关闭：条目「安装脚本双 profile：主 profile 走快照安装（`file:`），伴随 `<名>-test` 走软链接」完成并移出清单（提交 `1edb9b2`：主 profile 依赖 `file:` 快照 + 断开 pnpm 硬链接 + 删 up-to-date 标记刷新，伴随 `<名>-test` 依赖 `link:`，两者除协议外内容一致，`--mode` / `--profile-test` / `--no-test-profile`；`scripts/test-install.sh` 117 项通过。真机反馈修复 `4b98016`：`tui.config.json` 补进 TUI `files`，否则快照读不到配置、排列方式回落纵向。追踪文档 `docs/archived/2026-10-27-install-dual-profile.md`；正跑会话仍待用户按需 `install.sh --profile fff --sync` 后重启生效）。
-
-> 2026-10-27 关闭：条目「宿主升级复核：dsh 0.2.1-rc.3 相对 rc.2 的接口变更」完成并移出清单（对比 `dsh-v0.2.1-rc.2..dsh-v0.2.1-rc.3` 6 提交 / 640 文件：进程内接口面零变更，`bundle/base` patch 未变，唯一行为变更是 LLM 官方路由改跟 `/models` 列表；包目录 342 → 343 仅新增 web 专用包。已同步版本口径（`install.sh` 默认版本、`test-install.sh` 7 处、4 个 smoke `REQUIRED_VERSION`、各 README、`TUI/docs/COMMANDS.md`）与宿主面文档（新增 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md`、`HOST-PACKAGES.md` 计数改 rc.3 实测 306 / 295、`DSH-CTX-API.md` rc.3 复核注记、`STATUS.md` / `ARCHITECTURE-REUSE.md` 基线）；本机安装树未升级（仍为 rc.2，升级到 rc.3 待择时，见 `docs/host/HOST-UPGRADE-0.2.1-rc.3.md` §0 与 `STATUS.md` 宿主基线），升级后需复测安装树包计数、`--dump-config` 与编码复核；本仓无代码适配项。`scripts/test-install.sh` 117 项通过。追踪文档 `docs/archived/2026-10-27-host-upgrade-0.2.1-rc.3.md`）。
-
-> 2026-11-04 关闭：条目「`scripts/install.sh` copy 模式装 profile 时的 WARN 噪音」完成并移出清单（用户直接指派, 无独立追踪文档）：`install.sh` 在 copy 模式下维护 profile `pnpm-workspace.yaml` 的 `overrides` 生成区（`# install.sh generated: overrides-begin/end v1`：begin/end 标记幂等, 检测到手写 `overrides` 时不碰, `link` 模式移除该区），把被嵌套 `link:` 引用的 `@dsh-toolset/*` 重写为仓库绝对 `file:` 路径。实测（隔离链接布局的 profile 复现原 WARN）写入生成区后 WARN 消失, 嵌套链接改指 `.pnpm` 里同一份副本, 无多余副本；`pnpm-workspace.yaml` 的「差异只在生成区」也纳入 `--force` 幂等判定；新增 6 条断言, `scripts/test-install.sh` 123 项通过, `check:docs` 0 / 0。
+（当前无未完成项。）
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
