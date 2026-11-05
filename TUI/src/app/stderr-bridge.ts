@@ -7,7 +7,10 @@
  * 边界：
  * - 安装前的写入照旧直写（启动诊断不受影响）；`restore` 后还原原始 write，缓冲残行透传；
  * - 交付期间桥内再写 stderr（例如回合区渲染自身出错）直通原始 write，防递归；
- * - 多参调用形态（encoding / callback）一律透传原始流，避免破坏回调契约；
+ * - 带回调的形态（`write(chunk, cb)` 与 `write(chunk, encoding, cb)`）照常接管，交付后
+ *   异步回调；Node 的 `console.*` 走的就是 `write(text, cb)`，早先按「多参一律透传」处理
+ *   导致宿主的 console 日志整批绕过桥（过滤与回合区都收不到，2026-11-05 修）；
+ * - 其余多参形态（如 `write(chunk, encoding)`）仍透传原始流，避免破坏流契约；
  * - 只接管 stderr；stdout 是渲染器通道，不动。
  */
 
@@ -51,8 +54,25 @@ export function isSuppressedHostLog(line: string): boolean {
 }
 
 /**
+ * 识别 Node 写流的回调形态：`write(chunk, cb)`（`console.*` 即此形态）与
+ * `write(chunk, encoding, cb)`。
+ * @param rest - `write` 除 chunk 外的实参。
+ * @returns 回调；非回调形态（如仅 encoding）→ `undefined`，由调用方透传。
+ */
+function writeCallback(
+  rest: unknown[],
+): ((error?: unknown) => void) | undefined {
+  const last = rest[rest.length - 1];
+  if (typeof last !== "function") return undefined;
+  const shapeOk =
+    rest.length === 1 || (rest.length === 2 && typeof rest[0] === "string");
+  return shapeOk ? (last as (error?: unknown) => void) : undefined;
+}
+
+/**
  * 安装桥：替换 `target.write`，按 `\n` 分行把完整行交给 `sink`。
  * 命中 {@link isSuppressedHostLog} 的行直接丢弃（只影响显示，不改宿主行为）。
+ * 回调形态的写入照样按行接管，交付后异步回调（成败按流语义交给回调，不向调用方抛）。
  * @param sink - 完整行交付口（App 侧入回合区）。
  * @param target - 被接管的流（缺省 `process.stderr`；测试传假流）。
  * @returns 还原句柄（App dispose 时调用）。
@@ -64,11 +84,9 @@ export function installStderrBridge(
   const original = target.write.bind(target);
   let buffer = "";
   let delivering = false;
-  target.write = (chunk: unknown, ...rest: unknown[]): unknown => {
-    if (delivering || rest.length > 0) {
-      return (original as (...args: unknown[]) => unknown)(chunk, ...rest);
-    }
-    buffer += String(chunk);
+  /** 按行切分并交付（未成行残行留在 buffer）。 */
+  const deliver = (text: string): void => {
+    buffer += text;
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
     for (const line of lines) {
@@ -80,6 +98,23 @@ export function installStderrBridge(
         delivering = false;
       }
     }
+  };
+  target.write = (chunk: unknown, ...rest: unknown[]): unknown => {
+    const callback = writeCallback(rest);
+    if (delivering || (rest.length > 0 && callback === undefined)) {
+      return (original as (...args: unknown[]) => unknown)(chunk, ...rest);
+    }
+    if (callback === undefined) {
+      deliver(String(chunk));
+      return true;
+    }
+    try {
+      deliver(String(chunk));
+    } catch (error) {
+      queueMicrotask(() => callback(error));
+      return true;
+    }
+    queueMicrotask(() => callback());
     return true;
   };
   return {
