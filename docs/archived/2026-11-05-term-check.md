@@ -1,6 +1,6 @@
 # 术语自动审查插件 term-check（接取条目：docs/BACKLOG.md「术语自动审查插件 `term-check`」）
 
-状态：调研　　开启：2026-11-05　　关闭：
+状态：已关闭　　开启：2026-11-05　　关闭：2026-11-06
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 ## 目标
@@ -167,16 +167,53 @@ term-check/
 
 ## 实现记录
 
-（待写）
+按计划第 0 节的 8 步执行，顺序与判据当时即验：
+
+1. **建包骨架**（`term-check/package.json` / `tsconfig.json` / `cordis.patch.yml`）：`dsh.bundle.patch` 指向的 `cordis.patch.yml` 存在，`insert` 条目 id `term-check`、缺省开启；`check` 脚本 `tsc -p tsconfig.json --noEmit`；`gen:glossary` / `check:glossary` / `test` / `test:coverage` 与既有轻量包同款。`LICENSE` 从 `md-table-check/LICENSE` 复制（`check:docs` 的 `pkg.structure` 要求 `files` 列出的 `LICENSE` 存在）。
+2. **快照生成**（`term-check/scripts/gen-glossary.mjs` + `term-check/src/glossary.generated.ts`）：脚本 import `dev/standard/rules.mjs` 的 `loadGlossary`，把行压成 `{from,to,note,isInterface,conditional}` 并在 `/* prettier-ignore */` 数组里逐行写 JSON（格式化不会改动该数组, `--check` 才能逐行比对）；`--check` 与 `--root <目录>` 供守成测试用。首次生成输出 `wrote src/glossary.generated.ts (20 rows)`。
+3. **判定核心**（`term-check/src/checker.ts`）：纯函数、零 IO（无 `node:fs` / `node:process`）；`checkTerms` 行内扫描、行外跳过（豁免标记 / 条件型 / 已知误配），同一旧称每回合只记首次；`renderFeedback` 产出文案与 `summary`。上限口径沿用 `md-table-check`（`0` = 不限）。
+4. **判定单测**（`term-check/tests/checker.test.ts`）：16 例，覆盖计划 §5 的命中 / 条件型 / 误配 / 豁免 / 代码块照判 / 去重 / 空输入 / 上限 / `maxHits: 0` / 「落点」文案 / 注入措辞。
+5. **接线**（`term-check/src/index.ts` + `term-check/tests/main.test.ts`）：`inject = ["ruleEngine"]`，`registerConsumer({id: "term-check", sources: ["assistant-text"], delivery: "followup", dedupeInRecord: 1})`；`enabled: false` 仍注册但 `decide` 恒 `null`；`ctx.ruleEngine` 缺席或注册抛错只写 stderr 告警并返回空 dispose。8 例。
+6. **快照守成**（`term-check/tests/glossary.test.ts`）：4 例 —— `--check` 通过、反向验证（临时根里给 GLOSSARY 加一行后 `--check` 退出码 1）、豁免标记 / 已知误配与 `rules.mjs` 同口径、快照行数等于表行数。
+7. **构建**：`dist/src/{index,checker,glossary.generated}.js` 与 `.d.ts` 齐全；`import('./dist/src/index.js')` 打出 `apply,inject,name,resolveConfig`。
+8. **根级接线**：根 `package.json` 的 `check` / `build` 链各追加 `pnpm -C term-check run …`；`scripts/install.sh` 的 `canonical_pkgs` 与 `scripts/test-parallel.sh` 的 `default_pkgs` 追加 `term-check`（两者同序）；`AGENTS.md`（插件计数 33 → 34、两处包清单、插件描述行、`DESIGN.md` 轻量包清单）；根 `README.md` / `README.zh.md`（组成表一行、目录树一行、两处计数）；本包 `README.md`。
+
+**计数基线**：`dev/standard/index.mjs:119-157` 的 `checkCounts` 把「34 个包 / 33 个插件」写死在判定里，新增包后必须同步（只改数字, 不改判定逻辑）；根 `README`、`AGENTS.md`、`docs/ROADMAP.md`、`docs/WORKFLOW-STANDARD.md`、`md-logic/README.md`、`security-guard/README.md` 的同一口径一并改到 35 / 34，否则 `check:docs` 报红。
 
 ## 偏差
 
-（待写）
+| 计划 | 实际 | 原因 |
+| --- | --- | --- |
+| 快照 24 行（`docs/GLOSSARY.md:41-62`） | 20 行 | 该区间实际是 20 个表格行（41 行是表头、42 是分隔行）；`loadGlossary` 逐行返回，断言以运行结果为准 |
+| `tests/tsconfig.json` 单独一份 | 不建 | 与 `escalation-hint` 同款：单份 `tsconfig.json` 的 `include: ["src", "tests"]` 已覆盖 `check` 与 `build`，少一份配置少一处漂移 |
+| `pnpm-workspace.yaml` 若为显式枚举则追加 | 不改 | 该文件无 `packages:` 字段（子包各自独立 install + lockfile），无需登记 |
+| `profiles/example/*` 按需追加挂载行 | 不改 | 示例 profile 只挂子集（且未挂 `rule-engine`）；本包无 `rule-engine` 时不注册，追加挂载只会多一条无效行 |
+| 不改 `dev/standard` 的行为 | 仅改 `checkCounts` 的基线数字 34/33 → 35/34 | 基线是写死的数字，新增包必须同步；术语 / 符号 / 注释路径等判定逻辑未动 |
+| — | 额外改 `docs/ROADMAP.md`、`docs/WORKFLOW-STANDARD.md`、`md-logic/README.md`、`security-guard/README.md` 的包数 | `check:docs` 的 `count.packages` / `count.plugins` 要求全仓口径一致 |
+
+实现中修掉的两处自身问题：
+
+- `--check` 首次报 `SyntaxError: Unexpected token ']'` —— 快照数组每行行尾带逗号，整段 `JSON.parse` 不合法；改为逐行 `JSON.parse`（去行尾逗号）。
+- `check:docs` 报本包测试与 README 的术语命中（旧称本来就是要命中的对象）；测试改为顶部常量（行尾标「旧称」），README 相关句子补「旧称」措辞，判定逻辑不变。
 
 ## 测试与证据
 
-（待写）
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 类型检查（本包） | `pnpm -C term-check run check` | 通过（`tsc --noEmit`，0 错） |
+| 单元测试（本包） | `pnpm -C term-check run test` | `tests 28 / pass 28 / fail 0` |
+| 快照一致性 | `pnpm -C term-check run check:glossary` | `ok: 快照与 GLOSSARY 一致（20 行）` |
+| 反向验证 | 测试内临时根加一行后 `--check` | 退出码 1，stderr `快照与 docs/GLOSSARY.md 不一致` |
+| 构建（本包） | `pnpm -C term-check run build` | `dist/src/index.js` 等 6 个产物齐全 |
+| 产物导出 | `import('./term-check/dist/src/index.js')` | `apply,inject,name,resolveConfig` |
+| 全仓类型检查 | `pnpm run check` | 通过（35 个子包） |
+| 文档标准 | `pnpm run check:docs` | `✓ check:docs 通过: 113 篇现行 Markdown / 907 个 .ts, 规则 0 项, 错误 0 / 警告 0` |
+| 格式化 | `format <改动文件>` | 无残留改动（`glossary.generated.ts` 因 `prettier-ignore` 保持不变） |
+
+**未验证**：真机注入（需重启会话并让插件进 profile）—— 属可选步骤，见计划 §7 第 4 条；本仓无自动化手段覆盖「宿主 rule-engine 实际注入回模型」这一段。
 
 ## 收尾
 
-（待写）
+- `docs/BACKLOG.md` 移除「术语自动审查插件 `term-check`」条目（其余条目不动）。
+- 本追踪文档移入 `docs/archived/`。
+- 未回写 `docs/STATUS.md`（用户择时更新）。
