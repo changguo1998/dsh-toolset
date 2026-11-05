@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 34 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 35 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -46,6 +46,7 @@ The repository contains the `TUI/` terminal UI package and 34 in-process plugins
 | **coagent** | Long-lived agent launcher: creates a terminal through the `herdrUse` service surface, submits `fffdsh` in its interactive shell, claims the new dsh session via session-channel `peers`, and returns `terminal_id` / `session_id`; scope is launch and shutdown only — task dispatch and orchestration stay in session-channel and agent-group; rolls back the terminal on launch failure and keeps `failed` records with a screen digest |
 | **tool-consult** | On-demand tool revelation: the model describes what it wants to do, `consult_tools` matches tools by keyword index and returns name plus one-line summary, and reveals the hits to the current session (host `tools.restrict` mask + single active-mask replacement); only 9 core tools stay visible by default; consultation is authorisation, revelation is monotonic within a session (`revealScope: session`) or bounded to one turn (`turn`, with `ttlTurns` / `pin`); calling a masked tool returns an actionable "consult first" message; any failure (no agent scope, `restrict` throws, name mismatch, empty intersection) degrades to "no mask" instead of breaking the session |
 | **term-check** | Reply-body terminology check: a rule-engine consumer on `assistant-text` scans the reply for banned terms from the `禁止术语` table and injects one correction hint (`followup`, deduplicated once per session) asking the model to restate the reply with the approved wording. The table ships as a build-time snapshot (`pnpm run gen:glossary`, produced by the same `loadGlossary` that `check:docs` uses), so the plugin also works outside this repository; conditional terms (`模块` / `工具集` / `收口`), lines carrying an exemption marker (`原名` / `旧称` / `历史对照` / `不再使用`) and the known false positive (`回归` inside `夺回归属`) are skipped. Code masking is off by decision, so quoting a banned term as an example may trigger one hint — the injected text says such a case can be ignored. Report-only: never edits the reply or any file |
+| **pin-note** | Cross-compaction pinning: the model calls `pin_note` to register a note (≥ 20 chars) into this session's memory tier; on every `agent/pre-step` the plugin folds the current notes into `decision.messages` (user-role message, custom `source: pin-note`) and keeps a single copy in `agent.inbox`, comparing payloads (content + source) so the same text is not appended twice. Compaction drops the message from the projection, so the next step reinserts it — that is what keeps the note present across `/compact`. `note_list` / `note_remove` manage the notes; the total is suggested to stay under 10K chars (hint only, no hard cap); scope is session-tier only and the session ends with it. Degrades to a warning when `ctx.memory` or the `pin` kind registration is unavailable |
 | **escalation-hint** | Sandbox-escalation hint backfill: subscribes the host `tools/post-execute` waterfall and, when a call was denied by the sandbox but the host rendered no `[sandbox: escalation available …]` hint (the `denied` flag is computed from English stderr signatures, so localized errors miss it), appends one user-role message via `additionalContexts` telling the model to retry the same call once with `sandbox_permissions` + `justification`; three-layer predicate (existing hint → skip; host `[sandbox: file access denied under <mode> mode]` / `FS_SANDBOX_DENIED` → hint; otherwise structured `exitCode` + `sandbox.mode` + write-shaped command) covers `bash` / `pwsh` and `write` / `edit` / `str_replace_editor`; hints only, never blocks |
 Every package's `package.json` carries the `dsh.bundle` integration contract along with a `cordis.patch.yml`; see each package's `README.md` for feature details and `docs/STATUS.md` for development status.
 
@@ -88,6 +89,7 @@ dsh-toolset/
 ├── tool-consult/         # on-demand tool revelation (keyword index + tools.restrict mask; consult is authorisation)
 ├── escalation-hint/      # sandbox-escalation hint backfill (tools/post-execute + additionalContexts; hints only)
 ├── term-check/           # reply-body terminology check (rule-engine consumer; glossary snapshot; report-only)
+├── pin-note/             # cross-compaction pinning (pin_note / note_list / note_remove; per-step injection)
 ├── profiles/             # profile config examples (example: manifest + user-layer patch + pnpm trio; see profiles/README.md)
 ├── scripts/              # install.sh (one-shot install on a new machine); test scheduler
 ├── docs/                 # status table, backlog, agent composition notes, architecture comparison and host package list
@@ -117,7 +119,7 @@ Inside a single subpackage you can run its own `pnpm run check / build / test / 
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 35 packages: TUI + 34 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 36 packages: TUI + 35 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset

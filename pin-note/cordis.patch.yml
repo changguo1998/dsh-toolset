@@ -1,0 +1,9 @@
+# pin-note 插件的 dsh bundle 声明。
+# 本包缺省开启：注册三个模型侧工具（pin_note / note_list / note_remove），
+# 并在 agent/pre-step 每步把本会话的「跨压缩保持项」折叠进本步消息（inbox 只留一条）。
+# 依赖 memory-base（写句柄 + 会话层读面）与 tools 注册面；服务缺席时只告警、不注册。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段：
+#   enabled / maxNotes（缺省见 src/index.ts 的 resolveConfig）。
+- insert:
+    - id: pin-note
+      name: '@dsh-toolset/pin-note'
