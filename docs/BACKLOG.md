@@ -99,6 +99,16 @@
   - **验收**: 内容登记后经手动压缩仍每轮出现在模型可见上下文; 多条 pin 去重 / 上限 / 删除有效; 与 memory-base / goal / todo 分工明确、互不挤占; 解挂插件后无残留注入。
   - 来源: 2026-11-05 用户提出（论证见本条上下文: 压缩机制与"模型可见投影"限界）; 宿主侧依据: `dsh-agent-instructions` / `dsh-goal-round-driver` / `dsh-tool-goal` / `dsh-tool-todo` / `dsh-session` / `dsh-compaction-basic`（`docs/host/DSH-CTX-API.md` 与 `docs/host/HOST-PACKAGES.md`）。
 
+- **术语自动审查插件 `term-check`**（模型输出用词自动审查: 出现被禁术语就注入更正文字, 类似 `symbol-normalizer` 的符号规范操作; 跨包（rule-engine 消费者 + 术语数据源）; 优先级 P2 待确认, 命名待定）
+  - **现状**: 术语表 `docs/GLOSSARY.md` 已有「禁止术语」三列表（被禁止 / 应当使用 / 对应情况）, 由 `dev/standard` 的 `term.replace` / `term.interface` 规则做**文档静态检查**; 但**模型回帖正文**不受此约束 —— 没有机制检查 assistant 输出是否误用被禁术语, 误用只在人工阅读时暴露。
+  - **期望**: 新增插件（或在现有插件上扩展）, 让 agent 自动检查模型输出中的术语: 命中「禁止术语」表的词时, 按表里「应当使用」给出更正文字, 注入回模型要求其更正后重发。机制对齐 `symbol-normalizer`（符号规范: 展示归一 + 回合审查）与 `md-table-check`（表格列数: rule-engine 消费者 + `assistant-text` 唤醒 + `delivery: "followup"` 注入 + 只报不改）。
+  - **候选路线（接取时裁定）**:
+    1. **新建插件 `term-check`**（推荐）: rule-engine 消费者, 唤醒节点 `assistant-text`, `delivery` 沿用 `"followup"`, 只报不改; 数据源复用 `docs/GLOSSARY.md`「禁止术语」表（运行时解析, 与 `dev/standard/rules.mjs` 的解析口径对齐）。
+    2. 在 `md-table-check` 上扩展（改包职责, 与包名不符, 不推荐）。
+    3. 在 `symbol-normalizer` 上扩展（符号与术语混管, 职责混杂, 不推荐）。
+  - **验收**: 模型回帖含被禁术语（如「回归」指行为变差、界面旧称）时, 下一回合收到包含"应当使用 X"的更正注入; 不含被禁术语时零注入; 条件型术语（模块 / 工具集 / 收口）不误报; 与 `dev/standard` 的 GLOSSARY 解析同源、不漂移; `delivery` / 去重 / 上限行为与 `md-table-check` 一致。
+  - 来源: 2026-11-05 用户提出（类比符号规范: 展示归一 + 回合审查, 参照 `md-table-check`）; 依据: `docs/GLOSSARY.md`、`md-table-check/README.md`、`symbol-normalizer/README.md`。
+
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >
