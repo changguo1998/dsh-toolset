@@ -1,6 +1,6 @@
 # 标准流程固化插件 flow-track（接取条目：docs/BACKLOG.md「标准流程固化插件 `flow-track`」）
 
-状态：调研 / 决策（进行中）　　开启：2026-11-05　　关闭：
+状态：已关闭　　开启：2026-11-05　　关闭：2026-11-06
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 ## 目标
@@ -188,16 +188,52 @@ flow-track/
 
 ## 实现记录
 
-（待写）
+按计划 §10 的顺序：`stages.ts` + `status.ts`（纯函数）→ `store.ts` → `observe.ts` → `inject.ts` → `tools.ts` + `index.ts` → 根级接线。
+
+| 文件 | 内容 |
+| --- | --- |
+| `flow-track/src/stages.ts` | 八阶段常量（`index` / `name` / 单动作 `spec` / `acceptance` / `gate` / `deps`）+ `stageNames` / `stageAt` / `stageOfTitle`（按标题前缀匹配）+ `renderStages`（注入文本，含前置与提交询问点一句话） |
+| `flow-track/src/status.ts` | `currentStage(snapshot)`：帧栈末位 → 先序展平的 id→标题 → 阶段；`renderStatus` 给「当前阶段 N/8 名称 / 门禁 / 本阶段要求 / 下一步」 |
+| `flow-track/src/store.ts` | `FlowStore`：`registerKind({kind:"flow", writableTiers:["project"]})`；`record({slug, stage, status, body})` 写 `title = <slug>@<阶段>`、`content = 状态行 + 正文`；`list({slug, limit})` 经全局面 `list` 读回并翻成时间正序；不合格式的标题一律忽略 |
+| `flow-track/src/observe.ts` | `WriteObserver`：按会话记「本轮有写类工具调用」与最后一次工具名；写类清单 8 个、只读清单 5 个（显式排除） |
+| `flow-track/src/inject.ts` | `decideText`：状态段 + 模板段（仅无阶段树且有写类调用）+ 合规段 + 最近记录；`renderCompliance` 在已有流程记录时不提示 |
+| `flow-track/src/tools.ts` | `flow_record`（写记录、写后清本会话观测并刷新注入缓存）、`flow_status`（阶段 + 最近记录）；缺会话 id / 坏 status / 坏 slug 各自返回可读错误 |
+| `flow-track/src/index.ts` | `inject = ["ruleEngine"]`；工具注册 + `session/event` 记账 + 消费者注册（`sources = turn-start / user-message`、`delivery = inject`、`dedupeInRecord = 0`、`summary = 流程推进`）；`memory` / `taskEngine` 用 `ctx.get` 探测并按缺席降级；返回 dispose 注销消费者与事件订阅 |
+
+**同步 `decide` 带来的实现选择**：rule-engine 的 `decide` 必须是同步函数，而读库 `store.list` 是异步的，故注入里的「最近记录」来自缓存 —— 挂载时、`flow_record` 写入后、每次 `session/event` 各刷新一次（`void refresh()`）。
+
+根级接线：根 `package.json` 的 `check` / `build` 链、`scripts/install.sh` 的 `canonical_pkgs`、`scripts/test-parallel.sh` 的 `default_pkgs`（接在 `pin-note` 之后，两者同序）；`dev/standard/index.mjs` 计数基线 36/35 → 37/36；`AGENTS.md`（插件计数、两处包清单、插件描述行、轻量包清单）、根 `README.md` / `README.zh.md`（组成表一行、目录树一行、两处计数）、`docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `md-logic/README.md` / `security-guard/README.md` 的同一计数口径。
 
 ## 偏差
 
-（待写）
+| 计划 | 实际 | 原因 |
+| --- | --- | --- |
+| `decide` 内读库（`store.list`） | 读缓存，三处刷新（挂载 / 写入 / 事件） | rule-engine 的 `decide` 明确是**同步**（`consumers.ts:49`），不能 await；不改 rule-engine，只能用缓存 |
+| `tests/tsconfig.json` 单独一份 | 不建 | 同 `term-check` / `pin-note`：单份 `tsconfig.json` 已够 |
+| `pnpm-workspace.yaml` / `profiles/example/*` | 不改 | 无 `packages:` 字段；示例 profile 只挂子集，不挂 `rule-engine` |
+| 计划 §8 的「`decide` 四类输入组合」 | 落地为 `inject.test.ts` 8 例（新增「长正文截断」「空正文」两例） | 判据不变，多补两处边界 |
+| 计划未定 `slug` 缺省 | 工具缺 `slug` 时用会话 id 兜底 | 避免模型每次都要现造标识；显式给 `slug` 仍优先 |
+| 计划 §6 说工具两个即可 | 另加：写成功后 `observer.reset(sessionId)` | 否则「已经有流程记录」要到下一轮才让合规提示消失 |
+
+额外改动：`dev/standard/index.mjs` 的计数基线（三个新包同因）；`flow-track/README.md` 一处措辞避开术语表的旧称「落点」。
 
 ## 测试与证据
 
-（待写）
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 类型检查（本包） | `pnpm -C flow-track run check` | 通过（0 错） |
+| 单元测试（本包） | `pnpm -C flow-track run test` | `tests 49 / pass 49 / fail 0`（阶段 6 + 状态 7 + 存储 7 + 观测 6 + 注入 8 + 接线 15） |
+| 构建（本包） | `pnpm -C flow-track run build` | `dist/src/*.js` 与 `.d.ts` 齐全 |
+| 产物导出 | `import('./flow-track/dist/src/index.js')` | `apply,inject,name,resolveConfig` |
+| 全仓类型检查 | `pnpm run check` | 通过（37 个子包） |
+| 文档标准 | `pnpm run check:docs` | `✓ check:docs 通过: 115 篇现行 Markdown / 928 个 .ts, 规则 0 项, 错误 0 / 警告 0` |
+| 格式化 | `format <改动文件>` | 无残留改动 |
+
+**未验证**：真机跑通一次标准流程（建八阶段树 → 注入当前阶段 → 提交询问走 human 门禁），需重启会话并让插件进 profile；本仓自动化只覆盖到替身级（假 `taskEngine` 快照 / 假 memory-base / 假事件）。
 
 ## 收尾
 
-（待写）
+- `docs/BACKLOG.md` 移除「标准流程固化插件 `flow-track`」条目（此后 §2「未完成项」为空）。
+- 本追踪文档移入 `docs/archived/`。
+- 未回写 `docs/STATUS.md`（用户择时更新）。
+- 决策项 3 = b（追踪文档全文入库）的文档体系改动仍按当时口径**另开任务**，不在本次范围。

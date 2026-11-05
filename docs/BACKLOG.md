@@ -64,17 +64,6 @@
 
 ## 2. 未完成项
 
-- **标准流程固化插件 `flow-track`**（把「标准流程各阶段」经 task-engine 建成阶段树, 流程正文与状态落 memory-base, 回合边界经 rule-engine 消费者注入模板与检查; 命名 2026-11-05 定稿 `flow-track`, 动词+对象风格与 `pin-note` / `term-check` 同构; 跨包（新插件 + task-engine + memory-base + rule-engine）; 优先级 P2; 状态: 进行中(2026-11-05 接取)）
-
-  - **现状**: 标准流程（`docs/WORKFLOW-STANDARD.md` / `AGENTS.md`）是文档规范 + agent 自觉, 无强制机制——登记 / 建追踪文档 / 过程中只写追踪文档 / 收尾归档 / 提交询问点全靠模型自律; task-engine 可承载流程状态机（`decompose` + `deps` 顺序 + RET 验收, human 验收走 `approval.request` = 提交询问点）, 但无每轮注入与合规检查; memory-base **不注册写工具**（模型只有只读 `memory_query`, 写权限留在各扩展的 `registerKind` 句柄——模型侧写通道必须由本插件补）; rule-engine 提供消费者（注入 / guard）与 `agent/pre-step` 注入面。
-  - **期望**: 新插件 `flow-track`, 三件组合——① task-engine 骨架: 根第一层分解 = 标准流程各阶段（目标 / 调研 / 决策 / 规划 / 实现 / 测试 / 审查 / 收尾, 八阶段）, 各帧 `deps` 指前序、`acceptance` 设门, 审查与提交询问走 human 验收; ② memory-base 存储: `registerKind` 注册流程 kind（P 层 project 库）, 插件注册模型侧写工具, 追踪文档正文与流程状态落库, 与 task-engine 的 `plan/*` 事件（执行记录）并存互补; ③ rule-engine 消费者: 回合边界注入阶段模板 / 检查合规（改源码未登记、轮内未写追踪文档）/ 注入当前推进状态。粒度适配: 阶段帧 spec 写单动作（无「首先 / 然后 / 第 n 步」步骤标记、无实现细节, 防过细 / 越级打回）, 数量 8 ≤ 8 免枚举来源, coverage 覆盖根契约验收。
-  - **候选路线（接取时裁定）**:
-    1. 阶段模板来源: a. 模型照注入模板手动 `task_decompose`（零改引擎, 工具面现成; 推荐先落地）; b. 插件回合边界自动 `TaskEngine.decompose`（需 import 引擎内核, 或扩 `taskEngine` 服务面暴露写方法——现服务面只读 `query` / `frameStack`）。
-    2. 大 / 小流程分流: 标准流程走阶段树, 小改动（快速流程: 免条目免追踪文档）不建树; 分流判据接取时定。
-    3. 固化强度: 软（rule-engine 注入提醒）→ 中（每轮注入推进状态）→ 硬（guard 拦截未走流程的源码 / 文档改动）; 接取时定档。
-  - **验收**: 接取一次标准流程变更, 阶段树按 `deps` 顺序依次推进, 提交询问以 human 验收呈现; 追踪文档正文与流程状态可从 memory-base 读出; 不建树的小改动不受干扰; 全量 `pnpm run check` / `test` / `check:docs` 全绿。
-  - 来源: 2026-11-05 用户提出（task-engine 承载流程分解讨论定稿, 命名 `flow-track`）; 依据: `task-engine/README.md`、`memory-base/README.md`（不注册写工具口径）、`rule-engine/README.md`（消费者 / guard / 注入面）、`docs/WORKFLOW-STANDARD.md`。
-
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
