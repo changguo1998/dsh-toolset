@@ -82,6 +82,21 @@
   - **验收**: 插件会话级配置对所有"请求可调但宿主无入口"参数生效（温度 / stop / 思考预算 / 回合预算）; 真机会话观察到推理 / 输出被预算约束、到顶即止且不无界思考; 大目标可按小步逐拍推进, 不出现"长推理一次性做大步"。
   - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` / `dsh-llm` README 与 `dsh-llm/lib/types/call-config.d.ts`（见 `docs/host/HOST-PACKAGES.md`）。
 
+- **跨压缩上下文保持插件 `pin-note`**（模型可调用工具, 把内容登记为"跨压缩保持", 每轮重注入到模型可见上下文; 命名 2026-11-05 定稿 `pin-note`, 工具名 `pin_note` / `note_list` / `note_remove`; 跨包 / 宿主面, 优先级 P2 待确认）
+  - **现状**: 宿主**没有通用 pin 工具**——压缩把 shadowed 历史节点替换成摘要节点, 历史内内容随压缩消失; 现成"跨压缩保持"通道只有四类（已核实源码）:
+    1. 每轮重注入（`agent-instructions` 的 AGENTS.md 走 `agent/pre-step` + inbox, 被压缩后重新读盘注入）;
+    2. 步骤级附加上下文（`tools/post-execute` 返回 `additionalContexts`, 不进会话日志, 天然免压缩; 本仓 `escalation-hint` 同通道）;
+    3. system prompt 组装面（`ctx.systemPrompt` 的 section / context / variable / tools / assemble, 每轮组装）;
+    4. 豁免区（surface node 0 的 `system/message` 永不进压缩区, `dsh-compaction-basic/lib/index.js:396-432`）。
+    - 模型**能主动写**的只有 goal（objective 由 `goal-round-driver` 每轮经 `agent.inbox.prepend("next-step", ...)` 重注入, `dsh-goal-round-driver/lib/index.js:104,143-144`; 注入靠 inbox + goal 投影, 不靠 surface 历史, 压缩后依然每轮送达）; `todo_write` 走 `todos` sessionProjections（`dsh-tool-todo/lib/index.js:80-94`）, 需消费方组装才到模型; `present` 只记交付路径不保原文。宿主"模型可见投影"（`registerMessageProjection`, `dsh-session/lib/index.js:32`）只改派生消息、不改节点成员, 节点被压缩后派生随之消失, 本身不提供免压缩。
+  - **期望**: 自研一个插件, 注册模型侧写 / 读 / 删工具, 让模型把任意内容登记为"跨压缩保持"; 内容持久化在插件自有存储（候选 memory-base, 有隐私闸 / 容量 / 三层分级）, 每轮经 `agent/pre-step` 把登记内容重注入到模型可见上下文（照 goal-round-driver / agent-instructions 同款通道）, 使内容跨压缩依然在场。
+  - **候选路线（接取时裁定）**:
+    1. **存储复用 memory-base + 注入走 `agent/pre-step`**: 写工具落 memory-base（S 层, 隐私闸 / 容量现成）, 每轮 `agent/pre-step` 读回并 `inbox` / 附加进 `decision.messages`; 改动最小, 与记忆体系共享生命周期。工具名（定稿）: `pin_note` / `note_list` / `note_remove`。
+    2. 自建 `sessionProjections` 单元 + `agent/pre-step` 重注入: 存储与记忆库解耦, 但重复实现持久化 / 容量 / 隐私边界。
+    3. 复用 goal 域: 只适合单目目标, 不适合任意内容登记, 不推荐。
+  - **验收**: 内容登记后经手动压缩仍每轮出现在模型可见上下文; 多条 pin 去重 / 上限 / 删除有效; 与 memory-base / goal / todo 分工明确、互不挤占; 解挂插件后无残留注入。
+  - 来源: 2026-11-05 用户提出（论证见本条上下文: 压缩机制与"模型可见投影"限界）; 宿主侧依据: `dsh-agent-instructions` / `dsh-goal-round-driver` / `dsh-tool-goal` / `dsh-tool-todo` / `dsh-session` / `dsh-compaction-basic`（`docs/host/DSH-CTX-API.md` 与 `docs/host/HOST-PACKAGES.md`）。
+
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >
