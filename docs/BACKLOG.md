@@ -64,26 +64,7 @@
 
 ## 2. 未完成项
 
-- **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认）
-
-  - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
-  - **请求参数与入口对照**（`LlmCallConfig` 全字段, `dsh-llm/lib/types/call-config.d.ts`）:
-    - `provider` / `model`（路由）: 会话层**有**入口（`AgentOptions` / `agent-default-model`）
-    - `reasoningEffort`: 会话层**有**入口（`AgentOptions.reasoningEffort` / `agent-default-model`）
-    - `maxTokens`: 会话层**有**入口（`AgentOptions.maxTokens` / `llm-pi-ai` 模型级 / `task-engine` 预算）
-    - `temperature`: 会话层**无**入口（`AgentOptions` 无此字段; DeepSeek 推理模型下服务端忽略该值）→ 插件补
-    - `stop`: 会话层**无**入口 → 插件补
-    - 思考预算（`llm-pi-ai` 的 `thinkingTokenBudgetField` / `$var: thinking.budget`, 自托管网关支持时）: profile 路由级可配、无会话级入口 → 插件补
-    - 回合 / 步骤预算: 宿主无内置 → 插件补
-  - **期望**: 自研一个**会话级请求参数调整插件**: 任一请求层可调但宿主未提供入口的参数都经它按会话可配, 并支持"推理一小步 → 执行一小步"的回合预算控制, 回合内无界思考到顶即止。
-  - **候选路线（接取时裁定）**:
-    1. 配置级（近期）: `agent-default-model` 的 `reasoningEffort` + `llm-pi-ai` 各模型 `maxTokens` 调参, 验证对 tollgate 路由的实际约束效果（留意 `finish=max-tokens` 截断正文的风险）。
-    2. 编排级（中期）: 目标拆小 + goal 回合制（`goal-round-driver` 一轮一拍, 且回合因 max-tokens 结束时停续）+ `task-engine` 小叶子预算（每次请求上限）, 用回合边界形成小步节奏。
-    3. 插件级（远期, 正规）: **通用请求参数调整插件** - 采样字段（`temperature` / `stop` / 思考预算等）挂 `ConfigureCall`（请求冻结前改写点, `dsh-llm/lib/types/call-config.d.ts:36`, 请求头 `LlmCallConfig` 同构）注入; 回合预算挂官方指定的 `agent/turn-stopping` 扩展点; 思考预算在自托管网关支持时透传 `thinkingTokenBudgetField` / `$var: thinking.budget`; 参数范围随 `LlmCallControls` 追加而扩。
-  - **验收**: 插件会话级配置对所有"请求可调但宿主无入口"参数生效（温度 / stop / 思考预算 / 回合预算）; 真机会话观察到推理 / 输出被预算约束、到顶即止且不无界思考; 大目标可按小步逐拍推进, 不出现"长推理一次性做大步"。
-  - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` / `dsh-llm` README 与 `dsh-llm/lib/types/call-config.d.ts`（见 `docs/host/HOST-PACKAGES.md`）。
-
-- **跨压缩上下文保持插件 `pin-note`**（模型可调用工具, 把内容登记为"跨压缩保持", 每轮重注入到模型可见上下文; 命名 2026-11-05 定稿 `pin-note`, 工具名 `pin_note` / `note_list` / `note_remove`; 跨包 / 宿主面, 优先级 P2 待确认）
+- **跨压缩上下文保持插件 `pin-note`**（模型可调用工具, 把内容登记为"跨压缩保持", 每轮重注入到模型可见上下文; 命名 2026-11-05 定稿 `pin-note`, 工具名 `pin_note` / `note_list` / `note_remove`; 跨包 / 宿主面, 优先级 P2 待确认; 状态: 进行中(2026-11-05 接取)）
 
   - **现状**: 宿主**没有通用 pin 工具**——压缩把 shadowed 历史节点替换成摘要节点, 历史内内容随压缩消失; 现成"跨压缩保持"通道只有四类（已核实源码）:
     1. 每轮重注入（`agent-instructions` 的 AGENTS.md 走 `agent/pre-step` + inbox, 被压缩后重新读盘注入）;
@@ -99,7 +80,7 @@
   - **验收**: 内容登记后经手动压缩仍每轮出现在模型可见上下文; 多条 pin 去重 / 上限 / 删除有效; 与 memory-base / goal / todo 分工明确、互不挤占; 解挂插件后无残留注入。
   - 来源: 2026-11-05 用户提出（论证见本条上下文: 压缩机制与"模型可见投影"限界）; 宿主侧依据: `dsh-agent-instructions` / `dsh-goal-round-driver` / `dsh-tool-goal` / `dsh-tool-todo` / `dsh-session` / `dsh-compaction-basic`（`docs/host/DSH-CTX-API.md` 与 `docs/host/HOST-PACKAGES.md`）。
 
-- **术语自动审查插件 `term-check`**（模型输出用词自动审查: 出现被禁术语就注入更正文字, 类似 `symbol-normalizer` 的符号规范操作; 跨包（rule-engine 消费者 + 术语数据源）; 优先级 P2 待确认, 命名待定）
+- **术语自动审查插件 `term-check`**（模型输出用词自动审查: 出现被禁术语就注入更正文字, 类似 `symbol-normalizer` 的符号规范操作; 跨包（rule-engine 消费者 + 术语数据源）; 优先级 P2 待确认, 命名待定; 状态: 进行中(2026-11-05 接取)）
 
   - **现状**: 术语表 `docs/GLOSSARY.md` 已有「禁止术语」三列表（被禁止 / 应当使用 / 对应情况）, 由 `dev/standard` 的 `term.replace` / `term.interface` 规则做**文档静态检查**; 但**模型回帖正文**不受此约束 —— 没有机制检查 assistant 输出是否误用被禁术语, 误用只在人工阅读时暴露。
   - **期望**: 新增插件（或在现有插件上扩展）, 让 agent 自动检查模型输出中的术语: 命中「禁止术语」表的词时, 按表里「应当使用」给出更正文字, 注入回模型要求其更正后重发。机制对齐 `symbol-normalizer`（符号规范: 展示归一 + 回合审查）与 `md-table-check`（表格列数: rule-engine 消费者 + `assistant-text` 唤醒 + `delivery: "followup"` 注入 + 只报不改）。
@@ -113,13 +94,34 @@
 - **标准流程固化插件 `flow-track`**（把「标准流程各阶段」经 task-engine 建成阶段树, 流程正文与状态落 memory-base, 回合边界经 rule-engine 消费者注入模板与检查; 命名 2026-11-05 定稿 `flow-track`, 动词+对象风格与 `pin-note` / `term-check` 同构; 跨包（新插件 + task-engine + memory-base + rule-engine）; 优先级 P2; 状态: 进行中(2026-11-05 接取)）
 
   - **现状**: 标准流程（`docs/WORKFLOW-STANDARD.md` / `AGENTS.md`）是文档规范 + agent 自觉, 无强制机制——登记 / 建追踪文档 / 过程中只写追踪文档 / 收尾归档 / 提交询问点全靠模型自律; task-engine 可承载流程状态机（`decompose` + `deps` 顺序 + RET 验收, human 验收走 `approval.request` = 提交询问点）, 但无每轮注入与合规检查; memory-base **不注册写工具**（模型只有只读 `memory_query`, 写权限留在各扩展的 `registerKind` 句柄——模型侧写通道必须由本插件补）; rule-engine 提供消费者（注入 / guard）与 `agent/pre-step` 注入面。
-  - **期望**: 新插件 `flow-track`, 三件组合——① task-engine 骨架: 根第一层分解 = 标准流程各阶段（登记 BACKLOG / 建追踪文档 / 实现 / 测试+人工确认 / 收尾归档 / 提交询问）, 各帧 `deps` 指前序、`acceptance` 设门, human 验收 = 提交询问点; ② memory-base 存储: `registerKind` 注册流程 kind（P 层 project 库）, 插件注册模型侧写工具, 追踪文档正文与流程状态落库, 与 task-engine 的 `plan/*` 事件（执行记录）并存互补; ③ rule-engine 消费者: 回合边界注入阶段模板 / 检查合规（改源码未登记、轮内未写追踪文档）/ 注入当前推进状态。粒度适配: 阶段帧 spec 写单动作（无「首先 / 然后 / 第 n 步」步骤标记、无实现细节, 防过细 / 越级打回）, 数量 ≤8 免枚举来源, coverage 覆盖根契约验收。
+  - **期望**: 新插件 `flow-track`, 三件组合——① task-engine 骨架: 根第一层分解 = 标准流程各阶段（目标 / 调研 / 决策 / 规划 / 实现 / 测试 / 审查 / 收尾, 八阶段）, 各帧 `deps` 指前序、`acceptance` 设门, 审查与提交询问走 human 验收; ② memory-base 存储: `registerKind` 注册流程 kind（P 层 project 库）, 插件注册模型侧写工具, 追踪文档正文与流程状态落库, 与 task-engine 的 `plan/*` 事件（执行记录）并存互补; ③ rule-engine 消费者: 回合边界注入阶段模板 / 检查合规（改源码未登记、轮内未写追踪文档）/ 注入当前推进状态。粒度适配: 阶段帧 spec 写单动作（无「首先 / 然后 / 第 n 步」步骤标记、无实现细节, 防过细 / 越级打回）, 数量 8 ≤ 8 免枚举来源, coverage 覆盖根契约验收。
   - **候选路线（接取时裁定）**:
     1. 阶段模板来源: a. 模型照注入模板手动 `task_decompose`（零改引擎, 工具面现成; 推荐先落地）; b. 插件回合边界自动 `TaskEngine.decompose`（需 import 引擎内核, 或扩 `taskEngine` 服务面暴露写方法——现服务面只读 `query` / `frameStack`）。
     2. 大 / 小流程分流: 标准流程走阶段树, 小改动（快速流程: 免条目免追踪文档）不建树; 分流判据接取时定。
     3. 固化强度: 软（rule-engine 注入提醒）→ 中（每轮注入推进状态）→ 硬（guard 拦截未走流程的源码 / 文档改动）; 接取时定档。
   - **验收**: 接取一次标准流程变更, 阶段树按 `deps` 顺序依次推进, 提交询问以 human 验收呈现; 追踪文档正文与流程状态可从 memory-base 读出; 不建树的小改动不受干扰; 全量 `pnpm run check` / `test` / `check:docs` 全绿。
   - 来源: 2026-11-05 用户提出（task-engine 承载流程分解讨论定稿, 命名 `flow-track`）; 依据: `task-engine/README.md`、`memory-base/README.md`（不注册写工具口径）、`rule-engine/README.md`（消费者 / guard / 注入面）、`docs/WORKFLOW-STANDARD.md`。
+
+- **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
+
+  - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
+  - **请求参数与入口对照**（`LlmCallConfig` 全字段, `dsh-llm/lib/types/call-config.d.ts`）:
+    - `provider` / `model`（路由）: 会话层**有**入口（`AgentOptions` / `agent-default-model`）
+    - `reasoningEffort`: 会话层**有**入口（`AgentOptions.reasoningEffort` / `agent-default-model`）
+    - `maxTokens`: 会话层**有**入口（`AgentOptions.maxTokens` / `llm-pi-ai` 模型级 / `task-engine` 预算）
+    - `temperature`: 会话层**无**入口（`AgentOptions` 无此字段; DeepSeek 推理模型下服务端忽略该值）→ 插件补
+    - `stop`: 会话层**无**入口 → 插件补
+    - 思考预算（`llm-pi-ai` 的 `thinkingTokenBudgetField` / `$var: thinking.budget`, 自托管网关支持时）: profile 路由级可配、无会话级入口 → 插件补
+    - 回合 / 步骤预算: 宿主无内置 → 插件补
+  - **期望**: 自研一个**会话级请求参数调整插件**: 任一请求层可调但宿主未提供入口的参数都经它按会话可配, 并支持"推理一小步 → 执行一小步"的回合预算控制, 回合内无界思考到顶即止。
+  - **调研更正（2026-11-05, 详见 `docs/implementation/2026-11-05-request-tuning.md`）**: `ConfigureCall` 由 `prepareCall` 调用方传入, `agent-loop` 调用时未传第三参 → 插件无法经它注入, 原候选路线 3 的前提不成立; `temperature` / `stop` 今天唯一插件通道是**已弃用**的 `agent/request`（宿主源码 doc 明写「do not add new listeners」）; 回合预算仍走 `agent/turn-stopping`（`agent.steer` / `agent.cancel({kind:'hook'})`）; 思考预算只能落 profile 模型配置, 请求级不可注入。
+  - **候选路线（恢复时裁定）**:
+    1. 配置级（近期）: `agent-default-model` 的 `reasoningEffort` + `llm-pi-ai` 各模型 `maxTokens` 调参, 验证对 tollgate 路由的实际约束效果（留意 `finish=max-tokens` 截断正文的风险）。
+    2. 编排级（中期）: 目标拆小 + goal 回合制（`goal-round-driver` 一轮一拍, 且回合因 max-tokens 结束时停续）+ `task-engine` 小叶子预算（每次请求上限）, 用回合边界形成小步节奏。
+    3. 插件级（远期）: 只做**回合预算**（`agent/turn-stopping` 正规通道）, 不碰弃用面; 采样字段等宿主给出替代 API 后再补。
+  - **验收**: 插件会话级配置对所有"请求可调但宿主无入口"参数生效（温度 / stop / 思考预算 / 回合预算）; 真机会话观察到推理 / 输出被预算约束、到顶即止且不无界思考; 大目标可按小步逐拍推进, 不出现"长推理一次性做大步"。
+  - **恢复条件**: 宿主为 `temperature` / `stop` 提供正式（非弃用）注入入口, 或用户重新指定取向（只做回合预算 / 只做 profile 调参）。
+  - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` / `dsh-llm` README 与 `dsh-llm/lib/types/call-config.d.ts`（见 `docs/host/HOST-PACKAGES.md`）。
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
