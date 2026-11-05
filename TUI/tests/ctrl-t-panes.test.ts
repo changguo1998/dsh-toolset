@@ -77,18 +77,19 @@ test("#9 隐藏时几何：回合区高度归零、空间并入会话区", () =>
   assert.equal(hidden.activityW, 0, "回合区宽归零");
   assert.equal(hidden.dialogueW, hidden.contentW, "会话 pane 整宽");
   assert.equal(hidden.mode, "vertical", "隐藏态按纵向出图");
-  // 隐藏态：内容行都补齐到整屏宽（右缘框线恒在固定列，不贴正文）；
+  // 隐藏态：内容行铺到正文右缘（2026-11-05 起右缘外框列不再落空白占位，
+  // 内容行宽 = 80 − 1 = 79），border 行（标题下划线 / 分隔线）仍满宽到 cols；
   // 提示行（末尾 hintHeight 行）例外——提示文案按实际宽度出帧，右侧留白由渲染层补
   const cols = 80;
   const hintRows = frameGeometry(st, SIZE).hintHeight;
   const short = rowsOf(st)
     .slice(0, SIZE.rows - hintRows)
     .map((r, i) => [i, displayWidth(r)] as const)
-    .filter(([, w]) => w !== cols && w !== 0 && w > 30);
+    .filter(([, w]) => w !== cols - 1 && w !== cols && w !== 0 && w > 30);
   assert.deepEqual(
     short,
     [],
-    `隐藏态无未补齐的内容行：${JSON.stringify(short)}`,
+    `隐藏态无未补齐 / 未到正文右缘的内容行：${JSON.stringify(short)}`,
   );
 });
 

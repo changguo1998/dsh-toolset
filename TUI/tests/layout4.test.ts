@@ -1339,7 +1339,9 @@ test("会话流：短用户消息为右对齐收缩块，右缘竖线贴会话�
   );
   const row = plain.find((l) => l.includes("你好"))!;
   assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
-  assert.equal(displayWidth(row), 40, "短消息整行铺满");
+  // 2026-11-05 起右缘框列不再落空白占位：用户块右缘竖线贴正文右缘，
+  // 行宽 = 40 − 1（右缘外框列不占字形）
+  assert.equal(displayWidth(row), 39, "短消息整行铺到正文右缘");
   const hc = histContent(row, 40);
   assert.ok(hc.trimEnd().endsWith("┃"), "右缘为青色竖线");
   // 收缩块：块宽 = 符号 2 + 正文 4 + 竖线 1，整块靠右 → 正文左侧留白由面板宽决定

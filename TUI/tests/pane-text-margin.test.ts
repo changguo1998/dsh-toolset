@@ -140,16 +140,19 @@ test("无文字右缘留白：横线与边框仍满宽，回合分隔线右端�
       const top = rows.slice(0, g.contentTopH);
       const tag = `${size.rows}x${size.cols}/${placement}`;
       const r = paneRanges(g);
-      // 标题栏/边框行满宽；内容行不超宽（回合区行尾不补空格）
-      assert.ok(
-        top.slice(0, r.actRows[0]).every((t) => displayWidth(t) === size.cols),
-        `${tag}: 标题与边框行满宽`,
-      );
+      // 顶区行不超宽（2026-11-05 起 body / rule 行不再占右外框列，宽度 = cols − 1；
+      // 标题下划线 / 回合区分隔线等 border 行的满宽由下方 154-167 独立断言）
       assert.ok(
         top.every((t) => displayWidth(t) <= size.cols),
         `${tag}: 顶区行不超宽`,
       );
-      assert.equal(displayWidth(top[0]!), size.cols, `${tag}: 顶区行宽 = cols`);
+      // 标题行：铺到区域正文右缘（2026-11-05 起 title 行同 body 口径，不再占右缘
+      // 空白框列；下划线行满宽到最右列由 154-159 断言）
+      assert.equal(
+        displayWidth(top[0]!),
+        g.contentStartCol + g.contentW,
+        `${tag}: 标题行铺到区域正文右缘`,
+      );
       // 标题栏下划线：铺满整行到屏幕最右列（含区域外缘框列，边框不留缺口）
       const underline = rows[g.titleRows - 1]!;
       assert.equal(

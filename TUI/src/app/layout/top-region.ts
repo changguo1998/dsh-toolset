@@ -551,9 +551,11 @@ export function buildTopRegion(
       !actRow && contentW2 < contentW
         ? [seg(" ".repeat(contentW - contentW2))]
         : [];
-    // 右缘框列（历史/回合区外缘）：焦点中性基线恒空白占位（history/activity 焦点
-    // 由 focusFrame 覆写 ┐/│/┘）；**水平边框行**（标题栏下划线 / 回合区分隔行）
-    // 例外——该列补 `─`，横线铺满整行到屏幕最右列（边框不留缺口）。
+    // 右缘框列（历史/回合区外缘）：内容行（body / activity / rule）一律**不落字形**
+    // （内容到正文右缘为止；2026-11-05 起不再空白占位，避免上下排列时会话区右侧多一列
+    // 空白，且该空白非框线字形、聚焦时也无法被 focusFrame 变亮）；**水平边框行**
+    // （标题栏下划线 / 回合区分隔行）例外——该列补 `─`，横线铺满整行到屏幕最右列
+    // （边框不留缺口）。
     const borderRow =
       (titleRows > 1 && rc === diaStart - 1) ||
       (rc === diaEnd && activityH > 0);
