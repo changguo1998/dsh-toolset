@@ -1,0 +1,35 @@
+{
+  "name": "@dsh-toolset/term-check",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）term-check 插件：检查回复正文是否用了「禁止术语」表里的旧称，命中时经 rule-engine 注入一条更正提示（只报不改）",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "gen:glossary": "node scripts/gen-glossary.mjs",
+    "check:glossary": "node scripts/gen-glossary.mjs --check",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-term-check && mkdir -p ../tmp/cov-term-check && NODE_V8_COVERAGE=../tmp/cov-term-check node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-term-check tmp/cov-term-check/report.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}

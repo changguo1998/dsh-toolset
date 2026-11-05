@@ -1,0 +1,8 @@
+# term-check 插件的 dsh bundle 声明。
+# 本包缺省开启：注册一个 rule-engine 消费者（source = assistant-text、delivery = followup），
+# 命中「禁止术语」表里的旧称时注入一条更正提示。只报不改，不改回复正文也不改任何文件。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段：
+#   enabled / sources / delivery / dedupeInRecord / maxHits（缺省见 src/index.ts 的 resolveConfig）。
+- insert:
+    - id: term-check
+      name: '@dsh-toolset/term-check'

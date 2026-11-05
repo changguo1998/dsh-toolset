@@ -62,7 +62,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 
 用 [`marked`](https://marked.js.org/)（唯一运行时依赖，**零传递依赖**）：
 
-- **为什么不是 `remark`/`unified`**：remark 的节点原生带 `position`（含 offset），但实测装 `remark` 会引入 **52 个包**（只装 `remark-parse` + `unified` + `mdast-util-from-markdown` 也要 40 个）；本仓 34 个包（TUI 与 33 个插件）中带运行时依赖的只有 4 个——`session-channel`（redis）、`code-map` → `ast-tools`、`md-map` → `md-logic`（后两者是 `link:` 本仓包）与本包（`marked`），引入这么大的依赖树不划算。
+- **为什么不是 `remark`/`unified`**：remark 的节点原生带 `position`（含 offset），但实测装 `remark` 会引入 **52 个包**（只装 `remark-parse` + `unified` + `mdast-util-from-markdown` 也要 40 个）；本仓 35 个包（TUI 与 34 个插件）中带运行时依赖的只有 4 个——`session-channel`（redis）、`code-map` → `ast-tools`、`md-map` → `md-logic`（后两者是 `link:` 本仓包）与本包（`marked`），引入这么大的依赖树不划算。
 - **为什么不纯自研**：正则解析覆盖不了嵌套列表、表格转义、setext 标题、HTML 块、缩进代码块等 CommonMark 边角，做不出本条要求的「精确解析」。
 - **行范围怎么来**：marked 的块级 token 按文档顺序给出 `raw`，且**全部 token 的 `raw` 拼接等于输入文本**——这里的输入是**归一化后**的文本（见下条；测试对该不变量有断言）；用「字符偏移游标 + 行首偏移表二分」即得精确范围，不依赖 token 自带位置，也不做逐 token 线性扫前缀。
 - **输入归一化**：解析前剥首行 BOM、把 CRLF/CR 统一为 LF（**行数与原文一致**）。marked 内部按 LF 处理 `raw`，若直接喂 CRLF 原文，偏移与行号会错位（实测）；BOM 不剥则首个标题会整段退化成段落。
