@@ -71,7 +71,9 @@ export function createWiringPart(ctx: AppContext) {
   /** 运行中闪烁时间驱动：仅 inputStatus=running 时推进虚拟状态（virt-tick）——
    *  没有新数据也按衰减中的虚拟速度持续积分（闪烁频率渐降到最低而不断）；
    *  等待交互（△）/空闲（✓/?）不推进。P5：相位未变时不重绘（tick 只改虚拟
-   *  状态，画面无变化；相位变化才出一帧） */
+   *  状态，画面无变化；相位变化才出一帧）。
+   *  发送中（首字节未到）不积分 token，闪烁相位不变，此时靠旋转相位 `sendPhase`
+   *  的推进来判定重绘——否则 4 拍一圈的箭头永远等不到帧。 */
   function virtTick(): void {
     // BACKLOG #1：Agents 块前导符号也按同一 250ms 相位闪 —— 有运行中子代理时同样推进
     const agentsRunning =
@@ -80,11 +82,16 @@ export function createWiringPart(ctx: AppContext) {
       ) === true;
     if (ctx.disposed || (ctx.state.inputStatus !== "running" && !agentsRunning))
       return;
-    const before = runPhase(ctx.state.runVirt.tokens);
+    const beforePhase = runPhase(ctx.state.runVirt.tokens);
+    const beforeSend = ctx.state.runVirt.sendPhase;
     ctx.self.apply((s) =>
       reduceState(s, { type: "virt-tick", time: Date.now() }),
     );
-    if (runPhase(ctx.state.runVirt.tokens) !== before) ctx.self.paint();
+    if (
+      runPhase(ctx.state.runVirt.tokens) !== beforePhase ||
+      ctx.state.runVirt.sendPhase !== beforeSend
+    )
+      ctx.self.paint();
   }
 
   /** 读取生效模型(会话切换 ?? 宿主默认)写入状态行 model+思考徽标；无变化时跳过 */

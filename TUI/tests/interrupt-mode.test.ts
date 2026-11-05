@@ -215,7 +215,7 @@ test("`!` 打断并直发后用户块终态正确：被打断块 ■、直发块
     `被打断块应显示 ■（灰方块）: ${JSON.stringify(abortedRow)}`,
   );
   assert.ok(
-    sendingRow !== undefined && /[⟳↻↲↺]/.test(sendingRow),
-    `正在处理的新块应显示发送中旋转箭头: ${JSON.stringify(sendingRow)}`,
+    sendingRow !== undefined && /[◌○]/.test(sendingRow),
+    `正在处理的新块应显示发送中两态等待符号: ${JSON.stringify(sendingRow)}`,
   );
 });

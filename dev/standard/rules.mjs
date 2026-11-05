@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs";
 
-/** 40 个允许符号（`AGENTS.md`「符号规范」）。 */
+/** 39 个允许符号（`AGENTS.md`「符号规范」）。 */
 export const SYMBOLS = [
   "✓",
   "✗",
@@ -29,12 +29,11 @@ export const SYMBOLS = [
   "⟺",
   "⇆",
   "⟳",
-  "⟲",
   "↻",
-  "↺",
   "•",
   "◦",
   "○",
+  "◌",
   "●",
   "◯",
   "■",

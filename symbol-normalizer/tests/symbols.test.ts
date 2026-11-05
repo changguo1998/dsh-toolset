@@ -33,11 +33,17 @@ test("resolveSymbolRules：内置默认白名单与 warnModel", () => {
     undefined,
     "⇆ 不归一（独立形状身份，非同族修饰变体）",
   );
-  // 家族 F（循环/旋转箭头 ⟳⟲↻↺；TUI 发送中 4 态轮换指示）：入白名单、不建别名
-  for (const s of ["⟳", "⟲", "↻", "↺"]) {
+  // 家族 F（循环/旋转箭头 ⟳ ↻；状态列 Goal 开关与重试行在用）：入白名单、不建别名
+  for (const s of ["⟳", "↻"]) {
     assert.ok(rules.recommendedSet.has(s), `循环箭头 ${s} 已推荐`);
     assert.equal(rules.aliases[s], undefined, `${s} 无别名（同族不互相归一）`);
   }
+  // 2026-11-05：⟲ / ↺ 已无使用者，移出白名单；同批加入虚线圆 ◌（TUI 发送中 ◌/○ 两态）
+  for (const s of ["⟲", "↺"]) {
+    assert.ok(!rules.recommendedSet.has(s), `${s} 已移出白名单`);
+  }
+  assert.ok(rules.recommendedSet.has("◌"), "虚线圆 ◌ 已推荐");
+  assert.equal(rules.aliases["◌"], undefined, "◌ 无别名（不并入 ○）");
   // 三角箭头四向全推荐（与 ▶ 同风格）；方块、菱形也推荐
   for (const s of ["▶", "◀", "▲", "▼"]) {
     assert.ok(rules.recommendedSet.has(s), `三角方向 ${s} 已推荐`);
@@ -289,8 +295,9 @@ test("goal 状态符号不触发：白名单放行与治理区外放行并存；
   const rules = resolveSymbolRules();
   // TUI goal 状态行五符号：▷ △ ✓ 在推荐白名单；∥（U+2225，箭头区与杂项技术
   // 符号区之间的空档）与 ⟳（U+27F3，高于框线/几何段上界 0x27bf）在治理区外。
-  // ⟳ 家族（⟳⟲↻↺）已按用户 2026-11-04 裁定加入推荐白名单（TUI 发送中旋转指示，
-  // 见 BACKLOG「运行状态符号分阶段」）——治理区外不触发、白名单内也无需提醒。
+  // ⟳ 家族（⟳ ↻）已按用户 2026-11-04 裁定加入推荐白名单（状态列 Goal 开关 / 重试行）；
+  // 2026-11-05 起 TUI 发送中改用 ◌/○ 两态，⟲ / ↺ 随之退出白名单。
+  // 治理区外不触发、白名单内也无需提醒。
   const r = normalizeSymbols("Goal ▷ ⟳  Goal ∥  Goal △  Goal ✓", rules);
   assert.equal(r.replacedCount, 0, "五符号零替换");
   assert.equal(r.text, "Goal ▷ ⟳  Goal ∥  Goal △  Goal ✓", "原文原样");

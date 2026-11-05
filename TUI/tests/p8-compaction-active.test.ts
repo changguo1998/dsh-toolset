@@ -60,13 +60,13 @@ test("P8：压缩期间用户块显示进行中符号（●/○ / 发送中旋�
         .map((r) => rowText(r))
         .find((t) => t.includes("问一句")) ?? "";
     // 只认「符号 + 空格 + 用户文本」——行左侧状态列里也有 ✓/✗（开关项），不能取首个
-    return /([✓✗■●○△?⟳↻↲↺]) 问一句/.exec(row)?.[1] ?? "";
+    return /([✓✗■●○△?◌]) 问一句/.exec(row)?.[1] ?? "";
   };
   let s = withUser();
   assert.equal(markOf(s), "?", "空闲且无终态 → 回退占位 ?");
   s = reduceState(s, { type: "compaction", phase: "start" });
   assert.ok(
-    ["●", "○", "⟳", "↻", "↲", "↺"].includes(markOf(s)),
+    ["●", "○", "◌"].includes(markOf(s)),
     `压缩中显示进行中符号（实际 ${markOf(s)}）`,
   );
   s = reduceState(s, { type: "compaction", phase: "end" });

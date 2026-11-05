@@ -386,15 +386,15 @@ test("输入区单字符提示符：当前模式符号（默认前景色）；�
     "未收到 turn/end = 回退问号",
   );
   // 运行中分两段（BACKLOG「运行状态符号分阶段」）：发送中（首字节未到）=
-  // 旋转箭头；接收中（首字节已到）= ●/○（沿用虚拟 token 相位）
+  // 两态等待符号（虚线圆 / 实线圆）；接收中（首字节已到）= ●/○（沿用虚拟 token 相位）
   const withBytes = (s: ReturnType<typeof initialState>) => ({
     ...s,
     runVirt: { ...s.runVirt, lastTime: 1000 },
   });
   assert.equal(
     mark(mk("steer", "running")).sym,
-    "⟳",
-    "发送中（首字节未到）= 旋转箭头（相位 0）",
+    "◌",
+    "发送中（首字节未到）= 虚线圆（相位 0）",
   );
   assert.equal(
     mark(withBytes(mk("steer", "running"))).sym,
@@ -450,7 +450,7 @@ test("输入区单字符提示符：当前模式符号（默认前景色）；�
   assert.notEqual(idle.sgr, red, "回退占位无红");
   assert.notEqual(idle.sgr, yellow, "回退占位无黄");
   assert.notEqual(idle.sgr, gray, "回退占位无灰");
-  // 外部活动（thinking/tool 等 agent 活跃但尚无流式文本）→ 发送中黄旋转箭头（相位 0）
+  // 外部活动（thinking/tool 等 agent 活跃但尚无流式文本）→ 发送中黄两态等待符号（相位 0）
   const busy = mark(
     reduceState(mk("steer", "idle"), {
       type: "agent-status",
@@ -458,7 +458,7 @@ test("输入区单字符提示符：当前模式符号（默认前景色）；�
     }),
   );
   assert.equal(busy.sgr, yellow, "thinking 视为运行中（发送中黄）");
-  assert.equal(busy.sym, "⟳", "thinking 无流式文本 = 发送中旋转箭头（相位 0）");
+  assert.equal(busy.sym, "◌", "thinking 无流式文本 = 发送中虚线圆（相位 0）");
   // 运行中符号按虚拟总 token 交替（与真实 tps 解耦）：
   // 虚拟速度 = 窗口速率估计 → 速率化 slew → clamp [MIN,MAX]；虚拟总 token = ∫虚拟速度 dt；
   // 首帧无时间基准不积分（相位 0）；速度为界内起点 MIN。
@@ -554,10 +554,10 @@ test("输入区单字符提示符：当前模式符号（默认前景色）；�
     midRun,
     "核心自发回合（clearActivity=false）不清零",
   );
-  // 用户输入提交后（turn-begin 清零虚拟 token, 尚无流式文本）= 发送中旋转箭头
+  // 用户输入提交后（turn-begin 清零虚拟 token, 尚无流式文本）= 发送中两态等待符号
   tb = userTurnBegin(tb);
   tb = reduceState(tb, { type: "agent-status", status: "thinking" });
-  assert.equal(liveSym(tb), "⟳", "用户输入清零后回到发送中旋转箭头（相位 0）");
+  assert.equal(liveSym(tb), "◌", "用户输入清零后回到发送中虚线圆（相位 0）");
 });
 
 test("nextRunVirt: 窗口速率估计 + 速率化 slew + 上下限 clamp（P1 时间一致 / P2 抗噪）", () => {

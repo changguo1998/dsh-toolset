@@ -23,9 +23,9 @@ import { charWidth } from "./markdown.ts";
  */
 export const RUN_TOGGLE_TOKENS = 16;
 
-/** 发送中旋转箭头（4 态依次出现, 视觉旋转; 已加入符号白名单, 见 AGENTS.md「符号规范」）。
- *  首字节未到时随 250ms virt-tick 进相位, 一圈约 1s。 */
-export const SPINNER = ["⟳", "↻", "⟲", "↺"] as const;
+/** 发送中两态符号（虚线圆 → 实线圆交替, 视觉上像未送达 → 已送达的等待提示）。
+ *  首字节未到时随 250ms virt-tick 进相位, 两态一轮 0.5s。 */
+export const SPINNER = ["◌", "○"] as const;
 
 // ---- 参数层次（P4）：语义参数（频率/时长）在前，派生量在后，调参只动语义参数 ----
 
@@ -93,7 +93,7 @@ export interface RunVirtState {
   /** 速率估计窗口：指数加权累计时长（秒）；速率 = winTokens / winSecs */
   winSecs: number;
   /** 发送中旋转相位（首字节未到前置位；`lastTime` 有值后不再使用）。
-   *  每 250ms virt-tick 进 1 拍，4 态一圈约 1s（`SPINNER`）。 */
+   *  每 250ms virt-tick 进 1 拍，两态一轮 0.5s（`SPINNER`）。 */
   sendPhase: number;
 }
 
@@ -170,7 +170,7 @@ export function nextRunVirt(
  * 按 VIRT_RATE_TAU 衰减（忘记旧数据，避免下次数据到达时速率被长期均值拖住）。
  * 无时间基准或时间未推进时原样返回。
  * @扩展：首字节未到（`lastTime === undefined`）属**发送中**——旋转箭头按 tick 进相位
- *  （`SPINNER` 4 态, 250ms 一拍），不积分 token；首块到达后 `lastTime` 有值, 走衰减分支。
+ *  （`SPINNER` 两态, 250ms 一拍），不积分 token；首块到达后 `lastTime` 有值, 走衰减分支。
  */
 export function virtTick(prev: RunVirtState, time: number): RunVirtState {
   if (prev.lastTime === undefined) {
@@ -241,7 +241,7 @@ export function streamKindColor(kind: StreamKind | undefined): ColorName {
  *  - 终态：取本行 `status`（`turn-end` 的原因经节 → 条目 → box 透传，批 B1）；
  *  - 活跃块（`line.active`：会话区最后一条终态未定的用户输入，由 `panes.ts` 打标）：
  *    等待交互（审批/问答面板打开）显示黄 △；运行中分两段——**发送中**（首字节未到,
- *    `runVirt.lastTime === undefined`）显示黄旋转箭头（`SPINNER` 4 态随 tick 轮换）;
+ *    `runVirt.lastTime === undefined`）显示黄两态等待符号（`SPINNER` 随 tick 轮换）;
  *    **接收中**（首字节已到）显示 `●`/`○`（沿用虚拟 token 交替相位）并按当前流类型
  *    `state.streamKind` 着色（思考紫 / 正文蓝 / 工具黄 / notice 灰 / shell 青）;
  *  - 其余无终态块回退 `?`（恢复的历史、未收到 turn/end 的块）；

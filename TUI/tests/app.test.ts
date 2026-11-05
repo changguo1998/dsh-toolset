@@ -1257,14 +1257,14 @@ test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、er
   // 故 userBlockMark 只取会话区 正文段）
   const mark = (): { sym: string; sgr: string } =>
     userBlockMark(renderer.lastRender, renderer.size.cols, USER);
-  // 提交用户消息 → 用户块入 buffer（符号挂在它首行）；agent thinking → 运行中黄 ●/○
+  // 提交用户消息 → 用户块入 buffer（符号挂在它首行）；agent thinking → 运行中黄（发送中两态等待符号）
   typeAndEnter(renderer, USER);
   adapter.push({ type: "agent-status", sessionId: "s1", status: "thinking" });
   const yellow = mark().sgr;
   assert.ok(yellow, "活跃任务用户块首行符号为黄（运行中）");
   assert.ok(
-    ["⟳", "↻", "⟲", "↺"].includes(mark().sym),
-    "活跃无流式 = 发送中旋转箭头（首字节未到）",
+    ["◌", "○"].includes(mark().sym),
+    "活跃无流式 = 发送中两态等待符号（首字节未到）",
   );
   // 成功 slash（/help 本地命令）→ 保持黄
   typeAndEnter(renderer, "/help");
@@ -1287,6 +1287,25 @@ test("活跃任务中 slash 结果不覆盖运行中：/help、无效命令、er
   adapter.push({ type: "agent-status", sessionId: "s1", status: "idle" });
   adapter.push({ type: "turn-end", reason: "completed" });
   assert.notEqual(mark().sgr, yellow, "回合结束不再显示运行中黄");
+});
+
+test("发送中两态等待符号随 virt-tick 每拍重绘（两态一轮）", (t) => {
+  // 只 mock setInterval + Date：本用例不传 status deps（无状态行 ticker），
+  // 因此重绘只能来自 virt-tick 自身——正是「发送中不积分 token」时被漏掉的那条路径。
+  t.mock.timers.enable({ apis: ["setInterval", "Date"] });
+  const { renderer } = makeApp();
+  const USER = "等待首字节的提问";
+  const sym = (): string =>
+    userBlockMark(renderer.lastRender, renderer.size.cols, USER).sym;
+  typeAndEnter(renderer, USER);
+  assert.equal(sym(), "◌", "发送中相位 0（虚线圆）");
+  for (const want of ["○", "◌", "○"]) {
+    const before = renderer.renders;
+    t.mock.timers.tick(250);
+    assert.ok(renderer.renders > before, `每拍重绘一帧（期望 ${want}）`);
+    assert.equal(sym(), want, `相位推进到 ${want}`);
+  }
+  t.mock.timers.reset();
 });
 
 test("slash 模式 /model 提交后回退 normal：确认面板后普通发送", async () => {
