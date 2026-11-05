@@ -89,18 +89,19 @@ import { sectionsFromBuffer } from "../src/app/layout/pipeline/replay.ts";
 /** 去 ANSI 取行文本 */
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
 
-/** 顶部行区域正文：取正文段（跳过状态列与分隔竖线，到右缘框列前为止；
+/** 顶部行区域正文：取正文段（跳过状态列与分隔竖线；2026-11-05 起
+ *  FRAME_RIGHT_COLS=0，区域正文宽 = historyWidth，无右缘框列；
  *  按显示宽度定位，兼容 CJK） */
 function histBody(line: string, cols: number): string {
   const m = metricsFor({ rows: 24, cols });
   const start = m.statusColWidth; // 区域正文起始列（状态列与分隔竖线之后）
-  const contentW = m.historyWidth - 1; // 区域正文宽（右缘框列之外）
+  const contentW = m.historyWidth; // 区域正文宽（无右缘框列扣除）
   const s = stripAnsi(line);
   let out = "";
   let w = 0; // 累计显示列（含状态列）
   for (const ch of s) {
     const cw = displayWidth(ch);
-    if (w >= start + contentW) break; // 已到正文段末尾（右缘框列前）
+    if (w >= start + contentW) break; // 已到正文段末尾
     if (w >= start) out += ch;
     w += cw;
   }
@@ -1339,9 +1340,8 @@ test("会话流：短用户消息为右对齐收缩块，右缘竖线贴会话�
   );
   const row = plain.find((l) => l.includes("你好"))!;
   assert.ok(!row.startsWith("|"), "最左侧无插件竖线");
-  // 2026-11-05 起右缘框列不再落空白占位：用户块右缘竖线贴正文右缘，
-  // 行宽 = 40 − 1（右缘外框列不占字形）
-  assert.equal(displayWidth(row), 39, "短消息整行铺到正文右缘");
+  // 2026-11-05 起 FRAME_RIGHT_COLS=0：用户块右缘竖线贴屏幕最右列，整行铺满 40 列
+  assert.equal(displayWidth(row), 40, "短消息整行铺到屏幕最右列");
   const hc = histContent(row, 40);
   assert.ok(hc.trimEnd().endsWith("┃"), "右缘为青色竖线");
   // 收缩块：块宽 = 符号 2 + 正文 4 + 竖线 1，整块靠右 → 正文左侧留白由面板宽决定
@@ -2972,8 +2972,8 @@ test("frameGeometry：正文宽/可视高与 buildFrame 同口径（rows=24/cols
   const m = frameGeometry(initialState(), { rows: 24, cols: 80 });
   assert.equal(m.dialogueH, 6, "会话区可视行（标题栏 2 行由会话区承担后）");
   assert.equal(m.viewportH, 6, "无排队块 → 历史视口 = 会话区 高");
-  // historyWidth = 80 - floor(80/3) = 54，col0 左缘框格占 1 → contentW=53
-  assert.equal(m.dialogueW, 53, "会话区正文宽 = historyWidth - 左缘框列");
+  // historyWidth = 80 - floor(80/3) = 54；FRAME_RIGHT_COLS=0 后无右缘框列扣除，contentW=54
+  assert.equal(m.dialogueW, 54, "会话区正文宽 = historyWidth（无右缘框列）");
 });
 
 test("userRowJump：PgUp/PgDn 把用户消息首行翻到顶行，后文不足一屏时收敛到底对齐", () => {

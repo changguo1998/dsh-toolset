@@ -292,9 +292,9 @@ test("横向排列：回合区 的围栏代码块按回合区 宽折行", () => 
   );
 });
 test("横向排列：内部分隔列与下划线行 ┬ / 状态区分隔行 ┴ 同列（两 pane 不等宽时也不偏）", () => {
-  // 100 列（状态列 33）→ 区域正文宽 66 → 会话区 32 / 回合区 33：两 pane
-  // 不等宽，正是「交汇字形取错了 pane 宽」会偏一列的情形
-  const size = { rows: 18, cols: 100 };
+  // 101 列（状态列 33）→ 区域正文宽 68 → 回合区 34 / 会话区 33：
+  // 两 pane 不等宽，正是「交汇字形取错了 pane 宽」会偏一列的情形
+  const size = { rows: 18, cols: 101 };
   const m = metricsFor(size, 1, 1, {});
   const contentW = regionColumnWidth(m.historyWidth);
   const split = topPaneSplit(m.topHeight, contentW, 2, undefined, "auto");

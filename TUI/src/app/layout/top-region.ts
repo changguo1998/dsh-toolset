@@ -186,7 +186,8 @@ export function buildTopRegion(
     viewportH,
   } = geom;
   // 状态列在最左、历史/回合区在右（自左至右：状态列 ‖ 会话区 ‖ 回合区）：
-  // 左缘框格 = 状态列左缘；右缘框列 = 历史/回合区右缘（均非聚焦/模态态留空白占位）
+  // 左缘框格 = 状态列左缘；右缘 FRAME_RIGHT_COLS=0 无框列（rightFrame 恒 false，
+  // 内容与横线均到屏幕最右列）
   const useLeftFrame = geom.leftFrame;
   const useRightFrame = geom.rightFrame;
   // 当前活跃会话字段（goal 历史/todo/模式/策略/预设）：状态列与状态行共用口径
@@ -341,14 +342,14 @@ export function buildTopRegion(
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/会话区左缘，
-  // 为旧 historyWidth 的镜像）；col0 左缘框格属状态列，
-  // 右缘框列 R 属历史/回合区。顶部边框行占 index 0，标题栏紧随其后，
-  // 回合区分隔行自然位于 diaEnd 后一行。
+  // 为旧 historyWidth 的镜像）；col0 左缘框格属状态列。顶部边框行占 index 0，
+  // 标题栏紧随其后，回合区分隔行自然位于 diaEnd 后一行（右缘 FRAME_RIGHT_COLS=0，
+  // 无独立外框列）。
   // #4 起焦点态不再影响顶部构图：状态列不因聚焦自画顶边、history/activity 同样只由
   // focusFrame 改既有框线颜色（无布局差异）
-  // 焦点中性基线：回合区分隔线 / 分隔竖线 / 左缘框格 / 右缘框列全部以灰
-  // 边框色或空白占位产出；亮角字/亮边由 buildFrame 末尾的 focusFrame
-  // 按焦点态覆写（TUI/docs/DESIGN.md §8，唯一焦点框机制）。
+  // 焦点中性基线：回合区分隔线 / 分隔竖线 / 左缘框格全部以灰边框色或空白占位产出；
+  // 亮角字/亮边由 buildFrame 末尾的 focusFrame 按焦点态覆写（TUI/docs/DESIGN.md §8，
+  // 唯一焦点框机制）。
   const sepSegments = (): FrameSegment[] => [
     {
       text: ACTIVITY_SEPARATOR.repeat(Math.max(1, contentW)),
@@ -404,8 +405,9 @@ export function buildTopRegion(
     state.question !== null && modalPanel.length > 0
       ? questionCaretFor(state.question, activityH, activityTextW)
       : null;
-  // 分隔竖线列 / 右缘框列的**字形**由 grid.ts 按行角色写（焦点中性基线），此处只留
-  // 等宽空白占位；亮角字/亮边仍由 buildFrame 末尾的 focusFrame 覆写（DESIGN §8）。
+  // 分隔竖线列的**字形**由 grid.ts 按行角色写（焦点中性基线），此处只留
+  // 等宽空白占位；右缘 FRAME_RIGHT_COLS=0 无框列字形；亮角字/亮边仍由
+  // buildFrame 末尾的 focusFrame 覆写（DESIGN §8）。
   // 段数组补齐到定宽（横向两 pane 各自补齐，分隔竖线恒落在各自右边界）
   const padTo = (
     segs: FrameSegment[],
@@ -507,8 +509,7 @@ export function buildTopRegion(
       if (horizontal) {
         // 横向：会话区（左）| 内部分隔竖线 | 回合区（右）——会话区 补齐到
         // dialogueW（让分隔竖线恒在固定列；回合分隔线用 ╌ 补齐=横线铺满 pane）；
-        // **回合区 行尾不补空格**（内容到文字右缘为止，右侧留白列不落字形、
-        // 也不画外缘框列）
+        // **回合区 行尾不补空格**（内容到文字右缘为止，右侧不落字形、也无右缘框列）
         const dRow = dialogueRowAt(rc - diaStart);
         const leftSegs = padTo(
           dialoguePaneSegs(rc - diaStart),
@@ -537,12 +538,12 @@ export function buildTopRegion(
       }
       return [];
     })();
-    // 区域正文补齐到 contentW：右缘框列恒位于 R 列（不紧贴文字末尾）。
-    // 例外：**回合区行**不补空格、也不画外缘框列（行到回合区文字右缘为止，
+    // 区域正文补齐到 contentW（= 屏幕最右列，FRAME_RIGHT_COLS=0 无右缘框列）。
+    // 例外：**回合区行**不补空格、也不画右缘字形（行到回合区文字右缘为止，
     // 右侧留白列不落任何字形；焦点框同样不画回合区右边框）。
     const actRow = horizontal ? rc >= diaStart : activityH > 0 && rc > diaEnd;
     // 回合分隔线行（kind=separator）：与正文同宽——内容层已铺到文字排版宽
-    // （= 回合区 / 会话区正文宽），这里按空格补到 contentW，右缘框列留空，
+    // （= 回合区 / 会话区正文宽），这里按空格补到 contentW，右缘不补字形，
     // 不再用 ╌ 顶到屏幕最右列（2026-10-27 用户裁定：分隔线宽度 = 文本宽度）
     const ruleRow =
       !actRow && dialogueRowAt(rc - diaStart)?.kind === "separator";
@@ -551,22 +552,19 @@ export function buildTopRegion(
       !actRow && contentW2 < contentW
         ? [seg(" ".repeat(contentW - contentW2))]
         : [];
-    // 右缘框列（历史/回合区外缘）：内容行（body / activity / rule）一律**不落字形**
-    // （内容到正文右缘为止；2026-11-05 起不再空白占位，避免上下排列时会话区右侧多一列
-    // 空白，且该空白非框线字形、聚焦时也无法被 focusFrame 变亮）；**水平边框行**
-    // （标题栏下划线 / 回合区分隔行）例外——该列补 `─`，横线铺满整行到屏幕最右列
-    // （边框不留缺口）。
+    // 右缘：FRAME_RIGHT_COLS=0 无外框列——内容行（body / activity / rule）与横线行
+    // （border）一律不追加右缘字形；横线满宽由 contentSegs 铺满到 contentW（屏幕最右列）。
     const borderRow =
       (titleRows > 1 && rc === diaStart - 1) ||
       (rc === diaEnd && activityH > 0);
-    // 行角色（grid.ts 据此给 D 列 / 右缘框列字形）：横线行 → border；回合区行 →
-    // activity（不补白、右缘不落字形）；回合分隔行 → rule；其余 → body
+    // 行角色（grid.ts 据此给 D 列字形）：横线行 → border；回合区行 → activity
+    // （不补白）；回合分隔行 → rule；其余 → body
     const role = gridRole({ borderRow, actRow, ruleRow });
-    // 右缘框列字形：null（回合区行）不拼该列；空白占位不带样式
+    // 右缘框列字形：FRAME_RIGHT_COLS=0 → rightEdgeGlyph 恒 null（不拼该列）
     const rightGlyph = rightEdgeGlyph(role);
-    // 行拼装（自左至右）：状态列外缘框格 ‖ 状态列正文 ‖ 分隔竖线 ‖ 区域正文 ‖ 区域外缘框列
+    // 行拼装（自左至右）：状态列外缘框格 ‖ 状态列正文 ‖ 分隔竖线 ‖ 区域正文
+    // （无右缘框列；useRightFrame 恒 false 不追加任何右缘字形）
     // P7：垂直状态列隐藏时，左缘框格 / 状态列正文 / 分隔竖线三段都不拼。
-    // D 列与右缘框列先落**等宽空白占位**，字形由 grid 基线按角色写（同 focusFrame 口径）
     const rowSegments: FrameSegment[] = [
       ...(showStatusCol ? left : []),
       ...(showStatusCol ? statusBody : []),

@@ -15,7 +15,7 @@
 // focus-frame 的 setCell 逐格改写），一行一列各一次改写即让 buildFrame 的 cache off
 // 档从 0.47ms 涨到 1.90ms（4×）——故改为纯映射函数，行内取字形，零额外遍历。
 
-import { ACTIVITY_SEPARATOR } from "./content-rules.ts";
+// 本模块右缘恒 null（2026-11-05 起 FRAME_RIGHT_COLS=0），不再依赖 ACTIVITY_SEPARATOR
 
 /**
  * 顶部区域行角色（决策 10：先 4 类，阶段 2 按需追加状态行 / 输入区 / 提示行角色）。
@@ -44,13 +44,12 @@ export function dividerGlyph(role: GridRole): string {
 }
 
 /**
- * 右缘框列字形：`null` = 该行**不落字形**（回合区行、会话区普通内容行与回合分隔线行
- * 内容到正文右缘为止，右侧不占字形；2026-11-05 起会话区 body / rule 与 activity 同口径，
- * 消除上下排列时会话区右侧多余的空白列——聚焦右缘本就无既有框线可变亮）；
- * `" "` 已不再使用；`border` 行返回实测字形（横线铺满）。
+ * 右缘框列字形：恒返回 `null`（不落字形）。
+ * 2026-11-05 起 `FRAME_RIGHT_COLS = 0`（区域右缘不再保留列，`contentW = historyWidth`），
+ * 内容文字可铺到屏幕最右列；横线行（border）的满宽由 `contentSegs`（下划线铺到 contentW）
+ * 保证，不再需要右缘补 `─`。故所有角色右缘一律不落字形，`rightFrame` 判定随
+ * `FRAME_RIGHT_COLS > 0` 恒为 false，`top-region` 不再拼右缘字形。
  */
-export function rightEdgeGlyph(role: GridRole): string | null {
-  if (role === "activity") return null;
-  if (role === "border") return ACTIVITY_SEPARATOR;
+export function rightEdgeGlyph(_role: GridRole): string | null {
   return null;
 }

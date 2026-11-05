@@ -416,7 +416,7 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     historyWidth,
     contentW,
     leftFrame: statusColWidth >= FRAME_LEFT_COLS + 1,
-    rightFrame: historyWidth >= FRAME_RIGHT_COLS + 1,
+    rightFrame: FRAME_RIGHT_COLS > 0 && historyWidth >= FRAME_RIGHT_COLS + 1,
     mode: split.mode,
     titleRows: split.titleRows,
     activityH: split.activityH,

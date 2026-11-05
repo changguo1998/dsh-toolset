@@ -113,7 +113,9 @@ export function turnGroupStarts(
   return starts;
 }
 export const FRAME_LEFT_COLS = 1;
-export const FRAME_RIGHT_COLS = 1;
+// 区域右缘外框列宽度：0 = 内容文字可铺到屏幕最右列（2026-11-05 起不再保留右侧 1 列；
+// 横线行仍由 rightEdgeGlyph 补 ─ 满宽到 cols，右缘由焦点框按 cols 直接算，均不经此常量）
+export const FRAME_RIGHT_COLS = 0;
 
 /** 区域正文宽（标题栏 + 历史/回合区）：historyWidth 扣外缘框格（buildTopRegion 与滚动口径同源） */
 export function regionColumnWidth(historyWidth: number): number {
