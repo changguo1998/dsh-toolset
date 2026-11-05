@@ -130,7 +130,7 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 | `fff`（主） | `file:` 快照 | 不跟；重跑 `scripts/install.sh --profile fff --sync` 才刷新 | 正在跑的会话 / 验收 |
 | `fff-test` | `link:` 符号链接 | `pnpm run build` 后立即生效 | 新窗口实时开发 |
 
-主 profile 是真实副本：pnpm 对 `file:` 目录依赖默认用硬链接，脚本会再整包复制一次断开这些链接（否则仓库里的原地改写——如 `tsc` 输出——会顺着同一个 inode 串到 profile）。刷新靠脚本在安装前删掉 pnpm 的「已是最新」标记（pnpm 不跟踪 `file:` 目录的内容变化，已实测）。伴随 profile 直接复用主 profile 的成品 `dsh.profile.bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml`（逐字节相同），只把依赖值改成 `link:`。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
+主 profile 是真实副本：pnpm 对 `file:` 目录依赖默认用硬链接，脚本会再整包复制一次断开这些链接（否则仓库里的原地改写——如 `tsc` 输出——会顺着同一个 inode 串到 profile）。刷新靠脚本在安装前删掉 pnpm 的「已是最新」标记（pnpm 不跟踪 `file:` 目录的内容变化，已实测）。伴随 profile 直接复用主 profile 的成品 `dsh.profile.bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml`（后者照抄时剥掉 copy 模式的 overrides 生成区，否则嵌套 `link:` 依赖会被钉成 `file:` 快照），只把依赖值改成 `link:`。`--no-test-profile` 只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
 
 脚本幂等：配置文件默认保留（`--force` 才覆盖），且仅在内容确有变化时写入并备份（`.bak.<时间戳>`），反复 `--sync` 不会堆积备份。只写 `$DSH_HOME`（默认 `~/.dsh`）与本仓库。`--sync` 按当前选择集刷新本仓库插件（已不在选择集的本仓库条目移除，用户自加条目保留），且不改写 `cordis.patch.yml` 的标题 provider 配置：禁用官方 all-prompts provider 是显式选择（`--sync --take-over-title`），不带开关时只在检测到冲突时提示。`--sync --force` 组合被拒（会覆盖 patch 并丢掉生成的接管片段）。生成片段按 patch 内容重建，带开关重跑只补缺；删除以 `# install.sh generated: title-takeover-` 开头的行即放弃接管。
 

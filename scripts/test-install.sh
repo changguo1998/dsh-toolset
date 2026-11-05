@@ -513,7 +513,22 @@ assert_eq \
     "$(node -e 'const fs=require("fs");const r=(f)=>JSON.stringify(JSON.parse(fs.readFileSync(f,"utf8")).dsh);process.stdout.write(r(process.argv[1])===r(process.argv[2])?"same":"diff")' "$dmain/package.json" "$dtest/package.json")" \
     "same" "两 profile 的 dsh.profile.bundles 一致"
 assert_same_file "$dmain/cordis.patch.yml" "$dtest/cordis.patch.yml" "两 profile 的 cordis.patch.yml 逐字节相同"
-assert_same_file "$dmain/pnpm-workspace.yaml" "$dtest/pnpm-workspace.yaml" "两 profile 的 pnpm-workspace.yaml 逐字节相同"
+assert_eq \
+    "$(node -e '
+const fs = require("fs");
+const [mainFile, testFile] = process.argv.slice(1);
+const lines = fs.readFileSync(mainFile, "utf8").split(/\r?\n/);
+const bi = lines.indexOf("# install.sh generated: overrides-begin v1");
+const ei = lines.indexOf("# install.sh generated: overrides-end v1");
+const stripped = (bi >= 0 && ei > bi ? [...lines.slice(0, bi), ...lines.slice(ei + 1)] : lines)
+  .join("\n")
+  .replace(/\n{3,}/g, "\n\n")
+  .replace(/\n*$/, "\n");
+const got = fs.readFileSync(testFile, "utf8").replace(/\n*$/, "\n");
+process.stdout.write(stripped === got ? "same" : "diff");
+' "$dmain/pnpm-workspace.yaml" "$dtest/pnpm-workspace.yaml")" \
+    "same" "伴随 profile 的 pnpm-workspace.yaml = 主 profile 剥掉 overrides 生成区后的内容"
+assert_count_eq "$dtest/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 0 "伴随 profile 不继承 overrides 生成区"
 assert_log_contains "4b/5 生成伴随 profile（dual-test" "日志报出伴随 profile"
 
 # 12a）幂等：重跑不产生新备份、内容不变

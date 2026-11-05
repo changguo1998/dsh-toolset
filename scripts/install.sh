@@ -789,12 +789,10 @@ render_overrides_block() {
     printf '%s\n' "$override_lines"
     printf '%s\n' "$ov_end"
 }
-if [ -f "$ws_file" ] && [ "$dep_mode" != copy ] && grep -qF "$ov_begin" "$ws_file"; then
-    # link 模式：删掉生成区（否则这些包会被钉成 file: 快照，link 语义失效）
-    if [ "$dry_run" = 1 ]; then
-        printf '[dry-run] 移除 overrides 生成区（link 模式不需要）：%s\n' "$ws_file"
-    else
-        if ! ws_next="$(node -e '
+# 剥离 overrides 生成区：打印去掉 begin/end 之间各行的内容（标记缺失或颠倒时非零退出）。
+# link 模式的主 profile 与伴随 profile 都要用：生成区把嵌套 link: 依赖钉成 file: 快照。
+strip_overrides_block() { # strip_overrides_block <文件>
+    node -e '
 const fs = require("fs");
 const [file, begin, end] = process.argv.slice(1);
 const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
@@ -807,7 +805,14 @@ process.stdout.write(
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\n*$/, "\n"),
 );
-' "$ws_file" "$ov_begin" "$ov_end")"; then
+' "$1" "$ov_begin" "$ov_end"
+}
+if [ -f "$ws_file" ] && [ "$dep_mode" != copy ] && grep -qF "$ov_begin" "$ws_file"; then
+    # link 模式：删掉生成区（否则这些包会被钉成 file: 快照，link 语义失效）
+    if [ "$dry_run" = 1 ]; then
+        printf '[dry-run] 移除 overrides 生成区（link 模式不需要）：%s\n' "$ws_file"
+    else
+        if ! ws_next="$(strip_overrides_block "$ws_file")"; then
             die "移除 overrides 生成区失败：$ws_file"
         fi
         backup "$ws_file"
@@ -1248,7 +1253,8 @@ if [ "$dry_run" != 1 ]; then
 fi
 
 # ── 4b/5 生成伴随 profile（软链接，默认 <主名>-test）────────────────────────
-# 派生规则：除依赖协议改为 link: 外，与主 profile 完全一致——bundles 与原样顶层字段取自
+# 派生规则：除依赖协议改为 link:、pnpm-workspace.yaml 剥掉 copy 模式的 overrides 生成区
+# 外，与主 profile 完全一致——bundles 与原样顶层字段取自
 # 主 profile 的最终 package.json，cordis.patch.yml / pnpm-workspace.yaml 直接复制主 profile
 # 的成品（不二次渲染，避免两条渲染路径漂移）。
 if [ -n "$test_profile" ]; then
@@ -1301,6 +1307,22 @@ process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
         fi
         for asset in pnpm-workspace.yaml cordis.patch.yml; do
             [ -f "$pdir/$asset" ] || continue
+            # pnpm-workspace.yaml：主 profile 是 copy 模式时带 overrides 生成区，把被嵌套引用
+            # 的包钉成 file: 快照。原样复制会让伴随 profile 的 link: 失效（node_modules 落成
+            # 真实目录），故先剥掉生成区再写。
+            if [ "$asset" = pnpm-workspace.yaml ] && grep -qF "$ov_begin" "$pdir/$asset"; then
+                if ! tasset_next="$(strip_overrides_block "$pdir/$asset")"; then
+                    die "剥离 overrides 生成区失败：$pdir/$asset"
+                fi
+                if [ -f "$tpdir/$asset" ] && [ "$tasset_next" = "$(cat "$tpdir/$asset")" ]; then
+                    log "伴随 profile 的 $asset 与主 profile 一致（已剥离 overrides 生成区），跳过复制"
+                    continue
+                fi
+                backup "$tpdir/$asset"
+                printf '%s\n' "$tasset_next" > "$tpdir/$asset"
+                log "写入 $tpdir/$asset（照抄主 profile，剥离 copy 模式的 overrides 生成区）"
+                continue
+            fi
             if [ -f "$tpdir/$asset" ] && cmp -s "$pdir/$asset" "$tpdir/$asset"; then
                 log "伴随 profile 的 $asset 与主 profile 一致，跳过复制"
                 continue
@@ -1308,6 +1330,20 @@ process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
             backup "$tpdir/$asset"
             run cp "$pdir/$asset" "$tpdir/$asset"
         done
+        # 旧装（例如继承了 copy 模式的 overrides 生成区）会在 node_modules 里留下 file: 快照副本；
+        # pnpm install 既不把真实目录换回符号链接，也不补删掉的条目（实测 11.7.0：报 Already up to
+        # date 且只读 .modules.yaml），故整目录清空后重装（依赖全在本仓库，重装很快）。
+        t_stale=0
+        for d in $final; do
+            t_entry="$tpdir/node_modules/$(pkg_name "$d")"
+            if [ -d "$t_entry" ] && [ ! -L "$t_entry" ]; then
+                t_stale=1
+            fi
+        done
+        if [ "$t_stale" = 1 ]; then
+            log "伴随 profile 有 file: 快照副本（应为 link: 符号链接），清空 node_modules 后重装：$tpdir/node_modules"
+            run rm -rf "$tpdir/node_modules"
+        fi
         log "伴随 profile 依赖：pnpm install（依赖协议：link）"
         run_in "$tpdir" pnpm install
         for d in $final; do
