@@ -82,6 +82,9 @@ export function reduceView(
     case "flow-track":
       // flow-track 注入开关（进程本地态，不落 tui-state.json）：标题栏符号开绿 / 关灰
       return { ...state, flowTrackEnabled: action.enabled };
+
+    case "status-extras":
+      return { ...state, statusExtras: action.extras };
     case "status-column-scroll":
       // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入会话区滚动
       return {

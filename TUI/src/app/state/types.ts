@@ -427,6 +427,42 @@ export type CompletionState =
       token: ActiveAtToken;
     };
 
+/** 状态列五块的数据快照（task / flow / pin / daemon / group；缺省字段 = 该块无内容 → 不渲染）。 */
+export interface StatusExtras {
+  /** 任务引擎：活跃帧 / 总帧 + 当前任务栈（自底向顶）。 */
+  task?: { active: number; total: number; stack: string[] } | undefined;
+  /** flow-track：标题用的最新 `slug@阶段` + 每 slug 明细。 */
+  flow?:
+    | {
+        stage: string;
+        items: Array<{
+          slug: string;
+          stage: string;
+          status: string;
+          active: boolean;
+        }>;
+      }
+    | undefined;
+  /** pin-note：条数 / 合计字数 / 标题。 */
+  pin?: { count: number; chars: number; titles: string[] } | undefined;
+  /** background-daemon：开关 / 运行中 / 总数 / 每任务。 */
+  daemon?:
+    | {
+        enabled: boolean;
+        running: number;
+        total: number;
+        items: Array<{ name: string; status: string }>;
+      }
+    | undefined;
+  /** agent-group：我创建的组（直接子） / 我加入的组（直接上级）。 */
+  group?:
+    | {
+        created: Array<{ name: string; children: string[] }>;
+        joined: Array<{ name: string; parent: string }>;
+      }
+    | undefined;
+}
+
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -611,6 +647,9 @@ export interface AppState {
   /** flow-track 注入开关（`flowTrack.enabled()` 懒读，随状态行 ticker 同步）。undefined =
    *  还没读到服务（标题栏不渲染该符号）/ true = 打开（绿）/ false = 关闭（灰） */
   flowTrackEnabled: boolean | undefined;
+  /** 状态列新增五块的快照（task / flow / pin / daemon / group；随状态行 ticker 刷新）。
+   *  undefined = 还没读到可用来源 → 五块都不渲染 */
+  statusExtras: StatusExtras | undefined;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =

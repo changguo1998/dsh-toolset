@@ -15,6 +15,16 @@ import type { ActivityPlacement } from "./config.ts";
 
 /** flow-track 只读服务面（`ctx.get('flowTrack')`，flow-track 插件 provide）：开关态懒读用。 */
 export interface FlowTrackLike {
+  /** 开关 + 每 slug 最新流程记录（状态列 Flow 块；缺省 = 无摘要面）。 */
+  summary?(): {
+    enabled: boolean;
+    records: Array<{
+      slug: string;
+      stage: string;
+      status: string;
+      active: boolean;
+    }>;
+  };
   enabled?(): boolean;
 }
 import type { ShellRunner } from "./local-shell.ts";
@@ -79,6 +89,18 @@ export interface AppDeps {
   getRuleEngine?: (() => RuleEngineLike | undefined) | undefined;
   /** flow-track 开关读取器（懒读）：返回 undefined = 未挂载 → 标题栏不渲染该符号 */
   getFlowTrack?: (() => FlowTrackLike | undefined) | undefined;
+  /** 状态列 Task 块：任务引擎只读快照。 */
+  /** 状态列 Task 块：任务引擎只读快照（结构化读取）。 */
+  getTaskEngine?: (() => unknown) | undefined;
+  /** 状态列 Pin 块：pin-note 的会话摘要面。 */
+  /** 状态列 Pin 块：pin-note 的会话摘要面。 */
+  getPinNotes?: (() => unknown) | undefined;
+  /** 状态列 Daemon 块：background-daemon 只读面。 */
+  /** 状态列 Daemon 块：background-daemon 只读面。 */
+  getDaemon?: (() => unknown) | undefined;
+  /** 状态列 Group 块：agent-group 的按会话摘要面。 */
+  /** 状态列 Group 块：agent-group 的按会话摘要面。 */
+  getAgentGroup?: (() => unknown) | undefined;
   /** 运行期告警出口（缺省静默；真实接线由 main.ts 写 stderr，格式 `warn: …`） */
   logger?: ((message: string) => void) | undefined;
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。

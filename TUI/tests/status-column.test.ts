@@ -665,3 +665,54 @@ test("renderStatusColumn: 历史 goal 行不显示 phase 符号与 ⟳（进程�
   );
   assert.ok(currentHead.includes("⟳"), "当前 goal 行显示 ⟳: " + currentHead);
 });
+
+test("新增五块：无 extras 不渲染；有内容时按 Task / Flow / Pin / Daemon / Group 顺序显示，空块省略", () => {
+  const rows = (extras?: import("../src/app/state.ts").StatusExtras) =>
+    renderStatusColumn(
+      undefined,
+      undefined,
+      [],
+      0,
+      40,
+      60,
+      undefined,
+      undefined,
+      0,
+      undefined,
+      extras,
+    )
+      .map(rowText)
+      .join("\n");
+  const none = rows(undefined);
+  assert.equal(none.includes("Task"), false);
+  assert.equal(none.includes("Group"), false);
+  const all = rows({
+    task: { active: 1, total: 3, stack: ["根任务", "实现"] },
+    flow: {
+      stage: "demo@决策",
+      items: [{ slug: "demo", stage: "决策", status: "start", active: true }],
+    },
+    pin: { count: 1, chars: 12, titles: ["风格"] },
+    daemon: {
+      enabled: true,
+      running: 1,
+      total: 2,
+      items: [
+        { name: "t1", status: "running" },
+        { name: "t2", status: "done" },
+      ],
+    },
+    group: {
+      created: [{ name: "team", children: ["a"] }],
+      joined: [{ name: "other", parent: "manager" }],
+    },
+  });
+  assert.match(all, /Task 1\/3/);
+  assert.match(all, /● 实现/);
+  assert.match(all, /Flow demo@决策/);
+  assert.match(all, /Pin 1 条 · 12 字/);
+  assert.match(all, /Daemon 开 · 1\/2/);
+  assert.match(all, /Group 2 组/);
+  assert.match(all, /team · 子 a/);
+  assert.match(all, /other · 上级 manager/);
+});

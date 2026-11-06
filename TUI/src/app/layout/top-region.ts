@@ -339,6 +339,8 @@ export function buildTopRegion(
                   }),
             }
           : undefined,
+        // 新增五块（task / flow / pin / daemon / group）：整块快照透传，缺省 = 不渲染
+        state.statusExtras,
       );
 
   // 边框构图参数：分隔竖线列 = statusColWidth-1（状态列右缘/会话区左缘，

@@ -4,6 +4,7 @@
 // 跨模块调用经 ctx.self, 公共状态在 ./context.ts.
 
 import { reduceState, setSystemStatus } from "../state.ts";
+import type { StatusExtras } from "../state.ts";
 import type {
   DshEvent,
   ModelReasoning,
@@ -147,6 +148,164 @@ export function createWiringPart(ctx: AppContext) {
   function refreshAgentsQuiet(): void {
     if (ctx.disposed) return;
     void ctx.deps.adapter.refreshAgents?.().catch(() => {});
+  }
+
+  /** 状态列五块（task / flow / pin / daemon / group）：随 ticker 异步取数，值变化才重绘。
+   *  任一来源不可用 / 无内容 → 该块字段缺省（整块不渲染）。 */
+  async function refreshStatusExtras(): Promise<void> {
+    if (ctx.disposed) return;
+    const sessionId =
+      ctx.state.activeSessionId ?? ctx.deps.adapter.sessionId ?? "";
+    const next: StatusExtras = {};
+    // Task：只取当前任务栈（帧 id → 标题），不铺整棵树
+    try {
+      const engine = ctx.deps.getTaskEngine?.() as
+        | {
+            query?(): {
+              tasks?: readonly {
+                id?: string;
+                title?: string;
+                children?: readonly unknown[];
+              }[];
+              frameStack?: readonly string[];
+              activeCount?: number;
+            };
+          }
+        | undefined;
+      const snap = engine?.query?.();
+      const stack = snap?.frameStack ?? [];
+      if (stack.length > 0) {
+        const titles = new Map<string, string>();
+        const walk = (
+          items: readonly {
+            id?: string;
+            title?: string;
+            children?: readonly unknown[];
+          }[],
+        ): void => {
+          for (const item of items) {
+            if (typeof item.id === "string" && typeof item.title === "string")
+              titles.set(item.id, item.title);
+            if (Array.isArray(item.children)) walk(item.children as never);
+          }
+        };
+        walk(snap?.tasks ?? []);
+        next.task = {
+          active: snap?.activeCount ?? 0,
+          total: titles.size,
+          stack: stack.map((id) => titles.get(id) ?? id),
+        };
+      }
+    } catch {
+      /* 忽略：保持该块缺省 */
+    }
+    // Flow：开关 + 每 slug 最新记录
+    try {
+      const face = ctx.deps.getFlowTrack?.() as
+        | {
+            summary?(): {
+              records: Array<{
+                slug: string;
+                stage: string;
+                status: string;
+                active: boolean;
+              }>;
+            };
+          }
+        | undefined;
+      const records = face?.summary?.().records ?? [];
+      if (records.length > 0) {
+        next.flow = {
+          stage: `${records[0]!.slug}@${records[0]!.stage}`,
+          items: records.map((record) => ({
+            slug: record.slug,
+            stage: record.stage,
+            status: record.status,
+            active: record.active,
+          })),
+        };
+      }
+    } catch {
+      /* 忽略 */
+    }
+    // Pin：会话层摘要（会话 id 未知时跳过）
+    if (sessionId !== "") {
+      try {
+        const face = ctx.deps.getPinNotes?.() as
+          | {
+              summary?(
+                id: string,
+              ): Promise<{ count: number; chars: number; titles: string[] }>;
+            }
+          | undefined;
+        const summary = await face?.summary?.(sessionId);
+        if (summary !== undefined && summary.count > 0) {
+          next.pin = {
+            count: summary.count,
+            chars: summary.chars,
+            titles: summary.titles,
+          };
+        }
+      } catch {
+        /* 忽略 */
+      }
+    }
+    // Daemon：开关 / 运行中 / 每任务
+    try {
+      const face = ctx.deps.getDaemon?.() as
+        | {
+            status?(): { enabled?: boolean };
+            list?(): readonly { name?: string; id?: string; status?: string }[];
+          }
+        | undefined;
+      const list = face?.list?.() ?? [];
+      if (list.length > 0) {
+        const items = list.map((task) => ({
+          name: task.name ?? task.id ?? "（未命名任务）",
+          status: task.status ?? "unknown",
+        }));
+        next.daemon = {
+          enabled: face?.status?.().enabled === true,
+          running: items.filter(
+            (item) => item.status === "running" || item.status === "stopping",
+          ).length,
+          total: items.length,
+          items,
+        };
+      }
+    } catch {
+      /* 忽略 */
+    }
+    // Group：按会话汇总（只到直接关系）
+    if (sessionId !== "") {
+      try {
+        const face = ctx.deps.getAgentGroup?.() as
+          | {
+              summary?(id: string): Promise<{
+                ok: boolean;
+                created?: Array<{ name: string; children: string[] }>;
+                joined?: Array<{ name: string; parent: string }>;
+              }>;
+            }
+          | undefined;
+        const summary = await face?.summary?.(sessionId);
+        if (summary?.ok === true) {
+          const created = summary.created ?? [];
+          const joined = summary.joined ?? [];
+          if (created.length + joined.length > 0)
+            next.group = { created, joined };
+        }
+      } catch {
+        /* 忽略 */
+      }
+    }
+    const after = JSON.stringify(next);
+    const before = JSON.stringify(ctx.state.statusExtras ?? null);
+    if (after === before) return;
+    ctx.self.apply((s) =>
+      reduceState(s, { type: "status-extras", extras: next }),
+    );
+    ctx.self.paint();
   }
 
   /** flow-track 注入开关保鲜：随 StatusTicker 懒读服务面，值变化才重绘标题栏符号。
@@ -723,6 +882,7 @@ export function createWiringPart(ctx: AppContext) {
     resolveThinking,
     refreshAgentsQuiet,
     maybeRefreshFlowTrack,
+    refreshStatusExtras,
     maybeRefreshSessionAlias,
     maybeRefreshAgents,
     handleEvent,

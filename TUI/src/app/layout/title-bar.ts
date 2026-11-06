@@ -3,7 +3,12 @@
 import type { FrameSegment } from "../../renderer/index.ts";
 import { RUN_TOGGLE_TOKENS } from "./run-virt.ts";
 import { capRows } from "./geometry.ts";
-import type { AppState, GoalHistory, ModeState } from "../state.ts";
+import type {
+  AppState,
+  GoalHistory,
+  ModeState,
+  StatusExtras,
+} from "../state.ts";
 import type {
   JobInfo,
   TodoItemLike,
@@ -186,6 +191,8 @@ export function renderStatusColumn(
   /** 条目 30：goal 进度（当前轮 / 上限） */
   goalRounds?:
     { started?: number | undefined; max?: number | undefined } | undefined,
+  /** 新增五块的快照（task / flow / pin / daemon / group）。 */
+  extras?: StatusExtras | undefined,
 ): ContentRow[] {
   const h = Math.max(1, height);
   const w = Math.max(1, width);
@@ -199,6 +206,7 @@ export function renderStatusColumn(
     // 已含「有子代理在跑」）→ 各代理再按自己的 tps 分档取相位，相对快慢即不同
     tick: Math.floor(runTokens / RUN_TOGGLE_TOKENS),
     goalRounds,
+    extras,
   };
   // 滚动（用户 2026-10-12 裁定「恢复真滚动」+ 口径 A「滚动即展开」）：
   //  scroll == 0 → 折叠视图（L0→L3 首次放得下即采用 + capRows 兜底）＝ 默认视图，逐字同改造前；

@@ -30,6 +30,7 @@ export {
 } from "./state/types.ts";
 export type {
   ActivityCategory,
+  StatusExtras,
   ActivitySwitches,
   AppState,
   Buffer,

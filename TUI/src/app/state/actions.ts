@@ -34,6 +34,7 @@ import type {
   StatusPanelState,
   SystemStatus,
   TurnEndReason,
+  StatusExtras,
 } from "./types.ts";
 import type { NoticeLine } from "./updates.ts";
 
@@ -197,6 +198,7 @@ export type StateAction =
   | { type: "symbol-unify"; on: boolean }
   /** flow-track 注入开关态（`flowTrack.enabled()` 懒读；标题栏符号用） */
   | { type: "flow-track"; enabled: boolean }
+  | { type: "status-extras"; extras: StatusExtras | undefined }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
       type: "model-selection";

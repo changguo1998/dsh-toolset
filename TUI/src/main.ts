@@ -126,6 +126,10 @@ export function main(opts: {
   getRuleEngine?: () => RuleEngineLike | undefined;
   /** flow-track 开关读取器（懒读；未挂载时返回 undefined → 标题栏不渲染该符号） */
   getFlowTrack?: () => FlowTrackLike | undefined;
+  getTaskEngine?: () => unknown;
+  getPinNotes?: () => unknown;
+  getDaemon?: () => unknown;
+  getAgentGroup?: () => unknown;
   /** security-guard 服务读取器（懒读；`$` 模式执行前复查用）。未挂载 / 形状不符 / 抛错 →
    *  fail-open 照常执行 + 每种失效模式告警一次（BACKLOG「TUI `$` 模式执行面不经 guard」） */
   getGuard?: () => SecurityGuardLike | undefined;
@@ -203,6 +207,10 @@ export function main(opts: {
     getSessionChannel: opts.getSessionChannel,
     getRuleEngine: opts.getRuleEngine,
     getFlowTrack: opts.getFlowTrack,
+    getTaskEngine: opts.getTaskEngine,
+    getPinNotes: opts.getPinNotes,
+    getDaemon: opts.getDaemon,
+    getAgentGroup: opts.getAgentGroup,
     getGuard: opts.getGuard,
     logger: opts.logger,
     // 跨回合帧率上限：真实接线压到 10Hz（窗口内跨宏任务标脏合并到窗口末统一出帧），
@@ -945,6 +953,15 @@ export async function apply(
   const getFlowTrack = (): FlowTrackLike | undefined =>
     (ctx as { get?: (name: string) => unknown }).get?.("flowTrack") as
       FlowTrackLike | undefined;
+  // 状态列五块用到的服务（同款惰读）：任务引擎 / pin-note / 守护 / 群组
+  const getTaskEngine = (): unknown =>
+    (ctx as { get?: (name: string) => unknown }).get?.("taskEngine");
+  const getPinNotes = (): unknown =>
+    (ctx as { get?: (name: string) => unknown }).get?.("pinNotes");
+  const getDaemon = (): unknown =>
+    (ctx as { get?: (name: string) => unknown }).get?.("backgroundDaemon");
+  const getAgentGroup = (): unknown =>
+    (ctx as { get?: (name: string) => unknown }).get?.("agentGroup");
 
   // 定时器统一面（ctx.get('clock')，clock-base provide）：同上懒读；StatusTicker 启动时
   // 经 scope(ctx) 取排期器，排期随本插件 fiber 卸载撤销；未挂载时回落 setInterval。
@@ -1037,6 +1054,10 @@ export async function apply(
     getSessionChannel,
     getRuleEngine,
     getFlowTrack,
+    getTaskEngine,
+    getPinNotes,
+    getDaemon,
+    getAgentGroup,
     getGuard,
     getTimers,
   });

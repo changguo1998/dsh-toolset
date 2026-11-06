@@ -17,7 +17,7 @@
 // 表现冲突；故标记内联进条目首段、续行缩进用 `hanging`（与旧 wrapWithHanging 同语义）。
 
 import type { FrameSegment } from "../../renderer/screen.ts";
-import type { GoalEntry, GoalHistory } from "../state.ts";
+import type { GoalEntry, GoalHistory, StatusExtras } from "../state.ts";
 import type {
   AgentRowInfo,
   GoalActivation,
@@ -96,7 +96,16 @@ interface StatusItem {
 
 /** 状态列块：head = 标题行（恒保留，单行）；items = 可按优先级折叠的条目 */
 interface StatusBlock {
-  id: "goal" | "todo" | "jobs" | "agents";
+  id:
+    | "goal"
+    | "todo"
+    | "jobs"
+    | "agents"
+    | "task"
+    | "flow"
+    | "pin"
+    | "daemon"
+    | "group";
   head: FrameSegment[];
   items: StatusItem[];
   /** goal 块专用：items[≥ historyFrom] 为历史（旧）goal 条目——L1 只保留首条，L2 起全隐藏 */
@@ -125,6 +134,8 @@ export interface StatusColumnData {
   /** goal 自动续轮进度（当前轮 / 上限；两者皆缺 → 整段不显） */
   goalRounds?:
     { started?: number | undefined; max?: number | undefined } | undefined;
+  /** 新增五块的快照（task / flow / pin / daemon / group；字段缺省 = 该块无内容）。 */
+  extras?: StatusExtras | undefined;
 }
 
 /**
@@ -217,6 +228,135 @@ function foldBlock(block: StatusBlock, level: FoldLevel): FoldedBlock {
   };
 }
 
+/** 单行明细（不折行；超宽由拼帧层截断）。 */
+function extrasItem(
+  text: string,
+  options: {
+    fg?: "yellow" | "gray" | "red" | undefined;
+    done?: boolean;
+    active?: boolean;
+    strike?: boolean;
+  } = {},
+): StatusItem {
+  const style = {
+    ...(options.fg === undefined ? {} : { fg: options.fg }),
+    ...(options.strike === true ? { strike: true } : {}),
+  };
+  return {
+    segments: [
+      Object.keys(style).length === 0 ? seg(text) : seg(text, style as never),
+    ],
+    hanging: 0,
+    wrap: false,
+    done: options.done ?? false,
+    active: options.active ?? false,
+  };
+}
+
+/** 新增五块（Task / Flow / Pin / Daemon / Group）；无内容不建块（与 Jobs / Agents 同口径） */
+function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
+  const out: StatusBlock[] = [];
+  if (extras === undefined) return out;
+  const head = (text: string): FrameSegment[] => [seg(text, { fg: "blue" })];
+  // Task：当前任务栈（自底向顶；最上层 = 当前帧）
+  if (extras.task !== undefined && extras.task.stack.length > 0) {
+    const stack = extras.task.stack;
+    out.push({
+      id: "task",
+      head: head(`Task ${extras.task.active}/${extras.task.total}`),
+      items: stack.map((title, index) =>
+        index === stack.length - 1
+          ? extrasItem(`● ${title}`, { fg: "yellow", active: true })
+          : extrasItem(`○ ${title}`, { fg: "gray" }),
+      ),
+    });
+  }
+  // Flow：标题取最新 `slug@阶段`；明细每 slug 一行
+  if (extras.flow !== undefined && extras.flow.items.length > 0) {
+    out.push({
+      id: "flow",
+      head: head(`Flow ${extras.flow.stage}`),
+      items: extras.flow.items.map((record) => {
+        const symbol =
+          record.status === "blocked"
+            ? "✗"
+            : record.status === "done"
+              ? "✓"
+              : record.status === "note"
+                ? "○"
+                : "●";
+        const fg =
+          record.status === "blocked"
+            ? ("red" as const)
+            : record.status === "done" || record.status === "note"
+              ? ("gray" as const)
+              : ("yellow" as const);
+        return extrasItem(
+          `${symbol} ${record.slug}@${record.stage} ${record.status}`,
+          {
+            fg,
+            done: !record.active,
+            active: record.active,
+            strike: record.status === "done",
+          },
+        );
+      }),
+    });
+  }
+  // Pin：条数 / 合计字数 + 每条标题
+  if (extras.pin !== undefined && extras.pin.count > 0) {
+    out.push({
+      id: "pin",
+      head: head(`Pin ${extras.pin.count} 条 · ${extras.pin.chars} 字`),
+      items: extras.pin.titles.map((title) =>
+        extrasItem(`○ ${title}`, { fg: "gray" }),
+      ),
+    });
+  }
+  // Daemon：开关 / 运行中 / 每任务
+  if (extras.daemon !== undefined && extras.daemon.items.length > 0) {
+    out.push({
+      id: "daemon",
+      head: head(
+        `Daemon ${extras.daemon.enabled ? "开" : "关"} · ${extras.daemon.running}/${extras.daemon.total}`,
+      ),
+      items: extras.daemon.items.map((task) => {
+        const mark = statusMark(task.status);
+        const active = task.status === "running" || task.status === "stopping";
+        return extrasItem(`${mark.symbol} ${task.name} ${task.status}`, {
+          ...(mark.color === undefined ? {} : { fg: mark.color }),
+          done: !active,
+          active,
+        });
+      }),
+    });
+  }
+  // Group：我创建的组（直接子） + 我加入的组（直接上级）
+  if (extras.group !== undefined) {
+    const { created, joined } = extras.group;
+    if (created.length + joined.length > 0) {
+      out.push({
+        id: "group",
+        head: head(`Group ${created.length + joined.length} 组`),
+        items: [
+          ...created.map((group) =>
+            extrasItem(
+              `○ ${group.name} · 子 ${group.children.join(", ") || "（无）"}`,
+              { fg: "gray" },
+            ),
+          ),
+          ...joined.map((group) =>
+            extrasItem(`○ ${group.name} · 上级 ${group.parent}`, {
+              fg: "gray",
+            }),
+          ),
+        ],
+      });
+    }
+  }
+  return out;
+}
+
 /** 状态列各块（Goal / Todo / Jobs / Agents；条目为**未折行**内容，完整自然高度、
  *  无强制行数上限——是否折叠由组装层按窗口总高决定） */
 function statusColumnBlocks(data: StatusColumnData): StatusBlock[] {
@@ -277,6 +417,8 @@ function statusColumnBlocks(data: StatusColumnData): StatusBlock[] {
       items: agents.map((a) => agentItem(a, data.tick ?? 0)),
     });
   }
+  // 新增五块：追加在宿主四块之后（无内容时 extrasBlocks 不建块）
+  blocks.push(...extrasBlocks(data.extras));
   return blocks;
 }
 
