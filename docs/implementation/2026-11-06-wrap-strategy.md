@@ -1,6 +1,6 @@
 # 折行策略可配置（按词 / 按字符 / 不折行）（接取条目：docs/BACKLOG.md「折行策略可配置（按词 / 按字符 / 不折行）」）
 
-状态：决策（第 1、4、10 项待用户裁定；第 2、3、5、6、7、8、9 项已定）　　开启：2026-11-06　　关闭：
+状态：规划（10 项决策全部定案；待用户放行实现）　　开启：2026-11-06　　关闭：
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 ## 目标
@@ -158,7 +158,7 @@
 
 ## 决策
 
-状态速览：第 10 项待用户裁定；第 1 至 9 项均已定案（用户 2026-11-06 的裁定 + 「统一折行逻辑」追加目标）。每项保留原选项与理由，被取代处划掉并注明取代者。
+状态速览：10 项全部定案（2026-11-06 用户逐项裁定 + 「统一折行逻辑」追加目标）。每项保留原选项与理由，被取代处划掉并注明取代者。
 
 ### 1. 作用面：策略要覆盖哪条路径
 
@@ -243,21 +243,21 @@
 
 - b. 三个平铺字段：`wrapStyle?` / `wrapMaxRows?` / `wrapHint?`，`wrap?: boolean` 保留但废弃。
 
-推荐 a。理由：折行三个变量同属「一件事的一组开关」，与 `prefix` / `tail` / `separator` 同型；`WrapStyle` / `WrapHint` 的复用面跨三个类型文件，够格用具名类型（同 `WidthStyle`）。代价是 57 处 `wrap: false` 与本任务涉及的所有叶子的类型同时变更（一次性迁移）。
+**已定 a（2026-11-06 用户裁定）**。理由：折行三个变量同属「一件事的一组开关」，与 `prefix` / `tail` / `separator` 同型；`WrapStyle` / `WrapHint` 的复用面跨三个类型文件，够格用具名类型（同 `WidthStyle`）。代价是 57 处 `wrap: false` 与本任务涉及的所有叶子的类型同时变更（一次性迁移）。
 
-**附带一问**：既有 `balance?: boolean`（`box.ts:69`、`ir.ts:354`，用户块平衡折行）要不要一并收进 `WrapSpec`（`wrap: { balance: true }`）？倾向**不并**：它是「行宽平衡」而非「折几行 / 怎么提示」，且并进去要改用户块构建点（`structure.ts:498`）与 `measure.ts` / `fill.ts` / `pipeline/wrap.ts` 的平衡分支。
+**`balance` 不并入（2026-11-06 用户裁定）**：`balance?: boolean`（`box.ts:69`、`ir.ts:354`，用户块平衡折行）保持原字段与原有三处平衡分支（`structure.ts:498`、`measure.ts` / `fill.ts` / `pipeline/wrap.ts`）不动。
 
 ## 规划
 
-第 2、3、5、6、7、8、9 项已定，本节的步骤与文件清单按已定项写出；第 1、4、10 项定稿后补全（第 1 项决定 pipeline 是否同步做，第 4 项决定 `word` 的断点细节，第 10 项决定属性形状）。
+10 项决策全部定案，本节的步骤与文件清单即执行口径；实现时若与计划不一致，记入「偏差」节。
 
 ### 任务拆分（草稿）
 
 1. **收敛折行核（第 7 项已定）**：新增 `TUI/src/app/layout/wrap-core.ts`（纯函数：带样式字符流切单元 + 三档断点 + `maxRows` + 四种 `hint` + 首行 / 续行可用宽回调 + 超宽单元回落 + 缓存键含全部入参），各处改为调核——`primitives.ts:92-110`（通用，纯文本）、`markdown.ts:773-801`（通用，样式段，含 `hanging`）、`pipeline/wrap.ts:104-130`（通用，样式段，含 `limit(globalRow)` 与平衡计数）改薄封装；`content-rules.ts:71-98` 的 `wrapToolCallText` **直接删除**（补研六）；`frame-rows.ts:41-75` 保留 `·` 优先外壳、超宽回落调核。
-2. **属性替换 `wrap`**（第 10 项定稿后落地）：`box.ts:67` 与 `pipeline/ir.ts:351-352` 的 `wrap?: boolean` 换成折行属性；57 处 `wrap: false` 迁成 `{ mode: "none", hint: "none" }`（第 9 项已定）；缺省 `char` / `0` / `tail` 写在核内（第 3 项已定）。
+2. **属性替换 `wrap`**：`box.ts:67` 与 `pipeline/ir.ts:351-352` 的 `wrap?: boolean` 换成 `wrap?: WrapSpec`（`WrapSpec = { mode?; maxRows?; hint? }`，`WrapStyle` / `WrapHint` 具名导出）；57 处 `wrap: false` 迁成 `{ mode: "none", hint: "none" }`（第 9 项已定）；缺省 `char` / `0` / `tail` 写在核内（第 3 项已定）。`balance` 保持原字段不动（用户裁定）。
 3. **核能力**：`none` = 单行 + `hint` 决定是否贴 `…`（第 5 项已定）；`head` / `tail` 按「只占列不占行」；`middle` = 前 `ceil(N/2)` 行 + 后 `floor(N/2)` 行、提示符贴前段末行行尾（第 8 项已定）；`maxRows: 0` 不生效。
 4. legacy 两条分支接入（`measure.wrapParagraph` / `fill` 的 styled 路径 / `primitives.wrapLine` / `markdown.wrapFrameSegments`），缓存键加属性。
-5. pipeline 接入（`WrapOptions` 换成同一属性）；代码叶（`style.code`）固定 `char`（补研四）；`rows.ts` 缓存键加属性。（第 1 项若选 b 则本步不做。）
+5. pipeline 接入（第 1 项已定 a：同步做；`WrapOptions` 换成同一属性）；代码叶（`style.code`）固定 `char`（补研四）；`rows.ts` 缓存键加属性。
 6. 状态列：`StatusItem.wrap` 换新属性，长文本候选各选风格（第 6 项已定）。
 7. 文档回写与测试。
 
@@ -275,6 +275,7 @@
 ### 明确不做的部分
 
 - 配置缺省与 `/wrap` 命令（2026-11-06 用户 2a 裁定不做；属性写在叶子上）。
+- `balance` 并入 `WrapSpec`（2026-11-06 用户裁定不并，保持原字段与原有平衡分支）。
 - 「超宽整行不截断」的 keep 语义（用户 3a 裁定不保留）。
 - 现有硬上限的合并（工具行 5 行、提示行 1 至 2 行、状态列 L3 压 1 行、`/collapse` 折叠 1 行——用户 2026-11-06 裁定本次只提供能力）。
 - CJK 禁则（避头尾点 / 行首禁排标点）。
