@@ -39,6 +39,8 @@ export interface StatusSwitches {
   symbolUnify: boolean;
   /** 声音提醒总开关（`notify.enabled`，配置项：只读显示当前值） */
   notifyEnabled: boolean;
+  /** flow-track 注入开关（服务面 `flowTrack.enabled()` 懒读）；undefined = 未读到 → 不渲染 */
+  flowTrack?: boolean | undefined;
 }
 
 /** 顶部状态列窗口起点：偏移恒在 [0, max(0, len-rows)] 内 */
@@ -51,7 +53,8 @@ function statusStartFor(len: number, offset: number, rows: number): number {
  *  - 沙箱：`md-package_variant_closed` U+F03D7（只读）/ `md-package_variant` U+F03D6（可写、全权、其它）
  *  - 审批策略：`md-chat_question_outline` U+F1739（ask）/ `md-chat_remove_outline` U+F1414（never）
  *  - 开关：`fa-route` U+EDA6（plan）/ `md-text_long` U+F09AA（verbose）/
- *    `md-spellcheck` U+F04C6（符号统一）/ `md-bell_ring_outline` U+F009F（声音提醒）
+ *    `md-spellcheck` U+F04C6（符号统一）/ `md-bell_ring_outline` U+F009F（声音提醒）/
+ *    `md-sitemap` U+F0E8（flow-track 注入开关）
  *  - 预设：`md-puzzle_outline` U+F0A66（后接预设名） */
 export const TITLE_ICON = {
   boxClosed: "\u{F03D7}",
@@ -62,6 +65,7 @@ export const TITLE_ICON = {
   verbose: "\u{F09AA}",
   symbolUnify: "\u{F04C6}",
   bell: "\u{F009F}",
+  flowTrack: "\u{F0E8}",
   preset: "\u{F0A66}",
 } as const;
 
@@ -110,7 +114,7 @@ export function titleBarSegments(
       never ? "green" : "yellow",
     );
   }
-  // 四个开关（plan / verbose / 符号统一 / 声音提醒）：颜色即取值——on 绿 / off 灰
+  // 五个开关（plan / verbose / 符号统一 / 声音提醒 / flow-track）：颜色即取值——on 绿 / off 灰
   const on: ColorName = "green";
   const off: ColorName = "gray";
   if (fields.mode?.plan)
@@ -118,6 +122,9 @@ export function titleBarSegments(
   push(TITLE_ICON.verbose, switches.verbose ? on : off);
   push(TITLE_ICON.symbolUnify, switches.symbolUnify ? on : off);
   push(TITLE_ICON.bell, switches.notifyEnabled ? on : off);
+  // flow-track 注入开关：未读到服务（undefined）时整项省略，避免在没装插件的 profile 里常灰
+  if (switches.flowTrack !== undefined)
+    push(TITLE_ICON.flowTrack, switches.flowTrack ? on : off);
 
   const rawTitle = (state.sessionTitle ?? "").trim();
   const title = rawTitle === "" ? "<title>" : rawTitle;

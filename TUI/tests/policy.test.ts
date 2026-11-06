@@ -70,8 +70,40 @@ test("titleBarSegments: policy ask → 黄色询问图标；never → 绿色移�
   );
 });
 
-// ---------- commands：路由 ----------
+test("titleBarSegments: flow-track 开关符号——未读到不渲染 / 关灰 / 开绿", () => {
+  const segsOf = (flowTrack: boolean | undefined) => {
+    const s = initialState();
+    s.sessionTitle = "会话标题";
+    return titleBarSegments(
+      s,
+      {},
+      { verbose: true, symbolUnify: true, notifyEnabled: true, flowTrack },
+      80,
+    );
+  };
+  const nothing = segsOf(undefined);
+  assert.ok(
+    !nothing.some((x) => x.text === TITLE_ICON.flowTrack),
+    "未读到服务时不渲染 flow-track 符号",
+  );
+  const off = segsOf(false);
+  assert.equal(
+    off.find((x) => x.text === TITLE_ICON.flowTrack)?.style?.fg,
+    "gray",
+    "关闭 = 灰",
+  );
+  const on = segsOf(true);
+  assert.equal(
+    on.find((x) => x.text === TITLE_ICON.flowTrack)?.style?.fg,
+    "green",
+    "打开 = 绿",
+  );
+  const flowIdx = on.findIndex((x) => x.text === TITLE_ICON.flowTrack);
+  const bellIdx = on.findIndex((x) => x.text === TITLE_ICON.bell);
+  assert.ok(flowIdx > bellIdx, "flow-track 排在声音提醒之后（组末）");
+});
 
+// ---------- commands：路由 ----------
 test("routeSlashCommand: /policy → policy；未知命令仍回 registry", () => {
   assert.equal(routeSlashCommand("policy"), "policy");
   assert.equal(routeSlashCommand("bogus"), "registry");

@@ -31,6 +31,9 @@ export const name = "flow-track";
 /** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）。 */
 export const inject = ["ruleEngine"];
 
+/** 对外只读服务面：`flowTrack.enabled()`（TUI 标题栏据此显示开关符号）。 */
+export const provide = ["flowTrack"];
+
 /** 插件配置（类型声明，宿主不校验；缺省见 resolveConfig）。 */
 export interface Config {
   /** 是否开启注入（缺省 `true`；显式 `false` 时工具仍可用）。 */
@@ -93,6 +96,7 @@ interface PluginContext {
   ruleEngine?: ConsumerRegistrar;
   get?(name: string): unknown;
   tools?: { register(def: unknown): unknown };
+  provide?(name: string, value: unknown): unknown;
   on?(event: string, handler: (...args: unknown[]) => unknown): () => void;
   logger?: { warn?: (message: string) => void };
 }
@@ -204,6 +208,16 @@ export function apply(ctx: unknown, config?: Config): () => void {
 
   const observer = new WriteObserver();
   const switcher = createFlowSwitch();
+  // 只读服务面：TUI 标题栏每 tick 懒读开关态（装载顺序与 HMR 都由懒读兜住）
+  if (typeof c.provide === "function") {
+    try {
+      c.provide("flowTrack", { enabled: () => switcher.enabled });
+    } catch (error) {
+      warn(`服务面 flowTrack 暴露失败（忽略）：${String(error)}`);
+    }
+  } else {
+    warn("ctx.provide 不可用，TUI 标题栏读不到 flow-track 开关态");
+  }
   const disposers: Array<() => void> = [];
 
   /** 记录缓存：`decide` 是同步的，读库（异步）只能提前喂进来。 */

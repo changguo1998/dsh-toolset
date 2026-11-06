@@ -608,6 +608,9 @@ export interface AppState {
   /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
    *  标题栏状态符号组按当前值只读展示（on 绿 / off 灰） */
   notifyEnabled: boolean;
+  /** flow-track 注入开关（`flowTrack.enabled()` 懒读，随状态行 ticker 同步）。undefined =
+   *  还没读到服务（标题栏不渲染该符号）/ true = 打开（绿）/ false = 关闭（灰） */
+  flowTrackEnabled: boolean | undefined;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =

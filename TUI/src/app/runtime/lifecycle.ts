@@ -309,6 +309,8 @@ export function createLifecyclePart(ctx: AppContext) {
           ctx.self.maybeRefreshAgents();
           // TUI#48：会话别名同节律保鲜（无插件 / 无别名时不动状态）
           void ctx.self.maybeRefreshSessionAlias();
+          // flow-track 注入开关：同节律懒读服务面（未挂载时保持 undefined，不渲染符号）
+          ctx.self.maybeRefreshFlowTrack();
         },
       });
       ctx.statusTicker.start();

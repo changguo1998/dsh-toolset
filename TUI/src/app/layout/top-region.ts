@@ -480,6 +480,7 @@ export function buildTopRegion(
               verbose: !Object.values(state.activityCompact).some(Boolean),
               symbolUnify: state.symbolUnify,
               notifyEnabled: state.notifyEnabled,
+              flowTrack: state.flowTrackEnabled,
             },
             contentW,
           );

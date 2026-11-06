@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apply, inject, name, resolveConfig } from "../src/index.ts";
+import { apply, inject, name, provide, resolveConfig } from "../src/index.ts";
 import type { StoreRowLike } from "../src/store.ts";
 import type { SnapshotLike } from "../src/status.ts";
 import type { ToolDef } from "../src/tools.ts";
@@ -79,6 +79,7 @@ interface Harness {
   tools: ToolDef[];
   registered: Array<Record<string, unknown>>;
   commandDefs: Array<Record<string, unknown>>;
+  provided: Array<{ name: string; value: unknown }>;
   emitEvent(event: unknown): void;
   decide(
     sessionId: string,
@@ -98,6 +99,7 @@ function makeContext(options?: {
   const tools: ToolDef[] = [];
   const registered: Array<Record<string, unknown>> = [];
   const commandDefs: Array<Record<string, unknown>> = [];
+  const provided: Array<{ name: string; value: unknown }> = [];
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   let disposedCount = 0;
   const base = {
@@ -113,6 +115,9 @@ function makeContext(options?: {
       register(def: unknown): void {
         tools.push(def as ToolDef);
       },
+    },
+    provide(name: string, value: unknown): void {
+      provided.push({ name, value });
     },
     on(event: string, handler: (...args: unknown[]) => unknown): () => void {
       handlers.set(event, handler);
@@ -139,6 +144,7 @@ function makeContext(options?: {
     tools,
     registered,
     commandDefs,
+    provided,
     emitEvent(event: unknown) {
       handlers.get("session/event")?.({ id: "s1" }, event);
     },
@@ -198,6 +204,23 @@ function captureStderr(run: () => void): string[] {
 test("导出名与硬依赖", () => {
   assert.equal(name, "flow-track");
   assert.deepEqual(inject, ["ruleEngine"]);
+  assert.deepEqual(provide, ["flowTrack"]);
+});
+
+test("服务面 flowTrack：只读 enabled() 跟随开关", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory, commands: true });
+  apply(harness.ctx);
+  const face = harness.provided.find((item) => item.name === "flowTrack")
+    ?.value as { enabled(): boolean } | undefined;
+  assert.ok(face, "应已提供 flowTrack 服务面");
+  assert.equal(face.enabled(), false, "缺省关闭");
+  await enableInjection(harness);
+  assert.equal(face.enabled(), true);
+  harness.runCommand("off");
+  assert.equal(face.enabled(), false);
+  harness.runCommand("on");
+  assert.equal(face.enabled(), true);
 });
 
 test("注册五个工具与一个消费者（turn-start + user-message + inject）", () => {

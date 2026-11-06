@@ -83,6 +83,7 @@ export function initialState(
     activityShow: { ...ACTIVITY_SHOW_DEFAULT }, // 缺省三类全显示
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
+    flowTrackEnabled: undefined, // flow-track 注入开关：未读到服务前不渲染符号
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
     lowerPanesVisible: true, // #9：下半区（Turn/Tool）默认显示（Ctrl+T 切换）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）

@@ -149,6 +149,24 @@ export function createWiringPart(ctx: AppContext) {
     void ctx.deps.adapter.refreshAgents?.().catch(() => {});
   }
 
+  /** flow-track 注入开关保鲜：随 StatusTicker 懒读服务面，值变化才重绘标题栏符号。
+   *  插件未挂载 / 服务无 `enabled()` → 保持 undefined（标题栏不渲染该符号）。 */
+  function maybeRefreshFlowTrack(): void {
+    if (ctx.disposed) return;
+    const read = ctx.deps.getFlowTrack;
+    if (read === undefined) return;
+    let enabled: unknown;
+    try {
+      enabled = read()?.enabled?.();
+    } catch {
+      return;
+    }
+    if (typeof enabled !== "boolean") return;
+    if (ctx.state.flowTrackEnabled === enabled) return;
+    ctx.self.apply((s) => reduceState(s, { type: "flow-track", enabled }));
+    ctx.self.paint();
+  }
+
   /**
    * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 1s）。
    * 停止条件只留「状态列被 Ctrl+S 隐藏 / 无活跃会话」：不依赖 `subagent-activity` 事件面
@@ -704,6 +722,7 @@ export function createWiringPart(ctx: AppContext) {
     refreshModelStatus,
     resolveThinking,
     refreshAgentsQuiet,
+    maybeRefreshFlowTrack,
     maybeRefreshSessionAlias,
     maybeRefreshAgents,
     handleEvent,

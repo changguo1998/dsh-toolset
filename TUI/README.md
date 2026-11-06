@@ -49,7 +49,7 @@ DSH（DeepSeek Harness）进程内集成的终端 UI 插件：复用 DSH 核心�
 
 标题行（前景色；空标题显示灰色 `<title>` 占位）+ 实线下划线。标题优先取官方 `dsh-session-title` 服务落盘的 `session/title` 事件折叠结果；缺失时本地兜底为被恢复会话首条用户消息前 30 字符，无消息为 `（新会话）`。标题栏行数由会话区承担（不影响回合区高度）。
 
-首行三段：`[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 6 个，空格分隔，顺序固定：沙箱 / policy / plan / verbose / symbol-unify / bell）] 2 空格 [会话标题]`（没有 preset 数据时第一段整段省略，标题左移）。符号是 Nerd Font 私有区字形，各占 1 列（码位见 `layout.ts` 的 `TITLE_ICON`，如沙箱 `U+F03D7`（`md-package_variant_closed`）/ `U+F03D6`（`md-package_variant`）、policy `U+F1739` / `U+F1414`），**颜色即语义值**：沙箱图标（只读 / 可写 / 全权分别绿 / 黄 / 红，其它取值灰）、policy（`ask` 黄 / `never` 绿）、四个开关图标（`on` 绿 / `off` 灰）、preset（拼图图标 + 预设名，默认前景）；`permission` 不再显示（值仍随会话状态快照保存）。窄宽按让位顺序收缩：① 去掉 preset 段 → ② 截断标题 → ③ 去掉整组符号 → ④ 先收掉下划线、再整栏省略，保证会话区非空。**依赖终端字体支持 Nerd Font 私有区字形**（本机验证字体 Maple Mono NF CN），非 Nerd Font 终端会显示豆腐块。
+首行三段：`[preset 图标 + 1 空格 + 预设名] 1 空格 [状态符号组（最多 7 个，空格分隔，顺序固定：沙箱 / policy / plan / verbose / symbol-unify / bell / flow-track）] 2 空格 [会话标题]`（没有 preset 数据时第一段整段省略，标题左移）。符号是 Nerd Font 私有区字形，各占 1 列（码位见 `layout.ts` 的 `TITLE_ICON`，如沙箱 `U+F03D7`（`md-package_variant_closed`）/ `U+F03D6`（`md-package_variant`）、policy `U+F1739` / `U+F1414`），**颜色即语义值**：沙箱图标（只读 / 可写 / 全权分别绿 / 黄 / 红，其它取值灰）、policy（`ask` 黄 / `never` 绿）、五个开关图标（`on` 绿 / `off` 灰）、preset（拼图图标 + 预设名，默认前景）；`permission` 不再显示（值仍随会话状态快照保存）。窄宽按让位顺序收缩：① 去掉 preset 段 → ② 截断标题 → ③ 去掉整组符号 → ④ 先收掉下划线、再整栏省略，保证会话区非空。**依赖终端字体支持 Nerd Font 私有区字形**（本机验证字体 Maple Mono NF CN），非 Nerd Font 终端会显示豆腐块。
 
 #### 会话区
 

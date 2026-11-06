@@ -12,6 +12,11 @@ import type {
 import type { BlockDelivery } from "./layout/pipeline/types.ts";
 import type { StatusQueries } from "./status.ts";
 import type { ActivityPlacement } from "./config.ts";
+
+/** flow-track 只读服务面（`ctx.get('flowTrack')`，flow-track 插件 provide）：开关态懒读用。 */
+export interface FlowTrackLike {
+  enabled?(): boolean;
+}
 import type { ShellRunner } from "./local-shell.ts";
 import type { LocalLogWriteOptions } from "./adapter/local-log.ts";
 
@@ -72,6 +77,8 @@ export interface AppDeps {
   /** rule-engine 服务读取器（懒读）：返回 undefined（或未实现 onNotice）= 告警不经总线，
    *  由插件侧 stderr 兜底（BACKLOG「rule-engine 的用户提示应显示在回合区」） */
   getRuleEngine?: (() => RuleEngineLike | undefined) | undefined;
+  /** flow-track 开关读取器（懒读）：返回 undefined = 未挂载 → 标题栏不渲染该符号 */
+  getFlowTrack?: (() => FlowTrackLike | undefined) | undefined;
   /** 运行期告警出口（缺省静默；真实接线由 main.ts 写 stderr，格式 `warn: …`） */
   logger?: ((message: string) => void) | undefined;
   /** 启动自检 kickoff 正文（门控通过时由 main.ts 传入；App 代替用户发出以完成锚定解锁）。
