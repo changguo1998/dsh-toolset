@@ -6,6 +6,9 @@
  * 并在 `agent.inbox` 只留一条（照宿主 `agent-instructions` 的先例：payload 相同不重复插入，
  * 内容变化后替换旧的一条）。压缩把消息移出上下文后, 下一步立刻补回 —— 这就是「跨压缩在场」。
  *
+ * 去重：注入前先读当前上下文（`session.deriveMessages()`, 老宿主回退到投影事件比对），
+ * 同一段正文已在上下文里就不再注入；长回合因此只出现一段。比对按正文相等, 不看 source / id。
+ *
  * 工具面：`pin_note` / `note_list` / `note_remove`（memory-base 不注册模型侧写工具, 写通道由本包补）。
  *
  * 降级：`ctx.memory` 不可用（或 `registerKind` 抛错）时只向 stderr / logger 告警, 不注册工具、
@@ -15,7 +18,9 @@
 import type { MemoryFaceLike } from "./store.ts";
 import { DEFAULT_MAX_NOTES, PinStore } from "./store.ts";
 import {
+  hasText,
   isPinMessage,
+  messageText,
   pinMessage,
   samePinPayload,
   type PinMessageLike,
@@ -60,10 +65,12 @@ interface InboxLike {
   replace?(id: string, message: PinMessageLike): void;
 }
 
-/** 宿主 session 的结构面（`eventAt` 是既有历史读, 与 `agent-instructions` 同口径）。 */
+/** 宿主 session 的结构面（`deriveMessages` 是当前读面, `eventAt` 只在老宿主上兜底）。 */
 interface SessionLike {
   id?: string;
   surface?: { nodes: readonly number[] };
+  /** 当前上下文派生的消息（宿主推荐读面）。 */
+  deriveMessages?: () => readonly unknown[];
   eventAt?: (seq: number) => { type: string; data?: unknown } | undefined;
 }
 
@@ -93,7 +100,21 @@ interface PluginContext {
   logger?: { warn?: (message: string) => void };
 }
 
-/** 该 payload 是否已在会话投影里（压缩前插入过的那条）。 */
+/** 该 payload 是否已在上下文中（先按正文读 `deriveMessages`, 退化到投影事件比对）。 */
+function alreadyInContext(agent: AgentLike, desired: PinMessageLike): boolean {
+  const session = agent.session;
+  const text = messageText(desired);
+  if (text !== undefined && typeof session?.deriveMessages === "function") {
+    try {
+      if (hasText(session.deriveMessages(), text)) return true;
+    } catch {
+      /* 读面异常：落到投影比对 */
+    }
+  }
+  return alreadyInSurface(agent, desired);
+}
+
+/** 该 payload 是否已在会话投影里（`eventAt` 老宿主回退路径）。 */
 function alreadyInSurface(agent: AgentLike, desired: PinMessageLike): boolean {
   const session = agent.session;
   if (session?.surface === undefined || typeof session.eventAt !== "function")
@@ -126,7 +147,7 @@ function syncInbox(
   }
   const supplied =
     claimed.some((message) => samePinPayload(message, desired)) ||
-    alreadyInSurface(agent, desired);
+    alreadyInContext(agent, desired);
   if (supplied) {
     for (const message of pending) inbox.remove?.(message.id);
     return;
@@ -237,7 +258,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
       return decision;
     if (d.messages.some((message) => samePinPayload(message, desired)))
       return decision;
-    if (alreadyInSurface(agent, desired)) return decision;
+    if (alreadyInContext(agent, desired)) return decision;
     return { ...d, messages: foldMessages(d.messages, claimed, desired) };
   };
 

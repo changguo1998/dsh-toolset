@@ -1,6 +1,6 @@
 # @dsh-toolset/pin-note
 
-DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨压缩保持」后，**每一轮**都出现在模型可见上下文；手动压缩把它移出上下文后，下一步立刻补回。
+DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨压缩保持」后，**上下文里没有这段正文时**补一次；手动压缩把它移出上下文后，下一步立刻补回。
 
 三个模型侧工具：`pin_note`（登记）/ `note_list`（列出）/ `note_remove`（删除）。
 
@@ -14,8 +14,8 @@ DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨�
 | --- | --- |
 | 存储 | memory-base 的 `pin` 分类，**会话层**（S 层），随会话结束失效 |
 | 注入 | `agent/pre-step` 把「保持项」折叠进 `decision.messages`（照宿主 `agent-instructions` 先例） |
-| 去重 | payload（content + source）相同的消息不重复插入；`agent.inbox` 里本插件的待消费消息只留一条 |
-| 压缩后 | 投影里没有这条消息 → 下一步重新插入（这就是「跨压缩在场」） |
+| 去重 | 注入前先读当前上下文（`session.deriveMessages()`, 老宿主回退投影比对）, 同一段正文已在上下文里就不再注入；`agent.inbox` 里本插件的待消费消息只留一条 |
+| 压缩后 | 上下文里不再有这段正文 → 下一步重新插入（这就是「跨压缩在场」） |
 | 删除 / 清空 | 删掉全部条目后不再注入，`inbox` 残留一并清掉 |
 
 保持项在注入消息里长这样：
@@ -49,7 +49,7 @@ DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨�
 
 ## 边界
 
-- **每步落一条日志**：注入消息按 `user/message` + `surfaceOp: append` 进会话日志；同一 payload 在投影里已存在时**不重复插**，但压缩后必然再插一次（这正是目的）。
+- **同一段正文只落一条**：注入消息按 `user/message` + `surfaceOp: append` 进会话日志；上下文里已有同一段正文（按正文比对，不看 source / id）时不再插，压缩把它移出后才会再插一次（这正是目的）。
 - **只做会话级**：S 层的库位置按 `sessionId` 解析，其它会话读不到；跨会话保持请用 memory-base 的项目层。
 - **每条 ≥ 20 字**：`preWrite` 拒绝过短内容，避免碎片登记把注入撑长。
 - **结构性依赖**：读走 `whenReady().tiers.openExisting("session", sessionId)`（`bundle.tiers` 属 memory-base 内部结构面，不是公开服务契约）；全局 `list({tier: "session"})` 不可靠（跳过 S 层，且只遍历已打开的库），故不走它。
@@ -61,7 +61,7 @@ DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨�
 ```sh
 cd pin-note
 pnpm run check   # tsc --noEmit（含 tests）
-pnpm test        # node --test：存储 9 例 + 注入 6 例 + 接线 14 例
+pnpm test        # node --test：存储 8 例 + 注入 6 例 + 接线 17 例
 pnpm run build   # 编译到 dist/
 ```
 

@@ -183,6 +183,48 @@ test("模拟压缩后：下一步重新补回（跨压缩在场）", async () =>
   assert.match(after.messages[0]!.content[0]!.text, /保持项：用户的风格要求/);
 });
 
+test("主题相同但 source / id 不同：按正文判重，不重复注入", async () => {
+  const fake = makeMemory();
+  const { ctx, tools, handler } = makeContext(fake);
+  apply(ctx);
+  const agent = makeAgent();
+  const pinTool = tools.find((tool) => tool.name === "pin_note")!;
+  await pinTool.execute(
+    { content: LONG },
+    { agent: { session: { id: "s1" } } },
+  );
+  const first = await runStep(handler(), agent);
+  const injected = first.messages[0]!;
+  // 投影里没有这条（老路径查不到）, 但派生读面里有同一段正文且 id / source 都不同
+  const derived = {
+    id: "other-id",
+    role: "user" as const,
+    content: injected.content,
+    source: { kind: "user" },
+  };
+  agent.session.deriveMessages = () => [derived];
+  const again = await runStep(handler(), agent);
+  assert.equal(again.messages.length, 0);
+  assert.equal(agent.inbox.nextStep.length, 0);
+});
+
+test("老宿主没有 deriveMessages：回退投影比对仍去重", async () => {
+  const fake = makeMemory();
+  const { ctx, tools, handler } = makeContext(fake);
+  apply(ctx);
+  const agent = makeAgent();
+  const pinTool = tools.find((tool) => tool.name === "pin_note")!;
+  await pinTool.execute(
+    { content: LONG },
+    { agent: { session: { id: "s1" } } },
+  );
+  const first = await runStep(handler(), agent);
+  commitToSurface(agent, first.messages[0]!);
+  delete (agent.session as { deriveMessages?: unknown }).deriveMessages;
+  const again = await runStep(handler(), agent);
+  assert.equal(again.messages.length, 0);
+});
+
 test("内容变化：inbox 里旧消息被替换成新 payload", async () => {
   const fake = makeMemory();
   const { ctx, tools, handler } = makeContext(fake);

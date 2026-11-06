@@ -62,6 +62,23 @@ export function isPinMessage(value: unknown): boolean {
   return source?.kind === PIN_SOURCE_KIND;
 }
 
+/** 一条消息的文本块拼成一段（无文本块 → undefined）。 */
+export function messageText(message: unknown): string | undefined {
+  const content = (message as { content?: unknown } | undefined)?.content;
+  if (!Array.isArray(content)) return undefined;
+  const parts: string[] = [];
+  for (const block of content) {
+    const b = block as { type?: unknown; text?: unknown } | undefined;
+    if (b?.type === "text" && typeof b.text === "string") parts.push(b.text);
+  }
+  return parts.length === 0 ? undefined : parts.join("\n");
+}
+
+/** 上下文里是否已有这段正文（按正文相等，不看 source / id）。 */
+export function hasText(messages: readonly unknown[], text: string): boolean {
+  return messages.some((message) => messageText(message) === text);
+}
+
 /** 两条消息的 payload 是否相同（content 与 source 逐字段深比较）。 */
 export function samePinPayload(
   left: PinMessageLike,

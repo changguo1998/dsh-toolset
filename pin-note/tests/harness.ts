@@ -119,6 +119,8 @@ export interface FakeAgent {
     id: string;
     surface: { nodes: number[] };
     events: Map<number, { type: string; data?: unknown }>;
+    /** 当前上下文派生消息（按投影节点取事件数据, 照宿主 deriveMessages 口径）。 */
+    deriveMessages(): unknown[];
     eventAt(seq: number): { type: string; data?: unknown } | undefined;
   };
   inbox: FakeInbox & {
@@ -130,6 +132,7 @@ export interface FakeAgent {
 
 export function makeAgent(sessionId = "s1"): FakeAgent {
   const events = new Map<number, { type: string; data?: unknown }>();
+  const surface = { nodes: [] as number[] };
   const inbox: FakeAgent["inbox"] = {
     nextStep: [],
     prepended: [],
@@ -153,8 +156,17 @@ export function makeAgent(sessionId = "s1"): FakeAgent {
   return {
     session: {
       id: sessionId,
-      surface: { nodes: [] },
+      surface,
       events,
+      deriveMessages() {
+        const out: unknown[] = [];
+        for (const seq of surface.nodes) {
+          const event = events.get(seq);
+          if (event?.type === "user/message" && event.data !== undefined)
+            out.push(event.data);
+        }
+        return out;
+      },
       eventAt(seq: number) {
         return events.get(seq);
       },
