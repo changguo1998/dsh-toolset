@@ -66,21 +66,21 @@
 
 ## 2. 未完成项
 
-- **security-guard 改用 shell-parse（删掉命令解析副本）**（security-guard; 优先级 P2; 状态: 未开始(2026-11-06 登记)）
+- **security-guard 改用 shell-parse（删掉命令解析副本）**（security-guard; 优先级 P2; 状态: 进行中(2026-11-06 接取, worktree `task/security-guard-shell-parse`, 追踪文档 `security-guard/docs/implementation/2026-11-06-shell-parse-migration.md`)）
 
   - **现状**: `security-guard/src/blacklist.ts:37`–`371` 自带一份解析副本（`splitCommandSegments` / `tokensOf` / `commandName` / `PREFIX_WORDS` / `commandWords` / `dynamicCommandHit` / `heredocFedShellHit`）; `PREFIX_WORDS:189` 只认单词包装器, `uv run rm -rf /`、`npx …`、`pnpm exec …`、`bundle exec …` 的命令位取到的是包装器而不是真正被跑的命令, 命令位黑名单（`scope: "command"` 的规则）因此可能漏判。
   - **期望**: 改 import `@dsh-toolset/shell-parse`（`link:` 依赖, 与 `clock-base` 同形态）取切段 / 分词 / 命令位与包装器表, 删掉本地副本; `heredocFedShellHit` 与 `DEFAULT_COMMAND_RULES` 的判定语义、回执文案、告警口径保持不变, 只换解析层来源。
   - **验收**: 既有用例全绿（命令位黑名单 / 敏感文件 / 回执）; 新增多词包装器用例（`uv run rm -rf /`、`sudo timeout 5 rm -rf /` 仍命中 `rm-recursive-root`）; `blacklist.ts` 内不留解析实现。
   - 来源: 2026-11-06 `shell-parse` 建包时按「本轮不改其他包」拆出, 同日按要求与 auto-approve 分成两条。
 
-- **auto-approve 改用 shell-parse（删掉切段 / 分词副本）**（auto-approve; 优先级 P2; 状态: 未开始(2026-11-06 登记)）
+- **auto-approve 改用 shell-parse（删掉切段 / 分词副本）**（auto-approve; 优先级 P2; 状态: 进行中(2026-11-06 接取, worktree `task/auto-approve-shell-parse`, 追踪文档 `auto-approve/docs/implementation/2026-11-06-shell-parse-migration.md`)）
 
   - **现状**: `auto-approve/src/learn-rules.ts:50`–`158` 自带一份切段 / 分词副本（带 `balanced` 的 `splitCommandSegments` / `tokenizeSegment` / `maskToken` / `segmentForm` / `formOfCommand`）; `:46` 注明「本包复制 25 行实现, 不引入跨包依赖 —— 抽公共模块属跨包改动, 另立条目」。
   - **期望**: 切段与分词改用 `@dsh-toolset/shell-parse`（`link:` 依赖）, 删掉本地实现; 抹值（`maskToken` 的引号 / 长 hex / 纯数字占位）与段形态的判定口径留在本包, 指纹与学习规则的行为不变。
   - **验收**: 既有用例全绿（段形态学习 / 指纹 / 白名单命中）; 段形态与指纹在迁移前后对同一批命令输出一致（守成测试: 迁移前先取一份样例输出作基线）; `learn-rules.ts` 内不留切段 / 分词实现。
   - 来源: 2026-11-06 `shell-parse` 建包时按「本轮不改其他包」拆出, 同日按要求与 security-guard 分成两条。
 
-- **命令分段解析后的解释器识别**（behavior-correction, 依赖 `shell-parse`; 优先级 P1; 状态: 未开始(2026-11-06 登记)）
+- **命令分段解析后的解释器识别**（behavior-correction, 依赖 `shell-parse`; 优先级 P1; 状态: 进行中(2026-11-06 接取, worktree `task/behavior-correction-interpreter`, 追踪文档 `behavior-correction/docs/implementation/2026-11-06-interpreter-recognition.md`)）
 
   - **现状**: 缺省规则靠单条命令位正则（`behavior-correction/src/index.ts:121`–`152`）拦 python / node; 逃逸口在包装与嵌套 —— `uv run python`、`npx tsx`、`xargs ruby`、`bash -c '…'` 全放行。名单越长越盖不住, 且 `script_run` 只承接 python / node / sh（`script-interpreter/src/index.ts:101`）, 其它语言拦了没有受控出口。
   - **期望**: 改用解析层给出的命令位词序列: 逐段剥离包装器后取命令词, 命中解释器集合即拒; 拒绝文案写明受控出口（`script_run` 的 python / node / sh）或「改写为 sh / 用现有工具组合」。名单范围（窄 / 中 / 宽）、拒还是只提示、是否顺带认 `python2` 在实现前确认。
