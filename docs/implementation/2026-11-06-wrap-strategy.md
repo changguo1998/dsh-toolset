@@ -249,7 +249,7 @@
 
 ## 规划
 
-按决策节的 10 项 + 3 条追加裁定重写（硬上限并入本次、工具行补实现、工具行不做特殊分配）。本节即执行口径；实现与本节不一致处记入「偏差」。
+按决策节的 10 项 + 3 条追加裁定重写（硬上限并入本次、工具行补实现、工具行不做特殊分配）。**执行与审计单位是下节的 34 条任务表**（一条一个落点、一条一个可跑的判据）；「实现规格」只回答怎么做。实现与本节不一致处记入「偏差」。
 
 ### 目标形态
 
@@ -258,7 +258,9 @@
 - 现有四处硬上限改由核的行数预算表达，工具行首次获得 5 行上限。
 - 缺省行为与今天逐字一致：`char` + `maxRows: 0` + `hint: "tail"`。
 
-### 1. 折行核（新增 `TUI/src/app/layout/wrap-core.ts`，纯函数）
+### 实现规格（怎么做；判据见下节任务表）
+
+#### 1. 折行核（新增 `TUI/src/app/layout/wrap-core.ts`，纯函数）
 
 - 输入：带样式的字符流（`{ ch, style }[]`，词单元跨样式段）+ 宽函数 `limit(rowIndex) => number`（首行 / 续行差异由调用方给）+ `WrapSpec`。
 - 单元切分：`char` 逐字符；`word` = 连续非空白串，并在 `-` / `/` 之后断开；空白按字符类判（`\s`，`charWidth` 对 `\t` 返 0，不能按宽度反推）；单元超宽回落逐字符；CJK 任意可断；断点空格吃掉（续行不以空格开头）。
@@ -267,32 +269,32 @@
 - `balance`（用户块平衡折行）计数走同一核，属性仍用原 `balance?: boolean`。
 - 缓存：键含 mode / maxRows / hint / width / hanging / prefixW / 文本；缺省值（`char` / `0` / `tail`）写在核内。
 
-### 2. 属性 `WrapSpec` 替换 `wrap?: boolean`
+#### 2. 属性 `WrapSpec` 替换 `wrap?: boolean`
 
 - `box.ts` 的 `NodeBase.wrap`（`:67`）与 `pipeline/ir.ts` 的 `wrap`（`:351-352`）换成 `wrap?: WrapSpec`；`WrapSpec` / `WrapStyle` / `WrapHint` 具名导出（复用面 = 核 + legacy 类型 + pipeline 类型 + `StatusItem`）。
 - 57 处 `wrap: false` → `{ mode: "none", hint: "none" }`（10 个面板 / chrome 文件 + `StatusColumn.ts`）。
 - `StatusItem.wrap?: WrapSpec`（`StatusColumn.ts:79-97`），缺省取核内缺省。
 - `balance?: boolean` 保持原字段与原有三处平衡分支（`structure.ts:498`、`measure.ts`、`fill.ts`、`pipeline/wrap.ts`）。
 
-### 3. legacy 接入
+#### 3. legacy 接入
 
 - `primitives.wrapLine`（`primitives.ts:85-110`）→ 核的纯文本薄封装（保留 `createTextCache` 入口）。
 - `measure.wrapParagraph`（`measure.ts:428-435`）删自做截断，预算与贴符交核。
 - `fill` 的两条分支（Paragraph `fill.ts:384-391`、StyledText `fill.ts:443-446`）走同一核；`markdown.wrapFrameSegments` / `wrapAssistantLine` / `wrapInlineMarkdown` 改调核（保留各自缓存）。
 - 缓存键统一含 `WrapSpec`。
 
-### 4. pipeline 接入
+#### 4. pipeline 接入
 
 - `pipeline/wrap.ts`：`WrapOptions` 换成 `WrapSpec`，`wrapSegmentsAt` 删除、`wrapLeaf` 调核；`balancedWrapWidth` 复用核的计数。
 - `pipeline/measure.ts` / `pipeline/flatten.ts` 透传叶子属性；`codeLines` 展开出的**代码叶断点固定 `char`**（`maxRows` / `hint` 仍可作用于代码块）。
 - `pipeline/rows.ts` 行缓存键（`keyHead`，`:483-487`）加 spec 摘要。
 
-### 5. 状态列逐条
+#### 5. 状态列逐条
 
 - `itemLeaves`（`StatusColumn.ts:184-193`）传叶子属性；L3 折叠（`:188`）用 `{ mode: "none" }` 表达单行。
 - 各块选择（在 `statusBodyW` 窄列下实测后定稿，结果记实现记录）：Goal objective / Todo / Agents / Daemon / Group 用 `word`；Flow 长 slug 用 `word`（slug 含 `-` / `/` 可断）；jobs 与阻塞原因保持 `{ mode: "none", hint: "none" }`（原「一条一行」）。
 
-### 6. 硬上限并入（同一套预算）
+#### 6. 硬上限并入（同一套预算）
 
 - **提示行**：`frame-rows.wrapHintLine`（`:74` 的 `slice(0, maxRows)`）→ `truncateRows(rows, { maxRows: 2, hint: "none" })`；`hintRowsFor`（`:79`）用同一函数算高，口径仍 1 至 2 行。
 - **`/collapse`**：`rows.foldRows`（`:432-440`）→ `truncateRows(rows, { maxRows: 1, hint: "tail" })`；运行期开关 `activityCompact` 不变。
@@ -300,17 +302,53 @@
 - **工具行（补实现）**：`structure.ts` 给参数值叶与结果叶挂 `{ maxRows: 5, hint: "middle" }`；**不做特殊分配**，由通用规则给前 3 + 后 2、`…` 贴第 3 行行尾；`SPEC.md:119` 与 `state/types.ts:164` 的旧口径改写成该形态。
 - **删除**：`content-rules.wrapToolCallText`（`:71-98`）与 `layout.ts:30` 的 barrel 导出（生产无调用）。
 
-### 7. 测试与基线
+### 任务表（可执行 / 可机械审计）
 
-- 新增 `tests/wrap-strategy.test.ts`：3 档断点 × `maxRows`（0 / 1 / 3）× 4 种 `hint`；词单元跨样式段；断点空格吃掉；超宽单元回落；`…` 不占行（行数断言）；缓存隔离（同文本两 spec 不串）。
-- 迁移既有用例：`tool-call-wrap.test.ts` 与 `content-rules.test.ts` 的 `wrapToolCallText` 用例收敛到核；`layout4` / `pipeline-wrap` / `pipeline-measure` / `layout-cache` / `status-column-equivalence` / `question-wrap` / `footer-notice`（提示行行数）/ `activity-level` / `activity-verbose`（压 1 行）。
-- 基线：`pnpm run test:tui`、`pnpm run demo -- --smoke`、根 `pnpm run check` + `build`；长工具参数 / 结果的帧断言按新上限复核（属可见变化，需人工确认）。
+执行纪律：按编号顺序做，一条只改它「落点」列的文件；每条做完**立即跑该条判据**，不达标不得进入下一条；判据通过后把「状态」改「完成」，并在「测试与证据」节记命令与输出。判据只用三类可执行手段——类型（`pnpm --dir TUI run check`）、结构（`grep` 命中数）、测试（指定 `node --test` 文件）。唯一需要人工确认的是 G2 前的工具行截断观感（属可见变化）。
+
+| 编号 | 任务 | 落点 | 机械判据 | 依赖 | 状态 |
+|---|---|---|---|---|---|
+| A1 | 核骨架：`WrapSpec` / `WrapStyle` / `WrapHint`、缺省值、字符流输入、`char` 逐字符切分 | `layout/wrap-core.ts`（新增） | `pnpm --dir TUI run check` 通过；`tests/wrap-strategy.test.ts` 的 A1 组绿 | - | 待做 |
+| A2 | `word` 单元与断点：空白断 + 空格吃掉 + `-` `/` 后断开 + 超宽回落 + CJK 任意断 | 同上 | A2 组 4 例（拉丁长词 / URL / 路径 / 中英混排）断点逐字符断言绿 | A1 | 待做 |
+| A3 | 行数预算 `maxRows` + 四种 `hint` 取窗口与贴符（`…` 不占行） | 同上 | 3 档 × `maxRows`（0 / 1 / 3）× 4 种 `hint` 网格用例绿；`rows.length` 断言 | A1 | 待做 |
+| A4 | `truncateRows(rows, spec)`（已摊平行集） | 同上 | 4 种 `hint` × `maxRows`（0 / 1 / 3）用例绿 | A3 | 待做 |
+| A5 | 核缓存：键含 mode / maxRows / hint / width / hanging / prefixW / 文本 | 同上 + `layout/cache.ts` | 隔离用例：同文本两 spec 结果不同；`TUI_LAYOUT_CACHE=0` 下结果一致 | A2 A3 | 待做 |
+| A6 | `balance` 计数走核 | 同上 | `tests/user-width-balance.test.ts` 绿；3 例平衡宽度不变 | A1 | 待做 |
+| B1 | `box.ts`：导出三类型，`NodeBase.wrap?: WrapSpec` | `layout/box.ts` | `grep -n "wrap?: boolean" src/app/layout/box.ts` 命中 0；check 通过 | A1 | 待做 |
+| B2 | `pipeline/ir.ts`：`NodeBase.wrap?: WrapSpec`，删旧注释 | `layout/pipeline/ir.ts` | `grep -rn "wrap?: boolean" src/app/layout/pipeline` 命中 0；check 通过 | B1 | 待做 |
+| B3 | `StatusItem.wrap?: WrapSpec` | `components/StatusColumn.ts` | check 通过；`grep -n "wrap?: false" src/app/components/StatusColumn.ts` 命中 0 | B1 | 待做 |
+| B4 | 面板族迁移（8 文件约 30 处） | `components/` 的 ApprovalPrompt / CommandCompletion / CommandListPanel / HistoryPanel / JobsPanel / ModelPicker / QuestionPrompt / StatusPanel | 这 8 个文件内 `grep -n "wrap: false"` 命中 0 | B1 | 待做 |
+| B5 | 其余迁移（12 处 + 2 文件） | `components/StatusColumn.ts`、`layout/panel.ts`、`layout/status-line.ts` | `grep -rn "wrap: false" TUI/src` 命中 0 | B4 | 待做 |
+| C1 | `primitives.wrapLine` 改核薄封装 | `layout/primitives.ts` | `grep -c "for (const ch of" src/app/layout/primitives.ts` 为 0；`tests/fill.test.ts` 绿 | A2 A5 | 待做 |
+| C2 | `markdown.wrapFrameSegments` 改核（保留 `hanging` 语义） | `layout/markdown.ts` | 该函数体内无字符循环（`grep -A 25 "export function wrapFrameSegments"` 不含 `for (const ch of`）；`tests/thinking-markdown.test.ts` 绿 | C1 | 待做 |
+| C3 | `wrapAssistantLine` / `wrapInlineMarkdown` / `wrapListRows` 调核 | `layout/markdown.ts` | `tests/pipeline-content.test.ts`、`tests/content-rules.test.ts` 绿 | C2 | 待做 |
+| C4 | `measure.wrapParagraph` 交核 + 传叶子属性 | `layout/measure.ts` | `grep -n "truncateToWidth" src/app/layout/measure.ts` 命中 0；`tests/layout4.test.ts` 绿 | C1 | 待做 |
+| C5 | `fill` 两条分支传属性 | `layout/fill.ts` | `grep -n "wrap === false" src/app/layout/fill.ts` 命中 0；`tests/fill.test.ts` 绿 | B1 C4 | 待做 |
+| C6 | legacy 侧缓存键含 spec | `layout/measure.ts`、`layout/fill.ts`、`layout/markdown.ts` | 契约用例：同文本 `char` 与 `word` 连测，结果不同（缓存不串） | C5 | 待做 |
+| D1 | `pipeline/wrap.ts`：属性替换、删 `wrapSegmentsAt`、`wrapLeaf` 调核 | `layout/pipeline/wrap.ts` | `grep -rn "wrapSegmentsAt" TUI/src` 命中 0；`tests/pipeline-wrap.test.ts` 绿 | A6 | 待做 |
+| D2 | `pipeline/measure.ts` 透传属性 + 代码叶定 `char` | `layout/pipeline/measure.ts` | `tests/pipeline-measure.test.ts`、`tests/code-block-tab.test.ts` 绿 | D1 | 待做 |
+| D3 | `pipeline/flatten.ts` 透传属性 | `layout/pipeline/flatten.ts` | `tests/pipeline-flatten.test.ts` 绿 | D2 | 待做 |
+| D4 | `pipeline/rows.ts` 行缓存键含 spec | `layout/pipeline/rows.ts` | `tests/pipeline-rows.test.ts`、`tests/layout-cache.test.ts` 绿 | D1 | 待做 |
+| E1 | `itemLeaves` 传属性 + L3 用 `{ mode: "none" }` | `components/StatusColumn.ts` | `tests/status-column-equivalence.test.ts` 绿；L3 单行用例 1 例 | B3 | 待做 |
+| E2 | 各块选 `word` 并在窄列实测（Goal / Todo / Agents / Daemon / Group / Flow） | `components/StatusColumn.ts` | 新增 2 例：窄列下 Goal objective 与 Flow slug 不在词中间断开；帧断言绿 | E1 | 待做 |
+| E3 | 拼帧层兜底贴符改调核（宽度截断不动） | `layout/top-region.ts` | 状态列窄列用例绿；`…` 位置断言 2 例 | A4 E1 | 待做 |
+| F1 | 提示行并入预算 | `layout/frame-rows.ts` | `tests/footer-notice.test.ts`、`tests/help.test.ts` 绿；`hintRowsFor` 返回 1 至 2 断言 | A4 | 待做 |
+| F2 | `/collapse` 折叠并入预算 | `layout/pipeline/rows.ts` | `tests/activity-level.test.ts`、`tests/activity-verbose.test.ts` 绿；压 1 行 + 末行 `…` 断言 | A4 D4 | 待做 |
+| F3 | 工具行 5 行上限补实现（参数值叶 + 结果叶） | `layout/pipeline/structure.ts` | 新增用例：6 行输入 → 5 行，第 3 行尾 `…`，第 4、5 行为末 2 行 | A3 D2 | 待做 |
+| F4 | 旧口径改写 | `TUI/docs/SPEC.md:119`、`state/types.ts:164` | `pnpm run check:docs` 0 错；`grep -n "前 2" TUI/docs/SPEC.md` 命中 0 | F3 | 待做 |
+| F5 | 删 `wrapToolCallText` 与 barrel 导出 | `layout/content-rules.ts`、`layout.ts` | `grep -rn "wrapToolCallText" TUI` 命中 0（两个测试文件先收敛） | C3 | 待做 |
+| G1 | 结构断言：字符级折行循环只剩核 | `TUI/src/app/layout` | `grep -rn "for (const ch of" src/app/layout` 只含 `wrap-core.ts` 与截断函数（`truncateSegs` / `truncateToWidth`） | C1..D4 | 待做 |
+| G2 | 全量守成测试与冒烟 | `TUI` | `pnpm --dir TUI run test` 全绿；`pnpm run demo -- --smoke` 输出 `SMOKE_PASS`（含人工确认工具行截断观感） | F1..F5 | 待做 |
+| G3 | 根链路 | 仓库根 | `pnpm run check` 与 `pnpm run build` 均通过 | G2 | 待做 |
+| G4 | 文档回写 | `TUI/docs/SPEC.md`（§3 `:107` / §3.1 `:119` / §15.5.1）、`TUI/README.md` | `pnpm run check:docs` 0 错 0 警；README 无旧 `wrap` 描述（人工复核一次） | G3 | 待做 |
+| G5 | 收尾 | `docs/BACKLOG.md`、本文件 | 条目移入 §1（`grep -n "折行策略可配置" docs/BACKLOG.md` 只剩 §1 一行）；本文件移入 `docs/archived/` | G4 | 待做 |
 
 ### 验收口径
 
-- **统一性**：字符级折行循环只出现在 `wrap-core.ts`（`grep -rn "for (const seg of" TUI/src/app/layout`、`grep -rn "for (const ch of" TUI/src/app/layout` 只命中核与无关解析器）。
+- **任务表**：34 条全部「完成」，且每条判据在「测试与证据」节有对应命令与输出。
+- **统一性**：字符级折行循环只出现在 `wrap-core.ts`（`grep -rn "for (const ch of" TUI/src/app/layout` 只命中核与截断函数 `truncateSegs` / `truncateToWidth`）。
 - **能力**：3 × 3 × 4 组合的行数 / 断点断言；`head` / `middle` / `tail` 的提示符位置与「不占行」；`maxRows: 0` 不截断。
-- **回归**：缺省 `char` + `0` + `tail` 下现有帧基线逐字不变；57 处迁移等价。
+- **守成测试**：缺省 `char` + `0` + `tail` 下现有帧基线逐字不变；57 处迁移等价。
 - **硬上限**：提示行仍 1 至 2 行、状态列 L3 仍一条一行、`/collapse` 仍压 1 行且末行 `…`、拼帧层兜底贴符不变；工具行超 5 行时按通用 `middle` 截断。
 
 ### 计划改动文件清单
@@ -321,8 +359,8 @@
 - 拼帧与状态列：`layout/top-region.ts`（兜底贴符）、`components/StatusColumn.ts`（L3 与各块属性）。
 - 面板族迁移：`components/ApprovalPrompt.ts`、`CommandCompletion.ts`、`CommandListPanel.ts`、`HistoryPanel.ts`、`JobsPanel.ts`、`ModelPicker.ts`、`QuestionPrompt.ts`、`StatusPanel.ts`、`layout/panel.ts`、`layout/status-line.ts`。
 - 注释同步：`state/types.ts:164`。
-- 测试：`tests/wrap-strategy.test.ts`（新增）、`tests/tool-call-wrap.test.ts`、`tests/content-rules.test.ts`、`tests/layout4.test.ts`、`tests/pipeline-wrap.test.ts`、`tests/pipeline-measure.test.ts`、`tests/layout-cache.test.ts`、`tests/status-column-equivalence.test.ts`、`tests/question-wrap.test.ts`、`tests/footer-notice.test.ts`、`tests/activity-level.test.ts`、`tests/activity-verbose.test.ts`。
-- 文档：本文件、`TUI/docs/SPEC.md`（§3 `:107` / §3.1 `:119` / §15.5.1）、`docs/BACKLOG.md`（条目标完成与清理）。
+- 测试：`tests/wrap-strategy.test.ts`（新增）、`tests/tool-call-wrap.test.ts`、`tests/content-rules.test.ts`、`tests/fill.test.ts`、`tests/layout4.test.ts`、`tests/pipeline-wrap.test.ts`、`tests/pipeline-measure.test.ts`、`tests/pipeline-flatten.test.ts`、`tests/pipeline-rows.test.ts`、`tests/pipeline-content.test.ts`、`tests/user-width-balance.test.ts`、`tests/thinking-markdown.test.ts`、`tests/code-block-tab.test.ts`、`tests/layout-cache.test.ts`、`tests/status-column-equivalence.test.ts`、`tests/question-wrap.test.ts`、`tests/footer-notice.test.ts`、`tests/help.test.ts`、`tests/activity-level.test.ts`、`tests/activity-verbose.test.ts`。
+- 文档：本文件、`TUI/docs/SPEC.md`（§3 `:107` / §3.1 `:119` / §15.5.1）、`TUI/README.md`、`docs/BACKLOG.md`（条目标完成与清理）。
 
 ### 明确不做的部分
 
