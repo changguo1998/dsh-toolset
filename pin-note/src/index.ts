@@ -32,6 +32,16 @@ export const name = "pin-note";
 /** 硬依赖：记忆库（写句柄）与工具注册面。 */
 export const inject = ["memory", "tools"];
 
+/** å¯¹å¤åªè¯»æå¡é¢ï¼`pinNotes.summary(sessionId)`ï¼TUI ç¶æåæ®æ­¤æ¾ç¤ºæ¡æ°ä¸å­æ°ï¼ã */
+export const provide = ["pinNotes"];
+
+/** æå¡é¢æè¦ï¼æ¬ä¼è¯ä¿æé¡¹çæ¡æ°ãåè®¡å­æ°ä¸æ é¢ã */
+export interface PinSummary {
+  count: number;
+  chars: number;
+  titles: string[];
+}
+
 /** 插件配置（类型声明，宿主不校验；缺省见 resolveConfig）。 */
 export interface Config {
   /** 是否开启（缺省 `true`；显式 `false` 时不注入, 工具仍注册）。 */
@@ -96,6 +106,7 @@ interface DecisionLike {
 interface PluginContext {
   memory?: MemoryFaceLike;
   tools?: { register(def: unknown): unknown };
+  provide?(name: string, value: unknown): unknown;
   on?(event: string, handler: (...args: unknown[]) => unknown): () => void;
   logger?: { warn?: (message: string) => void };
 }
@@ -204,6 +215,27 @@ export function apply(ctx: unknown, config?: Config): () => void {
       `memory-base 分类 pin 注册失败（${store.unavailableReason ?? "原因未知"}），保持项不会注入`,
     );
     return () => {};
+  }
+
+  // 只读服务面：TUI 状态列每 tick 懒读（会话层无法从全局面列举, 只能由本包给摘要）
+  if (typeof c.provide === "function") {
+    try {
+      c.provide("pinNotes", {
+        summary: async (sessionId: string): Promise<PinSummary> => {
+          const records = await store.list(sessionId);
+          return {
+            count: records.length,
+            chars: records.reduce(
+              (sum, record) => sum + record.content.length,
+              0,
+            ),
+            titles: records.map((record) => record.title),
+          };
+        },
+      });
+    } catch (error) {
+      warn(`服务面 pinNotes 暴露失败（忽略）：${String(error)}`);
+    }
   }
 
   if (typeof c.tools?.register === "function") {

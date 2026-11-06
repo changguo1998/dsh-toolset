@@ -24,10 +24,12 @@ type Handler = (
 function makeContext(fake: FakeMemory): {
   ctx: Record<string, unknown>;
   tools: ToolDef[];
+  provided: Array<{ name: string; value: unknown }>;
   handler: () => Handler;
   disposed: () => number;
 } {
   const tools: ToolDef[] = [];
+  const provided: Array<{ name: string; value: unknown }> = [];
   const handlers = new Map<string, Handler>();
   let disposedCount = 0;
   const ctx = {
@@ -36,6 +38,9 @@ function makeContext(fake: FakeMemory): {
       register(def: unknown): void {
         tools.push(def as ToolDef);
       },
+    },
+    provide(name: string, value: unknown): void {
+      provided.push({ name, value });
     },
     on(event: string, handler: (...args: unknown[]) => unknown): () => void {
       handlers.set(event, handler as Handler);
@@ -47,6 +52,7 @@ function makeContext(fake: FakeMemory): {
   return {
     ctx,
     tools,
+    provided,
     handler: () => {
       const handler = handlers.get("agent/pre-step");
       assert.ok(handler, "应订阅 agent/pre-step");
@@ -89,6 +95,35 @@ function captureStderr(run: () => void): string[] {
 test("导出名与硬依赖", () => {
   assert.equal(name, "pin-note");
   assert.deepEqual(inject, ["memory", "tools"]);
+});
+
+test("服务面 pinNotes：summary 返回条数 / 合计字数 / 标题", async () => {
+  const fake = makeMemory();
+  const { ctx, tools, provided } = makeContext(fake);
+  apply(ctx);
+  const face = provided.find((item) => item.name === "pinNotes")?.value as
+    | {
+        summary(
+          sessionId: string,
+        ): Promise<{ count: number; chars: number; titles: string[] }>;
+      }
+    | undefined;
+  assert.ok(face, "应已提供 pinNotes 服务面");
+  assert.deepEqual(await face.summary("s1"), {
+    count: 0,
+    chars: 0,
+    titles: [],
+  });
+  const pin = tools.find((tool) => tool.name === "pin_note")!;
+  await pin.execute(
+    { content: LONG, title: "风格" },
+    { agent: { session: { id: "s1" } } },
+  );
+  const one = await face.summary("s1");
+  assert.equal(one.count, 1);
+  assert.equal(one.chars, LONG.length);
+  assert.deepEqual(one.titles, ["风格"]);
+  assert.equal((await face.summary("other")).count, 0);
 });
 
 test("注册三个工具", () => {
