@@ -64,28 +64,9 @@
 
 - goal 状态行补 `activation`（`⟳` 自动续轮开关）：宿主**进程本地**事件 `goal/activation-changed` → `goalActivationBySession`（末条边、按会话隔离、不落盘）+ 展示值 `activeGoalActivation`（仅 `phase === "active"`、无记录 → `disarmed`）；head 行改 `Goal <符号> <phase>`（`▷` active 绿 / `∥` paused 黄 / `△` blocked 黄（**由红改黄**）/ `✓` complete 绿）+ 尾随 `⟳`（armed 绿 / disarmed 灰），`resumeTo` 补清空边（宿主 resume 经 `sessions.prepare` 重建 Session，activation 归 disarmed 且同值早退不发边）；7 例新用例（重启守成测试 / 边序无关 / 端到端帧断言），两轮子代理审阅修订（陈旧 armed、SPEC 口径矛盾、宽度表条目登记），反向验证撤符号渲染 → 7 例红（追踪文档 `docs/archived/2026-10-04-tui-goal-activation-symbol.md`）。
 
+- 三个包改用 `shell-parse`（2026-11-06 并行 worktree 完成）：`security-guard` 删掉命令解析副本、命令位改由 `commandPositions` 提供并保留包装器候选词（161 例）；`auto-approve` 切段 / 分词改包内实现、抹值与段形态留在本包（184 例，迁移前后 `formOfCommand` 基线 10/12 逐字一致，2 条差异为转义处理更正确）；`behavior-correction` 把 python / node 两条规则并为 `no-interpreter-in-bash`，`RuleSpec.match` 新增 `commandNames` 按解析层命令位识别解释器（50 例；追踪文档 `security-guard/docs/archived/2026-11-06-shell-parse-migration.md` / `auto-approve/docs/archived/2026-11-06-shell-parse-migration.md` / `behavior-correction/docs/archived/2026-11-06-interpreter-recognition.md`）。
+
 ## 2. 未完成项
-
-- **security-guard 改用 shell-parse（删掉命令解析副本）**（security-guard; 优先级 P2; 状态: 进行中(2026-11-06 接取, worktree `task/security-guard-shell-parse`, 追踪文档 `security-guard/docs/implementation/2026-11-06-shell-parse-migration.md`)）
-
-  - **现状**: `security-guard/src/blacklist.ts:37`–`371` 自带一份解析副本（`splitCommandSegments` / `tokensOf` / `commandName` / `PREFIX_WORDS` / `commandWords` / `dynamicCommandHit` / `heredocFedShellHit`）; `PREFIX_WORDS:189` 只认单词包装器, `uv run rm -rf /`、`npx …`、`pnpm exec …`、`bundle exec …` 的命令位取到的是包装器而不是真正被跑的命令, 命令位黑名单（`scope: "command"` 的规则）因此可能漏判。
-  - **期望**: 改 import `@dsh-toolset/shell-parse`（`link:` 依赖, 与 `clock-base` 同形态）取切段 / 分词 / 命令位与包装器表, 删掉本地副本; `heredocFedShellHit` 与 `DEFAULT_COMMAND_RULES` 的判定语义、回执文案、告警口径保持不变, 只换解析层来源。
-  - **验收**: 既有用例全绿（命令位黑名单 / 敏感文件 / 回执）; 新增多词包装器用例（`uv run rm -rf /`、`sudo timeout 5 rm -rf /` 仍命中 `rm-recursive-root`）; `blacklist.ts` 内不留解析实现。
-  - 来源: 2026-11-06 `shell-parse` 建包时按「本轮不改其他包」拆出, 同日按要求与 auto-approve 分成两条。
-
-- **auto-approve 改用 shell-parse（删掉切段 / 分词副本）**（auto-approve; 优先级 P2; 状态: 进行中(2026-11-06 接取, worktree `task/auto-approve-shell-parse`, 追踪文档 `auto-approve/docs/implementation/2026-11-06-shell-parse-migration.md`)）
-
-  - **现状**: `auto-approve/src/learn-rules.ts:50`–`158` 自带一份切段 / 分词副本（带 `balanced` 的 `splitCommandSegments` / `tokenizeSegment` / `maskToken` / `segmentForm` / `formOfCommand`）; `:46` 注明「本包复制 25 行实现, 不引入跨包依赖 —— 抽公共模块属跨包改动, 另立条目」。
-  - **期望**: 切段与分词改用 `@dsh-toolset/shell-parse`（`link:` 依赖）, 删掉本地实现; 抹值（`maskToken` 的引号 / 长 hex / 纯数字占位）与段形态的判定口径留在本包, 指纹与学习规则的行为不变。
-  - **验收**: 既有用例全绿（段形态学习 / 指纹 / 白名单命中）; 段形态与指纹在迁移前后对同一批命令输出一致（守成测试: 迁移前先取一份样例输出作基线）; `learn-rules.ts` 内不留切段 / 分词实现。
-  - 来源: 2026-11-06 `shell-parse` 建包时按「本轮不改其他包」拆出, 同日按要求与 security-guard 分成两条。
-
-- **命令分段解析后的解释器识别**（behavior-correction, 依赖 `shell-parse`; 优先级 P1; 状态: 进行中(2026-11-06 接取, worktree `task/behavior-correction-interpreter`, 追踪文档 `behavior-correction/docs/implementation/2026-11-06-interpreter-recognition.md`)）
-
-  - **现状**: 缺省规则靠单条命令位正则（`behavior-correction/src/index.ts:121`–`152`）拦 python / node; 逃逸口在包装与嵌套 —— `uv run python`、`npx tsx`、`xargs ruby`、`bash -c '…'` 全放行。名单越长越盖不住, 且 `script_run` 只承接 python / node / sh（`script-interpreter/src/index.ts:101`）, 其它语言拦了没有受控出口。
-  - **期望**: 改用解析层给出的命令位词序列: 逐段剥离包装器后取命令词, 命中解释器集合即拒; 拒绝文案写明受控出口（`script_run` 的 python / node / sh）或「改写为 sh / 用现有工具组合」。名单范围（窄 / 中 / 宽）、拒还是只提示、是否顺带认 `python2` 在实现前确认。
-  - **验收**: `uv run python` / `npx tsx` / `xargs ruby` / `bash -c 'python x.py'` / `eval 'ruby x.rb'` 被拒; `echo python` / `grep ruby` / `npx tsc` / `npm install` / `awk` 放行; 用例覆盖 `-c` 与 `$()` 递归; 插件 README 规则表同步。
-  - 来源: 2026-11-06 用户发现模型改试其它语言解释器; 原模块条目「bash 直跑解释器合并为一条规则并扩到其它语言」并入本条, 调研与名单边界见 `behavior-correction/docs/archived/2026-11-06-interpreter-guard.md`。
 
 - **折行策略可配置（按词 / 按字符 / 不折行）**（TUI 排版层; 优先级 P2; 状态: 未开始(2026-11-07 登记)）
 
