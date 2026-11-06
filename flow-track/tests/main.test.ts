@@ -170,6 +170,7 @@ test("注册两个工具与一个消费者（turn-start + user-message + inject�
   assert.equal(consumer["id"], "flow-track");
   assert.deepEqual(consumer["sources"], ["turn-start", "user-message"]);
   assert.equal(consumer["delivery"], "inject");
+  assert.equal(consumer["dedupeInRecord"], 1);
 });
 
 test("decide：无阶段树无写类调用 → null（不刷屏）", () => {
@@ -188,6 +189,8 @@ test("decide：观测到写类调用 → 模板 + 合规提示", () => {
   assert.ok(feedback);
   assert.match(feedback.text, /标准流程八阶段模板/);
   assert.match(feedback.text, /本轮已调用写类工具（edit）/);
+  // 不给固定 summary：rule-engine 按正文派生，配合 dedupeInRecord = 1 做同正文去重
+  assert.equal(feedback.summary, undefined);
 });
 
 test("decide：有阶段树 → 当前阶段与下一步", () => {

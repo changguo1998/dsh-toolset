@@ -248,7 +248,8 @@ export function apply(ctx: unknown, config?: Config): () => void {
       id: name,
       sources: resolved.sources,
       delivery: resolved.delivery,
-      dedupeInRecord: 0,
+      // 去重键是摘要：不给固定 summary，rule-engine 按正文派生，同一正文每会话只投一次
+      dedupeInRecord: 1,
       decide: (context) => {
         if (!resolved.enabled) return null;
         const snapshot = snapshotOf(taskEngine);
@@ -259,7 +260,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
           writeSeen: observer.writeSeen(context.sessionId),
           ...(lastWriteTool === undefined ? {} : { lastWriteTool }),
         });
-        return text === undefined ? null : { text, summary: "流程推进" };
+        return text === undefined ? null : { text };
       },
     });
     if (typeof off === "function") disposers.push(off);

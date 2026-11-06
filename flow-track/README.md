@@ -29,7 +29,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 
 ## 注入时机与内容
 
-`rule-engine` 消费者：`id = flow-track`、`sources = ["turn-start", "user-message"]`、`delivery = "inject"`、`dedupeInRecord = 0`。三类内容按固定顺序合并成一条：
+`rule-engine` 消费者：`id = flow-track`、`sources = ["turn-start", "user-message"]`、`delivery = "inject"`、`dedupeInRecord = 1`。不给固定 `summary`，rule-engine 按正文派生摘要，因此**同一正文每会话只投一次**（记录推进、提示内容变化后仍会再投）。三类内容按固定顺序合并成一条：
 
 1. **当前推进状态**（有阶段树时）：`当前阶段：3/8 决策 / 门禁：mechanical / 下一步：阶段 4 规划`；
 2. **阶段模板**（无阶段树**且**本轮有写类工具调用时）：八阶段全文 + 建树提示；
