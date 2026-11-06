@@ -1,13 +1,18 @@
 /**
- * flow-track/src/tools.ts — 模型侧工具 `flow_record` / `flow_status` / `flow_remove`。
+ * flow-track/src/tools.ts — 模型侧工具 `flow_record` / `flow_status` / `flow_remove` / `flow_rollback`。
+ *
+ * 顺序策略在 `policy.ts`（纯函数）：写入只允许「更新当前阶段」与「新增下一阶段」,
+ * 回退走 `flow_rollback`。
  *
  * memory-base 不注册模型侧写工具，流程记录写通道由本包补（同 `pin-note` 口径）；
  * 参数是纯文本，不进 `security-guard` 的登记表。
  */
 
 import { STAGES } from "./stages.ts";
+import { decideRecord, decideRollback } from "./policy.ts";
 import type { SnapshotLike } from "./status.ts";
 import { currentStage, renderStatus } from "./status.ts";
+import { REMOVE_SCAN_LIMIT } from "./store.ts";
 import type { FlowStore, FlowStatus } from "./store.ts";
 import type { WriteObserver } from "./observe.ts";
 
@@ -77,10 +82,11 @@ function flowRecordTool(deps: ToolDeps): ToolDef {
     name: "flow_record",
     description:
       "用途: 把标准流程的一次推进（进入 / 完成 / 卡住 / 备注某个阶段）写进项目层流程记录。\n" +
-      "用法: 给 slug（任务标识）、stage（阶段名或 - 表示整体）、status（start / done / blocked / note）与可选 body（正文 / 结论 / 证据）。\n" +
+      "用法: 给 slug（任务标识）、stage（阶段名或 - 表示整体备注）、status（start / done / blocked / note）与可选 body。\n" +
+      "顺序: 首次只能写「目标」; 之后只允许写当前阶段（替换该阶段记录）或下一阶段（新增）; 跳过与倒回会被拒绝。\n" +
       "效果: 落 memory-base 项目层（kind flow）；flow_status 与回合注入的「最近记录」据此显示。\n" +
-      "边界: 只记流程, 不改任务树与追踪文档；任务树推进仍用 task_* 工具。\n" +
-      "相关: flow_status、flow_remove、task_decompose、task_status。",
+      "边界: 只记流程, 不改任务树与追踪文档；要回退整段进度用 flow_rollback, 要清记录用 flow_remove。\n" +
+      "相关: flow_status、flow_rollback、flow_remove、task_decompose、task_status。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -124,6 +130,24 @@ function flowRecordTool(deps: ToolDeps): ToolDef {
           message: `status 取值：${STATUS_ENUM.join(" / ")}`,
         };
       }
+      // 顺序策略：同阶段替换、下一阶段新增, 跳过与倒回一律拒绝
+      const records = await deps.store.list({
+        slug,
+        limit: REMOVE_SCAN_LIMIT,
+      });
+      const policy = decideRecord(records, stage);
+      if (policy.kind === "reject") {
+        return { ok: false, error: policy.error, message: policy.message };
+      }
+      if (policy.replace) {
+        const stale = records
+          .filter((record) => record.stage === stage)
+          .map((record) => record.id);
+        const cleared = await deps.store.removeMany(stale);
+        if (!cleared.ok) {
+          return { ok: false, error: cleared.reason, message: cleared.message };
+        }
+      }
       const result = await deps.store.record({
         slug,
         stage,
@@ -137,7 +161,14 @@ function flowRecordTool(deps: ToolDeps): ToolDef {
       // 记过流程后就清掉本会话的「未记录」观测，避免下一轮还提示
       if (sessionId !== undefined) deps.observer.reset(sessionId);
       deps.onRecorded?.();
-      return { ok: true, id: result.id, slug, stage, status };
+      return {
+        ok: true,
+        id: result.id,
+        slug,
+        stage,
+        status,
+        replaced: policy.replace,
+      };
     },
   };
 }
@@ -266,7 +297,72 @@ function flowRemoveTool(deps: ToolDeps): ToolDef {
   };
 }
 
-/** 本插件的三个工具（顺序即工具面展示顺序）。 */
+/** 回退到某个更早的阶段（清掉目标之后的记录）。 */
+function flowRollbackTool(deps: ToolDeps): ToolDef {
+  return {
+    name: "flow_rollback",
+    description:
+      "用途: 把某个任务回退到更早的阶段——清掉目标阶段之后的记录（含 - 备注）, 目标阶段的记录保留。\n" +
+      "用法: 给 slug（缺省用会话 id）与 stage（回退目标, 必须早于当前阶段）。\n" +
+      "效果: 真删（memory-base 项目层 kind flow）；之后 flow_record 就按目标阶段重新往前走。\n" +
+      "边界: 只删不写——要更新目标阶段内容, 回退后再调 flow_record；目标不早于当前阶段会被拒绝。\n" +
+      "相关: flow_record、flow_status、flow_remove。",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["stage"],
+      properties: {
+        slug: { type: "string", description: "任务标识（缺省用会话 id）" },
+        stage: {
+          type: "string",
+          enum: [...STAGES.map((item) => item.name)],
+          description: "回退目标阶段（必须早于当前阶段）",
+        },
+      },
+    },
+    output: OUTPUT,
+    async execute(args, exec) {
+      const sessionId = callerSessionId(exec);
+      const slug =
+        typeof args["slug"] === "string" && args["slug"].trim().length > 0
+          ? args["slug"].trim()
+          : sessionId === undefined
+            ? ""
+            : deps.slugFor(sessionId);
+      const stage = typeof args["stage"] === "string" ? args["stage"] : "";
+      if (slug.length === 0) {
+        return { ok: false, error: "invalid_slug", message: "slug 不能为空" };
+      }
+      const records = await deps.store.list({
+        slug,
+        limit: REMOVE_SCAN_LIMIT,
+      });
+      const policy = decideRollback(records, stage);
+      if (policy.kind === "reject") {
+        return { ok: false, error: policy.error, message: policy.message };
+      }
+      const cleared = await deps.store.removeMany(policy.ids);
+      if (!cleared.ok) {
+        return { ok: false, error: cleared.reason, message: cleared.message };
+      }
+      deps.onRecorded?.();
+      return {
+        ok: true,
+        slug,
+        stage,
+        removed: cleared.removed,
+        ids: cleared.ids,
+      };
+    },
+  };
+}
+
+/** 本插件的四个工具（顺序即工具面展示顺序）。 */
 export function flowTools(deps: ToolDeps): ToolDef[] {
-  return [flowRecordTool(deps), flowStatusTool(deps), flowRemoveTool(deps)];
+  return [
+    flowRecordTool(deps),
+    flowStatusTool(deps),
+    flowRemoveTool(deps),
+    flowRollbackTool(deps),
+  ];
 }

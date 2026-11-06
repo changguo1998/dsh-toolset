@@ -171,13 +171,13 @@ test("导出名与硬依赖", () => {
   assert.deepEqual(inject, ["ruleEngine"]);
 });
 
-test("注册三个工具与一个消费者（turn-start + user-message + inject）", () => {
+test("注册四个工具与一个消费者（turn-start + user-message + inject）", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
   assert.deepEqual(
     harness.tools.map((tool) => tool.name),
-    ["flow_record", "flow_status", "flow_remove"],
+    ["flow_record", "flow_status", "flow_remove", "flow_rollback"],
   );
   const consumer = harness.registered[0]!;
   assert.equal(consumer["id"], "flow-track");
@@ -228,6 +228,9 @@ test("flow_record 写入 → flow_status 读回 → 注入带最近记录", asyn
   apply(harness.ctx);
   const exec = { agent: { session: { id: "s1" } } };
   const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  for (const stage of ["目标", "调研"]) {
+    await record.execute({ slug: "demo", stage, status: "done" }, exec);
+  }
   const written = await record.execute(
     { slug: "demo", stage: "决策", status: "done", body: "选了 b" },
     exec,
@@ -237,7 +240,7 @@ test("flow_record 写入 → flow_status 读回 → 注入带最近记录", asyn
   const status = harness.tools.find((tool) => tool.name === "flow_status")!;
   const read = await status.execute({}, exec);
   const records = read["records"] as unknown[];
-  assert.equal(records.length, 1);
+  assert.equal(records.length, 3);
   const feedback = harness.decide("s1");
   assert.ok(feedback);
   assert.match(feedback.text, /最近记录：demo@决策 状态 done/);
@@ -287,7 +290,7 @@ test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", 
       },
     });
     apply(harness.ctx);
-    assert.equal(harness.tools.length, 3, "工具仍应注册");
+    assert.equal(harness.tools.length, 4, "工具仍应注册");
     harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
     const feedback = harness.decide("s1");
     assert.ok(feedback);
@@ -389,7 +392,7 @@ test("enabled: false：decide 恒 null，工具照常注册", () => {
   apply(harness.ctx, { enabled: false });
   harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
   assert.equal(harness.decide("s1"), null);
-  assert.equal(harness.tools.length, 3);
+  assert.equal(harness.tools.length, 4);
 });
 
 test("flow_remove：按 id 删, 参数错误与删空都有可读结果", async () => {
@@ -400,7 +403,7 @@ test("flow_remove：按 id 删, 参数错误与删空都有可读结果", async 
   const record = harness.tools.find((tool) => tool.name === "flow_record")!;
   const remove = harness.tools.find((tool) => tool.name === "flow_remove")!;
   await record.execute(
-    { slug: "demo", stage: "测试", status: "note", body: "验证" },
+    { slug: "demo", stage: "目标", status: "note", body: "验证" },
     exec,
   );
   await tick();
@@ -426,7 +429,7 @@ test("flow_remove：按 slug 清该任务, 注入的最近记录随之消失", a
   const record = harness.tools.find((tool) => tool.name === "flow_record")!;
   const remove = harness.tools.find((tool) => tool.name === "flow_remove")!;
   await record.execute({ slug: "demo", stage: "目标", status: "start" }, exec);
-  await record.execute({ slug: "demo", stage: "测试", status: "note" }, exec);
+  await record.execute({ slug: "demo", stage: "调研", status: "note" }, exec);
   await record.execute({ slug: "other", stage: "目标", status: "start" }, exec);
   await tick();
   assert.match(harness.decide("s1")!.text, /最近记录：other@目标/);
@@ -442,4 +445,124 @@ test("flow_remove：按 slug 清该任务, 注入的最近记录随之消失", a
     records.map((row) => row.slug),
     ["other"],
   );
+});
+
+test("flow_record 顺序：首条非目标 / 跳阶段 / 倒回都被拒", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+
+  const first = await record.execute(
+    { slug: "demo", stage: "调研", status: "start" },
+    exec,
+  );
+  assert.equal(first["error"], "first_stage");
+
+  await record.execute({ slug: "demo", stage: "目标", status: "start" }, exec);
+  const skip = await record.execute(
+    { slug: "demo", stage: "实现", status: "start" },
+    exec,
+  );
+  assert.equal(skip["error"], "skip_stage");
+  assert.match(String(skip["message"]), /下一步只能是「调研」/);
+
+  const next = await record.execute(
+    { slug: "demo", stage: "调研", status: "start" },
+    exec,
+  );
+  assert.equal(next["ok"], true);
+  const back = await record.execute(
+    { slug: "demo", stage: "目标", status: "done" },
+    exec,
+  );
+  assert.equal(back["error"], "rollback_needed");
+  assert.match(String(back["message"]), /flow_rollback/);
+});
+
+test("flow_record 同阶段写入 = 替换：旧 id 消失, 只剩一条", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  const status = harness.tools.find((tool) => tool.name === "flow_status")!;
+
+  const first = await record.execute(
+    { slug: "demo", stage: "目标", status: "start", body: "初版" },
+    exec,
+  );
+  const second = await record.execute(
+    { slug: "demo", stage: "目标", status: "done", body: "改完" },
+    exec,
+  );
+  assert.equal(second["replaced"], true);
+  assert.notEqual(second["id"], first["id"]);
+  const records = (await status.execute({ slug: "demo" }, exec))[
+    "records"
+  ] as Array<{ id: number; status: string; body: string }>;
+  assert.equal(records.length, 1);
+  assert.equal(records[0]!.status, "done");
+  assert.equal(records[0]!.body, "改完");
+});
+
+test("flow_rollback：回到目标, 清掉后续记录与 - 备注", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  const rollback = harness.tools.find((tool) => tool.name === "flow_rollback")!;
+  const status = harness.tools.find((tool) => tool.name === "flow_status")!;
+  for (const stage of ["目标", "调研", "决策"]) {
+    await record.execute({ slug: "demo", stage, status: "done" }, exec);
+  }
+  await record.execute(
+    { slug: "demo", stage: "-", status: "note", body: "整体备注" },
+    exec,
+  );
+
+  const same = await rollback.execute({ slug: "demo", stage: "决策" }, exec);
+  assert.equal(same["error"], "not_backward");
+  const back = await rollback.execute({ slug: "demo", stage: "目标" }, exec);
+  assert.equal(back["ok"], true);
+  assert.equal(back["removed"], 3);
+
+  const records = (await status.execute({ slug: "demo" }, exec))[
+    "records"
+  ] as Array<{ stage: string }>;
+  assert.deepEqual(
+    records.map((row) => row.stage),
+    ["目标"],
+  );
+  // 回退后当前阶段回到「目标」, 下一步又能写「调研」
+  const next = await record.execute(
+    { slug: "demo", stage: "调研", status: "start" },
+    exec,
+  );
+  assert.equal(next["ok"], true);
+});
+
+test("flow_rollback：空任务与坏参数有可读错误", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const rollback = harness.tools.find((tool) => tool.name === "flow_rollback")!;
+  assert.equal(
+    (await rollback.execute({ stage: "目标" }, exec))["error"],
+    "no_records",
+  );
+  assert.equal(
+    (await rollback.execute({ stage: "阶段X" }, exec))["error"],
+    "invalid_stage",
+  );
+  // slug 空串回退到会话 id：给 s1 写两条后回退应命中它
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  await record.execute({ stage: "目标", status: "start" }, exec);
+  await record.execute({ stage: "调研", status: "start" }, exec);
+  const fallback = await rollback.execute({ slug: "  ", stage: "目标" }, exec);
+  assert.equal(fallback["ok"], true);
+  assert.equal(fallback["removed"], 1);
 });

@@ -245,11 +245,8 @@ export class FlowStore {
     }
   }
 
-  /** 删记录：`id` 一条, `slug` 一整个任务（二选一）。 */
-  async remove(options: {
-    id?: number;
-    slug?: string;
-  }): Promise<RemovalResult> {
+  /** 按 id 批量删（顺序策略与回退共用；空列表视为成功）。 */
+  async removeMany(ids: readonly number[]): Promise<RemovalResult> {
     const scope = this.#scope;
     if (scope === undefined) {
       return {
@@ -266,6 +263,24 @@ export class FlowStore {
         message: "memory-base 句柄不支持 forget，流程记录无法删除",
       };
     }
+    if (ids.length === 0) return { ok: true, removed: 0, ids: [] };
+    try {
+      const removed = await forget.call(scope, [{ tier: "project", ids }]);
+      return { ok: true, removed, ids: [...ids] };
+    } catch (cause) {
+      return {
+        ok: false,
+        reason: "rejected",
+        message: `删除项目层记录失败：${String(cause)}`,
+      };
+    }
+  }
+
+  /** 删记录：`id` 一条, `slug` 一整个任务（二选一）。 */
+  async remove(options: {
+    id?: number;
+    slug?: string;
+  }): Promise<RemovalResult> {
     let ids: number[];
     if (options.id !== undefined) {
       ids = [options.id];
@@ -274,27 +289,23 @@ export class FlowStore {
       if (slug.length === 0) {
         return { ok: false, reason: "invalid", message: "需要 id 或 slug" };
       }
-      if (typeof this.#memory.list !== "function") {
+      if (
+        this.#scope === undefined ||
+        typeof this.#memory.list !== "function"
+      ) {
         return {
           ok: false,
           reason: "unavailable",
-          message: "memory-base 读数面不可用，无法按 slug 定位记录",
+          message:
+            this.#scope === undefined
+              ? `memory-base 分类 ${FLOW_KIND} 未注册成功：${this.#error ?? "原因未知"}`
+              : "memory-base 读数面不可用，无法按 slug 定位记录",
         };
       }
       const records = await this.list({ slug, limit: REMOVE_SCAN_LIMIT });
       ids = records.map((record) => record.id);
     }
-    if (ids.length === 0) return { ok: true, removed: 0, ids: [] };
-    try {
-      const removed = await forget.call(scope, [{ tier: "project", ids }]);
-      return { ok: true, removed, ids };
-    } catch (cause) {
-      return {
-        ok: false,
-        reason: "rejected",
-        message: `删除项目层记录失败：${String(cause)}`,
-      };
-    }
+    return this.removeMany(ids);
   }
 
   /** 列记录（按 `slug` 前缀过滤；时间正序）。 */

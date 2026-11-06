@@ -184,6 +184,27 @@ test("标题不合格式的行被忽略（不误读别人的记录）", async ()
   assert.deepEqual(await store.list(), []);
 });
 
+test("removeMany：批量按 id 删, 空列表直接成功", async () => {
+  const fake = makeMemory();
+  const store = new FlowStore(fake.memory);
+  const a = await store.record({ slug: "a", stage: "目标", status: "start" });
+  const b = await store.record({ slug: "a", stage: "调研", status: "start" });
+  assert.equal(a.ok && b.ok, true);
+  const ids = a.ok && b.ok ? [a.id, b.id] : [];
+  assert.deepEqual(await store.removeMany([]), {
+    ok: true,
+    removed: 0,
+    ids: [],
+  });
+  const result = await store.removeMany(ids);
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.removed, 2);
+    assert.deepEqual(result.ids, ids);
+  }
+  assert.deepEqual(await store.list(), []);
+});
+
 test("按 id 删一条：只删命中行, 报警条数", async () => {
   const fake = makeMemory();
   const store = new FlowStore(fake.memory);
