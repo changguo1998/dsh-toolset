@@ -26,7 +26,7 @@ import type {
   TodoItemLike,
 } from "../adapter/dsh.ts";
 import type { Box, Node, StyledText } from "../layout/box.ts";
-import { h, styled, v } from "../layout/box.ts";
+import { styled, v } from "../layout/box.ts";
 import { NOTICE_TONE_COLOR } from "../layout/content-rules.ts";
 import { displayWidth } from "../layout/markdown.ts";
 import { seg } from "../layout/primitives.ts";
@@ -88,8 +88,6 @@ interface StatusItem {
   /** false = 单行截断不折行（改造前即「一行一条」的条目：jobs / 阻塞原因；截断交拼帧层）。
    *  缺省折行——这是改造前的老口径（todo / goal / agents 条目按列宽折行）。 */
   wrap?: false;
-  /** 自定义行（横向 box；给出时忽略 segments 的出行, 用于需要独立分配宽度的条目）。 */
-  row?: Node;
   /** 已完成（L1 先隐藏） */
   done: boolean;
   /** 进行中（L2 只留这些；L3 压 1 行） */
@@ -182,7 +180,6 @@ function headLeaf(head: FrameSegment[]): StyledText {
  *  （历史 goal 条目在 L3 本会是「标题 + 正文」两行，旧实现取 `rows[0]` 只留标题；
  *   但 goal 块 L2 起即 titleOnly，该分支不可达。） */
 function itemLeaves(item: StatusItem, level: FoldLevel): Node[] {
-  if (item.row !== undefined) return [item.row];
   const body = styled(item.segments, {
     hanging: item.hanging,
     ...(level >= 3 || item.wrap === false ? { wrap: false } : {}),
@@ -294,23 +291,15 @@ function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
             : record.status === "done" || record.status === "note"
               ? ("gray" as const)
               : ("yellow" as const);
-        return {
-          segments: [],
-          row: h([
-            styled([seg(`${symbol} `, { fg })], { wrap: false }),
-            styled([seg(record.slug)], {
-              wrap: false,
-              widthStyle: "fill",
-              widthMin: 1,
-            }),
-            styled([seg(`@${record.stage} ${record.status}`)], {
-              wrap: false,
-            }),
-          ]),
-          hanging: 0,
-          done: !record.active,
-          active: record.active,
-        };
+        return extrasItem(
+          `${symbol} ${record.slug}@${record.stage} ${record.status}`,
+          {
+            fg,
+            done: !record.active,
+            active: record.active,
+            strike: record.status === "done",
+          },
+        );
       }),
     });
   }

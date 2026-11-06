@@ -427,10 +427,7 @@ function measureLeaf(
 
 /** 段落正文折行；wrap=false 时单行截断 */
 function wrapParagraph(text: string, width: number, wrap: boolean): string[] {
-  if (!wrap) {
-    if (displayWidth(text) <= width) return [text];
-    return [`${truncateToWidth(text, Math.max(0, width - 1))}…`];
-  }
+  if (!wrap) return [truncateToWidth(text, width)];
   return wrapLine(text, width);
 }
 
