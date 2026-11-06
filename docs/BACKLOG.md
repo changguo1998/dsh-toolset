@@ -68,7 +68,7 @@
 
 ## 2. 未完成项
 
-- **折行策略可配置（按词 / 按字符 / 不折行）**（TUI 排版层; 优先级 P2; 状态: 未开始(2026-11-07 登记)）
+- **折行策略可配置（按词 / 按字符 / 不折行）**（TUI 排版层; 优先级 P2; 状态: 进行中(2026-11-06 接取; 追踪文档 `docs/implementation/2026-11-06-wrap-strategy.md`)）
 
   - **现状**: 叶子只有 `wrap?: boolean` 两档（`TUI/src/app/layout/box.ts:67`）；`true` 走 `wrapLine`，实现按**字符**逐个切（`TUI/src/app/layout/primitives.ts:92`, 不识别单词或 CJK 断行规则），`false` 单行截断、超宽补 `…`（`TUI/src/app/layout/top-region.ts:466`）。
   - **期望**: 引入折行风格枚举, 至少 `char`（现状）/ `word`（拉丁按空格断, 超长单词回落按字符）/ `none`（等价 wrap:false）；`word` 下的续行缩进、悬挂缩进、与省略号截断口径保持一致；CJK 不强制按空格断。
