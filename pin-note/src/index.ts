@@ -32,10 +32,10 @@ export const name = "pin-note";
 /** 硬依赖：记忆库（写句柄）与工具注册面。 */
 export const inject = ["memory", "tools"];
 
-/** å¯¹å¤åªè¯»æå¡é¢ï¼`pinNotes.summary(sessionId)`ï¼TUI ç¶æåæ®æ­¤æ¾ç¤ºæ¡æ°ä¸å­æ°ï¼ã */
+/** 对外只读服务面: pinNotes.summary(sessionId)（TUI 状态列用）。 */
 export const provide = ["pinNotes"];
 
-/** æå¡é¢æè¦ï¼æ¬ä¼è¯ä¿æé¡¹çæ¡æ°ãåè®¡å­æ°ä¸æ é¢ã */
+/** 服务面摘要: 条数 / 合计字数 / 标题。 */
 export interface PinSummary {
   count: number;
   chars: number;
