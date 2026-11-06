@@ -15,35 +15,44 @@
 
 ## 调研
 
-- 状态列四块与折叠：`TUI/src/app/components/StatusColumn.ts:222`（`statusColumnBlocks`）、`:183`（`foldBlock`：L1 隐藏 done、L2 只留 active）；块数据入口 `StatusColumnData`（`:115`），组装入口 `TUI/src/app/layout/title-bar.ts:173`（`renderStatusColumn`）。
-- 数据面：
-  - `task-engine`：`taskEngine.query()` → `{ tasks, frameStack, activeCount, isComplete }`（`flow-track/src/status.ts:19` 同口径）。
-  - `flow-track`：服务面 `flowTrack.enabled()`；流程记录落 memory-base 项目层 kind `flow`（`flow-track/src/store.ts:56`）。
-  - `pin-note`：保持项入 memory-base 会话层 kind `pin`（`pin-note/src/index.ts:5`）。
-  - `background-daemon`：服务面 `backgroundDaemon.status()` → `{ enabled, running, taskCount, inflight, ... }`（`background-daemon/src/service.ts:15`），任务表 `list()`。
-  - `agent-group`：内存镜像 kind `agent_group`（`agent-group/src/mirror.ts:44`），群组/成员关系另有只读面可选。
-- 懒读先例：`TUI/src/main.ts:939`（`getRuleEngine`）、`:966`（`getGuard`）；TUI 先于插件装载，故一律惰读 + ticker（`TUI/src/app/runtime/lifecycle.ts:294`，1s）。
+- **状态列结构**：`TUI/src/app/components/StatusColumn.ts:222` 逐块生成 `StatusBlock`（`head` + `items` + 可选 `historyFrom`）；`:183` `foldBlock` 对**通用块**按 `item.done` / `item.active` 两级折叠（L1 隐藏 done、L2 只留 active），正好满足「按情况展示」；入口 `:134` `buildStatusColumnBox(data, level)`。
+- **数据透传**：`TUI/src/app/layout/title-bar.ts:173` `renderStatusColumn(goals, todos, jobs, scroll, height, width, agents, activation, runTokens, goalRounds)` 收 10 个位置参数；调用点 `TUI/src/app/layout/top-region.ts:307`；`StatusColumnData` 定义在 `StatusColumn.ts:115`。新增五块若继续加位置参数会超长，宜改成「一个 extras 快照对象」。
+- **状态来源**：
+  - Task：`TUI/src/app/adapter/types/services.ts:16` `TaskEngineQueryLike { tasks, frameStack, activeCount, isComplete }`；服务面 `taskEngine.query()`，`adapter-options.ts:120` 已有 `taskEngine` 惰读字段（`main.ts:857` 一带）。
+  - Flow：`flow-track` 服务面 `flowTrack.enabled()`（`flow-track/src/index.ts:212`）；流程记录在内存缓存 `cache.records`，结构 `FlowRecord { id, slug, stage, status, body, createdAt }`（`flow-track/src/store.ts`）。
+  - Pin：记录在 **会话层**（`pin-note/src/index.ts:4`）；memory-base 全局面 `list` **跳过会话层**（`memory-base/src/index.ts:388` `isSessionTier`），TUI 现有 `KnowledgeServiceLike.list`（`TUI/src/app/adapter/types/memory.ts:44`）也无法按 sessionId 读 —— 只能由 pin-note 提供只读面。
+  - Daemon：`background-daemon` 服务面 `backgroundDaemon.status()` → `{ enabled, running, inflight, taskCount, ... }`（`background-daemon/src/service.ts:15`）与 `list()`；TUI 侧目前无对应惰读字段。
+  - Group：`agentGroup.status(managerSessionId)` 返回 `groups[{ name, view }]`（`TUI/src/app/adapter/types/services.ts:89`）；`view.members[{ name, level, role }]`、`view.links[{ from, to, level }]`（`agent-group/src/types.ts:58`、`:63`）。**上级 = `role === "manager"` 的成员；直接子 = `links` 里 `from === 上级名` 的 `to`**，天然满足「不展开嵌套」。
+- **刷新面**：状态行 `StatusTicker` 1s（`TUI/src/app/runtime/lifecycle.ts:294`），`apply` 里已有 `refreshModelStatus` / `maybeRefreshAgents` / `maybeRefreshSessionAlias` / `maybeRefreshFlowTrack` 四个同名模式；`wiring.ts:147` 是懒读写法样例。
+- **装载顺序**：profile `bundles` 里 `@dsh-toolset/tui` 第 3 位（`~/.dsh/profiles/fff/package.json:48`），task-engine / memory-base / flow-track / pin-note / background-daemon / agent-group 都在其后 —— 一律惰读。
 
 ## 决策
 
 1. 显示粒度：**b 选定（用户 2026-11-06）** —— 汇总 + 逐条明细，按情况展示（复用 L0→L3 折叠：L1 隐藏完成项、L2 只留活跃项）。
 2. 空状态：**a 选定（用户裁定）** —— 无内容整块不显示，与 Jobs / Agents 同口径。
 3. Group 范围：**a 选定（用户裁定）** —— 只显示上级 agent 与直接子 agent，嵌套层不展开。
-4. 数据获取：**a 选定** —— TUI 惰读服务面与 memory-base（kind `flow` / `pin` / `agent_group`），不为显示新增插件写面；flow-track 已有 `flowTrack` 服务面。
-5. 刷新：**a 选定** —— 随状态行 `StatusTicker`（1s）异步拉取，值变化才派 action 重绘。
+4. 数据获取：**b 选定（改自初稿）** —— Task / Daemon / Group 走服务面惰读；Flow 由 `flowTrack` 服务面新增只读摘要（避免 TUI 异步读库）；**Pin 由 pin-note 新增只读面**（会话层无法从全局面读）。理由：`memory.list` 跳过会话层（`:388`），Pin 无替代通道；其余走现有/新增服务面比 TUI 解析 memory 行更稳。
+5. 刷新：**a 选定** —— 随 `StatusTicker`（1s）异步拉取五个来源，拼成一个 `statusExtras` 快照，值变化才派 action 重绘。
+6. 透传形态：**b 选定** —— 不再给 `renderStatusColumn` 加位置参数，改为透传 `statusExtras` 对象（`StatusColumnData.extras`）。
+7. 块顺序与标题：**a 选定** —— 追加在宿主四块之后，顺序 Task / Flow / Pin / Daemon / Group；标题分别为 `Task <活跃>/<总>`、`Flow <开|关> · <slug@stage>`、`Pin <n> 条 · <字数> 字`、`Daemon <开|关> · <运行>/<总>`、`Group <n> 组`。
+8. 条目符号：**a 选定** —— 复用既有口径：`✓` 完成 / `▸` 活跃或未完成 / `○` 待开始；Group 每组一行：`组名 · 上级 <manager> · 子 <直接子列表>`。
 
 ## 计划改动文件清单
 
+- `flow-track/src/index.ts`：`flowTrack` 服务面加 `summary()`（开关 + 最新阶段 + 每 slug 最新记录）。
+- `pin-note/src/index.ts`：新增 `pinNotes` 服务面 `summary(sessionId)`（条数 / 字数 / 标题）。
+- `TUI/src/app/adapter/types/services.ts`：`FlowTrackLike.summary`、`PinNotesLike`、`DaemonLike`、`AgentGroupLike` 复用。
+- `TUI/src/app/app-deps.ts` / `TUI/src/main.ts`：`getTaskEngine` / `getDaemon` / `getPinNotes` / `getAgentGroup` / `getFlowTrack` 惰读接线。
 - `TUI/src/app/state/types.ts` / `initial.ts` / `actions.ts` / `reducer-view.ts`：`statusExtras` 快照与 action。
-- `TUI/src/app/app-deps.ts` / `TUI/src/main.ts`：`getTaskEngine` / `getDaemon` / `knowledge`（memory）/ `getFlowTrack` / `getAgentGroup` 惰读接线。
-- `TUI/src/app/runtime/wiring.ts`：`refreshStatusExtras()`（并发读取五个来源 → 归一成块级快照）。
+- `TUI/src/app/runtime/wiring.ts`：`refreshStatusExtras()`（并发取五源 → 归一）。
 - `TUI/src/app/runtime/lifecycle.ts`：ticker 内调用。
-- `TUI/src/app/components/StatusColumn.ts`：五个块的生成（head + items + done/active 标记）。
-- `TUI/src/app/layout/title-bar.ts`、`top-region.ts`：透传快照。
-- `TUI/tests/*`：块生成 / 省略 / Group 不展开用例。
-- 文档：`TUI/docs/SPEC.md`、`TUI/docs/DESIGN.md`、`TUI/README.md`。
+- `TUI/src/app/components/StatusColumn.ts`：五个块生成（head + items + done/active 标记）。
+- `TUI/src/app/layout/title-bar.ts`、`top-region.ts`：透传 `statusExtras`。
+- `TUI/tests/*`：块生成 / 省略 / Group 只到直接子 / 折叠等级用例。
+- 文档：`TUI/docs/SPEC.md`、`TUI/docs/DESIGN.md`、`TUI/README.md`、`flow-track/README.md`、`pin-note/README.md`。
+- `AGENTS.md`：两个包的服务面描述补一句。
 
-**明确不做**：不改五个插件的数据模型（Flow 只读已有记录；Pin 只读会话层）；不新增斜杠命令；不做状态列滚动口径变更。
+**明确不做**：不改 memory-base 会话层读面；不给其余插件加写面；不新增斜杠命令；不做状态列滚动口径变更。
 
 ## 实现记录
 
