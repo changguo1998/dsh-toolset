@@ -48,6 +48,17 @@
 11. 不折行 + 截断保状态：**a 选定（用户修订）** —— 所有新块明细 `wrap: false`；超宽时只截断「名称/正文」部分并以 `…` 收尾，**尾部状态信息保留**。示例：`● 长slug名字…@阶段 状态`。
 12. Flow 明细格式：**a 选定（用户修订）** —— 每 slug 一行，符号按最新记录 status（`●` start 黄 / `✓` done / `✗` blocked 红 / `○` note 灰），正文为 `<slug…>@<阶段> <状态>`；标题行去开/关，只留最新 `slug@阶段`。
 
+### 按插件分解（实现口径）
+
+| 插件 | 新增 / 复用接口 | 数据落点 | 状态列标题行 | 明细行 | 明细符号 | 空判据（整块不显示） | 折叠口径 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| task-engine | 复用只读面 `taskEngine.query()`（`{ tasks, frameStack, activeCount, isComplete }`），不新增接口 | 引擎内存 + 既有快照文件 | `Task <活跃帧>/<总帧>` | 当前任务栈 `frameStack` 自底向顶逐层一行，正文为帧标题 | 当前帧 `●`（黄）、其余栈层 `○`（灰） | `frameStack` 为空 | 栈本身有限；不折行，超长截断 |
+| flow-track | 新增 `flowTrack.summary()`：开关 + 每 slug 最新记录（`slug` / `stage` / `status`） | 插件内存缓存（来自 memory-base 项目层 kind `flow`） | `Flow <slug@阶段>`（不带开/关） | 每 slug 一行 `<slug…>@<阶段> <状态>` | `●` start 黄 / `✓` done / `✗` blocked 红 / `○` note 灰 | 无任何 flow 记录 | 最新阶段为「收尾」视为完成，L1 隐藏、L2 只留未完成 |
+| pin-note | 新增 `pinNotes.summary(sessionId)`：条数 / 合计字数 / 每条标题 | memory-base 会话层 kind `pin`（新增只读面，不改写入） | `Pin <n> 条 · <字数> 字` | 每条一行：标题；无标题取正文首段 | `○`（灰，无状态） | 保持项 0 条 | 无完成态，全部算活跃 |
+| background-daemon | 复用 `backgroundDaemon.status()` 与 `list()` | 任务表 `tasks.json` + 插件内存 | `Daemon <开/关> · <运行>/<总>` | 每任务一行：任务名 + 状态 | 复用 `statusMark`：`●` 运行 / `✓` 完成 / `✗` 失败 / `○` 取消或中性 | 任务表 0 条 | L1 隐藏非运行、L2 只留运行中 |
+| agent-group | 新增服务面 `agentGroup.summary(sessionId)` + 模型面 `agent_group` 工具 `action: "summary"` | **项目层** kind `agent_group` 索引（正文含 `members[].sessionId` 与 `links`），成员变更时刷新 | `Group <n> 组` | 两类各一行：`<组名> · 子 <直接子…>`（我创建的）/ `<组名> · 上级 <直接上级>`（我加入的） | `○`（灰，无状态） | 既没有我创建的组、也没有我加入的组 | 只到直接关系，不展开嵌套 |
+| TUI（消费方） | 惰读 `taskEngine` / `flowTrack` / `pinNotes` / `backgroundDaemon` / `agentGroup` 五个面 | `AppState.statusExtras` 快照（不落盘） | 五块追加在宿主 Goal / Todo / Jobs / Agents 之后 | `<符号> <正文>`（符号后一个空格），`wrap: false` | 见各行 | 该块无内容即不建块 | 复用 L0→L3；超宽只截名称 / 正文并加 `…`，阶段 / 状态 / 计数等尾部信息保留 |
+
 ## 计划改动文件清单
 
 - `flow-track/src/index.ts`：`flowTrack` 服务面加 `summary()`（开关 + 最新阶段 + 每 slug 最新记录）。
