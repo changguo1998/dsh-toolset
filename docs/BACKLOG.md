@@ -64,6 +64,12 @@
 
 ## 2. 未完成项
 
+- **flow-track 删除工具**（给 `flow-track` 补模型侧 `flow_remove`：按 id 删一条流程记录, 按 slug 删该任务全部并回报条数; 记录落 memory-base 项目层 kind `flow`; 跨包仅 `memory-base` 的 `forget` 面; 优先级 P2; 状态: **进行中**（2026-11-06）, 追踪文档 `docs/implementation/2026-11-06-flow-remove.md`）
+
+  - **现状**: 模型侧只有 `flow_record` / `flow_status`（`flow-track/src/tools.ts`）, memory-base 模型面只有只读 `memory_query`（`memory-base/src/tools.ts`）→ 验证留下的演示记录无法由模型清理, 只能进程内 `kb.evict` 或手工清库。
+  - **期望**: `flow_remove` 支持 `id` 与 `slug` 二选一; 删后刷新注入缓存, 「最近记录」不再引用已删条目; 句柄缺 `forget` 时返回 `unavailable` 而非抛错。
+  - **验收**: 单测覆盖按 id 删 / 按 slug 删 / 删不存在 / 无 forget 降级 / 参数互斥; `flow_status` 与注入随之更新; `check` + `build` + `test` + `check:docs` 全过。
+
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
