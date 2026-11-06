@@ -32,16 +32,30 @@
 
 ## 实现记录
 
-（实现后补）
+- `pin-note/src/inject.ts`：新增 `messageText`（把消息的文本块拼成一段）与 `hasText`（按正文相等判断上下文里有没有这段）；`samePinPayload` 留给 inbox 收敛用。
+- `pin-note/src/index.ts`：新增 `alreadyInContext` —— 先走 `session.deriveMessages()` 按正文判重，接口缺席或抛错时回退 `alreadyInSurface`（`surface.nodes` + `eventAt` 的 payload 比对）；`syncInbox` 的 `supplied` 与本步决策消息判重都改走它；模块头注释补去重口径。
+- `pin-note/tests/harness.ts`：假 session 增加 `deriveMessages()`（按投影节点派生消息，与宿主口径一致）。
+- `pin-note/tests/main.test.ts`：+2 例 —— 同正文但 `id` / `source` 不同仍不重复注入；老宿主无 `deriveMessages` 时回退投影比对仍去重。
 
 ## 测试与证据
 
-（实现后补）
+```sh
+pnpm -C pin-note run check   # tsc --noEmit 通过
+pnpm -C pin-note run build   # 通过
+pnpm -C pin-note run test    # tests 31 / pass 31 / fail 0（存储 8 + 注入 6 + 接线 17）
+pnpm run check               # 全包类型检查通过
+pnpm run check:docs          # 115 篇现行 Markdown / 932 个 .ts, 错误 0 / 警告 0
+```
+
+复现证据（改动前）：会话 `tui-b39ace72-0f4c-46f9-b5f8-c75c8a09612f` 的 step 79 与 step 84 各落一条 `user/message`，`id` 同为 `cfdd75dd-0139-489e-9cb0-9bf6b93b22ba`、正文逐字相同 —— 旧实现走 `eventAt` 投影比对没命中，同一条 inbox 消息被再次 claim。
 
 ## 偏差
 
-（实现后补）
+- 旧路径 `alreadyInSurface` **未删除**：宿主 0.2.1-rc.5 仍保留 `eventAt`（标弃用），测试替身与老宿主需要回退面；新代码优先 `deriveMessages`，不再新增对弃用接口的依赖。
+- 去重按整段正文相等判断：保持项内容一变（新增 / 删除 / 改字）就整段重新注入一次；旧段随压缩自然消失，没有「只补差量」。
+- 真机未验证：`fff` profile 快照仍是旧代码，需 `scripts/install.sh --profile fff --sync` 后重启会话才能看到新行为。
 
 ## 收尾
 
-（关闭时补）
+- 条目已从 `docs/BACKLOG.md` 移除；本文件已移入 `docs/archived/`。
+- 同步文档：`pin-note/README.md`、`AGENTS.md`、`README.md` / `README.zh.md` 的插件表与目录树注释。
