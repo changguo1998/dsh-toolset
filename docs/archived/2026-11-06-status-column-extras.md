@@ -81,18 +81,25 @@
 
 - `flow-track`：`flowTrack` 服务面加 `summary()`（`FlowSummary { enabled, records[{slug, stage, status, active}] }`；`-` 不参与、收尾不算活跃），`flow-track/src/index.ts` 的 `flowSummaryOf` 纯函数 + 测试（提交 `79cdd674`）。
 - `pin-note`：新增 `pinNotes.summary(sessionId)`（`{ count, chars, titles }`），`pin-note/src/index.ts`，测试 +1（提交 `7677b068`）。
-- agent-group（未完成，实施约束）：`registerKind` 的 kind 在进程内唯一（`agent-group/src/mirror.ts:11`「同名重复注册抛错」），项目层索引**不能复用** `agent_group` 这个 kind；需另起 `agent_group_index`（项目层，正文带 `members[].sessionId` 与 `links`），并在 `#mirrorGroup` 成功后同步写该索引。属对决策 04「kind `agent_group`」的实现偏差。
-
-（后续：agent-group 索引与 `summary`、TUI 五块接线与测试）
+- agent-group（已完成）：项目层索引 kind `agent_group_index`（`agent-group/src/summary.ts` 的 `indexPayload` / `summarize`，`mirror.ts` 的 `MemoryBaseGroupIndex` 写 + 读），`#mirrorGroup` 同步写索引；服务面 `agentGroup.summary(sessionId)` 与工具 `agent_group` 的 `action: "summary"` 均已接入（提交 `3c299605`）。
+- TUI（已完成）：`StatusExtras` 快照（`state/types.ts`），`refreshStatusExtras()` 惰读五源（`runtime/wiring.ts`）+ 状态行 ticker 调用（`runtime/lifecycle.ts:315`），`extrasBlocks` 生成五块（`components/StatusColumn.ts`），`renderStatusColumn` 透传（`layout/title-bar.ts`、`layout/top-region.ts`）（提交 `1ea1e74b`）。
+- 文档同步：`TUI/docs/SPEC.md`（两处）、`TUI/docs/DESIGN.md`、`TUI/README.md`、`AGENTS.md`、`flow-track/README.md`、`pin-note/README.md`、`agent-group/README.md`（提交 `21a1c1d2`）。
 
 ## 测试与证据
 
-（实现后补）
+- flow-track：`pnpm -C flow-track run check` / `build` / `test` → 79 例全通过（新增 `flowSummaryOf` 用例）。
+- pin-note：`check` / `build` / `test` → 32 例全通过（新增服务面 `summary` 用例）。
+- agent-group：`check` / `build` / `test` → 111 例全通过（新增 `tests/summary.test.ts` 3 例 + 工具枚举断言更新）。
+- TUI：`pnpm run test:tui` → 1839 例全通过（新增「新增五块」用例）；`check` / `build` 通过。
+- 全仓：`pnpm run check` 通过、`pnpm run check:docs` 0 错 0 警。
 
 ## 偏差
 
-（实现后补）
+1. 索引 kind 由 `agent_group` 改为 `agent_group_index`（kind 进程内唯一，见实现记录）。
+2. 明细「超长截断保尾部」未按列宽做精确截断：当前把整行交给拼帧层按宽截断，`wrap: false` 保证不折行；`…` 收尾与「尾部状态始终可见」尚未在内容层实现（需把宽度传入块构建），列为后续优化。
+3. Flow 标题取最新一条记录（`records[0]`），多 slug 时标题只代表最近更新的一条，与决策 8「只留最新 `slug@阶段`」一致；若需按活跃流程优先，另开条目。
 
 ## 收尾
 
-（关闭时补）
+- 所接取条目「状态列增加 task / flow / pin / daemon / group 五块」标记完成，条目从 `docs/BACKLOG.md` 移除；本追踪文档归档至 `docs/archived/`。
+- 提交：`79cdd674` / `7677b068` / `3c299605` / `1ea1e74b` / `21a1c1d2` 及收尾提交。
