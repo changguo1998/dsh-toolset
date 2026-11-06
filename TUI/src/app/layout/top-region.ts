@@ -462,8 +462,14 @@ export function buildTopRegion(
       // 状态列**无顶边**（用户裁定：上方不要多余边框）；聚焦只改其右缘竖线颜色
       const cell = statusCells[rc];
       if (!cell) return [seg(" ".repeat(Math.max(0, statusBodyW)))];
-      // 截断到 statusBodyW → 右补空格
-      const inner = truncateSegs(cell.segments, statusBodyW);
+      // 截断到 statusBodyW → 右补空格；超宽时末列换成尾随省略号（不折行条目）
+      let inner =
+        rowWidth2(cell.segments) > statusBodyW
+          ? [
+              ...truncateSegs(cell.segments, Math.max(0, statusBodyW - 1)),
+              seg("…"),
+            ]
+          : truncateSegs(cell.segments, statusBodyW);
       const innerW = rowWidth2(inner);
       if (innerW < statusBodyW)
         inner.push(seg(" ".repeat(statusBodyW - innerW)));
