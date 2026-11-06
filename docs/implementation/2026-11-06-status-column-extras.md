@@ -30,21 +30,26 @@
 
 01. 显示粒度：**b 选定（用户 2026-11-06）** —— 汇总 + 逐条明细，按情况展示（复用 L0→L3 折叠：L1 隐藏完成项、L2 只留活跃项）。
 02. 空状态：**a 选定（用户裁定）** —— 无内容整块不显示，与 Jobs / Agents 同口径。
-03. Group 范围：**a 选定（用户裁定）** —— 只显示上级 agent 与直接子 agent，嵌套层不展开。
-04. 数据获取：**b 选定（改自初稿）** —— Task / Daemon / Group 走服务面惰读；Flow 由 `flowTrack` 服务面新增只读摘要（避免 TUI 异步读库）；**Pin 由 pin-note 新增只读面**（会话层无法从全局面读）。理由：`memory.list` 跳过会话层（`:388`），Pin 无替代通道；其余走现有/新增服务面比 TUI 解析 memory 行更稳。
-05. 刷新：**a 选定** —— 随 `StatusTicker`（1s）异步拉取五个来源，拼成一个 `statusExtras` 快照，值变化才派 action 重绘。
-06. 透传形态：**b 选定** —— 不再给 `renderStatusColumn` 加位置参数，改为透传 `statusExtras` 对象（`StatusColumnData.extras`）。
-07. 块顺序与标题：**a 选定（2026-11-06 修订）** —— 追加在宿主四块之后，顺序 Task / Flow / Pin / Daemon / Group；标题分别为 `Task <活跃>/<总>`、`Flow <slug@stage>`（**不带开/关**）、`Pin <n> 条 · <字数> 字`、`Daemon <开|关> · <运行>/<总>`、`Group <n> 组`。
-08. 条目符号：**b 选定（用户修订）** —— 不用 `-` 前缀，改与状态列既有口径一致的符号（`TODO_MARKER`：`○` 待办 / `●` 进行中黄 / `✓` 完成；`statusMark`：`●` 运行中黄 / `✗` 失败红 / `○` 取消或中性灰 / `✓` 完成），格式 `<符号> <正文>`（符号后一个空格）；Group 每组一行：`○ 组名 · 上级 <manager> · 子 <直接子列表>`。
-09. Task 明细范围：**b 选定（用户修订）** —— 只显示**当前任务栈**（`frameStack` 自底向顶逐层一行，最上层为当前帧），不铺整棵树；不折行，超长截断。符号：当前帧 `●`（黄）、其余栈层 `○`（灰）。
-10. 不折行 + 截断保状态：**a 选定（用户修订）** —— 所有新块明细 `wrap: false`；超宽时只截断「名称/正文」部分并以 `…` 收尾，**尾部状态信息保留**。示例：`● 长slug名字…@阶段 状态`。
-11. Flow 明细格式：**a 选定（用户修订）** —— 每 slug 一行，符号按最新记录 status（`●` start 黄 / `✓` done / `✗` blocked 红 / `○` note 灰），正文为 `<slug…>@<阶段> <状态>`；标题行去开/关，只留最新 `slug@阶段`。
+03. Group 范围：**b 选定（用户修订）** —— 两类组都显示、只到直接关系：
+    - 本 agent **加入**的组（它是成员，不是组长）→ 显示 `上级 <直接上级名>`；
+    - 本 agent **创建**的组（它是组长）→ 显示 `子 <直接子列表>`；
+      两类都不展开更下一层。
+04. Group 数据来源（新增）：**c 选定** —— 现有 `agentGroup.status(managerSessionId)` 只读该会话**创建**的组（store 按管理者目录存 `agent-group.json`，`agent-group/src/store.ts:84`），读不到「加入的组」；镜像也只落会话层（`agent-group/src/mirror.ts:77`），全局面无法列举。故需 agent-group 新增按会话的只读摘要 `summary(sessionId)`，返回 `{ created: [{name, children[]}], joined: [{name, parent}] }`；实现取项目层（可列举）而不是逐会话扫目录，避免 1s ticker 反复读盘。
+05. 数据获取：**b 选定（改自初稿）** —— Task / Daemon / Group 走服务面惰读；Flow 由 `flowTrack` 服务面新增只读摘要（避免 TUI 异步读库）；**Pin 由 pin-note 新增只读面**（会话层无法从全局面读）。理由：`memory.list` 跳过会话层（`:388`），Pin 无替代通道；其余走现有/新增服务面比 TUI 解析 memory 行更稳。
+06. 刷新：**a 选定** —— 随 `StatusTicker`（1s）异步拉取五个来源，拼成一个 `statusExtras` 快照，值变化才派 action 重绘。
+07. 透传形态：**b 选定** —— 不再给 `renderStatusColumn` 加位置参数，改为透传 `statusExtras` 对象（`StatusColumnData.extras`）。
+08. 块顺序与标题：**a 选定（2026-11-06 修订）** —— 追加在宿主四块之后，顺序 Task / Flow / Pin / Daemon / Group；标题分别为 `Task <活跃>/<总>`、`Flow <slug@stage>`（**不带开/关**）、`Pin <n> 条 · <字数> 字`、`Daemon <开|关> · <运行>/<总>`、`Group <n> 组`。
+09. 条目符号：**b 选定（用户修订）** —— 不用 `-` 前缀，改与状态列既有口径一致的符号（`TODO_MARKER`：`○` 待办 / `●` 进行中黄 / `✓` 完成；`statusMark`：`●` 运行中黄 / `✗` 失败红 / `○` 取消或中性灰 / `✓` 完成），格式 `<符号> <正文>`（符号后一个空格）；Group 两类各一行：本 agent 创建的组 `○ <组名> · 子 <直接子1, 直接子2…>`，本 agent 加入的组 `○ <组名> · 上级 <直接上级>`。
+10. Task 明细范围：**b 选定（用户修订）** —— 只显示**当前任务栈**（`frameStack` 自底向顶逐层一行，最上层为当前帧），不铺整棵树；不折行，超长截断。符号：当前帧 `●`（黄）、其余栈层 `○`（灰）。
+11. 不折行 + 截断保状态：**a 选定（用户修订）** —— 所有新块明细 `wrap: false`；超宽时只截断「名称/正文」部分并以 `…` 收尾，**尾部状态信息保留**。示例：`● 长slug名字…@阶段 状态`。
+12. Flow 明细格式：**a 选定（用户修订）** —— 每 slug 一行，符号按最新记录 status（`●` start 黄 / `✓` done / `✗` blocked 红 / `○` note 灰），正文为 `<slug…>@<阶段> <状态>`；标题行去开/关，只留最新 `slug@阶段`。
 
 ## 计划改动文件清单
 
 - `flow-track/src/index.ts`：`flowTrack` 服务面加 `summary()`（开关 + 最新阶段 + 每 slug 最新记录）。
 - `pin-note/src/index.ts`：新增 `pinNotes` 服务面 `summary(sessionId)`（条数 / 字数 / 标题）。
-- `TUI/src/app/adapter/types/services.ts`：`FlowTrackLike.summary`、`PinNotesLike`、`DaemonLike`、`AgentGroupLike` 复用。
+- `agent-group/src/index.ts`（+ 镜像或索引）：新增 `agentGroup.summary(sessionId)`，返回 `created[{name, children[]}]` 与 `joined[{name, parent}]`；镜像落点从会话层改项目层（或另建项目层索引）以支持全局面按会话过滤。
+- `TUI/src/app/adapter/types/services.ts`：`FlowTrackLike.summary`、`PinNotesLike`、`DaemonLike`、`AgentGroupLike.summary`。
 - `TUI/src/app/app-deps.ts` / `TUI/src/main.ts`：`getTaskEngine` / `getDaemon` / `getPinNotes` / `getAgentGroup` / `getFlowTrack` 惰读接线。
 - `TUI/src/app/state/types.ts` / `initial.ts` / `actions.ts` / `reducer-view.ts`：`statusExtras` 快照与 action。
 - `TUI/src/app/runtime/wiring.ts`：`refreshStatusExtras()`（并发取五源 → 归一）。
