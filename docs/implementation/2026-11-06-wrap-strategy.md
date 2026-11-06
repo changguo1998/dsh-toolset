@@ -158,14 +158,14 @@
 
 ## 决策
 
-状态速览：第 1、4、10 项待用户裁定；第 2、3、5、6 项已被 2026-11-06 的用户裁定取代或定案；第 7、8、9 项已定。每项保留原选项与理由，被取代处划掉并注明取代者。
+状态速览：第 10 项待用户裁定；第 1 至 9 项均已定案（用户 2026-11-06 的裁定 + 「统一折行逻辑」追加目标）。每项保留原选项与理由，被取代处划掉并注明取代者。
 
 ### 1. 作用面：策略要覆盖哪条路径
 
 - a. 两条路径都做：`wrapLeaf`（内容区）与 legacy（面板 / chrome）共用同一策略值。会话正文是主要阅读面，只做面板等于名不副实。
 - b. 只做 legacy；pipeline 维持逐字符（改动最小，但 `none` / `word` 对正文无效）。
 
-推荐 a。补研四：两条路径都做时, pipeline 的代码叶必须单独定档 `char`（代码行按词断没有意义）。
+**已定 a（2026-11-06 用户裁定）**。补研四：两条路径都做时, pipeline 的代码叶必须单独定档 `char`（代码行按词断没有意义）。
 
 ### 2. 配置入口
 
@@ -188,7 +188,7 @@
 - b. 同 a，但断点空格保留在上一行行尾（缩进与右侧补白口径需另定）。
 - c. 只按空白断，`-` / `/` 不可断；其余逐字符。
 
-推荐 a。**明确不做**禁则（避头尾点 / 行首禁排标点），另立条目。
+**已定 a（2026-11-06 用户裁定）**：空白处断且吃掉断点空格、`-` / `/` 之后可断、超宽单元回落逐字符、CJK 任意断。**明确不做**禁则（避头尾点 / 行首禁排标点），另立条目。
 
 ### 5. `none` 的语义
 
@@ -229,10 +229,23 @@
 
 ### 10. leaf 属性的形状（待裁定）
 
-- a. 嵌套对象替换现有 `wrap`：`wrap?: { mode?: "char" | "word" | "none"; maxRows?: number; hint?: "none" | "head" | "middle" | "tail" }`，三个子字段都可缺省（回落核内缺省）。
-- b. 三个平铺字段：`wrapMode?` / `wrapMaxRows?` / `wrapHint?`，`wrap?: boolean` 保留但废弃。
+**现状代码风格（2026-11-06 实读）**：仓库里两种写法都有先例，分界是「一个东西的一组开关」还是「一个轴的一组取值」：
 
-推荐 a。理由：三个变量同属一件事（怎么折、折几行、藏了怎么提示），合成一个属性后调用点只写一处；`wrap: true/false` 的两档正好被 `{}` 与 `{ mode: "none" }` 覆盖。代价是 57 处 `wrap: false` 与本任务涉及的所有叶子的类型同时变更（一次性迁移）。
+- 同名嵌套对象（一个东西的多个子字段，字段可缺省、缺省值在使用点 `??` 兜底）：`prefix?: { text; style?; minWidth? }`（`box.ts:44`、`ir.ts:324`）、`suffix`（`box.ts:52`、`ir.ts:332`）、`tail?: { char; style? }`（`box.ts:59`）、`separator?: { char?; color? }`（`box.ts:75`）、`code?: { lang; rows; closed }`（`ir.ts:375`）、`table?`、`status?: { queries; intervalMs?; schedule? }`（`app-deps.ts:37`）。
+
+- 平铺 `xxx<字段>`（一个轴的取值拆分，成组出现在 `NodeBase` 顶部）：`widthStyle` / `widthMin` / `widthMax` / `widthFixed` / `widthRatio` / `width`（`box.ts:12-22`）、`heightStyle` / `heightFixed`（`:26-28`）。
+
+- 小枚举：可复用的一次声明具名类型（`WidthStyle`、`HeightStyle`、`PaneId`、`TableAlign`），只在一处用的直接内联字面量联合（`align?: "left" | "right" | "center"`，`ir.ts:320`；`dim?: true`、`grid?: true` 用字面量标记）。
+
+- 便捷构造器统一「`(载荷, opts?)` + 展开」（`v` / `h` / `text` / `styled` / `spacer`，`box.ts:157-198`），故此属性对调用点的形态没影响，只改值类型。
+
+- a. 嵌套对象替换现有 `wrap`：`wrap?: WrapSpec`，`WrapSpec = { mode?: WrapStyle; maxRows?: number; hint?: WrapHint }`，三个子字段都可缺省（回落核内缺省）；`WrapStyle` / `WrapHint` 具名导出（复用面 = 核 + `box.ts` + `ir.ts` + `StatusItem`）。
+
+- b. 三个平铺字段：`wrapStyle?` / `wrapMaxRows?` / `wrapHint?`，`wrap?: boolean` 保留但废弃。
+
+推荐 a。理由：折行三个变量同属「一件事的一组开关」，与 `prefix` / `tail` / `separator` 同型；`WrapStyle` / `WrapHint` 的复用面跨三个类型文件，够格用具名类型（同 `WidthStyle`）。代价是 57 处 `wrap: false` 与本任务涉及的所有叶子的类型同时变更（一次性迁移）。
+
+**附带一问**：既有 `balance?: boolean`（`box.ts:69`、`ir.ts:354`，用户块平衡折行）要不要一并收进 `WrapSpec`（`wrap: { balance: true }`）？倾向**不并**：它是「行宽平衡」而非「折几行 / 怎么提示」，且并进去要改用户块构建点（`structure.ts:498`）与 `measure.ts` / `fill.ts` / `pipeline/wrap.ts` 的平衡分支。
 
 ## 规划
 
