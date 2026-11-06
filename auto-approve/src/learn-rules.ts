@@ -5,8 +5,9 @@
  * 「何时学」，本层决定「学成什么形状」（口径见
  * `auto-approve/docs/archived/2026-10-21-manual-approval-fingerprint.md`）：
  *
- * - **词法层（纯函数）**：按 `security-guard` 的口径切段（引号内分隔符不切）→ 词法切 token
- *   （处理 `-m"b"` 这类无空格粘连）→ 固定抹值（引号串 `<msg>` / 长 hex `<hex>` / 纯数字 `<n>`）；
+ * - **词法层（纯函数）**：切段 / 分词直接用 `@dsh-toolset/shell-parse`（本仓唯一的 shell 词法层，
+ *   引号内分隔符不切、`-m"b"` 这类无空格粘连先断开）→ 固定抹值（引号串 `<msg>` / 长 hex `<hex>` /
+ *   纯数字 `<n>`）；
  *   **不抹**路径 / 分支名 / URL / 选项名（宁可少泛化）。段首命令词保持原文，永不遮成占位。
  * - **形态表（`FormStore`）**：每会话一张，`formCapacity` 近似 LRU；覆盖判定是「每一段都在表里」
  *   （顺序无关）。A 层 = 精确形态；B 层 = 同段第二次**成功**观测时做最小泛化（差异位升级为
@@ -14,6 +15,12 @@
  */
 
 import { createHash } from "node:crypto";
+
+import {
+  splitCommandSegments,
+  tokenizeSegment,
+  type CommandToken,
+} from "@dsh-toolset/shell-parse";
 
 import { SHELL_TOOLS } from "./config.ts";
 import { COMMAND_KEYS, matchesAnyTool, pickString } from "./patterns.ts";
@@ -34,92 +41,12 @@ export const MAX_VARIABLE_SLOTS = 2;
  * ── 词法层（纯函数） ─────────────────────────────────────────────────────────
  */
 
-/** 一段命令的一个 token（`quoted` = 来自引号串，抹值时统一抹成 `<msg>`）。 */
-export interface CommandToken {
-  value: string;
-  quoted: boolean;
-}
-
 /**
- * 切段：按 `;` / `|` / `&` / 换行切分，引号内的分隔符不切。
- *
- * 口径与 `security-guard/src/blacklist.ts` 的 `splitCommandSegments` 一致（本包复制 25 行实现，
- * 不引入跨包依赖 —— 抽公共模块属跨包改动，另立条目）；额外返回 `balanced`（引号是否配对），
- * 不配对时上层按「切分失败」处理，不猜。
+ * 切段 / 分词与 token 类型来自共享词法层 `@dsh-toolset/shell-parse`（`security-guard` 也用同一份），
+ * 本包只保留抹值与段形态这两层自有语义，不再维护副本。
  */
-export function splitCommandSegments(command: string): {
-  segments: string[];
-  balanced: boolean;
-} {
-  const segments: string[] = [];
-  let current = "";
-  let quote: string | null = null;
-  for (const ch of command) {
-    if (quote !== null) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-    if (ch === ";" || ch === "|" || ch === "\n" || ch === "&") {
-      if (current.trim().length > 0) segments.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  if (current.trim().length > 0) segments.push(current.trim());
-  return { segments, balanced: quote === null };
-}
-
-/**
- * 切 token：空白分隔 + 引号串整体成一个 token；引号紧贴前文时先断开
- * （`-m"b"` → `-m` + `b`，与 `-m "b"` 同形）。
- */
-export function tokenizeSegment(segment: string): CommandToken[] {
-  const tokens: CommandToken[] = [];
-  let current = "";
-  let quote: string | null = null;
-  for (const ch of segment) {
-    if (quote !== null) {
-      if (ch === quote) {
-        tokens.push({ value: current, quoted: true });
-        current = "";
-        quote = null;
-        continue;
-      }
-      current += ch;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      if (current.length > 0) {
-        tokens.push({ value: current, quoted: false });
-        current = "";
-      }
-      quote = ch;
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      if (current.length > 0) {
-        tokens.push({ value: current, quoted: false });
-        current = "";
-      }
-      continue;
-    }
-    current += ch;
-  }
-  if (quote !== null) {
-    // 未闭合的引号串：balanced 已在上层判过；这里仍落 token，避免静默丢内容
-    tokens.push({ value: current, quoted: true });
-  } else if (current.length > 0) {
-    tokens.push({ value: current, quoted: false });
-  }
-  return tokens;
-}
+export { splitCommandSegments, tokenizeSegment };
+export type { CommandToken };
 
 /** 单个 token 的抹值（引号串 / 长 hex / 纯数字；其它原样保留）。 */
 export function maskToken(token: CommandToken): string {

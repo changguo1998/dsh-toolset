@@ -303,6 +303,17 @@ test("A 层形态：引号与空格两种写法归一；段首命令词永不遮
   assert.deepEqual(quotedHead, ["rm -rf /tmp/x"]);
 });
 
+test("转义口径随 shell-parse：转义空格不断词, 双引号内的转义引号不提前闭合", () => {
+  assert.deepEqual(
+    tokenizeSegment("echo a\\ b").map((token) => token.value),
+    ["echo", "a b"],
+    "\\ 转义的空格留在词内, 不再断成两个词",
+  );
+  assert.deepEqual(formOfCommand('kubectl get pods -l "app=\\"x\\""'), [
+    "kubectl get pods -l <msg>",
+  ]);
+});
+
 /* ── 形态表 / 最小泛化 ──────────────────────────────────────────────────── */
 
 test("段覆盖：复合命令逐段判定（顺序无关、缺一段即不命中）", () => {

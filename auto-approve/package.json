@@ -14,7 +14,8 @@
     "inspect": "node scripts/inspect-session.mjs"
   },
   "dependencies": {
-    "@dsh-toolset/clock-base": "link:../clock-base"
+    "@dsh-toolset/clock-base": "link:../clock-base",
+    "@dsh-toolset/shell-parse": "link:../shell-parse"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

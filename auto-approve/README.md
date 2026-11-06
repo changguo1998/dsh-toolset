@@ -68,8 +68,8 @@ DSH（DeepSeek Harness）自动审批插件：在**审批请求链**（`approval
 - **入口**：订阅 `session/event` 里的 `approval/asked`（建配对表）→ `approval/decided`（收尾）→
   `tool/result`（按 `toolCallId` 记「执行成功」）。`decided` 为 `allowed-once` 且**不是本插件裁的**
   才算人工放行：本插件应答时自记 `callId`（容量 + TTL），命中即跳过。
-- **等价判定**：命令先按 `security-guard` 的切段口径拆（`;` `|` `&` 换行切，引号内不切），再按词法
-  切 token（`-m"b"` 与 `-m "b"` 同形），然后固定抹值：引号串 → `<msg>`、长十六进制（≥ 16 位）→
+- **等价判定**：命令先经 `@dsh-toolset/shell-parse` 切段（`;` `|` `&` 换行切，引号内不切），再分词
+  （`-m"b"` 与 `-m "b"` 同形），然后固定抹值：引号串 → `<msg>`、长十六进制（≥ 16 位）→
   `<hex>`、纯数字 → `<n>`；**不抹**路径 / 分支名 / URL / 选项名。一次调用**每一段**都在本会话
   形态表里才放行（顺序无关；缺一段不命中）。
 - **A 层（基线）**：人工放行的每段形态入表即生效；**不看执行结果**（首次学习照常）。
@@ -241,7 +241,10 @@ node scripts/inspect-session.mjs --file <session.v4.jsonl[.zstd]>
   取句柄写入；取不到即跳过（只计数）。
 - `sessionQuery`（**可选**，仅学习回填用）：经 `ctx.get("sessionQuery").readSession(sessionId)` 回读
   会话事件；未挂载 / 读失败 → 回填按空集处理，不影响裁定与学习入口。
-- 与 `security-guard` **无接口**；`llm` / `commands` / `sessions` / `agents` 均为可选读取。
+- `@dsh-toolset/shell-parse`（**编译期依赖**，`link:` 纯函数）：切段 / 分词直接复用本仓唯一的词法层，
+  本包只保留抹值与段形态；不带服务面调用。
+- 与 `security-guard` **无接口**（切段口径经 `shell-parse` 共享，不互相调用）；
+  `llm` / `commands` / `sessions` / `agents` 均为可选读取。
 
 ### 边界与已知限制
 
