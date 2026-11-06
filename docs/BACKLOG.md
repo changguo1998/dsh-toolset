@@ -58,18 +58,13 @@
 
 - 宿主运行基线：**已升到 `dsh 0.2.1-rc.2`**（2026-10-21；前一步 0.2.0-rc.2 于 2026-10-02：全局安装 + profile 树外加装包 `session-title-all-prompts-llm` 同步 + `scripts/install.sh` 默认版本 + 主要版本引用（含 5 个包 smoke 脚本的宿主门槛）；进程外与进程内验证见追踪文档 `docs/archived/2026-10-02-host-upgrade-execution.md`）。
 
+- 状态列弹性名称行（`h([符号, 名称(fill), 尾部])`）**按设计保留**：分配顺序为 fixed > ratio > auto > fill，故尾部先锁自然宽、名称吃剩余宽度，短名称产生的补白即尾部右对齐（原「不补白」待办 2026-11-07 登记、同日撤销）；Daemon / Group / Flow 三块已用该形态（提交 `3de1a5b1`）。
+
 - install.sh 四条硬化：`.bak` 堆积（内容未变不写不备份）、profile 树外官方插件版本检查、收尾 `--dump-config` 自检（`--skip-verify`）、头注释口径 + 接线一致性校验；新增 `scripts/test-install.sh`（49 例；追踪文档 `docs/archived/2026-10-03-install-sh-followups.md`）。
 
 - goal 状态行补 `activation`（`⟳` 自动续轮开关）：宿主**进程本地**事件 `goal/activation-changed` → `goalActivationBySession`（末条边、按会话隔离、不落盘）+ 展示值 `activeGoalActivation`（仅 `phase === "active"`、无记录 → `disarmed`）；head 行改 `Goal <符号> <phase>`（`▷` active 绿 / `∥` paused 黄 / `△` blocked 黄（**由红改黄**）/ `✓` complete 绿）+ 尾随 `⟳`（armed 绿 / disarmed 灰），`resumeTo` 补清空边（宿主 resume 经 `sessions.prepare` 重建 Session，activation 归 disarmed 且同值早退不发边）；7 例新用例（重启守成测试 / 边序无关 / 端到端帧断言），两轮子代理审阅修订（陈旧 armed、SPEC 口径矛盾、宽度表条目登记），反向验证撤符号渲染 → 7 例红（追踪文档 `docs/archived/2026-10-04-tui-goal-activation-symbol.md`）。
 
 ## 2. 未完成项
-
-- **横向条目的弹性名称宽度（不补白, 超宽才截）**（TUI 排版层; 优先级 P2; 状态: 未开始(2026-11-07 登记)）
-
-  - **现状**: 状态列条目的「尾部信息保留」试过 `h([符号, 名称(fill), 尾部])`，但 `widthStyle: "fill"` 会把短名称撑到整列，名称与尾部之间出现大段空隙（测试输出 `● demo` + 数十空格 + `@决策 start`），视觉不可接受，已撤回；当前仍是整行一个叶子，超宽由拼帧层统一截断并补 `…`。
-  - **期望**: 布局层支持「按自然宽排版，仅在超宽时压缩指定叶子（先截名称、尾部优先保留）」的分配策略，不产生补白；状态列 Task / Flow / Pin / Daemon / Group 的名称叶子改用它。
-  - **验收**: 短名称零空隙；超宽时长名称带 `…`，尾部状态 / 阶段 / 上级 / 子列表完整；TUI 全量用例通过。
-  - 来源: 2026-11-07 用户要求把同款超长处理用到状态列其他块时发现（提交 `a8fc8a51` 撤回）。
 
 - **折行策略可配置（按词 / 按字符 / 不折行）**（TUI 排版层; 优先级 P2; 状态: 未开始(2026-11-07 登记)）
 
