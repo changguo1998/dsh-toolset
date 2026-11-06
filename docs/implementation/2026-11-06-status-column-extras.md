@@ -79,7 +79,11 @@
 
 ## 实现记录
 
-（实现后补）
+- `flow-track`：`flowTrack` 服务面加 `summary()`（`FlowSummary { enabled, records[{slug, stage, status, active}] }`；`-` 不参与、收尾不算活跃），`flow-track/src/index.ts` 的 `flowSummaryOf` 纯函数 + 测试（提交 `79cdd674`）。
+- `pin-note`：新增 `pinNotes.summary(sessionId)`（`{ count, chars, titles }`），`pin-note/src/index.ts`，测试 +1（提交 `7677b068`）。
+- agent-group（未完成，实施约束）：`registerKind` 的 kind 在进程内唯一（`agent-group/src/mirror.ts:11`「同名重复注册抛错」），项目层索引**不能复用** `agent_group` 这个 kind；需另起 `agent_group_index`（项目层，正文带 `members[].sessionId` 与 `links`），并在 `#mirrorGroup` 成功后同步写该索引。属对决策 04「kind `agent_group`」的实现偏差。
+
+（后续：agent-group 索引与 `summary`、TUI 五块接线与测试）
 
 ## 测试与证据
 
