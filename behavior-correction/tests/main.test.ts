@@ -103,12 +103,7 @@ test("resolveConfig：缺省开启 + 内置规则；rules 给即整体替换；�
   assert.equal(defaults.enabled, true);
   assert.deepEqual(
     defaults.rules.map((rule) => rule.id),
-    [
-      "no-herdr-in-bash",
-      "no-python-in-bash",
-      "no-node-in-bash",
-      "no-view-text-in-bash",
-    ],
+    ["no-herdr-in-bash", "no-interpreter-in-bash", "no-view-text-in-bash"],
   );
   assert.equal(resolveConfig({ enabled: false }).enabled, false);
 
@@ -191,14 +186,30 @@ test("缺省规则认命令位变体：链式 / 前置赋值 / 绝对路径 / �
   }
 });
 
-test("缺省规则：bash 命令位跑 python → 拒绝并指向 script_run", () => {
+test("缺省规则：bash 命令位跑解释器 → 拒绝并指向 script_run", () => {
   const registration = registerDefault();
   for (const command of [
     "python x.py",
+    "python2 legacy.py",
     "python3 -c 'print(1)'",
     "python3.12 tools/gen.py",
-    "ls && python3 -V",
-    "FOO=1 /usr/bin/python3 -m http.server",
+    "node",
+    "node -e 'console.log(1)'",
+    "ruby -e 'puts 1'",
+    "irb",
+    "perl -pi -e 's/a/b/' f",
+    "raku -e 'say 1'",
+    "php -r 'echo 1;'",
+    "lua x.lua",
+    "luajit x.lua",
+    "deno eval '1'",
+    "bun x.ts",
+    "tsx gen.ts",
+    "ts-node main.ts",
+    "Rscript p.R",
+    "julia c.jl",
+    "osascript -e 'beep'",
+    "tclsh x.tcl",
   ]) {
     const decision = registration.guard(guardContext("bash", { command }));
     assert.equal(decision?.kind, "deny", command);
@@ -210,13 +221,56 @@ test("缺省规则：bash 命令位跑 python → 拒绝并指向 script_run", (
   }
 });
 
-test("缺省规则：正文提到 python / .py 扩展名 / pip 不拦", () => {
+test("缺省规则认包装器与嵌套：uv run / npx / xargs / sudo / bash -c / eval / 命令替换", () => {
+  const registration = registerDefault();
+  for (const command of [
+    "uv run python x.py",
+    "poetry run python x.py",
+    "npx tsx gen.ts",
+    "xargs -n1 ruby",
+    "timeout 30 node scripts/gen.js",
+    "sudo -u root uv run python x.py",
+    "bash -c 'python x.py'",
+    "sh -c 'ruby x.rb'",
+    "eval 'ruby x.rb'",
+    "FRED=1 bash -lc 'node -v'",
+    "ls && python3 -V",
+    "FOO=1 /usr/bin/python3 -m http.server",
+    "x=$(node -p '1+1')",
+    "echo $(perl -e 'print 1')",
+  ]) {
+    const decision = registration.guard(guardContext("bash", { command }));
+    assert.equal(decision?.kind, "deny", command);
+    assert.match(
+      (decision as { reason: string }).reason,
+      /script_run/,
+      "拒绝理由要指向 script_run",
+    );
+  }
+});
+
+test("缺省规则：正文提到解释器 / 包管理入口 / 前缀词 / 文本工具不拦", () => {
   const registration = registerDefault();
   for (const command of [
     "echo python",
     "grep -rn python3 src/",
+    "grep -rn ruby src/",
     "ls scripts/run.py",
     "pip install requests",
+    "npm install",
+    "npx tsc",
+    "pnpm exec tsc --noEmit",
+    "gem install rake",
+    "bundle exec rspec",
+    "cargo build",
+    "rake db:migrate",
+    "awk '{print $1}' f",
+    "sed 's/a/b/' f",
+    "gcc a.c -o a",
+    "nodejs -v",
+    "nodemon src/index.ts",
+    "node-gyp rebuild",
+    "cd node_modules",
     "git commit -m 'docs: python -> script_run'",
   ]) {
     assert.equal(
@@ -227,45 +281,38 @@ test("缺省规则：正文提到 python / .py 扩展名 / pip 不拦", () => {
   }
 });
 
-test("缺省规则：bash 命令位跑 node → 拒绝并指向 script_run", () => {
-  const registration = registerDefault();
+test("match.commandNames：只解析 bash / pwsh 的 command 原文，其它工具不命中", () => {
+  const registration = registerDefault({
+    rules: [
+      {
+        id: "no-custom-cli",
+        tool: ["bash", "pwsh"],
+        match: { commandNames: ["mycli"] },
+        reason: "改用 mycli_* 专用工具",
+      },
+    ],
+  });
   for (const command of [
-    "node",
-    "node -e 'console.log(1)'",
-    "node --version",
-    "node scripts/gen.js",
-    "ls && node tools/gen.mjs",
-    "FOO=1 /usr/bin/node -v",
-    "x=$(node -p '1+1')",
-  ]) {
-    const decision = registration.guard(guardContext("bash", { command }));
-    assert.equal(decision?.kind, "deny", command);
-    assert.match(
-      (decision as { reason: string }).reason,
-      /script_run/,
-      "拒绝理由要指向 script_run",
-    );
-  }
-});
-
-test("缺省规则：正文提到 node / npm / npx 或可执行名带 node 前缀不拦", () => {
-  const registration = registerDefault();
-  for (const command of [
-    "echo node",
-    "grep -rn node src/",
-    "npm install",
-    "npx tsc",
-    "nodemon src/index.ts",
-    "node-gyp rebuild",
-    "cd node_modules",
-    "git commit -m 'docs: node -> script_run'",
+    "mycli run",
+    "uv run mycli run",
+    "bash -c 'mycli run'",
   ]) {
     assert.equal(
-      registration.guard(guardContext("bash", { command })),
-      undefined,
+      registration.guard(guardContext("bash", { command }))?.kind,
+      "deny",
       command,
     );
   }
+  // 非 shell 工具：参数里的同名子串不会被当成命令位
+  assert.equal(
+    registration.guard(guardContext("read", { path: "mycli.md" })),
+    undefined,
+  );
+  // shell 工具但参数不是字符串 command: 没有可解析的命令行
+  assert.equal(
+    registration.guard(guardContext("bash", { command: 42 })),
+    undefined,
+  );
 });
 
 test("缺省规则只限定 bash：read 参数里带 herdr 不命中", () => {

@@ -7,10 +7,11 @@
  * 规则表（工具名 + 参数字符串）判定，命中返回 `{ kind: "deny", reason }`（回执写明该改用哪个专用
  * 工具），未命中返回 `undefined`（弃权，交给其它消费者与宿主继续）。
  *
- * 缺省规则共有四条：`bash` 命令里出现 `herdr` → 拒绝并指向 herdr 的专用工具（写类
+ * 缺省规则共有三条：`bash` 命令里出现 `herdr` → 拒绝并指向 herdr 的专用工具（写类
  * `herdr_run` / `herdr_text` / `herdr_key`，查看类 `herdr_read` / `herdr_list`）；
- * `python` → **命令位**调用 `python` / `python3` 时报错并指向 `script_run`；`node` → 同前，
- * 指向 `script_run`；查看文本类（`cat` / `head` / `tail` / `sed -n`…）→ 指路 read / grep /
+ * **命令位**（经 `@dsh-toolset/shell-parse` 解析，已剥掉 `sudo` / `xargs` / `uv run` / `npx`
+ * 等包装器并递归 `bash -c` / `eval` / `$()`）跑解释器（python / node / ruby / perl / php…）
+ * → 指向 `script_run`；查看文本类（`cat` / `head` / `tail` / `sed -n`…）→ 指路 read / grep /
  * fs_digest。走 bash 会绕过专用工具与状态绑定。规则表可在 profile `config` 里整体替换；
  * `rules: []` 或 `enabled: false` 等于不拦。
  *
@@ -19,11 +20,14 @@
  *   本包 insert 在 profile 里更靠前，读 `ctx.get` 会先拿到 undefined（真机实测：插件已加载但从未注册
  *   消费者）；声明 `inject: ["ruleEngine"]` 让 cordis 等到服务就绪再激活。运行期仍保留存在性判断，
  *   服务在但缺 `registerConsumer` 时告警降级；
- * - **匹配器自带**（关键词 / 正则），不复用 rule-engine 的 `compileMatcher`：这里只需要「任一命中」，
- *   自己写约二十行，省掉包间依赖与 profile 安装步骤；
- * - **只做文本判定**：不解释 shell 语义（管道、别名、变量展开、引号都不解析），宁可漏拦也不误伤；
+ * - **匹配器自带**（关键词 / 正则 / 命令名），不复用 rule-engine 的 `compileMatcher`：这里只需要「任一命中」，
+ *   自己写约三十行，省掉 profile 安装步骤；
+ * - **命令名判定走解析层**（`@dsh-toolset/shell-parse` 的 `commandPositions`）：只对 `bash` / `pwsh` 的
+ *   `command` 原文解析，解析抛错时该条件不命中（fail-open，宁可漏拦不误伤）；
  * - 不写审计、不落 memory-base（需要审计由人工另行决定）；拒绝时的告警由 rule-engine 统一打。
  */
+
+import { commandPositions } from "@dsh-toolset/shell-parse";
 
 /** bundle 条目 id（与 cordis.patch.yml / profile 层一致）。 */
 export const name = "behavior-correction";
@@ -58,12 +62,18 @@ export interface RuleSpec {
   id: string;
   /** 限定工具名；省略 = 任意工具。 */
   tool?: string | readonly string[];
-  /** 判定条件：关键词 / 正则任一命中即算命中；都省略 = 该规则永不命中。 */
+  /** 判定条件：关键词 / 正则 / 命令名任一命中即算命中；都省略 = 该规则永不命中。 */
   match?: {
     /** 关键词（大小写不敏感，子串匹配）。 */
     keywords?: readonly string[];
     /** 正则源串（任一匹配即命中）。 */
     regex?: readonly string[];
+    /**
+     * 命令名列表：`bash` / `pwsh` 的 `command` 经 `@dsh-toolset/shell-parse` 解析出的命令位
+     * （已剥离 `sudo` / `xargs` / `uv run` / `npx` 等包装器，并递归 `bash -c` / `eval` / `$()`）
+     * 任一等于其中之一即命中；大小写敏感。`python3.12` 这类版本后缀算同一命令（`python3`）。
+     */
+    commandNames?: readonly string[];
     /** 正则 flags，缺省 `"i"`；`g` / `y` 会被去掉，避免 `test` 的状态污染。 */
     flags?: string;
   };
@@ -94,12 +104,42 @@ export interface Config {
 }
 
 /**
+ * 解释器名单（命令位判定，见 `RuleSpec.match.commandNames`）。
+ *
+ * 收：`script_run` 已承接的 python / node，以及常见语言的 REPL 与脚本入口；
+ * 不收：`awk` / `sed`（文本工具，拦了误伤）、`npm` / `npx` / `pip` / `gem` / `bundle` / `cargo`
+ * （包管理入口）、`nodejs` / `nodemon` / `node-gyp`（前缀词）、裸 `R`（与 `r` 冲突）。
+ */
+export const INTERPRETER_COMMAND_NAMES: readonly string[] = [
+  "python",
+  "python2",
+  "python3",
+  "python3.12",
+  "node",
+  "ruby",
+  "irb",
+  "perl",
+  "raku",
+  "php",
+  "lua",
+  "luajit",
+  "deno",
+  "bun",
+  "tsx",
+  "ts-node",
+  "Rscript",
+  "julia",
+  "osascript",
+  "tclsh",
+];
+
+/**
  * 内置缺省规则：
  * 1. bash 里跑 herdr CLI → 指路 herdr 专用工具（写类 `herdr_run` / `herdr_text` / `herdr_key`，
  *    查看类 `herdr_read` / `herdr_list`）；
- * 2. bash 里跑 python → 指路 `script_run`（script-interpreter 插件）；
- * 3. bash 里跑 node → 指路 `script_run`（script-interpreter 插件）;
- * 4. bash 里查看文本（cat / head / tail / sed -n…）→ 指路 read / grep / fs_digest。
+ * 2. bash 命令位跑解释器（python / node / ruby / perl / php 等）→ 指路 `script_run`
+ *    （script-interpreter 插件；其它语言没有后端，文案写明改写为 sh）；
+ * 3. bash 里查看文本（cat / head / tail / sed -n…）→ 指路 read / grep / fs_digest。
  */
 export const DEFAULT_RULES: readonly RuleSpec[] = [
   {
@@ -118,37 +158,15 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
     description: "herdr CLI 有专用工具，走 bash 会绕过插件面板与状态绑定",
   },
   {
-    id: "no-python-in-bash",
+    id: "no-interpreter-in-bash",
     tool: "bash",
-    // 同一套命令位判定：行首 / `;` `&` `|` 之后 / `$( ` 之后，允许前置 `VAR=值` 与路径；
-    // 认 `python` / `python3` / `python3.12`；`echo python`、`.py` 扩展名、`pip` 都不拦。
-    match: {
-      regex: [
-        "(?:^|[;&|]\\s*|\\$\\(\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?python(?:3(?:\\.\\d+)?)?(?=\\s|$)",
-      ],
-      flags: "im",
-    },
+    // 命令位判定交给解析层：包装器（`uv run` / `npx` / `xargs` / `sudo`）已剥掉，`bash -c '…'`
+    // 与 `eval '…'` 会递归解析；正文里提到解释器名（echo / grep / 提交信息）不拦。
+    match: { commandNames: INTERPRETER_COMMAND_NAMES },
     reason:
-      "bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句",
+      "bash 里不要直接跑解释器（python / node / ruby / perl / php / lua / deno / bun 等）: 计算与脚本改用 script_run 工具（已启用 python / node / sh）, 其它语言改写为 sh 或用现有工具组合",
     description:
-      "Python 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
-  },
-  {
-    id: "no-node-in-bash",
-    tool: "bash",
-    // 同一套命令位判定：行首 / `;` `&` `|` 之后 / `$( ` 之后，允许前置 `VAR=值` 与路径；
-    // 只认 `node`（script-interpreter 的 node 后端也只探测 `node`）；`nodejs` 识别为
-    // 不在可承接范围，`npm` / `npx` 是包管理入口不拦（与 python 规则不拦 `pip` 同口径）。
-    match: {
-      regex: [
-        "(?:^|[;&|]\\s*|\\$\\(\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?node(?=\\s|$)",
-      ],
-      flags: "im",
-    },
-    reason:
-      "bash 里不要跑 node: 改用 script_run 工具（script-interpreter 插件）执行 Node 脚本或语句",
-    description:
-      "Node 走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
+      "解释器走 script_run 才受插件管控（工作目录、超时、输出上限）；bash 直跑会绕过这层",
   },
   {
     id: "no-view-text-in-bash",
@@ -202,6 +220,7 @@ export interface CompiledRule {
   readonly tools?: readonly string[];
   readonly keywords: readonly string[];
   readonly regexes: readonly RegExp[];
+  readonly commandNames: readonly string[];
   readonly excludeKeywords: readonly string[];
   readonly excludeRegexes: readonly RegExp[];
 }
@@ -265,6 +284,11 @@ function compileRule(
     warn(`规则 ${label} 的 match.regex 不是字符串数组，已跳过`);
     return undefined;
   }
+  const commandNames = readStringList(match?.commandNames);
+  if (commandNames === undefined) {
+    warn(`规则 ${label} 的 match.commandNames 不是字符串数组，已跳过`);
+    return undefined;
+  }
   const flags =
     typeof match?.flags === "string" ? match.flags.replace(/[gy]/g, "") : "i";
   const regexes: RegExp[] = [];
@@ -316,6 +340,7 @@ function compileRule(
     ...(tools === undefined ? {} : { tools }),
     keywords: keywords.map((keyword) => keyword.toLowerCase()),
     regexes,
+    commandNames,
     excludeKeywords: excludeKeywords.map((keyword) => keyword.toLowerCase()),
     excludeRegexes,
   };
@@ -344,21 +369,30 @@ function readStringList(value: unknown): string[] | undefined {
 }
 
 /**
- * 判定文本：`bash` / `pwsh` 取 `arguments.command` 原文（**不带工具名前缀**，便于规则用 `^` 锚命令位），
- * 其余工具用「工具名 + `JSON.stringify(arguments)`」；序列化失败（循环引用等）按空串处理。
+ * `bash` / `pwsh` 的命令原文（**不带工具名前缀**，便于规则用 `^` 锚命令位）；其余工具、
+ * 参数不是对象、`command` 不是字符串 → undefined。
  */
-export function toolText(context: ToolGuardContext): string {
+function shellCommand(context: ToolGuardContext): string | undefined {
   const toolName = typeof context?.name === "string" ? context.name : "";
+  if (toolName !== "bash" && toolName !== "pwsh") return undefined;
   const args = context?.arguments;
   const record =
     args !== null && typeof args === "object"
       ? (args as Record<string, unknown>)
       : undefined;
-  if (toolName === "bash" || toolName === "pwsh") {
-    const command = record?.["command"];
-    if (typeof command === "string") return command;
-  }
-  return `${toolName} ${serialize(args)}`;
+  const command = record?.["command"];
+  return typeof command === "string" ? command : undefined;
+}
+
+/**
+ * 判定文本：`bash` / `pwsh` 取 `arguments.command` 原文，其余工具用「工具名 + `JSON.stringify(arguments)`」；
+ * 序列化失败（循环引用等）按空串处理。
+ */
+export function toolText(context: ToolGuardContext): string {
+  const command = shellCommand(context);
+  if (command !== undefined) return command;
+  const toolName = typeof context?.name === "string" ? context.name : "";
+  return `${toolName} ${serialize(context?.arguments)}`;
 }
 
 /** 参数序列化（失败返回空串，绝不抛错）。 */
@@ -370,9 +404,41 @@ function serialize(value: unknown): string {
   }
 }
 
+/** 版本后缀（`python3.12` 的 `.12`、`python2.7` 的 `.7`）。 */
+const VERSION_SUFFIX = /^\.\d+(?:\.\d+)*$/;
+
+/** 命令名是否命中名单：精确相等，或「名单项 + 版本后缀」（`python3` 认 `python3.12`）。 */
+function isListedCommand(word: string, names: readonly string[]): boolean {
+  for (const entry of names) {
+    if (word === entry) return true;
+    if (
+      word.startsWith(entry) &&
+      VERSION_SUFFIX.test(word.slice(entry.length))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
- * 按声明顺序取**第一条**命中的规则：先看 `tool` 限定，再看关键词（对全小写文本做子串匹配），
- * 最后看正则（对原始文本判定，flags 缺省 `i`）。判定的都是 `toolText` 产出的文本。未命中返回 undefined。
+ * 命令位词列表：`bash` / `pwsh` 的 `command` 交给 `@dsh-toolset/shell-parse` 解析（已剥包装器、
+ * 递归 `-c` / `eval` / 命令替换）；其余工具没有可解析的命令行，解析抛错时按空列表处理（fail-open）。
+ */
+function commandWordsOf(context: ToolGuardContext): readonly string[] {
+  const command = shellCommand(context);
+  if (command === undefined) return [];
+  try {
+    return commandPositions(command).map((position) => position.word);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 按声明顺序取**第一条**命中的规则：先看 `tool` 限定，再看关键词（对全小写文本做子串匹配）/
+ * 命令名（对解析出的命令位判定）/ 正则（对原始文本判定，flags 缺省 `i`），三者任一命中即算命中。
+ * 命令位只在确实有规则用到时才解析（每条调用至多解析一次）。未命中返回 undefined。
  */
 export function matchRule(
   rules: readonly CompiledRule[],
@@ -381,10 +447,19 @@ export function matchRule(
   const text = toolText(context);
   const lower = text.toLowerCase();
   const toolName = typeof context?.name === "string" ? context.name : "";
+  let words: readonly string[] | undefined;
+  const commandWords = (): readonly string[] => {
+    words ??= commandWordsOf(context);
+    return words;
+  };
   for (const rule of rules) {
     if (rule.tools !== undefined && !rule.tools.includes(toolName)) continue;
     const hit =
       rule.keywords.some((keyword) => lower.includes(keyword)) ||
+      (rule.commandNames.length > 0 &&
+        commandWords().some((word) =>
+          isListedCommand(word, rule.commandNames),
+        )) ||
       rule.regexes.some((pattern) => pattern.test(text));
     if (!hit) continue;
     // 排除条件命中即弃权（继续看后续规则），不是命中

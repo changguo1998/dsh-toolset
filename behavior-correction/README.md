@@ -17,20 +17,27 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
 1. 宿主在工具执行前唤醒 `tools/pre-execute` 消费者，传入 `{ name, arguments, callId?, sessionId?, resumed? }`。
 2. 判定文本 = `工具名 + " " + 参数字符串`：`bash` / `pwsh` 取 `arguments.command`（模型给的原文），
    其它工具用 `JSON.stringify(arguments)`；序列化失败（循环引用等）按空串处理。
-3. 规则表按声明顺序逐条比对：`tool` 限定通过后，关键词（子串、大小写不敏感）或正则（缺省 flags
-   `i`）任一命中即算命中；**第一条**命中的规则胜出。
+3. 规则表按声明顺序逐条比对：`tool` 限定通过后，关键词（子串、大小写不敏感）/ 命令名（`bash` 的
+   `command` 经 `@dsh-toolset/shell-parse` 解析出的命令位）/ 正则（缺省 flags `i`）任一命中即算命中，
+   **第一条**命中的规则胜出。
 4. 命中 → `{kind:"deny", reason}`（模型看到的工具回执带这条理由，rule-engine 另打一行
    `消费者 behavior-correction 拒绝工具 <name>`）；全部未命中 → `undefined` 弃权（不返回 `allow`，
    避免无谓否决其它消费者的 `deny`）。
 
-缺省规则（四条）：
+缺省规则（三条）：
 
 | id | 工具 | 条件 | 理由 |
 | --- | --- | --- | --- |
 | `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `\|` 之后；允许前置 `VAR=值` 与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）` |
-| `no-python-in-bash` | `bash` | **命令位**调用 `python` / `python3` / `python3.12`（判定同上一行） | `bash 里不要跑 python: 改用 script_run 工具（script-interpreter 插件）执行 Python 脚本或语句` |
-| `no-node-in-bash` | `bash` | **命令位**调用 `node`（判定同前；`nodejs` / `npm` / `npx` / `nodemon` 前缀词不拦） | `bash 里不要跑 node: 改用 script_run 工具（script-interpreter 插件）执行 Node 脚本或语句` |
+| `no-interpreter-in-bash` | `bash` | **命令位**跑解释器：名单见下；命令位由 `commandPositions()` 解析，包装器（`sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec` 等）已剥掉，`bash -c '…'` / `eval '…'` / `$(…)` / 反引号递归解析；`echo python` / `grep ruby` / 提交信息里提到不拦 | `bash 里不要直接跑解释器（python / node / ruby / perl / php / lua / deno / bun 等）: 计算与脚本改用 script_run 工具（已启用 python / node / sh）, 其它语言改写为 sh 或用现有工具组合` |
 | `no-view-text-in-bash` | `bash` | **命令位**调用 `cat` / `head` / `tail` / `nl` / `less` / `more` / `sed -n`（判定同前但不含管道与 `$(`：管道下游是合法裁剪；`tail -f` / `sed -i` / 重定向等写类不拦） | `bash 里不要用 cat / head / tail / nl / less / more / sed -n 查看文本: 读行段用 read（offset + limit）, 搜内容用 grep, 长文件先 fs_digest（pruned 或 outline）` |
+
+解释器名单（`INTERPRETER_COMMAND_NAMES`，命令名大小写敏感，`python3.12` 这类版本后缀算同一命令）：
+`python` / `python2` / `python3` / `python3.12` / `node` / `ruby` / `irb` / `perl` / `raku` / `php` /
+`lua` / `luajit` / `deno` / `bun` / `tsx` / `ts-node` / `Rscript` / `julia` / `osascript` / `tclsh`。
+**不收**：`awk` / `sed`（文本工具，拦了误伤）、`npm` / `npx` / `pip` / `gem` / `bundle` / `cargo`
+（包管理入口；它们包出来的真实命令仍按命令位判定）、`nodejs` / `nodemon` / `node-gyp`（前缀词）、
+裸 `R`（与 `r` 冲突）。
 
 ## 配置
 
@@ -51,6 +58,7 @@ bundle 契约：`name` / `inject: ["ruleEngine"]` / `Config` / `apply`。`ruleEn
 | `id` | 建议 | 规则标识（告警与排查用；缺席时按序号显示） |
 | `tool` | 否 | 限定的工具名（字符串或字符串数组）；省略 = 任意工具 |
 | `match.keywords` | 否 | 关键词列表（子串、大小写不敏感） |
+| `match.commandNames` | 否 | 命令名列表（大小写敏感）：`bash` / `pwsh` 的 `command` 经 `@dsh-toolset/shell-parse` 解析出的命令位任一等于其中之一即命中；`python3.12` 这类版本后缀算同一命令 |
 | `match.regex` | 否 | 正则源串列表（任一匹配即命中；非法正则 → 告警并跳过**整条**规则） |
 | `match.flags` | 否 | 正则 flags，缺省 `i`；`g` / `y` 会被去掉（避免 `test` 的状态污染） |
 | `reason` | 是 | 命中时回给模型的拒绝理由（应写明该改用哪个工具） |
@@ -78,12 +86,16 @@ profile 覆盖示例（用户层 patch）：
 ```
 
 接线：根 `package.json` 的 check/build 链、`scripts/install.sh`（`canonical_pkgs`）、
-`scripts/test-parallel.sh`（`default_pkgs`）与根 `README.md` / `README.zh.md` / `AGENTS.md` 的包清单。
+`scripts/test-parallel.sh`（`default_pkgs`）与根 `README.md` / `README.zh.md` / `AGENTS.md` 的包清单；
+依赖 `@dsh-toolset/shell-parse`（`package.json` 里 `link:../shell-parse`，由 install 一并挂上）。
 
 ## 边界
 
-- **不解释 shell 语义**：管道、别名、变量展开、引号、heredoc 都不解析，只对命令原文做文本判定 ——
-  宁可漏拦也不误伤（缺省规则只认命令位，正文里提到该词不拦）。
+- **命令名判定依赖解析层**：`match.commandNames` 走 `@dsh-toolset/shell-parse` 的
+  `commandPositions()`（`link:` 依赖），不自己写正则；解析抛错时该条件不命中（fail-open）。解析层
+  不做别名 / 变量展开 / 通配符，也不看 `find -exec`、`docker run`、`ssh host '…'` 这类隔一层执行。
+- **关键词与正则仍是纯文本判定**：只对命令原文做子串 / 正则匹配，不解释 shell 语义 —— 宁可漏拦
+  也不误伤（缺省规则只认命令位，正文里提到该词不拦）。
 - 不做审计、不落 memory-base、不提供人工命令面；规则只能由插件配置表达。
 - 未挂载 rule-engine / 框架不支持该节点时不拦截（fail-open；安全兜底仍在 `security-guard`）。
 
@@ -95,6 +107,8 @@ profile 覆盖示例（用户层 patch）：
 - **security-guard**：挂在宿主 waterfall 之后的单调守卫上，本包的 `deny` 不会绕过它，也无须经过它；
   两者可以同时拒绝同一调用。
 - **auto-approve**：审批链裁定；本包在更早处拒绝，被拒的调用不会走到审批。
+- **shell-parse**：本包的命令名判定直接 import 它的纯函数 `commandPositions()`（不走服务面，判据
+  在 `tools/pre-execute` 同步链上）；解析层本身不落盘、不注册工具。
 
 ## 测试
 
