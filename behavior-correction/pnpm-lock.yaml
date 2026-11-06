@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@dsh-toolset/shell-parse':
+        specifier: link:../shell-parse
+        version: link:../shell-parse
     devDependencies:
       '@types/node':
         specifier: ^24.13.3

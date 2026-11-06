@@ -97,12 +97,12 @@ function guardContext(toolName: string, args: unknown): ToolGuardContext {
 }
 
 test("resolveConfig: rules 缺席或 undefined 都回退内置规则表", () => {
-  assert.equal(resolveConfig({}).rules.length, 4);
-  assert.equal(resolveConfig({ rules: undefined }).rules.length, 4);
+  assert.equal(resolveConfig({}).rules.length, 3);
+  assert.equal(resolveConfig({ rules: undefined }).rules.length, 3);
   assert.equal(resolveConfig({ enabled: true }).enabled, true);
   // 非法形状按内置规则表兜底 (告警由 compileRules 负责)
   const raw = resolveConfig({ rules: "oops" as unknown as RuleSpec[] });
-  assert.equal(raw.rules.length, 4);
+  assert.equal(raw.rules.length, 3);
   assert.equal(resolveConfig({ rules: [] }).rules.length, 0);
 });
 
@@ -198,13 +198,13 @@ test("compileRules: 列表里混入非字符串时只留合法项, 关键词统�
     {
       id: "mixed",
       tool: ["bash", 7, "pwsh"],
-      match: { keywords: ["HerDR", 9] },
+      match: { keywords: ["HerDR", 9], commandNames: ["Node", 3] },
       exclude: { keywords: ["Safe", 5] },
       reason: "r",
     },
     {
       id: "empty-lists",
-      match: { keywords: [], regex: [] },
+      match: { keywords: [], regex: [], commandNames: [] },
       exclude: { keywords: [] },
       reason: "永不命中",
     },
@@ -214,6 +214,8 @@ test("compileRules: 列表里混入非字符串时只留合法项, 关键词统�
   const [mixed] = rules;
   assert.deepEqual(mixed?.tools, ["bash", "pwsh"]);
   assert.deepEqual(mixed?.keywords, ["herdr"]);
+  // 命令名大小写敏感 (Rscript / node 是不同名字), 不做小写归一
+  assert.deepEqual(mixed?.commandNames, ["Node"]);
   assert.deepEqual(mixed?.excludeKeywords, ["safe"]);
   const empty = rules[1];
   assert.deepEqual(empty?.keywords, []);
@@ -253,6 +255,58 @@ test("compileRules: g / y 从 flags 中去掉, 正则不带状态污染", () => 
       guardContext("bash", { command: "HERDR" }),
     ),
     undefined,
+  );
+});
+
+test("compileRules: match.commandNames 非数组 → 告警并整条跳过", () => {
+  const { rules, warnings } = compile([
+    { id: "cmds", match: { commandNames: "python" }, reason: "r1" },
+    { id: "cmds-junk", match: { commandNames: [3] }, reason: "r2" },
+    { id: "ok", match: { commandNames: ["python"] }, reason: "ok" },
+  ]);
+  assert.deepEqual(
+    rules.map((rule) => rule.reason),
+    ["ok"],
+  );
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0] ?? "", /cmds 的 match\.commandNames 不是字符串数组/);
+  assert.match(
+    warnings[1] ?? "",
+    /cmds-junk 的 match\.commandNames 不是字符串数组/,
+  );
+  assert.deepEqual(rules[0]?.commandNames, ["python"]);
+});
+
+test("matchRule: commandNames 与 keywords / regex 取并集, exclude 仍优先弃权", () => {
+  const { rules } = compile([
+    {
+      id: "union",
+      tool: "bash",
+      match: { commandNames: ["python", "python3"], keywords: ["danger"] },
+      exclude: { keywords: ["--safe"] },
+      reason: "union",
+    },
+  ]);
+  assert.equal(
+    matchRule(rules, guardContext("bash", { command: "python x.py" }))?.reason,
+    "union",
+    "命令名命中",
+  );
+  assert.equal(
+    matchRule(rules, guardContext("bash", { command: "echo danger" }))?.reason,
+    "union",
+    "关键词命中",
+  );
+  assert.equal(
+    matchRule(rules, guardContext("bash", { command: "python x.py --safe" })),
+    undefined,
+    "exclude 命中即弃权",
+  );
+  assert.equal(
+    matchRule(rules, guardContext("bash", { command: "python3.12 x.py" }))
+      ?.reason,
+    "union",
+    "版本后缀算同一命令",
   );
 });
 
