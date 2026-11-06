@@ -5,7 +5,7 @@
 ## 运行
 
 ```sh
-pnpm run test:e2e          # 33 条，并发 4；--test-force-exit 收尾
+pnpm run test:e2e          # 37 条，并发 4；--test-force-exit 收尾
 pnpm run test:e2e:tui      # TUI 原有的 demo:build -- --smoke + smoke:pty
 ```
 
