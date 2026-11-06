@@ -34,7 +34,11 @@
     - 本 agent **加入**的组（它是成员，不是组长）→ 显示 `上级 <直接上级名>`；
     - 本 agent **创建**的组（它是组长）→ 显示 `子 <直接子列表>`；
       两类都不展开更下一层。
-04. Group 数据来源（新增）：**c 选定** —— 现有 `agentGroup.status(managerSessionId)` 只读该会话**创建**的组（store 按管理者目录存 `agent-group.json`，`agent-group/src/store.ts:84`），读不到「加入的组」；镜像也只落会话层（`agent-group/src/mirror.ts:77`），全局面无法列举。故需 agent-group 新增按会话的只读摘要 `summary(sessionId)`，返回 `{ created: [{name, children[]}], joined: [{name, parent}] }`；实现取项目层（可列举）而不是逐会话扫目录，避免 1s ticker 反复读盘。
+04. Group 数据来源与查询入口：**c 选定（2026-11-06 补）** —— 现有 `agentGroup.status(managerSessionId)` 只读该会话**创建**的组（store 按管理者目录存 `agent-group.json`，`agent-group/src/store.ts:84`），读不到「加入的组」；镜像只落会话层（`agent-group/src/mirror.ts:77`），全局面无法列举。改法：
+    - **服务面** `agentGroup.summary(sessionId)` 返回 `{ created: [{name, children[]}], joined: [{name, parent}] }`；
+    - **模型面** 同一能力增加 `agent_group` 工具的 `action: "summary"`（不带参时取调用方会话），供任一 agent 自查「我创建了哪些组 / 我加入了哪些组、上级是谁」；
+    - **数据来源**：成员关系索引写 **项目层**（kind `agent_group`，正文带 `members[].sessionId` 与 `links`），`summary` 与 TUI 状态列都从项目层列举过滤；不逐会话扫目录（1s ticker 成本不可控）。
+    - 影响面：镜像落点由会话层改项目层（或在项目层另写索引行），`add_member` / `link` / `remove` 时同步刷新。
 05. 数据获取：**b 选定（改自初稿）** —— Task / Daemon / Group 走服务面惰读；Flow 由 `flowTrack` 服务面新增只读摘要（避免 TUI 异步读库）；**Pin 由 pin-note 新增只读面**（会话层无法从全局面读）。理由：`memory.list` 跳过会话层（`:388`），Pin 无替代通道；其余走现有/新增服务面比 TUI 解析 memory 行更稳。
 06. 刷新：**a 选定** —— 随 `StatusTicker`（1s）异步拉取五个来源，拼成一个 `statusExtras` 快照，值变化才派 action 重绘。
 07. 透传形态：**b 选定** —— 不再给 `renderStatusColumn` 加位置参数，改为透传 `statusExtras` 对象（`StatusColumnData.extras`）。
