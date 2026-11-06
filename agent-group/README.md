@@ -51,7 +51,7 @@ DSH 进程内插件：**同事模型群组的编排**（跨会话协调层）—
 
 ### 只读服务面（TUI `/group` 等）
 
-除工具外，`apply` 还 `ctx.provide("agentGroup", { status })` 注册**只读**服务面：`status(managerSessionId, groupName?)` 按管理者会话读组状态——成功 `{ok:true, groups:[{name, view}]}`（`view` 为只读视图）；失败 `{ok:false, error, reason?, next?}`（`group_not_found` 的 `reason` 带现有组清单；`session_paths_unavailable` / `state_unavailable` 见「依赖与降级」）。它**不写盘、不镜像**，与动作 `status` 同源（`readGroupStatus`）。消费方（如 TUI `/group` 命令）经 `ctx.get("agentGroup")` 读取；未挂载时由调用方降级提示，不阻塞插件自身。
+除工具外，`apply` 还 `ctx.provide("agentGroup", { status, summary })` 注册**只读**服务面：`status(managerSessionId, groupName?)` 按管理者会话读组状态——成功 `{ok:true, groups:[{name, view}]}`（`view` 为只读视图）；失败 `{ok:false, error, reason?, next?}`（`group_not_found` 的 `reason` 带现有组清单；`session_paths_unavailable` / `state_unavailable` 见「依赖与降级」）。`summary(sessionId)` 给出「我创建的组（含直接子）」与「我加入的组（含直接上级）」，数据来自**项目层索引** kind `agent_group_index`（成员变更时写入；kind 进程内唯一，故与镜像 `agent_group` 分开命名）；工具侧对应 `agent_group` 的 `action: "summary"`。`status` 本身**不写盘、不镜像**，与动作 `status` 同源（`readGroupStatus`）。消费方（如 TUI `/group` 命令与状态列 Group 块）经 `ctx.get("agentGroup")` 读取；未挂载时由调用方降级提示，不阻塞插件自身。
 
 ### 规则（由代码保证，不靠提示词约定）
 

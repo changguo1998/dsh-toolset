@@ -49,11 +49,18 @@ DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨�
 
 ## 边界
 
+- **只读服务面**：`ctx.provide("pinNotes", { summary(sessionId) })` 返回 `{ count, chars, titles }`；memory-base 全局面不列举会话层，状态列 Pin 块只能经本面读。
+
 - **同一段正文只落一条**：注入消息按 `user/message` + `surfaceOp: append` 进会话日志；上下文里已有同一段正文（按正文比对，不看 source / id）时不再插，压缩把它移出后才会再插一次（这正是目的）。
+
 - **只做会话级**：S 层的库位置按 `sessionId` 解析，其它会话读不到；跨会话保持请用 memory-base 的项目层。
+
 - **每条 ≥ 20 字**：`preWrite` 拒绝过短内容，避免碎片登记把注入撑长。
+
 - **结构性依赖**：读走 `whenReady().tiers.openExisting("session", sessionId)`（`bundle.tiers` 属 memory-base 内部结构面，不是公开服务契约）；全局 `list({tier: "session"})` 不可靠（跳过 S 层，且只遍历已打开的库），故不走它。
+
 - **降级**：`ctx.memory` 缺席或 `registerKind` 抛错时只告警，不注册工具、不注入，不让宿主启动失败。
+
 - 不替换 goal / todo / `present`：那些各有自己的语义与渲染面。
 
 ## 测试
