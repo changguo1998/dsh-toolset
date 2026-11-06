@@ -21,7 +21,7 @@ export interface GlossaryRow {
 /** 快照正文（行序与 GLOSSARY 表一致）。 */
 export const GLOSSARY_SNAPSHOT: readonly GlossaryRow[] =
   /* prettier-ignore */ [
-    {"from":["模块"],"to":"包","note":"与包并列指层次时保留「模块」；「模块 = TUI 与 N 个包」改「本仓 34 个包 = TUI 与 33 个插件」","isInterface":false,"conditional":true},
+    {"from":["模块"],"to":"包","note":"与包并列指层次时保留「模块」；「模块 = TUI 与 N 个包」改「本仓 37 个包 = TUI 与 36 个插件」","isInterface":false,"conditional":true},
     {"from":["插件包"],"to":"包 / 插件","note":"泛指代码模块用「包」，数插件用「插件」","isInterface":false,"conditional":false},
     {"from":["过程记录"],"to":"追踪文档","note":"归档不改","isInterface":false,"conditional":false},
     {"from":["符号规则"],"to":"符号规范","note":"-","isInterface":false,"conditional":false},
