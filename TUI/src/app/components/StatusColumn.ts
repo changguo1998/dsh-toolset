@@ -26,7 +26,7 @@ import type {
   TodoItemLike,
 } from "../adapter/dsh.ts";
 import type { Box, Node, StyledText } from "../layout/box.ts";
-import { styled, v } from "../layout/box.ts";
+import { h, styled, v } from "../layout/box.ts";
 import { NOTICE_TONE_COLOR } from "../layout/content-rules.ts";
 import { displayWidth } from "../layout/markdown.ts";
 import { seg } from "../layout/primitives.ts";
@@ -88,6 +88,8 @@ interface StatusItem {
   /** false = 单行截断不折行（改造前即「一行一条」的条目：jobs / 阻塞原因；截断交拼帧层）。
    *  缺省折行——这是改造前的老口径（todo / goal / agents 条目按列宽折行）。 */
   wrap?: false;
+  /** 自定义行（横向 box；给出时忽略 segments 的出行, 用于需要独立分配宽度的条目）。 */
+  row?: Node;
   /** 已完成（L1 先隐藏） */
   done: boolean;
   /** 进行中（L2 只留这些；L3 压 1 行） */
@@ -180,6 +182,7 @@ function headLeaf(head: FrameSegment[]): StyledText {
  *  （历史 goal 条目在 L3 本会是「标题 + 正文」两行，旧实现取 `rows[0]` 只留标题；
  *   但 goal 块 L2 起即 titleOnly，该分支不可达。） */
 function itemLeaves(item: StatusItem, level: FoldLevel): Node[] {
+  if (item.row !== undefined) return [item.row];
   const body = styled(item.segments, {
     hanging: item.hanging,
     ...(level >= 3 || item.wrap === false ? { wrap: false } : {}),
@@ -253,6 +256,34 @@ function extrasItem(
   };
 }
 
+/** 弹性条目：符号与尾部（fixed/auto，先锁定自然宽）固定，名称 fill 吃剩余宽度，尾部因此右对齐。 */
+function flexItem(
+  symbol: string,
+  name: string,
+  tail: string,
+  options: {
+    fg?: "yellow" | "gray" | "red" | undefined;
+    done?: boolean;
+    active?: boolean;
+  } = {},
+): StatusItem {
+  const leaves: Node[] = [
+    styled(
+      [seg(`${symbol} `, options.fg === undefined ? {} : { fg: options.fg })],
+      { wrap: false },
+    ),
+    styled([seg(name)], { wrap: false, widthStyle: "fill", widthMin: 1 }),
+  ];
+  if (tail !== "") leaves.push(styled([seg(tail)], { wrap: false }));
+  return {
+    segments: [],
+    row: h(leaves),
+    hanging: 0,
+    done: options.done ?? false,
+    active: options.active ?? false,
+  };
+}
+
 /** 新增五块（Task / Flow / Pin / Daemon / Group）；无内容不建块（与 Jobs / Agents 同口径） */
 function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
   const out: StatusBlock[] = [];
@@ -291,15 +322,23 @@ function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
             : record.status === "done" || record.status === "note"
               ? ("gray" as const)
               : ("yellow" as const);
-        return extrasItem(
-          `${symbol} ${record.slug}@${record.stage} ${record.status}`,
-          {
-            fg,
-            done: !record.active,
-            active: record.active,
-            strike: record.status === "done",
-          },
-        );
+        return {
+          segments: [],
+          row: h([
+            styled([seg(`${symbol} `, { fg })], { wrap: false }),
+            styled([seg(record.slug)], {
+              wrap: false,
+              widthStyle: "fill",
+              widthMin: 1,
+            }),
+            styled([seg(`@${record.stage} ${record.status}`)], {
+              wrap: false,
+            }),
+          ]),
+          hanging: 0,
+          done: !record.active,
+          active: record.active,
+        };
       }),
     });
   }
@@ -323,7 +362,7 @@ function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
       items: extras.daemon.items.map((task) => {
         const mark = statusMark(task.status);
         const active = task.status === "running" || task.status === "stopping";
-        return extrasItem(`${mark.symbol} ${task.name} ${task.status}`, {
+        return flexItem(mark.symbol, task.name, ` ${task.status}`, {
           ...(mark.color === undefined ? {} : { fg: mark.color }),
           done: !active,
           active,
@@ -340,13 +379,15 @@ function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
         head: head(`Group ${created.length + joined.length} 组`),
         items: [
           ...created.map((group) =>
-            extrasItem(
-              `○ ${group.name} · 子 ${group.children.join(", ") || "（无）"}`,
+            flexItem(
+              "○",
+              group.name,
+              ` · 子 ${group.children.join(", ") || "（无）"}`,
               { fg: "gray" },
             ),
           ),
           ...joined.map((group) =>
-            extrasItem(`○ ${group.name} · 上级 ${group.parent}`, {
+            flexItem("○", group.name, ` · 上级 ${group.parent}`, {
               fg: "gray",
             }),
           ),

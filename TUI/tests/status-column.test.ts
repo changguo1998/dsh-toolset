@@ -713,6 +713,6 @@ test("新增五块：无 extras 不渲染；有内容时按 Task / Flow / Pin / 
   assert.match(all, /Pin 1 条 · 12 字/);
   assert.match(all, /Daemon 开 · 1\/2/);
   assert.match(all, /Group 2 组/);
-  assert.match(all, /team · 子 a/);
-  assert.match(all, /other · 上级 manager/);
+  assert.match(all, /team\s+· 子 a/);
+  assert.match(all, /other\s+· 上级 manager/);
 });
