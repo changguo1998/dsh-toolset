@@ -47,7 +47,7 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 | **tool-consult** | 工具咨询与按需揭示：模型描述要做什么，`consult_tools` 按关键词索引返回名称 + 一句话并揭示给当前会话（宿主 `tools.restrict` 遮罩 + 单条活动 mask 替换）；缺省只留 9 个核心工具；咨询即授权，揭示在会话内只增不减（`revealScope: session`）或仅本回合（`turn`，带 `ttlTurns` / `pin`）；调用被遮罩的工具返回「先咨询」的可行动文案；任一路径失败（无 agent 作用域 / `restrict` 抛错 / 名单失配 / 空交集）降级为「不遮罩」而不中断会话 |
 | **term-check** | 回复正文术语检查：`assistant-text` 上的 rule-engine 消费者，按 `docs/GLOSSARY.md`「禁止术语」表扫描回复里的旧称，命中时注入一条更正提示（`followup`，每会话只注入一次），要求模型按表里的「应当使用」更正后完整重发。术语表以构建期快照随包发布（`pnpm run gen:glossary`，解析复用 `check:docs` 同一份 `loadGlossary`），故非本仓项目也能审查；条件型术语（模块 / 工具集 / 收口）、带豁免标记的行（原名 / 旧称 / 历史对照 / 不再使用）与已知误配（「夺回归属」里的「回归」）跳过。按决策不做代码段掩码：引用旧称做示例可能被提示一次，注入文案已写明这类情况可忽略。只报不改：不改回复正文，也不改任何文件 |
 | **pin-note** | 跨压缩上下文保持：模型用 `pin_note` 把要点（≥ 20 字）登记进本会话记忆库；每次 `agent/pre-step` 把当前保持项折叠进 `decision.messages`（user 消息，自定义 `source: pin-note`），并在 `agent.inbox` 只留一条，按 payload（content + source）判断是否重复插入。压缩把这条消息移出投影后，下一步重新插入——这就是「跨压缩在场」。`note_list` / `note_remove` 管理条目；合计建议 < 10K 字符（只提示不硬限）；作用域只有会话层，随会话结束失效。`ctx.memory` 缺席或 `pin` 分类注册失败时降级为一条告警 |
-| **flow-track** | 标准流程固化（只提示不拦截）：经 rule-engine 消费者在 `turn-start` + `user-message` 注入八阶段模板（目标 / 调研 / 决策 / 规划 / 实现 / 测试 / 审查 / 收尾，每阶段单动作 spec + 验收口径 + `deps` 链 + mechanical / human 门禁）；`flow_record` / `flow_status` 把各阶段推进与正文落 memory-base 项目层（kind `flow`，标题 `<slug>@<阶段>`）；当前阶段由只读的 `taskEngine.query()` 快照推导（帧栈末位 → 标题 → 阶段），另挂 `session/event` 数写类工具调用，改了文件却没有任何流程记录时给一条合规提示。不拦截任何工具调用；`taskEngine` 缺席降级为模板 + 记录，`memory` 缺席降级为只有模板 |
+| **flow-track** | 标准流程固化（只提示不拦截）：经 rule-engine 消费者在 `turn-start` + `user-message` 注入八阶段模板（目标 / 调研 / 决策 / 规划 / 实现 / 测试 / 审查 / 收尾，每阶段单动作 spec + 验收口径 + `deps` 链 + mechanical / human 门禁）；`flow_record` / `flow_status` / `flow_remove` 读写删各阶段推进与正文（memory-base 项目层，kind `flow`，标题 `<slug>@<阶段>`，删可按 id 或 slug）；当前阶段由只读的 `taskEngine.query()` 快照推导（帧栈末位 → 标题 → 阶段），另挂 `session/event` 数写类工具调用，改了文件却没有任何流程记录时给一条合规提示。不拦截任何工具调用；`taskEngine` 缺席降级为模板 + 记录，`memory` 缺席降级为只有模板 |
 | **escalation-hint** | 沙箱升级提示补齐：订阅宿主 `tools/post-execute`，在「调用被沙箱拒绝、但宿主没有渲染 `[sandbox: escalation available …]` 提示」时（`denied` 由英文 stderr 签名判定，本地化报错必然漏判）经 `additionalContexts` 追加一条 user 消息，提示模型对同一调用加 `sandbox_permissions` + `justification` 重试一次；三层判据（已有提示 → 跳过；命中宿主 `[sandbox: file access denied under <mode> mode]` / `FS_SANDBOX_DENIED` → 补；否则用结构化 `exitCode` + `sandbox.mode` + 写形状命令兜底）覆盖 `bash` / `pwsh` 与 `write` / `edit` / `str_replace_editor`；只提示、不拦截 |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
 
@@ -91,7 +91,7 @@ dsh-toolset/
 ├── escalation-hint/      # 沙箱升级提示补齐（tools/post-execute + additionalContexts；只提示不拦截）
 ├── term-check/           # 回复正文术语检查（rule-engine 消费者；术语表快照；只报不改）
 ├── pin-note/             # 跨压缩上下文保持（pin_note / note_list / note_remove；每步注入）
-├── flow-track/           # 标准流程固化（模板注入 + flow_record / flow_status；只提示不拦截）
+├── flow-track/           # 标准流程固化（模板注入 + flow_record / flow_status / flow_remove；只提示不拦截）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
 ├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单

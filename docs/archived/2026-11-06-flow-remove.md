@@ -1,6 +1,6 @@
 # flow-track 删除工具（接取条目：docs/BACKLOG.md「flow-track 删除工具」）
 
-状态：进行中　　开启：2026-11-06
+状态：已关闭　　开启：2026-11-06　　关闭：2026-11-06
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 ## 目标
@@ -52,4 +52,8 @@
 
 ## 收尾
 
-（关闭时填）
+- 提交：`7fbd87d2`（BACKLOG 条目 + 本追踪文档）、`76377ff1`（`flow_remove` 实现与测试）；关闭提交带文档同步（`flow-track/README.md`、`AGENTS.md`、`README.md` / `README.zh.md`）与本文件归档。
+- 文档同步：包 README 工具表补 `flow_remove`、测试条数 51 → 57、真机验证步骤补删除一步；`AGENTS.md` 与根 README 双侧包描述补 `flow_remove`。
+- BACKLOG 条目已从 `docs/BACKLOG.md` §2 移除。
+- 残留（不另立条目）：真机验证未做——`flow_remove` 要重启会话才出现在工具面（`fff` 走 `sh scripts/install.sh --profile fff --sync`，`fff-test` 重跑 `pnpm run build` 即可）；真机若回 `unavailable`，先查 memory-base 是否提供 `MemoryScope.forget`。
+- 干净的旁支：`docs/STATUS.md` 未改（由用户择时更新）。

@@ -43,6 +43,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 | --- | --- | --- |
 | `flow_record` | `slug`、`stage`（八阶段或 `-`）、`status`（start / done / blocked / note）、`body?` | 写一条推进记录（P 层项目库）；写后清掉本会话的「未记录」观测 |
 | `flow_status` | `slug?` | 读当前阶段（序号 / 名称 / 门禁 / 帧标题）与最近记录 |
+| `flow_remove` | `id` 或 `slug`（二选一） | 删流程记录：`id` 删一条、`slug` 删该任务全部（回 `removed` 条数）；删后刷新注入缓存 |
 
 ## 配置
 
@@ -70,8 +71,8 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 ```sh
 cd flow-track
 pnpm run check   # tsc --noEmit（含 tests）
-pnpm test        # node --test：阶段 6 例 + 状态 7 例 + 存储 7 例 + 观测 6 例 + 注入 8 例 + 接线 15 例
+pnpm test        # node --test：阶段 6 例 + 状态 7 例 + 存储 11 例 + 观测 6 例 + 注入 8 例 + 接线 19 例
 pnpm run build   # 编译到 dist/
 ```
 
-真机验证（人工）：让模型按模板建八阶段树 → 注入里出现「当前阶段：N/8 …」→ 调 `flow_record` 后注入带「最近记录」→ 无阶段树时改代码，下一轮收到一条带模板的合规提示。
+真机验证（人工）：让模型按模板建八阶段树 → 注入里出现「当前阶段：N/8 …」→ 调 `flow_record` 后注入带「最近记录」→ 调 `flow_remove` 按 slug 清掉后注入不再带它；无阶段树时改代码，下一轮收到一条带模板的合规提示。
