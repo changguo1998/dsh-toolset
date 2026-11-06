@@ -502,6 +502,7 @@ test("工具定义：动作、参数与描述齐备，render 输出字符串", a
     "remove",
     "close_group",
     "status",
+    "summary",
   ]);
   assert.deepEqual(parameters.required, ["action"]);
   assert.match(env.tool.description, /每.*主从连接.*未结/);

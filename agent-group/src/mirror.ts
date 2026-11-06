@@ -30,7 +30,14 @@ export interface MemoryScopeFace {
 export interface MemoryFace {
   registerKind(spec: {
     kind: string;
+    writableTiers?: readonly string[];
   }): MemoryScopeFace | Promise<MemoryScopeFace>;
+  /** 跨 kind 列举（`/memory list` 同款；用于读项目层索引）。 */
+  list?(opts?: {
+    kind?: string;
+    tier?: string;
+    limit?: number;
+  }): Promise<readonly { content?: unknown }[]>;
 }
 
 /** 判据：memory-base 服务面「够用」。 */
@@ -42,6 +49,74 @@ export function isMemoryFace(value: unknown): value is MemoryFace {
 
 /** 分类名（memory-base 的 `kind`；写目标层缺省 `session`）。 */
 export const MIRROR_KIND = "agent_group";
+
+/** 项目层成员关系索引（`kind` 进程内唯一, 故与镜像分开命名）。 */
+export const INDEX_KIND = "agent_group_index";
+
+/** 项目层索引写面 + 读面（`summary.ts` 的 `GroupIndexRow` 为正文形态）。 */
+export class MemoryBaseGroupIndex {
+  readonly #memory: MemoryFace;
+  readonly #projectOf: (managerSessionId: string) => string | undefined;
+  #scope: MemoryScopeFace | undefined;
+
+  constructor(
+    memory: MemoryFace,
+    projectOf: (managerSessionId: string) => string | undefined,
+  ) {
+    this.#memory = memory;
+    this.#projectOf = projectOf;
+  }
+
+  /** 写一行索引（组每次变更后写；读侧取同名组最新一行）。 */
+  async write(input: {
+    managerSessionId: string;
+    groupName: string;
+    groupId: string;
+    payload: unknown;
+  }): Promise<void> {
+    if (this.#scope === undefined) {
+      const scope = await this.#memory.registerKind({
+        kind: INDEX_KIND,
+        writableTiers: ["project"],
+      });
+      if (scope === undefined || typeof scope.put !== "function") {
+        throw new Error("memory-base 未返回项目层写句柄");
+      }
+      this.#scope = scope;
+    }
+    const project =
+      this.#projectOf(input.managerSessionId) ??
+      `agent-group:${input.groupName}`;
+    const result = await this.#scope.put({
+      tier: "project",
+      project,
+      content: JSON.stringify(input.payload),
+      title: `agent-group-index ${input.groupName}`,
+      source: { kind: "manual", label: INDEX_KIND, ref: input.groupId },
+    });
+    if (result?.skipped !== undefined && result.skipped !== "") {
+      throw new Error(`memory-base 拒收（${result.skipped}）`);
+    }
+  }
+
+  /** 读全部索引正文（解析失败的行跳过）。 */
+  async list(): Promise<readonly unknown[]> {
+    const list = this.#memory.list?.bind(this.#memory);
+    if (typeof list !== "function") return [];
+    const rows = await list({ kind: INDEX_KIND, tier: "project", limit: 200 });
+    const out: unknown[] = [];
+    for (const row of rows) {
+      const content = row?.content;
+      if (typeof content !== "string") continue;
+      try {
+        out.push(JSON.parse(content));
+      } catch {
+        /* 坏行跳过 */
+      }
+    }
+    return out;
+  }
+}
 
 /** memory-base 镜像（懒拿写句柄，首次写入时取一次并按需降级）。 */
 export class MemoryBaseMirror implements GroupMirror {

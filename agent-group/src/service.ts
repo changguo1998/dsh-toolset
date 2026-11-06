@@ -33,6 +33,7 @@ import {
   send as instructionSend,
 } from "./instruction.ts";
 import { failure, groupView, isFailure, pickGroup } from "./model.ts";
+import { indexPayload, summarize, type GroupIndexRow } from "./summary.ts";
 import type {
   ActionResult,
   AgentGroupBook,
@@ -50,6 +51,16 @@ export interface GroupServiceOptions {
   store: BookStore;
   transport: GroupTransport;
   mirror?: GroupMirror;
+  /** 项目层成员关系索引（写 + 读；缺省 = 未挂载 memory 或无项目层）。 */
+  index?: {
+    write(input: {
+      managerSessionId: string;
+      groupName: string;
+      groupId: string;
+      payload: unknown;
+    }): Promise<void>;
+    list(): Promise<readonly unknown[]>;
+  };
   config: ResolvedConfig;
   now?: () => number;
   newId?: () => string;
@@ -68,6 +79,7 @@ export class GroupService {
   readonly #store: BookStore;
   readonly #transport: GroupTransport;
   readonly #mirror: GroupMirror | undefined;
+  readonly #index: GroupServiceOptions["index"];
   readonly #config: ResolvedConfig;
   readonly #now: () => number;
   readonly #newId: () => string;
@@ -89,6 +101,7 @@ export class GroupService {
     this.#store = options.store;
     this.#transport = options.transport;
     this.#mirror = options.mirror;
+    this.#index = options.index;
     this.#config = options.config;
     this.#now = options.now ?? Date.now;
     this.#newId = options.newId ?? randomUUID;
@@ -151,6 +164,8 @@ export class GroupService {
         return this.remove(args, caller);
       case "close_group":
         return this.closeGroup(args, caller);
+      case "summary":
+        return this.summary(caller);
       case "status":
         return this.status(args, caller);
       default:
@@ -241,6 +256,35 @@ export class GroupService {
     caller: string,
   ): Promise<ActionResult> {
     return connectBroadcast(this.#host, args, caller);
+  }
+
+  /** 按会话汇总「我创建的组 / 我加入的组」（项目层成员关系索引；只到直接关系）。 */
+  async summary(sessionId: string): Promise<ActionResult> {
+    const index = this.#index;
+    if (index === undefined) {
+      return failure(
+        "index_unavailable",
+        "成员关系索引不可用（memory-base 未挂载或未启用项目层）",
+        "挂上 memory-base 后重启 dsh，并先执行一次 create_group / add_member / link 以写入索引",
+      );
+    }
+    let rows: readonly unknown[];
+    try {
+      rows = await index.list();
+    } catch (error) {
+      return failure(
+        "state_unavailable",
+        `读取成员关系索引失败：${describe(error)}`,
+        "检查 memory-base 项目库（<项目>/.dsh/project.db）是否可读",
+      );
+    }
+    const typed = rows.filter(
+      (row): row is GroupIndexRow =>
+        typeof row === "object" &&
+        row !== null &&
+        typeof (row as { name?: unknown }).name === "string",
+    );
+    return { ok: true, action: "summary", ...summarize(typed, sessionId) };
   }
 
   /** 只读查看（成员、等级与主从关系、未结指令、最近一次回报，决策项 17）。 */
@@ -386,6 +430,20 @@ export class GroupService {
 
   /** 镜像一次（失败只计数 + 首次一条日志，不重试、不影响动作结果）。 */
   async #mirrorGroup(group: AgentGroupState): Promise<void> {
+    // 项目层索引与镜像解耦：索引是 summary / 状态列的数据源, 镜像关掉也要写
+    const index = this.#index;
+    if (index !== undefined) {
+      try {
+        await index.write({
+          managerSessionId: group.managerSessionId,
+          groupName: group.name,
+          groupId: group.id,
+          payload: indexPayload(group),
+        });
+      } catch (error) {
+        this.#log(`成员关系索引写入失败：${describe(error)}`);
+      }
+    }
     if (this.#mirror === undefined || !this.#config.mirror) return;
     try {
       await this.#mirror.put({

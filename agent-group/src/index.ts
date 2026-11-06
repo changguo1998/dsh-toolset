@@ -27,7 +27,12 @@ import { describe } from "./errors.ts";
 import { readGroupStatus } from "./group.ts";
 import { pruneUndefined } from "./json.ts";
 import { failure, isFailure } from "./model.ts";
-import { MemoryBaseMirror, isMemoryFace } from "./mirror.ts";
+import {
+  MemoryBaseGroupIndex,
+  MemoryBaseMirror,
+  isMemoryFace,
+} from "./mirror.ts";
+import { summarize, type GroupIndexRow } from "./summary.ts";
 import { GroupService } from "./service.ts";
 import { FileBookStore } from "./store.ts";
 import {
@@ -182,9 +187,10 @@ export function toToolDef(
             "remove",
             "close_group",
             "status",
+            "summary",
           ],
           description:
-            "create_group 建组; add_member 加成员; link 建主从连接; link_peer 建平等连接; send / send_peer / broadcast 发指令; check 结算; remove / close_group 移除与关闭; status 只读查看",
+            "create_group 建组; add_member 加成员; link 建主从连接; link_peer 建平等连接; send / send_peer / broadcast 发指令; check 结算; remove / close_group 移除与关闭; status 只读查看; summary 按会话汇总我创建的组 / 我加入的组",
         },
         group: { type: "string", description: "组名（create_group 缺省自取）" },
         name: {
@@ -401,17 +407,21 @@ export function createLazyGroupService(
       | { get?(id: string): { header?: { cwd?: string } } | undefined }
       | undefined;
     const memory = boundOrDirect(bindings, "memory", ctx, "memory");
+    const projectOf = (sessionId: string): string | undefined => {
+      try {
+        const session = sessions?.get?.(sessionId);
+        const cwd = session?.header?.cwd;
+        return typeof cwd === "string" && cwd !== "" ? cwd : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const index = isMemoryFace(memory)
+      ? new MemoryBaseGroupIndex(memory, projectOf)
+      : undefined;
     const mirror =
       config.mirror && isMemoryFace(memory)
-        ? new MemoryBaseMirror(memory, (sessionId) => {
-            try {
-              const session = sessions?.get?.(sessionId);
-              const cwd = session?.header?.cwd;
-              return typeof cwd === "string" && cwd !== "" ? cwd : undefined;
-            } catch {
-              return undefined;
-            }
-          })
+        ? new MemoryBaseMirror(memory, projectOf)
         : undefined;
     cached = new GroupService({
       store: new FileBookStore(
@@ -420,6 +430,7 @@ export function createLazyGroupService(
       ),
       transport: createSessionChannelTransport(channel),
       ...(mirror === undefined ? {} : { mirror }),
+      ...(index === undefined ? {} : { index }),
       config,
       log,
     });
@@ -444,6 +455,15 @@ export interface AgentGroupReadService {
           view: GroupView;
           memberStates?: import("./types.ts").MemberStateView[];
         }>;
+      }
+    | GroupFailure
+  >;
+  /** 按会话汇总「我创建的组 / 我加入的组」（只到直接关系；数据来自项目层索引）。 */
+  summary(sessionId: string): Promise<
+    | {
+        ok: true;
+        created: Array<{ name: string; children: string[] }>;
+        joined: Array<{ name: string; parent: string }>;
       }
     | GroupFailure
   >;
@@ -485,6 +505,34 @@ function createReadService(
         stuckAfterMs: config.stuckAfterMs,
         ...(transport === undefined ? {} : { memberLookup: transport }),
       });
+    },
+    async summary(sessionId) {
+      const memory = boundOrDirect(bindings, "memory", ctx, "memory");
+      if (!isMemoryFace(memory)) {
+        return failure(
+          "memory_unavailable",
+          "memory-base 服务不可用（成员关系索引读不到）",
+          "在 profile 里挂上 memory-base 后重启 dsh",
+        );
+      }
+      const index = new MemoryBaseGroupIndex(memory, () => undefined);
+      let rows: readonly unknown[];
+      try {
+        rows = await index.list();
+      } catch (error) {
+        return failure(
+          "state_unavailable",
+          `读取成员关系索引失败：${describe(error)}`,
+          "检查 memory-base 项目库是否可读",
+        );
+      }
+      const typed = rows.filter(
+        (row): row is GroupIndexRow =>
+          typeof row === "object" &&
+          row !== null &&
+          typeof (row as { name?: unknown }).name === "string",
+      );
+      return { ok: true, ...summarize(typed, sessionId) };
     },
   };
 }
