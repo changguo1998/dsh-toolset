@@ -32,7 +32,6 @@ import type { SecurityGuardConfig } from "./config.ts";
 // 纯函数层与类型重新导出（测试与宿主诊断可用）
 export {
   matchCommand,
-  splitCommandSegments,
   rmRecursiveRootHit,
   remotePipeShellHit,
   chmod777RootHit,

@@ -1,18 +1,24 @@
 /**
  * 命令黑名单单测：命中 / 放行 / 用户层追加规则 / 放行正则。
+ *
+ * 命令解析层在 `@dsh-toolset/shell-parse`，这里只断言本包依赖的切段 / 命令位口径
+ * （多词包装器、递归深度）与规则命中。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  commandPositions,
+  commandWords,
+  splitCommandSegments,
+} from "@dsh-toolset/shell-parse";
+import {
   matchCommand,
   compileAllowPatterns,
   isCommandAllowed,
-  splitCommandSegments,
   rmRecursiveRootHit,
   chmod777RootHit,
   systemctlPowerHit,
   heredocFedShellHit,
-  commandWords,
   DEFAULT_COMMAND_RULES,
   type CommandRule,
 } from "../src/blacklist.ts";
@@ -204,17 +210,23 @@ test("代码文本（kind=code）对命令位规则退化为整段判定", () =>
 
 test("命令切段: 引号内分隔符不切、空段丢弃、首尾空白剥掉", () => {
   // 引号内的 ; 与 | 属参数文本, 不切段
-  assert.deepEqual(splitCommandSegments("echo 'a;b' | wc -l"), [
+  assert.deepEqual(splitCommandSegments("echo 'a;b' | wc -l").segments, [
     "echo 'a;b'",
     "wc -l",
   ]);
   // 连续分隔符产生空段, 空段不落段
-  assert.deepEqual(splitCommandSegments("a ;; ;b"), ["a", "b"]);
+  assert.deepEqual(splitCommandSegments("a ;; ;b").segments, ["a", "b"]);
   // 分隔符前后的空白被剥掉; 换行与 & 同样是分隔符
-  assert.deepEqual(splitCommandSegments("  a  \n b & c  "), ["a", "b", "c"]);
-  assert.deepEqual(splitCommandSegments("   "), []);
-  // 未闭合的引号原样累积到串尾
-  assert.deepEqual(splitCommandSegments("echo 'a;b"), ["echo 'a;b"]);
+  assert.deepEqual(splitCommandSegments("  a  \n b & c  ").segments, [
+    "a",
+    "b",
+    "c",
+  ]);
+  assert.deepEqual(splitCommandSegments("   ").segments, []);
+  // 未闭合的引号原样累积到串尾, 并由 balanced 标出
+  assert.deepEqual(splitCommandSegments("echo 'a;b").segments, ["echo 'a;b"]);
+  assert.equal(splitCommandSegments("echo 'a;b").balanced, false);
+  assert.equal(splitCommandSegments("echo 'a;b'").balanced, true);
 });
 
 test("rm 递归删除: env 赋值前缀与 -- 分隔符都挡不住高危目标", () => {
@@ -261,18 +273,43 @@ test("heredoc-fed-shell: 缺换行正文 / 未喂给 shell 时各自独立放行
 });
 
 test("命令位: eval / shell -c 递归展开, 递归深度上限 2 层", () => {
-  assert.deepEqual(commandWords("eval 'sudo id'"), ["eval", "sudo", "id"]);
-  assert.deepEqual(commandWords(`bash -c '${SU}${DO} id'`), [
-    "bash",
-    "sudo",
+  assert.deepEqual(commandWords("eval 'sudo id'", { maxDepth: 2 }), [
+    "eval",
     "id",
   ]);
+  assert.deepEqual(commandWords(`bash -c '${SU}${DO} id'`, { maxDepth: 2 }), [
+    "bash",
+    "id",
+  ]);
+  // 剥离掉的包装器单独记录, 供 scope: "command" 规则当候选词 (sudo 规则靠它)
+  assert.deepEqual(
+    commandPositions(`xargs -I{} ${SU}${DO} id`, { maxDepth: 2 }).map((p) => [
+      p.word,
+      p.wrappers,
+    ]),
+    [["id", ["xargs", `${SU}${DO}`]]],
+  );
   // 深度上限 2: 第 3 层 shell -c 里的命令不再展开（词面只剩第 2 层）
   const nested = "bash -c 'bash -c \"bash -c id\"'";
   assert.ok(
-    !commandWords(nested).includes("id"),
-    JSON.stringify(commandWords(nested)),
+    !commandWords(nested, { maxDepth: 2 }).includes("id"),
+    JSON.stringify(commandWords(nested, { maxDepth: 2 })),
   );
+});
+
+test("多词包装器: 命令位看穿 uv run / pnpm exec / sudo timeout", () => {
+  for (const cmd of [
+    "uv run rm -rf /",
+    "pnpm exec rm -rf /",
+    "bundle exec rm -rf /",
+    "sudo timeout 5 rm -rf /",
+  ]) {
+    assert.deepEqual(commandWords(cmd, { maxDepth: 2 }), ["rm"], cmd);
+    assert.equal(hitId(cmd), "rm-recursive-root", cmd);
+  }
+  // 命令位规则 (scope: "command") 同样看穿多词包装器: 迁移前只看到 "uv"
+  assert.equal(hitId("uv run mkfs.ext4 /dev/sdb1"), "mkfs");
+  assert.equal(hitId(`pnpm exec ${SU}${DO} id`), "sudo");
 });
 
 test("黑名单规则源非法: scope=command 与整段正则两条路径都按命中处理（宁拦勿放）", () => {

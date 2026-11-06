@@ -5,7 +5,22 @@
  * （递归删除根/家目录、提权、远程管道执行、fork 炸弹、裸盘写入、重启关机、
  * 分区破坏等）。用户层配置只追加规则与放行模式，不能移除默认规则
  * （整体关闭某一层用 enabled=false）。
+ *
+ * 命令解析层来自 `@dsh-toolset/shell-parse`（切段 / 分词 / 包装器剥离 / 命令位），
+ * 本包只保留「什么算危险」的规则逻辑，不再自带词法副本。
  */
+
+import {
+  commandName,
+  commandPositions,
+  commandWords,
+  isAssignment,
+  isDynamicCommand,
+  isShellName,
+  splitCommandSegments,
+  stripWrappers,
+  tokenizeSegment,
+} from "@dsh-toolset/shell-parse";
 
 /** 单条黑名单规则：id + 命中判定 + 人话命中原因（用于回执）。 */
 export interface CommandRule {
@@ -30,36 +45,20 @@ export interface CommandHit {
   command: string;
 }
 
+/** 解析递归深度：顶层 + 两层嵌套（与迁移前一致；放宽另开条目）。 */
+const MAX_DEPTH = 2;
+
 /**
- * 把复合命令切成独立段（按 ; | & 换行切分，引号内的分隔符不切）。
- * 仅用于 rm/chmod 的逐段命令词法分析；管道类规则直接对整段文本做正则。
+ * 切段适配：解析层返回 `{ segments, balanced }`，本包只用段文本
+ * （引号未配对时仍按原样累积到串尾，与本包迁移前口径一致）。
  */
-export function splitCommandSegments(command: string): string[] {
-  const segments: string[] = [];
-  let current = "";
-  let quote: string | null = null;
-  for (const ch of command) {
-    // 引号内原样累积，直到配对引号闭合
-    if (quote !== null) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-    // 遇到段分隔符：落段并开新段
-    if (ch === ";" || ch === "|" || ch === "\n" || ch === "&") {
-      if (current.trim().length > 0) segments.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  if (current.trim().length > 0) segments.push(current.trim());
-  return segments;
+function segmentsOf(command: string): readonly string[] {
+  return splitCommandSegments(command).segments;
+}
+
+/** 分词适配：只取词面（引号已剥、粘引号已断开、转义已处理）。 */
+function wordsOf(segment: string): string[] {
+  return tokenizeSegment(segment).map((token) => token.value);
 }
 
 /** 去掉字符串两端成对的引号（单引号或双引号）。 */
@@ -96,14 +95,14 @@ const EMBEDDED_RM_RE =
 export function rmRecursiveRootHit(command: string): boolean {
   if (EMBEDDED_RM_RE.test(command)) return true;
   if (/--no-preserve-root\b/.test(command)) return true;
-  for (const segment of splitCommandSegments(command)) {
-    const words = segment.split(/\s+/).filter(Boolean);
+  for (const segment of segmentsOf(command)) {
+    const words = wordsOf(segment);
     let i = 0;
     // 跳过前导 env 赋值（FOO=bar rm ...）
-    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i++;
+    while (i < words.length && isAssignment(words[i]!)) i++;
     if (i >= words.length) continue;
     const cmd = words[i]!;
-    if (basenameOf(cmd) !== "rm") continue;
+    if (commandName(cmd) !== "rm") continue;
     // 收集递归标志与位置参数（目标）
     let recursive = false;
     const targets: string[] = [];
@@ -157,12 +156,12 @@ const RAW_DEVICE =
 export function chmod777RootHit(command: string): boolean {
   const DANGEROUS_CHMOD_TARGET =
     /^(?:\/|~\/?|\$HOME\/?|\$\{HOME\}\/?|\/etc|\/usr|\/bin|\/sbin|\/boot|\/var)(?:\/.*)?$/;
-  for (const segment of splitCommandSegments(command)) {
-    const words = segment.split(/\s+/).filter(Boolean);
+  for (const segment of segmentsOf(command)) {
+    const words = wordsOf(segment);
     let i = 0;
-    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i++;
+    while (i < words.length && isAssignment(words[i]!)) i++;
     if (i >= words.length) continue;
-    if (basenameOf(words[i]!) !== "chmod") continue;
+    if (commandName(words[i]!) !== "chmod") continue;
     let mode: string | null = null;
     const targets: string[] = [];
     for (const w of words.slice(i + 1)) {
@@ -179,177 +178,42 @@ export function chmod777RootHit(command: string): boolean {
   return false;
 }
 
-/** 取路径的最后一段（无路径分隔符时原样返回）。 */
-function basenameOf(p: string): string {
-  const parts = p.split("/");
-  return parts[parts.length - 1] ?? p;
-}
-
-/** 前缀词链：跳过它们继续找真正的命令词（与 bash 常见包装一致）。 */
-const PREFIX_WORDS: ReadonlySet<string> = new Set([
-  "sudo",
-  "doas",
-  "su",
-  "env",
-  "nohup",
-  "command",
-  "exec",
-  "time",
-  "nice",
-  "stdbuf",
-  "timeout",
-  "xargs",
-  "watch",
-  "busybox",
-  "if",
-  "then",
-  "else",
-  "elif",
-  "while",
-  "until",
-  "do",
-]);
-
-/** shell 族（用于 `-c` 递归与 heredoc 判定）。 */
-const SHELL_FAMILY: ReadonlySet<string> = new Set([
-  "bash",
-  "sh",
-  "zsh",
-  "dash",
-  "ksh",
-]);
-
-/** 轻量分词：剥引号、按空白切、丢掉括号与 `!` / `;` 这类结构符号。 */
-function tokensOf(segment: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let quote: string | null = null;
-  for (const ch of segment) {
-    if (quote !== null) {
-      if (ch === quote) quote = null;
-      else cur += ch;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      if (cur.length > 0) {
-        out.push(cur);
-        cur = "";
-      }
-      continue;
-    }
-    if ("(){}!;".includes(ch)) continue;
-    cur += ch;
-  }
-  if (cur.length > 0) out.push(cur);
-  return out;
-}
-
-/** 词 → 命令名（basename，去成对引号与残留括号）。 */
-function commandName(word: string): string {
-  const trimmed = word.replace(/^[([{!]+/, "").replace(/[)\]};]+$/, "");
-  return basenameOf(trimmed).replace(/^["']|["']$/g, "");
-}
-
-/** `$(...)` 与反引号的内部文本（不处理嵌套，交给递归深度控制）。 */
-function substitutionBodies(command: string): string[] {
-  const out: string[] = [];
-  for (const match of command.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) {
-    const body = match[1] ?? match[2];
-    if (body !== undefined && body.trim().length > 0) out.push(body);
-  }
-  return out;
-}
-
 /**
- * 取命令位词：逐段跳过前导 `VAR=` 赋值、前缀词链与选项，第一个非前缀词即命令名；
- * 对 shell 族 `-c`、`eval` 与 `$()` / 反引号内容递归（深度上限 2）。
+ * `scope: "command"` 的匹配候选词：命令位词，外加剥离掉的包装器链
+ * （包装器本身也可能是被禁对象，如 `sudo`；`uv run` 这类多词包装器按整串记录）。
  */
-export function commandWords(command: string, depth = 0): string[] {
-  const words: string[] = [];
-  for (const segment of splitCommandSegments(command)) {
-    const tokens = tokensOf(segment);
-    let i = 0;
-    while (i < tokens.length) {
-      const token = tokens[i]!;
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token) || token.startsWith("-")) {
-        i += 1;
-        continue;
-      }
-      if (PREFIX_WORDS.has(commandName(token))) {
-        // 前缀词本身也可能是被禁的对象（如 sudo），一并作为命令位候选
-        words.push(commandName(token));
-        i += 1;
-        continue;
-      }
-      const name = commandName(token);
-      words.push(name);
-      if (depth < 2 && SHELL_FAMILY.has(name)) {
-        const at = tokens.findIndex((x) => /^-[A-Za-z]*c[A-Za-z]*$/.test(x));
-        const script = at >= 0 ? tokens[at + 1] : undefined;
-        if (script !== undefined)
-          words.push(...commandWords(script, depth + 1));
-      }
-      if (depth < 2 && name === "eval") {
-        const rest = tokens.slice(i + 1).join(" ");
-        if (rest.length > 0) words.push(...commandWords(rest, depth + 1));
-      }
-      break;
-    }
+function commandCandidates(command: string): string[] {
+  const out: string[] = [];
+  for (const position of commandPositions(command, { maxDepth: MAX_DEPTH })) {
+    out.push(position.word, ...position.wrappers);
   }
-  if (depth < 2) {
-    for (const body of substitutionBodies(command)) {
-      words.push(...commandWords(body, depth + 1));
-    }
+  // 包装器后面没有命令词时（`sudo --version`）解析层不落命令位，
+  // 但包装器本身仍是候选词；单独按段补一次包装器链。
+  for (const segment of segmentsOf(command)) {
+    out.push(...stripWrappers(wordsOf(segment)).wrappers);
   }
-  return words;
-}
-
-/** 命令位是否由展开产生（`$cmd` / `$(...)` / 反引号）：词面不完整，无法判定。 */
-export function dynamicCommandHit(command: string): boolean {
-  for (const segment of splitCommandSegments(command)) {
-    const tokens = tokensOf(segment);
-    let i = 0;
-    while (i < tokens.length) {
-      const token = tokens[i]!;
-      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token) || token.startsWith("-")) {
-        i += 1;
-        continue;
-      }
-      if (PREFIX_WORDS.has(commandName(token))) {
-        i += 1;
-        continue;
-      }
-      return (
-        token.startsWith("$") || token.includes("$(") || token.includes("`")
-      );
-    }
-  }
-  return false;
+  return out;
 }
 
 /** systemctl 的关机 / 重启 / 硬复位（参数约束类谓词）。 */
 export function systemctlPowerHit(command: string): boolean {
-  for (const segment of splitCommandSegments(command)) {
-    const tokens = tokensOf(segment);
-    let i = 0;
-    while (i < tokens.length) {
-      const token = tokens[i]!;
-      if (
-        /^[A-Za-z_][A-Za-z0-9_]*=/.test(token) ||
-        token.startsWith("-") ||
-        PREFIX_WORDS.has(commandName(token))
-      ) {
-        i += 1;
-        continue;
-      }
-      if (commandName(token) !== "systemctl") break;
-      const rest = tokens.slice(i + 1);
-      return rest.some((x) => /^(?:reboot|poweroff|halt|kexec)$/.test(x));
-    }
+  for (const segment of segmentsOf(command)) {
+    const tokens = wordsOf(segment);
+    let at = 0;
+    // 前导赋值与选项不属于命令词（`-q systemctl reboot`）
+    while (
+      tokens[at] !== undefined &&
+      (isAssignment(tokens[at]!) || tokens[at]!.startsWith("-"))
+    )
+      at += 1;
+    // 包装器（env / timeout / xargs 等）不算命令词：剥离后看真正被跑的命令
+    at += stripWrappers(tokens.slice(at)).index;
+    const token = tokens[at];
+    if (token === undefined) continue;
+    if (commandName(token) !== "systemctl") continue;
+    return tokens
+      .slice(at + 1)
+      .some((x) => /^(?:reboot|poweroff|halt|kexec)$/.test(x));
   }
   return false;
 }
@@ -357,7 +221,7 @@ export function systemctlPowerHit(command: string): boolean {
 /** heredoc 喂给 shell：正文里出现危险命令才拦（深度 1，不递归）。 */
 export function heredocFedShellHit(command: string): boolean {
   if (!/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(command)) return false;
-  if (!commandWords(command).some((word) => SHELL_FAMILY.has(word)))
+  if (!commandWords(command, { maxDepth: MAX_DEPTH }).some(isShellName))
     return false;
   const at = command.indexOf("\n");
   if (at < 0) return false;
@@ -388,7 +252,8 @@ export const DEFAULT_COMMAND_RULES: readonly CommandRule[] = [
   {
     id: "dynamic-command",
     reason: "命令名由变量或命令替换展开产生，无法判定真实命令",
-    test: dynamicCommandHit,
+    // 包口径略宽：任一处命令位由展开产生即为真（迁移前只看每段首个命令位）
+    test: (command) => isDynamicCommand(command, { maxDepth: MAX_DEPTH }),
   },
   {
     id: "heredoc-fed-shell",
@@ -491,7 +356,7 @@ export function matchCommand(
   kind: "shell" | "code" = "shell",
 ): CommandHit | null {
   // 命令位模式只对 shell 文本有意义（代码文本按整段保守判定）
-  const words = kind === "shell" ? commandWords(command) : [];
+  const words = kind === "shell" ? commandCandidates(command) : [];
   for (const rule of rules) {
     if (rule.test !== undefined) {
       if (rule.test(command)) return { rule, command };

@@ -15,12 +15,12 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 | `src/arg-scan.ts` | 命令解析：参数遍历与完整键路径、未登记工具键面 / 值面扫描、插件文件与命令参数提取、`firstString` / `asStringRecord` |
 | `src/config.ts` | 配置：`SecurityGuardConfig` / `Config`、`ResolvedConfig`、`resolveGuardConfig`、未登记工具放行名单的编译与匹配 |
 | `src/engine.ts` | 判定：`GuardEngine`、`GuardRecord` / `PolicySnapshot` / `GuardService`、`MAX_RECORDS` |
-| `src/blacklist.ts` | 命令黑名单纯函数层：复合命令切段 / rm / 远程管道 / chmod 判定 + `DEFAULT_COMMAND_RULES`（18 条）+ 匹配与放行正则编译 |
+| `src/blacklist.ts` | 命令黑名单规则层（命令解析来自 `@dsh-toolset/shell-parse`）：rm / 远程管道 / chmod / systemctl / heredoc 判定 + `DEFAULT_COMMAND_RULES`（18 条）+ 匹配与放行正则编译 |
 | `src/sensitive.ts` | 敏感文件纯函数层：路径归一化 / glob 编译 / 命令文本路径提取 + `DEFAULT_SENSITIVE_RULES`（26 条） |
 | `src/receipt.ts` | deny 回执文案（拦截原因 + 放行方式；命令 160 字预览） |
 | `scripts/tool-surface-check.mjs` | 宿主工具面差异检查（键集与 `TOOL_SURFACE` 同源） |
 | `smoke/smoke.mjs` | 真机 headless 会话拦截冒烟 |
-| `tests/*.test.ts` | 单测（160 例） |
+| `tests/*.test.ts` | 单测（161 例） |
 | `tests/integration/*.test.ts` | 集成用例（14 例） |
 
 ## 能力
@@ -32,7 +32,7 @@ DSH（DeepSeek Harness）进程内安全守卫插件：危险命令黑名单拦�
 | 命令黑名单 | `bash` / `shell` / `pwsh` 的 `command` 或 `script`；`run_code` 的 `code` 或 `program`；插件命令工具（`PLUGIN_COMMAND_TOOLS`）登记的命令参数（明细见下「插件命令面」） | 18 条：`rm -rf /` 族、`curl \| sh` 族（含 `base64 -d` / `xxd -r` / `gunzip` / `zcat` / `openssl enc -d` 解码后再送 shell）、`chmod 777` 系统目录、`sudo`、fork 炸弹、`dd` 裸盘写入、裸设备重定向 / `tee` 写入、`mkfs`、`wipefs`、分区工具、重启关机、`systemctl` 关机 / 重启 / `kexec`、`find -delete`、`crontab -r`、`iptables -F`、kill PID 1、命令名由展开产生（`$CMD` / `$(...)` / 反引号）、heredoc 喂给 shell 且正文含危险命令 |
 | 敏感文件 | shell 命令文本中提取的路径（含 `workdir`）；插件命令工具命令文本中提取的路径（同口径）；文件工具 `read` / `read_image` / `write` / `edit` / `patch` / `grep` / `glob` 的 `file_path` / `path` / `target` / `file` 参数；插件文件工具（`PLUGIN_FILE_TOOLS`）登记的路径参数（写侧 / 读侧明细见下「插件工具」与「读面插件工具」） | 26 条：`.ssh`、`.aws`、`.gnupg`、`.kube`、`gh`、`gcloud`、`docker config` 目录；`.netrc`、`.git-credentials`、`.npmrc`、`.pypirc`、`kubeconfig` 凭据文件；`.env` 族；`*.pem` / `*.key` / `*.p12` / `*.pfx` / `*.jks` / `*.keystore` / `id_rsa` 族 / GCP `credentials.json` / service-account |
 
-- 复合命令（`;` `|` `&` 换行）按段词法分析；`run_code` 与引号内嵌命令另有整文本兜底。路径提取是保守超集（成对引号串、裸 token、`~/` 前缀、绝对路径子串四类），归一化时去引号、展开 `~` / `$HOME` / `${HOME}`、折叠 `//`。
+- 复合命令（`;` `|` `&` 换行）按段词法分析，解析层由 `@dsh-toolset/shell-parse` 提供（`link:` 依赖，与 `clock-base` 同形态；包装器表含 `sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec` 等多词包装器）；`run_code` 与引号内嵌命令另有整文本兜底。路径提取是保守超集（成对引号串、裸 token、`~/` 前缀、绝对路径子串四类），归一化时去引号、展开 `~` / `$HOME` / `${HOME}`、折叠 `//`。
 - 两层独立：`allowPatterns` 只放开命令层，`allowedPaths` 只放开敏感文件层；放行了黑名单命令若仍含敏感路径，依旧被拦。
 - 插件工具（`src/tool-registry.ts` 的 `PLUGIN_FILE_TOOLS` 登记表，按各工具**真实参数面**登记）：`hash_edit` 的 `path`（整文件重写，写侧）；`md_logic` 的 `path`（`action=replace` 写侧，`structure` / `blocks` / `links` 按读侧，与官方 `read` / `grep` / `glob` 同口径）；`ast_replace` 的 `path`（单文件写回，写侧，该工具**没有** `paths`）；`ast_query` 的 `path`（`search` / `outline`）与 `paths`（`rules`，数组逐元素取 string，**读侧**）。路径解析与敏感文件层与官方文件工具同一口径，回执工具名带 action（如 `md_logic replace`）。
 - **读面插件工具**（与官方 `read` / `grep` / `glob` 同口径）：`ast_query` 的 `path`（`search` / `outline`，见上）；`hash_read` 的 `path`（读工具，返回行内容与 LINE:HASH 锚点）；`fs_digest` 的 `path`（读文件做摘要）；`code_map` 的 `root`（`index` / `refresh` 扫目录建索引，缺省 cwd）；`md_map` 的 `root`（建索引，缺省 cwd）与 `path`（`callers` / `impact` 的目标文档）。**行为变化**：这四个工具（`hash_read` / `fs_digest` / `code_map` / `md_map`）此前未登记、读任何路径都放行，现登记后读敏感名路径（`.env` / `id_rsa` / `~/.ssh` 等）会被拦，回执为读侧措辞 + 工具名；读普通路径仍放行。四者真实参数面均无数组路径参数，故不登记 `pathArrayKeys`。
@@ -146,7 +146,8 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ## 边界
 
-- **命令位规则只看命令位（2026-10-25 起，4 条）**：`sudo`、`mkfs`、`wipefs`、重启关机与 `systemctl` 关机类只匹配逐段第一词（跳过 `VAR=`、前缀词链、选项，并对 `bash -c` / `eval` / `$()` / 反引号递归 2 层）；`echo "sudo is a tool"`、`git commit -m 'use sudo'` 不再命中。
+- **命令位规则只看命令位（2026-10-25 起，4 条；解析层 2026-11-06 换成 `shell-parse`）**：`sudo`、`mkfs`、`wipefs`、重启关机与 `systemctl` 关机类只匹配命令位（跳过 `VAR=`、包装器链与选项，并对 `bash -c` / `eval` / `$()` / 反引号递归 2 层）；包装器链含 `uv run` / `npx` / `pnpm exec` / `bundle exec` 这类多词包装器，故 `uv run mkfs.ext4 /dev/sdb1` 也命中 `mkfs`。`echo "sudo is a tool"`、`git commit -m 'use sudo'` 不命中。
+- **`dynamic-command` 口径**：任一处命令位由展开产生（`$cmd` / `$(...)` / 反引号）即判命中（`shell-parse` 的 `isDynamicCommand`；迁移前只看每段首个命令位）——同一条命令里只要有一处动态命令位就拦，比迁移前略宽。
 - **其余正则规则仍对整段文本匹配**：`rm -rf /`、`curl | sh`、fork 炸弹、`dd`、`find -delete`、`kill 1` 等（含 heredoc 正文与引号内文本）按原文判定。
 - **代码文本（`run_code` 的 `code` / `program`）对命令位规则退化为整段判定**：代码里出现提权字样即拦（宁可误拦）。
 - 路径提取是保守超集（裸 token 也参与 basename 规则匹配），故可能比真实语义多拦。
@@ -225,14 +226,14 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 
 ```sh
 pnpm run check            # tsc -p tsconfig.json --noEmit
-pnpm run test             # node --experimental-transform-types --test 'tests/*.test.ts'（160 例）
+pnpm run test             # node --experimental-transform-types --test 'tests/*.test.ts'（161 例）
 pnpm run test:integration # node --experimental-transform-types --test 'tests/integration/*.test.ts'（14 例）
 pnpm run test:coverage    # 单元 + 集成；覆盖率产物在 ../tmp/cov-security-guard
 pnpm run build            # tsc -p tsconfig.json → dist/
 pnpm run smoke            # node smoke/smoke.mjs（真实 dsh headless 会话拦截验证）
 ```
 
-160 例单测（blacklist 23 + guard 103 + script 22 + sensitive 12，其中 `script.test.ts` 的发布形态用例在无 `dist` 时跳过）+ 14 例集成用例（`tests/integration/plugin.test.ts`）。
+161 例单测（blacklist 24 + guard 103 + script 22 + sensitive 12，其中 `script.test.ts` 的发布形态用例在无 `dist` 时跳过）+ 14 例集成用例（`tests/integration/plugin.test.ts`）。
 
 `tests/script.test.ts` 用假宿主树（`dsh-tool-fixture-*` 包）覆盖 `scripts/tool-surface-check.mjs` 的逐工具三分类、
 「名称未解析」行与退出码纪律（0 / 1 / 2，含 `--root` 指到 scope 层的纠正提示），并覆盖**发布形态**
