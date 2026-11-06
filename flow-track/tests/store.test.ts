@@ -116,6 +116,21 @@ test("非法 slug / stage 被拒", async () => {
   if (!emptySlug.ok) assert.equal(emptySlug.reason, "invalid");
 });
 
+test("同一 memory 上重复构造：复用同一句柄（HMR 重载不丢写入）", async () => {
+  const fake = makeMemory();
+  const first = new FlowStore(fake.memory);
+  const second = new FlowStore(fake.memory);
+  assert.equal(second.available, true);
+  assert.equal(fake.specs.length, 1, "只注册一次");
+  const written = await second.record({
+    slug: "demo",
+    stage: "目标",
+    status: "start",
+  });
+  assert.equal(written.ok, true);
+  assert.equal((await first.list({ slug: "demo" })).length, 1);
+});
+
 test("memory 缺席：available 为 false，写入返回可读错误", async () => {
   const store = new FlowStore({
     registerKind(): never {

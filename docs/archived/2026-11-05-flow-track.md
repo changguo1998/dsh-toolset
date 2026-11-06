@@ -237,3 +237,26 @@ flow-track/
 - 本追踪文档移入 `docs/archived/`。
 - 未回写 `docs/STATUS.md`（用户择时更新）。
 - 决策项 3 = b（追踪文档全文入库）的文档体系改动仍按当时口径**另开任务**，不在本次范围。
+
+## 真机验证与修正（2026-11-06，关闭后补记）
+
+在 `fff-test` profile（`link:` 依赖，改 `dist/` 即生效）上开真机会话验证，发现两处只在真机暴露的问题：
+
+1. **未 inject 的服务不能直接读**：`apply` 里 `ctx.tools` / `ctx.memory` 的属性访问在 cordis 里抛
+   `cannot get property "tools" without inject`，导致整个插件加载失败（工具与消费者都没注册）。
+   修正：新增 `readService`，一律经 `ctx.reflect.get(name)` 读，失败再退回属性读（都包在 `try` 里）；
+   `logger` 同改。单测用「属性 getter 抛错 + 反射面可读」的替身钉住。
+2. **HMR 重载丢写入**：`fff-test` 带 hmr，重建后插件重载、`apply` 再跑一次，而 memory-base 的分类注册是
+   进程级的 → 二次 `registerKind({kind:"flow"})` 抛「分类已注册」，`flow_record` 永远 `unavailable`。
+   修正：句柄按 memory 服务对象缓存在 `globalThis`（键 `dsh-toolset.flow-track.scopes`），重载复用同一句柄。
+
+真机证据（`herdr` 新 tab，`TOLLGATE_API_KEY=dummy`）：
+
+| 项 | 结果 |
+| --- | --- |
+| 阶段模板 + 合规提示注入 | 回话前上下文出现 `[flow-track]` 八阶段模板与「本轮已调用写类工具（bash）, 但没有任何流程记录…只提示, 不拦截」 |
+| 推进状态 / 最近记录 | HMR 重载后注入出现 `[RULE] 最近记录：真机验证-demo@决策 状态 done：检查写入路径` |
+| `flow_record` 写入 | 首次 `{ok:true, id:1}`；HMR 重载后再次调用 `{ok:true, id:2}`（修正生效） |
+| 工具揭示 | `consult_tools` 能揭示 `flow_record` / `flow_status` |
+
+补充回归：`pnpm -C flow-track run check` / `run test`（51 例）/ `run build` 全通过；全仓 `pnpm run check` 与 `check:docs` 通过。

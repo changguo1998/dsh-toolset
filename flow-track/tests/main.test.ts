@@ -246,6 +246,44 @@ test("flow_record：缺 slug 用会话 id，坏 status 返错", async () => {
   assert.equal(bad["error"], "invalid_status");
 });
 
+test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", () => {
+  const fake = makeMemory();
+  const writes = captureStderr(() => {
+    const harness = makeContext();
+    const toolsFace = harness.ctx["tools"];
+    // 模拟 cordis：未 inject 的服务属性访问抛错，只能经 ctx.reflect.get 读
+    for (const name of ["memory", "tools", "logger"]) {
+      Object.defineProperty(harness.ctx, name, {
+        configurable: true,
+        get() {
+          throw new Error(`cannot get property "${name}" without inject`);
+        },
+      });
+    }
+    Object.defineProperty(harness.ctx, "reflect", {
+      configurable: true,
+      value: {
+        get: (name: string) => {
+          if (name === "memory") return fake.memory;
+          if (name === "tools") return toolsFace;
+          return undefined;
+        },
+      },
+    });
+    apply(harness.ctx);
+    assert.equal(harness.tools.length, 2, "工具仍应注册");
+    harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
+    const feedback = harness.decide("s1");
+    assert.ok(feedback);
+    assert.match(feedback.text, /标准流程八阶段模板/);
+  });
+  assert.equal(
+    writes.some((line) => /流程记录不可写入/.test(line)),
+    false,
+    "经反射面读到 memory 后不该报「不可写入」",
+  );
+});
+
 test("memory 缺席：写入返回可读错误，注入仍给模板", () => {
   const writes = captureStderr(() => {
     const harness = makeContext();

@@ -90,17 +90,38 @@ interface PluginContext {
   logger?: { warn?: (message: string) => void };
 }
 
-/** 读一个服务（未 inject 的服务经 `ctx.get` 拿；取不到返回 undefined）。 */
+/** 反射面（`ctx.reflect.get`：不要求 inject 就能读服务）。 */
+interface ReflectLike {
+  get?(name: string): unknown;
+}
+
+/**
+ * 读一个服务（本包未 inject 的服务经 `ctx.reflect.get` 读；取不到返回 undefined）。
+ *
+ * 直接读 `ctx.memory` 这类未 inject 的服务属性在 cordis 里会抛错，故先走反射面，
+ * 再退回属性读（两者都包在 try 里）。
+ */
 function readService<T>(
   ctx: PluginContext,
   serviceName: string,
 ): T | undefined {
-  const direct = (ctx as unknown as Record<string, unknown>)[serviceName];
-  if (direct !== undefined) return direct as T;
+  let reflect: ReflectLike | undefined;
   try {
-    return typeof ctx.get === "function"
-      ? (ctx.get(serviceName) as T | undefined)
-      : undefined;
+    reflect = (ctx as { reflect?: ReflectLike }).reflect;
+  } catch {
+    reflect = undefined;
+  }
+  if (typeof reflect?.get === "function") {
+    try {
+      const value = reflect.get(serviceName);
+      if (value !== undefined) return value as T;
+    } catch {
+      /* 反射面读失败：落到属性读 */
+    }
+  }
+  try {
+    return (ctx as unknown as Record<string, unknown>)[serviceName] as
+      T | undefined;
   } catch {
     return undefined;
   }
@@ -131,9 +152,10 @@ function sessionIdOf(session: unknown): string | undefined {
  */
 export function apply(ctx: unknown, config?: Config): () => void {
   const c = (ctx ?? {}) as PluginContext;
+  const logger = readService<{ warn?(message: string): void }>(c, "logger");
   const warn = (message: string): void => {
-    if (typeof c.logger?.warn === "function") {
-      c.logger.warn(`[flow-track] ${message}`);
+    if (typeof logger?.warn === "function") {
+      logger.warn(`[flow-track] ${message}`);
       return;
     }
     process.stderr.write(`[flow-track] warn: ${message}\n`);
@@ -186,7 +208,8 @@ export function apply(ctx: unknown, config?: Config): () => void {
   };
   void refresh();
 
-  if (typeof c.tools?.register === "function") {
+  const tools = readService<{ register(def: unknown): unknown }>(c, "tools");
+  if (tools !== undefined && typeof tools.register === "function") {
     const deps = {
       store,
       observer,
@@ -196,7 +219,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
     };
     for (const tool of flowTools(deps)) {
       try {
-        c.tools.register(tool);
+        tools.register(tool);
       } catch (error) {
         warn(`工具 ${tool.name} 注册失败：${String(error)}`);
       }

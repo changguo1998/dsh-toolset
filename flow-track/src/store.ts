@@ -114,8 +114,36 @@ function parseBody(content: string): string {
   return index < 0 ? "" : content.slice(index + 1);
 }
 
+/** 跨 HMR 重载的句柄缓存键（挂在 globalThis 上：模块重载后缓存仍在）。 */
+const SCOPE_REGISTRY_KEY = Symbol.for("dsh-toolset.flow-track.scopes");
+
 /**
- * 流程记录存储：注册一次 kind、复用同一个句柄。
+ * 取（或首次注册）本 memory 服务上的 `flow` 写入句柄。
+ *
+ * 为什么要缓存：HMR 重载插件时 `apply` 会再跑一次，而 memory-base 的分类注册是**进程级**的
+ * （同名二次注册直接抛错）。把句柄按 memory 服务对象缓存在 `globalThis` 上，重载后复用同一个
+ * 句柄，写入能力不会因重载丢失。
+ */
+function scopeFor(memory: MemoryFaceLike): ScopeLike {
+  const holder = globalThis as unknown as Record<
+    symbol,
+    WeakMap<object, ScopeLike> | undefined
+  >;
+  const registry =
+    holder[SCOPE_REGISTRY_KEY] ??
+    (holder[SCOPE_REGISTRY_KEY] = new WeakMap<object, ScopeLike>());
+  const cached = registry.get(memory as object);
+  if (cached !== undefined) return cached;
+  const scope = memory.registerKind({
+    kind: FLOW_KIND,
+    writableTiers: ["project"],
+  });
+  registry.set(memory as object, scope);
+  return scope;
+}
+
+/**
+ * 流程记录存储：注册一次 kind、复用同一个句柄（跨 HMR 重载复用）。
  * `registerKind` 抛错或服务面缺方法时 `available` 为 false，调用方据此给可读错误。
  */
 export class FlowStore {
@@ -128,10 +156,7 @@ export class FlowStore {
     let scope: ScopeLike | undefined;
     let error: string | undefined;
     try {
-      scope = memory.registerKind({
-        kind: FLOW_KIND,
-        writableTiers: ["project"],
-      });
+      scope = scopeFor(memory);
     } catch (cause) {
       error = String(cause);
     }

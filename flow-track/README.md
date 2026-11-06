@@ -62,6 +62,8 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 - **合规判据只到工具名**：只要调用过 `write` / `edit` / `bash` / `pwsh` / `str_replace_editor` / `hash_edit` / `ast_replace` / `script_run` 就算「写过」，不解析改了哪些文件；判据失真时改提示文案，不升级为拦截。
 - **正文入库不改文档体系**：决策项 3 = b（全文入库）的追踪文档规则改动未并入本包，现有 `docs/implementation/*.md` 写法不变。
 - **降级**：`ruleEngine` 缺席 → 告警且不注册（插件不注入）；`memory` 缺席 → 工具返回 `unavailable`、注入只剩模板与状态；`taskEngine` 缺席 → 状态段退化。
+- **服务读取必须经反射面**：本包只 `inject: ["ruleEngine"]`，`memory` / `taskEngine` / `tools` / `logger` 都用 `ctx.reflect.get(name)` 读；直接访问 `ctx.memory` 这类未 inject 的服务属性在 cordis 里会抛 `cannot get property "x" without inject`（真机实测，2026-11-06）。
+- **HMR 重载**：写入句柄按 memory 服务对象缓存在 `globalThis`（键 `dsh-toolset.flow-track.scopes`），重载后复用同一个句柄，不会因「分类 `flow` 已注册」丢掉写入能力。
 
 ## 测试
 
