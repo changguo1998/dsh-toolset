@@ -54,7 +54,7 @@ function statusStartFor(len: number, offset: number, rows: number): number {
  *  - 审批策略：`md-chat_question_outline` U+F1739（ask）/ `md-chat_remove_outline` U+F1414（never）
  *  - 开关：`fa-route` U+EDA6（plan）/ `md-text_long` U+F09AA（verbose）/
  *    `md-spellcheck` U+F04C6（符号统一）/ `md-bell_ring_outline` U+F009F（声音提醒）/
- *    `md-sitemap` U+F0E8（flow-track 注入开关）
+ *    `fa-tasks` U+F0AE（flow-track 注入开关）
  *  - 预设：`md-puzzle_outline` U+F0A66（后接预设名） */
 export const TITLE_ICON = {
   boxClosed: "\u{F03D7}",
@@ -65,7 +65,7 @@ export const TITLE_ICON = {
   verbose: "\u{F09AA}",
   symbolUnify: "\u{F04C6}",
   bell: "\u{F009F}",
-  flowTrack: "\u{F0E8}",
+  flowTrack: "\u{F0AE}",
   preset: "\u{F0A66}",
 } as const;
 
