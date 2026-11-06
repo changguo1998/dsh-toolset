@@ -15,6 +15,7 @@ import { currentStage, renderStatus } from "./status.ts";
 import { REMOVE_SCAN_LIMIT } from "./store.ts";
 import type { FlowStore, FlowStatus } from "./store.ts";
 import type { WriteObserver } from "./observe.ts";
+import type { FlowSwitch } from "./switch.ts";
 
 /** 工具定义（宿主 `tools.register` 的最小形态）。 */
 export interface ToolDef {
@@ -42,6 +43,10 @@ export interface ToolDeps {
   snapshot(): SnapshotLike | undefined;
   /** 当前会话 slug（缺省按项目 / 会话推导；由 index 注入）。 */
   slugFor(sessionId: string): string;
+  /** 注入开关（进程内状态, 默认关闭）。 */
+  switcher: FlowSwitch;
+  /** 是否有未完成阶段的流程记录（注入门槛之一）。 */
+  active(): boolean;
   /** 写入成功后刷新注入用的记录缓存（`decide` 是同步的，只能提前喂）。 */
   onRecorded?(): void;
 }
@@ -202,6 +207,8 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
         snapshot === undefined ? undefined : currentStage(snapshot);
       return {
         ok: true,
+        enabled: deps.switcher.enabled,
+        active: deps.active(),
         ...(current === undefined
           ? {
               stage: null,
@@ -226,6 +233,43 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
           body: record.body,
         })),
       };
+    },
+  };
+}
+
+/** 切换注入开关（进程内, 不落盘）。 */
+function flowEnableTool(deps: ToolDeps): ToolDef {
+  return {
+    name: "flow_enable",
+    description:
+      "用途: 打开 / 关闭本插件的上下文注入开关。\n" +
+      "用法: enabled 必填, true 打开 / false 关闭。\n" +
+      "效果: 关闭时阶段模板、合规提示、最近记录都不注入；打开后还要 memory-base 里有未完成阶段的流程记录（最新阶段不是「收尾」）才会注入。\n" +
+      "边界: 只切开关, 不写流程记录；状态只在内存, 进程结束即回到关闭（用户面同款入口是 /flow-track on|off|status）。\n" +
+      "相关: flow_status、flow_record、/flow-track 命令。",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["enabled"],
+      properties: {
+        enabled: {
+          type: "boolean",
+          description: "true 打开注入 / false 关闭注入",
+        },
+      },
+    },
+    output: OUTPUT,
+    async execute(args) {
+      const enabled = args["enabled"];
+      if (typeof enabled !== "boolean") {
+        return {
+          ok: false,
+          error: "invalid_enabled",
+          message: "enabled 必须是布尔值",
+        };
+      }
+      deps.switcher.enabled = enabled;
+      return { ok: true, enabled, active: deps.active() };
     },
   };
 }
@@ -357,11 +401,12 @@ function flowRollbackTool(deps: ToolDeps): ToolDef {
   };
 }
 
-/** 本插件的四个工具（顺序即工具面展示顺序）。 */
+/** 本插件的五个工具（顺序即工具面展示顺序）。 */
 export function flowTools(deps: ToolDeps): ToolDef[] {
   return [
     flowRecordTool(deps),
     flowStatusTool(deps),
+    flowEnableTool(deps),
     flowRemoveTool(deps),
     flowRollbackTool(deps),
   ];

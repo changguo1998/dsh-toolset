@@ -29,22 +29,27 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 
 ## 注入时机与内容
 
+注入有两道门槛：**配置 `enabled` 与进程内开关都打开**，且 **memory-base 里有未完成阶段的流程记录**（某任务最新一条非 `-` 阶段不是「收尾」）。开关缺省关闭，用户面 `/flow-track on|off|status`、模型面 `flow_enable` 都能切；状态只在内存，进程结束即回到关闭。
+
 `rule-engine` 消费者：`id = flow-track`、`sources = ["turn-start", "user-message"]`、`delivery = "inject"`、`dedupeInRecord = 1`。不给固定 `summary`，rule-engine 按正文派生摘要，因此**同一正文每会话只投一次**（记录推进、提示内容变化后仍会再投）。三类内容按固定顺序合并成一条：
 
 1. **当前推进状态**（有阶段树时）：`当前阶段：3/8 决策 / 门禁：mechanical / 下一步：阶段 4 规划`；
 2. **阶段模板**（无阶段树**且**本轮有写类工具调用时）：八阶段全文 + 建树提示；
 3. **合规提示**（本轮有写类工具调用且没有任何流程记录时）：提示先登记条目 / 建追踪文档或用 `flow_record` 记录，明写「只提示, 不拦截」。
 
-无阶段树、也没有写类调用 → **不注入**（不刷屏）。
+门槛不满足（开关关闭，或没有未完成阶段的流程记录）→ **不注入**（阶段模板与合规提示一并静默）。
 
 ## 工具面
 
 | 工具 | 参数 | 行为 |
 | --- | --- | --- |
 | `flow_record` | `slug`、`stage`（八阶段或 `-`）、`status`（start / done / blocked / note）、`body?` | 按顺序写：首条必须是「目标」；之后只能写当前阶段（**替换**该阶段记录）或下一阶段（追加）；跳过与倒回被拒绝；写后清掉本会话的「未记录」观测 |
-| `flow_status` | `slug?` | 读当前阶段（序号 / 名称 / 门禁 / 帧标题）与最近记录 |
+| `flow_status` | `slug?` | 读开关态（`enabled`）、是否有未完成流程（`active`）、当前阶段（序号 / 名称 / 门禁 / 帧标题）与最近记录 |
+| `flow_enable` | `enabled`（布尔） | 切换注入开关（进程内, 缺省关闭, 不落盘）；回执带 `enabled` 与 `active` |
 | `flow_remove` | `id` 或 `slug`（二选一） | 删流程记录：`id` 删一条、`slug` 删该任务全部（回 `removed` 条数）；删后刷新注入缓存 |
 | `flow_rollback` | `slug?`、`stage`（八阶段） | 回退到更早阶段：清掉目标之后的记录与全部 `-` 备注（目标阶段记录保留）；只删不写，回退后再用 `flow_record` 更新内容 |
+
+用户面同款入口：`/flow-track on|off|status`（命令缺省展示开关与活跃流程状态）。
 
 顺序规则（每个 `slug` 独立判定，当前阶段 = 该任务时间线上最新一条非 `-` 记录的阶段）：`目标` → `调研` → `决策` → `规划` → `实现` → `测试` → `审查` → `收尾`；`-` 只作整体备注，不参与当前阶段推导。
 
@@ -66,7 +71,8 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 - **记录缓存有延迟**：`decide` 是同步的，读库是异步的，故注入里的「最近记录」来自缓存；缓存由挂载、`flow_record` 写入、`session/event` 三处刷新。
 - **合规判据只到工具名**：只要调用过 `write` / `edit` / `bash` / `pwsh` / `str_replace_editor` / `hash_edit` / `ast_replace` / `script_run` 就算「写过」，不解析改了哪些文件；判据失真时改提示文案，不升级为拦截。
 - **正文入库不改文档体系**：决策项 3 = b（全文入库）的追踪文档规则改动未并入本包，现有 `docs/implementation/*.md` 写法不变。
-- **降级**：`ruleEngine` 缺席 → 告警且不注册（插件不注入）；`memory` 缺席 → 工具返回 `unavailable`、注入只剩模板与状态；`taskEngine` 缺席 → 状态段退化。
+- **降级**：`ruleEngine` 缺席 → 告警且不注册（插件不注入）；`memory` 缺席 → 工具返回 `unavailable`、注入恒 `null`（判断不了有没有未完成流程）；`taskEngine` 缺席 → 状态段退化，只给「最近记录」。
+- **开关决定一切注入**：`enabled` 配置与进程内开关都打开、且有未完成阶段的流程记录才注入；因此开关关闭时阶段模板与合规提示一并静默（同一门槛）。
 - **服务读取必须经反射面**：本包只 `inject: ["ruleEngine"]`，`memory` / `taskEngine` / `tools` / `logger` 都用 `ctx.reflect.get(name)` 读；直接访问 `ctx.memory` 这类未 inject 的服务属性在 cordis 里会抛 `cannot get property "x" without inject`（真机实测，2026-11-06）。
 - **HMR 重载**：写入句柄按 memory 服务对象缓存在 `globalThis`（键 `dsh-toolset.flow-track.scopes`），重载后复用同一个句柄，不会因「分类 `flow` 已注册」丢掉写入能力。
 
@@ -75,8 +81,8 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 ```sh
 cd flow-track
 pnpm run check   # tsc --noEmit（含 tests）
-pnpm test        # node --test：阶段 6 例 + 状态 7 例 + 存储 13 例 + 观测 6 例 + 注入 9 例 + 顺序 11 例 + 接线 21 例
+pnpm test        # node --test：阶段 6 例 + 状态 7 例 + 存储 13 例 + 观测 6 例 + 注入 9 例 + 顺序 12 例 + 接线 24 例
 pnpm run build   # 编译到 dist/
 ```
 
-真机验证（人工）：让模型按模板建八阶段树 → 注入里出现「当前阶段：N/8 …」→ 调 `flow_record` 依次推进，验证跳阶段被拒、同阶段再写是替换 → 调 `flow_rollback` 回退并确认后续记录与 `-` 备注被清 → 调 `flow_remove` 按 slug 清掉后注入不再带它；无阶段树时改代码，下一轮收到一条带模板的合规提示。
+真机验证（人工）：`/flow-track status` 看到「已关闭」→ `/flow-track on` 后仍不注入（没有未完成流程）→ `flow_record` 写「目标」后下一回合注入出现「最近记录」→ 建八阶段树后注入出现「当前阶段：N/8 …」→ 依次推进验证跳阶段被拒、同阶段再写是替换 → `flow_rollback` 回退并确认后续记录与 `-` 备注被清 → 走到「收尾」后注入消失 → `/flow-track off` 后即使有未完成流程也不注入。

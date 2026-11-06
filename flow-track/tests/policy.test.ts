@@ -5,6 +5,7 @@ import {
   WHOLE_STAGE,
   decideRecord,
   decideRollback,
+  hasActiveFlow,
   latestStageRecord,
   stageIndex,
 } from "../src/policy.ts";
@@ -146,4 +147,15 @@ test("回退判定：不早于当前阶段拒绝, 无记录拒绝, 坏阶段名�
   const bad = decideRollback(records, WHOLE_STAGE);
   assert.equal(bad.kind, "reject");
   if (bad.kind === "reject") assert.equal(bad.error, "invalid_stage");
+});
+
+test("活跃流程：最新阶段不是收尾即活跃, - 备注与已收尾不算", () => {
+  assert.equal(hasActiveFlow([]), false);
+  assert.equal(hasActiveFlow([rec(1, "收尾")]), false);
+  assert.equal(hasActiveFlow([rec(1, "目标")]), true);
+  assert.equal(hasActiveFlow([rec(1, "收尾"), rec(2, WHOLE_STAGE)]), false);
+  assert.equal(hasActiveFlow([rec(1, "测试"), rec(2, "收尾")]), false);
+  // 任一任务没走到收尾就算活跃（项目层全部 slug）
+  const other: FlowRecord = { ...rec(3, "调研"), slug: "other" };
+  assert.equal(hasActiveFlow([rec(1, "收尾"), other]), true);
 });

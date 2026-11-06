@@ -78,11 +78,13 @@ interface Harness {
   ctx: Record<string, unknown>;
   tools: ToolDef[];
   registered: Array<Record<string, unknown>>;
+  commandDefs: Array<Record<string, unknown>>;
   emitEvent(event: unknown): void;
   decide(
     sessionId: string,
     turn?: number,
   ): { text: string; summary?: string } | null;
+  runCommand(rawInput: string): { kind: string; text: string };
   disposed(): number;
 }
 
@@ -91,9 +93,11 @@ function makeContext(options?: {
   memory?: unknown;
   taskEngine?: unknown;
   ruleEngine?: unknown;
+  commands?: boolean;
 }): Harness {
   const tools: ToolDef[] = [];
   const registered: Array<Record<string, unknown>> = [];
+  const commandDefs: Array<Record<string, unknown>> = [];
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   let disposedCount = 0;
   const base = {
@@ -120,10 +124,21 @@ function makeContext(options?: {
   const ctx: Record<string, unknown> = { ...base };
   if (options?.memory !== undefined) ctx["memory"] = options.memory;
   if (options?.taskEngine !== undefined) ctx["taskEngine"] = options.taskEngine;
+  if (options?.commands === true) {
+    ctx["commands"] = {
+      register(def: Record<string, unknown>): () => void {
+        commandDefs.push(def);
+        return () => {
+          disposedCount += 1;
+        };
+      },
+    };
+  }
   return {
     ctx,
     tools,
     registered,
+    commandDefs,
     emitEvent(event: unknown) {
       handlers.get("session/event")?.({ id: "s1" }, event);
     },
@@ -146,8 +161,22 @@ function makeContext(options?: {
         trigger: "turn-start",
       }) as { text: string; summary?: string } | null;
     },
+    runCommand(rawInput: string) {
+      const def = commandDefs.at(-1) as
+        { handler?: (invocation: unknown) => unknown } | undefined;
+      assert.ok(def?.handler, "应已注册 /flow-track");
+      return def.handler({ rawInput }) as { kind: string; text: string };
+    },
     disposed: () => disposedCount,
   };
+}
+
+/** 打开注入开关（走 flow_enable 工具, 与真实调用同路径）。 */
+async function enableInjection(harness: Harness): Promise<void> {
+  const tool = harness.tools.find((item) => item.name === "flow_enable");
+  assert.ok(tool, "应有 flow_enable");
+  const result = await tool.execute({ enabled: true }, {});
+  assert.equal(result["ok"], true);
 }
 
 /** 捕获 stderr。 */
@@ -171,13 +200,19 @@ test("导出名与硬依赖", () => {
   assert.deepEqual(inject, ["ruleEngine"]);
 });
 
-test("注册四个工具与一个消费者（turn-start + user-message + inject）", () => {
+test("注册五个工具与一个消费者（turn-start + user-message + inject）", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
   assert.deepEqual(
     harness.tools.map((tool) => tool.name),
-    ["flow_record", "flow_status", "flow_remove", "flow_rollback"],
+    [
+      "flow_record",
+      "flow_status",
+      "flow_enable",
+      "flow_remove",
+      "flow_rollback",
+    ],
   );
   const consumer = harness.registered[0]!;
   assert.equal(consumer["id"], "flow-track");
@@ -186,37 +221,47 @@ test("注册四个工具与一个消费者（turn-start + user-message + inject�
   assert.equal(consumer["dedupeInRecord"], 1);
 });
 
-test("decide：无阶段树无写类调用 → null（不刷屏）", () => {
-  const fake = makeMemory();
-  const harness = makeContext({ memory: fake.memory });
-  apply(harness.ctx);
-  assert.equal(harness.decide("s1"), null);
-});
-
-test("decide：观测到写类调用 → 模板 + 合规提示", () => {
-  const fake = makeMemory();
-  const harness = makeContext({ memory: fake.memory });
-  apply(harness.ctx);
-  harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
-  const feedback = harness.decide("s1");
-  assert.ok(feedback);
-  assert.match(feedback.text, /标准流程八阶段模板/);
-  assert.match(feedback.text, /本轮已调用写类工具（edit）/);
-  // 不给固定 summary：rule-engine 按正文派生，配合 dedupeInRecord = 1 做同正文去重
-  assert.equal(feedback.summary, undefined);
-});
-
-test("decide：有阶段树 → 当前阶段与下一步", () => {
+test("decide：开关缺省关闭 → 有阶段树也不注入", () => {
   const fake = makeMemory();
   const harness = makeContext({
     memory: fake.memory,
     taskEngine: { query: () => snapshotOf("决策") },
   });
   apply(harness.ctx);
+  assert.equal(harness.decide("s1"), null);
+});
+
+test("decide：开关打开但没有任何流程记录 → 不注入", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  await enableInjection(harness);
+  harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
+  assert.equal(harness.decide("s1"), null);
+});
+
+test("decide：开关打开且有未完成流程 → 当前阶段与最近记录", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({
+    memory: fake.memory,
+    taskEngine: { query: () => snapshotOf("决策") },
+  });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  await record.execute(
+    { slug: "demo", stage: "目标", status: "done", body: "验收口径已写" },
+    exec,
+  );
+  await enableInjection(harness);
+  await tick();
   const feedback = harness.decide("s1");
   assert.ok(feedback);
   assert.match(feedback.text, /当前阶段：3\/8 决策/);
   assert.match(feedback.text, /下一步：阶段 4 规划/);
+  assert.match(feedback.text, /最近记录：demo@目标 状态 done/);
+  // 不给固定 summary：rule-engine 按正文派生，配合 dedupeInRecord = 1 做同正文去重
+  assert.equal(feedback.summary, undefined);
 });
 
 test("flow_record 写入 → flow_status 读回 → 注入带最近记录", async () => {
@@ -236,11 +281,14 @@ test("flow_record 写入 → flow_status 读回 → 注入带最近记录", asyn
     exec,
   );
   assert.equal(written["ok"], true);
+  await enableInjection(harness);
   await tick();
   const status = harness.tools.find((tool) => tool.name === "flow_status")!;
   const read = await status.execute({}, exec);
   const records = read["records"] as unknown[];
   assert.equal(records.length, 3);
+  assert.equal(read["enabled"], true);
+  assert.equal(read["active"], true);
   const feedback = harness.decide("s1");
   assert.ok(feedback);
   assert.match(feedback.text, /最近记录：demo@决策 状态 done/);
@@ -290,11 +338,10 @@ test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", 
       },
     });
     apply(harness.ctx);
-    assert.equal(harness.tools.length, 4, "工具仍应注册");
+    assert.equal(harness.tools.length, 5, "工具仍应注册");
+    // 开关缺省关闭：即使观测到写类调用也不注入
     harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
-    const feedback = harness.decide("s1");
-    assert.ok(feedback);
-    assert.match(feedback.text, /标准流程八阶段模板/);
+    assert.equal(harness.decide("s1"), null);
   });
   assert.equal(
     writes.some((line) => /流程记录不可写入/.test(line)),
@@ -303,14 +350,12 @@ test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", 
   );
 });
 
-test("memory 缺席：写入返回可读错误，注入仍给模板", () => {
+test("memory 缺席：写入返回可读错误，注入恒 null", () => {
   const writes = captureStderr(() => {
     const harness = makeContext();
     apply(harness.ctx);
     harness.emitEvent({ type: "tool/call", data: { name: "bash" } });
-    const feedback = harness.decide("s1");
-    assert.ok(feedback);
-    assert.match(feedback.text, /标准流程八阶段模板/);
+    assert.equal(harness.decide("s1"), null);
   });
   assert.ok(writes.some((line) => /流程记录不可写入/.test(line)));
 });
@@ -331,16 +376,32 @@ test("memory 缺席：flow_record 返回 unavailable", async () => {
   assert.equal(value["error"], "unavailable");
 });
 
-test("taskEngine 缺席：状态段降级（只有模板 / 记录）", () => {
-  const writes = captureStderr(() => {
-    const fake = makeMemory();
-    const harness = makeContext({ memory: fake.memory });
+test("taskEngine 缺席：状态段降级（只有最近记录）", async () => {
+  const writes: string[] = [];
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
     apply(harness.ctx);
-    harness.emitEvent({ type: "tool/call", data: { name: "write" } });
+    const exec = { agent: { session: { id: "s1" } } };
+    const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+    await record.execute(
+      { slug: "demo", stage: "目标", status: "start" },
+      exec,
+    );
+    await enableInjection(harness);
+    await tick();
     const feedback = harness.decide("s1");
     assert.ok(feedback);
     assert.equal(/当前阶段/.test(feedback.text), false);
-  });
+    assert.match(feedback.text, /最近记录：demo@目标 状态 start/);
+  } finally {
+    process.stderr.write = original;
+  }
   assert.ok(writes.some((line) => /ctx\.taskEngine 不可用/.test(line)));
 });
 
@@ -386,13 +447,91 @@ test("resolveConfig：缺省与覆盖", () => {
   );
 });
 
-test("enabled: false：decide 恒 null，工具照常注册", () => {
+test("enabled: false：开关打开也不注入，工具照常注册", async () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx, { enabled: false });
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  await record.execute({ slug: "demo", stage: "目标", status: "start" }, exec);
+  await enableInjection(harness);
+  await tick();
   harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
   assert.equal(harness.decide("s1"), null);
-  assert.equal(harness.tools.length, 4);
+  assert.equal(harness.tools.length, 5);
+});
+
+test("/flow-track 命令：缺省关闭, on / off / status 与未知子命令", () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory, commands: true });
+  apply(harness.ctx);
+  assert.equal(harness.commandDefs.length, 1);
+  assert.equal(harness.commandDefs[0]!["name"], "flow-track");
+
+  const initial = harness.runCommand("");
+  assert.equal(initial.kind, "text");
+  assert.match(initial.text, /已关闭/);
+  assert.match(initial.text, /不会注入：开关关闭/);
+
+  const on = harness.runCommand("on");
+  assert.match(on.text, /已打开/);
+  assert.match(on.text, /没有未完成阶段的流程记录/);
+
+  const status = harness.runCommand("status");
+  assert.match(status.text, /已打开/);
+
+  const off = harness.runCommand("off");
+  assert.match(off.text, /已关闭/);
+
+  const bad = harness.runCommand("bogus");
+  assert.equal(bad.kind, "error");
+  assert.match(bad.text, /未知子命令/);
+});
+
+test("flow_enable：参数校验与开关回执", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const enable = harness.tools.find((tool) => tool.name === "flow_enable")!;
+  assert.equal(
+    (await enable.execute({ enabled: "yes" }, {}))["error"],
+    "invalid_enabled",
+  );
+  const on = await enable.execute({ enabled: true }, {});
+  assert.equal(on["ok"], true);
+  assert.equal(on["enabled"], true);
+  assert.equal(on["active"], false);
+  assert.equal(
+    (await enable.execute({ enabled: false }, {}))["enabled"],
+    false,
+  );
+});
+
+test("门槛：开关开 + 流程走到收尾 → 不注入", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  for (const stage of [
+    "目标",
+    "调研",
+    "决策",
+    "规划",
+    "实现",
+    "测试",
+    "审查",
+    "收尾",
+  ]) {
+    const written = await record.execute(
+      { slug: "demo", stage, status: "done" },
+      exec,
+    );
+    assert.equal(written["ok"], true);
+  }
+  await enableInjection(harness);
+  await tick();
+  assert.equal(harness.decide("s1"), null);
 });
 
 test("flow_remove：按 id 删, 参数错误与删空都有可读结果", async () => {
@@ -431,6 +570,7 @@ test("flow_remove：按 slug 清该任务, 注入的最近记录随之消失", a
   await record.execute({ slug: "demo", stage: "目标", status: "start" }, exec);
   await record.execute({ slug: "demo", stage: "调研", status: "note" }, exec);
   await record.execute({ slug: "other", stage: "目标", status: "start" }, exec);
+  await enableInjection(harness);
   await tick();
   assert.match(harness.decide("s1")!.text, /最近记录：other@目标/);
 

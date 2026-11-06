@@ -34,6 +34,26 @@ export function latestStageRecord(
   return undefined;
 }
 
+/** 最后一个阶段名（收尾）。 */
+const LAST_STAGE = STAGE_NAMES[STAGE_NAMES.length - 1] ?? "收尾";
+
+/**
+ * 是否还有未完成的流程: 任一 slug 最新的真实阶段不是「收尾」即算活跃。
+ *
+ * `records` 按时间正序（`FlowStore.list` 的口径）；`-` 备注不参与阶段推导。
+ */
+export function hasActiveFlow(records: readonly FlowRecord[]): boolean {
+  const latest = new Map<string, string>();
+  for (const record of records) {
+    if (record.stage === WHOLE_STAGE) continue;
+    latest.set(record.slug, record.stage);
+  }
+  for (const stage of latest.values()) {
+    if (stage !== LAST_STAGE) return true;
+  }
+  return false;
+}
+
 /** 写入判定。 */
 export type RecordPolicy =
   | { kind: "write"; replace: boolean }
@@ -115,10 +135,7 @@ export type RollbackPolicy =
   | {
       kind: "reject";
       error:
-        | "invalid_stage"
-        | "no_records"
-        | "unknown_current"
-        | "not_backward";
+        "invalid_stage" | "no_records" | "unknown_current" | "not_backward";
       message: string;
     };
 

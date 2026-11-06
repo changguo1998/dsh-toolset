@@ -9,6 +9,10 @@
  *
  * 固化强度 = 中档（决策项 4.3 = b）：**只提示不拦截**。
  *
+ * 注入门槛（2026-11-06 起）：配置 `enabled` 与进程内开关都打开, 且 memory-base 里有未完成阶段的
+ * 流程记录（最新阶段不是「收尾」）时才注入；开关缺省关闭、只在内存（`switch.ts`），
+ * 用户面 `/flow-track on|off|status`、模型面 `flow_enable` 都能切。
+ *
  * 降级：`ruleEngine` 缺席 → 告警且不注册消费者；`memory` 缺席 → 工具返回可读错误、注入里只剩模板与
  * 状态；`taskEngine` 缺席 → 状态段退化为「没有可识别的阶段树」。
  */
@@ -17,6 +21,9 @@ import type { SnapshotLike } from "./status.ts";
 import { FlowStore, type FlowRecord } from "./store.ts";
 import { WriteObserver, type SessionEventLike } from "./observe.ts";
 import { decideText } from "./inject.ts";
+import { hasActiveFlow } from "./policy.ts";
+import { registerFlowCommand } from "./command.ts";
+import { createFlowSwitch } from "./switch.ts";
 import { flowTools } from "./tools.ts";
 
 export const name = "flow-track";
@@ -196,6 +203,8 @@ export function apply(ctx: unknown, config?: Config): () => void {
   }
 
   const observer = new WriteObserver();
+  const switcher = createFlowSwitch();
+  const disposers: Array<() => void> = [];
 
   /** 记录缓存：`decide` 是同步的，读库（异步）只能提前喂进来。 */
   const cache: { records: FlowRecord[] } = { records: [] };
@@ -215,6 +224,8 @@ export function apply(ctx: unknown, config?: Config): () => void {
       observer,
       snapshot: () => snapshotOf(taskEngine),
       slugFor: (sessionId: string) => sessionId,
+      switcher,
+      active: () => hasActiveFlow(cache.records),
       onRecorded: () => void refresh(),
     };
     for (const tool of flowTools(deps)) {
@@ -228,7 +239,20 @@ export function apply(ctx: unknown, config?: Config): () => void {
     warn("ctx.tools 不可用，flow_record / flow_status 不会出现");
   }
 
-  const disposers: Array<() => void> = [];
+  // `/flow-track` 命令面（commands 缺席时降级, 不影响工具面与注入）
+  const commands = readService<{
+    register(def: unknown): unknown;
+  }>(c, "commands");
+  const offCommand = registerFlowCommand(commands, {
+    switcher,
+    hasActive: () => hasActiveFlow(cache.records),
+  });
+  if (offCommand === undefined) {
+    warn("ctx.commands 不可用，/flow-track 命令不会出现");
+  } else {
+    disposers.push(offCommand);
+  }
+
   if (typeof c.on === "function") {
     const off = c.on("session/event", (...args: unknown[]) => {
       const sessionId = sessionIdOf(args[0]);
@@ -252,6 +276,9 @@ export function apply(ctx: unknown, config?: Config): () => void {
       dedupeInRecord: 1,
       decide: (context) => {
         if (!resolved.enabled) return null;
+        if (!switcher.enabled) return null;
+        // 门槛之二：memory-base 里要有未完成阶段的流程记录（与 task-engine 阶段树无关）
+        if (!hasActiveFlow(cache.records)) return null;
         const snapshot = snapshotOf(taskEngine);
         const lastWriteTool = observer.lastWriteTool(context.sessionId);
         const text = decideText({
