@@ -21,7 +21,7 @@ import type { SnapshotLike } from "./status.ts";
 import { FlowStore, type FlowRecord } from "./store.ts";
 import { WriteObserver, type SessionEventLike } from "./observe.ts";
 import { decideText } from "./inject.ts";
-import { hasActiveFlow } from "./policy.ts";
+import { STAGE_NAMES, hasActiveFlow } from "./policy.ts";
 import { registerFlowCommand } from "./command.ts";
 import { createFlowSwitch } from "./switch.ts";
 import { flowTools } from "./tools.ts";
@@ -31,8 +31,45 @@ export const name = "flow-track";
 /** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）。 */
 export const inject = ["ruleEngine"];
 
-/** 对外只读服务面：`flowTrack.enabled()`（TUI 标题栏据此显示开关符号）。 */
+/** 对外只读服务面：`flowTrack.enabled()` 与 `flowTrack.summary()`（TUI 标题栏 / 状态列据此显示）。 */
 export const provide = ["flowTrack"];
+
+/** 服务面单条摘要：某个 slug 的最新真实阶段（跳过 `-`）。 */
+export interface FlowSummaryRecord {
+  slug: string;
+  stage: string;
+  status: string;
+  /** 最新阶段不是「收尾」（即流程未完成）。 */
+  active: boolean;
+}
+
+/** 服务面摘要：开关态 + 按 slug 汇总的最新记录（最近创建的在前）。 */
+export interface FlowSummary {
+  enabled: boolean;
+  records: FlowSummaryRecord[];
+}
+
+/** 由记录缓存生成服务面摘要（纯函数；`-` 备注不参与阶段推导）。 */
+export function flowSummaryOf(
+  records: readonly FlowRecord[],
+  enabled: boolean,
+): FlowSummary {
+  const bySlug = new Map<string, FlowRecord>();
+  for (const record of records) {
+    if (record.stage === "-") continue;
+    bySlug.set(record.slug, record);
+  }
+  const done = STAGE_NAMES[STAGE_NAMES.length - 1] ?? "收尾";
+  const out = [...bySlug.values()]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((record) => ({
+      slug: record.slug,
+      stage: record.stage,
+      status: record.status,
+      active: record.stage !== done,
+    }));
+  return { enabled, records: out };
+}
 
 /** 插件配置（类型声明，宿主不校验；缺省见 resolveConfig）。 */
 export interface Config {
@@ -208,16 +245,6 @@ export function apply(ctx: unknown, config?: Config): () => void {
 
   const observer = new WriteObserver();
   const switcher = createFlowSwitch();
-  // 只读服务面：TUI 标题栏每 tick 懒读开关态（装载顺序与 HMR 都由懒读兜住）
-  if (typeof c.provide === "function") {
-    try {
-      c.provide("flowTrack", { enabled: () => switcher.enabled });
-    } catch (error) {
-      warn(`服务面 flowTrack 暴露失败（忽略）：${String(error)}`);
-    }
-  } else {
-    warn("ctx.provide 不可用，TUI 标题栏读不到 flow-track 开关态");
-  }
   const disposers: Array<() => void> = [];
 
   /** 记录缓存：`decide` 是同步的，读库（异步）只能提前喂进来。 */
@@ -230,6 +257,21 @@ export function apply(ctx: unknown, config?: Config): () => void {
     }
   };
   void refresh();
+
+  // 只读服务面：TUI 标题栏 / 状态列每 tick 懒读（装载顺序与 HMR 都由懒读兜住）
+  if (typeof c.provide === "function") {
+    try {
+      c.provide("flowTrack", {
+        enabled: () => switcher.enabled,
+        summary: (): FlowSummary =>
+          flowSummaryOf(cache.records, switcher.enabled),
+      });
+    } catch (error) {
+      warn(`服务面 flowTrack 暴露失败（忽略）：${String(error)}`);
+    }
+  } else {
+    warn("ctx.provide 不可用，TUI 读不到 flow-track 开关与流程摘要");
+  }
 
   const tools = readService<{ register(def: unknown): unknown }>(c, "tools");
   if (tools !== undefined && typeof tools.register === "function") {

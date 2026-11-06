@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { apply, inject, name, provide, resolveConfig } from "../src/index.ts";
-import type { StoreRowLike } from "../src/store.ts";
+import {
+  apply,
+  flowSummaryOf,
+  inject,
+  name,
+  provide,
+  resolveConfig,
+} from "../src/index.ts";
+import type { FlowRecord, StoreRowLike } from "../src/store.ts";
 import type { SnapshotLike } from "../src/status.ts";
 import type { ToolDef } from "../src/tools.ts";
 
@@ -221,6 +228,40 @@ test("服务面 flowTrack：只读 enabled() 跟随开关", async () => {
   assert.equal(face.enabled(), false);
   harness.runCommand("on");
   assert.equal(face.enabled(), true);
+});
+
+test("服务面 flowTrack：summary() 按 slug 取最新真实阶段, - 不参与, 收尾不算活跃", () => {
+  const rec = (
+    id: number,
+    slug: string,
+    stage: string,
+    status: FlowRecord["status"],
+  ) => ({
+    id,
+    slug,
+    stage,
+    status,
+    body: "",
+    createdAt: id,
+  });
+  const summary = flowSummaryOf(
+    [
+      rec(1, "a", "目标", "start"),
+      rec(2, "a", "调研", "start"),
+      rec(3, "a", "-", "note"),
+      rec(4, "b", "收尾", "done"),
+    ],
+    true,
+  );
+  assert.equal(summary.enabled, true);
+  assert.deepEqual(
+    summary.records.map((item) => [item.slug, item.stage, item.active]),
+    [
+      ["b", "收尾", false],
+      ["a", "调研", true],
+    ],
+  );
+  assert.deepEqual(flowSummaryOf([], false), { enabled: false, records: [] });
 });
 
 test("注册五个工具与一个消费者（turn-start + user-message + inject）", () => {
