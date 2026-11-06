@@ -1,0 +1,34 @@
+{
+  "name": "@dsh-toolset/shell-parse",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）shell 命令词法插件：切段 / 分词 / 剥离包装器 / 命令位解析（含 shell -c 与命令替换递归），导出纯函数并提供服务 shellParse",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:integration": "node --experimental-transform-types --test 'tests/integration/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-shell-parse && mkdir -p ../tmp/cov-shell-parse && NODE_V8_COVERAGE=../tmp/cov-shell-parse node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-shell-parse tmp/cov-shell-parse/report.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}

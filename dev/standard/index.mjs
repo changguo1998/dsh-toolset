@@ -120,38 +120,38 @@ function checkCounts(file, line, text) {
   if (text.includes("审计") || text.includes("快照") || isTermExemptFile(file))
     return;
   for (const match of text.matchAll(/(\d+)\s*个包（?TUI 与 (\d+)\s*个插件/g)) {
-    if (Number(match[1]) !== 37 || Number(match[2]) !== 36) {
+    if (Number(match[1]) !== 38 || Number(match[2]) !== 37) {
       report(
         "count.packages",
         "error",
         file,
         line,
-        `\`${match[0]}\` 应为 \`37 个包（TUI 与 36 个插件）\``,
+        `\`${match[0]}\` 应为 \`38 个包（TUI 与 37 个插件）\``,
       );
     }
   }
   for (const match of text.matchAll(
     /(?:本仓|本项目|仓库)(?:现有|现为|共有|有|的)?\s*(\d+)\s*个包(?!（?TUI)/g,
   )) {
-    if (Number(match[1]) !== 37)
+    if (Number(match[1]) !== 38)
       report(
         "count.packages",
         "error",
         file,
         line,
-        `\`${match[0]}\` 与实际的 37 个包不符`,
+        `\`${match[0]}\` 与实际的 38 个包不符`,
       );
   }
   for (const match of text.matchAll(
     /(?:本仓|本项目)(?:现有|现为|共有|有|的)?\s*(\d+)\s*个插件/g,
   )) {
-    if (Number(match[1]) !== 36)
+    if (Number(match[1]) !== 37)
       report(
         "count.plugins",
         "error",
         file,
         line,
-        `\`${match[0]}\` 与实际的 36 个插件不符`,
+        `\`${match[0]}\` 与实际的 37 个插件不符`,
       );
   }
 }

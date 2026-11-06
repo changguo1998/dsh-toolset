@@ -1,0 +1,6 @@
+# shell-parse 插件的 dsh bundle 声明。
+# dsh 宿主按 package.json 的 dsh.bundle.patch 加载本文件，把只读服务 `shellParse` 挂进进程内。
+# 无配置项、不注册工具、不落盘；服务可用性驱动激活顺序，本行位置不带加载语义。
+- insert:
+    - id: shell-parse
+      name: '@dsh-toolset/shell-parse'

@@ -18,6 +18,7 @@ The repository contains the `TUI/` terminal UI package and 36 in-process plugins
 | **herdr-use** | Terminal read/write over herdr: ten model-facing tools `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run` (no `action` parameter); a terminal = one tab plus its own root pane, and `terminal_id` is that root pane id, so the model never deals with panes, tabs or workspaces; the foreground lane inherits the parent herdr session, the background lane lives in a `dshbg` session and starts that headless server on demand; each dsh session is strictly bound to one workspace per lane; it also provides the `herdrUse` service surface to other in-process plugins, sharing the same registry and the same write lock as the tools; write tools pass through the read-only sandbox gate and security-guard registration |
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`execute`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
 | **session-paths** | Host session-directory encoding, replicated as one in-repo source of truth: `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` re-implemented character-for-character from `@deepseek-ai/dsh-session-persistence-jsonl`, exposed as the `sessionPaths` service (`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`). Pure functions never touch disk; `sessionDirFor(sessionId)` resolves `header.cwd` through the host `sessions` service (optional read, not in `inject`) |
+| **shell-parse** | The repo's single shell command lexer: `splitCommandSegments` (splits on `;` `\|` `&` and newlines, never inside quotes) / `tokenizeSegment` (quoted strings are one token, glued quotes split) / `commandPositions` (strips wrappers such as `sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec`, then recurses into shell `-c`, `eval`, `$(...)` and backticks, depth-capped) / `commandWords` / `isDynamicCommand` / `substitutionBodies` / `WRAPPERS`. Pure functions plus the `shellParse` service (same implementation); no config, no tools, no disk I/O |
 | **memory-base** | Tiered memory store — one SQLite database per tier (S/P/U, created lazily; the S location comes from `sessionPaths.sessionDirFor`) with two FTS5 indexes per kind table. Storage only: a kind is registered as a table and written/deleted through the returned scope handle (`writableTiers` + `preWrite`), while reads are global across kinds and tiers (`search` / `list`); the model gets one read-only tool, `memory_query` |
 | **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
 | **metric-loop** | Metric-driven automatic loop: a measure command parses a single number, plateau stop, round/time/token bounds, cadence auto-wake |
@@ -61,6 +62,7 @@ dsh-toolset/
 ├── herdr-use/            # herdr pane / tab read/write (interactive command driving)
 ├── task-engine/          # task-tree engine
 ├── session-paths/        # session-directory encoding (host encoding replicated + sessionPaths service)
+├── shell-parse/          # shell command lexer (segments / tokens / wrapper stripping / command positions + shellParse service)
 ├── memory-base/          # knowledge base and persistent memory
 ├── goal-contract/        # Done-when contract drafting
 ├── metric-loop/          # metric loop
@@ -121,7 +123,7 @@ Inside a single subpackage you can run its own `pnpm run check / build / test / 
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 37 packages: TUI + 36 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 38 packages: TUI + 37 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset
