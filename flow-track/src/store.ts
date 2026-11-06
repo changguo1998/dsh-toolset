@@ -9,6 +9,12 @@
  * 可以直接读回，不需要走 `bundle.tiers`。
  */
 
+/** 删除引用（memory-base `MemoryScope.forget` 的结构子集）。 */
+export interface ForgetRefLike {
+  tier: string;
+  ids: readonly number[];
+}
+
 /** 写入作用域句柄（memory-base `MemoryScope` 的结构子集）。 */
 export interface ScopeLike {
   put(input: {
@@ -18,6 +24,7 @@ export interface ScopeLike {
     importance?: number;
     sessionId?: string;
   }): Promise<{ ids: number[]; skipped?: string }>;
+  forget?(refs: readonly ForgetRefLike[]): Promise<number>;
 }
 
 /** 分类注册声明（`KindSpec` 的结构子集）。 */
@@ -82,8 +89,20 @@ export type RecordResult =
       message: string;
     };
 
+/** 删除结果。 */
+export type RemovalResult =
+  | { ok: true; removed: number; ids: number[] }
+  | {
+      ok: false;
+      reason: "unavailable" | "invalid" | "rejected";
+      message: string;
+    };
+
 /** 一次读回的最大条数。 */
 export const DEFAULT_LIST_LIMIT = 50;
+
+/** 按 slug 删除时最多扫描的历史条数。 */
+export const REMOVE_SCAN_LIMIT = 200;
 
 /** 标题分隔符（`<slug>@<阶段>`）。 */
 const TITLE_SEPARATOR = "@";
@@ -222,6 +241,58 @@ export class FlowStore {
         ok: false,
         reason: "rejected",
         message: `写入项目层失败：${String(cause)}`,
+      };
+    }
+  }
+
+  /** 删记录：`id` 一条, `slug` 一整个任务（二选一）。 */
+  async remove(options: {
+    id?: number;
+    slug?: string;
+  }): Promise<RemovalResult> {
+    const scope = this.#scope;
+    if (scope === undefined) {
+      return {
+        ok: false,
+        reason: "unavailable",
+        message: `memory-base 分类 ${FLOW_KIND} 未注册成功：${this.#error ?? "原因未知"}`,
+      };
+    }
+    const forget = scope.forget;
+    if (typeof forget !== "function") {
+      return {
+        ok: false,
+        reason: "unavailable",
+        message: "memory-base 句柄不支持 forget，流程记录无法删除",
+      };
+    }
+    let ids: number[];
+    if (options.id !== undefined) {
+      ids = [options.id];
+    } else {
+      const slug = (options.slug ?? "").trim();
+      if (slug.length === 0) {
+        return { ok: false, reason: "invalid", message: "需要 id 或 slug" };
+      }
+      if (typeof this.#memory.list !== "function") {
+        return {
+          ok: false,
+          reason: "unavailable",
+          message: "memory-base 读数面不可用，无法按 slug 定位记录",
+        };
+      }
+      const records = await this.list({ slug, limit: REMOVE_SCAN_LIMIT });
+      ids = records.map((record) => record.id);
+    }
+    if (ids.length === 0) return { ok: true, removed: 0, ids: [] };
+    try {
+      const removed = await forget.call(scope, [{ tier: "project", ids }]);
+      return { ok: true, removed, ids };
+    } catch (cause) {
+      return {
+        ok: false,
+        reason: "rejected",
+        message: `删除项目层记录失败：${String(cause)}`,
       };
     }
   }

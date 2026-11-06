@@ -35,6 +35,19 @@ function makeMemory(): {
           });
           return { ids: [id] };
         },
+        async forget(refs: readonly { ids: readonly number[] }[]) {
+          let removed = 0;
+          for (const ref of refs) {
+            for (const id of ref.ids) {
+              const at = rows.findIndex((row) => row.id === id);
+              if (at >= 0) {
+                rows.splice(at, 1);
+                removed += 1;
+              }
+            }
+          }
+          return removed;
+        },
       };
     },
     async list(opts: { limit?: number }) {
@@ -158,13 +171,13 @@ test("导出名与硬依赖", () => {
   assert.deepEqual(inject, ["ruleEngine"]);
 });
 
-test("注册两个工具与一个消费者（turn-start + user-message + inject）", () => {
+test("注册三个工具与一个消费者（turn-start + user-message + inject）", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
   assert.deepEqual(
     harness.tools.map((tool) => tool.name),
-    ["flow_record", "flow_status"],
+    ["flow_record", "flow_status", "flow_remove"],
   );
   const consumer = harness.registered[0]!;
   assert.equal(consumer["id"], "flow-track");
@@ -274,7 +287,7 @@ test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", 
       },
     });
     apply(harness.ctx);
-    assert.equal(harness.tools.length, 2, "工具仍应注册");
+    assert.equal(harness.tools.length, 3, "工具仍应注册");
     harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
     const feedback = harness.decide("s1");
     assert.ok(feedback);
@@ -376,5 +389,57 @@ test("enabled: false：decide 恒 null，工具照常注册", () => {
   apply(harness.ctx, { enabled: false });
   harness.emitEvent({ type: "tool/call", data: { name: "edit" } });
   assert.equal(harness.decide("s1"), null);
-  assert.equal(harness.tools.length, 2);
+  assert.equal(harness.tools.length, 3);
+});
+
+test("flow_remove：按 id 删, 参数错误与删空都有可读结果", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  const remove = harness.tools.find((tool) => tool.name === "flow_remove")!;
+  await record.execute(
+    { slug: "demo", stage: "测试", status: "note", body: "验证" },
+    exec,
+  );
+  await tick();
+
+  assert.equal((await remove.execute({}, exec))["error"], "invalid_args");
+  assert.equal(
+    (await remove.execute({ id: 1, slug: "demo" }, exec))["error"],
+    "invalid_args",
+  );
+  assert.equal((await remove.execute({ id: 0 }, exec))["error"], "invalid_id");
+
+  const byId = await remove.execute({ id: 1 }, exec);
+  assert.deepEqual(byId, { ok: true, removed: 1, ids: [1] });
+  const status = harness.tools.find((tool) => tool.name === "flow_status")!;
+  assert.deepEqual((await status.execute({}, exec))["records"], []);
+});
+
+test("flow_remove：按 slug 清该任务, 注入的最近记录随之消失", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+  const exec = { agent: { session: { id: "s1" } } };
+  const record = harness.tools.find((tool) => tool.name === "flow_record")!;
+  const remove = harness.tools.find((tool) => tool.name === "flow_remove")!;
+  await record.execute({ slug: "demo", stage: "目标", status: "start" }, exec);
+  await record.execute({ slug: "demo", stage: "测试", status: "note" }, exec);
+  await record.execute({ slug: "other", stage: "目标", status: "start" }, exec);
+  await tick();
+  assert.match(harness.decide("s1")!.text, /最近记录：other@目标/);
+
+  const removed = await remove.execute({ slug: "demo" }, exec);
+  assert.equal(removed["removed"], 2);
+  await tick();
+  const status = harness.tools.find((tool) => tool.name === "flow_status")!;
+  const records = (await status.execute({}, exec))["records"] as Array<{
+    slug: string;
+  }>;
+  assert.deepEqual(
+    records.map((row) => row.slug),
+    ["other"],
+  );
 });

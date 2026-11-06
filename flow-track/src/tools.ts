@@ -1,5 +1,5 @@
 /**
- * flow-track/src/tools.ts — 模型侧工具 `flow_record` / `flow_status`。
+ * flow-track/src/tools.ts — 模型侧工具 `flow_record` / `flow_status` / `flow_remove`。
  *
  * memory-base 不注册模型侧写工具，流程记录写通道由本包补（同 `pin-note` 口径）；
  * 参数是纯文本，不进 `security-guard` 的登记表。
@@ -80,7 +80,7 @@ function flowRecordTool(deps: ToolDeps): ToolDef {
       "用法: 给 slug（任务标识）、stage（阶段名或 - 表示整体）、status（start / done / blocked / note）与可选 body（正文 / 结论 / 证据）。\n" +
       "效果: 落 memory-base 项目层（kind flow）；flow_status 与回合注入的「最近记录」据此显示。\n" +
       "边界: 只记流程, 不改任务树与追踪文档；任务树推进仍用 task_* 工具。\n" +
-      "相关: flow_status、task_decompose、task_status。",
+      "相关: flow_status、flow_remove、task_decompose、task_status。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -151,7 +151,7 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
       "用法: 可选 slug 只看某个任务的记录；不给则看全部最近记录。\n" +
       "效果: 只读, 不动任务树、不写库。\n" +
       "边界: 阶段名靠任务帧标题匹配（标题需以阶段名开头）；没有阶段树时只报记录。\n" +
-      "相关: flow_record、task_status。",
+      "相关: flow_record、flow_remove、task_status。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -199,7 +199,74 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
   };
 }
 
-/** 本插件的两个工具。 */
+/** 删流程记录（一条或一个任务的全部）。 */
+function flowRemoveTool(deps: ToolDeps): ToolDef {
+  return {
+    name: "flow_remove",
+    description:
+      "用途: 删掉项目层的流程记录（验证留下的、写错的、过期的）。\n" +
+      "用法: id 与 slug 二选一——id 删一条（flow_status 列出的编号）；slug 删该任务的全部记录并回报条数。\n" +
+      "效果: 真删（memory-base 项目层 kind flow）；下一轮注入的「最近记录」不再包含它。\n" +
+      "边界: 只删流程记录, 不动任务树与追踪文档；id 不存在时 removed 为 0。\n" +
+      "相关: flow_status、flow_record、task_status。",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: {
+          type: "integer",
+          minimum: 1,
+          description: "flow_status 返回的记录 id（删一条）",
+        },
+        slug: {
+          type: "string",
+          description: "任务标识（删该任务的全部记录）",
+        },
+      },
+    },
+    output: OUTPUT,
+    async execute(args) {
+      const rawId = args["id"];
+      const hasId = rawId !== undefined;
+      const slug = typeof args["slug"] === "string" ? args["slug"].trim() : "";
+      if (hasId && slug.length > 0) {
+        return {
+          ok: false,
+          error: "invalid_args",
+          message: "id 与 slug 只能给一个",
+        };
+      }
+      if (!hasId && slug.length === 0) {
+        return {
+          ok: false,
+          error: "invalid_args",
+          message: "需要 id（删一条）或 slug（删该任务全部记录）",
+        };
+      }
+      if (
+        hasId &&
+        (typeof rawId !== "number" || !Number.isInteger(rawId) || rawId <= 0)
+      ) {
+        return {
+          ok: false,
+          error: "invalid_id",
+          message: "id 必须是正整数（用 flow_status 查记录编号）",
+        };
+      }
+      const result = await deps.store.remove(
+        hasId ? { id: rawId as number } : { slug },
+      );
+      if (!result.ok) {
+        return { ok: false, error: result.reason, message: result.message };
+      }
+      // 删后刷新注入用的记录缓存，否则本轮仍会拿旧记录去组装「最近记录」
+      deps.onRecorded?.();
+      return { ok: true, removed: result.removed, ids: result.ids };
+    },
+  };
+}
+
+/** 本插件的三个工具（顺序即工具面展示顺序）。 */
 export function flowTools(deps: ToolDeps): ToolDef[] {
-  return [flowRecordTool(deps), flowStatusTool(deps)];
+  return [flowRecordTool(deps), flowStatusTool(deps), flowRemoveTool(deps)];
 }
