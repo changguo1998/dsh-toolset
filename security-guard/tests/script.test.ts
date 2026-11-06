@@ -77,6 +77,12 @@ function makeInstalledLayout(
   cpSync(SCRIPT, join(dir, "scripts", "tool-surface-check.mjs"));
   if (withDist && existsSync(DIST_INDEX)) {
     cpSync(join(HERE, "..", "dist"), join(dir, "dist"), { recursive: true });
+    // dist 会 import 运行时依赖（`@dsh-toolset/shell-parse`）：真实安装由 node_modules
+    // 提供，假安装包同样软链一份，否则动态 import 解析不到依赖 → 误判「口径来源缺失」。
+    const modules = join(HERE, "..", "node_modules");
+    if (existsSync(modules)) {
+      symlinkSync(modules, join(dir, "node_modules"), "dir");
+    }
   }
   return join(dir, "scripts", "tool-surface-check.mjs");
 }

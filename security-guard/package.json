@@ -13,6 +13,9 @@
     "test:coverage": "rm -rf ../tmp/cov-security-guard && mkdir -p ../tmp/cov-security-guard && NODE_V8_COVERAGE=../tmp/cov-security-guard node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-security-guard tmp/cov-security-guard/report.json",
     "smoke": "node smoke/smoke.mjs"
   },
+  "dependencies": {
+    "@dsh-toolset/shell-parse": "link:../shell-parse"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3"
