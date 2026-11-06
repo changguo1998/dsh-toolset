@@ -41,16 +41,35 @@
 
 ## 实现记录
 
-（实现后补）
+- `flow-track/src/index.ts`：新增 `export const provide = ["flowTrack"]`；apply 里 `ctx.provide("flowTrack", { enabled: () => switcher.enabled })`（防御式，失败告警不阻断）。
+- `TUI/src/app/layout/title-bar.ts`：`TITLE_ICON.flowTrack = "\u{F0E8}"`；`StatusSwitches` 加可选 `flowTrack`，组末按 `undefined → 不渲染 / false → gray / true → green` 压入；注释与码位表同步。
+- `TUI/src/app/layout/top-region.ts`：`switches.flowTrack = state.flowTrackEnabled`。
+- `TUI/src/app/state/types.ts` / `initial.ts` / `actions.ts` / `reducer-view.ts`：`flowTrackEnabled: boolean | undefined`（缺省 `undefined`）、`{ type: "flow-track"; enabled }` action 与 reducer 分支（不落盘）。
+- `TUI/src/app/app-deps.ts` / `TUI/src/main.ts`：`FlowTrackLike` + `getFlowTrack` 懒读 `ctx.get("flowTrack")`（TUI 先于 flow-track 装载，启动时直取会拿不到）。
+- `TUI/src/app/runtime/wiring.ts`：`maybeRefreshFlowTrack()` —— 读服务面、值变化才派 action + 重绘；服务缺席 / 抛错 / 非布尔一律跳过（保持 `undefined`）。
+- `TUI/src/app/runtime/lifecycle.ts`：状态行 `StatusTicker`（1s）的 `apply` 里调用上述方法。
+- `TUI/tests/policy.test.ts`：+1 例覆盖三态（未读到不渲染 / 关灰 / 开绿）与「排在声音提醒之后」。
+- `flow-track/tests/main.test.ts`：+1 例断言 `provide` 导出、服务面存在、`enabled()` 随 `flow_enable` 与 `/flow-track on|off` 变化。
+- 文档：`TUI/docs/SPEC.md`（顶部构成 / 表格规格两处，6 → 7 个符号、顺序与码位表）、`TUI/docs/DESIGN.md`（标题栏两处，含 ticker 懒读说明）、`TUI/README.md`（同段）、`flow-track/README.md`（服务面一行）。
 
 ## 测试与证据
 
-（实现后补）
+```sh
+pnpm run check                      # 全包类型检查通过
+pnpm -C TUI run build               # 通过
+pnpm -C flow-track run build        # 通过
+pnpm run test:tui                   # tests 1838 / pass 1838 / fail 0
+pnpm -C flow-track run test         # tests 78 / pass 78 / fail 0
+pnpm run check:docs                 # 115 篇现行 Markdown / 932 个 .ts, 错误 0 / 警告 0
+```
 
 ## 偏差
 
-（实现后补）
+- **ticker 接线未写单测**：渲染三态已覆盖，`maybeRefreshFlowTrack` 的懒读路径只有类型检查与实际启动路径验证；要覆盖需构造 App 并驱动 1s ticker（现有测试未提供该驱动面），留给需要时再补。
+- **服务面 provide 的 HMR 重复调用**：每次 apply 都会 `ctx.provide("flowTrack", …)`，与 `task-engine` 同口径；若宿主把重复 provide 视为冲突会告警（已用 try 包住，不阻断），真机尚未验证。
+- 未真机验证：需 `scripts/install.sh --profile fff --sync` 后重启会话，才能看到标题栏第 7 个符号与 `/flow-track on|off` 变色。
 
 ## 收尾
 
-（关闭时补）
+- 条目已从 `docs/BACKLOG.md` 移除；本文件已移入 `docs/archived/`。
+- 同步文档：`TUI/docs/SPEC.md`、`TUI/docs/DESIGN.md`、`TUI/README.md`、`flow-track/README.md`。
