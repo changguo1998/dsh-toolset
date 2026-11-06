@@ -1,6 +1,6 @@
 # flow-track 阶段顺序约束与回退工具（接取条目：docs/BACKLOG.md「flow-track 阶段顺序约束与回退工具」）
 
-状态：进行中　　开启：2026-11-06
+状态：已关闭　　开启：2026-11-06　　关闭：2026-11-06
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 ## 目标
@@ -48,16 +48,32 @@
 
 ## 实现记录
 
-（实现时补）
+- `src/policy.ts`（新增）：`STAGE_NAMES` / `WHOLE_STAGE` / `stageIndex` / `latestStageRecord`（跳过 `-` 找最新真实阶段）/ `decideRecord` / `decideRollback`。拒绝码：`first_stage` / `invalid_stage` / `skip_stage` / `rollback_needed` / `unknown_current`；回退拒绝码：`invalid_stage` / `no_records` / `unknown_current` / `not_backward`。
+- `src/store.ts`：新增 `removeMany(ids)`（空列表直接成功），`remove` 改为复用 `removeMany`。
+- `src/tools.ts`：`flow_record` 写入前先 `list({ slug })` 取时间线 → `decideRecord` → 拒绝直接回错；`replace` 时先删该阶段旧记录再写入，回执带 `replaced`；新增 `flow_rollback`（`slug?` + `stage`, 判定后 `removeMany`, 只删不写）；工具顺序 `flow_record` → `flow_status` → `flow_remove` → `flow_rollback`。
+- `src/index.ts`：无改动（工具循环注册自动带上新工具）。
+- `tests/policy.test.ts`（新增 11 例）：阶段表 / 空时间线 / 坏阶段名 / 同阶段替换 / 下一阶段 / `-` 备注 / 跳过 / 倒回 / 未知当前阶段 / 最后阶段 / 回退判定。
+- `tests/store.test.ts`：补 `removeMany` 1 例。
+- `tests/main.test.ts`：原 `flow_record` 用例改为按序写入；新增 4 例（顺序拦截、同阶段替换旧 id 消失、回退清后续与 `-`、回退坏参数与 slug 兜底）。
+- 文档：包 README 工具表 + 顺序规则 + 边界 + 测试条数 + 真机验证步骤；`AGENTS.md` 与根 README 双侧包描述补 `flow_rollback` 与顺序约束。
 
 ## 偏差
 
-（实现时补）
+- **替换 = 删旧 + 写新**：memory-base 没有原地更新接口，`replace` 走 `removeMany` + `put`，因此记录 id 会变、`createdAt` 会刷新；回执里用 `replaced: true` 标出这是替换。
+- **`-` 保留为备注**：用户口径只约束「更新当前阶段 / 新增下一阶段」；`-` 不进阶段序、不参与当前阶段推导、首条不允许，已有记录时随时可写。
+- **历史数据向前兼容**：旧记录若首条不是「目标」，新规则不追溯纠正——当前阶段只看最新一条非 `-` 记录；只有最新阶段不在八阶段内才拒绝并提示 `flow_remove`。
+- **未做真机验证**：新工具与顺序约束要重启会话后才在工具面生效。
 
 ## 测试与证据
 
-（实现时补）
+- `pnpm -C flow-track run check`：`tsc --noEmit` 通过。
+- `pnpm -C flow-track run build`：编译到 `dist/` 通过。
+- `pnpm -C flow-track run test`：73 例全过（阶段 6 / 状态 7 / 存储 13 / 观测 6 / 注入 9 / 顺序 11 / 接线 21）。
+- `pnpm run check:docs`：0 错误 0 警告。
+- 未做真机验证（见「偏差」）。
 
 ## 收尾
 
-（关闭时填）
+- 提交：本文件与 BACKLOG 条目（决策阶段）、实现与测试、关闭提交（文档同步 + 归档）。
+- BACKLOG 条目在关闭时移除；追踪文档移入 `docs/archived/`。
+- 残留（不另立条目）：真机验证待重启后确认；`-` 备注在 `flow_status` 里仍以 `-` 阶段展示。
