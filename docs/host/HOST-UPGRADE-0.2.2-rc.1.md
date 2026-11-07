@@ -13,7 +13,7 @@
 - 版本号: 全仓包 `0.2.1-rc.5` → `0.2.2-rc.1`。
 - 包目录数 (深度 3 的 `packages/<a>/<b>/package.json`): **343 → 372** (+30 / −1), 增删清单见 §10。
 - 升级指南: `docs/upgrade-guide` 的 `guide.md` **44 → 98** (+54 个目录)。其中 `v0.2.2-alpha.2` 13 条属新线; 其余 41 条是 `v0.2.1-alpha.1` / `alpha.2` / `alpha.4` / `rc.1` / `rc.2` / `rc.3` / `rc.4` 的**文档回填**, 描述的多是 rc.5 之前已发布的变更 (如 `conditional-tools` 在 rc.5 树内已存在)。故本次**以代码为准**, 指南只作定位线索。
-- 本机状态: `dsh --version` = `0.2.1-rc.5`; 本次只做复核, **未升级安装树、未重装 profile**。
+- 本机状态: 复核时 `dsh --version` = `0.2.1-rc.5`; **2026-11-07 已升级到 `0.2.2-rc.1` 并重装 fff profile**, 实测数字见 §13。
 
 ## 1. 增量总览 (按面)
 
@@ -86,7 +86,7 @@
 - 子代理: `@deepseek-ai/dsh-tool-subagent` 的 `modelSelectionSettings` 改名 `modelSelection`, 新增 `modelDiscovery`; `/list-models` 导出移除; `/model-selection-settings` 宿主服务在 Agent 创建时记录授权, **无记录时只允许父路由**, 显式选择其它路由在执行期被拒。
 - 命令: `commands` 包新增内置命令身份表 (`goal` / `feedback` / `compact`) 与中英 token 别名; TUI 本地命令优先, 同名不冲突, 只在「未知命令交给宿主」时才可能命中新内置。
 - 调度: `schedule` 服务重做 (target / rrule / 投递历史 / 分页), 模型工具改为 `schedule_create` / `list` / `view` / `edit`, 去掉 `update` / `delete` 与时间选择器; 本仓不挂 `tool-schedule`, `background-daemon` 自带 Scheduler, 无影响; 只有 `security-guard/README.md` 里的宿主工具面描述 (`schedule_create` / `schedule_update` 计数) 过期。
-- 本仓待核实: `command-template` 模板级模型与 `task-engine` 叶子模型都通过 `ctx.subagents.start` 传 `{ provider, model }`; rc.1 的授权策略是否同样约束**编程式 start** (指南只写模型侧工具与执行期), 需在升级前用 rc.1 实机确认 —— 若受限, 这两处要么在 profile 记录 allowedModels, 要么改为只允许父路由。
+- 已核实（2026-11-07）: `command-template` 模板级模型与 `task-engine` 叶子模型都通过 `ctx.subagents.start` 传 `{ provider, model }`; rc.1 的授权只在模型侧工具层（`dsh-tool-subagent` 的 `assertAllowedModelSelection`）, `SubagentStartRequest` 无策略字段、`dsh-subagent` 的 `start` 不校验路由, 故**编程式 start 不受约束**, 两处无需改动。
 
 ## 9. 会话面
 
@@ -106,7 +106,7 @@
 | # | 项 | 位置 | 性质 |
 | --- | --- | --- | --- |
 | 1 | `agent/request` 弃用 → 迁 `agent.model.select()` | `TUI/src/app/adapter/dsh.ts:234` 与 `dsh-session.ts` 的会话模型路径 | 弃用, rc.1 仍可用 |
-| 2 | 核实 `ctx.subagents.start` 显式路由是否受 `/model-selection-settings` 约束 | `command-template/src/subagent.ts:75`、`task-engine/src/subagent.ts:221` | 待核实, 可能拒绝 |
+| 2 | 核实 `ctx.subagents.start` 显式路由是否受 `/model-selection-settings` 约束 | `command-template/src/subagent.ts:75`、`task-engine/src/subagent.ts:221` | 已核实: 仅模型侧工具受约束, 编程式 start 不受影响 |
 | 3 | `apply_patch` 写面未登记 (路径在补丁文本) | `security-guard/src/tool-registry.ts:12-22` | 潜在漏拦 (fff 未开该工具) |
 | 4 | 宿主工具面清单过期 (`schedule_*` 改名 / `list_agents` 并入 / 新执行器工具) | `security-guard/README.md:214-216` | 文档与扫描面 |
 | 5 | `sessionProjections.stateOf(session, key)` 弃用 (运行时警告) | `task-engine` / `context-report` / `rule-engine` | 弃用, 功能不变 |
@@ -115,14 +115,24 @@
 
 无影响面 (已逐项核): `herdr-use` / `herdr-integration` / `coagent` / `session-channel` / `session-paths` / `memory-base` / `pin-note` / `flow-track` / `term-check` / `md-table-check` / `symbol-normalizer` / `clock-base` / `shell-parse` / `preference-analysis` / `output-compress` / `fs-digest` / `md-map` / `code-map` / `goal-contract` / `metric-loop` / `agent-group` / `background-daemon` / `script-interpreter` / `tool-consult` (`restrict` 只多一条保留名拒绝) / `behavior-correction` / `auto-approve` (判定表是配置驱动, 无硬编码工具名)。`rule-engine` 只落在 #5 的投影读法弃用, 事件载荷未变。
 
-## 12. 升级安装树前要做的判断 (本次未做)
+## 12. 升级后仍待裁定的项
 
 1. 是否保留官方「读后改前」守卫: profile patch 加 `fs-observation-policy` + `disabled: false`。
 2. 是否启用 `apply_patch`: `tool-fs` 行 `config.applyPatch`, 打开前先补 `security-guard` 的写面登记。
-3. 是否给 `ctx.subagents.start` 的显式路由记录授权 (见 §8), 或把模板 / 叶子模型收回到父路由。
-4. 树外插件 `session-title-all-prompts-llm` 与 fff 的 patch 行 (无 `mode` / 无 `list-agents` 行) 已确认不冲突, 重装后按 `--dump-config` 复核执行器两行。
+3. 是否给 `ctx.subagents.start` 的显式路由记录授权 (见 §8); 已核实 rc.1 的授权只在模型侧工具层 (`assertAllowedModelSelection`), 编程式 start 不受约束, 故本仓暂无阻塞。
+4. 树外插件 `session-title-all-prompts-llm` 与 fff 的 patch 行 (无 `mode` / 无 `list-agents` 行) 已确认不冲突, 重装后 `--dump-config` 已复核执行器两行在位。
 
-## 13. 依据
+## 13. 安装树升级实测 (2026-11-07)
+
+- 全局 `npm install -g @deepseek-ai/dsh@0.2.2-rc.1`: `dsh --version` = `0.2.2-rc.1`。
+- `scripts/install.sh --profile fff --sync`: 5/5 步完成, fff 与 fff-test 各挂 **38 个插件 + dsh-base**, 收尾 `--dump-config` 自检无告警。
+- 安装树: `$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 共 **330** 个包, 其中 `dsh-*` **319** 个 (rc.5 为 306 / 295); `dsh-base` 版本 `0.2.2-rc.1`。
+- profile: `dsh.profile.bundles` **39** 个 (dsh-base + 38)。
+- 组合树: `dsh --profile fff --dump-config` 输出 **866** 行、**174** 个 `- id:` 行; 无条件 `disabled: true` **8** 条、条件式 `disabled: !!js` **8** 条、`@dsh-toolset/*` 行 **38** 条; 官方活跃包 **101** 个 (rc.5 为 100)。
+- 类型面: `pnpm run check` 在 rc.1 类型上全包通过 (34 个 tsc 任务, 退出 0), 无源码改动。
+- 子代理路由: rc.1 的 `/model-selection-settings` 授权只在模型侧工具层 (`dsh-tool-subagent` 的 `assertAllowedModelSelection`), `SubagentStartRequest` 无策略字段、`dsh-subagent` 的 `start` 不校验路由; 本仓 `command-template` / `task-engine` 走 `ctx.subagents.start` + `agentOptions`, **不受影响** (代码级核实, 未花真机会话)。
+
+## 14. 依据
 
 - `git -C ~/GithubRepos/deepseek-harness fetch --tags origin` → 新 tag `dsh-v0.2.2-rc.1`; `git merge --ff-only origin/master`。
 - `git rev-list --count dsh-v0.2.1-rc.5..dsh-v0.2.2-rc.1` = 2623; `git diff --shortstat` = 8120 files, +392647 −717068。

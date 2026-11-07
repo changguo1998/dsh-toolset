@@ -1,4 +1,4 @@
-# 可用官方包清单（DSH 0.2.1-rc.5 口径；计数仍为 rc.2 安装树实测）
+# 可用官方包清单（DSH 0.2.2-rc.1 口径；计数为 rc.1 安装树实测，§1/§2 行清单仍为 rc.5 快照）
 
 > 职责：宿主官方包与服务字典（由已安装 dsh 生成）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）
@@ -9,7 +9,8 @@
 > **0.2.1-rc.5 增量**（2026-11-04 复核）：包目录 **343 → 343**（无增删），非 manifest 变更只落在 web 客户端与 ACP / MCP 的 stdout 纪律；工具面 / 事件 / 服务面 / `dsh-base` patch 与官方配置 schema **零变更**，本文件的行清单与分类无需改动（详见 `HOST-UPGRADE-0.2.1-rc.5.md`）。
 > **0.2.2-rc.1 增量**（2026-11-07 复核，源码口径）：源码 tag `dsh-v0.2.2-rc.1`，包目录 **343 → 372**（+30 / −1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）。接口面**有实质变更**：工具执行器拆成 `tool-executor-native` / `tool-executor-ptc`（`tools` 行删除 `mode` / `maxParallelSubCalls`）、`agent/request` 弃用且新增 `Agent.model`、`sessionProjections.stateOf` / `cachedSnapshot` 弃用、`fs-observation-policy` 在 base 改 `disabled: true` 并新增 `apply_patch`。**本机安装树仍为 rc.5，本文件计数与行清单未重生成**，升级后必重生成（逐项见 `HOST-UPGRADE-0.2.2-rc.1.md`）。
 > 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
-> 版本口径：**以 `0.2.1-rc.5` 实际随包分发的安装树为准**——源码 tag 口径 343 个包目录（rc.3 → rc.5 无增删）；安装树 `$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **306** 个包（其中 `dsh-*` **295** 个；2026-11-04 升级到 rc.5 后复测，与 rc.2 的 306 / 294、rc.3 的 306 / 295 **一致**），§2 的行清单与之一一对应。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。rc.5 树已复测，计数无需重生成。
+> 版本口径：**以 `0.2.2-rc.1` 实际随包分发的安装树为准**——源码 tag 口径 **372** 个包目录（rc.5 → rc.1 新增 30 / 移除 1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）；安装树 `$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **330** 个包（其中 `dsh-*` **319** 个；2026-11-07 升级到 rc.1 后复测，rc.5 时为 306 / 295）。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。**§1 / §2 的行清单尚未按 rc.1 安装树重生成**（仍是 rc.5 快照），新增包以 `HOST-UPGRADE-0.2.2-rc.1.md` §10 为准，下次整理时重生成。
+> rc.1 挂载复测（2026-11-07）：`dsh --profile fff --dump-config` 输出 **866** 行、**174** 个 `- id:` 行，其中无条件 `disabled: true` **8** 条、条件式 `disabled: !!js` **8** 条、`@dsh-toolset/*` 行 **38** 条 → 官方活跃包 **101** 个（rc.5 时为 100）；profile 的 `dsh.profile.bundles` 为 **39** 个（dsh-base + 38 个 `@dsh-toolset/*`）；`session-title-all-prompts-llm` 仍为树外加装（disabled）。
 > rc.5 挂载复测（2026-11-04）：`dsh --profile fff --dump-config` 输出 848 行、142 个 `- id:` 行，其中无条件 `disabled: true` 6 条、条件式 `disabled: !!js` 5 条、`@dsh-toolset/*` 行 34 条 → 官方活跃包 **100** 个，与 §1 的 100 项同量；`session-title-all-prompts-llm` 仍为树外加装（disabled）。
 > 采集时间：**2026-10-21**（宿主 `dsh --version` = `0.2.1-rc.2`；随包分发 306 包、fff 活跃挂载 100 个名字项（`--dump-config` 排除无条件 `disabled: true` 后），另树外加装 `session-title-all-prompts-llm`（disabled），其中 92 个计入 §1、1 个是 TUI 自插的 `tool-ask-user`。△ 该名字项计数**含被 `disabled` 关掉的行**，按 §0 判定细则修正后见 §1 与 §6）。接口与包增删的逐项对照：本次见同目录 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`，上一次见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
 > 与上一版清单（`0.1.5-rc.3`）的差异（历史记录，0.1.5-rc.3 → 0.1.7-rc.2 当时）：随包分发包 240 → 283、fff 已挂载 82 → 91；分类结构沿用旧版，逐行按新数据重写。

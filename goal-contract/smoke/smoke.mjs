@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（独立 profile: dsh-toolset-goal-contract，对齐宿主 dsh 0.2.1-rc.5）。
+ * 宿主联调 smoke（独立 profile: dsh-toolset-goal-contract，对齐宿主 dsh 0.2.2-rc.1）。
  *
  * 验证「draft → goal drop → clause readback」链路：
- *   0. 检查宿主 dsh 版本（要求 0.2.1-rc.5）
+ *   0. 检查宿主 dsh 版本（要求 0.2.2-rc.1）
  *   1. profile dsh-toolset-goal-contract 引导（幂等：headless 默认 profile 创建 →
  *      挂载本插件 link: → 同挂 task-engine link: 作共存验证；本包不依赖其服务，
  *      goal 面来自宿主 dsh-goal）
@@ -49,7 +49,7 @@ const PROFILE = "dsh-toolset-goal-contract";
 const DSH_HOME = process.env.DSH_HOME ?? path.join(homedir(), ".dsh");
 const PROFILE_DIR = path.join(DSH_HOME, "profiles", PROFILE);
 const PROFILE_PKG = path.join(PROFILE_DIR, "package.json");
-const REQUIRED_VERSION = "0.2.1-rc.5";
+const REQUIRED_VERSION = "0.2.2-rc.1";
 
 // 模型面：`SMOKE_PROVIDER` / `SMOKE_MODEL`（缺省本机 tollgate 网关上的 qwen38），
 // key 走 `TOLLGATE_API_KEY`（缺省占位值 local）。

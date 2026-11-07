@@ -113,7 +113,7 @@ L6-34 h1 标题一 ·#9f3a1c07
 
 ### 边界与限制
 
-- **读面只读**：`structure` / `blocks` / `links` 不写文件、不改宿主状态；写面只有 `replace`（按节整节替换 / 删除，见上「改写面」）。注意：`replace` 整文件重写、**绕开官方 fs-observation-policy 版本守卫与 `ctx.fs` 沙箱**（同 ast-tools 的整文件重写情形），之后官方 `edit` / `write` 可能撞 FS_STALE_VERSION；路径限本包守卫（size 上限 + isFile + 非 UTF-8 拒写）。
+- **读面只读**：`structure` / `blocks` / `links` 不写文件、不改宿主状态；写面只有 `replace`（按节整节替换 / 删除，见上「改写面」）。注意：`replace` 整文件重写、**绕开官方 fs-observation-policy 版本守卫与 `ctx.fs` 沙箱**（同 ast-tools 的整文件重写情形；`0.2.2-rc.1` 起 base 缺省关闭该行, 打开时才有守卫），打开该行后官方 `edit` / `write` 可能撞 FS_STALE_VERSION；路径限本包守卫（size 上限 + isFile + 非 UTF-8 拒写）。
 - **行范围口径与 `fs-digest` 对齐**：节 = 标题行 → 下一个「层级 ≤ 本节标题」的前一行（末节到文件末非空行），**尾部空行不计**；父子是**包含关系**（父 ⊇ 子）；块 `kind` 命名沿用 `frontmatter|code|table|list|quote`，本包另加 `html|hr`。
 - **依赖与前置**：`pnpm run check` / `build` 需要本包 `node_modules`（`marked` + devDeps）；`scripts/install.sh` 只在 `md-logic/node_modules` **不存在**时才装依赖，**改过依赖后需手动 `pnpm -C md-logic install`**（profile 以 `link:` 引用本包，其依赖由包内 `node_modules` 提供，profile 的 `pnpm install` 不装 link 包的依赖）；`--skip-build` 要求各包依赖与 `dist/` 已就绪。
 - **文档分工**：能力清单 / 配置 / 口径差异在本文件；架构与机制取舍见 `docs/DESIGN.md`；未完成项见 `docs/BACKLOG.md`；建包与变更过程见 `docs/archived/` 与 git 历史。

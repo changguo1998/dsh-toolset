@@ -169,15 +169,26 @@ export async function bootPackage(
         timeoutMs,
       );
       try {
-        return (await ctx.tools.execute({
-          callId: `e2e-${callSeq++}`,
-          name,
-          arguments: args,
+        const batch = (await ctx.tools.execute({
+          calls: [
+            {
+              type: "tool-call",
+              id: `e2e-${callSeq++}`,
+              name,
+              arguments: JSON.stringify(args),
+            },
+          ],
           ...(callOptions.agent === undefined
             ? {}
             : { agent: callOptions.agent }),
           signal: controller.signal,
-        })) as ToolResultLike;
+        })) as {
+          results: { result: ToolResultLike }[];
+        };
+        const outcome = batch.results[0];
+        if (outcome === undefined)
+          throw new Error(`${name} 调用未返回结果（rc.1 批量执行接口）`);
+        return outcome.result;
       } finally {
         clearTimeout(timer);
       }

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * 宿主联调 smoke（profile: dsh-toolset-metric-loop，对齐宿主 dsh 0.2.1-rc.5）。
+ * 宿主联调 smoke（profile: dsh-toolset-metric-loop，对齐宿主 dsh 0.2.2-rc.1）。
  *
  * 流程：
- *   0. 检查宿主 dsh 版本（要求 0.2.1-rc.5）
+ *   0. 检查宿主 dsh 版本（要求 0.2.2-rc.1）
  *   1. profile dsh-toolset-metric-loop 引导（幂等：创建 → 挂载插件 link: → 写用户层配置）
  *   2. 缺 dist 时先构建
  *   3. 真实 dsh headless 连跑三次，每次恰好推进一轮：
@@ -41,7 +41,7 @@ const PROFILE = "dsh-toolset-metric-loop";
 const DSH_HOME = process.env.DSH_HOME ?? path.join(homedir(), ".dsh");
 const PROFILE_DIR = path.join(DSH_HOME, "profiles", PROFILE);
 const PKG_NAME = "@dsh-toolset/metric-loop";
-const REQUIRED_VERSION = "0.2.1-rc.5";
+const REQUIRED_VERSION = "0.2.2-rc.1";
 const LOOP_ID = "smoke";
 
 // 模型面：`SMOKE_PROVIDER` / `SMOKE_MODEL`（缺省本机 tollgate 网关上的 qwen38），

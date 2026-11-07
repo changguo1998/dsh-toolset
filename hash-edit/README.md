@@ -92,7 +92,7 @@ bundle 契约：`name` / `inject: ["tools"]` / `Config` / `apply`；`ctx.tools` 
 
 ### 与官方 `read` / `edit` 的边界
 
-官方 `tool-fs` 的 `read` / `edit` 在 `fs-observation-policy` 下已有**文件级**「读后改前 + 版本守卫」（文件在读取后变化即拒，`FS_STALE_VERSION`；base 缺省挂载）；本包与其**并存**，分歧点是粒度与原子性——定位：文件级整文件版本号 ↔ 行级 `LINE:HASH` 锚点（1 基行号 + `sha256(行文本)` 前 8 位）；陈旧判据：文件版本变化即拒 ↔ 逐锚点比对行内容哈希（未改动的行锚点仍有效，只需重取失效锚点）；失败面：单次写入 ↔ 一次提交多条指令，任一条命中 `malformed` / `out_of_range` / `stale_anchors` / `overlapping_edits` 即**整批拒绝**、文件字节不变；写路径：宿主 fs 缝（受 `fs-sandbox` / workspace 策略围栏）↔ 直写 `node:fs`（同目录临时文件 + `rename` 原子替换，**不经宿主围栏**）。
+官方 `tool-fs` 的 `read` / `edit` 在 `fs-observation-policy` 下已有**文件级**「读后改前 + 版本守卫」（文件在读取后变化即拒，`FS_STALE_VERSION`；`0.2.2-rc.1` 起 `dsh-base` 该行缺省 `disabled: true`，需要时在 profile patch 打开）；本包与其**并存**，分歧点是粒度与原子性——定位：文件级整文件版本号 ↔ 行级 `LINE:HASH` 锚点（1 基行号 + `sha256(行文本)` 前 8 位）；陈旧判据：文件版本变化即拒 ↔ 逐锚点比对行内容哈希（未改动的行锚点仍有效，只需重取失效锚点）；失败面：单次写入 ↔ 一次提交多条指令，任一条命中 `malformed` / `out_of_range` / `stale_anchors` / `overlapping_edits` 即**整批拒绝**、文件字节不变；写路径：宿主 fs 缝（受 `fs-sandbox` / workspace 策略围栏）↔ 直写 `node:fs`（同目录临时文件 + `rename` 原子替换，**不经宿主围栏**）。
 
 分工口径：两者都留在模型工具面，靠工具描述区分——单点精确改写用 `hash_edit`，需要文件级版本守卫用宿主 `edit`；取舍与「为什么不用官方替代」见 `docs/ARCHITECTURE-REUSE.md` §2，「可选改用 `ctx.fs`」的收益（沙箱一致）与代价（写侧行为变更；其守卫是文件级、不能替代行级锚点）见 §4 D。
 

@@ -70,12 +70,26 @@
 
 ## 2. 未完成项
 
-- **#1 更新参考宿主版本到 `0.2.2-rc.1` 并升级本机安装树**〔进行中: 2026-11-07〕（登记日: 2026-11-07）
+- **#1 `agent/request` 弃用迁移: TUI 会话模型切换改走 `agent.model.select()`**〔待办: 2026-11-07〕（登记日: 2026-11-07）
 
-  - 现状: 仓库 17 个现行文件仍按 `0.2.1-rc.5` 引用（`scripts/install.sh` / `scripts/test-install.sh` / 4 个 smoke 门槛与 3 份 README / 根 devDep 与锁 / 两版 README / `docs/STATUS.md` / `docs/host/HOST-PACKAGES.md` 等, 共 41 处）; 本机 `dsh` 为 `0.2.1-rc.5`; 最新 rc = `dsh-v0.2.2-rc.1`, 接口增量与风险见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`.
-  - 期望: 全量抬到 `0.2.2-rc.1`（脚本 / smoke / 根 devDep 与锁 / 文档基线）; 全局 `dsh` 升级并 `scripts/install.sh --profile fff --sync` 重装, 按新树重生成 `HOST-PACKAGES.md` 计数; 承接原 #2 至 #6 五项跟进（已汇总进追踪文档, 本条做 #3 实测与 #6 文档口径, #2 / #4 / #5 后续）.
-  - 优先级: P1（版本基线, 阻塞后续适配）.
-  - 来源: 2026-11-07 用户任务变更（由「复核最新 rc」改为「更新参考宿主版本」, 范围含本机安装树）.
+  - 现状: `dsh-v0.2.2-rc.1` 把 `agent/request` 标弃用（原文「保留给既有监听器, 不要新增监听」）; TUI 在 `TUI/src/app/adapter/dsh.ts:234` 注册该监听, 把会话内模型 / 推理档切换应用到请求, `TUI/src/app/adapter/dsh-session.ts:184` 与 `:308` 依赖同一条路径; rc.1 上仍可用.
+  - 期望: 改用 `agent.model.select({ provider, model, reasoningEffort? })`（持久选择, 对下一步生效）, 输出上限如需按会话调整走 `AgentOptions.maxTokens`; 保留「会话内切换立即生效」与「恢复会话后选择仍生效」两个既有行为, 补对应用例.
+  - 优先级: P1.
+  - 来源: 宿主 rc.1 复核（`docs/host/HOST-UPGRADE-0.2.2-rc.1.md` §4 / §11）; 原为宿主版本更新任务的承接项 #2, 2026-11-07 重新登记（详情见 `docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md`）.
+
+- **#2 `apply_patch` 写面覆盖: security-guard 与 escalation-hint**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+
+  - 现状: rc.1 的 `tool-fs` 新增 `apply_patch`, 参数只有 `input` 补丁文本（路径写在文本里）; `security-guard/src/tool-registry.ts:12-22` 的 `FILE_TOOLS` / `WRITE_FILE_TOOLS` 未登记它, `escalation-hint/src/index.ts:31-32` 的 write / edit 类提示也未含; rc.1 出厂组合均为 `applyPatch: false`, 当前 profile 不注册该工具.
+  - 期望: 启用该工具前补齐 —— security-guard 从补丁文本解析目标路径（或整工具按写类拒绝）, escalation-hint 加同类提示, 并同步两份 README 的覆盖边界说明.
+  - 优先级: P2.
+  - 来源: 同上; 原为承接项 #4, 2026-11-07 重新登记.
+
+- **#3 `sessionProjections.stateOf(session, key)` 弃用迁移**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+
+  - 现状: rc.1 弃用该读法并打运行时警告; 本仓 `task-engine`（`tokenUsage`）、`context-report`（`sessionStats` / `sessionContext`）、`rule-engine` 用它读宿主投影单元.
+  - 期望: 能拿到领域服务的改读领域服务（如 `tokenMeter`）, 其余改用宿主公开的投影 handle 或后续替代 API; 迁移后不再出现弃用警告, 功能面零变化.
+  - 优先级: P2.
+  - 来源: 同上; 原为承接项 #5, 2026-11-07 重新登记.
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 

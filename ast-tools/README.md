@@ -106,7 +106,7 @@ pnpm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 - CLI 退出码不作为判据：`run` 无命中与 `scan` 的 error 级命中都可能非零退出而 stdout 为纯 JSON；仅在「无 JSON 且非零退出」时抛 `AstGrepProcessError`，无命中返回空数组。
 - 语言名支持别名（`js` → `javascript`、`py` → `python` 等），未知值原样透传给 CLI 校验；`replace` 要求具体文件路径，不支持目录输入。
 - 模型侧工具的渲染把 0 基坐标转 1 基（与宿主 `read` / `grep` 的行号口径一致）；要原始 0 基坐标与字节偏移，直接读工具返回值或用库 API。
-- `ast_replace` 的写回是**整文件重写**（CLI 语义）且直接 `node:fs` 写入：既不做行级锚点校验，也**绕开**官方 `fs-observation-policy` 的文件级版本守卫与 `ctx.fs` 沙箱——写回前请确认目标文件未被并发修改。需要「读后改前 + 漂移检测」用 `hash_edit`，需要文件级版本守卫用宿主 `edit`。
+- `ast_replace` 的写回是**整文件重写**（CLI 语义）且直接 `node:fs` 写入：既不做行级锚点校验，也**绕开**官方 `fs-observation-policy` 的文件级版本守卫（`0.2.2-rc.1` 起 base 缺省关闭该行, 打开时才有守卫）与 `ctx.fs` 沙箱——写回前请确认目标文件未被并发修改。需要「读后改前 + 漂移检测」用 `hash_edit`，需要文件级版本守卫先打开该行再用宿主 `edit`。
 - 两类错误分界：**入参问题**（缺参 / 互斥冲突 / 空 `paths` / 未知 action）返回 `{ error }` 值，不抛；**执行期问题**（模式或语言非法、规则 YAML 解析失败、子进程超时 / 崩溃）由库抛出，宿主转成模型可见的工具错误（含 ast-grep stderr）。`exec.signal` 取消暂未转发（与 `code-map` / `fs-digest` 同现状）。
 
 ## 测试

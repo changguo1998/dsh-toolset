@@ -1,10 +1,10 @@
-# 本仓插件与官方包的复用审计（基线 DSH 0.2.1-rc.5）
+# 本仓插件与官方包的复用审计（基线 DSH 0.2.2-rc.1）
 
 > 职责：回答「本仓 37 个包（TUI + 36 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计快照 31 包：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`；2026-11-03 补审 `coagent` / `tool-consult` / `escalation-hint`，覆盖 34 包）
-> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.1-rc.5.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
+> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.5.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.1-rc.5`（源码 tag 口径 343 个包目录；安装树 294 个 `dsh-*` 与 fff 活跃挂载 100 个官方行是 2026-10-21 的 rc.2 实测，升级后需复测）；本仓 **37 个包 = TUI + 36 个插件**（审计总表 **34 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行，**尚未覆盖** `term-check` / `pin-note` / `flow-track`；清单见 `AGENTS.md`「结构与约定」）。
+> 口径：官方基线 `dsh 0.2.2-rc.1`（源码 tag 口径 372 个包目录；安装树计数与 fff 活跃挂载数字按 2026-11-07 升级后的实测见 `docs/host/HOST-PACKAGES.md`）；本仓 **37 个包 = TUI + 36 个插件**（审计总表 **34 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行，**尚未覆盖** `term-check` / `pin-note` / `flow-track`；清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
 > 结论分布：**改用 0 / 保留 24 / 并存 10**（总表 34 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`，2026-11-03 补审 3 包：并存 1 `tool-consult`、保留 2 `coagent` / `escalation-hint`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
@@ -14,7 +14,7 @@
 
 | 包 | 官方最接近的面 | 重合度 | 结论 | 一句话理由 |
 |---|---|---|---|---|
-| `hash-edit` | `tool-fs`（`read`/`edit`）+ **`fs-observation-policy`**、`tool-str-replace-editor` | 中 | **并存** | 官方已有**文件级**「读后改前 + 版本守卫」（变更即拒 `FS_STALE_VERSION`，base 缺省挂载）；`hash-edit` 的差异化是**行级 LINE:HASH 锚点定位与漂移检测 + 整批原子拒绝**，而不是「官方没有陈旧校验」 |
+| `hash-edit` | `tool-fs`（`read`/`edit`）+ **`fs-observation-policy`**、`tool-str-replace-editor` | 中 | **并存** | 官方已有**文件级**「读后改前 + 版本守卫」（变更即拒 `FS_STALE_VERSION`；`0.2.2-rc.1` 起 base 缺省关闭, 可在 profile patch 打开）；`hash-edit` 的差异化是**行级 LINE:HASH 锚点定位与漂移检测 + 整批原子拒绝**，而不是「官方没有陈旧校验」 |
 | `fs-digest` | `tool-fs` / `fs` / `fs-local`（缝） | 低 | **保留** | 官方**没有**文件摘要 / 结构视图工具（277 包描述扫描 + 官方模型工具名全表均无 outline / digest / summary），`fs_digest` 的 outline / signatures / pruned 三模式无对应物 |
 | `session-title-cutoff` | `session-title-llm` / `session-title-all-prompts-llm` | 高（同 provider 位） | **并存** | 同占 `ctx.sessionTitle` 唯一 provider；「裁剪窗口到最近一次 git commit 之后」官方没有；已复用官方 `session-title-llm` 的生成策略（按约定路径动态 import 官方模块） |
 | `command-template` | `commands`、`workflow` / `tool-workflow` | 中 | **并存** | 「人面模板目录 + 模板级模型选择 + 多步编排」官方没有（官方只有模型侧 workflow 脚本与裸命令注册）；执行侧已复用宿主 subagents / workflow / ptc |
@@ -150,7 +150,7 @@ done
 
 | 原结论 | 修正后 | 依据 |
 |---|---|---|
-| 「官方 `edit` 无陈旧校验」 | 官方**有**文件级读后改前 + 版本守卫 | `dsh-fs-observation-policy` 描述与 README、`dsh-fs-local/lib/index.js:888`（`FS_STALE_VERSION`）、base 缺省挂载 |
+| 「官方 `edit` 无陈旧校验」 | 官方**有**文件级读后改前 + 版本守卫 | `dsh-fs-observation-policy` 描述与 README、`dsh-fs-local/lib/index.js:888`（`FS_STALE_VERSION`）、`0.2.2-rc.1` 起 base 缺省关闭（profile patch 可开） |
 | 「官方无检索 / 记忆类包」 | 官方**有**会话日志 FTS5 检索（已挂载、缺省 `openAt: never`）；缺的是知识 / 记忆语义 | `dsh-session-query-sqlite` 描述、base `cordis.patch.yml:145-152` |
 | 「`output-compress` 与官方 spill 可能双重截断」 | **不存在**：我们不回写事件，只以 spill 为上游输入做摘要入库；改为「阈值语义文档化」 | `output-compress/src/hooks.ts`（只读订阅）、`trigger.ts`（解析官方 spill 通知） |
 | 「§3 已复用官方面」凭印象填写 | 按代码实测重写（删 8 处不存在项、补 4 处漏记，LSP 标为不可达） | §3 的生成命令 |

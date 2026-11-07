@@ -13,7 +13,7 @@ pnpm run test:e2e:tui      # TUI 原有的 demo:build -- --smoke + smoke:pty
 
 ## 前置
 
-- 根 `devDependencies` 的 `@deepseek-ai/dsh` 钉在 `0.2.1-rc.5`，`dsh-base` 随之固定（宿主版本不随本机全局安装漂移）。
+- 根 `devDependencies` 的 `@deepseek-ai/dsh` 钉在 `0.2.2-rc.1`，`dsh-base` 随之固定（宿主版本不随本机全局安装漂移）。
 - 外部命令：`ast-grep`（`ast-tools`）、`python`（`script-interpreter`）、`redis-server` / `redis-cli`（`session-channel` 与 `agent-group`）、`herdr`（`herdr-use` 只读列举；`herdr-integration` 用进程内 unix socket 自足）。
 - 夹具一律写 `tmp/e2e/<随机>/`，用例结束删除；`tmp/` 已在 `.gitignore`。
 
