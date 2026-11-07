@@ -181,8 +181,9 @@ export function createSessionBridge(ctx: AdapterContext) {
    * 折叠口径（每项都是「宿主日志末条 → 快照 → 宿主默认」）：
    *  - model：末条 `model/selection`（显式意图）→ 快照 `model` → 末条
    *    `request/header.header.config`（该会话最近一次**实际使用**的 provider/model/
-   *    effort）。命中即写回 `opts.sessionModel.current`（agent/request 钩子的生效源，
-   *    也是 /model 面板与状态行的显示源）；三者都没有 → 清空会话内引用回落宿主默认。
+   *    effort）。命中即写回 `opts.sessionModel.current`（/model 面板与状态行的显示源；
+   *    请求路由已由宿主会话记录 `model/selection` 决定，不再经前端改写请求）；
+   *    三者都没有 → 清空会话内引用回落宿主默认。
    *  - mode：`plan/mode` / `sandbox/mode` / `permission/preset`；`approval/policy`
    *    同理单独成事件。宿主无记录时退回快照，再退回 permissionPresets.defaultPreset
    *    捆绑（= pinInitialPermission 会给全新会话钉上的组合），plan 无记录即 off。
@@ -305,7 +306,8 @@ export function createSessionBridge(ctx: AdapterContext) {
       pick(lastOf("model/selection")) ??
       pick(uiState?.model) ??
       pick(header?.header?.config);
-    // sessionModel 引用是 agent/request 钩子的生效源：恢复后本会话的请求就用该模型。
+    // sessionModel 引用只做显示同步：恢复后本会话的请求路由由宿主会话记录
+    // （`model/selection` / 最近 request header）决定，前端不再改写请求。
     // 三者皆无 → 回到初始种子（config 固定模型；无种子即 undefined → 回落宿主实时默认），
     // 避免「上一个会话的选择」泄漏进本会话，也不把 config 固定的模型清掉。
     if (opts.sessionModel)
@@ -746,7 +748,31 @@ export function createSessionBridge(ctx: AdapterContext) {
       if (!opts.sessionModel) {
         throw new Error("会话模型引用未注入，无法切换模型");
       }
-      // 只改会话语义内的引用，绝不写宿主 settings（避免覆盖配置默认模型）
+      const agent = s.activeCommandAgent as
+        | {
+            model?: {
+              select?: (selection: {
+                provider: string;
+                model: string;
+                reasoningEffort?: string;
+              }) => void;
+            };
+          }
+        | undefined;
+      const model = agent?.model;
+      if (model === undefined || typeof model.select !== "function") {
+        throw new Error("宿主未暴露 agent.model.select，无法切换模型");
+      }
+      // 正规入口：宿主把选择持久记成 model/selection 事件，对下一步生效。
+      // 省略 effort 表示跟随适配器默认（不继承上一个 effort）。
+      model.select({
+        provider: sel.provider,
+        model: sel.model,
+        ...(sel.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: sel.reasoningEffort }),
+      });
+      // 前端引用只做显示与兜底；绝不写宿主 settings（避免覆盖配置默认模型）
       opts.sessionModel.current = sel;
       return sel;
     },

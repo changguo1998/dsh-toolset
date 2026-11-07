@@ -20,10 +20,9 @@ export interface ModelReasoning {
   defaultEffort?: string | undefined;
 }
 
-/** 会话级模型选择引用：current 应用于下一 step；assembled 为当前 step 组装时的快照 */
+/** 会话级模型选择引用：current 是用户选择（显示与目录兜底用；请求路由由宿主 `agent.model.select()` 承担） */
 export interface SessionModelSelectionRef {
   current: ModelSelection | undefined;
-  assembled?: ModelSelection | undefined;
 }
 
 export interface ModelCatalog {

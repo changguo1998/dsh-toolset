@@ -36,14 +36,7 @@
 // answerQuestion(id, {answers}) 映射为整批回答 resolve；Esc/cancel → reject；
 // signal 中断 → reject。单活动请求守卫：已有待答提问时直接 reject（单面板约束）。
 
-import type {
-  DshAdapter,
-  ModelSelection,
-  SessionModelSelectionRef,
-  SessionEvent,
-  DshRuntime,
-  RealAdapterOptions,
-} from "./types.ts";
+import type { DshAdapter, SessionEvent, RealAdapterOptions } from "./types.ts";
 import { parseSlashCommand } from "./normalize.ts";
 
 // 会话目录定位/删除（兼容旧 import 路径：实现已移到 ./session-paths.ts）
@@ -199,60 +192,6 @@ export {
   parseContractObjective,
 } from "./contracts.ts";
 export { aggregateSearchSources } from "./search-aggregate.ts";
-
-/**
- * 镜像官方 @deepseek-ai/dsh-agent installModelSelection：挂钩 agentCtx 的
- * system-prompt/assemble 与 agent/request waterfall，把 ref.current 应用到
- * 下一 step 请求(provider/model + 可选 effort)。assembled 快照保证切换不撕裂
- * 当步请求(prompt 组装先于 request，二者读同一快照)。零运行时依赖，仅用结构面。
- */
-export function installSessionModelSelection(
-  ctx: DshRuntime,
-  ref: SessionModelSelectionRef,
-  /** 未切换时的实时兜底（宿主 agentDefaultModel.currentSelection，read-only） */
-  fallback?: () => ModelSelection | undefined,
-): () => void {
-  const unbinds: Array<(() => void) | void> = [];
-  unbinds.push(
-    ctx.on("system-prompt/assemble", async (_assembly, _context, next) => {
-      // 有效选择 = 会话内切换 ?? 宿主实时默认；settings 热加载完成后自动生效
-      const selected = ref.current ?? fallback?.();
-      const assembled = await (next as () => unknown)();
-      ref.assembled = selected;
-      if (selected === undefined) return assembled;
-      return {
-        ...(assembled as object),
-        variables: {
-          ...(assembled as { variables?: object }).variables,
-          provider: selected.provider,
-          model: selected.model,
-        },
-      } as unknown;
-    }),
-  );
-  unbinds.push(
-    ctx.on("agent/request", async (_payload, next) => {
-      const resolved = await (next as () => unknown)();
-      const selected = ref.assembled;
-      if (selected === undefined) return resolved;
-      const { reasoningEffort: _inherited, ...rest } = resolved as {
-        reasoningEffort?: string;
-        [k: string]: unknown;
-      };
-      return {
-        ...rest,
-        provider: selected.provider,
-        model: selected.model,
-        ...(selected.reasoningEffort
-          ? { reasoningEffort: selected.reasoningEffort }
-          : {}),
-      } as unknown;
-    }),
-  );
-  return () => {
-    for (const u of unbinds) if (typeof u === "function") u();
-  };
-}
 
 // ---- 真实适配层装配（2026-11-04 拆分: 状态收进 context.ts, 职责拆进 dsh-*.ts） ----
 import { createAdapterContext } from "./context.ts";

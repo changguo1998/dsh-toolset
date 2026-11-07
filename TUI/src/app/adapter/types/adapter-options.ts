@@ -75,7 +75,7 @@ export interface RealAdapterOptions {
   interrupt?: (() => void) | undefined;
   /** ctx.get('llm') 服务（dsh-llm LlmRuntime）结构面 */
   llm?: LlmLike | undefined;
-  /** 会话级模型选择引用；提供时 setSessionModel 只改 ref、不落盘 */
+  /** 会话级模型选择引用；提供时 setSessionModel 写引用做显示, 并经宿主 `agent.model.select()` 生效 */
   sessionModel?: SessionModelSelectionRef | undefined;
   /** ctx.get('agentDefaultModel') 服务（只读兜底：会话未切换时作为目录/状态显示与组装默认） */
   defaultModel?: AgentDefaultModelLike | undefined;
@@ -88,8 +88,8 @@ export interface RealAdapterOptions {
   sessions?: SessionStoreLike | undefined;
   /** ctx.agents（resume 持久化会话用）；缺失时 resumeTo 提示不可用 */
   agents?: AgentRegistryLike | undefined;
-  /** 创建/resume agent 时注入的 setup（挂 installSessionModelSelection / installToolBootstrap）；
-   *  传给 agents.resume 保持钩子在新会话同样生效 */
+  /** 创建/resume agent 时注入的 setup（通用钩子；模型选择已改走宿主 `agent.model.select()`,
+   *  当前主流程不再注入）；传给 agents.resume 保持钩子在新会话同样生效 */
   setup?: (agentCtx: unknown) => unknown | undefined;
   /** 创建 agent 时的 agentOptions（route provider/model/effort），resume 时沿用 */
   agentOptions?: Record<string, unknown> | undefined;

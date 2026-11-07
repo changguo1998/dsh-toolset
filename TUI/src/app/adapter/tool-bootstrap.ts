@@ -33,11 +33,10 @@
 // 消息构造为纯函数：shouldAutoKickoff / buildBootstrapKickoffMessage。
 //
 // 当前状态（2026-10-05 用户裁定）：本引导的挂载点与启动自检调用点均已按「注释而非删除」
-// 停用（见 main.ts 的 makeSetup 与两处 kickoff 门控），实现原样保留；
-// 恢复 = 取消那几处注释。
+// 停用（见 main.ts 的 setup 注释与两处 kickoff 门控），实现原样保留；
+// 恢复 = 重新接线 setup 钩子。
 //
-// 零运行时依赖，仅用 DshRuntime 结构面（ctx.on），与 installSessionModelSelection
-// 挂钩同一条 system-prompt/assemble waterfall，顺序无关可共存。
+// 零运行时依赖，仅用 DshRuntime 结构面（ctx.on），挂 system-prompt/assemble waterfall。
 
 import { randomUUID } from "node:crypto";
 
@@ -384,7 +383,7 @@ export function newSessionKickoffText(options: {
 /**
  * 挂接 agentCtx 的 system-prompt/assemble：对全部 deepseek-* 模型（默认门控）在
  * 首请求锁定工具目录 + persona-only，首次 durable tool/call 后恢复全量。
- * 返回解绑函数（与 installSessionModelSelection 同构）；setup 内 void 丢弃。
+ * 返回解绑函数；由 setup 内 void 丢弃。
  */
 export function installToolBootstrap(
   ctx: DshRuntime,

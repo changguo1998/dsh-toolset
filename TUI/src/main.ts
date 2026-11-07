@@ -50,10 +50,8 @@ import type {
 import type { BlockDelivery } from "./app/layout/pipeline/types.ts";
 import {
   createRealDshAdapter,
-  installSessionModelSelection,
   listSessionRecords,
   pickRecentSession,
-  readDefaultSelection,
   type SessionModelSelectionRef,
   type DshAgentLike,
   type DshCommandLike,
@@ -659,9 +657,10 @@ export async function apply(
           }
         : {};
 
-  // 会话内模型选择引用：仅显式 config 固定种子；宿主默认(settings)交由实时兜底
-  // `readDefaultSelection(defaultModelSvc)`，避免启动时序吞掉热加载的设置。
-  // /model 切换只改该引用，绝不调用宿主的 saveSelection——避免覆盖配置中的默认模型。
+  // 会话内模型选择引用：仅显式 config 固定种子；宿主默认(settings)由适配层按实时服务读取，
+  // 避免启动时序吞掉热加载的设置。
+  // /model 切换同时调宿主 `Agent.model.select()`（会话记录）并更新该引用（显示），
+  // 绝不调用宿主的 saveSelection——避免覆盖配置中的默认模型。
   const sessionModel: SessionModelSelectionRef = {
     current:
       config?.provider && config?.model
@@ -675,22 +674,9 @@ export async function apply(
         : undefined,
   };
 
-  // 会话钩子（模型选择 + 锚定工具引导）：create/resume 共用同一 setup。
-  // 注意：返回离谱值会被宿主当 commit 处理失败，故 setup 只 void 挂载。
-  const makeSetup = (): ((agentCtx: unknown) => unknown) => (agentCtx) => {
-    void installSessionModelSelection(
-      agentCtx as DshRuntime,
-      sessionModel,
-      () => readDefaultSelection(defaultModelSvc),
-    );
-    // 锚定工具引导：全部 deepseek-* 模型触发锁定-释放；开关可配置关停
-    // 2026-10-05 用户裁定**不要锁定**：按「注释而非删除」停用挂载（实现原样保留）；
-    // 恢复 = 取消下面注释（`toolBootstrap` 开关随挂载一并恢复生效），并补回
-    // `installToolBootstrap` 的 import（2026-10-10 死代码清理摘掉）。
-    // void installToolBootstrap(agentCtx as DshRuntime, {
-    //   enabled: config?.toolBootstrap ?? true,
-    // });
-  };
+  // 会话级模型选择改由宿主 `Agent.model.select()` 承担（适配层 setSessionModel 内调用），
+  // create/resume 不再注入 setup 钩子（旧 `agent/request` 改写路由在 rc.1 会直接抛错）。
+  // 锚定工具引导仍停用（2026-10-05 裁定「不要锁定」, 实现原样保留在 tool-bootstrap.ts）。
   /** 新建会话（既有路径） */
   const createNewSession = async (): Promise<{
     agent: unknown;
@@ -701,10 +687,9 @@ export async function apply(
       sessionId: "tui-" + randomUUID(),
       meta: { cwd: config?.cwd ?? process.cwd() },
       agentOptions: route,
-      setup: makeSetup(),
     });
   };
-  /** 恢复持久化会话（与 /session 切换同语义：agents.resume + 同一 setup/route） */
+  /** 恢复持久化会话（与 /session 切换同语义：agents.resume + 同一 route） */
   const resumeSession = async (
     id: string,
   ): Promise<{ agent: unknown; dispose(): Promise<void> }> => {
@@ -714,7 +699,6 @@ export async function apply(
     return agents.resume({
       resumeSessionId: id,
       agentOptions: route,
-      setup: makeSetup(),
     });
   };
 
@@ -813,9 +797,8 @@ export async function apply(
     agent: agentLike,
     commandAgent: rawAgent,
     interrupt: () => rawAgent.cancel?.({ kind: "user" }),
-    // 会话切换（resume）：agents 注册表 + 与 create 相同的钩子/路由，handle 由 adapter 接管释放
+    // 会话切换（resume）：agents 注册表 + 与 create 相同的路由，handle 由 adapter 接管释放
     agents: agents as AgentRegistryLike | undefined,
-    setup: makeSetup(),
     agentOptions: route,
     // /new 新建会话沿用同一 meta（与上面 agents.create 一致，决定会话目录 slug）
     sessionMeta: { cwd: config?.cwd ?? process.cwd() },
