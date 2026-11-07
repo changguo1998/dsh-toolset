@@ -70,12 +70,40 @@
 
 ## 2. 未完成项
 
-- **#1 宿主仓拉取最新提交并复核最新 rc 的接口更新**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+- **#2 `agent/request` 弃用迁移: TUI 会话模型切换改走 `agent.model.select()`**〔待办: 2026-11-07〕（登记日: 2026-11-07）
 
-  - 现状: 本机 `dsh` 为 `0.2.1-rc.5`; 官方 clone `~/GithubRepos/deepseek-harness` 停在 `master` 的 `8bd073392e`（2026-11-03, 属 `0.2.2-alpha` 线, 距 tag `dsh-v0.2.2-alpha.3` 555 个提交）, 本地可见的最新 rc tag 仍是 `dsh-v0.2.1-rc.5`; 上一轮接口复核只覆盖到 rc.5（`docs/host/HOST-UPGRADE-0.2.1-rc.5.md`）.
-  - 期望: 先 `git fetch --tags` 并把 `master` 快进到远端, 确认最新 rc tag; 对比 `dsh-v0.2.1-rc.5..<最新 rc>` 的接口面增量（模型侧工具面 / 会话与工具事件 / 进程内服务面 / `bundle` 与 `base` patch / 包目录计数 / `session-paths` 编码四函数）, 产出 `docs/host/HOST-UPGRADE-<版本>.md`, 逐类给出本仓 37 个插件的影响判定与是否需适配; 若最新 rc tag 仍为 rc.5, 记录「无 rc 增量」并说明 alpha 线已前进了什么, 随后收尾.
-  - 优先级: P1（接口面漂移直接影响插件兼容）.
-  - 来源: 2026-11-07 用户提出. `0.2.2-alpha` 线本身不在本条范围（2026-11-04 用户裁定不立项, 见 `docs/archived/2026-11-04-host-upgrade-0.2.1-rc.5-install.md:39`）, 只在「最新 rc 无增量」时作为说明附上.
+  - 现状: `dsh-v0.2.2-rc.1` 把 `agent/request` 标弃用（原文「保留给既有监听器, 不要新增监听」）; TUI 在 `TUI/src/app/adapter/dsh.ts:234` 注册该监听, 把会话内模型 / 推理档切换应用到请求, `TUI/src/app/adapter/dsh-session.ts:184` 与 `:308` 依赖同一条路径; rc.1 上仍可用.
+  - 期望: 改用 `agent.model.select({ provider, model, reasoningEffort? })`（持久选择, 对下一步生效）, 输出上限如需按会话调整走 `AgentOptions.maxTokens`; 保留"会话内切换立即生效"与"恢复会话后选择仍生效"两个既有行为, 补对应用例.
+  - 优先级: P1.
+  - 来源: 2026-11-07 宿主 rc.1 复核（`docs/host/HOST-UPGRADE-0.2.2-rc.1.md` §4 / §11）.
+
+- **#3 核实子代理显式路由在 rc.1 的授权行为**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+
+  - 现状: rc.1 新增 `/model-selection-settings` 路由授权, 无记录时只允许父路由; 本仓 `command-template/src/subagent.ts:75` 与 `task-engine/src/subagent.ts:221` 通过 `ctx.subagents.start` 传 `{ provider, model }`; 官方指南只写模型侧工具与执行期, 编程式 start 是否同受约束**未验证**.
+  - 期望: 本机升到 rc.1 后实测一次显式路由的子代理启动; 若被拒, 二选一 —— profile 记录 `allowedModels`, 或把模板级 / 叶子模型收回到父路由并在两侧 README 写明边界.
+  - 优先级: P1（决定升级后模板级模型是否仍可用）.
+  - 来源: 同上 §8 / §11.
+
+- **#4 `apply_patch` 写面覆盖: security-guard 与 escalation-hint**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+
+  - 现状: rc.1 的 `tool-fs` 新增 `apply_patch`, 参数只有 `input` 补丁文本（路径写在文本里）; `security-guard/src/tool-registry.ts:12-22` 的 `FILE_TOOLS` / `WRITE_FILE_TOOLS` 未登记它, `escalation-hint/src/index.ts:31-32` 的 write / edit 类提示也未含; base 缺省 `applyPatch: false`, fff 今天不注册该工具.
+  - 期望: 启用该工具前补齐 —— security-guard 从补丁文本解析目标路径（或整工具按写类拒绝）, escalation-hint 加同类提示, 并同步两份 README 的覆盖边界说明.
+  - 优先级: P2.
+  - 来源: 同上 §6 / §11.
+
+- **#5 `sessionProjections.stateOf(session, key)` 弃用迁移**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+
+  - 现状: rc.1 弃用该读法并打运行时警告; 本仓 `task-engine`（`tokenUsage`）、`context-report`（`sessionStats` / `sessionContext`）、`rule-engine` 用它读宿主投影单元.
+  - 期望: 能拿到领域服务的改读领域服务（如 `tokenMeter`）, 其余改用宿主公开的投影 handle 或后续替代 API; 迁移后不再出现弃用警告, 功能面零变化.
+  - 优先级: P2.
+  - 来源: 同上 §5 / §11.
+
+- **#6 `fs-observation-policy` 缺省关闭的文档口径同步**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+
+  - 现状: rc.1 的 `dsh-base` 把 `fs-observation-policy` 改 `disabled: true`（官方 `write` / `edit` 不再有读后改前与版本守卫）; `hash-edit` / `ast-tools` / `md-logic` 的 README 与 `docs/ARCHITECTURE-REUSE.md` 仍按「base 缺省挂载守卫」表述.
+  - 期望: 升级到 rc.1 后按实际挂载改口径（同时写明可用 profile patch 恢复该行）, 或升级前先决定恢复并只改实现不动文档.
+  - 优先级: P2.
+  - 来源: 同上 §6.
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 

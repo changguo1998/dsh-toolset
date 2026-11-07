@@ -9,6 +9,7 @@
 > 版本口径：以 `dsh-v0.1.7-rc.2` 为准。源码若演进，以仓库为准。
 > 2026-10-27 rc.3 复核：`dsh-v0.2.1-rc.2..dsh-v0.2.1-rc.3` 对进程内接口面（ctx 服务 / 事件 / patch DSL / 启动契约 / 我们挂载的官方配置 schema）**零变更**——`packages/core` / `host` / `session` / `boot` / `interaction` / `compaction` 只有版本号变化，`bundle/base` patch 未变；唯一行为变更在 LLM 路由（官方 `/models` 列表，见 `HOST-UPGRADE-0.2.1-rc.3.md`）。故本文正文未改版，仍以 `dsh-v0.1.7-rc.2` 为逐条研读基线。
 > 2026-11-04 rc.5 复核：`dsh-v0.2.1-rc.3..dsh-v0.2.1-rc.5` 同样**零接口面变更**（工具面 / 事件 / 服务面 / `bundle/base` patch 全无改动；非 manifest 变更只落在 web 客户端槽契约与 ACP / MCP 的 stdout 纪律），正文研读基线不变；见 `HOST-UPGRADE-0.2.1-rc.5.md`。
+> 2026-11-07 rc.1 复核：`dsh-v0.2.1-rc.5..dsh-v0.2.2-rc.1` 是**首个有实质接口面变更的区间** —— 工具执行器拆分与 `ToolRuntime` → `ToolsService`（别名保留）、`agent/request` 弃用与 `Agent.model` 新增、`sessionProjections.stateOf` / `cachedSnapshot` 弃用、`fs-observation-policy` 在 base 缺省关闭 + 新增 `apply_patch`。正文逐条研读基线仍为 `dsh-v0.1.7-rc.2`（未逐条改版）；增量与影响判定见 `HOST-UPGRADE-0.2.2-rc.1.md`。
 >
 > 复核范围：正文宿主事实已按 rc.2 逐条核对；§6 的 TUI 实现建议与 §8 表的 TUI 列属本仓内部契约，不在宿主核对范围内。
 
