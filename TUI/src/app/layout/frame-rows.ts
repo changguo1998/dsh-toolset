@@ -7,6 +7,7 @@ import { hintLine } from "./hints.ts";
 import { focusColor } from "./focus-frame.ts";
 import { displayWidth } from "./markdown.ts";
 import { wrapLine } from "./primitives.ts";
+import { truncateRows } from "./wrap-core.ts";
 
 // TUI/src/app/layout/frame-rows.ts — 帧行基础（行文本 / 提示行折行 / 窗口常量 / 滚动量）
 
@@ -71,7 +72,12 @@ export function wrapHintLine(
     if (displayWidth(row) <= width) out.push(row);
     else out.push(...wrapLine(row, width));
   }
-  return out.length > 0 ? out.slice(0, Math.max(1, maxRows)) : [""];
+  // 行数预算走核的同一套取窗口（`maxRows` + 不贴符），与工具行 / 状态列同口径
+  const kept = truncateRows(
+    (out.length > 0 ? out : [""]).map((row) => [{ text: row }]),
+    { maxRows: Math.max(1, maxRows), hint: "none" },
+  );
+  return kept.map((row) => row.map((s) => s.text).join(""));
 }
 
 /** 当前状态提示行占用行数（frameGeometry 用它定提示行高；至少 1 行，空文案也占位） */

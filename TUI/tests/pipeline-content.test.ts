@@ -149,6 +149,25 @@ test("桥：工具批 → activity 名字/参数/结果行带 rowKind 映射 kin
   assert.ok(textOf(nameRow).includes("bash"), "名字行含工具名");
 });
 
+test("桥：工具结果超 5 行时按通用 middle 截断（前 3 + 后 2，第 3 行尾 `…`）", () => {
+  const lines = Array.from({ length: 10 }, (_, i) => `线${i + 1}`);
+  const s = section({
+    id: "1:1:0",
+    calls: [{ callId: "c1", name: "bash", args: '{"command":"ls"}' }],
+    results: [{ callId: "c1", ok: true, detail: lines.join("\n") }],
+  });
+  const items = paneOf([s], "turn");
+  const r = renderPaneNew(items, "activity", { width: 40, vw: 40 });
+  const resultRows = r.rows.filter((x) => x.kind === "tool-result");
+  assert.equal(resultRows.length, 5, "结果行最多 5 行");
+  assert.ok(
+    textOf(resultRows[2]!).trimEnd().endsWith("…"),
+    `第 3 行行尾应贴 …：${textOf(resultRows[2]!)}`,
+  );
+  assert.ok(textOf(resultRows[3]!).includes("线9"), "第 4 行 = 倒数第 2 行");
+  assert.ok(textOf(resultRows[4]!).includes("线10"), "第 5 行 = 末行");
+});
+
 test("桥：Gap → dialogue 裸空行 kind=plain（空行唯一来源）", () => {
   // 用户 → 终态正文之间插 Gap
   const u = section({

@@ -27,7 +27,6 @@ export {
   TOOL_CONT_INDENT,
   USER_MIN_LEFT_GUTTER,
   userMaxBodyWidth,
-  wrapToolCallText,
 } from "./layout/content-rules.ts";
 export {
   charWidth,

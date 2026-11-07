@@ -4,7 +4,11 @@
 // 两者轮流执行；`widthLocked` / `heightLocked` 一旦置位，后续写入跳过。
 // 分配按 fixed > ratio > auto > fill 的顺序更新，每次只推一种。
 
-import { wrapLine, truncateToWidth } from "./primitives.ts";
+import {
+  segmentsToChars,
+  wrapStyledChars,
+  type WrapSpec,
+} from "./wrap-core.ts";
 import { displayWidth } from "./markdown.ts";
 import type {
   Node,
@@ -386,7 +390,7 @@ function measureLeaf(
   const width = Math.max(1, node.width);
   const { prefixW, suffixW, indent, hanging } = paraWidthCtx(node);
   const text = node.kind === "styled" ? styledText(node) : node.text;
-  const wrap = node.wrap !== false;
+  const wrapSpec = node.wrap;
   const balance = node.balance === true && !text.includes("\n");
   const body = Math.max(1, width - suffixW);
   const firstW = Math.max(1, body - indent - prefixW);
@@ -394,10 +398,10 @@ function measureLeaf(
   // 平衡折行：按收窄列宽折；Paragraph 不拆物理行（\n 当普通字符，与 fill 一致），
   // StyledText 才按 \n 切物理行
   const rows = balance
-    ? paragraphRows(text, balancedWidthFor(text, firstW), wrap)
+    ? paragraphRows(text, balancedWidthFor(text, firstW), wrapSpec)
     : node.kind === "text"
-      ? paragraphRowsNoSplit(text, firstW, contW, wrap)
-      : paragraphRows(text, firstW, wrap);
+      ? paragraphRowsNoSplit(text, firstW, contW, wrapSpec)
+      : paragraphRows(text, firstW, wrapSpec);
   if (node.heightLocked !== true && heightStyleOf(node) === "auto") {
     node.height = rows.length;
     // 宽度锁定后内容高才算最终；平衡折行反过来先锁高，下一轮再锁宽
@@ -425,13 +429,14 @@ function measureLeaf(
   }
 }
 
-/** 段落正文折行；wrap=false 时单行截断 */
-function wrapParagraph(text: string, width: number, wrap: boolean): string[] {
-  if (!wrap) {
-    if (displayWidth(text) <= width) return [text];
-    return [`${truncateToWidth(text, Math.max(0, width - 1))}…`];
-  }
-  return wrapLine(text, width);
+/** 段落正文折行：交折行核（属性含断点口径 / 行数上限 / 隐藏提示） */
+function wrapParagraph(text: string, width: number, spec?: WrapSpec): string[] {
+  const rows = wrapStyledChars({
+    chars: segmentsToChars([{ text }]),
+    limit: () => Math.max(1, width),
+    ...(spec === undefined ? {} : { spec }),
+  });
+  return rows.map((row) => row.map((s) => s.text).join(""));
 }
 
 /** 首行/续行可用宽与缩进（prefix/suffix 先占列）；Paragraph 与 StyledText 共享 */
@@ -452,7 +457,7 @@ function styledText(node: StyledText): string {
 function paragraphRows(
   text: string,
   wrapWidth: number,
-  wrap: boolean,
+  spec?: WrapSpec,
 ): string[] {
   const rows: string[] = [];
   // 全部按同一折行宽折（与 fill 行内 markdown 折行口径一致）
@@ -461,7 +466,7 @@ function paragraphRows(
       rows.push("");
       continue;
     }
-    rows.push(...wrapParagraph(line, Math.max(1, wrapWidth), wrap));
+    rows.push(...wrapParagraph(line, Math.max(1, wrapWidth), spec));
   }
   if (rows.length === 0) rows.push("");
   return rows;
@@ -472,10 +477,10 @@ function paragraphRowsNoSplit(
   text: string,
   wrapWidth: number,
   contWidth: number,
-  wrap: boolean,
+  spec?: WrapSpec,
 ): string[] {
   void contWidth;
-  const rows = wrapParagraph(text, Math.max(1, wrapWidth), wrap);
+  const rows = wrapParagraph(text, Math.max(1, wrapWidth), spec);
   if (rows.length === 0) rows.push("");
   return rows;
 }
@@ -484,7 +489,7 @@ function paragraphRowsNoSplit(
 function balancedWidthFor(text: string, maxWidth: number): number {
   if (text.includes("\n") || maxWidth <= 0) return maxWidth;
   const rowsAt = (w: number): number =>
-    wrapParagraph(text, Math.max(1, w), true).length;
+    wrapParagraph(text, Math.max(1, w)).length;
   const rows = rowsAt(maxWidth);
   if (rows <= 1) return maxWidth;
   const total = displayWidth(text);

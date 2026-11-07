@@ -145,7 +145,9 @@ export function buildApprovalBox(
   const descLeaves = desc.map((row, i) => {
     if (!scrolled) {
       const lead = descFocused ? seg("┃", { fg: "yellow" }) : seg(" "); // 内容不足一屏：不解焦时保持行首 1 列缩进
-      return styled([lead, ...row.segments], { wrap: false });
+      return styled([lead, ...row.segments], {
+        wrap: { mode: "none", hint: "none" },
+      });
     }
     const onThumb = i >= thumbPos && i < thumbPos + thumbLen;
     return styled(
@@ -155,7 +157,7 @@ export function buildApprovalBox(
         }),
         ...row.segments,
       ],
-      { wrap: false },
+      { wrap: { mode: "none", hint: "none" } },
     );
   });
   // 选项窗（3.2.4 / 3.2.6）：两项固定「批准 / 拒绝」，编号与数字直答一致；拒绝项行尾
@@ -182,7 +184,7 @@ export function buildApprovalBox(
         ),
         seg(label + tail),
       ],
-      { wrap: false },
+      { wrap: { mode: "none", hint: "none" } },
     );
   });
   const padding = Math.max(0, optRows - optionLeaves.length);

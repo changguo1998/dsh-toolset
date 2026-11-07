@@ -5,7 +5,6 @@
 
 import type { ColorName } from "../../renderer/theme.ts";
 import type { NoticeTone } from "../adapter/dsh.ts";
-import { charWidth } from "./markdown.ts";
 
 // ---------------- 字形与分隔 ----------------
 
@@ -60,38 +59,6 @@ export const TOOL_INTERRUPTED_GLYPH = "■";
 /** 成功 / 失败标记（管线按结果写死，帧层不改色） */
 export const TOOL_OK_GLYPH = "✓";
 export const TOOL_FAIL_GLYPH = "✗";
-
-/**
- * 工具调用行折行（含续行缩进）：整体首行不缩进、可用全宽；其余行——同段软换行的
- * 续行、参数内显式换行后的各行——统一缩进 TOOL_CONT_INDENT 列，且折行宽度扣掉缩进，
- * 保证缩进后每行总宽不超 width（行首超宽字符仍强制放下，不丢字符）。
- * 参数内空行保留（与 split("\n") 语义一致）；窄窗口（width ≤ 缩进）降级不缩进，
- * 避免缩进本身溢出。
- */
-export function wrapToolCallText(text: string, width: number): string[] {
-  const indent = width > TOOL_CONT_INDENT ? TOOL_CONT_INDENT : 0;
-  const rows: string[] = [];
-  let cur = "";
-  let curW = 0;
-  // 当前行落盘：整体首行原样，其余行加续行缩进
-  const flush = (): void => {
-    rows.push(rows.length === 0 ? cur : " ".repeat(indent) + cur);
-    cur = "";
-    curW = 0;
-  };
-  for (const seg2 of text === "" ? [""] : text.split("\n")) {
-    for (const ch of seg2) {
-      const w = charWidth(ch);
-      // 可用宽度：首行全宽，续行扣掉缩进
-      const avail = Math.max(1, width - (rows.length === 0 ? 0 : indent));
-      if (curW > 0 && curW + w > avail) flush();
-      cur += ch;
-      curW += w;
-    }
-    flush(); // 段末（参数内显式换行 / 末段收尾）
-  }
-  return rows;
-}
 
 // ---------------- 工具行分组/判定/渲染 ----------------
 

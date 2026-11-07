@@ -20,6 +20,8 @@ import {
 } from "./markdown.ts";
 import { seg, rowWidth2 } from "./primitives.ts";
 import { layout } from "./measure.ts";
+import { segmentsToChars, wrapIsNone, wrapStyledChars } from "./wrap-core.ts";
+import type { WrapSpec } from "./wrap-core.ts";
 
 /** fill 上下文：视口宽（装饰降级判定） */
 export interface FillContext {
@@ -378,12 +380,19 @@ function fillParagraph(
   }
   // 与旧管线一致：assistant 正文整串交给解析器（跨 \n 不预拆，
   // 与 wrapAssistantLine/wrapCodeLine 的逐字符折行行为对齐）；plain 类走 StyledText。
-  // wrap:false（面板行等精确行长）：仅按 \n 切物理行，不软折行——
-  // 超宽整行保留（与旧 render 面板「一字符串一行」语义一致，右缘由装饰补齐）
-  // wrap:false：仅按 \n 切物理行，不软折行（面板行精确行长）
+  // 不折行属性（`{ mode: "none" }` 与迁移期布尔 false）：仅按 \n 切物理行，不软折行，
+  // 超宽整行保留（面板行精确行长，右缘由装饰补齐）。
+  const spec = p.wrap;
   let rows: FrameSegment[][];
-  if (p.wrap === false) {
+  if (wrapIsNone(p.wrap)) {
     rows = p.text.split("\n").map((l) => (l === "" ? [seg("")] : [seg(l)]));
+  } else if (spec !== undefined) {
+    // 叶子显式给了折行属性（按词 / 行数预算 / 隐藏提示）：交核按属性折行
+    rows = wrapStyledChars({
+      chars: segmentsToChars([{ text: p.text }]),
+      limit: () => bodyW,
+      spec,
+    });
   } else if (p.fillBg) {
     rows = wrapCodeLine(p.text, bodyW);
   } else {
@@ -440,10 +449,9 @@ function fillStyled(
     p.balance === true && !segs.some((s) => s.text.includes("\n"))
       ? balancedWidth(segs, bodyW, hanging)
       : bodyW;
-  const rows: FrameSegment[][] =
-    p.wrap === false
-      ? splitPhysical(segs)
-      : splitAndWrapSegments(segs, balanced, hanging);
+  const rows: FrameSegment[][] = wrapIsNone(p.wrap)
+    ? splitPhysical(segs)
+    : splitAndWrapSegments(segs, balanced, hanging, p.wrap);
   const content = decorateRows(
     p,
     rows,
@@ -494,6 +502,7 @@ function splitAndWrapSegments(
   segs: FrameSegment[],
   width: number,
   hanging: number,
+  spec?: WrapSpec,
 ): FrameSegment[][] {
   const out: FrameSegment[][] = [];
   // 先按 \n 把段切成一串「物理行段」
@@ -516,7 +525,9 @@ function splitAndWrapSegments(
     const w = out.length === 0 ? width : Math.max(1, width - hanging);
     // 首物理行传 hanging（软折行续行减 hanging）；后续物理行基宽已含
     // hanging 减法，再传 0 避免双重减宽（width - 2*hanging）
-    out.push(...wrapFrameSegments(line, w, out.length === 0 ? hanging : 0));
+    out.push(
+      ...wrapFrameSegments(line, w, out.length === 0 ? hanging : 0, spec),
+    );
   }
   return out;
 }

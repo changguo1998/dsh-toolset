@@ -34,7 +34,7 @@ interface NodeBase {
     style?: FrameStyle;             //   缺省无样式（默认前景；对齐旧 turn 分隔线）
   };
   fillBg?: boolean;                 // 底色铺满分配宽度（代码块用；行内代码只在文字上着色）
-  wrap?: boolean;                   // 默认 true；false = 单行截断不换行
+  wrap?: WrapSpec;                  // 折行属性（mode / maxRows / hint，缺省 char + 0 + tail）
 }
 
 /** 兄弟项之间的分隔线（结构性，随子项增删；首尾不画） */
@@ -104,7 +104,7 @@ type Height =
 - **`prefix` 测量**：前缀按显示宽度占列；`prefix.width = charWidth(prefix.text)`；正文可用宽 = 分配宽 − `indent` − `prefix.width`（§5 规则 3）。
 - **`suffix` 测量**：后缀占列并入总宽（`w = max(首行 overhead, 续行 overhead) + suffix.width`，挂在最右）；正文可用宽 = 分配宽 − `indent` − `prefix.width` − `suffix.width`（保证正文折行不溢出越过后缀列）。
 - **`tail` 测量**：不占测量宽（flex 填充，fill 阶段补到分配宽；measure 不因 tail 增加行数与宽度）。
-- **`wrap: false`**：不换行、单行截断加省略号；截断按显示宽度不切半个 CJK。
+- **`wrap`（折行属性）**：`{ mode?: "char" | "word" | "none"; maxRows?: number; hint?: "none" | "head" | "middle" | "tail" }`，三个子字段都可缺省（缺省 `char` + `0` + `tail`）；`mode: "none"` = 不换行、单行；`maxRows` = 行数上限（`0` 不生效，超出按 `hint` 取窗口并在行首 / 行尾 / 中段贴 `…`，`…` 只占列不占行）；截断按显示宽度不切半个 CJK。断点口径与预算的唯一实现在 `layout/wrap-core.ts`。
 - **`balance`（平衡折行，用户块用）**：行数不变的前提下收窄列宽——总显示宽 L、最大列宽 Cmax → R = ceil(L / Cmax)，C = ceil(L / R)；宽字符取整可能多折一行时右移列宽直到行数回到 R。含显式换行时不启用。
 
 ## 3. 内容元素映射（Block → Node/Leaf） [spec]
@@ -116,7 +116,7 @@ type Height =
 | 一条用户输入 | `Node(v)`：右对齐收缩块，右缘竖线 = 逐行 `suffix`（**块级对齐，不用行级 `align`**） | 整体靠右的收缩块（一次输入 = 一条 buffer 行：显式换行保留在块内、按物理行折行取最大行宽作块宽、块内行首左对齐、右缘贴边） |
 | 一条 LLM 回复段落 | `Leaf(prefix: ┃, 右缘 gutter)` | 回复靠左 + 右缘 `messageGutter` 留空 |
 | 思考 | `Leaf(prefix:{┃,紫})`（块级 + 行内 markdown 同正文；围栏代码块走正文共用的构建器；markdown 表格 2026-10-23 起也识别） | 左侧紫色竖线区分；**2026-10-16 起与正文同口径渲染 markdown 子集**（表格同规格，左缘竖线取紫，见 §15.5「回合区思考行的 markdown 排版」） |
-| 一条工具调用记录 | `Node(v([名字行, 参数行×N, 结果行?]))`（工具批三类行） | **2026-10-13 改版**：名字行 = `标记 + 空格 + 工具名`（标记列 0 / 名字列 2；标记由**帧层**按 1 toggle/s 相位整格改写，管线只写稳定字形）；参数行缩进 4、`名 值` **不对齐**（名字灰 / 值原色），值续行固定悬挂 6、折行上限 5 行（超出 → 前 2 + `…` + 后 2）；结果行缩进 2（标记只在名字行），按详情**原始换行**逐行渲染、同样 5 行上限；失败时名字行 `✗` 红 + 结果行整行红（参数行不染）；空详情且无 `(+N/-M)` 摘要不挂结果行；落单结果（无对应调用）行内自带 `✓` / `✗`。详见 `TUI/docs/archived/2026-10-13-tool-block-display.md` |
+| 一条工具调用记录 | `Node(v([名字行, 参数行×N, 结果行?]))`（工具批三类行） | **2026-10-13 改版**：名字行 = `标记 + 空格 + 工具名`（标记列 0 / 名字列 2；标记由**帧层**按 1 toggle/s 相位整格改写，管线只写稳定字形）；参数行缩进 4、`名 值` **不对齐**（名字灰 / 值原色），值续行固定悬挂 6、折行上限 5 行（超出 → 通用 `middle` 预算：保留前 3 + 后 2，`…` 贴第 3 行行尾）；结果行缩进 2（标记只在名字行），按详情**原始换行**逐行渲染、同样 5 行上限与同一套 `middle` 预算；失败时名字行 `✗` 红 + 结果行整行红（参数行不染）；空详情且无 `(+N/-M)` 摘要不挂结果行；落单结果（无对应调用）行内自带 `✓` / `✗`。详见 `TUI/docs/archived/2026-10-13-tool-block-display.md` |
 | step 分组头 | `Leaf(tail:{char:"╌"})` | `stepHeaderLine(step, time, turn)`（本地时区 24 小时制逐段补零；顺序固定为**时间 → 回合号 → 步号**，任一片段缺失即省略——时间缺 → `⇆N #M`、回合号缺 → `hh:mm:ss #M`、都缺 → `#M`；回合号标记 `⇆` 与回合分隔线同款、步号 `#M` 为 step 头独有；**内容驱动**——在该 step 首条回合区内容前渲染，该 step 没有回合区内容（被档位过滤 / 正文归会话区 / 只声明未产出）就不出这一行，「孤儿头」不再发） |
 | 恢复会话的 step 概要行 | `Leaf(tail:{char:"╌"})`（同形制） | P9：`╌╌ hh:mm:ss #N ╌╌ 工具名[×次数], …[ ✗失败数]`，由 `surfaceToBuffer` 注入、`replay.ts` 重放成节、`route.ts` 按同形制放位置 |
 | 引用块 | `Node(v)`：子块 + 标记提为节点 `prefix:{│}` | 单层竖线前缀、正文不加斜 |
@@ -215,7 +215,7 @@ fitCols(natural: number[], avail: number): number[] | null
 
 6. **缩进归属（防止两套机制打架）**：**段落内缩进一律走 `indent`/`hanging`/`prefix`**（行级，逐行生效）；`h` + `spacer` 只表达**块间横向位置**（块级，整块一次）——如用户块右对齐 `h([spacer(fill), text])`、右缘留白 `h([text, spacer(fixed gutter)])`。
 
-   为什么不用 spacer 表达段落缩进：① **悬挂缩进做不到**——`h([space(2), text])` 会让整块（含首行）都缩进 2，而工具行要求首行 0、续行 2（现状 `wrapToolCallText`：首行全宽、续行 `TOOL_CONT_INDENT=2` 且折行宽度扣掉缩进）；② **前缀需逐行重复**（引用 `│`、列表 `•`、思考 `┃`），spacer 只作用于块首；③ **`fixed` spacer 并未消灭那个数字**，只是把 indent 搬进节点，且布局仍须扣除它才能算可用宽。
+   为什么不用 spacer 表达段落缩进：① **悬挂缩进做不到**——`h([space(2), text])` 会让整块（含首行）都缩进 2，而工具行要求首行 0、续行 2（工具行现状：首行全宽、续行挂 `TOOL_CONT_INDENT=2` 列且折行宽度扣掉缩进，由 `wrapLeaf` 的悬挂参数表达）；② **前缀需逐行重复**（引用 `│`、列表 `•`、思考 `┃`），spacer 只作用于块首；③ **`fixed` spacer 并未消灭那个数字**，只是把 indent 搬进节点，且布局仍须扣除它才能算可用宽。
 
 7. **格式一致性：约束绑定"几何"，不绑定"样式"**——把"格式"拆成两类属性，只对前一类要求叶子内一致：
 
@@ -284,7 +284,7 @@ measure(node, c: MeasureConstraint) -> SizeTable:
   若 node 是 Paragraph:
     首行可排正文宽 W1 = c.maxW − indent − prefix.width   # 前缀 + 首行缩进先占列（规则 3）
     续行可排正文宽 Wk = c.maxW − hanging                  # hanging 缺省 = indent（悬挂缩进）
-    rows = wrap(text, W1 首行 / Wk 续行)，wrap=false 时单行截断
+    rows = wrap(text, W1 首行 / Wk 续行)，折行属性交 layout/wrap-core.ts（mode / maxRows / hint）
     h = rows 数                                          # 内容自然高
     w = indent + prefix.width + 最宽正文行宽              # 节点总宽（含 indent + prefix；供横向父盒精确分摊）
     返回 { w, h }
@@ -691,7 +691,7 @@ segStyle(seg: FrameSegment, theme: Theme): string
 
 ### 15.1 顶部状态列与标题栏（P1 / P2 / P7）
 
-- **状态列**（`renderStatusColumn`）：自上而下 **Goal / Todo / Jobs / Agents + Task / Flow / Pin / Daemon / Group 九块**（块间虚线 `╌`；无数据整块省略），原 Mode 块整体删除——`modeBySession` 里的 plan / sandbox / permission 改由标题栏消费，`permission` 不再渲染。**内容层与出行（2026-10-12 改造）**：块内容在 `src/app/components/StatusColumn.ts` 构建成 Box 树（`buildStatusColumnBox` = `v([goal, todo, jobs, agents, ...extras], { separator: ╌ })`，每块 = `v([标题行, ...条目, 隐藏计数提示?])`；条目持有**未折行**内容 + 续行 `hanging`），出行复用排版库 `measure` → `allocate` → `fillToList`；`renderStatusColumn` 的产出契约 = `ContentRow[]`，宽度口径 = 状态列**正文宽** `statusBodyW`（`statusColWidth − 外缘框格 − 分隔竖线`），**不含右缘竖线、不做截断与补白**——那三件事交回 `buildTopRegion`（与其它区域同口径）。**折叠在内容层按等级过滤条目**（`foldBlock`：L0 不过滤 → L1 隐藏已完成（Goal 块只保留最近 1 条历史）→ L2 仅进行中（goal 压成标题行）→ L3 每条压一行 = `wrap:false`），帧高只决定「取哪一级」：L0 到 L3 依次建 Box 并量行数，首次放得下即采用，仍放不下则行级截断 `…(+N行)`。排版库自带物理行（`\n`）切分，故宿主 objective 里的换行不再把一行写断（`goalHistoryRows` 时代的真机症状）。**滚动**（用户 2026-10-12 裁定恢复真滚动，口径「滚动即展开」）：`statusColumnScroll == 0` 出折叠视图（默认视图，逐字同上）；`> 0` 时改在 **L0 完整行集**上开窗（**不做**行级截断）——被折叠 / 被截断的条目由此可滚到，`PgUp` 回 0 即恢复折叠视图；窗口起点由 `statusStartFor` clamp 到 `[0, len − h]`，状态侧保持非负 clamp（不引入几何耦合）。**Agents 块**行 = `符号 名称 · 工作内容`（显示名 = 别名 ?? label；工作内容 = 最近一次工具调用摘要，无则省略），色义 运行中黄 `●` / 空闲灰 `○` / 一切异常态红 `!`（附宿主 reason），随 `StatusTicker` 1s 保鲜 + `subagent/start|end` 即时刷新；纯只读（中断走 `/agents` 面板）。
+- **状态列**（`renderStatusColumn`）：自上而下 **Goal / Todo / Jobs / Agents + Task / Flow / Pin / Daemon / Group 九块**（块间虚线 `╌`；无数据整块省略），原 Mode 块整体删除——`modeBySession` 里的 plan / sandbox / permission 改由标题栏消费，`permission` 不再渲染。**内容层与出行（2026-10-12 改造）**：块内容在 `src/app/components/StatusColumn.ts` 构建成 Box 树（`buildStatusColumnBox` = `v([goal, todo, jobs, agents, ...extras], { separator: ╌ })`，每块 = `v([标题行, ...条目, 隐藏计数提示?])`；条目持有**未折行**内容 + 续行 `hanging`），出行复用排版库 `measure` → `allocate` → `fillToList`；`renderStatusColumn` 的产出契约 = `ContentRow[]`，宽度口径 = 状态列**正文宽** `statusBodyW`（`statusColWidth − 外缘框格 − 分隔竖线`），**不含右缘竖线、不做截断与补白**——那三件事交回 `buildTopRegion`（与其它区域同口径）。**折叠在内容层按等级过滤条目**（`foldBlock`：L0 不过滤 → L1 隐藏已完成（Goal 块只保留最近 1 条历史）→ L2 仅进行中（goal 压成标题行）→ L3 每条压一行 = `wrap: { mode: "none" }`），帧高只决定「取哪一级」：L0 到 L3 依次建 Box 并量行数，首次放得下即采用，仍放不下则行级截断 `…(+N行)`。排版库自带物理行（`\n`）切分，故宿主 objective 里的换行不再把一行写断（`goalHistoryRows` 时代的真机症状）。**滚动**（用户 2026-10-12 裁定恢复真滚动，口径「滚动即展开」）：`statusColumnScroll == 0` 出折叠视图（默认视图，逐字同上）；`> 0` 时改在 **L0 完整行集**上开窗（**不做**行级截断）——被折叠 / 被截断的条目由此可滚到，`PgUp` 回 0 即恢复折叠视图；窗口起点由 `statusStartFor` clamp 到 `[0, len − h]`，状态侧保持非负 clamp（不引入几何耦合）。**Agents 块**行 = `符号 名称 · 工作内容`（显示名 = 别名 ?? label；工作内容 = 最近一次工具调用摘要，无则省略），色义 运行中黄 `●` / 空闲灰 `○` / 一切异常态红 `!`（附宿主 reason），随 `StatusTicker` 1s 保鲜 + `subagent/start|end` 即时刷新；纯只读（中断走 `/agents` 面板）。
 - **Goal 块当前行**：`Goal <phase 符号>` + 尾随 `⟳` 自动续轮开关（**只要收到过 activation 边就显示** `⟳`——armed 绿 / disarmed 灰，**不再按相位门控**（paused / blocked / complete 也显示灰）；**无记录 → 不显示**（宿主重启 / 回放 / 会话切换后不再推导为 `disarmed`，用户 2026-10-06 裁定）；历史行一律不带符号）。**当前行正文只显示 objective 首个逻辑行**（概括位：按列宽**完整折行**——行数由列宽与内容共同决定、**不截断**；「一句概括」的字数在起草侧由 goal-contract 限为 ≤40 显示列——2026-10-07 裁定；**全文入口 = 宿主 `/goal` 输出**，TUI 不提供展开键位）；**历史行 objective 仍全文折行**（口径不变）。**当前行 2026-10-05 起不再出相位词**（10 格默认列宽会把 `active` 截成 `ac`，信息量低于噪声；语义由符号 + 颜色承担）——**历史行仍带词**（它们按约定无符号，`Goal <phase>` 是其唯一相位线索）。**phase 符号与取色**：`▷` active 绿 / `∥` U+2225 paused 黄 / `△` U+25B3 blocked 黄（2026-10-02 由红改黄，与 `turn/end blocked` 及阻塞原因行同口径）/ `✓` complete 绿；**activation**：`⟳` U+27F3，armed 绿（宿主会自动续轮）/ disarmed 灰（需用户驱动）。数据源 = 进程本地事件 `goal/activation-changed`（`goalActivationBySession` 存末条边），展示值由 `goalActivationDisplay` 直取末条边（**有边就显示、无记录不显示**，不按相位门控、不做推导）；**会话切换清边**：宿主 `agents.resume` 走 `sessions.prepare` 重建 Session（进程本地 activation 归 disarmed 且同值早退不发边），故 `resumeTo` 成功时补一条清空边，防沿用切换前的 armed。`⟳` 属**呈现不确定**字符（2026-10-04 起「数学符号 A + 补充箭头 A」并入宽表的不确定符号块 `[0x27C0,0x27FF]`）：静态表按 1 列出帧，运行期经 CPR 实测后按实测列宽自校正（详见 §宽度表）。
 - **状态列显隐与顶部三区焦点（P7 / 2026-10-14「一键一区域」）**：`state.statusColumnVisible`（缺省显示）+ reducer `focus-panel{panel}`（`Ctrl+E` 会话区 / `Ctrl+T` 回合区 / `Ctrl+S` 状态列；未聚焦则聚焦并显示，已聚焦则收起该区域 + 焦点回会话区）与 `status-column{visible}` / `lower-panes{visible}`（显式设值，供恢复回灌）；`frameGeometry` 收起时 `statusColWidth = 0`、`historyWidth = cols`，`buildTopRegion` 不构建该列内容也不拼分隔段（分隔竖线随之消失）。显隐经 `adapter/session-ui-state.ts` 的 `statusColumn` 字段随会话写入 `tui-state.json`，`restoreSessionState` 回灌。**`Tab` 不再切焦点**（回到「补全 / 面板内切窗」单一语义），`Esc`（空输入）退出焦点——**运行中同样生效**（2026-10-15 真机裁定：忙时 `Esc` 不打断运行，但要能回到默认状态 = 无焦点 / 跟随最新）。**区域焦点复位时机（2026-10-15 裁定 + 实测收窄）**：复位 action 只剩 `FOCUS_RESET_ACTIONS` 的 **2 项**——用户提交输入（`user-line` 提交回显 / `queued-push` 排队登记）；**其余一律不复位**：流式内容（`append`（stream 分支直派）/ `thinking` / `tool-*` / `retry` / `step` / `subagent` / `workflow` / `command` / `code-dispatch` / `hook` / `schedule` / `feedback` / `compaction*`）、回合边界（`turn-begin` / `turn-end`，`beginTurnIfNeeded` 在每个回合开始都会派发）与无内容载荷的状态刷新（`notice` / `goal-change` / `todo-write` / `jobs-changed` / `permission-catalog` / `agent-preset-catalog`）都保持——模型回复期间（含核心自发续轮）区域键设定的焦点不被清掉、该区域方向键持续可滚；`queued-claim` 也不在集合内，`beginTurnIfNeeded` 改为「队列非空才派发」。焦点只在**用户主动动作**（空输入 `Esc`（运行中同样生效）、再按同一区域键）与**用户提交输入**时退出；`/` 命令与 `$` shell 提交不派发复位项，故也不清焦点。守成测试见 `tests/focus-keep.test.ts`（含 App 端到端：流式期间焦点框保持、`Esc` 才熄灭）。
 - **标题栏**（`titleBarSegments` / `TITLE_ICON`）：首行 = `[preset 图标 + 空格 + 预设名] 空格 [≤7 个状态图标（空格分隔，顺序：sandbox / policy / plan / verbose / symbol-unify / bell / flow-track）] 2 空格 [标题]`；图标是 Nerd Font 私有区字形（`boxClosed U+F03D7`（`md-package_variant_closed`）/ `boxOpen U+F03D6`（`md-package_variant`）、`policyAsk U+F1739` / `policyNever U+F1414`、`plan U+EDA6`、`verbose U+F09AA`、`symbolUnify U+F04C6`、`bell U+F009F`、`flowTrack U+F0AE`、`preset U+F0A66`，命中与宽度实测各 1 列）。颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰（`MODE_SHORT` 归一，取值未知回落灰）、policy ask 黄 / never 绿、五个开关 on 绿 / off 灰、preset 段默认前景。**让位顺序**（`MIN_TITLE = 8` 列保底）：① 去掉 preset 段 → ② 截断标题 → ③ 去掉整组图标 → ④ 既有标题栏降级（收下划线 / 整栏省略，`titleRows` 在 `frameGeometry`）。**字体依赖**：非 Nerd Font 终端显示豆腐块（本机验证字体 Maple Mono NF CN）。

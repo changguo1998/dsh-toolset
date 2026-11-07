@@ -67,6 +67,7 @@ export function leafRows(
     prefixW: 0,
     hanging: 0,
     ...(node.balance === true ? { balance: true } : {}),
+    ...(node.wrap === undefined ? {} : { wrap: node.wrap }),
   }).length;
 }
 
@@ -97,6 +98,7 @@ function naturalHWidth(
       const unwrapped = wrapLeaf(child.text, avail, {
         prefixW: 0,
         hanging: 0,
+        ...(child.wrap === undefined ? {} : { wrap: child.wrap }),
       });
       const contentW = unwrapped.reduce(
         (m, r) => Math.max(m, displayWidth(r.map((s) => s.text).join(""))),
@@ -112,6 +114,7 @@ function naturalHWidth(
     const rows = wrapLeaf(child.text, avail, {
       prefixW: 0,
       hanging: 0,
+      ...(child.wrap === undefined ? {} : { wrap: child.wrap }),
     });
     const used = rows.reduce(
       (m, r) => Math.max(m, displayWidth(r.map((s) => s.text).join(""))),
@@ -188,7 +191,13 @@ function codeLines(code: {
       {
         direction: "v",
         widthStyle: "fill",
-        children: [{ text: text === "" ? [] : [{ text, ...style }] }],
+        children: [
+          {
+            text: text === "" ? [] : [{ text, ...style }],
+            // 代码叶断点固定逐字符（按词断代码没有意义）；行数上限 / 提示仍可生效
+            wrap: { mode: "char" },
+          },
+        ],
       },
     ],
   });

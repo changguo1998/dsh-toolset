@@ -194,8 +194,8 @@ test("Paragraph：hanging 小于 indent 时总宽按最长行计", () => {
   assert.equal(p.width, 8);
 });
 
-test("Paragraph：wrap=false 单行截断不换行", () => {
-  const p = text("abcdefghij", { wrap: false });
+test("Paragraph：mode none 单行截断不换行", () => {
+  const p = text("abcdefghij", { wrap: { mode: "none", hint: "none" } });
   layout(p, 4);
   assert.equal(p.height, 1);
   assert.equal(p.width, 4);

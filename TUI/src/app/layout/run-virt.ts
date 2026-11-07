@@ -72,8 +72,9 @@ export const TOKEN_CALIB_ALPHA = 0.3;
  */
 export function estimateOutputTokens(text: string): number {
   let tokens = 0;
-  for (const ch of text) {
-    const w = charWidth(ch);
+  const chars = Array.from(text);
+  for (let i = 0; i < chars.length; i++) {
+    const w = charWidth(chars[i]!);
     if (w >= 2) tokens += 1;
     else if (w === 1) tokens += 0.25;
   }

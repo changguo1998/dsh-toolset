@@ -279,7 +279,7 @@ export function buildModelPickerBox(view: ModelPickerView): Box {
         segs.push({ text: t, style: { fg: "yellow" as const } });
       else segs.push({ text: t });
     }
-    leaves.push(styled(segs, { wrap: false }));
+    leaves.push(styled(segs, { wrap: { mode: "none", hint: "none" } }));
   }
   return v(leaves);
 }

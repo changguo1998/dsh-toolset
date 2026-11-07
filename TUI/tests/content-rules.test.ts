@@ -1,6 +1,6 @@
 // TUI/tests/content-rules.test.ts — 内容规则共享层（buildBox 与 layout.ts 共用）
 //
-// 规则搬移等价验证：wrapToolCallText / userMaxBodyWidth / 分组判定 /
+// 规则搬移等价验证：userMaxBodyWidth / 分组判定 /
 // tone 映射。与原 layout.ts 定义逐一对应（双轨共用一套避免漂移）。
 
 import { test } from "node:test";
@@ -15,46 +15,8 @@ import {
   isStepHeader,
   NOTICE_TONE_COLOR,
   userMaxBodyWidth,
-  wrapToolCallText,
   USER_MIN_LEFT_GUTTER,
 } from "../src/app/layout/content-rules.ts";
-
-test("content-rules：工具折行首行全宽、续行缩进", () => {
-  const width = 20;
-  const rows = wrapToolCallText("bash command=" + "a".repeat(60), width);
-  assert.ok(rows.length > 1, "长参数应折成多行");
-  assert.ok(rows[0]!.startsWith("bash command="), "首行保留原文起点");
-  for (const r of rows) {
-    assert.ok(
-      [...r].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) <=
-        width,
-      `溢出: ${r}`,
-    );
-  }
-});
-
-test("wrapToolCallText：参数内显式换行后的各行同样缩进", () => {
-  const pad = " ".repeat(TOOL_CONT_INDENT);
-  assert.deepEqual(wrapToolCallText("a\nb\nc", 20), [
-    "a",
-    pad + "b",
-    pad + "c",
-  ]);
-});
-
-test("wrapToolCallText：空串", () => {
-  assert.deepEqual(wrapToolCallText("", 20), [""]);
-});
-
-test("wrapToolCallText：窄窗口降级不缩进", () => {
-  // 宽度 = 缩进量时不缩进（缩进本身会溢出），仅按宽度硬折
-  const rows = wrapToolCallText("abcdefgh", TOOL_CONT_INDENT);
-  assert.ok(
-    rows.every((r) => !r.startsWith(" ")),
-    "不得带缩进空格",
-  );
-  assert.equal(rows.join(""), "abcdefgh");
-});
 
 test("分组判定：无状态前缀=调用，状态前缀=辅助行", () => {
   assert.ok(isToolCall("bash run task"), "无前缀=工具调用");

@@ -43,6 +43,7 @@ function flattenLeaf(node: Leaf, width: number, opts: FlattenOptions): Row[] {
     prefixW: 0,
     hanging,
     ...(node.balance === true ? { balance: true } : {}),
+    ...(node.wrap === undefined ? {} : { wrap: node.wrap }),
   });
   const maxBodyW = suffixOn ? Math.max(0, ...rows.map(rowW)) : 0;
   const prefixSegs: Seg[] = prefixOn
@@ -122,8 +123,9 @@ function flattenRaw(
     let inner: Row[];
     if (tree.direction === "v") {
       inner = [];
-      for (const ch of tree.children)
-        inner.push(...flatten(ch, contentW, opts));
+      const children = Array.from(tree.children);
+      for (let i = 0; i < children.length; i++)
+        inner.push(...flatten(children[i]!, contentW, opts));
     } else {
       // h：子项按分配宽各摊一行区，逐行拼接
       inner = flattenH(tree, contentW, opts);

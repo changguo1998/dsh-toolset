@@ -105,7 +105,9 @@ function fitTail(s: string, w: number): string {
   const budget = w - 1; // 省略号占 1 列
   let kept = "";
   let used = 0;
-  for (const ch of [...s].reverse()) {
+  const chars = Array.from(s).reverse();
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
     const cw = charWidth(ch);
     if (budget - used < cw) break; // 剩余预算放不下该字符则停，保留已取尾部
     kept = ch + kept;
@@ -243,7 +245,7 @@ export function renderStatusLine(
       if (i === 0) segs.push({ text: " " }); // 行首留边
       segs.push(...pick(gi));
       if (i === plan.length - 1) segs.push({ text: " " }); // 行尾留边
-      return styled(segs, { wrap: false });
+      return styled(segs, { wrap: { mode: "none", hint: "none" } });
     });
     const box = h(
       children,

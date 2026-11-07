@@ -35,7 +35,7 @@ export function buildStatusPanelBox(
     },
     ...(current === "" ? [] : [{ text: `  ·  当前：${current}` }]),
   ];
-  const titleRow = styled(titleSegs, { wrap: false });
+  const titleRow = styled(titleSegs, { wrap: { mode: "none", hint: "none" } });
 
   // 选项行：预选 * 绿优先（选中即绿）、未预选的光标 > 黄、其余默认（整行单段
   // 着色，对齐冻结基线；复杂面板组合 styled 直接组装见 ModelPicker——
@@ -50,12 +50,19 @@ export function buildStatusPanelBox(
     const cursor = f ? ">" : " ";
     const line = ` ${cursor}${mark} ${opt.label ?? opt.id}${opt.desc ? ` ${opt.desc}` : ""}`;
     if (sel)
-      rows.push(styled([seg(line, { fg: "green" as const })], { wrap: false }));
+      rows.push(
+        styled([seg(line, { fg: "green" as const })], {
+          wrap: { mode: "none", hint: "none" },
+        }),
+      );
     else if (f)
       rows.push(
-        styled([seg(line, { fg: "yellow" as const })], { wrap: false }),
+        styled([seg(line, { fg: "yellow" as const })], {
+          wrap: { mode: "none", hint: "none" },
+        }),
       );
-    else rows.push(styled([seg(line)], { wrap: false }));
+    else
+      rows.push(styled([seg(line)], { wrap: { mode: "none", hint: "none" } }));
   }
 
   // 组装：标题 + 窗口内选项（跟随焦点滚动；不足补空行）。窗口起点走共用工具

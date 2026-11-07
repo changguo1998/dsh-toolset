@@ -21,6 +21,8 @@ import {
   EAW_WIDE_RANGES,
   EMOJI_CONSERVATIVE,
 } from "./eaw-table.ts";
+import { segmentsToChars, wrapStyledChars } from "./wrap-core.ts";
+import type { WrapSpec } from "./wrap-core.ts";
 
 // ---------- 宽度原语（由 layout.ts 重导 charWidth/displayWidth） ----------
 
@@ -591,7 +593,8 @@ const displayWidthCache = createTextCache<number>();
 export function displayWidth(text: string): number {
   return memo(displayWidthCache, text, () => {
     let w = 0;
-    for (const ch of stripAnsi(text)) w += charWidth(ch);
+    const chars = Array.from(stripAnsi(text));
+    for (let i = 0; i < chars.length; i++) w += charWidth(chars[i]!);
     return w;
   });
 }
@@ -740,18 +743,6 @@ function mergeStyle(a: FrameStyle, b: FrameStyle): FrameStyle {
   return { ...a, ...b };
 }
 
-/** 相邻段样式是否相同（换行后合并用） */
-function sameStyle(a?: FrameStyle, b?: FrameStyle): boolean {
-  return (
-    a?.bold === b?.bold &&
-    a?.italic === b?.italic &&
-    a?.underline === b?.underline &&
-    a?.strike === b?.strike &&
-    a?.fg === b?.fg &&
-    a?.bg === b?.bg
-  );
-}
-
 /**
  * 行内 markdown 正文按显示宽度软换行：逐字符计宽（CJK 2 列），样式跨行时
  * 每行独立开/闭（跨行段每行重声明），合并相邻同样式段。返回行段数组
@@ -774,38 +765,16 @@ export function wrapFrameSegments(
   segs: FrameSegment[],
   width: number,
   hanging = 0,
+  spec?: WrapSpec,
 ): FrameSegment[][] {
   if (width <= 0) return [segs];
-  const rows: FrameSegment[][] = [];
-  let cur: FrameSegment[] = [];
-  let curW = 0;
-  const flush = (): void => {
-    if (cur.length > 0) rows.push(cur);
-    cur = [];
-    curW = 0;
-  };
-  for (const seg of segs) {
-    const style = seg.style;
-    for (const ch of seg.text) {
-      const w = charWidth(ch);
-      // 悬挂续行：首行用全宽，续行折宽扣 hanging（配合外部 hanging 前缀，
-      // 保证缩进后总宽不超 width——对齐旧 wrapToolCallText 的折行语义）
-      const limit = rows.length === 0 ? width : Math.max(1, width - hanging);
-      if (curW > 0 && curW + w > limit) flush();
-      cur.push({ text: ch, style });
-      curW += w;
-    }
-  }
-  flush();
-  if (rows.length === 0) return [[]];
-  return rows.map((line) => {
-    const merged: FrameSegment[] = [];
-    for (const s of line) {
-      const lastSeg = merged[merged.length - 1];
-      if (lastSeg && sameStyle(lastSeg.style, s.style)) lastSeg.text += s.text;
-      else merged.push({ text: s.text, style: s.style });
-    }
-    return merged;
+  // 悬挂续行：首行用全宽，续行折宽扣 hanging（配合外部 hanging 前缀，
+  // 保证缩进后总宽不超 width）——与核的逐行宽回调一一对应
+  return wrapStyledChars({
+    chars: segmentsToChars(segs),
+    limit: (row) => (row === 0 ? width : Math.max(1, width - hanging)),
+    splitLines: false,
+    ...(spec === undefined ? {} : { spec }),
   });
 }
 

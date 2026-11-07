@@ -364,8 +364,13 @@ test("renderStatusColumn: todo 无固定行数上限——高度充足完整显�
     },
   );
   const fb = full.join("\n");
+  // 按词断行后断点可能落在中文词中间（CJK 任意可断），故比对「去掉换行后的全文」：
+  // 要守的是「不截断」，不是具体断点位置
   assert.ok(
-    fb.includes("待办19"),
+    full
+      .join("")
+      .replace(/[│\s]+/gu, "")
+      .includes("待办19"),
     "高度充足时单条长 todo 完整显示（无固定 3 行截断）",
   );
   assert.ok(!fb.includes("(+"), "高度充足时无折叠提示");

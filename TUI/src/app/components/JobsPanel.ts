@@ -41,7 +41,7 @@ export function buildJobsPanelBox(
   const headerVisible = truncateToWidth(header, width);
   leaves.push(
     styled([{ text: headerVisible, style: { fg: "cyan" as ColorName } }], {
-      wrap: false,
+      wrap: { mode: "none", hint: "none" },
     }),
   );
 
@@ -49,7 +49,7 @@ export function buildJobsPanelBox(
   if (jobs.length === 0) {
     leaves.push(
       styled([seg("（无后台任务）", { fg: "gray" as ColorName })], {
-        wrap: false,
+        wrap: { mode: "none", hint: "none" },
       }),
     );
     while (leaves.length < rows) leaves.push(styled([seg("")]));
@@ -68,8 +68,10 @@ export function buildJobsPanelBox(
     const text = truncateToWidth(line, width);
     leaves.push(
       mark.color
-        ? styled([seg(text, { fg: mark.color })], { wrap: false })
-        : styled([seg(text)], { wrap: false }),
+        ? styled([seg(text, { fg: mark.color })], {
+            wrap: { mode: "none", hint: "none" },
+          })
+        : styled([seg(text)], { wrap: { mode: "none", hint: "none" } }),
     );
   }
   while (leaves.length < rows) leaves.push(styled([seg("")]));

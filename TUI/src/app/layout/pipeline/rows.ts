@@ -208,8 +208,10 @@ export function indexOfTop(
 import type { ActivitySwitches } from "../../state.ts";
 import type { ContentRow } from "../fill.ts";
 // ---- 新链路（§3-§7）接线桥 ----
-import { sourceOf } from "./ir.ts";
+import { isLeaf, sourceOf } from "./ir.ts";
 import type {
+  Leaf,
+  Node as LayoutNode,
   PaneItem as NewPaneItem,
   UserRowInfo,
   Row as NewRow,
@@ -219,8 +221,8 @@ import { buildTrees } from "./structure.ts";
 import { measure } from "./measure.ts";
 import { flatten } from "./flatten.ts";
 import { memlogTick } from "./memlog.ts";
-import { displayWidth } from "../markdown.ts";
-import { seg, truncateToWidth } from "../primitives.ts";
+import { fitRowWidth, truncateRows, wrapSpecKey } from "../wrap-core.ts";
+import { rowWidth2, seg } from "../primitives.ts";
 import type { FrameSegment } from "../../../renderer/screen.ts";
 
 /**
@@ -384,15 +386,6 @@ function compactCategory(
   }
 }
 
-/**
- * 紧凑折叠（`/collapse`）：多行条目压成**一行**——取首行前 `width − 1` 列 + 行尾 `…`。
- * 超过一行才折叠；首行本身就放得下且只有一行时不加省略号（短条目不折叠）。
- */
-/** 段序列的可见文本（不含样式） */
-function segsText(segs: readonly FrameSegment[]): string {
-  return segs.map((s) => s.text).join("");
-}
-
 /** 去掉尾部空白段与末段的尾部空格（折行补白不入文本） */
 function trimTail(segs: readonly FrameSegment[]): FrameSegment[] {
   const out = segs.filter((s) => s.text !== "");
@@ -404,39 +397,56 @@ function trimTail(segs: readonly FrameSegment[]): FrameSegment[] {
   return out;
 }
 
-/** 按显示宽度截断段序列（逐段保留样式；宽字符按列宽切） */
-function cutSegs(segs: readonly FrameSegment[], cols: number): FrameSegment[] {
-  const out: FrameSegment[] = [];
-  let left = cols;
-  for (const s of segs) {
-    if (left <= 0) break;
-    const w = displayWidth(s.text);
-    if (w <= left) {
-      out.push(s);
-      left -= w;
-      continue;
-    }
-    const head = truncateToWidth(s.text, left);
-    if (head !== "") out.push({ ...s, text: head });
-    left = 0;
-  }
-  return trimTail(out);
-}
-
 /**
  * 紧凑折叠：多行条目压成首行 + 行尾省略号（`/collapse`）。
  *
  * 只取首行（单行放得下就原样），不把整块文本压平重排——首行已自带前缀（回合区的 `┃ `）
- * 与各类样式，压平会让前缀降级成纯文本、颜色全丢。宽预算 = `width − 1`（给省略号留 1 列）。
+ * 与各类样式，压平会让前缀降级成纯文本、颜色全丢。压 1 行与贴符口径交核的预算
+ * （`maxRows: 1` + `hint: "tail"`），宽度贴合仍由本文件给预算。
  */
 function foldRows(rows: readonly NewRow[], width: number): NewRow[] {
   if (rows.length === 0) return [];
-  const budget = Math.max(1, width - 1);
-  const first = rows[0]!;
-  const head = trimTail(first.segments);
-  if (rows.length === 1 && displayWidth(segsText(head)) <= budget)
-    return [first];
-  return [{ segments: [...cutSegs(head, budget), seg("…")] }];
+  // 压 1 行 + 贴符交核的预算（多行才贴 `…`）
+  const kept = truncateRows(
+    rows.map((row) => row.segments),
+    { maxRows: 1, hint: "tail" },
+  )[0]!;
+  const head = trimTail(kept);
+  if (rowWidth2(head) <= width) return [{ segments: head }];
+  // 宽度贴合：裁到 width − 1 再补一个 `…`（先摘掉核贴的符，避免两个省略号）
+  return [
+    {
+      segments: [
+        ...fitRowWidth(
+          stripTrailingEllipsis(head),
+          Math.max(0, width - 1),
+          "none",
+        ),
+        seg("…"),
+      ],
+    },
+  ];
+}
+
+/** 摘掉行尾的省略号段（`…` 单独成段或并进末段两种形态） */
+function stripTrailingEllipsis(segs: readonly FrameSegment[]): FrameSegment[] {
+  const out = segs.map((s) => ({ ...s }));
+  const last = out[out.length - 1];
+  if (last === undefined) return out;
+  if (last.text === "…") out.pop();
+  else if (last.text.endsWith("…"))
+    out[out.length - 1] = { ...last, text: last.text.slice(0, -1) };
+  return trimTail(out);
+}
+
+/**
+ * 槽位内全部叶子的折行属性签名（行缓存键的一部分）：折行属性改了而文本没变时
+ * 键必须变，否则同一段文本会复用到另一种断点口径的行。
+ */
+function wrapSignature(node: LayoutNode | Leaf): string {
+  if (isLeaf(node))
+    return node.wrap === undefined ? "-" : wrapSpecKey(node.wrap);
+  return node.children.map((child) => wrapSignature(child)).join(",");
 }
 
 /**
@@ -505,6 +515,8 @@ export function renderPaneNew(
     // 判定直接读结构期打在节点上的 `dim`（structure 是唯一判定处），不在这里重算一遍。
     const ck =
       keyHead +
+      "|w:" +
+      wrapSignature(slot.node) +
       (slot.node.dim === true ? "|dim" : "") +
       "|" +
       slot.members

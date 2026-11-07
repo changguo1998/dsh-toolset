@@ -375,16 +375,38 @@
 
 ## 实现记录
 
-（未开始。）
+按 task-engine 帧执行（A1-A6、B1-B5、C1-C6、D1-D4、E1-E3、F1-F5 全部完成）。
+
+- **核**：新增 `TUI/src/app/layout/wrap-core.ts`。输入 = 带样式字符流（`StyledChar`，断点单元跨 markdown 段）+ 逐行宽回调 `limit(rowIndex)` + `wrapSpec`；导出 `wrapStyledChars`（折行主入口）、`truncateRows`（行数预算 + 四种提示贴符）、`fitRowWidth`（单行宽度贴合）、`resolveWrapSpec` / `wrapSpecKey`、`segmentsToChars` / `charsToSegments`、`wrapIsNone` / `toWrapSpec`（迁移期旧写法归一）。`mode` 三档、`maxRows` 预算、`hint` 四种贴符、`\n` 物理行切分、缓存键（几何键 + 属性 + 文本样式签名）都在核内。
+- **按词断点**：空白按字符类（`\s`）判，空白为断点且断点空格被吃掉（行尾裁剪、行首丢弃）；`-` / `/` 之后可断；CJK 单字成单元（任意断）；单元超宽回落逐字符。
+- **旧排版库**：`primitives.wrapLine`、`markdown.wrapFrameSegments`（保留 `hanging`，新增可选 `spec`）、`measure.wrapParagraph`、`fill` 两条分支都改调核；`measure` 自做的 `truncateToWidth + …` 单行截断删除；legacy 入口的 `\n` 语义保持不变（核新增 `splitLines: false`）。
+- **内容区管线**：`wrapLeaf` 只做几何展开（prefixW / hanging / 平衡宽），删掉自家 `wrapSegmentsAt`；`measure` / `flatten` 透传叶子属性，代码叶显式 `{ mode: "char" }`；行缓存键加叶子属性签名。
+- **状态列**：`StatusItem.wrap` 换成 `WrapSpec`；Goal objective（当前 + 历史）、Todo、Agents、Task / Pin 文本、Daemon / Group 名称、Flow slug 用 `{ mode: "word" }`；jobs / 阻塞原因与 L3 折叠保持单行。
+- **硬上限并入**：提示行（1 至 2 行、不贴符）、`/collapse`（压 1 行 + 行尾 `…`）、状态列拼帧兜底（宽度截断保留，贴符走 `fitRowWidth`）都改由核的同一套预算表达；工具行参数值 / 结果首次获得 5 行上限（通用 `middle`：前 3 + 后 2，`…` 贴第 3 行行尾）。
+- **清理**：删除 `wrapToolCallText` 与 barrel 导出，`tests/tool-call-wrap.test.ts` 一并删除（用例由核用例覆盖）；布局层其余 7 处字符扫描改为索引循环，`for (const ch of` 只剩核与 `primitives` 的截断函数。
 
 ## 偏差
 
-无。
+1. **`box.ts` 的 `wrap` 曾短暂保留 `| boolean`（迁移期）**：收尾后已删除，`NodeBase.wrap?: WrapSpec` 为唯一写法；`wrapIsNone` 简化为只看 `mode === "none"`、`toWrapSpec` 删除，`measure.ts` / `fill.ts` 直接透传 `node.wrap`。`panel.ts` 的 `PanelTextOptions.wrap: boolean` 是**面板选项**（映射到 `{}` 或 `{ mode: "none", hint: "none" }`），不是叶子属性。
+2. **状态列等价性测试口径调整**：`status-column-equivalence.test.ts` 原为「与改造前冻结实现逐行逐字节一致」。按词断行后含拉丁词快照的断点有意不同，故含拉丁字母快照改比对「行数 + 不超宽」，纯中文快照仍逐行严格比对；文件内已写明缘由。
+3. **状态列长 todo 断言与 goal 激活断言微调**：`status-column.test.ts` 的「长 todo 完整显示」改为去掉换行与竖线后比对全文（守「不截断」而非具体断点）；`goal-activation.test.ts` 恢复正常（修掉核里误合并同字段样式段后不再失败）。
+4. **Flow slug 的按词断点在极窄列下仍逐字符**：slug 列是 `fill` 且 `widthMin: 1`，窄列下可用宽不足一个词，回落逐字符是核的既定口径（用例已按此断言「至少一个续行落在连字符后」）。
+5. **工具行 5 行上限的首版观感**：属可见变化，样例（9 行输出，宽 40）= 保留前 3 + 后 2，第 3 行行尾 `…`；观感确认见「收尾」。
 
 ## 测试与证据
 
-（待实现后补。）
+- `pnpm --dir TUI run check`：通过（多轮，最后一次在 F5 之后）。
+- `pnpm --dir TUI run test`：1858 例全绿（0 失败）。
+- `pnpm run demo -- --smoke`：输出 SMOKE_PASS（policy-badge / preset-badge / jobs-panel / jobs-kill 等）与 SMOKE_OK。
+- `pnpm run check` / `pnpm run build`：均退出码 0（根链路 38 包）。
+- `pnpm run check:docs`：0 错 0 警。
+- 新增/改动用例：`tests/wrap-strategy.test.ts`（新建，核的逐字 / 按词 / 预算 / 缓存 / 宽度贴合共 21 例）、`tests/status-wrap-strategy.test.ts`（新建，L3 单行 / jobs 单行 / Goal 与 Flow 按词断点 4 例）、`tests/pipeline-content.test.ts`（新增工具结果 5 行截断）、`tests/layout-cache.test.ts`（新增 char / word 缓存不串味）。
+- 结构证据：`grep -rn "for (const ch of" TUI/src/app/layout` 只命中 `wrap-core.ts` 与 `primitives.ts`（截断函数）；`grep -rn "wrapSegmentsAt\|wrapToolCallText" TUI/src TUI/tests` 命中 0。
+- 回归修复记录：核在非 `word` 模式误裁行尾空格（导致状态列 ANSI 分段变化）、`fitRowWidth` 未超宽时按字段相等合并段（导致 `goal-activation` 的绿 `⟳` 断言失败）。
 
 ## 收尾
 
-（待关闭时补。）
+- `docs/BACKLOG.md` 条目移入 §1 已完成索引。
+- 本文件移入 `docs/archived/`。
+- 遗留（下一轮）：工具行 5 行上限的观感与「按词断行后的状态列」需要一次人工过目；task-engine 验收命令超时取 30s，根链路 `check && build` 约 54s，需在 profile 配 `commandTimeoutMs: 300000` 才能在本引擎里直接验收（已写入 `~/.dsh/profiles/fff/cordis.patch.yml`，重启生效）。
+- 2026-11-06 续作（重新加载后）：删掉 `box.ts` 的 `wrap?: WrapSpec | boolean` 兼容分支、`wrapIsNone` 收窄为 `WrapSpec`、`toWrapSpec` 删除，`panel.ts` 的面板选项改映射到 `WrapSpec`；TUI 1858 例、根 `check` / `build`、`check:docs` 复跑全绿。工具行样例已产出待人工观感确认。

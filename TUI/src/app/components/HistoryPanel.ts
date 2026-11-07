@@ -288,10 +288,10 @@ export function buildHistoryPanelBox(view: HistoryPanelView): Box {
 
   const titleRow = styled(
     [seg(title + " ".repeat(Math.max(0, width - displayWidth(title))))],
-    { wrap: false },
+    { wrap: { mode: "none", hint: "none" } },
   );
   const bodyLeaves = Array.from({ length: bodyRows }, (_, r) =>
-    styled([seg(body[r] ?? "")], { wrap: false }),
+    styled([seg(body[r] ?? "")], { wrap: { mode: "none", hint: "none" } }),
   );
   return v([titleRow, ...bodyLeaves]);
 }

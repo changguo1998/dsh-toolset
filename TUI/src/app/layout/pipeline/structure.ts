@@ -31,6 +31,10 @@ import type {
   UserRowInfo,
 } from "./ir.ts";
 import { isNode, sourceOf } from "./ir.ts";
+import type { WrapSpec } from "../wrap-core.ts";
+
+/** 工具行参数 / 结果的行数上限：最多 5 行，超出按通用 `middle` 保留前 3 + 后 2 */
+const TOOL_ROWS_WRAP: WrapSpec = { maxRows: 5, hint: "middle" };
 
 /** 槽位成员：一个 PaneItem 与它在树里的节点（measure 后带 height） */
 export interface SlotMember {
@@ -358,7 +362,11 @@ function toToolBatch(batch: ToolBatch): Node {
         name === "" ? unit.param.value : name + " " + unit.param.value;
       const { head, rest } = splitHead(text, 2);
       const body = rowBox(2, leaf(head === "" ? [] : [{ text: head }]), [
-        leaf(rest === "" ? [] : [{ text: rest }], { rowKind: "tool-param" }),
+        leaf(rest === "" ? [] : [{ text: rest }], {
+          rowKind: "tool-param",
+          // 工具行参数值：最多 5 行，超出按通用规则保留前 3 + 后 2，`…` 贴第 3 行行尾
+          wrap: TOOL_ROWS_WRAP,
+        }),
       ]);
       // 内层 h 取 fill：否则其自然宽只算到标记盒宽（fill 子项自然宽按 widthMin 计），
       // 会把文本压成每行 1 列
@@ -389,6 +397,8 @@ function toToolBatch(batch: ToolBatch): Node {
           [
             leaf([{ text, ...(fail ? { color: "red" as const } : {}) }], {
               rowKind: "tool-result",
+              // 工具行结果：最多 5 行，超出按通用规则保留前 3 + 后 2
+              wrap: TOOL_ROWS_WRAP,
             }),
           ],
         ),
@@ -403,12 +413,13 @@ function splitHead(text: string, w: number): { head: string; rest: string } {
   let head = "";
   let used = 0;
   let i = 0;
-  for (const ch of text) {
+  const chars = Array.from(text);
+  for (; i < chars.length; i++) {
+    const ch = chars[i]!;
     const cw = displayWidth(ch);
     if (used + cw > w) break;
     head += ch;
     used += cw;
-    i += 1;
   }
   return { head, rest: text.slice(i) };
 }

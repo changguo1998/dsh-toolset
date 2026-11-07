@@ -108,7 +108,8 @@ export function buildQuestionPanelBox(
   // body 行（着色取自排版结果：选项行含折行续行与解释行整块同色）
   const bodyLeaves = Array.from({ length: maxBody }, (_, i) => {
     const line = layout.body[i];
-    if (!line) return styled([seg("")], { wrap: false });
+    if (!line)
+      return styled([seg("")], { wrap: { mode: "none", hint: "none" } });
     const segments: FrameSegment[] = [];
     if (line.bar) {
       // 行首 1 列 = 滚动条 / 焦点条（字符与样式已回填），其余文本按行色
@@ -127,7 +128,7 @@ export function buildQuestionPanelBox(
     } else {
       segments.push(line.color ? seg(line.text, line.color) : seg(line.text));
     }
-    return styled(segments, { wrap: false });
+    return styled(segments, { wrap: { mode: "none", hint: "none" } });
   });
   // 多题：顶部独立一行列出全部题的「题号 + 类型符号」（当前题黄、其余灰；BACKLOG TUI#4）；
   // 单题不显示标题区（标题行与类型符号均去掉，首行即题干）
@@ -475,7 +476,7 @@ function buildSymbolRow(
     push(sym, itemColor);
   }
   if (truncated) push("…", { fg: "gray" });
-  return styled(parts, { wrap: false });
+  return styled(parts, { wrap: { mode: "none", hint: "none" } });
 }
 
 export function renderQuestionPanel(

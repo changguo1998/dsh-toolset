@@ -22,7 +22,9 @@
 
 import type { FrameSegment, FrameStyle } from "../../../renderer/screen.ts";
 import type { StyledText } from "./ir.ts";
-import { charWidth, displayWidth } from "../markdown.ts";
+import { displayWidth } from "../markdown.ts";
+import { segmentsToChars, wrapStyledChars } from "../wrap-core.ts";
+import type { WrapSpec } from "../wrap-core.ts";
 
 export interface WrapOptions {
   /** 首行前缀占列（叶内第 0 行可用宽 = width - prefixW） */
@@ -31,11 +33,14 @@ export interface WrapOptions {
   hanging: number;
   /** 平衡折行：行数不变、收窄列宽（仅无 `\n` 时生效；缺省 false） */
   balance?: boolean;
+  /** 叶子折行属性（缺省取核内缺省 char + 0 + tail） */
+  wrap?: WrapSpec;
 }
 
 /**
  * 唯一折行入口：StyledText → 行段数组，length 即渲染高度。
- * 宽度口径见文件头；返回行未于本文件内做前缀 / 悬挂空格补入（那是 flatten 的事）。
+ * 宽度口径见文件头；折行本体在 `layout/wrap-core.ts`，本文件只做几何展开
+ * （前缀 / 悬挂 / 平衡宽的入参换算）。
  */
 export function wrapLeaf(
   text: StyledText,
@@ -48,7 +53,7 @@ export function wrapLeaf(
   const hasNewline = segs.some((s) => s.text.includes("\n"));
   // 首行 / 续行的「基准宽」分档：
   //   平衡折行：均按平衡宽 w（首行 = w，续行 = w - hanging）；
-  //   普通折行：首行 = width - prefixW，续行 = width - hanging。
+  //   普通折行：首行 = width - prefixW，续行 = width。
   let firstW: number;
   let restW: number;
   if (opts.balance === true && !hasNewline) {
@@ -60,19 +65,12 @@ export function wrapLeaf(
     firstW = width - prefixW;
     restW = width;
   }
-  // 先按 \n 切物理行，再逐行折行；行号（叶内全局）决定首行 / 续行可用宽
-  const physical = splitPhysical(segs);
-  const out: FrameSegment[][] = [];
-  for (const line of physical) {
-    if (line.length === 0) {
-      out.push([]); // 空物理行保留为空行（产出一行空段）
-      continue;
-    }
-    const limit = (globalRow: number): number =>
-      globalRow === 0 ? firstW : Math.max(1, restW - hanging);
-    out.push(...wrapSegmentsAt(line, out.length, limit));
-  }
-  return out;
+  return wrapStyledChars({
+    chars: segmentsToChars(segs),
+    limit: (globalRow) =>
+      globalRow === 0 ? firstW : Math.max(1, restW - hanging),
+    ...(opts.wrap === undefined ? {} : { spec: opts.wrap }),
+  });
 }
 
 /** StyledStr → FrameSegment 样式映射：color → fg；bold → bold；italic → italic；
@@ -97,97 +95,26 @@ export function styledToSegments(text: StyledText): FrameSegment[] {
 }
 
 /**
- * 内部折行核（单物理行逐字符折行）：limit(globalRow) 给出该行（叶内全局行号）的
- * 可用宽，供 wrapLeaf 与 balance 计数共用——同一折行口径，避免两套逻辑漂移。
- * 空输入产出 `[[]]`（一行空段）；超宽单字符（当前行空时）强制放下不丢字符；
- * 换行后合并相邻同样式段。 */
-function wrapSegmentsAt(
-  segs: FrameSegment[],
-  rowOffset: number,
-  limit: (globalRow: number) => number,
-): FrameSegment[][] {
-  if (segs.length === 0) return [[]];
-  const rows: FrameSegment[][] = [];
-  let cur: FrameSegment[] = [];
-  let curW = 0;
-  for (const seg of segs) {
-    const style = seg.style;
-    for (const ch of seg.text) {
-      const w = charWidth(ch);
-      const limitW = Math.max(1, limit(rowOffset + rows.length));
-      // curW > 0：当前行已有内容且放不下才换行 → 超宽单字符强制放下
-      if (curW > 0 && curW + w > limitW) {
-        rows.push(cur);
-        cur = [];
-        curW = 0;
-      }
-      cur.push({ text: ch, style });
-      curW += w;
-    }
-  }
-  rows.push(cur);
-  return rows.map(mergeAdjacent);
-}
-
-/**
  * 平衡折行宽度：复刻 fill.ts 的 balancedWidth —— 总宽 L、最大列宽 Cmax → 行数
  * R = countAt(Cmax)，再取 C = ceil(L / R) 为实际列宽（行数不变、收窄列宽）；
  * 宽字符按整格取整可能多出一行，故 countAt(C) > R 时右移少量列直到行数回到 R。
- * 计数走 wrapSegmentsAt（不 recalc prefixW，避免互相递归）。
+ * 计数走折行核（不 recalc prefixW，避免互相递归）。
  */
 function balancedWrapWidth(
   segs: FrameSegment[],
   maxWidth: number,
   hanging: number,
 ): number {
+  const chars = segmentsToChars(segs);
   const countAt = (w: number): number =>
-    wrapSegmentsAt(segs, 0, (globalRow) => (globalRow === 0 ? w : w - hanging))
-      .length;
+    wrapStyledChars({
+      chars,
+      limit: (row) => (row === 0 ? w : w - hanging),
+    }).length;
   const rows = countAt(maxWidth);
   if (rows <= 1) return maxWidth;
   const total = segs.reduce((sum, s) => sum + displayWidth(s.text), 0);
   let width = Math.max(1, Math.ceil(total / rows));
   while (width < maxWidth && countAt(width) > rows) width += 1;
   return width;
-}
-
-/** 段序列按 \n 切成一串物理行段（样式段跨 `\n` 拆分；空行保留为段空行） */
-function splitPhysical(segs: FrameSegment[]): FrameSegment[][] {
-  const lines: FrameSegment[][] = [[]];
-  for (const s of segs) {
-    const parts = s.text.split("\n");
-    for (let i = 0; i < parts.length; i++) {
-      if (i > 0) lines.push([]);
-      const part = parts[i]!;
-      if (part !== "")
-        lines[lines.length - 1]!.push({ text: part, style: s.style });
-    }
-  }
-  return lines;
-}
-
-/** 相邻同样式段文本合并（同 markdown.ts wrapFrameSegments 尾部合并逻辑） */
-function mergeAdjacent(line: FrameSegment[]): FrameSegment[] {
-  const merged: FrameSegment[] = [];
-  for (const s of line) {
-    const lastSeg = merged[merged.length - 1];
-    if (lastSeg && sameStyle(lastSeg.style, s.style)) lastSeg.text += s.text;
-    else merged.push({ text: s.text, style: s.style });
-  }
-  return merged;
-}
-
-/** 两段样式是否全字段相等（相邻合并判定） */
-function sameStyle(
-  a: FrameStyle | undefined,
-  b: FrameStyle | undefined,
-): boolean {
-  return (
-    a?.bold === b?.bold &&
-    a?.italic === b?.italic &&
-    a?.underline === b?.underline &&
-    a?.strike === b?.strike &&
-    a?.fg === b?.fg &&
-    a?.bg === b?.bg
-  );
 }

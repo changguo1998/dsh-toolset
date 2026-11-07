@@ -6,6 +6,7 @@
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import { charWidth, displayWidth } from "./markdown.ts";
 import { createTextCache, memo, sizedKey } from "./cache.ts";
+import { segmentsToChars, wrapStyledChars } from "./wrap-core.ts";
 
 // ---------------- 段构造 ----------------
 
@@ -30,7 +31,9 @@ export function truncateSegs(
   const out: FrameSegment[] = [];
   let w = 0;
   outer: for (const s of segs) {
-    for (const ch of s.text) {
+    const chars = [...s.text];
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]!;
       const cw = charWidth(ch);
       if (w + cw > width) break outer;
       w += cw;
@@ -88,25 +91,14 @@ export function wrapLine(text: string, width: number): string[] {
   );
 }
 
-/** wrapLine 直算路径（无缓存） */
+/** wrapLine 直算路径（无缓存）：文本按折行核切成行（逐字符，与核缺省一致） */
 function computeWrapLine(text: string, width: number): string[] {
   if (width <= 0) return text === "" ? [""] : [text];
-  const rows: string[] = [];
-  let cur = "";
-  let curW = 0;
-  for (const ch of text) {
-    const w = charWidth(ch);
-    if (curW > 0 && curW + w > width) {
-      rows.push(cur);
-      cur = ch;
-      curW = w;
-    } else {
-      cur += ch;
-      curW += w;
-    }
-  }
-  rows.push(cur);
-  return rows;
+  const rows = wrapStyledChars({
+    chars: segmentsToChars([{ text }]),
+    limit: () => width,
+  });
+  return rows.map((row) => row.map((s) => s.text).join(""));
 }
 
 /** buffer 各原始行 → 全部 wrapped 行（保留空行语义） */

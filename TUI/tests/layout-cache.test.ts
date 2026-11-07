@@ -23,6 +23,7 @@ import {
   parseInlineMarkdown,
   wrapAssistantLine,
   wrapCodeLine,
+  wrapFrameSegments,
   wrapInlineMarkdown,
 } from "../src/app/layout/markdown.ts";
 import { rowAnsi, rowsText } from "./helpers/rowText.ts";
@@ -247,6 +248,20 @@ test("buildFrame：同一状态重复排版在两种模式下都稳定（缓存�
   );
   assert.deepEqual(second, first, "热缓存改变了输出");
   assert.deepEqual(third, second, "重复排版不稳定");
+});
+
+test("折行属性：legacy 入口同文本 char / word 交替调用不串缓存", () => {
+  const segs = [{ text: "the quick brown" }];
+  const at = (mode: "char" | "word"): string[] =>
+    wrapFrameSegments(segs, 7, 0, { mode }).map((row) =>
+      row.map((s) => s.text).join(""),
+    );
+  clearLayoutCaches();
+  const charRows = at("char");
+  const wordRows = at("word");
+  assert.notDeepEqual(charRows, wordRows);
+  assert.deepEqual(at("char"), charRows);
+  assert.deepEqual(at("word"), wordRows);
 });
 
 test("换主题：整帧逐字节一致（生产节缓存路径），主题色只在渲染层加", () => {

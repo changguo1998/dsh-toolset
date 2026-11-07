@@ -63,7 +63,7 @@ export function buildCommandListPanelBox(
   const headerVisible = truncateToWidth(header, width);
   leaves.push(
     styled([{ text: headerVisible, style: { fg: "cyan" as ColorName } }], {
-      wrap: false,
+      wrap: { mode: "none", hint: "none" },
     }),
   );
 
@@ -80,7 +80,7 @@ export function buildCommandListPanelBox(
     leaves.push(
       styled(
         [seg(truncateToWidth(placeholder.text, width), { fg: placeholder.fg })],
-        { wrap: false },
+        { wrap: { mode: "none", hint: "none" } },
       ),
     );
     while (leaves.length < rows) leaves.push(styled([seg("")]));
@@ -108,8 +108,10 @@ export function buildCommandListPanelBox(
     const text = truncateToWidth(line, width);
     leaves.push(
       mark?.color
-        ? styled([seg(text, { fg: mark.color })], { wrap: false })
-        : styled([seg(text)], { wrap: false }),
+        ? styled([seg(text, { fg: mark.color })], {
+            wrap: { mode: "none", hint: "none" },
+          })
+        : styled([seg(text)], { wrap: { mode: "none", hint: "none" } }),
     );
   }
   while (leaves.length < rows) leaves.push(styled([seg("")]));

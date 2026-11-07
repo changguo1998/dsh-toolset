@@ -40,7 +40,7 @@ export interface PanelTextOptions {
   style?: FrameStyle;
   /** 标题加粗（缺省 true；现状面板标题多不加粗时传 false） */
   bold?: boolean;
-  /** 是否折行（面板行缺省不折行精确行长） */
+  /** 是否折行（true = 按核缺省折行；缺省 false = 不软折行、精确行长） */
   wrap?: boolean;
 }
 
@@ -53,7 +53,9 @@ export function panelTitle(
     opts.bold === false
       ? { ...(opts.style ?? {}) }
       : { bold: true, ...(opts.style ?? {}) };
-  return styled([mks(content, segStyle)], { wrap: opts.wrap ?? false });
+  return styled([mks(content, segStyle)], {
+    wrap: opts.wrap === true ? {} : { mode: "none", hint: "none" },
+  });
 }
 
 /** 构造带样式段（无样式时省略 style 键，deepEqual 友好） */
@@ -67,7 +69,9 @@ export function panelQuestion(
   opts: PanelTextOptions = {},
 ): StyledText {
   const segStyle: FrameStyle = { ...(opts.style ?? {}) };
-  return styled([mks(content, segStyle)], { wrap: opts.wrap ?? false });
+  return styled([mks(content, segStyle)], {
+    wrap: opts.wrap === true ? {} : { mode: "none", hint: "none" },
+  });
 }
 
 /** 面板说明段：次要解释文字 */
@@ -76,7 +80,9 @@ export function panelExplanation(
   opts: PanelTextOptions = {},
 ): StyledText {
   const segStyle: FrameStyle = { ...(opts.style ?? {}) };
-  return styled([mks(content, segStyle)], { wrap: opts.wrap ?? false });
+  return styled([mks(content, segStyle)], {
+    wrap: opts.wrap === true ? {} : { mode: "none", hint: "none" },
+  });
 }
 
 /** 面板选项列表：每项一行（标记 + 文本 + 样式）；返回纵向 Box 子树 */
@@ -112,7 +118,7 @@ export function panelOptions(
           ? { text: o.label }
           : { text: o.label, style: rowStyle },
       ],
-      { wrap: false },
+      { wrap: { mode: "none", hint: "none" } },
     );
   });
   return v(children);

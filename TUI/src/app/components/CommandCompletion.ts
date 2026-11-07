@@ -57,7 +57,7 @@ export function buildCommandCompletionBox(view: CommandCompletionView): Box {
 
   const title = styled(
     [seg(truncateToWidth(" /命令补全", width), { fg: "blue" as const })],
-    { wrap: false },
+    { wrap: { mode: "none", hint: "none" } },
   );
   const leaves = [title];
   for (let i = 0; i < completion.items.length && leaves.length < height; i++) {
@@ -69,8 +69,10 @@ export function buildCommandCompletionBox(view: CommandCompletionView): Box {
     );
     leaves.push(
       focused
-        ? styled([seg(text, { fg: "yellow" as const })], { wrap: false })
-        : styled([seg(text)], { wrap: false }),
+        ? styled([seg(text, { fg: "yellow" as const })], {
+            wrap: { mode: "none", hint: "none" },
+          })
+        : styled([seg(text)], { wrap: { mode: "none", hint: "none" } }),
     );
   }
   while (leaves.length < height) leaves.push(styled([seg("")]));
@@ -96,7 +98,7 @@ export function buildFileMentionCompletionBox(
   const width = Math.max(1, view.width);
   const title = styled(
     [seg(truncateToWidth(" /文件提及", width), { fg: "blue" as const })],
-    { wrap: false },
+    { wrap: { mode: "none", hint: "none" } },
   );
   const leaves = [title];
   for (let i = 0; i < completion.items.length && leaves.length < height; i++) {
@@ -106,8 +108,10 @@ export function buildFileMentionCompletionBox(
     const text = truncateToWidth(` ${focused ? ">" : " "} ${label}`, width);
     leaves.push(
       focused
-        ? styled([seg(text, { fg: "yellow" as const })], { wrap: false })
-        : styled([seg(text)], { wrap: false }),
+        ? styled([seg(text, { fg: "yellow" as const })], {
+            wrap: { mode: "none", hint: "none" },
+          })
+        : styled([seg(text)], { wrap: { mode: "none", hint: "none" } }),
     );
   }
   while (leaves.length < height) leaves.push(styled([seg("")]));

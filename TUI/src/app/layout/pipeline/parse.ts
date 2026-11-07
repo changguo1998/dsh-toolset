@@ -650,7 +650,8 @@ function listItemMark(text: string): {
  */
 function listIndentOf(lead: string): number {
   let cols = 0;
-  for (const ch of lead) cols += ch === "\t" ? 4 : 1;
+  const chars = Array.from(lead);
+  for (let i = 0; i < chars.length; i++) cols += chars[i] === "\t" ? 4 : 1;
   return Math.floor(cols / LIST_INDENT_COLS) * LIST_INDENT_COLS;
 }
 

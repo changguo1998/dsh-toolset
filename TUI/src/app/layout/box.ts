@@ -5,6 +5,7 @@
 
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import type { ColorName } from "../../renderer/theme.ts";
+import type { WrapSpec } from "./wrap-core.ts";
 
 /** 节点公共属性（Box 与 Paragraph 共享；除 children/direction/text 外） */
 export interface NodeBase {
@@ -63,8 +64,8 @@ export interface NodeBase {
   };
   /** 底色铺满分配宽度（代码块用；行内代码只在文字上着色） */
   fillBg?: boolean;
-  /** 默认 true；false = 单行截断不换行 */
-  wrap?: boolean;
+  /** 折行属性（缺省 = 核内缺省 char + 0 + tail）：断点口径 / 行数上限 / 隐藏提示 */
+  wrap?: WrapSpec;
   /** 平衡折行：保持行数不变，收窄列宽让各行尽量等宽（用户块用） */
   balance?: boolean;
 }

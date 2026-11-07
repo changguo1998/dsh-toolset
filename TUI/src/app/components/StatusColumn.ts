@@ -7,7 +7,7 @@
 // 树形：`v([goal, todo, jobs, agents], { separator: ╌ })`（Box 的 `separator` 语义即
 // 「兄弟之间画、首尾不画」）；每块 = `v([标题行, ...条目, 隐藏计数提示?])`。
 // 折叠只决定「出哪些条目」（foldBlock），不改条目内容；L3「每条压一行」在叶子侧用
-// `wrap: false` 表达。
+// `wrap: { mode: "none", hint: "none" }` 表达。
 //
 // 口径：块顺序、块间虚线、条目顺序、状态符号与配色、灰色删除线、符号后的悬挂缩进、
 // 折叠分级语义全部与改造前逐字对齐（行为等价改造，视觉零回归）。
@@ -29,6 +29,7 @@ import type { Box, Node, StyledText } from "../layout/box.ts";
 import { h, styled, v } from "../layout/box.ts";
 import { NOTICE_TONE_COLOR } from "../layout/content-rules.ts";
 import { displayWidth } from "../layout/markdown.ts";
+import type { WrapSpec } from "../layout/wrap-core.ts";
 import { seg } from "../layout/primitives.ts";
 import { statusMark } from "./JobsPanel.ts";
 
@@ -85,9 +86,9 @@ interface StatusItem {
   segments: FrameSegment[];
   /** 续行缩进列数（= 首行标记宽；0 = 无标记，续行与首行同列） */
   hanging: number;
-  /** false = 单行截断不折行（改造前即「一行一条」的条目：jobs / 阻塞原因；截断交拼帧层）。
-   *  缺省折行——这是改造前的老口径（todo / goal / agents 条目按列宽折行）。 */
-  wrap?: false;
+  /** 折行属性（缺省取核内缺省 char + 0 + tail）。改造前「一行一条」的条目
+   *  （jobs / 阻塞原因）写 `{ mode: "none", hint: "none" }`，截断交拼帧层。 */
+  wrap?: WrapSpec;
   /** 自定义行（横向 box；给出时忽略 segments 的出行, 用于需要独立分配宽度的条目）。 */
   row?: Node;
   /** 已完成（L1 先隐藏） */
@@ -158,7 +159,7 @@ export function buildStatusColumnBox(
       if (folded.hiddenNote !== undefined) {
         leaves.push(
           styled([seg(folded.hiddenNote, { fg: NOTICE_TONE_COLOR.log })], {
-            wrap: false,
+            wrap: { mode: "none", hint: "none" },
           }),
         );
       }
@@ -173,23 +174,24 @@ export function buildStatusColumnBox(
 
 /** 标题行叶子：单行不折行（超出宽度由拼帧层截断，与旧 StatusRow 同口径） */
 function headLeaf(head: FrameSegment[]): StyledText {
-  return styled(head, { wrap: false });
+  return styled(head, { wrap: { mode: "none", hint: "none" } });
 }
 
 /** 条目叶子（1 或 2 个）：标题（若有）恒单行；正文悬挂缩进交 `hanging`，
- *  `wrap: false` 的条目（jobs / 阻塞原因）与 L3「每条压一行」同样单行截断不换行
+ *  `wrap: { mode: "none", hint: "none" }` 的条目（jobs / 阻塞原因）与 L3「每条压一行」同样单行截断不换行
  *  ——截断交拼帧层，与旧 StatusRow 同口径。
  *  （历史 goal 条目在 L3 本会是「标题 + 正文」两行，旧实现取 `rows[0]` 只留标题；
  *   但 goal 块 L2 起即 titleOnly，该分支不可达。） */
 function itemLeaves(item: StatusItem, level: FoldLevel): Node[] {
   if (item.row !== undefined) return [item.row];
+  const wrap: WrapSpec = level >= 3 ? { mode: "none" } : (item.wrap ?? {});
   const body = styled(item.segments, {
     hanging: item.hanging,
-    ...(level >= 3 || item.wrap === false ? { wrap: false } : {}),
+    wrap,
   });
   return item.title === undefined
     ? [body]
-    : [styled(item.title, { wrap: false }), body];
+    : [styled(item.title, { wrap: { mode: "none" } }), body];
 }
 
 /** 按折叠等级折叠块：goal 的 items 分「当前 goal 行 + 历史条目」（L1 保留最近 1 条历史、
@@ -250,7 +252,7 @@ function extrasItem(
       Object.keys(style).length === 0 ? seg(text) : seg(text, style as never),
     ],
     hanging: 0,
-    wrap: false,
+    wrap: { mode: "word" },
     done: options.done ?? false,
     active: options.active ?? false,
   };
@@ -270,11 +272,16 @@ function flexItem(
   const leaves: Node[] = [
     styled(
       [seg(`${symbol} `, options.fg === undefined ? {} : { fg: options.fg })],
-      { wrap: false },
+      { wrap: { mode: "none", hint: "none" } },
     ),
-    styled([seg(name)], { wrap: false, widthStyle: "fill", widthMin: 1 }),
+    styled([seg(name)], {
+      wrap: { mode: "word" },
+      widthStyle: "fill",
+      widthMin: 1,
+    }),
   ];
-  if (tail !== "") leaves.push(styled([seg(tail)], { wrap: false }));
+  if (tail !== "")
+    leaves.push(styled([seg(tail)], { wrap: { mode: "none", hint: "none" } }));
   return {
     segments: [],
     row: h(leaves),
@@ -325,14 +332,17 @@ function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
         return {
           segments: [],
           row: h([
-            styled([seg(`${symbol} `, { fg })], { wrap: false }),
+            styled([seg(`${symbol} `, { fg })], {
+              wrap: { mode: "none", hint: "none" },
+            }),
             styled([seg(record.slug)], {
-              wrap: false,
+              // slug 含 `-` / `/`，按词断点可断
+              wrap: { mode: "word" },
               widthStyle: "fill",
               widthMin: 1,
             }),
             styled([seg(`@${record.stage} ${record.status}`)], {
-              wrap: false,
+              wrap: { mode: "none", hint: "none" },
             }),
           ]),
           hanging: 0,
@@ -517,17 +527,19 @@ function goalObjectiveItem(g: GoalSnapshotLike): StatusItem {
         : seg(body),
     ],
     hanging: 0,
+    // 长目标描述按词断行（不在词中间切开）
+    wrap: { mode: "word" },
     done: g.phase === "complete",
     active: g.phase === "active",
   };
 }
 
-/** blocked 原因条目（黄 tone；改造前即单行，超宽由拼帧层截断——`wrap: false` 保持原表现） */
+/** blocked 原因条目（黄 tone；改造前即单行，超宽由拼帧层截断——`wrap: { mode: "none", hint: "none" }` 保持原表现） */
 function blockedItem(message: string): StatusItem {
   return {
     segments: [seg("阻塞: " + message, { fg: "yellow" })],
     hanging: 0,
-    wrap: false,
+    wrap: { mode: "none", hint: "none" },
     done: false,
     active: false,
   };
@@ -542,6 +554,7 @@ function goalHistoryItem(e: GoalEntry): StatusItem {
       seg(e.goal.objective || "（空目标）", { fg: "gray", strike: true }),
     ],
     hanging: 0,
+    wrap: { mode: "word" },
     done: true,
     active: false,
   };
@@ -560,6 +573,7 @@ function todoItem(t: TodoItemLike): StatusItem {
         seg(body, { fg: "gray", strike: true }),
       ],
       hanging,
+      wrap: { mode: "word" },
       done: true,
       active: false,
     };
@@ -568,6 +582,7 @@ function todoItem(t: TodoItemLike): StatusItem {
     return {
       segments: [seg(mark + body, { fg: "yellow" })],
       hanging,
+      wrap: { mode: "word" },
       done: false,
       active: true,
     };
@@ -575,13 +590,14 @@ function todoItem(t: TodoItemLike): StatusItem {
   return {
     segments: [seg(mark + body)],
     hanging,
+    wrap: { mode: "word" },
     done: false,
     active: false,
   };
 }
 
 /** job 条目（✓ 完成灰 + 删除线，其余按状态色）。改造前口径 = **每任务一行**
- *  （长 label 由拼帧层截断，不折行）——`wrap: false` 保持该表现，只去掉裸 `\n` 断行风险。 */
+ *  （长 label 由拼帧层截断，不折行）——`wrap: { mode: "none", hint: "none" }` 保持该表现，只去掉裸 `\n` 断行风险。 */
 function jobItem(job: JobInfo): StatusItem {
   const mark = statusMark(job.status);
   const label = job.label || job.kind || job.id || "（未命名任务）";
@@ -594,7 +610,7 @@ function jobItem(job: JobInfo): StatusItem {
         seg(label, { fg: "gray", strike: true }),
       ],
       hanging: displayWidth("✓ "),
-      wrap: false,
+      wrap: { mode: "none", hint: "none" },
       done,
       active,
     };
@@ -602,7 +618,7 @@ function jobItem(job: JobInfo): StatusItem {
   return {
     segments: [seg(mark.symbol + " " + label, { fg: mark.color })],
     hanging: displayWidth(mark.symbol + " "),
-    wrap: false,
+    wrap: { mode: "none", hint: "none" },
     done,
     active,
   };
@@ -641,6 +657,7 @@ function agentItem(a: AgentRowInfo, tick: number): StatusItem {
   return {
     segments: [seg(text.trimEnd(), { fg })],
     hanging: displayWidth(sym),
+    wrap: { mode: "word" },
     done: a.status !== "running",
     active: running,
   };

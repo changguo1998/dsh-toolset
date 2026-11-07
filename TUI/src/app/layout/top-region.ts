@@ -44,7 +44,8 @@ import {
   TOOL_PENDING_GLYPH,
   TOOL_PENDING_GLYPH_ALT,
 } from "./content-rules.ts";
-import { rowWidth2, seg, truncateSegs } from "./primitives.ts";
+import { rowWidth2, seg } from "./primitives.ts";
+import { fitRowWidth } from "./wrap-core.ts";
 
 // TUI/src/app/layout/top-region.ts — 顶部区域装配：状态列 + 会话区 + 回合区面板选型
 
@@ -462,14 +463,9 @@ export function buildTopRegion(
       // 状态列**无顶边**（用户裁定：上方不要多余边框）；聚焦只改其右缘竖线颜色
       const cell = statusCells[rc];
       if (!cell) return [seg(" ".repeat(Math.max(0, statusBodyW)))];
-      // 截断到 statusBodyW → 右补空格；超宽时末列换成尾随省略号（不折行条目）
-      let inner =
-        rowWidth2(cell.segments) > statusBodyW
-          ? [
-              ...truncateSegs(cell.segments, Math.max(0, statusBodyW - 1)),
-              seg("…"),
-            ]
-          : truncateSegs(cell.segments, statusBodyW);
+      // 截断到 statusBodyW → 右补空格；超宽时末列换成尾随省略号（不折行条目），
+      // 贴符口径与折行核的预算一致
+      const inner = fitRowWidth(cell.segments, statusBodyW, "tail");
       const innerW = rowWidth2(inner);
       if (innerW < statusBodyW)
         inner.push(seg(" ".repeat(statusBodyW - innerW)));

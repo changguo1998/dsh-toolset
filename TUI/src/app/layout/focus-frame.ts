@@ -186,7 +186,9 @@ function cellAt(rows: FrameRow[], row: number, col: number): string {
   if (!r || col < 0) return " ";
   let w = 0;
   for (const segment of r.segments) {
-    for (const ch of segment.text) {
+    const chars = Array.from(segment.text);
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]!;
       const cw = displayWidth(ch);
       if (cw <= 0) continue;
       if (col < w + cw) return ch;

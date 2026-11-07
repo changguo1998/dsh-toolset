@@ -161,7 +161,8 @@ export interface HistoryRow {
    * 缺省 = 旧口径的单文本工具行（辅助行 / 恢复产物）。
    */
   toolRole?: "name" | "param" | "result" | undefined;
-  /** 参数行的名与值（名染灰、值原色；折行 / 悬挂 6 列 / 5 行上限在渲染层按宽度做） */
+  /** 参数行的名与值（名染灰、值原色；折行与悬挂 6 列由排版层按宽度做，
+   *  行数上限 = 折行核的预算：最多 5 行，超出保留前 3 + 后 2） */
   toolParam?: { name: string; value: string } | undefined;
   /** 该调用 / 结果的成败（失败：名字行 `✗` 红 + 结果行整行红）；缺省 = 尚无结果（在飞） */
   toolOk?: boolean | undefined;
