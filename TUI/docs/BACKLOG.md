@@ -17,3 +17,30 @@
   - 改动位置: 待定(预计 `TUI/src/renderer/index.ts` 的 `changedIntervals` / 或增加渲染层边界行强制重写; 涉及配套帧测试)。
   - 验收: 复现场景(横向 + 隐藏状态列 + 回合区快速滚动)不再现缺口; 全量 `pnpm run check` / `test:tui` / `demo -- --smoke` / `check:docs` 全绿; 若做各项修改, 帧基线按需复核。
   - 来源: 2026-11-05 用户报告（「回合区输出时状态行上边框左边横线缺失, C-l 重绘恢复」）; 状态: 未接取; 优先级: 中。
+
+- **daemon 开关状态收进标题栏符号区, 状态列 Daemon 块只在打开时显示且不再带开/关文字**
+
+  - 现象 / 现状: ① `TUI/src/app/components/StatusColumn.ts:365-382` 的 Daemon 块显示条件是 `items.length > 0`（只要有任务就显示）, 块头为 `Daemon 开/关 · running/total`（带上「开/关」文字）; ② daemon 未打开（`enabled === false`）时块仍显示, 占状态列版面; ③ `TUI/src/app/runtime/wiring.ts:253-278` 仅在 `list()` 非空时产出 `next.daemon` 快照, 快照已含 `enabled` 字段。
+  - 期望: ① 状态列 Daemon 块只在 daemon **打开**时显示（`enabled === true` 且 `items.length > 0`）, 关闭时整块不出现; ② 块头去掉「开/关」文字, 只保留 `Daemon · running/total`（开/关语义转移到标题栏）; ③ 标题栏左侧符号区（`TUI/src/app/layout/title-bar.ts` 的 `titleBarSegments`）新增一个 daemon 开关符号, **一个符号**表达开/关两态——完全参照既有 `flowTrack` 开关先例（`TITLE_ICON.flowTrack` + `StatusSwitches.flowTrack?` 字段: on 绿 / off 灰, 服务未读到 `undefined` 时整项省略不常灰）。
+  - 接取时裁定: ① daemon 符号在标题栏符号组内的位置（建议与 `flowTrack` 相邻, 同为开关类, 放 `flowTrack` 之后）; ② daemon 关闭且有任务是「关闭就不显示块」还是「有任务仍显示块但去掉开/关文字」（建议按用户原话「没有打开则不必显示」: 关闭即整块隐藏）。
+  - 改动位置: `TUI/src/app/layout/title-bar.ts`（`TITLE_ICON` 加 daemon 项、`StatusSwitches` 加 `daemon?` 字段、渲染与让位逻辑）、`TUI/src/app/runtime/wiring.ts`（把 `daemon.enabled` 透给标题栏; 状态列快照按 `enabled` 过滤）、`TUI/src/app/components/StatusColumn.ts:365-382`（显示条件加 `enabled`、块头去「开/关」）、相关类型 `TUI/src/app/state/types.ts` / `app-deps.ts`、配套帧测试。
+  - 验收: daemon 关闭: 状态列无 Daemon 块, 标题栏 daemon 符号常灰; daemon 打开且有任务: 块头 `Daemon · running/total`（无开/关文字）, 标题栏符号绿; 服务缺失: 标题栏不出现 daemon 符号; 窄宽让位与既有符号组一致; 全量 `pnpm run check` / `test:tui` / `demo -- --smoke` / `check:docs` 全绿。
+  - 来源: 2026-11-08 用户提出（「状态列中 daemon 如果没有打开则不必显示; daemon 的打开和关闭状态用一个符号表示, 位置放在标题栏左侧的符号区; 状态列的 Daemon 部分不需要显示开/关」）; 状态: 进行中; 优先级: 中。
+
+- **状态列 Task 块: 没有任务时不显示**
+
+  - 现象 / 现状: `TUI/src/app/runtime/wiring.ts:160-201` 仅在宿主 `frameStack` 非空时产出 `next.task` 快照, `TUI/src/app/components/StatusColumn.ts:299-311` 再以 `stack.length > 0` 建块（块头 `Task active/total`）——代码面已是「无帧栈不显示」; 但实际仍可能「没有任务却显示 Task 块」, 疑似来源: 宿主 `taskEngine.query()` 的 `frameStack` 在无任务时仍含默认根帧（返回非空）, 或栈内条目只有 id 无标题（`titles.size === 0`）时块头仍显示 `Task 0/0` / `Task N/N` 的空栈。
+  - 期望: 没有任何真实任务（帧栈为空, 或栈内无有效标题）时, 状态列不出现 Task 块; 有任务时才显示 `Task active/total` 与栈条目。
+  - 疑似范围 / 接取时裁定: ① 宿主 `task-engine` 的 `frameStack` 在无任务时的实际取值（空数组 vs 含默认根帧）——需代码核实 / 真机观察, 若宿主恒非空则 TUI 侧按「有效标题数 > 0」收紧; ② 判定口径: `stack.length > 0` 还是「栈内至少一条可解析标题」, 或与 `active / total` 联动（`total === 0` 视为无任务）。
+  - 改动位置: `TUI/src/app/runtime/wiring.ts:160-201`（快照产出条件收紧）; `TUI/src/app/components/StatusColumn.ts:299-311`（如需, 建块条件与 `active / total` 口径同步）。
+  - 验收: 无任务（frameStack 为空或全空标题）时状态列无 Task 块; 有任务时 Task 块照常; 全量 `pnpm run check` / `test:tui` / `demo -- --smoke` / `check:docs` 全绿。
+  - 来源: 2026-11-08 用户提出（「状态列的 Task 部分没有任务时不需要显示」）; 状态: 进行中; 优先级: 中（需先核实宿主 `frameStack` 空态行为再定改动）。
+
+- **状态列 Task 块内容范围: 只显示「当前帧 → 根」路径, 根在下、当前帧在上**
+
+  - 现象 / 现状: `TUI/src/app/runtime/wiring.ts:160-201` 按宿主 `query().frameStack` 取栈并逐 id 查标题, `TUI/src/app/components/StatusColumn.ts:299-311` 自底向顶渲染（注释「当前任务栈（自底向顶; 最上层 = 当前帧）」, 最上层 ● 黄、其余 ○ 灰）——注释意图与本需求一致, 但实际是否只含「当前正在进行的帧到根路径」取决于宿主 `frameStack` 的产出语义: 若宿主返回全部任务 / 全树展平, 或栈顺序与「根在下、当前帧在上」相反, 则现状不达标。
+  - 期望: Task 块只列「当前正在进行的帧 → 根节点」这一条链路, 不铺全部任务; 根节点在下、当前帧在上（与现状 ● / ○ 分层渲染形态一致: 当前帧最上层）。
+  - 疑似范围 / 接取时裁定: ① 代码核实宿主 `task-engine` 的 `frameStack` 产出语义（是否即为当前路径, 以及栈底 / 栈顶分别对应根还是当前帧）; ② 若宿主栈顺序与期望相反, TUI 侧反转或与宿主对齐; ③ 与上一条「Task 块无任务时不显示」同源（同一 `frameStack`）, 两条可一并接取。
+  - 改动位置: 视核实结果——可能只需 `TUI/src/app/runtime/wiring.ts:160-201` 的取数 / 排序, 或 `TUI/src/app/components/StatusColumn.ts:299-311` 的渲染顺序; 需配套帧测试。
+  - 验收: 有任务时, 状态列 Task 块 = 「当前帧 → 根」路径（根在下、当前帧在上, ● 黄为当前帧）; 无全树铺开; 全量 `pnpm run check` / `test:tui` / `demo -- --smoke` / `check:docs` 全绿。
+  - 来源: 2026-11-08 用户提出（「状态列显示 Task 的任务栈时, 显示的不是全部任务, 而是当前正在进行的帧到根节点路径上的任务; 根节点在下, 当前帧在上」）; 状态: 进行中; 优先级: 中。

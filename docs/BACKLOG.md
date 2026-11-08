@@ -70,19 +70,54 @@
 
 ## 2. 未完成项
 
-- **#1 `apply_patch` 写面覆盖: security-guard 与 escalation-hint**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+- **#1 `apply_patch` 写面覆盖: security-guard 与 escalation-hint**〔进行中: 2026-11-07〕（登记日: 2026-11-07）
 
   - 现状: rc.1 的 `tool-fs` 新增 `apply_patch`, 参数只有 `input` 补丁文本（路径写在文本里）; `security-guard/src/tool-registry.ts:12-22` 的 `FILE_TOOLS` / `WRITE_FILE_TOOLS` 未登记它, `escalation-hint/src/index.ts:31-32` 的 write / edit 类提示也未含; rc.1 出厂组合均为 `applyPatch: false`, 当前 profile 不注册该工具.
   - 期望: 启用该工具前补齐 —— security-guard 从补丁文本解析目标路径（或整工具按写类拒绝）, escalation-hint 加同类提示, 并同步两份 README 的覆盖边界说明.
   - 优先级: P2.
   - 来源: 宿主 rc.1 复核（`docs/host/HOST-UPGRADE-0.2.2-rc.1.md` §6 / §11）; 原为宿主版本更新任务的承接项 #4, 2026-11-07 重新登记（详情见 `docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md`）.
 
-- **#2 `sessionProjections.stateOf(session, key)` 弃用迁移**〔待办: 2026-11-07〕（登记日: 2026-11-07）
+- **#2 `sessionProjections.stateOf(session, key)` 弃用迁移**〔进行中: 2026-11-07〕（登记日: 2026-11-07）
 
   - 现状: rc.1 弃用该读法并打运行时警告; 本仓 `task-engine`（`tokenUsage`）、`context-report`（`sessionStats` / `sessionContext`）、`rule-engine` 用它读宿主投影单元.
   - 期望: 能拿到领域服务的改读领域服务（如 `tokenMeter`）, 其余改用宿主公开的投影 handle 或后续替代 API; 迁移后不再出现弃用警告, 功能面零变化.
   - 优先级: P2.
   - 来源: 同上（承接项 #5）。
+
+- **#3 `security-guard` 宿主工具面清单过期同步**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+
+  - 现状: rc.1 换面后 `security-guard/README.md` 的宿主工具面描述过期 —— `schedule` 工具改名（`schedule_create` / `schedule_update` → `schedule_create` / `schedule_list` / `schedule_view` / `schedule_edit`）、`list_agents` 并入 `dsh-tool-subagent-control`（`list-agents` 行移除）、工具执行器拆分（`tool-executor-native` / `tool-executor-ptc`）; README:214-216 的「已知多报 / 覆盖边界」仍按旧工具名记录, 差异检查脚本在 rc.1 树上的输出数字未核对.
+  - 期望: 按 rc.1 实际安装树重跑 `scripts/tool-surface-check.mjs`, 用新输出核对登记表, 更新 README 的「已知多报 / 覆盖边界」清单（含 `schedule_edit` 等新工具与执行器工具名）, 有漏拦则补登记（可与 #1 一并处理）.
+  - 优先级: P2.
+  - 来源: 宿主 rc.1 复核（`docs/host/HOST-UPGRADE-0.2.2-rc.1.md` §6 / §11 #4）.
+
+- **#4 宿主升级待裁定: `fs-observation-policy` 守卫恢复 与 `apply_patch` 启用取舍**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+
+  - 现状: rc.1 的 `dsh-base` 把 `fs-observation-policy` 改 `disabled: true`（官方 `write` / `edit` 不再有读后改前与版本守卫）, `tool-fs` 默认 `applyPatch: false`（`apply_patch` 未启用）; fff profile 跟随 base 出厂形态, 两个行为取舍均未由用户裁定（`docs/host/HOST-UPGRADE-0.2.2-rc.1.md` §12 待裁定 1 / 2）.
+  - 期望: 由用户裁定 —— fs 守卫: 恢复则 profile patch 加 `- id: fs-observation-policy` + `disabled: false`（树外加装包部署时同步）, 不恢复则维持现状并在文档注明取舍; apply_patch: 启用则先完成 `docs/BACKLOG.md` #1 的写面覆盖再开 `config.applyPatch: true`, 不启用则维持 `false` 并同步 `escalation-hint` 提示面边界.
+  - 优先级: P2.
+  - 来源: 宿主 rc.1 复核（同 §12）.
+
+- **#5 `HOST-PACKAGES.md` 逐包行清单按 rc.1 树重生成**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+
+  - 现状: 宿主升级收尾只重算了版本口径、包计数与挂载数字; §1 / §2 的逐包行清单未按 rc.1 树重排 —— 该区间新增 30 个包 / 移除 1 个（清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）, 文档头部已写明该限制（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
+  - 期望: 按 rc.1 安装树核对 372 个包目录, 把 +30 / −1 项排进 `HOST-PACKAGES.md` 逐包行清单, 并在头部补一行本机口径.
+  - 优先级: P3.
+  - 来源: 宿主升级任务收尾记录（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
+
+- **#6 `check` / `build` 根委托链并行化**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+
+  - 现状: 根 `package.json` 的 `check` / `build` 是 38 个 `pnpm -C <包> run <cmd> && ...` 的**串行**委托链（墙钟 = 各包耗时之和）; 只有 `test`（34 包）与 `test:integration` 走 `scripts/test-parallel.sh` 并行（GNU parallel 为主 / xargs 兜底, 墙钟 ≈ 最慢包）; `install.sh` 构建插件的并行面（`BUILD_JOBS` / `BUILD_RUNNER`）只覆盖 profile 安装, 不覆盖根 `pnpm run check` / `build`.
+  - 期望: 把 `check` / `build` 改成与 `test` 同款并行调度 —— 复用或扩展 `scripts/test-parallel.sh` 的调度与汇总模式（parallel / xargs 两路、`set -u` 累计退出、包清单双向校验、只跑存在的包）, 根 `package.json` 三链统一一个并行入口（如扩展 `TEST_SCRIPT=check|build` 或新 `scripts/run-all.sh <check|build|test> [包...]`）; 注意两点: ① `set -e` 语义取舍（一包失败是否等其余包跑完再汇总, 与 `test-parallel.sh` 的「不 fail-fast」对齐）; ② build 的依赖序 —— `code-map` / `md-map` import `ast-tools` / `md-logic` 的构建产物, 须先建后两者（`install.sh` 已实现该排序, 可复用）.
+  - 优先级: P2.
+  - 来源: 用户 2026-11-08 提出「检查, 测试这些脚本全部都并行化」.
+
+- **#7 核查各工具执行路径, 确认是否需要走官方围栏**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+
+  - 现状: 本仓多个写入面未走官方 `ctx.fs`（围栏 / 观察守卫 / 审批瀑布）——已确认 `hash-edit`（`node:fs` 临时文件 + rename 直写, 可越界写工作区外）、`ast-tools`（`ast_replace` 整文件重写直写）、`md-logic`（`replace` 整文件重写直写）; 其余包写盘面（memory-base / fs-digest / output-compress / preference-analysis / background-daemon / session-paths 等）写入各自数据目录, 是否属「需走官方围栏」范围未系统核查; 官方 `write` / `edit` / `apply_patch` 全程经 `ctx.fs` 受围栏。
+  - 期望: 系统核查各工具 / 写入面的执行路径, 逐条判定「是否需要走官方围栏」——判定口径: ① 写用户 / 项目工作文件（模型可改的表面）→ 需要; ② 写插件自有数据目录（记忆库 / 摘要库 / 账簿等, 不属用户文件面）→ 可不走, 但需写明边界与越界风险; ③ 有安全敏感的越界写（可碰工作区外路径）→ 需要。产出: 「工具写路径 × 是否走围栏」核对表 + 逐条结论; 需要改走的登记为后续条目（如 `hash-edit` 改走 `ctx.fs`, 即重开 `docs/ARCHITECTURE-REUSE.md` §4 D 的改造点）。
+  - 优先级: P1（写面安全边界核查）。
+  - 来源: 2026-11-08 用户提出（承接 hash_edit 走围栏讨论）。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
