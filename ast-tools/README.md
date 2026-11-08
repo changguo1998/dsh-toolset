@@ -12,12 +12,12 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 
 ## 能力
 
-**模型侧工具**（挂载后模型可用；`inject: ["tools"]`）：
+**模型侧工具**（挂载后模型可用；`inject: ["tools", "fs"]`）：
 
 | 工具 | 说明 |
 | --- | --- |
 | `ast_query` | 单工具 + `action` 分派：`search`（AST 模式搜索，`$VAR` / `$$$VAR` 元变量）、`outline`（语法骨架）、`rules`（跑 YAML 规则：`rulePath` 或内联 `rules` + `paths[]`）。参数缺失 / 互斥冲突 / 未知 action → 返回 `{ error }`，不抛。 |
-| `ast_replace` | 结构化替换，**默认 dry-run**（只返回预览与命中，不写文件）；写回需 `write: true`（整文件重写）。 |
+| `ast_replace` | 结构化替换，**默认 dry-run**（只返回预览与命中，不写文件）；写回需 `write: true`，全程经官方 `ctx.fs`（受会话沙箱模式约束，写工作区外需升档），并按写前读到的版本做守卫：期间文件被改动则整次失败、不覆盖。 |
 
 工具参数（与实现逐项一致；未标注可选者必填）：
 
@@ -36,12 +36,13 @@ DSH（DeepSeek Harness）进程内插件：基于 ast-grep 的 AST 结构搜索�
 | 导出 | 说明 |
 | --- | --- |
 | `searchAst(params, opts?)` | AST 模式搜索 → `AstMatch[]`（`text` / `range` / `metaVariables`） |
-| `replaceAst(params, opts?)` | 结构化替换 → `ReplaceResult`（`updatedSource` / `replacedCount` / `written` / `matches`） |
+| `replaceAst(params, opts?, io?)` | 结构化替换 → `ReplaceResult`（`updatedSource` / `replacedCount` / `written` / `matches`）；`io` 缺省用 `nodeAstFileIo()` |
 | `outlineFile(params, opts?)` | 文件大纲 → `OutlineFile[]`（顶层符号与成员，含 0-based 行列与字节偏移） |
 | `runRules(params, opts?)` | YAML 规则执行 → `AstRuleHit[]`（`ruleId` / `severity` / `message`，fix 规则附 `replacement`） |
-| `createAstToolsBundle(config?)` | 核心工厂：绑定二进制与超时，返回 `search` / `replace` / `outline` / `rules` / `dispose` 服务对象 |
+| `createAstToolsBundle(config?, deadline?, ioFor?)` | 核心工厂：绑定二进制与超时，返回 `search` / `replace` / `outline` / `rules` / `dispose` 服务对象 |
+| `nodeAstFileIo()` / `ctxAstFileIo(host, exec)` | 两层文件读写适配：前者是 `node:fs` 缺省实现（库面 / 示例 / 单测），后者按一次工具调用接 `ctx.fs`（围栏 + 版本守卫 + 意图瀑布） |
 | `findAstGrepBin` / `ensureAstGrepBin` | 二进制探测（未找到返回 `null` / 抛 `AstGrepMissingError`） |
-| `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约（`inject: ["tools"]`，注册上表的模型侧工具） |
+| `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约（`inject: ["tools", "fs"]`，注册上表的模型侧工具） |
 
 各操作的参数（`opts` 为通用选项 `bin` / `timeoutMs`）：
 
@@ -106,15 +107,15 @@ pnpm run example:replace   # 输出 REPLACE_EXAMPLE_PASS
 - CLI 退出码不作为判据：`run` 无命中与 `scan` 的 error 级命中都可能非零退出而 stdout 为纯 JSON；仅在「无 JSON 且非零退出」时抛 `AstGrepProcessError`，无命中返回空数组。
 - 语言名支持别名（`js` → `javascript`、`py` → `python` 等），未知值原样透传给 CLI 校验；`replace` 要求具体文件路径，不支持目录输入。
 - 模型侧工具的渲染把 0 基坐标转 1 基（与宿主 `read` / `grep` 的行号口径一致）；要原始 0 基坐标与字节偏移，直接读工具返回值或用库 API。
-- `ast_replace` 的写回是**整文件重写**（CLI 语义）且直接 `node:fs` 写入：既不做行级锚点校验，也**绕开**官方 `fs-observation-policy` 的文件级版本守卫（`0.2.2-rc.1` 起 base 缺省关闭该行, 打开时才有守卫）与 `ctx.fs` 沙箱——写回前请确认目标文件未被并发修改。需要「读后改前 + 漂移检测」用 `hash_edit`，需要文件级版本守卫先打开该行再用宿主 `edit`。
-- 两类错误分界：**入参问题**（缺参 / 互斥冲突 / 空 `paths` / 未知 action）返回 `{ error }` 值，不抛；**执行期问题**（模式或语言非法、规则 YAML 解析失败、子进程超时 / 崩溃）由库抛出，宿主转成模型可见的工具错误（含 ast-grep stderr）。`exec.signal` 取消暂未转发（与 `code-map` / `fs-digest` 同现状）。
+- `ast_replace` 的写回仍是**整文件重写**（CLI 语义），但落盘全程经官方 `ctx.fs`：读写受会话沙箱模式围栏（`workspace-write` 下只能写工作区根与临时区，写工作区外需升档，`read-only` 下直接拒绝），写前按读到的版本传 `replaceIfVersion` 意图，期间文件被改动时后端抛 `FS_STALE_VERSION`（本包转成「文件在读取后被修改, 请重新读取后重试」）。**服务缺失不回落**：宿主没挂 `ctx.fs` 时工具调用直接返回可行动错误，不会退回 `node:fs` 绕开围栏。库面（`replaceAst` / `createAstToolsBundle` 不传 `ioFor`）仍走 `nodeAstFileIo()`，围栏只在插件侧生效。需要行级锚点与整批原子拒绝用 `hash_edit`。
+- 两类错误分界：**入参问题**（缺参 / 互斥冲突 / 空 `paths` / 未知 action）返回 `{ error }` 值，不抛；**执行期问题**（模式或语言非法、规则 YAML 解析失败、子进程超时 / 崩溃、文件围栏拒绝 / 版本过期）由库抛出，宿主转成模型可见的工具错误（文件错误带 `AstFileError.code` 与中文文案，ast-grep 错误带 stderr）。`exec.signal` 现在会转给每次文件读写；ast-grep 子进程的取消仍未转发（与 `code-map` / `fs-digest` 同现状）。
 
 ## 测试
 
 ```sh
 pnpm run check   # tsc --noEmit（strict + noUncheckedIndexedAccess）
 pnpm run build   # 编译到 dist/
-pnpm run test    # node --test（82 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面）
+pnpm run test    # node --test（89 例：多语言匹配/替换/大纲/规则 + 降级路径 + 模型侧工具面 + ctx.fs 写面）
 pnpm run test:integration # 集成层（tests/integration）
 pnpm run test:coverage # 单元 + 集成覆盖率报告
 ```

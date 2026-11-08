@@ -7,6 +7,17 @@
 
 import type { Deadline } from "@dsh-toolset/clock-base";
 
+/** 宿主工具执行上下文里本包读到的字段（其余字段与本包无关）。 */
+export interface ToolExecLike {
+  readonly callId?: string;
+  readonly signal?: AbortSignal;
+  /**
+   * 调用方 agent：本包只把它交给 `ctx.workingDirectory.ensure`（相对路径基准）
+   * 与 `ctx.sandboxPolicy.resolve`（会话围栏模式）; `agent.session` 是后者的键。
+   */
+  readonly agent?: unknown;
+}
+
 /** 0-based 行列位置。 */
 export interface AstPos {
   line: number;
