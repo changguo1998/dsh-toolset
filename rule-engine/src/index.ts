@@ -17,7 +17,7 @@
  * 总线（回合区展示，项目级 #61 方案 B）；无订阅者（headless）回退 stderr。
  *
  * 规则来源两层：apply 的 `config.rules`（只读基线）+ 模型面工具族运行时增删改
- * （落 `~/.dsh/rule-engine/rules.json`，可用 `RULE_ENGINE_STATE_DIR` 覆盖目录）。
+ * （落 `~/.dsh/rule-engine/rules.json`，可用 `RULE_ENGINE_STATE_DIR` / `DSH_HOME` 覆盖目录）。
  */
 
 import { resolveClock } from "@dsh-toolset/clock-base";

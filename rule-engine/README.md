@@ -144,7 +144,7 @@ service.registerConsumer({
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `stateDir` | `~/.dsh/rule-engine` | 运行时层状态目录；环境变量 `RULE_ENGINE_STATE_DIR` 优先 |
+| `stateDir` | 见说明 | 运行时层状态目录；优先级 `RULE_ENGINE_STATE_DIR` > `<DSH_HOME>/rule-engine` > `~/.dsh/rule-engine`（`DSH_HOME` 为空视同未设；与 `session-paths` 的 home 口径一致, 故 e2e 夹具改用临时 home 时不会写进真实用户目录） |
 | `rules` | `[]` | 配置基线规则（只读，结构同工具参数） |
 | `maxInjectionsPerTurn` | `3` | 同一会话同一回合注入上限 |
 

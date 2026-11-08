@@ -1,6 +1,6 @@
 /**
  * 持久化单测：round-trip、缺省、损坏 JSON、版本不符（拒载 + 拒写）、原子写无 .tmp 残留、
- * 缺省状态目录（`RULE_ENGINE_STATE_DIR` 与环境变量优先级）、`removed` 形状告警、写失败降级。
+ * 缺省状态目录（`RULE_ENGINE_STATE_DIR` / `DSH_HOME` / `~/.dsh` 的优先级）、`removed` 形状告警、写失败降级。
  */
 
 import assert from "node:assert/strict";
@@ -131,23 +131,46 @@ test("loadLayer：缺 state 段按空层处理", () => {
   });
 });
 
-test("defaultStateDir：RULE_ENGINE_STATE_DIR 优先，缺省 ~/.dsh/rule-engine（纯读，不写盘）", () => {
+test("defaultStateDir：RULE_ENGINE_STATE_DIR > DSH_HOME > ~/.dsh/rule-engine（纯读，不写盘）", () => {
   withTmpDir((dir) => {
-    const previous = process.env["RULE_ENGINE_STATE_DIR"];
+    const previousExplicit = process.env["RULE_ENGINE_STATE_DIR"];
+    const previousHome = process.env["DSH_HOME"];
     const fromEnv = path.join(dir, "env-state");
+    const dshHome = path.join(dir, "dsh-home");
+    const userFallback = path.join(homedir(), ".dsh", "rule-engine");
     try {
       process.env["RULE_ENGINE_STATE_DIR"] = fromEnv;
-      assert.equal(defaultStateDir(), fromEnv, "环境变量优先");
+      process.env["DSH_HOME"] = dshHome;
+      assert.equal(defaultStateDir(), fromEnv, "插件级环境变量最优先");
       assert.equal(existsSync(fromEnv), false, "取缺省目录不得真实写盘");
+
       delete process.env["RULE_ENGINE_STATE_DIR"];
       assert.equal(
         defaultStateDir(),
-        path.join(homedir(), ".dsh", "rule-engine"),
+        path.join(dshHome, "rule-engine"),
+        "其次 DSH_HOME 下的插件目录（e2e 夹具靠它隔离 home）",
+      );
+      assert.equal(
+        existsSync(dshHome),
+        false,
+        "推导 DSH_HOME 路径同样不得写盘",
+      );
+
+      process.env["DSH_HOME"] = "";
+      assert.equal(defaultStateDir(), userFallback, "空 DSH_HOME 视同未设");
+
+      delete process.env["DSH_HOME"];
+      assert.equal(
+        defaultStateDir(),
+        userFallback,
         "无环境变量 → 用户目录下的插件目录",
       );
     } finally {
-      if (previous === undefined) delete process.env["RULE_ENGINE_STATE_DIR"];
-      else process.env["RULE_ENGINE_STATE_DIR"] = previous;
+      if (previousExplicit === undefined)
+        delete process.env["RULE_ENGINE_STATE_DIR"];
+      else process.env["RULE_ENGINE_STATE_DIR"] = previousExplicit;
+      if (previousHome === undefined) delete process.env["DSH_HOME"];
+      else process.env["DSH_HOME"] = previousHome;
     }
   });
 });

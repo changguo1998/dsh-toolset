@@ -20,12 +20,21 @@ import type { RuntimeLayer } from "./types.ts";
 /** 状态文件 schema 版本（不兼容时拒绝加载）。 */
 export const STATE_VERSION = 1;
 
-/** 默认状态目录。 */
+/**
+ * 默认状态目录：`RULE_ENGINE_STATE_DIR` → `<DSH_HOME>/rule-engine` → `~/.dsh/rule-engine`。
+ *
+ * `DSH_HOME` 与非空校验对齐 `session-paths/src/index.ts` 的 `resolveRoot` 口径：宿主与 e2e
+ * 夹具都靠 `DSH_HOME` 隔离 home，忽略它会让测试写进真实用户目录（2026-11-08 据此定位到
+ * e2e 残留规则 `e2e-rule`）。
+ */
 export function defaultStateDir(): string {
-  return (
-    process.env["RULE_ENGINE_STATE_DIR"] ??
-    path.join(homedir(), ".dsh", "rule-engine")
-  );
+  const explicit = process.env["RULE_ENGINE_STATE_DIR"];
+  if (typeof explicit === "string" && explicit.length > 0) return explicit;
+  const home = process.env["DSH_HOME"];
+  if (typeof home === "string" && home.length > 0) {
+    return path.join(home, "rule-engine");
+  }
+  return path.join(homedir(), ".dsh", "rule-engine");
 }
 
 /** 状态文件路径。 */

@@ -149,7 +149,7 @@ export interface RuntimeLayer {
 
 /** 插件配置（profile cordis.patch.yml 的 config 段；无运行时 schema，宿主原样透传）。 */
 export interface Config {
-  /** 状态目录；缺省 ~/.dsh/rule-engine（可被 RULE_ENGINE_STATE_DIR 覆盖）。 */
+  /** 状态目录；缺省按 `RULE_ENGINE_STATE_DIR` → `<DSH_HOME>/rule-engine` → `~/.dsh/rule-engine` 推导。 */
   stateDir?: string;
   /** 配置基线规则。 */
   rules?: readonly Rule[];
