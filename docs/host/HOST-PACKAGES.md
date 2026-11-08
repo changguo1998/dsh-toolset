@@ -1,4 +1,4 @@
-# 可用官方包清单（DSH 0.2.2-rc.1 口径；计数为 rc.1 安装树实测，§1/§2 行清单仍为 rc.5 快照）
+# 可用官方包清单（DSH 0.2.2-rc.1 口径；计数与 §1/§2 行清单均为 rc.1 安装树实测，2026-11-08 重生成）
 
 > 职责：宿主官方包与服务字典（由已安装 dsh 生成）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）
@@ -9,8 +9,8 @@
 > **0.2.1-rc.5 增量**（2026-11-04 复核）：包目录 **343 → 343**（无增删），非 manifest 变更只落在 web 客户端与 ACP / MCP 的 stdout 纪律；工具面 / 事件 / 服务面 / `dsh-base` patch 与官方配置 schema **零变更**，本文件的行清单与分类无需改动（详见 `HOST-UPGRADE-0.2.1-rc.5.md`）。
 > **0.2.2-rc.1 增量**（2026-11-07 复核，源码口径）：源码 tag `dsh-v0.2.2-rc.1`，包目录 **343 → 372**（+30 / −1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）。接口面**有实质变更**：工具执行器拆成 `tool-executor-native` / `tool-executor-ptc`（`tools` 行删除 `mode` / `maxParallelSubCalls`）、`agent/request` 弃用且新增 `Agent.model`、`sessionProjections.stateOf` / `cachedSnapshot` 弃用、`fs-observation-policy` 在 base 改 `disabled: true` 并新增 `apply_patch`。**本机安装树仍为 rc.5，本文件计数与行清单未重生成**，升级后必重生成（逐项见 `HOST-UPGRADE-0.2.2-rc.1.md`）。
 > 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
-> 版本口径：**以 `0.2.2-rc.1` 实际随包分发的安装树为准**——源码 tag 口径 **372** 个包目录（rc.5 → rc.1 新增 30 / 移除 1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）；安装树 `$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **330** 个包（其中 `dsh-*` **319** 个；2026-11-07 升级到 rc.1 后复测，rc.5 时为 306 / 295）。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。**§1 / §2 的行清单尚未按 rc.1 安装树重生成**（仍是 rc.5 快照），新增包以 `HOST-UPGRADE-0.2.2-rc.1.md` §10 为准，下次整理时重生成。
-> rc.1 挂载复测（2026-11-07）：`dsh --profile fff --dump-config` 输出 **866** 行、**174** 个 `- id:` 行，其中无条件 `disabled: true` **8** 条、条件式 `disabled: !!js` **8** 条、`@dsh-toolset/*` 行 **38** 条 → 官方活跃包 **101** 个（rc.5 时为 100）；profile 的 `dsh.profile.bundles` 为 **39** 个（dsh-base + 38 个 `@dsh-toolset/*`）；`session-title-all-prompts-llm` 仍为树外加装（disabled）。
+> 版本口径：**以 `0.2.2-rc.1` 实际随包分发的安装树为准**——源码 tag 口径 **372** 个包目录（rc.5 → rc.1 新增 30 / 移除 1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）；安装树 `$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **330** 个包（其中 `dsh-*` **319** 个；2026-11-08 复测）。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。**§1 / §2 的行清单已按 rc.1 安装树重生成**（2026-11-08：§2 由 306 行补到 330 行，新增 26 个包目录、删除 2 个已不存在的旧行）。
+> rc.1 挂载复测（2026-11-08，隔离 `DSH_HOME` 克隆 profile 后实测）：`dsh --profile fff --dump-config` 输出 **845** 行、**147** 个 `- id:` 行，其中无条件 `disabled: true` **8** 条、条件式 `disabled: !!js` **8** 条、`@dsh-toolset/*` 行 **39** 条 → 官方活跃项 **101** 条、覆盖 **100** 个包（rc.5 时为 100）；profile 的 `dsh.profile.bundles` 为 **39** 个（dsh-base + 38 个 `@dsh-toolset/*`）；`session-title-all-prompts-llm` 已随 rc.1 分发，仍 `disabled: true`。
 > rc.5 挂载复测（2026-11-04）：`dsh --profile fff --dump-config` 输出 848 行、142 个 `- id:` 行，其中无条件 `disabled: true` 6 条、条件式 `disabled: !!js` 5 条、`@dsh-toolset/*` 行 34 条 → 官方活跃包 **100** 个，与 §1 的 100 项同量；`session-title-all-prompts-llm` 仍为树外加装（disabled）。
 > 采集时间：**2026-10-21**（宿主 `dsh --version` = `0.2.1-rc.2`；随包分发 306 包、fff 活跃挂载 100 个名字项（`--dump-config` 排除无条件 `disabled: true` 后），另树外加装 `session-title-all-prompts-llm`（disabled），其中 92 个计入 §1、1 个是 TUI 自插的 `tool-ask-user`。△ 该名字项计数**含被 `disabled` 关掉的行**，按 §0 判定细则修正后见 §1 与 §6）。接口与包增删的逐项对照：本次见同目录 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`，上一次见 `docs/host/HOST-UPGRADE-0.1.7-rc.2.md`。
 > 与上一版清单（`0.1.5-rc.3`）的差异（历史记录，0.1.5-rc.3 → 0.1.7-rc.2 当时）：随包分发包 240 → 283、fff 已挂载 82 → 91；分类结构沿用旧版，逐行按新数据重写。
@@ -22,37 +22,34 @@
 - **`（ctx.x）` 表示该包注册了这个 host 服务**，是我们插件 `inject` 的对象；没有的包是工具/后端/客户端资产，通过别的服务被消费。
 - **`已挂载`** 指 `fff` profile 启动时会加载它（等价于 `dsh-base` bundle 行 + profile 用户 patch 行）；未标记的包虽已随 dsh 安装、但该 profile 不加载。
 - **`已挂载` 的判定细则（2026-10-06 补）**：组合树里**行在位还不够**——该行必须**未被 `disabled` 关掉**才计入。无条件 `disabled: true` 的行（当前：`tool-ralph`、`skill-badge`）**不算已挂载**，§2 里以「（未启用：`dsh-base` 行 `disabled: true`）」标注；条件式 `disabled: !!js <表达式>` 按 profile 上下文求值（先例 `hmr`：`!ctx.get("profileContext")` → profile 运行下为**启用**，仍算已挂载）。修正依据：`dsh-base/cordis.patch.yml`（全局安装树 `0.2.0-rc.2`）逐行核对 + `--dump-config` 组合树，见 `docs/archived/2026-10-06-host-packages-disabled-rows.md`。
-- **`树外加装`** 指该包未随 dsh 分发，由 `fff` profile 自行安装（`dsh plugin add` 或 profile 的 `package.json` + `pnpm install`，落到 profile 的 `node_modules`）并在 profile 的 `cordis.patch.yml` 挂载；当前仅 `session-title-all-prompts-llm` 属此类（不随装、按需启用）。
+- **`树外加装`** 指该包未随 dsh 分发，由 `fff` profile 自行安装（`dsh plugin add` 或 profile 的 `package.json` + `pnpm install`，落到 profile 的 `node_modules`）并在 profile 的 `cordis.patch.yml` 挂载；**rc.1 起没有这类包**——旧的 `session-title-all-prompts-llm` 已随 dsh 分发（profile 里仍 `disabled: true`，其 provider 由本仓 `session-title-cutoff` 接管）。
 - **挂载面扩张的排除口径（2026-10-02 用户裁定）**：客户端 UI（`dsh-client*`）、Web 类（`host-webserver` / `web-frontend` / `web-app`）、运维面（`plugin-manager` / `config-editor` / `hmr`）、实验编排（`experimental-*`）、preset 家族、会话格式迁移库（`session-format*`）、API 控制面（`api-*`）、`win32-process` / `schedule` / `time-context`；另本次补充排除替代 app 入口（`acp` / `acp-app` / `headless` / `sdk-*`）、Web/Desktop 面（`host-directory-picker-auto` / `host-open-in-app` / `host-plugin-inventory` / `host-product-telemetry-otel` / `session-log-export`）与 cordis 开发者面（`cordis-client-runner` / `cordis-host-runner` / `tool-cordis`）。**缝包（如 `fs` / `shell` / `subprocess` / `sandbox` / `spill` / `attachment` / `session-query` / `session-persistence`）不挂**：它们虽是合法插件，但任何官方组合都没把它们选作行，且会与已挂的持有行重复注册同名服务。候选池推导与第二批选题见 `docs/archived/2026-10-02-profile-mount-expansion.md`。
 - **`agent-preset` 家族未挂载是设计结果，不是缺配置**：官方只让 Web 面（`web-app` bundle）禁用 base 的 agent 面行并挂 preset registry，TUI 这类单组合面保持 base 的进程级 agent 组合（`packages/bundle/web-app/cordis.patch.yml` 的 "for the TUI, which is single-session and composes its agent process-wide" 注释、`packages/client/ui-user-questions/README.md` 的 "the TUI composition, which has no presets"）。依据、验证与版本断层见 `docs/host/AGENT-COMPOSITION.md`；要改 agent 面请落 profile 用户 patch。
-- **包名省略 `@deepseek-ai/dsh-` 前缀与作用域**。少数包本就不带该前缀：`cordis` / `cordis-plugin-*` / `cosmokit` / `schemastery` 来自 vendored cordis 生态，`libreoffice-kit*` / `node-addon-system*` 是预编译资产包——这 11 个 + `web-frontend`（构建产物）共 12 个包在 `packages/` 下没有源码目录，行内已注明 vendor / 构建产物。
+- **包名省略 `@deepseek-ai/dsh-` 前缀与作用域**。少数包本就不带该前缀：`cordis` / `cordis-plugin-*` / `cosmokit` / `schemastery` 来自 vendored cordis 生态，`libreoffice-kit*` / `node-addon-system*` 是预编译资产包——rc.1 安装树下共 **11** 个这类包（其余 319 个都是 `dsh-*`），`web-frontend` 已改以 `dsh-web-frontend` 分发（构建产物），行内已注明 vendor / 构建产物。
 - **归类与计数口径**：分组沿用旧版 12 个分类，按宿主源码目录（`packages/` 下路径）归口，少数跨面包沿用旧版口径（`command-*` 归「技能 / 命令 / Web / 集成」；编排类 `tool-*`（goal / jobs / subagent / workflow / agent-team）归「agent 与编排」；`client-*` 全部归「客户端 UI」；`util-*` 与 vendor 归「插件 / 启动 / 基础设施」）；`experimental-` 前缀包剥掉前缀后按同一规则落位。
-- **小计自洽性**：各分类包数之和 = **306**（= 随包分发实测 306；其中 305 个在安装树内、1 个是树外加装包 `session-title-all-prompts-llm`，后者归入「会话 / 上下文 / 存储」且不占该分类名额）；各分类「已挂载」之和 = **99**（2026-10-02 两步实测：`dsh-base` 新行 `otel` → 92，同日挂载面扩张再 +10 → 102；**2026-10-06 修正**——原 101 的分类和含 2 行被无条件 `disabled: true` 关掉的行 `tool-ralph` / `skill-badge`，按 §0 判定细则不计，101 → 99），另加 1 个树外加装包 `session-title-all-prompts-llm`（§1 合计 99 + 1 = **100**）。
+- **小计自洽性**：各分类包数之和 = **330**（= rc.1 安装树实测 330）；各分类「已挂载」之和 = **100**（2026-11-08 按 §0 判定细则逐行重算：147 个 `- id:` 行 − 本仓 `@dsh-toolset/*` 39 条 − 无条件 `disabled: true` 8 条 = 官方活跃项 101 条 / 100 个包；旧版 99 / 100 的差异来自历史修正与树外安装包，本轮全部按 dump 重算）。该包已随 rc.1 分发（旧版记为树外加装），仍 `disabled: true`，故不计入已挂载。
 
-## 1. 现成可用（fff 已挂载，100 个，2026-10-21 rc.2 按 §0 判定细则实测；rc.3 升级后未按细则复算）
+## 1. 现成可用（fff 已挂载，100 个，2026-11-08 rc.1 按 §0 判定细则实测）
 
 ```
-agent agent-default-model agent-instructions agent-loop api-gateway api-remote-access attachment-local authorization
-bash-sandbox command-compact command-feedback command-goal commands compaction-basic compaction-image-offload compaction-tool-result-pruner
-config-editor credentials-local deepseek-llm-api-extensions file-reference-local fs-observation-policy fs-sandbox goal goal-round-driver
-hmr jobs-local llm llm-deepseek-api-key llm-pi-ai llm-retry mcp-resources message-feedback
-otel permission-presets plan-mode plugin-manager plugin-package-inventory-deepseek ptc-runtime-node pwsh-sandbox repeat-tool-reminder
-sandbox-local sandbox-policy session session-checkpoint-policy session-log-deepseek session-persistence-jsonl session-projection session-projection-cache
-session-query-sqlite session-reference session-stats session-telemetry-otel session-title session-turn-outline settings shell-env
-skill skill-filesystem spill-local spill-policy storage storage-domain storage-json subagent
-subagent-fork-in-process subagent-spawn-in-process subprocess-local system-prompt terminal terminal-bash token-meter tool-ask-user
-tool-bash tool-call-timeout-policy tool-fs tool-fs-search tool-goal tool-jobs tool-pwsh tool-skill
-tool-subagent tool-subagent-control tool-subagent-control/list-agents tool-todo tool-web tool-workflow tool-working-directory tools
-typert-loader typert-registry user-approval user-questions web web-deepseek-api web-fetch-http web-search-deepseek
-workflow-ptc working-directory workspace workspace-changes
+agent agent-default-model agent-instructions agent-loop api-gateway api-remote-access attachment-local authorization bash-sandbox command-compact
+command-feedback command-goal commands compaction-basic compaction-image-offload compaction-tool-result-pruner config-editor cordis-plugin-timer credentials-local deepseek-llm-api-extensions
+file-reference-local fs-sandbox goal goal-round-driver hmr jobs-local llm llm-deepseek-api-key llm-pi-ai llm-retry
+mcp-resources message-feedback otel permission-presets plan-mode plugin-manager plugin-package-inventory-deepseek ptc-runtime-node pwsh-sandbox repeat-tool-reminder
+sandbox-local sandbox-policy session session-checkpoint-policy session-log-deepseek session-persistence-jsonl session-projection session-projection-cache session-query-sqlite session-reference
+session-stats session-telemetry-otel session-title session-turn-outline settings shell-env skill skill-filesystem spill-local spill-policy
+storage storage-domain storage-json subagent subagent-fork-in-process subagent-spawn-in-process subprocess-local system-prompt terminal terminal-bash
+token-meter tool-ask-user tool-bash tool-call-timeout-policy tool-executor-native tool-fs tool-fs-search tool-goal tool-jobs tool-pwsh
+tool-skill tool-subagent tool-subagent-control tool-todo tool-web tool-workflow tool-working-directory tools typert-loader typert-registry
+user-approval user-questions web web-deepseek-api web-fetch-http web-search-deepseek workflow-ptc working-directory workspace workspace-changes
 ```
 
-其中 **99 个**随 dsh 分发（在 §2 之内），**1 个**是树外加装包 `session-title-all-prompts-llm`（当前 profile 已 `disabled: true`，其 provider 由本仓 `session-title-cutoff` 接管；包仍随 profile 安装供 helper 加载，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 29 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现；口径见 §6）。0.2.1 实测活跃名字项 100 个（`--dump-config` 排除无条件 `disabled: true` 行后）。
+其中 **100 个**全部随 dsh 分发（在 §2 之内），没有树外加装在用：`session-title-all-prompts-llm` 已 `disabled: true`，其 provider 由本仓 `session-title-cutoff` 接管（包仍随 profile 安装，见 §2「会话 / 上下文 / 存储」）。上表不含本项目 38 个 `@dsh-toolset/*` 包与 TUI bundle 自行 `- insert:` 的 `tool-ask-user`（后者在 `--dump-config` 里也出现；口径见 §6）。2026-11-08 实测：147 个 `- id:` 行 = 官方 108 + 本仓 39，其中无条件 `disabled: true` 8 条不计入 → 官方活跃项 101 条、覆盖 **100** 个包（`tool-subagent-control` 一个包两行）。
 
 > 2026-10-02 已升级到 `0.2.0-rc.2` 并实测：比 0.1.7 多出的正是 `otel`（`dsh-base` 新增 `- id: otel`，服务 `ctx.otel`），其余 91 个逐项不变。
 > 同日挂载面扩张（`~/.dsh/profiles/fff/cordis.patch.yml` 追加一个 `- insert:` 块）再 +10 个：`session-stats` / `session-turn-outline` / `session-reference` / `message-feedback` / `workspace-changes` / `file-reference-local` / `terminal` / `terminal-bash` / `invariants` / `workspace`（全部为投影 / 服务 / 事件面扩展，不改模型工具面；健康检查：dump 124 行、0 条 `patch: entry` 告警）。**注（2026-10-04 更正）**：当时「PTY 真机启动无激活告警」是**假通过**——`message-feedback` 的 `Config.maxNoteBytes` 自 0.1.7-rc.2 起即 `.required()`，缺 `config` 必报 `1 entry did not activate`；该行现补 `config: maxNoteBytes: 8192`（对齐上游 `dsh-web-app` 同款行），隔离 `DSH_HOME` 克隆真机 A/B 已复现并确认修复（A：告警 1 条；B：0 条）。该服务当前无消费者（Web bundle 的浏览器对话框才用它），本仓 TUI-only 下按「尽量挂」保留。
 
-## 2. 全部分组清单（306 个；rc.3 安装树实测）
+## 2. 全部分组清单（330 个；rc.1 安装树实测）
 
 ### agent 与编排（28，已挂载 17）
 
@@ -112,7 +109,7 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `experimental-tool-agent-team` — 实验包：模型面 Agent Teams 工具（建 teammate / 发消息 / 任务板，走 ctx.agentTeams）
 
-### 会话 / 上下文 / 存储（43，已挂载 27）
+### 会话 / 上下文 / 存储（44，已挂载 25）
 
 - `experimental-session-titles-bundle` — 随新人类提示到达而刷新会话标题（experimental）
 
@@ -176,7 +173,7 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `session-title`（`ctx.sessionTitle`，已挂载） — `ctx.sessionTitle`：基于日志的会话标题服务与 provider 注册（get/rename/refresh/register）
 
-- `session-title-all-prompts-llm`（已挂载，树外加装） — 标题 provider：聚合**全部**符合条件的用户消息经 LLM 生成/更新标题（每条用户消息触发一次修订）；fff 以 `provider: ustc` / `model: deepseek-v4-flash` / `maxInputBytes: 32768` 覆盖——聚合输入超 `maxInputBytes` 即请求失败并**保留旧标题**（不截断历史），`ctx.sessionTitle.refresh()` 为显式重试；不随 dsh 分发，由 profile 自行安装（不计入 283）
+- `session-title-all-prompts-llm`（未启用：`disabled: true`） — 标题 provider：聚合**全部**符合条件的用户消息经 LLM 生成/更新标题（每条用户消息触发一次修订）；fff 以 `provider: ustc` / `model: deepseek-v4-flash` / `maxInputBytes: 32768` 覆盖——聚合输入超 `maxInputBytes` 即请求失败并**保留旧标题**（不截断历史），`ctx.sessionTitle.refresh()` 为显式重试；rc.1 起随 dsh 分发（此前为树外加装），profile 里仍关闭
 
 - `session-title-first-prompt-llm`（已挂载，fff 禁用） — 标题 provider：用首条消息经 LLM 生成标题（只在首条人类消息时触发一次）；因 `ctx.sessionTitle` 只允许注册一个 provider（二次注册抛错），fff 在 patch 层置 `disabled: true` 后改挂 all-prompts 变体
 
@@ -200,7 +197,9 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `workspace-changes`（已挂载） — 每轮工作区文件变更（从 git 工作树快照 + 整文件捕获记录，带逐文件对比）——deliverables 的数据面
 
-### 工具与工具基建（22，已挂载 10）
+- `message-quotes` — 选中文本引用与 Markdown 引用块呈现
+
+### 工具与工具基建（25，已挂载 12）
 
 - `experimental-tool-worktree` — 模型工具：创建并进入新的 Git worktree（experimental）
 
@@ -246,7 +245,13 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `tools`（`ctx.tools`，已挂载） — `ctx.tools`：工具注册表与执行管道（register/restrict/guard/get/schemas/execute/presentAs）；本工具集所有工具都经它注册
 
-### 文件 / 进程 / 沙箱（21，已挂载 9）
+- `action-cards` — 答案下方的可选行动卡：共享的提议工具 + 卡片状态 + 用户动作 + 状态通知
+
+- `tool-executor-native`（已挂载） — 原生工具执行器（rc.1 起工具执行从 `tools` 行拆出；`tools` 行不再带 `mode` / `maxParallelSubCalls`）
+
+- `tool-executor-ptc` — PTC 程序执行、工具绑定与生成的 SDK 提示
+
+### 文件 / 进程 / 沙箱（22，已挂载 8）
 
 - `experimental-terminal-bundle` — 跨工具调用保活 shell 进程（experimental）
 
@@ -290,16 +295,26 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `win32-process` — Windows 低层进程 / stdio / Job Object 原语
 
-### LLM 与模型（9，已挂载 8）
+- `fs-patch` — Codex 风格补丁解析与 LF 文本更新的纯函数实现（带结构化匹配失败）
+
+### LLM 与模型（9，已挂载 7）
 
 - `deepseek-llm-api-extensions`（`ctx.deepseekLlmApiExtensions`，已挂载） — 官方 DeepSeek LLM API 适配器的附加请求字段注册表
+
 - `llm`（`ctx.llm`，已挂载） — `ctx.llm`：provider 无关的模型服务（registerAdapter/stream/listProviders/discoverModels/resolveModelInfo/prepareCall）
+
 - `llm-deepseek` — DeepSeek Messages 适配器
+
 - `llm-deepseek-account`（已挂载） — DeepSeek 账号 provider 的认证与发现（走账号凭据）
+
 - `llm-deepseek-api-key`（已挂载） — DeepSeek api-key provider 的认证与发现
+
 - `llm-pi-ai`（已挂载） — pi-ai provider（兼容多家 OpenAI 式路由；fff 的 ustc 路由走它）
+
 - `llm-retry`（已挂载） — 按 provider 路由的模型调用重试策略
+
 - `plugin-package-inventory-deepseek`（已挂载） — 官方 DeepSeek LLM API 请求携带「当前 Loader 已装插件清单」的库存数据
+
 - `repeat-tool-reminder`（`ctx.llm`，已挂载） — 同工具重复调用提醒（防打转）
 
 ### 技能 / 命令 / Web / 集成（23，已挂载 11）
@@ -315,8 +330,6 @@ workflow-ptc working-directory workspace workspace-changes
 - `command-goal`（已挂载） — slash 命令：目标的创建/查看/控制
 
 - `commands`（`ctx.commands`，已挂载） — `ctx.commands`：slash 命令注册与执行（register/list/find/execute）
-
-- `hook-protocol` — Claude Code / Codex 钩子线协议（匹配器、stdio/退出码编解码、多钩子合并、hook/\* 会话事件）
 
 - `mcp-client` — MCP 客户端桥：连 MCP server 并把其工具注册到 ctx.tools
 
@@ -350,18 +363,30 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `libreoffice-kit-wasm` — Linux Node WebAssembly OOXML→PDF 引擎资产——vendor 资产，无 `packages/` 源码
 
-### 权限 / 安全 / 设置（11，已挂载 7）
+- `deliverable-file-references` — 跨 DSH 宿主共用的文件链接与交付物模型提示
+
+### 权限 / 安全 / 设置（11，已挂载 6）
 
 - `anonymous-user-id` — 遥测与反馈关联用的匿名用户标识
+
 - `authorization`（`ctx.authorization`，已挂载） — `ctx.authorization`：授权流程注册与执行（registerFlow/begin/describe/cancel）——经与人的对话取得凭据；`DECLINED` 是流程拒绝码而非服务名（见 §6）
+
 - `credentials`（`ctx.credentials`） — `ctx.credentials`：凭据 provider 缝（settings 持引用、provider 持值）
+
 - `credentials-local`（已挂载） — 凭据的本机实现（`$DSH_HOME/.env` + 活着的进程环境）
+
 - `deepseek-account`（`ctx.deepseekAccount`） — 读取账号状态并解析官方 API 凭据
+
 - `deepseek-account-platform`（已挂载） — 经浏览器 PKCE 授权 DeepSeek 账号
+
 - `permission-presets`（`ctx.permissionPresets`，已挂载） — `ctx.permissionPresets`：权限预设（read-only / workspace-write / danger-full-access）；0.1.7 删 `selectFor`、新增 `catalog()` / `registerAuto()`
+
 - `settings`（`ctx.settings`，已挂载） — `ctx.settings`：设置读写缝；0.1.7 起命名空间 = profile 插件条目 id，旧的 `settings-file` 文件后端已并入本包
+
 - `user-approval`（`ctx.approval`，已挂载） — `ctx.approval`：审批服务（request/setPolicy/overrideOf）——沙箱升级必经此门，默认 fail-closed
+
 - `user-questions`（`ctx.userQuestions`，已挂载） — `ctx.userQuestions`：向用户提问（ask）；TUI/客户端渲染选项
+
 - `experimental-auto-review` — 实验包：Auto 权限预设下的逐工具 LLM 授权审查
 
 ### API 控制面（11，已挂载 2）
@@ -388,9 +413,7 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `experimental-api-speech-to-text`（`ctx.speechController`） — 实验包：浏览器客户端的认证语音转写
 
-### 客户端 UI（67，已挂载 0）
-
-- `client-ui-deepseek-model-label-1017` — 官方 DeepSeek Flash 模型标签的 1017 临时徽标
+### 客户端 UI（76，已挂载 0）
 
 - `web-frontend` — Web 应用入口构建（vite 构建 `@deepseek-ai/dsh-web-frontend`，dist 由 `dsh web` 提供）——构建产物，无 `packages/` 源码 — 官方 DeepSeek Flash 模型标签的 1017 临时徽标
 
@@ -524,7 +547,27 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `experimental-client-ui-voice-input` — 实验 Web UI：录音并把可编辑文本插入对话草稿
 
-### 插件 / 启动 / 基础设施（62，已挂载 9）
+- `client-ui-action-cards` — 已完成答案下方的行动卡：共享卡框、按 kind 的正文与紧凑工具行
+
+- `client-ui-context-menu` — 类型化、可插件扩展的上下文菜单（捕获目标 + 共享 Web 呈现）
+
+- `client-ui-creation-recommendations` — 个性化页卡片正文：位置选择、创建进度、保留 / 撤销 / 恢复
+
+- `client-ui-entry-customization` — 自定义左侧栏 / 会话视图 / 右侧栏的插件入口，并快速创建新插件
+
+- `client-ui-file-actions` — Web 与桌面的原文件保存与图片剪贴板动作
+
+- `client-ui-file-drag` — 应用自有的文件拖放传输与本地化失败提示
+
+- `client-ui-plugin-recommendations` — 官方插件卡正文（目录文案 + 启用）
+
+- `experimental-client-ui-forge` — 会话变更请求侧栏面板：新会话的 worktree 选项与其 Host Remote
+
+- `experimental-client-ui-stats` — 按回合 / 按步的上下文、耗时、缓存与工具成本表（实验性会话视图）
+
+- `personalized-recommendations` — 个性化页面与内置插件推荐，以答案下方卡片形式给出
+
+### 插件 / 启动 / 基础设施（66，已挂载 9）
 
 - `experimental-cot-translation-bundle` — 展开推理的机器翻译（experimental）
 
@@ -650,20 +693,47 @@ workflow-ptc working-directory workspace workspace-changes
 
 - `experimental-agent-team-profile` — 实验 bundle：Agent Teams 协作、工具与 Web UI 打包一处（默认关闭，仅显式启用）
 
+- `creation-recommendations` — 按会话里的明确需求创建可持久、可移除的界面插件
+
+- `official-bundles` — 官方 bundle 的安装侧清单（随包 profile 模板 / 可选 / 按需 / 已退役）与插件管理器的受保护与展示清单
+
+- `plugin-detail` — 插件详情文档：`meta.detail` 或 README 选取、图片路径、本地与 npm CDN 文件来源
+
+- `plugin-recommendations` — 官方插件建议：显式用户启用 + 持久化的会话决定
+
 ### 终端（2，已挂载 2）
 
 - `terminal`（`ctx.terminals`，已挂载） — `ctx.terminals`：持久 PTY 会话缝（owner 作用域 id、后端注册、交互发送/读/信号/等待清理）
+
 - `terminal-bash`（已挂载） — 基于 subprocess 终端原语的持久 shell PTY 后端
 
-### 其他（7，已挂载 1）
+### 其他（13，已挂载 1）
 
 - `file-reference`（`ctx.fileReferences`） — 文件引用发现契约与共享 @file 语法
+
 - `file-reference-local`（已挂载） — 本机文件系统的 ctx.fileReferences provider（有界模糊索引）
+
 - `output-retention` — 零依赖有界保留原语（ItemRetainer/TextRetainer + 中性提示：留了什么、略了什么）
+
 - `tmux-context`（`ctx.llm`） — 每步注入本 agent 的 tmux pane/window 位置（需显式开启）
+
 - `experimental-speech-to-text`（`ctx.speechToText`） — 实验包：语音识别（provider 可独立选择）
+
 - `experimental-speech-to-text-sensevoice` — 实验包：本地 SenseVoice ONNX 转写（托管 sherpa-onnx 进程）
+
 - `experimental-voice-input-bundle` — 实验 bundle：本地 SenseVoice 语音输入（首次使用下载运行时）
+
+- `experimental-forge` — 供应商中立的变更请求登记表 + 共享状态轮询
+
+- `experimental-forge-bundle` — Git 仓库会话的实验性变更请求面板与 worktree 选项
+
+- `experimental-forge-github` — forge 登记表的 GitHub provider（在宿主侧经 GitHub CLI 读取）
+
+- `experimental-forge-session` — 把变更请求绑定到创建 / 推送 / 跟踪它的会话
+
+- `experimental-liveshare` — 可选 LiveShare 宿主 bundle：经独立 Relay 以只读或受限写档共享会话（forking 与附件上传各自独立开关）
+
+- `experimental-liveshare-protocol` — LiveShare 线帧与身份契约（owner bundle 与 Relay 共用）
 
 ## 3. 服务索引（`ctx.<服务名>` → 归属包）
 

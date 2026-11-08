@@ -72,19 +72,19 @@
 
 ## 2. 未完成项
 
+- **`HOST-PACKAGES.md` 的 §3 服务字典与文末复现命令按 rc.1 复核**（登记日: 2026-11-08）
+
+  - 现状: §1 / §2 的逐包行清单已按 rc.1 安装树重生成（330 行, 追踪文档 `docs/archived/2026-11-08-host-packages-regen.md`）, 但两处仍是旧口径: ① §3 服务字典没跟上 rc.1 的接口面变更——工具执行从 `tools` 行拆成 `tool-executor-native` / `tool-executor-ptc`（`tools` 行删除 `mode` / `maxParallelSubCalls`）, 新增包的若干服务（forge 登记表、action-cards 的提议工具等）未进字典; ② 文末「复现命令」直接写 `dsh --profile fff --dump-config`, 而该命令会往 `$DSH_HOME` 写 `cordis.yml`, 在只读 home（沙箱 / CI）下报 `EROFS`。
+  - 期望: §3 按 rc.1 安装树主入口复算服务名, 补 `tool-executor-*` 拆分与新增包的服务; 复现命令补「先把 profile 克隆到可写 `DSH_HOME`（如仓库 `tmp/dsh-home`）再跑」的前置步骤, 或给出 `DSH_HOME` 隔离的一行写法。
+  - 优先级: P3（文档准确性, 不影响运行）。
+  - 来源: 重生成 §1 / §2 时的途中发现（`docs/archived/2026-11-08-host-packages-regen.md`「途中发现」）。
+
 - **#1 `sessionProjections.stateOf(session, key)` 弃用迁移**〔进行中: 2026-11-07〕（登记日: 2026-11-07）
 
   - 现状: rc.1 弃用该读法并打运行时警告; 本仓 `task-engine`（`tokenUsage`）、`context-report`（`sessionStats` / `sessionContext`）、`rule-engine` 用它读宿主投影单元.
   - 期望: 能拿到领域服务的改读领域服务（如 `tokenMeter`）, 其余改用宿主公开的投影 handle 或后续替代 API; 迁移后不再出现弃用警告, 功能面零变化.
   - 优先级: P2.
   - 来源: 同上（承接项 #5）。
-
-- **#2 `HOST-PACKAGES.md` 逐包行清单按 rc.1 树重生成**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
-
-  - 现状: 宿主升级收尾只重算了版本口径、包计数与挂载数字; §1 / §2 的逐包行清单未按 rc.1 树重排 —— 该区间新增 30 个包 / 移除 1 个（清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）, 文档头部已写明该限制（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
-  - 期望: 按 rc.1 安装树核对 372 个包目录, 把 +30 / −1 项排进 `HOST-PACKAGES.md` 逐包行清单, 并在头部补一行本机口径.
-  - 优先级: P3.
-  - 来源: 宿主升级任务收尾记录（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
