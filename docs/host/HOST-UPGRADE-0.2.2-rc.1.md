@@ -115,10 +115,10 @@
 
 无影响面 (已逐项核): `herdr-use` / `herdr-integration` / `coagent` / `session-channel` / `session-paths` / `memory-base` / `pin-note` / `flow-track` / `term-check` / `md-table-check` / `symbol-normalizer` / `clock-base` / `shell-parse` / `preference-analysis` / `output-compress` / `fs-digest` / `md-map` / `code-map` / `goal-contract` / `metric-loop` / `agent-group` / `background-daemon` / `script-interpreter` / `tool-consult` (`restrict` 只多一条保留名拒绝) / `behavior-correction` / `auto-approve` (判定表是配置驱动, 无硬编码工具名)。`rule-engine` 只落在 #5 的投影读法弃用, 事件载荷未变。
 
-## 12. 升级后仍待裁定的项
+## 12. 升级后的取舍裁定 (2026-11-08 已裁)
 
-1. 是否保留官方「读后改前」守卫: profile patch 加 `fs-observation-policy` + `disabled: false`。
-2. 是否启用 `apply_patch`: `tool-fs` 行 `config.applyPatch`, 打开前先补 `security-guard` 的写面登记。
+1. **「读后改前」守卫: 不恢复, 维持 `disabled: true`。** 官方是量过才关的 —— `.agents/notes/implemented/feature/2026-10-29-shipped-fs-mutation-defaults.md` 记明「Benchmark runs … with the tool enabled and with the policy disabled were compared against the baseline, and the shipped defaults were decided from those results」, 四个发行组合统一关闭。本机同时跑 herdr 多终端 / coagent 常驻会话 / workflow 并发子代理, 同一文件被另一会话改过即 `FS_STALE_VERSION`; 且官方 README 说明观察不持久, 会话恢复后必须重读。兜底已有 `security-guard` 敏感文件层 + 沙箱围栏 + git。要恢复仍是一行 patch (`- id: fs-observation-policy` + `disabled: false`), 不锁死。
+2. **`apply_patch`: 不启用, 维持 `applyPatch: false`。** 与既有 `hash_edit`(行级锚点 + stale 校验) 与 `write` 重叠; 官方 guidance 明说应用阶段「stop at the first failure, and are not rolled back」, 只有校验阶段是原子的; 写面覆盖面刚补 (2026-11-08), 但相对路径窄面仍在 (`security-guard/README.md` 已记), 现在启用等于把已知有窄面的写面带进日常; 启用还会给每次请求多加一段 schema 与 guidance, 与工具面收敛方向相反。将来若跨文件重构变多, 先补相对路径绝对化再启用。
 3. 是否给 `ctx.subagents.start` 的显式路由记录授权 (见 §8); 已核实 rc.1 的授权只在模型侧工具层 (`assertAllowedModelSelection`), 编程式 start 不受约束, 故本仓暂无阻塞。
 4. 树外插件 `session-title-all-prompts-llm` 与 fff 的 patch 行 (无 `mode` / 无 `list-agents` 行) 已确认不冲突, 重装后 `--dump-config` 已复核执行器两行在位。
 

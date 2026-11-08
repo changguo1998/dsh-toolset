@@ -77,28 +77,21 @@
   - 优先级: P2.
   - 来源: 同上（承接项 #5）。
 
-- **#2 宿主升级待裁定: `fs-observation-policy` 守卫恢复 与 `apply_patch` 启用取舍**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
-
-  - 现状: rc.1 的 `dsh-base` 把 `fs-observation-policy` 改 `disabled: true`（官方 `write` / `edit` 不再有读后改前与版本守卫）, `tool-fs` 默认 `applyPatch: false`（`apply_patch` 未启用）; fff profile 跟随 base 出厂形态, 两个行为取舍均未由用户裁定（`docs/host/HOST-UPGRADE-0.2.2-rc.1.md` §12 待裁定 1 / 2）.
-  - 期望: 由用户裁定 —— fs 守卫: 恢复则 profile patch 加 `- id: fs-observation-policy` + `disabled: false`（树外加装包部署时同步）, 不恢复则维持现状并在文档注明取舍; apply_patch: 写面覆盖已于 2026-11-08 完成（见 `security-guard/README.md`「官方写面工具 `apply_patch`」段）, 启用则直接开 `config.applyPatch: true`, 不启用则维持 `false` 并保留 `escalation-hint` 的同类提示.
-  - 优先级: P2.
-  - 来源: 宿主 rc.1 复核（同 §12）.
-
-- **#3 `HOST-PACKAGES.md` 逐包行清单按 rc.1 树重生成**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+- **#2 `HOST-PACKAGES.md` 逐包行清单按 rc.1 树重生成**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
 
   - 现状: 宿主升级收尾只重算了版本口径、包计数与挂载数字; §1 / §2 的逐包行清单未按 rc.1 树重排 —— 该区间新增 30 个包 / 移除 1 个（清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）, 文档头部已写明该限制（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
   - 期望: 按 rc.1 安装树核对 372 个包目录, 把 +30 / −1 项排进 `HOST-PACKAGES.md` 逐包行清单, 并在头部补一行本机口径.
   - 优先级: P3.
   - 来源: 宿主升级任务收尾记录（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
 
-- **#4 `check` / `build` 根委托链并行化**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+- **#3 `check` / `build` 根委托链并行化**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
 
   - 现状: 根 `package.json` 的 `check` / `build` 是 38 个 `pnpm -C <包> run <cmd> && ...` 的**串行**委托链（墙钟 = 各包耗时之和）; 只有 `test`（34 包）与 `test:integration` 走 `scripts/test-parallel.sh` 并行（GNU parallel 为主 / xargs 兜底, 墙钟 ≈ 最慢包）; `install.sh` 构建插件的并行面（`BUILD_JOBS` / `BUILD_RUNNER`）只覆盖 profile 安装, 不覆盖根 `pnpm run check` / `build`.
   - 期望: 把 `check` / `build` 改成与 `test` 同款并行调度 —— 复用或扩展 `scripts/test-parallel.sh` 的调度与汇总模式（parallel / xargs 两路、`set -u` 累计退出、包清单双向校验、只跑存在的包）, 根 `package.json` 三链统一一个并行入口（如扩展 `TEST_SCRIPT=check|build` 或新 `scripts/run-all.sh <check|build|test> [包...]`）; 注意两点: ① `set -e` 语义取舍（一包失败是否等其余包跑完再汇总, 与 `test-parallel.sh` 的「不 fail-fast」对齐）; ② build 的依赖序 —— `code-map` / `md-map` import `ast-tools` / `md-logic` 的构建产物, 须先建后两者（`install.sh` 已实现该排序, 可复用）.
   - 优先级: P2.
   - 来源: 用户 2026-11-08 提出「检查, 测试这些脚本全部都并行化」.
 
-- **#5 核查各工具执行路径, 确认是否需要走官方围栏**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
+- **#4 核查各工具执行路径, 确认是否需要走官方围栏**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
 
   - 现状: 本仓多个写入面未走官方 `ctx.fs`（围栏 / 观察守卫 / 审批瀑布）——已确认 `hash-edit`（`node:fs` 临时文件 + rename 直写, 可越界写工作区外）、`ast-tools`（`ast_replace` 整文件重写直写）、`md-logic`（`replace` 整文件重写直写）; 其余包写盘面（memory-base / fs-digest / output-compress / preference-analysis / background-daemon / session-paths 等）写入各自数据目录, 是否属「需走官方围栏」范围未系统核查; 官方 `write` / `edit` / `apply_patch` 全程经 `ctx.fs` 受围栏。
   - 期望: 系统核查各工具 / 写入面的执行路径, 逐条判定「是否需要走官方围栏」——判定口径: ① 写用户 / 项目工作文件（模型可改的表面）→ 需要; ② 写插件自有数据目录（记忆库 / 摘要库 / 账簿等, 不属用户文件面）→ 可不走, 但需写明边界与越界风险; ③ 有安全敏感的越界写（可碰工作区外路径）→ 需要。产出: 「工具写路径 × 是否走围栏」核对表 + 逐条结论; 需要改走的登记为后续条目（如 `hash-edit` 改走 `ctx.fs`, 即重开 `docs/ARCHITECTURE-REUSE.md` §4 D 的改造点）。
