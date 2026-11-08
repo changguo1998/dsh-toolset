@@ -61,7 +61,7 @@ async function sectionHashOf(
   return found;
 }
 
-test("apply 接线: 注册唯一工具 md_logic, 契约面齐全且无事件 / 服务面", () => {
+test("apply 接线: 注册唯一工具 md_logic, 契约面齐全且无事件订阅", () => {
   const host = assemble();
 
   assert.deepEqual(host.tools.names(), ["md_logic"]);
@@ -70,8 +70,8 @@ test("apply 接线: 注册唯一工具 md_logic, 契约面齐全且无事件 / �
   assert.deepEqual(def.parameters.required, ["action", "path"]);
   assert.equal(def.output.schema.type, "object");
   assert.equal(typeof def.output.render, "function");
-  // 服务面: apply 不 provide 任何服务（解析零宿主依赖）
-  assert.deepEqual(host.services.names(), []);
+  // 服务面: apply 只读 fs / workingDirectory（都不 provide；假面由装配器装上）
+  assert.deepEqual(host.services.names(), ["fs", "workingDirectory"]);
   assert.equal(host.services.get("tools"), undefined);
   // 事件面: 本包无事件消费者, 装配后零订阅
   assert.equal(host.events.listenerCount(), 0);
@@ -420,7 +420,7 @@ test("replace 读盘失败: 目录 / 不存在的目标返回 read_failed 且走
     edits: [{ heading: "A", start_line: 1, end_line: 1, content: "# A\n" }],
   });
   assert.equal(missing["code"], "read_failed");
-  assert.match(String(missing["error"]), /读取失败/);
+  assert.match(String(missing["error"]), /文件不存在/);
 });
 
 test("参数校验与读盘守卫: 未知 action / 缺 path / 目录 / 文件不存在", async () => {

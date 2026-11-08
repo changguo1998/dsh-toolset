@@ -3,10 +3,8 @@
 // 契约同 ast-tools：def = { name, description, parameters, execute(args, exec), output{schema, render(_args, value)} }；
 // render 形参顺序是「args 第一、value 第二」；render 全函数（畸形值不抛）。
 // 读面只读、不改宿主状态；`replace` 是本包唯一的写面（按节整节替换 / 删除，安全语义见 edit.ts）。
-// 路径相对**调用方会话 cwd**（与 fs_digest / 宿主 tool-fs 同口径）。
-
-import { readFile, stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+// 文件读写只经 `MdFileIo`：插件侧是 `ctx.fs`（`md-logic/src/ctx-fs-io.ts`），库面缺省是 node 的 fs 实现。
+// 路径相对**调用方会话 cwd**（由 `ctx.workingDirectory.ensure` 给, 不回落进程的工作目录）。
 
 import {
   listLinks,
@@ -16,53 +14,76 @@ import {
 } from "./query.ts";
 import { parseMarkdownDocument } from "./parse.ts";
 import { replaceSectionsFile, sectionHash, type SectionEdit } from "./edit.ts";
+import { resolveExecCwd, type MdFsHostLike } from "./ctx-fs-io.ts";
+import { MdFileError, nodeMdFileIo, type MdFileIo } from "./io.ts";
 import {
   renderBlocks,
   renderLinks,
   renderReplace,
   renderStructure,
 } from "./render.ts";
-import type { MdBlockKind, MdLinkKind, MarkdownDocument } from "./types.ts";
+import type {
+  MdBlockKind,
+  MdLinkKind,
+  MarkdownDocument,
+  ToolExecLike,
+} from "./types.ts";
+
+export { resolveExecCwd };
 
 /** 默认文件尺寸上限（1MB；超限报错而不截断，避免给出错误行号）。 */
 export const DEFAULT_MAX_BYTES = 1_048_576;
 
-/** 二进制探测窗口（前 8KB 内出现 NUL 判定为二进制）。 */
-const BINARY_PROBE_BYTES = 8192;
-
-/** 工具执行上下文（宿主 `exec`，只读鸭子类型）。 */
-interface ToolExecCtx {
-  agent?: { session?: { header?: { cwd?: string } } };
+/** 工具装配选项：宿主面（决定 `ctx.fs` / 会话 cwd）与按调用构造 io 的工厂。 */
+export interface MdToolOptions {
+  /** 宿主面：`fs` 走官方围栏, `workingDirectory` 给相对路径基准。 */
+  host?: MdFsHostLike;
+  /** 按调用上下文构造 io; 缺省用 `nodeMdFileIo()`（库面 / 单测口径）。 */
+  ioFor?: (exec?: ToolExecLike) => MdFileIo;
 }
 
-/** 本次调用的相对路径基准：会话 cwd 优先，缺省进程 cwd。 */
-export function resolveExecCwd(exec: unknown): string {
-  const cwd = (exec as ToolExecCtx | undefined)?.agent?.session?.header?.cwd;
-  return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
+/** 错误转一行说明。 */
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-/** 读取文本文件（存在性 / 常规文件 / 尺寸 / 二进制守卫）。 */
+/** 读取文本文件（存在性 / 常规文件 / 尺寸 / 二进制守卫；守卫与解码都在 io 侧）。 */
 async function readMarkdown(
+  io: MdFileIo,
   absPath: string,
   maxBytes: number,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  let target;
+  try {
+    target = await io.resolve(absPath);
+  } catch (error) {
+    return { ok: false, error: `读取失败：${describe(error)}` };
+  }
   let info;
   try {
-    info = await stat(absPath);
-  } catch {
-    return { ok: false, error: `文件不存在：${absPath}` };
+    info = await io.stat(target);
+  } catch (error) {
+    return { ok: false, error: `读取失败：${describe(error)}` };
   }
-  if (!info.isFile()) return { ok: false, error: `非常规文件：${absPath}` };
-  if (info.size > maxBytes) {
+  if (info === undefined) {
+    return { ok: false, error: `文件不存在：${target.displayPath}` };
+  }
+  if (info.type !== "file") {
+    return { ok: false, error: `非常规文件：${target.displayPath}` };
+  }
+  if (info.size !== undefined && info.size > maxBytes) {
     return {
       ok: false,
       error: `文件大小 ${info.size}B 超过上限 ${maxBytes}B`,
     };
   }
-  const buffer = await readFile(absPath);
-  const probe = buffer.subarray(0, BINARY_PROBE_BYTES);
-  if (probe.includes(0)) return { ok: false, error: `二进制文件：${absPath}` };
-  return { ok: true, text: buffer.toString("utf8") };
+  try {
+    return { ok: true, text: await io.readText(target) };
+  } catch (error) {
+    const detail =
+      error instanceof MdFileError ? error.message : describe(error);
+    return { ok: false, error: detail };
+  }
 }
 
 /** 字符串参数读取（空串视为缺省）。 */
@@ -175,8 +196,15 @@ const BLOCK_KINDS: MdBlockKind[] = [
 ];
 const LINK_KINDS: MdLinkKind[] = ["link", "image", "definition"];
 
-/** `md_logic` 工具定义。 */
-export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
+/**
+ * `md_logic` 工具定义。
+ * @param maxBytes 读取上限（字节），缺省 1MB。
+ * @param options 宿主面与 io 工厂; 都不给时用 `nodeMdFileIo()`（库面 / 单测口径）。
+ */
+export function mdLogicTool(
+  maxBytes: number = DEFAULT_MAX_BYTES,
+  options: MdToolOptions = {},
+): unknown {
   return {
     name: "md_logic",
     description:
@@ -272,14 +300,13 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
     },
     async execute(
       args: Record<string, unknown>,
-      exec?: unknown,
+      exec?: ToolExecLike,
     ): Promise<unknown> {
       if (args === null || typeof args !== "object") {
         return { error: "入参必须是对象（含 action 与 path）" };
       }
       const action = str(args, "action") ?? "";
       const rawPath = str(args, "path");
-      const cwd = resolveExecCwd(exec);
       if (
         action === "structure" ||
         action === "blocks" ||
@@ -316,9 +343,8 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
         }
       }
 
-      const absPath = isAbsolute(rawPath ?? "")
-        ? (rawPath ?? "")
-        : resolve(cwd, rawPath ?? "");
+      // 先校验 replace 的 edits（不触达磁盘），再解析路径与读取
+      let parsedEdits: SectionEdit[] | undefined;
       if (action === "replace") {
         const parsed = parseEdits(args["edits"]);
         if (!parsed.ok) {
@@ -329,12 +355,22 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
             code: "edits_invalid",
           };
         }
-        const result = await replaceSectionsFile(
-          rawPath ?? "",
-          parsed.edits,
-          cwd,
+        parsedEdits = parsed.edits;
+      }
+      // 相对路径基准: 会话目录（`ctx.workingDirectory.ensure`）优先; 缺省交给 io 自己的基准。
+      // 只有库面 node 实现需要在这里先取: `ctx.fs` 实现的 resolve 自己按会话解析。
+      const nodeIo = options.ioFor === undefined;
+      const cwd = nodeIo
+        ? await resolveExecCwd(options.host ?? {}, exec)
+        : undefined;
+      const io = nodeIo
+        ? nodeMdFileIo(cwd === undefined ? {} : { cwd })
+        : (options.ioFor as (exec?: ToolExecLike) => MdFileIo)(exec);
+      if (action === "replace" && parsedEdits !== undefined) {
+        const result = await replaceSectionsFile(rawPath ?? "", parsedEdits, {
+          io,
           maxBytes,
-        );
+        });
         return {
           action,
           path: result.path ?? rawPath ?? "",
@@ -351,7 +387,15 @@ export function mdLogicTool(maxBytes: number = DEFAULT_MAX_BYTES): unknown {
         };
       }
 
-      const read = await readMarkdown(absPath, maxBytes);
+      let target;
+      try {
+        target = await io.resolve(rawPath ?? "");
+      } catch (error) {
+        return { error: `读取失败：${describe(error)}` };
+      }
+
+      const absPath = target.displayPath;
+      const read = await readMarkdown(io, absPath, maxBytes);
       if (!read.ok) return { error: read.error };
       const doc = parseMarkdownDocument(read.text);
 

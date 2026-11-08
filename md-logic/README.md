@@ -10,7 +10,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 
 ### 模型侧工具
 
-`inject: ["tools"]`，注册一个工具：
+`inject: ["tools", "fs"]`，注册一个工具：
 
 | 工具 | action | 返回 |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 - **未闭合围栏 / 注释的吞节裁决**：判据是**把 content 代进去重新解析**、比较改前 / 改后的节大纲——目标节之后（且不在其子树内）的节有丢失即 `content_invalid`
   （启发式扫描 `unclosedBlockReason` 只用于生成成因文案，不作判据；判据文本与落盘文本同口径：剥 content 的单个尾随换行）。
   目标节之后没有其它节时不拦，其子树可整块重写、标题可改名；需要精确控制时改用 `hash_edit` / 官方 `edit`；机制与理由见 `docs/DESIGN.md`「机制」节。
-- **原子性、风格与分工**：全部 edit 先在内存里自下而上应用（坐标基于原文）、**全部通过才写盘**（同目录临时文件 + `rename`，失败清理临时文件、目标文件字节不变；含 NUL 拒写；读盘记 `ino` / `size` / `mtimeMs`、写临时文件后 `rename` 前复核，不符 → `file_changed`，残余窗口为微秒级、尽力而为）；BOM 与 EOL 风格原样保留、删除节保留原分隔空行；与 `hash_edit` / 官方 `edit` 的分工见开头；不做插入 / 移动节与 Markdown 语法校验，不校验 `content` 首行标题与 `heading` 的文本一致性（改名放行）。
+- **原子性、风格与分工**：全部 edit 先在内存里自下而上应用（坐标基于原文）、**全部通过才写盘**；落盘经 `ctx.fs.writeText`（插件侧）——围栏、版本守卫与原子写都由宿主后端保证，写前按读到的 `version` 传 `replaceIfVersion` 意图，期间文件被外部改动 → `FS_STALE_VERSION`（对外 `file_changed`，整批不落盘）。库面（`replaceSectionsFile` 不传 `io`）走 `nodeMdFileIo()`，同样按版本令牌自比一次，但**不经临时文件 + `rename`**（原子性只在插件侧有）。BOM 与 EOL 风格原样保留、删除节保留原分隔空行；与 `hash_edit` / 官方 `edit` 的分工见开头；不做插入 / 移动节与 Markdown 语法校验，不校验 `content` 首行标题与 `heading` 的文本一致性（改名放行）。
 
 ### 换行（EOL）口径（2026-10-02）
 
@@ -49,13 +49,14 @@ DSH（DeepSeek Harness）进程内插件：**Markdown 逻辑结构**（单文件
 | `listLinks(doc, { kind?, pattern?, limit? })` | 链接 / 图片 / 定义筛选 |
 | `flattenSections(sections)` | 节树 → 前序扁平清单（带 `path`，如 `标题一 › 小节 1.1`） |
 | `renderStructure` / `renderBlocks` / `renderLinks` / `renderReplace` | 工具面同款文本渲染（`src/render.ts`） |
-| `replaceSections(text, edits)` / `replaceSectionsFile(path, edits, root?, maxBytes?)` | 按节改写：纯函数校验 + 整批原子写（`ReplaceOutcome`：成功 `applied`，失败 `code` + `details`） |
-| `sectionHash(text, line, endLine)` / `sameSignature(a, b)` | 节内容 hash（8 位 hex，漂移锚点）/ 文件签名比对（TOCTOU 复核；纯函数） |
+| `replaceSections(text, edits)` / `replaceSectionsFile(path, edits, options?)` | 按节改写：纯函数校验 + 落盘（`options` = `{ io?, maxBytes? }`；`ReplaceOutcome`：成功 `applied`，失败 `code` + `details`） |
+| `sectionHash(text, line, endLine)` | 节内容 hash（8 位 hex，漂移锚点） |
+| `nodeMdFileIo(options?)` / `ctxMdFileIo(host, exec)` | 两层文件读写面：前者是 `node:fs` 缺省实现（库面 / 单测），后者按一次工具调用接 `ctx.fs`（围栏 + 版本守卫 + 意图瀑布） |
 | `detectFrontmatter(lines, maxLines?)` | frontmatter 识别（独立可测） |
-| `mdLogicTool(maxBytes?)` / `DEFAULT_MAX_BYTES` / `resolveExecCwd(exec)` | 工具定义（`md_logic`）/ 读上限缺省 1MB / 路径基准（会话 cwd，缺省进程 cwd） |
+| `mdLogicTool(maxBytes?, options?)` / `DEFAULT_MAX_BYTES` / `resolveExecCwd(host, exec)` | 工具定义（`md_logic`，`options` = `{ host?, ioFor? }`）/ 读上限缺省 1MB / 路径基准（`ctx.workingDirectory.ensure`, 无宿主面时 `undefined`, 不回落进程 cwd） |
 | `SectionNode` / `MdBlock` / `MdLink` / `MarkdownDocument` / `ParseOptions` / `FrontmatterInfo` / `MdBlockKind` / `MdLinkKind` | 结构模型（`src/types.ts`；行号 1 基、范围含两端、全 JSON-serializable） |
 | `FlatSection` / `SectionQuery` / `BlockQuery` / `LinkQuery` | 查询面类型（`src/query.ts`） |
-| `SectionEdit` / `EditFailureCode` / `FileSignature` | 改写面类型（`src/edit.ts`） |
+| `SectionEdit` / `EditFailureCode` / `ReplaceFileOptions` | 改写面类型（`src/edit.ts`） |
 | `name` / `inject` / `Config` / `apply(ctx, config?)` | DSH bundle 契约 |
 
 ### 解析选型
@@ -113,7 +114,7 @@ L6-34 h1 标题一 ·#9f3a1c07
 
 ### 边界与限制
 
-- **读面只读**：`structure` / `blocks` / `links` 不写文件、不改宿主状态；写面只有 `replace`（按节整节替换 / 删除，见上「改写面」）。注意：`replace` 整文件重写、**绕开官方 fs-observation-policy 版本守卫与 `ctx.fs` 沙箱**（同 ast-tools 的整文件重写情形；`0.2.2-rc.1` 起 base 缺省关闭该行, 打开时才有守卫），打开该行后官方 `edit` / `write` 可能撞 FS_STALE_VERSION；路径限本包守卫（size 上限 + isFile + 非 UTF-8 拒写）。
+- **读面只读**：`structure` / `blocks` / `links` 不写文件、不改宿主状态；写面只有 `replace`（按节整节替换 / 删除，见上「改写面」）。读写都经 `ctx.fs`（插件侧）：受会话沙箱模式围栏（写工作区外需升档、`read-only` 下拒绝），写前按读到的版本传 `replaceIfVersion` 意图，期间文件被改动 → `FS_STALE_VERSION`（对外 `file_changed`）。**服务缺失不回落**：宿主没挂 `ctx.fs` 时工具调用返回可行动错误。库面（`replaceSectionsFile` 不传 `io`）走 `nodeMdFileIo()`，绕不开围栏只在库面成立。
 - **行范围口径与 `fs-digest` 对齐**：节 = 标题行 → 下一个「层级 ≤ 本节标题」的前一行（末节到文件末非空行），**尾部空行不计**；父子是**包含关系**（父 ⊇ 子）；块 `kind` 命名沿用 `frontmatter|code|table|list|quote`，本包另加 `html|hr`。
 - **依赖与前置**：`pnpm run check` / `build` 需要本包 `node_modules`（`marked` + devDeps）；`scripts/install.sh` 只在 `md-logic/node_modules` **不存在**时才装依赖，**改过依赖后需手动 `pnpm -C md-logic install`**（profile 以 `link:` 引用本包，其依赖由包内 `node_modules` 提供，profile 的 `pnpm install` 不装 link 包的依赖）；`--skip-build` 要求各包依赖与 `dist/` 已就绪。
 - **文档分工**：能力清单 / 配置 / 口径差异在本文件；架构与机制取舍见 `docs/DESIGN.md`；未完成项见 `docs/BACKLOG.md`；建包与变更过程见 `docs/archived/` 与 git 历史。

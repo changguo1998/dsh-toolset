@@ -1,31 +1,27 @@
 // md-logic/tests/edit.test.ts — 按节改写：漂移即拒、整批原子、风格保留、工具面。
 //
 // 安全语义：`heading`（标题文本）+ `startLine` / `endLine`（来自 structure）必须与**当前**解析一致；
-// 任一条不符 → 整体拒绝且不落盘；写盘走临时文件 + rename。
+// 任一条不符 → 整体拒绝且不落盘。落盘走 `MdFileIo`（库面缺省 `nodeMdFileIo()`, 插件侧是 `ctx.fs`）。
 //
 // 注意：多处用例以 `content: "x"`（非标题）作填充——它们同时是**校验优先级承重测试**
 // （漂移 / 缺失 / 越界必须先于 content_invalid 返回），勿改成标题文本。
 
 import assert from "node:assert/strict";
-import {
-  chmodSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
 import {
-  apply,
   flattenSections,
+  MdFileError,
+  nodeMdFileIo,
   parseMarkdownDocument,
   replaceSections,
   replaceSectionsFile,
-  sameSignature,
   sectionHash,
 } from "../src/index.ts";
+import type { MdFileIo } from "../src/index.ts";
+import { assemble } from "./assemble.ts";
 import { withTempDir, writeFixture } from "./helpers.ts";
 
 const DOC = [
@@ -174,15 +170,7 @@ test("replaceSections：section_hash 拒「同标题同范围但内容已改」�
   assert.equal(childOk.ok, true, JSON.stringify(childOk));
 });
 
-test("sameSignature：纯函数正反例（TOCTOU 复核口径）", () => {
-  const base = { ino: 1, size: 10, mtimeMs: 1000 };
-  assert.equal(sameSignature(base, { ...base }), true);
-  assert.equal(sameSignature(base, { ...base, ino: 2 }), false);
-  assert.equal(sameSignature(base, { ...base, size: 11 }), false);
-  assert.equal(sameSignature(base, { ...base, mtimeMs: 1001 }), false);
-});
-
-test("replaceSectionsFile：连续两次写不误报 file_changed（复核只挡外部改动）", async () => {
+test("replaceSectionsFile：连续两次写不误报 file_changed（版本守卫只挡外部改动）", async () => {
   const { dir, cleanup } = withTempDir();
   try {
     const file = writeFixture(dir, "t.md", DOC);
@@ -416,9 +404,8 @@ test("工具面：md_logic replace（参数校验先于 IO / 成功写盘 + 渲�
   const { dir, cleanup } = withTempDir();
   try {
     const file = writeFixture(dir, "a.md", DOC);
-    const registered: unknown[] = [];
-    apply({ tools: { register: (def) => registered.push(def) } }, {});
-    const tool = registered[0] as {
+    const host = assemble();
+    const tool = host.tools.require("md_logic") as unknown as {
       execute(
         args: Record<string, unknown>,
         exec?: unknown,
@@ -561,8 +548,7 @@ test("写盘：maxBytes 守卫覆盖写路径（超限拒绝且不落盘）", as
           content: "## 乙节\n\n新。",
         },
       ],
-      dir,
-      32,
+      { maxBytes: 32 },
     );
     assert.equal(out.ok, false);
     if (!out.ok) assert.match(out.error, /超过上限 32B/);
@@ -978,8 +964,8 @@ test("replaceSectionsFile：目录 / 二进制 / 不存在 一律 read_failed，
     const refused = await replaceSectionsFile(binary, [edit]);
     assert.equal(refused.ok, false);
     if (!refused.ok) {
-      assert.equal(refused.code, "read_failed");
-      assert.match(refused.error, /疑似二进制文件/);
+      assert.equal(refused.code, "not_utf8");
+      assert.match(refused.error, /疑似二进制/);
     }
     assert.deepEqual(readFileSync(binary), before, "拒写必须字节不变");
 
@@ -987,44 +973,40 @@ test("replaceSectionsFile：目录 / 二进制 / 不存在 一律 read_failed，
     assert.equal(missing.ok, false);
     if (!missing.ok) {
       assert.equal(missing.code, "read_failed");
-      assert.match(missing.error, /读取失败/);
+      assert.match(missing.error, /文件不存在/);
     }
   } finally {
     cleanup();
   }
 });
 
-test("replaceSectionsFile：目录不可写时回写 write_failed，原文件不变且不留临时文件", async (t) => {
-  if (typeof process.getuid === "function" && process.getuid() === 0) {
-    t.skip("root 下 chmod 不阻止写入");
-    return;
-  }
+test("replaceSectionsFile：后端写入失败时回写 write_failed，原文件不变且不留半成品", async () => {
   const { dir, cleanup } = withTempDir();
   try {
     const file = writeFixture(dir, "a.md", DOC);
     const range = rangeOf(DOC, "乙节");
-    chmodSync(dir, 0o500);
-    const failed = await replaceSectionsFile(file, [
-      { heading: "乙节", ...range, content: "## 乙节\n\n写不进去。" },
-    ]);
-    chmodSync(dir, 0o700);
+    /** 写必失败的假 io：读面照常走 node 实现, 写面抛权限错（模拟后端拒绝）。 */
+    const failing: MdFileIo = {
+      ...nodeMdFileIo(),
+      async writeText() {
+        throw new MdFileError(
+          "FS_PERMISSION_DENIED",
+          "EACCES: permission denied",
+        );
+      },
+    };
+    const failed = await replaceSectionsFile(
+      file,
+      [{ heading: "乙节", ...range, content: "## 乙节\n\n写不进去。" }],
+      { io: failing },
+    );
     assert.equal(failed.ok, false);
     if (!failed.ok) {
       assert.equal(failed.code, "write_failed");
       assert.match(failed.error, /写入失败/);
     }
     assert.equal(readFileSync(file, "utf8"), DOC, "写入失败不得改动原文件");
-    assert.deepEqual(
-      readdirSync(dir).filter((name) => name.endsWith(".tmp")),
-      [],
-      "失败后不得残留临时文件",
-    );
   } finally {
-    try {
-      chmodSync(dir, 0o700);
-    } catch {
-      // 目录已可写 / 已删除
-    }
     cleanup();
   }
 });

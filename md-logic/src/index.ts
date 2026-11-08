@@ -8,11 +8,40 @@
  * 解析器为 `marked`（唯一运行时依赖，零传递依赖；选型理由见 README「解析选型」）；
  * 解析本身是纯函数（读面不写文件、不注册命令）；唯一副作用是注册 `md_logic` 工具——工具面
  * 含唯一写动作 `replace`（按节整节替换 / 删除，安全语义见 md-logic/src/edit.ts 与 README「改写面」）。
+ *
+ * 文件读写只经 `MdFileIo`（`md-logic/src/io.ts`）：插件侧由 `apply` 注入 `ctx.fs` 实现
+ * （`md-logic/src/ctx-fs-io.ts`），库面 / 单测缺省用 `node:fs` 实现；`ctx.fs` 缺失时不回落。
  */
 
+import { ctxMdFileIo, type MdFsHostLike } from "./ctx-fs-io.ts";
 import { DEFAULT_MAX_BYTES, mdLogicTool } from "./tools.ts";
 
 export { DEFAULT_MAX_BYTES, mdLogicTool, resolveExecCwd } from "./tools.ts";
+export type { MdToolOptions } from "./tools.ts";
+export {
+  isMdFileErrorCode,
+  MdFileError,
+  mdFileErrorText,
+  nodeMdFileIo,
+} from "./io.ts";
+export type {
+  MdFileErrorCode,
+  MdFileInfo,
+  MdFileIo,
+  MdFileTarget,
+  MdResolveOptions,
+  MdWriteIntent,
+  MdWriteOutcome,
+  NodeMdFileIoOptions,
+} from "./io.ts";
+export { ctxMdFileIo } from "./ctx-fs-io.ts";
+export type {
+  MdFsHostLike,
+  MdFsServiceLike,
+  MdObservation,
+  MdSandboxPolicyServiceLike,
+  MdWorkingDirectoryLike,
+} from "./ctx-fs-io.ts";
 export { detectFrontmatter, parseMarkdownDocument } from "./parse.ts";
 export {
   findSections,
@@ -37,10 +66,9 @@ export {
 export {
   replaceSections,
   replaceSectionsFile,
-  sameSignature,
   sectionHash,
   type EditFailureCode,
-  type FileSignature,
+  type ReplaceFileOptions,
   type ReplaceOutcome,
   type SectionEdit,
 } from "./edit.ts";
@@ -53,16 +81,20 @@ export type {
   MdLinkKind,
   ParseOptions,
   SectionNode,
+  ToolExecLike,
 } from "./types.ts";
 
 /** 插件名（bundle 标识，cordis.patch.yml insert 条目同名）。 */
 export const name = "md-logic";
 
-/** 注入面：tools（注册 md_logic；解析本身不依赖任何宿主服务）。 */
-export const inject = ["tools"];
+/** 注入面：tools 注册工具; fs 是 `md_logic` 的文件读写面（缺它时工具调用返回可行动错误）。 */
+export const inject = ["tools", "fs"];
 
-/** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger 与工具注册面。 */
-export interface BundleHost {
+/**
+ * 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger 与工具注册面,
+ * 另含 `MdFsHostLike`（`fs` / `workingDirectory` / `sandboxPolicy` / `waterfall` / `emit`）。
+ */
+export interface BundleHost extends MdFsHostLike {
   logger?(ns: string): { info(message: string): void };
   tools?: { register(def: unknown): unknown };
 }
@@ -78,7 +110,10 @@ export type Config = MdLogicConfig;
 
 /** DSH 宿主挂载入口（bundle 约定调用）。 */
 export function apply(ctx: BundleHost, config: MdLogicConfig = {}): void {
-  const tool = mdLogicTool(config.maxBytes ?? DEFAULT_MAX_BYTES);
+  const tool = mdLogicTool(config.maxBytes ?? DEFAULT_MAX_BYTES, {
+    host: ctx,
+    ioFor: (exec) => ctxMdFileIo(ctx, exec),
+  });
   ctx.tools?.register(tool);
   ctx.logger?.(name)?.info("md-logic ready (tool=md_logic)");
 }
