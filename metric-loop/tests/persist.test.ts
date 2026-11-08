@@ -4,12 +4,13 @@
 
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
 import { createInitialState } from "../src/engine.ts";
 import {
+  defaultStateDir,
   loadState,
   sanitizeLoopId,
   saveState,
@@ -161,5 +162,51 @@ test("saveState：历史超过 500 轮只留最近 500 条（防状态膨胀）"
     // 保留的是尾部: 第 6 轮到第 505 轮
     assert.equal(loaded.history[0]?.round, 6);
     assert.equal(loaded.history.at(-1)?.round, 505);
+  });
+});
+
+test("defaultStateDir：METRIC_LOOP_STATE_DIR > DSH_HOME > ~/.dsh/metric-loop（纯读，不写盘）", () => {
+  withTmpDir((dir) => {
+    const previousExplicit = process.env["METRIC_LOOP_STATE_DIR"];
+    const previousHome = process.env["DSH_HOME"];
+    const fromEnv = path.join(dir, "env-state");
+    const dshHome = path.join(dir, "dsh-home");
+    const userFallback = path.join(homedir(), ".dsh", "metric-loop");
+    try {
+      process.env["METRIC_LOOP_STATE_DIR"] = fromEnv;
+      process.env["DSH_HOME"] = dshHome;
+      assert.equal(defaultStateDir(), fromEnv, "插件级环境变量最优先");
+      assert.equal(existsSync(fromEnv), false, "取缺省目录不得真实写盘");
+
+      delete process.env["METRIC_LOOP_STATE_DIR"];
+      assert.equal(
+        defaultStateDir(),
+        path.join(dshHome, "metric-loop"),
+        "其次 DSH_HOME 下的插件目录（宿主与 e2e 夹具靠它隔离 home）",
+      );
+      assert.equal(
+        existsSync(dshHome),
+        false,
+        "推导 DSH_HOME 路径同样不得写盘",
+      );
+
+      process.env["DSH_HOME"] = "";
+      assert.equal(defaultStateDir(), userFallback, "空 DSH_HOME 视同未设");
+
+      delete process.env["DSH_HOME"];
+      assert.equal(
+        defaultStateDir(),
+        userFallback,
+        "无环境变量 → 用户目录下的插件目录",
+      );
+    } finally {
+      if (previousExplicit === undefined) {
+        delete process.env["METRIC_LOOP_STATE_DIR"];
+      } else {
+        process.env["METRIC_LOOP_STATE_DIR"] = previousExplicit;
+      }
+      if (previousHome === undefined) delete process.env["DSH_HOME"];
+      else process.env["DSH_HOME"] = previousHome;
+    }
   });
 });

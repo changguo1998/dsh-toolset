@@ -31,8 +31,6 @@
  */
 
 import { readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import path from "node:path";
 
 import { readClock } from "@dsh-toolset/clock-base";
 
@@ -46,7 +44,7 @@ import {
   summarize,
 } from "./engine.ts";
 import { runMeasureCommand } from "./measure.ts";
-import { loadState, saveState } from "./persist.ts";
+import { defaultStateDir, loadState, saveState } from "./persist.ts";
 import type {
   GuardScope,
   LoopState,
@@ -72,6 +70,7 @@ export {
 export { parseMetricValue, runMeasureCommand } from "./measure.ts";
 export type { MeasureOutcome } from "./measure.ts";
 export {
+  defaultStateDir,
   loadState,
   sanitizeLoopId,
   saveState,
@@ -88,18 +87,10 @@ export const provide = ["metricLoop"];
 
 /** bundle 配置（profile cordis.patch.yml 的 config 段）。 */
 export interface Config {
-  /** 状态文件目录；缺省 ~/.dsh/metric-loop（可被 METRIC_LOOP_STATE_DIR 覆盖）。 */
+  /** 状态文件目录；缺省 `<DSH_HOME>/metric-loop` → `~/.dsh/metric-loop`（可被 METRIC_LOOP_STATE_DIR 覆盖）。 */
   stateDir?: string;
   /** 测量命令超时（毫秒，默认 30s）。 */
   commandTimeoutMs?: number;
-}
-
-/** 默认状态目录。 */
-export function defaultStateDir(): string {
-  return (
-    process.env.METRIC_LOOP_STATE_DIR ??
-    path.join(homedir(), ".dsh", "metric-loop")
-  );
 }
 
 interface ToolsRegistrar {

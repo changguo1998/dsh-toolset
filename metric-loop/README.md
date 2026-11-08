@@ -53,7 +53,7 @@ DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册�
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `stateDir` | `~/.dsh/metric-loop` | 状态文件目录；环境变量 `METRIC_LOOP_STATE_DIR` 优先 |
+| `stateDir` | `<DSH_HOME>/metric-loop`, 无 `DSH_HOME` 时 `~/.dsh/metric-loop` | 状态文件目录；环境变量 `METRIC_LOOP_STATE_DIR` 优先 |
 | `commandTimeoutMs` | `30000` | 测量命令超时 |
 
 状态文件为 `metric-loop-<id>.json`，原子写（tmp + rename），含 schema 版本（不兼容版本拒绝加载并报错）、历史轮次截断（最多 500 条）。

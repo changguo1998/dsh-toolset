@@ -12,12 +12,30 @@ import {
   writeFileSync,
   existsSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import type { LoopState } from "./types.ts";
 
 /** 状态文件 schema 版本（不兼容时拒绝加载，避免静默错语义）。 */
 export const STATE_VERSION = 1;
+
+/**
+ * 默认状态目录：`METRIC_LOOP_STATE_DIR` → `<DSH_HOME>/metric-loop` → `~/.dsh/metric-loop`。
+ *
+ * `DSH_HOME` 口径对齐 `session-paths/src/index.ts` 的 `resolveRoot` 与 `rule-engine/src/persist.ts`
+ * 的同名函数：宿主与 e2e 夹具都靠 `DSH_HOME` 隔离 home，忽略它会让未传 `stateDir` 的嵌入
+ * （测试、smoke、缺省挂载的 profile）落进真实用户目录。
+ */
+export function defaultStateDir(): string {
+  const explicit = process.env["METRIC_LOOP_STATE_DIR"];
+  if (typeof explicit === "string" && explicit.length > 0) return explicit;
+  const home = process.env["DSH_HOME"];
+  if (typeof home === "string" && home.length > 0) {
+    return path.join(home, "metric-loop");
+  }
+  return path.join(homedir(), ".dsh", "metric-loop");
+}
 
 /** 轮次历史上限（只保留最近 N 轮，防状态膨胀）。 */
 const HISTORY_LIMIT = 500;
