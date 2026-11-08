@@ -57,17 +57,23 @@ export interface ResolvedConfig {
   audit: boolean;
 }
 
-/** 缺省核心清单（2026-10-22 人工裁定：9 个，含 skill）。 */
+/**
+ * 缺省核心清单（2026-11-08 人工裁定：9 个）。
+ *
+ * 与 2026-10-22 版相比：去掉 `edit` / `todo_write`，新增 `hash_read` / `hash_edit`
+ * （行级锚点编辑替代整文件字面替换），保留 `write`（唯一能新建文件的写入口，
+ * 无追加与局部替换能力）。
+ */
 export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "bash",
   "read",
-  "write",
-  "edit",
   "glob",
   "grep",
-  "todo_write",
   "ask_user_question",
   "skill",
+  "hash_read",
+  "hash_edit",
+  "write",
 ];
 
 /** 缺省上限。 */

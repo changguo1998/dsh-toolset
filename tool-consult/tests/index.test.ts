@@ -14,6 +14,8 @@ const NAMES = [
   "todo_write",
   "ask_user_question",
   "skill",
+  "hash_read",
+  "hash_edit",
   "task_decompose",
   "task_status",
   "rule_add",

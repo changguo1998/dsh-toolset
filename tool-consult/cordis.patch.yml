@@ -1,4 +1,4 @@
-# tool-consult bundle 层（2026-10-22 裁定后的缺省值）：
+# tool-consult bundle 层（2026-11-08 改后的缺省值）：
 # session 档揭示（会话内只增不减）、9 个核心工具常驻、只遮根代理。
 - insert:
     - id: tool-consult
@@ -9,13 +9,13 @@
         initialTools:
           - bash
           - read
-          - write
-          - edit
           - glob
           - grep
-          - todo_write
           - ask_user_question
           - skill
+          - hash_read
+          - hash_edit
+          - write
         applyTo: roots
         maxRevealed: 12
         revealScope: session

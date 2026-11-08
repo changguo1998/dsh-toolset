@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）工具咨询插件：模型用一句话描述「要做�
 
 ## 能力
 
-- **按需揭示**：缺省只留 9 个核心工具（`bash` / `read` / `write` / `edit` / `glob` / `grep` / `todo_write` / `ask_user_question` / `skill`）+ 咨询工具 `consult_tools`，其余工具用宿主 `tools.restrict` 收进「按需揭示」集合。
+- **按需揭示**：缺省只留 9 个核心工具（`bash` / `read` / `glob` / `grep` / `ask_user_question` / `skill` / `hash_read` / `hash_edit` / `write`）+ 咨询工具 `consult_tools`，其余工具用宿主 `tools.restrict` 收进「按需揭示」集合。写面只留两个：`write` 负责新建 / 整文件覆写，`hash_read` + `hash_edit` 负责行级锚点读写；`edit` 与 `todo_write` 收进按需揭示。
 - **咨询即授权**：`consult_tools(query | names, limit, reveal, scope, pin)` 返回名称 + 一句话，并把命中项加入当前会话可见集；下一次请求装配时生效（宿主自行发 `request/header` 与 `tool-addition`）。
 - **两档作用域**：`revealScope: "session"`（缺省，会话内一直可见、`turn/end` 不收回）与 `"turn"`（仅本回合，回合末按 LRU 收敛、支持 `ttlTurns` 与 `pin`）；逐次 `scope` 覆盖，优先级 逐次 > 配置 > 缺省 `session`。
 - **可行动错误**：调用被遮罩的工具时返回「先 consult_tools 揭示」的可行动文案，而不是裸的 `unknown tool`。
@@ -19,7 +19,7 @@ DSH（DeepSeek Harness）工具咨询插件：模型用一句话描述「要做�
 | --- | --- | --- |
 | `enabled` | `true` | 总开关 |
 | `maskMode` | `allowlist` | `allowlist` / `denylist` / `off` |
-| `initialTools` | 9 个核心工具 | 支持 `*` / `?` 通配 |
+| `initialTools` | 9 个核心工具（`bash` / `read` / `glob` / `grep` / `ask_user_question` / `skill` / `hash_read` / `hash_edit` / `write`） | 支持 `*` / `?` 通配 |
 | `applyTo` | `roots` | `roots`（只遮根代理）/ `all` |
 | `maxRevealed` | `12` | 仅 `turn` 档：回合内容量上限（`session` 档**不设上限**，2026-10-27 裁定） |
 | `revealScope` | `session` | 揭示作用域缺省档 |

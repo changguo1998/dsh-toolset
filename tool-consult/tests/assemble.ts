@@ -95,7 +95,7 @@ export interface Assembled {
   dispose(): void;
 }
 
-/** 本包测试的标准工具面: 9 个核心 + 4 个任务 / 规则 / 会话工具 + 2 个待揭示项. */
+/** 本包测试的标准工具面: 11 个高频工具（含 9 个缺省核心）+ 4 个任务 / 规则 / 会话工具 + 2 个待揭示项. */
 export const STANDARD_SCHEMAS: FakeToolSchema[] = [
   "bash",
   "read",
@@ -106,6 +106,8 @@ export const STANDARD_SCHEMAS: FakeToolSchema[] = [
   "todo_write",
   "ask_user_question",
   "skill",
+  "hash_read",
+  "hash_edit",
   "task_decompose",
   "task_status",
   "rule_add",

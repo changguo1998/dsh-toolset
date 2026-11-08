@@ -14,6 +14,8 @@ const NAMES = [
   "todo_write",
   "ask_user_question",
   "skill",
+  "hash_read",
+  "hash_edit",
   "task_decompose",
   "task_status",
   "rule_add",
@@ -41,12 +43,12 @@ function consultOf(host: ReturnType<typeof createFakeHost>) {
 const CORE = [
   "ask_user_question",
   "bash",
-  "edit",
   "glob",
   "grep",
+  "hash_edit",
+  "hash_read",
   "read",
   "skill",
-  "todo_write",
   "write",
 ];
 

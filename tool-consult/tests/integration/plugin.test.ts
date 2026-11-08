@@ -6,12 +6,12 @@ import { assemble } from "../assemble.ts";
 const CORE = [
   "ask_user_question",
   "bash",
-  "edit",
   "glob",
   "grep",
+  "hash_edit",
+  "hash_read",
   "read",
   "skill",
-  "todo_write",
   "write",
 ];
 

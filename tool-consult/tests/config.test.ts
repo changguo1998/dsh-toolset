@@ -13,6 +13,17 @@ test("缺省值：9 核心工具（含 skill）、session 档、roots", () => {
   const config = resolveConfig();
   assert.equal(config.initialTools.length, 9);
   assert.deepEqual(config.initialTools, [...DEFAULT_INITIAL_TOOLS]);
+  assert.deepEqual(config.initialTools, [
+    "bash",
+    "read",
+    "glob",
+    "grep",
+    "ask_user_question",
+    "skill",
+    "hash_read",
+    "hash_edit",
+    "write",
+  ]);
   assert.ok(config.initialTools.includes("skill"));
   assert.equal(config.revealScope, "session");
   assert.equal(config.applyTo, "roots");
@@ -21,6 +32,15 @@ test("缺省值：9 核心工具（含 skill）、session 档、roots", () => {
   assert.equal(config.ttlTurns, 0);
   assert.equal(config.maxResults, 5);
   assert.equal(config.enabled, true);
+});
+
+test("缺省名单不含 edit / todo_write（收进按需揭示）", () => {
+  const config = resolveConfig();
+  assert.equal(config.initialTools.includes("edit"), false);
+  assert.equal(config.initialTools.includes("todo_write"), false);
+  for (const name of ["write", "hash_read", "hash_edit"]) {
+    assert.ok(config.initialTools.includes(name), `${name} 应在缺省名单中`);
+  }
 });
 
 test("非法值回退缺省", () => {
