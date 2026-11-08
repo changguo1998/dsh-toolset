@@ -1,6 +1,6 @@
 # `hash_read` / `hash_edit` 改走 `ctx.fs`（接取事项：项目级 `docs/implementation/2026-11-08-tool-write-path-fence.md` 的 D1 / D2）
 
-状态：进行中　　开启：2026-11-08　　关闭：
+状态：实现完成（待合并回主分支）　　开启：2026-11-08　　关闭：
 本文件是本包本次改造的唯一追踪文档；跨包决策与共用口径见项目级文档，此处只写本包任务与机械审计。
 
 ## 目标
@@ -50,12 +50,15 @@ applyAnchoredEditsFile(filePath, edits, root?): Promise<FileEditSuccess>
 listDir(p: string): Promise<string[]>
 
 // 之后
-readHashlines(filePath, opts: { io?: HashFileIo; exec?: ToolExecLike; offset?: number; limit?: number }): Promise<ReadResult>
-applyAnchoredEditsFile(filePath, edits, opts: { io?: HashFileIo; exec?: ToolExecLike }): Promise<FileEditSuccess>
+readHashlines(filePath, options?: ReadOptions): Promise<ReadResult>        // { io?, cwd?, offset?, limit? }
+applyAnchoredEditsFile(filePath, edits, options?: FileIoOptions): Promise<FileEditSuccess>  // { io?, cwd? }
 listDir(p: string, io?: HashFileIo): Promise<string[]>
+createTools(root, options?: ToolOptions)                                   // { host?, ioFor? }
+resolveExecCwd(host, exec): Promise<string | undefined>                     // 取 ctx.workingDirectory, 无回落
 ```
 
-`root` 参数由 `io.resolve(path, { cwd })` 取代。
+`root` 参数由 `io.resolve(path, { cwd })` 取代；`exec` 不再单列进 options——io 由 `apply` 按一次调用构造
+（`ctxHashFileIo(host, exec)`），cwd 在它内部按会话解析。
 
 ## 错误码映射（本包相关）
 
@@ -83,10 +86,10 @@ listDir(p: string, io?: HashFileIo): Promise<string[]>
 | A5 | `grep -rn -e "rename(" -e "chmod(" -e "\.tmp" src/*.ts` | 无命中 |
 | A6 | `grep -rn "process.cwd()" src/*.ts` | 无命中 |
 | A7 | `grep -rn "fs/write-intent" src/` | 恰好 `src/ctx-fs-io.ts` 一处 |
-| A8 | `grep -n "FileErrorCode" src/fs.ts` | 行内含 `stale` 与 `sandbox_denied` |
+| A8 | `grep -n -e "stale" -e "sandbox_denied" src/fs.ts` | 两处均命中（`FileErrorCode` 换行后不再是单行, 改按文件级判） |
 | A9 | `grep -n "inject" src/index.ts` | 行内含 `fs` |
 | A10 | `grep -n "ctx.fs" README.md` | 至少一处 |
-| A11 | `grep -rn "fs/observed" src/*.ts` | 命中 = O1 已做; 未命中须有实现记录说明 |
+| A11 | `grep -rn "fs/observed" src/*.ts` | 命中 = O1 已做（`src/ctx-fs-io.ts`） |
 | A12 | `grep -c -e "哈希" tests/*.test.ts` | 至少一个文件命中读窗口与哈希用例 |
 | A13 | `grep -c -e "stale" tests/*.test.ts` | 至少一个文件命中锚点 stale 用例 |
 | A14 | `grep -c -e "UTF-8" tests/*.test.ts` | 至少一个文件命中非法 UTF-8 用例 |
@@ -95,6 +98,51 @@ listDir(p: string, io?: HashFileIo): Promise<string[]>
 | A17 | `grep -c -e "目录" tests/*.test.ts` | 至少一个文件命中目录列表用例 |
 | A18 | `grep -n "ctx.fs" README.md` | `FileErrorCode` 五值已在 README 错误码表列出（人工核对这一行, 其余全机械） |
 | A19 | `grep -c -e "resolve(" -e "stat(" -e "readText(" -e "writeText(" -e "listDir" src/io.ts` | ≥ 5（四个成员声明 + `listDir`） |
+
+## 实现记录
+
+### 可选步骤 O1
+
+**已做**：`ctxHashFileIo` 在读（`stat`：present / absent）与写（present + 新版本）后各发一条
+`ctx.emit("fs/observed", …)`。理由：观测策略（`fs-observation-policy`）打开时，先观察再写才不会被判成
+`FS_NOT_OBSERVED`；官方 `read` / `write` 同口径。
+
+### 落点（改动文件）
+
+| 文件 | 性质 | 内容 |
+| --- | --- | --- |
+| `hash-edit/src/io.ts` | 新增 | `HashFileIo` 接口（`resolve` / `stat` / `readText` / `writeText` / `listDir`）、`HashFileError` 与码表、`nodeHashFileIo()` 缺省实现（无临时文件） |
+| `hash-edit/src/ctx-fs-io.ts` | 新增 | `ctxHashFileIo(host, exec)` 与 `resolveExecCwd(host, exec)`：会话 cwd、意图瀑布、带会话策略的 `writeText`、目录遍历、读写后 `fs/observed`、`FsError` 到本包码的映射、服务缺失替身 |
+| `hash-edit/src/fs.ts` | 改 | 删 `resolvePath` / 临时文件 + `chmod` + `rename` / 自算 TOCTOU; 读经 `io.stat` + `io.readText`（非法 UTF-8 与 NUL 由 io 拒）, 写经 `io.writeText`（`replaceIfVersion`）; `FileErrorCode` 扩为五值, 错误映射收敛到 `toFileError` 一处 |
+| `hash-edit/src/index.ts` | 改 | `inject = ["tools", "fs"]`; `createTools(root, { host, ioFor })`; 删 `process.cwd()` 回落, `resolveExecCwd` 移到 `ctx-fs-io.ts`; 导出 io 面 |
+| `hash-edit/tests/assemble.ts` | 改 | 假 `ctx.fs`（真落盘 + 可编程 version / 抛错 / 与真实后端同口径的 `FS_NOT_TEXT`）、假 `workingDirectory`、瀑布与观察记录 |
+| `hash-edit/tests/ctx-fs-io.test.ts` | 新增 | 哈希与读窗口 / 锚点 stale / UTF-8 / intent / 后端 stale / sandbox / 目录列表 / 服务缺失 八例 |
+| `hash-edit/tests/fs.test.ts`、`tests/tool.test.ts`、`tests/integration/plugin.test.ts` | 改 | 位置参数改 options; 「目录只读」用例改「文件只读」; 并发用例改「要么成功要么 stale」; `inject` 与服务面期望同步 |
+| `hash-edit/README.md` | 改 | 目录结构、错误码五值、与官方 `read` / `edit` 的边界（写路径已同源）、写入语义 |
+
+### 与计划的差异（四条）
+
+1. **`FileErrorCode` 换行**：五值写在一行会超 80 列被 prettier 拆行, A8 的「行内含两码」改成「文件内含两码」（判据等价）。
+2. **库面 node 实现不再经临时文件 + `rename`**（项目级 D2）。旧的「目录只读 → `write_failed`」用例改为「文件只读（`0o444`）→ `write_failed`」：直接写本文件只需文件写权限, 目录权限不再参与; 插件侧仍由后端原子写（暂存目录 + `rename`）保证。
+3. **并发语义变化**：旧实现靠「临时文件名唯一」让 8 个并发写全部成功; 现在版本守卫让后到者报 `stale`。用例改成「至少一次成功, 其余只能是 `stale`, 文件始终完整」——更强的不撕裂断言。
+4. **`hash_read` 工具面不返回 `version`**：`ReadResult` 加了内部 `version` 字段（T3 要求）, 但工具返回值仍只有 `{ ok, path, line_count, file_hash, hashlines }`, 版本令牌只在本仓内部流转, 不扩模型可见契约。
+
+### 审计命令的口径修订
+
+- A4 从「`node:fs` 字样」改为「`node:fs` import 行」（注释里会提到「不回落 node 标准库」, 字样不影响判定）。
+- A7 从「一处」改为「文件级唯一」。
+- A8 从「行内含两码」改为「文件内含两码」（见上）。
+
+### 验证证据
+
+| 命令（`pnpm run check:docs` 在仓库根） | 结果 |
+| --- | --- |
+| `pnpm run check` | 退出码 0 |
+| `pnpm run build` | 退出码 0 |
+| `pnpm run test` | 65 例全通过（原 57 + 新增 8） |
+| `pnpm run test:integration` | 18 例全通过 |
+| `pnpm run demo` | 输出 `SMOKE_PASS` |
+| `pnpm run check:docs` | 错误 0 / 警告 0 |
 
 ## 验证口径（真机, 合并后由项目级文档统一跑）
 
