@@ -17,6 +17,7 @@ import { allSections, lastTextOfSources } from "../layout/pipeline/sections.ts";
 import { modelLabel, runPhase } from "../layout.ts";
 import { sectionsOf } from "../layout/pipeline/frame.ts";
 import type { AppContext } from "./context.ts";
+import { taskExtrasOf, type TaskQueryLike } from "./task-status.ts";
 
 /** 别名段读取失败告警阈值（连续失败次数）：别名段是增强项，session-channel 首连失败会
  *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
@@ -157,45 +158,11 @@ export function createWiringPart(ctx: AppContext) {
     const sessionId =
       ctx.state.activeSessionId ?? ctx.deps.adapter.sessionId ?? "";
     const next: StatusExtras = {};
-    // Task：只取当前任务栈（帧 id → 标题），不铺整棵树
+    // Task：只取当前任务栈（帧 id → 标题），不铺整棵树；没有真实任务时不建块
     try {
-      const engine = ctx.deps.getTaskEngine?.() as
-        | {
-            query?(): {
-              tasks?: readonly {
-                id?: string;
-                title?: string;
-                children?: readonly unknown[];
-              }[];
-              frameStack?: readonly string[];
-              activeCount?: number;
-            };
-          }
-        | undefined;
-      const snap = engine?.query?.();
-      const stack = snap?.frameStack ?? [];
-      if (stack.length > 0) {
-        const titles = new Map<string, string>();
-        const walk = (
-          items: readonly {
-            id?: string;
-            title?: string;
-            children?: readonly unknown[];
-          }[],
-        ): void => {
-          for (const item of items) {
-            if (typeof item.id === "string" && typeof item.title === "string")
-              titles.set(item.id, item.title);
-            if (Array.isArray(item.children)) walk(item.children as never);
-          }
-        };
-        walk(snap?.tasks ?? []);
-        next.task = {
-          active: snap?.activeCount ?? 0,
-          total: titles.size,
-          stack: stack.map((id) => titles.get(id) ?? id),
-        };
-      }
+      const engine = ctx.deps.getTaskEngine?.() as TaskQueryLike | undefined;
+      const task = taskExtrasOf(engine?.query?.());
+      if (task !== undefined) next.task = task;
     } catch {
       /* 忽略：保持该块缺省 */
     }
