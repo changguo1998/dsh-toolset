@@ -61,13 +61,20 @@ test("cordis.patch.yml：按 R6 缺省 enabled: true + mode: rules", () => {
   assert.equal(defaults.mode, "rules");
 });
 
-test("接线三处：根 check/build 链、test-parallel default_pkgs、install canonical_pkgs 都含本包", () => {
+test("接线三处：根 check/build 委托并行入口、test-parallel default_pkgs、install canonical_pkgs 都含本包", () => {
   const root = readJson<{ scripts: Record<string, string> }>(
     join(repoRoot, "package.json"),
   );
-  for (const script of ["check", "build"]) {
-    assert.match(root.scripts[script] ?? "", /pnpm -C auto-approve run/);
-  }
+  // 2026-11-08 起根 check / build 不再逐包写 `pnpm -C <包>` 串行链，改为委托并行入口；
+  // 包清单只在 `scripts/test-parallel.sh` 的 `default_pkgs` 维护（下面校验）。
+  assert.match(
+    root.scripts["check"] ?? "",
+    /TEST_SCRIPT=check sh scripts\/test-parallel\.sh/,
+  );
+  assert.match(
+    root.scripts["build"] ?? "",
+    /TEST_SCRIPT=build sh scripts\/test-parallel\.sh/,
+  );
   const parallel = readFileSync(
     join(repoRoot, "scripts", "test-parallel.sh"),
     "utf8",

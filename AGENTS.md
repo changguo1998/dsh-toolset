@@ -17,8 +17,8 @@
 仓库根 `package.json` 委托全部子包（clock-base / TUI / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group / coagent / tool-consult / escalation-hint / term-check / pin-note / flow-track / shell-parse）：
 
 ```sh
-pnpm run check   # 全部子包类型检查（tsc --noEmit）
-pnpm run build   # 全部子包编译到 dist/
+pnpm run check   # 全部子包类型检查（tsc --noEmit；与 test 同款并行调度）
+pnpm run build   # 全部子包编译到 dist/（并行；code-map / md-map 排在第二批）
 pnpm run test    # 全部子包测试并行运行（scripts/test-parallel.sh：GNU parallel 为主、xargs 兜底，node --test）
 pnpm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
 pnpm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）

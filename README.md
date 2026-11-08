@@ -108,8 +108,8 @@ dsh-toolset/
 The repository root `package.json` delegates to all subpackages:
 
 ```sh
-pnpm run check   # type-check all subpackages (tsc --noEmit)
-pnpm run build   # compile all subpackages to dist/
+pnpm run check   # type-check all subpackages (tsc --noEmit; same parallel scheduler as test)
+pnpm run build   # compile all subpackages to dist/ (parallel; code-map / md-map in the second batch)
 pnpm run test    # run all subpackage tests in parallel (scripts/test-parallel.sh)
 pnpm run demo    # build the TUI and run the mock demo (no DSH dependency)
 pnpm run demo -- --smoke   # TUI smoke check (frame assertion SMOKE_PASS)

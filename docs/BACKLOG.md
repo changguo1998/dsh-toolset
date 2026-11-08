@@ -86,13 +86,6 @@
   - 优先级: P3.
   - 来源: 宿主升级任务收尾记录（`docs/archived/2026-11-07-host-upgrade-0.2.2-rc.1.md` 偏差节）.
 
-- **#3 `check` / `build` 根委托链并行化**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
-
-  - 现状: 根 `package.json` 的 `check` / `build` 是 38 个 `pnpm -C <包> run <cmd> && ...` 的**串行**委托链（墙钟 = 各包耗时之和）; 只有 `test`（34 包）与 `test:integration` 走 `scripts/test-parallel.sh` 并行（GNU parallel 为主 / xargs 兜底, 墙钟 ≈ 最慢包）; `install.sh` 构建插件的并行面（`BUILD_JOBS` / `BUILD_RUNNER`）只覆盖 profile 安装, 不覆盖根 `pnpm run check` / `build`.
-  - 期望: 把 `check` / `build` 改成与 `test` 同款并行调度 —— 复用或扩展 `scripts/test-parallel.sh` 的调度与汇总模式（parallel / xargs 两路、`set -u` 累计退出、包清单双向校验、只跑存在的包）, 根 `package.json` 三链统一一个并行入口（如扩展 `TEST_SCRIPT=check|build` 或新 `scripts/run-all.sh <check|build|test> [包...]`）; 注意两点: ① `set -e` 语义取舍（一包失败是否等其余包跑完再汇总, 与 `test-parallel.sh` 的「不 fail-fast」对齐）; ② build 的依赖序 —— `code-map` / `md-map` import `ast-tools` / `md-logic` 的构建产物, 须先建后两者（`install.sh` 已实现该排序, 可复用）.
-  - 优先级: P2.
-  - 来源: 用户 2026-11-08 提出「检查, 测试这些脚本全部都并行化」.
-
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
