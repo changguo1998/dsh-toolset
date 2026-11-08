@@ -176,7 +176,7 @@ test("相对路径按 root 解析", async () => {
     const res = await applyAnchoredEditsFile(
       "sample.txt",
       [{ set_line: { anchor: anchorAt(CONTENT, 1), new_text: "A1" } }],
-      t.dir,
+      { cwd: t.dir },
     );
     assert.equal(res.path, t.path);
     assert.equal((await readFile(t.path, "utf8")).startsWith("A1\n"), true);
@@ -188,7 +188,7 @@ test("相对路径按 root 解析", async () => {
 test("readHashlines：offset/limit 窗口（1 基）", async () => {
   const t = await makeTmp(CONTENT);
   try {
-    const win = await readHashlines(t.path, undefined, 2, 2);
+    const win = await readHashlines(t.path, { offset: 2, limit: 2 });
     assert.equal(win.line_count, 5);
     assert.equal(win.hashlines.length, 2);
     assert.deepEqual(
@@ -196,7 +196,7 @@ test("readHashlines：offset/limit 窗口（1 基）", async () => {
       [2, 3],
     );
     // 超出窗口的 offset 返回空列表（不报错）
-    const over = await readHashlines(t.path, undefined, 9, 3);
+    const over = await readHashlines(t.path, { offset: 9, limit: 3 });
     assert.equal(over.hashlines.length, 0);
   } finally {
     await t.cleanup();
@@ -257,14 +257,14 @@ test("目录路径 → io_error（readHashlines 与 applyAnchoredEditsFile 同�
 });
 
 test("写盘失败 → io_error「write failed」，原文件不变、无临时文件残留", async (ctx) => {
-  // 只读目录不可写这条路径靠目录权限触发，root 不受权限位约束（本机为普通用户，不触发 skip）
+  // 只读**文件**触发 EACCES（只读目录挡不住直接写本文件——不经临时文件了）
   if (process.getuid?.() === 0) {
-    ctx.skip("root 不受目录权限约束，无法触发写盘失败");
+    ctx.skip("root 不受文件权限约束，无法触发写盘失败");
     return;
   }
   const t = await makeTmp(CONTENT);
   try {
-    await chmod(t.dir, 0o555);
+    await chmod(t.path, 0o444);
     await assert.rejects(
       applyAnchoredEditsFile(t.path, [
         { set_line: { anchor: anchorAt(CONTENT, 2), new_text: "X" } },
@@ -274,28 +274,37 @@ test("写盘失败 → io_error「write failed」，原文件不变、无临时�
         err.code === "io_error" &&
         /write failed/.test(err.message),
     );
-    await chmod(t.dir, 0o755);
+    await chmod(t.path, 0o644);
     assert.equal(await readFile(t.path, "utf8"), CONTENT, "写入失败不改原文件");
     assert.deepEqual(await listDir(t.dir), ["sample.txt"]);
   } finally {
-    await chmod(t.dir, 0o755).catch(() => undefined);
+    await chmod(t.path, 0o644).catch(() => undefined);
     await t.cleanup();
   }
 });
 
-test("并发：同文件并行锚定写不互踩（临时文件名唯一，全部成功且无残留）", async () => {
+test("并发：同文件并行锚定写要么成功要么 stale，文件始终完整", async () => {
   const t = await makeTmp(CONTENT);
   try {
     const anchor = anchorAt(CONTENT, 1);
-    // 8 个并发写共用同一锚点：临时文件名若不唯一，先到者 rename 后后到者会 ENOENT
-    const results = await Promise.all(
+    // 8 个并发写共用同一锚点：版本守卫让后到者报 stale（不撕裂、不半写）
+    const settled = await Promise.allSettled(
       Array.from({ length: 8 }, (_, i) =>
         applyAnchoredEditsFile(t.path, [
           { set_line: { anchor, new_text: `V${i}` } },
         ]),
       ),
     );
-    assert.equal(results.length, 8);
+    const ok = settled.filter((item) => item.status === "fulfilled");
+    assert.ok(ok.length >= 1, "至少一次写入成功");
+    for (const item of settled) {
+      if (item.status === "fulfilled") continue;
+      const reason: unknown = item.reason;
+      assert.ok(
+        reason instanceof FileEditError && reason.code === "stale",
+        `并发失败只应是 stale：${String(reason)}`,
+      );
+    }
     const after = await readFile(t.path, "utf8");
     const [first] = after.split("\n");
     assert.match(

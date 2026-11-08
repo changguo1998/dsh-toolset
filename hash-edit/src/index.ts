@@ -12,28 +12,47 @@
  *   校验失败（malformed/out_of_range/stale_anchors/overlapping_edits）返回结构化错误
  *   （stale 含全部失效锚点 + expected/actual），不抛异常，供模型重新取锚点重试。
  *
- * 复用说明：文件读写底座在 DSH 宿主内即 tool-fs（本包 `hash-edit/src/fs.ts` 为标准库薄封装，
- * 供独立测试/demo）；行级锚定与 fs-observation-policy 的版本号守护互补。
+ * 复用说明：文件读写只经 `HashFileIo`（`hash-edit/src/io.ts`）：插件侧由 `apply` 注入 `ctx.fs`
+ * 实现（`hash-edit/src/ctx-fs-io.ts`），库面 / demo / 单测缺省用 node 标准库实现；
+ * 行级锚定与后端文件级版本守卫互补。
  */
 
 export * from "./hashline.ts";
 export * from "./edit.ts";
+export * from "./io.ts";
+export * from "./ctx-fs-io.ts";
 export * from "./fs.ts";
 
 // 本地引用（export * 只产生 re-export，不产生本模块绑定）
 import { AnchoredEditError, type EditOp } from "./edit.ts";
+import {
+  ctxHashFileIo,
+  resolveExecCwd,
+  type HashExecLike,
+  type HashFsHostLike,
+} from "./ctx-fs-io.ts";
+import type { HashFileIo } from "./io.ts";
+import { nodeHashFileIo } from "./io.ts";
 import { FileEditError, applyAnchoredEditsFile, readHashlines } from "./fs.ts";
 
 /** 插件名（dsh 宿主挂载标识，对应 cordis.patch.yml 的 id）。 */
 export const name = "hash-edit";
 
-/** 本插件声明的依赖宿主服务（dsh 启动时注入 ctx.tools）。 */
-export const inject = ["tools"];
+/** 注入面：tools 注册工具; fs 是 hash_read / hash_edit 的文件读写面（缺它时调用返回可行动错误）。 */
+export const inject = ["tools", "fs"];
 
 /** 插件配置（bundle 契约 Config）。 */
 export interface Config {
-  /** 相对路径解析基准目录（显式配置优先；缺省按调用会话 cwd，无会话上下文回退进程 cwd）。 */
+  /** 相对路径解析基准目录（显式配置优先；缺省按调用会话 cwd, 无宿主面时交给 io 自己的基准）。 */
   root?: string;
+}
+
+/** 工具装配选项：宿主面（决定 `ctx.fs` / 会话 cwd）与按调用构造 io 的工厂。 */
+export interface ToolOptions {
+  /** 宿主面：`fs` 走官方围栏, `workingDirectory` 给相对路径基准。 */
+  host?: HashFsHostLike;
+  /** 按调用上下文构造 io; 缺省用 `nodeHashFileIo()`（库面 / 单测口径）。 */
+  ioFor?: (exec?: HashExecLike) => HashFileIo;
 }
 
 /** dsh 工具注册器（结构式访问，避免 import dsh 包）。 */
@@ -49,22 +68,6 @@ interface ContentBlock {
 
 /** 工具执行入参（dsh 侧为已解析的 JSON 参数对象）。 */
 type ToolArgs = Record<string, unknown>;
-
-/** 工具执行上下文（宿主 `exec` 第二实参，只读鸭子类型）。 */
-interface ToolExecCtx {
-  agent?: { session?: { header?: { cwd?: string } } };
-}
-
-/**
- * 本次工具调用的会话 cwd（相对路径解析基准）。口径对齐宿主 tool-fs 与本仓
- * fs-digest / md-logic：`exec.agent.session.header.cwd`；宿主未传 exec / 无会话 cwd
- * → 回退 `process.cwd()`（裸进程语义）。勿改读 `ctx.cwd`——cordis 代理上未 inject
- * 的属性读取会直接抛错（fs-digest 的 D1 教训）。
- */
-function resolveExecCwd(exec: unknown): string {
-  const cwd = (exec as ToolExecCtx | undefined)?.agent?.session?.header?.cwd;
-  return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
-}
 
 interface ToolDef {
   name: string;
@@ -291,11 +294,34 @@ function coerceEdits(raw: unknown): { ops: EditOp[]; error?: string } {
   return { ops };
 }
 
-/** 构造工具定义（root = 显式 config.root；未配置 / 空串按调用会话 cwd 解析相对路径，缺省进程 cwd）。 */
-function createTools(root: string | undefined): ToolDef[] {
-  /** 本次调用的相对路径基准：显式配置优先；空串按未配置（仓库惯例，对照 fs-digest / md-logic），回落会话 cwd。 */
-  const baseRoot = (exec: unknown): string =>
-    root !== undefined && root !== "" ? root : resolveExecCwd(exec);
+/**
+ * 构造工具定义。
+ * @param root 显式 config.root（相对路径基准）; 未配置 / 空串按调用会话 cwd 解析。
+ * @param options 宿主面与 io 工厂; 都不给时走 `nodeHashFileIo()`（库面 / 单测口径）。
+ */
+function createTools(
+  root: string | undefined,
+  options: ToolOptions = {},
+): ToolDef[] {
+  /** 显式配置的基准（空串按未配置, 仓库惯例对照 fs-digest / md-logic）。 */
+  const configuredRoot = root !== undefined && root !== "" ? root : undefined;
+  /**
+   * 本次调用的读写面与基准：库面 node 实现需要在这里先取会话目录;
+   * `ctx.fs` 实现的 resolve 自己按会话解析, 只在显式配置时把 root 传下去。
+   */
+  const ioFor = async (
+    exec: HashExecLike | undefined,
+  ): Promise<{ io: HashFileIo; cwd: string | undefined }> => {
+    if (options.ioFor !== undefined) {
+      return { io: options.ioFor(exec), cwd: configuredRoot };
+    }
+    const base =
+      configuredRoot ?? (await resolveExecCwd(options.host ?? {}, exec));
+    return {
+      io: nodeHashFileIo(base === undefined ? {} : { cwd: base }),
+      cwd: base,
+    };
+  };
   const hashRead: ToolDef = {
     name: "hash_read",
     description:
@@ -307,7 +333,6 @@ function createTools(root: string | undefined): ToolDef[] {
     async execute(args, exec) {
       const path = asString(args.path);
       if (path === undefined) return { ok: false, error: "path is required" };
-      const base = baseRoot(exec);
       const offset = asInt(args.offset) ?? 1;
       const limit = asInt(args.limit) ?? 200;
       if (offset < 1 || limit < 1) {
@@ -317,8 +342,21 @@ function createTools(root: string | undefined): ToolDef[] {
         };
       }
       try {
-        const result = await readHashlines(path, base, offset, limit);
-        return { ...result };
+        const { io, cwd } = await ioFor(exec as HashExecLike | undefined);
+        const result = await readHashlines(path, {
+          io,
+          ...(cwd === undefined ? {} : { cwd }),
+          offset,
+          limit,
+        });
+        // 工具面不返回内部版本令牌（模型用 LINE:HASH 与 file_hash 定位）
+        return {
+          ok: true,
+          path: result.path,
+          file_hash: result.file_hash,
+          line_count: result.line_count,
+          hashlines: result.hashlines,
+        };
       } catch (err) {
         if (err instanceof FileEditError) {
           return { ok: false, code: err.code, error: err.message };
@@ -340,11 +378,14 @@ function createTools(root: string | undefined): ToolDef[] {
     async execute(args, exec) {
       const path = asString(args.path);
       if (path === undefined) return { ok: false, error: "path is required" };
-      const base = baseRoot(exec);
       const { ops, error } = coerceEdits(args.edits);
       if (error !== undefined) return { ok: false, code: "malformed", error };
       try {
-        const result = await applyAnchoredEditsFile(path, ops, base);
+        const { io, cwd } = await ioFor(exec as HashExecLike | undefined);
+        const result = await applyAnchoredEditsFile(path, ops, {
+          io,
+          ...(cwd === undefined ? {} : { cwd }),
+        });
         return { ...result };
       } catch (err) {
         if (err instanceof AnchoredEditError) {
@@ -368,7 +409,7 @@ function createTools(root: string | undefined): ToolDef[] {
 
 /**
  * bundle 装配入口（dsh 宿主按 cordis.patch.yml 的 insert 加载）。
- * ctx 为结构式访问：仅依赖 ctx.tools.register，缺失时降级告警。
+ * ctx 为结构式访问：依赖 ctx.tools.register 与 ctx.fs（缺失时降级告警 / 调用返回可行动错误）。
  */
 export async function apply(ctx: unknown, config: Config = {}): Promise<void> {
   const warn = (msg: string): void => {
@@ -378,13 +419,17 @@ export async function apply(ctx: unknown, config: Config = {}): Promise<void> {
     warn("ctx unavailable, skipping tool registration");
     return;
   }
-  const root = config.root;
+  const host = ctx as HashFsHostLike;
   const toolsSvc = (ctx as { tools?: ToolRegistrar }).tools;
   if (toolsSvc === undefined || typeof toolsSvc.register !== "function") {
     warn("ctx.tools unavailable, skipping tool registration");
     return;
   }
-  for (const def of createTools(root)) {
+  const tools = createTools(config.root, {
+    host,
+    ioFor: (exec) => ctxHashFileIo(host, exec),
+  });
+  for (const def of tools) {
     try {
       toolsSvc.register(toDshTool(def));
     } catch (err) {

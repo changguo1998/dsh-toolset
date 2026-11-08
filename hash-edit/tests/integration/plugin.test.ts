@@ -69,10 +69,10 @@ function parseProjection(
 test("装配: 注册 hash_read / hash_edit, 不订阅事件、不 provide 服务、无告警", async () => {
   const host = await assemble();
   assert.equal(name, "hash-edit");
-  assert.deepEqual(inject, ["tools"]);
+  assert.deepEqual(inject, ["tools", "fs"]);
   assert.deepEqual(host.tools.names(), ["hash_read", "hash_edit"]);
   assert.equal(host.events.listenerCount(), 0);
-  assert.deepEqual(host.services.names(), []);
+  assert.deepEqual(host.services.names(), ["fs", "workingDirectory"]);
   assert.deepEqual(host.stderr, []);
 });
 

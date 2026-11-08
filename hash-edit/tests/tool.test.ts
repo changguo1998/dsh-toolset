@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { apply } from "../src/index.ts";
+import { assemble } from "./assemble.ts";
 
 /** 建临时文件（与 fs.test.ts 同款，自建不自引 helpers）。 */
 async function makeTmp(
@@ -41,23 +41,14 @@ interface RegisteredTool {
   };
 }
 
-/** 跑一次 `apply`（可带 Config），返回注册到的工具表。 */
+/** 跑一次 `apply`（可带 Config），返回注册到的工具表（经装配器: 假 ctx.fs + 会话目录）。 */
 async function registerTools(config?: {
   root?: string;
 }): Promise<Map<string, RegisteredTool>> {
-  const tools = new Map<string, RegisteredTool>();
-  await apply(
-    {
-      tools: {
-        register: (def: unknown) => {
-          const tool = def as RegisteredTool;
-          tools.set(tool.name, tool);
-        },
-      },
-    },
-    config,
+  const host = await assemble({ ...(config === undefined ? {} : { config }) });
+  return new Map(
+    host.tools.defs.map((def) => [def.name, def as unknown as RegisteredTool]),
   );
-  return tools;
 }
 
 test("apply 注册 hash_read / hash_edit，形状符合宿主契约", async () => {
