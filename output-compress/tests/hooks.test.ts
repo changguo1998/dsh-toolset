@@ -635,6 +635,90 @@ test("落点缺失（sessionDir 覆盖指向不存在目录）→ skipped.sessio
   }
 });
 
+test("会话目录缺失（按会话推导）→ 经 ensureSessionDirFor 建出并写摘要，不再静默丢失", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oc-ensure-"));
+  try {
+    const dir = path.join(root, "sessions", "--proj--", SESSION_ID);
+    const ensured: string[] = [];
+    const sessionPaths: SessionPathsLike = {
+      sessionDirFor: () => dir,
+      ensureSessionDirFor: async (id: string) => {
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
+        ensured.push(id);
+        return dir;
+      },
+    };
+    assert.equal(existsSync(dir), false, "前置：会话目录不存在");
+    const { emitFor, logs } = await mount(root, {
+      sessionPaths,
+      config: { sessionDir: undefined, minBytes: 100, maxSourceBytes: 1024 },
+    });
+    emitFor(SESSION_ID, toolResultEvent(1, longText(400)));
+    await new Promise((r) => setTimeout(r, 120));
+
+    assert.deepEqual(ensured, [SESSION_ID], "缺失时只补建一次");
+    assert.ok(
+      existsSync(path.join(dir, "digest.db")),
+      "目录建出后摘要照常落库",
+    );
+    assert.ok(
+      logs.some((line) => line.includes("已由 session-paths 建出")),
+      logs.join("\n"),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("会话目录缺失且服务无 ensureSessionDirFor → 告警并跳过，不自建目录", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oc-ensure-unsupported-"));
+  try {
+    const dir = path.join(root, "sessions", "--proj--", SESSION_ID);
+    const sessionPaths: SessionPathsLike = { sessionDirFor: () => dir };
+    const { emitFor, logs } = await mount(root, {
+      sessionPaths,
+      config: { sessionDir: undefined, minBytes: 100, maxSourceBytes: 1024 },
+    });
+    emitFor(SESSION_ID, toolResultEvent(1, longText(400)));
+    await new Promise((r) => setTimeout(r, 80));
+
+    assert.equal(existsSync(dir), false, "不得自行建目录");
+    assert.ok(
+      logs.some((line) => line.includes("未提供 ensureSessionDirFor")),
+      logs.join("\n"),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("会话目录缺失且 ensureSessionDirFor 抛错 → 告警并跳过，不抛给宿主", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "oc-ensure-throw-"));
+  try {
+    const dir = path.join(root, "sessions", "--proj--", SESSION_ID);
+    const sessionPaths: SessionPathsLike = {
+      sessionDirFor: () => dir,
+      ensureSessionDirFor: async () => {
+        throw new Error("会话不在宿主的 sessions 里");
+      },
+    };
+    const { emitFor, logs } = await mount(root, {
+      sessionPaths,
+      config: { sessionDir: undefined, minBytes: 100, maxSourceBytes: 1024 },
+    });
+    emitFor(SESSION_ID, toolResultEvent(1, longText(400)));
+    await new Promise((r) => setTimeout(r, 80));
+
+    assert.equal(existsSync(dir), false);
+    assert.ok(
+      logs.some((line) => line.includes("ensureSessionDirFor 失败")),
+      logs.join("\n"),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("每会话一个 digest.db：两个会话各落各的文件、互不可见", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "oc-multi-"));
   try {

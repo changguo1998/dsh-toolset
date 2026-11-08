@@ -20,6 +20,7 @@ DSH（DeepSeek Harness）会话目录编码插件：**复刻宿主的目录编�
 | `sessionDir(cwd, sessionId)` | `<projectDir>/<encodeSegment(sessionId)>` |
 | `sessionDirFor(sessionId)` | 只有会话 id 时用它：内部经宿主 `sessions` 取 `header.cwd`（缺失走 `_no-cwd`），再走 `sessionDir`；`sessions` 不可用或会话取不到 → 抛明示例外。同步、不建目录 |
 | `ensureSessionDir(cwd, sessionId)` | **唯一写盘入口**：`mkdir -p`（0700）、幂等，返回目录路径 |
+| `ensureSessionDirFor(sessionId)` | 只有会话 id 时的写盘入口：内部取 `header.cwd` 后调 `ensureSessionDir`，即「`sessionDirFor` 的路径 + 建出来」；失败面与 `sessionDirFor` 一致（服务缺失 / 会话取不到 → 抛，且不留下半成品目录） |
 
 纯函数同时以具名导出对外透出（`import { projectKey } from "@dsh-toolset/session-paths"`），供手里同时有 `cwd` 与 `sessionId` 的调用方与对拍测试直接使用。
 
@@ -46,14 +47,17 @@ const dir2 = ctx.get("sessionPaths").sessionDirFor(sessionId);
 
 // 需要落盘时显式调用唯一写盘入口
 await ctx.get("sessionPaths").ensureSessionDir("/home/u/proj", sessionId);
+
+// 只有 sessionId 但要目录必须先存在（如会话目录被外部清理后自愈）
+await ctx.get("sessionPaths").ensureSessionDirFor(sessionId);
 ```
 
 ## 边界
 
 1. 四个纯函数**不落盘**、**不因目录不存在报错**，只在入参非法时按宿主同语义抛（空 `cwd` / 空 `sessionId`）。
-2. 写盘与同步语义见上「能力」表：`ensureSessionDir` 是**唯一写盘入口**（0700、幂等，纯函数永不调用它），`sessionDirFor` 同步、不落盘、**不建目录** —— 宿主建会话时就建好了会话目录（内含 `session.lock` 与 `session.v4.jsonl.zstd`），它也是本包唯一依赖宿主服务的面。
+2. 写盘与同步语义见上「能力」表：`ensureSessionDir` / `ensureSessionDirFor` 是**唯一写盘入口**（0700、幂等，纯函数永不调用它们；后者只是把「按 id 取 cwd」与前者合成一步），`sessionDirFor` 同步、不落盘、**不建目录** —— 宿主建会话时就建好了会话目录（内含 `session.lock` 与 `session.v4.jsonl.zstd`），它也是本包唯一依赖宿主服务的面。
 3. 目录存在性由宿主负责，本包不保证、也不校验可写性：消费方真正写文件 / 开库时遇到目录不存在或不可写，按各自的失败口径处理（不静默换路径）。
-4. **不写进 `inject`**：宿主 `sessions` 只在 `sessionDirFor` 里可选读取。宿主缺该服务时本包照常加载，纯函数与 `ensureSessionDir` 的消费方不受影响；只有 `sessionDirFor` 抛明示例外。
+4. **不写进 `inject`**：宿主 `sessions` 只在 `sessionDirFor` / `ensureSessionDirFor` 里可选读取。宿主缺该服务时本包照常加载，纯函数与 `ensureSessionDir` 的消费方不受影响；只有这两个按 id 的入口抛明示例外。
 5. 服务缺失或 `sessionDirFor` 抛错时由调用方自行降级（如 memory-base 的 S 层不可用、output-compress 的 `skipped.session-dir-missing`）。
 
 ### 出处与复核

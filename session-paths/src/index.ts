@@ -60,6 +60,12 @@ export interface SessionPaths {
   sessionDirFor(sessionId: string): string;
   /** 唯一写盘入口：`mkdir -p`（0700）、幂等，返回目录路径。 */
   ensureSessionDir(cwd: string | undefined, sessionId: string): Promise<string>;
+  /**
+   * `sessionDirFor` + `ensureSessionDir` 的合一入口：按会话 id 内部取 `header.cwd`，
+   * 把该会话目录建出来并返回。给只拿得到会话 id 的消费方（如 output-compress）用，
+   * 免得它们自己读宿主 `sessions` 复制「取 cwd」这段逻辑。
+   */
+  ensureSessionDirFor(sessionId: string): Promise<string>;
 }
 
 /** 宿主 `sessions` 服务的最小结构面（`SessionStore.get` + `Session.header.cwd`）。 */
@@ -139,24 +145,8 @@ export class SessionPathsService implements SessionPaths {
   }
 
   sessionDirFor(sessionId: string): string {
-    if (sessionId.length === 0) {
-      throw new Error("cannot encode an empty path segment");
-    }
-    const sessions = readService<SessionStoreLike>(this.#ctx, "sessions");
-    if (sessions === undefined || typeof sessions.get !== "function") {
-      throw new Error(
-        "sessionPaths.sessionDirFor: 宿主 sessions 服务不可用，无法解析会话 cwd（本包对 sessions 只做可选读取；纯函数与 ensureSessionDir 不受影响）",
-      );
-    }
-    const session = sessions.get(sessionId);
-    if (session === undefined || session === null) {
-      throw new Error(
-        `sessionPaths.sessionDirFor: 会话「${sessionId}」不在宿主的 sessions 里，无法解析其 cwd`,
-      );
-    }
-    const cwd = session.header?.cwd;
     return this.sessionDir(
-      typeof cwd === "string" ? cwd : undefined,
+      this.#cwdForSession(sessionId, "sessionDirFor"),
       sessionId,
     );
   }
@@ -170,6 +160,38 @@ export class SessionPathsService implements SessionPaths {
     // 已存在的目录（如宿主建好的会话目录）保持同一权限口径；chmod 幂等。
     await chmod(dir, 0o700);
     return dir;
+  }
+
+  async ensureSessionDirFor(sessionId: string): Promise<string> {
+    return this.ensureSessionDir(
+      this.#cwdForSession(sessionId, "ensureSessionDirFor"),
+      sessionId,
+    );
+  }
+
+  /**
+   * 按会话 id 取宿主记下的 `header.cwd`（`sessions` 只做可选读取）。
+   * 失败面与「按 id 直接给目录」一致：空 id / 服务缺失 / 会话取不到都抛明示例外；
+   * `caller` 只用于报错前缀，便于区分是哪个入口调过来的。
+   */
+  #cwdForSession(sessionId: string, caller: string): string | undefined {
+    if (sessionId.length === 0) {
+      throw new Error("cannot encode an empty path segment");
+    }
+    const sessions = readService<SessionStoreLike>(this.#ctx, "sessions");
+    if (sessions === undefined || typeof sessions.get !== "function") {
+      throw new Error(
+        `sessionPaths.${caller}: 宿主 sessions 服务不可用，无法解析会话 cwd（本包对 sessions 只做可选读取；纯函数与 ensureSessionDir 不受影响）`,
+      );
+    }
+    const session = sessions.get(sessionId);
+    if (session === undefined || session === null) {
+      throw new Error(
+        `sessionPaths.${caller}: 会话「${sessionId}」不在宿主的 sessions 里，无法解析其 cwd`,
+      );
+    }
+    const cwd = session.header?.cwd;
+    return typeof cwd === "string" ? cwd : undefined;
   }
 }
 

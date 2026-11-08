@@ -5,7 +5,7 @@
  * - `apply` 注册服务面（cordis `provide` 与极简 ctx 的直接挂载两条路）；
  * - `root` 的三段缺省（显式配置 / `DSH_HOME` / `~/.dsh`）；
  * - 四个纯函数经服务面的返回值；
- * - `ensureSessionDir` 的 0700 与幂等；
+ * - `ensureSessionDir` 的 0700 与幂等；`ensureSessionDirFor` 的按 id 建目录与失败面；
  * - `sessionDirFor` 四态（有 cwd / cwd 缺失落 `_no-cwd` / 会话取不到抛 / `sessions` 缺失抛）
  *   以及「不创建目录」「`sessions` 晚挂载仍可用」。
  */
@@ -105,6 +105,70 @@ test("ensureSessionDir：mkdir -p 为 0700 且幂等", async () => {
     // 幂等：第二次调用不抛、路径不变、权限仍是 0700。
     assert.equal(await service.ensureSessionDir("/home/u/proj", "s1"), dir);
     assert.equal((await stat(dir)).mode & 0o777, 0o700);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("ensureSessionDirFor：按会话 id 取 cwd 建出目录（0700、幂等、与 sessionDirFor 同路径）", async () => {
+  const base = await mkdtemp(join(tmpdir(), "session-paths-ensure-for-"));
+  try {
+    const root = join(base, "sessions");
+    const service = new SessionPathsService(
+      root,
+      fakeCtx({
+        sessions: fakeSessions({ s1: { header: { cwd: "/home/u/proj" } } }),
+      }),
+    );
+    const dir = service.sessionDirFor("s1");
+    assert.equal(existsSync(dir), false, "sessionDirFor 本身不建目录");
+
+    assert.equal(await service.ensureSessionDirFor("s1"), dir);
+    assert.equal((await stat(dir)).mode & 0o777, 0o700);
+
+    // 幂等：第二次调用不抛、路径不变、权限仍是 0700。
+    assert.equal(await service.ensureSessionDirFor("s1"), dir);
+    assert.equal((await stat(dir)).mode & 0o777, 0o700);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("ensureSessionDirFor：cwd 缺失时落 _no-cwd 桶并建出", async () => {
+  const base = await mkdtemp(join(tmpdir(), "session-paths-ensure-nocwd-"));
+  try {
+    const root = join(base, "sessions");
+    const service = new SessionPathsService(
+      root,
+      fakeCtx({ sessions: fakeSessions({ s2: { header: {} } }) }),
+    );
+    const dir = join(root, "_no-cwd", "s2");
+    assert.equal(await service.ensureSessionDirFor("s2"), dir);
+    assert.equal(existsSync(dir), true);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("ensureSessionDirFor：会话取不到 / 服务缺失都抛明示例外且不建目录", async () => {
+  const base = await mkdtemp(join(tmpdir(), "session-paths-ensure-err-"));
+  try {
+    const root = join(base, "sessions");
+    const missing = new SessionPathsService(
+      root,
+      fakeCtx({ sessions: fakeSessions({}) }),
+    );
+    await assert.rejects(
+      () => missing.ensureSessionDirFor("nope"),
+      /不在宿主的 sessions/,
+    );
+
+    const absent = new SessionPathsService(root, fakeCtx());
+    await assert.rejects(
+      () => absent.ensureSessionDirFor("s1"),
+      /sessions 服务不可用/,
+    );
+    assert.equal(existsSync(root), false, "失败面不得留下半成品目录");
   } finally {
     await rm(base, { recursive: true, force: true });
   }

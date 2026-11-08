@@ -8,6 +8,7 @@
  * 依赖，无 KbNotMounted 退避链——落点按会话推导失败时管线直接跳过）。
  */
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { open, stat } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -65,6 +66,11 @@ export interface MemoryScopeLike {
 export interface SessionPathsLike {
   /** 按会话 id 直接给会话目录（同步；取 cwd 在 session-paths 内部完成）。 */
   sessionDirFor(sessionId: string): string;
+  /**
+   * 按会话 id 把会话目录建出来（session-paths 的唯一写盘入口 `ensureSessionDir` 的
+   * 按 id 变体）。缺失（老版本服务面）= 目录不可得时仍按 `skipped.session-dir-missing` 跳过。
+   */
+  ensureSessionDirFor?(sessionId: string): Promise<string>;
 }
 
 /** 一次推送的三种结果（对齐 memory-base 的错误形态分档）。 */
@@ -278,8 +284,8 @@ export class OutputCompressHooks {
     data: unknown,
     bypassDedupe = false,
   ): Promise<CompressOutcome> {
-    // 落点判据（决策项 9）：显式覆盖 / 按会话经 sessionPaths 推导；不可得 → 跳过该会话。
-    const digestPath = this.resolveDigestPath(sessionId);
+    // 落点判据（决策项 9）：显式覆盖 / 按会话经 sessionPaths 推导（缺失则建出）；不可得 → 跳过该会话。
+    const digestPath = await this.resolveDigestPath(sessionId);
     if (digestPath === null) {
       return { status: "skipped", reason: "session-dir-missing" };
     }
@@ -382,9 +388,14 @@ export class OutputCompressHooks {
   /**
    * 解析某会话的 digest.db 路径（决策项 9）：显式覆盖优先；否则经 session-paths
    * 服务的 `sessionDirFor(sessionId)` 推导（同步，取 cwd 收在该服务内部）。
+   *
+   * 会话目录缺失（宿主换版本 / 被外部清理）时不再直接跳过 —— 改为调服务的
+   * `ensureSessionDirFor`（唯一的写盘入口）把它建出来，避免摘要静默丢失；服务没有该
+   * 方法或建目录失败则退回「告警 + 跳过」。显式覆盖分支仍不建目录（D60-b 边界）。
+   *
    * 返回 null = 落点不可得（服务缺失 / 会话取不到 / 抛错），调用方记 skipped。
    */
-  private resolveDigestPath(sessionId: string): string | null {
+  private async resolveDigestPath(sessionId: string): Promise<string | null> {
     const override = this.options.digestDbPath;
     if (override === null) return null;
     if (typeof override === "string") return override;
@@ -396,20 +407,47 @@ export class OutputCompressHooks {
       );
       return null;
     }
+    let dir: string;
     try {
-      const dir = service.sessionDirFor(sessionId);
-      if (typeof dir !== "string" || dir === "") {
-        this.logOnce(
-          `session-dir-empty:${sessionId}`,
-          `output-compress: sessionDirFor 返回空路径（会话 ${sessionId.slice(0, 8)}），跳过该会话 digest`,
-        );
-        return null;
-      }
-      return join(dir, DIGEST_DB_FILENAME);
+      dir = service.sessionDirFor(sessionId);
     } catch (error: unknown) {
       this.logOnce(
         `session-dir-error:${sessionId}`,
         `output-compress: sessionDirFor 失败（会话 ${sessionId.slice(0, 8)}），跳过该会话 digest：${String(error)}`,
+      );
+      return null;
+    }
+    if (typeof dir !== "string" || dir === "") {
+      this.logOnce(
+        `session-dir-empty:${sessionId}`,
+        `output-compress: sessionDirFor 返回空路径（会话 ${sessionId.slice(0, 8)}），跳过该会话 digest`,
+      );
+      return null;
+    }
+    if (existsSync(dir)) return join(dir, DIGEST_DB_FILENAME);
+
+    // 会话目录缺失：交给 session-paths 建出来（本包不拼路径、不自己 mkdir）。
+    const ensure = service.ensureSessionDirFor;
+    if (typeof ensure !== "function") {
+      this.logOnce(
+        `session-dir-ensure-unsupported:${sessionId}`,
+        `output-compress: 会话目录缺失且 session-paths 未提供 ensureSessionDirFor（会话 ${sessionId.slice(0, 8)}），跳过该会话 digest`,
+      );
+      return null;
+    }
+    try {
+      const ensured = await ensure.call(service, sessionId);
+      if (typeof ensured !== "string" || ensured === "") {
+        throw new Error("ensureSessionDirFor 返回空路径");
+      }
+      this.options.logger.info(
+        `output-compress: 会话目录缺失，已由 session-paths 建出（会话 ${sessionId.slice(0, 8)}）: ${ensured}`,
+      );
+      return join(ensured, DIGEST_DB_FILENAME);
+    } catch (error: unknown) {
+      this.logOnce(
+        `session-dir-ensure-error:${sessionId}`,
+        `output-compress: ensureSessionDirFor 失败（会话 ${sessionId.slice(0, 8)}），跳过该会话 digest：${String(error)}`,
       );
       return null;
     }
