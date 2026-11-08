@@ -311,6 +311,8 @@ export function createLifecyclePart(ctx: AppContext) {
           void ctx.self.maybeRefreshSessionAlias();
           // flow-track 注入开关：同节律懒读服务面（未挂载时保持 undefined，不渲染符号）
           ctx.self.maybeRefreshFlowTrack();
+          // background-daemon 开关：同节律懒读服务面（未挂载时符号按关灰显示）
+          ctx.self.maybeRefreshDaemon();
           // 状态列五块：同节律异步取数（服务不可用 / 无内容时对应块不渲染）
           void ctx.self.refreshStatusExtras();
         },

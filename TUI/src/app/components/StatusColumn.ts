@@ -362,13 +362,15 @@ function extrasBlocks(extras: StatusExtras | undefined): StatusBlock[] {
       ),
     });
   }
-  // Daemon：开关 / 运行中 / 每任务
-  if (extras.daemon !== undefined && extras.daemon.items.length > 0) {
+  // Daemon：只在打开时显示（关闭态由标题栏符号表达, 不占状态列版面）
+  if (
+    extras.daemon !== undefined &&
+    extras.daemon.enabled &&
+    extras.daemon.items.length > 0
+  ) {
     out.push({
       id: "daemon",
-      head: head(
-        `Daemon ${extras.daemon.enabled ? "开" : "关"} · ${extras.daemon.running}/${extras.daemon.total}`,
-      ),
+      head: head(`Daemon · ${extras.daemon.running}/${extras.daemon.total}`),
       items: extras.daemon.items.map((task) => {
         const mark = statusMark(task.status);
         const active = task.status === "running" || task.status === "stopping";

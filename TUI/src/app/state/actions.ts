@@ -198,6 +198,8 @@ export type StateAction =
   | { type: "symbol-unify"; on: boolean }
   /** flow-track 注入开关态（`flowTrack.enabled()` 懒读；标题栏符号用） */
   | { type: "flow-track"; enabled: boolean }
+  /** background-daemon 开关态（`daemon.status().enabled` 懒读；标题栏符号用） */
+  | { type: "daemon"; enabled: boolean }
   | { type: "status-extras"; extras: StatusExtras | undefined }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {

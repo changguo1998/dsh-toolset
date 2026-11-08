@@ -648,6 +648,9 @@ export interface AppState {
   /** flow-track 注入开关（`flowTrack.enabled()` 懒读，随状态行 ticker 同步）。undefined =
    *  还没读到服务（标题栏不渲染该符号）/ true = 打开（绿）/ false = 关闭（灰） */
   flowTrackEnabled: boolean | undefined;
+  /** background-daemon 开关（`daemon.status().enabled` 懒读，随状态行 ticker 同步）。
+   *  undefined = 还没读到服务, 标题栏仍渲染该符号但按关（灰）显示（2026-11-08 用户裁定） */
+  daemonEnabled: boolean | undefined;
   /** 状态列新增五块的快照（task / flow / pin / daemon / group；随状态行 ticker 刷新）。
    *  undefined = 还没读到可用来源 → 五块都不渲染 */
   statusExtras: StatusExtras | undefined;

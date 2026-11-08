@@ -84,6 +84,7 @@ export function initialState(
     symbolUnify: true, // 模型输出符号统一（缺省开）；/symbol-unify off 切原样
     notifyEnabled: opts?.notifyEnabled ?? true, // 声音提醒（配置项，只读展示）
     flowTrackEnabled: undefined, // flow-track 注入开关：未读到服务前不渲染符号
+    daemonEnabled: undefined, // background-daemon 开关：未读到服务时符号按关（灰）显示
     statusExtras: undefined, // 状态列五块：未读到来源前不渲染
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
     lowerPanesVisible: true, // #9：下半区（Turn/Tool）默认显示（Ctrl+T 切换）

@@ -485,6 +485,7 @@ export function buildTopRegion(
               symbolUnify: state.symbolUnify,
               notifyEnabled: state.notifyEnabled,
               flowTrack: state.flowTrackEnabled,
+              daemon: state.daemonEnabled,
             },
             contentW,
           );

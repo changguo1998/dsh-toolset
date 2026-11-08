@@ -82,6 +82,9 @@ export function reduceView(
     case "flow-track":
       // flow-track 注入开关（进程本地态，不落 tui-state.json）：标题栏符号开绿 / 关灰
       return { ...state, flowTrackEnabled: action.enabled };
+    case "daemon":
+      // background-daemon 开关（同上，进程本地态）：标题栏符号始终显示，开绿 / 关灰
+      return { ...state, daemonEnabled: action.enabled };
 
     case "status-extras":
       return { ...state, statusExtras: action.extras };

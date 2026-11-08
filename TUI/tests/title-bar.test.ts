@@ -190,6 +190,20 @@ test("P7 标题栏：开关 on 绿、off 灰（plan / verbose / 符号统一 / �
     assert.equal(fgOf(off, 100, icon), "gray", `off 灰: ${icon}`);
 });
 
+test("P7 标题栏：daemon 开关符号始终显示（开绿 / 关灰 / 未读到服务也按关灰）", () => {
+  const s = stateWith({});
+  // 默认（daemonEnabled undefined，服务未读到）也要有符号，且为灰
+  assert.ok(
+    titleText(s, 100).includes(TITLE_ICON.daemon),
+    "默认也渲染 daemon 符号",
+  );
+  assert.equal(fgOf(s, 100, TITLE_ICON.daemon), "gray", "未读到服务 → 灰");
+  const on = reduceState(s, { type: "daemon", enabled: true });
+  assert.equal(fgOf(on, 100, TITLE_ICON.daemon), "green", "开 → 绿");
+  const off = reduceState(s, { type: "daemon", enabled: false });
+  assert.equal(fgOf(off, 100, TITLE_ICON.daemon), "gray", "关 → 灰");
+});
+
 test("P7 标题栏：窄宽让位顺序 ① preset → ③ 符号组（标题优先）", () => {
   const s = stateWith({ sandbox: "read-only", policy: "ask", preset: "fff" });
   const wide = titleText(s, 100);
@@ -198,7 +212,7 @@ test("P7 标题栏：窄宽让位顺序 ① preset → ③ 符号组（标题优
     "宽：全显示",
   );
   // 中宽：preset 让位，符号组仍在（标题保留 ≥8 列）
-  const mid = titleText(s, 40);
+  const mid = titleText(s, 44);
   assert.ok(!mid.includes("fff"), `preset 先让位: ${mid}`);
   assert.ok(mid.includes(TITLE_ICON.boxClosed), `符号组仍在: ${mid}`);
   assert.ok(mid.includes("会话标题"), `标题完整: ${mid}`);

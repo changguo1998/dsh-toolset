@@ -293,6 +293,26 @@ export function createWiringPart(ctx: AppContext) {
     ctx.self.paint();
   }
 
+  /** background-daemon 开关保鲜：随 StatusTicker 懒读服务面，值变化才重绘标题栏符号。
+   *  符号**始终显示**：读不到服务（未挂载 / 无 `status()`）时保持 `undefined`, 按关（灰）渲染。 */
+  function maybeRefreshDaemon(): void {
+    if (ctx.disposed) return;
+    const read = ctx.deps.getDaemon;
+    if (read === undefined) return;
+    let enabled: unknown;
+    try {
+      enabled = (
+        read() as { status?(): { enabled?: boolean } } | undefined
+      )?.status?.()?.enabled;
+    } catch {
+      return;
+    }
+    if (typeof enabled !== "boolean") return;
+    if (ctx.state.daemonEnabled === enabled) return;
+    ctx.self.apply((s) => reduceState(s, { type: "daemon", enabled }));
+    ctx.self.paint();
+  }
+
   /**
    * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 1s）。
    * 停止条件只留「状态列被 Ctrl+S 隐藏 / 无活跃会话」：不依赖 `subagent-activity` 事件面
@@ -849,6 +869,7 @@ export function createWiringPart(ctx: AppContext) {
     resolveThinking,
     refreshAgentsQuiet,
     maybeRefreshFlowTrack,
+    maybeRefreshDaemon,
     refreshStatusExtras,
     maybeRefreshSessionAlias,
     maybeRefreshAgents,

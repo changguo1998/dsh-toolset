@@ -9,14 +9,13 @@
 
 ## 待办
 
-- **daemon 开关状态收进标题栏符号区, 状态列 Daemon 块只在打开时显示且不再带开/关文字**
+- **`app-deps.ts` 三处依赖注释重复写了两遍**
 
-  - 现象 / 现状: ① `TUI/src/app/components/StatusColumn.ts:365-382` 的 Daemon 块显示条件是 `items.length > 0`（只要有任务就显示）, 块头为 `Daemon 开/关 · running/total`（带上「开/关」文字）; ② daemon 未打开（`enabled === false`）时块仍显示, 占状态列版面; ③ `TUI/src/app/runtime/wiring.ts:253-278` 仅在 `list()` 非空时产出 `next.daemon` 快照, 快照已含 `enabled` 字段。
-  - 期望: ① 状态列 Daemon 块只在 daemon **打开**时显示（`enabled === true` 且 `items.length > 0`）, 关闭时整块不出现; ② 块头去掉「开/关」文字, 只保留 `Daemon · running/total`（开/关语义转移到标题栏）; ③ 标题栏左侧符号区（`TUI/src/app/layout/title-bar.ts` 的 `titleBarSegments`）新增一个 daemon 开关符号, **一个符号**表达开/关两态——完全参照既有 `flowTrack` 开关先例（`TITLE_ICON.flowTrack` + `StatusSwitches.flowTrack?` 字段: on 绿 / off 灰, 服务未读到 `undefined` 时整项省略不常灰）。
-  - 接取时裁定: ① daemon 符号在标题栏符号组内的位置（建议与 `flowTrack` 相邻, 同为开关类, 放 `flowTrack` 之后）; ② daemon 关闭且有任务是「关闭就不显示块」还是「有任务仍显示块但去掉开/关文字」（建议按用户原话「没有打开则不必显示」: 关闭即整块隐藏）。
-  - 改动位置: `TUI/src/app/layout/title-bar.ts`（`TITLE_ICON` 加 daemon 项、`StatusSwitches` 加 `daemon?` 字段、渲染与让位逻辑）、`TUI/src/app/runtime/wiring.ts`（把 `daemon.enabled` 透给标题栏; 状态列快照按 `enabled` 过滤）、`TUI/src/app/components/StatusColumn.ts:365-382`（显示条件加 `enabled`、块头去「开/关」）、相关类型 `TUI/src/app/state/types.ts` / `app-deps.ts`、配套帧测试。
-  - 验收: daemon 关闭: 状态列无 Daemon 块, 标题栏 daemon 符号常灰; daemon 打开且有任务: 块头 `Daemon · running/total`（无开/关文字）, 标题栏符号绿; 服务缺失: 标题栏不出现 daemon 符号; 窄宽让位与既有符号组一致; 全量 `pnpm run check` / `test:tui` / `demo -- --smoke` / `check:docs` 全绿。
-  - 来源: 2026-11-08 用户提出（「状态列中 daemon 如果没有打开则不必显示; daemon 的打开和关闭状态用一个符号表示, 位置放在标题栏左侧的符号区; 状态列的 Daemon 部分不需要显示开/关」）; 状态: 进行中; 优先级: 中。
+  - 现象 / 现状: `TUI/src/app/app-deps.ts:95-103` 的 `getPinNotes` / `getDaemon` / `getAgentGroup` 三个字段各带**两行一模一样的注释**（来自提交 `1ea1e74b`）, 像是合并时的重复粘贴。
+  - 期望: 每个字段只留一行注释, 内容不变。
+  - 改动位置: `TUI/src/app/app-deps.ts:95-103`（删掉重复行）。
+  - 验收: 三处各只剩一行注释; `pnpm run check` / `test:tui` / `check:docs` 全绿。
+  - 来源: 2026-11-08 做「daemon 开关收进标题栏符号区」时的途中发现; 状态: 未接取; 优先级: 低。
 
 - **回合区输出时状态行上边框左段缺横线(增量渲染残留, 待定案)** 〔暂停〕
 

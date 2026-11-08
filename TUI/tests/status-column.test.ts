@@ -716,8 +716,19 @@ test("新增五块：无 extras 不渲染；有内容时按 Task / Flow / Pin / 
   assert.match(all, /● 实现/);
   assert.match(all, /Flow demo@决策/);
   assert.match(all, /Pin 1 条 · 12 字/);
-  assert.match(all, /Daemon 开 · 1\/2/);
+  assert.match(all, /Daemon · 1\/2/);
   assert.match(all, /Group 2 组/);
   assert.match(all, /team\s+· 子 a/);
   assert.match(all, /other\s+· 上级 manager/);
+
+  // daemon 关闭（enabled: false）时整块隐藏：开关语义只在标题栏符号上表达
+  const closed = rows({
+    daemon: {
+      enabled: false,
+      running: 1,
+      total: 2,
+      items: [{ name: "t1", status: "running" }],
+    },
+  });
+  assert.equal(closed.includes("Daemon"), false, closed);
 });
