@@ -167,11 +167,13 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
 | 别名 / 函数 | `alias s=${"sudo"}` 后再用 `s` | 放行（不解析 shell 别名与函数） |
 
 - `root` 类目录参数只按传入路径**本身**过敏感层，不扫描目录内容：`code_map` / `md_map` 的 `root` 指向普通目录时放行（即使该目录下含 `.env`），指向 `~/.ssh` 这类敏感目录本身则拦。
+
 - **命令不在工具入参里时：执行前复查（2026-10-02 收尾；措辞与留痕同日硬化）**：`metric_loop` 的 `tick` 执行的命令取自状态文件
   （不在工具入参里），由 `metric_loop` 在**执行之前**经可选服务 `ctx.get("guard")` 复查 —— 走
   `GuardEngine.inspectCommand(command, source)`，与 `bash` 同一套命令黑名单与命令内路径敏感层（`allowPatterns` /
   `allowedPaths` 同样生效），命中即不测量、不落盘（调用方：`metric-loop` 的 tick 复查、`task-engine` 的 executor / 验收 /
   worktree git 执行期复查、`TUI` 的 `$` 模式手输命令）。
+
   - **检查点分工（D2）**：命令来自**工具入参**时由 guard 自身的挂载形态（单调守卫 / 回退监听器）覆盖，插件引擎内**不重复判定**
     （同一命令不会在 `recent()` 里落两条记录）；只有 guard 看不到的命令（状态文件 / 契约声明）才由调用方显式复查。
   - **不可用时可见（D1）**：guard 未挂载 / 形状不符 / 调用抛错 → **fail-open 放行**（判定策略与修复前一致，不退化；
@@ -187,7 +189,9 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
     - 照常执行（**fail-open**，TUI 不因 guard 缺失而不可用），且该次执行在回合区留一行「→ 未复查」（留痕，不静默）。
       **已知边界**：`inspectCommand` 的敏感层按**命令文本里的路径**解析，**看不到 TUI 的 `cwd`**（状态列 cwd）——只有命令里
       出现的路径才参与判定，仅「在敏感目录下执行」不会命中。
+
 - **未登记工具：三态策略 + 放行名单**（2026-10-02）：覆盖是**显式白名单**（官方 shell / run_code / 文件工具 + 两张插件登记表）。
+
   - `unknownToolPolicy: "allow"`（缺省）= 与历史行为逐字一致（未登记工具一律放行）。
   - `unknownToolPolicy: "check"`：**不整工具硬拦**，把 watched 键下的字符串值（含数组元素）**按键类定向**送既有两层，命中才拦（参数面被截断时**亦拦**，见下「键发现深度与遍历上限」）：
     路径键（`file_path` / `path` / `target` / `file` / `paths` / `dir` / `directory` / `root` / `workdir` / `cwd` / `filePath`，键名按小写归一）
@@ -210,17 +214,35 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   - **键发现深度与遍历上限**：键深上限 **3 层**（顶层键 → 数组元素键 → 其对象成员键 → 再一层数组元素键；**数组层不计数** —— 数组透明、不消费键深；`WeakSet` 跳过环引用）：`children[].executor.command` 与 `children[].acceptance[].command` 都在覆盖内，第 4 层起的同形嵌套不纳入（锁上限语义，避免深层误伤）。键发现递归与 `check` 模式的值面扫描共用同一遍历器（深度口径不分叉），并另设**资源上限**（与键深是两个维度）：**容器节点 ≤ 4096**（对象 / 数组各算 1 个节点，**标量不计**）+ **嵌套层数 ≤ 64**（数组透明不消费键深，但深数组照样加深递归栈，实测本遍历器 ~3500 层即 `RangeError`）。`TOOL_SURFACE.keyDepth` 暴露键深上限，脚本与引擎同源。命中的键在回执 / 来源标注行里按**完整键路径**展示（同一形态，`deny` 去重保序、`check` 逐值给来源行）。
   - **上限耗尽时保守（不是放行）**：遍历被截断时**绝不**当成「没查到 = 放行」—— `deny` 直接拦、`check` **告警一次 + 按拦处理**（回执说明「参数面超出遍历上限」并给放行方式）；**与「已收集到多少值」无关**：哪怕已收集的诊断值全部无害/未命中，只要遍历未完成就照拦（回执会补一行「已收集 N 项（命令 / 路径）均未命中，但遍历未完成，仍按保守口径拦截」）；
     **可用性代价**：单次调用超过 4096 个容器节点（或深于 64 层）的**合法**大参数面，也会从「静默放行」变为「拦」（仅在你显式配 `check` 时才会走到这里；`allow` 缺省不受影响）——放行方式见回执，或把调用拆小 / 用 `unknownToolAllowlist`。因此「无害填充 + 更深处危险键」的规避不成立（填充量远小于节点上限，且截断本身也拦）。仅**扫描抛异常**（畸形参数，如枚举即抛错的 `Proxy`）才 fail-open：`console.warn` 一次 + 放行，绝不让 `inspect` 把异常抛到宿主 listener（否则一个畸形参数就能把 `pre-execute` 打崩）。
+
 - **差异检查（宿主升版后跑一次）**：`node security-guard/scripts/tool-surface-check.mjs --root <dsh 包目录> [--json]`（也认 `DSH_INSTALL=<同上>`）。**要指 dsh 包目录**（其下含 `node_modules/@deepseek-ai/dsh-tool-*`）；指到 `@deepseek-ai` scope 层（或其下直接是 `dsh-tool-*` 的目录）会给纠正提示并 **exit 2**（扫 scope 层会把未挂载 / 其它版本的工具包算进来）。脚本**逐工具**解析工具包源码 `defineTool({...})` 的 `parameters`（顶层键即参数名；数组经 `items` 透明、与数组同层；**发现深度取自引擎单一来源 `TOOL_SURFACE.keyDepth`**，读不到该字段即 exit 2，另有分析步数上限防病态嵌套），输出「已覆盖 / **需关注**（未登记且带路径·命令·代码参数）/ **名称未解析**（`name:` 为计算值，单列包名与 name 表达式；其参数键命中 watched 键时同时计入门禁）/ 未覆盖但无相关参数」。退出码：有「需关注」→ 1（可作门禁），干净 → 0，用法 / 环境错误（缺 `--root`、指到 scope 层、root 下无工具包）→ 2。
   键集与登记集来自 `src/tool-registry.ts` 的 `TOOL_SURFACE` 快照（发布形态读 `dist`，`src` 作仓库内回退；`dist` 早于 `src` 时提示并改读 `src`），与引擎**单一来源**、不再各自维护一份键表；扫描是启发式，仍按「宁可多报」口径，需人工复核。**名称解析口径**：`name` **只在同一个 `defineTool({...})` 对象体内**、且在该 `parameters` 块**之前**的**顶层字面量**解析 —— 体外的 `name:`（如 slash 命令名）、嵌套对象 / 数组里的 `name:`、写在 `parameters` **之后**的 `name:` 均不参与；体内为计算值或缺失 → 按「（名称未解析）」**保守列出**（绝不借用体外名字）。已知过度保守（`defineTool(({…}))` / `name /*注释*/ : "x"` / 简写 `name,`）与**残留假阴性**（启发式非完整 JS 词法：模板内插值、正则紧跟标识符且无关键字、对象 / 数组解构等形态仍可能漂移）——发现新的静默放行形态请直接补用例并按其修复。
-  **覆盖边界（2026-10-02 放宽）**：脚本扫 **`dsh-tool-*` 包 + 其它 `lib/index.js` 含 `defineTool(` 的 `@deepseek-ai/dsh-*` 包**（后者曾整体漏扫，如 `dsh-plan-mode` 的 `exit_plan_mode`、`dsh-schedule` 的 `schedule_create`，现已在面内；真实宿主 **27 包 / 49 工具**、「需关注」8 项）；**仅含 `parameters:` 而无 `defineTool(` 的包不纳入**（如 `dsh-mcp-client`），摘要会单列「另有 N 个包只见 parameters:…未纳入」；**面内零工具包**（参数面动态构造，如 `parameters: <变量>` 或 `tools/execute` 一类中间件包）同样单列提示行 + `--json.zeroToolPackages`。**仍在面外**：MCP / 第三方运行时注册的工具（`mcp__<server>__<raw>`，宿主不可静态枚举）与 profile 侧第三方插件工具（含本仓 37 个插件），需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0 不等于全覆盖`。
+  **覆盖边界（2026-11-08 复核口径）**：脚本扫 **`dsh-tool-*` 包 + 其它 `lib/index.js` 含 `defineTool(` 的 `@deepseek-ai/dsh-*` 包**（后者曾整体漏扫，如 `dsh-plan-mode` 的 `exit_plan_mode`、`dsh-schedule` 的 `schedule_create`，现已在面内）。**口径是「安装树」而不是「当前 profile 挂载组合」**：宿主 `node_modules/@deepseek-ai` 下有工具定义的包都会进面，未挂载的包同样计入（如 `dsh-tool-terminal` / `dsh-tool-session-query` / `dsh-tool-str-replace-editor` 在本机 fff profile 未挂载，仍会出现在「需关注」里）——按 `--root` 指到哪个安装树算哪个，换 profile 不改面。**本次实测（rc.1 安装树）**：**34 包 / 62 工具**、「需关注」**13** 项、名称未解析 **5** 包、面内零工具包 **4** 个（`dsh-cordis-host-runner` / `dsh-tool-call-timeout-policy` / `dsh-tool-executor-native` / `dsh-tools`）；**仅含 `parameters:` 而无 `defineTool(` 的包不纳入**（如 `dsh-mcp-client`），摘要会单列「另有 N 个包只见 parameters:…未纳入」；**面内零工具包**（参数面动态构造，如 `parameters: <变量>` 或 `tools/execute` 一类中间件包）同样单列提示行 + `--json.zeroToolPackages`。**仍在面外**：MCP / 第三方运行时注册的工具（`mcp__<server>__<raw>`，宿主不可静态枚举）与 profile 侧第三方插件工具（含本仓 37 个插件），需用 `unknownToolAllowlist`（如 `mcp__*`）或按真实参数面登记；`exit 0 不等于全覆盖`。
   摘要**固定输出**这行边界；`--json` 的 `boundary` 字段同文案（**措辞可能变、勿整串比对**），机器判**稳定语义**请用布尔字段 `coversMcpTools: false` / `exitZeroMeansFullCoverage: false`；`--json` 另给 `suspectRegistryPackages`（新名）与 `parametersOnly`（历史名，同值），均指「含 `tools.register(` 或 `parameters:` 但无 `defineTool(`」的**疑似注册面**（后者不纳入面，摘要单列提示行）。脚本也**不提供** `--include-mcp` 之类开关（运行时注册的工具名无从静态枚举，给了开关只会产生**假覆盖率**）；`--help` / 用法错误的 USAGE 里「0」同样限定为「仅 `dsh-tool-*` 面内无『需关注』项」。
-  **已知多报（真实宿主「需关注」8 项，均无需登记）**：**新增 5 项** —— `send_message` / `interrupt_agent`（`dsh-experimental-tool-agent-team`）：`target` 是**团队成员标识**、不是文件路径（键名启发误报；参数面不含路径 / 命令键，工具也不经 shell）；`schedule_create` / `schedule_update`（`dsh-schedule`）：实测参数面（含 `SELECTOR_PARAMETERS` 展开）为 `prompt` / `title` / `after_seconds`（create）与 `id` / `title` / `prompt`（update）+ `every_seconds` / `daily` / `weekly` / `cron` / `at` —— **无路径 / 命令面**（脚本报「参数面含展开」= 源码用 `...SELECTOR_PARAMETERS`，属保守多报）；`（名称未解析）`（`dsh-tools`）：实为 `run_code`、**已在 `RUN_CODE_TOOLS`**（工具名走常量解析不出，属重复报）。
-  **既有 3 项（历史口径）**：`present` —— `dsh-tool-present` 的 `files[].path`（读面，**已在读面登记口径内**，脚本按叶子键名 `path` 展示）；`str_replace_editor` —— `command` + `path`（宿主工具，不在本包登记表内；写面由宿主自身策略约束，若需纳入另开条目）；`（名称未解析）`（`dsh-tool-workflow`）—— `script` 代码键，按「不外送命令层、只做路径提取」的既有口径处理。
-  遇到「需关注」里的 `target` 类键名请**人工复核语义**；「需关注」行里的键名是**叶子键名**（如 `path`），完整键路径见引擎回执。
+  **已知多报（rc.1 安装树「需关注」13 项，均未登记，逐项给理由）**：
+
+  | 项 | 包 | 脚本报的键 | 语义 | 判定 |
+  | --- | --- | --- | --- | --- |
+  | `schedule_create` / `schedule_edit` | `dsh-tool-schedule` | `target`（path） | `{kind:"session", sessionId}` 或 `{kind:"new"}` 的**投递目标**（`lib/index.js:27-39` 的 `TARGET_SCHEMA`），不是文件路径 | 键名启发误报 |
+  | `session_event_read` / `session_event_trace` | `dsh-tool-session-query` | 参数面含展开 | 参数 = `...targetSessionParameter`（会话 id）+ `seq` / `before` / `after` 等整数，**无路径 / 命令面**（`lib/index.js:984-1009`） | 展开保守多报 |
+  | `terminal_send` | `dsh-tool-terminal` | 参数面含展开 | 实参 = `sessionId` / `text` / `submit` + 条件展开的 `run_in_background`。**`text` 是写进持久终端的文本，与本仓 `herdr_text` 同口径** —— 该包在本机 profile **未挂载**，故本次不登记；**若将来挂载，须把 `text` 登记进 `PLUGIN_COMMAND_TOOLS`**，否则是可执行命令的静默缺口 | 挂载前按多报, 挂载时须登记 |
+  | `terminal_open` | `dsh-tool-terminal` | `cwd`（path） | 终端初始工作目录，与 `bash` 的 `workdir` 同口径（`lib/index.js:277-307`）。同属未挂载包；**挂载时须把 `cwd` 按路径面登记** | 同上 |
+  | `str_replace_editor` | `dsh-tool-str-replace-editor` | `path` + `command` | `path` 是目标文件（写面），`command` 是**枚举动作**（`view` / `create` / `str_replace` / `insert` / `undo_edit` 等），不是 shell 命令串 —— 不能整段送命令层。该包本机 profile **未挂载**；**挂载时须把 `path` 登记为写侧文件面**，`command` 保持不进命令层 | 同上 |
+  | `send_message` / `interrupt_agent` | `dsh-experimental-tool-agent-team` | `target`（path） | `target` 是**团队成员标识**，不是文件路径；参数面不含路径 / 命令键，工具也不经 shell | 键名启发误报 |
+  | `present` | `dsh-tool-present` | `path` | `files[].path` 是**读面**，已在读面登记口径内；脚本按叶子键名展示 | 重复报 |
+  | `（名称未解析）` | `dsh-tool-executor-ptc` | `code` | 实为 `run_code`（`RUN_CODE_NAME`），**已在 `RUN_CODE_TOOLS`**；工具名走常量解析不出 | 重复报 |
+  | `（名称未解析）` | `dsh-tool-subagent` | `cwd`（path） | 子代理**初始工作目录**；子代理自己的工具调用另受本层覆盖（各自会话里同样过 `pre-execute`） | 多报 |
+  | `（名称未解析）` | `dsh-tool-workflow` | `script`（code） | JS 编排脚本（非 shell 串），按「不外送命令层、只做路径提取」的既有口径处理 | 既有口径 |
+
+  遇到「需关注」里的 `target` / `cwd` 类键名请**人工复核语义**；「需关注」行里的键名是**叶子键名**（如 `path`），完整键路径见引擎回执。上表标「未挂载」的三项（`terminal_send` / `terminal_open` / `str_replace_editor`）是**挂载前必须处理的登记义务** —— 挂载这三个包时按该行登记，不要沿用「多报」这条判定。
+
 - **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），不在命令黑名单层覆盖范围内——未登记工具策略取 `"check"` 时对代码键（`script` / `code` / `program`）也只做路径提取、不整段送命令层（同一口径）。
   **2026-10-02 更新**：`task-engine` 已在**执行期**补复查 —— executor 命令后端与 mechanical 验收两处都在命令执行**之前**调用 `GuardEngine.inspectCommand(command, source)`（`source` 形如 `task-engine{executor} <frame>` / `task-engine{acceptance} <frame>`）；guard 未挂载或调用抛错 → 告警一次 + 放行（fail-open）。**已知边界**：真机上 executor 缝通常在 `task_decompose` 声明处已被拦（同一命令文本），执行期复查属**纵深防御**；`inspectCommand` 的敏感层按命令文本里的路径解析，**看不到 executor 的 `cwd`**。
+
 - **插件命令参数按参数键检查、不区分 action**：`metric_loop` 的 `measureCmd` 只在 `action=start` 时执行，但登记表按参数键判定——`action=status` 等调用若带上会命中黑名单的 `measureCmd` 同样被拦（宁可误拦不可漏拦；可用 `commandBlacklist.allowPatterns` 放行）。
+
 - `run_code` 只过命令层，不做路径层检查；文件工具的路径参数只过敏感层，不做命令层检查。
+
 - 拦截是**策略层**，不是沙箱：放行后命令以宿主既有权限执行，进程级隔离由宿主策略承载。
 
 ## 测试
