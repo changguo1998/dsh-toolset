@@ -68,6 +68,8 @@
 
 - 折行策略可配置与折行核统一（2026-11-06 完成）：叶子折行属性从 `wrap?: boolean` 扩成 `WrapSpec`（`mode` / `maxRows` / `hint`，缺省 `char` + `0` + `tail`），全仓 5 份逐字符折行副本收敛为 `TUI/src/app/layout/wrap-core.ts` 一份核；状态列长文本条目改按词断行（Goal / Todo / Agents / Task / Pin / Daemon / Group / Flow），jobs 与 L3 折叠保持单行；提示行、`/collapse`、拼帧兜底、工具行四处行数上限统一走核的预算（工具行首次获得 5 行上限）；新增核用例 21 例 + 状态列 4 例，TUI 全量 1858 例全绿、冒烟 SMOKE_PASS、根 check / build 通过（追踪文档 `docs/archived/2026-11-06-wrap-strategy.md`）。
 
+- 写面围栏核查与三包改造（2026-11-08 完成）：`ast-tools` 的 `ast_replace`、`md-logic` 的 `replace`、`hash-edit` 的 `hash_read` / `hash_edit` 读写面全改走官方 `ctx.fs`（围栏 + 写意图瀑布 + 文件级版本守卫 + `fs/observed`），每包新增 `src/io.ts`（接口 + node 缺省实现）与 `src/ctx-fs-io.ts`（`ctx.fs` 实现），服务缺失不回落 node 并返回可行动错误；跨包核对表 24 行，结论「需改走 3 / 可不走 15 / 非工具面 6」（追踪文档 `docs/archived/2026-11-08-tool-write-path-fence.md`，三包各 89 / 83 / 65 例 + 集成 9 / 10 / 18 例全绿）。
+
 ## 2. 未完成项
 
 - **#1 `sessionProjections.stateOf(session, key)` 弃用迁移**〔进行中: 2026-11-07〕（登记日: 2026-11-07）
@@ -90,13 +92,6 @@
   - 期望: 把 `check` / `build` 改成与 `test` 同款并行调度 —— 复用或扩展 `scripts/test-parallel.sh` 的调度与汇总模式（parallel / xargs 两路、`set -u` 累计退出、包清单双向校验、只跑存在的包）, 根 `package.json` 三链统一一个并行入口（如扩展 `TEST_SCRIPT=check|build` 或新 `scripts/run-all.sh <check|build|test> [包...]`）; 注意两点: ① `set -e` 语义取舍（一包失败是否等其余包跑完再汇总, 与 `test-parallel.sh` 的「不 fail-fast」对齐）; ② build 的依赖序 —— `code-map` / `md-map` import `ast-tools` / `md-logic` 的构建产物, 须先建后两者（`install.sh` 已实现该排序, 可复用）.
   - 优先级: P2.
   - 来源: 用户 2026-11-08 提出「检查, 测试这些脚本全部都并行化」.
-
-- **#4 核查各工具执行路径, 确认是否需要走官方围栏**〔进行中: 2026-11-08〕（登记日: 2026-11-08）
-
-  - 现状: 本仓多个写入面未走官方 `ctx.fs`（围栏 / 观察守卫 / 审批瀑布）——已确认 `hash-edit`（`node:fs` 临时文件 + rename 直写, 可越界写工作区外）、`ast-tools`（`ast_replace` 整文件重写直写）、`md-logic`（`replace` 整文件重写直写）; 其余包写盘面（memory-base / fs-digest / output-compress / preference-analysis / background-daemon / session-paths 等）写入各自数据目录, 是否属「需走官方围栏」范围未系统核查; 官方 `write` / `edit` / `apply_patch` 全程经 `ctx.fs` 受围栏。
-  - 期望: 系统核查各工具 / 写入面的执行路径, 逐条判定「是否需要走官方围栏」——判定口径: ① 写用户 / 项目工作文件（模型可改的表面）→ 需要; ② 写插件自有数据目录（记忆库 / 摘要库 / 账簿等, 不属用户文件面）→ 可不走, 但需写明边界与越界风险; ③ 有安全敏感的越界写（可碰工作区外路径）→ 需要。产出: 「工具写路径 × 是否走围栏」核对表 + 逐条结论; 需要改走的登记为后续条目（如 `hash-edit` 改走 `ctx.fs`, 即重开 `docs/ARCHITECTURE-REUSE.md` §4 D 的改造点）。
-  - 优先级: P1（写面安全边界核查）。
-  - 来源: 2026-11-08 用户提出（承接 hash_edit 走围栏讨论）。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 

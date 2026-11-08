@@ -1,6 +1,6 @@
 # 核查各工具执行路径, 确认是否需要走官方围栏（接取条目：docs/BACKLOG.md「核查各工具执行路径, 确认是否需要走官方围栏」）
 
-状态：进行中　　开启：2026-11-08　　关闭：
+状态：已完成　　开启：2026-11-08　　关闭：2026-11-08
 本文件是本任务在项目级的唯一追踪文档；各包内的编辑另在各包建追踪文档（见「落地计划」）。
 
 ## 目标
@@ -94,7 +94,7 @@
 | --- | --- | --- |
 | 1 | `const sandboxPolicy = await sandbox.resolvePolicy(<工具名>, args, exec)`（`write.ts:117`） | 三个工具没有 `sandbox_permissions` 参数, 简化成会话策略: `ctx.fs.sandboxMode !== undefined` 时取 `ctx.get('sandboxPolicy').resolve({ session: exec.agent.session })`, 否则 `undefined`。升档能力属后续（要先给工具加参数面） |
 | 2 | `const target = await ctx.fs.resolve(path, await sessionResolveOptions(ctx, exec))`（`write.ts:118`, helper 见 `tool-fs/src/session-cwd.ts`） | `cwd` 取 `ctx.workingDirectory.ensure(exec.agent, exec.signal)`, 带上 `signal` |
-| 3 | `const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`（`write.ts:121`） | 三个包写的都是整段文本替换, 用 `write-intent`（不用 `edit-intent` 的字面量替换语义）。兜底 `() => undefined` = 无监听者时无条件写 |
+| 3 | `const intent = await ctx.waterfall('fs/write-intent', target, exec, () => undefined)`（`write.ts:121`） | 三个包写的都是整段文本替换, 用 `write-intent`（不用 `edit-intent` 的字面量替换语义）。**兜底返回本包自己的意图**（不是字面照抄的 `() => undefined`）：官方 `write` 自身没有版本基准才这么兜底, 三个包都有, 兜底成 `undefined` 会让守卫在 `dsh-base`（观测策略缺省关闭）下静默消失 |
 | 4 | `const outcome = await ctx.fs.writeText(target, text, intent, exec.signal, sandboxPolicy)`（`write.ts:124`） | 原子写由后端保证。`intent` 三态: `replaceIfVersion`（版本不符 → `FS_STALE_VERSION`）/ `createIfAbsent`（已存在 → 失败）/ `undefined`（无条件） |
 | 5 | `ctx.emit('fs/observed', target, { kind: 'present', version: outcome.version }, exec)`（`tool-fs/src/mutation-result.ts:19`） | 写后记录新版本。可选: 做了则将来版本守卫插件启用时这几个包自动受管, 不做不影响 D2 |
 
@@ -123,9 +123,9 @@
 
 | 包 | 包级追踪文档 | 一句话范围 |
 | --- | --- | --- |
-| `ast-tools` | `ast-tools/docs/implementation/2026-11-08-ast-replace-ctxfs.md` | `ast_replace` 读写换 `ctx.fs`, 写带 intent; 保留 ast-grep 匹配与 dry-run |
-| `md-logic` | `md-logic/docs/implementation/2026-11-08-md-replace-ctxfs.md` | `replace` 落盘换 `ctx.fs.writeText`; 删临时文件 / `chmod` / 自算 TOCTOU |
-| `hash-edit` | `hash-edit/docs/implementation/2026-11-08-hash-edit-ctxfs.md` | 读写全换 `ctx.fs`; 锚点算法与整批拒绝语义保留; 错误码扩为五值 |
+| `ast-tools` | `ast-tools/docs/archived/2026-11-08-ast-replace-ctxfs.md` | `ast_replace` 读写换 `ctx.fs`, 写带 intent; 保留 ast-grep 匹配与 dry-run |
+| `md-logic` | `md-logic/docs/archived/2026-11-08-md-replace-ctxfs.md` | `replace` 落盘换 `ctx.fs.writeText`; 删临时文件 / `chmod` / 自算 TOCTOU |
+| `hash-edit` | `hash-edit/docs/archived/2026-11-08-hash-edit-ctxfs.md` | 读写全换 `ctx.fs`; 锚点算法与整批拒绝语义保留; 错误码扩为五值 |
 
 ## 拆分出去的条目
 
@@ -162,9 +162,9 @@
 | C1 | `pnpm run check` | 退出码 0 |
 | C2 | `pnpm run test` | fail 0 |
 | C3 | `pnpm run check:docs` | 错误 0 / 警告 0 |
-| C4 | `grep -rn "node:fs" hash-edit/src md-logic/src ast-tools/src` | 只命中三个包的 `src/io.ts` 与 `ast-tools/src/binary.ts`（二进制探测） |
-| C5 | `grep -rn "fs/write-intent" hash-edit/src md-logic/src ast-tools/src` | 每包恰好一处, 且都在各自 `src/ctx-fs-io.ts` |
-| C6 | `grep -rn "process.cwd()" hash-edit/src md-logic/src ast-tools/src` | 无命中 |
+| C4 | `grep -rn 'from "node:fs' hash-edit/src md-logic/src ast-tools/src` | 只命中三个包的 `src/io.ts` 与 `ast-tools/src/binary.ts`（二进制探测）（注释里提到 `node:fs` 不算） |
+| C5 | `grep -rln "fs/write-intent" hash-edit/src md-logic/src ast-tools/src` | 每包恰好一个文件, 都是各自 `src/ctx-fs-io.ts` |
+| C6 | `grep -rn "process.cwd()" hash-edit/src md-logic/src ast-tools/src` | 只剩 `ast-tools/src/binary.ts:97`（二进制探测的候选根, 与写面无关, 且「不做」明确不改 `binary.ts`） |
 | C7 | `grep -rn -e "rename(" -e "chmod(" hash-edit/src md-logic/src` | 无命中（临时文件 + rename 与权限保持已全部交给后端） |
 | C8 | `grep -rln "ctx.fs" hash-edit/README.md md-logic/README.md ast-tools/README.md md-logic/docs/DESIGN.md` | 四个文件全部命中 |
 | C9 | `grep -rn "inject" hash-edit/src/index.ts md-logic/src/index.ts ast-tools/src/index.ts` | 三行都含 `fs` |
@@ -173,9 +173,9 @@
 
 | 包 | 包级文档 | 判据覆盖 |
 | --- | --- | --- |
-| `ast-tools` | `ast-tools/docs/implementation/2026-11-08-ast-replace-ctxfs.md` | 任务 T1 至 T7; 审计 A1 至 A14 |
-| `md-logic` | `md-logic/docs/implementation/2026-11-08-md-replace-ctxfs.md` | 任务 T1 至 T9; 审计 A1 至 A15 |
-| `hash-edit` | `hash-edit/docs/implementation/2026-11-08-hash-edit-ctxfs.md` | 任务 T1 至 T9 + 可选 O1; 审计 A1 至 A19 |
+| `ast-tools` | `ast-tools/docs/archived/2026-11-08-ast-replace-ctxfs.md` | 任务 T1 至 T7; 审计 A1 至 A14 |
+| `md-logic` | `md-logic/docs/archived/2026-11-08-md-replace-ctxfs.md` | 任务 T1 至 T9; 审计 A1 至 A15 |
+| `hash-edit` | `hash-edit/docs/archived/2026-11-08-hash-edit-ctxfs.md` | 任务 T1 至 T9 + 可选 O1; 审计 A1 至 A19 |
 
 判据写法统一为「可 grep 的结构事实」或「命令退出码」, 不写「行为正确」这类需要人判的措辞; 确属行为判断的（真机围栏拦截）单列在包级文档的「验证口径（真机）」小节, 由合并后统一执行。
 
@@ -183,3 +183,60 @@
 
 - 每包内: `pnpm run check` / `build` / `test` 全绿, 包 README 已同步（包级 A 表）。
 - 合并回主分支后由本文件统一跑跨包不变量 C1 至 C9, 并补跨包文档（`docs/ARCHITECTURE-REUSE.md` §4 D 等）。
+
+## 实现记录
+
+### 分三次在独立 worktree 完成, 逐个合并
+
+| 序 | 包 | 分支 | 提交 | 包级追踪文档 |
+| --- | --- | --- | --- | --- |
+| 1 | `ast-tools` | `wt/ast-tools-ctxfs` | `633ede67` | `ast-tools/docs/archived/2026-11-08-ast-replace-ctxfs.md` |
+| 2 | `md-logic` | `wt/md-logic-ctxfs` | `662a7261` | `md-logic/docs/archived/2026-11-08-md-replace-ctxfs.md` |
+| 3 | `hash-edit` | `wt/hash-edit-ctxfs` | `b9cfde8d` | `hash-edit/docs/archived/2026-11-08-hash-edit-ctxfs.md` |
+
+三个分支按 `ast-tools` → `md-logic` → `hash-edit` 的顺序 `--no-ff` 合入 `main`（`e6c715a8` / `e17829d0` / `b0acc0c5`）,
+合并后主分支无冲突（三包改动文件不重叠）。
+
+### 三包统一成品形状
+
+每包新增两个文件、改三个源文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `src/io.ts` | `<Pkg>FileIo` 接口（`resolve` / `stat` / `readText` / `writeText`, ast-tools 多 `processPath`、hash-edit 多 `listDir`）、`<Pkg>FileError` 与十值码表（九官方码 + 自有 `FS_UNAVAILABLE`）、`node<Pkg>FileIo()` 缺省实现、文案映射 |
+| `src/ctx-fs-io.ts` | `ctx<Pkg>FileIo(host, exec)`：会话 cwd（`workingDirectory.ensure`）、`fs/write-intent` 瀑布（兜底自身意图）、会话沙箱策略、读写后 `fs/observed`、`FsError` → 本包码映射、服务缺失替身；另导出 `resolveExecCwd(host, exec)`（ast-tools 内联） |
+| 写面 | 读 `stat`（取 `version` / 类型 / 大小）→ 读文本 → 业务处理 → `writeText(..., { kind: "replaceIfVersion", version })` |
+| 装配 | `inject` 加 `fs`；工具 / bundle 工厂接收 `ioFor`（按调用构造 io）；服务缺失返回可行动错误, 不回落 node |
+
+### 与计划的差异（逐包记录在包级文档「实现记录」, 汇总三点）
+
+1. **意图瀑布兜底返回自身意图**（见「实现形式」第 3 步的修订）。
+2. **读后 / 写后各发一条 `fs/observed`**：观测策略打开时, 先观察再写才不会被判成 `FS_NOT_OBSERVED`（hash-edit 的 O1 因此判「已做」）。
+3. **保留 / 新增各包既有对外码**: `md-logic` 沿用 `not_utf8` / `file_changed`（不并进 `read_failed` / `write_failed`）; `hash-edit` 的 `FileErrorCode` 由三值扩为五值（新增 `stale` / `sandbox_denied`）。
+
+### 跨包不变量实测（仓库根, 合并后）
+
+| 序 | 结果 |
+| --- | --- |
+| C1 `pnpm run check` | 退出码 0（38 包） |
+| C2 `pnpm run test` | 全部包 OK, fail 0（三包分别 89 / 83 / 65 例） |
+| C3 `pnpm run check:docs` | 错误 0 / 警告 0（118 篇 Markdown / 957 个 .ts） |
+| C4 | 只命中 3 个 `src/io.ts` 与 `ast-tools/src/binary.ts` |
+| C5 | 每包只有 `src/ctx-fs-io.ts` |
+| C6 | 只剩 `ast-tools/src/binary.ts:93,97`（二进制探测） |
+| C7 | 无命中 |
+| C8 | 四个文件全部命中 |
+| C9 | 三行均含 `fs` |
+
+### 跨包文档与条目
+
+- `docs/ARCHITECTURE-REUSE.md`：§4 D 重开并改为「已完成」；§0 总表 `ast-tools` 行与 `hash-edit ⇄ 官方 read / edit` 分工行的 `inject` 与「原子性」口径同步。
+- 根 `AGENTS.md`：三包描述补「读写经 `ctx.fs`」。
+- `docs/BACKLOG.md`：接取条目「核查各工具执行路径, 确认是否需要走官方围栏」标完成并从清单移除。
+- 本文件移入 `docs/archived/`。
+
+### 未做 / 留给后续
+
+- **真机围栏验证**（工作区内正常写、写工作区外被拦并给升级指引）未在本轮跑：需要把三包装进 `fff-test` profile 并重启会话实际调用；本轮验证到「假 `ctx.fs` 端到端 + 类型 / 测试 / 文档门禁」为止。
+- `hash-edit` 的 `AnchoredEditError`（`stale_anchors` 等）与后端 `stale` 是两层不同判据, 未合并。
+- `script-interpreter` 临时脚本与 `output-compress` 会话目录两项按 D4 只登记条目, 未在本任务实现。

@@ -34,7 +34,7 @@
 | `md-map`（2026-10-02 新增包） | `tool-fs-search`、官方无「文档引用图 / 影响面」类包 | 低 | **保留** | 项目级 Markdown 引用图（锚点 / 跨文档链接 / wiki / 断链 / 影响面），官方无等价物；复用 `md-logic` 做单文件解析 |
 | `herdr-integration` | 无 | 无 | **保留** | 本机 herdr 面板桥，官方无对应物 |
 | `TUI` | `client-ui-*`（53 包，Web / 桌面） | 低 | **保留** | 官方客户端是浏览器 / 桌面面；终端 TUI 是不同形态，且本项目「只用 TUI、走 profile 全局组合」是既定口径 |
-| `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools"]`（2026-10-02 落地） |
+| `ast-tools` | `tool-fs-search`（`grep` / `glob`）、`code-map` | 中 | **保留** | 官方检索是**文本级**，AST 形态查询（ast-grep）官方没有；**已注册模型侧工具** `ast_query`（search / outline / rules）+ `ast_replace`（默认 dry-run），`inject: ["tools", "fs"]`（2026-10-02 落地；2026-11-08 写面改走 `ctx.fs`） |
 | `code-map` | `lsp`、`tool-fs-search` | 低 | **保留** | 项目级结构索引 / 影响面 / 候选调用图官方没有；**LSP 语义层已接线但当前不可达**（LSP 三件套不随包分发，见 §5） |
 | `herdr-use`（2026-10-20 补审） | 无 | 无 | **保留** | 本机 herdr 伪终端层（读屏 / 注入 / 进程探活），官方无对应物；与 `herdr-integration`（会话桥）同域、无官方替代 |
 | `md-table-check`（2026-10-20 补审） | `agent-instructions`、`rule-engine` 类 | 低 | **保留** | 回复正文表格列数检查（rule-engine 消费者，只报不改），项目专属约定；官方无等价物 |
@@ -59,7 +59,7 @@
 
 | 并存对 | 谁负责哪一段 | 模型面 / 人面处理 |
 |---|---|---|
-| `hash-edit` ⇄ 官方 `read` / `edit`（`tool-fs` + `fs-observation-policy`） | 官方：文件级「读后改前 + 版本守卫」（`FS_STALE_VERSION`）；`hash-edit`：**行级**锚点定位与漂移检测、一次提交多条编辑且任一条失效整批拒绝 | 两者都在模型工具面；分歧点是**粒度与原子性**，靠工具描述区分（先例：`fs_digest` 与 `code-map` 并存） |
+| `hash-edit` ⇄ 官方 `read` / `edit`（`tool-fs` + `fs-observation-policy`） | 官方：文件级「读后改前 + 版本守卫」（`FS_STALE_VERSION`）；`hash-edit`：**行级**锚点定位与漂移检测、一次提交多条编辑且任一条失效整批拒绝。读写面已于 2026-11-08 改走 `ctx.fs`（§4 D），围栏与原子写同源，剩下的分歧只有**粒度** | 两者都在模型工具面；分歧点是**粒度**，靠工具描述区分（先例：`fs_digest` 与 `code-map` 并存） |
 | `context-report` ⇄ `session-stats` / `session-turn-outline` | 官方投影：轮次 / 步数 / 墙钟 / 回合大纲；`context-report`：token 与上下文占用、三档报告（**回合/墙钟已改为读官方投影**，不再自折叠） | 只有 `context_report` 在模型面；官方投影是服务面，供我们读取（§4 A 已落地） |
 | `output-compress` ⇄ `spill-policy` / `compaction-tool-result-pruner` | 官方：**模型可见面**的超预算处理（preview + locator）与 surface 裁剪；我们：以 spill 为上游输入做**有损摘要入库 + 分片**（知识库可检索），不回写事件 | 官方两行已挂载；要做的是**阈值语义的文档口径**（§4 B），不是修冲突 |
 | `command-template` ⇄ `commands` / `workflow` / `tool-workflow` | 官方：命令注册表 + 模型侧 JS 编排；我们：**人面** `/playbook` 模板目录、模板级模型选择、步骤编排 | 模型面 `workflow` 官方独占；我们不注册同名工具，只注册 slash 命令 |
@@ -95,8 +95,8 @@
 | `output-compress` | reflect 可选读 `ptcRuntime`（宿主沙箱后端）；事件 `session/event` 的 `tool/result`（只读，不回写） |
 | `security-guard` | inject `tools`；事件 `tools/pre-execute`（拦截点） |
 | `code-map` / `fs-digest` | inject `tools`；get `lsp`（**当前不可达**，见 §5） |
-| `hash-edit` / `ast-tools` | inject `tools`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面） |
-| `md-logic` | inject `tools`（注册 `md_logic`：structure / blocks / links / replace）；解析用 `marked` 实例，不消费宿主服务 |
+| `hash-edit` / `ast-tools` | inject `tools` / `fs`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面；两包写面 2026-11-08 起经 `ctx.fs`，见 §4 D） |
+| `md-logic` | inject `tools` / `fs`（注册 `md_logic`：structure / blocks / links / replace；解析用 `marked` 实例，文件读写经 `ctx.fs`） |
 | `md-map` | inject `tools` / provide `mdMap`（注册 `md_map`：index / refresh / callers / impact / orphans / report / summary）；组合 `md-logic` 的解析，不做解析本身 |
 | `metric-loop` / `herdr-integration` / `symbol-normalizer` / `ponytail` | inject `tools` / `agents` / —（`symbol-normalizer` 与 `ponytail` 消费本仓 `ruleEngine` 服务） |
 | `background-daemon`（2026-10-20 补入） | inject `agents` / `sessions` / `commands` / `tools`；可选 get `guard`；`memory` 经 `ctx.inject(["memory"],cb)` 晚挂（2026-10-20，条目 5+6） |
@@ -112,7 +112,7 @@
 | A | ~~`context-report` **改用已挂的 `sessionStats` / `turnOutline`** 提供轮次 / 墙钟 / 大纲，去掉自己的同类折叠（保留 token / 上下文占用口径）~~ **已完成（2026-10-06）**：轮次 / 步 / 墙钟改读 `sessionStats`，自折叠已删；`turnOutline` 未接（属新增能力，另议） | `context-report/src/{fold,main,report,types,schema}.ts` | 已完成 | 口径已对齐（官方视图字段 `ttftMs` / `ttftSteps`，非 `firstTokenTime`）；追踪文档 `docs/archived/2026-10-05-context-report-official-projections.md` |
 | B | `output-compress`：把与官方 `spill-policy` / `compaction-tool-result-pruner` 的**分工与阈值语义**写进 DESIGN，并记录「spill 文件 + 知识库」双份存储的取舍 | `output-compress/docs/DESIGN.md` | **已完成（2026-10-20 重审计复核）** | 分工 / 阈值节已存在（`spill-policy` 分工表 + `maxInlineTokens` 阈值语义 + 不构成双重截断），见该文件 §1 / §2 |
 | C | ~~`metric-loop` 唤醒链缺口：挂 `@deepseek-ai/dsh-schedule`，或把提示改为不依赖宿主 schedule；另一条路是评估「改用官方承担循环」~~ **已裁定（2026-10-06 选 A）**：保留 `metric-loop` 承担指标循环（测量 + 收敛 + 边界停止 + 跨进程状态），与官方循环的分工写进 README；**不挂** `schedule`、**不启用** `tool-ralph`、不改循环代码。`schedule` 提示本身的字段缺陷另立条目（`docs/BACKLOG.md` §2） | `metric-loop/README.md`（口径） | 已完成 | 追踪文档 `docs/archived/2026-10-05-metric-loop-official-loops.md` |
-| D | `hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`） | （不实施） | **已关闭（2026-10-20 重审计明示关闭）** | 关闭理由：`ctx.fs` 后端是 `fs-sandbox`，hash-edit 的**写**会从「node:fs 直写」变为受 workspace-write 围栏（安全语义变更）；且官方版本守卫是文件级，**不能**替代行级锚点语义。维持 `node:fs` 直写现状，不另立条目 |
+| D | ~~`hash-edit` / `fs-digest` 可选改用 `ctx.fs` 读（沙箱一致，替代直接 `node:fs`）~~ **已重开并落地（2026-11-08, 仅 `hash-edit` 的读写面）**：`hash-read` / `hash_edit`、`ast_replace`、`md_logic replace` 三个文件编辑工具的读写面全改走 `ctx.fs`，各自新增 `src/io.ts`（接口 + node 缺省实现）与 `src/ctx-fs-io.ts`（`ctx.fs` 实现：会话 cwd、`fs/write-intent` 瀑布、会话沙箱策略、读写后 `fs/observed`、`FsError` 码映射）；写回按读到的版本传 `replaceIfVersion`，围栏拒绝映射成各包对外码（`stale` / `sandbox_denied` 等）。行级锚点仍是 `hash-edit` 独有粒度——官方文件级版本守卫不替代它。`fs-digest` 是纯只读包，维持现状 | `hash-edit/src/{io,ctx-fs-io,fs,index}.ts`、`ast-tools/src/{io,ctx-fs-io,replace,index}.ts`、`md-logic/src/{io,ctx-fs-io,edit,tools,index}.ts` | 已完成 | 追踪文档 `docs/archived/2026-11-08-tool-write-path-fence.md`（项目级）；包级记录见三包 `docs/archived/` 下同名文档。原关闭理由（改写会引入围栏、且官方守卫是文件级）**仍成立**，本次是用户裁定的取舍变更：宁要围栏与版本守卫同源，不保留绕开围栏的直写能力 |
 | E | 把「可挂但不该挂」清单（§5）落到**非生成型**文档（`docs/BACKLOG.md` 观察项 / `profiles/example/cordis.patch.yml` 注释） | （不实施） | **已关闭（2026-10-20 重审计明示关闭）** | 关闭理由：§5 清单位于 `docs/ARCHITECTURE-REUSE.md`（本仓自维护、**非宿主重生成**，升宿主不会被覆盖），已满足「不随 HOST-PACKAGES 重生成丢失」的原始意图；其中 `experimental-auto-review` / `schedule` 等已在各自条目与本节注记中登记，无需搬移 |
 
 **新增观察项（本次审阅补出）**：① `memory-base` ⇄ `output-compress` 共库直写的隐私边界（两包写入口径需同步）；② ~~是否用配置开启 `session-query-sqlite` 的 FTS5（`openAt: first-search`）并与知识库做分工验证~~ **已关闭（2026-10-20 重审计）**：维持 `openAt: never` —— 官方会话日志检索面不在当前需求内，memory-base 已自建双 FTS5 承载知识库检索，开启官方面徒增分工维护面；③ `rule-engine` 与官方 `repeat-tool-reminder` 的注入重复度评估（**2026-10-05 已评估关闭**：注入点与通道均不同——官方走 `tools/post-execute` 的 `additionalContexts`、不产生消息记录，本引擎走 next-step 消息注入，预算互不挤占；见 `rule-engine/README.md`「与官方 `repeat-tool-reminder` 的分工」）。

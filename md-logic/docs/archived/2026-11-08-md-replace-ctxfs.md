@@ -1,4 +1,4 @@
-# `md_logic` 的 `replace` 改走 `ctx.fs`（接取事项：项目级 `docs/implementation/2026-11-08-tool-write-path-fence.md` 的 D1 / D2）
+# `md_logic` 的 `replace` 改走 `ctx.fs`（接取事项：项目级 `docs/archived/2026-11-08-tool-write-path-fence.md` 的 D1 / D2）
 
 状态：实现完成（待合并回主分支）　　开启：2026-11-08　　关闭：
 本文件是本包本次改造的唯一追踪文档；跨包决策与共用口径见项目级文档，此处只写本包任务与机械审计。
