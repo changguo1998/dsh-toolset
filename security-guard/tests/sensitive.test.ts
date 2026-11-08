@@ -7,6 +7,7 @@ import {
   checkSensitivePath,
   compileSensitiveRules,
   extractCommandPaths,
+  extractPatchPaths,
   normalizePath,
   basenameOf,
   DEFAULT_SENSITIVE_RULES,
@@ -77,6 +78,59 @@ test("路径提取：引号 / token / 粘连 / 绝对路径", () => {
   // 选项（-la）被过滤
   const f = extractCommandPaths("ls -la");
   assert.deepEqual(f, ["ls"]);
+});
+
+test("补丁路径提取：四类标记 + 去重 + 引号", () => {
+  const patch = [
+    "*** Begin Patch",
+    "*** Add File: docs/new.md",
+    "+hello",
+    "*** Update File: ~/.ssh/config",
+    "@@",
+    "-old",
+    "+new",
+    "*** Delete File: tmp/old.txt",
+    "*** Move to: 'src/moved.ts'",
+    "*** End Patch",
+  ].join("\n");
+  assert.deepEqual(extractPatchPaths(patch), [
+    "docs/new.md",
+    "~/.ssh/config",
+    "tmp/old.txt",
+    "src/moved.ts",
+  ]);
+  // 同一路径出现多次只留一份
+  const twice = ["*** Update File: a.ts", "@@", "*** Update File: a.ts"].join(
+    "\n",
+  );
+  assert.deepEqual(extractPatchPaths(twice), ["a.ts"]);
+  // 无标记 / 空文本 → 空数组（调用方按「无路径可查」处理）
+  assert.deepEqual(extractPatchPaths(""), []);
+  assert.deepEqual(extractPatchPaths("*** Begin Patch\n+just a line\n"), []);
+  // 标记行前的空白不影响匹配（补丁可能带缩进）
+  assert.deepEqual(extractPatchPaths("  *** Add File: b.ts"), ["b.ts"]);
+  // 只有标记没路径 → 不入结果
+  assert.deepEqual(extractPatchPaths("*** Delete File:   "), []);
+});
+
+test("提取 + 检查联动：补丁文本里的敏感路径被拦", () => {
+  for (const patch of [
+    "*** Update File: ~/.ssh/config",
+    "*** Add File: /home/tester/.aws/credentials",
+    "*** Delete File: .env",
+    "*** Move to: config/.env.local",
+  ]) {
+    const paths = extractPatchPaths(patch);
+    const hit = paths
+      .map((p) => checkSensitivePath(p, rules, HOME))
+      .find((h) => h !== null);
+    assert.notEqual(hit, null, `expected sensitive hit for: ${patch}`);
+  }
+  // 工作区内的普通补丁不命中
+  assert.equal(
+    check(extractPatchPaths("*** Add File: src/a.ts")[0] ?? ""),
+    null,
+  );
 });
 
 test("提取 + 检查联动：shell 命令文本中的敏感路径被拦", () => {

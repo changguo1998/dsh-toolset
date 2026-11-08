@@ -176,6 +176,34 @@ export function extractCommandPaths(command: string): string[] {
   return [...found];
 }
 
+/**
+ * 从补丁文本中提取目标路径（宿主 `apply_patch` 的参数面：路径只出现在标记行里）。
+ *
+ * 四类标记，行首匹配（允许前置空白）：
+ * - `*** Add File: <path>`
+ * - `*** Update File: <path>`
+ * - `*** Delete File: <path>`
+ * - `*** Move to: <path>`
+ *
+ * 路径取标记后的整段剩余文本（去两端空白与成对引号）；同一路径多次出现只留一份。
+ * 解析不出标记时返回空数组——调用方按「无可检查路径」处理（边界见 README）。
+ */
+export function extractPatchPaths(patch: string): string[] {
+  const found = new Set<string>();
+  const marker =
+    /^\s*\*\*\*\s+(?:Add File|Update File|Delete File|Move to):\s*(.*)$/;
+  for (const line of patch.split(/\r?\n/)) {
+    const m = marker.exec(line);
+    if (m === null) continue;
+    const raw = (m[1] ?? "")
+      .trim()
+      .replace(/^['"]+|['"]+$/g, "")
+      .trim();
+    if (raw.length > 0) found.add(raw);
+  }
+  return [...found];
+}
+
 /** 默认敏感路径保护清单（保守集：凭据目录 + 凭据文件 + env + 私钥）。 */
 export const DEFAULT_SENSITIVE_RULES: readonly SensitiveRule[] = [
   {

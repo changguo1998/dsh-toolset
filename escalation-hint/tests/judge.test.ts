@@ -15,6 +15,7 @@ import {
   type JudgeOptions,
   type ToolResultLike,
 } from "../src/judge.ts";
+import { resolveConfig } from "../src/index.ts";
 
 const OPTIONS: JudgeOptions = {
   commandTools: ["bash", "pwsh"],
@@ -129,6 +130,30 @@ test("工具族判定与文案摘要", () => {
   assert.equal(familyOf("read", OPTIONS), undefined);
   assert.match(hintFor("command").summary, /沙箱拒绝/);
   assert.match(hintFor("operation").summary, /沙箱拒绝/);
+});
+
+test("apply_patch 属文件操作族：缺省名单覆盖, 策略拒绝时补提示", () => {
+  const resolved = resolveConfig();
+  assert.ok(resolved.fileTools.includes("apply_patch"));
+  assert.equal(familyOf("apply_patch", resolved), "operation");
+  const hint = judge(
+    {
+      name: "apply_patch",
+      arguments: {
+        input: "*** Begin Patch\n*** Add File: /etc/x\n+x\n*** End Patch",
+      },
+    },
+    text(`${DENIAL_MARKER_PREFIX}workspace-write mode]`),
+    resolved,
+  );
+  assert.notEqual(hint, null);
+  // 宿主已给升级提示时不重复
+  const dup = judge(
+    { name: "apply_patch" },
+    text(`${ESCALATION_HINT_PREFIX} danger-full-access`),
+    resolved,
+  );
+  assert.equal(dup, null);
 });
 
 /** 真实 `tool-bash` 返回值形状（`canonicalBashResult`：前台调用） */

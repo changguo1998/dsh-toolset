@@ -43,6 +43,7 @@ export {
   checkSensitivePath,
   compileSensitiveRules,
   extractCommandPaths,
+  extractPatchPaths,
   normalizePath,
   DEFAULT_SENSITIVE_RULES,
 } from "./sensitive.ts";

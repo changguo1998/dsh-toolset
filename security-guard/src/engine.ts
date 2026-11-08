@@ -6,6 +6,7 @@ import { isCommandAllowed, matchCommand } from "./blacklist.ts";
 import {
   checkSensitivePath,
   extractCommandPaths,
+  extractPatchPaths,
   normalizePath,
 } from "./sensitive.ts";
 import {
@@ -219,9 +220,18 @@ export class GuardEngine {
         commands.push({ text: codeText, kind: "code" });
     } else if (FILE_TOOLS.has(toolName)) {
       // 内置文件工具：路径参数过敏感文件层
-      for (const key of FILE_PATH_KEYS) {
-        const v = args[key];
-        if (typeof v === "string" && v.length > 0) paths.push(v);
+      if (toolName === "apply_patch") {
+        // 补丁工具的参数面只有整段补丁文本（路径写在 `*** Add / Update / Delete File:`
+        // 与 `*** Move to:` 标记行里），故走文本解析而不是 FILE_PATH_KEYS；
+        // 解析不出标记时路径集为空 → 敏感文件层无事可做（边界见 README「覆盖边界」）
+        const patchText = firstString(args, ["input"]);
+        if (patchText !== undefined)
+          paths.push(...extractPatchPaths(patchText));
+      } else {
+        for (const key of FILE_PATH_KEYS) {
+          const v = args[key];
+          if (typeof v === "string" && v.length > 0) paths.push(v);
+        }
       }
     } else {
       const plugin = pluginFileTool(toolName);

@@ -332,6 +332,51 @@ test("配置覆盖：追加用户层保护路径", () => {
   assert.equal(guard.inspect("read", { file_path: "~/.other/x" }), null);
 });
 
+test("pre-execute：apply_patch 补丁文本里的敏感路径 → deny", async () => {
+  const { host, listeners } = makeHost();
+  createSecurityGuard(host, { homeDir: HOME });
+  for (const input of [
+    "*** Begin Patch\n*** Update File: ~/.ssh/config\n@@\n-x\n+y\n*** End Patch",
+    "*** Begin Patch\n*** Add File: ~/.aws/credentials\n+token\n*** End Patch",
+    "*** Begin Patch\n*** Delete File: .env\n*** End Patch",
+    "*** Begin Patch\n*** Update File: a.ts\n*** Move to: config/.env.local\n*** End Patch",
+  ]) {
+    const result = await listeners[0]!(
+      execOf("apply_patch", { input }),
+      nextAllow,
+    );
+    assert.equal(result.kind, "deny", `expected deny for patch: ${input}`);
+    assert.match((result as { reason: string }).reason, /允许放行|放行方式：/);
+  }
+});
+
+test("pre-execute：apply_patch 工作区内补丁与无标记文本 → 放行", async () => {
+  const { host, listeners } = makeHost();
+  createSecurityGuard(host, { homeDir: HOME });
+  for (const input of [
+    "*** Begin Patch\n*** Add File: src/a.ts\n+x\n*** End Patch",
+    "*** Begin Patch\n*** Update File: docs/readme.md\n*** Move to: docs/readme2.md\n*** End Patch",
+    // 无标记：解析不出路径 → 敏感文件层无事可做（边界见 README）
+    "*** Begin Patch\n+just a line\n*** End Patch",
+    "",
+  ]) {
+    const result = await listeners[0]!(
+      execOf("apply_patch", { input }),
+      nextAllow,
+    );
+    assert.equal(result.kind, "allow", `expected allow for patch: ${input}`);
+  }
+});
+
+test("回执：apply_patch 标注「写入」", () => {
+  const guard = new GuardEngine({ homeDir: HOME });
+  const hit = guard.inspect("apply_patch", {
+    input: "*** Begin Patch\n*** Update File: ~/.ssh/config\n*** End Patch",
+  });
+  assert.match(hit ?? "", /写入/);
+  assert.match(hit ?? "", /ssh-directory/);
+});
+
 test("回执：写类文件工具标注「写入」", () => {
   const guard = new GuardEngine({ homeDir: HOME });
   const hit = guard.inspect("write", { file_path: "~/.env" });

@@ -31,6 +31,7 @@ export const DEFAULT_FILE_TOOLS: readonly string[] = [
   "write",
   "edit",
   "str_replace_editor",
+  "apply_patch",
 ];
 
 /** 去重表缺省上限（同一 `callId` 只提示一次；超出按插入序淘汰最旧）。 */
@@ -42,7 +43,7 @@ export interface Config {
   enabled?: boolean;
   /** 命令类工具名清单（缺省 `bash` / `pwsh`）。 */
   commandTools?: readonly string[];
-  /** 文件操作类工具名清单（缺省 `write` / `edit` / `str_replace_editor`）。 */
+  /** 文件操作类工具名清单（缺省 `write` / `edit` / `str_replace_editor` / `apply_patch`）。 */
   fileTools?: readonly string[];
   /** 去重表上限（缺省 64）。 */
   maxHints?: number;

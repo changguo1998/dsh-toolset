@@ -25,7 +25,7 @@ DSH（DeepSeek Harness）进程内集成插件：在「工具调用被沙箱拒�
 | 族 | 缺省工具 | 提示措辞 |
 | --- | --- | --- |
 | 命令类 | `bash` / `pwsh` | 「刚才这条命令被沙箱拒绝…」 |
-| 文件操作类 | `write` / `edit` / `str_replace_editor` | 「刚才这次文件操作被沙箱拒绝…」 |
+| 文件操作类 | `write` / `edit` / `str_replace_editor` / `apply_patch` | 「刚才这次文件操作被沙箱拒绝…」 |
 
 ## 配置
 
@@ -35,7 +35,7 @@ DSH（DeepSeek Harness）进程内集成插件：在「工具调用被沙箱拒�
 | --- | --- | --- |
 | `enabled` | `true` | 显式 `false` 关闭（不订阅任何钩子） |
 | `commandTools` | `["bash", "pwsh"]` | 命令类工具名清单 |
-| `fileTools` | `["write", "edit", "str_replace_editor"]` | 文件操作类工具名清单 |
+| `fileTools` | `["write", "edit", "str_replace_editor", "apply_patch"]` | 文件操作类工具名清单 |
 | `maxHints` | `64` | 去重表上限：同一 `callId` 只提示一次，超出按插入序淘汰最旧 |
 
 ## 用法

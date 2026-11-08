@@ -9,17 +9,20 @@
 export const SHELL_TOOLS = new Set(["bash", "shell", "pwsh"]);
 export const RUN_CODE_TOOLS = new Set(["run_code"]);
 // read_image 是官方读面工具（参数 file_path），与 read 同级：只过敏感文件层读侧
+// apply_patch 是官方写面工具，但参数面只有一整段补丁文本（path 写在补丁标记行里），
+// 路径提取走 sensitive.ts 的 extractPatchPaths（见 engine 的 FILE_TOOLS 分支）
 export const FILE_TOOLS = new Set([
   "read",
   "read_image",
   "write",
   "edit",
+  "apply_patch",
   "patch",
   "grep",
   "glob",
 ]);
 export const FILE_PATH_KEYS = ["file_path", "path", "target", "file"] as const;
-const WRITE_FILE_TOOLS = new Set(["write", "edit", "patch"]);
+const WRITE_FILE_TOOLS = new Set(["write", "edit", "apply_patch", "patch"]);
 
 /** 插件文件工具描述符：登记本仓插件工具的读写面与路径参数名。 */
 export interface PluginFileTool {
