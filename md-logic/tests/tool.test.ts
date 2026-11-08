@@ -55,7 +55,19 @@ function mockHost(): {
   };
 }
 
-const tool = mdLogicTool() as ToolDef;
+/** 宿主面桩：`workingDirectory` 按会话 header 给 cwd（与宿主同口径）。 */
+const hostStub = {
+  workingDirectory: {
+    ensure: async (agent: unknown): Promise<string> => {
+      const cwd = (
+        agent as { session?: { header?: { cwd?: unknown } } } | undefined
+      )?.session?.header?.cwd;
+      return typeof cwd === "string" && cwd !== "" ? cwd : process.cwd();
+    },
+  },
+};
+
+const tool = mdLogicTool(undefined, { host: hostStub }) as ToolDef;
 
 /** 渲染工具返回值（render 契约：args 第一、value 第二）。 */
 function textOf(value: unknown): string {
@@ -70,7 +82,7 @@ test("apply 注册 md_logic，契约面完整", () => {
     ["md_logic"],
   );
   assert.equal(name, "md-logic");
-  assert.deepEqual(inject, ["tools"]);
+  assert.deepEqual(inject, ["tools", "fs"]);
   assert.equal(tool.output.schema.type, "object");
   assert.equal(typeof tool.output.render, "function");
   assert.deepEqual(tool.parameters.required, ["action", "path"]);
@@ -405,21 +417,22 @@ test("edits 校验：section_hash 大小写与引号归一后放行", async () =
   }
 });
 
-test("resolveExecCwd：会话 cwd 优先，缺失 / 空串 / 非字符串回落进程 cwd", () => {
-  assert.equal(resolveExecCwd(undefined), process.cwd());
-  assert.equal(resolveExecCwd({}), process.cwd());
-  assert.equal(
-    resolveExecCwd({ agent: { session: { header: { cwd: "" } } } }),
-    process.cwd(),
-  );
-  assert.equal(
-    resolveExecCwd({ agent: { session: { header: { cwd: 42 } } } }),
-    process.cwd(),
-  );
-  assert.equal(
-    resolveExecCwd({ agent: { session: { header: { cwd: "/x" } } } }),
-    "/x",
-  );
+test("resolveExecCwd：取 ctx.workingDirectory，无宿主面即 undefined（不回落进程 cwd）", async () => {
+  const calls: unknown[] = [];
+  const host = {
+    workingDirectory: {
+      ensure: async (agent: unknown, signal?: AbortSignal): Promise<string> => {
+        calls.push({ agent, signal });
+        return "/session-dir";
+      },
+    },
+  };
+  const exec = { agent: { session: { header: { cwd: "/session-dir" } } } };
+  assert.equal(await resolveExecCwd({}, exec), undefined);
+  assert.equal(await resolveExecCwd(host, undefined), undefined);
+  assert.equal(await resolveExecCwd(host, {}), undefined);
+  assert.equal(await resolveExecCwd(host, exec), "/session-dir");
+  assert.deepEqual(calls, [{ agent: exec.agent, signal: undefined }]);
 });
 
 test("工具描述：P0 术语与选择依据（D8 / D12 / C1 / C9）", () => {

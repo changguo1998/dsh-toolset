@@ -13,6 +13,17 @@
 export type MdBlockKind =
   "frontmatter" | "code" | "table" | "list" | "quote" | "html" | "hr";
 
+/** 宿主工具执行上下文里本包读到的字段（其余字段与本包无关）。 */
+export interface ToolExecLike {
+  readonly callId?: string;
+  readonly signal?: AbortSignal;
+  /**
+   * 调用方 agent：本包只把它交给 `ctx.workingDirectory.ensure`（相对路径基准）
+   * 与 `ctx.sandboxPolicy.resolve`（会话围栏模式）; `agent.session` 是后者的键。
+   */
+  readonly agent?: unknown;
+}
+
 /** 链接条目种类：行内链接 / 图片 / 引用式定义（`[tag]: url`）。 */
 export type MdLinkKind = "link" | "image" | "definition";
 

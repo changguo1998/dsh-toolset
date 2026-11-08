@@ -11,17 +11,15 @@
 // 分工：`hash_edit` 是行级 LINE:HASH 锚点（细粒度行编辑）；官方 `edit` 是文件级字符串替换 + 版本守卫；
 // 本模块是**按节**（标题 + 行范围）整节替换 / 删除。
 
-import {
-  chmod,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { isAbsolute, resolve } from "node:path";
 
+import {
+  MdFileError,
+  nodeMdFileIo,
+  type MdFileInfo,
+  type MdFileIo,
+  type MdFileTarget,
+} from "./io.ts";
 import { parseMarkdownDocument } from "./parse.ts";
 import { flattenSections } from "./query.ts";
 
@@ -233,9 +231,10 @@ export type EditFailureCode =
   | "section_ambiguous"
   | "overlap"
   | "read_failed"
-  /** 读→写之间目标文件被外部改动 / 原子替换（TOCTOU 复核失败）。 */
+  /** 读→写之间目标文件被外部改动（后端版本守卫拒绝, `FS_STALE_VERSION`）。 */
   | "file_changed"
   | "write_failed"
+  /** 目标不是合法 UTF-8 文本（含 NUL 的二进制文件同此码）。 */
   | "not_utf8"
   | "range_out_of_bounds";
 
@@ -256,18 +255,6 @@ export function sectionHash(
     .update(lines.join("\n"))
     .digest("hex")
     .slice(0, 8);
-}
-
-/** 文件签名（读→写之间的 TOCTOU 复核；`ino` 用于识别「原子替换」写法，不对外展示）。 */
-export interface FileSignature {
-  ino: number | bigint;
-  size: number;
-  mtimeMs: number;
-}
-
-/** 签名是否相同（抽成纯函数便于单测；竞态本身无注入点、不单测）。 */
-export function sameSignature(a: FileSignature, b: FileSignature): boolean {
-  return a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs;
 }
 
 export type ReplaceOutcome =
@@ -641,106 +628,132 @@ export function replaceSections(
   };
 }
 
-/** 相对路径以 root（缺省进程 cwd）为基准解析。 */
-function resolveTarget(filePath: string, root?: string): string {
-  return isAbsolute(filePath)
-    ? filePath
-    : resolve(root ?? process.cwd(), filePath);
+/** 落盘选项：文件读写面（缺省 node 实现）与本包自己的读取上限。 */
+export interface ReplaceFileOptions {
+  /**
+   * 文件读写面; 缺省用 `nodeMdFileIo()`（库面 / 单测）。
+   * 插件侧由 `apply` 传入按调用上下文构造的 `ctx.fs` 实现。
+   */
+  io?: MdFileIo;
+  /** 读取上限（字节）；与读面同一守卫口径（超限拒绝，避免写路径绕过）。 */
+  maxBytes?: number;
 }
 
-/** 落盘：读原文 → 纯函数校验/替换 → **原子写**（同目录临时文件 + rename；失败清理且不落盘）。 */
-export async function replaceSectionsFile(
-  filePath: string,
-  edits: SectionEdit[],
-  root?: string,
-  /** 读取上限（字节）；与读面同一守卫口径（超限拒绝，避免写路径绕过） */
-  maxBytes?: number,
-): Promise<ReplaceOutcome & { path?: string }> {
-  const target = resolveTarget(filePath, root);
-  let buffer: Buffer;
-  let mode: number | undefined;
-  /** 读盘时的文件签名（写回前复核，挡读→rename 之间的外部改动）。 */
-  let signature: FileSignature | undefined;
-  try {
-    const info = await stat(target);
-    if (!info.isFile()) {
+/** 后端错误到本包失败码的映射（读侧；文案沿用改造前口径）。 */
+function readFailure(
+  error: unknown,
+  displayPath: string,
+): ReplaceOutcome & { path?: string } {
+  if (error instanceof MdFileError) {
+    if (error.code === "FS_NOT_FOUND") {
       return {
         ok: false,
         code: "read_failed",
-        error: "目标不是常规文件，拒绝改写",
+        error: `文件不存在：${displayPath}`,
       };
     }
-    if (maxBytes !== undefined && info.size > maxBytes) {
-      return {
-        ok: false,
-        code: "read_failed",
-        error: `文件大小 ${info.size}B 超过上限 ${maxBytes}B`,
-      };
+    if (error.code === "FS_NOT_TEXT") {
+      return { ok: false, code: "not_utf8", error: error.message };
     }
-    mode = info.mode & 0o777;
-    signature = { ino: info.ino, size: info.size, mtimeMs: info.mtimeMs };
-    buffer = await readFile(target);
-  } catch (err) {
     return {
       ok: false,
       code: "read_failed",
-      error: `读取失败：${String(err)}`,
+      error: `读取失败：${error.message}`,
+    };
+  }
+  return {
+    ok: false,
+    code: "read_failed",
+    error: `读取失败：${String(error)}`,
+  };
+}
+
+/** 后端错误到本包失败码的映射（写侧；沙箱拒绝原样透出, 其余补「写入失败」前缀）。 */
+function writeFailure(error: unknown): ReplaceOutcome & { path?: string } {
+  if (error instanceof MdFileError && error.code === "FS_STALE_VERSION") {
+    return {
+      ok: false,
+      code: "file_changed",
+      error:
+        "目标文件在读取与写回之间被外部改动（版本已变），已放弃写入；请重新 structure 后再改",
+    };
+  }
+  if (error instanceof MdFileError && error.code === "FS_SANDBOX_DENIED") {
+    return { ok: false, code: "write_failed", error: error.message };
+  }
+  const detail = error instanceof MdFileError ? error.message : String(error);
+  return { ok: false, code: "write_failed", error: `写入失败：${detail}` };
+}
+
+/**
+ * 落盘：解析 → 读原文 → 纯函数校验 / 替换 → `io.writeText` 带版本写回。
+ *
+ * 读→写之间的外部改动由后端按版本守卫拒绝（`FS_STALE_VERSION` → `file_changed`）;
+ * 本模块不再自建临时文件与 TOCTOU 复核（项目级追踪文档的 D2 / D3）。
+ * @param filePath 目标文件路径（相对路径按 `io` 的基准目录解析）。
+ * @param edits 按节改写指令（坐标基于原文）。
+ * @param options 文件读写面与读取上限。
+ */
+export async function replaceSectionsFile(
+  filePath: string,
+  edits: SectionEdit[],
+  options: ReplaceFileOptions = {},
+): Promise<ReplaceOutcome & { path?: string }> {
+  const io = options.io ?? nodeMdFileIo();
+  const maxBytes = options.maxBytes;
+  let target: MdFileTarget;
+  try {
+    target = await io.resolve(filePath);
+  } catch (error) {
+    return readFailure(error, filePath);
+  }
+  let info: MdFileInfo | undefined;
+  try {
+    info = await io.stat(target);
+  } catch (error) {
+    return readFailure(error, target.displayPath);
+  }
+  if (info === undefined) {
+    return {
+      ok: false,
+      code: "read_failed",
+      error: `文件不存在：${target.displayPath}`,
+    };
+  }
+  if (info.type !== "file") {
+    return {
+      ok: false,
+      code: "read_failed",
+      error: "目标不是常规文件，拒绝改写",
+    };
+  }
+  if (
+    maxBytes !== undefined &&
+    info.size !== undefined &&
+    info.size > maxBytes
+  ) {
+    return {
+      ok: false,
+      code: "read_failed",
+      error: `文件大小 ${info.size}B 超过上限 ${maxBytes}B`,
     };
   }
   let raw: string;
   try {
-    // 写路径禁止有损解码（读面可以）：非 UTF-8 一律拒写，否则会把字节静默改成 U+FFFD
-    raw = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-  } catch {
-    return {
-      ok: false,
-      code: "not_utf8",
-      error: "目标不是合法 UTF-8，拒绝改写",
-    };
-  }
-  if (raw.includes("\u0000")) {
-    return {
-      ok: false,
-      code: "read_failed",
-      error: "疑似二进制文件，拒绝改写",
-    };
+    raw = await io.readText(target);
+  } catch (error) {
+    return readFailure(error, target.displayPath);
   }
   const outcome = replaceSections(raw, edits);
   if (!outcome.ok) return outcome;
-
-  const tmp = `${target}.md-logic-${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  /** 清理临时文件（失败忽略：目标文件本身未被改动）。 */
-  const cleanupTmp = async (): Promise<void> => {
-    try {
-      await unlink(tmp);
-    } catch {
-      // 忽略
-    }
-  };
   try {
-    await writeFile(tmp, outcome.text, "utf8");
-    if (mode !== undefined) await chmod(tmp, mode); // 保留原权限位（chmod 不受 umask 影响）
-    // 读→rename 的 TOCTOU 复核（尽力而为；残余窗口 = 本次 stat 到 rename 之间的微秒级）：
-    // 文件被外部改写 / 原子替换（ino 变）→ 拒写，避免把基于旧内容的改写盖上去
-    const now = await stat(target);
-    if (signature !== undefined && !sameSignature(signature, now)) {
-      await cleanupTmp();
-      return {
-        ok: false,
-        code: "file_changed",
-        error:
-          "目标文件在读取与写回之间被外部改动（size / mtime / ino 变），已放弃写入；请重新 structure 后再改",
-        details: { size: now.size, mtimeMs: now.mtimeMs },
-      };
-    }
-    await rename(tmp, target);
-  } catch (err) {
-    await cleanupTmp();
-    return {
-      ok: false,
-      code: "write_failed",
-      error: `写入失败：${String(err)}`,
-    };
+    // 版本基准来自写前那次 stat; 期间文件被改动时后端拒绝, 不会把旧内容盖上去
+    await io.writeText(target, outcome.text, {
+      kind: "replaceIfVersion",
+      version: info.version,
+    });
+  } catch (error) {
+    return writeFailure(error);
   }
-  return { ...outcome, path: target };
+  return { ...outcome, path: target.displayPath };
 }

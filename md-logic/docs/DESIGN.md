@@ -34,10 +34,16 @@ Markdown 的**逻辑结构层**：把一篇文档读成「节树（标题层级 
 1. **① 定位**：按标题取候选（同标题多节**由行范围消歧**，不因此拒绝）；找不到 → `section_missing`；范围与当前树不符 → `section_drift`（带当前范围），行号越界先判 `range_out_of_bounds`；带 `section_hash` 且不符 → `section_stale`。`section_ambiguous` 只在定位结果为空时兜底（内部错误，正常不可达）。
 2. **①.5 content 结构守卫**（空串 = 删除该节，跳过）：首行必须是标题行（ATX / setext）→ 否则 `content_invalid`；setext 且目标节前一行非空 → 拒绝（会吞并上一段）；首行层级须与目标节一致（文本可不同 = 合法重命名）；首行**之外**不得出现 ≤ 目标层级的标题；**吞节裁决**：把 content 代进目标节范围**重新解析**、比较「改前 / 改后」的节大纲——目标节**之后**（且不在其子树内）的节有丢失即拒（判据文本与落盘文本同口径：剥掉 content 的单个尾随换行）；启发式扫描 `unclosedBlockReason()` 只用于给出可读成因文案（未闭合围栏 / 注释的行号），不参与判据。
 3. **② 重叠拒绝**：同一批 edits 的节区间相交（父节与其子节同时被改）→ `overlap`。
-4. **③ 原子写**：读文件（记录内容 hash）→ 生成新内容 → 临时文件 + `rename`（保权限）→ 期间文件被外部改动 → `file_changed`（不落盘）。
+4. **③ 落盘**：解析目标（`MdFileIo.resolve`）→ 读元信息（版本 / 类型 / 大小）→ 读原文 → 生成新内容 → `io.writeText` 带 `replaceIfVersion` 写回。插件侧 `io` 是 `ctx.fs` 实现：围栏 / 版本守卫 / 原子写都由宿主后端保证，期间文件被外部改动 → `FS_STALE_VERSION` 映射成 `file_changed`（不落盘）；库面缺省是 `nodeMdFileIo()`，同样按版本令牌自比一次。
 5. 返回值分两路：`ok: true` + 新结构 / 变更摘要；`ok: false` + 上述码之一 + 可读文案。
 
-**失败码全集**（`EditFailureCode`，12 个）：`edits_invalid`（入参形状）/ `content_invalid`（结构守卫）/ `section_missing` / `section_ambiguous` / `section_drift`（范围与树不符）/ `section_stale`（内容 hash 不符）/ `range_out_of_bounds` / `overlap` / `read_failed` / `not_utf8` / `write_failed` / `file_changed`（读→写之间被外部改动）。
+**失败码全集**（`EditFailureCode`，12 个）：`edits_invalid`（入参形状）/ `content_invalid`（结构守卫）/ `section_missing` / `section_ambiguous` / `section_drift`（范围与树不符）/ `section_stale`（内容 hash 不符）/ `range_out_of_bounds` / `overlap` / `read_failed` / `not_utf8`（含 NUL 的二进制文件）/ `write_failed` / `file_changed`（读→写之间被外部改动, 后端版本守卫拒绝）。
+
+### 文件读写面（`src/io.ts` + `src/ctx-fs-io.ts`）
+
+- `MdFileIo`（`resolve` / `stat` / `readText` / `writeText`）是本包唯一的文件入口：插件侧由 `apply` 注入 `ctx.fs` 实现，库面 / 单测缺省用 `nodeMdFileIo()`。
+- `ctx.fs` 实现逐行仿官方 `write` / `edit`：会话沙箱策略 → `ctx.fs.resolve`（cwd 由 `ctx.workingDirectory.ensure` 给, 不回落 `process.cwd()`）→ `fs/write-intent` 瀑布 → `ctx.fs.writeText` → `fs/observed`；后端 `FsError` 码在 `ctx-fs-io.ts` 一处映射，`edit.ts` 再折成对外 `EditFailureCode`。
+- 服务缺失不回落 `node:fs`：工具调用返回可行动错误，否则围栏形同虚设。
 
 ## 取舍
 
