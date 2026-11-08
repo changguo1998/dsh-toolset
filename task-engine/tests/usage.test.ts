@@ -61,23 +61,37 @@ function fakes(options: {
   projectionThrows?: boolean;
   pressure?: number;
   pressureThrows?: boolean;
+  /** 旧宿主（只有已弃用的 `stateOf`，没有 `snapshot`）。 */
+  legacyRegistry?: boolean;
 }): {
   resolve<T>(name: string): T | undefined;
   warns: string[];
-  calls: { stateOf: number; measure: number };
+  calls: { stateOf: number; snapshot: number; measure: number };
 } {
-  const calls = { stateOf: 0, measure: 0 };
+  const calls = { stateOf: 0, snapshot: 0, measure: 0 };
   const warns: string[] = [];
   const services: Record<string, unknown> = {
-    sessionProjections: {
-      stateOf: (_session: unknown, key: string) => {
-        calls.stateOf += 1;
-        assert.equal(key, "tokenUsage");
-        if (options.projectionThrows === true)
-          throw new Error("projection 崩了");
-        return options.projectionState;
-      },
-    },
+    sessionProjections: options.legacyRegistry
+      ? {
+          stateOf: (_session: unknown, key: string) => {
+            calls.stateOf += 1;
+            assert.equal(key, "tokenUsage");
+            if (options.projectionThrows === true)
+              throw new Error("projection 崩了");
+            return options.projectionState;
+          },
+        }
+      : {
+          snapshot: (_session: unknown, keys?: readonly string[]) => {
+            calls.snapshot += 1;
+            assert.deepEqual(keys, ["tokenUsage"]);
+            if (options.projectionThrows === true)
+              throw new Error("projection 崩了");
+            return options.projectionState === undefined
+              ? { values: {} }
+              : { values: { tokenUsage: options.projectionState } };
+          },
+        },
     tokenMeter: {
       measure: (_session: unknown) => {
         calls.measure += 1;
@@ -138,7 +152,26 @@ describe("measureChildTokens", () => {
     });
     assert.deepEqual(fields, { tokens: 999, tokensKind: "pressure" });
     assert.equal(f.warns.length, 1);
-    assert.match(f.warns[0] ?? "", /sessionProjections\.stateOf 失败/);
+    assert.match(f.warns[0] ?? "", /读 tokenUsage 投影失败/);
+    assert.equal(f.calls.snapshot, 1, "走宿主公开的 snapshot 读面");
+    assert.equal(f.calls.stateOf, 0, "不再调已弃用的 stateOf");
+  });
+
+  it("旧宿主只有 stateOf → 回退读法仍可用（不再触发弃用告警路径）", () => {
+    const f = fakes({
+      legacyRegistry: true,
+      projectionState: sampled(777),
+      pressure: 100,
+    });
+    const fields = measureChildTokens({
+      session: { id: "child" },
+      resolve: f.resolve,
+      warn: (m) => f.warns.push(m),
+    });
+    assert.deepEqual(fields, { tokens: 777, tokensKind: "usage" });
+    assert.equal(f.calls.stateOf, 1);
+    assert.equal(f.calls.snapshot, 0);
+    assert.deepEqual(f.warns, []);
   });
 
   it("两个服务都拿不到 / 都取不到数 → 空字段", () => {
@@ -166,6 +199,6 @@ describe("measureChildTokens", () => {
       warn: (m) => f.warns.push(m),
     });
     assert.deepEqual(fields, {});
-    assert.deepEqual(f.calls, { stateOf: 0, measure: 0 });
+    assert.deepEqual(f.calls, { stateOf: 0, snapshot: 0, measure: 0 });
   });
 });

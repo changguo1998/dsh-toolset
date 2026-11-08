@@ -47,6 +47,8 @@ function fakeCtx() {
     "next-step": [],
     "next-turn": [],
   };
+  /** 旧读面 `stateOf` 被调用的次数：新路径（`snapshot`）命中时应保持 0。 */
+  let projectionsStateOfCalls = 0;
   return {
     followups,
     steers,
@@ -55,6 +57,9 @@ function fakeCtx() {
     provided,
     session,
     inbox,
+    get projectionsStateOfCalls() {
+      return projectionsStateOfCalls;
+    },
     get listener() {
       return listener;
     },
@@ -89,8 +94,15 @@ function fakeCtx() {
         }
         if (name === "sessionProjections") {
           return {
-            stateOf: (_session: unknown, key: string) =>
-              key === "inbox" ? inbox : undefined,
+            // 宿主 0.2.2-rc.1 起的公开读面（本包优先走它）
+            snapshot: (_session: unknown, keys?: readonly string[]) => ({
+              values: keys?.[0] === "inbox" ? { inbox } : {},
+            }),
+            // 旧宿主读面：新路径命中时不应被调用（个别用例会覆盖成抛错版本）
+            stateOf: (_session: unknown, key: string) => {
+              projectionsStateOfCalls += 1;
+              return key === "inbox" ? inbox : undefined;
+            },
           };
         }
         // 定时器统一面：假宿主提供 clock，避免每次装配都走回落告警（回落路径由
@@ -601,6 +613,11 @@ test("apply：inbox 非本引擎消息不计入去重；inbox 读取抛错 → �
     fakeA.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
     await tick();
     assert.equal(fakeA.steers.length, 2, "非本引擎来源不计入 → 兜底注入");
+    assert.equal(
+      fakeA.projectionsStateOfCalls,
+      0,
+      "inbox 读面走 snapshot，不碰已弃用的 stateOf",
+    );
 
     // ② sessionProjections.stateOf 抛错：不阻断链路 → 按可见投影判断，照旧注入
     const fakeB = fakeCtx();
@@ -625,6 +642,30 @@ test("apply：inbox 非本引擎消息不计入去重；inbox 读取抛错 → �
     fakeB.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
     await tick();
     assert.equal(fakeB.steers.length, 2, "inbox 读取失败 fail-open → 照旧注入");
+
+    // ③ 新读面 sessionProjections.snapshot 抛错：同样 fail-open，不阻断注入
+    const fakeC = fakeCtx();
+    await apply(
+      {
+        ...fakeC.ctx,
+        get: (name: string) =>
+          name === "sessionProjections"
+            ? {
+                snapshot: () => {
+                  throw new Error("snapshot boom");
+                },
+              }
+            : fakeC.ctx.get(name),
+      },
+      { stateDir: dir },
+    );
+    registerGuide(fakeC);
+    fakeC.createdListener?.({ id: "s1" });
+    await tick();
+    assert.equal(fakeC.steers.length, 1);
+    fakeC.listener?.({ id: "s1" }, { type: "step/end", data: { turn: 1 } });
+    await tick();
+    assert.equal(fakeC.steers.length, 2, "snapshot 读取失败同样 fail-open");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

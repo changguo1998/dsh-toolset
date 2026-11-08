@@ -11,7 +11,7 @@ import type {
   SubagentsLike,
   TokenMeterLike,
 } from "./host.ts";
-import { SUBAGENT_PROVIDER } from "./host.ts";
+import { readProjection, SUBAGENT_PROVIDER } from "./host.ts";
 import type { TokenKind } from "./types.ts";
 
 /**
@@ -57,13 +57,11 @@ export function measureChildTokens(opts: {
   if (projections !== undefined) {
     try {
       const usage = readUsageOutputTokens(
-        projections.stateOf(session, "tokenUsage"),
+        readProjection(projections, session, "tokenUsage"),
       );
       if (usage !== undefined) return { tokens: usage, tokensKind: "usage" };
     } catch (err) {
-      warn(
-        `sessionProjections.stateOf 失败（回退 pressure 口径）：${String(err)}`,
-      );
+      warn(`读 tokenUsage 投影失败（回退 pressure 口径）：${String(err)}`);
     }
   }
   const tokenMeter = resolve<TokenMeterLike>("tokenMeter");

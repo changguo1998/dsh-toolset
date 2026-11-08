@@ -59,9 +59,37 @@ export interface TokenMeterLike {
   measure(session: unknown): { totalTokens?: number };
 }
 
-/** 宿主会话投影注册表（`ctx.sessionProjections`）最小形态：只读某会话的投影状态 */
+/** 宿主的投影快照（`sessionProjections.snapshot()` 的结构子集）。 */
+export interface ProjectionSnapshotLike {
+  values?: Record<string, unknown>;
+}
+
+/**
+ * 宿主会话投影注册表（`ctx.sessionProjections`）最小形态。
+ *
+ * 只读某会话的投影状态：优先宿主公开的 `snapshot(session, keys)`（非弃用面，
+ * 返回 `{values}`）；宿主旧版没有 `snapshot` 时才回退已弃用的 `stateOf`。
+ */
 export interface ProjectionRegistryLike {
-  stateOf(session: unknown, key: string): unknown;
+  snapshot?(session: unknown, keys?: readonly string[]): ProjectionSnapshotLike;
+  /** @deprecated 宿主 0.2.2-rc.1 起弃用；仅作旧宿主回退。 */
+  stateOf?(session: unknown, key: string): unknown;
+}
+
+/** 读一个投影单元的状态（`snapshot` 优先，旧宿主回退 `stateOf`；都不可用 → undefined）。 */
+export function readProjection(
+  registry: ProjectionRegistryLike | undefined,
+  session: unknown,
+  key: string,
+): unknown {
+  if (registry === undefined) return undefined;
+  if (typeof registry.snapshot === "function") {
+    return registry.snapshot(session, [key])?.values?.[key];
+  }
+  if (typeof registry.stateOf === "function") {
+    return registry.stateOf(session, key);
+  }
+  return undefined;
 }
 
 /** 子代理 provider（一次性、不继承父上下文；fork 非本包职责） */

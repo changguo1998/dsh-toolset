@@ -69,10 +69,37 @@ export interface ProjectionDefLike {
   readonly stateVersion: number;
 }
 
+/** 宿主的投影快照（`sessionProjections.snapshot()` 的结构子集）。 */
+export interface ProjectionSnapshotLike {
+  values?: Record<string, unknown>;
+}
+
 /** 宿主投影注册表（`SessionProjectionRegistry` 的结构子集）。 */
 export interface ProjectionRegistryLike {
   register(definition: ProjectionDefLike): () => void;
-  stateOf(session: unknown, key: string): unknown;
+  /**
+   * 宿主公开的读面：`snapshot(session, keys)` 给一致切面（`{values}`）。
+   * 0.2.2-rc.1 起 `stateOf` 弃用，优先走这里。
+   */
+  snapshot?(session: unknown, keys?: readonly string[]): ProjectionSnapshotLike;
+  /** @deprecated 宿主 0.2.2-rc.1 起弃用；仅作旧宿主回退。 */
+  stateOf?(session: unknown, key: string): unknown;
+}
+
+/** 读一个投影单元的状态（`snapshot` 优先，旧宿主回退 `stateOf`；都不可用 → undefined）。 */
+export function readProjection(
+  registry: ProjectionRegistryLike | undefined,
+  session: unknown,
+  key: string,
+): unknown {
+  if (registry === undefined) return undefined;
+  if (typeof registry.snapshot === "function") {
+    return registry.snapshot(session, [key])?.values?.[key];
+  }
+  if (typeof registry.stateOf === "function") {
+    return registry.stateOf(session, key);
+  }
+  return undefined;
 }
 
 /** 宿主会话（`Session` 的结构子集）。 */
@@ -333,7 +360,16 @@ export function apply(
     return list.length === 1 ? list[0] : undefined;
   };
 
-  /** 读状态：宿主投影注册表是权威读面（缺行时宿主自行惰性折叠）。 */
+  /**
+   * 读状态：宿主投影注册表是权威读面（缺行时宿主自行惰性折叠）。
+   *
+   * 这里**不走** `snapshot()`：`sessionContext` 是本包注册的 host-only 单元（无 `wire`），
+   * 宿主文档明写 host-only 单元不进 `snapshot`（"other units, including Host-only units
+   * without `wire`, are neither folded nor advanced by this read"）。非弃用的替代只有
+   * 「`await register()` 拿到的 handle.stateOf(session)」——本包 `apply` 是同步函数、未保留
+   * 该句柄，故此处仍读注册表级 `stateOf`（宿主 0.2.2-rc.1 起弃用）；改成 handle 读法需要把
+   * `apply` 改成异步，属独立改动，见追踪文档「偏差」与 BACKLOG。
+   */
   const stateFor = (
     session: HostSessionLike | undefined,
   ): SessionContextState | undefined => {
@@ -361,10 +397,15 @@ export function apply(
     session: HostSessionLike | undefined,
   ): SessionStatsLike | undefined => {
     if (session === undefined || registry === undefined) return undefined;
-    if (typeof registry.stateOf !== "function") return undefined;
+    if (
+      typeof registry.snapshot !== "function" &&
+      typeof registry.stateOf !== "function"
+    ) {
+      return undefined;
+    }
     let raw: unknown;
     try {
-      raw = registry.stateOf(session, STATS_KEY);
+      raw = readProjection(registry, session, STATS_KEY);
     } catch (err) {
       warn(`sessionStats 读面失败：${String(err)}`);
       return undefined;

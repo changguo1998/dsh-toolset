@@ -83,6 +83,8 @@ export interface FakeRegistry extends ProjectionRegistryLike {
   registered: number;
   registerCalls: number;
   stateOfCalls: number;
+  /** 新读面调用次数（`snapshot`）; 与 `stateOfCalls` 一起钉住「优先走 snapshot」. */
+  snapshotCalls: number;
   /** 逐事件 eager 驱动一个会话（返回折叠后状态的引用）. */
   drive(session: TestSession): unknown;
   /** 已缓存单元状态（未折叠过为 undefined）. */
@@ -213,6 +215,7 @@ function createRegistry(options: AssembleOptions): FakeRegistry {
     registered: 0,
     registerCalls: 0,
     stateOfCalls: 0,
+    snapshotCalls: 0,
     register(definition) {
       registry.registerCalls += 1;
       if (options.projectionRegisterThrows === true) {
@@ -225,6 +228,17 @@ function createRegistry(options: AssembleOptions): FakeRegistry {
         if (index >= 0) defs.splice(index, 1);
         registry.registered -= 1;
       };
+    },
+    snapshot(target, keys) {
+      registry.snapshotCalls += 1;
+      const key = keys?.[0];
+      const values: Record<string, unknown> = {};
+      const readStateOf = registry.stateOf;
+      if (key !== undefined && readStateOf !== undefined) {
+        const value = readStateOf.call(registry, target, key);
+        if (value !== undefined) values[key] = value;
+      }
+      return { values };
     },
     stateOf(target, key) {
       registry.stateOfCalls += 1;

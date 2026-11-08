@@ -141,9 +141,32 @@ interface ToolsRegistrar {
   register(def: unknown): void;
 }
 
-/** 会话投影注册表最小形态（`ctx.get('sessionProjections')`；只读某会话的投影状态）。 */
+/** 会话投影注册表最小形态（`ctx.get('sessionProjections')`；只读某会话的投影状态）。
+ *  优先宿主公开的 `snapshot(session, keys)`；旧宿主没有它时才回退已弃用的 `stateOf`。 */
 interface ProjectionRegistryLike {
-  stateOf(session: unknown, key: string): unknown;
+  snapshot?(
+    session: unknown,
+    keys?: readonly string[],
+  ): {
+    values?: Record<string, unknown>;
+  };
+  /** @deprecated 宿主 0.2.2-rc.1 起弃用；仅作旧宿主回退。 */
+  stateOf?(session: unknown, key: string): unknown;
+}
+
+/** 读一个投影单元的状态（`snapshot` 优先，旧宿主回退 `stateOf`；都不可用 → undefined）。 */
+function readProjection(
+  registry: ProjectionRegistryLike,
+  session: unknown,
+  key: string,
+): unknown {
+  if (typeof registry.snapshot === "function") {
+    return registry.snapshot(session, [key])?.values?.[key];
+  }
+  if (typeof registry.stateOf === "function") {
+    return registry.stateOf(session, key);
+  }
+  return undefined;
 }
 
 /** ctx 结构面（只声明本插件用到的成员）。 */
@@ -380,7 +403,7 @@ function pendingInboxMessages(
     return [];
   }
   try {
-    const state = projections.stateOf(session, "inbox") as {
+    const state = readProjection(projections, session, "inbox") as {
       "next-step"?: unknown;
       "next-turn"?: unknown;
     } | null;

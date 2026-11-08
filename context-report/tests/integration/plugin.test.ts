@@ -74,8 +74,10 @@ test("投影单元: 宿主读面折叠出 canonical token 分桶, 无关事件�
   const a = assemble();
   const s1 = a.sessions[0];
   assert.ok(s1 !== undefined);
+  const readStateOf = a.registry.stateOf;
+  assert.ok(readStateOf !== undefined, "假注册表保留旧读面供回退用例");
   assert.deepEqual(
-    a.registry.stateOf(s1, PROJECTION_KEY),
+    readStateOf.call(a.registry, s1, PROJECTION_KEY),
     CANONICAL_STATE,
     "宿主惰性整段折叠的结果",
   );
@@ -154,6 +156,10 @@ test("工具面 state / list: canonical 状态与会话清单", async () => {
   const caller = { agent: { session: a.sessions[0] } };
   const state = (await a.execute({ action: "state" }, caller)) as unknown;
   assert.deepEqual(state, CANONICAL_TOOL_STATE);
+  // `sessionStats` 读面: 优先宿主公开的 snapshot()（0.2.2-rc.1 起 stateOf 已弃用）
+  const report = (await a.execute({ action: "report" }, caller)) as unknown;
+  assert.ok(report !== undefined);
+  assert.ok(a.registry.snapshotCalls > 0, "sessionStats 经 snapshot 读");
 
   const list = (await a.execute({ action: "list" }, caller)) as {
     sessions: { id: string; tracked: boolean }[];

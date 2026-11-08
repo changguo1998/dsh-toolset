@@ -79,12 +79,19 @@
   - 优先级: P3（文档准确性, 不影响运行）。
   - 来源: 重生成 §1 / §2 时的途中发现（`docs/archived/2026-11-08-host-packages-regen.md`「途中发现」）。
 
-- **#1 `sessionProjections.stateOf(session, key)` 弃用迁移**〔进行中: 2026-11-07〕（登记日: 2026-11-07）
+- **`context-report` 的 `sessionContext` 改经注册 handle 读，弃掉注册表级 `stateOf`**（登记日: 2026-11-08）
 
-  - 现状: rc.1 弃用该读法并打运行时警告; 本仓 `task-engine`（`tokenUsage`）、`context-report`（`sessionStats` / `sessionContext`）、`rule-engine` 用它读宿主投影单元.
-  - 期望: 能拿到领域服务的改读领域服务（如 `tokenMeter`）, 其余改用宿主公开的投影 handle 或后续替代 API; 迁移后不再出现弃用警告, 功能面零变化.
-  - 优先级: P2.
-  - 来源: 同上（承接项 #5）。
+  - 现状: 该单元是本包注册的 **host-only** 单元（`context-report/src/main.ts:331-344`，刻意不声明 `wire`），宿主的 `snapshot(session, keys)` 按文档不覆盖 host-only 单元；非弃用替代只有 `await register()` 得到的 `handle.stateOf(session)`，而本包 `apply` 是同步函数、丢弃了 `register()` 的返回值。故 `sessionContext` 仍读注册表级 `stateOf`（宿主 0.2.2-rc.1 起弃用，首次读打一条告警）。
+  - 期望: `apply` 改异步并在注册后保留 `ProjectionHandle`，`stateFor` 改走 `handle.stateOf(session)`；旧宿主（`register()` 返回注销函数而非 handle）保留现状回退。功能面零变化，弃用告警消失。
+  - 优先级: P3（告警噪音，不影响功能）。
+  - 来源: `stateOf` 弃用迁移任务的偏差（`docs/archived/2026-11-08-stateof-deprecation-migration.md`「偏差」）。
+
+- **`task-engine` 集成用例的工具 schema 断言过期（`required` 多了 `enumeration`）**（登记日: 2026-11-08）
+
+  - 现状: `task-engine/tests/integration/plugin.test.ts:87` 断言参数 schema 的必填集合为 `['parent_id', 'children']`，实际多出 `enumeration` → `pnpm -C task-engine run test:integration` 有 1 例常红。在 `HEAD`（`b23e3f22`）上 stash 掉后续改动重跑仍红，确认是先前遗留（该字段进 schema 后断言未同步）。
+  - 期望: 断言按当前 schema 更新（或改成「必填集合包含 …」的弱断言），集成用例恢复全绿。
+  - 优先级: P3（测试债，不影响运行）。
+  - 来源: `stateOf` 弃用迁移的途中发现（同文件「途中发现」）。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
