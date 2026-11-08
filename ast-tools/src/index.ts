@@ -11,6 +11,9 @@
  * 记录含安装路径的日志，并注册**降级版工具**——每次调用返回含 `INSTALL_GUIDANCE` 的错误值，
  * 不假装成功（fail-closed），但模型侧仍可发现该能力并读到安装指引（口径对齐 code-map）。
  * 模型侧工具面：`ast_query`（search/outline/rules）+ `ast_replace`（默认 dry-run），见 ast-tools/src/tools.ts。
+ *
+ * 文件读写只经 `AstFileIo`（`ast-tools/src/io.ts`）：插件侧由 `apply` 注入 `ctx.fs` 实现（`ast-tools/src/ctx-fs-io.ts`），
+ * 库面 / 示例 / 单测缺省用 `node:fs` 实现。`ctx.fs` 缺失时不回落 `node:fs`, 工具调用返回可行动错误。
  */
 
 import {
@@ -28,7 +31,11 @@ import type {
   ReplaceResult,
   RunRulesParams,
   SearchParams,
+  ToolExecLike,
 } from "./types.ts";
+import type { AstFileIo } from "./io.ts";
+import type { AstFsHostLike } from "./ctx-fs-io.ts";
+import { ctxAstFileIo } from "./ctx-fs-io.ts";
 import { searchAst } from "./search.ts";
 import { replaceAst } from "./replace.ts";
 import { outlineFile } from "./outline.ts";
@@ -62,6 +69,30 @@ export {
   unavailableOps,
 } from "./tools.ts";
 export type { AstOperations } from "./tools.ts";
+export {
+  AstFileError,
+  astFileErrorText,
+  isAstFileErrorCode,
+  nodeAstFileIo,
+} from "./io.ts";
+export type {
+  AstFileErrorCode,
+  AstFileInfo,
+  AstFileIo,
+  AstFileTarget,
+  AstResolveOptions,
+  AstWriteIntent,
+  AstWriteOutcome,
+  NodeAstFileIoOptions,
+} from "./io.ts";
+export { ctxAstFileIo } from "./ctx-fs-io.ts";
+export type {
+  AstFsHostLike,
+  AstFsServiceLike,
+  AstObservation,
+  AstSandboxPolicyServiceLike,
+  AstWorkingDirectoryLike,
+} from "./ctx-fs-io.ts";
 export { normalizeLanguage } from "./langs.ts";
 export { searchAst } from "./search.ts";
 export { replaceAst } from "./replace.ts";
@@ -86,16 +117,20 @@ export type {
   RuleSource,
   RunRulesParams,
   SearchParams,
+  ToolExecLike,
 } from "./types.ts";
 
 /** 插件名（bundle 标识，cordis.patch.yml insert 条目同名）。 */
 export const name = "ast-tools";
 
-/** 注入面：tools（注册 ast_query / ast_replace；二进制缺失时注册降级版，调用返回安装指引）。 */
-export const inject = ["tools"];
+/** 注入面：tools 注册工具; fs 是 `ast_replace` 的文件读写面（缺它时工具调用返回可行动错误）。 */
+export const inject = ["tools", "fs"];
 
-/** 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger、工具注册面与服务读取口。 */
-export interface BundleHost {
+/**
+ * 结构化宿主 ctx（最小 DSH cordis 形态）：可选 logger、工具注册面、服务读取口,
+ * 另含 `AstFsHostLike`（`fs` / `workingDirectory` / `sandboxPolicy` / `waterfall` / `emit`）。
+ */
+export interface BundleHost extends AstFsHostLike {
   logger?(ns: string): {
     info(message: string): void;
     warn?(message: string): void;
@@ -128,8 +163,8 @@ export interface AstToolsBundle {
   readonly bin: string;
   /** AST 模式搜索。 */
   search(params: SearchParams): Promise<AstMatch[]>;
-  /** 结构化替换（可选写回）。 */
-  replace(params: ReplaceParams): Promise<ReplaceResult>;
+  /** 结构化替换（可选写回；`exec` 提供相对路径基准、取消信号与围栏会话）。 */
+  replace(params: ReplaceParams, exec?: ToolExecLike): Promise<ReplaceResult>;
   /** 文件大纲。 */
   outline(params: OutlineParams): Promise<OutlineFile[]>;
   /** 规则执行（YAML 规则文件或内联文本）。 */
@@ -141,10 +176,15 @@ export interface AstToolsBundle {
 /**
  * 核心工厂：探测二进制并绑定通用选项，返回 bundle 实例。
  * 二进制缺失时抛 AstGrepMissingError（报错含安装路径）。
+ * @param config 插件配置（二进制路径与超时）。
+ * @param deadline 子进程超时排期（`apply` 装配期注入统一面）。
+ * @param ioFor 按调用上下文构造文件读写面; 缺省不给——`replace` 用 `nodeAstFileIo()`
+ *   （库面 / 示例 / 单测口径）。插件侧由 `apply` 传入 `ctx.fs` 实现, 不回落 `node:fs`。
  */
 export function createAstToolsBundle(
   config: AstToolsConfig = {},
   deadline?: Deadline,
+  ioFor?: (exec?: ToolExecLike) => AstFileIo,
 ): AstToolsBundle {
   const bin = ensureAstGrepBin(config.bin);
   const base: AstOptions = {
@@ -155,7 +195,8 @@ export function createAstToolsBundle(
   return {
     bin,
     search: (params) => searchAst(params, base),
-    replace: (params) => replaceAst(params, base),
+    replace: (params, exec) =>
+      replaceAst(params, base, ioFor === undefined ? undefined : ioFor(exec)),
     outline: (params) => outlineFile(params, base),
     rules: (params) => runRules(params, base),
     dispose(): void {
@@ -184,7 +225,9 @@ export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
   const deadline = createDeadline(timers.scoped, ctx);
   let bundle: AstToolsBundle;
   try {
-    bundle = createAstToolsBundle(config, deadline);
+    bundle = createAstToolsBundle(config, deadline, (exec) =>
+      ctxAstFileIo(ctx, exec),
+    );
   } catch (error) {
     if (error instanceof AstGrepMissingError) {
       ctx

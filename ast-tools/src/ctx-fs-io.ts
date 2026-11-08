@@ -1,0 +1,256 @@
+/**
+ * `ctx.fs` 实现（项目级追踪文档的 D2 / D3）：逐行仿照官方 `write` / `edit` 的五步。
+ *
+ * 1. 会话策略: `ctx.fs.sandboxMode` 有值（挂着围栏后端）时取 `ctx.sandboxPolicy.resolve({ session })`;
+ * 2. 解析: `ctx.fs.resolve(path, { cwd, signal })`, `cwd` 由 `ctx.workingDirectory.ensure(agent, signal)` 给;
+ * 3. 意图: `ctx.waterfall("fs/write-intent", target, exec, () => 自身意图)`;
+ * 4. 写入: `ctx.fs.writeText(target, text, intent, signal, sandboxPolicy)`;
+ * 5. 观察: 写后 `ctx.emit("fs/observed", target, { kind: "present", version }, exec)`, 读后同理。
+ *
+ * 与官方片段的两处有意差异（都写进包级追踪文档的「实现记录」）：
+ * - 意图瀑布的兜底返回**本包自己的** `replaceIfVersion`（官方 `write` 自身没有版本基准,
+ *   兜底才是 `() => undefined`）。`dsh-base` 缺省关闭观测策略, 兜底成 `undefined` 会让版本守卫静默消失;
+ * - 读后补一条 `fs/observed` 观察记录: 观测策略打开时, 先读后写才不会被判成 `FS_NOT_OBSERVED`。
+ *
+ * 服务缺失（宿主没挂 `ctx.fs`）时**不回落** `node:fs`, 直接返回可行动错误（跨包统一口径）。
+ *
+ * 错误：后端抛的 `FsError` 在这里按码映射成本包 `AstFileError`（中文文案在 `ast-tools/src/io.ts` 的
+ * `astFileErrorText`）。`FS_STALE_VERSION` 对应「文件在读取后被修改, 请重新读取后重试」;
+ * `FS_SANDBOX_DENIED` 原样透出（自带 `[sandbox: …]` 标记与升档指引）。
+ */
+
+import {
+  AstFileError,
+  isAstFileErrorCode,
+  throwIfAborted,
+  type AstFileInfo,
+  type AstFileIo,
+  type AstFileTarget,
+  type AstResolveOptions,
+  type AstWriteIntent,
+  type AstWriteOutcome,
+} from "./io.ts";
+import type { ToolExecLike } from "./types.ts";
+
+/** 宿主 `ctx.fs` 里本包用到的成员（结构面; 本包不 import 宿主包）。 */
+export interface AstFsServiceLike {
+  /** 后端缺省围栏模式; `undefined` = 该后端不围栏。 */
+  readonly sandboxMode?: string;
+  resolve(path: string, opts?: AstResolveOptions): Promise<AstFileTarget>;
+  processPath(target: AstFileTarget): string;
+  stat(
+    target: AstFileTarget,
+    signal?: AbortSignal,
+  ): Promise<AstFileInfo | undefined>;
+  readText(target: AstFileTarget, signal?: AbortSignal): Promise<string>;
+  writeText(
+    target: AstFileTarget,
+    text: string,
+    intent?: AstWriteIntent,
+    signal?: AbortSignal,
+    sandboxPolicy?: unknown,
+  ): Promise<AstWriteOutcome>;
+}
+
+/** 宿主 `ctx.workingDirectory` 里本包用到的成员。 */
+export interface AstWorkingDirectoryLike {
+  ensure(agent: unknown, signal?: AbortSignal): Promise<string>;
+}
+
+/** 宿主 `ctx.sandboxPolicy` 里本包用到的成员（返回的策略本包不解读, 原样回传）。 */
+export interface AstSandboxPolicyServiceLike {
+  resolve(opts?: { session?: unknown }): unknown;
+}
+
+/** 观察记录（宿主 `FsObservation` 的同形子集）。 */
+export type AstObservation =
+  | { readonly kind: "present"; readonly version: string }
+  | { readonly kind: "absent" };
+
+/** 本包消费的宿主面：文件系统是必需项, 其余可选（缺了就按跨包口径降级）。 */
+export interface AstFsHostLike {
+  readonly fs?: AstFsServiceLike | undefined;
+  readonly workingDirectory?: AstWorkingDirectoryLike | undefined;
+  readonly sandboxPolicy?: AstSandboxPolicyServiceLike | undefined;
+  /** 单槽决策瀑布（宿主 `ctx.waterfall`）。 */
+  waterfall?(
+    event: "fs/write-intent",
+    target: AstFileTarget,
+    actor: unknown,
+    next: () =>
+      AstWriteIntent | undefined | Promise<AstWriteIntent | undefined>,
+  ): Promise<AstWriteIntent | undefined>;
+  /** 单槽 / 广播事件（宿主 `ctx.emit`）。 */
+  emit?(
+    event: "fs/observed",
+    target: AstFileTarget,
+    observation: AstObservation,
+    actor: unknown,
+  ): void;
+}
+
+/** 取调用方会话（宿主 `exec.agent.session`)。 */
+function sessionOf(exec: ToolExecLike | undefined): unknown {
+  const agent = exec?.agent;
+  if (typeof agent !== "object" || agent === null) return undefined;
+  return (agent as { session?: unknown }).session;
+}
+
+/** 错误转一行详情。 */
+function detailOf(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/**
+ * 后端抛出的错误转成本包错误: 已经是本包错误就原样抛, 带官方 `code` 的按码映射,
+ * 其余一律 `FS_IO_ERROR`（原始 message 留在括号里）。
+ */
+function mapError(error: unknown): AstFileError {
+  if (error instanceof AstFileError) return error;
+  if (error instanceof Error) {
+    const code = (error as { code?: unknown }).code;
+    if (isAstFileErrorCode(code)) {
+      return new AstFileError(code, error.message, error);
+    }
+  }
+  return new AstFileError("FS_IO_ERROR", detailOf(error), error);
+}
+
+/** 服务缺失时的替身: 每个方法都给出同一条可行动说明, 绝不退回 `node:fs`。 */
+function unavailableAstFileIo(): AstFileIo {
+  const reason =
+    "ctx.fs 不可用（宿主未提供文件系统服务）：ast_replace 只在官方文件围栏内读写, 不退回 node:fs; 请确认 profile 挂载了 fs 后端";
+  const reject = async (): Promise<never> => {
+    throw new AstFileError("FS_UNAVAILABLE", reason);
+  };
+  return {
+    resolve: reject,
+    processPath() {
+      throw new AstFileError("FS_UNAVAILABLE", reason);
+    },
+    stat: reject,
+    readText: reject,
+    writeText: reject,
+  };
+}
+
+/**
+ * 按一次工具调用的上下文构造 `ctx.fs` 实现。
+ * @param host 宿主面（`fs` 缺失时返回替身 io）。
+ * @param exec 本次调用的执行上下文: `agent` 决定相对路径基准与沙箱会话, `signal` 贯穿所有调用。
+ */
+export function ctxAstFileIo(
+  host: AstFsHostLike,
+  exec: ToolExecLike | undefined,
+): AstFileIo {
+  const service = host.fs;
+  if (service === undefined) return unavailableAstFileIo();
+  const execSignal = exec?.signal;
+  const session = sessionOf(exec);
+  const signalOf = (call?: AbortSignal): AbortSignal | undefined =>
+    call ?? execSignal;
+  /** 相对路径基准（官方 `sessionResolveOptions` 的同口径): 无 agent 时交给后端缺省。 */
+  const resolveOptions = async (
+    call?: AbortSignal,
+  ): Promise<AstResolveOptions> => {
+    const signal = signalOf(call);
+    const agent = exec?.agent;
+    if (agent === undefined || host.workingDirectory === undefined) {
+      return signal === undefined ? {} : { signal };
+    }
+    const cwd = await host.workingDirectory.ensure(agent, signal);
+    return signal === undefined ? { cwd } : { cwd, signal };
+  };
+  /** 本次调用的围栏策略; 后端不围栏（`sandboxMode` 缺省）时交给后端自己判。 */
+  const sandboxPolicy = (): unknown => {
+    if (service.sandboxMode === undefined) return undefined;
+    return host.sandboxPolicy?.resolve(
+      session === undefined ? {} : { session },
+    );
+  };
+  const observe = (
+    target: AstFileTarget,
+    observation: AstObservation,
+  ): void => {
+    host.emit?.("fs/observed", target, observation, exec);
+  };
+  return {
+    async resolve(path, opts) {
+      throwIfAborted(signalOf(opts?.signal));
+      const options = await resolveOptions(opts?.signal);
+      try {
+        return await service.resolve(
+          path,
+          opts?.cwd === undefined ? options : { ...options, cwd: opts.cwd },
+        );
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    processPath(target) {
+      return service.processPath(target);
+    },
+    async stat(target, call) {
+      const signal = signalOf(call);
+      throwIfAborted(signal);
+      let info: AstFileInfo | undefined;
+      try {
+        info = await service.stat(target, signal);
+      } catch (error) {
+        throw mapError(error);
+      }
+      observe(
+        target,
+        info === undefined
+          ? { kind: "absent" }
+          : { kind: "present", version: info.version },
+      );
+      return info;
+    },
+    async readText(target, call) {
+      const signal = signalOf(call);
+      throwIfAborted(signal);
+      try {
+        return await service.readText(target, signal);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    async writeText(target, text, intent, call) {
+      const signal = signalOf(call);
+      throwIfAborted(signal);
+      const policy = sandboxPolicy();
+      // 意图瀑布: 有监听者时由它决定（版本守卫 / 观察策略 / 审批）; 无监听者时用本包自己的基准。
+      const own = intent;
+      let effective: AstWriteIntent | undefined = own;
+      if (host.waterfall !== undefined) {
+        try {
+          effective =
+            (await host.waterfall(
+              "fs/write-intent",
+              target,
+              exec,
+              () => own,
+            )) ?? own;
+        } catch (error) {
+          throw mapError(error);
+        }
+      }
+      let outcome: AstWriteOutcome;
+      try {
+        outcome = await service.writeText(
+          target,
+          text,
+          effective,
+          signal,
+          policy,
+        );
+      } catch (error) {
+        throw mapError(error);
+      }
+      observe(target, { kind: "present", version: outcome.version });
+      return { version: outcome.version };
+    },
+  };
+}

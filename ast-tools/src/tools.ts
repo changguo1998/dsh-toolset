@@ -9,6 +9,7 @@ import type {
   OutlineFile,
   OutlineSymbol,
   ReplaceResult,
+  ToolExecLike,
 } from "./types.ts";
 
 /** 渲染行上限（各 action 独立计入）。 */
@@ -27,14 +28,17 @@ export interface AstOperations {
     path: string;
     strictness?: string;
   }): Promise<AstMatch[]>;
-  replace(params: {
-    pattern: string;
-    replacement: string;
-    language: string;
-    path: string;
-    strictness?: string;
-    write?: boolean;
-  }): Promise<ReplaceResult>;
+  replace(
+    params: {
+      pattern: string;
+      replacement: string;
+      language: string;
+      path: string;
+      strictness?: string;
+      write?: boolean;
+    },
+    exec?: ToolExecLike,
+  ): Promise<ReplaceResult>;
   outline(params: {
     path: string;
     language?: string;
@@ -378,7 +382,7 @@ export function astReplaceTool(ops: AstOperations): unknown {
     description:
       "用途: 语法级结构化替换(ast-grep fix 语义), 按 AST 模式匹配并把命中替换为 replacement(可引用 $VAR)。\n" +
       "用法: 默认 dry-run, 只返回预览与命中, 文件保持原样; 确认无误后再用 write:true 写回。\n" +
-      "效果: 写回是整文件重写、无读后改前版本守卫(直接 node:fs 写), 写前请自行确认文件未被并发修改。\n" +
+      "效果: 写回经官方 ctx.fs（受会话沙箱模式约束, 写工作区外需升档）, 并按写前读到的版本做守卫: 期间文件被改动则整次失败、不覆盖。\n" +
       "边界: 单点精确改写优先用 hash_edit(LINE:HASH 行级锚点 + 漂移检测 + 整批原子拒绝); 按语法形态批量改同一写法才用本工具。\n" +
       "相关: hash_edit、ast_query、edit。",
     parameters: {
@@ -407,7 +411,10 @@ export function astReplaceTool(ops: AstOperations): unknown {
         },
       },
     },
-    async execute(args: Record<string, unknown>): Promise<unknown> {
+    async execute(
+      args: Record<string, unknown>,
+      exec?: ToolExecLike,
+    ): Promise<unknown> {
       if (ops.unavailable !== undefined) return { error: ops.unavailable };
       const pattern = str(args, "pattern");
       const replacement = str(args, "replacement");
@@ -425,14 +432,17 @@ export function astReplaceTool(ops: AstOperations): unknown {
       }
       const strictness = str(args, "strictness");
       const write = args.write === true;
-      const result = await ops.replace({
-        pattern,
-        replacement,
-        language,
-        path,
-        write,
-        ...(strictness === undefined ? {} : { strictness }),
-      });
+      const result = await ops.replace(
+        {
+          pattern,
+          replacement,
+          language,
+          path,
+          write,
+          ...(strictness === undefined ? {} : { strictness }),
+        },
+        exec,
+      );
       return result;
     },
     output: {

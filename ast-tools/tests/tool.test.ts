@@ -119,7 +119,7 @@ test("apply 注册 ast_query / ast_replace，契约面完整", () => {
     ["ast_query", "ast_replace"],
   );
   assert.equal(name, "ast-tools");
-  assert.deepEqual(inject, ["tools"]);
+  assert.deepEqual(inject, ["tools", "fs"]);
   for (const def of registered as ToolDef[]) {
     // 宿主强制：output.schema 必须存在且为受支持的 JSON Schema，render 必须是函数
     assert.equal(def.output.schema.type, "object");

@@ -134,8 +134,8 @@ test("apply 接线: 注册 ast_query / ast_replace, 契约面齐全且不订阅�
     assert.equal(def.output.schema.type, "object", `${def.name} output.schema`);
     assert.equal(typeof def.output.render, "function", `${def.name} render`);
   }
-  // 服务面：apply 只读 clock（缺失走回落），不 provide 任何服务
-  assert.deepEqual(host.services.names(), []);
+  // 服务面：apply 只读 clock / fs / workingDirectory（三个都不 provide；假面由装配器装上）
+  assert.deepEqual(host.services.names(), ["fs", "workingDirectory"]);
   assert.equal(host.services.get("clock"), undefined);
   // 事件面：本包无事件消费者，装配后零订阅
   assert.equal(host.events.listenerCount(), 0);
