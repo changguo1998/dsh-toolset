@@ -3,7 +3,7 @@
 // 自 layout.ts 拆出：行内 markdown 解析（parseInlineMarkdown）、块级分类渲染
 // （wrapAssistantLine/wrapCodeLine）。段级样式合成在此完成，ANSI 序列化移交渲染层
 // （segStyle/serializeFrameRow，见 SPEC.md §14）。宽度原语
-// （ANSI_RE/stripAnsi/charWidth/displayWidth）一并迁至此供换行/padding 计算；
+// （SGR 剥离见 `../sanitize.ts`、charWidth/displayWidth）一并迁至此供换行/padding 计算；
 // layout.ts 重导 charWidth/displayWidth，公共导出不变，且不引入 layout↔markdown 循环依赖。
 
 import type { ColorName } from "../../renderer/theme.ts";
@@ -26,12 +26,8 @@ import type { WrapSpec } from "./wrap-core.ts";
 
 // ---------- 宽度原语（由 layout.ts 重导 charWidth/displayWidth） ----------
 
-/** ANSI SGR 转义序列：宽度计算与截断需跳过、原样透传 */
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
-/** 剥离全部 ANSI SGR 转义（displayWidth 前处理，保证宽字符计算不见转义） */
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, "");
-}
+// SGR 剥离口径与「正文放行」共用一份定义（`../sanitize.ts`），见该模块头注释
+import { stripSgr } from "../sanitize.ts";
 
 /** 零宽字符区间表（对齐 Markus Kuhn wcwidth 零宽表，紧凑分组）。
  *  模块级常量：原实现把它声明在 isZeroWidthChar 内，每次调用都重建并线性扫描
@@ -593,7 +589,7 @@ const displayWidthCache = createTextCache<number>();
 export function displayWidth(text: string): number {
   return memo(displayWidthCache, text, () => {
     let w = 0;
-    const chars = Array.from(stripAnsi(text));
+    const chars = Array.from(stripSgr(text));
     for (let i = 0; i < chars.length; i++) w += charWidth(chars[i]!);
     return w;
   });

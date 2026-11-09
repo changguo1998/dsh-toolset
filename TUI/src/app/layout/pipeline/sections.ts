@@ -16,6 +16,7 @@
 // 本层**不碰宽度**、不插任何分隔内容（空行 / step 头 / 回合分隔线都由第 3 步推导）。
 
 import type { NoticeTone } from "../../adapter/types.ts";
+import { sanitizeText } from "../../sanitize.ts";
 import {
   blockKey,
   isUserDelivery,
@@ -600,11 +601,36 @@ function applyTurnEnd(
   };
 }
 
+/**
+ * 交付文本净化（接收层唯一闸门）：只留 SGR，其余 CSI / OSC 与控制符剔除。
+ *
+ * 实时线、结算线、恢复重放、本地交付四条路径都过 `applyDelivery`，净化后文本即节模型的
+ * 唯一事实——宽度 / 折行 / 截断因此只见净化后文本，与写屏口径一致。工具结果（脚本输出）
+ * 常带光标 / 擦行序列，若原样入节，帧序列化会把它写进终端、波及固定边框行（见条目
+ * 「回合区输出时状态行上边框左段缺横线」）。
+ */
+function sanitizeDelivery(delivery: BlockDelivery): BlockDelivery {
+  switch (delivery.kind) {
+    case "text":
+    case "user":
+    case "notice":
+    case "shell":
+      return { ...delivery, text: sanitizeText(delivery.text).text };
+    case "tool-call":
+      return { ...delivery, args: sanitizeText(delivery.args).text };
+    case "tool-result":
+      return { ...delivery, detail: sanitizeText(delivery.detail).text };
+    default:
+      return delivery;
+  }
+}
+
 /** 交付一块：接收层的唯一入口（幂等） */
 export function applyDelivery(
   state: SectionsState,
   delivery: BlockDelivery,
 ): SectionsState {
+  delivery = sanitizeDelivery(delivery);
   // 事件号去重：宿主持久线交付都带 seq（同一事件重放只入一次）
   const seq = "seq" in delivery ? delivery.seq : undefined;
   if (seq !== undefined) {

@@ -7,6 +7,7 @@ import type {
   NoticeTone,
 } from "../adapter/dsh.ts";
 import { displayWidth } from "../layout/markdown.ts";
+import { sanitizeText } from "../sanitize.ts";
 import { createSections } from "../layout/pipeline/sections.ts";
 import { estimateOutputTokens, nextRunVirt } from "../layout.ts";
 import type {
@@ -19,54 +20,9 @@ import { trimBufferHead } from "./types.ts";
 
 // TUI/src/app/state/updates.ts — 状态更新入口（缓冲追加、面板开关、光标移动）
 
-/** 清理文本中的非打印控制字符（渲染保护）：CRLF/孤立 CR 归一为 LF，
- *  其余 C0/C1 控制字符（含 \t）剔除；返回清理后文本与被剔除字符数。
- *  ponytail: 按码点扫描，不处理组合符/零宽字符（宽度原语同样不处理）。 */
-export function sanitizeText(text: string): { text: string; stripped: number } {
-  // 1) 换行符归一：CRLF/孤立 CR → LF（\r 属换行语义，不计入 stripped）
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  // 2) 剔除其余 C0/C1 控制字符（\n 保留；终端遇 \r 回行首抹内容、遇其他控制符
-  //    会乱码或破坏帧布局，统一移除）。完整 ANSI 转义序列（CSI ESC[…、OSC ESC]…BEL/ST）
-  //    是样式/光标控制，属已有功能（渲染着色、/copy 剥离），保留不剔；孤立/残缺序列剔除。
-  let out = "";
-  let stripped = 0;
-  let i = 0;
-  while (i < normalized.length) {
-    const ch = normalized[i]!;
-    if (ch === "\n") {
-      out += ch;
-      i++;
-      continue;
-    }
-    if (ch === "\x1b") {
-      const rest = normalized.slice(i);
-      const csi = /^\x1b\[[0-9;?]*[ -/]*[@-~]/.exec(rest);
-      if (csi) {
-        out += csi[0];
-        i += csi[0].length;
-        continue;
-      }
-      const osc = /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/.exec(rest);
-      if (osc) {
-        out += osc[0];
-        i += osc[0].length;
-        continue;
-      }
-      stripped++; // 孤立/残缺 ESC
-      i++;
-      continue;
-    }
-    const cp = ch.codePointAt(0)!;
-    if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) {
-      stripped++;
-      i++;
-      continue;
-    }
-    out += ch;
-    i++;
-  }
-  return { text: out, stripped };
-}
+/** 净化原语（渲染保护）的实现在 `../sanitize.ts`：接收层与宽度原语共用同一份口径 */
+export { sanitizeText } from "../sanitize.ts";
+
 /**
  * 用户消息判定（唯一口径）：消息的 `role`、展示投影的 `kind`、宿主 `source.kind`
  * 都取 `"user"`，适配层 / 状态层 / 渲染层一律经此判定，不再各文件自比字符串。

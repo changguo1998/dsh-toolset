@@ -3294,15 +3294,19 @@ test("user-line：只记状态事实（用户块本体走交付）；用户行�
   assert.ok(a.stepEstTokens > 0, "assistant 流推进估算 token");
 });
 
-test("sanitizeText：剔除非打印控制符但保留换行/ANSI 序列，计数正确", () => {
-  // CRLF/孤立 CR → LF；\t/孤立 ESC/其余 C0 剔除并计数
+test("sanitizeText：只留 SGR，其余控制符与非 SGR 转义序列剔除", () => {
+  // CRLF/孤立 CR → LF；\t 展开 4 空格；孤立 ESC/其余 C0 剔除并计数
   const r1 = sanitizeText("a\r\nb\tc\x1b\x00d");
-  assert.equal(r1.text, "a\nbcd");
-  assert.equal(r1.stripped, 3); // \t + 孤立 ESC + \x00
-  // 完整 ANSI CSI/OSC 序列保留（渲染着色功能，/copy 时再剥）
-  const r2 = sanitizeText("\x1b[31m红\x1b[0m字\x1b]52;c;abc\x07");
-  assert.equal(r2.text, "\x1b[31m红\x1b[0m字\x1b]52;c;abc\x07");
+  assert.equal(r1.text, "a\nb    cd");
+  assert.equal(r1.stripped, 2); // 孤立 ESC + \x00（\t 是展开、不计入剔除数）
+  // SGR 保留（渲染着色功能）
+  const r2 = sanitizeText("\x1b[31m红\x1b[0m字");
+  assert.equal(r2.text, "\x1b[31m红\x1b[0m字");
   assert.equal(r2.stripped, 0);
+  // 非 SGR 转义序列整条剔除（连带参数，不残留 `[2K` 之类正文）：擦行 / 上移 / 剪贴板 OSC
+  const r3 = sanitizeText("甲\x1b[2K乙\x1b[1A丙\x1b]52;c;abc\x07丁");
+  assert.equal(r3.text, "甲乙丙丁");
+  assert.equal(r3.stripped, 3);
 });
 
 test("append：剔除计数累计入 strippedChars，turn-begin 清零", () => {
@@ -3310,9 +3314,9 @@ test("append：剔除计数累计入 strippedChars，turn-begin 清零", () => {
     type: "append",
     text: "a\tb\x00c",
   });
-  assert.equal(s.strippedChars, 2); // \t 与 \x00
+  assert.equal(s.strippedChars, 1); // \x00（\t 是展开 4 空格，不计入剔除数）
   s = reduceState(s, { type: "append", text: "正常文本\x1b" });
-  assert.equal(s.strippedChars, 3); // 追加的孤立 ESC
+  assert.equal(s.strippedChars, 2); // 追加的孤立 ESC
   // 回合开始清零（计数仅对当前回合有效）
   s = reduceState(s, { type: "turn-begin" });
   assert.equal(s.strippedChars, 0);
@@ -4132,8 +4136,8 @@ test("tool-call：summary 含 \\r/\\n/控制符 → 换行保留、\\r/\\t/控�
   });
   assert.equal(s.local.length, 1);
   assert.equal(s.local[0]!.kind, "tool");
-  // 工具调用参数行保留换行（渲染层续行缩进）；\r\n/\r→\n、\t/NUL 剔除
-  assert.equal(s.local[0]!.text, "bash ls -l\n/tmp/a\n第二行x");
+  // 工具调用参数行保留换行（渲染层续行缩进）；\r\n/\r→\n、\t 展开 4 空格、NUL 剔除
+  assert.equal(s.local[0]!.text, "bash ls -l\n/tmp/a\n第二行    x");
 });
 
 test("tool-call：参数显式换行/软折行 → 名字行 / 参数行（缩进 4，续行 6）", () => {

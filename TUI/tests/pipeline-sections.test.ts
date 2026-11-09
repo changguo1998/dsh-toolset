@@ -702,3 +702,38 @@ test("结算交付（index < 0）与该来源已流出正文并成同一条（�
     "流出前缀 + step 结算 = 同一条（文本不重复、不拆条）",
   );
 });
+
+// ⑧ 接收层净化（TUI BACKLOG「回合区输出时状态行上边框左段缺横线」）：工具结果 / 参数 /
+// 正文里的非 SGR 转义序列（擦行 / 上移 / OSC）整条剔除，SGR 保留——净化在唯一入口
+// `applyDelivery` 做，宽度与写屏因此都只见净化后文本。
+test("⑧ 交付文本净化：非 SGR 转义序列整条剔除，SGR 保留", () => {
+  const s = applyAll(createSections(), [
+    delta(0, "assistant", "\x1b[32m正文\x1b[0m\x1b[2K尾"),
+    {
+      kind: "tool-call",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      name: "script_run",
+      args: '{"code":"\x1b[1A"}',
+      full: true,
+    },
+    {
+      kind: "tool-result",
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      ok: true,
+      detail: "脚本输出\x1b[2K\x1b]0;标题\x07完",
+    },
+  ]);
+  const sections = allSections(s);
+  assert.equal(
+    itemOf(sections[0]!, "assistant")?.text,
+    "\x1b[32m正文\x1b[0m尾",
+    "SGR 保留、非 SGR 剔除",
+  );
+  const tool = itemOf(sections[0]!, "tool");
+  assert.equal(tool?.calls?.[0]?.args, '{"code":""}', "工具参数净化");
+  assert.equal(tool?.results?.[0]?.detail, "脚本输出完", "工具结果净化");
+});

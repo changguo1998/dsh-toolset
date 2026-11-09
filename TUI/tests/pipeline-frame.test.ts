@@ -914,3 +914,42 @@ test("压缩剪枝遮蔽：shadow 交付命中的节整块打灰（内容与行�
   assert.ok(colors(dim.dialogue).includes("gray"), "遮蔽后正文着 gray");
   assert.ok(!colors(plain.dialogue).includes("gray"), "未遮蔽不着 gray");
 });
+
+test("工具输出的非 SGR 转义序列不入帧：按纯文本剔除，不留残缺参数", () => {
+  // 脚本输出常带擦行（ESC[2K）/ 上移（ESC[1A）/ 标题（OSC）等序列；它们若原样进帧，
+  // 终端会按命令执行、波及固定边框行（条目「回合区输出时状态行上边框左段缺横线」）。
+  const content = pipelineContent(
+    applyAll(createSections(), [
+      { kind: "step-start", turn: 1, step: 1, time: 1_700_000_000_000 },
+      {
+        kind: "tool-call",
+        turn: 1,
+        step: 1,
+        callId: "c1",
+        name: "script_run",
+        args: "{}",
+        full: true,
+      },
+      {
+        kind: "tool-result",
+        turn: 1,
+        step: 1,
+        callId: "c1",
+        ok: true,
+        detail: "跑完了\x1b[2K好\x1b[1A\x1b]0;标题\x07",
+      },
+    ] satisfies BlockDelivery[]),
+    {
+      dialogueTextW: 60,
+      activityTextW: 60,
+      windowGroups: 3,
+      render: { width: 60 },
+    },
+  );
+  const text = [...content.dialogue, ...content.activity]
+    .map((row) => row.segments.map((segment) => segment.text).join(""))
+    .join("\n");
+  assert.ok(!text.includes("\x1b"), "帧里不得出现任何转义序列");
+  assert.ok(!text.includes("[2K"), "擦行序列不留残缺参数");
+  assert.ok(text.includes("跑完了好"), "正文按纯文本保留");
+});

@@ -5,6 +5,7 @@
 
 import type { FrameSegment, FrameStyle } from "../../renderer/screen.ts";
 import { charWidth, displayWidth } from "./markdown.ts";
+import { sgrTokens } from "../sanitize.ts";
 import { createTextCache, memo, sizedKey } from "./cache.ts";
 import { segmentsToChars, wrapStyledChars } from "./wrap-core.ts";
 
@@ -64,8 +65,7 @@ function computeTruncateToWidth(text: string, cols: number): string {
   if (cols <= 0) return "";
   let w = 0;
   let out = "";
-  for (const m of text.matchAll(/\x1b\[[0-9;]*m|[\s\S]/gu)) {
-    const t = m[0]!;
+  for (const t of sgrTokens(text)) {
     if (t.startsWith("\x1b")) {
       out += t;
       continue;
