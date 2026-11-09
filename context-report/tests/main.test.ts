@@ -264,6 +264,89 @@ test("apply：注册投影 + provide 服务 + 注册工具（三面齐备）", (
   assert.equal(service.sessionState("nope"), undefined);
   service.dispose();
   assert.equal(registry.registered, 0, "dispose 注销注册");
+
+  test("apply：rc.1 形状（注销函数 + thenable）→ 读面走 handle.stateOf, 不读注册表级 stateOf", async () => {
+    const state = { asOfSeq: 3, outputTokens: 42 };
+    let registryReads = 0;
+    let disposed = 0;
+    const handle = { stateOf: () => state };
+    const registration = Object.assign(
+      () => {
+        disposed += 1;
+      },
+      {
+        then<T>(
+          onFulfilled: (value: unknown) => T | PromiseLike<T>,
+        ): Promise<T> {
+          return Promise.resolve(handle).then(onFulfilled);
+        },
+      },
+    );
+    const registry: ProjectionRegistryLike = {
+      register: () => registration,
+      stateOf: () => {
+        registryReads += 1;
+        return state;
+      },
+    };
+    const provided = new Map<string, unknown>();
+    const ctx = {
+      sessionProjections: registry,
+      sessions: {
+        list: () => [fakeSession("s1")],
+        get: (id: string) => (id === "s1" ? fakeSession("s1") : undefined),
+      },
+      tools: { register: () => {} },
+      provide: (key: string, value: unknown) => provided.set(key, value),
+    } as unknown as BundleHost & Record<string, unknown>;
+
+    apply(ctx, {});
+    // 句柄经 thenable 链在数个微任务后到达；等它落地再读。
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    const service = provided.get("contextReport") as ContextReportService;
+    assert.equal(
+      service.sessionState("s1")?.outputTokens,
+      42,
+      "状态取自 handle",
+    );
+    assert.equal(registryReads, 0, "不读注册表级 stateOf");
+    service.dispose();
+    assert.equal(disposed, 1, "注销走注册返回的函数");
+  });
+
+  test("apply：旧宿主形状（只返回注销函数）→ 读面回退注册表级 stateOf", () => {
+    const state = { asOfSeq: 1, outputTokens: 5 };
+    let registryReads = 0;
+    const registry: ProjectionRegistryLike = {
+      register: () => () => {},
+      stateOf: (_session, key) => {
+        if (key === STATS_KEY) return undefined;
+        registryReads += 1;
+        return state;
+      },
+    };
+    const provided = new Map<string, unknown>();
+    const ctx = {
+      sessionProjections: registry,
+      sessions: {
+        list: () => [fakeSession("s1")],
+        get: (id: string) => (id === "s1" ? fakeSession("s1") : undefined),
+      },
+      tools: { register: () => {} },
+      provide: (key: string, value: unknown) => provided.set(key, value),
+    } as unknown as BundleHost & Record<string, unknown>;
+
+    apply(ctx, {});
+    const service = provided.get("contextReport") as ContextReportService;
+    assert.equal(
+      service.sessionState("s1")?.outputTokens,
+      5,
+      "状态取自注册表级 stateOf",
+    );
+    assert.equal(registryReads, 1, "旧宿主仍走注册表级读面");
+  });
 });
 
 test("官方 sessionStats 不在位：该组数字缺省、来源降级标注（不回退自折叠）", () => {

@@ -87,6 +87,7 @@ describe("apply 接线: 工具注册面", () => {
     assert.deepEqual(Object.keys(decompose.parameters.properties ?? {}), [
       "parent_id",
       "children",
+      "enumeration",
     ]);
     assert.deepEqual(decompose.parameters.required, ["parent_id", "children"]);
 

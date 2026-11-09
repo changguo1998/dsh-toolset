@@ -85,7 +85,7 @@ bundle 契约：`name` / `inject: ["sessionProjections", "sessions", "tools"]` /
 
 ## 边界
 
-- 投影为 **host-only**（只声明 state，不声明 wire）：宿主 `SessionProjectionMap` 由宿主包声明，第三方 key 无 client wire 语义；故客户端（TUI/web）快照不含本 key，读取走 `sessionProjections.stateOf(session, 'sessionContext')` 或本包服务面。
+- 投影为 **host-only**（只声明 state，不声明 wire）：宿主 `SessionProjectionMap` 由宿主包声明，第三方 key 无 client wire 语义；故客户端（TUI/web）快照不含本 key，读取走本包服务面 `contextReport.sessionState()` 或注册返回的 `ProjectionHandle.stateOf(session)`（注册表级 `sessionProjections.stateOf` 自宿主 0.2.2-rc.1 起弃用，只作旧宿主回退）。
 - 即时读数复用宿主 `ctx.tokenMeter.measure(session)`：宿主未公开 `ContextPressureProjection` 的读面时，退化为 `TokenMeasurement.totalTokens`（请求 + 回复压力）作为压力近似值。
 - `full` 级别的「下次请求构成」（system/tools/messages 三档）需外部提供 `breakdown` 字段（宿主 token-meter 的 `contextBreakdown` 目前无公开读面），缺省时报告明确写「未接入」而不是补零。
 - 不推进 TUI `/stats`：`/stats` 展示的是宿主侧最近一次模型调用；本插件补的是**会话累计**形态，二者口径不同、互不替代。

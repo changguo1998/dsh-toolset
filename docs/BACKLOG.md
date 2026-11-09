@@ -72,26 +72,12 @@
 
 ## 2. 未完成项
 
-- **`HOST-PACKAGES.md` 的 §3 服务字典与文末复现命令按 rc.1 复核**（登记日: 2026-11-08）
+- **`hash-edit` / `md-logic` / `ast-tools` 的写面一读就抛 `workingDirectory` 未 inject**（登记日: 2026-11-09）
 
-  - 现状: §1 / §2 的逐包行清单已按 rc.1 安装树重生成（330 行, 追踪文档 `docs/archived/2026-11-08-host-packages-regen.md`）, 但两处仍是旧口径: ① §3 服务字典没跟上 rc.1 的接口面变更——工具执行从 `tools` 行拆成 `tool-executor-native` / `tool-executor-ptc`（`tools` 行删除 `mode` / `maxParallelSubCalls`）, 新增包的若干服务（forge 登记表、action-cards 的提议工具等）未进字典; ② 文末「复现命令」直接写 `dsh --profile fff --dump-config`, 而该命令会往 `$DSH_HOME` 写 `cordis.yml`, 在只读 home（沙箱 / CI）下报 `EROFS`。
-  - 期望: §3 按 rc.1 安装树主入口复算服务名, 补 `tool-executor-*` 拆分与新增包的服务; 复现命令补「先把 profile 克隆到可写 `DSH_HOME`（如仓库 `tmp/dsh-home`）再跑」的前置步骤, 或给出 `DSH_HOME` 隔离的一行写法。
-  - 优先级: P3（文档准确性, 不影响运行）。
-  - 来源: 重生成 §1 / §2 时的途中发现（`docs/archived/2026-11-08-host-packages-regen.md`「途中发现」）。
-
-- **`context-report` 的 `sessionContext` 改经注册 handle 读，弃掉注册表级 `stateOf`**（登记日: 2026-11-08）
-
-  - 现状: 该单元是本包注册的 **host-only** 单元（`context-report/src/main.ts:331-344`，刻意不声明 `wire`），宿主的 `snapshot(session, keys)` 按文档不覆盖 host-only 单元；非弃用替代只有 `await register()` 得到的 `handle.stateOf(session)`，而本包 `apply` 是同步函数、丢弃了 `register()` 的返回值。故 `sessionContext` 仍读注册表级 `stateOf`（宿主 0.2.2-rc.1 起弃用，首次读打一条告警）。
-  - 期望: `apply` 改异步并在注册后保留 `ProjectionHandle`，`stateFor` 改走 `handle.stateOf(session)`；旧宿主（`register()` 返回注销函数而非 handle）保留现状回退。功能面零变化，弃用告警消失。
-  - 优先级: P3（告警噪音，不影响功能）。
-  - 来源: `stateOf` 弃用迁移任务的偏差（`docs/archived/2026-11-08-stateof-deprecation-migration.md`「偏差」）。
-
-- **`task-engine` 集成用例的工具 schema 断言过期（`required` 多了 `enumeration`）**（登记日: 2026-11-08）
-
-  - 现状: `task-engine/tests/integration/plugin.test.ts:87` 断言参数 schema 的必填集合为 `['parent_id', 'children']`，实际多出 `enumeration` → `pnpm -C task-engine run test:integration` 有 1 例常红。在 `HEAD`（`b23e3f22`）上 stash 掉后续改动重跑仍红，确认是先前遗留（该字段进 schema 后断言未同步）。
-  - 期望: 断言按当前 schema 更新（或改成「必填集合包含 …」的弱断言），集成用例恢复全绿。
-  - 优先级: P3（测试债，不影响运行）。
-  - 来源: `stateOf` 弃用迁移的途中发现（同文件「途中发现」）。
+  - 现状: 2026-11-08 三包读写改走 `ctx.fs` 后, 工具调用直接失败——`hash_read` / `md_logic` / `ast_replace` 均返回 `cannot get property "workingDirectory" without inject`。根因: 三包 `inject` 只有 `["tools", "fs"]`（`hash-edit/src/index.ts:42`、`md-logic/src/index.ts:91`、`ast-tools/src/index.ts:127`）, 而 `ctx-fs-io.ts` 把原始 cordis `ctx` 当宿主面并直接读 `host.workingDirectory`（`hash-edit/src/ctx-fs-io.ts:160`、`md-logic/src/ctx-fs-io.ts:146`、`ast-tools/src/ctx-fs-io.ts:162`）; cordis 代理对未 inject 的服务属性访问即抛。
+  - 期望: 三包恢复可读可写。两选一: 把 `workingDirectory` 加进 `inject`（服务常驻, 与 `fs` 同级）, 或按包内既有「可选服务」口径改用 `ctx.get("workingDirectory")` 读取（保持「缺面即交给后端缺省」的语义）。
+  - 优先级: P1（模型侧三个文件工具当前不可用）。
+  - 来源: 2026-11-09 处理 `HOST-PACKAGES.md` §3 复核时实测（`hash_read` / `md_logic` / `ast_replace` 各失败一次）, 详见 `docs/archived/2026-11-09-host-packages-service-index.md`「途中发现」。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 

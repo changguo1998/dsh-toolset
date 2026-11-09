@@ -7,7 +7,7 @@
 > 来源：本地安装的官方 deepseek-harness（全局 dsh `0.2.1-rc.2`（2026-10-21 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai/`，下文称**安装树口径**）；源码 clone（`~/GithubRepos/deepseek-harness`）已 checkout 到 tag `dsh-v0.2.1-rc.3`。**0.2.1-rc.3 增量**（2026-10-27 复核）：
 > 包目录 342 → 343，仅新增 web 专用 `@deepseek-ai/dsh-client-ui-entry-customization`；其余包只有版本号变化，接口面与 `dsh-base` patch 无变更（详见 `HOST-UPGRADE-0.2.1-rc.3.md`）。本文件的包计数仍为 rc.2 安装树实测，升级本机后重生成。
 > **0.2.1-rc.5 增量**（2026-11-04 复核）：包目录 **343 → 343**（无增删），非 manifest 变更只落在 web 客户端与 ACP / MCP 的 stdout 纪律；工具面 / 事件 / 服务面 / `dsh-base` patch 与官方配置 schema **零变更**，本文件的行清单与分类无需改动（详见 `HOST-UPGRADE-0.2.1-rc.5.md`）。
-> **0.2.2-rc.1 增量**（2026-11-07 复核，源码口径）：源码 tag `dsh-v0.2.2-rc.1`，包目录 **343 → 372**（+30 / −1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）。接口面**有实质变更**：工具执行器拆成 `tool-executor-native` / `tool-executor-ptc`（`tools` 行删除 `mode` / `maxParallelSubCalls`）、`agent/request` 弃用且新增 `Agent.model`、`sessionProjections.stateOf` / `cachedSnapshot` 弃用、`fs-observation-policy` 在 base 改 `disabled: true` 并新增 `apply_patch`。**本机安装树仍为 rc.5，本文件计数与行清单未重生成**，升级后必重生成（逐项见 `HOST-UPGRADE-0.2.2-rc.1.md`）。
+> **0.2.2-rc.1 增量**（2026-11-07 复核，源码口径）：源码 tag `dsh-v0.2.2-rc.1`，包目录 **343 → 372**（+30 / −1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）。接口面**有实质变更**：工具执行器拆成 `tool-executor-native` / `tool-executor-ptc`（`tools` 行删除 `mode` / `maxParallelSubCalls`）、`agent/request` 弃用且新增 `Agent.model`、`sessionProjections.stateOf` / `cachedSnapshot` 弃用、`fs-observation-policy` 在 base 改 `disabled: true` 并新增 `apply_patch`。（2026-11-08 本机安装树已升到 rc.1，计数与行清单已重生成；服务字典与复现命令见 §3 / §6。逐项见 `HOST-UPGRADE-0.2.2-rc.1.md`）。
 > 用途：与 `docs/host/DSH-CTX-API.md` 配套——该文件记「接口怎么用」，本文件记「有哪些包、每个包提供什么服务」；供 dsh-toolset 各插件选型与集成对齐。
 > 版本口径：**以 `0.2.2-rc.1` 实际随包分发的安装树为准**——源码 tag 口径 **372** 个包目录（rc.5 → rc.1 新增 30 / 移除 1，清单见 `HOST-UPGRADE-0.2.2-rc.1.md` §10）；安装树 `$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 **330** 个包（其中 `dsh-*` **319** 个；2026-11-08 复测）。描述取自各包 `package.json`，服务名可由安装树主入口复算，**挂载集合由 `dsh --profile fff --dump-config` 实测**（见文末复现命令）。**§1 / §2 的行清单已按 rc.1 安装树重生成**（2026-11-08：§2 由 306 行补到 330 行，新增 26 个包目录、删除 2 个已不存在的旧行）。
 > rc.1 挂载复测（2026-11-08，隔离 `DSH_HOME` 克隆 profile 后实测）：`dsh --profile fff --dump-config` 输出 **845** 行、**147** 个 `- id:` 行，其中无条件 `disabled: true` **8** 条、条件式 `disabled: !!js` **8** 条、`@dsh-toolset/*` 行 **39** 条 → 官方活跃项 **101** 条、覆盖 **100** 个包（rc.5 时为 100）；profile 的 `dsh.profile.bundles` 为 **39** 个（dsh-base + 38 个 `@dsh-toolset/*`）；`session-title-all-prompts-llm` 已随 rc.1 分发，仍 `disabled: true`。
@@ -737,9 +737,11 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 
 ## 3. 服务索引（`ctx.<服务名>` → 归属包）
 
-共 **92** 个服务名（`super(<ctx>, "name")` 口径；提取正则另会命中 `DECLINED` 这个错误码，已剔除，见 §6）。多归属的按「包名，挂载状态」逐项列出；同一个包注册多个服务时不重复列包。0.2.0 新增的 `otel` / `productAnalytics` 已并入下表（源码口径）。
+共 **99** 个服务名（`super(<ctx>, "name")` 口径；2026-11-09 按 rc.1 安装树主入口复算，102 个候选里剔除 3 个错误码，见 §6）。多归属的按「包名，挂载状态」逐项列出；同一个包注册多个服务时不重复列包。**rc.1 的工具执行拆分不是服务面变化**：`tool-executor-native` / `tool-executor-ptc` 都不注册 host 服务（`tools` 行删除 `mode` / `maxParallelSubCalls`），故 §3 无对应行，拆分口径见 `tools` 行与 §6。0.2.0 新增的 `otel` / `productAnalytics` 与 rc.1 新增的 9 个服务已并入下表。
 
 - `accountController`（`api-account-controller`，未挂载） — 客户端侧账号安全操作
+
+- `actionCards`（`action-cards`，未挂载） — 答案下方的可选行动卡：共享提议工具、卡片状态与用户动作
 
 - `agentDefaultModel`（`agent-default-model`，已挂载） — 各 agent 入口共享的默认模型选择
 
@@ -789,17 +791,23 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 
 - `fileUploads`（`client-file-upload`，未挂载） — 客户端文件上传
 
+- `forge`（`experimental-forge`，未挂载） — 供应商中立的变更请求登记表 + 共享状态轮询
+
+- `forgePanel`（`experimental-client-ui-forge`，未挂载） — 会话变更请求侧栏面板（含新会话的 worktree 选项）与其 Host Remote
+
+- `forgeSession`（`experimental-forge-session`，未挂载） — 把变更请求绑定到创建 / 推送 / 跟踪它的会话
+
 - `fs`（`fs`，未挂载） — 文件系统缝
 
 - `goals`（`goal`，已挂载） — 同会话目标状态与生命周期
 
 - `hmr`（`hmr`，已挂载） — 模块与 profile 配置热重载
 
-- `invariants`（`invariants`，已挂载） — 包自有运行时不变量注册表
-
 - `jobController`（`api-job-controller`，未挂载） — 作业 Remote 观察流与客户端输出服务
 
 - `jobs`（`jobs`，未挂载） — 后台作业注册表
+
+- `liveshareShares`（`experimental-liveshare`，未挂载） — 经独立 Relay 的会话共享（只读 / 受限写两档，forking 与附件上传各自独立开关）
 
 - `llm`（`llm`，已挂载；`repeat-tool-reminder`，已挂载；`tmux-context`，未挂载） — 模型运行时；后两者在其上挂 hook/上下文
 
@@ -823,9 +831,13 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 
 - `pluginPackages`（`app-boot`，未挂载） — 启动期的包清单解析面
 
+- `pluginRecommendations`（`plugin-recommendations`，未挂载） — 官方插件建议：显式用户启用 + 持久化的会话决定
+
 - `productAnalytics`（`client-product-analytics`，0.2.0 新增） — Desktop 交互采集
 
 - `pluginRegistryProbe`（`client-ui-plugin-manager`，未挂载） — 客户端插件管理所需的注册表探针
+
+- `productTelemetry`（`host-product-telemetry-otel`，未挂载） — 显式产品使用事件经 OpenTelemetry HTTP 日志导出（与 `productAnalytics` 的桌面交互采集不是一件事）
 
 - `ptcRuntime`（`ptc-runtime`，未挂载） — PTC 代码执行运行时缝（旧 `codeRuntime`）
 
@@ -843,6 +855,8 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 
 - `sessionFileReferences`（`api-session-controller`，未挂载） — 会话文件引用
 
+- `sessionLogDeepSeek`（`session-log-deepseek`，已挂载） — 官方 DeepSeek LLM API 的增量无损会话日志请求扩展
+
 - `sessionPersistence`（`session-persistence`，未挂载） — 持久化会话缝
 
 - `sessionProjectionCache`（`session-projection-cache`，已挂载） — 投影落盘缓存
@@ -858,6 +872,8 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 - `sessionTelemetry`（`session-telemetry`，未挂载） — 会话事件采集/脱敏/上报缝
 
 - `sessionTitle`（`session-title`，已挂载） — 会话标题服务与 provider 注册
+
+- `sessionToolResults`（`client-ui-trajectory`，未挂载） — 轨迹面实时查看工具结果（Web UI 轨迹面板的 Host Remote）
 
 - `sessions`（`session`，已挂载） — 事件源会话仓库
 
@@ -895,7 +911,7 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 
 - `toolResultPruner`（`compaction-tool-result-pruner`，已挂载） — 工具结果 head/middle/tail 裁剪
 
-- `tools`（`tools`，已挂载） — 工具注册表与执行管道
+- `tools`（`tools`，已挂载） — 工具注册表与执行管道（rc.1 起执行拆到 `tool-executor-native`（已挂载）/ `tool-executor-ptc`（未挂载）两个包，两者都不注册 host 服务；`tools` 行的 `mode` / `maxParallelSubCalls` 已迁到 PTC 执行器配置）
 
 - `translator`（`experimental-translator`，未挂载） — 带可复用会话结果的机器翻译（实验性）
 
@@ -908,8 +924,6 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 - `web`（`web`，已挂载） — 搜索/抓取 provider 注册表与执行
 
 - `webServer`（`host-webserver`，未挂载） — 宿主内嵌 web 服务器
-
-- `webhookRuntime`（`webhook`，未挂载） — webhook 运行时
 
 - `workflowEngine`（`workflow`，未挂载） — workflow 运行缝
 
@@ -951,6 +965,14 @@ user-approval user-questions web web-deepseek-api web-fetch-http web-search-deep
 
 ```sh
 D=$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai
+# 0) 挂载集合：`--dump-config` 会往 $DSH_HOME 写 cordis.yml，只读 home（沙箱 / CI）直接报 EROFS。
+#    先把 profile 克隆到一个可写的 DSH_HOME（约 43 MB），跑完即删；不要往真实 home 写。
+H="$PWD/tmp/dsh-home"
+rm -rf "$H" "$PWD/tmp/fff-dump.yml" && mkdir -p "$H/profiles"
+cp -a ~/.dsh/profiles/fff "$H/profiles/fff"
+DSH_HOME="$H" dsh --profile fff --dump-config > "$PWD/tmp/fff-dump.yml"
+rm -rf "$H"
+wc -l "$PWD/tmp/fff-dump.yml"; grep -c '^- id:' "$PWD/tmp/fff-dump.yml"
 # 1) 包列表 + 描述 + 版本
 for d in "$D"/*/; do node -p "const j=require('$d/package.json'); [j.name, j.version, (j.description||'').replace(/\s+/g,' ')].join('\t')"; done
 # 2) 服务名（每包里 super(<ctx>, "name") 的注册名）
@@ -959,11 +981,11 @@ grep -rhoE 'super\([a-zA-Z_]+, *"[a-zA-Z,]+"' "$D"/*/lib/index.js | sed -E 's/.*
 { grep -rhoE "name: '@deepseek-ai/[^']+'" ~/.dsh/profiles/fff/cordis.patch.yml "$D/dsh-base/cordis.patch.yml"; } | sed "s/name: '//;s/'$//" | sed -E 's#^(@deepseek-ai/[^/]+).*#\1#' | sort -u
 ```
 
-本文件由 **2026-10-02** 的采集生成：宿主 `dsh --version` = `0.2.0-rc.2`（当日从 0.1.7-rc.2 升级），`$(npm root -g)/@deepseek-ai/dsh/node_modules/@deepseek-ai` 下共 288 个包（`dsh-*` 277），fff 挂载集合用 `dsh --profile fff --dump-config` 实测得 93 个名字项（92 计入 §1 + TUI 自插的 `tool-ask-user`）。**2026-10-06 修正**：该实测口径把「行在位」当成「已启用」，其中 `tool-ralph` / `skill-badge` 两行被无条件 `disabled: true` 关掉、并不随 fff 启动加载，已按 §0 判定细则从 §1 摘除并重算计数（102 → 100、名字项 103 → 101）；改动依据与复核方式见 `docs/archived/2026-10-06-host-packages-disabled-rows.md`。逐行的挂载标记复核归 `docs/BACKLOG.md`「profile 挂载面扩张」步骤①。
+本文件由 **2026-11-08** 的采集生成（宿主 `dsh --version` = `0.2.2-rc.1`）：安装树 330 个包（`dsh-*` 319）、§2 330 行；挂载集合用克隆到 `tmp/dsh-home` 的 profile 实测——`--dump-config` 输出 845 行、147 个顶层 `- id:` 行（108 条官方行 + 39 条本仓行），其中无条件 `disabled: true` 8 条、条件式 `disabled: !!js` 8 条 → 官方活跃项 101 条、覆盖 100 个包（§0 判定细则）。**2026-10-06 修正**：该实测口径把「行在位」当成「已启用」，其中 `tool-ralph` / `skill-badge` 两行被无条件 `disabled: true` 关掉、并不随 fff 启动加载，已按 §0 判定细则从 §1 摘除并重算计数（102 → 100、名字项 103 → 101）；改动依据与复核方式见 `docs/archived/2026-10-06-host-packages-disabled-rows.md`。逐行的挂载标记复核归 `docs/BACKLOG.md`「profile 挂载面扩张」步骤①。
 
 核对口径：
 
 - **服务名只取包的主入口 `lib/index.js`**：客户端面（`lib/client.js`，如 `slots`、`uiSession`）与未挂载的子路径入口（如 `tool-subagent/model-selection-settings` 的 `subagentModelSelection`）注册的服务不算该包的 host 服务。
-- **第 2 条正则有两个需要手工收拾的地方**：它会命中错误类的 `super(message, "DECLINED")`（授权流程的拒绝码）——本版 85 个候选里 84 个是服务名，`DECLINED` 须剔除；`repeat-tool-reminder` 与 `tmux-context` 打出的 `llm` 是改写 `ctx.llm` 的 hook 面，按旧版口径与 `llm` 同列一行。
-- **第 3 条要按包名前缀归并子路径条目**（patch 里会出现同一包的第二入口，如 `@deepseek-ai/dsh-tool-subagent-control/list-agents`）→ 91 个，含树外加装包 `session-title-all-prompts-llm`（它来自 profile 用户 patch，不随 dsh 分发）。**△ 该口径按 patch 行解析，同样含 `disabled` 行**（`tool-ralph` / `skill-badge`），故比 §1 的 100 偏大；判定见 §0 细则。不要把 profile `package.json` 的 `dsh.profile.bundles` 行也算进来——那会多出 `dsh-base` 这个 bundle 名。上表同样不含本项目 13 个 `@dsh-toolset/*` 行，也不含 TUI bundle 自行 `- insert:` 的 `@deepseek-ai/dsh-tool-ask-user`。
-- `dsh --profile fff --dump-config` 可交叉验证（本次升级记录里成功执行过）；若 profile 目录只读，它会因写 `cordis.yml` 失败（EROFS），此时以上面的解析方式为准。
+- **第 2 条正则有三处需要手工收拾**：它会命中错误类的 `super(message, "DECLINED")`（授权流程拒绝码）、`super(message, "SANDBOX_UNSUPPORTED_POLICY")`（沙箱策略拒绝码）与 `super(message, "CODE_RUN_FAILED")`（PTC 执行失败码）——rc.1 的 102 个候选里 99 个是服务名，三个错误码须剔除；`repeat-tool-reminder` 与 `tmux-context` 打出的 `llm` 是改写 `ctx.llm` 的 hook 面，按旧版口径与 `llm` 同列一行。
+- **第 3 条要按包名前缀归并子路径条目**（patch 里会出现同一包的第二入口，如 `@deepseek-ai/dsh-tool-subagent-control/list-agents`）→ rc.1 实测归并后 **105** 个包名，含 `disabled` 行（无条件 8 条 + 条件式 8 条）与已随 rc.1 分发的 `session-title-all-prompts-llm`（profile 里仍 `disabled: true`），故比 §1 的 100 偏大；判定见 §0 细则。不要把 profile `package.json` 的 `dsh.profile.bundles` 行也算进来——那会多出 `dsh-base` 这个 bundle 名。上表同样不含本项目 39 个 `@dsh-toolset/*` 行，也不含 TUI bundle 自行 `- insert:` 的 `@deepseek-ai/dsh-tool-ask-user`。
+- `dsh --profile fff --dump-config` 可交叉验证；若 profile 目录只读，它会在写 `cordis.yml` 时失败（EROFS），按第 0 条先克隆到可写 `DSH_HOME` 再跑。

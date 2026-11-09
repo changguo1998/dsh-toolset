@@ -74,12 +74,44 @@ export interface ProjectionSnapshotLike {
   values?: Record<string, unknown>;
 }
 
+/** 宿主投影注册句柄（`ProjectionHandle` 的结构子集）：rc.1 起 `register()` 解析出的读面。 */
+export interface ProjectionHandleLike {
+  /** 读某会话当前状态（宿主 0.2.2-rc.1 起的非弃用读面）。 */
+  stateOf(session: unknown): unknown;
+  /** 注销本注册（`register()` 只给 Promise 的宿主形态用）。 */
+  dispose?(): unknown;
+}
+
+/** 值是否可 await（rc.1 的注册返回值是「注销函数 + thenable」）。 */
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+/** 值是否宿主的投影句柄（带 `stateOf` 读面）。 */
+function isProjectionHandle(value: unknown): value is ProjectionHandleLike {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { stateOf?: unknown }).stateOf === "function"
+  );
+}
+
 /** 宿主投影注册表（`SessionProjectionRegistry` 的结构子集）。 */
 export interface ProjectionRegistryLike {
-  register(definition: ProjectionDefLike): () => void;
+  /**
+   * 注册一个投影单元。
+   *
+   * 返回值按宿主版本有两种形态：rc.1 起返回「注销函数 + thenable」——函数本身是注销入口，
+   * `await` 它得到 {@link ProjectionHandleLike}；旧宿主只返回注销函数（不可 await）。
+   */
+  register(definition: ProjectionDefLike): unknown;
   /**
    * 宿主公开的读面：`snapshot(session, keys)` 给一致切面（`{values}`）。
-   * 0.2.2-rc.1 起 `stateOf` 弃用，优先走这里。
+   * 只覆盖 client-visible 单元；本包的 host-only 单元读面见 {@link ProjectionHandleLike}。
    */
   snapshot?(session: unknown, keys?: readonly string[]): ProjectionSnapshotLike;
   /** @deprecated 宿主 0.2.2-rc.1 起弃用；仅作旧宿主回退。 */
@@ -329,13 +361,44 @@ export function apply(
   const tools = optionalService<ToolRegistryLike>(ctx, "tools");
 
   // 1) 投影单元注册（host-only；宿主负责按会话驱动与持久化缓存）。
+  //    rc.1 的返回值是「注销函数 + thenable」：注销走函数本身，`await` 得到读面句柄；
+  //    旧宿主只给注销函数，读面回退注册表级 `stateOf`（见 stateFor）。
+  let projectionHandle: ProjectionHandleLike | undefined;
   if (
     registry !== undefined &&
     typeof registry.register === "function" &&
     config.projection !== false
   ) {
     try {
-      disposers.push(registry.register(createProjectionDef()));
+      const registration = registry.register(createProjectionDef());
+      const legacyDispose =
+        typeof registration === "function"
+          ? (registration as () => void)
+          : undefined;
+      if (legacyDispose !== undefined) disposers.push(legacyDispose);
+      if (isThenable(registration)) {
+        // 不 await：apply 保持同步，provide / 工具注册不推迟到微任务之后；
+        // 句柄在随后的微任务里到达，此前读到的是旧宿主回退路径。
+        Promise.resolve(registration).then(
+          (settled) => {
+            if (isProjectionHandle(settled)) {
+              projectionHandle = settled;
+              if (legacyDispose === undefined) {
+                disposers.push(() => {
+                  void settled.dispose?.();
+                });
+              }
+              return;
+            }
+            if (legacyDispose === undefined) {
+              warn("sessionContext 注册未返回读面句柄：保留注册表级读面");
+            }
+          },
+          (err) => {
+            warn(`sessionContext 投影注册失败：${String(err)}`);
+          },
+        );
+      }
     } catch (err) {
       warn(`sessionContext 投影注册失败：${String(err)}`);
     }
@@ -361,23 +424,27 @@ export function apply(
   };
 
   /**
-   * 读状态：宿主投影注册表是权威读面（缺行时宿主自行惰性折叠）。
+   * 读状态：注册返回的句柄是权威读面（宿主 0.2.2-rc.1 起的非弃用读法，缺行时宿主自行惰性
+   * 折叠）。这里**不走** `snapshot()`：`sessionContext` 是本包注册的 host-only 单元（无
+   * `wire`），宿主文档明写 host-only 单元不进 `snapshot`（"other units, including Host-only
+   * units without `wire`, are neither folded nor advanced by this read"）。
    *
-   * 这里**不走** `snapshot()`：`sessionContext` 是本包注册的 host-only 单元（无 `wire`），
-   * 宿主文档明写 host-only 单元不进 `snapshot`（"other units, including Host-only units
-   * without `wire`, are neither folded nor advanced by this read"）。非弃用的替代只有
-   * 「`await register()` 拿到的 handle.stateOf(session)」——本包 `apply` 是同步函数、未保留
-   * 该句柄，故此处仍读注册表级 `stateOf`（宿主 0.2.2-rc.1 起弃用）；改成 handle 读法需要把
-   * `apply` 改成异步，属独立改动，见追踪文档「偏差」与 BACKLOG。
+   * 没有句柄时回退注册表级 `stateOf`——旧宿主（`register()` 返回注销函数而非 handle）保持
+   * 升级前行为；rc.1 下这个分支只在句柄到达前的微任务窗口内可见。
    */
   const stateFor = (
     session: HostSessionLike | undefined,
   ): SessionContextState | undefined => {
-    if (session === undefined || registry === undefined) return undefined;
-    if (typeof registry.stateOf !== "function") return undefined;
+    if (session === undefined) return undefined;
     let raw: unknown;
     try {
-      raw = registry.stateOf(session, PROJECTION_KEY);
+      if (projectionHandle !== undefined) {
+        raw = projectionHandle.stateOf(session);
+      } else if (typeof registry?.stateOf === "function") {
+        raw = registry.stateOf(session, PROJECTION_KEY);
+      } else {
+        return undefined;
+      }
     } catch (err) {
       warn(`投影读面失败：${String(err)}`);
       return undefined;
