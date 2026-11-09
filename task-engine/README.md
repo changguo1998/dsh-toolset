@@ -88,11 +88,12 @@ docs/             # DESIGN.md（架构与设计取舍）、BACKLOG.md（包待�
 | `snapshotPath` | 未配置（纯内存运行） | 事件流快照路径；配置后每次变更近实时写盘 |
 | `commandTimeoutMs` | `30000` | mechanical 验收命令超时（ms） |
 | `maxConcurrent` | `4` | 有界并发上限 |
+| `maxRetries` | `8` | 打回重试上限（decompose 拒绝与验收失败共用；达上限置 `failed`） |
 | `semantic.audit` | `true` | semantic 级验收的独立 audit run（经 `ctx.subagents` 裁决子代理；`false` → 回到 fail-closed 文案） |
 | `semantic.entail` | `true` | 拆解第二道门的 entail run（`false` → 该门跳过，回到旧行为） |
 | `semantic.timeoutMs` | `120000` | 单次裁决 run 超时（超时/失败：audit **fail-closed** 打回；entail **跳过该门**并告警——不烧重试预算） |
 
-门禁默认值 `enumerationThreshold=8`、`maxRetries=3`、`maxConcurrent=4` 定义在 `DEFAULT_GATE`；插件 config 只暴露 `maxConcurrent`（其余两项供引擎级调用覆盖）。`enumerationThreshold` 是**声明阈值**不是数量上限：超过只要求声明枚举来源并逐条对应，不拦数量。
+门禁默认值 `enumerationThreshold=8`、`maxRetries=8`、`maxConcurrent=4` 定义在 `DEFAULT_GATE`；插件 config 暴露 `maxConcurrent` 与 `maxRetries`（`enumerationThreshold` 只供引擎级调用覆盖）。`enumerationThreshold` 是**声明阈值**不是数量上限：超过只要求声明枚举来源并逐条对应，不拦数量。
 
 ## 用法
 

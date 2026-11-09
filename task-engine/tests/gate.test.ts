@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   checkDecomposition,
   checkCoverage,
+  DEFAULT_GATE,
   validateExecutor,
 } from "../src/gate.ts";
 import type { Acceptance, ChildSpec, Frame, FrameId } from "../src/types.ts";
@@ -371,5 +372,18 @@ describe("gate deps（前置传递）", () => {
       { ...leaf("c2", "做 C2"), deps: ["c1"] },
     ]);
     assert.equal(r.ok, true);
+  });
+});
+
+describe("gate 缺省值", () => {
+  it("DEFAULT_GATE: 打回重试上限 8（2026-11-09 由 3 放宽）", () => {
+    assert.equal(
+      DEFAULT_GATE.maxRetries,
+      8,
+      "maxRetries 缺省值须为 8（插件 config 可覆盖）",
+    );
+    // 其余两项口径不变，防顺手改动
+    assert.equal(DEFAULT_GATE.enumerationThreshold, 8);
+    assert.equal(DEFAULT_GATE.maxConcurrent, 4);
   });
 });

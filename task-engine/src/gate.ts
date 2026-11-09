@@ -19,7 +19,7 @@ export interface GateConfig {
    * （`Enumeration` + 每个子任务的 `enumItem`），按「条目数 = 子任务数、双向一一对应」校验。
    */
   enumerationThreshold: number;
-  /** 打回重试上限（默认 3，§15.2 bounded retry） */
+  /** 打回重试上限（默认 8，§15.2 bounded retry；插件 config `maxRetries` 可覆盖） */
   maxRetries: number;
   /** fan-out 并发上限：active 帧数 >= 此数时不再弹栈（BACKLOG #13，默认 4） */
   maxConcurrent: number;
@@ -27,7 +27,7 @@ export interface GateConfig {
 
 export const DEFAULT_GATE: GateConfig = {
   enumerationThreshold: 8,
-  maxRetries: 3,
+  maxRetries: 8,
   maxConcurrent: 4,
 };
 

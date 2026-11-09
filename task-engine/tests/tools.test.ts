@@ -14,7 +14,10 @@ const hooks: AcceptanceHooks = {
   approve: async () => true,
 };
 
-function bench(executor?: ExecutorRunner): {
+function bench(
+  executor?: ExecutorRunner,
+  gate?: { maxRetries?: number },
+): {
   engine: TaskEngine;
   byName: (name: string) => ReturnType<typeof createTools>[number];
 } {
@@ -29,6 +32,7 @@ function bench(executor?: ExecutorRunner): {
     },
     ...hooks,
     ...(executor === undefined ? {} : { executor }),
+    ...(gate === undefined ? {} : { gate }),
   });
   const tools = createTools(engine);
   return {
@@ -289,7 +293,8 @@ describe("task_status 多轮视图：当前轮完整 + 旧轮根摘要", () => {
   });
 
   it("旧轮根 failed：照旧折叠，新一轮照开", async () => {
-    const { byName, engine } = bench();
+    // 钉住上限 3：本用例验的是折叠与开新轮，不该随缺省值（8）漂移
+    const { byName, engine } = bench(undefined, { maxRetries: 3 });
     // 连续 3 次门禁打回 → 根 failed（逃生口：failed 根仍可开新轮）
     const bad = { ...child("bad"), spec: "先做 A 然后做 B" };
     for (let i = 0; i < 3; i += 1) {

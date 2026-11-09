@@ -61,11 +61,15 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
     ...(executor === undefined ? {} : { executor }),
   });
 
-  const newEngine = (executor?: ExecutorRunner): TaskEngine =>
+  const newEngine = (
+    executor?: ExecutorRunner,
+    gate?: { maxRetries?: number },
+  ): TaskEngine =>
     new TaskEngine({
       root: { id: "root", title: "R", spec: "s", acceptance: [mech("r-q")] },
       ...makeHooks(),
       ...(executor === undefined ? {} : { executor }),
+      ...(gate === undefined ? {} : { gate }),
     });
 
   it("成功：证据回填 + frame-executed 记录 + 随后 stop 完成整树", async () => {
@@ -130,7 +134,8 @@ describe("executor 执行扩展（① 发起 / ② 计量）", () => {
   });
 
   it("执行失败 → 带反馈打回；达 maxRetries 置 failed 且 next=null", async () => {
-    const e = newEngine();
+    // 钉住本轮上限 3：本用例验的是打回语义，不该随缺省值（8）漂移
+    const e = newEngine(undefined, { maxRetries: 3 });
     await e.decompose("root", [
       leafWith("c1", { kind: "command", command: "false" }),
     ]);
@@ -894,7 +899,7 @@ describe("多轮根帧（会话 = 解释器，不是一次性 main()；2026-10-0
 
 describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / 撞名 / resume 契约）", () => {
   const mkEngine = (
-    over: Partial<{ needDecompose: boolean }> = {},
+    over: Partial<{ needDecompose: boolean; maxRetries: number }> = {},
   ): TaskEngine =>
     new TaskEngine({
       root: {
@@ -907,6 +912,9 @@ describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / �
           : { needDecompose: over.needDecompose }),
       },
       ...makeHooks(),
+      ...(over.maxRetries === undefined
+        ? {}
+        : { gate: { maxRetries: over.maxRetries } }),
     });
   const settleRound = async (e: TaskEngine, childId: string): Promise<void> => {
     const d = await e.decompose("root", [
@@ -936,7 +944,8 @@ describe("多轮根帧：审阅修正（门禁打回不建轮 / 根即叶子 / �
   });
 
   it("子帧失败向上传播：祖先与根一起 failed，随后仍能开新一轮（不卡死）", async () => {
-    const e = mkEngine();
+    // 钉住上限 3：本用例验的是向上传播与开新轮，不该随缺省值（8）漂移
+    const e = mkEngine({ maxRetries: 3 });
     const d = await e.decompose("root", [
       leafChild("c1", "做 C1", { "r-q": ["c1"] }, [mech("c1-q", "false")]),
       leafChild("c2", "做 C2", { "r-q": ["c2"] }),

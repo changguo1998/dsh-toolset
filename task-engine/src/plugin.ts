@@ -68,6 +68,8 @@ export interface Config {
   commandTimeoutMs?: number;
   /** fan-out 并发上限（BACKLOG #13，默认 4）：active 帧数达上限时不再弹栈 */
   maxConcurrent?: number;
+  /** 打回重试上限（缺省 8，与 `DEFAULT_GATE.maxRetries` 同值）：decompose 拒绝与验收失败共用 */
+  maxRetries?: number;
   /**
    * 语义面（audit / entail）开关与超时：两者各跑一次**裁决子代理**（经 `ctx.subagents`）。
    * 缺省都开（`audit` 关掉 → semantic 验收仍 fail-closed；`entail` 关掉 → 该门跳过，回到旧行为）；
@@ -339,6 +341,9 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
         ...(config?.maxConcurrent === undefined
           ? {}
           : { maxConcurrent: config.maxConcurrent }),
+        ...(config?.maxRetries === undefined
+          ? {}
+          : { maxRetries: config.maxRetries }),
       },
       snapshotPath: config?.snapshotPath,
       // 终态钩子（隔离回收）：帧 done（stop / join 续体）或 failed（重试耗尽）时触发；
