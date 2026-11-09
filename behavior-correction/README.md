@@ -24,13 +24,14 @@ DSH（DeepSeek Harness）进程内插件：在**工具执行前**拦下「该用
    `消费者 behavior-correction 拒绝工具 <name>`）；全部未命中 → `undefined` 弃权（不返回 `allow`，
    避免无谓否决其它消费者的 `deny`）。
 
-缺省规则（三条）：
+缺省规则（四条）：
 
 | id | 工具 | 条件 | 理由 |
 | --- | --- | --- | --- |
-| `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `\|` 之后；允许前置 `VAR=值` 与绝对路径（`echo herdr` / `grep herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）` |
-| `no-interpreter-in-bash` | `bash` | **命令位**跑解释器：名单见下；命令位由 `commandPositions()` 解析，包装器（`sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec` 等）已剥掉，`bash -c '…'` / `eval '…'` / `$(…)` / 反引号递归解析；`echo python` / `grep ruby` / 提交信息里提到不拦 | `bash 里不要直接跑解释器（python / node / ruby / perl / php / lua / deno / bun 等）: 计算与脚本改用 script_run 工具（已启用 python / node / sh）, 其它语言改写为 sh 或用现有工具组合` |
+| `no-herdr-in-bash` | `bash` | **命令位**调用 `herdr`：行首，或 `;` `&` `\|` 之后；允许前置 `VAR=值` 与绝对路径（`echo herdr` / `rg herdr` / 提交信息里提到不拦） | `bash 里不要跑 herdr 命令: 改用 herdr_run / herdr_text / herdr_key（写类）与 herdr_read / herdr_list（查看类）` |
+| `no-interpreter-in-bash` | `bash` | **命令位**跑解释器：名单见下；命令位由 `commandPositions()` 解析，包装器（`sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec` 等）已剥掉，`bash -c '…'` / `eval '…'` / `$(…)` / 反引号递归解析；`echo python` / `rg ruby` / 提交信息里提到不拦 | `bash 里不要直接跑解释器（python / node / ruby / perl / php / lua / deno / bun 等）: 计算与脚本改用 script_run 工具（已启用 python / node / sh）, 其它语言改写为 sh 或用现有工具组合` |
 | `no-view-text-in-bash` | `bash` | **命令位**调用 `cat` / `head` / `tail` / `nl` / `less` / `more` / `sed -n`（判定同前但不含管道与 `$(`：管道下游是合法裁剪；`tail -f` / `sed -i` / 重定向等写类不拦） | `bash 里不要用 cat / head / tail / nl / less / more / sed -n 查看文本: 读行段用 read（offset + limit）, 搜内容用 grep, 长文件先 fs_digest（pruned 或 outline）` |
+| `no-grep-in-bash` | `bash` | **以 `grep` 起头的检索命令段**：行首或 `;` `&&` 之后，允许前置 `VAR=值` / 路径前缀 / `cd 目录 &&`；另含「上游只有 `cat`」的 `cat f \| grep x`。`ps aux \| grep x` 这类过滤其它命令输出不拦；`sudo grep` / `xargs grep` 与 `git grep` 不拦 | `bash 里不要用 grep 检索文本: 改用 grep 工具（可按 include / path 过滤, 命中带行号与上下文）` |
 
 解释器名单（`INTERPRETER_COMMAND_NAMES`，命令名大小写敏感，`python3.12` 这类版本后缀算同一命令）：
 `python` / `python2` / `python3` / `python3.12` / `node` / `ruby` / `irb` / `perl` / `raku` / `php` /

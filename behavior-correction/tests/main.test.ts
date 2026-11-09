@@ -103,7 +103,12 @@ test("resolveConfig：缺省开启 + 内置规则；rules 给即整体替换；�
   assert.equal(defaults.enabled, true);
   assert.deepEqual(
     defaults.rules.map((rule) => rule.id),
-    ["no-herdr-in-bash", "no-interpreter-in-bash", "no-view-text-in-bash"],
+    [
+      "no-herdr-in-bash",
+      "no-interpreter-in-bash",
+      "no-view-text-in-bash",
+      "no-grep-in-bash",
+    ],
   );
   assert.equal(resolveConfig({ enabled: false }).enabled, false);
 
@@ -157,7 +162,7 @@ test("缺省规则只看命令位：正文里提到该词不拦", () => {
   for (const command of [
     "echo herdr",
     'git commit -m "docs: herdr CLI 迁移"',
-    "grep herdr src/*.ts",
+    "rg herdr src/*.ts",
     "printf 'herdr\n' >> notes.txt",
   ]) {
     assert.equal(
@@ -253,8 +258,8 @@ test("缺省规则：正文提到解释器 / 包管理入口 / 前缀词 / 文�
   const registration = registerDefault();
   for (const command of [
     "echo python",
-    "grep -rn python3 src/",
-    "grep -rn ruby src/",
+    "rg -n python3 src/",
+    "rg -n ruby src/",
     "ls scripts/run.py",
     "pip install requests",
     "npm install",
@@ -689,10 +694,54 @@ test("no-view-text-in-bash：放行形态（写参数 / 跟随 / 重定向 / 管
 test("no-view-text-in-bash：不做整段匹配（参数位 / 其它命令里提到不拦）", () => {
   const commands = [
     "echo cat",
-    "grep -rn head docs/",
+    "rg -n head docs/",
     "git commit -m 'use cat instead of read'",
     "read -r line < f",
-    "grep -c tail f",
+    "rg -c tail f",
+  ];
+  for (const command of commands) {
+    const registration = registerDefault();
+    assert.equal(
+      registration.guard(guardContext("bash", { command })),
+      undefined,
+      command,
+    );
+  }
+});
+
+test("no-grep-in-bash：纯 grep 检索段（含 cd 前缀 / cat 上游）→ 拒绝并指路 grep 工具", () => {
+  const commands = [
+    "grep -rn ruleEngine src/",
+    "grep -c TODO AGENTS.md",
+    "/usr/bin/grep -n x f",
+    "ls; grep -n x f",
+    "cd behavior-correction && grep -rn deny src/",
+    "git status && grep stale docs/STATUS.md",
+    "cat notes.md | grep -n 待办",
+    "GREP_OPTIONS= grep -n x f",
+  ];
+  for (const command of commands) {
+    const registration = registerDefault();
+    const decision = registration.guard(guardContext("bash", { command }));
+    assert.equal(decision?.kind, "deny", command);
+    assert.match(
+      decision?.kind === "deny" ? decision.reason : "",
+      /grep 工具/,
+      command,
+    );
+  }
+});
+
+test("no-grep-in-bash：放行形态（过滤其它命令输出 / 包装器 / 正文提到）", () => {
+  const commands = [
+    "ps aux | grep node",
+    "npm test 2>&1 | grep -i fail",
+    "sudo grep -n x /etc/hosts",
+    "find . -name '*.ts' | xargs grep -l deny",
+    "git grep -n ruleEngine",
+    "echo grep",
+    "rg -n ruleEngine src/",
+    "git commit -m 'replace grep with tool'",
   ];
   for (const command of commands) {
     const registration = registerDefault();

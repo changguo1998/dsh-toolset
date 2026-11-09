@@ -139,7 +139,8 @@ export const INTERPRETER_COMMAND_NAMES: readonly string[] = [
  *    查看类 `herdr_read` / `herdr_list`）；
  * 2. bash 命令位跑解释器（python / node / ruby / perl / php 等）→ 指路 `script_run`
  *    （script-interpreter 插件；其它语言没有后端，文案写明改写为 sh）；
- * 3. bash 里查看文本（cat / head / tail / sed -n…）→ 指路 read / grep / fs_digest。
+ * 3. bash 里查看文本（cat / head / tail / sed -n…）→ 指路 read / grep / fs_digest；
+ * 4. bash 里跑纯 grep 检索段（含 `cd … && grep`、`cat f | grep x`）→ 指路 grep 工具。
  */
 export const DEFAULT_RULES: readonly RuleSpec[] = [
   {
@@ -197,6 +198,30 @@ export const DEFAULT_RULES: readonly RuleSpec[] = [
       "bash 里不要用 cat / head / tail / nl / less / more / sed -n 查看文本: 读行段用 read（offset + limit）, 搜内容用 grep, 长文件先 fs_digest（pruned 或 outline）",
     description:
       "查看文本有专用工具面：read 给行号与范围、grep 负责检索、fs_digest 负责长文件摘要；bash 直跑会绕过这些",
+  },
+  {
+    id: "no-grep-in-bash",
+    tool: "bash",
+    // 只拦「以 grep 起头的检索命令段」：段首（行首 / `;` `&&` 之后）或 `cd 目录 &&` 之后，
+    // 允许前置 `VAR=值` 与路径前缀；另外含「上游只有 cat」的 `cat f | grep x`（cat 单跑已被
+    // 上一条规则拦，走到这里的是它放行的形态）。`ps aux | grep x` 这类过滤输出不拦。
+    match: {
+      regex: [
+        "(?:^|[;&]+\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:cd\\s+[^;&|\\n]*?\\s*(?:&&|[;&])\\s*)?(?:\\S*/)?grep(?=[\\s;|&]|$)",
+        "(?:^|[;&]+\\s*)\\s*(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?cat(?=[\\s;|&])[^;&|\\n]*\\|\\s*(?:\\S*/)?grep(?=[\\s;|&]|$)",
+      ],
+      flags: "im",
+    },
+    exclude: {
+      // 包装器内的 grep（`sudo grep` / `xargs grep`）交给命令位规则的口径，不算「纯检索段」；
+      // `git grep` 段首是 git，本来就不命中。
+      regex: ["\\bsudo\\b|\\bxargs\\b"],
+      flags: "m",
+    },
+    reason:
+      "bash 里不要用 grep 检索文本: 改用 grep 工具（可按 include / path 过滤, 命中带行号与上下文）",
+    description:
+      "检索有专用工具面：grep 工具给行号、可限定 include / path，bash 直跑会绕过它",
   },
 ];
 
