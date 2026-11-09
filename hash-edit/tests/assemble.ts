@@ -247,6 +247,8 @@ export interface AssembleOptions {
   fs?: false | { sandboxMode?: string };
   /** 额外服务面（覆盖同名缺省项） */
   services?: Record<string, unknown>;
+  /** 模拟 cordis 代理: 未 inject 的服务属性直读按宿主文案抛错（`fs` / `tools` 不受影响）。 */
+  injectGuard?: boolean;
 }
 
 /** 一次 `fs/write-intent` 瀑布的记录 */
@@ -388,11 +390,30 @@ export async function captureStderr(run: () => unknown): Promise<string[]> {
   return lines;
 }
 
+/** 模拟 cordis 代理: 未 inject 的服务属性直读按宿主文案抛错（`fs` / `tools` 不受影响）。 */
+function unreachableService(name: string): never {
+  throw new Error(`cannot get property "${name}" without inject`);
+}
+
+/** 按 `injectGuard` 把宿主面包成 cordis 代理形态: 两个未 inject 的服务直读即抛。 */
+function guardServices<T extends object>(host: T, guard: boolean): T {
+  if (!guard) return host;
+  return new Proxy(host, {
+    get(target, prop, receiver) {
+      if (prop === "workingDirectory" || prop === "sandboxPolicy") {
+        unreachableService(String(prop));
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 /** 装配 `apply`: 三个假面 + 文件系统面 + 告警收集 */
 export async function assemble(
   options: AssembleOptions = {},
 ): Promise<Assembled> {
   const shape = options.shape ?? "full";
+  const injectGuard = options.injectGuard === true;
   const fakeFs =
     options.fs === false ? undefined : createFakeFs(options.fs ?? {});
   const ensureCalls: unknown[] = [];
@@ -478,6 +499,7 @@ export async function assemble(
       },
     };
   }
+  ctx = guardServices(ctx, injectGuard);
 
   const stderr = await captureStderr(() => apply(ctx, options.config ?? {}));
 

@@ -52,7 +52,11 @@ function replaceArgs(file: string, write = false): Record<string, unknown> {
 /** 在临时目录里跑一次用例：假 CLI + 装好的宿主 + 已写入的目标文件。 */
 async function withHost(
   run: (context: { file: string; host: AssembledHost }) => Promise<void>,
-  options: { sandboxMode?: string; services?: Record<string, unknown> } = {},
+  options: {
+    sandboxMode?: string;
+    services?: Record<string, unknown>;
+    injectGuard?: boolean;
+  } = {},
 ): Promise<void> {
   const cli = createFakeAstGrep({ run: RUN_PAYLOAD });
   const { dir, cleanup } = withTempDir();
@@ -63,6 +67,7 @@ async function withHost(
         ? {}
         : { fs: { sandboxMode: options.sandboxMode } }),
       ...(options.services === undefined ? {} : { services: options.services }),
+      ...(options.injectGuard === true ? { injectGuard: true } : {}),
     });
     const file = `${dir}/a.ts`;
     writeFileSync(file, ORIGINAL, "utf8");
@@ -232,4 +237,27 @@ test("ast_replace 相对路径: cwd 由 ctx.workingDirectory.ensure 给", async 
       signal: undefined,
     });
   });
+});
+
+test("宿主代理形态: 可选服务只经 ctx.get 读取, 属性直读不触发 inject 报错", async () => {
+  await withHost(
+    async ({ file, host }) => {
+      const exec = { agent: { session: { id: "s1" } } };
+      const value = (await host.tools
+        .require("ast_replace")
+        .execute(replaceArgs(file, true), exec)) as {
+        written?: boolean;
+        replacedCount?: number;
+      };
+      assert.equal(value.written, true, JSON.stringify(value));
+      assert.equal(value.replacedCount, 1);
+      assert.equal(host.fs?.writes[0]?.sandboxPolicy, "proxy-policy");
+      assert.equal(host.ensureCalls.length, 1);
+    },
+    {
+      injectGuard: true,
+      sandboxMode: "workspace-write",
+      services: { sandboxPolicy: { resolve: (): string => "proxy-policy" } },
+    },
+  );
 });

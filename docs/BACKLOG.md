@@ -72,13 +72,6 @@
 
 ## 2. 未完成项
 
-- **`hash-edit` / `md-logic` / `ast-tools` 的写面一读就抛 `workingDirectory` 未 inject**（登记日: 2026-11-09）
-
-  - 现状: 2026-11-08 三包读写改走 `ctx.fs` 后, 工具调用直接失败——`hash_read` / `md_logic` / `ast_replace` 均返回 `cannot get property "workingDirectory" without inject`。根因: 三包 `inject` 只有 `["tools", "fs"]`（`hash-edit/src/index.ts:42`、`md-logic/src/index.ts:91`、`ast-tools/src/index.ts:127`）, 而 `ctx-fs-io.ts` 把原始 cordis `ctx` 当宿主面并直接读 `host.workingDirectory`（`hash-edit/src/ctx-fs-io.ts:160`、`md-logic/src/ctx-fs-io.ts:146`、`ast-tools/src/ctx-fs-io.ts:162`）; cordis 代理对未 inject 的服务属性访问即抛。
-  - 期望: 三包恢复可读可写。两选一: 把 `workingDirectory` 加进 `inject`（服务常驻, 与 `fs` 同级）, 或按包内既有「可选服务」口径改用 `ctx.get("workingDirectory")` 读取（保持「缺面即交给后端缺省」的语义）。
-  - 优先级: P1（模型侧三个文件工具当前不可用）。
-  - 来源: 2026-11-09 处理 `HOST-PACKAGES.md` §3 复核时实测（`hash_read` / `md_logic` / `ast_replace` 各失败一次）, 详见 `docs/archived/2026-11-09-host-packages-service-index.md`「途中发现」。
-
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。

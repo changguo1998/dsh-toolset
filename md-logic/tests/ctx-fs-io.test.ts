@@ -80,6 +80,7 @@ async function withHost(
     sandboxMode?: string;
     services?: Record<string, unknown>;
     fs?: false;
+    injectGuard?: boolean;
   } = {},
 ): Promise<void> {
   const { dir, cleanup } = withTempDir();
@@ -94,6 +95,7 @@ async function withHost(
           ? {}
           : { fs: { sandboxMode: options.sandboxMode } }),
       ...(options.services === undefined ? {} : { services: options.services }),
+      ...(options.injectGuard === true ? { injectGuard: true } : {}),
     });
     const file = `${dir}/a.md`;
     writeFileSync(file, DOC, "utf8");
@@ -288,4 +290,23 @@ test("md_logic 相对路径: cwd 由 ctx.workingDirectory.ensure 给", async () 
     assert.equal(host.ensureCalls.length, 1, "解析路径时取一次会话目录");
     assert.deepEqual(host.ensureCalls[0], exec.agent);
   });
+});
+
+test("宿主代理形态: 可选服务只经 ctx.get 读取, 属性直读不触发 inject 报错", async () => {
+  await withHost(
+    async ({ host, exec }) => {
+      const value = (await host.tools
+        .require("md_logic")
+        .execute(replaceArgs("a.md"), exec)) as { ok?: boolean };
+      assert.equal(value.ok, true, JSON.stringify(value));
+      assert.equal(host.fs?.writes.length, 1);
+      assert.equal(host.fs?.writes[0]?.sandboxPolicy, "proxy-policy");
+      assert.equal(host.ensureCalls.length, 1);
+    },
+    {
+      injectGuard: true,
+      sandboxMode: "workspace-write",
+      services: { sandboxPolicy: { resolve: (): string => "proxy-policy" } },
+    },
+  );
 });

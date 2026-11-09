@@ -246,3 +246,26 @@ test("ctx.fs 缺失: 不回落 node 标准库, 返回可行动错误", async () 
     await ws.cleanup();
   }
 });
+
+test("宿主代理形态: 可选服务经 ctx.get 读取, 属性直读不触发 inject 报错", async () => {
+  const ws = await makeWorkspace({ "sample.txt": CONTENT });
+  try {
+    const policy = { mode: "workspace-write" };
+    const host = await assemble({
+      fs: { sandboxMode: "workspace-write" },
+      services: { sandboxPolicy: { resolve: (): unknown => policy } },
+      injectGuard: true,
+    });
+    const readValue = (await host.execute(
+      "hash_read",
+      { path: ws.path("sample.txt") },
+      execAt(ws.dir),
+    )) as { ok?: boolean; code?: string };
+    assert.equal(readValue.ok, true, JSON.stringify(readValue));
+    await writeOnce(host, ws.path("sample.txt"), execAt(ws.dir));
+    assert.equal(host.fs?.writes[0]?.sandboxPolicy, policy);
+    assert.ok(host.ensureCalls.length > 0, "相对路径基准仍取自 ctx.get");
+  } finally {
+    await ws.cleanup();
+  }
+});

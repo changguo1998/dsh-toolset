@@ -220,15 +220,36 @@ export interface ObservationRecord {
   actor: unknown;
 }
 
+/** 模拟 cordis 代理: 未 inject 的服务属性直读按宿主文案抛错（`fs` / `tools` 不受影响）。 */
+function unreachableService(name: string): never {
+  throw new Error(`cannot get property "${name}" without inject`);
+}
+
+/** 按 `injectGuard` 把宿主面包成 cordis 代理形态: 两个未 inject 的服务直读即抛。 */
+function guardServices<T extends object>(host: T, guard: boolean): T {
+  if (!guard) return host;
+  return new Proxy(host, {
+    get(target, prop, receiver) {
+      if (prop === "workingDirectory" || prop === "sandboxPolicy") {
+        unreachableService(String(prop));
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
 /** 装配 `apply`：三个假面 + 文件系统面 + 日志记录 + effect 卸载。 */
 export function assemble(
   options: {
     services?: Record<string, unknown>;
+    /** 模拟 cordis 代理: 未 inject 的服务属性直读按宿主文案抛错（`fs` / `tools` 不受影响）。 */
+    injectGuard?: boolean;
     config?: AstToolsConfig;
     /** `false` = 不装假文件系统（用于验证「宿主没挂 ctx.fs」的失败路径）。 */
     fs?: false | { sandboxMode?: string };
   } = {},
 ): AssembledHost {
+  const injectGuard = options.injectGuard === true;
   const fakeFs =
     options.fs === false ? undefined : createFakeFs(options.fs ?? {});
   const ensureCalls: unknown[] = [];
@@ -248,7 +269,7 @@ export function assemble(
   const defs: ToolDefLike[] = [];
   const logs = { info: [] as string[], warn: [] as string[] };
   const disposers: Array<() => unknown> = [];
-  const ctx = {
+  const base = {
     get: (name: string): unknown => services.get(name),
     // cordis 里服务既是 `ctx.get(name)` 也是 `ctx.<name>` 属性; 假面同样按属性暴露
     get fs(): AstFsServiceLike | undefined {
@@ -305,6 +326,7 @@ export function assemble(
       observations.push({ event, target, observation, actor });
     },
   };
+  const ctx = guardServices(base, injectGuard);
   apply(ctx, options.config ?? { bin: process.execPath });
   const tools: ToolSurface = {
     defs,

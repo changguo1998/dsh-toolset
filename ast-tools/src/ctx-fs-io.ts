@@ -96,6 +96,29 @@ function sessionOf(exec: ToolExecLike | undefined): unknown {
   return (agent as { session?: unknown }).session;
 }
 
+/**
+ * 受保护地读宿主可选服务（`workingDirectory` / `sandboxPolicy`）:
+ * cordis 的 ctx 代理对未 inject 的属性直读会抛 `cannot get property "X" without inject`,
+ * `ctx.get(name)` 是官方的不经 inject 校验的读取口（服务未提供时返回 undefined）;
+ * 库面 / 单测的普通对象宿主没有 `get`, 退回直接属性读。
+ */
+function optionalService<T>(host: AstFsHostLike, name: string): T | undefined {
+  const getter = (host as { get?(name: string): unknown }).get;
+  if (typeof getter === "function") {
+    try {
+      const service = getter.call(host, name);
+      if (service !== undefined) return service as T;
+    } catch {
+      // `ctx.get` 不可用（非宿主对象）时退回属性读。
+    }
+  }
+  try {
+    return (host as unknown as Record<string, unknown>)[name] as T | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 错误转一行详情。 */
 function detailOf(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -156,18 +179,23 @@ export function ctxAstFileIo(
   ): Promise<AstResolveOptions> => {
     const signal = signalOf(call);
     const agent = exec?.agent;
-    if (agent === undefined || host.workingDirectory === undefined) {
+    const workingDirectory = optionalService<AstWorkingDirectoryLike>(
+      host,
+      "workingDirectory",
+    );
+    if (agent === undefined || workingDirectory === undefined) {
       return signal === undefined ? {} : { signal };
     }
-    const cwd = await host.workingDirectory.ensure(agent, signal);
+    const cwd = await workingDirectory.ensure(agent, signal);
     return signal === undefined ? { cwd } : { cwd, signal };
   };
   /** 本次调用的围栏策略; 后端不围栏（`sandboxMode` 缺省）时交给后端自己判。 */
   const sandboxPolicy = (): unknown => {
     if (service.sandboxMode === undefined) return undefined;
-    return host.sandboxPolicy?.resolve(
-      session === undefined ? {} : { session },
-    );
+    return optionalService<AstSandboxPolicyServiceLike>(
+      host,
+      "sandboxPolicy",
+    )?.resolve(session === undefined ? {} : { session });
   };
   const observe = (
     target: AstFileTarget,
