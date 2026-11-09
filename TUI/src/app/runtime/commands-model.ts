@@ -11,6 +11,7 @@ import {
   resolveModelSpec,
   slashCommandArg,
 } from "../commands.ts";
+import type { ModelSelection } from "../adapter/dsh.ts";
 import type { AppContext } from "./context.ts";
 
 export function createCommandsModelPart(ctx: AppContext) {
@@ -168,18 +169,22 @@ export function createCommandsModelPart(ctx: AppContext) {
 
   /**
    * 启动参数模型覆盖（`--provider` / `--model` / `--effort`）：adapter 就绪后按目录校验并落地。
-   * 只改指定字段：provider 保留当前 model / effort；`--model` 带 provider 段时同时改 provider；
-   * 裸 model 用当前（默认）provider。组合不存在 → 警告并保持启动路由；
+   * 首个请求已由 `main.ts` 的同步预置（`pinned`）赶在 steer 注入触发的回合之前落地，这里是
+   * **校验与归一**：组合不存在 → 警告并保留命令行路由（不再回退默认路由）；
    * effort 未命中 → 回退该模型最低等级（用户 2026-10-27 裁定）。
+   * 只改指定字段：provider 保留 model / effort；`--model` 带 provider 段时同时改 provider；
+   * 裸 model 用当前 route 的 provider。`pinned` 是预置时的最终选择，优先作为缺字段来源——
+   * 不能用会随会话恢复回填的 `modelCatalog().current`，否则恢复会话的 model 会被默认值盖掉。
    */
   async function applyStartupModel(args: {
     provider?: string;
     model?: string;
     effort?: string;
+    pinned?: ModelSelection | undefined;
   }): Promise<void> {
     try {
       const catalog = await ctx.deps.adapter.modelCatalog();
-      const current = catalog.current;
+      const current = args.pinned ?? catalog.current;
       if (!current?.provider || !current?.model) {
         ctx.self.notice("startup model: no current model route", "warn");
         return;
@@ -198,7 +203,7 @@ export function createCommandsModelPart(ctx: AppContext) {
       const error = modelRouteError(catalog, provider, model);
       if (error !== undefined) {
         ctx.self.notice(
-          `startup model: ${error}; keeping current route`,
+          `startup model: ${error}; keeping ${provider}/${model} from the command line`,
           "warn",
         );
         return;

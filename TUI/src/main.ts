@@ -18,6 +18,7 @@ import { resolveThemes } from "./renderer/theme-config.ts";
 import { App } from "./app/index.ts";
 import type { FlowTrackLike } from "./app/app-deps.ts";
 import { installStderrBridge } from "./app/stderr-bridge.ts";
+import { parseModelSpecArg } from "./app/commands.ts";
 import {
   loadTuiConfig,
   mergeTuiConfig,
@@ -52,6 +53,7 @@ import {
   createRealDshAdapter,
   listSessionRecords,
   pickRecentSession,
+  type ModelSelection,
   type SessionModelSelectionRef,
   type DshAgentLike,
   type DshCommandLike,
@@ -156,9 +158,17 @@ export function main(opts: {
    *  缺省 = 只读配置文件（测试 / demo 路径保持原行为） */
   tuiConfig?: TuiConfig | undefined;
   /** 启动参数模型覆盖（apply 解析 `--provider` / `--model` / `--effort` 后传入；
-   *  App 启动后按目录校验并落地，见 App.applyStartupModel） */
+   *  句柄就绪后先同步预置（首个请求即生效），App 启动后再按目录校验，
+   *  见 `TUI/src/main.ts` 的预置段与 App.applyStartupModel） */
   startupModel?:
-    { provider?: string; model?: string; effort?: string } | undefined;
+    | {
+        provider?: string;
+        model?: string;
+        effort?: string;
+        /** 句柄就绪后已落地到宿主的最终选择（缺字段已按宿主当前选择补齐） */
+        pinned?: ModelSelection;
+      }
+    | undefined;
 }): (options?: TuiTeardownOptions) => void {
   // 主题调色板配置解析（patch 的 colorschema 段 > tui.config.json theme 段；告警经 logger 输出）
   const tuiConfig = opts.tuiConfig ?? loadTuiConfig();
@@ -519,6 +529,132 @@ export function parseTuiStartupArgs(args: readonly string[]): TuiStartupArgs {
   };
 }
 
+/** 初始模型路由：provider / model / effort 都可缺（缺字段由宿主回落）。 */
+export type StartupModelRoute = {
+  provider?: string;
+  model?: string;
+  reasoningEffort?: string;
+};
+
+/** 启动参数显式给出的字段（未给的字段不覆盖）。 */
+export interface StartupModelOverride {
+  provider?: string;
+  model?: string;
+  reasoningEffort?: string;
+}
+
+/** 宿主 `Agent.model` 的最小结构面（rc.1：`current()` / `select()`）。 */
+export interface AgentModelLike {
+  current?: () => ModelSelection | undefined;
+  select?: (selection: ModelSelection) => void;
+}
+
+/**
+ * 把启动参数并进初始路由（纯函数）：命令行 > 基线路由（profile config > 宿主默认）。
+ * - `--model` 带 provider 段时同时改 provider；裸 model 用基线的 provider；
+ * - `--provider` 单给保留基线 model / effort；
+ * - `--model` 拆分失败（如 `p:`）→ 不覆盖，交给启动后的目录校验告警；
+ * - provider / model 未同时具备时路由保持基线，但显式字段仍作为 override 返回
+ *   （恢复会话可拿记录选择补齐）。
+ */
+export function planStartupRoute(
+  base: StartupModelRoute,
+  startup: TuiStartupArgs,
+): { route: StartupModelRoute; override?: StartupModelOverride } {
+  const parsed =
+    startup.model === undefined ? undefined : parseModelSpecArg(startup.model);
+  if (startup.model !== undefined && parsed === undefined) {
+    return { route: { ...base } };
+  }
+  const provider = parsed?.provider ?? startup.provider;
+  const model = parsed?.model;
+  const effort = parsed?.effort ?? startup.effort;
+  if (provider === undefined && model === undefined && effort === undefined) {
+    return { route: { ...base } };
+  }
+  const override: StartupModelOverride = {
+    ...(provider === undefined ? {} : { provider }),
+    ...(model === undefined ? {} : { model }),
+    ...(effort === undefined ? {} : { reasoningEffort: effort }),
+  };
+  const mergedProvider = provider ?? base.provider;
+  const mergedModel = model ?? base.model;
+  const mergedEffort = effort ?? base.reasoningEffort;
+  const route: StartupModelRoute =
+    mergedProvider !== undefined && mergedModel !== undefined
+      ? {
+          provider: mergedProvider,
+          model: mergedModel,
+          ...(mergedEffort === undefined
+            ? {}
+            : { reasoningEffort: mergedEffort }),
+        }
+      : { ...base };
+  return { route, override };
+}
+
+/**
+ * 句柄就绪后的最终选择（纯函数）：显式字段优先，缺的按宿主当前选择补齐。
+ * provider / model 补不齐（如基线路由为空且只给了 `--effort`）→ undefined（不猜）。
+ */
+export function planStartupSelection(
+  current: ModelSelection | undefined,
+  override: StartupModelOverride | undefined,
+): ModelSelection | undefined {
+  if (override === undefined) return undefined;
+  const provider = override.provider ?? current?.provider;
+  const model = override.model ?? current?.model;
+  if (provider === undefined || model === undefined) return undefined;
+  const effort = override.reasoningEffort ?? current?.reasoningEffort;
+  return {
+    provider,
+    model,
+    ...(effort === undefined ? {} : { reasoningEffort: effort }),
+  };
+}
+
+/** 读宿主当前选择（恢复会话 = 记录选择；新建会话 = AgentOptions 回落）；异常按缺失处理。 */
+export function readAgentModelSelection(agent: {
+  model?: AgentModelLike | undefined;
+}): ModelSelection | undefined {
+  try {
+    const cur = agent.model?.current?.();
+    if (cur === undefined) return undefined;
+    return {
+      provider: cur.provider,
+      model: cur.model,
+      ...(typeof cur.reasoningEffort === "string"
+        ? { reasoningEffort: cur.reasoningEffort }
+        : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 同步把选择写进宿主（`Agent.model.select()` 对下一步生效）。失败只告警不阻断：
+ * 新建会话还有 AgentOptions 兜底，恢复会话由启动后的 applyStartupModel 再试一次。
+ */
+export function setAgentModelSelection(
+  agent: { model?: AgentModelLike | undefined },
+  selection: ModelSelection,
+  warn: (message: string) => void = (message) => process.stderr.write(message),
+): boolean {
+  const model = agent.model;
+  if (typeof model?.select !== "function") {
+    warn("[tui] warn: 宿主未暴露 agent.model.select，启动模型预置跳过\n");
+    return false;
+  }
+  try {
+    model.select(selection);
+    return true;
+  } catch (err) {
+    warn("[tui] warn: 启动模型预置失败（" + String(err) + "）\n");
+    return false;
+  }
+}
+
 /** 审批超时缺省值（ms）：1 min，与 app 侧 `APPROVAL_TIMEOUT_FALLBACK_MS` 同口径 */
 export const APPROVAL_TIMEOUT_DEFAULT_MS = 60_000;
 
@@ -630,7 +766,14 @@ export async function apply(
     throw new Error("tui: ctx.agents.create 不可用(缺 dsh-agent-loop)");
   }
 
+  // --- 启动参数（BACKLOG TUI#2）：宿主经 ctx.cmdlineArgs 提供内层参数 -----------
+  const cmdlineArgsSvc = (ctx as { get?: (name: string) => unknown }).get?.(
+    "cmdlineArgs",
+  ) as { get?: () => unknown } | undefined;
+  const startup = parseTuiStartupArgs(readCmdlineArgs(cmdlineArgsSvc));
+
   // 模型 route 解析：显式 config > 宿主默认选择(agentDefaultModel) > 空。
+  // 启动参数在基线之上再覆盖一层（命令行 > config > 宿主默认），见 planStartupRoute。
   // 注意 agentDefaultModel 未在本插件 inject 中声明，须经 ctx.get() 读取
   // (cordis 严格模式禁止未注入服务的直接属性访问)。
   const defaultModelSvc = (ctx as { get?: (name: string) => unknown }).get?.(
@@ -638,7 +781,7 @@ export async function apply(
   ) as AgentDefaultModelLike | undefined;
   const defaultModel = defaultModelSvc?.currentSelection?.() as
     { provider?: string; model?: string; reasoningEffort?: string } | undefined;
-  const route: { provider?: string; model?: string; reasoningEffort?: string } =
+  const baseRoute: StartupModelRoute =
     config?.provider && config?.model
       ? {
           provider: config.provider,
@@ -656,6 +799,10 @@ export async function apply(
               : {}),
           }
         : {};
+  // 启动参数并入初始路由（AgentOptions）：会话建立 / 恢复的首个 step 以它做路由回落，
+  // 早于 steer 注入触发的首个请求；恢复会话的记录选择会压过它，故句柄就绪后还要显式预置。
+  const startupPlan = planStartupRoute(baseRoute, startup);
+  const route = startupPlan.route;
 
   // 会话内模型选择引用：仅显式 config 固定种子；宿主默认(settings)由适配层按实时服务读取，
   // 避免启动时序吞掉热加载的设置。
@@ -702,11 +849,6 @@ export async function apply(
     });
   };
 
-  // --- 启动参数（BACKLOG TUI#2）：宿主经 ctx.cmdlineArgs 提供内层参数 -----------
-  const cmdlineArgsSvc = (ctx as { get?: (name: string) => unknown }).get?.(
-    "cmdlineArgs",
-  ) as { get?: () => unknown } | undefined;
-  const startup = parseTuiStartupArgs(readCmdlineArgs(cmdlineArgsSvc));
   // 会话查询服务读取闭包：服务随插件树**并发装载**，读点不同结果不同——
   // 此处只服务 `-c` 决策（需等待就绪）；adapter 选项一律在 handle 就绪后读
   // （「历史会话不可用」回归根因：apply 早期读到 undefined 后被复用给 adapter）。
@@ -762,11 +904,35 @@ export async function apply(
     handle = await createNewSession();
   }
 
+  // 启动模型预置（同步，早于本函数后续任何 await）：会话开局 / 恢复的 `session-start`
+  // steer 注入会立刻起回合并发请求，等 App 启动后再切只对第二个请求生效。新建会话另有
+  // `route`（AgentOptions）兜底；恢复会话的记录选择会压过 AgentOptions，必须显式 select。
+  // 缺字段按宿主当前选择补齐，只改命令行显式给出的字段。
+  const startupPinned = planStartupSelection(
+    readAgentModelSelection(
+      handle.agent as { model?: AgentModelLike | undefined },
+    ),
+    startupPlan.override,
+  );
+  if (startupPinned !== undefined) {
+    if (
+      setAgentModelSelection(
+        handle.agent as { model?: AgentModelLike | undefined },
+        startupPinned,
+      )
+    ) {
+      // 显示源同步（restoreSessionState 会按同一份记录再落一次，值相同）
+      sessionModel.current = startupPinned;
+    }
+  }
+
   const rawAgent = handle.agent as {
     session: { id: string };
     followup(m: DshUserMessageLike): void;
     /** DSH Agent.cancel(cause)：中断当前 turn/step（{kind:'user'} 为用户手动打断） */
     cancel?(cause: { kind: "user" }): void;
+    /** DSH Agent.model（rc.1 正规入口）：current() 读记录选择，select() 写 model/selection */
+    model?: AgentModelLike | undefined;
   };
   // SAFETY: agents.create 的返回契约(AgentHandle.agent)来自 @deepseek-ai/dsh-agent，
   // agent.session.id 与 agent.followup(UserMessage) 已获官方源码确认(docs/host/DSH-CTX-API.md)。
@@ -1032,6 +1198,7 @@ export async function apply(
               : { provider: startup.provider }),
             ...(startup.model === undefined ? {} : { model: startup.model }),
             ...(startup.effort === undefined ? {} : { effort: startup.effort }),
+            ...(startupPinned === undefined ? {} : { pinned: startupPinned }),
           },
     getSymbols: getSymbolNormalizer,
     getSessionChannel,

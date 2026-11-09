@@ -11,7 +11,11 @@ import {
   APPROVAL_TIMEOUT_DEFAULT_MS,
   normalizeTuiDisplayConfig,
   parseTuiStartupArgs,
+  planStartupRoute,
+  planStartupSelection,
+  readAgentModelSelection,
   resolveApprovalTimeoutMs,
+  setAgentModelSelection,
   waitForHostService,
 } from "../src/main.ts";
 
@@ -140,6 +144,166 @@ test("parseTuiStartupArgs：--provider/--model/--effort 两种写法与空值忽
     parseTuiStartupArgs(["--provider=", "--model", "--effort"]),
     { continueLatest: false },
     "空值 / 缺值忽略",
+  );
+});
+
+// --- 启动参数并入初始路由（`--model` 抢在首个请求之前） ---
+//
+// 会话开局 / 恢复的 `session-start` steer 注入会立刻起回合并发请求，故启动模型必须在
+// 句柄就绪后同步写进宿主（agentOptions + `model.select`），不能等 App 启动后再切。
+
+test("planStartupRoute：命令行 > 基线；--model 带 provider 段同时改 provider", () => {
+  const base = { provider: "tg", model: "ds41f", reasoningEffort: "low" };
+  assert.deepEqual(
+    planStartupRoute(base, parseTuiStartupArgs([])),
+    { route: { provider: "tg", model: "ds41f", reasoningEffort: "low" } },
+    "无启动参数 → 路由原样、无 override",
+  );
+  assert.deepEqual(
+    planStartupRoute(base, parseTuiStartupArgs(["--model", "tg/ds4f"])),
+    {
+      route: { provider: "tg", model: "ds4f", reasoningEffort: "low" },
+      override: { provider: "tg", model: "ds4f" },
+    },
+    "provider 段覆盖 provider；effort 沿用基线",
+  );
+  assert.deepEqual(
+    planStartupRoute(base, parseTuiStartupArgs(["--model", "ds4f:max"])),
+    {
+      route: { provider: "tg", model: "ds4f", reasoningEffort: "max" },
+      override: { model: "ds4f", reasoningEffort: "max" },
+    },
+    "裸 model 用基线 provider；:effort 覆盖 effort",
+  );
+  assert.deepEqual(
+    planStartupRoute(base, parseTuiStartupArgs(["--provider", "ustc"])),
+    {
+      route: { provider: "ustc", model: "ds41f", reasoningEffort: "low" },
+      override: { provider: "ustc" },
+    },
+    "--provider 单给保留 model / effort",
+  );
+  assert.deepEqual(
+    planStartupRoute(base, parseTuiStartupArgs(["--effort", "high"])),
+    {
+      route: { provider: "tg", model: "ds41f", reasoningEffort: "high" },
+      override: { reasoningEffort: "high" },
+    },
+  );
+});
+
+test("planStartupRoute：--model 拆分失败 / 基线不全时不猜", () => {
+  const base = { provider: "tg", model: "ds41f" };
+  assert.deepEqual(
+    planStartupRoute(base, parseTuiStartupArgs(["--model", "p:"])),
+    { route: { provider: "tg", model: "ds41f" } },
+    "拆分失败 → 不覆盖（交给启动后目录校验告警）",
+  );
+  assert.deepEqual(
+    planStartupRoute({}, parseTuiStartupArgs(["--model", "ds4f"])),
+    { route: {}, override: { model: "ds4f" } },
+    "基线缺 provider：路由保持，override 仍交给句柄按记录选择补齐",
+  );
+});
+
+test("planStartupSelection：显式字段优先，缺的按宿主当前选择补齐", () => {
+  const current = { provider: "tg", model: "ds41f", reasoningEffort: "low" };
+  assert.equal(
+    planStartupSelection(current, undefined),
+    undefined,
+    "无 override → 不预置（不写默认路由）",
+  );
+  assert.deepEqual(
+    planStartupSelection(current, { provider: "other" }),
+    { provider: "other", model: "ds41f", reasoningEffort: "low" },
+    "--provider 单给保留记录选择的 model / effort",
+  );
+  assert.deepEqual(
+    planStartupSelection(current, { model: "ds4f" }),
+    { provider: "tg", model: "ds4f", reasoningEffort: "low" },
+    "裸 model 保留记录选择的 provider / effort",
+  );
+  assert.equal(
+    planStartupSelection(undefined, { reasoningEffort: "high" }),
+    undefined,
+    "provider / model 补不齐 → 不预置",
+  );
+});
+
+test("readAgentModelSelection / setAgentModelSelection：读写宿主 Agent.model", () => {
+  const calls: { provider: string; model: string }[] = [];
+  const warns: string[] = [];
+  const warn = (m: string) => {
+    warns.push(m);
+  };
+  const agent = {
+    model: {
+      current: () => ({
+        provider: "tg",
+        model: "ds41f",
+        reasoningEffort: "low",
+      }),
+      select: (sel: { provider: string; model: string }) => {
+        calls.push(sel);
+      },
+    },
+  };
+  assert.deepEqual(readAgentModelSelection(agent), {
+    provider: "tg",
+    model: "ds41f",
+    reasoningEffort: "low",
+  });
+  assert.equal(
+    setAgentModelSelection(agent, { provider: "tg", model: "ds4f" }, warn),
+    true,
+  );
+  assert.deepEqual(calls, [{ provider: "tg", model: "ds4f" }]);
+  assert.deepEqual(warns, []);
+
+  assert.equal(
+    setAgentModelSelection({}, { provider: "tg", model: "ds4f" }, warn),
+    false,
+    "缺 model.select → false（新建会话仍有 agentOptions 兜底）",
+  );
+  assert.match(warns.join(""), /agent\.model\.select/);
+
+  const boom = {
+    model: {
+      select: () => {
+        throw new Error("not ready");
+      },
+    },
+  };
+  assert.equal(
+    setAgentModelSelection(boom, { provider: "tg", model: "ds4f" }, warn),
+    false,
+  );
+  assert.match(warns.join(""), /预置失败/);
+  assert.equal(
+    readAgentModelSelection({
+      model: {
+        current: () => {
+          throw new Error("no session");
+        },
+      },
+    }),
+    undefined,
+    "current 抛错按缺失处理",
+  );
+});
+
+test("main.ts：启动模型在建 adapter / App 之前同步预置（首个请求前生效）", () => {
+  const source = readFileSync(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  const pinned = source.indexOf("const startupPinned = planStartupSelection(");
+  const adapter = source.indexOf("const adapter = createRealDshAdapter({");
+  assert.ok(pinned > 0, "main.ts 应有句柄就绪后的同步预置");
+  assert.ok(adapter > 0, "main.ts 应装配真实 adapter");
+  assert.ok(
+    pinned < adapter,
+    "预置必须在 adapter / App 启动之前（会话开局 steer 注入会立刻发首个请求）",
   );
 });
 

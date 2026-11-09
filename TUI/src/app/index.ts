@@ -15,6 +15,7 @@
 // 只依赖 renderer 公共 API 与 adapter 接口契约, 不感知 adapter 实现.
 // 处理按键、接收事件、重绘.
 
+import type { ModelSelection } from "./adapter/dsh.ts";
 import type { AppDeps } from "./app-deps.ts";
 import type { AppState } from "./state.ts";
 import type { SectionsState } from "./layout/pipeline/sections.ts";
@@ -94,6 +95,8 @@ export class App {
     provider?: string;
     model?: string;
     effort?: string;
+    /** 已由 `main.ts` 预置到宿主的最终选择（缺字段已按宿主当前选择补齐） */
+    pinned?: ModelSelection;
   }): Promise<void> {
     return this.ctx.self.applyStartupModel(args);
   }

@@ -2322,6 +2322,29 @@ test("applyStartupModel: effort 未命中回退最低等级", async () => {
   );
 });
 
+test("applyStartupModel: pinned 作为缺字段来源（恢复会话的记录选择不被默认值盖掉）", async () => {
+  const { app, adapter } = makeApp();
+  adapter.modelCatalogData = {
+    providers: [{ provider: "deepseek" }, { provider: "other" }],
+    models: [
+      { provider: "deepseek", id: "deepseek-test-a", name: "A" },
+      { provider: "other", id: "m-recorded", name: "M" },
+    ],
+    current: { provider: "deepseek", model: "deepseek-test-a" },
+  };
+  await app.applyStartupModel({
+    provider: "other",
+    pinned: {
+      provider: "other",
+      model: "m-recorded",
+      reasoningEffort: "high",
+    },
+  });
+  assert.deepEqual(adapter.savedSelections, [
+    { provider: "other", model: "m-recorded", reasoningEffort: "high" },
+  ]);
+});
+
 // ---------- /model 交互选择模式 ----------
 
 test("交互选择：无参 /model 打开面板；模式下普通字符不插入输入区", async () => {

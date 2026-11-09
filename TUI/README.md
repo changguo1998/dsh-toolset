@@ -238,7 +238,7 @@ patch 完全没给某段时整段取文件值；文件里也没有的键才回�
 `bin/tui.js` 是零第三方依赖的 delegating launcher：
 
 - **真实链路**：目标 profile（默认 `fff`，可用 `DSH_TUI_PROFILE` 覆盖）已安装本 bundle 时，委托 `dsh --profile <p>` 启动——profile 树内 cordis 以插件方式调用 `main.ts` 的 `apply(ctx)`，创建会话、拉起 agent 并组装 renderer + app + real adapter；argv 与退出码原样透传。
-- **TUI 自有启动参数**（宿主启动器 flag 之后的内层参数，经 `ctx.cmdlineArgs` 读取）：`--resume <id>`（启动即恢复指定会话并折叠既有历史到会话区，id 无效 → stderr 提示并回落新建）与 `-c` / `--continue`（启动即加载**当前目录下最近退出的会话**，无匹配 → 静默新建）；`--provider <name>` / `--model <provider>/<model>[:<effort>]`（也接受裸 `<model>[:<effort>]`）/ `--effort <level>` 在会话启动后按目录校验并覆盖本次启动的模型路由（组合不存在 → 警告并保持原路由；effort 未命中 → 回退该模型最低等级；裸 model 用当前 provider）；均支持 `--flag value` 与 `--flag=value`。`--resume` 优先于 `-c`，未知参数忽略。用法：`dsh --profile fff --continue` / `dsh --profile fff --model tollgate/ds41f:max`。
+- **TUI 自有启动参数**（宿主启动器 flag 之后的内层参数，经 `ctx.cmdlineArgs` 读取）：`--resume <id>`（启动即恢复指定会话并折叠既有历史到会话区，id 无效 → stderr 提示并回落新建）与 `-c` / `--continue`（启动即加载**当前目录下最近退出的会话**，无匹配 → 静默新建）；`--provider <name>` / `--model <provider>/<model>[:<effort>]`（也接受裸 `<model>[:<effort>]`）/ `--effort <level>` 在会话创建 / 恢复**之前**并入初始路由（命令行 > profile config > 宿主默认），会话句柄就绪后同步写入宿主，**首个请求即生效**（缺的字段按宿主当前选择补齐，恢复会话也是）；启动后再按目录校验（组合不存在 → 警告并保留命令行路由；effort 未命中 → 回退该模型最低等级；裸 model 用当前 provider）；均支持 `--flag value` 与 `--flag=value`。`--resume` 优先于 `-c`，未知参数忽略。用法：`dsh --profile fff --continue` / `dsh --profile fff --model tollgate/ds41f:max`。
 - **无 DSH 退化**：无可用 profile 或传 `--demo` 时运行 mock demo（renderer + app + mock adapter 全栈走通，不触碰 DSH）。
 
 ```sh
