@@ -67,12 +67,21 @@
 
 - id: output-compress
   name: '@dsh-toolset/output-compress'
+  # digest.db 存放位置由 session-paths 的 sessionDirFor(sessionId) 推导为 <会话目录>/digest.db；
+  # 2026-10-17 的过渡覆盖 sessionDir（指向 ~/.dsh/output-compress/）已于 2026-10-22 删除。
 
 - id: security-guard
   name: '@dsh-toolset/security-guard'
 
 - id: code-map
   name: '@dsh-toolset/code-map'
+
+# coagent 同会话并行上限：插件缺省 4（starting / ready / closing 计入，超限 limit_exceeded
+# 不排队），这里抬到 8。patch 按 id 替换整行 config，故只重述要改的字段；不可写 name，
+# 否则会被当成新增行而整条跳过。
+- id: coagent
+  config:
+    maxLive: 8
 
 # 会话目录编码服务（session-paths）：由 bundles 挂载，且排在 memory-base 之前，
 # 保证服务先注册（memory-base 的 S 库、output-compress 的 digest.db 都经它取会话目录）。
@@ -82,12 +91,14 @@
 #   config:
 #     root: /path/to/sessions
 
-# 分层记忆存储：库落点按层推导（U = dshHome 下、P = 项目根 `.dsh/`、S = 宿主会话目录），
-# 无单库 dbPath 配置（该键已随 2026-10-17 改制废弃）；库在首次写入时才创建。这里只给缺省归属项目键。
+# 分层记忆存储：库位置按层推导（U = dshHome 下、P = 项目根 `.dsh/`、S = 宿主会话目录），
+# 无单库 dbPath 配置（该键已随 2026-10-17 改制废弃）；库在首次写入时才创建。归属项目键缺省取
+# `process.cwd()`（`memory-base/src/index.ts:122-123`），资产里不写死；要固定归属时按 id 覆盖：
+# - id: memory-base
+#   config:
+#     project: 'my-project'
 - id: memory-base
   name: '@dsh-toolset/memory-base'
-  config:
-    project: 'my-project'
 
 # goal 默认回合上限：宿主 dsh-goal 的 Config 默认 defaultMaxGoalRounds=256，这里抬到 999。
 # patch 按 id 整键替换 config，故只重述要改的字段；不可写 name（否则被当成新增行而整条跳过）。
@@ -131,8 +142,9 @@
           summary: "会话重新加载提示"
 
 # behavior-correction：rule-engine 的 tools/pre-execute guard 消费者，拦「该用专用工具却
-# 走 shell」的调用（缺省：bash 里跑 herdr -> 拒绝并指向 herdr_use 族工具）。config.rules
-# 可整体替换缺省规则表，enabled: false 或 rules: [] 等于不拦；未配 config 时用内置缺省。
+# 走 shell」的调用（缺省四条：bash 里跑 herdr、命令位跑解释器、用 cat/head/tail/sed -n 查看
+# 文本、以 grep 起头的纯检索段）。config.rules 可整体替换缺省规则表，enabled: false 或
+# rules: [] 等于不拦；未配 config 时用内置缺省。
 - insert:
     - id: behavior-correction
       name: '@dsh-toolset/behavior-correction'
@@ -158,7 +170,12 @@
 #    provider / model 为你的路由，依赖：profile 的 package.json 需含对应官方包）。带
 #    `scripts/install.sh --sync --take-over-title` 时脚本会按 patch 内容自动补齐生成区。
 # 2a) 官方 all-prompts 变体（每条用户消息后重算标题）：provider/model 必须成对提供；
-#     targetCjkCharacters 为中文目标字数。
+#     targetCjkCharacters 为中文目标字数。两个上限有实测依据，别照抄更小的值：
+#     · `maxInputBytes` 校验的是「全部符合条件用户消息」聚合后的输入体积，超出即失败并
+#       保留旧标题（不截断历史）——4096 只够单轮，多轮会话必然超限，故取 32768；
+#     · `maxOutputTokens` 要留足推理预算：推理模型会先流式输出 thinking 块，取 64 会在
+#       thinking 阶段就被截断（finish: max-tokens）、正文为空 → 标题服务按失败处理并保留
+#       fallback（实测 thinking 约 300+ token，故取 512）。
 # - insert:
 #     - id: session-title-all-prompts-llm
 #       name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
@@ -253,3 +270,13 @@
 # canonical_pkgs 维护（与 CI 一致），恢复只需删掉本块。
 - id: ponytail
   disabled: true
+
+# ── 任务引擎 ──────────────────────────────────────────────────────────────────
+# 验收命令超时：缺省 30s，而根链路 `pnpm run check && pnpm run build` 实测约 54s
+#（2026-11-06 折行策略任务实测），超时会被 SIGKILL 记成退出码 1，故放到 300s。
+# 打回重试上限：代码缺省 8（2026-11-09 由 3 放宽），这里放到 10。两者都只重述要改的字段；
+# 不可写 name，否则会被当成新增行而整条跳过。
+- id: task-engine
+  config:
+    commandTimeoutMs: 300000
+    maxRetries: 10
