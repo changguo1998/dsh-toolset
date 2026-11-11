@@ -97,7 +97,8 @@ export function toToolDef(service: SessionChannelService) {
     description:
       "用途: 跨会话消息通道(本机专用 Redis), 列会话、发消息、查收件箱、管别名。\n" +
       "用法: peers 列在线会话; send 发消息到目标会话; inbox 查某会话最近收到的消息(只读); state 查某会话的 agent 忙闲(idle/running + 转换时刻 at, 也可作为跨会话通知的派发通道); alias 管会话别名(op=set/list/clear, name=别名, to 缺省为调用方所在会话); status 查连接与已跟踪会话。\n" +
-      "边界: 发消息用本工具(action=send); 让另一个会话执行任务并回收结果用 channel_delegate。\n" +
+      "边界: 发消息用本工具; 让另一个会话执行任务并回收结果用 channel_delegate。\n" +
+      '例如: {action: "send", to: "tui-xxxx", text: "进展如何?"}。\n' +
       "相关: channel_delegate、channel_task、coagent。",
     parameters: {
       type: "object",

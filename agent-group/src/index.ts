@@ -168,6 +168,7 @@ export function toToolDef(
       "用法: create_group 建组(管理者 = 调用方会话); add_member 加成员(name / target, target = 会话 id 或别名, 须在线); link 建主从连接(从方须是自由代理, 等级 = 主方 + 1); link_peer 建平等连接(双向、无等级); send 发指令(每条主从连接同时只允许一条未结); send_peer 经平等连接发消息; broadcast 按成员逐条发送并汇总; check 懒判定结算; remove 移除成员(非叶子被拒); close_group 关闭组; status 只读查看。\n" +
       "效果: 拒绝都带原因与下一步。\n" +
       "边界: 派任务给单个会话用 channel_delegate; 拉起常驻会话用 coagent。\n" +
+      '例如: {action: "create_group", group: "review-1"}(建组后 add_member 加成员、link 建主从)。\n' +
       "相关: channel_delegate、coagent、session_channel。",
     parameters: {
       type: "object",
