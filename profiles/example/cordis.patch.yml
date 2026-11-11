@@ -271,6 +271,12 @@
 - id: ponytail
   disabled: true
 
+# ── plan-mode（默认停挂，等待本仓自研实现）────────────────────────────────
+# 官方 plan-mode 只注入 plan:policy 并条件挂载 exit_plan_mode，不拦截写工具；
+# 2026-11-11 裁定先禁用，恢复 = 删本块。
+- id: plan-mode
+  disabled: true
+
 # ── 任务引擎 ──────────────────────────────────────────────────────────────────
 # 验收命令超时：缺省 30s，而根链路 `pnpm run check && pnpm run build` 实测约 54s
 #（2026-11-06 折行策略任务实测），超时会被 SIGKILL 记成退出码 1，故放到 300s。

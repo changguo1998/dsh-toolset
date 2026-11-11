@@ -17,7 +17,7 @@
 
 ### 1.2 宿主注册命令
 
-`ctx.commands.register` 现注册 6 条（dsh 0.2.2-rc.1 随包清单核对（rc.3 未改 dsh-base 的 patch，命令集合不变））：`/compact` `/feedback` `/goal` `/permission` `/plan` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets / dsh-plan-mode），`/export` 来自 dsh-session-log-export。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
+`ctx.commands.register` 现注册 5 条（dsh 0.2.2-rc.1 随包清单，本 profile 禁用 plan-mode 后）：`/compact` `/feedback` `/goal` `/permission` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets），`/export` 来自 dsh-session-log-export。`/plan` 随官方 plan-mode 禁用，待本仓自研 plan 模式后恢复。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
 
 - 补全候选 = 本地目录 + `ctx.commands.list(agent)`（`start()` 时拉取一次，无周期刷新）；同名本地优先。
 - `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` **无本地行为**——条目只提供帮助 / 补全描述（`route: "registry"`），全形态转发宿主（`/goal` 看状态与可用命令、`/goal <目标>` 新建，`edit` / `pause` / `resume` / `clear` 管理），2026-10-06 起不再有本地无参提示。
@@ -26,7 +26,7 @@
 
 > 归口：命令只有两类来源——① dsh 官方 API/插件（当前 profile 已挂载的服务）；② 本项目插件（dsh-toolset）。不引入第三方插件；需额外装配官方可选 bundle（当前未挂载）的项不在范围。
 
-**机制前提**：dsh 的「服务」与「slash 命令」是两套独立注册面——服务（cordis Service）只提供编程 API（`ctx.<svc>`），不会自动变成命令；命令须显式 `ctx.commands.register`，官方当前仅 6 条（§1.2）。
+**机制前提**：dsh 的「服务」与「slash 命令」是两套独立注册面——服务（cordis Service）只提供编程 API（`ctx.<svc>`），不会自动变成命令；命令须显式 `ctx.commands.register`，当前 profile 仅 5 条（§1.2）。
 
 **实现位置选择**：命令一律走 TUI 本地命令（`LOCAL_COMMANDS` + `index.ts` case），不新建宿主命令插件——可复用面板骨架（ModelPicker / JobsPanel / HistoryPanel）与 FakeAdapter 测试基建，与既有 `/session` `/policy` `/permission` `/jobs` 同路径；代价是命令仅 TUI 可用。需要跨客户端可见时再考虑宿主命令插件路线（`dsh-command-toolset`）。
 
