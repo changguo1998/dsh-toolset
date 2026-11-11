@@ -8,8 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { INJECTION_HEADER, INJECTION_SUMMARY } from "../../src/apply.ts";
-import { CONSUMER_REGISTRATION } from "../../src/index.ts";
+import { INJECTION_HEADER } from "../../src/apply.ts";
 import { assemble } from "../assemble.ts";
 
 test("装配：事件面 / 消费者 / 三个工具各注册一次，启动归纳落盘空账簿", async () => {
@@ -20,7 +19,7 @@ test("装配：事件面 / 消费者 / 三个工具各注册一次，启动归�
       host.tools.defs.map((def) => def.name),
       ["preference_list", "preference_add", "preference_remove"],
     );
-    assert.equal(host.engine.consumers.length, 1);
+    assert.equal(host.pinNotes.holds.length, 1);
     const ledger = await host.flush((file) => file.revision >= 1, {
       nudge: false,
     });
@@ -88,7 +87,7 @@ test("三条信号：S1 重复约束 / S2 纠正加权 / S3 审批拒绝都写�
     assert.ok(!approval.text.includes("sudo"), "参数只留首段");
     assert.equal(ledger.unformed, 1);
     assert.equal(host.memory.puts.length, 0, "观察态不写库");
-    assert.equal(host.engine.decide(), null);
+    assert.equal(host.pinNotes.text(), null);
   } finally {
     await host.cleanup();
   }
@@ -118,22 +117,15 @@ test("高置信写回：跨三会话自动应用、库行引用入账、消费�
       id: host.memory.rows[0]!.id,
     });
 
-    // 消费者注册值与冻结常量一致
-    const consumer = host.engine.consumers[0]!;
-    assert.equal(consumer.id, CONSUMER_REGISTRATION.id);
-    assert.deepEqual(consumer.sources, [...CONSUMER_REGISTRATION.sources]);
-    assert.equal(consumer.delivery, CONSUMER_REGISTRATION.delivery);
-    assert.equal(consumer.dedupeInRecord, CONSUMER_REGISTRATION.dedupeInRecord);
-    assert.deepEqual(consumer.directWrite, [
-      ...CONSUMER_REGISTRATION.directWrite,
-    ]);
+    // 动态保持：登记了 preference 这一个 key
+    assert.equal(host.pinNotes.holds.length, 1);
+    assert.equal(host.pinNotes.holds[0]!.key, "preference");
 
-    // 注入内容：首行说明 + 条目 + 摘要
-    const injected = host.engine.decide();
+    // 注入内容：首行说明 + 条目
+    const injected = host.pinNotes.text();
     assert.ok(injected !== null);
-    assert.equal(injected.summary, INJECTION_SUMMARY);
-    assert.ok(injected.text.startsWith(INJECTION_HEADER));
-    assert.ok(injected.text.includes("- 不要用 emoji"));
+    assert.ok(injected.startsWith(INJECTION_HEADER));
+    assert.ok(injected.includes("- 不要用 emoji"));
   } finally {
     await host.cleanup();
   }
@@ -150,7 +142,7 @@ test("工具面：preference_add 落候选待审，list 的 canonical 值与 ren
     assert.equal(added.ok, true);
     assert.equal(added.status, "candidate");
     assert.equal(host.memory.puts.length, 0, "模型提议不自动写库");
-    assert.equal(host.engine.decide(), null, "候选不注入");
+    assert.equal(host.pinNotes.text(), null, "候选不注入");
 
     const canonical = (await host.tools.call("preference_list", {
       status: "candidate",
@@ -185,7 +177,7 @@ test("工具面：撤销候选只改状态（无库行），未知 id 给 not-fo
     });
     assert.deepEqual(removed, { ok: true, removed: 0 });
     assert.equal(host.memory.forgets.length, 0);
-    assert.equal(host.engine.decide(), null);
+    assert.equal(host.pinNotes.text(), null);
     assert.deepEqual(await host.tools.call("preference_remove", { id: "x" }), {
       ok: false,
       reason: "not-found",
@@ -217,7 +209,7 @@ test("撤销生效条目：真删库行、账簿留副本、注入清空", async
     assert.deepEqual(host.memory.forgets, [
       { kind: "preference", refs: [{ tier: "project", ids: [1] }] },
     ]);
-    assert.equal(host.engine.decide(), null);
+    assert.equal(host.pinNotes.text(), null);
     const after = await host.readLedger();
     assert.equal(after.entries[0]!.status, "retired");
     assert.equal(after.entries[0]!.retiredReason, "removed");
@@ -227,11 +219,11 @@ test("撤销生效条目：真删库行、账簿留副本、注入清空", async
   }
 });
 
-test("降级：memory 缺席不注册消费者与工具，只观察并告警", async () => {
+test("降级：memory 缺席不登记 hold 与工具，只观察并告警", async () => {
   const host = await assemble({ memory: null });
   try {
     assert.equal(host.events.names.length, 1, "观测订阅不受影响");
-    assert.equal(host.engine.consumers.length, 0);
+    assert.equal(host.pinNotes.holds.length, 0);
     assert.deepEqual(host.tools.defs, []);
     assert.ok(
       host.warnings.join("").includes("memory 服务不可用"),
@@ -241,21 +233,21 @@ test("降级：memory 缺席不注册消费者与工具，只观察并告警", a
     host.feed("s2", "不要用 emoji");
     const ledger = await host.flush((file) => file.entries.length >= 1);
     assert.equal(ledger.entries[0]!.status, "observe");
-    assert.equal(host.engine.decide(), null);
+    assert.equal(host.pinNotes.text(), null);
   } finally {
     await host.cleanup();
   }
 });
 
-test("降级：ruleEngine 缺席时工具照常注册、消费者不注册并告警", async () => {
-  const host = await assemble({ ruleEngine: false });
+test("降级：pinNotes 缺席时工具照常注册、hold 不登记并告警", async () => {
+  const host = await assemble({ pinNotes: false });
   try {
     assert.deepEqual(
       host.tools.defs.map((def) => def.name),
       ["preference_list", "preference_add", "preference_remove"],
     );
-    assert.equal(host.engine.consumers.length, 0);
-    assert.ok(host.warnings.join("").includes("ctx.ruleEngine 不可用"));
+    assert.equal(host.pinNotes.holds.length, 0);
+    assert.ok(host.warnings.join("").includes("ctx.pinNotes 不可用"));
   } finally {
     await host.cleanup();
   }
@@ -266,7 +258,7 @@ test("enabled: false：零注册、零观测、零落盘", async () => {
   try {
     assert.deepEqual(host.events.names, []);
     assert.deepEqual(host.tools.defs, []);
-    assert.deepEqual(host.engine.consumers, []);
+    assert.deepEqual(host.pinNotes.holds, []);
     assert.deepEqual(host.warnings, []);
     await assert.rejects(() => readFile(host.ledgerPath, "utf8"));
   } finally {
@@ -274,16 +266,16 @@ test("enabled: false：零注册、零观测、零落盘", async () => {
   }
 });
 
-test("dispose：解绑事件与消费者，之后的事件不再进账簿", async () => {
+test("dispose：解绑事件与 hold，之后的事件不再进账簿", async () => {
   const host = await assemble();
   try {
     host.feed("s1", "不要用 emoji");
     await host.flush((file) => file.entries.length >= 1);
     host.dispose();
     assert.equal(host.events.offs, 1);
-    assert.equal(host.engine.offs, 1);
+    assert.equal(host.pinNotes.offs, 1);
     assert.equal(host.events.listeners.length, 0);
-    assert.equal(host.engine.consumers.length, 0);
+    assert.equal(host.pinNotes.holds.length, 0);
     const before = await host.readLedger();
     host.feed("s2", "不要用 emoji");
     await host
@@ -293,7 +285,7 @@ test("dispose：解绑事件与消费者，之后的事件不再进账簿", asyn
       .catch(() => undefined);
     const after = await host.readLedger();
     assert.equal(after.entries[0]!.evidence, before.entries[0]!.evidence);
-    assert.equal(host.engine.decide(), null);
+    assert.equal(host.pinNotes.text(), null);
   } finally {
     await host.cleanup();
   }
@@ -302,7 +294,7 @@ test("dispose：解绑事件与消费者，之后的事件不再进账簿", asyn
 test("非 cordis 宿主：没有 ctx.get 时经直接属性取服务", async () => {
   const host = await assemble({ viaGet: false });
   try {
-    assert.equal(host.engine.consumers.length, 1);
+    assert.equal(host.pinNotes.holds.length, 1);
     assert.equal(host.tools.defs.length, 3);
   } finally {
     await host.cleanup();

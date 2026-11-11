@@ -17,14 +17,10 @@ import { emptyLedger, type LedgerFile } from "../src/ledger.ts";
 import type { ToolDef } from "../src/tools.ts";
 import { fakeMemory, userEvent, type FakeMemory } from "./fakes.ts";
 
-/** rule-engine 消费者注册项（结构面，不 import 对方代码）。 */
-export interface RegisteredConsumer {
-  id: string;
-  sources?: readonly string[];
-  delivery?: string;
-  dedupeInRecord?: number;
-  directWrite?: readonly string[];
-  decide: () => { text: string; summary?: string } | null;
+/** pin-note 动态保持的一条登记（结构面，不 import 对方代码）。 */
+export interface HeldEntry {
+  key: string;
+  provider: () => string | undefined;
 }
 
 /** 假事件面。 */
@@ -47,13 +43,13 @@ export interface FakeToolFace {
   render(name: string, value: unknown): string;
 }
 
-/** 假 rule-engine 面。 */
-export interface FakeRuleEngineFace {
-  readonly consumers: RegisteredConsumer[];
+/** 假 pin-note 面（动态保持登记）。 */
+export interface FakePinNotesFace {
+  readonly holds: HeldEntry[];
   readonly offs: number;
-  registerConsumer(input: RegisteredConsumer): () => void;
-  /** 代宿主调用最近注册消费者的 `decide`（无消费者给 null）。 */
-  decide(): { text: string; summary?: string } | null;
+  hold(key: string, provider: () => string | undefined): () => void;
+  /** 代宿主同步某 key 的 provider（缺省最近一条；未登记给 null）。 */
+  text(key?: string): string | null;
 }
 
 /** 装配结果。 */
@@ -64,7 +60,7 @@ export interface IntegrationHost {
   readonly memory: FakeMemory;
   readonly events: FakeEventFace;
   readonly tools: FakeToolFace;
-  readonly engine: FakeRuleEngineFace;
+  readonly pinNotes: FakePinNotesFace;
   /** `apply` 期间写到 stderr 的告警（按行收集）。 */
   readonly warnings: string[];
   /** 喂一条 user/message 事件（会话 id / cwd 可指定）。 */
@@ -93,8 +89,8 @@ export interface AssembleOptions {
   config?: Partial<Config>;
   /** 缺省造一份假 memory；`null` 表示服务缺席。 */
   memory?: FakeMemory | null;
-  /** 缺省提供 rule-engine 消费者面；`false` 表示服务缺席。 */
-  ruleEngine?: boolean;
+  /** 缺省提供 pin-note 动态保持面；`false` 表示服务缺席。 */
+  pinNotes?: boolean;
   /** 缺省提供工具面；`false` 表示服务缺席。 */
   tools?: boolean;
   /** 缺省 true = cordis 语义（服务只能经 `ctx.get`）；false = 直接属性。 */
@@ -149,32 +145,36 @@ export async function assemble(
     },
   };
 
-  // rule-engine 面
-  const consumers: RegisteredConsumer[] = [];
-  let engineOffs = 0;
-  const engine: FakeRuleEngineFace = {
-    consumers,
+  // pin-note 面（动态保持登记）
+  const holds: HeldEntry[] = [];
+  let holdOffs = 0;
+  const pinNotes: FakePinNotesFace = {
+    holds,
     get offs() {
-      return engineOffs;
+      return holdOffs;
     },
-    registerConsumer(input) {
-      consumers.push(input);
+    hold(key, provider) {
+      const entry: HeldEntry = { key, provider };
+      holds.push(entry);
       return () => {
-        engineOffs += 1;
-        const index = consumers.indexOf(input);
-        if (index >= 0) consumers.splice(index, 1);
+        holdOffs += 1;
+        const index = holds.indexOf(entry);
+        if (index >= 0) holds.splice(index, 1);
       };
     },
-    decide() {
-      const consumer = consumers[0];
-      return consumer === undefined ? null : consumer.decide();
+    text(key) {
+      const entry =
+        key === undefined
+          ? holds[holds.length - 1]
+          : holds.find((h) => h.key === key);
+      return entry === undefined ? null : (entry.provider() ?? null);
     },
   };
 
   // ctx：服务只进 get 表（cordis 里直接读未 inject 的属性会抛错）
   const services: Record<string, unknown> = {};
   if (options.memory !== null) services["memory"] = memory.face;
-  if (options.ruleEngine !== false) services["ruleEngine"] = engine;
+  if (options.pinNotes !== false) services["pinNotes"] = pinNotes;
   if (options.tools !== false) services["tools"] = tools;
   const target: Record<string, unknown> = {
     on(name: string, listener: (session: unknown, event: unknown) => void) {
@@ -228,7 +228,7 @@ export async function assemble(
     memory,
     events,
     tools,
-    engine,
+    pinNotes,
     warnings,
     feed(sessionId, text, feedOptions = {}) {
       events.emit(

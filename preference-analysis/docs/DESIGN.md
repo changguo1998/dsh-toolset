@@ -83,12 +83,10 @@ session/event ──observe.ts──> Observation[]（证据 / 未成形观察�
 | 句柄 `forget([{tier, ids}])` | 撤销 / 退休真删，返回删条数 |
 | 全局 `list({kind, tier, project, limit})` | 重试幂等：同内容副本复用其 id，不重复写行 |
 
-**rule-engine（硬依赖，靠 `inject` 排序）**——注册值见 `README.md` 的注入一节，代码里是
-`CONSUMER_REGISTRATION`（常量导出，测试直接比对，防漂移）。`inject` 里必须显式声明 `ruleEngine`
-（与 `memory`、`tools` 一起）：cordis 只会把「依赖已就绪」的插件激活，否则会出现本插件先激活、
-rule-engine 尚未 `provide`，`ctx.get("ruleEngine")` 取不到 → 消费者永久漏注册的时序问题（真实重启
-实测）。激活期只读一次服务是有意为之：`inject` 已保证就绪，读不到只可能是非 cordis 宿主，按兜底
-告警处理。
+**pin-note 动态保持（可选服务）**——偏好要点属动态保持，经 `pinNotes.hold("preference", () => plugin.decide()?.text)` 登记（见 `README.md` 的注入一节）。`inject` 只声明 `memory` /
+`tools` 两个硬依赖，`pinNotes` 经 `ctx.get` 读取——pin-note 未挂载时降级为「只记录不注入」并告警一次。
+provider 返回 `undefined` 表示本步不投（无 active 条目 / 服务缺席 / 已关）；文本变化由 pin-note
+按 key 比对后只追加变化条，压缩后再补一条。
 
 **门禁落在能力上而不是自律上**：`preWrite` 的入参不含 `tier`，同一 kind 声明多层无法按层拦，
 故拆两个 kind，让**句柄本身当闸门**；越权层由 memory-base 抛错。

@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  CONSUMER_REGISTRATION,
   DAY_MS,
   DEFAULT_MIN_INTERVAL_MS,
   MAX_PENDING_OBSERVATIONS,
@@ -40,11 +39,7 @@ test("resolveConfig：缺省值（开启 / confident / 12 标记词 / 3-2-30 / 9
   assert.equal(config.minIntervalMs, DEFAULT_MIN_INTERVAL_MS);
   assert.ok(config.ledgerPath.endsWith("/preference-analysis/ledger.json"));
   assert.equal(name, "preference-analysis");
-  assert.deepEqual(CONSUMER_REGISTRATION.sources, [
-    "session-start",
-    "compaction",
-    "step-end",
-  ]);
+  assert.deepEqual(inject, ["memory", "tools"]);
 });
 
 test("resolveConfig：显式覆盖与非法值回退", () => {
@@ -211,9 +206,9 @@ test("apply(enabled: false)：零观测、零注册、零写入", async () => {
   const calls: string[] = [];
   const ctx = {
     memory: fakeMemory().face,
-    ruleEngine: {
-      registerConsumer() {
-        calls.push("consumer");
+    pinNotes: {
+      hold() {
+        calls.push("hold");
         return () => {};
       },
     },
@@ -236,16 +231,16 @@ test("apply(enabled: false)：零观测、零注册、零写入", async () => {
 test("apply：注册消费者（冻结入参）、三个工具、会话事件订阅，并可解绑", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
-  const consumers: Array<Record<string, unknown>> = [];
+  const holds: Array<{ key: string; provider: () => string | undefined }> = [];
   const tools: Array<{ name?: unknown }> = [];
   const listeners: Array<(session: unknown, event: unknown) => void> = [];
   let consumerDisposed = 0;
   let unsubscribed = 0;
   const ctx = {
     memory: memory.face,
-    ruleEngine: {
-      registerConsumer(input: Record<string, unknown>) {
-        consumers.push(input);
+    pinNotes: {
+      hold(key: string, provider: () => string | undefined) {
+        holds.push({ key, provider });
         return () => {
           consumerDisposed += 1;
         };
@@ -268,18 +263,9 @@ test("apply：注册消费者（冻结入参）、三个工具、会话事件订
     },
   };
   const dispose = apply(ctx, { ledgerPath, minIntervalMs: 1 });
-  assert.equal(consumers.length, 1);
-  const consumer = consumers[0]!;
-  assert.equal(consumer["id"], "preference-analysis");
-  assert.deepEqual(consumer["sources"], [
-    "session-start",
-    "compaction",
-    "step-end",
-  ]);
-  assert.equal(consumer["delivery"], "steer");
-  assert.equal(consumer["dedupeInRecord"], 1);
-  assert.deepEqual(consumer["directWrite"], ["session-start", "compaction"]);
-  assert.equal(typeof consumer["decide"], "function");
+  assert.equal(holds.length, 1);
+  assert.equal(holds[0]!.key, "preference");
+  assert.equal(typeof holds[0]!.provider, "function");
   assert.deepEqual(
     tools.map((tool) => tool.name),
     ["preference_list", "preference_add", "preference_remove"],
@@ -328,8 +314,8 @@ test("apply：memory 为旧形态时不注册消费者与工具（只观察）",
       registerKind: () => ({ kind: "preference", table: "kind_preference" }),
       checkPrivacy: () => null,
     },
-    ruleEngine: {
-      registerConsumer() {
+    pinNotes: {
+      hold() {
         registered += 1;
         return () => {};
       },
@@ -353,7 +339,7 @@ test("apply：memory 为旧形态时不注册消费者与工具（只观察）",
 test("getService：未 inject 的服务直接读属性抛错时走 ctx.get（真实加载路径）", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
-  const consumers: Array<Record<string, unknown>> = [];
+  const holds: Array<{ key: string; provider: () => string | undefined }> = [];
   const tools: Array<{ name?: unknown }> = [];
   const forbidden = (service: string): never => {
     throw new Error(`cannot get property "${service}" without inject`);
@@ -362,10 +348,10 @@ test("getService：未 inject 的服务直接读属性抛错时走 ctx.get（真
     // cordis 的受保护读取面：未 inject 的服务只能经 get 取
     get(name: string): unknown {
       if (name === "memory") return memory.face;
-      if (name === "ruleEngine") {
+      if (name === "pinNotes") {
         return {
-          registerConsumer(input: Record<string, unknown>) {
-            consumers.push(input);
+          hold(key: string, provider: () => string | undefined) {
+            holds.push({ key, provider });
             return () => {};
           },
         };
@@ -383,8 +369,8 @@ test("getService：未 inject 的服务直接读属性抛错时走 ctx.get（真
     get memory() {
       return forbidden("memory");
     },
-    get ruleEngine() {
-      return forbidden("ruleEngine");
+    get pinNotes() {
+      return forbidden("pinNotes");
     },
     get tools() {
       return forbidden("tools");
@@ -394,7 +380,7 @@ test("getService：未 inject 的服务直接读属性抛错时走 ctx.get（真
     },
   };
   const dispose = apply(ctx, { ledgerPath });
-  assert.equal(consumers.length, 1);
+  assert.equal(holds.length, 1);
   assert.deepEqual(
     tools.map((tool) => tool.name),
     ["preference_list", "preference_add", "preference_remove"],
@@ -411,8 +397,8 @@ test("getService：ctx.get 抛错时回落直接读属性（无 get 的测试宿
       throw new Error("get unavailable");
     },
     memory: memory.face,
-    ruleEngine: {
-      registerConsumer() {
+    pinNotes: {
+      hold() {
         registered += 1;
         return () => {};
       },
@@ -431,30 +417,33 @@ test("getService：ctx.get 抛错时回落直接读属性（无 get 的测试宿
   dispose();
 });
 
-test("inject：声明 memory / ruleEngine / tools，交给 cordis 排序（防消费者漏注册）", () => {
-  // 只声明 memory 时，本插件会先于 rule-engine 激活 -> ctx.get("ruleEngine") 取不到，
-  // 消费者永久漏注册（真实重启告警）。三个服务都必须进 inject。
-  assert.deepEqual(inject, ["memory", "ruleEngine", "tools"]);
+test("inject：声明 memory / tools；pinNotes 为可选服务", () => {
+  // pinNotes 是可选服务（pin-note 未挂载时降级为只记录不注入），不进 inject；
+  // memory / tools 是硬依赖，必须声明以免激活期取不到。
+  assert.deepEqual(inject, ["memory", "tools"]);
 });
 
 test("顺序：激活完成时消费者已同步注册，decide 立即可用（无需等会话事件补注册）", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
-  const consumers: Array<Record<string, unknown>> = [];
+  const holds: Array<{ key: string; provider: () => string | undefined }> = [];
   const { proxy } = cordisLikeContext({
     memory: memory.face,
-    ruleEngine: {
-      registerConsumer(input: Record<string, unknown>) {
-        consumers.push(input);
+    pinNotes: {
+      hold(key: string, provider: () => string | undefined) {
+        holds.push({ key, provider });
         return () => {};
       },
     },
     tools: { register() {} },
   });
   const dispose = apply(proxy, { ledgerPath });
-  assert.equal(consumers.length, 1, "激活同步注册，不留「等下一次事件」的窗口");
-  const decide = consumers[0]!["decide"] as () => unknown;
-  assert.equal(decide(), null, "无 active 条目时返回 null，且调用不抛错");
+  assert.equal(holds.length, 1, "激活同步登记，不留「等下一次事件」的窗口");
+  assert.equal(
+    holds[0]!.provider(),
+    undefined,
+    "无 active 条目时返回 undefined，且调用不抛错",
+  );
   dispose();
 });
 
@@ -486,16 +475,16 @@ function cordisLikeContext(services: Record<string, unknown>): CordisLike {
   return { proxy, listeners };
 }
 
-test("Proxy 模拟 cordis：未 inject 的服务读属性抛错，ruleEngine 经 ctx.get 取到", async () => {
+test("Proxy 模拟 cordis：未 inject 的服务读属性抛错，pinNotes 经 ctx.get 取到", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
-  const consumers: Array<Record<string, unknown>> = [];
+  const holds: Array<{ key: string; provider: () => string | undefined }> = [];
   const tools: Array<{ name?: unknown }> = [];
   const { proxy, listeners } = cordisLikeContext({
     memory: memory.face,
-    ruleEngine: {
-      registerConsumer(input: Record<string, unknown>) {
-        consumers.push(input);
+    pinNotes: {
+      hold(key: string, provider: () => string | undefined) {
+        holds.push({ key, provider });
         return () => {};
       },
     },
@@ -507,15 +496,11 @@ test("Proxy 模拟 cordis：未 inject 的服务读属性抛错，ruleEngine 经
   });
   // 先自证模拟成立：直接读未声明服务确实抛错
   assert.throws(
-    () => (proxy as Record<string, unknown>)["ruleEngine"],
+    () => (proxy as Record<string, unknown>)["pinNotes"],
     /without inject/u,
   );
   const dispose = apply(proxy, { ledgerPath });
-  assert.equal(
-    consumers.length,
-    1,
-    "消费者应经 ctx.get 取到 ruleEngine 后注册",
-  );
+  assert.equal(holds.length, 1, "应经 ctx.get 取到 pinNotes 后登记 hold");
   assert.deepEqual(
     tools.map((tool) => tool.name),
     ["preference_list", "preference_add", "preference_remove"],
@@ -524,13 +509,13 @@ test("Proxy 模拟 cordis：未 inject 的服务读属性抛错，ruleEngine 经
   dispose();
 });
 
-test("顺序兜底：宿主忽略 inject 提前激活且 ruleEngine 未就绪 -> 告警一次、不注册消费者", async () => {
+test("顺序兜底：宿主忽略 inject 提前激活且 pinNotes 未就绪 -> 告警一次、不登记 hold", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
   const tools: Array<{ name?: unknown }> = [];
   const { proxy, listeners } = cordisLikeContext({
     memory: memory.face,
-    // 不提供 ruleEngine：模拟宿主未按 inject 排序、激活时消费者面还没 provide
+    // 不提供 pinNotes：模拟宿主激活时动态保持面还没 provide
     tools: {
       register(def: { name?: unknown }) {
         tools.push(def);
@@ -552,10 +537,10 @@ test("顺序兜底：宿主忽略 inject 提前激活且 ruleEngine 未就绪 ->
     process.stderr.write = originalWrite;
   }
   assert.ok(
-    captured.join("").includes("ctx.ruleEngine 不可用"),
+    captured.join("").includes("ctx.pinNotes 不可用"),
     `应告警一次，实际：${captured.join("")}`,
   );
-  // 没有 ruleEngine 注册面 -> 消费者无从注册（不注入）；观测与存储不受影响
+  // 没有 pinNotes 面 -> 偏好只记录不注入；观测与存储不受影响
   assert.equal(listeners.length, 1, "观测订阅不受影响");
   assert.equal(tools.length, 3, "存储面仍在，工具照常注册");
 
@@ -827,12 +812,12 @@ test("退休删行失败：告警并保留原状态，不落 retired", async () 
 test("apply：ctx.on 缺失与 tools.register 抛错都只告警，不中断装配", async () => {
   const ledgerPath = await tempPath();
   const memory = fakeMemory();
-  let consumers = 0;
+  let holds = 0;
   const services: Record<string, unknown> = {
     memory: memory.face,
-    ruleEngine: {
-      registerConsumer() {
-        consumers += 1;
+    pinNotes: {
+      hold() {
+        holds += 1;
         return () => {};
       },
     },
@@ -868,7 +853,7 @@ test("apply：ctx.on 缺失与 tools.register 抛错都只告警，不中断装�
     `实际：${output}`,
   );
   assert.ok(output.includes("tools 只读"), `实际：${output}`);
-  assert.equal(consumers, 1, "消费者注册不受工具失败影响");
+  assert.equal(holds, 1, "动态保持登记不受工具失败影响");
   dispose!();
 });
 
