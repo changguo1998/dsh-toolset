@@ -16,13 +16,13 @@
 
 import { SymbolReviewer } from "./review.ts";
 import { normalizeSymbols, resolveSymbolRules } from "./symbols.ts";
-import { GUIDE_SUMMARY, buildSymbolGuide } from "./guide.ts";
+import { buildSymbolGuide } from "./guide.ts";
 import type { Config, ReviewEvent, SymbolNormalizerService } from "./types.ts";
 
 export const name = "symbol-normalizer";
 
-/** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）。 */
-export const inject = ["ruleEngine"];
+/** 依赖：消费者注册面（rule-engine）+ 静态保持的 system prompt section 面。 */
+export const inject = ["ruleEngine", "systemPrompt"];
 
 /** 提供的服务名（TUI 等展示层经 `ctx.get('symbolNormalizer')` 消费）。 */
 export const provide = ["symbolNormalizer"];
@@ -78,6 +78,14 @@ interface ConsumerRegistrar {
 interface PluginContext {
   ruleEngine?: ConsumerRegistrar;
   provide?: (name: string, value: unknown) => unknown;
+  systemPrompt?: {
+    section?(section: {
+      name: string;
+      order: number;
+      text: string;
+      interpolate?: boolean;
+    }): () => void;
+  };
   effect?: (fn: () => unknown) => unknown;
 }
 
@@ -132,31 +140,24 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       }
     }
 
-    // 会话开局指南：注入「推荐白名单 + 使用标准」文案。
-    // 触发与去重全交 rule-engine 统一标准：`session-start` / `compaction` / `step-end`
-    // 三个节点**都**按 `dedupeInRecord: 1` 判断（读面 = 可见投影 + 未消费 inbox；已有
-    // 1 条同 summary 的指南就跳过，压缩把注入挤出记录后自然补回）。不声明 `directWrite`：
-    // 会话建立（含恢复）与压缩完成也先看投影，避免投影里还看得见旧指南时重复注入。
-    // `delivery: "steer"` 与 skill 自加载规则同节点同组 → 同一次触发合并为一条注入。
+    // 开局指南：静态保持 —— 直接注册 system prompt section（压缩豁免, 每步恒在）。
+    // name / order / 文本固定, 内容随 rules 只重启生效；injectGuide 关闭时不注册。
     let disposeGuide: (() => void) | undefined;
-    if (
-      engine !== undefined &&
-      typeof engine.registerConsumer === "function" &&
-      rules.injectGuide
-    ) {
-      try {
-        disposeGuide = engine.registerConsumer({
-          id: "symbol-normalizer-guide",
-          sources: ["session-start", "compaction", "step-end"],
-          delivery: "steer",
-          dedupeInRecord: 1,
-          decide: () => ({
+    if (rules.injectGuide) {
+      const systemPrompt = c.systemPrompt;
+      if (typeof systemPrompt?.section !== "function") {
+        warn("ctx.systemPrompt 不可用，符号规范指南不会常驻（请检查宿主版本）");
+      } else {
+        try {
+          disposeGuide = systemPrompt.section({
+            name: "symbol-normalizer/guide",
+            order: 4000,
             text: buildSymbolGuide(rules),
-            summary: GUIDE_SUMMARY,
-          }),
-        });
-      } catch (err) {
-        warn(`开局指南消费者注册失败：${String(err)}`);
+            interpolate: false,
+          });
+        } catch (err) {
+          warn(`开局指南 section 注册失败：${String(err)}`);
+        }
       }
     }
 

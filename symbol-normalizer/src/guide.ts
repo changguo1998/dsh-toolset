@@ -2,15 +2,12 @@
  * 会话开局「符号规范」指南：
  * - `buildSymbolGuide`：**全部文本由 config 生成**（推荐白名单与别名映射取自 `ResolvedSymbolRules`，不硬编码符号表）。
  *
- * 注入路径：rule-engine 消费者（与回合审查同一通道，受 `maxInjectionsPerTurn` 保护）。
- * 触发与去重按 rule-engine 的统一标准：注册 `sources: ["session-start", "compaction", "step-end"]`
- * + `dedupeInRecord: 1`——三个节点**都**先读会话记录（可见投影 + 未消费 inbox），投影里已有
- * 1 条同 `summary` 的指南就不再注入，看不见才注入（最多 1 条；被压缩挤出后补回）。
- * 不声明 `directWrite`：会话建立（含恢复）与压缩完成同样按记录判断，恢复会话时投影里
- * 已有旧指南即跳过，压缩未遮蔽旧指南时也不重复注入。
- * `delivery: "steer"` 与 skill 自加载规则同节点同组：同一次触发下合并为一条注入。
- * 注：宿主指令面（`@deepseek-ai/dsh-agent-instructions`）只读取固定候选路径的指令文件，
- * 无插件注册口，故「严格早于首个请求」不可达；本指南在首个可行回合边界注入（见追踪文档）。
+ * 注入路径：**静态保持** —— 由插件入口直接注册 `ctx.systemPrompt.section`（system node 0）,
+ * name `symbol-normalizer/guide`、order 4000、`interpolate: false`; 压缩豁免, 每步恒在.
+ * 内容随 config 只在重启后生效；`injectGuide: false` 时不注册.
+ * 注：宿主指令面（`@deepseek-ai/dsh-agent-instructions`）只读取固定候选路径的指令文件,
+ * 无插件注册口；本指南经 system prompt 面常驻, 不再走消息级一次性通道（见追踪文档）.
+ * `GUIDE_SUMMARY` 仅供展示层识别, 注入链路不再使用.
  */
 
 import type { ResolvedSymbolRules } from "./symbols.ts";

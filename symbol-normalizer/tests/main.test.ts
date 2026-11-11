@@ -23,13 +23,24 @@ interface ConsumerRecord {
   }): { text: string; summary?: string; reset?: boolean } | null;
 }
 
-/** 假 ctx：记录注册的消费者、provide 的服务与 effect 清理函数。 */
+/** 静态保持 section 的注册记录。 */
+interface SectionRecord {
+  name: string;
+  order: number;
+  text: string;
+  interpolate?: boolean;
+}
+
+/** 假 ctx：记录注册的消费者、section、provide 的服务与 effect 清理函数。 */
 function fakeCtx(
   options: {
     noRuleEngine?: boolean;
+    noSystemPrompt?: boolean;
   } = {},
 ): {
   consumers: ConsumerRecord[];
+  sections: SectionRecord[];
+  sectionDisposed: () => number;
   disposed: () => number;
   provided: Map<string, unknown>;
   effects: Array<() => unknown>;
@@ -39,6 +50,8 @@ function fakeCtx(
   let disposeCount = 0;
   const provided = new Map<string, unknown>();
   const effects: Array<() => unknown> = [];
+  const sections: SectionRecord[] = [];
+  let sectionDisposeCount = 0;
   const ctx: Record<string, unknown> = {
     provide: (name: string, value: unknown) => provided.set(name, value),
     effect: (fn: () => unknown) => effects.push(fn),
@@ -53,17 +66,37 @@ function fakeCtx(
       },
     };
   }
-  return { consumers, disposed: () => disposeCount, provided, effects, ctx };
+  if (options.noSystemPrompt !== true) {
+    ctx["systemPrompt"] = {
+      section: (section: SectionRecord) => {
+        sections.push(section);
+        return () => {
+          sectionDisposeCount += 1;
+        };
+      },
+    };
+  }
+  return {
+    consumers,
+    sections,
+    sectionDisposed: () => sectionDisposeCount,
+    disposed: () => disposeCount,
+    provided,
+    effects,
+    ctx,
+  };
 }
 
 test("apply：注册消费者 + provide 服务；decide 审查 → notice 事件 + 反馈内容", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
-  assert.equal(fake.consumers.length, 2, "审查消费者 + 开局指南消费者");
+  assert.equal(fake.consumers.length, 1, "只剩审查消费者");
   assert.deepEqual(
     fake.consumers.map((c) => c.id),
-    ["symbol-normalizer", "symbol-normalizer-guide"],
+    ["symbol-normalizer"],
   );
+  assert.equal(fake.sections.length, 1, "开局指南改走静态 section");
+  assert.equal(fake.sections[0]?.name, "symbol-normalizer/guide");
 
   const service = fake.provided.get("symbolNormalizer") as {
     normalize(text: string): { text: string; unrecommended: string[] };
@@ -98,7 +131,8 @@ test("apply：注册消费者 + provide 服务；decide 审查 → notice 事件
   const cleanup = fake.effects[0]?.();
   assert.equal(typeof cleanup, "function");
   (cleanup as () => void)();
-  assert.equal(fake.disposed(), 2, "两个消费者（审查 + 指南）都要注销");
+  assert.equal(fake.disposed(), 1, "审查消费者注销");
+  assert.equal(fake.sectionDisposed(), 1, "指南 section 注销");
   assert.equal(service.status().warnModel, true);
   assert.equal(service.status().sessions, 1);
 });
@@ -128,35 +162,33 @@ test("apply：rule-engine 缺席时只告警不抛，展示服务仍可用", asy
   assert.equal(service.normalize("失败 ❌").text, "失败 ✗");
 });
 
-test("apply：开局指南消费者按统一标准注册（sources + delivery + dedupeInRecord，不直写），decide 恒返回指南内容", async () => {
+test("apply：开局指南注册静态 section（固定 name / order / interpolate）", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
-  const guide = fake.consumers.find((c) => c.id === "symbol-normalizer-guide");
-  assert.ok(guide !== undefined);
-  // 触发与去重由 rule-engine 统一负责：三个节点都按记录判断（可见投影 + 未消费 inbox；
-  // 最多 1 条）；不声明 directWrite，故会话建立（含恢复）与压缩完成也先看投影；
-  // 与 skill 自加载规则同节点同 delivery → 同一次触发合并成一条注入
-  assert.deepEqual(guide.sources, ["session-start", "compaction", "step-end"]);
-  assert.equal(guide.directWrite, undefined, "不直写：所有节点都先查记录");
-  assert.equal(guide.delivery, "steer");
-  assert.equal(guide.dedupeInRecord, 1);
-  const context = { sessionId: "s1", turn: 1, text: "", trigger: "step-end" };
-  const content = guide.decide(context);
-  assert.ok(content !== null);
-  assert.match(content.text, /推荐符号白名单/);
-  assert.equal(content.summary, "符号规范（会话开局指南）");
-  assert.ok(
-    guide.decide({ ...context, trigger: "turn-end" }) !== null,
-    "decide 不做节点判断（唤醒时机全在注册面，判空由 rule-engine 负责）",
+  const section = fake.sections.find(
+    (item) => item.name === "symbol-normalizer/guide",
   );
+  assert.ok(section !== undefined);
+  assert.equal(section.order, 4000);
+  assert.equal(section.interpolate, false);
+  assert.match(section.text, /推荐符号白名单/);
+  assert.ok(section.text.startsWith("[符号规范]"));
 });
 
-test("apply：injectGuide=false 时不注册指南消费者", async () => {
+test("apply：systemPrompt 缺席时只告警，审查与展示面仍可用", async () => {
+  const fake = fakeCtx({ noSystemPrompt: true });
+  await apply(fake.ctx, { cooldownMs: 0, cooldownRuns: 0 });
+  assert.equal(fake.sections.length, 0);
+  assert.equal(fake.consumers.length, 1);
+});
+
+test("apply：injectGuide=false 时不注册 section", async () => {
   const fake = fakeCtx();
   await apply(fake.ctx, { injectGuide: false });
+  assert.equal(fake.sections.length, 0, "关闭后不注册静态 section");
   assert.deepEqual(
     fake.consumers.map((c) => c.id),
     ["symbol-normalizer"],
-    "关闭后只剩审查消费者",
+    "审查消费者仍在",
   );
 });
