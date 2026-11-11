@@ -9,7 +9,7 @@
 
 - `docs/DESIGN.md`：本包分层、命令面降级说明与关键设计取舍。
 - `docs/ponytail-investigation.md`（项目级）：上游调研结论与方案取舍。
-- `cordis.patch.yml`：bundle 层挂载行（`enabled: true` + `sources` + `dedupeInRecord: 1`，显式 `false` 可关闭）。
+- `cordis.patch.yml`：bundle 层挂载行（显式 `enabled: false` 可关闭，缺省开启）。
 
 ## 能力
 
@@ -34,19 +34,19 @@ profile 用户 patch：
   name: '@dsh-toolset/ponytail'
   config:
     enabled: true            # 缺省 true；仅显式 false 关闭（其它取值按开启）
-    dedupeInRecord: 1        # 会话记录里最多 1 条本注入（可见投影 + 未消费 inbox）
+
     # 唤醒节点，缺省 session-start + step-end（后者兜底）：
-    sources: ['session-start', 'step-end']
+
     # 投递方式，缺省 steer（挂到最近 pre-step 并唤醒；inject 不唤醒、真机 agent 非 live 时会被丢弃）：
-    # delivery: steer
+
     # text: '自定义阶梯文本' # 可选：本地试验用
 ```
 
 ## 用法
 
-- apply 时经 `ruleEngine.registerConsumer({ id: "ponytail", sources, delivery, dedupeInRecord, decide })` 注册（五项缺省见 `src/main.ts` 的 `resolveConfig`：`enabled` true、`sources` `["session-start", "step-end"]`、`delivery` `"steer"`、`dedupeInRecord` 1、`text` 为内置阶梯）；
+- apply 时直接注册 `ctx.systemPrompt.section({ name: "ponytail/ladder", order: 4100, text: resolved.text, interpolate: false })`（`enabled` 缺省 true，`text` 缺省内置阶梯）；
   开启 → 返回阶梯正文 + 摘要；关闭 → `decide` 返回 `null`（不注入）
-- 返回 dispose：注销消费者
+- 返回 dispose：注销 section
 
 ## 边界
 
@@ -56,6 +56,12 @@ profile 用户 patch：
 ### 与 `karpathy-guidelines` 的关系
 
 重叠「简单优先 / 外科手术式改动 / 不加未请求的抽象」；差异是 ponytail 的阶梯**更前置**（先问「要不要做」）且给出 7 级顺序，`karpathy-guidelines` 面向「写代码时的行为准则」——故**建议只开一个**（无需双开）。
+
+## 注入通道
+
+- 静态保持：决策阶梯 —— `ctx.systemPrompt.section`，name `ponytail/ladder`、order 4100、`interpolate: false`；`enabled: false` 时不注册。
+- 一次性注入：无。
+- 动态保持：无。
 
 ## 测试
 

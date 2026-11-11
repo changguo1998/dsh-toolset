@@ -55,6 +55,12 @@ pnpm run check:glossary   # 只校验快照与当前 GLOSSARY 是否一致
 - 注入是提示而非强制：模型可以忽略；本包不重写回复，也不阻断回合。
 - 快照随包发布，故升级术语表后需要重新构建并重装 profile 才生效。
 
+## 注入通道
+
+- 静态保持：术语表（推荐术语 + 禁止术语两段）—— `ctx.systemPrompt.section`，name `term-check/glossary`、order 4200、`interpolate: false`，内容随快照只重启生效。
+- 一次性注入：旧称更正 —— rule-engine 消费者（`assistant-text`，`followup`，`dedupeInRecord` 1）。
+- 动态保持：无。
+
 ## 测试
 
 ```sh

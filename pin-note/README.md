@@ -63,6 +63,12 @@ DSH（DeepSeek Harness）进程内集成插件：模型把要点登记为「跨�
 
 - 不替换 goal / todo / `present`：那些各有自己的语义与渲染面。
 
+## 注入通道
+
+- 动态保持：本包是动态保持的载体 —— 服务面 `pinNotes.hold(key, provider)` / `release(key)`，`agent/pre-step` 按 key 分条比对后只追加变化条（`pin_note` 自身要点也走同一条多来源折叠路径）。
+- 一次性注入：无。
+- 静态保持：无。
+
 ## 测试
 
 ```sh

@@ -31,7 +31,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 
 注入有两道门槛：**配置 `enabled` 与进程内开关都打开**，且 **memory-base 里有未完成阶段的流程记录**（某任务最新一条非 `-` 阶段不是「收尾」）。开关缺省关闭，用户面 `/flow-track on|off|status`、模型面 `flow_enable` 都能切；状态只在内存，进程结束即回到关闭。
 
-`rule-engine` 消费者：`id = flow-track`、`sources = ["turn-start", "user-message"]`、`delivery = "inject"`、`dedupeInRecord = 1`。不给固定 `summary`，rule-engine 按正文派生摘要，因此**同一正文每会话只投一次**（记录推进、提示内容变化后仍会再投）。三类内容按固定顺序合并成一条：
+`pinNotes.hold("flow", provider)`：每步按 key 比对，正文不变不重投；记录推进或提示内容变化后才追加一条。三类内容按固定顺序合并成一条：
 
 1. **当前推进状态**（有阶段树时）：`当前阶段：3/8 决策 / 门禁：mechanical / 下一步：阶段 4 规划`；
 2. **阶段模板**（无阶段树**且**本轮有写类工具调用时）：八阶段全文 + 建树提示；
@@ -62,8 +62,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 | 键 | 缺省 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 显式 `false` 时 `decide` 恒 `null`（工具仍可用） |
-| `sources` | `["turn-start", "user-message"]` | 唤醒节点 |
-| `delivery` | `"inject"` | 投递方式 |
+| `pinNotes` | 可选服务 | 动态保持的登记面；缺席时告警且不注入 |
 
 ## 边界
 
@@ -77,6 +76,12 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 - **开关决定一切注入**：`enabled` 配置与进程内开关都打开、且有未完成阶段的流程记录才注入；因此开关关闭时阶段模板与合规提示一并静默（同一门槛）。
 - **服务读取必须经反射面**：本包只 `inject: ["ruleEngine"]`，`memory` / `taskEngine` / `tools` / `logger` 都用 `ctx.reflect.get(name)` 读；直接访问 `ctx.memory` 这类未 inject 的服务属性在 cordis 里会抛 `cannot get property "x" without inject`（真机实测，2026-11-06）。
 - **HMR 重载**：写入句柄按 memory 服务对象缓存在 `globalThis`（键 `dsh-toolset.flow-track.scopes`），重载后复用同一个句柄，不会因「分类 `flow` 已注册」丢掉写入能力。
+
+## 注入通道
+
+- 动态保持：八阶段模板 / 推进状态 / 合规提示 —— `pinNotes.hold("flow", ...)`；配置 `enabled` 与「有未完成阶段流程」两道门槛都在 provider 内判定，不满足时返回 `undefined` 不投。
+- 一次性注入：无。
+- 静态保持：无。
 
 ## 测试
 

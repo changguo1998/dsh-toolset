@@ -47,6 +47,12 @@ profile 的 `cordis.patch.yml` 插入本包（本包自带 `cordis.patch.yml` �
 - **失败降级**：无 agent 作用域 / `restrict` 抛错 / 名单失配 / 咨询工具重名 / 空交集，一律回退为「不遮罩」，会话不中断。
 - **只遮根代理**：缺省 `applyTo: roots`，只处理根代理；`all` 才逐代理挂遮罩。
 
+## 注入通道
+
+- 静态保持：工具总则（功能 → 工具映射）—— 规划为 `ctx.systemPrompt.section`，name `tool-consult/tool-index`、order 4300；内容归 1111 工具说明注册表，本轮只定名与位置。
+- 动态保持：被揭示工具的用法 —— `pinNotes.hold("revealed-tools", ...)`，集合不变则文本同字节，集合变化才追加。
+- 一次性注入：咨询结果本身仍随工具回执返回（例外通道）。
+
 ## 测试
 
 ```sh

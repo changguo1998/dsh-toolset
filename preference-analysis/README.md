@@ -30,11 +30,10 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 
 ### 注入
 
-注册**一个** `rule-engine` 消费者（不往规则表写规则）：
+登记**一个**动态保持 key（不往规则表写规则）：
 
 ```ts
-{ id: "preference-analysis", sources: ["session-start", "compaction", "step-end"],
-  delivery: "steer", dedupeInRecord: 1, directWrite: ["session-start", "compaction"] }
+pinNotes.hold("preference", () => plugin.decide()?.text)
 ```
 
 `decide` 只读账簿快照（廉价、不同步调宿主 API），渲染 `active` 条目：缺省每次最多 5 条 / 600 字符，
@@ -83,7 +82,7 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 
 ### 依赖
 
-`inject: ["memory", "ruleEngine", "tools"]`（三个宿主服务）：为什么必须显式 inject 排序（漏注册消费者的真实重启教训）、非 cordis 宿主的兜底口径，见 `docs/DESIGN.md` 的跨包契约一节。
+`inject: ["memory", "tools"]`（两个硬依赖）；`pinNotes` 经 `ctx.get` 读、属可选服务，未挂载时降级为只记录不注入。跨包契约见 `docs/DESIGN.md`。
 
 ### 降级
 
@@ -91,7 +90,7 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 
 ### 与相邻件的分工
 
-- `rule-engine`：**注入通道**（本包只注册消费者，规则表仍归人工与 `rule_add`）。
+- `pin-note`：**动态保持通道**（`pinNotes.hold("preference", ...)`；pin-note 未挂载时只记录不注入）。
 - `memory-base`：**分层存储面**（项目层句柄 + 隐私闸 + 检索）；提升链 / 审阅队列等管理逻辑不在本包依赖里。
 - `ponytail` / `symbol-normalizer`：固定约定，不参与归纳；偏好与它们重复时**不自动抑制**，由用户撤销或退休。
 - `AGENTS.md`：仍是最高的静态约定；本包**不自动改仓内文件**。
@@ -101,6 +100,12 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 - `docs/DESIGN.md`：状态机、跨包契约、幂等与并发的机制沉淀。
 - `docs/BACKLOG.md`：包内待办与「已裁定不做」（首期不做 TUI 面板、LLM 归纳、写 `AGENTS.md` 等）。
 - 归档追踪文档：`docs/archived/2026-10-16-preference-analysis-design.md`（项目级，决策 D1-D20、实现记录与验收口径）。
+
+## 注入通道
+
+- 动态保持：偏好要点 —— `pinNotes.hold("preference", () => plugin.decide()?.text)`，按 key 比对后只追加变化条；`pinNotes` 缺席时降级为只记录不注入。
+- 一次性注入：无（偏好入库走 memory-base，不再直接注入）。
+- 静态保持：无。
 
 ## 测试
 

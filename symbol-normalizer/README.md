@@ -39,10 +39,10 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 `warnModel: false` 时只提示人、不提醒模型。
 
-### 3. 会话开局指南（消费者 `symbol-normalizer-guide`）
+### 3. 符号规范指南（静态 section `symbol-normalizer/guide`）
 
 - 会话开局注入一次「推荐符号白名单 + 符号使用标准」（禁用 emoji/列宽不定字符、**英文标点且标点后留一个空格**、**非 ASCII 符号后留一个空格（不紧贴文字）**、变体必须用推荐对应符、使用场景口径、代码段豁免说明），末尾以空行分隔附一条**不编号**的工作流指令「若本会话有正在进行的工作, 了解后继续原任务; 否则停下等待指令, 不要自行去工作区找任务.」（不与 1~7 条符号规范混列）；文本**由 config 生成**（白名单取自 `recommended`、变体映射取自 `aliases`，最多列 20 条），改配置即改注入内容。
-- 触发与去重照 rule-engine 统一标准（`sources` / `delivery` / `dedupeInRecord` 三项取值、同组合并口径见 `docs/DESIGN.md` 的「机制」第 5 条）：`session-start` / `compaction` / `step-end` 三个节点**都**先读会话记录（可见投影 + 未消费 inbox），投影里已有 1 条指南就不再注入，看不见才注入（故恢复会话与未挤出旧指南的压缩都不重复注入）；`injectGuide: false` 关闭。**已知时序边界**：注入发生在首个可行回合边界（宿主指令面 `@deepseek-ai/dsh-agent-instructions` 只读取固定候选路径的指令文件，无插件注册口，故无法早于首个请求）。
+- 静态保持：apply 期直接注册 `ctx.systemPrompt.section({ name: "symbol-normalizer/guide", order: 4000, text, interpolate: false })`，位于系统提示 node 0、压缩豁免，故每步恒在且只有一份；`injectGuide: false` 时不注册。内容随 `recommended` / `aliases` 配置只在重启后生效。
 
 ### 4. 服务（`provide("symbolNormalizer")`）
 
@@ -81,7 +81,7 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 
 ### 依赖与时序
 
-- `inject: ["ruleEngine"]` 硬依赖：rule-engine 未挂载时本插件不加载（TUI 回退原文透传、无提醒）；指南的去重与补注入由 rule-engine 侧统一负责（`dedupeInRecord`）。
+- `inject: ["ruleEngine", "systemPrompt"]`：前者供回合审查消费者，后者供静态指南 section；任一缺席时对应能力降级并告警，不影响另一项。
 - `decide` 运行在 `session/event` 的同步派发窗口内：不注入、不写事件、不读宿主会话面（注入与判空都由 rule-engine 负责），须廉价。
 - 消费者面依据（宿主 rc.2）：`registerConsumer` 由 rule-engine 提供（见 `rule-engine/README.md`）。
 
@@ -91,6 +91,12 @@ rule-engine 在 turn-end 询问本插件（消费者 id `symbol-normalizer`）�
 - 冷却记账在进程内（`dsh` 重启清零），按会话隔离。
 - 展示层归一依赖客户端主动调用 `normalize`（dsh-toolset TUI 已接入）；未接入的客户端只有模型侧提醒。
 - 标点与间距两条（英文标点 + 标点后空格、非 ASCII 符号后空格）**只做引导层**——写进开局指南文案，不替换、不插空格、不进审查；模型不遵守时无强制手段。
+
+## 注入通道
+
+- 静态保持：符号规范开局指南 —— `ctx.systemPrompt.section`，name `symbol-normalizer/guide`、order 4000、`interpolate: false`；压缩豁免，内容随 config 只在重启后生效。
+- 一次性注入：回合审查更正 —— rule-engine 消费者（`turn-end`，`followup`，`dedupeInRecord` 1）。
+- 动态保持：无。
 
 ## 测试
 
