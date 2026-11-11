@@ -260,8 +260,7 @@ const NO_PARAMS: HerdrUseToolDef["parameters"] = {
  * 描述里写明四件模型最容易踩的事：① 何时用本工具族（需要屏幕状态与按键时序）与何时不该
  * （一条命令能跑完的用 bash）；② 只作用于自己创建的终端；③ `herdr_create` 的
  * `foreground` 语义（前台继承父会话 / 后台落 dshbg）；④ 命令跑在 dsh 沙箱之外，要过
- * security-guard 复查与沙箱闸。P0 已把 ① 写进 `herdr_run` / `herdr_read` / `herdr_text` /
- * `herdr_key` 的工具级描述（D6），其余 6 个待 P1 批次。
+ * security-guard 复查与沙箱闸。十个工具的工具级描述都已写明 ①（P0 四个 + P1 六个）。
  */
 export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
   return [
@@ -270,7 +269,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       "list",
       "用途: 列出本会话创建的 herdr 终端(前台与后台 dshbg 两处), 逐条标 foreground / registered / focused / pane_count。\n" +
         "用法: 无参数; 先看有哪些终端再决定读或写哪一个; terminal_id 取自 herdr_create 回执。\n" +
-        "边界: registered: false 的是残留终端, 需人工在 herdr 里关闭。\n" +
+        "边界: registered: false 的是残留终端, 需人工在 herdr 里关闭; 何时不该用: 一条命令就能跑完看结果时用 bash, 不必为此列终端。\n" +
         "相关: herdr_create、herdr_read、herdr_run。",
       NO_PARAMS,
     ),
@@ -309,7 +308,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       "info",
       "用途: 探活终端进程, 返回 running / shell_pid / foreground_processes, 判断命令是否还在跑。\n" +
         "用法: 传 terminal_id 查该终端。\n" +
-        "边界: 只判存活与前台进程, 不取屏; 要屏内容用 herdr_read; 只接受本插件登记的 terminal_id。\n" +
+        "边界: 只判存活与前台进程, 不取屏; 要屏内容用 herdr_read; 只接受本插件登记的 terminal_id; 何时不该用: 判断命令是否跑完看 bash 的退出码即可, 不必探活终端。\n" +
         "相关: herdr_read、herdr_list。",
       {
         type: "object",
@@ -324,7 +323,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       "用途: 等终端输出, match 字面量 / regex 正则 / stable 静默判稳三选一互斥。\n" +
         `用法: match / regex 走 CLI wait-output, stable 走 socket 判稳; settle_ms 缺省 ${DEFAULT_SETTLE_MS}, timeout_ms 缺省 ${DEFAULT_WAIT_TIMEOUT_MS}。\n` +
         "效果: 到点返回结构化超时结果而不抛错。\n" +
-        "边界: 三选一互斥; 要立即取当前屏用 herdr_read; 只接受本插件登记的 terminal_id。\n" +
+        "边界: 三选一互斥; 要立即取当前屏用 herdr_read; 只接受本插件登记的 terminal_id; 何时不该用: 一条命令在 bash 里就能跑完并拿到输出时不必在终端上等。\n" +
         "相关: herdr_read、herdr_info。",
       {
         type: "object",
@@ -371,6 +370,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       "用途: 新建 herdr 终端(新 tab, 自带 root pane), 后续命令用 herdr_run 提交。\n" +
         "用法: foreground 缺省 true 落父会话所在 herdr session; false 落名为 dshbg 的后台 session; cwd 缺省会话工作目录; label 写入新 tab 标题。\n" +
         "效果: 回执 terminal_id; 不抢焦点, 自动打 label; 后台终端后续命令自动带 --session dshbg。\n" +
+        "边界: 何时不该用: 能用 bash 一条命令跑完的操作别新建终端, 只有需要屏幕状态或按键时序时才建。\n" +
         "相关: herdr_run、herdr_list、herdr_close。",
       {
         type: "object",
@@ -397,7 +397,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       "close",
       "用途: 关闭整个终端(关掉它的 tab 并注销登记)。\n" +
         "用法: 先 herdr_list 确认 terminal_id 再关。\n" +
-        "边界: 继承 lane 下调用者自己所在的 tab 会被拒; 只接受本插件登记的 terminal_id。\n" +
+        "边界: 继承 lane 下调用者自己所在的 tab 会被拒; 只接受本插件登记的 terminal_id; 何时不该用: 文件或进程清理用 bash 即可, 没建终端就无需关闭。\n" +
         "相关: herdr_list、herdr_create。",
       {
         type: "object",
@@ -411,7 +411,7 @@ export function createHerdrTools(deps: DispatchDeps): HerdrUseToolDef[] {
       "label",
       "用途: 同时改终端标题(tab 标题)与归属标记(root pane label), 便于 herdr_list 辨认。\n" +
         "用法: label 必须非空, 用于标记终端用途。\n" +
-        "边界: 只接受本插件登记的 terminal_id。\n" +
+        "边界: 只接受本插件登记的 terminal_id; 何时不该用: 只跑一条命令的终端不必打标签, 在 bash 里执行即可。\n" +
         "相关: herdr_list、herdr_create。",
       {
         type: "object",
