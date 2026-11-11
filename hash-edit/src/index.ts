@@ -327,7 +327,8 @@ function createTools(
     description:
       "用途: 读取文件的行内容并返回 LINE:HASH 锚点(每行: 1 基行号:sha256 前 8 位 hex), 是 hash_edit 的输入。\n" +
       "用法: 缺省从第 1 行起读 200 行, 更长文件用 offset / limit 分段读取。\n" +
-      "边界: 只读。\n" +
+      "效果: 返回 { ok, path, file_hash, line_count, hashlines }; hashlines 每项 { line, hash, text }, file_hash 是全文件 sha256, 供 hash_edit 判 stale。\n" +
+      "边界: 只读; 文件超过 limit 时只回前 limit 行的锚点。\n" +
       "相关: hash_edit、read。",
     parameters: HASH_READ_PARAMS,
     async execute(args, exec) {
