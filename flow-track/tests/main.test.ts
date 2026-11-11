@@ -84,7 +84,10 @@ function snapshotOf(stage: string): SnapshotLike {
 interface Harness {
   ctx: Record<string, unknown>;
   tools: ToolDef[];
-  registered: Array<Record<string, unknown>>;
+  holds: Array<{
+    key: string;
+    provider: (context: { sessionId: string }) => string | undefined;
+  }>;
   commandDefs: Array<Record<string, unknown>>;
   provided: Array<{ name: string; value: unknown }>;
   emitEvent(event: unknown): void;
@@ -96,23 +99,29 @@ interface Harness {
   disposed(): number;
 }
 
-/** 假宿主：捕获消费者注册、工具注册、session/event 订阅。 */
+/** 假宿主：捕获 hold 登记、工具注册、session/event 订阅。 */
 function makeContext(options?: {
   memory?: unknown;
   taskEngine?: unknown;
-  ruleEngine?: unknown;
+  pinNotes?: unknown;
   commands?: boolean;
 }): Harness {
   const tools: ToolDef[] = [];
-  const registered: Array<Record<string, unknown>> = [];
+  const holds: Array<{
+    key: string;
+    provider: (context: { sessionId: string }) => string | undefined;
+  }> = [];
   const commandDefs: Array<Record<string, unknown>> = [];
   const provided: Array<{ name: string; value: unknown }> = [];
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   let disposedCount = 0;
   const base = {
-    ruleEngine: options?.ruleEngine ?? {
-      registerConsumer(input: Record<string, unknown>) {
-        registered.push(input);
+    pinNotes: options?.pinNotes ?? {
+      hold(
+        key: string,
+        provider: (context: { sessionId: string }) => string | undefined,
+      ) {
+        holds.push({ key, provider });
         return () => {
           disposedCount += 1;
         };
@@ -149,30 +158,17 @@ function makeContext(options?: {
   return {
     ctx,
     tools,
-    registered,
+    holds,
     commandDefs,
     provided,
     emitEvent(event: unknown) {
       handlers.get("session/event")?.({ id: "s1" }, event);
     },
-    decide(sessionId: string, turn = 1) {
-      const consumer = registered.at(-1) as
-        | {
-            decide(c: {
-              sessionId: string;
-              turn: number;
-              text: string;
-              trigger: string;
-            }): unknown;
-          }
-        | undefined;
-      assert.ok(consumer, "应已注册消费者");
-      return consumer.decide({
-        sessionId,
-        turn,
-        text: "",
-        trigger: "turn-start",
-      }) as { text: string; summary?: string } | null;
+    decide(sessionId: string) {
+      const hold = holds.at(-1);
+      assert.ok(hold, "应已登记 hold");
+      const text = hold.provider({ sessionId });
+      return text === undefined ? null : { text };
     },
     runCommand(rawInput: string) {
       const def = commandDefs.at(-1) as
@@ -208,9 +204,9 @@ function captureStderr(run: () => void): string[] {
   return writes;
 }
 
-test("导出名与硬依赖", () => {
+test("导出名与注入面", () => {
   assert.equal(name, "flow-track");
-  assert.deepEqual(inject, ["ruleEngine"]);
+  assert.deepEqual(inject, []);
   assert.deepEqual(provide, ["flowTrack"]);
 });
 
@@ -264,7 +260,7 @@ test("服务面 flowTrack：summary() 按 slug 取最新真实阶段, - 不参�
   assert.deepEqual(flowSummaryOf([], false), { enabled: false, records: [] });
 });
 
-test("注册五个工具与一个消费者（turn-start + user-message + inject）", () => {
+test("注册五个工具与一个 flow hold", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
@@ -278,11 +274,8 @@ test("注册五个工具与一个消费者（turn-start + user-message + inject�
       "flow_rollback",
     ],
   );
-  const consumer = harness.registered[0]!;
-  assert.equal(consumer["id"], "flow-track");
-  assert.deepEqual(consumer["sources"], ["turn-start", "user-message"]);
-  assert.equal(consumer["delivery"], "inject");
-  assert.equal(consumer["dedupeInRecord"], 1);
+  assert.equal(harness.holds.length, 1);
+  assert.equal(harness.holds[0]!.key, "flow");
 });
 
 test("decide：开关缺省关闭 → 有阶段树也不注入", () => {
@@ -469,21 +462,22 @@ test("taskEngine 缺席：状态段降级（只有最近记录）", async () => 
   assert.ok(writes.some((line) => /ctx\.taskEngine 不可用/.test(line)));
 });
 
-test("ruleEngine 缺席：告警且不注册", () => {
+test("pinNotes 缺席：告警且不登记, 工具与命令仍在", () => {
   const writes = captureStderr(() => {
     const fake = makeMemory();
-    const harness = makeContext({
-      memory: fake.memory,
-      ruleEngine: {},
-    });
+    const harness = makeContext({ memory: fake.memory, pinNotes: {} });
     const dispose = apply(harness.ctx);
-    assert.equal(harness.registered.length, 0);
+    assert.equal(harness.holds.length, 0);
+    assert.equal(harness.tools.length, 5, "工具照常注册");
     assert.equal(typeof dispose, "function");
   });
-  assert.match(writes[0]!, /ctx\.ruleEngine 不可用/);
+  assert.ok(
+    writes.some((line) => /ctx\.pinNotes 不可用/.test(line)),
+    `实际：${writes.join("")}`,
+  );
 });
 
-test("dispose 注销消费者与事件订阅", () => {
+test("dispose 释放 hold 与事件订阅", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   const dispose = apply(harness.ctx);
@@ -492,23 +486,8 @@ test("dispose 注销消费者与事件订阅", () => {
 });
 
 test("resolveConfig：缺省与覆盖", () => {
-  assert.deepEqual(resolveConfig(), {
-    enabled: true,
-    sources: ["turn-start", "user-message"],
-    delivery: "inject",
-  });
-  assert.deepEqual(
-    resolveConfig({
-      enabled: false,
-      sources: ["turn-start"],
-      delivery: "steer",
-    }),
-    {
-      enabled: false,
-      sources: ["turn-start"],
-      delivery: "steer",
-    },
-  );
+  assert.deepEqual(resolveConfig(), { enabled: true });
+  assert.deepEqual(resolveConfig({ enabled: false }), { enabled: false });
 });
 
 test("enabled: false：开关打开也不注入，工具照常注册", async () => {

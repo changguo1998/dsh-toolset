@@ -13,7 +13,7 @@
  * 流程记录（最新阶段不是「收尾」）时才注入；开关缺省关闭、只在内存（`switch.ts`），
  * 用户面 `/flow-track on|off|status`、模型面 `flow_enable` 都能切。
  *
- * 降级：`ruleEngine` 缺席 → 告警且不注册消费者；`memory` 缺席 → 工具返回可读错误、注入里只剩模板与
+ * 降级：`pinNotes` 缺席 → 告警且不注入；`memory` 缺席 → 工具返回可读错误、注入里只剩模板与
  * 状态；`taskEngine` 缺席 → 状态段退化为「没有可识别的阶段树」。
  */
 
@@ -28,8 +28,8 @@ import { flowTools } from "./tools.ts";
 
 export const name = "flow-track";
 
-/** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）。 */
-export const inject = ["ruleEngine"];
+/** 注入面：动态保持经 pin-note 的 `pinNotes.hold` 登记, 无硬依赖。 */
+export const inject = [];
 
 /** 对外只读服务面：`flowTrack.enabled()` 与 `flowTrack.summary()`（TUI 标题栏 / 状态列据此显示）。 */
 export const provide = ["flowTrack"];
@@ -75,51 +75,24 @@ export function flowSummaryOf(
 export interface Config {
   /** 是否开启注入（缺省 `true`；显式 `false` 时工具仍可用）。 */
   enabled?: boolean;
-  /** 唤醒节点（缺省 `["turn-start", "user-message"]`）。 */
-  sources?: readonly string[];
-  /** 投递方式（缺省 `"inject"`）。 */
-  delivery?: "steer" | "inject" | "followup";
 }
 
 /** 归一化后的配置。 */
 export interface ResolvedConfig {
   enabled: boolean;
-  sources: readonly string[];
-  delivery: "steer" | "inject" | "followup";
 }
 
 /** 归一化配置（非法值回退缺省，不抛错）。 */
 export function resolveConfig(config?: Config): ResolvedConfig {
-  const sources =
-    Array.isArray(config?.sources) && config.sources.length > 0
-      ? config.sources.filter(
-          (item): item is string => typeof item === "string" && item.length > 0,
-        )
-      : [];
-  return {
-    enabled: config?.enabled !== false,
-    sources: sources.length > 0 ? sources : ["turn-start", "user-message"],
-    delivery:
-      config?.delivery === "steer" || config?.delivery === "followup"
-        ? config.delivery
-        : "inject",
-  };
+  return { enabled: config?.enabled !== false };
 }
 
-/** rule-engine 消费者注册面（结构化类型）。 */
-interface ConsumerRegistrar {
-  registerConsumer(input: {
-    id: string;
-    sources?: readonly string[];
-    delivery?: string;
-    dedupeInRecord?: number;
-    decide: (context: {
-      sessionId: string;
-      turn: number;
-      text: string;
-      trigger: string;
-    }) => { text: string; summary?: string } | null;
-  }): () => void;
+/** pin-note 动态保持登记面（结构化类型；未挂载时降级）。 */
+interface PinNotesLike {
+  hold?(
+    key: string,
+    provider: (context: { sessionId: string }) => string | undefined,
+  ): () => void;
 }
 
 /** 只读快照面（task-engine `provide("taskEngine")`）。 */
@@ -130,7 +103,6 @@ interface TaskEngineFace {
 
 /** 插件上下文的结构化面。 */
 interface PluginContext {
-  ruleEngine?: ConsumerRegistrar;
   get?(name: string): unknown;
   tools?: { register(def: unknown): unknown };
   provide?(name: string, value: unknown): unknown;
@@ -209,13 +181,6 @@ export function apply(ctx: unknown, config?: Config): () => void {
     process.stderr.write(`[flow-track] warn: ${message}\n`);
   };
   const resolved = resolveConfig(config);
-  const engine = readService<ConsumerRegistrar>(c, "ruleEngine");
-  if (engine === undefined || typeof engine.registerConsumer !== "function") {
-    warn(
-      "ctx.ruleEngine 不可用，阶段模板与推进状态不会注入（请检查 rule-engine 是否挂载）",
-    );
-    return () => {};
-  }
   const memory = readService<{
     registerKind(spec: {
       kind: string;
@@ -323,32 +288,32 @@ export function apply(ctx: unknown, config?: Config): () => void {
     warn("ctx.on 不可用，合规观测不会生效（请检查宿主版本）");
   }
 
-  try {
-    const off = engine.registerConsumer({
-      id: name,
-      sources: resolved.sources,
-      delivery: resolved.delivery,
-      // 去重键是摘要：不给固定 summary，rule-engine 按正文派生，同一正文每会话只投一次
-      dedupeInRecord: 1,
-      decide: (context) => {
-        if (!resolved.enabled) return null;
-        if (!switcher.enabled) return null;
+  // 注入：动态保持 —— 阶段模板 / 推进状态 / 合规提示经 pinNotes.hold("flow") 按 key 比对
+  const pinNotes = readService<PinNotesLike>(c, "pinNotes");
+  if (pinNotes === undefined || typeof pinNotes.hold !== "function") {
+    warn(
+      "ctx.pinNotes 不可用，阶段模板与推进状态不会注入（请检查 pin-note 是否挂载）",
+    );
+  } else {
+    try {
+      const off = pinNotes.hold("flow", (context) => {
+        if (!resolved.enabled) return undefined;
+        if (!switcher.enabled) return undefined;
         // 门槛之二：memory-base 里要有未完成阶段的流程记录（与 task-engine 阶段树无关）
-        if (!hasActiveFlow(cache.records)) return null;
+        if (!hasActiveFlow(cache.records)) return undefined;
         const snapshot = snapshotOf(taskEngine);
         const lastWriteTool = observer.lastWriteTool(context.sessionId);
-        const text = decideText({
+        return decideText({
           ...(snapshot === undefined ? {} : { snapshot }),
           records: cache.records,
           writeSeen: observer.writeSeen(context.sessionId),
           ...(lastWriteTool === undefined ? {} : { lastWriteTool }),
         });
-        return text === undefined ? null : { text };
-      },
-    });
-    if (typeof off === "function") disposers.push(off);
-  } catch (error) {
-    warn(`注册消费者失败：${String(error)}`);
+      });
+      if (typeof off === "function") disposers.push(off);
+    } catch (error) {
+      warn(`登记 pinNotes.hold 失败：${String(error)}`);
+    }
   }
 
   return () => {
