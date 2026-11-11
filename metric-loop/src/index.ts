@@ -547,10 +547,13 @@ function toToolDef(controller: MetricLoopController) {
   return {
     name: "metric_loop",
     description:
-      "用途: 指标驱动自动循环, 每轮跑测量命令取一个数字, 按窗口与边界判定是否继续。\n" +
-      "用法: start 新建并跑第一轮; tick 推进一轮(wake=auto 受 cadence 节流, explicit 紧急唤醒不受限); status 查状态; stop 手动停止; 无测量命令时为 metricless(只按边界停止)。\n" +
-      "效果: 结果含唤醒提示, 运行中按提示参数用 daemon_task 排下次自动唤醒。\n" +
-      "相关: daemon_task、goal_contract_draft。",
+      "用途: 指标驱动自动循环, 每轮跑测量命令取一个数字, 按窗口与边界判定是否继续; 不测指标时只按边界收敛。\n" +
+      "用法: start 新建并跑首轮; tick 推进(auto 受 cadence 节流); status 查状态; stop 手动停止。\n" +
+      "window: 连续无改进轮数阈值(缺省 5); 窗口内数值不再改进即 plateau 并停, 有改进归零。\n" +
+      "边界: maxRounds(缺省 50)、timeBoundMs、tokenBound 任一先到即停, 停止原因见结果。\n" +
+      "何时不该用: 两三轮的短检查在 bash 里循环即可。\n" +
+      "相关: daemon_task(排下次唤醒)、goal_contract_draft。\n" +
+      '例如: {action: "start", measureCmd: "make bench | tail -1", direction: "max"}。',
     parameters: {
       type: "object",
       properties: {
