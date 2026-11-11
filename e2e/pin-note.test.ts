@@ -6,8 +6,6 @@ import { bootPackage, textOf } from "./harness.ts";
 test("pin_note 登记后能在 note_list 与服务面 pinNotes 里读到", async (t) => {
   const host = await bootPackage("pin-note", {
     extraPackages: ["memory-base", "session-paths"],
-    patch: (home) =>
-      `- id: memory-base\n  config:\n    dshHome: ${JSON.stringify(home)}\n`,
   });
   t.after(async () => host.dispose());
 

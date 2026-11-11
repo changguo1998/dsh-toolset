@@ -6,6 +6,8 @@
  * - 仓库包以符号链接挂进 profile 的 `node_modules`，宿主按 profile 装配；
  * - `runProfile()` 起树，工具经 `ctx.tools.execute()` 调用；
  * - 结束时释放树并删掉整个临时目录。
+ * - `memory-base` 在挂载清单里时，夹具统一注入 `dshHome` 与 `projectRoot` 指向临时 home
+ *   （P 层库是 `<projectRoot>/.dsh/project.db`，不改就会写进仓库自己的 `.dsh/`）。
  */
 
 import {
@@ -104,6 +106,17 @@ export interface BootOptions {
   prepare?: (home: string) => Promise<void> | void;
 }
 
+/** memory-base 缺省配置块：U 层与 P 层都指向临时 `home`。 */
+function memoryBasePatch(home: string): string {
+  return [
+    "- id: memory-base",
+    "  config:",
+    `    dshHome: ${JSON.stringify(home)}`,
+    `    projectRoot: ${JSON.stringify(home)}`,
+    "",
+  ].join("\n");
+}
+
 /** 起一个只挂 `dsh-base` + 被测包（及其服务依赖）的真实宿主。 */
 export async function bootPackage(
   packageDir: string,
@@ -135,11 +148,25 @@ export async function bootPackage(
       2,
     )}\n`,
   );
-  if (options.patch !== undefined) {
-    const patch =
-      typeof options.patch === "function" ? options.patch(home) : options.patch;
+  // P 层库缺省在 `<projectRoot>/.dsh/project.db`，进程内起宿主时 cwd 是仓库根，
+  // 故 memory-base 一进挂载清单就必须把 projectRoot 指到临时 home（否则写脏真实项目库）。
+  const callerPatch =
+    options.patch === undefined
+      ? ""
+      : typeof options.patch === "function"
+        ? options.patch(home)
+        : options.patch;
+  const patch = [
+    repoDirs.includes("memory-base") &&
+    !callerPatch.includes("- id: memory-base")
+      ? memoryBasePatch(home)
+      : "",
+    callerPatch,
+  ]
+    .filter((section) => section.length > 0)
+    .join("");
+  if (patch.length > 0)
     writeFileSync(join(profileDir, "cordis.patch.yml"), patch);
-  }
 
   process.env.DSH_HOME = home;
   process.env.DSH_TELEMETRY_DISABLED = "1";

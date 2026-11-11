@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import { bootPackage, textOf } from "./harness.ts";
@@ -8,9 +10,6 @@ test("flow_track 写流程记录后可读状态, 服务面给出开关与摘要"
     extraPackages: ["memory-base", "session-paths", "rule-engine"],
     patch: (home) =>
       [
-        `- id: memory-base`,
-        `  config:`,
-        `    dshHome: ${JSON.stringify(home)}`,
         `- id: rule-engine`,
         `  config:`,
         `    stateDir: ${JSON.stringify(`${home}/rule-engine`)}`,
@@ -43,6 +42,8 @@ test("flow_track 写流程记录后可读状态, 服务面给出开关与摘要"
     { agent: agent.agent },
   );
   assert.equal(recorded.isError, false, textOf(recorded));
+  // 记录必须落在临时 home 的项目库（P 层），不能写进仓库自己的 `.dsh/`
+  assert.equal(existsSync(join(host.home, ".dsh", "project.db")), true);
 
   const status = await host.callTool(
     "flow_status",
