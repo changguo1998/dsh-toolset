@@ -1,7 +1,7 @@
 # 工具说明注册表与按需投递（对应条目：docs/BACKLOG.md「工具说明注册表与按需投递」）
 
 > 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
-> 状态: 未接取（2026-11-11 登记）——由 `2026-11-09-tool-description-audit.md` 决策项 3 拆出; 仅迁移背景、约束与候选方向, 未设计、未实施。
+> 状态: 未接取（2026-11-11 登记）——由 `docs/archived/2026-11-09-tool-description-audit.md` 决策项 3 拆出; 仅迁移背景、约束与候选方向, 未设计、未实施。
 
 ## 目标
 
@@ -59,7 +59,7 @@
 ## 测试与证据
 
 - 本任务尚未接取, 无代码改动与测试结果。
-- 背景依据: `docs/implementation/2026-11-09-tool-description-audit.md` 决策项 2 / 3; `docs/implementation/2026-11-10-injection-inventory.md` 决策项 1; `docs/BACKLOG.md`「工具说明全量审计与修订」。
+- 背景依据: `docs/archived/2026-11-09-tool-description-audit.md` 决策项 2 / 3; `docs/implementation/2026-11-10-injection-inventory.md` 决策项 1; `docs/BACKLOG.md`「工具说明全量审计与修订」。
 
 ## 收尾
 

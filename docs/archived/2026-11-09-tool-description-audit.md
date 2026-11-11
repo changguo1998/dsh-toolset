@@ -1,7 +1,7 @@
 # 工具说明全量审计与修订（接取条目: docs/BACKLOG.md「工具说明全量审计与修订」）
 
 > 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改.
-> 状态: 进行中. 调研（现状盘点）与决策项 1 / 2 已完成, 决策项 2 裁定沿用注册处 `description` 的现有格式（与宿主同款）, 不做注入改造; 决策项 3 已拆为独立条目并移入 `docs/implementation/2026-11-11-tool-description-registry.md`; 7 项文案修订未开始.
+> 状态: 已完成（2026-11-11）. 调研（现状盘点）与决策项 1 / 2 已完成, 决策项 2 裁定沿用注册处 `description` 的现有格式（与宿主同款）, 不做注入改造; 决策项 3 已拆为独立条目并移入 `docs/implementation/2026-11-11-tool-description-registry.md`; 7 项文案修订已于 2026-11-11 全部完成并逐项提交.
 
 ## 目标
 
@@ -157,7 +157,7 @@
 
 ## 规划
 
-### 修订计划（未执行）
+### 修订计划（已执行）
 
 修订只做 7 项说明文案: 直接修改各工具注册处的 `description`, 不改参数 schema、`execute` / `output` 与工具可见性. 注入改造已随决策项 2 裁定取消, 不在本计划内. 任务按 T1 至 T7 顺序执行, 每项改完跑对应包 check / test, 全部完成后跑全量 check / build / test.
 
@@ -195,19 +195,30 @@
 
 ## 实现记录
 
-（修订执行时按时间追加.）
+- 2026-11-11: 按 T1 至 T7 顺序完成 7 项文案修订, 每项改完跑对应包 check / test 并独立提交.
+  - T1 `herdr-use`: list / info / wait / create / close / label 的边界段各补一句「何时不该用」, 提交 `709f2844`.
+  - T2 `metric-loop`: metric_loop 补 window 判定（窗口内数值不再改进即 plateau）、maxRounds / timeBoundMs / tokenBound 三条边界、何时不该用与一句话示例; 描述长度控制在 400 字符内, 提交 `7073d4b0`.
+  - T3 `rule-engine`: rule_list 补无参数用法、rules / status 返回字段与「配置基线 + 运行时层」两层来源, 提交 `f11f1976`.
+  - T4 `task-engine`: task_execute / task_decompose / task_implement / task_stop 各补 accepted / next 语义与 feedback, 提交 `44bf6034`.
+  - T5 `context-report`: context_report 补「相关」段, 指向 task_status / flow_status 与不替代状态查询, 提交 `22d13352`.
+  - T6 `hash-edit`: hash_read 补返回体 `{ ok, path, file_hash, line_count, hashlines }` 与 file_hash 供 hash_edit 判 stale, 提交 `614504c4`.
+  - T7 示例: agent_group / code_map / md_map / session_channel / daemon_task 各补一条示例（metric_loop 已在 T2 处理）, 提交 `ba680df7`.
 
 ## 偏差
 
 - 决策项 2 的同名桩方案被否决（2026-11-11）, 裁定沿用注册处 `description` 的现有格式; 注入改造取消. 此前的桩 / 撤桩 / 22 包依赖 / TUI 一行方案不作考虑, 仅在此留档.
 - 与 `docs/implementation/2026-11-10-injection-inventory.md` 及 `docs/BACKLOG.md`「各插件注入方式整理」的分类冲突按分工消解: 本任务只改 tools 槽位内的 `description`, 不改注入方式; 工具总则 / 按需投递归 injection-inventory 与决策项 3 的新条目.
 - 官方 plan-mode 已禁用（本机 fff / fff-test 与仓库示例 profile）, 自研 plan 模式另立项目级 BACKLOG 条目; 本任务不再处理 `exit_plan_mode` 的说明.
+- T4 口径修正: 调研称四个工具都返回 accepted / next, 实测 `task_implement` 成功只回 `{ ok: true }`, 打回时才带 accepted / next / feedback; 说明按实测写, 不改引擎行为.
 
 ## 测试与证据
 
 - 调研为只读审计, 不改代码; 证据 = 逐一读取的 54 个工具定义（位置见「调研」清单表格）.
-- 注入改造取消; 7 项说明修订未开始; 完成后补 check / build / test 结果.
+- 7 项修订后各包 check / test 均绿（herdr-use / metric-loop / rule-engine / task-engine / context-report / hash-edit / agent-group / code-map / md-map / session-channel / background-daemon）.
+- 全量 `pnpm run check` / `build` / `test` 全绿（2026-11-11）; 期间发现 `term-check` 术语表快照与 `docs/GLOSSARY.md` 不一致（「张力」行未重跑 `gen:glossary`）, 已重跑生成并单独提交 `ae5eaf34`.
+- md_map / session_channel / daemon_task 的说明受包内 C9 约束（≤ 400 字符）, 三者在补示例时同步压缩到 400 字符以内.
 
 ## 收尾
 
-（未关闭.）
+- 已关闭（2026-11-11）: 7 项文案修订全部完成并逐项提交, 文档移入 `docs/archived/`.
+- 剩余事项: 无; 决策项 3 的注册表与按需投递归 `docs/implementation/2026-11-11-tool-description-registry.md`.
