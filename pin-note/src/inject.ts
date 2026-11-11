@@ -17,7 +17,7 @@ export interface PinMessageLike {
   id: string;
   role: "user";
   content: Array<{ type: "text"; text: string }>;
-  source: { kind: string };
+  source: { kind: string; summary?: string };
 }
 
 /** 一条记录在消息里的最大字符数（超长逐条截断，避免单条挤占整段上下文）。 */
@@ -53,6 +53,19 @@ export function pinMessage(
     role: "user",
     content: [{ type: "text", text }],
     source: { kind: PIN_SOURCE_KIND },
+  };
+}
+
+/** 用给定正文直接构造注入消息（动态保持的 hold 来源, `summary` 为登记 key）。 */
+export function textMessage(text: string, summary?: string): PinMessageLike {
+  return {
+    id: randomUUID(),
+    role: "user",
+    content: [{ type: "text", text }],
+    source:
+      summary === undefined
+        ? { kind: PIN_SOURCE_KIND }
+        : { kind: PIN_SOURCE_KIND, summary },
   };
 }
 
