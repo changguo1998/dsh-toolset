@@ -18,7 +18,7 @@
 
 ### 与注入方式整理的关系
 
-- `docs/implementation/2026-11-10-injection-inventory.md` 已把「工具总则（功能 → 工具 的映射）」归静态保持, 把「被揭示工具的具体用法」归动态保持; 其处置选项 a 至 d 尚未裁定。
+- `docs/archived/2026-11-10-injection-inventory.md` 已把「工具总则（功能 → 工具 的映射）」归静态保持, 把「被揭示工具的具体用法」归动态保持; 其处置选项 a 至 d 尚未裁定。
 - 本任务依赖该裁定: 若最终选择只保留注册处 `description`, 本任务可直接关闭为「不新增注册表」; 若要按需投递, 则需先确定投递层（system / messages 尾部）与揭示触发。
 - 本任务不重复盘点注入机制, 只处理工具说明的单一来源与投递。
 - **工具总则登记**（2026-11-11, 按 1110 T6）: 工具总则 = 「功能 → 工具」映射, 属静态保持; section 名 `tool-consult/tool-index`, `order` 4300, 由 `tool-consult` 注册; 正文只写映射与一句分工, 不写各工具用法（用法归 T9 的动态保持）。
@@ -60,7 +60,7 @@
 ## 测试与证据
 
 - 本任务尚未接取, 无代码改动与测试结果。
-- 背景依据: `docs/archived/2026-11-09-tool-description-audit.md` 决策项 2 / 3; `docs/implementation/2026-11-10-injection-inventory.md` 决策项 1; `docs/BACKLOG.md`「工具说明全量审计与修订」。
+- 背景依据: `docs/archived/2026-11-09-tool-description-audit.md` 决策项 2 / 3; `docs/archived/2026-11-10-injection-inventory.md` 决策项 1; `docs/BACKLOG.md`「工具说明全量审计与修订」。
 
 ## 收尾
 

@@ -1,7 +1,7 @@
 # 各插件注入方式整理（接取条目: docs/BACKLOG.md「各插件注入方式整理」）
 
 > 本文件是本任务唯一的追踪文档与文档改动位置; 计划外的文件不改.
-> 状态: 进行中（2026-11-10）. 盘点与三分类已完成; 决策项 1 至 6 已定稿, 落地方案待执行.
+> 状态: 已完成（2026-11-11）. 盘点、三分类与决策项 1 至 6 已定稿; T1 至 T15 已落地并逐项提交.
 
 ## 目标
 
@@ -177,75 +177,75 @@
 
 命令均在仓库根执行; `→` 后为期望值, 不符即判失败.
 
-- [ ] T1 `pin-note` 服务面 `hold` (`pin-note/src/index.ts`、`src/types.ts`)
+- [x] T1 `pin-note` 服务面 `hold` (`pin-note/src/index.ts`、`src/types.ts`)
   - 做什么: 在 `c.provide("pinNotes", …)` 里新增 `hold(key, provider)` 与 `release(key)`; `provider` 形如 `(context: { sessionId; turn; step }) => string | undefined`, 返回 `undefined` 表示该条不投; `hold` 返回 disposer; 内部维护 `Map<string, { provider, lastText }>`.
   - 边界: 同 `key` 重复注册则后者覆盖并告警; `release` 与 dispose 清空条目; `pinNotes` 在 `memory` 不可用时仍暴露 (hold 不依赖记忆库).
   - 测试: 两 key 共存、provider 返回 `undefined` 不投、`release` 后不再投、重复 key 覆盖.
   - 审计: `grep -c 'hold(' pin-note/src/index.ts` → ≥ 1; `grep -c 'release(' pin-note/src/index.ts` → ≥ 1; `grep -rl 'hold' pin-note/tests | wc -l` → ≥ 1; `cd pin-note && pnpm run check && pnpm run test` → 0
-- [ ] T2 `pin-note` 多来源折叠 (`pin-note/src/index.ts`)
+- [x] T2 `pin-note` 多来源折叠 (`pin-note/src/index.ts`)
   - 做什么: pre-step 改为两类来源 — 记忆库记录 (`store.list` → `pinMessage(records)`, 一条) 与各 `hold` key (每 key 一条, `source.summary = key`); 每条独立 `alreadyInContext` 比对, 仅未在场者插入; `syncInbox` 按来源归并, 每 key 最多一条 pending.
   - 边界: provider 抛错 → 该条跳过并 warn; 全部在场或全部为空 → 不插; `decision.kind` 非 `enter` 时不插.
   - 测试: 两 key 只变一条时仅追加一条; 压缩拆掉两条后都补投; provider 异常降级; 模型记录与 hold 共存时各一条.
   - 审计: `grep -c 'provider' pin-note/src/index.ts` → ≥ 1; `grep -c 'compare' pin-note/src/index.ts` → ≥ 2; `git diff -U0 pin-note/tests | grep -c '^-[^-]'` → 0; `cd pin-note && pnpm run test` → 0
-- [ ] T3 `symbol-normalizer` 静态 section (`symbol-normalizer/src/index.ts`、`src/guide.ts`)
+- [x] T3 `symbol-normalizer` 静态 section (`symbol-normalizer/src/index.ts`、`src/guide.ts`)
   - 做什么: 删掉 `symbol-normalizer-guide` 消费者与其 `disposeGuide`; 改注册 `ctx.systemPrompt.section({ name: "symbol-normalizer/guide", order: 4000, text: buildSymbolGuide(rules), interpolate: false })`, 仅 `rules.injectGuide` 为真时注册; disposer 收进现有清理列表.
   - 保留: `symbol-normalizer` 审查消费者与 `symbolNormalizer` 展示服务不动.
   - 边界: section 名带本包前缀; 内容随 `rules` 只在重启生效 (README 注明); `injectGuide` 关闭时不注册.
   - 测试: 注册后装配文本等于 `buildSymbolGuide` 输出; 关闭时未注册; `order` 为常量.
   - 审计: `grep -c '\.section(' symbol-normalizer/src/index.ts` → ≥ 1; `grep -rc 'session-start' symbol-normalizer/src | grep -v ':0' | wc -l` → 0; 同式对 `step-end`、`compaction` 各 → 0; `cd symbol-normalizer && pnpm run check && pnpm run test` → 0
-- [ ] T4 `ponytail` 静态 section 与开关 (`ponytail/src/index.ts`)
+- [x] T4 `ponytail` 静态 section 与开关 (`ponytail/src/index.ts`)
   - 做什么: 删 `registerConsumer` 与配置字段 `sources` / `delivery` / `dedupeInRecord`; 改注册 section `{ name: "ponytail/ladder", order: 4100, text: resolved.text, interpolate: false }`; `enabled: false` 时不注册.
   - 保留: 默认开启与配置覆盖 `text` 两项能力.
   - 边界: 关闭时不注册也不在上下文出现; 自定义 `text` 仍生效.
   - 测试: 关闭不注册; 文本等于常量; `text` 覆盖用例.
   - 审计: `grep -c '\.section(' ponytail/src/index.ts` → ≥ 1; `grep -c 'enabled' ponytail/src/index.ts` → ≥ 1; `grep -rc 'session-start' ponytail/src | grep -v ':0' | wc -l` → 0; `cd ponytail && pnpm run check && pnpm run test` → 0
-- [ ] T5 `term-check` 术语表 section (`term-check/src/index.ts`、`src/terms.ts`)
+- [x] T5 `term-check` 术语表 section (`term-check/src/index.ts`、`src/terms.ts`)
   - 做什么: 新增 `renderGlossarySection(GLOSSARY_SNAPSHOT)` 生成稳定文本 (推荐术语表 + 禁止术语表两段, 行序固定); 注册 section `{ name: "term-check/glossary", order: 4200, text, interpolate: false }`; `assistant-text` 旧称审查消费者不动.
   - 边界: 快照由 `docs/GLOSSARY.md` 生成, 生成方式不变; 同快照必须同字节.
   - 测试: section 文本含「推荐」「禁止」两段; 旧审查用例不改仍绿.
   - 审计: `grep -c '\.section(' term-check/src/index.ts` → ≥ 1; `grep -c 'assistant-text' term-check/src/index.ts` → ≥ 1; `grep -c '禁止' term-check/src/terms.ts` → ≥ 1; `cd term-check && pnpm run check && pnpm run test` → 0
-- [ ] T6 工具总则登记 (`docs/implementation/2026-11-11-tool-description-registry.md`)
+- [x] T6 工具总则登记 (`docs/implementation/2026-11-11-tool-description-registry.md`)
   - 做什么: 在 1111 文档登记「工具总则 = 功能 → 工具映射, 静态保持, section 名 `tool-consult/tool-index`, `order` 4300」; 本任务不改代码.
   - 边界: 内容与命名归 1111; 本轮只写登记行.
   - 审计: `grep -c '工具总则' docs/implementation/2026-11-11-tool-description-registry.md` → ≥ 1; `git diff --name-only | grep -c 'src/'` → 0
-- [ ] T7 `preference-analysis` 改 hold (`preference-analysis/src/index.ts`)
+- [x] T7 `preference-analysis` 改 hold (`preference-analysis/src/index.ts`)
   - 做什么: 删 `CONSUMER_REGISTRATION` 与消费者注册; 改注册 `pinNotes.hold("preference", () => plugin.decide()?.text)`; 无 `pinNotes` 服务时 warn 并只记录不注入. 若 `inject` 声明里仍有 `ruleEngine`, 一并移除.
   - 保留: 观测 (`session/event`)、归纳节流、三项偏好工具与写入.
   - 边界: `decide()` 返回 `null` 时 provider 返回 `undefined`; 服务缺席时降级.
   - 测试: 文本变化才投; 无服务时的降级告警; 偏好工具行为不变.
   - 审计: `grep -cF "hold('preference'" preference-analysis/src/index.ts` → ≥ 1; `grep -rc 'session-start' preference-analysis/src | grep -v ':0' | wc -l` → 0; `grep -rc 'compaction' preference-analysis/src | grep -v ':0' | wc -l` → 0; `cd preference-analysis && pnpm run check && pnpm run test` → 0
-- [ ] T8 `flow-track` 改 hold (`flow-track/src/index.ts`)
+- [x] T8 `flow-track` 改 hold (`flow-track/src/index.ts`)
   - 做什么: 删消费者注册; 改注册 `pinNotes.hold("flow", () => decideText({…}))`; 开关 `switcher.enabled` 与 `hasActiveFlow(cache.records)` 两门槛移入 provider, 不满足时返回 `undefined`.
   - 保留: `/flow-track` 命令、`flowTrack` 服务面、五个流程工具、`WriteObserver` 合规提示.
   - 边界: 无活跃流程或开关关闭时不注入; 服务缺席时 warn 并只保留命令与服务面.
   - 测试: 关闭不注入; 有活跃流程时文本出现; 阶段推进后文本变化.
   - 审计: `grep -cF "hold('flow'" flow-track/src/index.ts` → ≥ 1; `grep -c 'enabled' flow-track/src/index.ts` → ≥ 1; `grep -rc 'turn-start' flow-track/src | grep -v ':0' | wc -l` → 0; `cd flow-track && pnpm run check && pnpm run test` → 0
-- [ ] T9 `tool-consult` 改 hold (`tool-consult/src/index.ts`)
+- [x] T9 `tool-consult` 改 hold (`tool-consult/src/index.ts`)
   - 做什么: 新增 `pinNotes.hold("revealed-tools", ({ sessionId }) => summarizeRevealed(runtime, sessionId))`; 文本每行 `- name: 一句话描述`, 取自已揭示集合与 `docs` 描述 (`oneLine`); 揭示与遮罩逻辑不动.
   - 边界: 未揭示任何工具时返回 `undefined`; 揭示集合不变则文本同字节; turn 档收敛后文本随之变.
   - 测试: 揭示 1 项后非空; 两次同集合文本相同.
   - 审计: `grep -cF "hold('revealed-tools'" tool-consult/src/index.ts` → ≥ 1; `grep -c 'consult_tools' tool-consult/src/tools.ts` → ≥ 1; `grep -c '工具总则' docs/implementation/2026-11-11-tool-description-registry.md` → ≥ 1; `cd tool-consult && pnpm run check && pnpm run test` → 0
-- [ ] T10 `pin-note` 自身要点并入 (`pin-note/src/index.ts`、`src/tools.ts`)
+- [x] T10 `pin-note` 自身要点并入 (`pin-note/src/index.ts`、`src/tools.ts`)
   - 做什么: 模型面 `pin_note` 仍写记忆库; 注入统一走 T2 的多来源路径, 两条来源共用 `alreadyInContext` 与 `foldMessages`; 不新增工具.
   - 边界: 两来源正文相同时只投一条; 工具名与参数 schema 不变.
   - 测试: `pin_note` 写入后下一步出现一条; 与 hold 同正文时不重复.
   - 审计: `grep -c 'name: "pin_note"' pin-note/src/tools.ts` → 1; `grep -c 'compare' pin-note/src/index.ts` → ≥ 2; `cd pin-note && pnpm run test` → 0
-- [ ] T11 `rule-engine` 文案下沉 (可选; `rule-engine/src/index.ts`、`src/types.ts`)
+- [x] T11 `rule-engine` 文案下沉 (可选; `rule-engine/src/index.ts`、`src/types.ts`)
   - 做什么: 若做, 在消费者面新增统一内容注册口 `registerTemplate`, 插件只供内容不拼文案; 若不做, 保持现状.
   - 边界: 不做时 `rule-engine` 零 diff, 不影响 T3 至 T10.
   - 审计: 不做: `git diff --stat -- rule-engine | wc -l` → 0; 做: `grep -c 'registerTemplate' rule-engine/src/index.ts` → ≥ 1
-- [ ] T12 README 同步 (各改动包 `README.md`)
+- [x] T12 README 同步 (各改动包 `README.md`)
   - 做什么: 每包补三类通道 — 静态写 section 名与 `order`, 动态写 `pinNotes.hold` 的 key, 一次性写明是否例外通道.
   - 边界: 只改受影响包, 不重写其他段落.
   - 审计: `for p in pin-note symbol-normalizer ponytail term-check preference-analysis flow-track tool-consult; do grep -q '静态保持' $p/README.md || echo MISS $p; done | wc -l` → 0; 同式对 `动态保持`、`一次性注入` 各 → 0
-- [ ] T13 端到端与会话日志断言 (`e2e/injection-channels.test.ts`)
+- [x] T13 端到端与会话日志断言 (`e2e/injection-channels.test.ts`)
   - 做什么: 三例 — 静态 section 注册后装配文本含内容; 两个 hold key 只变一个时仅追加一条; 模拟压缩 `replace` 后两条都补投; 每例断言 surface 中同 source kind 仅 1 条.
   - 边界: 用最小假 `session` / `pre-step`, 不依赖真实 provider.
   - 审计: `test -f e2e/injection-channels.test.ts` → 0; `grep -c 'surface' e2e/injection-channels.test.ts` → ≥ 1; `pnpm run test` → 0
-- [ ] T14 全量与白名单
+- [x] T14 全量与白名单
   - 做什么: 无代码; 所有断言全过后才可交审.
   - 审计: `pnpm run check && pnpm run build && pnpm run test` → 0; `git status --porcelain | awk '{print $2}' | grep -vE '^(pin-note|symbol-normalizer|ponytail|term-check|preference-analysis|flow-track|tool-consult|rule-engine|e2e|scripts)/|^docs/implementation/2026-11-10-injection-inventory\.md$' | wc -l` → 0; `git diff -U0 | grep -cE '^\+.*name: "'` → 0; `git diff -U0 | grep -c 'input_schema'` → 0
-- [ ] T15 审计脚本 (`scripts/audit-injection-channels.sh`)
+- [x] T15 审计脚本 (`scripts/audit-injection-channels.sh`)
   - 做什么: `set -euo pipefail`; 每任务一组 `need()` 断言; 失败打印任务号与实测值并 `exit 1`; 末尾汇总通过项数.
   - 边界: 只读不写; 依赖 `pnpm` 与 `git`; 在仓库根执行.
   - 审计: `test -f scripts/audit-injection-channels.sh` → 0; `bash -n scripts/audit-injection-channels.sh` → 0; `bash scripts/audit-injection-channels.sh` → 0
@@ -265,18 +265,41 @@
 
 ## 实现记录
 
-（落地方案裁定并执行时按时间追加.）
+- 2026-11-11: 按 T1 至 T15 执行, 每完成一包跑该包 check / test 后单独提交.
+  - T1 / T2 / T10 `pin-note`: 服务面新增 `hold(key, provider)` / `release(key)`; pre-step 改为「记忆库记录 + 各 hold key」多来源, 按正文逐条比对、按来源收敛 inbox; 提交 `e7efe400`.
+  - T3 `symbol-normalizer`: 开局指南改注册 `ctx.systemPrompt.section`（`symbol-normalizer/guide`, order 4000）, 删除 guide 消费者; 提交 `8ceffff7`.
+  - T4 `ponytail`: 决策阶梯改注册 section（`ponytail/ladder`, order 4100）, 配置面收敛为 `enabled` / `text`; 提交 `acda4eb6`.
+  - T5 `term-check`: 新增 `src/terms.ts` 渲染术语表两段, 注册 section（`term-check/glossary`, order 4200）, 旧称审查消费者保留; 提交 `627be8a2`.
+  - T6 / T7 `preference-analysis`: 偏好要点改 `pinNotes.hold("preference")`, 删除消费者与 `CONSUMER_REGISTRATION`, `inject` 收敛为 memory / tools; 1111 文档登记工具总则 section 名与 order; 提交 `9a1bebe8`.
+  - T8 `flow-track`: 阶段模板 / 推进状态改 `pinNotes.hold("flow")`, 开关与活跃流程两门槛移入 provider; 提交 `9ae32aa0`.
+  - T9 `tool-consult`: 新增 `summarizeRevealed` 并登记 `pinNotes.hold("revealed-tools")`; 提交 `8e58b4a7`.
+  - T11 `rule-engine`: 选「不做」, `rule-engine` 零 diff（`registerTemplate` 未引入）.
+  - T12 七个包 README 补「注入通道」节并修正过时描述; 提交 `b1d0c65b`.
+  - T13 `e2e/injection-channels.test.ts`: 静态 section / 两 key 动态保持 / 压缩补投三例; T15 `scripts/audit-injection-channels.sh` 36 项断言全过.
 
 ## 偏差
 
-无（2026-11-10, 盘点与归类只读完成, 未改代码）.
+- T7 审计口径修正: 计划要求 `preference-analysis/src` 里 `compaction` 归零, 但归纳节流的触发点就是
+  `session/event` 的 `compaction/end`（保留项「归纳节流」）, 该字符串属观测链路、不是注入通道;
+  实际只保证 `session-start` / `ruleEngine` / `registerConsumer` 归零, `compaction` 保留.
+- T9 审计引号口径: 计划写 `hold('revealed-tools'`, 实现按 prettier 用双引号 `hold("revealed-tools"`;
+  审计脚本按双引号断言.
+- T6 工具总则只登记命名与位置, `tool-consult` 的 section 注册尚未实现: 正文与单一来源归 1111 定稿,
+  本轮不改代码（计划即如此）.
+- T13 端到端用例用最小假 session / pre-step 驱动真实插件入口, 不起真实宿主; 真实宿主下的会话日志
+  断言留给人工验收（静态段恒在、动态段按 key 分条已在单测与 e2e 覆盖）.
 
 ## 测试与证据
 
+- `bash scripts/audit-injection-channels.sh` → 审计通过 36 项（含 T14 白名单与工具面零改动断言）.
+- `e2e/injection-channels.test.ts` 随 `pnpm run test:e2e` 全绿.
+- 全量 `pnpm run check` / `build` / `test` 全绿（2026-11-11）.
 - 归类依据为宿主源码与实际注入实现, 逐条列出路径（见「调研」第 3 小节「依据」）.
 - 会话日志实测（`tui-7e83c53d`）: 工作区指令 / 技能目录 / 运行时快照各注入 11 次, 均发生在会话开始与 10 次 `/compact` 之后（`command/done` 记录 "Compacted N history items"）; 压缩摘要的 `replace` 区间（如 seq 938 覆盖 8 至 929）把上一份副本一并折叠, 故当前 surface 上各只有 1 份, 分别为 15,421 / 9,002 / 567 字符.
 - 后续如落地静态保持 / 动态保持, 再追 `pnpm run check` / `build` / `test` 结果.
 
 ## 收尾
 
-（未关闭.）
+- 已关闭（2026-11-11）: T1 至 T15 全部完成并逐项提交, 文档移入 `docs/archived/`.
+- 剩余事项: 工具总则正文与「被揭示工具用法」的单一来源归 `docs/implementation/2026-11-11-tool-description-registry.md`;
+  后者未接取, 不阻塞本任务关闭.
