@@ -41,4 +41,5 @@ export const GLOSSARY_SNAPSHOT: readonly GlossaryRow[] =
     {"from":["输入框","输入栏"],"to":"输入区","note":"历史对照句可注「原名」","isInterface":true,"conditional":false},
     {"from":["状态栏"],"to":"状态列 / 状态行","note":"按位置: 左侧竖列用「状态列」, 底部横条用「状态行」; 不再单独用「状态栏」","isInterface":true,"conditional":false},
     {"from":["底部提示","提示区"],"to":"提示行","note":"归档不改; 历史对照句可注「原名」","isInterface":true,"conditional":false},
+    {"from":["张力"],"to":"不一致 / 偏差","note":"指两处说法冲突: 正文用「口径不一致」, 记录到追踪文档用「偏差」节","isInterface":false,"conditional":false},
   ];
