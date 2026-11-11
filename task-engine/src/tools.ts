@@ -340,6 +340,7 @@ export function createTools(
     description:
       "用途: 发起叶子任务声明的 executor 后端(subagent / workflow / command), 把执行证据回填到该帧。\n" +
       "用法: 叶子须已挂树且声明了非 model 后端, 否则拒绝; 回填后仍需 task_stop 做 RET 验收。\n" +
+      "效果: 返回 accepted(发起门禁是否通过) / next(打回时指向重做的任务 id, 通过为 null); 通过时另带 evidence / usage, 打回时带 feedback。\n" +
       "边界: model 后端(本会话自己执行)用 task_implement。\n" +
       "相关: task_implement、task_stop、task_decompose。",
     parameters: {
@@ -375,6 +376,7 @@ export function createTools(
       "decompose",
       "用途: 把一个待细化任务拆成子任务, 每次只细化一层。\n" +
         '用法: 机械 + 语义蕴含双门禁通过才挂树; 对已完成的当前轮根再分解会自动开新一轮(新根 `root-2` / `root-3…`, 沿用同一根契约, 旧轮只读保留; 跨轮子帧 id 必须唯一); `parent_id: "root"` 始终指当前轮根。\n' +
+        "效果: 返回 accepted(双门禁是否通过) / next(打回指向重做目标); 参数非法只回 ok:false + feedback。\n" +
         "边界: 子任务数不设上限, 但超过 8 个时必须带 enumeration(source + 逐条 items) 并给每个子任务填 enum_item, 门禁校验「条目数 = 子任务数、双向一一对应」; 只是把一个任务切碎会被打回, 请合并或再抽象一层。\n" +
         "相关: task_implement、task_execute、task_status。",
     ),
@@ -382,6 +384,7 @@ export function createTools(
       "implement",
       "用途: 完成一个叶子任务并写产出, 仅限 model 后端(本会话自己执行)。\n" +
         "用法: 叶子指 need_decompose=false 的帧; 产出在 task_stop 验收通过后才算完成。\n" +
+        "效果: 成功只回 { ok: true }; 打回时带 accepted: false 与 next(重做目标), 及 feedback。\n" +
         "边界: 声明了 subagent / workflow / command 后端的叶子用 task_execute 发起; 非叶子会被拒(先 task_decompose)。\n" +
         "相关: task_execute、task_stop、task_decompose。",
     ),
@@ -389,8 +392,9 @@ export function createTools(
     decompose(
       "stop",
       "用途: 对任务执行 RET 验收(mechanical/human/semantic), 通过则完成并向上 join。\n" +
-        "用法: 凭 task_id 指定任务; 返回 accepted / next。\n" +
+        "用法: 凭 task_id 指定任务; 返回 accepted(本轮 RET 验收是否通过) / next(打回时指向本帧重做, 终态为 null)。\n" +
         "边界: 本工具只做验收与完成; 取消委托用 channel_task(action=cancel)。\n" +
+        "效果: 打回时另带 feedback 说明哪条不达标。\n" +
         "相关: task_status、task_implement、channel_task。",
     ),
     decompose(
