@@ -1,30 +1,45 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { apply, resolveConfig, inject, name } from "../src/index.ts";
-import { LADDER_SUMMARY, LADDER_TEXT } from "../src/ladder.ts";
+import { LADDER_TEXT } from "../src/ladder.ts";
 
-test("resolveConfig：缺省开启（仅显式 false 关闭）+ session-start + 去重 1 + 内置阶梯文本", () => {
+/** section 注册记录。 */
+interface SectionRecord {
+  name: string;
+  order: number;
+  text: string;
+  interpolate?: boolean;
+}
+
+/** 假 ctx：记录 section 注册并统计注销。 */
+function fakeCtx(options: { noSystemPrompt?: boolean } = {}): {
+  sections: SectionRecord[];
+  disposed: () => number;
+  ctx: Record<string, unknown>;
+} {
+  const sections: SectionRecord[] = [];
+  let disposed = 0;
+  const ctx: Record<string, unknown> = {};
+  if (options.noSystemPrompt !== true) {
+    ctx["systemPrompt"] = {
+      section: (section: SectionRecord) => {
+        sections.push(section);
+        return () => {
+          disposed += 1;
+        };
+      },
+    };
+  }
+  return { sections, disposed: () => disposed, ctx };
+}
+
+test("resolveConfig：缺省开启 + 内置阶梯文本，显式 false 关闭", () => {
   const c = resolveConfig();
   assert.equal(c.enabled, true, "缺省开启（2026-10-05 起）");
-  assert.deepEqual(c.sources, ["session-start", "step-end"]);
-  assert.equal(c.dedupeInRecord, 1);
-  assert.equal(c.delivery, "steer");
   assert.equal(c.text, LADDER_TEXT);
-  assert.equal(
-    resolveConfig({ enabled: false }).enabled,
-    false,
-    "显式 false 关闭",
-  );
-  assert.equal(
-    resolveConfig({ enabled: true }).enabled,
-    true,
-    "显式 true 开启",
-  );
-  // 非法值回退缺省
-  const bad = resolveConfig({ sources: [], dedupeInRecord: -1, text: "" });
-  assert.deepEqual(bad.sources, ["session-start", "step-end"]);
-  assert.equal(bad.dedupeInRecord, 1);
-  assert.equal(bad.text, LADDER_TEXT);
+  assert.equal(resolveConfig({ enabled: false }).enabled, false);
+  assert.equal(resolveConfig({ enabled: true }).enabled, true);
+  assert.equal(resolveConfig({ text: "" }).text, LADDER_TEXT, "空串回退内置");
 });
 
 test("阶梯文本含 7 级判据与关键规则（文案漂移守卫）", () => {
@@ -42,78 +57,35 @@ test("阶梯文本含 7 级判据与关键规则（文案漂移守卫）", () =>
   for (const kw of ["根因", "最短 diff"]) {
     assert.ok(LADDER_TEXT.includes(kw), `规则应含「${kw}」`);
   }
-  assert.ok(LADDER_SUMMARY.length > 0);
 });
 
-test("apply：注册消费者；开启注入、关闭不注入；返回 dispose", () => {
-  const calls: {
-    id: string;
-    sources?: readonly string[] | undefined;
-    delivery?: string | undefined;
-    dedupeInRecord?: number | undefined;
-  }[] = [];
-  let disposed = 0;
-  let registered:
-    | {
-        decide: (c: {
-          sessionId: string;
-          turn: number;
-        }) => { text: string; summary?: string } | null;
-      }
-    | undefined;
-  const engine = {
-    registerConsumer(input: {
-      id: string;
-      sources?: readonly string[];
-      delivery?: string;
-      dedupeInRecord?: number;
-      decide: (c: {
-        sessionId: string;
-        turn: number;
-      }) => { text: string; summary?: string } | null;
-    }): () => void {
-      calls.push({
-        id: input.id,
-        sources: input.sources,
-        delivery: input.delivery,
-        dedupeInRecord: input.dedupeInRecord,
-      });
-      registered = input;
-      return () => {
-        disposed += 1;
-      };
-    },
-  };
-
-  // 关闭态：注册了消费者，但 decide 返回 null（不注入）
-  const disposeOff = apply({ ruleEngine: engine }, { enabled: false });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.id, "ponytail");
-  assert.deepEqual(calls[0]?.sources, ["session-start", "step-end"]);
-  assert.equal(calls[0]?.delivery, "steer");
-  assert.equal(calls[0]?.dedupeInRecord, 1);
-  assert.equal(
-    registered?.decide({ sessionId: "s1", turn: 1 }),
-    null,
-    "关闭态不得注入",
-  );
-  disposeOff();
-  assert.equal(disposed, 1, "dispose 应注销消费者");
-
-  // 开启态：返回阶梯正文 + 摘要
-  apply({ ruleEngine: engine }, { enabled: true });
-  const out = registered?.decide({ sessionId: "s1", turn: 2 });
-  assert.equal(out?.text, LADDER_TEXT);
-  assert.equal(out?.summary, LADDER_SUMMARY);
-
-  // 缺省态（不传 config）→ 同样注入（2026-10-05 起缺省开启）
-  apply({ ruleEngine: engine });
-  const byDefault = registered?.decide({ sessionId: "s1", turn: 3 });
-  assert.equal(byDefault?.text, LADDER_TEXT, "不传 config 即注入");
-  assert.equal(byDefault?.summary, LADDER_SUMMARY);
+test("apply：开启时注册静态 section（固定 name / order / interpolate）", () => {
+  const fake = fakeCtx();
+  const dispose = apply(fake.ctx);
+  assert.equal(fake.sections.length, 1);
+  const section = fake.sections[0]!;
+  assert.equal(section.name, "ponytail/ladder");
+  assert.equal(section.order, 4100);
+  assert.equal(section.text, LADDER_TEXT);
+  assert.equal(section.interpolate, false);
+  dispose();
+  assert.equal(fake.disposed(), 1, "dispose 注销 section");
 });
 
-test("apply：rule-engine 缺席 → 告警且不抛（不注册、dispose 为空操作）", () => {
+test("apply：enabled=false 时不注册 section", () => {
+  const fake = fakeCtx();
+  const dispose = apply(fake.ctx, { enabled: false });
+  assert.equal(fake.sections.length, 0);
+  assert.equal(typeof dispose, "function");
+});
+
+test("apply：text 覆盖生效", () => {
+  const fake = fakeCtx();
+  apply(fake.ctx, { text: "[ponytail] 自定义正文" });
+  assert.equal(fake.sections[0]?.text, "[ponytail] 自定义正文");
+});
+
+test("apply：systemPrompt 缺席 → 告警且不抛，dispose 为空操作", () => {
   const writes: string[] = [];
   const original = process.stderr.write.bind(process.stderr);
   process.stderr.write = ((chunk: string | Uint8Array): boolean => {
@@ -121,12 +93,13 @@ test("apply：rule-engine 缺席 → 告警且不抛（不注册、dispose 为�
     return true;
   }) as typeof process.stderr.write;
   try {
-    const dispose = apply({});
+    const fake = fakeCtx({ noSystemPrompt: true });
+    const dispose = apply(fake.ctx);
     assert.equal(typeof dispose, "function");
     dispose();
     assert.ok(
-      writes.some((w) => w.includes("ruleEngine 不可用")),
-      "应告警 rule-engine 缺席",
+      writes.some((w) => w.includes("systemPrompt 不可用")),
+      "应告警 systemPrompt 缺席",
     );
   } finally {
     process.stderr.write = original;
@@ -135,59 +108,5 @@ test("apply：rule-engine 缺席 → 告警且不抛（不注册、dispose 为�
 
 test("契约符号：name / inject", () => {
   assert.equal(name, "ponytail");
-  assert.deepEqual(inject, ["ruleEngine"]);
-});
-
-test("resolveConfig: sources 过滤非法项, 全非法或空数组回退缺省", () => {
-  const mixed = resolveConfig({
-    sources: ["session-start", "", 42 as unknown as string, "step-end"],
-  });
-  assert.deepEqual(mixed.sources, ["session-start", "step-end"]);
-
-  const allBad = resolveConfig({ sources: [""] });
-  assert.deepEqual(allBad.sources, ["session-start", "step-end"]);
-
-  const empty = resolveConfig({ sources: [] });
-  assert.deepEqual(empty.sources, ["session-start", "step-end"]);
-
-  const custom = resolveConfig({ sources: ["step-end"] });
-  assert.deepEqual(custom.sources, ["step-end"], "单个合法节点直接透传");
-});
-
-test("resolveConfig: delivery 合法值透传, 非法值回退 steer", () => {
-  assert.equal(resolveConfig({ delivery: "inject" }).delivery, "inject");
-  assert.equal(resolveConfig({ delivery: "followup" }).delivery, "followup");
-  assert.equal(resolveConfig({ delivery: "steer" }).delivery, "steer");
-  assert.equal(
-    resolveConfig({ delivery: "auto" as unknown as "inject" }).delivery,
-    "steer",
-    "非白名单投递方式回退缺省",
-  );
-});
-
-test("resolveConfig: dedupeInRecord 接受 0 与非 1 值, 非数字回退 1", () => {
-  assert.equal(resolveConfig({ dedupeInRecord: 0 }).dedupeInRecord, 0);
-  assert.equal(resolveConfig({ dedupeInRecord: 3 }).dedupeInRecord, 3);
-  assert.equal(
-    resolveConfig({ dedupeInRecord: "2" as unknown as number }).dedupeInRecord,
-    1,
-    "非数字回退缺省 1",
-  );
-  assert.equal(
-    resolveConfig({ dedupeInRecord: -2 }).dedupeInRecord,
-    1,
-    "负数回退缺省 1",
-  );
-});
-
-test("resolveConfig: 非空自定义 text 覆盖阶梯正文, 空串或非字符串回退内置", () => {
-  const custom = resolveConfig({ text: "[ponytail] 试验正文" });
-  assert.equal(custom.text, "[ponytail] 试验正文");
-  assert.notEqual(custom.text, LADDER_TEXT);
-  assert.equal(resolveConfig({ text: "" }).text, LADDER_TEXT);
-  assert.equal(
-    resolveConfig({ text: 7 as unknown as string }).text,
-    LADDER_TEXT,
-    "非字符串回退内置阶梯正文",
-  );
+  assert.deepEqual(inject, ["systemPrompt"]);
 });
