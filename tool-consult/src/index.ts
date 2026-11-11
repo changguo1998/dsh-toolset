@@ -24,7 +24,7 @@ import {
   decideDegradation,
   decideMissingService,
 } from "./degrade.ts";
-import { createMatcher, type Matcher } from "./matcher.ts";
+import { createMatcher, oneLine, type Matcher } from "./matcher.ts";
 import { AgentGrants } from "./state.ts";
 import {
   CONSULT_TOOL_NAME,
@@ -470,6 +470,29 @@ function attachListeners(runtime: AgentRuntime): void {
   if (typeof deny === "function") runtime.listeners.push(deny as () => void);
 }
 
+/**
+ * 被揭示工具的一行用法摘要（动态保持的 hold 正文）。
+ * 零条揭示时返回 undefined（本步不投）；文本只由「已揭示集合 + 注册处 description」决定，
+ * 集合不变则文本同字节（pin-note 按 key 比对后不会重复投）。
+ */
+function summarizeRevealed(runtime: AgentRuntime): string | undefined {
+  const names = runtime.grants.allowedNames();
+  if (names.length === 0) return undefined;
+  const lines = names.map((name) => {
+    const doc = runtime.matcher.get(name);
+    return `- ${name}${doc === undefined ? "" : `: ${oneLine(doc.description)}`}`;
+  });
+  return ["[tool-consult] 已揭示工具（本会话内可调用）:", ...lines].join("\n");
+}
+
+/** pin-note 动态保持登记面（结构面访问；未挂载时降级）。 */
+interface PinNotesFace {
+  hold?(
+    key: string,
+    provider: (context: { sessionId: string }) => string | undefined,
+  ): () => void;
+}
+
 /** 创建或复用代理运行时，并完成注册 / 遮罩。 */
 function setupAgent(
   agent: HostAgent | undefined,
@@ -575,6 +598,22 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
       verifyMask(runtime, tools);
     }
   });
+
+  // 动态保持：被揭示工具的具体用法经 pinNotes.hold("revealed-tools") 每步按 key 比对。
+  // provider 按 provider 上下文里的 sessionId 找运行时；未揭示任何工具时返回 undefined。
+  const pinNotes = ctx.get?.("pinNotes") as PinNotesFace | undefined;
+  if (pinNotes !== undefined && typeof pinNotes.hold === "function") {
+    pinNotes.hold("revealed-tools", (context) => {
+      const runtime = REGISTRY.get(context.sessionId);
+      return runtime === undefined ? undefined : summarizeRevealed(runtime);
+    });
+  } else {
+    log(
+      ctx,
+      "warn",
+      "ctx.pinNotes 不可用：被揭示工具的用法不会常驻（请检查 pin-note 是否挂载）",
+    );
+  }
 
   ctx.on?.("tools/result", (...args: unknown[]) => {
     const exec = args[0] as HostToolExecution | undefined;
