@@ -65,7 +65,7 @@ const CONTEXT = { sessionId: "s1", turn: 1, trigger: "assistant-text" };
 
 test("导出名与硬依赖", () => {
   assert.equal(name, "term-check");
-  assert.deepEqual(inject, ["ruleEngine"]);
+  assert.deepEqual(inject, ["ruleEngine", "systemPrompt"]);
 });
 
 test("缺省注册项：assistant-text + followup + dedupeInRecord 1", () => {
@@ -80,6 +80,42 @@ test("缺省注册项：assistant-text + followup + dedupeInRecord 1", () => {
   assert.equal(typeof dispose, "function");
   dispose();
   assert.equal(disposed(), 1);
+});
+
+test("静态保持：注册术语表 section（推荐 + 禁止两段）", () => {
+  const { engine } = makeEngine();
+  const sections: Array<{
+    name: string;
+    order: number;
+    text: string;
+    interpolate?: boolean;
+  }> = [];
+  let sectionDisposed = 0;
+  const dispose = apply({
+    ruleEngine: engine,
+    systemPrompt: {
+      section: (section: {
+        name: string;
+        order: number;
+        text: string;
+        interpolate?: boolean;
+      }) => {
+        sections.push(section);
+        return () => {
+          sectionDisposed += 1;
+        };
+      },
+    },
+  });
+  assert.equal(sections.length, 1);
+  const section = sections[0]!;
+  assert.equal(section.name, "term-check/glossary");
+  assert.equal(section.order, 4200);
+  assert.equal(section.interpolate, false);
+  assert.match(section.text, /推荐术语/);
+  assert.match(section.text, /禁止术语/);
+  dispose();
+  assert.equal(sectionDisposed, 1);
 });
 
 test("decide：命中旧称返回提示, 无命中返回 null", () => {
@@ -147,8 +183,8 @@ test("ruleEngine 缺席：只告警, 不抛错, 返回空 dispose", () => {
     assert.equal(typeof dispose, "function");
     dispose();
   });
-  assert.equal(writes.length, 1);
-  assert.match(writes[0]!, /\[term-check\] warn: ctx\.ruleEngine 不可用/);
+  assert.ok(writes.some((line) => line.includes("ctx.ruleEngine 不可用")));
+  assert.ok(writes.some((line) => line.includes("ctx.systemPrompt 不可用")));
 });
 
 test("注册抛错：告警并返回空 dispose", () => {
@@ -162,6 +198,8 @@ test("注册抛错：告警并返回空 dispose", () => {
     });
     assert.equal(typeof dispose, "function");
   });
-  assert.equal(writes.length, 1);
-  assert.match(writes[0]!, /注册消费者失败：Error: boom/);
+  assert.ok(
+    writes.some((line) => line.includes("注册消费者失败：Error: boom")),
+  );
+  assert.ok(writes.some((line) => line.includes("ctx.systemPrompt 不可用")));
 });

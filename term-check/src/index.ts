@@ -14,11 +14,16 @@
  */
 
 import { renderFeedback, type CheckOptions } from "./checker.ts";
+import {
+  GLOSSARY_SECTION_NAME,
+  GLOSSARY_SECTION_ORDER,
+  renderGlossarySection,
+} from "./terms.ts";
 
 export const name = "term-check";
 
-/** 硬依赖：消费者注册面（rule-engine provide `ruleEngine`）。 */
-export const inject = ["ruleEngine"];
+/** 依赖：消费者注册面（rule-engine）+ 静态保持的 system prompt section 面。 */
+export const inject = ["ruleEngine", "systemPrompt"];
 
 /** 插件配置（类型声明，宿主不校验；缺省见 resolveConfig）。 */
 export interface Config {
@@ -88,15 +93,23 @@ interface ConsumerRegistrar {
   }): () => void;
 }
 
-/** 插件上下文的结构化面（`ctx.ruleEngine` / `ctx.get('ruleEngine')`）。 */
+/** 插件上下文的结构化面（`ctx.ruleEngine` / `ctx.get('ruleEngine')` / `ctx.systemPrompt`）。 */
 interface PluginContext {
   ruleEngine?: ConsumerRegistrar;
   get?: (name: string) => unknown;
+  systemPrompt?: {
+    section?(section: {
+      name: string;
+      order: number;
+      text: string;
+      interpolate?: boolean;
+    }): () => void;
+  };
 }
 
 /**
- * 挂载：把自身注册为 rule-engine 消费者；开启时对每条回合正文做术语检查，有旧称就返回更正提示。
- * 返回 dispose（注销消费者）；rule-engine 缺席 → 告警且不注册（本包不因此让宿主启动失败）。
+ * 挂载：注册静态术语表 section；同时把自身注册为 rule-engine 消费者（旧称审查）。
+ * 返回 dispose（同时注销 section 与消费者）；任一服务缺席 → 告警并降级对应能力。
  */
 export function apply(ctx: unknown, config?: Config): () => void {
   const warn = (message: string): void => {
@@ -104,6 +117,27 @@ export function apply(ctx: unknown, config?: Config): () => void {
   };
   const resolved = resolveConfig(config);
   const c = (ctx ?? {}) as PluginContext;
+  const disposers: Array<() => void> = [];
+
+  // 静态保持：术语表 section（推荐 + 禁止两段, 内容随快照只重启生效）
+  const systemPrompt = c.systemPrompt;
+  if (typeof systemPrompt?.section !== "function") {
+    warn("ctx.systemPrompt 不可用，术语表不会常驻（请检查宿主版本）");
+  } else {
+    try {
+      disposers.push(
+        systemPrompt.section({
+          name: GLOSSARY_SECTION_NAME,
+          order: GLOSSARY_SECTION_ORDER,
+          text: renderGlossarySection(),
+          interpolate: false,
+        }),
+      );
+    } catch (error) {
+      warn(`术语表 section 注册失败：${String(error)}`);
+    }
+  }
+
   const engine =
     c.ruleEngine ??
     (typeof c.get === "function"
@@ -113,19 +147,26 @@ export function apply(ctx: unknown, config?: Config): () => void {
     warn(
       "ctx.ruleEngine 不可用，术语检查不会触发（请检查 rule-engine 是否挂载）",
     );
-    return () => {};
+  } else {
+    try {
+      disposers.push(
+        engine.registerConsumer({
+          id: name,
+          sources: resolved.sources,
+          delivery: resolved.delivery,
+          dedupeInRecord: resolved.dedupeInRecord,
+          decide: (context) =>
+            resolved.enabled
+              ? renderFeedback(context.text, resolved.check)
+              : null,
+        }),
+      );
+    } catch (error) {
+      warn(`注册消费者失败：${String(error)}`);
+    }
   }
-  try {
-    return engine.registerConsumer({
-      id: name,
-      sources: resolved.sources,
-      delivery: resolved.delivery,
-      dedupeInRecord: resolved.dedupeInRecord,
-      decide: (context) =>
-        resolved.enabled ? renderFeedback(context.text, resolved.check) : null,
-    });
-  } catch (error) {
-    warn(`注册消费者失败：${String(error)}`);
-    return () => {};
-  }
+
+  return () => {
+    for (const dispose of disposers.splice(0)) dispose();
+  };
 }
