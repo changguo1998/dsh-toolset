@@ -183,8 +183,11 @@ export function toToolDefs(engine: RuleEngine): ToolDef[] {
   const list: ToolDef = {
     name: "rule_list",
     description:
-      "用途: 只读列出生效规则(配置基线 + 运行时层, 含来源层 origin、送达路径 delivery 与节流参数)与引擎状态。\n" +
-      "相关: rule_add、rule_update、rule_remove。",
+      "用途: 只读列出生效规则(配置基线 + 运行时层合并后)与引擎状态, 只报不改。\n" +
+      "用法: 无参数。\n" +
+      "效果: 返回 { rules, status }: rules 每项含 id / text / enabled / sources / delivery / directWrite / origin / description / cooldownTurns / cooldownMs; status 含 rules / runtimeRules / removedBaselineRules / stateDir / maxInjectionsPerTurn。\n" +
+      "边界: 已删除的基线规则不出现在 rules, 只计入 removedBaselineRules; 要看某条是否命中用 rule_test。\n" +
+      "相关: rule_add、rule_update、rule_remove、rule_test。",
     parameters: { type: "object", properties: {} },
     async execute() {
       try {
