@@ -72,7 +72,7 @@
 
 ## 2. 未完成项
 
-- **工具说明注册表与按需投递（决策项 3 拆出）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 评估把工具完整说明从注册处 `description` 抽成单一来源（`TOOL_USAGE` + `registerWithDocs` + 模块级台账 + 22 个工具包依赖）是否必要, 并设计在 tools 槽位稳定前提下的按需投递。现状: 1109 审计已裁定沿用注册处 `description`（与宿主同款）, 本条目不阻塞 7 项文案修订; 原方案以「揭示后动态保持」为前提, 同名桩被否后前提不成立。前置（已完成）: 「各插件注入方式整理」已裁定工具总则归静态保持（section `tool-consult/tool-index`, order 4300）、被揭示用法归动态保持（`pinNotes.hold("revealed-tools")`）。期望: 完整说明单一来源、不重复散落; 若保留注册处 `description` 则关闭为不新增注册表。来源: 2026-11-11 决策项 3 拆出; 追踪文档 `docs/implementation/2026-11-11-tool-description-registry.md`。
+- **工具说明注册表与按需投递（决策项 3 拆出）**（2026-11-11, 用户提出, 优先级 P2, 状态: 进行中（决策已定, 待规划））: 把工具完整说明与参数 schema 从注册定义中拆出, 在 tools 槽位稳定的前提下按需投递。现状: 注册处 `description` 即完整说明, 揭示后整份声明进 tools 数组、断一次前缀缓存; 宿主模型 schema 与校验 schema 同源, 无法按会话拆分。期望: 注册处只留短说明与宽松占位, 完整说明与 schema 留在包装层做严格校验、由 `tool-consult` 揭示后投递, 槽位与缓存不动; 设计细节见追踪文档。1109 已按旧格式指定 7 项文案, 新格式在本任务统一实施。来源: 2026-11-11 决策项 3 拆出; 追踪文档 `docs/implementation/2026-11-11-tool-description-registry.md`。
 
 - **工具揭示架构重设计（缓存友好）**（2026-11-09, 用户提出, 优先级 P2, 以后再做; 状态: 未接取）: 现状考察发现当前 tool-consult 用宿主 `tools.restrict` 遮罩控制模型可见工具集, 揭示后在**下一次请求装配**生效——改动 `request/header` 的 `tools` 集合, 使前缀缓存断一次; 「保持缓存命中」与「动态控制模型能看到哪些工具」目前只能靠「初始小面（9 核心）+ 低频单向揭示」折中, 做不到「揭示即增补、零断缓存」。调研结论: 宿主按路由 `toolUpdate` 模式区分 `in-history`（可在消息历史携带 `tool_addition` 块, 初始 header 字节不变、前缀缓存保住）/ `addition-only` / `leading-only`（会重建 baseline、断前缀）; agent-loop 另有 `toolsChanged` / `preparedCall.toolUpdate` 的步内工具增补路径。期望: 重设揭示架构——初始 header 工具面稳定 + 新工具经协议增补进入上下文（或其它不重建头部的方式）, 使工具可见性可控且缓存命中尽量不破; 开工前先确认当前 DeepSeek 路由的 `toolUpdate` 行为与宿主 `tool-addition` 通道能力。来源: 2026-11-09 会话（注入机制 / 上下文结构 / 缓存命中的讨论沉淀）。
 
