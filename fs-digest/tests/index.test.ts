@@ -58,43 +58,40 @@ describe("工具入参校验", () => {
     { label: "mode 非枚举", args: { path: "a.md", mode: "weird" } },
   ];
 
-  it("缺参 / 类型错 / 非枚举 → invalid_option, path 原样回显", async () => {
+  it("schema 越界（缺参 / 类型错 / 非枚举）由包装层抛 INVALID_ARGS; 空串仍走工具软校验", async () => {
     for (const probe of probes) {
-      const result = (await tool.execute(probe.args)) as DigestResult;
-      assert.equal(result.ok, false, probe.label);
-      if (!result.ok) {
-        assert.equal(result.error, "invalid_option", probe.label);
-        assert.equal(result.mode, "unknown", probe.label);
-        assert.equal(
-          result.path,
-          typeof probe.args.path === "string" ? probe.args.path : "",
-          probe.label,
-        );
+      if (probe.label === "path 空串") {
+        const result = (await tool.execute(probe.args)) as DigestResult;
+        assert.equal(result.ok, false, probe.label);
+        if (!result.ok) {
+          assert.equal(result.error, "invalid_option", probe.label);
+        }
+        continue;
       }
+      await assert.rejects(
+        () => tool.execute(probe.args),
+        (error: unknown) =>
+          (error as { code?: string }).code === "INVALID_ARGS",
+        probe.label,
+      );
     }
   });
 
-  it("可选参数类型不符时被忽略, 不参与校验", async () => {
+  it("可选参数类型不符时由包装层拒绝（不再静默忽略）", async () => {
     await withFile("doc.md", "# H1\n\n### H3\n", async (path) => {
-      const result = (await tool.execute({
-        path,
-        mode: "outline",
-        depth: "1",
-      })) as DigestResult;
-      assert.equal(result.ok, true);
-      if (result.ok && result.mode === "outline") {
-        assert.equal(result.depth, 3, "字符串 depth 被忽略, 取缺省 3");
-        assert.equal(result.nodes[0]?.children[0]?.name, "H3");
-      }
+      await assert.rejects(
+        () => tool.execute({ path, mode: "outline", depth: "1" }),
+        (error: unknown) =>
+          (error as { code?: string }).code === "INVALID_ARGS",
+      );
       const pruned = (await tool.execute({
         path,
         mode: "pruned",
-        maxLines: "2",
-        maxTokens: null,
+        maxLines: 2,
       })) as DigestResult;
       assert.equal(pruned.ok, true);
       if (pruned.ok && pruned.mode === "pruned") {
-        assert.equal(pruned.truncated, false, "非数字预算被忽略, 取缺省");
+        assert.equal(pruned.truncated, true, "maxLines=2 触发裁剪");
       }
     });
   });

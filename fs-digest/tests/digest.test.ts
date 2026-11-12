@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { apply, name, inject, digest } from "../src/index.ts";
 import type { LspDocumentSymbol, SymbolProvider } from "../src/lsp.ts";
 import type { DigestResult } from "../src/types.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 const FIXTURES = join(import.meta.dirname, "fixtures");
 const TS_FILE = join(FIXTURES, "sample.ts");
@@ -315,14 +316,15 @@ describe("工具注册（mock ctx）", () => {
     }
   });
 
-  it("execute：缺参 → invalid_option 错误结果", async () => {
+  it("execute：缺参由包装层拒绝（INVALID_ARGS）", async () => {
     const { ctx, registered } = mockCtx();
     apply(ctx as never, {});
     const tool = registered[0];
     assert.ok(tool !== undefined);
-    const result = (await tool.execute({ mode: "outline" })) as DigestResult;
-    assert.equal(result.ok, false);
-    if (!result.ok) assert.equal(result.error, "invalid_option");
+    await assert.rejects(
+      () => tool.execute({ mode: "outline" }),
+      (error: unknown) => (error as { code?: string }).code === "INVALID_ARGS",
+    );
   });
 
   it("execute：markdown outline + render 树", async () => {
@@ -764,7 +766,11 @@ describe("工具描述（P0）", () => {
     );
     const tool = registered.find((t) => t.name === "fs_digest");
     assert.ok(tool !== undefined, "fs_digest 应已注册");
-    const description = tool.description;
+    // 注册定义只剩短说明；完整文案在 toolSurface 服务面（包装层 catalog）
+    assert.match(tool.description, /tool_consult/);
+    const full = lookupSurface("fs_digest");
+    assert.ok(full !== undefined, "服务面应能取到完整定义");
+    const description = full.description;
     assert.doesNotMatch(description, /不改文件/);
     assert.match(description, /只读/);
     assert.match(description, /md_logic/);

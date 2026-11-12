@@ -4,6 +4,7 @@
 // 宿主不校验，配置原样透传给 apply；缺省/非法值沿用本包既有语义，不新增校验）。bundle 无 default export。
 
 import { resolve } from "node:path";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { digest, type DigestDeps } from "./digest.ts";
 import { renderOutline } from "./render.ts";
 import {
@@ -201,76 +202,81 @@ export function apply(ctx: PluginCtx, config: Config = {}): void {
     maxBytes: config.maxBytes,
     resolvePath: (input, cwd) => resolve(cwd === "" ? sessionCwd : cwd, input),
   };
-  tools.register({
-    name: "fs_digest",
-    description:
-      "用途: 上下文感知文件读取(只读, 省 token 的结构概览), 出大纲 / 签名 / 裁剪。\n" +
-      "用法: mode=outline 出章节 / 符号大纲(Markdown 额外给每节行范围与块结构清单——列表 / 表格 / 代码块 / 引用, 便于按节读而不是整篇读); signatures 出函数 / 方法签名; pruned 裁大文件头尾。\n" +
-      "效果: 返回结构化概览, 不写盘。\n" +
-      "边界: 改内容用 edit; Markdown 深查(链接 / 引用式定义 / 嵌套层数 / 表格维度)用 md_logic; 全文检索用 grep; 相对路径相对会话 cwd。\n" +
-      "相关: edit、md_logic、grep、code_map。",
-    parameters: {
-      type: "object",
-      required: ["path", "mode"],
-      properties: {
-        path: {
-          type: "string",
-          description: "文件路径（相对会话 cwd 或绝对路径）",
-        },
-        mode: {
-          type: "string",
-          enum: [...DIGEST_MODES],
-          description: "outline / signatures / pruned",
-        },
-        depth: {
-          type: "integer",
-          minimum: 1,
-          description:
-            "outline 专用：最大嵌套深度（Markdown = 最大标题级，同时决定行范围与块归属的分辨率），缺省 3",
-        },
-        maxLines: {
-          type: "integer",
-          minimum: 2,
-          description:
-            "pruned 专用：输出总行数上限（含 1 行省略标记），缺省 200",
-        },
-        maxTokens: {
-          type: "integer",
-          minimum: 2,
-          description: "pruned 专用：token 估算上限（4 字符/token），缺省 4000",
-        },
-        language: {
-          type: "string",
-          description:
-            "语言提示（markdown/typescript/python），缺省按扩展名推断",
-        },
-        requireLsp: {
-          type: "boolean",
-          description: "true 时 LSP 不可用直接报 lsp_unavailable，不降级启发式",
+  tools.register(
+    wrapToolDefinition({
+      name: "fs_digest",
+      description:
+        "用途: 上下文感知文件读取(只读, 省 token 的结构概览), 出大纲 / 签名 / 裁剪。\n" +
+        "用法: mode=outline 出章节 / 符号大纲(Markdown 额外给每节行范围与块结构清单——列表 / 表格 / 代码块 / 引用, 便于按节读而不是整篇读); signatures 出函数 / 方法签名; pruned 裁大文件头尾。\n" +
+        "效果: 返回结构化概览, 不写盘。\n" +
+        "边界: 改内容用 edit; Markdown 深查(链接 / 引用式定义 / 嵌套层数 / 表格维度)用 md_logic; 全文检索用 grep; 相对路径相对会话 cwd。\n" +
+        "相关: edit、md_logic、grep、code_map。",
+      parameters: {
+        type: "object",
+        required: ["path", "mode"],
+        properties: {
+          path: {
+            type: "string",
+            description: "文件路径（相对会话 cwd 或绝对路径）",
+          },
+          mode: {
+            type: "string",
+            enum: [...DIGEST_MODES],
+            description: "outline / signatures / pruned",
+          },
+          depth: {
+            type: "integer",
+            minimum: 1,
+            description:
+              "outline 专用：最大嵌套深度（Markdown = 最大标题级，同时决定行范围与块归属的分辨率），缺省 3",
+          },
+          maxLines: {
+            type: "integer",
+            minimum: 2,
+            description:
+              "pruned 专用：输出总行数上限（含 1 行省略标记），缺省 200",
+          },
+          maxTokens: {
+            type: "integer",
+            minimum: 2,
+            description:
+              "pruned 专用：token 估算上限（4 字符/token），缺省 4000",
+          },
+          language: {
+            type: "string",
+            description:
+              "语言提示（markdown/typescript/python），缺省按扩展名推断",
+          },
+          requireLsp: {
+            type: "boolean",
+            description:
+              "true 时 LSP 不可用直接报 lsp_unavailable，不降级启发式",
+          },
         },
       },
-    },
-    execute: async (args: Record<string, unknown>, exec?: unknown) => {
-      const parsed = parseArgs(args);
-      if (parsed === null) {
-        return {
-          ok: false,
-          mode: "unknown",
-          path: typeof args.path === "string" ? args.path : "",
-          error: "invalid_option",
-          message: "须提供 path（string）与 mode（outline|signatures|pruned）",
-        } satisfies DigestResult;
-      }
-      sessionCwd = resolveExecCwd(exec);
-      return digest(ctx, parsed.filePath, parsed.opts, deps);
-    },
-    output: {
-      schema: { type: "object", additionalProperties: true },
-      render: (_args: unknown, result: unknown) => [
-        { type: "text", text: renderResult(result) },
-      ],
-    },
-  });
+      execute: async (args: Record<string, unknown>, exec?: unknown) => {
+        const parsed = parseArgs(args);
+        if (parsed === null) {
+          return {
+            ok: false,
+            mode: "unknown",
+            path: typeof args.path === "string" ? args.path : "",
+            error: "invalid_option",
+            message:
+              "须提供 path（string）与 mode（outline|signatures|pruned）",
+          } satisfies DigestResult;
+        }
+        sessionCwd = resolveExecCwd(exec);
+        return digest(ctx, parsed.filePath, parsed.opts, deps);
+      },
+      output: {
+        schema: { type: "object", additionalProperties: true },
+        render: (_args: unknown, result: unknown) => [
+          { type: "text", text: renderResult(result) },
+        ],
+      },
+    }),
+  );
 }
 
 // 便于单测与嵌入复用核心
