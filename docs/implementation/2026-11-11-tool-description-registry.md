@@ -120,23 +120,23 @@
 
 **阶段 0 - 决策与规划入库**
 
-- [ ] T01 追踪文档状态为「规划」. 审计: `grep -q '状态：规划' docs/implementation/2026-11-11-tool-description-registry.md`
-- [ ] T02 决策 25 项齐全. 审计: `grep -q '^25\. 投递格式' docs/implementation/2026-11-11-tool-description-registry.md`
-- [ ] T03 文档检查 0 错. 审计: `pnpm run check:docs 2>&1 | grep -q '错误 0 / 警告 0'`
+- [x] T01 追踪文档状态为「规划」. 审计: `grep -q '状态：规划' docs/implementation/2026-11-11-tool-description-registry.md`
+- [x] T02 决策 25 项齐全. 审计: `grep -q '^25\. 投递格式' docs/implementation/2026-11-11-tool-description-registry.md`
+- [x] T03 文档检查 0 错. 审计: `pnpm run check:docs 2>&1 | grep -q '错误 0 / 警告 0'`
 
 **阶段 1 - 新建 tool-surface 包**
 
-- [ ] T11 包名 `@dsh-toolset/tool-surface`. 审计: `node -p "require('./tool-surface/package.json').name" | grep -q '^@dsh-toolset/tool-surface$'`
-- [ ] T12 依赖 `@deepseek-ai/dsh-tools` 钉 0.2.2-rc.1. 审计: `node -p "require('./tool-surface/package.json').dependencies['@deepseek-ai/dsh-tools']" | grep -q '^0\.2\.2-rc\.1$'`
-- [ ] T13 `dsh.bundle` 契约指向 `cordis.patch.yml`. 审计: `node -p "require('./tool-surface/package.json').dsh.bundle.patch" | grep -q '^\./cordis\.patch\.yml$'`
-- [ ] T14 `cordis.patch.yml` 就位. 审计: `test -f tool-surface/cordis.patch.yml`
-- [ ] T15 `tsconfig.json` 就位. 审计: `test -f tool-surface/tsconfig.json`
-- [ ] T16 导出 `wrapToolDefinition`. 审计: `grep -q 'wrapToolDefinition' tool-surface/src/definition.ts && grep -q 'wrapToolDefinition' tool-surface/src/index.ts`
-- [ ] T17 入口含 `toolSurface` 服务面. 审计: `grep -q 'toolSurface' tool-surface/src/index.ts`
-- [ ] T18 测试文件就位. 审计: `test -f tool-surface/tests/definition.test.ts`
-- [ ] T19 单测通过. 审计: `pnpm -C tool-surface run test`
-- [ ] T1A 类型检查通过. 审计: `pnpm -C tool-surface run check`
-- [ ] T1B 构建产出 dist. 审计: `pnpm -C tool-surface run build && test -f tool-surface/dist/src/definition.js`
+- [x] T11 包名 `@dsh-toolset/tool-surface`. 审计: `node -p "require('./tool-surface/package.json').name" | grep -q '^@dsh-toolset/tool-surface$'`
+- [x] T12 依赖 `@deepseek-ai/dsh-tools` 钉 0.2.2-rc.1. 审计: `node -p "require('./tool-surface/package.json').dependencies['@deepseek-ai/dsh-tools']" | grep -q '^0\.2\.2-rc\.1$'`
+- [x] T13 `dsh.bundle` 契约指向 `cordis.patch.yml`. 审计: `node -p "require('./tool-surface/package.json').dsh.bundle.patch" | grep -q '^\./cordis\.patch\.yml$'`
+- [x] T14 `cordis.patch.yml` 就位. 审计: `test -f tool-surface/cordis.patch.yml`
+- [x] T15 `tsconfig.json` 就位. 审计: `test -f tool-surface/tsconfig.json`
+- [x] T16 导出 `wrapToolDefinition`. 审计: `grep -q 'wrapToolDefinition' tool-surface/src/definition.ts && grep -q 'wrapToolDefinition' tool-surface/src/index.ts`
+- [x] T17 入口含 `toolSurface` 服务面. 审计: `grep -q 'toolSurface' tool-surface/src/index.ts`
+- [x] T18 测试文件就位. 审计: `test -f tool-surface/tests/definition.test.ts`
+- [x] T19 单测通过. 审计: `pnpm -C tool-surface run test`
+- [x] T1A 类型检查通过. 审计: `pnpm -C tool-surface run check`
+- [x] T1B 构建产出 dist. 审计: `pnpm -C tool-surface run build && test -f tool-surface/dist/src/definition.js`
 
 **阶段 2 - 仓库接线（38 → 39 包）**
 
@@ -194,6 +194,7 @@
 ## 实现记录
 
 - 2026-11-11: 只读调研并定案方向（见「决策」）; 未改代码, 未改工具说明。按用户要求先把「包装层落新包」写入决策, 新包尚未创建; 同日补齐决策 11-15（校验落点 / 校验器来源 / 占位提示 / 迁移策略 / 拒绝形态）、16-20（签名 / 服务面 / 名单同步 / 原子性 / when 配置）、21-24（试点 / restrict 退役 / 初始核心集 / 过渡期行为）与 25（投递格式）; 待设计清零, 转规划。用户追加裁定: tool-web 的 `web_search` / `web_fetch` 入默认揭示（决策 23 更新）。推进: 移除待设计节, 规划补分阶段执行计划（阶段 0-6, 每阶段单独验证与提交）与机械可审计任务清单（T01-T64）, 状态改规划。
+- 2026-11-11（阶段 1）: 新建 `tool-surface` 包（39 包的第一块）：`wrapToolDefinition`（短说明 + 宽松占位 + catalog 深拷贝 + 派发前 `validateJsonSchemaValue` / `ToolArgsError` 严格校验 + `output` / `timeoutMs` / `deferLoading` 透传 + 重复包装幂等）、`toolSurface` 只读服务面（`lookup` / `list`，返回深拷贝）、`cordis.patch.yml` 与 `tsconfig.json`；依赖宿主 `@deepseek-ai/dsh-tools` 精确 `0.2.2-rc.1`（本仓首个宿主运行期依赖）。单测 13 例。
 
 ## 偏差
 
@@ -201,9 +202,10 @@
 
 ## 测试与证据
 
-- 本任务尚无代码改动, 未跑构建与测试; 「调研」中的代码位置均为 2026-11-11 只读核对。
-- 外部依据: `docs/archived/2026-11-09-tool-description-audit.md`（决策项 2 / 3, `:119`, `:121`, `:148`）; `docs/archived/2026-11-10-injection-inventory.md`（决策项 1 / 6）; 宿主包 `@deepseek-ai/dsh-tools` 的行号见「调研」。
-- 未验证: 包装层与揭示流程均未实现, 无运行证据。
+- 阶段 1 实测（2026-11-11，仓库根）：`pnpm -C tool-surface run check` / `run build` / `run test` 均退出 0；单测 13 例全通过（换位 / 透传 / catalog 深拷贝 / 缺必填 / 多余字段 / 枚举越界 / 重复包装 / 服务面 / 降级）；`test -f tool-surface/dist/src/definition.js` 成立。
+- 静态审计（按任务清单等价执行，宿主 bash 拦截了字面命令）：T11-T18 与 T1B 的产物检查 9 项全通过；`pnpm run check:docs` 报 120 篇现行 Markdown、错误 0 / 警告 0。
+- 「调研」中的代码位置均为 2026-11-11 只读核对；外部依据：`docs/archived/2026-11-09-tool-description-audit.md`（决策项 2 / 3，`:119`，`:121`，`:148`）与 `docs/archived/2026-11-10-injection-inventory.md`（决策项 1 / 6）。
+- 未验证：包装后的行为只在单测里跑过，尚未在 DSH profile 实机调用（阶段 3 / 4 部署后验证）；阶段 2 起的接线与迁移未开始。
 
 ## 收尾
 

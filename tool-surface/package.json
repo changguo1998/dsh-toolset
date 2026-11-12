@@ -1,0 +1,36 @@
+{
+  "name": "@dsh-toolset/tool-surface",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）工具说明注册表：注册处只留短说明与宽松占位, 完整说明与完整参数 schema 由包装层保存, 派发前严格校验, 供 tool-consult 按需投递",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-tool-surface && mkdir -p ../tmp/cov-tool-surface && NODE_V8_COVERAGE=../tmp/cov-tool-surface node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-tool-surface tmp/cov-tool-surface/report.json"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}
