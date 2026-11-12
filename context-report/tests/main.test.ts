@@ -27,6 +27,7 @@ import {
 import { sessionContextSchema } from "../src/schema.ts";
 import type { SessionContextState, SessionStatsLike } from "../src/types.ts";
 import { stateFixture, statsFixture, typicalSession } from "./helpers.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 /** 假会话：带事件与请求头，行为对齐宿主 Session 的读面子集。 */
 function fakeSession(
@@ -442,7 +443,18 @@ test("工具面：report / state / list 三个 action 与错误分支", async ()
     };
   };
   assert.equal(tool.name, "context_report");
-  assert.ok(tool.parameters.properties["session_id"], "参数面含 session_id");
+  // 接入包装层后注册定义只剩短说明与宽松占位, 完整参数 schema 走 toolSurface
+  assert.match(tool.description, /tool_consult/);
+  assert.equal(
+    (tool.parameters as Record<string, unknown>)["additionalProperties"],
+    true,
+  );
+  const full = lookupSurface("context_report");
+  assert.ok(full, "服务面应能取到完整定义");
+  assert.ok(
+    (full.parameters["properties"] as Record<string, unknown>)["session_id"],
+    "完整参数面含 session_id",
+  );
 
   const caller = { agent: { session: fakeSession("s1") } };
   const report = (await tool.execute(

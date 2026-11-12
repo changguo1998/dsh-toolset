@@ -19,6 +19,7 @@
 // apply 时已就绪），代码仍按结构面防御取值，以便单测不经 cordis 直接传普通对象。
 
 import { createInitialState, reduceEvent, type FoldScratch } from "./fold.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { sessionContextSchema } from "./schema.ts";
 import { buildReport, normalizeDetail, withDefaults } from "./report.ts";
 import type {
@@ -564,7 +565,11 @@ export function apply(
   // 3) 工具注册（宿主 tools registry；结构面构造，失败只告警）。
   if (tools !== undefined && typeof tools.register === "function") {
     try {
-      tools.register(createContextReportTool(collect, service, defaultDetail));
+      tools.register(
+        wrapToolDefinition(
+          createContextReportTool(collect, service, defaultDetail),
+        ),
+      );
     } catch (err) {
       warn(`context_report 工具注册失败：${String(err)}`);
     }
