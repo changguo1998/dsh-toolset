@@ -11,6 +11,7 @@ import {
 import type { FlowRecord, StoreRowLike } from "../src/store.ts";
 import type { SnapshotLike } from "../src/status.ts";
 import type { ToolDef } from "../src/tools.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 /** 交给一个宏任务，等 `void refresh()` 之类的异步刷新落地。 */
 function tick(): Promise<void> {
@@ -363,11 +364,11 @@ test("flow_record：缺 slug 用会话 id，坏 status 返错", async () => {
   );
   assert.equal(ok["ok"], true);
   assert.equal(ok["slug"], "s1");
-  const bad = await record.execute(
-    { slug: "x", stage: "目标", status: "bogus" },
-    exec,
+  // status 不在枚举里由包装层拦下（enum 在宿主 schema 子集内）
+  await assert.rejects(
+    () => record.execute({ slug: "x", stage: "目标", status: "bogus" }, exec),
+    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
   );
-  assert.equal(bad["error"], "invalid_status");
 });
 
 test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", () => {
@@ -536,9 +537,10 @@ test("flow_enable：参数校验与开关回执", async () => {
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
   const enable = harness.tools.find((tool) => tool.name === "flow_enable")!;
-  assert.equal(
-    (await enable.execute({ enabled: "yes" }, {}))["error"],
-    "invalid_enabled",
+  // 类型不符在包装层就被拦下（宿主同款 ToolArgsError）
+  await assert.rejects(
+    () => enable.execute({ enabled: "yes" }, {}),
+    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
   );
   const on = await enable.execute({ enabled: true }, {});
   assert.equal(on["ok"], true);
@@ -595,6 +597,7 @@ test("flow_remove：按 id 删, 参数错误与删空都有可读结果", async 
     (await remove.execute({ id: 1, slug: "demo" }, exec))["error"],
     "invalid_args",
   );
+  // 数值边界（minimum）不在宿主 schema 子集内：包装层放行, 由工具自己的守卫返错
   assert.equal((await remove.execute({ id: 0 }, exec))["error"], "invalid_id");
 
   const byId = await remove.execute({ id: 1 }, exec);
@@ -737,9 +740,10 @@ test("flow_rollback：空任务与坏参数有可读错误", async () => {
     (await rollback.execute({ stage: "目标" }, exec))["error"],
     "no_records",
   );
-  assert.equal(
-    (await rollback.execute({ stage: "阶段X" }, exec))["error"],
-    "invalid_stage",
+  // 阶段名不在枚举里（enum 越界）在包装层拦下
+  await assert.rejects(
+    () => rollback.execute({ stage: "阶段X" }, exec),
+    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
   );
   // slug 空串回退到会话 id：给 s1 写两条后回退应命中它
   const record = harness.tools.find((tool) => tool.name === "flow_record")!;
@@ -748,4 +752,31 @@ test("flow_rollback：空任务与坏参数有可读错误", async () => {
   const fallback = await rollback.execute({ slug: "  ", stage: "目标" }, exec);
   assert.equal(fallback["ok"], true);
   assert.equal(fallback["removed"], 1);
+});
+
+test("注册接入 tool-surface 包装：模型侧短说明 + 宽松占位, 全文留在服务面", () => {
+  const fake = makeMemory();
+  const harness = makeContext({ memory: fake.memory });
+  apply(harness.ctx);
+
+  assert.equal(harness.tools.length, 5);
+  for (const tool of harness.tools) {
+    assert.match(String(tool.description), /tool_consult/);
+    assert.deepEqual(tool.parameters, {
+      type: "object",
+      additionalProperties: true,
+      properties: {},
+      description: "完整参数 schema 经 tool_consult 查询",
+    });
+  }
+
+  const entry = lookupSurface("flow_record");
+  assert.ok(entry, "catalog 里应有 flow_record 全文");
+  assert.match(entry.description, /^用途: 把标准流程的一次推进/);
+  assert.equal(entry.parameters["additionalProperties"], false);
+  assert.deepEqual(entry.parameters["required"], ["stage", "status"]);
+  const rollbackRequired = lookupSurface("flow_rollback")?.parameters[
+    "required"
+  ] as string[] | undefined;
+  assert.deepEqual(rollbackRequired, ["stage"]);
 });

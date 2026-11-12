@@ -25,6 +25,7 @@ import { STAGE_NAMES, hasActiveFlow } from "./policy.ts";
 import { registerFlowCommand } from "./command.ts";
 import { createFlowSwitch } from "./switch.ts";
 import { flowTools } from "./tools.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 export const name = "flow-track";
 
@@ -251,7 +252,9 @@ export function apply(ctx: unknown, config?: Config): () => void {
     };
     for (const tool of flowTools(deps)) {
       try {
-        tools.register(tool);
+        // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 留给 tool_consult 投递,
+        // 参数按完整 schema 在派发前严格校验（tool-surface 包）
+        tools.register(wrapToolDefinition(tool));
       } catch (error) {
         warn(`工具 ${tool.name} 注册失败：${String(error)}`);
       }

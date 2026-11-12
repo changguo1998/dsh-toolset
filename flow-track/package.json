@@ -11,6 +11,9 @@
     "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
     "test:coverage": "rm -rf ../tmp/cov-flow-track && mkdir -p ../tmp/cov-flow-track && NODE_V8_COVERAGE=../tmp/cov-flow-track node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-flow-track tmp/cov-flow-track/report.json"
   },
+  "dependencies": {
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3"
