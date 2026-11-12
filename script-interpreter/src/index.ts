@@ -16,6 +16,7 @@
  */
 
 import { bashBackend } from "./langs/bash.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { nodeBackend } from "./langs/node.ts";
 import { pythonBackend } from "./langs/python.ts";
 import { shBackend } from "./langs/sh.ts";
@@ -303,13 +304,15 @@ export function apply(
     ...(approvalService === undefined ? {} : { approval: approvalService }),
   };
   ctx.tools.register(
-    createScriptRunTool({
-      settings: toolSettings,
-      languages: enabled,
-      spill: new SpillStore(settings.spillPrefix),
-      host,
-      deadline,
-    }),
+    wrapToolDefinition(
+      createScriptRunTool({
+        settings: toolSettings,
+        languages: enabled,
+        spill: new SpillStore(settings.spillPrefix),
+        host,
+        deadline,
+      }),
+    ),
   );
   logger?.info(
     `script-interpreter ready (script_run; languages=${enabled

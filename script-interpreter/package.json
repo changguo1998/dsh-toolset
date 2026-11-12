@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@dsh-toolset/clock-base": "link:../clock-base",
-    "@dsh-toolset/herdr-use": "link:../herdr-use"
+    "@dsh-toolset/herdr-use": "link:../herdr-use",
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

@@ -20,6 +20,7 @@ import {
   resolveSettings,
 } from "../src/index.ts";
 import { TOOL_NAME } from "../src/tools.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 import {
   cordisHost,
   fakeApproval,
@@ -130,7 +131,17 @@ test("apply：缺省 = 自动探测，探到解释器的语言都进 enum，bash
   const tool = host.tool();
   assert.equal(tool.name, TOOL_NAME);
   assert.equal(tool.name, "script_run");
-  const properties = tool.parameters.properties;
+  // 接入包装层后注册定义只剩宽松占位；完整参数面在 toolSurface 服务面
+  assert.equal(
+    (tool.parameters as Record<string, unknown>)["additionalProperties"],
+    true,
+  );
+  const full = lookupSurface("script_run");
+  assert.ok(full !== undefined, "服务面应能取到完整定义");
+  const properties = full.parameters["properties"] as Record<
+    string,
+    Record<string, unknown>
+  >;
   assert.deepEqual(Object.keys(properties).sort(), [
     "description",
     "language",
@@ -142,8 +153,8 @@ test("apply：缺省 = 自动探测，探到解释器的语言都进 enum，bash
   assert.ok("script" in properties);
   assert.ok(!("command" in properties));
   assert.ok(!("code" in properties));
-  assert.deepEqual(tool.parameters.required, ["script", "description"]);
-  assert.equal(tool.parameters.additionalProperties, false);
+  assert.deepEqual(full.parameters["required"], ["script", "description"]);
+  assert.equal(full.parameters["additionalProperties"], false);
   // 探测驱动：enum = 自动集合里真正探到解释器的语言（顺序即 AUTO_LANGUAGES）。
   const probed: Record<string, boolean> = {
     python: pythonInfo() !== null,
@@ -172,13 +183,15 @@ test("apply：缺省 = 自动探测，探到解释器的语言都进 enum，bash
 test("apply：显式 languages 严格按配置（含不参与自动探测的 bash），顺序即缺省语言", () => {
   const host = mockHost();
   apply(host.ctx, { languages: ["python", "bash"] });
-  const tool = host.tool();
-  assert.deepEqual(
-    (tool.parameters.properties.language as { enum?: readonly string[] }).enum,
-    ["python", "bash"],
-  );
+  const full = lookupSurface("script_run");
+  assert.ok(full !== undefined);
+  assert.equal(host.tool().name, "script_run");
+  const language = (full.parameters["properties"] as Record<string, unknown>)[
+    "language"
+  ] as { enum?: readonly string[] };
+  assert.deepEqual(language.enum, ["python", "bash"]);
   // 解释器缺失也照常进表（缺失不隐藏工具），故与本机是否装了 bash 无关。
-  assert.ok(tool.description.includes("缺省语言 = python"), tool.description);
+  assert.ok(full.description.includes("缺省语言 = python"), full.description);
 });
 
 test("apply：语言表为空时不注册任何工具并告警", () => {
