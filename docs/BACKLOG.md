@@ -72,7 +72,9 @@
 
 ## 2. 未完成项
 
-- **两个 e2e 用例长期红（与工具说明注册表无关）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: `e2e/flow-track.test.ts` 断言的 `<home>/.dsh/project.db` 不存在，实测 `flow_record` 返回 `{ok:false,error:"unavailable",message:"memory-base 分类 flow 未注册成功：ctx.memory 不可用"}`——`bootPackage` 把被测包排在依赖包之前，flow-track 在 apply 时就注册分类，此时 memory-base 的服务尚未就绪（把 memory-base 排到首位后仍复现，疑与 memory 服务异步就绪有关）；`e2e/ponytail.test.ts` 在步边界等不到注入（5s 超时），与挂载顺序无关。两例在本次改动前后行为一致（2026-11-11 复核），本任务未修。期望: 夹具改为按依赖顺序装配或等 `whenReady()` 再注册消费者；修好后恢复 `pnpm test:e2e` 全绿。来源: 2026-11-11 工具说明注册表补 e2e 用例时的全量复跑。
+- **两个 e2e 用例长期红（与工具说明注册表无关）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: `e2e/flow-track.test.ts` 断言的 `<home>/.dsh/project.db` 不存在，实测 `flow_record` 返回 `{ok:false,error:"unavailable",message:"memory-base 分类 flow 未注册成功：ctx.memory 不可用"}`——`bootPackage` 把被测包排在依赖包之前，flow-track 在 apply 时就注册分类，此时 memory-base 的服务尚未就绪（把 memory-base 排到首位后仍复现，疑与 memory 服务异步就绪有关）；`e2e/ponytail.test.ts` 在步边界等不到注入（5s 超时），与挂载顺序无关。代码路径与本任务改动无关（旧提交对照未完成：隔离工作树缺 `dist/` 产物），本任务未修。期望: 夹具改为按依赖顺序装配或等 `whenReady()` 再注册消费者；修好后恢复 `pnpm test:e2e` 全绿。来源: 2026-11-11 工具说明注册表补 e2e 用例时的全量复跑。
+
+- **`coagent` 接入 tool-surface（服务化包装）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 工具说明注册表迁移后全仓 21 个工具包已接入包装层, 只有 `coagent` 例外——它有一条静态自检规则「不 import 其他 `@dsh-toolset` 包、跨包只走服务契约」, 而 `tool-surface` 目前只提供库函数 `wrapToolDefinition`, 没有服务面。期望: 给 `toolSurface` 增 `wrap(def)` 方法（内部复用同一包装函数）, `coagent` 经 `ctx.get("toolSurface")` 取用, 取不到时退回未包装（与现在行为一致）; 补一条 coagent 用例断言包装生效。来源: 2026-11-11 工具说明注册表阶段 5 的例外（见 `docs/archived/2026-11-11-tool-description-registry.md`「偏差」）。
 
 - **`scripts/test-install.sh` 第 11 步接线断言失效**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 该步从根 `package.json` 的 `check` / `build` 脚本里按 `pnpm -C <包> run` 提取包清单, 再与 `install.sh` 的 `canonical_pkgs` 比对; 根脚本 2026-11-08 改为委托 `scripts/test-parallel.sh` 后提取结果为空, 该断言恒报「check/build 链提取为空」（与包数无关, 2026-11-11 逐行复核成立）。期望: 改从 `test-parallel.sh` 的 `default_pkgs` 取清单（或直接三方比对 `canonical_pkgs` / `default_pkgs` / 包目录）, 并补包数断言。来源: 2026-11-11 工具说明注册表接线时的全仓自查。
 
