@@ -9,9 +9,9 @@ import {
   resolveConfig,
 } from "../src/config.ts";
 
-test("缺省值：9 核心工具（含 skill）、session 档、roots", () => {
+test("缺省值：11 核心工具（含 skill 与两个联网工具）、session 档、roots", () => {
   const config = resolveConfig();
-  assert.equal(config.initialTools.length, 9);
+  assert.equal(config.initialTools.length, 11);
   assert.deepEqual(config.initialTools, [...DEFAULT_INITIAL_TOOLS]);
   assert.deepEqual(config.initialTools, [
     "bash",
@@ -23,6 +23,8 @@ test("缺省值：9 核心工具（含 skill）、session 档、roots", () => {
     "hash_read",
     "hash_edit",
     "write",
+    "web_search",
+    "web_fetch",
   ]);
   assert.ok(config.initialTools.includes("skill"));
   assert.equal(config.revealScope, "session");
@@ -32,6 +34,24 @@ test("缺省值：9 核心工具（含 skill）、session 档、roots", () => {
   assert.equal(config.ttlTurns, 0);
   assert.equal(config.maxResults, 5);
   assert.equal(config.enabled, true);
+});
+
+test("缺省禁用官方条件工具：6 个 when 工具, 不含 tool-web", () => {
+  const config = resolveConfig();
+  assert.deepEqual(config.disabledWhenTools, [
+    "exit_plan_mode",
+    "propose_action",
+    "team_task_create",
+    "team_task_get",
+    "team_task_list",
+    "team_task_update",
+  ]);
+  assert.equal(config.disabledWhenTools.includes("web_search"), false);
+  assert.equal(config.disabledWhenTools.includes("web_fetch"), false);
+  assert.deepEqual(
+    resolveConfig({ disabledWhenTools: [] }).disabledWhenTools,
+    [],
+  );
 });
 
 test("缺省名单不含 edit / todo_write（收进按需揭示）", () => {

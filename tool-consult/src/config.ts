@@ -22,8 +22,10 @@ export interface Config {
   enabled?: boolean;
   /** 遮罩模式（缺省 `allowlist`）。 */
   maskMode?: MaskMode;
-  /** 初始可见清单，支持通配（缺省 9 个核心工具）。 */
+  /** 初始可见清单，支持通配（缺省 11 个核心工具）。 */
   initialTools?: string[];
+  /** 显式禁用的官方条件工具（缺省见 DEFAULT_DISABLED_WHEN_TOOLS）。 */
+  disabledWhenTools?: string[];
   /** 遮罩范围（缺省 `roots`：只遮根代理，子代理不动）。 */
   applyTo?: ApplyTo;
   /** 仅 turn 档：回合内容量上限（缺省 12）。session 档不设上限（2026-10-27 裁定）。 */
@@ -47,6 +49,7 @@ export interface ResolvedConfig {
   enabled: boolean;
   maskMode: MaskMode;
   initialTools: string[];
+  disabledWhenTools: string[];
   applyTo: ApplyTo;
   maxRevealed: number;
   revealScope: RevealScope;
@@ -58,11 +61,12 @@ export interface ResolvedConfig {
 }
 
 /**
- * 缺省核心清单（2026-11-08 人工裁定：9 个）。
+ * 缺省核心清单（2026-11-08 人工裁定 9 个；2026-11-11 追加 tool-web 的 2 个联网工具，共 11 个）。
  *
  * 与 2026-10-22 版相比：去掉 `edit` / `todo_write`，新增 `hash_read` / `hash_edit`
  * （行级锚点编辑替代整文件字面替换），保留 `write`（唯一能新建文件的写入口，
- * 无追加与局部替换能力）。
+ * 无追加与局部替换能力）。`web_search` / `web_fetch` 缺省可见（用户裁定：联网检索是
+ * 高频入口，不值得每次先咨询）。
  */
 export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "bash",
@@ -74,6 +78,23 @@ export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "hash_read",
   "hash_edit",
   "write",
+  "web_search",
+  "web_fetch",
+];
+
+/**
+ * 缺省禁用的官方条件工具（`when` 条件工具不进包装层，条件无法复现，故显式挡在工具面外）。
+ *
+ * 本机 `exit_plan_mode` 已随 plan-mode 禁用、`propose_action` 未挂载；4 个 `team_task_*`
+ * 挂载但 Team 条件未开。`tool-web` 的两个工具不在禁用之列。
+ */
+export const DEFAULT_DISABLED_WHEN_TOOLS: readonly string[] = [
+  "exit_plan_mode",
+  "propose_action",
+  "team_task_create",
+  "team_task_get",
+  "team_task_list",
+  "team_task_update",
 ];
 
 /** 缺省上限。 */
@@ -100,16 +121,23 @@ export function resolveConfig(raw?: Config): ResolvedConfig {
       : "allowlist";
   const scope: RevealScope = config.revealScope === "turn" ? "turn" : "session";
   const applyTo: ApplyTo = config.applyTo === "all" ? "all" : "roots";
-  const tools = Array.isArray(config.initialTools)
-    ? config.initialTools.filter(
-        (item): item is string => typeof item === "string" && item.length > 0,
-      )
-    : [...DEFAULT_INITIAL_TOOLS];
+  const nameList = (value: unknown, fallback: readonly string[]): string[] =>
+    Array.isArray(value)
+      ? value.filter(
+          (item): item is string => typeof item === "string" && item.length > 0,
+        )
+      : [...fallback];
+  const tools = nameList(config.initialTools, DEFAULT_INITIAL_TOOLS);
+  const disabledWhenTools = nameList(
+    config.disabledWhenTools,
+    DEFAULT_DISABLED_WHEN_TOOLS,
+  );
   const maxResults = nonNegativeInt(config.maxResults, DEFAULTS.maxResults);
   return {
     enabled: config.enabled !== false,
     maskMode: mode,
     initialTools: [...tools],
+    disabledWhenTools: [...disabledWhenTools],
     applyTo,
     maxRevealed: nonNegativeInt(config.maxRevealed, DEFAULTS.maxRevealed),
     revealScope: scope,

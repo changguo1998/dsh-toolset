@@ -24,7 +24,7 @@ import {
   decideDegradation,
   decideMissingService,
 } from "./degrade.ts";
-import { createMatcher, oneLine, type Matcher } from "./matcher.ts";
+import { createMatcher, type Matcher } from "./matcher.ts";
 import { AgentGrants } from "./state.ts";
 import {
   CONSULT_TOOL_NAME,
@@ -71,6 +71,19 @@ interface HostTools {
   register?: (definition: HostToolDefinition) => () => void;
   restrict?: (filter: { allow?: string[]; deny?: string[] }) => () => void;
   schemas?: (scope?: unknown) => HostToolSchema[];
+}
+
+/** tool-surface 服务面条目（完整说明与完整参数 schema）。 */
+interface ToolSurfaceEntry {
+  name: string;
+  description: string;
+  parameters?: Record<string, unknown>;
+}
+
+/** tool-surface 只读服务面（未挂载时走旧的「注册定义即全文」路径）。 */
+interface ToolSurfaceFace {
+  lookup?: (name: string) => ToolSurfaceEntry | undefined;
+  list?: () => ToolSurfaceEntry[];
 }
 
 /** 宿主会话头的最小面。 */
@@ -120,6 +133,10 @@ interface AgentRuntime {
   appliedAllow: string[];
   /** 当前这条遮罩应挡住的名单（回读校验用；未遮罩时为空）。 */
   appliedHidden: string[];
+  /** 已接入 tool-surface 包装层的工具名（声明常驻、派发前按揭示集合拦截）。 */
+  wrapped: Set<string>;
+  /** tool-surface 服务面（缺席时退回过路径）。 */
+  surface: ToolSurfaceFace | undefined;
 }
 
 /** 跨 apply 保留的代理状态：配置热重载后仍能按「退休 / 降级」语义迁移。 */
@@ -130,6 +147,17 @@ function asTools(value: unknown): HostTools | undefined {
   if (value === undefined || value === null || typeof value !== "object")
     return undefined;
   return value as HostTools;
+}
+
+/** 结构面取 tool-surface 只读服务面。 */
+function asToolSurface(value: unknown): ToolSurfaceFace | undefined {
+  if (value === undefined || value === null || typeof value !== "object")
+    return undefined;
+  const candidate = value as { lookup?: unknown; list?: unknown };
+  return typeof candidate.lookup === "function" ||
+    typeof candidate.list === "function"
+    ? (candidate as ToolSurfaceFace)
+    : undefined;
 }
 
 /** 结构面取代理注册表。 */
@@ -175,11 +203,16 @@ function isVisible(runtime: AgentRuntime, toolName: string): boolean {
 }
 
 /** 当前可限制名（全局视图；`schemas()` 不传 scope）。 */
-function restrictableNames(tools: HostTools): string[] {
+function restrictableNames(
+  tools: HostTools,
+  disabled: ReadonlySet<string>,
+): string[] {
   const schemas = tools.schemas?.() ?? [];
   return schemas
     .map((schema) => schema.name)
-    .filter((toolName) => toolName !== CONSULT_TOOL_NAME);
+    .filter(
+      (toolName) => toolName !== CONSULT_TOOL_NAME && !disabled.has(toolName),
+    );
 }
 
 /**
@@ -187,19 +220,37 @@ function restrictableNames(tools: HostTools): string[] {
  *
  * `consult_tools` 是查询入口本身，不入检索索引（否则会作为候选混进结果；
  * 按名咨询走 `isVisible` 分支，不依赖索引，见 tool.ts）。
+ * 接入包装层的工具，检索语料取 `toolSurface` 里的**完整说明与完整参数**
+ * （注册定义只剩短说明与宽松占位，不能拿来建索引）；
+ * `disabledWhenTools` 里的官方条件工具不进索引（模型查不到、也调不到）。
  */
-function buildMatcher(tools: HostTools): Matcher {
-  const schemas = tools.schemas?.() ?? [];
+function buildMatcher(
+  tools: HostTools,
+  config: ResolvedConfig,
+  surface: ToolSurfaceFace | undefined,
+): Matcher {
+  const disabled = new Set(config.disabledWhenTools);
+  const schemas = (tools.schemas?.() ?? []).filter(
+    (schema) => schema.name !== CONSULT_TOOL_NAME && !disabled.has(schema.name),
+  );
   return createMatcher(
-    schemas
-      .filter((schema) => schema.name !== CONSULT_TOOL_NAME)
-      .map((schema) => ({
+    schemas.map((schema) => {
+      const full = surface?.lookup?.(schema.name);
+      return {
         name: schema.name,
         description:
-          typeof schema.description === "string" ? schema.description : "",
-        parameters: schema.parameters,
-      })),
+          full?.description ??
+          (typeof schema.description === "string" ? schema.description : ""),
+        parameters: full?.parameters ?? schema.parameters,
+      };
+    }),
   );
+}
+
+/** 已接入包装层的工具名（`toolSurface` 缺席时为空集，即全走旧路径）。 */
+function wrappedNamesOf(surface: ToolSurfaceFace | undefined): Set<string> {
+  const entries = surface?.list?.() ?? [];
+  return new Set(entries.map((entry) => entry.name));
 }
 
 /** 撤销当前遮罩（幂等）。 */
@@ -248,7 +299,9 @@ function degradeUnmasked(runtime: AgentRuntime, message: string): void {
 
 /** 揭示 / 收回后重算并替换遮罩（替换式：先撤旧再追加）。 */
 function applyMask(runtime: AgentRuntime, tools: HostTools): void {
-  const restrictable = new Set(restrictableNames(tools));
+  const disabled = new Set(runtime.config.disabledWhenTools);
+  const restrictable = new Set(restrictableNames(tools, disabled));
+  runtime.wrapped = wrappedNamesOf(runtime.surface);
   runtime.initialNames = expandInitialTools(runtime.config.initialTools, [
     ...restrictable,
   ]).names;
@@ -270,9 +323,14 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
     const granted = runtime.grants
       .allowedNames()
       .filter((toolName) => restrictable.has(toolName));
-    allow = [...new Set([...runtime.initialNames, ...granted])].sort((a, b) =>
-      a.localeCompare(b),
+    // 接入包装层的工具声明常驻（拦截放在 `tools/pre-execute`），不随揭示进出差分，
+    // 这样揭示只影响未接入工具，槽位与前缀缓存少变（决策 06 / 18 / 24）。
+    const resident = [...restrictable].filter((toolName) =>
+      runtime.wrapped.has(toolName),
     );
+    allow = [
+      ...new Set([...runtime.initialNames, ...granted, ...resident]),
+    ].sort((a, b) => a.localeCompare(b));
   }
 
   if (allow.length === 0) {
@@ -295,7 +353,7 @@ function applyMask(runtime: AgentRuntime, tools: HostTools): void {
     const failure = classifyRestrictError(error);
     const decision = decideDegradation(failure);
     if (decision.action === "retry-filtered") {
-      const known = new Set(restrictableNames(tools));
+      const known = new Set(restrictableNames(tools, disabled));
       const filtered = allow.filter((toolName) => known.has(toolName));
       if (filtered.length > 0) {
         try {
@@ -402,13 +460,21 @@ function consultRuntime(
   };
 }
 
-/** 被遮罩工具被调用时的可行动文案（D3）。 */
+/** 被遮罩工具被调用时的可行动文案（D3；仅过渡期未接入包装层的工具）。 */
 function denyReason(toolName: string): string {
   return (
     `工具 "${toolName}" 当前不可见（被 tool-consult 管理）。` +
     `调用 consult_tools（names: ["${toolName}"]）揭示后即可调用；` +
     `也可以 query 描述用途来检索。`
   );
+}
+
+/** 未揭示的接入工具被调用时的文案与错误码（决策 15）。 */
+const NOT_REVEALED_CODE = "TOOL_NOT_REVEALED";
+
+/** 未揭示拒绝文案：声明常驻但派发拒绝，指回咨询入口。 */
+function notRevealedReason(toolName: string): string {
+  return `tool ${toolName} 未在当前会话揭示, 请先经 tool_consult 查询后再调用`;
 }
 
 /** 把咨询工具注册进代理自身层（自身层豁免遮罩）。 */
@@ -453,36 +519,77 @@ function attachListeners(runtime: AgentRuntime): void {
   const on = runtime.agent.ctx.on;
   if (on === undefined) return;
 
-  // 被遮罩工具被调用：拦在审批之前，给可行动文案（D3）。
+  // 未揭示拦截（两条路径）：接入包装层的工具声明常驻、派发前拒绝；未接入工具继续走遮罩。
   const deny = on("tools/pre-execute", (...args: unknown[]) => {
     const exec = args[0] as HostToolExecution | undefined;
     const next = args[1] as (() => unknown) | undefined;
     const toolName = exec?.name;
-    if (
-      typeof toolName !== "string" ||
-      !runtime.masked ||
-      isVisible(runtime, toolName)
-    ) {
-      return typeof next === "function" ? next() : { kind: "allow" };
+    const passthrough = (): unknown =>
+      typeof next === "function" ? next() : { kind: "allow" };
+    if (typeof toolName !== "string") return passthrough();
+    if (runtime.wrapped.has(toolName) && !isVisible(runtime, toolName)) {
+      return {
+        kind: "deny",
+        reason: notRevealedReason(toolName),
+        info: { name: NOT_REVEALED_CODE, code: NOT_REVEALED_CODE },
+      };
     }
+    if (!runtime.masked || isVisible(runtime, toolName)) return passthrough();
     return { kind: "deny", reason: denyReason(toolName) };
   });
   if (typeof deny === "function") runtime.listeners.push(deny as () => void);
 }
 
 /**
- * 被揭示工具的一行用法摘要（动态保持的 hold 正文）。
- * 零条揭示时返回 undefined（本步不投）；文本只由「已揭示集合 + 注册处 description」决定，
- * 集合不变则文本同字节（pin-note 按 key 比对后不会重复投）。
+ * 一条工具的全文本源：接入包装层的取 `toolSurface`（注册定义只剩短说明与占位），
+ * 过渡期未接入的工具退回注册定义。
  */
-function summarizeRevealed(runtime: AgentRuntime): string | undefined {
+function fullDocOf(
+  runtime: AgentRuntime,
+  tools: HostTools,
+  toolName: string,
+): ToolSurfaceEntry | undefined {
+  const entry = runtime.surface?.lookup?.(toolName);
+  if (entry !== undefined) return entry;
+  const schema = (tools.schemas?.() ?? []).find(
+    (item) => item.name === toolName,
+  );
+  if (schema === undefined) return undefined;
+  return {
+    name: toolName,
+    description:
+      typeof schema.description === "string" ? schema.description : "",
+    ...(schema.parameters === undefined
+      ? {}
+      : { parameters: schema.parameters }),
+  };
+}
+
+/**
+ * 已揭示工具的投递正文（动态保持的 hold 内容，决策 25）。
+ *
+ * 格式：标题行 + 每条 `name:` + 紧凑 JSON（`description` 全文与 `input_schema`）。
+ * 文本只由「已揭示集合 + 全文源」决定，集合不变则同字节（pin-note 按 key 比对后不重投）。
+ * 零条揭示时返回 undefined（本步不投）。
+ */
+function revealedPayload(
+  runtime: AgentRuntime,
+  tools: HostTools,
+): string | undefined {
   const names = runtime.grants.allowedNames();
   if (names.length === 0) return undefined;
-  const lines = names.map((name) => {
-    const doc = runtime.matcher.get(name);
-    return `- ${name}${doc === undefined ? "" : `: ${oneLine(doc.description)}`}`;
+  const lines = names.map((toolName) => {
+    const doc = fullDocOf(runtime, tools, toolName);
+    const payload = {
+      description: doc?.description ?? "",
+      input_schema: doc?.parameters ?? {},
+    };
+    return `${toolName}:\n${JSON.stringify(payload)}`;
   });
-  return ["[tool-consult] 已揭示工具（本会话内可调用）:", ...lines].join("\n");
+  return [
+    "[tool-consult] 已揭示工具（本会话内可调用；完整说明与 input_schema 如下）:",
+    ...lines,
+  ].join("\n");
 }
 
 /** pin-note 动态保持登记面（结构面访问；未挂载时降级）。 */
@@ -500,6 +607,7 @@ function setupAgent(
   tools: HostTools,
   config: ResolvedConfig,
   owned: Set<AgentRuntime>,
+  surface: ToolSurfaceFace | undefined,
 ): void {
   if (
     agent === undefined ||
@@ -515,7 +623,7 @@ function setupAgent(
     agent,
     grants: new AgentGrants(config.revealScope),
     config,
-    matcher: buildMatcher(tools),
+    matcher: buildMatcher(tools, config, surface),
     masked: false,
     maskDisposer: undefined,
     consultDisposer: undefined,
@@ -526,12 +634,16 @@ function setupAgent(
     initialNames: [],
     appliedAllow: [],
     appliedHidden: [],
+    wrapped: wrappedNamesOf(surface),
+    surface,
   };
 
   if (existing !== undefined) {
     // 配置热重载：保留既有授权，按新缺省档迁移（session → turn 待回合末降级）。
     runtime.config = config;
-    runtime.matcher = buildMatcher(tools);
+    runtime.matcher = buildMatcher(tools, config, surface);
+    runtime.surface = surface;
+    runtime.wrapped = wrappedNamesOf(surface);
     runtime.agent = agent;
     runtime.grants.switchScope(config.revealScope);
     runtime.consultDisposer = undefined;
@@ -567,11 +679,19 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
   }
 
   const owned = new Set<AgentRuntime>();
+  const surface = asToolSurface(ctx.get?.("toolSurface"));
+  if (surface === undefined) {
+    log(
+      ctx,
+      "info",
+      "ctx.toolSurface 不可用：完整说明与完整参数 schema 退回注册定义（过渡期路径）",
+    );
+  }
 
   // 全局监听（随插件 fiber 回收）。
   const created = ctx.on?.("agent/created", (...args: unknown[]) => {
     const payload = args[0] as { agent?: HostAgent } | undefined;
-    setupAgent(payload?.agent, ctx, tools, config, owned);
+    setupAgent(payload?.agent, ctx, tools, config, owned, surface);
   });
   if (typeof created === "function") {
     // 由插件 fiber 持有；这里只保留引用防止被回收。
@@ -592,9 +712,11 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
   // 宿主的工具面广播：只用来刷新检索索引（只读）与**回读校验**已有遮罩是否仍生效。
   // 不在这里重设遮罩 —— `restrict()` 自身就会触发本广播，拿它当动作输入会自激成环。
   ctx.on?.("tools/change", () => {
-    const matcher = buildMatcher(tools);
+    const matcher = buildMatcher(tools, config, surface);
     for (const runtime of owned) {
       runtime.matcher = matcher;
+      runtime.surface = surface;
+      runtime.wrapped = wrappedNamesOf(surface);
       verifyMask(runtime, tools);
     }
   });
@@ -605,7 +727,9 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
   if (pinNotes !== undefined && typeof pinNotes.hold === "function") {
     pinNotes.hold("revealed-tools", (context) => {
       const runtime = REGISTRY.get(context.sessionId);
-      return runtime === undefined ? undefined : summarizeRevealed(runtime);
+      return runtime === undefined
+        ? undefined
+        : revealedPayload(runtime, tools);
     });
   } else {
     log(
@@ -653,5 +777,5 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
 
   // 热挂载：对已存在的代理补做。
   for (const agent of agents.list())
-    setupAgent(agent, ctx, tools, config, owned);
+    setupAgent(agent, ctx, tools, config, owned, surface);
 }

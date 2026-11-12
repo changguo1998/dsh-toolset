@@ -155,13 +155,13 @@
 
 **阶段 4 - tool-consult 双轨**
 
-- [ ] T41 config 含 `disabledWhenTools`. 审计: `grep -q 'disabledWhenTools' tool-consult/src/config.ts`
-- [ ] T42 默认核心集含 `web_search` / `web_fetch`. 审计: `grep -q 'web_search' tool-consult/src/config.ts && grep -q 'web_fetch' tool-consult/src/config.ts`
-- [ ] T43 含 `TOOL_NOT_REVEALED`. 审计: `grep -q 'TOOL_NOT_REVEALED' tool-consult/src/index.ts`
-- [ ] T44 含 deny 文案. 审计: `grep -q '未在当前会话揭示' tool-consult/src/index.ts`
-- [ ] T45 投递为 JSON（含 `input_schema`）. 审计: `grep -q 'input_schema' tool-consult/src/index.ts`
-- [ ] T46 经 `toolSurface` 取全文. 审计: `grep -q 'toolSurface' tool-consult/src/index.ts`
-- [ ] T47 单测 + 检查 + 构建通过. 审计: `pnpm -C tool-consult run test && pnpm -C tool-consult run check && pnpm -C tool-consult run build`
+- [x] T41 config 含 `disabledWhenTools`. 审计: `grep -q 'disabledWhenTools' tool-consult/src/config.ts`
+- [x] T42 默认核心集含 `web_search` / `web_fetch`. 审计: `grep -q 'web_search' tool-consult/src/config.ts && grep -q 'web_fetch' tool-consult/src/config.ts`
+- [x] T43 含 `TOOL_NOT_REVEALED`. 审计: `grep -q 'TOOL_NOT_REVEALED' tool-consult/src/index.ts`
+- [x] T44 含 deny 文案. 审计: `grep -q '未在当前会话揭示' tool-consult/src/index.ts`
+- [x] T45 投递为 JSON（含 `input_schema`）. 审计: `grep -q 'input_schema' tool-consult/src/index.ts`
+- [x] T46 经 `toolSurface` 取全文. 审计: `grep -q 'toolSurface' tool-consult/src/index.ts`
+- [x] T47 单测 + 检查 + 构建通过. 审计: `pnpm -C tool-consult run test && pnpm -C tool-consult run check && pnpm -C tool-consult run build`
 
 **阶段 5 - 全量迁移**
 
@@ -197,11 +197,13 @@
 - 2026-11-11（阶段 1）: 新建 `tool-surface` 包（39 包的第一块）：`wrapToolDefinition`（短说明 + 宽松占位 + catalog 深拷贝 + 派发前 `validateJsonSchemaValue` / `ToolArgsError` 严格校验 + `output` / `timeoutMs` / `deferLoading` 透传 + 重复包装幂等）、`toolSurface` 只读服务面（`lookup` / `list`，返回深拷贝）、`cordis.patch.yml` 与 `tsconfig.json`；依赖宿主 `@deepseek-ai/dsh-tools` 精确 `0.2.2-rc.1`（本仓首个宿主运行期依赖）。单测 13 例。
 - 2026-11-11（阶段 2）: 仓库接线 38 → 39 包：`scripts/test-parallel.sh` 的 `default_pkgs` 与 `scripts/install.sh` 的 `canonical_pkgs` 均加 `tool-surface`（同位: `shell-parse` 之后）、`AGENTS.md`（插件总数 / 子包清单 / 结构与约定 / 轻量包豁免）、根 `README.md` 与 `README.zh.md`（总数 / 包表 / 目录树）；`dev/standard/index.mjs` 的 `count.packages` / `count.plugins` 断言从 38/37 改为 39/38。计划外但必需: 计数规则改后 `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `md-logic/README.md` / `security-guard/README.md` 四处旧计数一并同步（否则 `check:docs` 报错）。发现 `scripts/test-install.sh` 第 11 步接线断言自 2026-11-08 起恒失败，已入 `docs/BACKLOG.md` 交其他 agent。
 - 2026-11-11（阶段 3）: 试点 `flow-track` 接入包装层：5 个工具加 `summary`（用途一句 + 指向 `tool_consult`），`src/index.ts` 在 `ctx.tools.register` 前调 `wrapToolDefinition`，`package.json` 加 `link:../tool-surface` 依赖。两处 schema 与实现对齐：`flow_record` 的 `slug` 从 `required` 里去掉（`execute` 本来就允许缺省并回退到会话 id，旧 schema 比实现严，包装层会误拦），其余 4 个工具的 schema 未改；工具自带的参数守卫全部保留。单测 80 例（新增 1 例断言「模型侧=短说明+宽松占位、服务面=全文+完整 schema」）。实测发现：宿主 schema 子集不校验 `minimum` 这类数值边界，`flow_remove` 的 `id: 0` 仍由工具守卫拦下（`invalid_id`），包装层只兜住 type / required / additionalProperties / enum / oneOf / items。
+- 2026-11-11（阶段 4）: `tool-consult` 双轨改造。`config.ts` 新增 `disabledWhenTools`（缺省 6 个官方条件工具）与 `web_search` / `web_fetch`（缺省核心集 9 → 11）；`index.ts` 新增 `toolSurface` 服务读取（未挂载退回旧路径）、`wrapped` 集合与三处派生：检索语料取全文（注册定义只剩短说明）、遮罩 allow 额外含全部接入工具（声明常驻）、`pre-execute` 先拦「接入但未揭示」（文案 + `TOOL_NOT_REVEALED`）、`revealedPayload` 改为「标题行 + `name:` + 紧凑 JSON（`description` + `input_schema`）」；`disabledWhenTools` 同时从检索索引与遮罩名单中过滤。单测 112 例（新增 `dual-track.test.ts` 5 例：常驻 + 拒绝 + 揭示放行 + JSON 投递、检索取全文、`maskMode off`、`disabledWhenTools` 过滤、过渡期旧路径）。README 同步双轨与 11 核心集。
 
 ## 偏差
 
 - 阶段 2 超出「计划改动文件清单」 5 个文件: `dev/standard/index.mjs`（计数断言是 `check:docs` 的规则源, 不改则新计数必报错）与 `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `md-logic/README.md` / `security-guard/README.md`（四处旧计数会被新规则判错）；另有 `docs/BACKLOG.md` 新增一条待办（进接线时发现的 `test-install.sh` 旧断言失效）。其余未越界。
 - 阶段 3 改了 1 处工具 schema（`flow_record` 的 `required` 去 `slug`）：不改的话新旧行为不一致（`execute` 支持缺省 slug、`tests` 也这么用），包装层会把合法调用当违规拦下；`execute` / `output` 本身未改，属于「schema 与实现对表」，不是行为变更。
+- 阶段 4 额外改了 `tool-consult/README.md`（计划里只列 `config.ts` / `index.ts` / `tests/`）：能力、配置表与投递通道三节描述的是已变的行为, 不改会误导。另：`maskMode: off` 下不做工具面管理（不挂遮罩、接入工具也不再拒绝）, 与既有「off = 不遮」语义一致。
 
 ## 测试与证据
 
@@ -209,6 +211,8 @@
 - 清单双向核对: `test-parallel.sh` 的 `default_pkgs` 与 `install.sh` 的 `canonical_pkgs` 字符串逐字相同（均含 `tool-surface`, 位置在 `shell-parse` 之后）, 39 项; 仓库目录与清单逐项对应（未跑 `test-install.sh` 全量, 只做了 static 核对与其第 11 步旧断言的失效判定）。
 - 未验证: 包装后的行为尚未在 DSH profile 实机调用（阶段 3 / 4 部署后验证）。
 - 阶段 3 实测（2026-11-11，`flow-track` 目录）: `pnpm run check` / `pnpm run build` / `pnpm test` 均退出 0（80 例全通过）；全仓 `pnpm run check` 在 39 包上通过。新增的包装断言实测：5 个工具的注册定义均为短说明 + `{ type: "object", additionalProperties: true, properties: {}, description: "完整参数 schema 经 tool_consult 查询" }`；`lookupSurface("flow_record")` 返回完整说明与 `required: ["stage", "status"]`。端到端（揭示、拒绝码、TUI 红行）尚未验证，随阶段 4 一起部署。
+- 阶段 4 实测（2026-11-11，仓库根）: `pnpm -C tool-consult run test` / `run check` / `run build` 均退出 0（112 例全通过）; 全仓 `pnpm run check` 在 39 包上通过。新增用例覆盖：接工具在遮罩名单里常驻、未揭示时 `pre-execute` 返回 `TOOL_NOT_REVEALED`、揭示后放行、投递 JSON 含完整 `description` 与 `input_schema`、检索命中依赖全文、`disabledWhenTools` 既不进索引也不进名单、未接入工具仍走旧遮罩文案。
+- 待人工验收: `fff-test` 实机的「TUI 红色 ✗（INVALID_ARGS）」「揭示后 pinNotes JSON 全文」「tools 数组 / 前缀缓存不因揭示而变」三项需真机会话确认, 本环境未跑交互式会话。
 
 ## 收尾
 
