@@ -21,6 +21,7 @@
  */
 
 import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 import {
   createDefaultRunner,
@@ -341,7 +342,7 @@ export function createHerdrPlugin(
     return undefined;
   }
   try {
-    for (const tool of tools) toolRegistry.register(tool);
+    for (const tool of tools) toolRegistry.register(wrapToolDefinition(tool));
   } catch (error) {
     warn(`工具注册失败：${String(error)}`);
     return undefined;
