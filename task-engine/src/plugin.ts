@@ -21,6 +21,7 @@
 // 留痕到事件流与反馈（`guardSkipped`，不静默）。
 
 import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 import type { AuditRequest, AuditVerdict } from "./acceptance.ts";
 import { makeRunCommand } from "./command.ts";
@@ -369,7 +370,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   if (toolsSvc !== undefined && typeof toolsSvc.register === "function") {
     for (const t of tools) {
       try {
-        toolsSvc.register(toDshTool(t));
+        toolsSvc.register(wrapToolDefinition(toDshTool(t)));
         registeredNames.push(t.name);
       } catch (err) {
         warn(`工具 ${t.name} 注册失败：${String(err)}`);
