@@ -166,6 +166,7 @@
 **阶段 5 - 全量迁移**
 
 - [ ] T51 每个注册工具包已套包装. 审计: `for p in <全量清单, 试点后补>; do grep -q 'wrapToolDefinition' "$p/src/index.ts" || exit 1; done`
+  进度: 已接入 10 个包（`flow-track` / `context-report` / `md-map` / `goal-contract` / `memory-base` / `pin-note` / `fs-digest` / `script-interpreter` / `background-daemon` / `code-map`, 以 `wrapToolDefinition` 导入为凭）; 待接: `rule-engine` / `session-channel` / `agent-group` / `preference-analysis` / `task-engine` / `herdr-use` / `md-logic` / `hash-edit` / `ast-tools` 等其余注册工具包（下轮按包接入与验证）。
 - [ ] T52 全仓检查与构建通过. 审计: `pnpm run check && pnpm run build`
 
 **阶段 6 - 收尾**
@@ -213,6 +214,7 @@
 - 阶段 3 实测（2026-11-11，`flow-track` 目录）: `pnpm run check` / `pnpm run build` / `pnpm test` 均退出 0（80 例全通过）；全仓 `pnpm run check` 在 39 包上通过。新增的包装断言实测：5 个工具的注册定义均为短说明 + `{ type: "object", additionalProperties: true, properties: {}, description: "完整参数 schema 经 tool_consult 查询" }`；`lookupSurface("flow_record")` 返回完整说明与 `required: ["stage", "status"]`。端到端（揭示、拒绝码、TUI 红行）尚未验证，随阶段 4 一起部署。
 - 阶段 4 实测（2026-11-11，仓库根）: `pnpm -C tool-consult run test` / `run check` / `run build` 均退出 0（112 例全通过）; 全仓 `pnpm run check` 在 39 包上通过。新增用例覆盖：接工具在遮罩名单里常驻、未揭示时 `pre-execute` 返回 `TOOL_NOT_REVEALED`、揭示后放行、投递 JSON 含完整 `description` 与 `input_schema`、检索命中依赖全文、`disabledWhenTools` 既不进索引也不进名单、未接入工具仍走旧遮罩文案。
 - 待人工验收: `fff-test` 实机的「TUI 红色 ✗（INVALID_ARGS）」「揭示后 pinNotes JSON 全文」「tools 数组 / 前缀缓存不因揭示而变」三项需真机会话确认, 本环境未跑交互式会话。
+- 阶段 5（本轮部分）: 已接入 10 个包, 每包一条提交; 全仓 `pnpm run check` / `build` / `test` 与 `check:docs` 均退出 0。各包用例按新契约调整: schema 越界（缺参 / 类型错 / 枚举越界）改断言 `INVALID_ARGS`; 注册定义的描述 / 参数断言改走 `lookupSurface(name)`; 两处旧「静默忽略非法可选参数」用例改成「包装层拒绝」（`fs-digest`）。待接包清单见 T51 注释。
 
 ## 收尾
 
