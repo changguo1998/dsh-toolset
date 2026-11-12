@@ -14,7 +14,8 @@
     "test:coverage": "rm -rf ../tmp/cov-code-map && mkdir -p ../tmp/cov-code-map && NODE_V8_COVERAGE=../tmp/cov-code-map node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-code-map tmp/cov-code-map/report.json"
   },
   "dependencies": {
-    "@dsh-toolset/ast-tools": "link:../ast-tools"
+    "@dsh-toolset/ast-tools": "link:../ast-tools",
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

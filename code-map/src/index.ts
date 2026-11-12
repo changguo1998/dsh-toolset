@@ -22,6 +22,7 @@ import {
   createAstToolsBundle,
   type AstToolsBundle,
 } from "@dsh-toolset/ast-tools";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { fileURLToPath } from "node:url";
 import { scanProject } from "./indexer/scan.ts";
 import { candidateRefs, excludeDefinitionRange } from "./indexer/refs.ts";
@@ -455,7 +456,9 @@ export function apply(
   const tools = (host as { tools?: { register(def: unknown): unknown } }).tools;
   if (tools && typeof tools.register === "function") {
     try {
-      tools.register(toToolDef(bundle as unknown as CodeMapService));
+      tools.register(
+        wrapToolDefinition(toToolDef(bundle as unknown as CodeMapService)),
+      );
     } catch (err) {
       warn(`code_map 工具注册失败：${String(err)}`);
     }

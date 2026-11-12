@@ -11,6 +11,9 @@ importers:
       '@dsh-toolset/ast-tools':
         specifier: link:../ast-tools
         version: link:../ast-tools
+      '@dsh-toolset/tool-surface':
+        specifier: link:../tool-surface
+        version: link:../tool-surface
     devDependencies:
       '@types/node':
         specifier: ^24.13.3
