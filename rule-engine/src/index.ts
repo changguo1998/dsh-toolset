@@ -21,6 +21,7 @@
  */
 
 import { resolveClock } from "@dsh-toolset/clock-base";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 import { RuleEngine } from "./engine.ts";
 import { createAgentInjector } from "./inject.ts";
@@ -312,7 +313,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
       warn("ctx.tools 不可用，规则工具族未注册（规则仍按事件触发）");
     } else {
       try {
-        for (const def of toToolDefs(engine)) tools.register(def);
+        for (const def of toToolDefs(engine))
+          tools.register(wrapToolDefinition(def));
       } catch (err) {
         warn(`工具族注册失败：${String(err)}`);
       }
