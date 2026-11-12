@@ -11,6 +11,9 @@ importers:
       '@dsh-toolset/md-logic':
         specifier: link:../md-logic
         version: link:../md-logic
+      '@dsh-toolset/tool-surface':
+        specifier: link:../tool-surface
+        version: link:../tool-surface
     devDependencies:
       '@types/node':
         specifier: ^24.13.3

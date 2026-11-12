@@ -14,7 +14,8 @@
     "test:coverage": "rm -rf ../tmp/cov-md-map && mkdir -p ../tmp/cov-md-map && NODE_V8_COVERAGE=../tmp/cov-md-map node --experimental-transform-types --test 'tests/*.test.ts' 'tests/integration/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-md-map tmp/cov-md-map/report.json"
   },
   "dependencies": {
-    "@dsh-toolset/md-logic": "link:../md-logic"
+    "@dsh-toolset/md-logic": "link:../md-logic",
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

@@ -11,6 +11,7 @@
  */
 
 import { createMdMapService, type MdMapService } from "./service.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { mdMapTool, resolveExecCwd } from "./tools.ts";
 import type { MdMapOptions } from "./types.ts";
 
@@ -112,7 +113,7 @@ export function apply(ctx: BundleHost, config: MdMapOptions = {}): void {
   activeService = service;
   if (ctx.tools !== undefined && typeof ctx.tools.register === "function") {
     try {
-      ctx.tools.register(mdMapTool(service));
+      ctx.tools.register(wrapToolDefinition(mdMapTool(service)));
     } catch (error) {
       warn(`md_map 工具注册失败：${String(error)}`);
     }
