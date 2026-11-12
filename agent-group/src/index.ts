@@ -23,6 +23,7 @@
  */
 
 import { resolveConfig } from "./config.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { describe } from "./errors.ts";
 import { readGroupStatus } from "./group.ts";
 import { pruneUndefined } from "./json.ts";
@@ -576,7 +577,7 @@ export function apply(
   bindOptionalServices(ctx, bindings, warn);
   const resolveService = createLazyGroupService(ctx, resolved, warn, bindings);
   try {
-    tools.register(toToolDef(resolveService));
+    tools.register(wrapToolDefinition(toToolDef(resolveService)));
   } catch (error) {
     warn(`agent_group 工具注册失败：${describe(error)}`);
   }

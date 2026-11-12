@@ -13,6 +13,7 @@ import { afterEach, test } from "node:test";
 
 import type { ToolDef } from "../src/index.ts";
 import { apply, callerSessionIdOf, inject, name } from "../src/index.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 const MANAGER = "sess-manager";
 const tempDirs: string[] = [];
@@ -486,7 +487,9 @@ test("工具定义：动作、参数与描述齐备，render 输出字符串", a
   const env = await environment();
   assert.equal(name, "agent-group");
   assert.equal(env.tool.name, "agent_group");
-  const parameters = env.tool.parameters as {
+  const full = lookupSurface("agent_group");
+  assert.ok(full !== undefined);
+  const parameters = full.parameters as {
     properties: { action: { enum: string[] } };
     required: string[];
   };
@@ -505,8 +508,8 @@ test("工具定义：动作、参数与描述齐备，render 输出字符串", a
     "summary",
   ]);
   assert.deepEqual(parameters.required, ["action"]);
-  assert.match(env.tool.description, /每.*主从连接.*未结/);
-  assert.match(env.tool.description, /link_peer/);
+  assert.match(full.description, /每.*主从连接.*未结/);
+  assert.match(full.description, /link_peer/);
   const rendered = env.tool.output.render({}, { ok: true, value: 1 });
   assert.equal(rendered[0]?.type, "text");
   assert.match(String(rendered[0]?.text), /"value": 1/);
@@ -779,9 +782,11 @@ test("镜像失败只计数不重试，动作仍成功；memory-base 缺失时�
 test("拒绝路径：未知 action、没有主从连接的 send、非叶子的 remove 都带原因与下一步", async () => {
   const env = await environment();
 
-  const unknown = await env.call({ action: "nope" });
-  assert.equal(unknown["ok"], false);
-  assert.equal(unknown["error"], "unknown_action");
+  // 枚举越界由包装层拒绝（INVALID_ARGS）
+  await assert.rejects(
+    () => env.call({ action: "nope" }),
+    (error: unknown) => (error as { code?: string }).code === "INVALID_ARGS",
+  );
 
   await env.call({ action: "create_group", name: "team" });
   await env.call({
