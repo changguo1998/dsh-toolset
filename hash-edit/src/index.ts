@@ -25,6 +25,7 @@ export * from "./fs.ts";
 
 // 本地引用（export * 只产生 re-export，不产生本模块绑定）
 import { AnchoredEditError, type EditOp } from "./edit.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import {
   ctxHashFileIo,
   resolveExecCwd,
@@ -432,7 +433,7 @@ export async function apply(ctx: unknown, config: Config = {}): Promise<void> {
   });
   for (const def of tools) {
     try {
-      toolsSvc.register(toDshTool(def));
+      toolsSvc.register(wrapToolDefinition(toDshTool(def)));
     } catch (err) {
       warn(`tool ${def.name} registration failed: ${String(err)}`);
     }

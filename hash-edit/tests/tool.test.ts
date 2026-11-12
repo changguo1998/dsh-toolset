@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { assemble } from "./assemble.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 /** 建临时文件（与 fs.test.ts 同款，自建不自引 helpers）。 */
 async function makeTmp(
@@ -260,11 +261,11 @@ test("hash_edit：显式 Config.root 优先；未配置时按 exec 会话 cwd", 
  * D3 指路（文件级字面量替换用 edit、按节改 Markdown 用 md_logic）、C1 / C6 / C8 / C9。
  */
 test("工具描述：P0 事实与选择依据（D3 / C1 / C6 / C8 / C9）", async () => {
-  const tools = await registerTools();
+  await registerTools();
   for (const name of ["hash_read", "hash_edit"]) {
-    const tool = tools.get(name);
-    assert.ok(tool !== undefined, `${name} 应已注册`);
-    const description = tool.description;
+    const full = lookupSurface(name);
+    assert.ok(full !== undefined, `${name} 应已注册`);
+    const description = full.description;
     // C1：首句不超过 80 字符
     const first = description.replace(/\s+/g, " ").trim();
     const cut = first.search(/[。！？.!?]/);
@@ -277,9 +278,9 @@ test("工具描述：P0 事实与选择依据（D3 / C1 / C6 / C8 / C9）", asyn
   }
 
   // hash_read：缺省只读 200 行（与实现一致，不写「整文件」）
-  assert.match(tools.get("hash_read")!.description, /200/);
+  assert.match(lookupSurface("hash_read")?.description ?? "", /200/);
 
-  const edit = tools.get("hash_edit")!.description;
+  const edit = lookupSurface("hash_edit")?.description ?? "";
   // D3：文件级字面量替换指向 edit，按节改 Markdown 指向 md_logic
   assert.match(edit, /edit/);
   assert.match(edit, /md_logic/);

@@ -31,5 +31,8 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "types": "./dist/src/index.d.ts"
+  "types": "./dist/src/index.d.ts",
+  "dependencies": {
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
+  }
 }
