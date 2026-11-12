@@ -72,7 +72,7 @@
 
 ## 2. 未完成项
 
-- **工具说明注册表与按需投递（决策项 3 拆出）**（2026-11-11, 用户提出, 优先级 P2, 状态: 进行中（决策已定, 待规划））: 把工具完整说明与参数 schema 从注册定义中拆出, 在 tools 槽位稳定的前提下按需投递。现状: 注册处 `description` 即完整说明, 揭示后整份声明进 tools 数组、断一次前缀缓存; 宿主模型 schema 与校验 schema 同源, 无法按会话拆分。期望: 注册处只留短说明与宽松占位, 完整说明与 schema 留在包装层做严格校验、由 `tool-consult` 揭示后投递, 槽位与缓存不动; 设计细节见追踪文档。1109 已按旧格式指定 7 项文案, 新格式在本任务统一实施。来源: 2026-11-11 决策项 3 拆出; 追踪文档 `docs/implementation/2026-11-11-tool-description-registry.md`。
+- **两个 e2e 用例长期红（与工具说明注册表无关）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: `e2e/flow-track.test.ts` 断言的 `<home>/.dsh/project.db` 不存在，实测 `flow_record` 返回 `{ok:false,error:"unavailable",message:"memory-base 分类 flow 未注册成功：ctx.memory 不可用"}`——`bootPackage` 把被测包排在依赖包之前，flow-track 在 apply 时就注册分类，此时 memory-base 的服务尚未就绪（把 memory-base 排到首位后仍复现，疑与 memory 服务异步就绪有关）；`e2e/ponytail.test.ts` 在步边界等不到注入（5s 超时），与挂载顺序无关。两例在本次改动前后行为一致（2026-11-11 复核），本任务未修。期望: 夹具改为按依赖顺序装配或等 `whenReady()` 再注册消费者；修好后恢复 `pnpm test:e2e` 全绿。来源: 2026-11-11 工具说明注册表补 e2e 用例时的全量复跑。
 
 - **`scripts/test-install.sh` 第 11 步接线断言失效**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 该步从根 `package.json` 的 `check` / `build` 脚本里按 `pnpm -C <包> run` 提取包清单, 再与 `install.sh` 的 `canonical_pkgs` 比对; 根脚本 2026-11-08 改为委托 `scripts/test-parallel.sh` 后提取结果为空, 该断言恒报「check/build 链提取为空」（与包数无关, 2026-11-11 逐行复核成立）。期望: 改从 `test-parallel.sh` 的 `default_pkgs` 取清单（或直接三方比对 `canonical_pkgs` / `default_pkgs` / 包目录）, 并补包数断言。来源: 2026-11-11 工具说明注册表接线时的全仓自查。
 
