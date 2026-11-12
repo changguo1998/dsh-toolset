@@ -102,28 +102,34 @@ function placeholderParameters(): Record<string, unknown> {
 /**
  * 包装一个工具定义: 换短说明与宽松占位, `execute` 前插严格校验, 全文收进 catalog。
  *
+ * 两个签名: 结构面（各工具包的工具工厂返回 `unknown`）走第一个, 调用方自己持有类型时
+ * 走泛型重载, 拿到同名同类型的定义。运行期只要求 `name` / `description` / `parameters`。
+ *
  * @param def 原注册定义（`description` 为完整说明, `parameters` 为完整参数 schema）。
  * @returns 同名定义: 其余字段原样透传, `summary` 不进入注册定义。
  */
-export function wrapToolDefinition<T extends WrapTarget>(def: T): T {
-  const marked = (def as unknown as Record<symbol, unknown>)[WRAPPED];
-  if (marked === true) return def;
+export function wrapToolDefinition<T extends WrapTarget>(def: T): T;
+export function wrapToolDefinition(def: unknown): unknown;
+export function wrapToolDefinition(def: unknown): unknown {
+  const source = def as unknown as Record<string, unknown>;
+  if ((def as Record<symbol, unknown>)[WRAPPED] === true) return def;
 
+  const target = def as unknown as WrapTarget;
   const full = deepCopy({
-    name: def.name,
-    description: def.description,
-    parameters: def.parameters,
+    name: target.name,
+    description: target.description,
+    parameters: target.parameters,
   }) as SurfaceEntry;
   catalog.set(full.name, full);
 
-  const raw = { ...(def as unknown as Record<string, unknown>) };
+  const raw = { ...source };
   delete raw["summary"];
   const run = raw["execute"] as
     ((args: unknown, exec?: unknown) => unknown) | undefined;
 
   const wrapped: Record<string, unknown> = {
     ...raw,
-    description: shortDescription(def),
+    description: shortDescription(target),
     parameters: placeholderParameters(),
     execute: async (args: unknown, exec?: unknown): Promise<unknown> => {
       const violations = validateValue(full.parameters, args);
@@ -136,7 +142,7 @@ export function wrapToolDefinition<T extends WrapTarget>(def: T): T {
     enumerable: false,
     configurable: true,
   });
-  return wrapped as unknown as T;
+  return wrapped;
 }
 
 /** 按名取完整说明与完整参数 schema（返回深拷贝, 调用方改动不影响 catalog）。 */
