@@ -16,6 +16,7 @@
  */
 
 import { homedir } from "node:os";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { join } from "node:path";
 import type { JournalMode } from "./schema.ts";
 import {
@@ -473,7 +474,7 @@ function registerTools(ctx: BundleHost, memory: MemoryGlobalService): void {
     search: (opts) => memory.search(opts),
   };
   try {
-    ctx.tools.register(memoryQueryTool(executor));
+    ctx.tools.register(wrapToolDefinition(memoryQueryTool(executor)));
   } catch (error: unknown) {
     ctx
       .logger?.(name)
