@@ -13,6 +13,7 @@
 //   → 回读当前 goal 视图并解析条款，返回往返比对。
 
 import process from "node:process";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { createGoalContractTool } from "./tool.ts";
 import type { GoalsLike, UserQuestionsLike } from "./types.ts";
 
@@ -66,7 +67,7 @@ export function apply(ctx: unknown): void {
     warn,
   });
   try {
-    host.tools.register(tool);
+    host.tools.register(wrapToolDefinition(tool));
   } catch (err) {
     warn(`goal_contract_draft 注册失败：${String(err)}`);
   }
