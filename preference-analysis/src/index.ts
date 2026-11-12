@@ -14,6 +14,7 @@
  * `enabled: false` -> 零观测、零写入、零注入（连 hold 与工具都不登记）。
  */
 import { homedir } from "node:os";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { join } from "node:path";
 import {
   INJECTION_SUMMARY,
@@ -49,7 +50,6 @@ import {
   type PreferenceAddResult,
   type PreferenceListOptions,
   type PreferenceRemoveResult,
-  type ToolDef,
 } from "./tools.ts";
 
 export const name = "preference-analysis";
@@ -594,7 +594,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
     if (tools !== undefined && typeof tools.register === "function") {
       for (const def of createTools(plugin.api)) {
         try {
-          tools.register(def as ToolDef);
+          tools.register(wrapToolDefinition(def));
         } catch (error) {
           warn(`注册工具 ${def.name} 失败：${describe(error)}`);
         }
