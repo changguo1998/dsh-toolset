@@ -16,6 +16,7 @@
  */
 
 import type { MemoryFaceLike, PinRecord } from "./store.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { DEFAULT_MAX_NOTES, PinStore } from "./store.ts";
 import {
   hasText,
@@ -331,7 +332,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
       const tools: ToolDef[] = noteTools(store);
       for (const tool of tools) {
         try {
-          c.tools.register(tool);
+          c.tools.register(wrapToolDefinition(tool));
         } catch (error) {
           warn(`工具 ${tool.name} 注册失败：${String(error)}`);
         }

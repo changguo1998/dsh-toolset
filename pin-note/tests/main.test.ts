@@ -325,8 +325,11 @@ test("工具面：缺会话 id 返错、note_list 列内容、note_remove 未知
   const missing = await removeTool.execute({ id: 999 }, exec);
   assert.equal(missing["ok"], false);
   assert.equal(missing["error"], "not_found");
-  const badId = await removeTool.execute({ id: "x" }, exec);
-  assert.equal(badId["error"], "invalid_id");
+  // id 类型不符由包装层拒绝（INVALID_ARGS）
+  await assert.rejects(
+    () => removeTool.execute({ id: "x" }, exec),
+    (error: unknown) => (error as { code?: string }).code === "INVALID_ARGS",
+  );
 });
 
 test("超建议体量：写入成功但带 hint", async () => {
