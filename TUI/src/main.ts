@@ -12,6 +12,7 @@
 //      bin/tui.js 的 mock demo 自行组装 App/renderer，不经此处）。
 
 import { isTimers, readClock } from "@dsh-toolset/clock-base";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { resolveThemes } from "./renderer/theme-config.ts";
@@ -1226,7 +1227,9 @@ export async function apply(
     const toolsSvc = getTools();
     if (typeof toolsSvc?.register === "function") {
       try {
-        const disposeTool = toolsSvc.register(createTuiLocalLogTool());
+        const disposeTool = toolsSvc.register(
+          wrapToolDefinition(createTuiLocalLogTool()),
+        );
         ctxAny.effect?.(() => () => {
           disposeTool();
         });
@@ -1244,7 +1247,9 @@ export async function apply(
     const toolsSvc = getTools();
     if (typeof toolsSvc?.register === "function") {
       try {
-        const disposeTool = toolsSvc.register(createNoticeHistoryTool());
+        const disposeTool = toolsSvc.register(
+          wrapToolDefinition(createNoticeHistoryTool()),
+        );
         ctxAny.effect?.(() => () => {
           disposeTool();
         });
