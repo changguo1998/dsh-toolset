@@ -33,6 +33,7 @@
 import { readdirSync } from "node:fs";
 
 import { readClock } from "@dsh-toolset/clock-base";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 import {
   advance,
@@ -647,7 +648,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     return;
   }
   try {
-    toolsSvc.register(toToolDef(controller));
+    toolsSvc.register(wrapToolDefinition(toToolDef(controller)));
     process.stderr.write(
       `[metric-loop] 已注册 metric_loop 工具（stateDir=${controller["stateDir"]}）\n`,
     );

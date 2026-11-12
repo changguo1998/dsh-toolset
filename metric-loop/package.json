@@ -14,7 +14,8 @@
     "smoke": "node smoke/smoke.mjs"
   },
   "dependencies": {
-    "@dsh-toolset/clock-base": "link:../clock-base"
+    "@dsh-toolset/clock-base": "link:../clock-base",
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

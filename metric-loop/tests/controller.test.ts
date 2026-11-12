@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 import {
   apply,
@@ -233,8 +234,11 @@ test("apply(带 tools 的假 ctx)：注册 metric_loop，start/status 分发正�
     assert.equal(statusOut.ok, true);
     assert.equal(statusOut.exists, true);
 
-    const unknown = await execute({ action: "bogus" });
-    assert.equal(unknown.ok, false);
+    // 枚举越界由包装层拒绝（INVALID_ARGS）
+    await assert.rejects(
+      () => execute({ action: "bogus" }),
+      (error: unknown) => (error as { code?: string }).code === "INVALID_ARGS",
+    );
   } finally {
     cleanup(dir);
   }
@@ -915,9 +919,9 @@ test("工具描述（P0）：不指向不存在的 schedule_create，改指 daem
       },
       { stateDir: dir },
     );
-    const def = registered[0];
-    assert.ok(def !== undefined);
-    const description = String(def["description"] ?? "");
+    const full = lookupSurface("metric_loop");
+    assert.ok(full !== undefined, "服务面应能取到完整定义");
+    const description = full.description;
     assert.doesNotMatch(description, /schedule_create/);
     assert.match(description, /daemon_task/);
     // C1：首句不超过 80 字符
