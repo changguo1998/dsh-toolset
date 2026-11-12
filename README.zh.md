@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 37 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 38 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -19,6 +19,7 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 | **task-engine** | 任务树引擎：Frame 状态机、`decompose`/`implement`/`execute`/`stop`/`status` 工具族、机械+语义双重门禁与 RET 验收路由 |
 | **session-paths** | 宿主会话目录编码的仓内唯一事实源：逐字符复刻 `@deepseek-ai/dsh-session-persistence-jsonl` 的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用（`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`）。纯函数不落盘；`sessionDirFor(sessionId)` 经宿主 `sessions` 服务取 `header.cwd`（可选读取，不写进 `inject`） |
 | **shell-parse** | 仓内唯一的 shell 命令词法层：`splitCommandSegments`（按 `;` `\|` `&` 与换行切段，引号内不切）/ `tokenizeSegment`（引号串整体一个词，粘引号先断开）/ `commandPositions`（剥离 `sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec` 等包装器后取命令位，并对 shell `-c`、`eval`、`$(...)` 与反引号递归，深度封顶）/ `commandWords` / `isDynamicCommand` / `substitutionBodies` / `WRAPPERS`。纯函数 + 同实现的 `shellParse` 服务；无配置、不注册工具、不落盘 |
+| **tool-surface** | 工具说明注册表：注册前由 `wrapToolDefinition(def)` 把注册定义换成短说明（用途一句 + 指向 `tool_consult`）与宽松占位（`{ type: "object", additionalProperties: true, properties: {} }` + 一句提示），完整说明与完整参数 schema 收进内存 catalog，并包装 `execute`：派发前先按完整 schema 校验（宿主 `validateJsonSchemaValue`，违规抛 `ToolArgsError`），`output` / `timeoutMs` / `deferLoading` 原样透传。另暴露只读服务面 `toolSurface`（`lookup(name)` / `list()`），供 `tool-consult` 在揭示后投递完整说明与 `input_schema`。依赖宿主 `@deepseek-ai/dsh-tools` 精确版本，不注册工具、不注入上下文 |
 | **memory-base** | 分层记忆存储：S / P / U 每层一个 SQLite 库（惰性创建，S 层存放位置经 `sessionPaths.sessionDirFor`）与每分类双 FTS5 索引。只做存储：注册 kind 即建表、写入与删除经返回的作用域句柄（`writableTiers` + `preWrite`），查询全局可用（跨 kind / 跨层 `search` 与 `list`）；模型侧只有一个只读工具 `memory_query` |
 | **goal-contract** | goal 会话契约起草：interview 式提问导出「目标 + Done-when 验证条款」（schema 对齐 task-engine 三级验收），落 dsh-goal 事件源 |
 | **metric-loop** | 指标驱动自动循环：测量命令解析单个数字、plateau 平稳停止、轮数/时间/token 边界、cadence 自动唤醒 |
@@ -63,6 +64,7 @@ dsh-toolset/
 ├── task-engine/          # 任务树引擎
 ├── session-paths/        # 会话目录编码（宿主编码复刻 + sessionPaths 服务）
 ├── shell-parse/          # shell 命令词法（切段 / 分词 / 剥离包装器 / 命令位 + shellParse 服务）
+├── tool-surface/         # 工具说明注册表（注册短说明 + 宽松占位；派发严格校验 + toolSurface 服务面）
 ├── memory-base/       # 知识库与持久记忆
 ├── goal-contract/        # Done-when 契约起草
 ├── metric-loop/          # 指标循环
@@ -123,7 +125,7 @@ pnpm run test:smoke        # goal-contract / metric-loop / output-compress / sec
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 38 个包：TUI + 37 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 39 个包：TUI + 38 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset

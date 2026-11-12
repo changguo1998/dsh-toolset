@@ -11,7 +11,7 @@
 # （code-map → ast-tools、md-map → md-logic，与 scripts/install.sh 同口径），
 # 依赖方放到第二批，保证全新环境（dist/ 尚不存在）也能一次建成功。
 #
-# 为什么并行：38 个包各自独立（tsc / node --test 各自进程），串行 `&&` 只是顺序
+# 为什么并行：39 个包各自独立（tsc / node --test 各自进程），串行 `&&` 只是顺序
 # 等待；并行后墙钟 ≈ 最慢包（当前 test 的 TUI ~8.6s）。
 # 输出：每包 OK/SKIP/FAIL + 耗时；test 系脚本再加 pass/fail 计数；FAIL 的包附日志。
 # 退出码：任一包失败即非零（不 fail-fast——等全部跑完，便于一次看到所有失败）。
@@ -22,7 +22,7 @@
 set -u
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
-default_pkgs="clock-base shell-parse TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group coagent tool-consult escalation-hint term-check pin-note flow-track"
+default_pkgs="clock-base shell-parse tool-surface TUI herdr-integration herdr-use memory-base task-engine ast-tools md-logic md-map fs-digest goal-contract hash-edit metric-loop output-compress security-guard code-map context-report rule-engine behavior-correction symbol-normalizer session-channel session-title-cutoff command-template ponytail md-table-check auto-approve background-daemon preference-analysis session-paths script-interpreter agent-group coagent tool-consult escalation-hint term-check pin-note flow-track"
 pkgs="${*:-$default_pkgs}"
 target="${TEST_SCRIPT:-test}"
 

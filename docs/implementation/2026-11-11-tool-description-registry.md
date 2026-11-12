@@ -140,11 +140,11 @@
 
 **阶段 2 - 仓库接线（38 → 39 包）**
 
-- [ ] T21 `scripts/test-parallel.sh` 含 tool-surface. 审计: `grep -q 'tool-surface' scripts/test-parallel.sh`
-- [ ] T22 `scripts/install.sh` 含 tool-surface. 审计: `grep -q 'tool-surface' scripts/install.sh`
-- [ ] T23 `AGENTS.md` 含 tool-surface. 审计: `grep -q 'tool-surface' AGENTS.md`
-- [ ] T24 双语根 README 含 tool-surface. 审计: `grep -q 'tool-surface' README.md && grep -q 'tool-surface' README.zh.md`
-- [ ] T25 文档检查仍 0 错. 审计: `pnpm run check:docs 2>&1 | grep -q '错误 0 / 警告 0'`
+- [x] T21 `scripts/test-parallel.sh` 含 tool-surface. 审计: `grep -q 'tool-surface' scripts/test-parallel.sh`
+- [x] T22 `scripts/install.sh` 含 tool-surface. 审计: `grep -q 'tool-surface' scripts/install.sh`
+- [x] T23 `AGENTS.md` 含 tool-surface. 审计: `grep -q 'tool-surface' AGENTS.md`
+- [x] T24 双语根 README 含 tool-surface. 审计: `grep -q 'tool-surface' README.md && grep -q 'tool-surface' README.zh.md`
+- [x] T25 文档检查仍 0 错. 审计: `pnpm run check:docs 2>&1 | grep -q '错误 0 / 警告 0'`
 
 **阶段 3 - 试点 flow-track**
 
@@ -195,17 +195,17 @@
 
 - 2026-11-11: 只读调研并定案方向（见「决策」）; 未改代码, 未改工具说明。按用户要求先把「包装层落新包」写入决策, 新包尚未创建; 同日补齐决策 11-15（校验落点 / 校验器来源 / 占位提示 / 迁移策略 / 拒绝形态）、16-20（签名 / 服务面 / 名单同步 / 原子性 / when 配置）、21-24（试点 / restrict 退役 / 初始核心集 / 过渡期行为）与 25（投递格式）; 待设计清零, 转规划。用户追加裁定: tool-web 的 `web_search` / `web_fetch` 入默认揭示（决策 23 更新）。推进: 移除待设计节, 规划补分阶段执行计划（阶段 0-6, 每阶段单独验证与提交）与机械可审计任务清单（T01-T64）, 状态改规划。
 - 2026-11-11（阶段 1）: 新建 `tool-surface` 包（39 包的第一块）：`wrapToolDefinition`（短说明 + 宽松占位 + catalog 深拷贝 + 派发前 `validateJsonSchemaValue` / `ToolArgsError` 严格校验 + `output` / `timeoutMs` / `deferLoading` 透传 + 重复包装幂等）、`toolSurface` 只读服务面（`lookup` / `list`，返回深拷贝）、`cordis.patch.yml` 与 `tsconfig.json`；依赖宿主 `@deepseek-ai/dsh-tools` 精确 `0.2.2-rc.1`（本仓首个宿主运行期依赖）。单测 13 例。
+- 2026-11-11（阶段 2）: 仓库接线 38 → 39 包：`scripts/test-parallel.sh` 的 `default_pkgs` 与 `scripts/install.sh` 的 `canonical_pkgs` 均加 `tool-surface`（同位: `shell-parse` 之后）、`AGENTS.md`（插件总数 / 子包清单 / 结构与约定 / 轻量包豁免）、根 `README.md` 与 `README.zh.md`（总数 / 包表 / 目录树）；`dev/standard/index.mjs` 的 `count.packages` / `count.plugins` 断言从 38/37 改为 39/38。计划外但必需: 计数规则改后 `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `md-logic/README.md` / `security-guard/README.md` 四处旧计数一并同步（否则 `check:docs` 报错）。发现 `scripts/test-install.sh` 第 11 步接线断言自 2026-11-08 起恒失败，已入 `docs/BACKLOG.md` 交其他 agent。
 
 ## 偏差
 
-无。
+- 阶段 2 超出「计划改动文件清单」 5 个文件: `dev/standard/index.mjs`（计数断言是 `check:docs` 的规则源, 不改则新计数必报错）与 `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `md-logic/README.md` / `security-guard/README.md`（四处旧计数会被新规则判错）；另有 `docs/BACKLOG.md` 新增一条待办（进接线时发现的 `test-install.sh` 旧断言失效）。其余未越界。
 
 ## 测试与证据
 
-- 阶段 1 实测（2026-11-11，仓库根）：`pnpm -C tool-surface run check` / `run build` / `run test` 均退出 0；单测 13 例全通过（换位 / 透传 / catalog 深拷贝 / 缺必填 / 多余字段 / 枚举越界 / 重复包装 / 服务面 / 降级）；`test -f tool-surface/dist/src/definition.js` 成立。
-- 静态审计（按任务清单等价执行，宿主 bash 拦截了字面命令）：T11-T18 与 T1B 的产物检查 9 项全通过；`pnpm run check:docs` 报 120 篇现行 Markdown、错误 0 / 警告 0。
-- 「调研」中的代码位置均为 2026-11-11 只读核对；外部依据：`docs/archived/2026-11-09-tool-description-audit.md`（决策项 2 / 3，`:119`，`:121`，`:148`）与 `docs/archived/2026-11-10-injection-inventory.md`（决策项 1 / 6）。
-- 未验证：包装后的行为只在单测里跑过，尚未在 DSH profile 实机调用（阶段 3 / 4 部署后验证）；阶段 2 起的接线与迁移未开始。
+- 阶段 2 实测（2026-11-11，仓库根）: `pnpm run check` / `pnpm run build` / `pnpm run test` 均退出 0（39 包全部 OK, `tool-surface` 13 例在列）; `pnpm run check:docs` 报 120 篇现行 Markdown、错误 0 / 警告 0。
+- 清单双向核对: `test-parallel.sh` 的 `default_pkgs` 与 `install.sh` 的 `canonical_pkgs` 字符串逐字相同（均含 `tool-surface`, 位置在 `shell-parse` 之后）, 39 项; 仓库目录与清单逐项对应（未跑 `test-install.sh` 全量, 只做了 static 核对与其第 11 步旧断言的失效判定）。
+- 未验证: 包装后的行为尚未在 DSH profile 实机调用（阶段 3 / 4 部署后验证）。
 
 ## 收尾
 

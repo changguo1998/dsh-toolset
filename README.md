@@ -8,7 +8,7 @@ For agent-facing collaboration rules, see `AGENTS.md` in the repository root. Fo
 
 ## Composition
 
-The repository contains the `TUI/` terminal UI package and 37 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
+The repository contains the `TUI/` terminal UI package and 38 in-process plugins, all standalone npm packages (`@dsh-toolset/*`):
 
 | Package | What it does |
 |----|------|
@@ -19,6 +19,7 @@ The repository contains the `TUI/` terminal UI package and 37 in-process plugins
 | **task-engine** | Task tree engine: Frame state machine, the `decompose`/`implement`/`execute`/`stop`/`status` tool family, mechanical + semantic dual gating, and RET acceptance routing |
 | **session-paths** | Host session-directory encoding, replicated as one in-repo source of truth: `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` re-implemented character-for-character from `@deepseek-ai/dsh-session-persistence-jsonl`, exposed as the `sessionPaths` service (`root` / `projectKey` / `projectDir` / `sessionDir` / `sessionDirFor` / `ensureSessionDir`). Pure functions never touch disk; `sessionDirFor(sessionId)` resolves `header.cwd` through the host `sessions` service (optional read, not in `inject`) |
 | **shell-parse** | The repo's single shell command lexer: `splitCommandSegments` (splits on `;` `\|` `&` and newlines, never inside quotes) / `tokenizeSegment` (quoted strings are one token, glued quotes split) / `commandPositions` (strips wrappers such as `sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec`, then recurses into shell `-c`, `eval`, `$(...)` and backticks, depth-capped) / `commandWords` / `isDynamicCommand` / `substitutionBodies` / `WRAPPERS`. Pure functions plus the `shellParse` service (same implementation); no config, no tools, no disk I/O |
+| **tool-surface** | Tool-description registry: before `ctx.tools.register`, `wrapToolDefinition(def)` swaps the registered definition for a short description (use case plus a pointer to `tool_consult`) and a permissive placeholder (`{ type: "object", additionalProperties: true, properties: {} }` with a hint), keeps the full description and the full parameter schema in an in-memory catalog, and wraps `execute` so dispatch is validated against the full schema first (host `validateJsonSchemaValue`; violations raise `ToolArgsError`, while `output` / `timeoutMs` / `deferLoading` pass through unchanged). It also exposes the read-only `toolSurface` service (`lookup(name)` / `list()`) so `tool-consult` can deliver the full description and `input_schema` after revealing a tool. Depends on the host `@deepseek-ai/dsh-tools` at the exact pinned version; registers no tools and injects nothing |
 | **memory-base** | Tiered memory store — one SQLite database per tier (S/P/U, created lazily; the S location comes from `sessionPaths.sessionDirFor`) with two FTS5 indexes per kind table. Storage only: a kind is registered as a table and written/deleted through the returned scope handle (`writableTiers` + `preWrite`), while reads are global across kinds and tiers (`search` / `list`); the model gets one read-only tool, `memory_query` |
 | **goal-contract** | Goal session contract drafting: interview-style questioning produces a goal plus Done-when acceptance clauses (schema aligned with task-engine's three-level acceptance), persisted to the dsh-goal event source |
 | **metric-loop** | Metric-driven automatic loop: a measure command parses a single number, plateau stop, round/time/token bounds, cadence auto-wake |
@@ -63,6 +64,7 @@ dsh-toolset/
 ├── task-engine/          # task-tree engine
 ├── session-paths/        # session-directory encoding (host encoding replicated + sessionPaths service)
 ├── shell-parse/          # shell command lexer (segments / tokens / wrapper stripping / command positions + shellParse service)
+├── tool-surface/         # tool-description registry (short description + permissive placeholder at register; strict validation at dispatch + toolSurface service)
 ├── memory-base/          # knowledge base and persistent memory
 ├── goal-contract/        # Done-when contract drafting
 ├── metric-loop/          # metric loop
@@ -123,7 +125,7 @@ Inside a single subpackage you can run its own `pnpm run check / build / test / 
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 38 packages: TUI + 37 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 39 packages: TUI + 38 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset
