@@ -14,6 +14,7 @@
  */
 
 import { ctxMdFileIo, type MdFsHostLike } from "./ctx-fs-io.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { DEFAULT_MAX_BYTES, mdLogicTool } from "./tools.ts";
 
 export { DEFAULT_MAX_BYTES, mdLogicTool, resolveExecCwd } from "./tools.ts";
@@ -114,6 +115,6 @@ export function apply(ctx: BundleHost, config: MdLogicConfig = {}): void {
     host: ctx,
     ioFor: (exec) => ctxMdFileIo(ctx, exec),
   });
-  ctx.tools?.register(tool);
+  ctx.tools?.register(wrapToolDefinition(tool));
   ctx.logger?.(name)?.info("md-logic ready (tool=md_logic)");
 }

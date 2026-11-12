@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@dsh-toolset/tool-surface':
+        specifier: link:../tool-surface
+        version: link:../tool-surface
       marked:
         specifier: ^18.0.14
         version: 18.0.14
