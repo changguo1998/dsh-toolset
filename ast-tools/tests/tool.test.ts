@@ -139,7 +139,13 @@ test("二进制缺失时注册降级工具：调用返回含安装指引的 erro
   );
   assert.ok(logs.join("\n").includes("降级"));
   for (const def of registered as ToolDef[]) {
-    const value = (await def.execute({ action: "search" })) as {
+    const value = (await def.execute({
+      action: "search",
+      pattern: "x",
+      replacement: "y",
+      language: "typescript",
+      path: "a.ts",
+    })) as {
       error?: string;
     };
     assert.ok(

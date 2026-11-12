@@ -21,6 +21,7 @@ import {
   DEFAULT_TIMEOUT_MS,
   ensureAstGrepBin,
 } from "./binary.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import type {
   AstMatch,
   AstOptions,
@@ -234,12 +235,13 @@ export function apply(ctx: BundleHost, config: AstToolsConfig = {}): void {
         .logger?.(name)
         ?.info(`ast-tools 降级（ast-grep 不可用）：${error.message}`);
       for (const def of toToolDefs(unavailableOps(error.message))) {
-        ctx.tools?.register(def);
+        ctx.tools?.register(wrapToolDefinition(def));
       }
       return;
     }
     throw error;
   }
-  for (const def of toToolDefs(bundle)) ctx.tools?.register(def);
+  for (const def of toToolDefs(bundle))
+    ctx.tools?.register(wrapToolDefinition(def));
   ctx.logger?.(name)?.info(`ast-tools ready (ast-grep=${bundle.bin})`);
 }
