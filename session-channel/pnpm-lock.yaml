@@ -11,6 +11,9 @@ importers:
       '@dsh-toolset/clock-base':
         specifier: link:../clock-base
         version: link:../clock-base
+      '@dsh-toolset/tool-surface':
+        specifier: link:../tool-surface
+        version: link:../tool-surface
       redis:
         specifier: ^6.2.1
         version: 6.2.1

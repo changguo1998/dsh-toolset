@@ -16,6 +16,7 @@
  */
 
 import { describe } from "./client.ts";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { PLUGIN_NAME } from "./constants.ts";
 import { createSessionChannelService } from "./service.ts";
 import type { BundleHost, SessionChannelService } from "./service.ts";
@@ -118,7 +119,7 @@ export function apply(
     ]) {
       try {
         // 出口统一归一（决策项 7）：四个工具的返回体都先过 toLosslessJson 再交给宿主
-        tools.register(withLosslessOutput(build(service)));
+        tools.register(wrapToolDefinition(withLosslessOutput(build(service))));
       } catch (err) {
         warn(`${build.name} 工具注册失败：${describe(err)}`);
       }

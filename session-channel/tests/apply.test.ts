@@ -207,8 +207,12 @@ redisTest(
         ok: false,
         error: "inbox 需要 sessionId",
       });
-      const unknown = await channelTool.execute({ action: "nope" });
-      assert.match(String(unknown["error"] ?? ""), /未知 action/);
+      // 枚举越界由包装层拒绝（INVALID_ARGS）
+      await assert.rejects(
+        () => channelTool.execute({ action: "nope" }),
+        (error: unknown) =>
+          (error as { code?: string }).code === "INVALID_ARGS",
+      );
     } finally {
       await getSessionChannelService()?.stop();
       await redis.stop();
