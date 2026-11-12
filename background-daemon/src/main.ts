@@ -11,6 +11,7 @@
  */
 
 import os from "node:os";
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import path from "node:path";
 
 import { isTimers, readClock } from "@dsh-toolset/clock-base";
@@ -476,17 +477,19 @@ export async function bootDaemon(
       const validateTarget = createTargetValidator(ctx);
       try {
         tools.register(
-          createDaemonTaskTool({
-            store: runtime.store,
-            journal: runtime.journal,
-            scheduler: runtime.scheduler,
-            control: runtime.control,
-            switcher: runtime.switcher,
-            ...(validateTarget === undefined ? {} : { validateTarget }),
-            ...(config.defaultSessionId === undefined
-              ? {}
-              : { defaultSessionId: () => config.defaultSessionId }),
-          }),
+          wrapToolDefinition(
+            createDaemonTaskTool({
+              store: runtime.store,
+              journal: runtime.journal,
+              scheduler: runtime.scheduler,
+              control: runtime.control,
+              switcher: runtime.switcher,
+              ...(validateTarget === undefined ? {} : { validateTarget }),
+              ...(config.defaultSessionId === undefined
+                ? {}
+                : { defaultSessionId: () => config.defaultSessionId }),
+            }),
+          ),
         );
       } catch (err) {
         warn(`工具注册失败：${String(err)}`);
