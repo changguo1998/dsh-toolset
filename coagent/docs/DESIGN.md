@@ -18,7 +18,7 @@
 
 | 模块 | 职责 | 依赖 |
 | --- | --- | --- |
-| `main.ts` | 注册期判定服务面、注册工具、退出钩子、配置归一化 | 宿主 `tools` |
+| `main.ts` | 注册期判定服务面、注册工具（经 tool-surface 包装）、退出钩子、配置归一化 | 宿主 `tools` / `tool-surface` 库 |
 | `tools.ts` | 工具 schema 与调用方会话解析 | 动作层 |
 | `actions.ts` | `spawn` / `list` / `close`、按 id 串行、异常映射 | 下面全部 |
 | `launch.ts` | 命令白名单、脱管痕迹自检、`cwd` 与参数校验 | 无（纯函数 + `stat`） |
@@ -28,8 +28,7 @@
 | `store.ts` | 索引原子读写、记录目录、配额墓碑 | 文件系统 |
 | `types.ts` | 配置 / 记录 / 错误码 / 三个服务面的窄化声明 | 无 |
 
-**不 import 任何 `@dsh-toolset/*` 包**：跨包只走 `ctx.get("herdrUse")` / `ctx.get("sessionChannel")` /
-`ctx.get("sessionPaths")`，结构面自声明（先例 `agent-group/src/transport.ts`）。
+**跨包只走服务面**：`ctx.get("herdrUse")` / `ctx.get("sessionChannel")` / `ctx.get("sessionPaths")`，结构面自声明（先例 `agent-group/src/transport.ts`）。库面只依赖 `@dsh-toolset/tool-surface` 的 `wrapToolDefinition`（2026-11-13 用户裁定取消「不 import 其他 `@dsh-toolset` 包」的规矩; 注册前套包装层, 模型侧只见短说明与宽松占位）。
 
 ## 机制
 
@@ -95,7 +94,7 @@
 | 文本自检 | `checkForegroundText` 拒绝 `nohup` / `setsid` / `&` / `disown` / `bg` / `screen` / `tmux`（词边界） |
 | 终端目标 | `create` 固定 `foreground: true`，不使用 `foreground: false` 的后台 lane |
 | 对象归属 | 只操作 `create` 回执返回的 `terminal_id`，不接受调用方传入 |
-| 参数面 | `spawn` 只接受 `cwd` / `label` / `claimTimeoutSec`；`target` / `task` / `text` / `env` 一律 `invalid_params` |
+| 参数面 | `spawn` 只接受 `cwd` / `label` / `claimTimeoutSec`（可带 `provider` / `model` / `effort`）；完整 schema 在 `tool-surface` 的 catalog 里, `target` / `task` / `text` / `env` 不在 schema 中, 传入在派发前被拒; action 层另做二次校验 |
 
 ### 落盘
 

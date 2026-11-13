@@ -2,10 +2,10 @@
  * coagent/src/types.ts — coagent 的类型面：配置、记录、状态、稳定错误码，以及三个被消费服务的
  * **窄化结构声明**。
  *
- * 依赖姿态（2026-10-23 裁定）：本包不 import 任何 `@dsh-toolset/*` 包，跨包只走服务契约。
- * 结构面自声明的先例见 `agent-group/src/transport.ts`：只声明本包真正调用的方法，服务实现
- * 多出来的方法不影响兼容。真正的可用性判定在 `main.ts`（缺 `herdrUse` / `sessionChannel`
- * 不注册工具）。
+ * 依赖姿态（2026-11-13 裁定取消「不 import 其他 `@dsh-toolset` 包」的规矩）：服务面仍按结构
+ * 自声明读取（先例 `agent-group/src/transport.ts`：只声明本包真正调用的方法，服务实现多出来的
+ * 方法不影响兼容）; 库面只依赖 `@dsh-toolset/tool-surface` 的 `wrapToolDefinition`，用于注册前套
+ * 包装层。真正的可用性判定在 `main.ts`（缺 `herdrUse` / `sessionChannel` 不注册工具）。
  */
 
 /** 插件配置（`cordis.patch.yml` 的 `config`）。 */

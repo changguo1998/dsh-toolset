@@ -1,6 +1,6 @@
 /**
- * coagent/tests/guard.test.ts — T2 / T3 的接入面与守门断言：服务面缺席不注册、参数面收窄、
- * 源码不跨包 import、不自己起进程。
+ * coagent/tests/guard.test.ts — T2 / T3 的接入面与守门断言：服务面缺席不注册、注册定义套 tool-surface
+ * 包装、参数面收窄、不自己起进程。
  */
 
 import assert from "node:assert/strict";
@@ -13,6 +13,7 @@ import type { ToolDef } from "../src/tools.ts";
 import { FakeChannel } from "./fake-channel.ts";
 import { FakeHerdr } from "./fake-herdr.ts";
 import { createHarness, type Harness } from "./harness.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 const harnesses: Harness[] = [];
 
@@ -58,7 +59,7 @@ function host(services: Record<string, unknown>): FakeHost {
   };
 }
 
-test("T2 herdrUse + sessionChannel 在场：注册一个 coagent 工具，参数面无 target / task", () => {
+test("T2 herdrUse + sessionChannel 在场：注册一个 coagent 工具，注册定义套包装层", () => {
   const fake = host({
     herdrUse: new FakeHerdr(),
     sessionChannel: new FakeChannel(),
@@ -69,7 +70,19 @@ test("T2 herdrUse + sessionChannel 在场：注册一个 coagent 工具，参数
   assert.equal(fake.registered.length, 1);
   const def = fake.registered[0];
   assert.equal(def?.name, "coagent");
-  const parameters = def?.parameters as {
+  // 模型侧只见短说明 + 宽松占位
+  assert.match(String(def?.description), /tool_consult/);
+  assert.deepEqual(def?.parameters, {
+    type: "object",
+    additionalProperties: true,
+    properties: {},
+    description: "完整参数 schema 经 tool_consult 查询",
+  });
+
+  // 全文与完整 schema 在 catalog：参数面收窄, target / task / text 都不在
+  const entry = lookupSurface("coagent");
+  assert.ok(entry, "catalog 里应有 coagent 全文");
+  const parameters = entry.parameters as {
     additionalProperties: boolean;
     properties: Record<string, { enum?: string[] }>;
   };
@@ -208,7 +221,7 @@ test("配置归一化：非法数值落缺省，enabled 缺省 true", () => {
   assert.equal(resolveConfig({ enabled: false }).enabled, false);
 });
 
-test("源码静态自检：不 import 其他 @dsh-toolset 包、不自己起进程", async () => {
+test("源码静态自检：不自己起进程", async () => {
   const srcDir = fileURLToPath(new URL("../src/", import.meta.url));
   const files = (await readdir(srcDir)).filter((file) => file.endsWith(".ts"));
   assert.ok(files.length >= 8, `src 文件数异常：${files.join(", ")}`);
@@ -221,18 +234,5 @@ test("源码静态自检：不 import 其他 @dsh-toolset 包、不自己起进�
       /\bexecFile\(|\bexecSync\(|\bspawnSync\(/,
       `${file} 直接起进程`,
     );
-    for (const line of text.split("\n")) {
-      if (!/^\s*(?:import|export)\b.*\bfrom\s+["']/u.test(line)) continue;
-      assert.match(
-        line,
-        /from "(?:node:|\.\/)/,
-        `${file} 有跨包 import：${line}`,
-      );
-      assert.doesNotMatch(
-        line,
-        /@dsh-toolset\//,
-        `${file} 有跨包 import：${line}`,
-      );
-    }
   }
 });

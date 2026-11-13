@@ -14,6 +14,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 import { CoagentActions } from "./actions.ts";
 import { FileCoagentStore } from "./store.ts";
 import { toToolDef } from "./tools.ts";
@@ -278,6 +279,8 @@ export function apply(ctx: CoagentHost, config: CoagentConfig = {}): void {
     config: resolved,
     warn: (message) => warn(ctx, message),
   });
-  ctx.tools?.register(toToolDef(actions));
+  // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 由 tool_consult 投递,
+  // 参数按完整 schema 在派发前严格校验（tool-surface 包）
+  ctx.tools?.register(wrapToolDefinition(toToolDef(actions)));
   installExitHook();
 }

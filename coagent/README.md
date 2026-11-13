@@ -22,6 +22,8 @@ DSH（DeepSeek Harness）进程内集成插件：在 herdr **终端**的交互 s
 
 **动作面故意不含**：`send` / `wait` / `cancel` / `read`。`coagent` 不转发任何对话内容，也不解析任务结果。
 
+注册定义接入 `tool-surface` 包装层（2026-11-13 起, 与全仓其他工具包同口径）：模型侧只见短说明与宽松占位, 完整说明与参数 schema 经 `tool_consult` 投递, 派发前按完整 schema 严格校验。
+
 ### 状态与落盘
 
 状态：`starting` → `ready` → `closing` → `closed`；另有 `failed`（拉起阶段失败）与 `lost`（认领超时 / 终端消失）。
@@ -75,7 +77,7 @@ DSH（DeepSeek Harness）进程内集成插件：在 herdr **终端**的交互 s
 
 边界（避免模型误用）：
 
-- `coagent` **不接受** `text` / `task` / `target` 参数——给 `spawn` 传这些得 `invalid_params`，并提示用 `channel_delegate`。
+- `coagent` **不接受** `text` / `task` / `target` 参数——完整 schema 不在注册定义里, 传入这些键会在派发前被拒; 派任务用 `channel_delegate`。
 - `close` 是**整会话收尾**，不是取消一条任务；取消单条任务用 `channel_task cancel`，中断当前回合用 `herdr_key`。
 - `session_id` 唯一来源是 `spawn` 回执与 `list`；不要用 `cwd:` 寻址猜会话（同 cwd 多会话必然歧义）。
 
@@ -104,7 +106,7 @@ DSH（DeepSeek Harness）进程内集成插件：在 herdr **终端**的交互 s
 
 ### 明确不做
 
-- 不自建终端、不起进程、不调 herdr CLI、不 import 任何 `@dsh-toolset/*` 包（只消费服务面）。
+- 不自建终端、不起进程、不调 herdr CLI、不降级到 herdr-use 库面（跨包只走服务面）。
 - 不做一次性任务（无 `mode`、无 NDJSON、无退出码文件）。
 - 不实现 `send` / `wait` / `cancel` / `read`，不转发对话内容，不解析任务结果。
 - 不写 agent-group 状态、不做等级。

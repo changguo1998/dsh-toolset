@@ -104,8 +104,8 @@ test("T1 spawn 成功：create 一次 + run 一次 fffdsh + 认领 + 落盘", as
   assert.equal(listed.ok, true);
 });
 
-test("T2 只走服务面：不 import 其他包、不自己起进程", async () => {
-  // 结构面断言：源码只 import node: 内置与本包相对路径（见 guard.test.ts 的静态检查）。
+test("T2 只走服务面：拉起全程只调 herdrUse / sessionChannel", async () => {
+  // 拉起过程不自己起进程, 也不碰别的服务面（源码不引子进程见 guard.test.ts 的静态检查）。
   const h = await harness();
   schedulePeer(h);
   const reply = await h.spawn();

@@ -14,7 +14,9 @@
     "verify": "node scripts/verify-coagent.mjs",
     "watch": "tsc -p tsconfig.json --watch"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
+  },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "typescript": "^5.9.3"

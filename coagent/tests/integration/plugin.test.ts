@@ -15,6 +15,7 @@ import { afterEach, test } from "node:test";
 
 import { inject, name } from "../../src/index.ts";
 import { assemble, PARENT } from "../assemble.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 
 const dirs: string[] = [];
 const envBefore = process.env["DSH_HOME"];
@@ -58,7 +59,18 @@ test("注册面: apply 注册唯一工具 coagent，参数面收窄且不订阅�
   assert.deepEqual([...assembly.provided.keys()], []);
   assert.deepEqual(assembly.logs, [], "全服务在场时不该有告警");
 
-  const parameters = assembly.tool().parameters as {
+  // 注册前套了 tool-surface 包装：模型侧只见短说明 + 宽松占位, 全文与完整 schema 进 catalog
+  assert.match(String(assembly.tool().description), /tool_consult/);
+  assert.deepEqual(assembly.tool().parameters, {
+    type: "object",
+    additionalProperties: true,
+    properties: {},
+    description: "完整参数 schema 经 tool_consult 查询",
+  });
+
+  const entry = lookupSurface("coagent");
+  assert.ok(entry, "catalog 里应有 coagent 全文");
+  const parameters = entry.parameters as {
     type: string;
     additionalProperties: boolean;
     required: string[];
@@ -260,9 +272,11 @@ test("工具: list 的 canonical 回执（空列表 / 状态过滤 / 参数校�
   const filtered = await assembly.call({ action: "list", state: "lost" });
   assert.deepEqual(filtered["items"], []);
 
-  const badState = await assembly.call({ action: "list", state: "running" });
-  assert.equal(badState["error"], "invalid_params");
-  assert.match(String(badState["reason"]), /state 只支持/);
+  // 枚举违规在派发前被包装层按完整 schema 拒（action 层的二次校验见 guard.test.ts）
+  await assert.rejects(
+    () => assembly.call({ action: "list", state: "running" }),
+    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
+  );
 
   const extra = await assembly.call({ action: "list", force: true });
   assert.equal(extra["error"], "invalid_params");
@@ -306,7 +320,7 @@ test("工具: close 的 canonical 回执（优雅退出 / 幂等归档）", asyn
   assert.equal(assembly.herdr.countOf("close"), 1);
 });
 
-test("失败路径: 无调用方会话与未知动作的 canonical 错误码", async () => {
+test("失败路径: 无调用方会话 → session_unavailable；枚举外动作在派发前被拒", async () => {
   const root = await tempDir();
   const assembly = assemble({ root });
 
@@ -315,10 +329,11 @@ test("失败路径: 无调用方会话与未知动作的 canonical 错误码", a
   assert.equal(noCaller["error"], "session_unavailable");
   assert.match(String(noCaller["next"]), /父会话/);
 
-  const unknown = await assembly.call({ action: "send", task: "x" });
-  assert.equal(unknown["ok"], false);
-  assert.equal(unknown["error"], "invalid_action");
-  assert.match(String(unknown["next"]), /channel_delegate/);
+  // 枚举外动作 + 未知键同样在派发前被拒；action 层 invalid_action 的二次校验见 guard.test.ts
+  await assert.rejects(
+    () => assembly.call({ action: "send", task: "x" }),
+    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
+  );
 
   const noExec = await assembly.tool().execute({ action: "list" }, {});
   assert.equal(noExec["error"], "session_unavailable");
