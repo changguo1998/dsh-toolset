@@ -565,7 +565,7 @@ assert_log_contains "已移除 overrides 生成区" "日志报出移除 override
 # 12f）非法 --mode：写盘前被拒
 install_expect_fail "--mode 只接受 copy" --plugins TUI --profile badmode --mode tarball
 
-# 11）接线一致性：canonical_pkgs ←→ 根 check/build 链、test-parallel.sh default_pkgs
+# 11）接线一致性：canonical_pkgs ←→ test-parallel.sh default_pkgs ←→ 仓库包目录
 canonical="$(sed -n 's/^canonical_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/install.sh")"
 [ -n "$canonical" ] || fail "无法从 install.sh 提取 canonical_pkgs（sed 模式失效？）"
 default_pkgs="$(sed -n 's/^default_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/test-parallel.sh")"
@@ -573,26 +573,39 @@ default_pkgs="$(sed -n 's/^default_pkgs="\(.*\)"$/\1/p' "$repo_root/scripts/test
 assert_eq "$canonical" "$default_pkgs" "canonical_pkgs 与 test-parallel.sh default_pkgs 同序"
 consistency="$(node -e '
 const fs = require("fs");
-const [pkgJson, canonical] = process.argv.slice(1);
-const scripts = JSON.parse(fs.readFileSync(pkgJson, "utf8")).scripts;
-const extract = (name) =>
-  scripts[name]
-    .split("&&")
-    .map((segment) => segment.trim().match(/^pnpm (?:-C (\S+)|--prefix (\S+)) run /))
-    .filter((hit) => hit)
-    .map((hit) => hit[1] || hit[2]);
-const check = extract("check");
-const build = extract("build");
+const path = require("path");
+const [root, canonical] = process.argv.slice(1);
+// 仓库包目录 = 根目录下 package.json 的 name 以 @dsh-toolset/ 开头的子目录
+const dirs = fs
+  .readdirSync(root, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+  .map((entry) => entry.name)
+  .filter((name) => {
+    try {
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(root, name, "package.json"), "utf8"),
+      );
+      return typeof manifest.name === "string" && manifest.name.startsWith("@dsh-toolset/");
+    } catch {
+      return false;
+    }
+  });
 const canon = canonical.trim().split(/\s+/);
 const sorted = (list) => [...new Set(list)].sort();
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const problems = [];
-if (!check.length || !build.length) problems.push("check/build 链提取为空");
-if (!eq(check, build)) problems.push("check 与 build 不同序");
-if (!eq(sorted(check), sorted(canon))) problems.push(`集合不一致：${sorted(check).join(",")} vs ${sorted(canon).join(",")}`);
+if (canon.length !== 39 || dirs.length !== 39)
+  problems.push(`包数不是 39：canonical ${canon.length} / 目录 ${dirs.length}`);
+if (!eq(sorted(canon), sorted(dirs))) {
+  const onlyCanon = sorted(canon).filter((name) => !dirs.includes(name));
+  const onlyDirs = sorted(dirs).filter((name) => !canon.includes(name));
+  problems.push(
+    `集合不一致：只在 canonical=${onlyCanon.join(",") || "（无）"} / 只在目录=${onlyDirs.join(",") || "（无）"}`,
+  );
+}
 console.log(problems.length ? problems.join("；") : "ok");
-' "$repo_root/package.json" "$canonical")"
-assert_eq "$consistency" "ok" "canonical_pkgs 与根 check/build 链一致（集合 + check==build 同序）"
+' "$repo_root" "$canonical")"
+assert_eq "$consistency" "ok" "canonical_pkgs 与仓库包目录一致且为 39 个包"
 missing=""
 for d in $canonical; do
     [ -d "$repo_root/$d" ] || missing="$missing $d"

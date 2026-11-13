@@ -70,13 +70,9 @@
 
 - 写面围栏核查与三包改造（2026-11-08 完成）：`ast-tools` 的 `ast_replace`、`md-logic` 的 `replace`、`hash-edit` 的 `hash_read` / `hash_edit` 读写面全改走官方 `ctx.fs`（围栏 + 写意图瀑布 + 文件级版本守卫 + `fs/observed`），每包新增 `src/io.ts`（接口 + node 缺省实现）与 `src/ctx-fs-io.ts`（`ctx.fs` 实现），服务缺失不回落 node 并返回可行动错误；跨包核对表 24 行，结论「需改走 3 / 可不走 15 / 非工具面 6」（追踪文档 `docs/archived/2026-11-08-tool-write-path-fence.md`，三包各 89 / 83 / 65 例 + 集成 9 / 10 / 18 例全绿）。
 
+- 工具说明注册表收尾三件（2026-11-13 完成）: `coagent` 接入包装层（直接 `wrapToolDefinition`, 删「不 import 其他包」规矩 5 处, 单测 77 + 集成 18 全绿）、`flow-track` memory 懒解析（服务晚到自愈, `e2e` 补 payload `ok` 断言, 82 例 + e2e 绿）、`scripts/test-install.sh` 第 11 步改 `canonical_pkgs` / `default_pkgs` / 仓库包目录三方比对并补 39 包计数（124 项全过）; `ponytail` e2e 按用户裁定「计划废弃」不改不测（追踪文档 `docs/archived/2026-11-13-tool-followups.md`, 全仓 39 包 check / test 绿）。
+
 ## 2. 未完成项
-
-- **两个 e2e 用例长期红（与工具说明注册表无关）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 2026-11-13 复跑 41 例中 2 例红。`e2e/flow-track.test.ts:46` 的路径断言本身正确（`projectRoot` = 临时 home, P 库应为 `<home>/.dsh/project.db`）; 真因是 `flow-track/src/index.ts:185-200` 在 apply 时取一次 `ctx.memory`, 取不到就用「注册即抛错」的替身, 装配顺序不保证 memory-base 先就绪时该实例永久 `unavailable`（探测: 同一夹具组合有时拿到、有时拿不到）, 且用例只断言 `isError === false`, 放过了 payload `ok:false`。期望: `flow-track` 改懒解析 memory; 用例补 payload `ok` 断言。`e2e/ponytail.test.ts`（5 s 等不到注入）按用户 2026-11-13 裁定「ponytail 计划废弃」不再修改或测试。计划见 `docs/implementation/2026-11-13-tool-followups.md`。来源: 2026-11-11 工具说明注册表补 e2e 用例时的全量复跑, 2026-11-13 复跑与探测更新。
-
-- **`coagent` 接入 tool-surface**（2026-11-11, agent 发现; 2026-11-13 用户裁定解除前提, 优先级 P3, 状态: 未接取）: 迁移后全仓 21 个工具包已接入包装层, `coagent` 因包内静态规则「不 import 其他 `@dsh-toolset` 包、跨包只走服务契约」保持未接入。用户 2026-11-13 裁定该规矩取消, 必要情况下可以 import 其他包。期望: 直接 import `wrapToolDefinition`, 注册前套包装（单工具 `coagent`, `src/main.ts:281`）; 删 5 处规矩文本与静态断言（`README.md:107` / `docs/DESIGN.md:31` / `src/types.ts:5` / `tests/guard.test.ts:211` / `tests/spawn.test.ts:107`）; `package.json` 加 `link:../tool-surface`; 测试改断言包装生效。计划见 `docs/implementation/2026-11-13-tool-followups.md`。来源: 2026-11-11 阶段 5 的例外, 2026-11-13 用户裁定。
-
-- **`scripts/test-install.sh` 第 11 步接线断言失效**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 该步前两行已从 `test-parallel.sh` 取 `default_pkgs` 比对; 后面那段仍从根 `package.json` 的 `check` / `build` 脚本里按 `pnpm -C <包> run` 提取包清单（`:576` 起）, 根脚本 2026-11-08 改为委托 `scripts/test-parallel.sh` 后提取结果为空, 该断言恒报「check/build 链提取为空」（`:590`。与包数无关, 2026-11-11 逐行复核成立）。期望: 删掉根脚本抠取那段, 改 `canonical_pkgs` / `default_pkgs` / 仓库包目录三方比对, 并补 39 包计数断言。计划见 `docs/implementation/2026-11-13-tool-followups.md`。来源: 2026-11-11 工具说明注册表接线时的全仓自查。
 
 - **工具揭示架构重设计（缓存友好）**（2026-11-09, 用户提出, 优先级 P2, 以后再做; 状态: 未接取）: 现状考察发现当前 tool-consult 用宿主 `tools.restrict` 遮罩控制模型可见工具集, 揭示后在**下一次请求装配**生效——改动 `request/header` 的 `tools` 集合, 使前缀缓存断一次; 「保持缓存命中」与「动态控制模型能看到哪些工具」目前只能靠「初始小面（9 核心）+ 低频单向揭示」折中, 做不到「揭示即增补、零断缓存」。调研结论: 宿主按路由 `toolUpdate` 模式区分 `in-history`（可在消息历史携带 `tool_addition` 块, 初始 header 字节不变、前缀缓存保住）/ `addition-only` / `leading-only`（会重建 baseline、断前缀）; agent-loop 另有 `toolsChanged` / `preparedCall.toolUpdate` 的步内工具增补路径。期望: 重设揭示架构——初始 header 工具面稳定 + 新工具经协议增补进入上下文（或其它不重建头部的方式）, 使工具可见性可控且缓存命中尽量不破; 开工前先确认当前 DeepSeek 路由的 `toolUpdate` 行为与宿主 `tool-addition` 通道能力。来源: 2026-11-09 会话（注入机制 / 上下文结构 / 缓存命中的讨论沉淀）。
 
