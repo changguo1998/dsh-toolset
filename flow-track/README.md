@@ -43,7 +43,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 
 | 工具 | 参数 | 行为 |
 | --- | --- | --- |
-| `flow_record` | `slug`、`stage`（八阶段或 `-`）、`status`（start / done / blocked / note）、`body?` | 按顺序写：首条必须是「目标」；之后只能写当前阶段（**替换**该阶段记录）或下一阶段（追加）；跳过与倒回被拒绝；写后清掉本会话的「未记录」观测 |
+| `flow_record` | `slug?`（缺省回退会话 id）、`stage`（八阶段或 `-`）、`status`（start / done / blocked / note）、`body?` | 按顺序写：首条必须是「目标」；之后只能写当前阶段（**替换**该阶段记录）或下一阶段（追加）；跳过与倒回被拒绝；写后清掉本会话的「未记录」观测 |
 | `flow_status` | `slug?` | 读开关态（`enabled`）、是否有未完成流程（`active`）、当前阶段（序号 / 名称 / 门禁 / 帧标题）与最近记录 |
 | `flow_enable` | `enabled`（布尔） | 切换注入开关（进程内, 缺省关闭, 不落盘）；回执带 `enabled` 与 `active` |
 | `flow_remove` | `id` 或 `slug`（二选一） | 删流程记录：`id` 删一条、`slug` 删该任务全部（回 `removed` 条数）；删后刷新注入缓存 |

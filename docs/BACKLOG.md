@@ -6,7 +6,7 @@
 
 > 本清单只列**未完成**项；已完成项见 `STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
 > 设计依据：`docs/host/AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `docs/host/DSH-CTX-API.md` 对齐宿主接口。
-> 基线：dsh `0.2.1-rc.2`（2026-10-21 升级；对照见 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`，上一步 `0.2.0-rc.2` 见 `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）。
+> 基线：dsh `0.2.2-rc.1`（2026-11-07 升级；对照见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`，上一步 `0.2.1-rc.2` 见 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）。
 > 编号口径：`#N` **仅供阅读**——不用于追踪文档的命名与引用；**每次整理时按当前顺序从 1 起重新编号**（不保证稳定，勿作跨引用）；与其它层 BACKLOG 的编号互不关联，跨层引用须写明文件路径。
 > 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
 
@@ -72,11 +72,11 @@
 
 ## 2. 未完成项
 
-- **两个 e2e 用例长期红（与工具说明注册表无关）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: `e2e/flow-track.test.ts` 断言的 `<home>/.dsh/project.db` 不存在，实测 `flow_record` 返回 `{ok:false,error:"unavailable",message:"memory-base 分类 flow 未注册成功：ctx.memory 不可用"}`——`bootPackage` 把被测包排在依赖包之前，flow-track 在 apply 时就注册分类，此时 memory-base 的服务尚未就绪（把 memory-base 排到首位后仍复现，疑与 memory 服务异步就绪有关）；`e2e/ponytail.test.ts` 在步边界等不到注入（5s 超时），与挂载顺序无关。代码路径与本任务改动无关（旧提交对照未完成：隔离工作树缺 `dist/` 产物），本任务未修。期望: 夹具改为按依赖顺序装配或等 `whenReady()` 再注册消费者；修好后恢复 `pnpm test:e2e` 全绿。来源: 2026-11-11 工具说明注册表补 e2e 用例时的全量复跑。
+- **两个 e2e 用例长期红（与工具说明注册表无关）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 2026-11-13 复跑 41 例中 2 例红。`e2e/flow-track.test.ts:46` 的路径断言本身正确（`projectRoot` = 临时 home, P 库应为 `<home>/.dsh/project.db`）; 真因是 `flow-track/src/index.ts:185-200` 在 apply 时取一次 `ctx.memory`, 取不到就用「注册即抛错」的替身, 装配顺序不保证 memory-base 先就绪时该实例永久 `unavailable`（探测: 同一夹具组合有时拿到、有时拿不到）, 且用例只断言 `isError === false`, 放过了 payload `ok:false`。期望: `flow-track` 改懒解析 memory; 用例补 payload `ok` 断言。`e2e/ponytail.test.ts`（5 s 等不到注入）按用户 2026-11-13 裁定「ponytail 计划废弃」不再修改或测试。计划见 `docs/implementation/2026-11-13-tool-followups.md`。来源: 2026-11-11 工具说明注册表补 e2e 用例时的全量复跑, 2026-11-13 复跑与探测更新。
 
-- **`coagent` 接入 tool-surface（服务化包装）**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 工具说明注册表迁移后全仓 21 个工具包已接入包装层, 只有 `coagent` 例外——它有一条静态自检规则「不 import 其他 `@dsh-toolset` 包、跨包只走服务契约」, 而 `tool-surface` 目前只提供库函数 `wrapToolDefinition`, 没有服务面。期望: 给 `toolSurface` 增 `wrap(def)` 方法（内部复用同一包装函数）, `coagent` 经 `ctx.get("toolSurface")` 取用, 取不到时退回未包装（与现在行为一致）; 补一条 coagent 用例断言包装生效。来源: 2026-11-11 工具说明注册表阶段 5 的例外（见 `docs/archived/2026-11-11-tool-description-registry.md`「偏差」）。
+- **`coagent` 接入 tool-surface**（2026-11-11, agent 发现; 2026-11-13 用户裁定解除前提, 优先级 P3, 状态: 未接取）: 迁移后全仓 21 个工具包已接入包装层, `coagent` 因包内静态规则「不 import 其他 `@dsh-toolset` 包、跨包只走服务契约」保持未接入。用户 2026-11-13 裁定该规矩取消, 必要情况下可以 import 其他包。期望: 直接 import `wrapToolDefinition`, 注册前套包装（单工具 `coagent`, `src/main.ts:281`）; 删 5 处规矩文本与静态断言（`README.md:107` / `docs/DESIGN.md:31` / `src/types.ts:5` / `tests/guard.test.ts:211` / `tests/spawn.test.ts:107`）; `package.json` 加 `link:../tool-surface`; 测试改断言包装生效。计划见 `docs/implementation/2026-11-13-tool-followups.md`。来源: 2026-11-11 阶段 5 的例外, 2026-11-13 用户裁定。
 
-- **`scripts/test-install.sh` 第 11 步接线断言失效**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 该步从根 `package.json` 的 `check` / `build` 脚本里按 `pnpm -C <包> run` 提取包清单, 再与 `install.sh` 的 `canonical_pkgs` 比对; 根脚本 2026-11-08 改为委托 `scripts/test-parallel.sh` 后提取结果为空, 该断言恒报「check/build 链提取为空」（与包数无关, 2026-11-11 逐行复核成立）。期望: 改从 `test-parallel.sh` 的 `default_pkgs` 取清单（或直接三方比对 `canonical_pkgs` / `default_pkgs` / 包目录）, 并补包数断言。来源: 2026-11-11 工具说明注册表接线时的全仓自查。
+- **`scripts/test-install.sh` 第 11 步接线断言失效**（2026-11-11, agent 发现, 优先级 P3, 状态: 未接取）: 该步前两行已从 `test-parallel.sh` 取 `default_pkgs` 比对; 后面那段仍从根 `package.json` 的 `check` / `build` 脚本里按 `pnpm -C <包> run` 提取包清单（`:576` 起）, 根脚本 2026-11-08 改为委托 `scripts/test-parallel.sh` 后提取结果为空, 该断言恒报「check/build 链提取为空」（`:590`。与包数无关, 2026-11-11 逐行复核成立）。期望: 删掉根脚本抠取那段, 改 `canonical_pkgs` / `default_pkgs` / 仓库包目录三方比对, 并补 39 包计数断言。计划见 `docs/implementation/2026-11-13-tool-followups.md`。来源: 2026-11-11 工具说明注册表接线时的全仓自查。
 
 - **工具揭示架构重设计（缓存友好）**（2026-11-09, 用户提出, 优先级 P2, 以后再做; 状态: 未接取）: 现状考察发现当前 tool-consult 用宿主 `tools.restrict` 遮罩控制模型可见工具集, 揭示后在**下一次请求装配**生效——改动 `request/header` 的 `tools` 集合, 使前缀缓存断一次; 「保持缓存命中」与「动态控制模型能看到哪些工具」目前只能靠「初始小面（9 核心）+ 低频单向揭示」折中, 做不到「揭示即增补、零断缓存」。调研结论: 宿主按路由 `toolUpdate` 模式区分 `in-history`（可在消息历史携带 `tool_addition` 块, 初始 header 字节不变、前缀缓存保住）/ `addition-only` / `leading-only`（会重建 baseline、断前缀）; agent-loop 另有 `toolsChanged` / `preparedCall.toolUpdate` 的步内工具增补路径。期望: 重设揭示架构——初始 header 工具面稳定 + 新工具经协议增补进入上下文（或其它不重建头部的方式）, 使工具可见性可控且缓存命中尽量不破; 开工前先确认当前 DeepSeek 路由的 `toolUpdate` 行为与宿主 `tool-addition` 通道能力。来源: 2026-11-09 会话（注入机制 / 上下文结构 / 缓存命中的讨论沉淀）。
 
