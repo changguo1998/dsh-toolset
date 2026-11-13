@@ -42,6 +42,9 @@ test("flow_track 写流程记录后可读状态, 服务面给出开关与摘要"
     { agent: agent.agent },
   );
   assert.equal(recorded.isError, false, textOf(recorded));
+  // 工具层 isError=false 不代表写入成功（memory 不可用时 payload 是 ok:false）, 必须查 payload
+  const payload = recorded.value as { ok?: boolean } | undefined;
+  assert.equal(payload?.ok, true, textOf(recorded));
   // 记录必须落在临时 home 的项目库（P 层），不能写进仓库自己的 `.dsh/`
   assert.equal(existsSync(join(host.home, ".dsh", "project.db")), true);
 

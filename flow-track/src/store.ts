@@ -52,6 +52,9 @@ export interface MemoryFaceLike {
   }): Promise<StoreRowLike[]>;
 }
 
+/** 取 memory 服务的函数（每次调用重读，服务晚到也能用）。 */
+export type MemoryProvider = () => MemoryFaceLike | undefined;
+
 /** 分类名。 */
 export const FLOW_KIND = "flow";
 
@@ -162,40 +165,72 @@ function scopeFor(memory: MemoryFaceLike): ScopeLike {
 }
 
 /**
- * 流程记录存储：注册一次 kind、复用同一个句柄（跨 HMR 重载复用）。
+ * 流程记录存储：首次用到时懒注册 kind、复用同一个句柄（跳 HMR 重载复用）。
+ *
+ * memory 服务可用传实例或「取服务的函数」：传函数时每次调用重新读取，服务晚到也能用；
+ * 解析成功才缓存句柄，失败不缓存（装配顺序不保证 memory-base 先就绪）。
  * `registerKind` 抛错或服务面缺方法时 `available` 为 false，调用方据此给可读错误。
  */
 export class FlowStore {
-  readonly #memory: MemoryFaceLike;
-  readonly #scope: ScopeLike | undefined;
-  readonly #error: string | undefined;
+  readonly #memoryOf: MemoryProvider;
+  #memory: MemoryFaceLike | undefined;
+  #scope: ScopeLike | undefined;
+  #error: string | undefined;
 
-  constructor(memory: MemoryFaceLike) {
-    this.#memory = memory;
-    let scope: ScopeLike | undefined;
-    let error: string | undefined;
+  constructor(memory: MemoryFaceLike | MemoryProvider) {
+    this.#memoryOf = typeof memory === "function" ? memory : () => memory;
+    this.#memory = undefined;
+    this.#scope = undefined;
+    this.#error = undefined;
+  }
+
+  /** 读 memory 服务（读不到就给可读原因；下一次调用重试）。 */
+  #memoryFace(): MemoryFaceLike | undefined {
+    if (this.#memory !== undefined) return this.#memory;
+    let memory: MemoryFaceLike | undefined;
     try {
-      scope = scopeFor(memory);
+      memory = this.#memoryOf();
     } catch (cause) {
-      error = String(cause);
+      this.#error = String(cause);
+      return undefined;
     }
-    this.#scope = scope;
-    this.#error = error;
+    if (memory === undefined) {
+      this.#error = "ctx.memory 不可用（请检查 memory-base 是否挂载）";
+      return undefined;
+    }
+    this.#memory = memory;
+    this.#error = undefined;
+    return memory;
   }
 
-  /** 写句柄是否可用。 */
+  /** 取写入句柄（首次用到才注册；注册失败不缓存，下次重试）。 */
+  #writeScope(): ScopeLike | undefined {
+    if (this.#scope !== undefined) return this.#scope;
+    const memory = this.#memoryFace();
+    if (memory === undefined) return undefined;
+    try {
+      this.#scope = scopeFor(memory);
+      this.#error = undefined;
+    } catch (cause) {
+      this.#error = String(cause);
+    }
+    return this.#scope;
+  }
+
+  /** 写句柄是否可用（会触发一次懒解析）。 */
   get available(): boolean {
-    return this.#scope !== undefined;
+    return this.#writeScope() !== undefined;
   }
 
-  /** 注册失败原因。 */
+  /** 注册失败原因（会触发一次懒解析）。 */
   get unavailableReason(): string | undefined {
+    this.#writeScope();
     return this.#error;
   }
 
   /** 写一条推进记录。 */
   async record(input: FlowRecordInput): Promise<RecordResult> {
-    const scope = this.#scope;
+    const scope = this.#writeScope();
     if (scope === undefined) {
       return {
         ok: false,
@@ -247,7 +282,7 @@ export class FlowStore {
 
   /** 按 id 批量删（顺序策略与回退共用；空列表视为成功）。 */
   async removeMany(ids: readonly number[]): Promise<RemovalResult> {
-    const scope = this.#scope;
+    const scope = this.#writeScope();
     if (scope === undefined) {
       return {
         ok: false,
@@ -289,9 +324,10 @@ export class FlowStore {
       if (slug.length === 0) {
         return { ok: false, reason: "invalid", message: "需要 id 或 slug" };
       }
+      const memory = this.#memoryFace();
       if (
-        this.#scope === undefined ||
-        typeof this.#memory.list !== "function"
+        this.#writeScope() === undefined ||
+        typeof memory?.list !== "function"
       ) {
         return {
           ok: false,
@@ -313,11 +349,12 @@ export class FlowStore {
     slug?: string;
     limit?: number;
   }): Promise<FlowRecord[]> {
-    const list = this.#memory.list;
-    if (typeof list !== "function") return [];
+    const memory = this.#memoryFace();
+    const list = memory?.list;
+    if (memory === undefined || typeof list !== "function") return [];
     let rows: StoreRowLike[];
     try {
-      rows = await list.call(this.#memory, {
+      rows = await list.call(memory, {
         kind: FLOW_KIND,
         tier: "project",
         limit: options?.limit ?? DEFAULT_LIST_LIMIT,

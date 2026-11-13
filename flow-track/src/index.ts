@@ -18,7 +18,7 @@
  */
 
 import type { SnapshotLike } from "./status.ts";
-import { FlowStore, type FlowRecord } from "./store.ts";
+import { FlowStore, type FlowRecord, type MemoryFaceLike } from "./store.ts";
 import { WriteObserver, type SessionEventLike } from "./observe.ts";
 import { decideText } from "./inject.ts";
 import { STAGE_NAMES, hasActiveFlow } from "./policy.ts";
@@ -182,27 +182,12 @@ export function apply(ctx: unknown, config?: Config): () => void {
     process.stderr.write(`[flow-track] warn: ${message}\n`);
   };
   const resolved = resolveConfig(config);
-  const memory = readService<{
-    registerKind(spec: {
-      kind: string;
-      writableTiers?: readonly string[];
-    }): never;
-    list?(opts: {
-      kind?: string;
-      tier?: string;
-      limit?: number;
-    }): Promise<never[]>;
-  }>(c, "memory");
-  // memory 缺席时给一个「注册即抛错」的替身：FlowStore 走 available=false 分支，工具返回可读错误
-  const store = new FlowStore(
-    memory ?? {
-      registerKind(): never {
-        throw new Error("ctx.memory 不可用（请检查 memory-base 是否挂载）");
-      },
-    },
-  );
+  // memory 懒解析：装配顺序不保证 memory-base 先就绪，每次调用重读服务（FlowStore 内部实现）
+  const store = new FlowStore(() => readService<MemoryFaceLike>(c, "memory"));
   if (!store.available) {
-    warn(`流程记录不可写入：${store.unavailableReason ?? "原因未知"}`);
+    warn(
+      `流程记录暂不可写入（memory 服务尚未就绪）：${store.unavailableReason ?? "原因未知"}`,
+    );
   }
   const taskEngine = readService<TaskEngineFace>(c, "taskEngine");
   if (taskEngine === undefined) {

@@ -402,7 +402,7 @@ test("未 inject 的服务属性读会抛：走反射面读，不阻断挂载", 
     assert.equal(harness.decide("s1"), null);
   });
   assert.equal(
-    writes.some((line) => /流程记录不可写入/.test(line)),
+    writes.some((line) => /流程记录暂不可写入/.test(line)),
     false,
     "经反射面读到 memory 后不该报「不可写入」",
   );
@@ -415,7 +415,7 @@ test("memory 缺席：写入返回可读错误，注入恒 null", () => {
     harness.emitEvent({ type: "tool/call", data: { name: "bash" } });
     assert.equal(harness.decide("s1"), null);
   });
-  assert.ok(writes.some((line) => /流程记录不可写入/.test(line)));
+  assert.ok(writes.some((line) => /流程记录暂不可写入/.test(line)));
 });
 
 test("memory 缺席：flow_record 返回 unavailable", async () => {
@@ -779,4 +779,32 @@ test("注册接入 tool-surface 包装：模型侧短说明 + 宽松占位, 全�
     "required"
   ] as string[] | undefined;
   assert.deepEqual(rollbackRequired, ["stage"]);
+});
+
+test("memory 服务晚到：apply 后挂上 memory, flow_record 仍能写入", async () => {
+  const fake = makeMemory();
+  const writes: string[] = [];
+  const harness = makeContext();
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+    writes.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    apply(harness.ctx);
+  } finally {
+    process.stderr.write = original;
+  }
+  // apply 时 memory 未就绪：只告警, 不把实例钉死
+  assert.ok(writes.some((line) => /流程记录暂不可写入/.test(line)));
+
+  harness.ctx["memory"] = fake.memory;
+  const record = harness.tools.find((tool) => tool.name === "flow_record");
+  assert.ok(record, "工具应已注册");
+  const value = await record.execute(
+    { slug: "late", stage: "目标", status: "start" },
+    {},
+  );
+  assert.equal(value["ok"], true);
+  assert.equal(fake.rows.length, 1);
 });

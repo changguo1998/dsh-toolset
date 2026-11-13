@@ -72,7 +72,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 - **记录缓存有延迟**：`decide` 是同步的，读库是异步的，故注入里的「最近记录」来自缓存；缓存由挂载、`flow_record` 写入、`session/event` 三处刷新。
 - **合规判据只到工具名**：只要调用过 `write` / `edit` / `bash` / `pwsh` / `str_replace_editor` / `hash_edit` / `ast_replace` / `script_run` 就算「写过」，不解析改了哪些文件；判据失真时改提示文案，不升级为拦截。
 - **正文入库不改文档体系**：决策项 3 = b（全文入库）的追踪文档规则改动未并入本包，现有 `docs/implementation/*.md` 写法不变。
-- **降级**：`ruleEngine` 缺席 → 告警且不注册（插件不注入）；`memory` 缺席 → 工具返回 `unavailable`、注入恒 `null`（判断不了有没有未完成流程）；`taskEngine` 缺席 → 状态段退化，只给「最近记录」。
+- **降级**：`ruleEngine` 缺席 → 告警且不注册（插件不注入）；`memory` 缺席 → 工具返回 `unavailable`、注入恒 `null`（判断不了有没有未完成流程）；服务晚到能自愈（每次调用重读服务，失败解析不缓存）；`taskEngine` 缺席 → 状态段退化，只给「最近记录」。
 - **开关决定一切注入**：`enabled` 配置与进程内开关都打开、且有未完成阶段的流程记录才注入；因此开关关闭时阶段模板与合规提示一并静默（同一门槛）。
 - **服务读取必须经反射面**：本包只 `inject: ["ruleEngine"]`，`memory` / `taskEngine` / `tools` / `logger` 都用 `ctx.reflect.get(name)` 读；直接访问 `ctx.memory` 这类未 inject 的服务属性在 cordis 里会抛 `cannot get property "x" without inject`（真机实测，2026-11-06）。
 - **HMR 重载**：写入句柄按 memory 服务对象缓存在 `globalThis`（键 `dsh-toolset.flow-track.scopes`），重载后复用同一个句柄，不会因「分类 `flow` 已注册」丢掉写入能力。
@@ -88,7 +88,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」从�
 ```sh
 cd flow-track
 pnpm run check   # tsc --noEmit（含 tests）
-pnpm test        # node --test：阶段 6 例 + 状态 7 例 + 存储 13 例 + 观测 6 例 + 注入 9 例 + 顺序 12 例 + 接线 24 例
+pnpm test        # node --test：阶段 6 例 + 状态 7 例 + 存储 14 例 + 观测 6 例 + 注入 9 例 + 顺序 12 例 + 接线 25 例（共 82 例）
 pnpm run build   # 编译到 dist/
 ```
 

@@ -77,9 +77,10 @@ function makeMemory(): {
   };
 }
 
-test("注册声明：kind flow + 可写 P 层", () => {
+test("注册声明：kind flow + 可写 P 层（首次用到时注册）", () => {
   const fake = makeMemory();
-  new FlowStore(fake.memory);
+  const store = new FlowStore(fake.memory);
+  assert.equal(store.available, true, "懒注册：读取可用性时注册");
   assert.equal(fake.specs[0]!.kind, FLOW_KIND);
   assert.deepEqual(fake.specs[0]!.writableTiers, ["project"]);
 });
@@ -275,4 +276,24 @@ test("句柄没有 forget：删除返回 unavailable", async () => {
   const result = await legacyStore.remove({ id: 1 });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.reason, "unavailable");
+});
+
+test("memory 服务晚到：懒解析后仍能写入, 失败不缓存", async () => {
+  const fake = makeMemory();
+  let current: typeof fake.memory | undefined;
+  const store = new FlowStore(() => current);
+
+  // 服务未就绪: available=false, 原因可读；下一次调用重试
+  assert.equal(store.available, false);
+  assert.match(store.unavailableReason ?? "", /ctx.memory 不可用/);
+
+  current = fake.memory;
+  const result = await store.record({
+    slug: "late",
+    stage: "目标",
+    status: "start",
+  });
+  assert.deepEqual(result, { ok: true, id: 1 });
+  assert.equal(store.available, true);
+  assert.equal((await store.list()).length, 1);
 });
