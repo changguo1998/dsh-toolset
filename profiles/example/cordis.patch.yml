@@ -271,9 +271,10 @@
 - id: ponytail
   disabled: true
 
-# ── plan-mode（默认停挂，等待本仓自研实现）────────────────────────────────
+# ── plan-mode（官方版默认停挂；本仓自研实现见 plan-mode/）────────────────────
 # 官方 plan-mode 只注入 plan:policy 并条件挂载 exit_plan_mode，不拦截写工具；
-# 2026-11-11 裁定先禁用，恢复 = 删本块。
+# 2026-11-11 裁定先禁用，恢复 = 删本块。本仓自研替代是 @dsh-toolset/plan-mode
+#（插件 id plan-mode-track，与官方 id 不同，可同时挂载），由 canonical_pkgs 一起安装。
 - id: plan-mode
   disabled: true
 

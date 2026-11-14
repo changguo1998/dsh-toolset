@@ -17,7 +17,7 @@
 ### A. 工作流能力成为一等公民
 
 - **目标**：把「多步 / 多角色 / 可复用」的工作流，从临时编排变成可声明、可复用、可观测的能力。
-- **判据**：模板族可声明并复用（**已落地**：`/playbook` 统一入口 + 五族模板，见 `command-template/README.md`）；命令模板可组合（pre-steps / chain / best-of-N，已支持）；每步可指定模型并记账用量（模型覆盖 + 叶子 `executor` 的 `subagent` / `workflow` / `command` 后端与用量标注**已落地**，见追踪文档 `docs/archived/2026-10-02-task-engine-usage-metric.md`）；需要时能隔离执行（git worktree，**已落地**：`task-engine/README.md`「执行后端与隔离」、追踪文档 `docs/archived/2026-10-02-executor-worktree-isolation.md`）。
+- **判据**：模板族可声明并复用（**已落地**：`/playbook` 统一入口 + 五族模板，见 `command-template/README.md`）；命令模板可组合（pre-steps / chain / best-of-N，已支持）；每步可指定模型并记账用量（模型覆盖 + 叶子 `executor` 的 `subagent` / `workflow` / `command` 后端与用量标注**已落地**，见追踪文档 `docs/archived/2026-10-02-task-engine-usage-metric.md`）；需要时能隔离执行（git worktree，**已落地**：`task-engine/README.md`「执行后端与隔离」、追踪文档 `docs/archived/2026-10-02-executor-worktree-isolation.md`）；流程可声明并按序执行（**已落地**：流程定义插件 `flow-track` / `plan-mode` + task-engine 节点基础工具——顺序强制、编程建树、当前节点推送，流程选择由 `flow-arbiter` 仲裁，见追踪文档 `docs/archived/2026-11-15-task-engine-template-framework.md`）。
 - **边界**（2026-09-30 决策）：执行机制（并发 / 隔离 / 模型路由 / 计量）复用宿主 `workflow` / `subagents` / `llm` / `token-meter`；本仓只补「不变量与声明」——task-engine 自研帧栈、拆解门禁、验收与事件溯源，模板负责入口与内容，叶子用 `executor` 声明执行后端（见 `task-engine/README.md`「边界与外包」）。
 
 ### B. 会话之间可协作

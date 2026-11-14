@@ -6,16 +6,16 @@
 
 > 本表只记状态, 不记细节：功能与边界见各包 `README.md`, 未完成项见 `BACKLOG.md`；已完成的实施清单归档在 `archive/`（如 `TUI-REFACTOR-TASKS.md`）, 仅作历史记录。
 > 状态取值：未开始 / 进行中 / 阻塞 / 完成 / 已取消 / 暂缓。
-> 单测数为 `pnpm run test` 实测值（`node --test` 用例数, 2026-11-13 全绿: 39 包）。
+> 单测数为 `pnpm run test` 实测值（`node --test` 用例数, 2026-11-15 全绿: 42 包）。
 
 ## 总览
 
 - TUI 侧现状见 `TUI/docs/STATUS.md`（完成情况、命令面、宿主升级适配）, 待办与开放项见 `TUI/docs/BACKLOG.md`——本文件不复述 TUI 细节。
-- **38 个插件全部完成并合入 main**（清单见根 `README.md`「组成」）; TUI 单测 1879 例。
+- **41 个插件全部完成并合入 main**（清单见根 `README.md`「组成」）; TUI 单测 1890 例。
 - 宿主基线：**`0.2.2-rc.1`**（2026-11-07 升级完成: 全局 `dsh` 与安装树升到 rc.1、`scripts/install.sh --profile fff --sync` 已重装、`install.sh` 默认版本 / `test-install.sh` 假版本串 / 4 个包 smoke 门槛 / 各 README / 根 `devDependencies` 与 `pnpm-lock.yaml` 全部改到 rc.1; 安装树随包 **330 / 319**, fff 组合树 866 行 / 174 个 `- id:` 行 / 官方活跃包 **101** 个）。接口增量见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`, 官方包清单与分类见 `docs/host/HOST-PACKAGES.md`, 上一版对照见 `docs/host/HOST-UPGRADE-0.2.1-rc.5.md`。
-- profile（`~/.dsh/profiles/fff`）挂载 **38 个 `@dsh-toolset/*` 包**（TUI + 37 插件; `tool-surface` 只作库依赖, 未单列 bundle）, 合计 39 个 bundle（dsh-base + 38）; 主 profile 快照停在 2026-11-07, 尚未同步 `tool-surface`。
+- 仓库现有 **42 个 `@dsh-toolset/*` 包**（TUI + 41 插件; `tool-surface` 只作库依赖, 未单列 bundle）; 主 profile（`~/.dsh/profiles/fff`）快照停在 2026-11-07（挂载 38 个本仓包）, 尚未同步 `tool-surface` / `cache-hit-monitor` / `plan-mode` / `flow-arbiter`——重跑 `scripts/install.sh --profile fff --sync` 即按 `canonical_pkgs` 42 包生成。
 - 已取消 / 不再立项：`rate-guard`（pi 侧已移除, dsh 侧由官方 `llm-retry` 覆盖）、GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报、近期改动代码审查、preset 机制迁移评估、`llm-router`（改用现成开源网关）；裁定记录见 `docs/BACKLOG.md` 第 1 节 与 `archive/PI-DSH-FEATURE-COMPARISON.md`。
-- 未建插件与在办条目见 `docs/BACKLOG.md` 第 2 节（按标题引用; 2026-11-13 为 5 条未接取 + 1 条暂停）; 真机验证欠账已清零（清单归档在 `docs/archived/2026-10-23-real-machine-verification.md`）。
+- 未建插件与在办条目见 `docs/BACKLOG.md` 第 2 节（按标题引用; 2026-11-15 为 2 条未接取 + 1 条暂停）; 真机验证欠账已清零（清单归档在 `docs/archived/2026-10-23-real-machine-verification.md`）。
 
 ## 状态表
 
@@ -24,7 +24,7 @@
 | herdr-integration | 完成 | herdr 面板桥：agent 状态上报 + ask-user / approval / turn 三类 blocked 事件桥接; seq 闸门 + 周期重发 | 60 |
 | herdr-use | 完成 | 把 herdr 终端当可控伪终端层：10 个模型侧工具（`herdr_create` / `close` / `label` / `text` / `key` / `run` / `read` / `list` / `info` / `wait`）; 前台 lane 继承父会话, 后台 lane 落 `dshbg`（缺会话自动拉起 headless server; 只拉起不关闭）; 与进程内 `herdrUse` 服务面共用 registry 与写锁 | 143 |
 | clock-base | 完成 | 定时器统一面：服务 `clock`（`now()` + `schedule` / `interval`, 随调用方 fiber 释放, 默认 `unref`）; 另导出 `ManualClock` 供测试 | 35 |
-| task-engine | 完成 | Frame 状态机、`decompose` / `implement` / `execute` / `stop` / `status` 工具族、双重门禁、RET 三级路由、fan-out 就绪池、叶子执行后端 | 182 |
+| task-engine | 完成 | Frame 状态机、`decompose` / `implement` / `execute` / `stop` / `status` 工具族、双重门禁、RET 三级路由、fan-out 就绪池、叶子执行后端; 编排支持（2026-11-15）: 流程定义级顺序强制（`enforceOrder`）、编程服务面建树（`composeFromNodes`）、当前节点推送（`pinNotes.hold("task")`） | 203 |
 | session-paths | 完成 | 复刻宿主会话目录编码（`encodeSegment` / `projectKey` / `projectDir` / `sessionDir`）, 以 `sessionPaths` 服务供各包共用 | 34 |
 | memory-base | 完成 | 分层记忆存储：S / P / U 每层一个 SQLite 库 + 每分类双 FTS5 索引; 存储面（作用域句柄）与只读工具 `memory_query` | 90 |
 | goal-contract | 完成 | interview 式 Done-when 契约起草, 落 dsh-goal 事件源并回读比对 | 55 |
@@ -56,7 +56,9 @@
 | tool-consult | 完成 | 工具咨询与按需揭示：关键词索引 + `consult_tools`, 咨询即授权; 双轨（接入 `tool-surface` 的包声明常驻 + 派发拒绝, 未接入包走 `tools.restrict` 遮罩）; 揭示经 `pinNotes.hold` 投递全文 | 112 |
 | shell-parse | 完成 | shell 命令词法：切段（引号内不切）/ 分词 / 剥离包装器 / 命令位解析（含 `sh -c` / `eval` / `$()` 递归）; 纯函数导出 + 服务 `shellParse` | 24 |
 | tool-surface | 完成 | 工具说明注册表：注册定义换成短说明 + 宽松占位, 完整说明与 schema 收进 catalog, 派发前按全文严格校验（`ToolArgsError`）; 只读服务 `toolSurface`（`lookup` / `list`） | 13 |
-| flow-track | 完成 | 标准流程固化：八阶段模板注入（缺省关闭）+ `flow_record` / `flow_status` / `flow_enable` / `flow_remove` / `flow_rollback`; 记录落 memory-base 项目层 | 80 |
+| flow-track | 完成 | 标准流程**流程定义方**：八阶段节点数组经 `flow_start` 一次建树（内部调 task-engine `composeFromNodes`）, 树级注入已退役; `flow_record` / `flow_status` / `flow_remove` / `flow_rollback` 记推进（memory-base 项目层）; 非树级注入 = 合规提示 + 最近记录 | 85 |
+| plan-mode | 完成 | plan 三段流程定义（探索 / 计划 / 实施, 各可再拆 + 顺序强制, 计划段 human 门禁）与入口 `plan_start`; 插件 id `plan-mode-track`（官方 plan-mode 占 id） | 11 |
+| flow-arbiter | 完成 | 流程选择仲裁：会话级选中（内存）+ `flow_select` / `/flow-arbiter` 入口 + `tools/pre-execute` 只拦流程入口（未选中或选别的即拒）; 工具恒注册, 切换流程不破坏缓存 | 12 |
 | pin-note | 完成 | 跨压缩上下文保持：`pin_note` / `note_list` / `note_remove`, 按当前上下文比对后折叠进本步消息 | 40 |
 | term-check | 完成 | 回复正文术语检查（`assistant-text` 上的 rule-engine 消费者）：按随包术语表快照比对旧称并注入更正提示; 只报不改 | 29 |
 
@@ -67,6 +69,7 @@
 - `preference-analysis` 依赖 memory-base（存储）与 rule-engine（注入通道）; `agent-group` 依赖 session-channel（传输）与 session-paths（状态落点）; `background-daemon` 的 memory-base 记录底座与 `security-guard` 命令复查均为可选面（缺失即降级）。
 - `coagent` 依赖 `herdr-use` 的 `herdrUse` 服务面（建终端与读写）与 `session-channel` 的 `peers`（认领新会话）, 无 npm 依赖。
 - `behavior-correction` / `md-table-check` / `symbol-normalizer` 依赖 rule-engine 的消费者通道, `tool-consult` 依赖宿主 `tools` 注册面; 服务缺席各自降级。
+- `flow-track` / `plan-mode` 经 `taskEngine` 服务面的 `composeFromNodes` 建树（服务缺席时入口返回可读错误, 其余功能不受影响）; 两者向 `flow-arbiter` 登记自身, 由它在 `tools/pre-execute` 按会话选中状态拦截流程入口（仲裁缺席时各自入口照常放行, 仲裁侧另有内置默认登记兜住装配顺序）。
 - `clock-base` 无 npm 依赖; `session-paths` 为纯函数库。
 - `output-compress` 与 `memory-base` 无 npm 依赖：本地 `digest.db` 自持, 只有 `is_error` 摘要经 `ctx.get('memory')` 句柄写入。
 - 其余包彼此独立, 跨插件通信只经宿主 ctx 服务面。
