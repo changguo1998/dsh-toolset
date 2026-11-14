@@ -1,0 +1,36 @@
+{
+  "name": "@dsh-toolset/plan-mode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）plan-mode 插件：把 plan 三段流程（探索 / 计划 / 实施）做成流程定义，plan_start 一次建树，节点推进交 task-engine",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-plan-mode && mkdir -p ../tmp/cov-plan-mode && NODE_V8_COVERAGE=../tmp/cov-plan-mode node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-plan-mode tmp/cov-plan-mode/report.json"
+  },
+  "dependencies": {
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}

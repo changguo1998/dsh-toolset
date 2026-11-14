@@ -1,0 +1,9 @@
+# plan-mode 插件的 dsh bundle 声明。
+# 插件 id 用 plan-mode-track：官方 @deepseek-ai/dsh-plan-mode 已占用 plan-mode 这个 id
+#（默认停挂见 profiles/example 的 patch），同名会撞 id。
+# 本包缺省开启：注册一个模型侧入口工具 plan_start（按三段流程定义一次性建树）。
+# task-engine 缺席或未暴露 composeFromNodes 时工具返回可读错误，不阻断启动。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段。
+- insert:
+    - id: plan-mode-track
+      name: '@dsh-toolset/plan-mode'

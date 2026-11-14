@@ -336,6 +336,20 @@
 - e2e: `e2e/flow-track.test.ts` 改用 `/flow-track on` 命令开开关, 并新增一例
   「flow_start 经 task-engine 建出八阶段树 + 顺序强制拦越序」（真宿主、真门禁）。
 
+### 阶段 3（plan-mode 新插件, 2026-11-15）
+
+- T9（3a）新包 `plan-mode/`: `package.json` / `tsconfig.json` / `cordis.patch.yml` / `README.md` /
+  `LICENSE`; `src/stages.ts` 三段流程定义（探索 / 计划 / 实施, 各 `needDecompose: true`, 前置成链,
+  三段都声明 `enforceOrder`; 验收级 = 计划 human、探索与实施 semantic）; `src/plan-start.ts` 的
+  `buildPlanNodes` + `plan_start` 工具（同 `flow_start` 语义: 内部调 task-engine `composeFromNodes`,
+  每次调用现读服务面）; `src/index.ts` 只注册一个工具（`inject: ["tools"]`, 不注入上下文、不持开关）。
+- 插件 id 用 `plan-mode-track`（决策项范围内的偏差, 见下): 官方 `@deepseek-ai/dsh-plan-mode` 已占用
+  `plan-mode` 这个 id, 同名会撞 id。
+- 3b 根级接线: `scripts/test-parallel.sh` 的 `default_pkgs` 与 `scripts/install.sh` 的 `canonical_pkgs`
+  各追加 `plan-mode`（同序）; `scripts/test-install.sh` 的包数断言 40 → 41。
+- 包计数类文档（README 双侧 / PACKAGES / AGENTS / dev/standard 计数规则）留到阶段 5 统一回写
+  （避免同一处数字在阶段 3 / 4 各改一遍）。
+
 ## 偏差
 
 - T4 审计命令落点调整: `grep "pinNotes"` 改指 `task-engine/src/plugin.ts`（登记在装配层）, 另加
@@ -346,6 +360,8 @@
   `flow-track/src/index.ts` 的 `inject` 改为 `["tools"]`、`e2e/flow-track.test.ts` 同步更新。
 - 阶段验收的级: 计划未写级, 实现取「审查 = human, 其余 = semantic」——机械级必须有命令,
   内容类判据没有通用命令可用, 只能用 audit run 裁决。
+- 阶段 3 的插件 id 定为 `plan-mode-track`（目录仍为 `plan-mode/`）: 官方 plan-mode 占 id,
+  同名会撞; 计数类文档与 `dev/standard` 的 40/39 硬编码留到阶段 5 统一改为 42/41。
 
 ## 测试与证据
 
@@ -359,6 +375,12 @@
   （含真宿主建树 + 越序拒绝）。
 - 机械审计: `enforceOrder` 见 `flow-track/src/stages.ts`; `flow_start` 见 `flow-track/src/flow-start.ts`;
   源码内已无 `renderStages` / `renderStatus` / `flow_enable` 标识。
+- 阶段 3: `TEST_SCRIPT=check/build sh scripts/test-parallel.sh plan-mode` 均 `OK`, 构建后
+  `plan-mode/dist/src/index.js` 存在; `pnpm -C plan-mode run test` 11 例全过（阈值 3）;
+  `node --experimental-transform-types --test --test-force-exit e2e/plan-mode.test.ts` 1 例通过
+  （真宿主: `plan_start` 建出三段 + 越序被拒）。
+- 全量回归: `pnpm run test`（全仓 40 包）全过; `pnpm run check` 全仓 OK;
+  `sh scripts/test-install.sh` 通过（canonical_pkgs ↔ default_pkgs ↔ 目录 41 包一致）。
 
 ## 收尾
 
