@@ -74,7 +74,7 @@
 
 ## 2. 未完成项
 
-- **工具揭示架构重设计（缓存友好）**（2026-11-09, 用户提出, 优先级 P2, 以后再做; 状态: 未接取）: 现状考察发现当前 tool-consult 用宿主 `tools.restrict` 遮罩控制模型可见工具集, 揭示后在**下一次请求装配**生效——改动 `request/header` 的 `tools` 集合, 使前缀缓存断一次; 「保持缓存命中」与「动态控制模型能看到哪些工具」目前只能靠「初始小面（9 核心）+ 低频单向揭示」折中, 做不到「揭示即增补、零断缓存」。调研结论: 宿主按路由 `toolUpdate` 模式区分 `in-history`（可在消息历史携带 `tool_addition` 块, 初始 header 字节不变、前缀缓存保住）/ `addition-only` / `leading-only`（会重建 baseline、断前缀）; agent-loop 另有 `toolsChanged` / `preparedCall.toolUpdate` 的步内工具增补路径。期望: 重设揭示架构——初始 header 工具面稳定 + 新工具经协议增补进入上下文（或其它不重建头部的方式）, 使工具可见性可控且缓存命中尽量不破; 开工前先确认当前 DeepSeek 路由的 `toolUpdate` 行为与宿主 `tool-addition` 通道能力。来源: 2026-11-09 会话（注入机制 / 上下文结构 / 缓存命中的讨论沉淀）。
+- **工具揭示架构重设计（缓存友好）**（2026-11-09, 用户提出, 优先级 P2; 状态: **进行中**, 2026-11-13 接取并完成决策）: 现状: `tool-consult` 用 `tools.restrict` 遮罩控制可见工具集, 揭示与收回都会改 `request/header` 的 `tools` 集合、使前缀缓存断一次; 主 profile 未同步 `tool-surface` 与未包装的宿主工具是两处额外断点。方案: 首请求即发送全量工具声明, 非初始且非禁用工具经 `wrapToolDefinition` 收成短定义, 完整说明与 schema 进 catalog; 揭示只追加 pinNotes 正文并放开 `tools/pre-execute` 门禁, header 保持不变; 取消 turn 档。仅 `web_search` / `web_fetch` 允许带 `when`, 其他条件工具不挂载或禁用。不依赖 `deferLoading` / `toolUpdate`, 无需网关探针。计划与决策见 `docs/implementation/2026-11-13-tool-reveal-redesign.md`。来源: 2026-11-09 会话, 2026-11-13 复核与决策。
 
 - **自研 plan 模式（替代官方 plan-mode）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 官方 plan-mode 只注入 `plan:policy` 并条件挂载 `exit_plan_mode`, 不拦截写工具, policy 也不保证模型遵守; 已裁定先禁用官方 plan-mode, 清掉 `/plan` 相关接线. 期望: 本仓自研可执行的 plan 模式, 具备探索 / 计划 / 实施阶段门禁; 具体机制与接口待设计, 设计前不接取. 来源: 2026-11-11 会话.
 
