@@ -65,3 +65,18 @@ TUI 展示当前模型调用的首字节延迟（TTFB）与解码速率（tokens
 - **B4 文档**: `TUI/README.md`（LLM 组说明补槽位口径）、`TUI/docs/COMMANDS-SPEC.md`（`state.performance` 事实行）。
 - **审计**: `pnpm run check -- TUI` 退出 0; `pnpm run test:tui -- status-performance.test.ts` 退出 0; `pnpm run test:tui` 1889 例全过; `pnpm run check:docs` 退出 0。
 - **偏差**: 性能不并入 `reducer-tool.ts` 的 `case "usage"`, 改为 adapter 侧独立 `performance` 事件（同频结算仍在收尾 `assistant/message`）; B2 审计的 `grep ttfbMs TUI/src/app/state/initial.ts` 由 `initial.ts` 的注释行满足（该字段初值缺省不写）。
+
+## 追加修改（2026-11-14 用户裁定, 已实现并验证）
+
+用户两项要求:
+
+1. **不写 `ttfb` 标签**: 只留「时间 + 速率」两段, 速率单位 `t/s`（原 `tok/s`）; 延时较大时改用秒（`1.5s`）。
+2. **只显示最近一步的实时状态, 不持续显示**: 首字节延时固定口径为「最近一步」; 该步收尾后两个数字自动归零（渲染为 `0ms 0 t/s`）。
+
+实现口径:
+
+- **事件节奏**: `agent/assistant-stream` 的每个 chunk 帧更新本 step 记录（首块时刻 + 正文估算 token 累计）, 首块到达即投递一次 `performance`, 其后按 250ms 节流投递; `assistant/message` 收尾投递一次 `ttfbMs: 0 / avgTokensPerSec: 0` 并删除该 step 记录（`TUI/src/app/adapter/dsh-events.ts` 的 `emitLivePerformance` / 收尾块, `adapter/context.ts` 的 `stepPerf` 增 `estTokens` / `lastPerfEmit`）。
+- **速率口径改为估算**: 真实 `usage.outputTokens` 收尾才到、而收尾即归零, 故实时速率只能是「正文估算 token（`estimateOutputTokens`, 已有宽字符启发式）÷ 首块后时长」; TTFB 仍是实际测量值（首块时刻 − step 起点）。README / COMMANDS-SPEC 已写明估算口径。
+- **渲染**: `layout/status-line.ts` 的 `performanceText` 改为常驻返回（无读数或归零 → `0ms 0 t/s`）, 单位 `t/s`; 极窄宽（LLM 组组内压缩后 model 段预算 < 8 列）先丢掉该段保 model 身份。
+- **测试**: `TUI/tests/status-performance.test.ts` 重写 5 例（无 `ttfb` 标签 / 秒格式 / 空闲零值 / 收尾归零 / ≥100 取整）; `focus-frame` 冻结基线按既有「重冻记录」流程重冻（仅 11 个 w60 场景的状态行多出 `•0ms 0 t/s`, w20 无差异）。
+- **审计**: `pnpm run check -- TUI` 退出 0; `pnpm run test:tui` 1889 例全过; `pnpm run check:docs` 退出 0。

@@ -548,8 +548,8 @@ export interface AppState {
         contextWindow?: number | undefined;
       }
     | undefined;
-  /** 最新一次模型调用的性能指标（B1/B2；`performance` 事件随 usage 同频结算）。
-   *  会话切换/恢复时与 `usage` 一并清空。`streamed=false` = 非流式 provider（无 TTFB）。 */
+  /** 最近一步的实时性能读数（B1/B2；`performance` 事件首块到达即投递、该步收尾归零）。
+   *  会话切换/恢复时与 `usage` 一并清空。`streamed` 为保留字段（当前投递恒为 true）。 */
   performance?:
     | {
         ttfbMs?: number | undefined;

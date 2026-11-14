@@ -39,30 +39,31 @@ function render(performance?: {
   ).join("\n");
 }
 
-test("B3: 有性能数据 → 状态行渲染 ttfB 与解码速率", () => {
+test("B3: 有读数 → 时间 + 速率, 不带 ttfb 标签", () => {
   const out = render({ ttfbMs: 350, avgTokensPerSec: 12.4, streamed: true });
-  assert.ok(out.includes("ttfb 350ms"), `应显示 TTFB ms（实际: ${out}）`);
-  assert.ok(out.includes("12.4 tok/s"), `应显示解码速率（实际: ${out}）`);
+  assert.ok(
+    out.includes("350ms 12.4 t/s"),
+    `应显示 时间 + 速率（实际: ${out}）`,
+  );
+  assert.ok(!out.includes("ttfb"), "不再写 ttfb 标签");
 });
 
-test("B3: tTFB >= 1s 显示为秒", () => {
+test("B3: 延时 >= 1s 改用秒", () => {
   const out = render({ ttfbMs: 1500, avgTokensPerSec: 8, streamed: true });
-  assert.ok(out.includes("ttfb 1.5s"), `1.5s 秒显示（实际: ${out}）`);
+  assert.ok(out.includes("1.5s 8.0 t/s"), `大延时用秒（实际: ${out}）`);
 });
 
-test("B3: 非流式（无 chunk）→ 无 TTFB, 显示「ttfb —」+ 平均速率", () => {
-  const out = render({ avgTokensPerSec: 20.5, streamed: false });
-  assert.ok(out.includes("ttfb —"), `非流式应有 ttfB 占位（实际: ${out}）`);
-  assert.ok(out.includes("20.5 tok/s"), `非流式也显示平均速率（实际: ${out}）`);
-});
-
-test("B3: 无性能数据 → 不渲染性能槽位", () => {
+test("B3: 无读数 → 常驻 0ms 0 t/s 占位", () => {
   const out = render(undefined);
-  assert.ok(!out.includes("ttfb"), "无性能数据不渲染 ttfB 槽位");
-  assert.ok(!out.includes("tok/s"), "无性能数据不渲染速率槽位");
+  assert.ok(out.includes("0ms 0 t/s"), `无读数应显示零值（实际: ${out}）`);
 });
 
-test("B3: 高速率保留整数（>=100 tok/s 无小数）", () => {
+test("B3: 该步收尾归零 → 0ms 0 t/s（不保留已结束读数）", () => {
+  const out = render({ ttfbMs: 0, avgTokensPerSec: 0, streamed: true });
+  assert.ok(out.includes("0ms 0 t/s"), `收尾应归零（实际: ${out}）`);
+});
+
+test("B3: 高速率保留整数（>=100 无小数）", () => {
   const out = render({ ttfbMs: 200, avgTokensPerSec: 123.4, streamed: true });
-  assert.ok(out.includes("123 tok/s"), `>=100 取整（实际: ${out}）`);
+  assert.ok(out.includes("123 t/s"), `>=100 取整（实际: ${out}）`);
 });

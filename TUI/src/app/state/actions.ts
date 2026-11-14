@@ -234,8 +234,8 @@ export type StateAction =
       cacheRead: number;
       contextWindow?: number | undefined;
     }
-  /** B1/B2（模型性能）: 本 step 收尾结算的首字节延迟与平均解码速率（与 usage 同频）。
-   *  `streamed` = 是否有流式 chunk; 非流式只有平均（无 TTFB）。 */
+  /** B1/B2（模型性能）: 最近一步的实时读数（首块到达即投递; 该步收尾投递一次归零值）。
+   *  `streamed` 为保留字段（当前投递恒为 true）。 */
   | {
       type: "performance";
       sessionId: string;

@@ -32,6 +32,10 @@ import {
   workSummary,
 } from "./history-normalize.ts";
 import type { AdapterContext } from "./context.ts";
+import { estimateOutputTokens } from "../layout/run-virt.ts";
+
+/** 实时性能投递的最小间隔（ms）：状态行按 ticker/合帧重绘，投递过密没有视觉收益。 */
+const LIVE_PERF_MIN_MS = 250;
 
 export interface EventBridgeDeps {
   resolveContextWindow(key: string): Promise<number | undefined>;
@@ -189,6 +193,43 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
     }
   };
 
+  /** B1: 实时投递本 step 的性能（首块到达即投一次, 其后按 `LIVE_PERF_MIN_MS` 节流）。
+   *  TTFB 为首块时刻与 step 起点之差（实际测量）; 速率用正文的估算 token 除以首块后时长
+   *  （真实 usage 收尾才到, 而收尾即归零, 故实时只能给估算口径）。 */
+  const emitLivePerformance = (
+    sessionId: string,
+    sk: string,
+    turn: number,
+    step: number,
+    now: number,
+  ): void => {
+    const perf = s.stepPerf.get(sk);
+    const first = perf?.firstChunkTime;
+    if (perf === undefined || first === undefined) return;
+    if (
+      perf.lastPerfEmit !== undefined &&
+      now - perf.lastPerfEmit < LIVE_PERF_MIN_MS
+    ) {
+      return;
+    }
+    const durMs = now - first;
+    const est = perf.estTokens ?? 0;
+    const ttfbMs =
+      perf.start === undefined ? 0 : Math.max(0, first - perf.start);
+    const avgTokensPerSec =
+      durMs >= LIVE_PERF_MIN_MS && est > 0 ? (est / durMs) * 1000 : 0;
+    s.stepPerf.set(sk, { ...perf, lastPerfEmit: now });
+    ctx.emit({
+      type: "performance",
+      sessionId,
+      turn,
+      step,
+      ttfbMs,
+      avgTokensPerSec,
+      streamed: true,
+    });
+  };
+
   const onAssistantFrame = (
     sessionId: string,
     frame: {
@@ -213,20 +254,27 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
     if (frame.type === "chunk" && frame.chunk) {
       const meta = s.attemptMeta.get(frame.attemptId);
       if (!meta) return;
-      // B1（模型性能）: 记本 step 首块到达时刻（TTFB 的终点; `time` 在 frame 层,
-      // 缺省以当前时刻兜底）。用户消息/思考块都算「首块」（有流即有 TTFB）。
+      // B1（模型性能）: 记本 step 首块到达时刻并累计正文估算 token（TTFB 终点;
+      // `time` 在 frame 层, 缺省以当前时刻兜底）。用户消息/思考块都算「首块」。
       if (frame.chunk.type !== "usage" && frame.chunk.type !== "finish") {
         const sk = `${sessionId}:${meta.turn}:${meta.step}`;
+        const now =
+          typeof frame.time === "number" && frame.time > 0
+            ? frame.time
+            : Date.now();
         const perf = s.stepPerf.get(sk) ?? {};
-        if (perf.firstChunkTime === undefined) {
-          s.stepPerf.set(sk, {
-            ...perf,
-            firstChunkTime:
-              typeof frame.time === "number" && frame.time > 0
-                ? frame.time
-                : Date.now(),
-          });
-        }
+        const estTokens =
+          (perf.estTokens ?? 0) +
+          (frame.chunk.type === "text-delta" &&
+          typeof frame.chunk.text === "string"
+            ? estimateOutputTokens(frame.chunk.text)
+            : 0);
+        s.stepPerf.set(sk, {
+          ...perf,
+          firstChunkTime: perf.firstChunkTime ?? now,
+          estTokens,
+        });
+        emitLivePerformance(sessionId, sk, meta.turn, meta.step, now);
         applyChunk(sessionId, meta.turn, meta.step, frame.chunk);
       }
       return;
@@ -421,42 +469,22 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
           }
         }
         s.liveScope = { turn: data.turn ?? 0, step: data.step ?? 0 };
-        // B1（模型性能）: 本 step 收尾结算——TTFB = 首 chunk.time − 本 step 起点;
-        // 平均速率 = usage.outputTokens /（收尾时刻 − 首 chunk.time）（从首块起算, 不含
-        // TTFB 等待段; 非流式无 chunk → 只有平均, 分母用本 step 起点起算, 见决策 3/4/5）。
-        // 与 usage 事件同步发出, reducer 同频落 state（B2）。
+        // B1（模型性能）: 本 step 收尾即归零——两个数字是该步运行中的实时值, 不持续显示
+        // 已结束步骤的读数（见追踪文档「两处修改」; 归零后渲染为 `0ms 0 t/s`）。
         {
           const turn = data.turn ?? 0;
           const step = data.step ?? 0;
           const sk = `${sid}:${turn}:${step}`;
-          const perf = s.stepPerf.get(sk);
-          if (perf !== undefined) {
-            const output = data.usage?.outputTokens ?? 0;
-            const end =
-              typeof raw.time === "number" && raw.time > 0
-                ? raw.time
-                : Date.now();
-            const streamed = perf.firstChunkTime !== undefined;
-            const base = perf.firstChunkTime ?? perf.start;
-            let ttfbMs: number | undefined;
-            let avgTokensPerSec: number | undefined;
-            if (streamed && perf.start !== undefined) {
-              ttfbMs = Math.max(0, perf.firstChunkTime! - perf.start);
-            }
-            if (output > 0 && base !== undefined) {
-              const durMs = Math.max(1, end - base);
-              avgTokensPerSec = (output / durMs) * 1000;
-            }
+          if (s.stepPerf.delete(sk)) {
             ctx.emit({
               type: "performance",
               sessionId: sid,
               turn,
               step,
-              ...(ttfbMs === undefined ? {} : { ttfbMs }),
-              ...(avgTokensPerSec === undefined ? {} : { avgTokensPerSec }),
-              streamed,
+              ttfbMs: 0,
+              avgTokensPerSec: 0,
+              streamed: true,
             });
-            s.stepPerf.delete(sk);
           }
         }
         const content = data.message?.content;

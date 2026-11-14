@@ -66,26 +66,21 @@ function usageStatus(u: {
   };
 }
 
-/** 性能槽位文本：TTFB + 平均解码速率（B1/B3）。
- *  非流式（streamed=false）无 TTFB，只给平均速率 + 「非流式无 TTFB」占位（决策 5）。 */
-function performanceText(p: {
+/** 性能槽位文本：首字节延时 + 解码速率（B1/B3；不带 `ttfb` 标签、速率单位 `t/s`）。
+ *  无读数（尚未开始 / 该步已收尾归零）时给 `0ms 0 t/s` 常驻占位。 */
+function performanceText(p?: {
   ttfbMs?: number | undefined;
   avgTokensPerSec?: number | undefined;
   streamed: boolean;
-}): string | undefined {
-  const parts: string[] = [];
-  if (p.ttfbMs !== undefined) {
-    parts.push(`ttfb ${formatTtfb(p.ttfbMs)}`);
-  } else if (p.avgTokensPerSec !== undefined) {
-    parts.push("ttfb —");
-  }
-  if (p.avgTokensPerSec !== undefined) {
-    parts.push(
-      `${p.avgTokensPerSec.toFixed(p.avgTokensPerSec >= 100 ? 0 : 1)} tok/s`,
-    );
-  }
-  if (parts.length === 0) return undefined;
-  return parts.join(" ");
+}): string {
+  const ttfb = p?.ttfbMs === undefined ? "0ms" : formatTtfb(p.ttfbMs);
+  return `${ttfb} ${formatRate(p?.avgTokensPerSec ?? 0)} t/s`;
+}
+
+/** 速率展示：≤0 只写 `0`，其余 ≥100 取整、否则 1 位小数。 */
+function formatRate(v: number): string {
+  if (v <= 0) return "0";
+  return v.toFixed(v >= 100 ? 0 : 1);
 }
 
 /** TTFB 展示: <1s 用 ms, >=1s 用 s（保留 1 位小数, 注明近似）。 */
@@ -129,6 +124,9 @@ function fitHead(s: string, w: number): string {
 
 /** git 段在 env 组超宽时的预算列数（分支 + 尾部统计符号；比 cwd 更需要完整） */
 const GIT_FIT_WIDTH = 20;
+
+/** LLM 组组内压缩时留给 model 段的最小列数：小于此值先丢掉性能段（保模型名可辨）。 */
+const MODEL_FIT_FLOOR = 8;
 
 /**
  * git 段按预算截断：分支名开头 + 尾部统计符号簇（`↑N ↓N +N ~N -N`）都要保。
@@ -205,8 +203,8 @@ export function renderStatusLine(
   const cacheSeg = u?.cache ?? status.cacheHit;
   // A6: cache 段着色（决策项 9/11）：有 usage 且有判定才着色；`—` 占位保持默认色
   const cacheTint = u === undefined ? undefined : cacheTintOf(cacheJudge);
-  // B1/B3: 性能槽位（TTFB + 解码速率; 无数据时省略, 不占位）
-  const perfSeg = performance ? performanceText(performance) : undefined;
+  // B1/B3: 性能槽位（首字节延时 + 解码速率; 常驻占位, 该步收尾归零为 `0ms 0 t/s`）
+  const perfSeg = performanceText(performance);
   // 思考状态并入 model 段（同一逻辑段）：provider/model:{后缀}
   // 后缀=on/off/none 或实际等级名（多等级开启如 high/low/max）
   const modelBase = status.model.replace(/:[^:]*$/, "");
@@ -239,7 +237,7 @@ export function renderStatusLine(
     [...colorModel(modelSeg)],
     [{ text: ctxSeg, style: { fg: "blue" } }],
     [cacheSegment(cacheSeg, cacheTint)],
-    ...(perfSeg === undefined ? [] : [[{ text: perfSeg }]]),
+    [{ text: perfSeg }],
   ];
   // 各组超宽兜底（单组放不满一行时组内压缩）
   const envFit = (w: number): FrameSegment[][] => {
@@ -260,16 +258,16 @@ export function renderStatusLine(
     ];
   };
   const llmFit = (w: number): FrameSegment[][] => {
-    const perfW = perfSeg === undefined ? 0 : displayWidth(perfSeg) + 2; // 段间 `•` 与留白
-    const budget = Math.max(
-      1,
-      w - displayWidth(ctxSeg) - displayWidth(cacheSeg) - perfW - 2 - 1,
-    );
+    const perfW = displayWidth(perfSeg) + 2; // 段间 `•` 与留白
+    const fixedW = displayWidth(ctxSeg) + displayWidth(cacheSeg) + 3;
+    // 极窄宽优先保 model 段身份：性能段是可丢段（两个零值的占位不如模型名有用）
+    const withPerf = w - fixedW - perfW >= MODEL_FIT_FLOOR;
+    const budget = Math.max(1, w - fixedW - (withPerf ? perfW : 0));
     return [
       [...colorModel(fitModel(modelSeg, budget))],
       [{ text: ctxSeg, style: { fg: "blue" } }],
       [cacheSegment(cacheSeg, cacheTint)],
-      ...(perfSeg === undefined ? [] : [[{ text: perfSeg }]]),
+      ...(withPerf ? [[{ text: perfSeg }]] : []),
     ];
   };
 

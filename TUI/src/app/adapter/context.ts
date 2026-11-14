@@ -71,10 +71,19 @@ function createState(opts: RealAdapterOptions) {
     // P2/16：tool-workflow 运行集合（/workflows 面板数据源；按 runId 分组，增量维护）
     workflowRuns: new Map<string, WorkflowRunLike>(),
 
-    // B1（模型性能采集）: 本 step 起点与首个 chunk 时刻。
-    // key = `${sessionId}:${turn}:${step}`; 起点由 step/start 事件记, 首块时间由
-    // agent/assistant-stream 的 chunk 帧记, assistant/message 收尾结算后删除。
-    stepPerf: new Map<string, { start?: number; firstChunkTime?: number }>(),
+    // B1（模型性能采集）: 本 step 起点、首个 chunk 时刻、已流式估算 token 累计与上次
+    // 实时投递时刻。key = `${sessionId}:${turn}:${step}`; 起点由 step/start 记, 首块
+    // 时间与估算量由 agent/assistant-stream 的 chunk 帧记; assistant/message 收尾投递
+    // 一次「归零」后删除（该步结束即不再持续显示）。
+    stepPerf: new Map<
+      string,
+      {
+        start?: number;
+        firstChunkTime?: number;
+        estTokens?: number;
+        lastPerfEmit?: number;
+      }
+    >(),
 
     // 当前 (turn, step)：宿主部分事件（tool/call、tool/result）不带归属，接收层不能拿 0
     // 兜底（会开出 0/0 假节、把调用与结果拆到两节）→ 由带归属的事件推进、缺归属的沿用。
