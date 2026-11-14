@@ -121,4 +121,4 @@ commandPanel: {
 | `settings` | `describe(options?)` → `SettingsDescriptor[]`（枚举 ns 且带当前值）、写入 `update(ns, patch, expectedRevision?)` / `replace` / `mutate`（`write` 为 private，不可调用）；`get(ns)` / `register` / `installSection` **在 0.1.7 已移除**（本 TUI 只用 `describe()`） | `dsh-settings` |
 | `tokenMeter` | `measure(session, requestHeader)`、`estimateMessage(message)` | `dsh-token-meter` |
 
-其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }` 语义为**最近一次模型调用**（非会话累计）；`state.performance = { ttfbMs?, avgTokensPerSec?, streamed }` 为**最近一步的实时读数**（首块到达即投递、该步收尾投递一次归零；速率为正文估算 token ÷ 首块后时长，会话切换时与 `usage` 一并清空）。
+其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }` 语义为**最近一次模型调用**（非会话累计）；`state.performance = { ttfbMs?, avgTokensPerSec?, streamed }` 为**最近一步的实时读数**（首块到达即投递、该步收尾投递一次归零；速率为本步已产出内容（正文 / 思考 / 工具调用与结果）的估算 token ÷ 首块后时长，会话切换时与 `usage` 一并清空）。

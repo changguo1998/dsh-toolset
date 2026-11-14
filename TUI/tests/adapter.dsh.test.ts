@@ -7432,3 +7432,77 @@ test("真实 adapter /config：服务缺失 / 条目不在集合内 / 宿主拒�
   );
   rejected.unbind();
 });
+
+// --- B1：实时速率口径（正文 / 思考 / 工具内容都算，收尾归零） ---
+test("B1: 速率计入思考与工具内容，该步收尾归零", () => {
+  const t = makeAdapter();
+  const start = 1_000_000;
+  const perfs = (): Extract<DshEvent, { type: "performance" }>[] =>
+    t.events.filter(
+      (e): e is Extract<DshEvent, { type: "performance" }> =>
+        e.type === "performance",
+    );
+  const fireAt = (
+    type: string,
+    data: Record<string, unknown>,
+    time: number,
+  ): void => {
+    t.runtime.fire("session/event", { id: "s1" }, {
+      type,
+      seq: 1,
+      time,
+      data,
+    } as unknown as SessionEvent);
+  };
+  const frameAt = (frame: Record<string, unknown>, time: number): void => {
+    t.runtime.fire("agent/assistant-stream", streamFrame({ ...frame, time }));
+  };
+
+  fireAt("step/start", { turn: 1, step: 1 }, start);
+  t.runtime.fire(
+    "agent/assistant-stream",
+    streamFrame({ type: "start", attemptId: "a1", turn: 1, step: 1 }),
+  );
+  // 思考块 40 宽字符 ≈ 40 token；首块 = start+100 → TTFB 100ms
+  frameAt(
+    {
+      type: "chunk",
+      attemptId: "a1",
+      chunk: { type: "reasoning-delta", index: 0, text: "思".repeat(40) },
+    },
+    start + 100,
+  );
+  assert.equal(perfs().at(-1)?.ttfbMs, 100, "TTFB = 首块 − step 起点");
+  // 工具调用参数（start+400）：速率应把参数 token 一并计入（仅思考时为 40/0.3≈133）
+  fireAt(
+    "tool/call",
+    {
+      turn: 1,
+      step: 1,
+      callId: "c1",
+      name: "bash",
+      arguments: JSON.stringify({ command: "x".repeat(100) }),
+    },
+    start + 400,
+  );
+  assert.ok(
+    (perfs().at(-1)?.avgTokensPerSec ?? 0) > 200,
+    `工具参数应计入速率（实际: ${perfs().at(-1)?.avgTokensPerSec}）`,
+  );
+  // 该步收尾 → 两个数字归零
+  fireAt(
+    "assistant/message",
+    {
+      turn: 1,
+      step: 1,
+      message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    },
+    start + 500,
+  );
+  const zeroed = perfs().at(-1);
+  assert.deepEqual(
+    [zeroed?.ttfbMs, zeroed?.avgTokensPerSec],
+    [0, 0],
+    "收尾应归零",
+  );
+});

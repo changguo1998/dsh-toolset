@@ -33,9 +33,7 @@ import {
 } from "./history-normalize.ts";
 import type { AdapterContext } from "./context.ts";
 import { estimateOutputTokens } from "../layout/run-virt.ts";
-
-/** 实时性能投递的最小间隔（ms）：状态行按 ticker/合帧重绘，投递过密没有视觉收益。 */
-const LIVE_PERF_MIN_MS = 250;
+import { LIVE_PERF_MIN_MS, perfReadingOf } from "./perf.ts";
 
 export interface EventBridgeDeps {
   resolveContextWindow(key: string): Promise<number | undefined>;
@@ -194,8 +192,8 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
   };
 
   /** B1: 实时投递本 step 的性能（首块到达即投一次, 其后按 `LIVE_PERF_MIN_MS` 节流）。
-   *  TTFB 为首块时刻与 step 起点之差（实际测量）; 速率用正文的估算 token 除以首块后时长
-   *  （真实 usage 收尾才到, 而收尾即归零, 故实时只能给估算口径）。 */
+   *  读数口径见 `perf.ts`：TTFB 实际测量, 速率用本步已产出内容的估算 token。
+   *  内容含正文、思考与工具调用 / 结果（用户 2026-11-14 裁定：只要是输出内容都算）。 */
   const emitLivePerformance = (
     sessionId: string,
     sk: string,
@@ -204,30 +202,45 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
     now: number,
   ): void => {
     const perf = s.stepPerf.get(sk);
-    const first = perf?.firstChunkTime;
-    if (perf === undefined || first === undefined) return;
+    if (perf === undefined) return;
     if (
       perf.lastPerfEmit !== undefined &&
       now - perf.lastPerfEmit < LIVE_PERF_MIN_MS
     ) {
       return;
     }
-    const durMs = now - first;
-    const est = perf.estTokens ?? 0;
-    const ttfbMs =
-      perf.start === undefined ? 0 : Math.max(0, first - perf.start);
-    const avgTokensPerSec =
-      durMs >= LIVE_PERF_MIN_MS && est > 0 ? (est / durMs) * 1000 : 0;
+    const reading = perfReadingOf(perf, now);
+    if (reading === undefined) return;
     s.stepPerf.set(sk, { ...perf, lastPerfEmit: now });
     ctx.emit({
       type: "performance",
       sessionId,
       turn,
       step,
-      ttfbMs,
-      avgTokensPerSec,
+      ...reading,
       streamed: true,
     });
+  };
+
+  /** B1: 把一段输出内容（工具调用参数 / 工具结果等非 chunk 内容）的估算 token 计入本步,
+   *  并补投一次读数。首块未到时以该内容作为首块起点（工具调用本身也是模型的输出）。
+   *  `now` 取事件信封时间, 缺省用当前时刻。 */
+  const addPerfContent = (
+    sessionId: string,
+    scope: { turn: number; step: number },
+    text: string,
+    now: number,
+  ): void => {
+    if (text === "") return;
+    const sk = `${sessionId}:${scope.turn}:${scope.step}`;
+    const perf = s.stepPerf.get(sk);
+    if (perf === undefined) return;
+    s.stepPerf.set(sk, {
+      ...perf,
+      firstChunkTime: perf.firstChunkTime ?? now,
+      estTokens: (perf.estTokens ?? 0) + estimateOutputTokens(text),
+    });
+    emitLivePerformance(sessionId, sk, scope.turn, scope.step, now);
   };
 
   const onAssistantFrame = (
@@ -263,12 +276,17 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
             ? frame.time
             : Date.now();
         const perf = s.stepPerf.get(sk) ?? {};
+        // 输出内容都计入估算 token：正文 / 思考 / 工具调用参数（三者的 delta 文本）
+        const chunkText =
+          frame.chunk.type === "text-delta" ||
+          frame.chunk.type === "reasoning-delta"
+            ? frame.chunk.text
+            : frame.chunk.type === "tool-call-delta"
+              ? (frame.chunk.argumentsDelta ?? "")
+              : "";
         const estTokens =
           (perf.estTokens ?? 0) +
-          (frame.chunk.type === "text-delta" &&
-          typeof frame.chunk.text === "string"
-            ? estimateOutputTokens(frame.chunk.text)
-            : 0);
+          (chunkText === "" ? 0 : estimateOutputTokens(chunkText));
         s.stepPerf.set(sk, {
           ...perf,
           firstChunkTime: perf.firstChunkTime ?? now,
@@ -675,12 +693,20 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
           typeof data.arguments === "string" ? data.arguments : "";
         const summary = summarizeToolArguments(argsRaw);
         ctx.toolCalls.remember(data.callId, name, argsRaw, summary);
+        const explicit = data as unknown as { turn?: number; step?: number };
+        const scope =
+          explicit.turn === undefined
+            ? s.liveScope
+            : { turn: explicit.turn, step: explicit.step ?? 0 };
+        // 工具调用参数属模型输出 → 计入本步速率（判据：只要是输出内容都算）
+        if (scope) {
+          const now =
+            typeof raw.time === "number" && raw.time > 0
+              ? raw.time
+              : Date.now();
+          addPerfContent(sid, scope, argsRaw, now);
+        }
         if (typeof data.callId === "string" && data.callId !== "") {
-          const explicit = data as unknown as { turn?: number; step?: number };
-          const scope =
-            explicit.turn === undefined
-              ? s.liveScope
-              : { turn: explicit.turn, step: explicit.step ?? 0 };
           // 归属不可知 → 不投递（0 兜底会开出 0/0 假节）
           if (scope) {
             s.liveScope = scope;
@@ -724,6 +750,12 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
           // 归属不可知（会话刚开始就来了结果）→ 不投递，避免 0/0 假节
           if (scope) {
             s.liveScope = scope;
+            // 工具结果也是输出内容 → 计入本步速率（判据：只要是输出内容都算）
+            const now =
+              typeof raw.time === "number" && raw.time > 0
+                ? raw.time
+                : Date.now();
+            addPerfContent(sid, scope, detail, now);
             const callId = toolResultCallId(data.message);
             ctx.deliver({
               kind: "tool-result",
