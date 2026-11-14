@@ -82,7 +82,7 @@
 
 ## 2. 未完成项
 
-- **泛化 task-engine: 编排模板框架**（2026-11-14, 用户提出, 状态: 未接取）: 现状——task-engine 的领域语义是**树形任务分解**（门禁是分解粒度导向, 不内建线性流程阶段语义）, flow-track 用 `stages.ts` 硬编码八阶段、在引擎外层补流程语义（记录 + 注入 + 顺序约束）; 期望——把「编排定义」从代码提升为**声明式模板资产**: 模板格式扩展现有 `StageSpec`（`id` 稳定引用 + `acceptance` 多条且每条自带 gate: mechanical / human / semantic）, 配模板注册表（静态文件登记）+ 校验 + 实例化, 新增 `flow_template_list` / `flow_start` 工具按模板自动建树（替代模型手动 `task_decompose`）; 执行层（状态机 / 门禁 / 验收 / 事件 / 查询）全部复用 task-engine 通用内核, 不自研新引擎; flow-track 八阶段迁成第一个模板, 自研 plan 模式（探索 → 计划 → 实施）作第二个模板验证通用性; 改动位置: task-engine（新增模板层）与 flow-track（改用模板注册表）; 验收: 同一套执行层能承载线性流程与 plan 三段, flow-track 不再硬编码 `stages.ts`; 来源·状态·优先级: 2026-11-14 会话（flow-track / task-engine / plan-mode 三者共同形式讨论后提出）, 未接取, 优先级待定.
+- **泛化 task-engine: 编排模板框架**（2026-11-14, 用户提出, 状态: 进行中）: 现状——task-engine 的领域语义是**树形任务分解**（门禁是分解粒度导向, 不内建线性流程阶段语义）, flow-track 用 `stages.ts` 硬编码八阶段、在引擎外层补流程语义（记录 + 注入 + 顺序约束）; 期望——把「编排定义」从代码提升为**声明式模板资产**: 模板格式扩展现有 `StageSpec`（`id` 稳定引用 + `acceptance` 多条且每条自带 gate: mechanical / human / semantic）, 配模板注册表（静态文件登记）+ 校验 + 实例化, 新增 `flow_template_list` / `flow_start` 工具按模板自动建树（替代模型手动 `task_decompose`）; 执行层（状态机 / 门禁 / 验收 / 事件 / 查询）全部复用 task-engine 通用内核, 不自研新引擎; flow-track 八阶段迁成第一个模板, 自研 plan 模式（探索 → 计划 → 实施）作第二个模板验证通用性; 改动位置: task-engine（新增模板层）与 flow-track（改用模板注册表）; 验收: 同一套执行层能承载线性流程与 plan 三段, flow-track 不再硬编码 `stages.ts`; 来源·状态·优先级: 2026-11-14 会话（flow-track / task-engine / plan-mode 三者共同形式讨论后提出）, 进行中, 优先级待定.
 
 - **自研 plan 模式（替代官方 plan-mode）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 官方 plan-mode 只注入 `plan:policy` 并条件挂载 `exit_plan_mode`, 不拦截写工具, policy 也不保证模型遵守; 已裁定先禁用官方 plan-mode, 清掉 `/plan` 相关接线. 期望: 本仓自研可执行的 plan 模式, 具备探索 / 计划 / 实施阶段门禁; 具体机制与接口待设计, 设计前不接取; 前置依赖: 泛化 task-engine 条目（作为该框架的第二个模板验证通用性, 接取时排在它之后）; 来源: 2026-11-11 会话.
 
