@@ -15,6 +15,7 @@
 import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 import { planStartTool, type PlanComposeFace } from "./plan-start.ts";
+import { PLAN_ID, PLAN_NAME } from "./stages.ts";
 
 export const name = "plan-mode";
 
@@ -86,6 +87,17 @@ export function apply(ctx: unknown, _config?: unknown): void {
   if (tools === undefined || typeof tools.register !== "function") {
     warn("ctx.tools 不可用，plan_start 不会出现");
     return;
+  }
+  // 向流程仲裁登记自身（决策项 8 的协作面）：仲裁缺席时跳过（仲裁侧内置默认登记）
+  const arbiter = readService<{
+    register?(flow: { id: string; name: string; entry: string }): unknown;
+  }>(c, "flowArbiter");
+  if (arbiter !== undefined && typeof arbiter.register === "function") {
+    try {
+      arbiter.register({ id: PLAN_ID, name: PLAN_NAME, entry: "plan_start" });
+    } catch (error) {
+      warn(`向 flow-arbiter 登记流程失败（忽略）：${String(error)}`);
+    }
   }
   try {
     // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 留给 consult_tools 投递

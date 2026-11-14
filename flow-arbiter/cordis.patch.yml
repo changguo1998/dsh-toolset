@@ -1,0 +1,9 @@
+# flow-arbiter 插件的 dsh bundle 声明。
+# 本包缺省开启：注册 flow_select 工具与 /flow-arbiter 命令，并挂一条 tools/pre-execute
+# 监听器——只拦「流程入口工具」（flow_start / plan_start 等），其它工具一律放行。
+# 工具恒注册、拦截在执行前一刻判定（决策项 8 / 9①：工具面不随选中状态增删，保缓存命中）。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段：
+#   flows（流程登记表，缺省见 src/state.ts 的 DEFAULT_FLOWS）。
+- insert:
+    - id: flow-arbiter
+      name: '@dsh-toolset/flow-arbiter'

@@ -25,6 +25,7 @@ import { FlowStore, type FlowRecord, type MemoryFaceLike } from "./store.ts";
 import { WriteObserver, type SessionEventLike } from "./observe.ts";
 import { decideText } from "./inject.ts";
 import { STAGE_NAMES, hasActiveFlow } from "./policy.ts";
+import { FLOW_ID, FLOW_NAME } from "./stages.ts";
 import { registerFlowCommand } from "./command.ts";
 import { createFlowSwitch } from "./switch.ts";
 import {
@@ -286,6 +287,19 @@ export function apply(ctx: unknown, config?: Config): () => void {
     }
   } else {
     warn("ctx.tools 不可用，flow_record / flow_status 不会出现");
+  }
+
+  // 向流程仲裁登记自身（决策项 8 的协作面）：仲裁缺席时跳过——仲裁侧内置两条默认登记，
+  // 装配顺序不影响拦截（工具恒注册，拦截在执行前判定）
+  const arbiter = readService<{
+    register?(flow: { id: string; name: string; entry: string }): unknown;
+  }>(c, "flowArbiter");
+  if (arbiter !== undefined && typeof arbiter.register === "function") {
+    try {
+      arbiter.register({ id: FLOW_ID, name: FLOW_NAME, entry: "flow_start" });
+    } catch (error) {
+      warn(`向 flow-arbiter 登记流程失败（忽略）：${String(error)}`);
+    }
   }
 
   // `/flow-track` 命令面（commands 缺席时降级, 不影响工具面与注入）

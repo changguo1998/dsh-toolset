@@ -1,0 +1,36 @@
+{
+  "name": "@dsh-toolset/flow-arbiter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）flow-arbiter 插件：会话级流程选择仲裁——同一会话同一时刻只放行一个流程的入口工具（恒注册 + pre-execute 拦截）",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'",
+    "test:coverage": "rm -rf ../tmp/cov-flow-arbiter && mkdir -p ../tmp/cov-flow-arbiter && NODE_V8_COVERAGE=../tmp/cov-flow-arbiter node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-flow-arbiter tmp/cov-flow-arbiter/report.json"
+  },
+  "dependencies": {
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}

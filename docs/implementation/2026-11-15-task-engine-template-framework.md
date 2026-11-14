@@ -350,6 +350,29 @@
 - 包计数类文档（README 双侧 / PACKAGES / AGENTS / dev/standard 计数规则）留到阶段 5 统一回写
   （避免同一处数字在阶段 3 / 4 各改一遍）。
 
+### 阶段 4（flow-arbiter 新插件, 2026-11-15）
+
+- T10（4a）新包 `flow-arbiter/`: `state.ts`（会话级选中状态 + 流程登记表 + `decide` 裁决, 纯逻辑）,
+  `tool.ts` 的 `flow_select`（给 flow 选中 / 给 `-` 取消 / 不给查看）, `command.ts` 的
+  `/flow-arbiter status|select <id>|off`, `index.ts` 装配（工具 / 命令 / pre-execute / 服务面）;
+  冲突策略（决策项 8 的「实现时定」）= **自动顶替**: 选另一个流程直接切换, 回执带 `replaced`。
+- T11（4b）入口拦截: `tools/pre-execute` 监听器只看流程入口工具（登记表里的 `entry`）——
+  非入口工具 `skip` 放行, 未选中 / 认不出会话 / 选中了别的流程 → `{kind:"deny", reason, info}`;
+  工具面不增删（决策项 9①）。
+- 协作面: 服务面 `flowArbiter.register/select/clear/current/flows`; flow-track 与 plan-mode 在
+  装配期尝试登记自身（仲裁缺席时跳过, 仲裁侧内置 `standard` / `plan` 两条默认登记, 顺序无关）。
+- T12（4c）根级接线: `scripts/test-parallel.sh` / `scripts/install.sh` 各追加 `flow-arbiter`;
+  `scripts/test-install.sh` 包数断言 41 → 42; 计数类文档统一改到 **42 个包 / 41 个插件**
+  （`README.md` / `README.zh.md` / `docs/PACKAGES.md` / `AGENTS.md` / `docs/ROADMAP.md` /
+  `docs/WORKFLOW-STANDARD.md` / `md-logic/README.md` / `security-guard/README.md` /
+  `dev/standard/index.mjs` 的计数规则）; PACKAGES 表与根 README 双侧补两个新包的职责行与目录行。
+- T13（4 后收尾检查）: 全仓接线一致性核对（default_pkgs ↔ canonical_pkgs ↔ 目录 42 ↔ test-install
+  断言 ↔ 计数文档 ↔ dev/standard 计数规则）——`test-install.sh` 与 `check:docs` 双向通过。
+- 顺带修掉的真问题（同一链路上）: `composeFromNodes` 挂到**带验收的父帧**时会被 mechanical 门禁的
+  coverage 规则拒绝（流程定义不掌握父帧验收 id）→ 编程建树时把父帧缺失的 coverage 交给**整段节点
+  共同承担**（写在首节点上; 节点自己声明了映射则不覆盖）。e2e 实测「plan 段挂到 flow 首个节点下」
+  从此可用。
+
 ## 偏差
 
 - T4 审计命令落点调整: `grep "pinNotes"` 改指 `task-engine/src/plugin.ts`（登记在装配层）, 另加
@@ -361,7 +384,10 @@
 - 阶段验收的级: 计划未写级, 实现取「审查 = human, 其余 = semantic」——机械级必须有命令,
   内容类判据没有通用命令可用, 只能用 audit run 裁决。
 - 阶段 3 的插件 id 定为 `plan-mode-track`（目录仍为 `plan-mode/`）: 官方 plan-mode 占 id,
-  同名会撞; 计数类文档与 `dev/standard` 的 40/39 硬编码留到阶段 5 统一改为 42/41。
+  同名会撞。
+- 阶段 4 的冲突策略取**自动顶替**（决策项 8 留给实现时定）, 并在回执里回报被顶替的流程。
+- 阶段 4 提前完成计数类文档回写（原计划放在阶段 5）: T12 的审计包含 `check:docs`, 而计数规则会
+  校验全文, 不改则阶段 4 无法通过。
 
 ## 测试与证据
 
@@ -381,6 +407,11 @@
   （真宿主: `plan_start` 建出三段 + 越序被拒）。
 - 全量回归: `pnpm run test`（全仓 40 包）全过; `pnpm run check` 全仓 OK;
   `sh scripts/test-install.sh` 通过（canonical_pkgs ↔ default_pkgs ↔ 目录 41 包一致）。
+- 阶段 4: `TEST_SCRIPT=check/build sh scripts/test-parallel.sh flow-arbiter` 均 `OK`;
+  `pnpm -C flow-arbiter run test` 12 例全过（T10 选中 / 取消 / 唯一性 / 顶替 / 登记 / 裁决 6 例 +
+  T11 装配 / 拦截 6 例）; `node --experimental-transform-types --test --test-force-exit e2e/flow-arbiter.test.ts` 1 例通过（真宿主: 未选中拒 → 选 standard 放行 flow_start →
+  切 plan 后 flow_start 被拒、plan_start 通过）; `pnpm run check` / `pnpm run test`（42 包）全过;
+  `sh scripts/test-install.sh` 124 项全通过（42 个包一致）; `pnpm run check:docs` 通过。
 
 ## 收尾
 

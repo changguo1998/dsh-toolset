@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 39 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 41 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -50,6 +50,8 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 | **term-check** | 回复正文术语检查：`assistant-text` 上的 rule-engine 消费者，按 `docs/GLOSSARY.md`「禁止术语」表扫描回复里的旧称，命中时注入一条更正提示（`followup`，每会话只注入一次），要求模型按表里的「应当使用」更正后完整重发。术语表以构建期快照随包发布（`pnpm run gen:glossary`，解析复用 `check:docs` 同一份 `loadGlossary`），故非本仓项目也能审查；条件型术语（模块 / 工具集 / 收口）、带豁免标记的行（原名 / 旧称 / 历史对照 / 不再使用）与已知误配（「夺回归属」里的「回归」）跳过。按决策不做代码段掩码：引用旧称做示例可能被提示一次，注入文案已写明这类情况可忽略。只报不改：不改回复正文，也不改任何文件 |
 | **pin-note** | 跨压缩上下文保持：模型用 `pin_note` 把要点（≥ 20 字）登记进本会话记忆库；每次 `agent/pre-step` 先经 `session.deriveMessages()` 读当前上下文，同一段正文已在上下文里就跳过注入（老宿主回退到投影上的 payload 比对），否则折叠进 `decision.messages`（user 消息，自定义 `source: pin-note`）并在 `agent.inbox` 只留一条。压缩把这条消息移出上下文后，下一步重新插入——这就是「跨压缩在场」，长回合里也只会看到一段。`note_list` / `note_remove` 管理条目；合计建议 < 10K 字符（只提示不硬限）；作用域只有会话层，随会话结束失效。`ctx.memory` 缺席或 `pin` 分类注册失败时降级为一条告警 |
 | **flow-track** | 标准流程固化（只提示不拦截）：经 rule-engine 消费者在 `turn-start` + `user-message` 注入八阶段模板（目标 / 调研 / 决策 / 规划 / 实现 / 测试 / 审查 / 收尾，每阶段单动作 spec + 验收口径 + `deps` 链 + mechanical / human 门禁），但仅当进程内开关打开（缺省关闭、只在内存，`/flow-track on|off|status` 或 `flow_enable` 切换）且 memory-base 里存在最新阶段不是「收尾」的流程记录时才注入；`flow_record` / `flow_status` / `flow_enable` / `flow_remove` / `flow_rollback` 读写开关/删/回退各阶段推进（memory-base 项目层，kind `flow`，标题 `<slug>@<阶段>`）；写入按八阶段顺序逐 slug 判定（首条必须是「目标」，只能更新当前阶段或新增下一阶段，跳过与倒回被拒，回退走 `flow_rollback` 清掉后续阶段；删可按 id 或 slug）；当前阶段由只读的 `taskEngine.query()` 快照推导（帧栈末位 → 标题 → 阶段），另挂 `session/event` 数写类工具调用，改了文件却没有任何流程记录时给一条合规提示。不拦截任何工具调用；开关关闭时不注入任何内容；`taskEngine` 缺席只给记录，`memory` 缺席则恒不注入 |
+| **plan-mode** | plan 模式流程定义（与 flow-track 平级）：探索 / 计划 / 实施三段以节点数组声明（各 `needDecompose: true`、前置 `deps` 成链、`enforceOrder`；验收除「计划」是人工门禁外均为语义级）；入口工具 `plan_start` 经一次 `taskEngine.composeFromNodes` 建出全部节点，之后细化 / 推进 / 验收 / 推送都归 task-engine。插件 id 为 `plan-mode-track`（官方 `@deepseek-ai/dsh-plan-mode` 已占用 `plan-mode` id） |
+| **flow-arbiter** | 流程选择仲裁：同一会话最多选中一个流程（进程内内存、按会话；`/flow-arbiter status\|select <id>\|off` 或 `flow_select` 工具，选另一个即顶替）。拦截挂在 `tools/pre-execute`，只看流程入口工具（`flow_start` / `plan_start`）：未选中或选中了别的流程即拒绝并指向 `flow_select`；工具面不增删，切换流程不破坏上下文缓存（只有建树才改上下文） |
 | **cache-hit-monitor** | 缓存命中率监控：请求前（`agent/pre-step`，只读订阅、不返回注入字段）按上次与本次上下文的前缀重叠粗估可命中率，收到 `assistant/message` 的 `usage` 后算实际命中率（`cacheRead / (input + cacheRead)`），偏差超 `tolerance`（缺省 0.3）判缓存失效；首次无基线那步按 0、显示黄、豁免偏差判定；判定经服务面 `cacheHitMonitor.summary(sessionId)` 供 TUI 状态行既有 `cache` 段懒读着色（绿 / 红 / 黄），不新增槽位、不改 `/stats` |
 | **escalation-hint** | 沙箱升级提示补齐：订阅宿主 `tools/post-execute`，在「调用被沙箱拒绝、但宿主没有渲染 `[sandbox: escalation available …]` 提示」时（`denied` 由英文 stderr 签名判定，本地化报错必然漏判）经 `additionalContexts` 追加一条 user 消息，提示模型对同一调用加 `sandbox_permissions` + `justification` 重试一次；三层判据（已有提示 → 跳过；命中宿主 `[sandbox: file access denied under <mode> mode]` / `FS_SANDBOX_DENIED` → 补；否则用结构化 `exitCode` + `sandbox.mode` + 写形状命令兜底）覆盖 `bash` / `pwsh` 与 `write` / `edit` / `str_replace_editor`；只提示、不拦截 |
 各包 `package.json` 均携带 `dsh.bundle` 集成契约与 `cordis.patch.yml`；功能细节见各包 `README.md`，开发状态见 `docs/STATUS.md`。
@@ -97,6 +99,8 @@ dsh-toolset/
 ├── term-check/           # 回复正文术语检查（rule-engine 消费者；术语表快照；只报不改）
 ├── pin-note/             # 跨压缩上下文保持（pin_note / note_list / note_remove；按上下文去重注入）
 ├── flow-track/           # 标准流程固化（开关控制的注入 + flow_record / flow_status / flow_enable / flow_remove / flow_rollback；只提示不拦截）
+├── plan-mode/            # plan 模式流程定义（探索 / 计划 / 实施，经 task-engine 建树；plan_start 入口）
+├── flow-arbiter/         # 流程选择仲裁（会话级选中 + 入口工具拦截）
 ├── cache-hit-monitor/    # 缓存命中率监控（前缀重叠粗估 vs 实际 usage；summary 供 TUI cache 段着色）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
@@ -127,7 +131,7 @@ pnpm run test:smoke        # goal-contract / metric-loop / output-compress / sec
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 40 个包：TUI + 39 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 42 个包：TUI + 41 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
@@ -182,7 +186,7 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/GLOSSARY.md` — 术语表：术语选择与替换表（包 / 插件、追踪文档、符号、界面名等）。
 - `docs/DEVELOPMENT.md` — 面向 agent 的开发与部署手册：命令全量、一键安装、构建到 profile 部署（查用型；简版在 `AGENTS.md`）。
-- `docs/PACKAGES.md` — 包清单：40 个包（TUI + 39 插件）一句话职责、TUI 目录要点与 `DESIGN.md` 口径。
+- `docs/PACKAGES.md` — 包清单：42 个包（TUI + 41 插件）一句话职责、TUI 目录要点与 `DESIGN.md` 口径。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
 
 **宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**

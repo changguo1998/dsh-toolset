@@ -358,7 +358,13 @@ export class TaskEngine {
     nodes: ChildSpec[],
     enumeration?: Enumeration,
   ): Promise<DecomposeResult> {
-    return this.decompose(parentId, nodes, undefined, enumeration);
+    const resolved = this.resolveId(parentId);
+    return this.decompose(
+      resolved,
+      withParentCoverage(this.tree.frames.get(resolved), nodes),
+      undefined,
+      enumeration,
+    );
   }
 
   /** implement(frame, result)：仅叶子，写入产出 */
@@ -657,8 +663,32 @@ export class TaskEngine {
   }
 }
 
-/** 证据摘要（折叠空白 + 截断；供事件与工具返回值展示，非全文） */
-function summarize(text: string, max = 240): string {
+/**
+ * 编程建树时补 coverage（决策项 5 的落点细节）：流程定义只给节点内容，不掌握挂载点父帧的验收 id，
+ * 故父帧有验收、而节点里没有任何 coverage 映射时，把这些验收条目交给**整段节点共同承担**
+ * （映射写在首节点上）。节点自己声明了某条验收的 coverage 时不覆盖——显式映射优先。
+ */
+function withParentCoverage(
+  parent: Frame | undefined,
+  nodes: ChildSpec[],
+): ChildSpec[] {
+  if (parent === undefined || parent.acceptance.length === 0) return nodes;
+  const first = nodes[0];
+  if (first === undefined) return nodes;
+  const missing = parent.acceptance.filter(
+    (acc) => !nodes.some((node) => (node.coverage[acc.id] ?? []).length > 0),
+  );
+  if (missing.length === 0) return nodes;
+  const ids = nodes.map((node) => node.id);
+  const coverage: Record<string, FrameId[]> = { ...first.coverage };
+  for (const acc of missing) coverage[acc.id] = ids;
+  return [{ ...first, coverage }, ...nodes.slice(1)];
+}
+
+/** 证据摘要（折叠空白 + 截断；供事件与工具返回值展示，非全文） */ function summarize(
+  text: string,
+  max = 240,
+): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 3)}...`;
 }

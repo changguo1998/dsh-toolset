@@ -594,8 +594,8 @@ const canon = canonical.trim().split(/\s+/);
 const sorted = (list) => [...new Set(list)].sort();
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const problems = [];
-if (canon.length !== 41 || dirs.length !== 41)
-  problems.push(`包数不是 41：canonical ${canon.length} / 目录 ${dirs.length}`);
+if (canon.length !== 42 || dirs.length !== 42)
+  problems.push(`包数不是 42：canonical ${canon.length} / 目录 ${dirs.length}`);
 if (!eq(sorted(canon), sorted(dirs))) {
   const onlyCanon = sorted(canon).filter((name) => !dirs.includes(name));
   const onlyDirs = sorted(dirs).filter((name) => !canon.includes(name));
@@ -605,7 +605,7 @@ if (!eq(sorted(canon), sorted(dirs))) {
 }
 console.log(problems.length ? problems.join("；") : "ok");
 ' "$repo_root" "$canonical")"
-assert_eq "$consistency" "ok" "canonical_pkgs 与仓库包目录一致且为 41 个包"
+assert_eq "$consistency" "ok" "canonical_pkgs 与仓库包目录一致且为 42 个包"
 missing=""
 for d in $canonical; do
     [ -d "$repo_root/$d" ] || missing="$missing $d"

@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { TaskEngine } from "../src/engine.ts";
 import type { AcceptanceHooks } from "../src/acceptance.ts";
-import type { ChildSpec, FrameId } from "../src/types.ts";
+import type { ChildSpec, FrameId, LoggedPlanEvent } from "../src/types.ts";
 
 const mech = (
   id: string,
@@ -88,6 +88,46 @@ describe("composeFromNodes: 编程服务面建树", () => {
     assert.equal(r.accepted, false);
     assert.match(r.ok === false ? r.feedback : "", /含实现细节/);
     assert.deepEqual(e.frames().get("root")?.children, [], "打回不挂树");
+  });
+
+  it("挂到有验收的父帧: 缺失的 coverage 自动由整段节点承担", async () => {
+    const e = new TaskEngine({
+      root: {
+        id: "root",
+        title: "R",
+        spec: "根目标",
+        acceptance: [mech("r-q")],
+      },
+      ...makeHooks(),
+    });
+    // 先建一个待分解节点（它自己带验收），再把「流程段」挂到它下面
+    await e.composeFromNodes("root", [
+      node("stage", {
+        needDecompose: true,
+        acceptance: [mech("s-q")],
+        enforceOrder: false,
+      }),
+    ]);
+    const r = await e.composeFromNodes("stage", [node("a"), node("b")]);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    // 机器门禁已通过（覆盖完备由首节点承担），子帧挂在 stage 下
+    assert.deepEqual(e.frames().get("stage")?.children, ["a", "b"]);
+  });
+
+  it("显式 coverage 优先: 节点自己声明的映射不被自动补覆盖", async () => {
+    const e = new TaskEngine({
+      root: { id: "root", title: "R", spec: "s", acceptance: [mech("r-q")] },
+      ...makeHooks(),
+    });
+    await e.composeFromNodes("root", [
+      node("c1", { coverage: { "r-q": ["c1"] } }),
+      node("c2"),
+    ]);
+    assert.equal(e.frames().get("root")?.children.length, 2);
+    const coverage = e.log
+      .filter((ev) => ev.type === "plan/node-expanded")
+      .at(-1) as Extract<LoggedPlanEvent, { type: "plan/node-expanded" }>;
+    assert.deepEqual(coverage.children[0]?.coverage, { "r-q": ["c1"] });
   });
 
   it("与手动 task_decompose 等价: 同一批节点产出同形的树", async () => {

@@ -1,10 +1,10 @@
 # 包清单与职责
 
-> 职责：40 个包（TUI + 39 个插件）的一句话职责、TUI 目录要点、`DESIGN.md` 轻重包口径
+> 职责：42 个包（TUI + 41 个插件）的一句话职责、TUI 目录要点、`DESIGN.md` 轻重包口径
 > 不负责：各包的详细用法 / 配置 / 契约（见各包 `README.md` 与其 docs/）；面向人的能力表见根 `README.md` 的 `Composition` 一节
 > 过期条件：新增 / 删改包时随仓库维护
 
-本仓 40 个包 = `TUI/` 终端界面包 + 39 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `ponytail` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
+本仓 42 个包 = `TUI/` 终端界面包 + 41 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `ponytail` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
 
 ## TUI
 
@@ -51,7 +51,9 @@
 | escalation-hint | 沙箱升级提示补齐：订阅 `tools/post-execute`，宿主没给升级提示时经 `additionalContexts` 补重试指引；只提示不拦截 |
 | term-check | 回复正文术语检查：`assistant-text` 上的 rule-engine 消费者，按术语表快照比对旧称并注入更正提示；只报不改 |
 | pin-note | 跨压缩上下文保持：`pin_note` 登记要点到会话层记忆库，`agent/pre-step` 去重后折叠进本步；配套 `note_list` / `note_remove` |
-| flow-track | 标准流程固化：注入缺省关闭，开关 + memory-base 有流程记录时才注入八阶段模板 / 推进状态 / 合规提示；`flow_record` / `flow_status` / `flow_enable` / `flow_remove` / `flow_rollback`；只提示不拦截 |
+| flow-track | 标准流程固化（流程定义方）：八阶段定义经入口工具 `flow_start` 一次建树（内部调 task-engine `composeFromNodes`），树级注入已退役；`flow_record` / `flow_status` / `flow_remove` / `flow_rollback` 记推进；只提示不拦截，顺序强制由 task-engine 按流程定义执行 |
+| plan-mode | plan 三段流程定义（探索 / 计划 / 实施，各可再拆 + 顺序强制；计划段 human 门禁）与入口工具 `plan_start`，与 flow-track 平级；插件 id 为 `plan-mode-track`（官方 plan-mode 占 id） |
+| flow-arbiter | 流程选择仲裁：会话级「当前选中流程」（内存），入口工具恒注册、`tools/pre-execute` 只拦流程入口（`flow_start` / `plan_start`），未选中或选别的即拒；切换不破坏缓存 |
 | cache-hit-monitor | 缓存命中率监控：请求前按前缀重叠粗估可命中率、收到 `usage` 后算实际命中率，偏差超 `tolerance` 判缓存失效（首次无基线按 0、显示黄、豁免偏差判定）；判定经 `cacheHitMonitor.summary(sessionId)` 供 TUI 状态行既有 cache 段着色；只读订阅、不改 /stats |
 
 ## DESIGN.md 口径（2026-10-04 裁定）
