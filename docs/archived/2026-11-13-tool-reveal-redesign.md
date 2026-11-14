@@ -229,8 +229,8 @@
 
 ### 遗留
 
-- 主 profile `fff` 未安装; 由人工执行 `scripts/install.sh --profile fff --sync` 后再做一次带凭据的会话验收.
-- 短说明指向名仍是 `tool_consult`; 实际入口 `consult_tools` 已在 header 可见, 统一命名另开条目.
+- 主 profile `fff` 未安装; 由人工执行 `scripts/install.sh --profile fff --sync` 后再做一次带凭据的会话验收.（2026-11-14 人工安装与带凭据验收完成, 遗留关闭）
+- 短说明指向名仍是 `tool_consult`; 实际入口 `consult_tools` 已在 header 可见, 统一命名另开条目（已登记 `docs/BACKLOG.md` §2）.
 
 ## 状态记录
 
@@ -246,3 +246,4 @@
 - 2026-11-14: 包级 / 全量 check / build / test 与 check:docs 全绿; 两条工具 e2e 全绿; 全量 e2e 唯一红为计划废弃的 ponytail.
 - 2026-11-14: 伴随 fff-test 软链接 profile 已同步; 三个真实会话 header 字节一致; 主 profile 按用户要求留待人工安装.
 - 2026-11-14: 随机 `TOLLGATE_API_KEY` 下补测真机闭环: 5 步只有 1 条 header, 未揭示拒绝 → 揭示 → 再调成功, pinNotes 全文与 schema 已投递; 修复 pinNotes 改为揭示时懒解析（原 apply 时捕获会漏掉后挂载的 pin-note）.
+- 2026-11-14: 主 profile `fff` 人工安装与带凭据验收完成, 遗留关闭; `tool_consult` 指向名统一条目已登记 `docs/BACKLOG.md` §2.

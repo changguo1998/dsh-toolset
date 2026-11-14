@@ -76,6 +76,8 @@
 
 ## 2. 未完成项
 
+- **`tool_consult` 指向名统一**（2026-11-14, 优先级 P2, 状态: 未接取）: 各包短说明与测试里的指向名沿用 `tool_consult`, 实际入口是 `consult_tools`（已在 header 可见, 说明见 `tool-consult/README.md`）; 统一为 `consult_tools` 需改各包 summary 与相关测试并同步 README. 来源: `docs/archived/2026-11-13-tool-reveal-redesign.md` 遗留.
+
 - **自研 plan 模式（替代官方 plan-mode）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 官方 plan-mode 只注入 `plan:policy` 并条件挂载 `exit_plan_mode`, 不拦截写工具, policy 也不保证模型遵守; 已裁定先禁用官方 plan-mode, 清掉 `/plan` 相关接线. 期望: 本仓自研可执行的 plan 模式, 具备探索 / 计划 / 实施阶段门禁; 具体机制与接口待设计, 设计前不接取. 来源: 2026-11-11 会话.
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
