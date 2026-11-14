@@ -146,7 +146,8 @@ function makeContext(options?: {
   const ctx: Record<string, unknown> = { ...base };
   if (options?.memory !== undefined) ctx["memory"] = options.memory;
   if (options?.taskEngine !== undefined) ctx["taskEngine"] = options.taskEngine;
-  if (options?.commands === true) {
+  // 命令面缺省在场（`/flow-track on|off|status` 是切开关的唯一入口，flow_enable 工具已迁出）
+  if (options?.commands !== false) {
     ctx["commands"] = {
       register(def: Record<string, unknown>): () => void {
         commandDefs.push(def);
@@ -181,12 +182,10 @@ function makeContext(options?: {
   };
 }
 
-/** 打开注入开关（走 flow_enable 工具, 与真实调用同路径）。 */
+/** 打开注入开关（走 /flow-track on 命令, 与真实调用同路径）。 */
 async function enableInjection(harness: Harness): Promise<void> {
-  const tool = harness.tools.find((item) => item.name === "flow_enable");
-  assert.ok(tool, "应有 flow_enable");
-  const result = await tool.execute({ enabled: true }, {});
-  assert.equal(result["ok"], true);
+  const reply = harness.runCommand("on");
+  assert.match(reply.text, /已打开/);
 }
 
 /** 捕获 stderr。 */
@@ -207,7 +206,7 @@ function captureStderr(run: () => void): string[] {
 
 test("导出名与注入面", () => {
   assert.equal(name, "flow-track");
-  assert.deepEqual(inject, []);
+  assert.deepEqual(inject, ["tools"]);
   assert.deepEqual(provide, ["flowTrack"]);
 });
 
@@ -268,9 +267,9 @@ test("注册五个工具与一个 flow hold", () => {
   assert.deepEqual(
     harness.tools.map((tool) => tool.name),
     [
+      "flow_start",
       "flow_record",
       "flow_status",
-      "flow_enable",
       "flow_remove",
       "flow_rollback",
     ],
@@ -298,7 +297,7 @@ test("decide：开关打开但没有任何流程记录 → 不注入", async () 
   assert.equal(harness.decide("s1"), null);
 });
 
-test("decide：开关打开且有未完成流程 → 当前阶段与最近记录", async () => {
+test("decide：开关打开且有未完成流程 → 只给最近记录（树级内容已退役）", async () => {
   const fake = makeMemory();
   const harness = makeContext({
     memory: fake.memory,
@@ -315,9 +314,9 @@ test("decide：开关打开且有未完成流程 → 当前阶段与最近记录
   await tick();
   const feedback = harness.decide("s1");
   assert.ok(feedback);
-  assert.match(feedback.text, /当前阶段：3\/8 决策/);
-  assert.match(feedback.text, /下一步：阶段 4 规划/);
   assert.match(feedback.text, /最近记录：demo@目标 状态 done/);
+  assert.equal(feedback.text.includes("当前阶段"), false);
+  assert.equal(feedback.text.includes("下一步"), false);
   // 不给固定 summary：rule-engine 按正文派生，配合 dedupeInRecord = 1 做同正文去重
   assert.equal(feedback.summary, undefined);
 });
@@ -483,7 +482,8 @@ test("dispose 释放 hold 与事件订阅", () => {
   const harness = makeContext({ memory: fake.memory });
   const dispose = apply(harness.ctx);
   dispose();
-  assert.equal(harness.disposed(), 2);
+  // hold + session/event 订阅 + /flow-track 命令各一个注销函数
+  assert.equal(harness.disposed(), 3);
 });
 
 test("resolveConfig：缺省与覆盖", () => {
@@ -513,7 +513,7 @@ test("/flow-track 命令：缺省关闭, on / off / status 与未知子命令", 
   assert.equal(harness.commandDefs[0]!["name"], "flow-track");
 
   const initial = harness.runCommand("");
-  assert.equal(initial.kind, "text");
+  assert.equal(initial.kind, "success");
   assert.match(initial.text, /已关闭/);
   assert.match(initial.text, /不会注入：开关关闭/);
 
@@ -532,24 +532,145 @@ test("/flow-track 命令：缺省关闭, on / off / status 与未知子命令", 
   assert.match(bad.text, /未知子命令/);
 });
 
-test("flow_enable：参数校验与开关回执", async () => {
+test("flow_start：按流程定义一次建树, 节点带顺序强制与前序链", async () => {
+  const fake = makeMemory();
+  const calls: Array<{ parentId: string | undefined; nodes: unknown[] }> = [];
+  const harness = makeContext({
+    memory: fake.memory,
+    taskEngine: {
+      query: () => snapshotOf("目标"),
+      composeFromNodes: async (
+        parentId: string | undefined,
+        nodes: unknown[],
+      ) => {
+        calls.push({ parentId, nodes });
+        return { ok: true, accepted: true, next: "flow-x-s1" };
+      },
+    },
+  });
+  apply(harness.ctx);
+  const start = harness.tools.find((tool) => tool.name === "flow_start")!;
+  const result = await start.execute({}, {});
+  assert.equal(result["ok"], true, JSON.stringify(result));
+  assert.equal(result["flow"], "standard");
+  assert.equal((result["nodes"] as string[]).length, 8);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.parentId, undefined, "缺省建在当轮根下");
+  const nodes = calls[0]!.nodes as Array<Record<string, unknown>>;
+  const first = nodes[0]!;
+  assert.equal(first["title"], "目标");
+  assert.equal(first["enforceOrder"], true);
+  assert.equal(first["needDecompose"], false);
+  assert.equal(first["deps"], undefined, "首节点无前置");
+  assert.deepEqual(nodes[1]!["deps"], [first["id"]], "前置链指向前一节点");
+  const acceptance = first["acceptance"] as Array<Record<string, unknown>>;
+  assert.equal(acceptance[0]!["level"], "semantic");
+});
+
+test("flow_start：可挂任意父帧, 每次建树 id 不重复", async () => {
+  const fake = makeMemory();
+  const seen: string[][] = [];
+  const harness = makeContext({
+    memory: fake.memory,
+    taskEngine: {
+      composeFromNodes: async (
+        parentId: string | undefined,
+        nodes: unknown[],
+      ) => {
+        assert.equal(parentId, "stage-1");
+        seen.push((nodes as Array<{ id: string }>).map((node) => node.id));
+        return { ok: true, accepted: true, next: null };
+      },
+    },
+  });
+  apply(harness.ctx);
+  const start = harness.tools.find((tool) => tool.name === "flow_start")!;
+  const a = await start.execute({ parent_id: "stage-1" }, {});
+  const b = await start.execute({ parent_id: "stage-1" }, {});
+  assert.equal(a["ok"], true, JSON.stringify(a));
+  assert.equal(b["ok"], true, JSON.stringify(b));
+  assert.equal(seen.length, 2);
+  assert.notDeepEqual(seen[0], seen[1], "两次建树 id 前缀不同");
+});
+
+test("flow_start：task-engine 建树入口缺席 / 被门禁拒绝都给可读错误", async () => {
+  const fake = makeMemory();
+  const missing = makeContext({ memory: fake.memory });
+  apply(missing.ctx);
+  const start = missing.tools.find((tool) => tool.name === "flow_start")!;
+  const noFace = await start.execute({}, {});
+  assert.equal(noFace["ok"], false);
+  assert.equal(noFace["error"], "task_engine_unavailable");
+
+  const rejecting = makeContext({
+    memory: fake.memory,
+    taskEngine: {
+      composeFromNodes: async () => ({
+        ok: false,
+        accepted: false,
+        next: null,
+        feedback: "子任务「收尾」含实现细节/代码，越级了",
+      }),
+    },
+  });
+  apply(rejecting.ctx);
+  const rejected = await rejecting.tools
+    .find((tool) => tool.name === "flow_start")!
+    .execute({}, {});
+  assert.equal(rejected["ok"], false);
+  assert.equal(rejected["error"], "rejected");
+  assert.match(String(rejected["message"]), /越级/);
+});
+
+test("flow_start：参数类型不符在包装层被拦（parent_id 必须是字符串）", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({
+    memory: fake.memory,
+    taskEngine: { composeFromNodes: async () => ({ ok: true, next: null }) },
+  });
+  apply(harness.ctx);
+  const start = harness.tools.find((tool) => tool.name === "flow_start")!;
+  await assert.rejects(
+    () => start.execute({ parent_id: 42 }, {}),
+    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
+  );
+});
+
+test("flow_start 建出的帧标题 → flow_status 认得出阶段与门禁", async () => {
+  const fake = makeMemory();
+  const harness = makeContext({
+    memory: fake.memory,
+    taskEngine: {
+      // 建树后 task-engine 会给出带节点标题的快照：这里直接给「审查」阶段的视图
+      query: () => snapshotOf("审查"),
+      composeFromNodes: async () => ({ ok: true, next: "s1" }),
+    },
+  });
+  apply(harness.ctx);
+  await harness.tools
+    .find((tool) => tool.name === "flow_start")!
+    .execute({}, {});
+  const status = await harness.tools
+    .find((tool) => tool.name === "flow_status")!
+    .execute({}, {});
+  assert.deepEqual(status["stage"], {
+    index: 7,
+    name: "审查",
+    gate: "human",
+    spec: "交审查方审阅 diff 与效果并记录结论。",
+    title: "审查",
+  });
+});
+
+test("flow_enable 已迁出: 模型面不再有开关工具, 开关只走 /flow-track 命令", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
-  const enable = harness.tools.find((tool) => tool.name === "flow_enable")!;
-  // 类型不符在包装层就被拦下（宿主同款 ToolArgsError）
-  await assert.rejects(
-    () => enable.execute({ enabled: "yes" }, {}),
-    (error: unknown) => (error as { name?: string }).name === "ToolArgsError",
-  );
-  const on = await enable.execute({ enabled: true }, {});
-  assert.equal(on["ok"], true);
-  assert.equal(on["enabled"], true);
-  assert.equal(on["active"], false);
   assert.equal(
-    (await enable.execute({ enabled: false }, {}))["enabled"],
+    harness.tools.some((tool) => tool.name === "flow_enable"),
     false,
   );
+  assert.equal(harness.commandDefs.length, 1);
 });
 
 test("门槛：开关开 + 流程走到收尾 → 不注入", async () => {
@@ -775,6 +896,18 @@ test("注册接入 tool-surface 包装：模型侧短说明 + 宽松占位, 全�
   assert.match(entry.description, /^用途: 把标准流程的一次推进/);
   assert.equal(entry.parameters["additionalProperties"], false);
   assert.deepEqual(entry.parameters["required"], ["stage", "status"]);
+  const startEntry = lookupSurface("flow_start");
+  assert.ok(startEntry, "catalog 里应有 flow_start 全文");
+  assert.match(
+    startEntry.description,
+    /^用途: 按标准流程定义一次性建出八阶段任务树/,
+  );
+  assert.deepEqual(
+    Object.keys(
+      (startEntry.parameters["properties"] as Record<string, unknown>) ?? {},
+    ),
+    ["parent_id"],
+  );
   const rollbackRequired = lookupSurface("flow_rollback")?.parameters[
     "required"
   ] as string[] | undefined;

@@ -6,24 +6,6 @@ import {
   renderLastRecord,
 } from "../src/inject.ts";
 import type { FlowRecord } from "../src/store.ts";
-import type { SnapshotLike } from "../src/status.ts";
-
-/** 造一份有阶段树的快照（当前阶段 = `stage`）。 */
-function snapshotOf(stage: string): SnapshotLike {
-  return {
-    tasks: [
-      {
-        id: "root",
-        title: "任务",
-        status: "active",
-        children: [{ id: "c", title: stage, status: "active", children: [] }],
-      },
-    ],
-    frameStack: ["c"],
-    activeCount: 1,
-    isComplete: false,
-  };
-}
 
 const RECORD: FlowRecord = {
   id: 1,
@@ -34,47 +16,36 @@ const RECORD: FlowRecord = {
   createdAt: 1,
 };
 
-test("无阶段树、无写类调用 → 不注入", () => {
+test("无记录、无写类调用 → 不注入", () => {
   assert.equal(decideText({ records: [], writeSeen: false }), undefined);
 });
 
-test("无阶段树、有写类调用 → 模板 + 合规提示", () => {
+test("无记录、有写类调用 → 只给合规提示（树级模板已退役）", () => {
   const text = decideText({
     records: [],
     writeSeen: true,
     lastWriteTool: "edit",
   });
   assert.ok(text);
-  assert.match(text, /标准流程八阶段模板/);
   assert.match(text, /本轮已调用写类工具（edit）/);
   assert.match(text, /只提示, 不拦截/);
+  assert.equal(text.includes("八阶段模板"), false);
+  assert.equal(text.includes("当前阶段"), false);
 });
 
-test("有阶段树 → 给当前阶段与下一步", () => {
+test("有记录 → 只给最近记录摘要（不再给阶段与下一步）", () => {
   const text = decideText({
-    snapshot: snapshotOf("决策"),
-    records: [],
-    writeSeen: false,
-  });
-  assert.ok(text);
-  assert.match(text, /当前阶段：3\/8 决策/);
-  assert.match(text, /下一步：阶段 4 规划/);
-  assert.equal(text.includes("标准流程八阶段模板"), false);
-});
-
-test("有阶段树 + 有记录 → 追加最近记录摘要", () => {
-  const text = decideText({
-    snapshot: snapshotOf("实现"),
     records: [RECORD],
     writeSeen: false,
   });
   assert.ok(text);
   assert.match(text, /最近记录：demo@决策 状态 done：选了 b/);
+  assert.equal(text.includes("当前阶段"), false);
+  assert.equal(text.includes("下一步"), false);
 });
 
-test("合规提示：已有流程记录就不再提示", () => {
+test("有记录时写类调用不再提示合规", () => {
   const text = decideText({
-    snapshot: snapshotOf("实现"),
     records: [RECORD],
     writeSeen: true,
     lastWriteTool: "bash",
@@ -106,11 +77,7 @@ test("最近记录：空正文不拼冒号段", () => {
 });
 
 test("无记录时没有「最近记录」行", () => {
-  const text = decideText({
-    snapshot: snapshotOf("目标"),
-    records: [],
-    writeSeen: false,
-  });
+  const text = decideText({ records: [], writeSeen: true });
   assert.ok(text);
   assert.equal(text.includes("最近记录"), false);
 });

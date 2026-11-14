@@ -313,23 +313,52 @@
   `beforeExecute` 补登记口在首个工具调用时重试; 卸载时注销）。task-engine 不自造注入策略,
   渲染与缓存影响归 pin-note。
 
+### 阶段 2（flow-track 重构, 2026-11-15）
+
+- T5（2a）八阶段改流程定义: `stages.ts` 重写为 `FLOW_NODES`（每节点 index / name / spec /
+  acceptance / needDecompose / deps / enforceOrder）+ `FLOW_ID` / `FLOW_NAME` 与 `stageNames` /
+  `stageAt` / `stageIndex` / `stageOfTitle`; 阶段验收由「文本提示」变为**真验收条目**（审查 human,
+  其余 semantic —— 原机械级无命令是必然失败的写法, 不能落成帧字段）; spec 改写为单动作句,
+  才能过 task-engine 的过粗 / 过细 / 越级三条启发（原「读 A, 结论 B」「归档 A、清理 B」会被打回）。
+- T6（2b）`flow_start` 入口: 新增 `flow-start.ts`（`buildFlowNodes(prefix)` + `flowStartTool`），
+  模型只给可选 `parent_id`，内部按流程定义一次性调 task-engine `composeFromNodes` 建树（走既有
+  双门禁）; 建树服务面每次调用现读（装配顺序不保证 task-engine 先 provide）; 仲裁未就绪, 本阶段全放行。
+- T7（2c）树级注入退役: `inject.ts` 只留合规提示与最近记录（`decideText` 不再接 snapshot）;
+  `status.ts` 删除推进状态渲染, 只保留 `currentStage`（阶段名改从流程定义读）; `policy.ts` 的
+  `STAGE_NAMES` 改为从 `stageNames()` 派生; `flow_status` 去掉 `text` 字段, 阶段段带 spec 与门禁。
+- T8（2d）`flow_enable` 迁出: 模型侧开关工具删除, 开关只走 `/flow-track on|off|status` 命令面;
+  `flowTrack.enabled()` 服务面不变（开关只影响本包残余注入）。
+- 顺带修掉的真问题（同一路径上, 不修则 T8 之后开关无法使用）:
+  - `flow-track/src/command.ts` 回执 `kind` 原为 `"text"`，宿主 `CommandResult` 只认 `success` /
+    `error` —— 真机调用会抛 `unknown result kind "text"`；已改为 `success`（e2e 现真跑命令面）。
+  - `inject` 由 `[]` 改为 `["tools"]`：装配期要注册工具面，`tools` 是硬依赖；不改则在某些装配顺序下
+    整族工具静默不注册（e2e 实测 `flow_start` 报 unknown tool）。
+- e2e: `e2e/flow-track.test.ts` 改用 `/flow-track on` 命令开开关, 并新增一例
+  「flow_start 经 task-engine 建出八阶段树 + 顺序强制拦越序」（真宿主、真门禁）。
+
 ## 偏差
 
 - T4 审计命令落点调整: `grep "pinNotes"` 改指 `task-engine/src/plugin.ts`（登记在装配层）, 另加
   `grep "renderCurrentTask" task-engine/src/push.ts` 守住取数与渲染所在文件; 其余审计命令按原样可用。
 - T2 的实现把三入口共用的判定抽到新文件 `order.ts`（原计划只写「`engine.ts` 三入口各加校验」）:
   任务推送也复用同一判定, 抽纯函数避免两处口径漂移。
+- 阶段 2 的计划外改动（均在同一链路上, 已记入 T8 条）: `flow-track/src/command.ts` 回执 kind 修正、
+  `flow-track/src/index.ts` 的 `inject` 改为 `["tools"]`、`e2e/flow-track.test.ts` 同步更新。
+- 阶段验收的级: 计划未写级, 实现取「审查 = human, 其余 = semantic」——机械级必须有命令,
+  内容类判据没有通用命令可用, 只能用 audit run 裁决。
 
 ## 测试与证据
 
-- `TEST_SCRIPT=check sh scripts/test-parallel.sh task-engine` → `OK task-engine`（退出 0）。
-- `TEST_SCRIPT=build sh scripts/test-parallel.sh task-engine` → `OK task-engine`（退出 0）。
-- `pnpm -C task-engine run test` → 201 例全过（既有 182 → 201, 新增 19 例:
-  `tests/order.test.ts` 8 例 / `tests/compose.test.ts` 4 例 / `tests/push.test.ts` 7 例）。
-- `pnpm run check`（全仓）→ 全部包 OK。
-- 机械审计: `enforceOrder` 见 `task-engine/src/{types,engine-types,engine,events,plugin}.ts`;
-  `composeFromNodes` 见 `task-engine/src/{engine,plugin}.ts`; `pinNotes` / `renderCurrentTask` 见
-  `task-engine/src/plugin.ts` 与 `task-engine/src/push.ts`。
+- 阶段 1: `TEST_SCRIPT=check/build sh scripts/test-parallel.sh task-engine` 均 `OK`;
+  `pnpm -C task-engine run test` 201 例全过（既有 182 → 201, 新增 19 例:
+  `tests/order.test.ts` 8 / `tests/compose.test.ts` 4 / `tests/push.test.ts` 7）; `pnpm run check` 全仓 OK。
+- 阶段 2: `TEST_SCRIPT=check/build sh scripts/test-parallel.sh flow-track` 均 `OK`;
+  `pnpm -C flow-track run test` 85 例全过（既有 82 → 85, 新增 `flow_start` 建树 / 挂任意父 / 参数校验 /
+  阶段识别 4 例, 删 `flow_enable` 1 例, 退役 renderStatus 3 例、renderStages 1 例）;
+  `node --experimental-transform-types --test --test-force-exit e2e/flow-track.test.ts` 2 例全过
+  （含真宿主建树 + 越序拒绝）。
+- 机械审计: `enforceOrder` 见 `flow-track/src/stages.ts`; `flow_start` 见 `flow-track/src/flow-start.ts`;
+  源码内已无 `renderStages` / `renderStatus` / `flow_enable` 标识。
 
 ## 收尾
 

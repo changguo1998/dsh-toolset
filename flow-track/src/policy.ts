@@ -9,19 +9,16 @@
  * `-` 表示整体推进, 只作备注, 不参与当前阶段推导。
  */
 
-import { STAGES } from "./stages.ts";
+import { stageIndex, stageNames } from "./stages.ts";
 import type { FlowRecord } from "./store.ts";
 
-/** 八阶段名（顺序即推进顺序）。 */
-export const STAGE_NAMES: readonly string[] = STAGES.map((stage) => stage.name);
+/** 八阶段名（顺序即推进顺序；来源 = 流程定义）。 */
+export const STAGE_NAMES: readonly string[] = stageNames();
 
 /** 整体推进用的备注阶段名。 */
 export const WHOLE_STAGE = "-";
 
-/** 阶段名在八阶段里的下标（不在表内返回 -1）。 */
-export function stageIndex(stage: string): number {
-  return STAGE_NAMES.indexOf(stage);
-}
+export { stageIndex };
 
 /** 时间线上最新的「真实阶段」记录（跳过 `-` 备注）。 */
 export function latestStageRecord(

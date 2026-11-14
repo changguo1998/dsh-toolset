@@ -22,9 +22,9 @@ export interface FlowCommandDeps {
 /** 命令用法。 */
 export const USAGE = "用法: /flow-track on | off | status";
 
-/** 命令回执（宿主的文本回执形态）。 */
+/** 命令回执（宿主 `CommandResult` 形态：`success` / `error`）。 */
 export interface CommandReply {
-  kind: "text" | "error";
+  kind: "success" | "error";
   text: string;
 }
 
@@ -41,11 +41,11 @@ export function dispatchFlowCommand(
 ): CommandReply {
   const sub = (rawInput.trim().split(/\s+/)[0] ?? "").toLowerCase();
   if (sub === "" || sub === "status") {
-    return { kind: "text", text: statusText(deps) };
+    return { kind: "success", text: statusText(deps) };
   }
   if (sub === "on" || sub === "off") {
     deps.switcher.enabled = sub === "on";
-    return { kind: "text", text: statusText(deps) };
+    return { kind: "success", text: statusText(deps) };
   }
   return { kind: "error", text: `未知子命令「${sub}」\n${USAGE}` };
 }

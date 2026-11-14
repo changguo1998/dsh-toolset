@@ -1,20 +1,23 @@
 /**
  * flow-track 插件入口（DSH bundle 接入面）。
  *
- * 角色：把本仓「标准流程」固化成机制的三件组合——
- * ① 阶段模板（`stages.ts`，八阶段）由回合边界的注入交给模型，模型据此手动 `task_decompose`；
+ * 角色（决策项 4.0 / 4.4：流程定义方，不再自实现流程推进）——
+ * ① 流程定义（`stages.ts`，八阶段节点数组）经**入口工具 `flow_start`** 一次性建树（内部调
+ *    task-engine 的编程服务面 `composeFromNodes`，见 `flow-start.ts`）；建树之后节点推进 / 校验 /
+ *    验收 / 推送全部由 task-engine 接管，本包不再介入执行期；
  * ② 流程记录（`store.ts`，memory-base 项目层 kind `flow`）由 `flow_record` 写、`flow_status` 读；
- * ③ 推进状态（`status.ts`，只读 `taskEngine.query()`）+ 合规提示（`observe.ts` 数写类工具调用）
- *    在回合边界合成一条注入。
+ * ③ 合规提示（`observe.ts` 数写类工具调用）与最近记录在回合边界合成一条注入——**树级内容
+ *    （阶段模板 / 推进状态）已退役**，当前节点内容由 task-engine 取数、pin-note 保持。
  *
- * 固化强度 = 中档（决策项 4.3 = b）：**只提示不拦截**。
+ * 固化强度 = 中档（决策项 4.3 = b）：**只提示不拦截**；节点顺序强制由 task-engine 按流程定义
+ * 的 `enforceOrder` 执行。
  *
  * 注入门槛（2026-11-06 起）：配置 `enabled` 与进程内开关都打开, 且 memory-base 里有未完成阶段的
  * 流程记录（最新阶段不是「收尾」）时才注入；开关缺省关闭、只在内存（`switch.ts`），
- * 用户面 `/flow-track on|off|status`、模型面 `flow_enable` 都能切。
+ * 用户面 `/flow-track on|off|status` 切。
  *
- * 降级：`pinNotes` 缺席 → 告警且不注入；`memory` 缺席 → 工具返回可读错误、注入里只剩模板与
- * 状态；`taskEngine` 缺席 → 状态段退化为「没有可识别的阶段树」。
+ * 降级：`pinNotes` 缺席 → 告警且不注入；`memory` 缺席 → 工具返回可读错误、注入里只剩合规提示；
+ * `taskEngine` 缺席 → `flow_start` 返回可读错误、`flow_status` 的阶段段退化为没有可识别阶段树。
  */
 
 import type { SnapshotLike } from "./status.ts";
@@ -24,13 +27,23 @@ import { decideText } from "./inject.ts";
 import { STAGE_NAMES, hasActiveFlow } from "./policy.ts";
 import { registerFlowCommand } from "./command.ts";
 import { createFlowSwitch } from "./switch.ts";
+import {
+  flowStartTool,
+  type ComposeFace,
+  type ComposeResultLike,
+  type FlowNodeInput,
+} from "./flow-start.ts";
 import { flowTools } from "./tools.ts";
 import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 export const name = "flow-track";
 
-/** 注入面：动态保持经 pin-note 的 `pinNotes.hold` 登记, 无硬依赖。 */
-export const inject = [];
+/**
+ * 注入面：`tools` 是硬依赖（装配期要注册工具面，缺面时注册不了，cordis 需要在场才激活）；
+ * 动态保持经 pin-note 的 `pinNotes.hold` 登记，`memory` / `taskEngine` / `pinNotes` 都是可选服务，
+ * 经反射面按调用现读。
+ */
+export const inject = ["tools"];
 
 /** 对外只读服务面：`flowTrack.enabled()` 与 `flowTrack.summary()`（TUI 标题栏 / 状态列据此显示）。 */
 export const provide = ["flowTrack"];
@@ -96,10 +109,14 @@ interface PinNotesLike {
   ): () => void;
 }
 
-/** 只读快照面（task-engine `provide("taskEngine")`）。 */
+/** 只读快照面（task-engine `provide("taskEngine")`；`composeFromNodes` = 编程建树入口）。 */
 interface TaskEngineFace {
   query?(): SnapshotLike;
   frameStack?(): readonly string[];
+  composeFromNodes?(
+    parentId: string | undefined,
+    nodes: FlowNodeInput[],
+  ): Promise<ComposeResultLike>;
 }
 
 /** 插件上下文的结构化面。 */
@@ -167,6 +184,13 @@ function sessionIdOf(session: unknown): string | undefined {
   return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
+/** 建树帧 id 前缀（进程内递增 + 时间戳基数：跨轮 / 多次建树都不撞 id）。 */
+let flowSeq = 0;
+function nextFlowPrefix(): string {
+  flowSeq += 1;
+  return `flow-${Date.now().toString(36)}-${flowSeq}`;
+}
+
 /**
  * 挂载：注册两个工具、订阅 `session/event` 记账、注册 rule-engine 消费者。
  * 返回 dispose（注销消费者与事件订阅）。
@@ -191,7 +215,18 @@ export function apply(ctx: unknown, config?: Config): () => void {
   }
   const taskEngine = readService<TaskEngineFace>(c, "taskEngine");
   if (taskEngine === undefined) {
-    warn("ctx.taskEngine 不可用，推进状态段会退化为「没有可识别的阶段树」");
+    warn("ctx.taskEngine 不可用，flow_start 无法建树、推进状态段会退化");
+  }
+  // 编程建树入口（决策项 5）：**每次调用现读**（装配顺序不保证 task-engine 先 provide）；
+  // task-engine 版本不支持该入口时 flow_start 返回可读错误，其余工具照常
+  const composeOf = (): ComposeFace | undefined => {
+    const face = readService<TaskEngineFace>(c, "taskEngine");
+    const entry = face?.composeFromNodes;
+    if (face === undefined || typeof entry !== "function") return undefined;
+    return (parentId, nodes) => entry.call(face, parentId, nodes);
+  };
+  if (composeOf() === undefined) {
+    warn("ctx.taskEngine 未暴露 composeFromNodes，flow_start 暂不可用");
   }
 
   const observer = new WriteObserver();
@@ -235,7 +270,12 @@ export function apply(ctx: unknown, config?: Config): () => void {
       active: () => hasActiveFlow(cache.records),
       onRecorded: () => void refresh(),
     };
-    for (const tool of flowTools(deps)) {
+    // 工具面顺序：流程入口在前，记录类工具在后
+    const toolDefs = [
+      flowStartTool({ compose: composeOf, prefix: nextFlowPrefix }),
+      ...flowTools(deps),
+    ];
+    for (const tool of toolDefs) {
       try {
         // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 留给 consult_tools 投递,
         // 参数按完整 schema 在派发前严格校验（tool-surface 包）
@@ -276,11 +316,12 @@ export function apply(ctx: unknown, config?: Config): () => void {
     warn("ctx.on 不可用，合规观测不会生效（请检查宿主版本）");
   }
 
-  // 注入：动态保持 —— 阶段模板 / 推进状态 / 合规提示经 pinNotes.hold("flow") 按 key 比对
+  // 注入：动态保持 —— 合规提示与最近记录经 pinNotes.hold("flow") 按 key 比对；
+  // 树级内容（阶段模板 / 推进状态）不在这里注入（决策项 4.4：由 task-engine 取当前节点、pin-note 保持）
   const pinNotes = readService<PinNotesLike>(c, "pinNotes");
   if (pinNotes === undefined || typeof pinNotes.hold !== "function") {
     warn(
-      "ctx.pinNotes 不可用，阶段模板与推进状态不会注入（请检查 pin-note 是否挂载）",
+      "ctx.pinNotes 不可用，合规提示与最近记录不会注入（请检查 pin-note 是否挂载）",
     );
   } else {
     try {
@@ -289,10 +330,8 @@ export function apply(ctx: unknown, config?: Config): () => void {
         if (!switcher.enabled) return undefined;
         // 门槛之二：memory-base 里要有未完成阶段的流程记录（与 task-engine 阶段树无关）
         if (!hasActiveFlow(cache.records)) return undefined;
-        const snapshot = snapshotOf(taskEngine);
         const lastWriteTool = observer.lastWriteTool(context.sessionId);
         return decideText({
-          ...(snapshot === undefined ? {} : { snapshot }),
           records: cache.records,
           writeSeen: observer.writeSeen(context.sessionId),
           ...(lastWriteTool === undefined ? {} : { lastWriteTool }),

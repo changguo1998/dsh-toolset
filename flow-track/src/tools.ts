@@ -8,10 +8,10 @@
  * 参数是纯文本，不进 `security-guard` 的登记表。
  */
 
-import { STAGES } from "./stages.ts";
+import { stageNames } from "./stages.ts";
 import { decideRecord, decideRollback } from "./policy.ts";
 import type { SnapshotLike } from "./status.ts";
-import { currentStage, renderStatus } from "./status.ts";
+import { currentStage } from "./status.ts";
 import { REMOVE_SCAN_LIMIT } from "./store.ts";
 import type { FlowStore, FlowStatus } from "./store.ts";
 import type { WriteObserver } from "./observe.ts";
@@ -70,7 +70,8 @@ function jsonText(value: unknown): string {
   }
 }
 
-const OUTPUT: ToolDef["output"] = {
+/** 工具输出面（本包各工具共用，`flow-start.ts` 也用它）。 */
+export const TOOL_OUTPUT: ToolDef["output"] = {
   schema: { type: "object", additionalProperties: true, properties: {} },
   render: (_args: unknown, value: unknown) => [
     { type: "text", text: jsonText(value) },
@@ -78,7 +79,7 @@ const OUTPUT: ToolDef["output"] = {
 };
 
 /** 阶段名枚举（含 `-` 表示整体推进）。 */
-const STAGE_ENUM: string[] = [...STAGES.map((stage) => stage.name), "-"];
+const STAGE_ENUM: string[] = [...stageNames(), "-"];
 
 /** 状态枚举。 */
 const STATUS_ENUM = ["start", "done", "blocked", "note"] as const;
@@ -118,7 +119,7 @@ function flowRecordTool(deps: ToolDeps): ToolDef {
         },
       },
     },
-    output: OUTPUT,
+    output: TOOL_OUTPUT,
     async execute(args, exec) {
       const sessionId = callerSessionId(exec);
       const slug =
@@ -201,7 +202,7 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
         slug: { type: "string", description: "只看该任务的记录" },
       },
     },
-    output: OUTPUT,
+    output: TOOL_OUTPUT,
     async execute(args) {
       const slug =
         typeof args["slug"] === "string" && args["slug"].trim().length > 0
@@ -218,19 +219,17 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
         ...(current === undefined
           ? {
               stage: null,
-              message: "当前没有可识别的阶段树（用 task_decompose 按模板建树）",
+              message: "当前没有可识别的阶段树（用 flow_start 按流程定义建树）",
             }
           : {
               stage: {
                 index: current.stage.index,
                 name: current.stage.name,
-                gate: current.stage.gate,
+                gate: current.stage.acceptance.level,
+                spec: current.stage.spec,
                 title: current.title,
               },
             }),
-        ...(renderStatus(snapshot) === undefined
-          ? {}
-          : { text: renderStatus(snapshot) }),
         records: records.map((record) => ({
           id: record.id,
           slug: record.slug,
@@ -239,45 +238,6 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
           body: record.body,
         })),
       };
-    },
-  };
-}
-
-/** 切换注入开关（进程内, 不落盘）。 */
-function flowEnableTool(deps: ToolDeps): ToolDef {
-  return {
-    name: "flow_enable",
-    description:
-      "用途: 打开 / 关闭本插件的上下文注入开关。\n" +
-      "用法: enabled 必填, true 打开 / false 关闭。\n" +
-      "效果: 关闭时阶段模板、合规提示、最近记录都不注入；打开后还要 memory-base 里有未完成阶段的流程记录（最新阶段不是「收尾」）才会注入。\n" +
-      "边界: 只切开关, 不写流程记录；状态只在内存, 进程结束即回到关闭（用户面同款入口是 /flow-track on|off|status）。\n" +
-      "相关: flow_status、flow_record、/flow-track 命令。",
-    summary:
-      "用途: 打开或关闭本插件的上下文注入开关（只在内存）; 完整说明与参数 schema 经 consult_tools 查询。",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["enabled"],
-      properties: {
-        enabled: {
-          type: "boolean",
-          description: "true 打开注入 / false 关闭注入",
-        },
-      },
-    },
-    output: OUTPUT,
-    async execute(args) {
-      const enabled = args["enabled"];
-      if (typeof enabled !== "boolean") {
-        return {
-          ok: false,
-          error: "invalid_enabled",
-          message: "enabled 必须是布尔值",
-        };
-      }
-      deps.switcher.enabled = enabled;
-      return { ok: true, enabled, active: deps.active() };
     },
   };
 }
@@ -309,7 +269,7 @@ function flowRemoveTool(deps: ToolDeps): ToolDef {
         },
       },
     },
-    output: OUTPUT,
+    output: TOOL_OUTPUT,
     async execute(args) {
       const rawId = args["id"];
       const hasId = rawId !== undefined;
@@ -371,12 +331,12 @@ function flowRollbackTool(deps: ToolDeps): ToolDef {
         slug: { type: "string", description: "任务标识（缺省用会话 id）" },
         stage: {
           type: "string",
-          enum: [...STAGES.map((item) => item.name)],
+          enum: [...stageNames()],
           description: "回退目标阶段（必须早于当前阶段）",
         },
       },
     },
-    output: OUTPUT,
+    output: TOOL_OUTPUT,
     async execute(args, exec) {
       const sessionId = callerSessionId(exec);
       const slug =
@@ -413,12 +373,11 @@ function flowRollbackTool(deps: ToolDeps): ToolDef {
   };
 }
 
-/** 本插件的五个工具（顺序即工具面展示顺序）。 */
+/** 本插件的四个记录类工具（顺序即工具面展示顺序；流程入口在 `flow-start.ts`）。 */
 export function flowTools(deps: ToolDeps): ToolDef[] {
   return [
     flowRecordTool(deps),
     flowStatusTool(deps),
-    flowEnableTool(deps),
     flowRemoveTool(deps),
     flowRollbackTool(deps),
   ];
