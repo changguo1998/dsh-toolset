@@ -373,6 +373,19 @@
   共同承担**（写在首节点上; 节点自己声明了映射则不覆盖）。e2e 实测「plan 段挂到 flow 首个节点下」
   从此可用。
 
+### 阶段 5（全量收尾, 2026-11-15）
+
+- T14 全量验证: 全仓 check / build / test / `test:tui` / `check:docs` / `test-install.sh` 全部通过;
+  e2e 43/44 通过（唯一失败 `e2e/ponytail.test.ts` 与本任务无关：ponytail 在 `acda4eb6` 已把决策阶梯
+  改为静态 system prompt section，该用例仍等消息注入 → 已按流程在 `docs/BACKLOG.md` 追加条目交其他
+  agent，不在本任务改计划外文件）。
+- 文档回写: `task-engine/README.md` 增「编排支持」三条（顺序强制 / 编程建树 / 当前节点推送）+ 目录
+  - 根契约 `enforceOrder` + 服务面 `composeFromNodes`；`flow-track/README.md` 整篇重写（流程定义方
+    职责 / 八阶段定义 / 五个工具 / 非树级注入 / 降级 / 插件 id）与 `cordis.patch.yml` 头注释；
+    `docs/PACKAGES.md` 与根 README 双侧（表格行 + 目录行 + 计数）；新增 `plan-mode/README.md`、
+    `flow-arbiter/README.md`；`dev/standard/index.mjs` 计数规则与全仓计数类文档统一到 42 包 / 41 插件。
+- 收尾: 待办（BACKLOG 条目标完成 + 追踪文档归档）按 `docs/WORKFLOW-STANDARD.md` §5 关闭点处理。
+
 ## 偏差
 
 - T4 审计命令落点调整: `grep "pinNotes"` 改指 `task-engine/src/plugin.ts`（登记在装配层）, 另加

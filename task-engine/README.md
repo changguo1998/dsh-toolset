@@ -4,6 +4,8 @@
 
 DSH（DeepSeek Harness）任务树引擎：Frame 状态机 + decompose / implement / execute / stop / status 工具族，分解双重门禁与 RET 验收（mechanical / semantic / human）路由。
 
+**编排支持（2026-11-15）**：引擎只管**节点级原子能力**，流程语义由流程定义插件（`flow-track` / `plan-mode`）给定——三项新增能力：**可选顺序强制**（流程定义级 `enforceOrder`）、**编程服务面建树**（`composeFromNodes`）、**当前节点推送**（经 pin-note 的 `hold("task")` 动态保持）。
+
 **目录结构**
 
 ```
@@ -16,6 +18,8 @@ src/
   engine-types.ts # 引擎对外类型面：根契约、执行请求 / 结果、终态钩子与选项
   types.ts        # 领域类型：Frame / Acceptance / ExecutorSpec / PlanEvent / TaskTree / StepVerdict
   events.ts       # 事件溯源：materialize 折叠、嵌套视图、快照/恢复
+  order.ts        # 顺序强制（流程定义级 enforceOrder）：同父兄弟判定与打回文案
+  push.ts         # 任务推送：取当前节点数据交给 pin-note 动态保持
   gate.ts         # 分解门禁：粒度四规则 + coverage + deps + executor 校验 + 隔离 id 规则（DEFAULT_GATE）
   acceptance.ts   # RET 裁决：mechanical / human / semantic
   tools.ts        # 模型侧工具族（纯数据 + 处理器，零 DSH 依赖）
@@ -78,13 +82,19 @@ docs/             # DESIGN.md（架构与设计取舍）、BACKLOG.md（包待�
 
 - **step 级裁决**：`decompose` / `stop` 结果带 `accepted` / `next`，并写入 `plan/step-verdict` 事件。`next` 语义：`stop` 打回时指向本帧（重做）、帧置 `failed` 时为 `null`、通过时取就绪池候选（不消费）；`decompose` 成功时为第一个子任务 id，拒绝时为 `null`（事件内记为父帧，供审计）。
 
-- **只读查询面**：`provide('taskEngine')`，暴露 `query()`（任务清单 / 帧栈 / active 计数 / 是否完成）与 `frameStack()`，纯读取、零副作用。
+- **只读查询面**：`provide('taskEngine')`，暴露 `query()`（任务清单 / 帧栈 / active 计数 / 是否完成）、`frameStack()` 与编程建树入口 `composeFromNodes(parentId, nodes)`，纯读取（建树入口是唯一写操作，走同一套门禁）。
+
+- **顺序强制（可选，流程定义级）**：节点声明 `enforceOrder: true`（或父帧/根契约带该标志）后，同一父帧下**前序兄弟未 `done`** 时拒绝后续节点的 `task_implement` / `task_execute` / `task_stop`——拒绝落一条 `plan/step-verdict`（打回指向本帧），不计重试、不改帧状态、不写产出。缺省关闭（既有树行为逐字不变）；约束只在同父兄弟序列内成立，不跨层、不跨父。
+
+- **编程服务面建树（决策项 5）**：`composeFromNodes(parentId = "root", nodes, enumeration?)`——流程定义插件一次给出全部节点，内部走一次 `decompose`（照过机械门禁 + 语义蕴含），父帧可任意（根或任一待分解节点）；挂到**带验收的父帧**时，父帧缺失的 coverage 由整段节点共同承担（写在首节点上，节点自己声明了映射则不覆盖）。
+
+- **当前节点推送（决策项 4）**：树非空且根未完成时，把**当前节点**数据（title / spec / 验收摘要 / 下一步帧 id / 顺序提示）经 `pinNotes.hold("task")` 交给 pin-note 动态保持；节点选取顺序 = 在途帧 → 就绪池候选 → 首个 pending 帧。引擎不自造注入策略（渲染与缓存影响归 pin-note）。`pinNotes` 缺席只告警一次（首个工具调用时补登记）。
 
 ## 配置
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `root` | 示例根（标题「当前任务」、空 spec、`needDecompose: true`、无验收） | 根任务契约 `{title, spec, acceptance[], needDecompose?}`；`acceptance[].level` 非法时归一为 `mechanical`。此处的验收项只收 `{id, check, level, command?}`，`outputSchema` 只能经工具入参 `output_schema` 声明 |
+| `root` | 示例根（标题「当前任务」、空 spec、`needDecompose: true`、无验收） | 根任务契约 `{title, spec, acceptance[], needDecompose?, enforceOrder?}`；`acceptance[].level` 非法时归一为 `mechanical`。此处的验收项只收 `{id, check, level, command?}`，`outputSchema` 只能经工具入参 `output_schema` 声明；`enforceOrder: true` 让根的子节点按序强制（同节点级 `enforceOrder` 口径） |
 | `snapshotPath` | 未配置（纯内存运行） | 事件流快照路径；配置后每次变更近实时写盘 |
 | `commandTimeoutMs` | `30000` | mechanical 验收命令超时（ms） |
 | `maxConcurrent` | `4` | 有界并发上限 |
