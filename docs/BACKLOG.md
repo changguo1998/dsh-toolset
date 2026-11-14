@@ -74,9 +74,9 @@
 
 - 工具说明注册表收尾三件（2026-11-13 完成）: `coagent` 接入包装层（直接 `wrapToolDefinition`, 删「不 import 其他包」规矩 5 处, 单测 77 + 集成 18 全绿）、`flow-track` memory 懒解析（服务晚到自愈, `e2e` 补 payload `ok` 断言, 82 例 + e2e 绿）、`scripts/test-install.sh` 第 11 步改 `canonical_pkgs` / `default_pkgs` / 仓库包目录三方比对并补 39 包计数（124 项全过）; `ponytail` e2e 按用户裁定「计划废弃」不改不测（追踪文档 `docs/archived/2026-11-13-tool-followups.md`, 全仓 39 包 check / test 绿）。
 
-## 2. 未完成项
+- `tool_consult` 指向名统一（2026-11-14 完成, 提交 `c18042cd`）: 模型可见文本里的旧指向名 `tool_consult` 统一为实际注册名 `consult_tools`（`tool-consult/src/tool.ts` `CONSULT_TOOL_NAME`）——tool-surface 包装提示 / tool-consult 未揭示拒绝文案 / flow-track 工具 summary / 各包与根 README 双侧; 纯文本统一, 不改注册名与行为; 追踪文档 `docs/archived/2026-11-14-tool-consult-name-unify.md`（39 包 check / test 全绿, e2e 40/41 唯一红为计划废弃的 ponytail, check:docs 通过）。
 
-- **`tool_consult` 指向名统一**（2026-11-14, 优先级 P2, 状态: 未接取）: 各包短说明与测试里的指向名沿用 `tool_consult`, 实际入口是 `consult_tools`（已在 header 可见, 说明见 `tool-consult/README.md`）; 统一为 `consult_tools` 需改各包 summary 与相关测试并同步 README. 来源: `docs/archived/2026-11-13-tool-reveal-redesign.md` 遗留.
+## 2. 未完成项
 
 - **自研 plan 模式（替代官方 plan-mode）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 官方 plan-mode 只注入 `plan:policy` 并条件挂载 `exit_plan_mode`, 不拦截写工具, policy 也不保证模型遵守; 已裁定先禁用官方 plan-mode, 清掉 `/plan` 相关接线. 期望: 本仓自研可执行的 plan 模式, 具备探索 / 计划 / 实施阶段门禁; 具体机制与接口待设计, 设计前不接取. 来源: 2026-11-11 会话.
 
