@@ -69,6 +69,7 @@ export function materialize(log: LoggedPlanEvent[]): TaskTree {
             acceptance: c.acceptance,
             needDecompose: c.needDecompose,
             ...(c.executor === undefined ? {} : { executor: c.executor }),
+            ...(c.enforceOrder === true ? { enforceOrder: true } : {}),
             status: "pending",
             children: [],
             retryCount: 0,

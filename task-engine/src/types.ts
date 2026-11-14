@@ -75,6 +75,12 @@ export interface ChildSpec {
   coverage: Record<string, FrameId[]>;
   /** 前置传递（§17.2 顺序依赖显式化）：只允许引用前序兄弟 id */
   deps?: FrameId[];
+  /**
+   * 顺序强制（流程定义级，缺省关闭）：本帧所在**同父兄弟序列**按序强制——
+   * 前序兄弟未 done 时拒绝 implement / execute / stop（见 `order.ts`）。
+   * 由流程定义插件在建树时一次性声明（`composeFromNodes`），不设引擎全局开关。
+   */
+  enforceOrder?: boolean;
   /** 叶子执行后端声明（仅叶子合法，门禁校验；缺省 = model 语义） */
   executor?: ExecutorSpec;
   /**
@@ -114,6 +120,8 @@ export interface Frame {
   feedback?: string;
   /** 叶子执行后端声明（树上种子字段；缺省 = model 语义） */
   executor?: ExecutorSpec;
+  /** 顺序强制声明（树上种子字段；流程定义建树时随 `ChildSpec` / `RootSpec` 落到帧上） */
+  enforceOrder?: boolean;
 }
 
 /** step 级裁决（BACKLOG #5）：本步是否通过 + 建议下一步帧 + 打回反馈 */

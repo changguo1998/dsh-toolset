@@ -30,6 +30,11 @@ export interface RootSpec {
   needDecompose?: boolean;
   /** 根即叶子时的执行后端声明（同 ChildSpec.executor） */
   executor?: ExecutorSpec;
+  /**
+   * 顺序强制（流程定义级，缺省关闭）：根的子节点按序强制（同 ChildSpec.enforceOrder 的判定）。
+   * 流程挂在根上时由流程定义插件经 `composeFromNodes` 声明，无需改根契约。
+   */
+  enforceOrder?: boolean;
 }
 
 /**

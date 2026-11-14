@@ -34,6 +34,7 @@ import type {
 } from "./engine-types.ts";
 import { logEvent, restore } from "./events.ts";
 import { checkDecomposition, DEFAULT_GATE, type GateConfig } from "./gate.ts";
+import { orderFeedback } from "./order.ts";
 import type {
   ChildSpec,
   Enumeration,
@@ -344,6 +345,22 @@ export class TaskEngine {
     });
   }
 
+  /**
+   * composeFromNodes(parent, nodes)：**流程定义插件用的编程服务面建树入口**（决策项 5）。
+   *
+   * 流程插件在开启流程时一次性给出全部节点（title / spec / acceptance / needDecompose / deps /
+   * enforceOrder），本方法内部走一次 `decompose`（照过机械门禁 + 语义蕴含），模型侧无需逐节点建树。
+   * 父帧可任意：`root`（缺省）或任一 `needDecompose: true` 的待分解节点——流程段可以挂在树的任意一层，
+   * 顺序强制（`enforceOrder`）只在各自父帧的兄弟序列内成立。
+   */
+  composeFromNodes(
+    parentId: FrameId = "root",
+    nodes: ChildSpec[],
+    enumeration?: Enumeration,
+  ): Promise<DecomposeResult> {
+    return this.decompose(parentId, nodes, undefined, enumeration);
+  }
+
   /** implement(frame, result)：仅叶子，写入产出 */
   implement(frameId: FrameId, result: string): ActionResult {
     frameId = this.resolveId(frameId);
@@ -355,6 +372,16 @@ export class TaskEngine {
       );
     if (f.status === "done" || f.status === "failed") {
       return reject(`帧 ${frameId} 状态 ${f.status}，不可 implement`);
+    }
+    // 顺序强制（决策项 3）：前序兄弟未 done → 拒绝写产出，打回指向本帧
+    const blocked = orderFeedback(this.tree.frames, f, "implement");
+    if (blocked !== undefined) {
+      this.flow.emitStepVerdict(frameId, {
+        accepted: false,
+        next: frameId,
+        feedback: blocked,
+      });
+      return reject(blocked);
     }
     this.append({ type: "plan/frame-implemented", frame: frameId, result });
     this.recompute();
@@ -395,6 +422,21 @@ export class TaskEngine {
         next: null,
         feedback: `帧 ${frameId} 状态 ${f.status}，不可 execute`,
       };
+    // 顺序强制（决策项 3）：前序兄弟未 done → 拒绝发起执行（同 implement 口径）
+    const orderBlocked = orderFeedback(this.tree.frames, f, "execute");
+    if (orderBlocked !== undefined) {
+      this.flow.emitStepVerdict(frameId, {
+        accepted: false,
+        next: frameId,
+        feedback: orderBlocked,
+      });
+      return {
+        ok: false,
+        accepted: false,
+        next: frameId,
+        feedback: orderBlocked,
+      };
+    }
     const spec = f.executor;
     if (spec === undefined || spec.kind === "model")
       return {
@@ -516,6 +558,21 @@ export class TaskEngine {
         next: null,
         feedback: `帧 ${frameId} 状态 ${f.status}，已终态`,
       };
+    // 顺序强制（决策项 3）：前序兄弟未 done → 拒绝标完成（打回指向本帧，不烧重试计数）
+    const orderBlocked = orderFeedback(this.tree.frames, f, "stop");
+    if (orderBlocked !== undefined) {
+      this.flow.emitStepVerdict(frameId, {
+        accepted: false,
+        next: frameId,
+        feedback: orderBlocked,
+      });
+      return {
+        ok: false,
+        accepted: false,
+        next: frameId,
+        feedback: orderBlocked,
+      };
+    }
     if (f.needDecompose === false && f.result === undefined)
       return {
         ok: false,
@@ -568,6 +625,7 @@ export class TaskEngine {
       acceptance: spec.acceptance,
       needDecompose: spec.needDecompose ?? true,
       ...(spec.executor === undefined ? {} : { executor: spec.executor }),
+      ...(spec.enforceOrder === true ? { enforceOrder: true } : {}),
     };
   }
 

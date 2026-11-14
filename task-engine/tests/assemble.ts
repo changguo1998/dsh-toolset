@@ -60,6 +60,14 @@ export interface ApprovalRequest {
 /** 命令复查面 (security-guard 的结构子集)。 */
 export type GuardFace = (command: string, source?: string) => string | null;
 
+/** 假 pinNotes 面 (pin-note 挂载时的动态保持登记口; 同 key 覆盖语义)。 */
+export interface FakePinNotes {
+  /** 已登记的 hold key (登记顺序)。 */
+  keys(): string[];
+  /** 取某 key 本步正文 (缺省会话 `s1`); 未登记或 provider 返回 undefined → undefined。 */
+  text(key: string, sessionId?: string): string | undefined;
+}
+
 /** 一次事件流快照里的条目 (`plan/*`)。 */
 export interface LoggedEvent {
   type: string;
@@ -86,6 +94,8 @@ export interface AssembleOptions {
   subagents?: SubagentsOption;
   /** 工具面缺席 (断言「缺面只告警、不抛错」)。 */
   tools?: "present" | "absent";
+  /** pin-note 动态保持面 (缺省 present; `absent` 断言推送降级告警)。 */
+  pinNotes?: "present" | "absent";
   /** 事件流快照落点 (给了才能用 `events()`)。 */
   snapshotPath?: string;
 }
@@ -104,6 +114,8 @@ export interface Assembly {
   readonly approvalRequests: readonly ApprovalRequest[];
   /** 自动 / 挂起子代理收到的发起 (按次)。 */
   readonly subagentStarts: readonly SubagentStart[];
+  /** 假 pinNotes 面 (hold 登记与按 key 取正文)。 */
+  readonly pinNotes: FakePinNotes;
   /** 本次装配用的手控假时钟 (`clock: "absent"` 时为 undefined)。 */
   readonly clock: ManualClock | undefined;
   /** `clock.scope()` 的入参 (第一项 = 插件 ctx, 第二项 = undefined)。 */
@@ -283,6 +295,32 @@ export async function assemble(
   } else if (subagents !== "absent") {
     services["subagents"] = subagents;
   }
+  // pin-note 动态保持面 (缺省 present): `hold` 同 key 覆盖, 返回注销函数
+  const holds = new Map<
+    string,
+    (context: { sessionId: string }) => string | undefined
+  >();
+  const pinNotes: FakePinNotes = {
+    keys: () => [...holds.keys()],
+    text: (key, sessionId = "s1") => {
+      const provider = holds.get(key);
+      if (provider === undefined) return undefined;
+      return provider({ sessionId });
+    },
+  };
+  if (options.pinNotes !== "absent") {
+    services["pinNotes"] = {
+      hold(
+        key: string,
+        provider: (context: { sessionId: string }) => string | undefined,
+      ): () => void {
+        holds.set(key, provider);
+        return () => {
+          holds.delete(key);
+        };
+      },
+    };
+  }
 
   const toolsSurface: ToolsSurface = {
     register(def: unknown): void {
@@ -332,6 +370,7 @@ export async function assemble(
     warnings,
     approvalRequests,
     subagentStarts,
+    pinNotes,
     clock: manual,
     clockScopes,
     async call(name, args, exec = fakeExec()) {

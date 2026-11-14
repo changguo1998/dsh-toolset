@@ -31,6 +31,11 @@ export interface ToolExecuteCtx {
     audit?: (req: AuditRequest) => Promise<AuditVerdict>;
     entail?: EntailHook;
   };
+  /**
+   * 每次工具执行前的补登记口（任务推送到 pin-note 用）：装配期 pin-note 可能还没 provide，
+   * 首个工具调用时再试一次。纯登记动作，不改工具语义、不产生返回体差异。
+   */
+  beforeExecute?: () => void;
 }
 
 export interface TaskToolDef {
@@ -255,6 +260,7 @@ export function createTools(
               }),
     },
     async execute(args, exec) {
+      ctx.beforeExecute?.();
       switch (name) {
         case "decompose": {
           const parentId = asString(args.parent_id);
@@ -351,6 +357,7 @@ export function createTools(
       },
     },
     async execute(args, exec) {
+      ctx.beforeExecute?.();
       const taskId = asString(args.task_id);
       if (taskId === undefined)
         return fail("task_execute 参数非法：需 task_id。");

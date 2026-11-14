@@ -33,10 +33,17 @@ import { makeExecutor } from "./executor.ts";
 import { makeCommandGuard } from "./guard.ts";
 import type { ApprovalLike, SubagentsLike, ToolsRegistrar } from "./host.ts";
 import { readService, SUBAGENT_PROVIDER } from "./host.ts";
+import { TASK_HOLD_KEY, renderCurrentTask } from "./push.ts";
 import { judgeToolFilter, runChildOnce } from "./subagent.ts";
 import { createTools } from "./tools.ts";
 import type { ToolExecuteCtx } from "./tools.ts";
-import type { Acceptance, AcceptanceLevel, FrameId } from "./types.ts";
+import type {
+  Acceptance,
+  AcceptanceLevel,
+  ChildSpec,
+  Enumeration,
+  FrameId,
+} from "./types.ts";
 import {
   auditPrompt,
   entailPrompt,
@@ -62,6 +69,8 @@ export interface Config {
       command?: string;
     }[];
     needDecompose?: boolean;
+    /** 顺序强制（流程定义级，缺省关闭）：根的子节点按序强制（见 `order.ts`） */
+    enforceOrder?: boolean;
   };
   /** 每次变更自动写快照的路径（周期快照） */
   snapshotPath?: string;
@@ -108,7 +117,16 @@ function normalizeRoot(raw: Config["root"]): RootSpec {
     spec: raw?.spec ?? "",
     acceptance,
     needDecompose: raw?.needDecompose ?? true,
+    ...(raw?.enforceOrder === true ? { enforceOrder: true } : {}),
   };
+}
+
+/** pin-note 的动态保持登记面（结构化类型；未挂载时推送降级、其余能力照常） */
+interface PinNotesLike {
+  hold?(
+    key: string,
+    provider: (context: { sessionId: string }) => string | undefined,
+  ): () => void;
 }
 
 export async function apply(ctx: unknown, config?: Config): Promise<void> {
@@ -203,6 +221,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     (exec: unknown) =>
     <T>(name: string): T | undefined =>
       readService<T>(exec, name) ?? readService<T>(ctx, name);
+  /** 任务推送登记（决策项 4）：装配期 try 一次，未就绪时由首个工具调用补登记 */
+  let ensureTaskHold: () => void = () => {};
   const semanticHooksFor = (
     exec: unknown,
   ): {
@@ -315,6 +335,8 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     };
   };
   const toolCtx: ToolExecuteCtx = {
+    // 任务推送的补登记口：装配期 pin-note 可能还没 provide，首个工具调用时再试一次
+    beforeExecute: () => ensureTaskHold(),
     makeSemanticHooks: (exec: unknown) => semanticHooksFor(exec),
     makeApprove: approveVia,
     makeExecutor: (exec) => {
@@ -362,6 +384,34 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     return;
   }
 
+  // 任务推送（决策项 4）：当前节点内容经 pin-note 的 `hold("task")` 动态保持；门槛（决策项 4.3）
+  // 由 `renderCurrentTask` 自己判（树非空且根未完成），本处只负责登记与降级。
+  // pin-note 未就绪时先告警一次，首个工具调用再补登记（装配顺序不保证 pin-note 先 provide）。
+  const disposers: Array<() => void> = [];
+  let holdRegistered = false;
+  let holdWarned = false;
+  ensureTaskHold = () => {
+    if (holdRegistered) return;
+    const face = readService<PinNotesLike>(ctx, "pinNotes");
+    if (face === undefined || typeof face.hold !== "function") {
+      if (!holdWarned) {
+        holdWarned = true;
+        warn(
+          "ctx.pinNotes 不可用，当前节点内容不会推送（请检查 pin-note 是否挂载）",
+        );
+      }
+      return;
+    }
+    try {
+      const off = face.hold(TASK_HOLD_KEY, () => renderCurrentTask(engine));
+      if (typeof off === "function") disposers.push(off);
+      holdRegistered = true;
+    } catch (err) {
+      warn(`登记 pinNotes.hold("${TASK_HOLD_KEY}") 失败：${String(err)}`);
+    }
+  };
+  ensureTaskHold();
+
   const tools = createTools(engine, toolCtx);
   // 裁决 run 的 toolFilter 按**实际注册成功**的工具名构造（宿主 `restrict()` 对未知全局工具名
   // 抛错 → 名字写错 / 没注册成功会让裁决 run 直接发起失败；注册是 best-effort、`ctx.tools`
@@ -387,6 +437,12 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
     provideSvc("taskEngine", {
       query: () => engine.query(),
       frameStack: () => engine.frameStack(),
+      // 流程定义插件用的编程服务面建树入口（决策项 5）：父帧可任意，缺省当轮根
+      composeFromNodes: (
+        parentId: FrameId | undefined,
+        nodes: ChildSpec[],
+        enumeration?: Enumeration,
+      ) => engine.composeFromNodes(parentId ?? "root", nodes, enumeration),
     });
   }
 
@@ -394,6 +450,7 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   // （未 stop / 未失败的在途帧不会走终态钩子，这里是兜底；不带 --force，脏树天然被拒 → 保留现场）
   const ctxAny = ctx as { effect?: (fn: () => unknown) => unknown };
   ctxAny.effect?.(() => async () => {
+    for (const dispose of disposers.splice(0).reverse()) dispose();
     await engine.writeSnapshot();
     const notices = await worktrees.reclaimAll();
     for (const notice of notices) warn(`${notice}（插件卸载收尾）`);
