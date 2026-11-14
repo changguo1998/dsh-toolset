@@ -1,6 +1,6 @@
 // TUI/src/app/adapter/perf.ts — 单步性能读数（纯函数）
 //
-// 口径见 docs/implementation/2026-11-14-tui-model-performance.md「追加修改」：
+// 口径见 docs/archived/2026-11-14-tui-model-performance.md「追加修改」：
 // 首字节延时 = 首块时刻 − 本 step 起点（实际测量）；解码速率 = 本步已产出内容的估算
 // token ÷ 首块后时长（真实 usage 收尾才到，而收尾即归零，故实时只能给估算值）。
 

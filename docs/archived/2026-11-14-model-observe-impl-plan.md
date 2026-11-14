@@ -2,8 +2,8 @@
 
 > 这份文档是为下述两个条目准备的分工与机械审计任务列表, 作为总体规划的引用输入; 条目各自的决策与口径以对应追踪文档为准:
 >
-> - 「缓存命中率监控」→ `docs/implementation/2026-11-14-cache-hit-monitor.md`（A 系任务）
-> - 「TUI 显示当前模型性能（首字节延迟, 解码速率）」→ `docs/implementation/2026-11-14-tui-model-performance.md`（B 系任务）
+> - 「缓存命中率监控」→ `docs/archived/2026-11-14-cache-hit-monitor.md`（A 系任务）
+> - 「TUI 显示当前模型性能（首字节延迟, 解码速率）」→ `docs/archived/2026-11-14-tui-model-performance.md`（B 系任务）
 >
 > 状态: 待审阅　　日期: 2026-11-14　　不提交（决策/实现等提交询问点另行按流程询问）。
 
