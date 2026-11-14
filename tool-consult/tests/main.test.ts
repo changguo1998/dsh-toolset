@@ -1,388 +1,386 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 
-import { apply } from "../src/index.ts";
-import { createFakeHost, type FakeToolSchema } from "./fake-host.ts";
+import { assemble } from "./assemble.ts";
+import { resetSurfaceCatalog } from "@dsh-toolset/tool-surface";
 
-const NAMES = [
-  "bash",
-  "read",
-  "write",
-  "edit",
-  "glob",
-  "grep",
-  "todo_write",
-  "ask_user_question",
-  "skill",
-  "hash_read",
-  "hash_edit",
-  "task_decompose",
-  "task_status",
-  "rule_add",
-  "rule_update",
-  "session_channel",
-  "channel_delegate",
-];
-
-function schemas(): FakeToolSchema[] {
-  return NAMES.map((name) => ({
-    name,
-    description: `${name} 工具：用于 ${name} 场景。`,
-    parameters: { properties: { action: { type: "string" } } },
-  }));
+/** 每次装配前清空模块级 catalog，避免跨用例串味。 */
+function fresh(options: Parameters<typeof assemble>[0] = {}) {
+  resetSurfaceCatalog();
+  return assemble(options);
 }
 
-function consultOf(host: ReturnType<typeof createFakeHost>) {
-  const definition = host.registered.get("consult_tools");
-  assert.ok(definition?.execute, "consult_tools 应已注册");
-  return definition.execute as (
-    args: Record<string, unknown>,
-  ) => Promise<{ text: string }>;
+/** 某代理当前可见的工具名（按名排序）。 */
+function visibleNames(host: ReturnType<typeof assemble>["host"], id: string) {
+  return (host.tools.schemas({ id }) ?? [])
+    .map((schema) => schema.name)
+    .sort((a, b) => a.localeCompare(b));
 }
 
-const CORE = [
-  "ask_user_question",
-  "bash",
-  "glob",
-  "grep",
-  "hash_edit",
-  "hash_read",
-  "read",
-  "skill",
-  "write",
-];
-
-test("session 档：初始遮罩 9 核心 + 揭示替换 + 拦截文案", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t1-agent" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.registered.has("consult_tools"), true);
-  assert.deepEqual(host.activeMask(), CORE);
-
-  const execute = consultOf(host);
-  const result = await execute({ query: "跨会话发消息" });
-  assert.match(result.text, /已揭示/);
-  assert.equal(host.restrictCalls.length, 2);
+test("注册：初始 14 个不 shadow，其余非条件工具按名排序 shadow", () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "register-root" });
+  const initial = [
+    "ask_user_question",
+    "bash",
+    "edit",
+    "glob",
+    "grep",
+    "job_kill",
+    "job_list",
+    "job_output",
+    "read",
+    "read_image",
+    "skill",
+    "web_fetch",
+    "web_search",
+    "write",
+  ];
+  const shadows = [...(app.host.scoped.get(agent.id)?.keys() ?? [])].sort();
+  assert.deepEqual(
+    shadows,
+    [
+      "consult_tools",
+      "hash_edit",
+      "hash_read",
+      "task_decompose",
+      "task_status",
+      "todo_write",
+    ].sort(),
+  );
+  assert.equal(app.host.registered.has("consult_tools"), false);
+  const shadowed = shadows.filter((name) => name !== "consult_tools");
+  for (const name of initial) assert.equal(shadowed.includes(name), false);
+  const consult = app.consult(agent.id);
+  assert.equal(consult.name, "consult_tools");
   assert.equal(
-    host.restrictCalls[0]?.disposed,
-    true,
-    "旧遮罩应被撤销（替换式）",
+    (consult.parameters as { properties?: Record<string, unknown> }).properties
+      ? "scope" in
+          (consult.parameters as { properties: Record<string, unknown> })
+            .properties
+      : false,
+    false,
   );
-  const mask = host.activeMask() ?? [];
-  assert.ok(mask.includes("session_channel"));
-  assert.ok(mask.length > CORE.length);
+});
 
-  const deny = agent.emit("tools/pre-execute", { name: "rule_add" }, () => ({
-    kind: "allow",
-  }));
-  assert.deepEqual(deny, {
-    kind: "deny",
-    reason:
-      '工具 "rule_add" 当前不可见（被 tool-consult 管理）。' +
-      '调用 consult_tools（names: ["rule_add"]）揭示后即可调用；' +
-      "也可以 query 描述用途来检索。",
+test("shadow 定义换位：短说明 + 宽松占位，全文进 catalog", () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "shadow-shape" });
+  const shadow = app.host.scoped.get(agent.id)?.get("hash_read");
+  assert.ok(shadow);
+  assert.ok(shadow.description.includes("tool_consult"));
+  assert.deepEqual(shadow.parameters, {
+    type: "object",
+    additionalProperties: true,
+    properties: {},
+    description: "完整参数 schema 经 tool_consult 查询",
   });
+  assert.ok(
+    shadow.description.includes("完整说明与参数 schema 经 tool_consult 查询。"),
+  );
+  assert.equal(
+    app.host.scoped.get(agent.id)?.get("hash_read")?.parameters[
+      "additionalProperties"
+    ],
+    true,
+  );
+});
 
-  const allow = agent.emit("tools/pre-execute", { name: "bash" }, () => ({
+test("白名单外条件工具：静态 deny, 模型面 / 索引 / 揭示 / hold 均不可得", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "deny-root" });
+  assert.deepEqual(app.host.activeDeny(agent.id), [
+    "exit_plan_mode",
+    "team_task_list",
+  ]);
+  const visible = visibleNames(app.host, agent.id);
+  assert.equal(visible.includes("team_task_list"), false);
+  assert.equal(visible.includes("exit_plan_mode"), false);
+  assert.equal(
+    app.host.scoped.get(agent.id)?.has("team_task_list"),
+    false,
+    "条件工具不应被 shadow",
+  );
+
+  const byName = await app.executeText(
+    { names: ["team_task_list"] },
+    undefined,
+    agent.id,
+  );
+  assert.ok(byName.includes("未知工具"), byName);
+  const byQuery = await app.executeText(
+    { query: "Team 任务列表" },
+    undefined,
+    agent.id,
+  );
+  assert.equal(byQuery.includes("team_task_list"), false, byQuery);
+  assert.equal(app.pinNotes.keys().includes("revealed:team_task_list"), false);
+});
+
+test("白名单内条件工具：保持宿主原样, 不 shadow / 不 deny", () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "allow-when" });
+  const visible = visibleNames(app.host, agent.id);
+  assert.ok(visible.includes("web_search"));
+  assert.ok(visible.includes("web_fetch"));
+  assert.equal(app.host.scoped.get(agent.id)?.has("web_search"), false);
+  assert.equal(app.host.scoped.get(agent.id)?.has("web_fetch"), false);
+  assert.equal(app.host.activeDeny(agent.id)?.includes("web_search"), false);
+});
+
+test("门禁：未揭示的受管工具被拒，初始与咨询入口放行；揭示后放行", async () => {
+  const app = fresh();
+  app.apply();
+  const first = app.addAgent({ id: "gate-first" });
+  const second = app.addAgent({ id: "gate-second" });
+  const allow = () => ({ kind: "allow" });
+
+  assert.deepEqual(
+    first.emit("tools/pre-execute", { name: "hash_read" }, allow),
+    {
+      kind: "deny",
+      reason:
+        "tool hash_read 未在当前会话揭示, 请先经 tool_consult 查询后再调用",
+      info: { name: "TOOL_NOT_REVEALED", code: "TOOL_NOT_REVEALED" },
+    },
+  );
+  assert.deepEqual(first.emit("tools/pre-execute", { name: "bash" }, allow), {
     kind: "allow",
-  }));
-  assert.deepEqual(allow, { kind: "allow" });
+  });
+  assert.deepEqual(
+    first.emit("tools/pre-execute", { name: "consult_tools" }, allow),
+    { kind: "allow" },
+  );
 
-  host.dispose();
+  const text = await app.executeText(
+    { names: ["hash_read"] },
+    undefined,
+    first.id,
+  );
+  assert.ok(text.includes("已揭示"), text);
+  assert.deepEqual(
+    first.emit("tools/pre-execute", { name: "hash_read" }, allow),
+    {
+      kind: "allow",
+    },
+  );
+  assert.equal(
+    (
+      second.emit("tools/pre-execute", { name: "hash_read" }, allow) as {
+        kind: string;
+      }
+    ).kind,
+    "deny",
+    "第二个代理不被第一个代理的揭示影响",
+  );
 });
 
-test("session 档：不设新增上限，超过 maxRevealed 仍继续揭示且不抽走已授权", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, { maxRevealed: 1 });
-  const agent = host.addAgent({ id: "t2-agent" });
-  host.emit("agent/created", { agent });
+test("揭示不改 schemas：前后深相等；每工具 hold 投递全文与 schema", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "reveal-stable" });
+  const before = app.host.tools.schemas({ id: agent.id });
+  assert.ok(before);
+  const text = await app.executeText(
+    { names: ["hash_read", "task_status"] },
+    undefined,
+    agent.id,
+  );
+  assert.ok(text.includes("已揭示"), text);
+  const after = app.host.tools.schemas({ id: agent.id });
+  assert.deepEqual(after, before, "揭示不得新增 / 删除 / 重排声明");
 
-  const execute = consultOf(host);
-  const first = await execute({ names: ["task_decompose"] });
-  assert.match(first.text, /已揭示/);
+  assert.deepEqual(app.pinNotes.keys().sort(), [
+    "revealed:hash_read",
+    "revealed:task_status",
+  ]);
+  const payload = app.pinNotes.text("revealed:hash_read", agent.id);
+  assert.ok(payload);
+  assert.ok(payload.includes("按行号锚点读取的完整说明。"));
+  assert.ok(payload.includes('"input_schema"'));
+  assert.equal(
+    app.pinNotes.text("revealed:hash_read", "other-session"),
+    undefined,
+  );
 
-  const second = await execute({ names: ["task_status"] });
-  assert.match(second.text, /已揭示/);
+  const duplicate = await app.executeText(
+    { names: ["hash_read"] },
+    undefined,
+    agent.id,
+  );
+  assert.ok(duplicate.includes("已在本会话揭示"), duplicate);
+});
+
+test("预览不写授权, 也不登记 hold", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "preview" });
+  const text = await app.executeText(
+    { names: ["hash_edit"], reveal: false },
+    undefined,
+    agent.id,
+  );
+  assert.ok(text.includes("预览，未揭示"), text);
+  assert.deepEqual(app.pinNotes.keys(), []);
+  assert.equal(
+    (
+      agent.emit("tools/pre-execute", { name: "hash_edit" }, () => ({
+        kind: "allow",
+      })) as { kind: string }
+    ).kind,
+    "deny",
+  );
+});
+
+test("tools/change：晚注册条件工具补 deny, 晚注册非条件工具不补 shadow 且放行", () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "change-add" });
+  app.host.addDefinition({
+    name: "late_when",
+    description: "晚注册条件工具。",
+    parameters: {},
+    execute: () => ({}),
+    output: {
+      schema: { type: "object", additionalProperties: true, properties: {} },
+      render: () => [],
+    },
+    when: () => false,
+  });
+  assert.equal(app.host.activeDeny(agent.id)?.includes("late_when"), true);
+  assert.equal(
+    (app.host.tools.schemas({ id: agent.id }) ?? []).some(
+      (schema) => schema.name === "late_when",
+    ),
+    false,
+  );
+  assert.equal(app.host.scoped.get(agent.id)?.has("late_when"), false);
+
+  app.host.addSchema({ name: "late_plain", description: "晚注册普通工具。" });
+  assert.equal(app.host.scoped.get(agent.id)?.has("late_plain"), false);
+  assert.deepEqual(
+    agent.emit("tools/pre-execute", { name: "late_plain" }, () => ({
+      kind: "allow",
+    })),
+    { kind: "allow" },
+  );
+});
+
+test("self-check 失败：整体不接管, 不注册 / 不 deny / 不挂监听, 只告警一次", () => {
+  const app = fresh({ serviceValues: { toolSurface: undefined } });
+  app.apply();
+  const agent = app.addAgent({ id: "no-surface" });
+  assert.equal(app.host.restrictCalls.length, 0);
+  assert.equal(app.host.scoped.get(agent.id)?.size ?? 0, 0);
+  assert.equal(app.host.listenerCount("tools/change"), 0);
+  const warnings = app.host.logs.filter(
+    (entry) =>
+      entry.level === "warn" && entry.message.includes("catalog 自检失败"),
+  );
+  assert.equal(warnings.length, 1, JSON.stringify(app.host.logs));
+});
+
+test("restrict 失败：本代理不接管, 撤 deny 且不 shadow / 不注册咨询工具", () => {
+  const app = fresh({
+    restrictFailure: { message: "deny boom", times: 1 },
+  });
+  app.apply();
+  const agent = app.addAgent({ id: "deny-fail" });
+  assert.equal(app.host.activeDeny(agent.id), undefined);
+  assert.equal(
+    app.host.scoped.get(agent.id)?.has("consult_tools") ?? false,
+    false,
+  );
+  assert.equal(app.host.scoped.get(agent.id)?.has("hash_read") ?? false, false);
   assert.ok(
-    (host.activeMask() ?? []).includes("task_status"),
-    "超出 maxRevealed 仍揭示",
+    app.host.logs.some((entry) => entry.message.includes("条件工具隐藏失败")),
   );
+});
+
+test("deny 残留：本代理不接管, 撤 deny 且零注册", () => {
+  const app = fresh({ residualNames: ["team_task_list"] });
+  app.apply();
+  const agent = app.addAgent({ id: "residual" });
+  assert.equal(app.host.activeDeny(agent.id), undefined);
+  assert.equal(app.host.scoped.get(agent.id)?.size ?? 0, 0);
   assert.ok(
-    (host.activeMask() ?? []).includes("task_decompose"),
-    "已授权的未被抽走",
+    app.host.logs.some((entry) => entry.message.includes("隐藏后仍在工具面")),
   );
-
-  host.dispose();
 });
 
-test("turn 档：回合末收敛，宽限保留本回合揭示项", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, { revealScope: "turn", maxRevealed: 1 });
-  const agent = host.addAgent({ id: "t3-agent" });
-  host.emit("agent/created", { agent });
-  const execute = consultOf(host);
-
-  await execute({ names: ["rule_add"] });
-  assert.ok((host.activeMask() ?? []).includes("rule_add"));
-
-  host.emit(
-    "session/event",
-    { id: agent.id },
-    { type: "turn/start", data: { turn: 1 } },
-  );
-  await execute({ names: ["rule_update"] });
-  host.emit(
-    "session/event",
-    { id: agent.id },
-    { type: "turn/end", data: { turn: 1 } },
-  );
-
-  const mask = host.activeMask() ?? [];
-  assert.ok(mask.includes("rule_update"), "本回合揭示项享受宽限");
-  assert.ok(!mask.includes("rule_add"), "上一回合的项应按容量收敛");
-
-  host.dispose();
-});
-
-test("turn 档：pin 的项跨回合保留", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, { revealScope: "turn", maxRevealed: 1, maxPinned: 3 });
-  const agent = host.addAgent({ id: "t4-agent" });
-  host.emit("agent/created", { agent });
-  const execute = consultOf(host);
-
-  await execute({ names: ["rule_add"], pin: true });
-  await execute({ names: ["rule_update"] });
-  host.emit(
-    "session/event",
-    { id: agent.id },
-    { type: "turn/start", data: { turn: 1 } },
-  );
-  host.emit(
-    "session/event",
-    { id: agent.id },
-    { type: "turn/end", data: { turn: 1 } },
-  );
-
-  const mask = host.activeMask() ?? [];
-  assert.ok(mask.includes("rule_add"), "钉住项不参与收敛");
-  assert.ok(!mask.includes("rule_update"));
-
-  host.dispose();
-});
-
-test("applyTo=roots：子代理不遮、不注册咨询工具", () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const child = host.addAgent({
-    id: "t5-child",
+test("子代理默认不接管；applyTo=all 时接管", () => {
+  const roots = fresh();
+  roots.apply();
+  const child = roots.addAgent({
+    id: "subagent",
     header: { origin: "subagent" },
   });
-  host.emit("agent/created", { agent: child });
+  assert.equal(roots.host.scoped.get(child.id)?.size ?? 0, 0);
+  assert.equal(roots.host.restrictCalls.length, 0);
 
-  assert.equal(host.restrictCalls.length, 0);
-  assert.equal(host.registered.size, 0);
-
-  host.dispose();
-});
-
-test("无 agent 作用域：回退不遮并告警", () => {
-  const host = createFakeHost({ schemas: schemas(), withAgentTools: false });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t6-agent" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.restrictCalls.length, 0);
-  assert.ok(host.logs.some((entry) => entry.level === "warn"));
-  assert.equal(host.registered.has("consult_tools"), false);
-
-  host.dispose();
-});
-
-test("tools 服务缺失：插件不启用", () => {
-  const host = createFakeHost({
-    schemas: schemas(),
-    withToolsService: false,
-    withAgentTools: false,
+  const all = fresh();
+  all.apply({ applyTo: "all" });
+  const childAll = all.addAgent({
+    id: "subagent-all",
+    header: { origin: "subagent" },
   });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t7-agent" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.restrictCalls.length, 0);
-  assert.equal(host.registered.size, 0);
-  assert.ok(host.logs.some((entry) => entry.level === "warn"));
-
-  host.dispose();
+  assert.ok((all.host.scoped.get(childAll.id)?.size ?? 0) > 0);
 });
 
-test("名单失配：过滤后重试一次成功", () => {
-  const host = createFakeHost({
-    schemas: schemas(),
-    restrictFailure: {
-      message: 'tools.restrict() names unknown global tool "ghost"',
-      times: 1,
-    },
+test("热重载：保留授权, 新白名单即时生效, hold 重新登记", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "hot-reload" });
+  await app.executeText({ names: ["hash_read"] }, undefined, agent.id);
+  assert.ok(app.pinNotes.keys().includes("revealed:hash_read"));
+
+  app.apply({
+    allowedWhenTools: ["web_search", "web_fetch", "team_task_list"],
   });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t8-agent" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.restrictCalls.length, 1);
-  assert.deepEqual(host.activeMask(), CORE);
-
-  host.dispose();
-});
-
-test("插件卸载：撤销遮罩并注销咨询工具", () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t9-agent" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.registered.has("consult_tools"), true);
-  assert.ok(host.activeMask() !== undefined);
-
-  host.dispose();
-
-  assert.equal(host.activeMask(), undefined);
-  assert.equal(host.registered.has("consult_tools"), false);
-});
-
-test("restrict 同步广播 tools/change：不自激，只应用一条遮罩", () => {
-  // 真实宿主：ScopedLayers 每次变化都同步 emit("tools/change")，
-  // 其中就包含 restrict() 自身。旧实现会据此再 applyMask，形成死循环。
-  const host = createFakeHost({ schemas: schemas(), emitOnRestrict: true });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t10-agent" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.restrictCalls.length, 1, "只应施加一条遮罩");
-  assert.deepEqual(host.activeMask(), CORE);
   assert.equal(
-    host.logs.some((entry) => entry.message.includes("未按预期生效")),
+    app.host.activeDeny(agent.id)?.includes("team_task_list"),
     false,
-    "遮罩生效时不应告警",
   );
-
-  host.dispose();
+  assert.ok(
+    (app.host.tools.schemas({ id: agent.id }) ?? []).some(
+      (schema) => schema.name === "team_task_list",
+    ),
+  );
+  assert.ok(app.pinNotes.keys().includes("revealed:hash_read"));
+  const text = await app.executeText(
+    { names: ["hash_read"] },
+    undefined,
+    agent.id,
+  );
+  assert.ok(text.includes("已在本会话揭示"), text);
 });
 
-test("tools/change 广播只复核：不重设遮罩", () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t11-agent" });
-  host.emit("agent/created", { agent });
-  const before = host.restrictCalls.length;
-
-  host.emit("tools/change");
-  host.emit("tools/change");
-
-  assert.equal(host.restrictCalls.length, before, "广播不应触发 restrict");
-  assert.deepEqual(host.activeMask(), CORE);
-
-  host.dispose();
-});
-
-test("遮罩未生效：只回读告警一次，不重设", () => {
-  const host = createFakeHost({ schemas: schemas(), ignoreRestrictions: true });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t12-agent" });
-  host.emit("agent/created", { agent });
-
-  const drift = host.logs.filter((entry) =>
-    entry.message.includes("未按预期生效"),
+test("pinNotes 缺席：揭示仍写授权, 只告警一次", async () => {
+  const app = fresh({ serviceValues: { pinNotes: undefined } });
+  app.apply();
+  const agent = app.addAgent({ id: "no-pin" });
+  const text = await app.executeText(
+    { names: ["hash_read", "task_status"] },
+    undefined,
+    agent.id,
   );
-  assert.equal(drift.length, 1, "首次回读即告警一次");
-  assert.equal(host.restrictCalls.length, 1, "告警后不得重设遮罩");
-
-  host.emit("tools/change");
+  assert.ok(text.includes("已揭示"), text);
   assert.equal(
-    host.logs.filter((entry) => entry.message.includes("未按预期生效")).length,
-    1,
-    "同一段漂移不重复刷日志",
+    (
+      agent.emit("tools/pre-execute", { name: "hash_read" }, () => ({
+        kind: "allow",
+      })) as { kind: string }
+    ).kind,
+    "allow",
   );
-  assert.equal(host.restrictCalls.length, 1);
-
-  host.dispose();
-});
-
-test("预览模式：命中项未全可见时不打「都已在可见集中」抬头", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t13-agent" });
-  host.emit("agent/created", { agent });
-  const execute = consultOf(host);
-
-  // "跨会话" 只命中未揭示工具（session_channel / channel_delegate）。
-  const preview = await execute({ query: "跨会话", reveal: false });
-  assert.equal(preview.text.includes("都已在可见集中"), false);
-  assert.ok(preview.text.includes("（预览，未揭示）"));
-  assert.equal(host.restrictCalls.length, 1, "预览不应揭示");
-
-  // 只命中已可见的工具时才打该抬头。
-  const visibleOnly = await execute({ query: "bash", reveal: false, limit: 1 });
-  assert.ok(visibleOnly.text.startsWith("命中的工具都已在可见集中"));
-
-  host.dispose();
-});
-
-test("turn 档配额不写成上限：文案明说不设新增上限", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, { revealScope: "turn" });
-  const agent = host.addAgent({ id: "t14-agent" });
-  host.emit("agent/created", { agent });
-  const execute = consultOf(host);
-
-  const result = await execute({ names: ["task_decompose"] });
-  assert.ok(result.text.includes("turn 档不设新增上限"));
-  assert.equal(result.text.includes("turn 档 1 / 12"), false);
-
-  host.dispose();
-});
-
-test("按名咨询 consult_tools 自身：报「已在可见集」而不是未知工具", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t15-agent" });
-  host.emit("agent/created", { agent });
-  const execute = consultOf(host);
-
-  const result = await execute({ names: ["consult_tools"] });
-  assert.equal(result.text.includes("未知工具"), false);
-  assert.ok(result.text.includes("consult_tools"));
-  assert.ok(result.text.includes("已在可见集"));
-
-  host.dispose();
-});
-
-test("检索索引排除 consult_tools 自身：按用途查询不把它当候选", async () => {
-  // 真实宿主里 `consult_tools` 由本插件注册，也会出现在 `tools.schemas()` 里；
-  // 这里把它放进工具面，验证 buildMatcher 的排除（否则它会占掉一个候选位）。
-  const host = createFakeHost({
-    schemas: [
-      ...schemas(),
-      {
-        name: "consult_tools",
-        description: "按用途查找并揭示工具，咨询即授权。",
-        parameters: { properties: { query: { type: "string" } } },
-      },
-    ],
-  });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "t16-agent" });
-  host.emit("agent/created", { agent });
-  const execute = consultOf(host);
-
-  const result = await execute({ query: "咨询工具", reveal: false });
   assert.equal(
-    result.text.includes("consult_tools"),
-    false,
-    `检索结果不应含查询入口自身：${result.text}`,
+    app.host.logs.filter((entry) => entry.message.includes("pinNotes 不可用"))
+      .length,
+    2,
+    "apply 一次 + 首次揭示一次",
   );
-  assert.ok(result.text.includes("- bash"), "应命中其他工具（泛词「工具」）");
-
-  host.dispose();
 });

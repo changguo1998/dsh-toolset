@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@dsh-toolset/tool-surface':
+        specifier: link:../tool-surface
+        version: link:../tool-surface
     devDependencies:
       '@types/node':
         specifier: ^24.13.3

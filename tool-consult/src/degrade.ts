@@ -1,77 +1,65 @@
 /**
- * degrade.ts — 失败分类与降级判定（纯函数，无宿主依赖）。
+ * degrade.ts — 失败分类与告警文案（纯函数，无宿主依赖）。
  *
- * 宿主错误是普通 Error（文案稳定，故按文案分类）；这里把「出什么错 → 怎么办」
- * 收敛成一张可测试的矩阵，接线层只负责执行动作与告警，不自己判断。
- * 原则：任何降级都不能让会话报错；最差退化为「不遮罩」，咨询工具仍可用。
+ * 新机制只有一种降级动作：**本代理或本插件整体不接管**，工具面回退宿主默认。
+ * 分类只决定告警文案，不提供「只遮罩一半」的中间态：
+ *
+ * - catalog 自检失败：整个插件不接管（不注册咨询工具、不 shadow、不 deny）；
+ * - 静态 deny 失败或核对后仍有残留：当前代理不接管（撤掉已做的 deny）；
+ * - 工具服务缺失：插件不启用。
  */
 
-/** 遮罩相关失败类型。 */
-export type RestrictFailure =
-  "no-scope" | "unknown-name" | "empty-intersection" | "other";
+/** 失败类型。 */
+export type FailureKind =
+  "catalog-self-check" | "deny-restrict" | "deny-residual" | "missing-service";
 
-/** 降级动作。 */
-export type DegradeAction = "retry-filtered" | "unmasked" | "disable-plugin";
-
-/** 一次降级判定。 */
+/** 一次失败判定。 */
 export interface DegradeDecision {
-  action: DegradeAction;
-  /** 是否按「每代理一次」告警（接线层负责去重）。 */
+  kind: FailureKind;
+  /** 固定为「不接管」；保留字段便于接线层按语义分支。 */
+  action: "abort";
+  /** 是否告警（当前全部为 true，接线层负责去重）。 */
   warn: boolean;
-  /** 告警 / 结果文案（模型可见时用同一句）。 */
   message: string;
 }
 
-/**
- * 按宿主报错文案分类 `tools.restrict()` 失败。
- * @param error `restrict` 抛出的任意值。
- * @returns 失败类型。
- */
-export function classifyRestrictError(error: unknown): RestrictFailure {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("requires a scoped context")) return "no-scope";
-  if (message.includes("unknown global tool")) return "unknown-name";
-  return "other";
+/** catalog 自检失败。 */
+export function decideCatalogSelfCheck(detail: string): DegradeDecision {
+  return {
+    kind: "catalog-self-check",
+    action: "abort",
+    warn: true,
+    message: `工具说明 catalog 自检失败（${detail}）；本插件不接管，工具面回退宿主默认。`,
+  };
 }
 
-/** 把失败类型映射为降级动作。 */
-export function decideDegradation(failure: RestrictFailure): DegradeDecision {
-  switch (failure) {
-    case "unknown-name":
-      // 名单里混入了已注销 / 未注册的名字：现算可限制名后重试一次。
-      return {
-        action: "retry-filtered",
-        warn: false,
-        message: "遮罩名单含未知工具，已按当前可限制名过滤后重试。",
-      };
-    case "no-scope":
-      return {
-        action: "unmasked",
-        warn: true,
-        message:
-          "宿主未提供 agent 作用域，本会话不遮罩；咨询工具退化为目录检索。",
-      };
-    case "empty-intersection":
-      return {
-        action: "unmasked",
-        warn: true,
-        message:
-          "可遮罩工具与初始集无交集，已回退为不遮罩（避免藏光全部工具）。",
-      };
-    case "other":
-    default:
-      return {
-        action: "unmasked",
-        warn: true,
-        message: "遮罩安装失败，已回退为不遮罩；咨询结果仍可返回。",
-      };
-  }
+/** 静态 deny 注册失败。 */
+export function decideDenyFailure(error: unknown): DegradeDecision {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    kind: "deny-restrict",
+    action: "abort",
+    warn: true,
+    message: `条件工具隐藏失败（${message}）；当前代理不接管，工具面回退宿主默认。`,
+  };
+}
+
+/** deny 生效后核对仍有残留。 */
+export function decideDenyResidual(names: readonly string[]): DegradeDecision {
+  const leaked = names.length === 0 ? "无" : names.join(", ");
+  return {
+    kind: "deny-residual",
+    action: "abort",
+    warn: true,
+    message: `条件工具隐藏后仍在工具面：${leaked}；当前代理不接管，工具面回退宿主默认。`,
+  };
 }
 
 /** 服务缺失时的判定（插件整体不启用）。 */
 export function decideMissingService(): DegradeDecision {
   return {
-    action: "disable-plugin",
+    kind: "missing-service",
+    action: "abort",
     warn: true,
     message: "宿主缺少 tools / agents 服务，tool-consult 不启用。",
   };

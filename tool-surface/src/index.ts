@@ -19,6 +19,7 @@ import { listSurface, lookupSurface } from "./definition.ts";
 import type { ToolSurfaceFace } from "./definition.ts";
 
 export {
+  isWrappedDefinition,
   listSurface,
   lookupSurface,
   resetSurfaceCatalog,

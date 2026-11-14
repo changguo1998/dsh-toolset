@@ -2,48 +2,36 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  classifyRestrictError,
   classifyToolRegisterError,
-  decideDegradation,
+  decideCatalogSelfCheck,
+  decideDenyFailure,
+  decideDenyResidual,
   decideMissingService,
 } from "../src/degrade.ts";
 
-test("失败分类：无作用域 / 未知工具名 / 其他", () => {
-  assert.equal(
-    classifyRestrictError(
-      new Error("tools.restrict() requires a scoped context (agent.ctx)"),
-    ),
-    "no-scope",
-  );
-  assert.equal(
-    classifyRestrictError(
-      new Error(
-        'tools.restrict() names unknown global tool "x"; known global tools: a, b',
-      ),
-    ),
-    "unknown-name",
-  );
-  assert.equal(classifyRestrictError(new Error("boom")), "other");
-  assert.equal(classifyRestrictError("boom"), "other");
+test("catalog 自检失败：整体不接管并带原因", () => {
+  const decision = decideCatalogSelfCheck("服务未挂载");
+  assert.equal(decision.kind, "catalog-self-check");
+  assert.equal(decision.action, "abort");
+  assert.equal(decision.warn, true);
+  assert.match(decision.message, /服务未挂载/);
+  assert.match(decision.message, /不接管/);
 });
 
-test("降级动作：未知工具名先过滤重试", () => {
-  const decision = decideDegradation("unknown-name");
-  assert.equal(decision.action, "retry-filtered");
-  assert.equal(decision.warn, false);
-});
-
-test("降级动作：无作用域 / 空交集 / 其他都回退不遮", () => {
-  for (const failure of ["no-scope", "empty-intersection", "other"] as const) {
-    const decision = decideDegradation(failure);
-    assert.equal(decision.action, "unmasked");
-    assert.equal(decision.warn, true);
-    assert.ok(decision.message.length > 0);
-  }
+test("deny 失败与残留都要求不接管", () => {
+  const failure = decideDenyFailure(new Error("boom"));
+  assert.equal(failure.kind, "deny-restrict");
+  assert.equal(failure.action, "abort");
+  assert.match(failure.message, /boom/);
+  const residual = decideDenyResidual(["team_task_list"]);
+  assert.equal(residual.kind, "deny-residual");
+  assert.equal(residual.action, "abort");
+  assert.match(residual.message, /team_task_list/);
 });
 
 test("服务缺失：插件不启用", () => {
-  assert.equal(decideMissingService().action, "disable-plugin");
+  assert.equal(decideMissingService().kind, "missing-service");
+  assert.equal(decideMissingService().action, "abort");
 });
 
 test("注册失败分类：重名 / 其他", () => {

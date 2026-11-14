@@ -4,17 +4,20 @@
  * 三个假面的形状按总追踪 4.2 的口径（工具 / 事件 / 服务）, 本文件不以 `.test.ts`
  * 结尾, 也不计入覆盖率（dev/coverage 只统 `src`）。集成用例一律经本装配器接宿主,
  * 不直接构造宿主运行时. 本包没有 `ctx.provide` 面, 服务面只覆盖 `ctx.get`
- * （`tools` / `agents`）; 落盘面为零, 无需临时目录.
+ * （`tools` / `agents` / `toolSurface` / `pinNotes`）; 落盘面为零, 无需临时目录.
  */
 
 import {
   createFakeHost,
+  makeDefinition,
   type FakeAgent,
   type FakeHost,
+  type FakePinNotes,
   type FakeToolDefinition,
   type FakeToolSchema,
 } from "./fake-host.ts";
 import { apply, type Config } from "../src/index.ts";
+import { listSurface, lookupSurface } from "@dsh-toolset/tool-surface";
 
 /** 假服务面: `ctx.get` 的替身（缺服务时返回 undefined）. */
 export interface ServiceSurface {
@@ -33,13 +36,13 @@ export interface EventSurface {
 export interface ToolSurface {
   defs(): FakeToolDefinition[];
   names(): string[];
-  require(name: string): FakeToolDefinition;
+  require(name: string, agentId?: string): FakeToolDefinition;
 }
 
 /** 装配选项（形状开关与故障注入都透传给假宿主）. */
 export interface AssembleOptions {
-  /** 全局工具面, 缺省用本包测试的标准 15 个工具. */
-  schemas?: FakeToolSchema[];
+  /** 全局工具定义, 缺省用本包测试的标准定义. */
+  definitions?: FakeToolDefinition[];
   /** `agent.ctx.tools` 是否可用（false 模拟无作用域宿主）. */
   withAgentTools?: boolean;
   /** `ctx.get("tools")` 是否可用. */
@@ -60,9 +63,8 @@ export interface AssembleOptions {
   restrictFailure?: { message: string; times: number };
   registerFailure?: { message: string; times: number };
   emitOnRestrict?: boolean;
-  ignoreRestrictions?: boolean;
   schemaViewUndefined?: boolean;
-  hideVisible?: string[];
+  residualNames?: readonly string[];
   listenerDisposeThrows?: boolean;
   disposeThrows?: boolean;
 }
@@ -73,6 +75,7 @@ export interface Assembled {
   readonly tools: ToolSurface;
   readonly events: EventSurface;
   readonly services: ServiceSurface;
+  readonly pinNotes: FakePinNotes;
   /** 经 `ctx.logger` 记下的日志行（`级别: 消息`）. */
   logs(): string[];
   /** 调插件 `apply`（同一装配可重复调, 模拟配置热重载）. */
@@ -83,48 +86,84 @@ export interface Assembled {
     header?: { origin?: string; delegationDepth?: number };
     emitCreated?: boolean;
   }): FakeAgent;
-  /** 取 `consult_tools` 定义（未注册即抛错）. */
-  consult(): FakeToolDefinition;
+  /** 取某代理的 `consult_tools` 定义（未注册即抛错）. */
+  consult(agentId?: string): FakeToolDefinition;
   /** 经咨询工具执行一次. */
-  execute(args: Record<string, unknown>, exec?: unknown): Promise<unknown>;
+  execute(
+    args: Record<string, unknown>,
+    exec?: unknown,
+    agentId?: string,
+  ): Promise<unknown>;
   /** 经咨询工具执行并取 `text` 字段. */
-  executeText(args: Record<string, unknown>, exec?: unknown): Promise<string>;
+  executeText(
+    args: Record<string, unknown>,
+    exec?: unknown,
+    agentId?: string,
+  ): Promise<string>;
   /** 经 `output.render` 投影一次（args 第一、value 第二, 与宿主同序）. */
   render(value: unknown, args?: unknown): Array<{ type: string; text: string }>;
   /** 触发插件 `ctx.effect` 的卸载回调. */
   dispose(): void;
 }
 
-/** 本包测试的标准工具面: 11 个高频工具（含 9 个缺省核心）+ 4 个任务 / 规则 / 会话工具 + 2 个待揭示项. */
-export const STANDARD_SCHEMAS: FakeToolSchema[] = [
-  "bash",
-  "read",
-  "write",
-  "edit",
-  "glob",
-  "grep",
-  "todo_write",
-  "ask_user_question",
-  "skill",
-  "hash_read",
-  "hash_edit",
-  "task_decompose",
-  "task_status",
-  "rule_add",
-  "rule_update",
-  "session_channel",
-  "channel_delegate",
-].map((name) => ({
-  name,
-  description: `${name} 工具: 用于 ${name} 场景。`,
-  parameters: { properties: { action: { type: "string" } } },
-}));
+/** 本包测试的标准工具面: 14 个初始工具 + 非初始工具 + 条件工具. */
+export const STANDARD_DEFINITIONS: FakeToolDefinition[] = [
+  // 14 个初始工具: web 两件按宿主原样保留 `when`。
+  makeDefinition("bash", { description: "执行 shell 命令的完整说明。" }),
+  makeDefinition("read", { description: "读取文本文件的完整说明。" }),
+  makeDefinition("glob", { description: "按路径模式找文件的完整说明。" }),
+  makeDefinition("grep", { description: "搜索文件内容的完整说明。" }),
+  makeDefinition("ask_user_question", {
+    description: "向用户提问的完整说明。",
+  }),
+  makeDefinition("skill", { description: "加载技能说明的完整说明。" }),
+  makeDefinition("write", { description: "整文件写入的完整说明。" }),
+  makeDefinition("edit", { description: "字面量编辑的完整说明。" }),
+  makeDefinition("read_image", { description: "读取图片的完整说明。" }),
+  makeDefinition("web_search", {
+    description: "联网检索的完整说明。",
+    when: () => true,
+  }),
+  makeDefinition("web_fetch", {
+    description: "抓取网页的完整说明。",
+    when: () => true,
+  }),
+  makeDefinition("job_output", { description: "取后台任务输出的完整说明。" }),
+  makeDefinition("job_list", { description: "列后台任务的完整说明。" }),
+  makeDefinition("job_kill", { description: "终止后台任务的完整说明。" }),
+  // 非初始、非条件工具: 应收成短定义。
+  makeDefinition("hash_read", { description: "按行号锚点读取的完整说明。" }),
+  makeDefinition("hash_edit", { description: "按行号锚点改写的完整说明。" }),
+  makeDefinition("todo_write", { description: "维护待办清单的完整说明。" }),
+  makeDefinition("task_decompose", { description: "拆解任务的完整说明。" }),
+  makeDefinition("task_status", { description: "查看任务状态的完整说明。" }),
+  // 条件工具: 白名单内保留; 白名单外静态隐藏。
+  makeDefinition("team_task_list", {
+    description: "Team 任务列表的完整说明。",
+    when: () => false,
+  }),
+  makeDefinition("exit_plan_mode", {
+    description: "退出计划模式的完整说明。",
+    when: () => false,
+  }),
+];
+
+/** 标准工具名的 schema 投影（供只想给名字的用例）。 */
+export const STANDARD_SCHEMAS: FakeToolSchema[] = STANDARD_DEFINITIONS.map(
+  (definition) => ({
+    name: definition.name,
+    description: definition.description,
+    parameters: definition.parameters,
+  }),
+);
 
 /** 装配宿主与三个假面. */
 export function assemble(options: AssembleOptions = {}): Assembled {
+  const definitions = (
+    options.definitions ?? STANDARD_DEFINITIONS.map((item) => ({ ...item }))
+  ).map((item) => ({ ...item }));
   const host = createFakeHost({
-    schemas:
-      options.schemas ?? STANDARD_SCHEMAS.map((schema) => ({ ...schema })),
+    definitions,
     ...(options.withAgentTools === undefined
       ? {}
       : { withAgentTools: options.withAgentTools }),
@@ -134,9 +173,13 @@ export function assemble(options: AssembleOptions = {}): Assembled {
     ...(options.agentsService === undefined
       ? {}
       : { withAgentsService: options.agentsService }),
-    ...(options.serviceValues === undefined
-      ? {}
-      : { serviceValues: options.serviceValues }),
+    serviceValues: {
+      toolSurface: {
+        lookup: lookupSurface,
+        list: listSurface,
+      },
+      ...(options.serviceValues ?? {}),
+    },
     ...(options.withEffect === undefined
       ? {}
       : { withEffect: options.withEffect }),
@@ -161,15 +204,12 @@ export function assemble(options: AssembleOptions = {}): Assembled {
     ...(options.emitOnRestrict === undefined
       ? {}
       : { emitOnRestrict: options.emitOnRestrict }),
-    ...(options.ignoreRestrictions === undefined
-      ? {}
-      : { ignoreRestrictions: options.ignoreRestrictions }),
     ...(options.schemaViewUndefined === undefined
       ? {}
       : { schemaViewUndefined: options.schemaViewUndefined }),
-    ...(options.hideVisible === undefined
+    ...(options.residualNames === undefined
       ? {}
-      : { hideVisible: options.hideVisible }),
+      : { residualNames: options.residualNames }),
     ...(options.listenerDisposeThrows === undefined
       ? {}
       : { listenerDisposeThrows: options.listenerDisposeThrows }),
@@ -178,10 +218,36 @@ export function assemble(options: AssembleOptions = {}): Assembled {
       : { disposeThrows: options.disposeThrows }),
   });
 
-  const requireTool = (name: string): FakeToolDefinition => {
-    const definition = host.registered.get(name);
-    if (definition === undefined) throw new Error(`工具未注册: ${name}`);
-    return definition;
+  const findConsult = (agentId?: string): FakeToolDefinition => {
+    const ids = agentId === undefined ? [...host.scoped.keys()] : [agentId];
+    for (const id of ids) {
+      const definition = host.scoped.get(id)?.get("consult_tools");
+      if (definition !== undefined) return definition;
+    }
+    throw new Error("consult_tools 未注册");
+  };
+
+  const requireTool = (
+    toolName: string,
+    agentId?: string,
+  ): FakeToolDefinition => {
+    if (toolName === "consult_tools") return findConsult(agentId);
+    const definition = host.registered.get(toolName);
+    if (definition !== undefined) return definition;
+    if (agentId !== undefined) {
+      const scopedDefinition = host.scoped.get(agentId)?.get(toolName);
+      if (scopedDefinition !== undefined) return scopedDefinition;
+    }
+    throw new Error(`工具未注册: ${toolName}`);
+  };
+
+  const services: ServiceSurface = {
+    get: host.ctx.get ?? (() => undefined),
+    has: (name) => (host.ctx.get ?? (() => undefined))(name) !== undefined,
+    names: () =>
+      ["tools", "agents", "toolSurface", "pinNotes"].filter(
+        (name) => (host.ctx.get ?? (() => undefined))(name) !== undefined,
+      ),
   };
 
   return {
@@ -189,21 +255,20 @@ export function assemble(options: AssembleOptions = {}): Assembled {
     tools: {
       defs: () => [...host.registered.values()],
       names: () =>
-        [...host.registered.keys()].sort((a, b) => a.localeCompare(b)),
+        [
+          ...new Set([
+            ...host.registered.keys(),
+            ...[...host.scoped.values()].flatMap((map) => [...map.keys()]),
+          ]),
+        ].sort((a, b) => a.localeCompare(b)),
       require: requireTool,
     },
     events: {
       emit: host.emit,
       listenerCount: host.listenerCount,
     },
-    services: {
-      get: host.ctx.get ?? (() => undefined),
-      has: (name) => (host.ctx.get ?? (() => undefined))(name) !== undefined,
-      names: () =>
-        ["tools", "agents"].filter(
-          (name) => (host.ctx.get ?? (() => undefined))(name) !== undefined,
-        ),
-    },
+    services,
+    pinNotes: host.pinNotes,
     logs: () => host.logs.map((entry) => `${entry.level}: ${entry.message}`),
     apply: (config) => apply(host.ctx, config),
     addAgent: (agentOptions = {}) => {
@@ -217,15 +282,15 @@ export function assemble(options: AssembleOptions = {}): Assembled {
         host.emit("agent/created", { agent });
       return agent;
     },
-    consult: () => requireTool("consult_tools"),
-    execute: (args, exec) => {
-      const definition = requireTool("consult_tools");
+    consult: findConsult,
+    execute: (args, exec, agentId) => {
+      const definition = findConsult(agentId);
       if (typeof definition.execute !== "function")
         throw new Error("consult_tools 缺少 execute");
-      return definition.execute(args, exec);
+      return Promise.resolve(definition.execute(args, exec));
     },
-    executeText: async (args, exec) => {
-      const definition = requireTool("consult_tools");
+    executeText: async (args, exec, agentId) => {
+      const definition = findConsult(agentId);
       if (typeof definition.execute !== "function")
         throw new Error("consult_tools 缺少 execute");
       const value = (await definition.execute(args, exec)) as
@@ -233,15 +298,7 @@ export function assemble(options: AssembleOptions = {}): Assembled {
       return typeof value?.text === "string" ? value.text : String(value);
     },
     render: (value, args) => {
-      const output = requireTool("consult_tools").output as
-        | {
-            render: (
-              args: unknown,
-              value: unknown,
-            ) => Array<{ type: string; text: string }>;
-          }
-        | undefined;
-      if (output === undefined) throw new Error("consult_tools 缺少 output");
+      const output = findConsult().output;
       return output.render(args, value);
     },
     dispose: host.dispose,

@@ -2,7 +2,7 @@
   "name": "@dsh-toolset/tool-consult",
   "version": "0.1.0",
   "private": true,
-  "description": "DSH（DeepSeek Harness）工具咨询插件：按需揭示工具（咨询即授权，遮罩 + 关键词索引）",
+  "description": "DSH（DeepSeek Harness）工具咨询插件：全量短清单常驻、按需揭示（短定义 + pinNotes 全文 + 未揭示门禁）",
   "type": "module",
   "main": "dist/src/index.js",
   "scripts": {
@@ -30,5 +30,8 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "types": "./dist/src/index.d.ts"
+  "types": "./dist/src/index.d.ts",
+  "dependencies": {
+    "@dsh-toolset/tool-surface": "link:../tool-surface"
+  }
 }

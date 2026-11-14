@@ -1,65 +1,90 @@
-// tool-consult/tests/revealed-hold.test.ts — 被揭示工具用法的动态保持（T9 / pinNotes.hold）。
+// tool-consult/tests/revealed-hold.test.ts — 每工具 pinNotes.hold 投递与隔离。
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+import { resetSurfaceCatalog } from "@dsh-toolset/tool-surface";
 import { assemble } from "./assemble.ts";
 
-/** hold 登记记录。 */
-interface HoldRecord {
-  key: string;
-  provider: (context: { sessionId: string }) => string | undefined;
+function fresh(options: Parameters<typeof assemble>[0] = {}) {
+  resetSurfaceCatalog();
+  return assemble(options);
 }
 
-/** 造一个记录 hold 的假 pinNotes 面。 */
-function pinNotesFace(holds: HoldRecord[]): {
-  hold(key: string, provider: HoldRecord["provider"]): () => void;
-} {
-  return {
-    hold(key, provider) {
-      holds.push({ key, provider });
-      return () => {};
-    },
-  };
-}
+test("每工具一 key：揭示前不登记，揭示后全文投递且同字节", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "hold-a" });
+  assert.deepEqual(app.pinNotes.keys(), []);
 
-test("revealed-tools hold：未揭示不投，揭示后给出一行用法，同集合同字节", async () => {
-  const holds: HoldRecord[] = [];
-  const a = assemble({ serviceValues: { pinNotes: pinNotesFace(holds) } });
-  a.apply();
-  a.addAgent({ id: "s1" });
+  await app.executeText({ names: ["hash_read"] }, undefined, agent.id);
+  assert.deepEqual(app.pinNotes.keys(), ["revealed:hash_read"]);
+  const first = app.pinNotes.text("revealed:hash_read", agent.id);
+  assert.ok(first);
+  assert.match(first, /已揭示工具 hash_read/);
+  assert.match(first, /按行号锚点读取的完整说明/);
+  assert.equal(app.pinNotes.text("revealed:hash_read", agent.id), first);
 
-  assert.equal(holds.length, 1);
-  assert.equal(holds[0]!.key, "revealed-tools");
-  assert.equal(holds[0]!.provider({ sessionId: "s1" }), undefined);
-
-  await a.execute({ names: ["rule_add"] });
-  const text = holds[0]!.provider({ sessionId: "s1" });
-  assert.ok(text !== undefined);
-  assert.match(text, /已揭示工具/);
-  assert.match(text, /rule_add/);
+  await app.executeText({ names: ["task_status"] }, undefined, agent.id);
+  assert.deepEqual(app.pinNotes.keys().sort(), [
+    "revealed:hash_read",
+    "revealed:task_status",
+  ]);
+  const second = app.pinNotes.text("revealed:task_status", agent.id);
+  assert.ok(second);
+  assert.match(second, /查看任务状态的完整说明/);
   assert.equal(
-    holds[0]!.provider({ sessionId: "s1" }),
-    text,
-    "集合不变时文本同字节",
+    app.pinNotes.text("revealed:hash_read", agent.id),
+    first,
+    "新增揭示不重写旧工具的正文",
   );
-
-  await a.execute({ names: ["session_channel"] });
-  const two = holds[0]!.provider({ sessionId: "s1" });
-  assert.ok(two !== undefined);
-  assert.match(two, /session_channel/);
-  assert.notEqual(two, text, "集合变化后文本变化");
-  a.dispose();
 });
 
-test("revealed-tools hold：pinNotes 缺席时只告警，揭示与遮罩照常", async () => {
-  const a = assemble();
-  a.apply();
-  a.addAgent({ id: "s2" });
-  await a.execute({ names: ["rule_add"] });
-  assert.ok(
-    a.logs().some((line) => line.includes("ctx.pinNotes 不可用")),
-    "应告警一次",
+test("多会话隔离：一个会话的揭示不投给另一个会话", async () => {
+  const app = fresh();
+  app.apply();
+  const first = app.addAgent({ id: "hold-first" });
+  const second = app.addAgent({ id: "hold-second" });
+  await app.executeText({ names: ["hash_edit"] }, undefined, first.id);
+
+  assert.ok(app.pinNotes.text("revealed:hash_edit", first.id));
+  assert.equal(app.pinNotes.text("revealed:hash_edit", second.id), undefined);
+  assert.equal(app.pinNotes.text("revealed:hash_edit", "missing"), undefined);
+});
+
+test("denied 工具不登记 hold", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "hold-denied" });
+  await app.executeText({ names: ["team_task_list"] }, undefined, agent.id);
+  assert.equal(app.pinNotes.keys().includes("revealed:team_task_list"), false);
+});
+
+test("插件卸载释放 hold；已移除运行时的 provider 返回 undefined", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "hold-dispose" });
+  await app.executeText({ names: ["hash_read"] }, undefined, agent.id);
+  assert.equal(app.pinNotes.keys().length, 1);
+  app.dispose();
+  assert.deepEqual(app.pinNotes.keys(), []);
+});
+
+test("pinNotes 缺席：揭示照常授权，只告警", async () => {
+  const app = fresh({ serviceValues: { pinNotes: undefined } });
+  app.apply();
+  const agent = app.addAgent({ id: "hold-missing" });
+  const text = await app.executeText(
+    { names: ["hash_read"] },
+    undefined,
+    agent.id,
   );
-  a.dispose();
+  assert.ok(text.includes("已揭示"));
+  assert.ok(app.logs().some((line) => line.includes("ctx.pinNotes 不可用")));
+  assert.deepEqual(
+    agent.emit("tools/pre-execute", { name: "hash_read" }, () => ({
+      kind: "allow",
+    })),
+    { kind: "allow" },
+  );
 });

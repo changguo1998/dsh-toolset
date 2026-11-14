@@ -1,45 +1,62 @@
 /**
  * fake-host.ts — 测试用最小宿主假件（不依赖 @deepseek-ai/*）。
  *
- * 只实现 tool-consult 用到的面：tools.register / restrict / schemas、agents.list、
- * ctx.get / on / effect / logger，以及一个手工 emit 的事件总线。遮罩限制用
- * `restrictCalls` 记录，便于断言「替换而非叠加」。
+ * 覆盖新机制用到的面: 全局定义枚举 / 条件工具判定 / 每代理作用域 shadow /
+ * 每代理 deny / `schemas` 投影 / `tools/change` 广播 / pinNotes hold。
  *
- * 两个对齐真实宿主的开关：
- * - `emitOnRestrict`：`restrict()` 及其 disposer 同步广播 `tools/change`（宿主
- *   `ScopedLayers` 的 onChange 就是这么做的）；
- * - `ignoreRestrictions`：`schemas(scope)` 不看遮罩（模拟「设置没生效」）。
+ * 对齐真实宿主的几个行为:
+ * - 作用域注册按名覆盖全局, 且自身层豁免 restrict；
+ * - `definitions()` 返回 shadow 前的全局完整定义；
+ * - `executable(name)` 对带 `when` 的注册返回 undefined；
+ * - restrict / register / 撤销同步广播 `tools/change`。
  */
 
-/** 假工具 schema。 */
+/** 假工具 schema（模型面投影）。 */
 export interface FakeToolSchema {
   name: string;
   description: string;
   parameters?: Record<string, unknown>;
 }
 
+/** 假输出声明。 */
+export interface FakeToolOutput {
+  schema: Record<string, unknown>;
+  render: (
+    args: unknown,
+    value: unknown,
+  ) => Array<{ type: string; text: string }>;
+}
+
 /** 注册进假宿主的工具定义。 */
 export interface FakeToolDefinition {
   name: string;
-  description?: string;
-  parameters?: Record<string, unknown>;
-  execute?: (args: Record<string, unknown>, exec?: unknown) => Promise<unknown>;
-  output?: unknown;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute: (args: unknown, exec?: unknown) => Promise<unknown> | unknown;
+  output: FakeToolOutput;
+  timeoutMs?: number;
+  deferLoading?: boolean;
+  /** 条件注册；存在即视为条件工具。 */
+  when?: (context: unknown) => boolean | Promise<boolean>;
 }
 
 /** 一次 restrict 调用记录。 */
 export interface RestrictCall {
   allow: string[];
+  deny: string[];
   disposed: boolean;
   /** 施加作用域的代理 id（空串表示全局作用域）。 */
   agentId: string;
 }
 
-/** 假工具服务（`schemas` 可运行期返回 undefined，模拟宿主不提供作用域视图）。 */
+/** 假工具服务。 */
 export interface FakeTools {
-  schemas: (scope?: unknown) => FakeToolSchema[];
+  schemas: (scope?: unknown) => FakeToolSchema[] | undefined;
   register: (definition: FakeToolDefinition) => () => void;
   restrict: (filter: { allow?: string[]; deny?: string[] }) => () => void;
+  definitions: (scope?: unknown) => readonly FakeToolDefinition[];
+  get: (name: string, scope?: unknown) => FakeToolDefinition | undefined;
+  executable: (name: string, scope?: unknown) => FakeToolDefinition | undefined;
 }
 
 /** 假代理。 */
@@ -67,6 +84,18 @@ export interface FakeCtx {
   tools?: FakeTools;
 }
 
+/** 假 pinNotes。 */
+export interface FakePinNotes {
+  hold(
+    key: string,
+    provider: (context: { sessionId: string }) => string | undefined,
+  ): () => void;
+  /** 当前登记的全部 key（按登记顺序）。 */
+  keys(): string[];
+  /** 按 key + 会话取投递正文。 */
+  text(key: string, sessionId: string): string | undefined;
+}
+
 /** 假宿主。 */
 export interface FakeHost {
   ctx: FakeCtx;
@@ -74,48 +103,79 @@ export interface FakeHost {
   agents: { list: () => FakeAgent[] };
   restrictCalls: RestrictCall[];
   registered: Map<string, FakeToolDefinition>;
+  /** 作用域 shadow（agent id → 工具名 → 定义）。 */
+  scoped: Map<string, Map<string, FakeToolDefinition>>;
+  pinNotes: FakePinNotes;
   logs: Array<{ level: string; message: string }>;
   addAgent: (options?: {
     id?: string;
     header?: { origin?: string; delegationDepth?: number };
   }) => FakeAgent;
-  /** 向全局工具面追加一个 schema（模拟宿主后续注册工具）。 */
+  /** 向全局工具面追加一个完整定义。 */
+  addDefinition: (definition: FakeToolDefinition) => void;
+  /** 便捷版：按名字与说明造一个无条件工具。 */
   addSchema: (schema: FakeToolSchema) => void;
-  /** 切换「schemas 不看遮罩」开关（回读校验漂移恢复用）。 */
-  setIgnoreRestrictions: (value: boolean) => void;
-  /** 让作用域视图临时缺掉这些名字（回读校验「该可见却缺」用）。 */
+  /** 覆盖个别服务返回值。 */
+  setService: (name: string, value: unknown) => void;
+  /** 让作用域视图临时缺掉这些名字。 */
   setHiddenVisible: (names: string[]) => void;
+  /** 让 schemas(agent) 总是保留这些名字（模拟 deny 残留）。 */
+  setResidual: (names: string[]) => void;
   /** 全局事件面的订阅数（不传事件名时统计总数）。 */
   listenerCount: (event?: string) => number;
   emit: (event: string, ...args: unknown[]) => unknown;
   dispose: () => void;
-  /** 当前生效的遮罩名单（最后一次未撤销的 restrict）。 */
-  activeMask: () => string[] | undefined;
+  /** 让下一次 restrict 抛错（模拟 tools/change 重算失败）。 */
+  failNextRestrict: (message?: string) => void;
+  /** 当前生效的 deny 名单（最后一次未撤销的 restrict）。 */
+  activeDeny: (agentId?: string) => string[] | undefined;
+}
+
+/** 造一个完整工具定义（测试便捷）。 */
+export function makeDefinition(
+  name: string,
+  options: Partial<Omit<FakeToolDefinition, "name">> = {},
+): FakeToolDefinition {
+  return {
+    name,
+    description: options.description ?? `${name} 工具: 用于 ${name} 场景。`,
+    parameters: options.parameters ?? {
+      type: "object",
+      properties: { action: { type: "string" } },
+    },
+    execute: options.execute ?? (() => ({ ok: true })),
+    output: options.output ?? {
+      schema: { type: "object", additionalProperties: true, properties: {} },
+      render: (_args, value) => [{ type: "text", text: String(value) }],
+    },
+    ...(options.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.timeoutMs }),
+    ...(options.deferLoading === undefined
+      ? {}
+      : { deferLoading: options.deferLoading }),
+    ...(options.when === undefined ? {} : { when: options.when }),
+  };
 }
 
 /**
  * 创建假宿主。
- * @param options.schemas 全局工具面。
+ * @param options.definitions 全局完整定义。
  * @param options.withAgentTools 是否让 agent.ctx.tools 可用（false 模拟无作用域宿主）。
  * @param options.withToolsService `ctx.get("tools")` 是否返回工具服务。
  * @param options.withAgentsService `ctx.get("agents")` 是否返回代理注册表。
- * @param options.serviceValues 覆盖个别服务的返回值（形状不符的用例）。
- * @param options.restrictFailure 前 N 次 restrict 抛指定错误（模拟名单失配等）。
- * @param options.registerFailure 前 N 次 register 抛指定错误（模拟重名）。
+ * @param options.serviceValues 覆盖个别服务的返回值。
+ * @param options.restrictFailure 前 N 次 restrict 抛指定错误。
+ * @param options.registerFailure 前 N 次 register 抛指定错误。
  * @param options.emitOnRestrict restrict / 撤销时同步广播 tools/change。
- * @param options.ignoreRestrictions schemas(scope) 不看遮罩（模拟设置未生效）。
- * @param options.schemaViewUndefined schemas(scope) 返回 undefined（宿主不提供作用域视图）。
- * @param options.hideVisible 作用域视图里缺掉这些名字（模拟「该可见却缺」）。
- * @param options.withEffect 是否提供 `ctx.effect`（false 模拟无生命周期钩子）。
+ * @param options.schemaViewUndefined schemas(scope) 返回 undefined。
+ * @param options.residualNames schemas(agent) 总是保留这些名字。
+ * @param options.withEffect 是否提供 `ctx.effect`。
  * @param options.withLogger 是否提供 `ctx.logger`。
- * @param options.loggerThrows logger 调用一律抛错。
- * @param options.loggerPartial logger 返回的对象缺各级方法。
- * @param options.agentEvents 代理作用域是否提供 `ctx.on`（false 模拟无事件面）。
- * @param options.listenerDisposeThrows 事件 disposer 抛错（模拟宿主已回收）。
- * @param options.disposeThrows 遮罩 / 工具 disposer 抛错（模拟宿主已回收）。
+ * @param options.agentEvents 代理作用域是否提供 `ctx.on`。
  */
 export function createFakeHost(options: {
-  schemas: FakeToolSchema[];
+  definitions: FakeToolDefinition[];
   withAgentTools?: boolean;
   withToolsService?: boolean;
   withAgentsService?: boolean;
@@ -123,9 +183,8 @@ export function createFakeHost(options: {
   restrictFailure?: { message: string; times: number };
   registerFailure?: { message: string; times: number };
   emitOnRestrict?: boolean;
-  ignoreRestrictions?: boolean;
   schemaViewUndefined?: boolean;
-  hideVisible?: string[];
+  residualNames?: readonly string[];
   withEffect?: boolean;
   withLogger?: boolean;
   loggerThrows?: boolean;
@@ -135,15 +194,17 @@ export function createFakeHost(options: {
   disposeThrows?: boolean;
 }): FakeHost {
   const agentEvents = options.agentEvents !== false;
-  const hiddenVisible = new Set(options.hideVisible ?? []);
-  let ignoreRestrictions = options.ignoreRestrictions === true;
+  const hiddenVisible = new Set<string>();
+  const residualNames = new Set(options.residualNames ?? []);
   const restrictCalls: RestrictCall[] = [];
   const restrictions: Array<{
     agentId: string;
-    allow: Set<string>;
+    allow: Set<string> | undefined;
+    deny: Set<string> | undefined;
     disposed: boolean;
   }> = [];
   const registered = new Map<string, FakeToolDefinition>();
+  const scoped = new Map<string, Map<string, FakeToolDefinition>>();
   const logs: Array<{ level: string; message: string }> = [];
   const globalHandlers = new Map<
     string,
@@ -152,32 +213,104 @@ export function createFakeHost(options: {
   const effects: Array<() => void> = [];
   const agentList: FakeAgent[] = [];
   const withAgentTools = options.withAgentTools !== false;
+  const serviceValues: Record<string, unknown> = { ...options.serviceValues };
 
-  /** 某作用域看到的工具面（真实宿主：全局面减去该作用域的允许名单补集）。 */
-  const visibleSchemas = (scope?: unknown): FakeToolSchema[] => {
+  const globalDefinition = (name: string): FakeToolDefinition | undefined =>
+    options.definitions.find((definition) => definition.name === name);
+
+  const shadowOf = (
+    agentId: string,
+    name: string,
+  ): FakeToolDefinition | undefined => scoped.get(agentId)?.get(name);
+
+  /** 某作用域看到的工具面（全局减去 deny, 再加上自身层 shadow）。 */
+  const visibleSchemas = (scope?: unknown): FakeToolSchema[] | undefined => {
     const agentId = (scope as { id?: unknown } | undefined)?.id;
     if (options.schemaViewUndefined === true && typeof agentId === "string")
-      return undefined as unknown as FakeToolSchema[];
-    const all = options.schemas
-      .map((schema) => ({ ...schema }))
-      .filter((schema) => !hiddenVisible.has(schema.name));
-    if (ignoreRestrictions) return all;
-    if (typeof agentId !== "string") return all;
-    const hidden = new Set<string>();
-    for (const restriction of restrictions) {
-      if (restriction.disposed || restriction.agentId !== agentId) continue;
-      for (const schema of options.schemas) {
-        if (!restriction.allow.has(schema.name)) hidden.add(schema.name);
+      return undefined;
+    const visible = new Map<string, FakeToolDefinition>();
+    for (const definition of options.definitions) {
+      if (hiddenVisible.has(definition.name)) continue;
+      if (typeof agentId === "string") {
+        const own = shadowOf(agentId, definition.name);
+        if (own !== undefined) {
+          visible.set(own.name, own);
+          continue;
+        }
+      }
+      let admitted = true;
+      for (const restriction of restrictions) {
+        if (restriction.disposed) continue;
+        if (
+          restriction.agentId !== "" &&
+          restriction.agentId !== String(agentId)
+        )
+          continue;
+        if (
+          restriction.allow !== undefined &&
+          !restriction.allow.has(definition.name)
+        )
+          admitted = false;
+        if (
+          restriction.deny !== undefined &&
+          restriction.deny.has(definition.name)
+        )
+          admitted = false;
+      }
+      if (admitted) visible.set(definition.name, definition);
+    }
+    if (typeof agentId === "string") {
+      for (const definition of scoped.get(agentId)?.values() ?? []) {
+        visible.set(definition.name, definition);
+      }
+      for (const name of residualNames) {
+        const definition = globalDefinition(name);
+        if (definition !== undefined) visible.set(name, definition);
       }
     }
-    return all.filter((schema) => !hidden.has(schema.name));
+    return [...visible.values()].map((definition) => ({
+      name: definition.name,
+      description: definition.description,
+      parameters: definition.parameters,
+    }));
+  };
+
+  const emit = (event: string, ...args: unknown[]): unknown => {
+    let result: unknown;
+    for (const handler of globalHandlers.get(event) ?? [])
+      result = handler(...args);
+    return result;
   };
 
   const notify = (): void => {
     if (options.emitOnRestrict === true) emit("tools/change");
   };
 
-  /** 施加一条遮罩（真实宿主：ScopedLayers.effect 变更后立即广播）。 */
+  const registerScoped = (
+    agentId: string,
+    definition: FakeToolDefinition,
+  ): (() => void) => {
+    const failure = options.registerFailure;
+    if (failure !== undefined && failure.times > 0) {
+      failure.times -= 1;
+      throw new Error(failure.message);
+    }
+    if (agentId === "") {
+      registered.set(definition.name, definition);
+    } else {
+      const own = scoped.get(agentId) ?? new Map<string, FakeToolDefinition>();
+      own.set(definition.name, definition);
+      scoped.set(agentId, own);
+    }
+    notify();
+    return () => {
+      if (agentId === "") registered.delete(definition.name);
+      else scoped.get(agentId)?.delete(definition.name);
+      notify();
+      if (options.disposeThrows === true) throw new Error("tool disposed");
+    };
+  };
+
   const restrictFor = (
     agentId: string,
     filter: { allow?: string[]; deny?: string[] },
@@ -189,13 +322,15 @@ export function createFakeHost(options: {
     }
     const call: RestrictCall = {
       allow: [...(filter.allow ?? [])],
+      deny: [...(filter.deny ?? [])],
       disposed: false,
       agentId,
     };
     restrictCalls.push(call);
     const restriction = {
       agentId,
-      allow: new Set(call.allow),
+      allow: filter.allow === undefined ? undefined : new Set(filter.allow),
+      deny: filter.deny === undefined ? undefined : new Set(filter.deny),
       disposed: false,
     };
     restrictions.push(restriction);
@@ -210,19 +345,24 @@ export function createFakeHost(options: {
 
   const tools: FakeTools = {
     schemas: (scope) => visibleSchemas(scope),
-    register: (definition) => {
-      const failure = options.registerFailure;
-      if (failure !== undefined && failure.times > 0) {
-        failure.times -= 1;
-        throw new Error(failure.message);
-      }
-      registered.set(definition.name, definition);
-      return () => {
-        registered.delete(definition.name);
-        if (options.disposeThrows === true) throw new Error("tool disposed");
-      };
-    },
+    register: (definition) => registerScoped("", definition),
     restrict: (filter) => restrictFor("", filter),
+    definitions: () => [...options.definitions],
+    get: (name, scope) => {
+      const agentId = (scope as { id?: string } | undefined)?.id;
+      return (
+        (typeof agentId === "string" ? shadowOf(agentId, name) : undefined) ??
+        globalDefinition(name)
+      );
+    },
+    executable: (name, scope) => {
+      const agentId = (scope as { id?: string } | undefined)?.id;
+      const definition =
+        (typeof agentId === "string" ? shadowOf(agentId, name) : undefined) ??
+        globalDefinition(name);
+      if (definition === undefined) return undefined;
+      return definition.when === undefined ? definition : undefined;
+    },
   };
 
   const makeCtx = (
@@ -232,9 +372,8 @@ export function createFakeHost(options: {
     includeEvents = true,
   ): FakeCtx => ({
     get: (service) => {
-      const overrides = options.serviceValues ?? {};
-      if (Object.prototype.hasOwnProperty.call(overrides, service))
-        return overrides[service];
+      if (Object.prototype.hasOwnProperty.call(serviceValues, service))
+        return serviceValues[service];
       return service === "tools"
         ? options.withToolsService === false
           ? undefined
@@ -285,26 +424,20 @@ export function createFakeHost(options: {
             };
           },
         }),
-    // 代理作用域的工具面：restrict 落到该代理（真实宿主按 `agent.ctx` 取 scope）。
     ...(includeTools
       ? {
           tools: {
-            schemas: (scope?: unknown) => visibleSchemas(scope),
-            register: (definition) => tools.register(definition),
-            restrict: (filter) => restrictFor(agentId, filter),
+            ...tools,
+            register: (definition: FakeToolDefinition) =>
+              registerScoped(agentId, definition),
+            restrict: (filter: { allow?: string[]; deny?: string[] }) =>
+              restrictFor(agentId, filter),
           },
         }
       : {}),
   });
 
   const ctx = makeCtx(globalHandlers, withAgentTools);
-
-  const emit = (event: string, ...args: unknown[]): unknown => {
-    let result: unknown;
-    for (const handler of globalHandlers.get(event) ?? [])
-      result = handler(...args);
-    return result;
-  };
 
   const addAgent: FakeHost["addAgent"] = (agentOptions = {}) => {
     const id = agentOptions.id ?? `agent-${agentList.length + 1}`;
@@ -333,23 +466,58 @@ export function createFakeHost(options: {
     return agent;
   };
 
+  const holds = new Map<
+    string,
+    (context: { sessionId: string }) => string | undefined
+  >();
+  const pinNotes: FakePinNotes = {
+    hold: (key, provider) => {
+      holds.set(key, provider);
+      return () => {
+        holds.delete(key);
+      };
+    },
+    keys: () => [...holds.keys()],
+    text: (key, sessionId) => holds.get(key)?.({ sessionId }),
+  };
+  if (!Object.prototype.hasOwnProperty.call(serviceValues, "pinNotes"))
+    serviceValues.pinNotes = pinNotes;
+
   return {
     ctx,
     tools,
     agents: { list: () => [...agentList] },
     restrictCalls,
     registered,
+    scoped,
+    pinNotes,
     logs,
     addAgent,
-    addSchema: (schema) => {
-      options.schemas.push(schema);
+    addDefinition: (definition) => {
+      options.definitions.push(definition);
+      emit("tools/change");
     },
-    setIgnoreRestrictions: (value) => {
-      ignoreRestrictions = value;
+    addSchema: (schema) => {
+      options.definitions.push(
+        makeDefinition(schema.name, {
+          description: schema.description,
+          ...(schema.parameters === undefined
+            ? {}
+            : { parameters: schema.parameters }),
+        }),
+      );
+      emit("tools/change");
+    },
+    setService: (service, value) => {
+      serviceValues[service] = value;
     },
     setHiddenVisible: (names) => {
       hiddenVisible.clear();
       for (const name of names) hiddenVisible.add(name);
+    },
+    setResidual: (names) => {
+      residualNames.clear();
+      for (const name of names) residualNames.add(name);
     },
     listenerCount: (event) => {
       if (event !== undefined) return (globalHandlers.get(event) ?? []).length;
@@ -361,9 +529,14 @@ export function createFakeHost(options: {
     dispose: () => {
       for (const dispose of effects.splice(0)) dispose();
     },
-    activeMask: () => {
-      const last = [...restrictCalls].reverse().find((call) => !call.disposed);
-      return last?.allow;
+    activeDeny: (agentId = "") => {
+      const last = [...restrictCalls]
+        .reverse()
+        .find((call) => !call.disposed && call.agentId === agentId);
+      return last?.deny;
+    },
+    failNextRestrict: (message = "restrict boom") => {
+      options.restrictFailure = { message, times: 1 };
     },
   };
 }

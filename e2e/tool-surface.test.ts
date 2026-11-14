@@ -11,13 +11,10 @@ import { test } from "node:test";
 import { bootPackage, textOf } from "./harness.ts";
 
 test("tool-surface：接入工具常驻工具面, 未揭示拒绝, 揭示后放行", async (t) => {
-  const host = await bootPackage("tool-consult", {
-    extraPackages: ["tool-surface", "fs-digest"],
+  const host = await bootPackage("tool-surface", {
+    extraPackages: ["tool-consult", "fs-digest"],
   });
   t.after(async () => host.dispose());
-
-  const agent = await host.createAgent("e2e-surface");
-  t.after(async () => agent.dispose());
 
   const tools = host.ctx.tools as {
     schemas(agent?: unknown): Array<{
@@ -25,10 +22,34 @@ test("tool-surface：接入工具常驻工具面, 未揭示拒绝, 揭示后放�
       description?: string;
       parameters?: Record<string, unknown>;
     }>;
+    register(definition: unknown, options?: unknown): () => void;
   };
-  const view = tools
-    .schemas(agent.agent)
-    .find((tool) => tool.name === "fs_digest");
+  const hiddenName = "e2e_surface_when_hidden";
+  const disposeHidden = tools.register(
+    {
+      name: hiddenName,
+      description: "端到端条件工具。",
+      parameters: { type: "object", properties: {} },
+      execute: () => ({}),
+      output: {
+        schema: { type: "object", additionalProperties: true, properties: {} },
+        render: () => [],
+      },
+    },
+    { when: () => false },
+  );
+  t.after(() => disposeHidden());
+
+  const agent = await host.createAgent("e2e-surface");
+  t.after(async () => agent.dispose());
+
+  const before = tools.schemas(agent.agent);
+  assert.equal(
+    before.some((tool) => tool.name === hiddenName),
+    false,
+    "白名单外条件工具应完全不可见",
+  );
+  const view = before.find((tool) => tool.name === "fs_digest");
   assert.ok(view, "接入包装层的工具应常驻工具面（声明常驻）");
   assert.match(String(view.description), /tool_consult/);
   assert.equal(view.parameters?.["additionalProperties"], true);
@@ -50,6 +71,7 @@ test("tool-surface：接入工具常驻工具面, 未揭示拒绝, 揭示后放�
     { agent: agent.agent },
   );
   assert.equal(consulted.isError, false, textOf(consulted));
+  assert.deepEqual(tools.schemas(agent.agent), before, "揭示不得改变工具声明");
   const after = await host.callTool(
     "fs_digest",
     { path: "x.md", mode: "outline" },
@@ -59,8 +81,8 @@ test("tool-surface：接入工具常驻工具面, 未揭示拒绝, 揭示后放�
 });
 
 test("tool-surface：参数按完整 schema 严格校验（INVALID_ARGS）", async (t) => {
-  const host = await bootPackage("tool-consult", {
-    extraPackages: ["tool-surface", "fs-digest"],
+  const host = await bootPackage("tool-surface", {
+    extraPackages: ["tool-consult", "fs-digest"],
   });
   t.after(async () => host.dispose());
 

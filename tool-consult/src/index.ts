@@ -1,16 +1,25 @@
 /**
- * main.ts — tool-consult 的宿主接线：按代理注册咨询工具、维护替换式 allow 遮罩、
- * 拦截被遮罩工具的调用、在 turn/end 收敛 turn 档授权。
+ * index.ts — tool-consult 的宿主接线。
  *
- * 宿主面全部用结构类型（不 import @deepseek-ai/*），契约与证据见
- * `tool-consult/docs/archived/2026-10-22-tool-consult.md`（R2 / R3 / R4 / D3 / D4）。
- * 关键约束：
- * - `tools.restrict()` 只能从 agent 作用域调用，故遮罩在 `agent/created` 里对 `agent.ctx` 应用；
- * - 同一代理只保留**一条**活动遮罩：每次先 dispose 旧遮罩再追加新名单；
- * - 名单每次现算「初始集 ∪ 已授权 ∩ 当前可限制名」，交集为空立即回退为不遮；
- * - 咨询工具注册进代理自身层，不受遮罩影响（R2 的自身层豁免）。
+ * 机制（见 `docs/implementation/2026-11-13-tool-reveal-redesign.md`）:
+ * - 首请求起常驻全量工具声明; 初始集保持宿主完整定义, 其余非初始、非条件工具在
+ *   agent 作用域 shadow 成短定义, 完整说明与 schema 收进 tool-surface catalog。
+ * - 白名单外的条件工具用一次静态 `restrict({ deny })` 从模型面移除; 白名单内的
+ *   条件工具保持宿主原样。
+ * - 揭示只写会话授权集合并按工具登记 pinNotes.hold; 不调用 register / restrict,
+ *   不改变工具声明。
+ * - 未揭示的受管工具由 `tools/pre-execute` 拒绝。
+ *
+ * 自检失败、静态 deny 失败或 `schemas(agent)` 残留时整体/本代理不接管, 工具面
+ * 回退宿主默认。宿主面全部用结构类型（不 import @deepseek-ai/*）。
  */
 
+import {
+  isWrappedDefinition,
+  listSurface,
+  lookupSurface,
+  wrapToolDefinition,
+} from "@dsh-toolset/tool-surface";
 import {
   expandInitialTools,
   isSubagentSession,
@@ -19,13 +28,14 @@ import {
   type ResolvedConfig,
 } from "./config.ts";
 import {
-  classifyRestrictError,
   classifyToolRegisterError,
-  decideDegradation,
+  decideCatalogSelfCheck,
+  decideDenyFailure,
+  decideDenyResidual,
   decideMissingService,
 } from "./degrade.ts";
 import { createMatcher, type Matcher } from "./matcher.ts";
-import { AgentGrants } from "./state.ts";
+import { RevealSet } from "./state.ts";
 import {
   CONSULT_TOOL_NAME,
   createConsultTool,
@@ -35,8 +45,11 @@ import {
 export { type Config };
 export const name = "tool-consult";
 
-/** 硬依赖：工具注册表（遮罩 / 注册 / schemas）与代理注册表（已存在代理补挂）。 */
+/** 硬依赖：工具注册表与代理注册表。 */
 export const inject = ["tools", "agents"];
+
+/** 未揭示受管工具的错误码。 */
+const NOT_REVEALED_CODE = "TOOL_NOT_REVEALED";
 
 /** 宿主工具 schema 的最小形态。 */
 interface HostToolSchema {
@@ -45,12 +58,12 @@ interface HostToolSchema {
   parameters?: Record<string, unknown>;
 }
 
-/** 宿主工具定义（注册用）。 */
+/** 宿主工具定义（注册与枚举共用）。 */
 interface HostToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  execute: (args: Record<string, unknown>, exec?: unknown) => Promise<unknown>;
+  execute: (args: unknown, exec?: unknown) => Promise<unknown> | unknown;
   output: {
     schema: Record<string, unknown>;
     render: (
@@ -58,9 +71,11 @@ interface HostToolDefinition {
       value: unknown,
     ) => Array<{ type: string; text: string }>;
   };
+  timeoutMs?: number;
+  deferLoading?: boolean;
 }
 
-/** 宿主工具执行对象的最小形态（`tools/pre-execute` 与 `tools/result` 共用）。 */
+/** 宿主工具执行对象的最小形态。 */
 interface HostToolExecution {
   name?: string;
   agent?: HostAgent;
@@ -70,20 +85,34 @@ interface HostToolExecution {
 interface HostTools {
   register?: (definition: HostToolDefinition) => () => void;
   restrict?: (filter: { allow?: string[]; deny?: string[] }) => () => void;
-  schemas?: (scope?: unknown) => HostToolSchema[];
+  schemas?: (scope?: unknown) => HostToolSchema[] | undefined;
+  definitions?: (scope?: unknown) => readonly HostToolDefinition[];
+  get?: (name: string, scope?: unknown) => HostToolDefinition | undefined;
+  executable?: (
+    name: string,
+    scope?: unknown,
+  ) => HostToolDefinition | undefined;
 }
 
-/** tool-surface 服务面条目（完整说明与完整参数 schema）。 */
-interface ToolSurfaceEntry {
+/** tool-surface 只读服务面。 */
+interface ToolSurfaceFace {
+  lookup: (name: string) => SurfaceDoc | undefined;
+  list: () => SurfaceDoc[];
+}
+
+/** 完整说明与完整参数 schema。 */
+interface SurfaceDoc {
   name: string;
   description: string;
-  parameters?: Record<string, unknown>;
+  parameters: Record<string, unknown>;
 }
 
-/** tool-surface 只读服务面（未挂载时走旧的「注册定义即全文」路径）。 */
-interface ToolSurfaceFace {
-  lookup?: (name: string) => ToolSurfaceEntry | undefined;
-  list?: () => ToolSurfaceEntry[];
+/** pin-note 动态保持登记面。 */
+interface PinNotesFace {
+  hold?(
+    key: string,
+    provider: (context: { sessionId: string }) => string | undefined,
+  ): () => void;
 }
 
 /** 宿主会话头的最小面。 */
@@ -99,7 +128,7 @@ interface HostAgent {
   session: HostSession;
 }
 
-/** 宿主上下文的最小面（cordis ctx 的结构子集）。 */
+/** 宿主上下文的最小面。 */
 interface HostCtx {
   get?: (service: string) => unknown;
   on?: (event: string, callback: (...args: unknown[]) => unknown) => unknown;
@@ -116,31 +145,45 @@ interface HostCtx {
 interface AgentRuntime {
   id: string;
   agent: HostAgent;
-  grants: AgentGrants;
+  grants: RevealSet;
   config: ResolvedConfig;
   matcher: Matcher;
-  masked: boolean;
-  maskDisposer: (() => void) | undefined;
-  consultDisposer: (() => void) | undefined;
-  listeners: Array<() => void>;
-  currentTurn: number;
-  warnedUnmasked: boolean;
-  /** 已经就遮罩漂移告警过一次（避免每次广播都刷日志）。 */
-  warnedDrift: boolean;
-  /** 初始可见名（按当前可限制名展开后）。 */
+  /** 初始集（展开后, 已去掉被静态隐藏的条件工具）。 */
   initialNames: string[];
-  /** 当前这条遮罩允许的名单（回读校验用；未遮罩时为空）。 */
-  appliedAllow: string[];
-  /** 当前这条遮罩应挡住的名单（回读校验用；未遮罩时为空）。 */
-  appliedHidden: string[];
-  /** 已接入 tool-surface 包装层的工具名（声明常驻、派发前按揭示集合拦截）。 */
-  wrapped: Set<string>;
-  /** tool-surface 服务面（缺席时退回过路径）。 */
-  surface: ToolSurfaceFace | undefined;
+  /** 全局条件工具名。 */
+  conditional: Set<string>;
+  /** 白名单外、已静态隐藏的条件工具名。 */
+  denied: Set<string>;
+  /** 已 shadow（或 shadow 失败仍纳管）的工具名。 */
+  managed: Set<string>;
+  /** shadow 注册的撤销函数（按工具名）。 */
+  shadowDisposers: Map<string, () => void>;
+  /** 静态 deny 的撤销函数。 */
+  denyDisposer: (() => void) | undefined;
+  /** 咨询工具注册的撤销函数。 */
+  consultDisposer: (() => void) | undefined;
+  /** 代理级监听器的撤销函数。 */
+  listeners: Array<() => void>;
+  /** 全局定义里的完整说明与 schema（shadow 之后仍可投递）。 */
+  fullDocs: Map<string, SurfaceDoc>;
+  /** 本插件实例的 pinNotes 服务（缺席时为 undefined）。 */
+  pinNotes: PinNotesFace | undefined;
+  /** 本代理已就关键失败告警过一次。 */
+  warnedOnce: boolean;
+  /** pinNotes 缺席已告警过一次。 */
+  warnedPinNotes: boolean;
+  /** 初始化 / 重算期间屏蔽 tools/change 自激。 */
+  applying: boolean;
 }
 
-/** 跨 apply 保留的代理状态：配置热重载后仍能按「退休 / 降级」语义迁移。 */
+/** 跨 apply 保留的代理状态（配置热重载时保留授权集合）。 */
 const REGISTRY = new Map<string, AgentRuntime>();
+
+/** 插件级 hold 登记（key = `revealed:<工具名>`, 全局唯一）。 */
+const HOLD_DISPOSERS = new Map<string, () => void>();
+
+/** 当前插件实例的全局监听 / hold 清理函数。 */
+let activeCleanup: (() => void) | undefined;
 
 /** 结构面取工具服务。 */
 function asTools(value: unknown): HostTools | undefined {
@@ -154,7 +197,7 @@ function asToolSurface(value: unknown): ToolSurfaceFace | undefined {
   if (value === undefined || value === null || typeof value !== "object")
     return undefined;
   const candidate = value as { lookup?: unknown; list?: unknown };
-  return typeof candidate.lookup === "function" ||
+  return typeof candidate.lookup === "function" &&
     typeof candidate.list === "function"
     ? (candidate as ToolSurfaceFace)
     : undefined;
@@ -167,6 +210,16 @@ function asAgents(value: unknown): { list: () => HostAgent[] } | undefined {
   const candidate = value as { list?: unknown };
   return typeof candidate.list === "function"
     ? (candidate as { list: () => HostAgent[] })
+    : undefined;
+}
+
+/** 结构面取 pinNotes 服务。 */
+function asPinNotes(value: unknown): PinNotesFace | undefined {
+  if (value === undefined || value === null || typeof value !== "object")
+    return undefined;
+  const candidate = value as { hold?: unknown };
+  return typeof candidate.hold === "function"
+    ? (candidate as PinNotesFace)
     : undefined;
 }
 
@@ -189,310 +242,215 @@ function shouldManage(config: ResolvedConfig, agent: HostAgent): boolean {
   return !isSubagentSession(agent.session?.header);
 }
 
-/** 是否在当前可见集（初始集 ∪ 已授权 ∪ 咨询工具自身）。 */
-function isVisible(runtime: AgentRuntime, toolName: string): boolean {
-  if (toolName === CONSULT_TOOL_NAME) return true;
-  if (runtime.config.maskMode === "off") return true;
-  if (runtime.config.maskMode === "denylist") {
-    // denylist 模式下 initialNames 是「要挡住的名单」，被挡的工具除已授权外不可见。
-    if (runtime.grants.has(toolName)) return true;
-    return !runtime.initialNames.includes(toolName);
+/** 当前全局完整定义（按名索引）。 */
+function globalDefinitions(tools: HostTools): Map<string, HostToolDefinition> {
+  const defs = tools.definitions?.() ?? [];
+  return new Map(defs.map((definition) => [definition.name, definition]));
+}
+
+/** 从全局定义抽取完整说明与 schema（shadow 前的全文）。 */
+function fullDocsOf(
+  definitions: ReadonlyMap<string, HostToolDefinition>,
+): Map<string, SurfaceDoc> {
+  const docs = new Map<string, SurfaceDoc>();
+  for (const [toolName, definition] of definitions) {
+    docs.set(toolName, {
+      name: toolName,
+      description:
+        typeof definition.description === "string"
+          ? definition.description
+          : "",
+      parameters:
+        definition.parameters !== undefined &&
+        typeof definition.parameters === "object"
+          ? definition.parameters
+          : {},
+    });
   }
-  if (runtime.initialNames.includes(toolName)) return true;
-  return runtime.grants.has(toolName);
+  return docs;
 }
 
-/** 当前可限制名（全局视图；`schemas()` 不传 scope）。 */
-function restrictableNames(
-  tools: HostTools,
-  disabled: ReadonlySet<string>,
-): string[] {
-  const schemas = tools.schemas?.() ?? [];
-  return schemas
-    .map((schema) => schema.name)
-    .filter(
-      (toolName) => toolName !== CONSULT_TOOL_NAME && !disabled.has(toolName),
-    );
-}
-
-/**
- * 由当前工具面重建检索器。
- *
- * `consult_tools` 是查询入口本身，不入检索索引（否则会作为候选混进结果；
- * 按名咨询走 `isVisible` 分支，不依赖索引，见 tool.ts）。
- * 接入包装层的工具，检索语料取 `toolSurface` 里的**完整说明与完整参数**
- * （注册定义只剩短说明与宽松占位，不能拿来建索引）；
- * `disabledWhenTools` 里的官方条件工具不进索引（模型查不到、也调不到）。
- */
+/** 由当前定义 + 本地 catalog 重建检索器（denied 不入索引）。 */
 function buildMatcher(
-  tools: HostTools,
-  config: ResolvedConfig,
-  surface: ToolSurfaceFace | undefined,
+  definitions: ReadonlyMap<string, HostToolDefinition>,
+  denied: ReadonlySet<string>,
 ): Matcher {
-  const disabled = new Set(config.disabledWhenTools);
-  const schemas = (tools.schemas?.() ?? []).filter(
-    (schema) => schema.name !== CONSULT_TOOL_NAME && !disabled.has(schema.name),
-  );
-  return createMatcher(
-    schemas.map((schema) => {
-      const full = surface?.lookup?.(schema.name);
-      return {
-        name: schema.name,
+  const docs: SurfaceDoc[] = [];
+  for (const [toolName, definition] of definitions) {
+    if (toolName === CONSULT_TOOL_NAME || denied.has(toolName)) continue;
+    const full = lookupSurface(toolName);
+    docs.push(
+      full ?? {
+        name: toolName,
         description:
-          full?.description ??
-          (typeof schema.description === "string" ? schema.description : ""),
-        parameters: full?.parameters ?? schema.parameters,
-      };
-    }),
-  );
+          typeof definition.description === "string"
+            ? definition.description
+            : "",
+        parameters:
+          definition.parameters !== undefined &&
+          typeof definition.parameters === "object"
+            ? definition.parameters
+            : {},
+      },
+    );
+  }
+  return createMatcher(docs);
 }
 
-/** 已接入包装层的工具名（`toolSurface` 缺席时为空集，即全走旧路径）。 */
-function wrappedNamesOf(surface: ToolSurfaceFace | undefined): Set<string> {
-  const entries = surface?.list?.() ?? [];
-  return new Set(entries.map((entry) => entry.name));
-}
-
-/** 撤销当前遮罩（幂等）。 */
-function disposeMask(runtime: AgentRuntime): void {
-  const dispose = runtime.maskDisposer;
-  runtime.maskDisposer = undefined;
-  runtime.masked = false;
-  runtime.appliedAllow = [];
-  runtime.appliedHidden = [];
+/** 撤销一个注册（幂等, 失败忽略）。 */
+function disposeQuietly(dispose: (() => void) | undefined): void {
   if (dispose === undefined) return;
   try {
     dispose();
   } catch {
-    // 已撤销 / 宿主回收，忽略。
+    // 已回收 / 宿主拒绝, 忽略。
   }
 }
 
-/** 拆除一个运行时的全部注册（遮罩 / 代理级监听 / 咨询工具）。 */
-function teardownRuntime(runtime: AgentRuntime): void {
-  disposeMask(runtime);
-  const consult = runtime.consultDisposer;
+/** 撤销一个代理的全部注册（保留授权集合与全文缓存）。 */
+function teardownRegistrations(runtime: AgentRuntime): void {
+  for (const dispose of runtime.shadowDisposers.values())
+    disposeQuietly(dispose);
+  runtime.shadowDisposers.clear();
+  runtime.managed.clear();
+  disposeQuietly(runtime.consultDisposer);
   runtime.consultDisposer = undefined;
-  if (consult !== undefined) {
-    try {
-      consult();
-    } catch {
-      // 已回收，忽略。
-    }
-  }
-  for (const dispose of runtime.listeners.splice(0)) {
-    try {
-      dispose();
-    } catch {
-      // 已回收，忽略。
-    }
-  }
+  disposeQuietly(runtime.denyDisposer);
+  runtime.denyDisposer = undefined;
+  for (const dispose of runtime.listeners.splice(0)) disposeQuietly(dispose);
 }
 
-/** 降级为不遮罩并告警一次。 */
-function degradeUnmasked(runtime: AgentRuntime, message: string): void {
-  disposeMask(runtime);
-  if (runtime.warnedUnmasked) return;
-  runtime.warnedUnmasked = true;
+/** 移除一个代理的运行时（回归宿主默认）。 */
+function removeRuntime(runtime: AgentRuntime): void {
+  teardownRegistrations(runtime);
+  REGISTRY.delete(runtime.id);
+}
+
+/** 本代理告警一次。 */
+function warnOnce(runtime: AgentRuntime, message: string): void {
+  if (runtime.warnedOnce) return;
+  runtime.warnedOnce = true;
   log(runtime.agent.ctx, "warn", message);
 }
 
-/** 揭示 / 收回后重算并替换遮罩（替换式：先撤旧再追加）。 */
-function applyMask(runtime: AgentRuntime, tools: HostTools): void {
-  const disabled = new Set(runtime.config.disabledWhenTools);
-  const restrictable = new Set(restrictableNames(tools, disabled));
-  runtime.wrapped = wrappedNamesOf(runtime.surface);
-  runtime.initialNames = expandInitialTools(runtime.config.initialTools, [
-    ...restrictable,
-  ]).names;
-
-  if (runtime.config.maskMode === "off") {
-    disposeMask(runtime);
-    return;
-  }
-
-  let allow: string[];
-  if (runtime.config.maskMode === "denylist") {
-    // denylist 下清单是隐藏集，但已授权的工具仍要放行（与 `isVisible` 同口径）。
-    const hidden = new Set(runtime.initialNames);
-    const granted = new Set(runtime.grants.allowedNames());
-    allow = [...restrictable].filter(
-      (toolName) => !hidden.has(toolName) || granted.has(toolName),
-    );
-  } else {
-    const granted = runtime.grants
-      .allowedNames()
-      .filter((toolName) => restrictable.has(toolName));
-    // 接入包装层的工具声明常驻（拦截放在 `tools/pre-execute`），不随揭示进出差分，
-    // 这样揭示只影响未接入工具，槽位与前缀缓存少变（决策 06 / 18 / 24）。
-    const resident = [...restrictable].filter((toolName) =>
-      runtime.wrapped.has(toolName),
-    );
-    allow = [
-      ...new Set([...runtime.initialNames, ...granted, ...resident]),
-    ].sort((a, b) => a.localeCompare(b));
-  }
-
-  if (allow.length === 0) {
-    // 空交集：回退不遮，避免把所有工具藏光（D4）。
-    degradeUnmasked(runtime, decideDegradation("empty-intersection").message);
-    return;
-  }
-
-  const agentTools = asTools(runtime.agent.ctx.tools);
-  if (agentTools?.restrict === undefined) {
-    degradeUnmasked(runtime, decideDegradation("no-scope").message);
-    return;
-  }
-
-  disposeMask(runtime);
-  try {
-    runtime.maskDisposer = agentTools.restrict({ allow });
-    runtime.masked = true;
-  } catch (error: unknown) {
-    const failure = classifyRestrictError(error);
-    const decision = decideDegradation(failure);
-    if (decision.action === "retry-filtered") {
-      const known = new Set(restrictableNames(tools, disabled));
-      const filtered = allow.filter((toolName) => known.has(toolName));
-      if (filtered.length > 0) {
-        try {
-          runtime.maskDisposer = agentTools.restrict({ allow: filtered });
-          runtime.masked = true;
-          recordMask(runtime, tools, filtered, [...restrictable]);
-          return;
-        } catch {
-          // 落到下面的 unmasked。
-        }
-      }
-    }
-    degradeUnmasked(runtime, decision.message);
-    return;
-  }
-  recordMask(runtime, tools, allow, [...restrictable]);
+/** 未揭示拒绝文案。 */
+function notRevealedReason(toolName: string): string {
+  return `tool ${toolName} 未在当前会话揭示, 请先经 tool_consult 查询后再调用`;
 }
 
-/** 记下本次遮罩的名单，并立刻回读校验。 */
-function recordMask(
-  runtime: AgentRuntime,
-  tools: HostTools,
-  allow: string[],
-  restrictable: string[],
-): void {
-  runtime.appliedAllow = [...allow];
-  const allowed = new Set(allow);
-  runtime.appliedHidden = restrictable.filter((name) => !allowed.has(name));
-  verifyMask(runtime, tools);
-}
-
-/**
- * 回读宿主工具面，校验遮罩是否真的生效。
- *
- * `tools/change` 是宿主对「工具面变了」的广播：本插件只把它当**校验结果**用 ——
- * 读到漂移就告警，绝不据此再调 `restrict`。`restrict` 自身也会触发同一条广播，
- * 拿广播当动作输入会形成自我触发的死循环（CPU 打满、事件循环停摆）。
- */
-function verifyMask(runtime: AgentRuntime, tools: HostTools): void {
-  if (!runtime.masked) return;
-  const visible = tools.schemas?.(runtime.agent);
-  if (visible === undefined) return; // 宿主不提供作用域视图：无从校验。
-  const names = new Set(visible.map((schema) => schema.name));
-  const missing = runtime.appliedAllow.filter((name) => !names.has(name));
-  const leaked = runtime.appliedHidden.filter((name) => names.has(name));
-  if (missing.length === 0 && leaked.length === 0) {
-    runtime.warnedDrift = false;
-    return;
-  }
-  if (runtime.warnedDrift) return;
-  runtime.warnedDrift = true;
-  log(
-    runtime.agent.ctx,
-    "warn",
-    `遮罩未按预期生效（该可见却缺：${missing.join(", ") || "无"}；` +
-      `该挡住却多：${leaked.join(", ") || "无"}）；` +
-      "本插件不会据此重设遮罩，仅告警。",
-  );
-}
-
-/** 授权上限（按运行时配置取）。 */
-function limitsOf(runtime: AgentRuntime): {
-  maxRevealed: number;
-  ttlTurns: number;
-  maxPinned: number;
+/** 未揭示拒绝的返回值。 */
+function notRevealedDecision(toolName: string): {
+  kind: "deny";
+  reason: string;
+  info: { name: string; code: string };
 } {
   return {
-    maxRevealed: runtime.config.maxRevealed,
-    ttlTurns: runtime.config.ttlTurns,
-    maxPinned: runtime.config.maxPinned,
+    kind: "deny",
+    reason: notRevealedReason(toolName),
+    info: { name: NOT_REVEALED_CODE, code: NOT_REVEALED_CODE },
   };
 }
 
-/** 咨询工具的运行时 API（闭包到单个代理）。 */
-function consultRuntime(
-  runtime: AgentRuntime,
-  tools: HostTools,
-): ConsultRuntime {
+/** 某工具是否在 denied 集合里。 */
+function isDenied(runtime: AgentRuntime, toolName: string): boolean {
+  return runtime.denied.has(toolName);
+}
+
+/** 咨询运行时（闭包到单个代理）。 */
+function consultRuntime(runtime: AgentRuntime): ConsultRuntime {
   return {
-    // 取实时值：`tools/change` 刷新 `runtime.matcher` 后，已注册的咨询工具才能看到新索引。
     get matcher() {
       return runtime.matcher;
     },
     config: runtime.config,
-    grants: runtime.grants,
-    currentTurn: () => runtime.currentTurn,
-    isVisible: (toolName) => isVisible(runtime, toolName),
-    grantedNames: () => runtime.grants.allowedNames(),
-    reveal: (names, scope, pin) => {
-      const outcomes = names.map((toolName) => ({
-        name: toolName,
-        result: runtime.grants.grant(
-          toolName,
-          scope,
-          pin,
-          runtime.currentTurn,
-          limitsOf(runtime),
-        ),
-      }));
-      if (outcomes.some((outcome) => outcome.result.granted))
-        applyMask(runtime, tools);
+    isCallable: (toolName) =>
+      toolName === CONSULT_TOOL_NAME ||
+      (!isDenied(runtime, toolName) &&
+        (runtime.initialNames.includes(toolName) ||
+          runtime.grants.has(toolName))),
+    isInitial: (toolName) => runtime.initialNames.includes(toolName),
+    grantedNames: () => runtime.grants.names(),
+    reveal: (names) => {
+      const outcomes: Array<{
+        name: string;
+        result: ReturnType<RevealSet["grant"]>;
+      }> = [];
+      for (const toolName of names) {
+        if (
+          toolName === CONSULT_TOOL_NAME ||
+          isDenied(runtime, toolName) ||
+          runtime.matcher.get(toolName) === undefined
+        )
+          continue;
+        const result = runtime.grants.grant(toolName);
+        ensureHold(runtime, toolName);
+        outcomes.push({ name: toolName, result });
+      }
       return outcomes;
     },
   };
 }
 
-/** 被遮罩工具被调用时的可行动文案（D3；仅过渡期未接入包装层的工具）。 */
-function denyReason(toolName: string): string {
-  return (
-    `工具 "${toolName}" 当前不可见（被 tool-consult 管理）。` +
-    `调用 consult_tools（names: ["${toolName}"]）揭示后即可调用；` +
-    `也可以 query 描述用途来检索。`
-  );
+/** 揭示正文（每个工具一条, 由已揭示集合与全文源决定）。 */
+function revealPayload(toolName: string, doc: SurfaceDoc): string {
+  return [
+    `[tool-consult] 已揭示工具 ${toolName}（本会话内可调用）`,
+    JSON.stringify({
+      description: doc.description,
+      input_schema: doc.parameters,
+    }),
+  ].join("\n");
 }
 
-/** 未揭示的接入工具被调用时的文案与错误码（决策 15）。 */
-const NOT_REVEALED_CODE = "TOOL_NOT_REVEALED";
-
-/** 未揭示拒绝文案：声明常驻但派发拒绝，指回咨询入口。 */
-function notRevealedReason(toolName: string): string {
-  return `tool ${toolName} 未在当前会话揭示, 请先经 tool_consult 查询后再调用`;
-}
-
-/** 把咨询工具注册进代理自身层（自身层豁免遮罩）。 */
-function attachConsultTool(runtime: AgentRuntime, tools: HostTools): void {
-  if (runtime.consultDisposer !== undefined) return;
-  const agentTools = asTools(runtime.agent.ctx.tools);
-  if (agentTools?.register === undefined) {
+/** 按工具登记 pinNotes.hold（每个工具 key 固定一次）。 */
+function ensureHold(runtime: AgentRuntime, toolName: string): void {
+  if (HOLD_DISPOSERS.has(toolName)) return;
+  const pinNotes = runtime.pinNotes;
+  if (pinNotes === undefined) {
+    if (runtime.warnedPinNotes) return;
+    runtime.warnedPinNotes = true;
     log(
       runtime.agent.ctx,
       "warn",
-      "agent.ctx 缺少 tools.register，咨询工具未注册。",
+      "ctx.pinNotes 不可用：揭示仍写授权，但完整说明与 schema 不会投递（请检查 pin-note 是否挂载）",
     );
+    return;
+  }
+  try {
+    const dispose = pinNotes.hold?.(
+      `revealed:${toolName}`,
+      (context: { sessionId: string }) => {
+        const current = REGISTRY.get(context.sessionId);
+        if (
+          current === undefined ||
+          isDenied(current, toolName) ||
+          !current.grants.has(toolName)
+        )
+          return undefined;
+        const doc =
+          lookupSurface(toolName) ??
+          current.fullDocs.get(toolName) ??
+          undefined;
+        return doc === undefined ? undefined : revealPayload(toolName, doc);
+      },
+    );
+    if (typeof dispose === "function") HOLD_DISPOSERS.set(toolName, dispose);
+  } catch (error: unknown) {
+    warnOnce(runtime, `pinNotes.hold 登记失败：${String(error)}`);
+  }
+}
+
+/** 注册咨询工具进代理自身层（自身层豁免静态 deny）。 */
+function attachConsultTool(runtime: AgentRuntime): void {
+  const agentTools = asTools(runtime.agent.ctx.tools);
+  if (agentTools?.register === undefined) {
+    warnOnce(runtime, "agent.ctx 缺少 tools.register，咨询工具未注册。");
     return;
   }
   try {
     runtime.consultDisposer = agentTools.register(
       createConsultTool(
-        consultRuntime(runtime, tools),
+        consultRuntime(runtime),
       ) as unknown as HostToolDefinition,
     );
   } catch (error: unknown) {
@@ -501,113 +459,173 @@ function attachConsultTool(runtime: AgentRuntime, tools: HostTools): void {
       runtime.agent.ctx,
       "warn",
       kind === "duplicate"
-        ? "咨询工具名已被占用，本代理不注册咨询工具（遮罩照常）。"
+        ? "咨询工具名已被占用，本代理不注册咨询工具。"
         : `咨询工具注册失败：${String(error)}`,
     );
   }
 }
 
-/** 注册代理级监听器（重复调用先撤旧的）。 */
+/** 注册代理级门禁（重复调用先撤旧的）。 */
 function attachListeners(runtime: AgentRuntime): void {
-  for (const dispose of runtime.listeners.splice(0)) {
-    try {
-      dispose();
-    } catch {
-      // 已回收，忽略。
-    }
-  }
+  for (const dispose of runtime.listeners.splice(0)) disposeQuietly(dispose);
   const on = runtime.agent.ctx.on;
   if (on === undefined) return;
-
-  // 未揭示拦截（两条路径）：接入包装层的工具声明常驻、派发前拒绝；未接入工具继续走遮罩。
-  const deny = on("tools/pre-execute", (...args: unknown[]) => {
+  const dispose = on("tools/pre-execute", (...args: unknown[]) => {
     const exec = args[0] as HostToolExecution | undefined;
     const next = args[1] as (() => unknown) | undefined;
-    const toolName = exec?.name;
     const passthrough = (): unknown =>
       typeof next === "function" ? next() : { kind: "allow" };
+    const toolName = exec?.name;
     if (typeof toolName !== "string") return passthrough();
-    if (runtime.wrapped.has(toolName) && !isVisible(runtime, toolName)) {
-      return {
-        kind: "deny",
-        reason: notRevealedReason(toolName),
-        info: { name: NOT_REVEALED_CODE, code: NOT_REVEALED_CODE },
-      };
-    }
-    if (!runtime.masked || isVisible(runtime, toolName)) return passthrough();
-    return { kind: "deny", reason: denyReason(toolName) };
+    if (!runtime.managed.has(toolName)) return passthrough();
+    if (isDenied(runtime, toolName)) return passthrough();
+    if (runtime.grants.has(toolName)) return passthrough();
+    return notRevealedDecision(toolName);
   });
-  if (typeof deny === "function") runtime.listeners.push(deny as () => void);
+  if (typeof dispose === "function")
+    runtime.listeners.push(dispose as () => void);
 }
 
 /**
- * 一条工具的全文本源：接入包装层的取 `toolSurface`（注册定义只剩短说明与占位），
- * 过渡期未接入的工具退回注册定义。
+ * 安装静态 deny 并核对模型面。
+ * @returns 成功时 true; 失败已撤销 deny 并告警。
  */
-function fullDocOf(
+function installDeny(
   runtime: AgentRuntime,
   tools: HostTools,
-  toolName: string,
-): ToolSurfaceEntry | undefined {
-  const entry = runtime.surface?.lookup?.(toolName);
-  if (entry !== undefined) return entry;
-  const schema = (tools.schemas?.() ?? []).find(
-    (item) => item.name === toolName,
+  denied: ReadonlySet<string>,
+): boolean {
+  disposeQuietly(runtime.denyDisposer);
+  runtime.denyDisposer = undefined;
+  if (denied.size === 0) return true;
+  const agentTools = asTools(runtime.agent.ctx.tools);
+  if (agentTools?.restrict === undefined) {
+    warnOnce(
+      runtime,
+      "agent.ctx 缺少 tools.restrict，无法隐藏条件工具；本代理不接管。",
+    );
+    return false;
+  }
+  try {
+    runtime.denyDisposer = agentTools.restrict({
+      deny: [...denied].sort((a, b) => a.localeCompare(b)),
+    });
+  } catch (error: unknown) {
+    warnOnce(runtime, decideDenyFailure(error).message);
+    return false;
+  }
+  const visible = tools.schemas?.(runtime.agent);
+  if (!Array.isArray(visible)) {
+    disposeQuietly(runtime.denyDisposer);
+    runtime.denyDisposer = undefined;
+    warnOnce(
+      runtime,
+      "无法核对 schemas(agent)，不能确认条件工具已隐藏；本代理不接管。",
+    );
+    return false;
+  }
+  const leaked = visible
+    .map((schema) => schema.name)
+    .filter((toolName) => denied.has(toolName));
+  if (leaked.length > 0) {
+    disposeQuietly(runtime.denyDisposer);
+    runtime.denyDisposer = undefined;
+    warnOnce(runtime, decideDenyResidual(leaked).message);
+    return false;
+  }
+  return true;
+}
+
+/** 计算当前条件工具与静态隐藏集。 */
+function computeDenied(
+  tools: HostTools,
+  definitions: ReadonlyMap<string, HostToolDefinition>,
+  config: ResolvedConfig,
+): { conditional: Set<string>; denied: Set<string> } {
+  const allowed = new Set(config.allowedWhenTools);
+  const conditional = new Set<string>();
+  for (const toolName of definitions.keys()) {
+    if (tools.executable?.(toolName) === undefined) conditional.add(toolName);
+  }
+  const denied = new Set(
+    [...conditional].filter((toolName) => !allowed.has(toolName)),
   );
-  if (schema === undefined) return undefined;
-  return {
-    name: toolName,
-    description:
-      typeof schema.description === "string" ? schema.description : "",
-    ...(schema.parameters === undefined
-      ? {}
-      : { parameters: schema.parameters }),
-  };
+  return { conditional, denied };
 }
 
-/**
- * 已揭示工具的投递正文（动态保持的 hold 内容，决策 25）。
- *
- * 格式：标题行 + 每条 `name:` + 紧凑 JSON（`description` 全文与 `input_schema`）。
- * 文本只由「已揭示集合 + 全文源」决定，集合不变则同字节（pin-note 按 key 比对后不重投）。
- * 零条揭示时返回 undefined（本步不投）。
- */
-function revealedPayload(
+/** 展开初始集，去掉被静态隐藏的条件工具并告警。 */
+function computeInitial(
   runtime: AgentRuntime,
-  tools: HostTools,
-): string | undefined {
-  const names = runtime.grants.allowedNames();
-  if (names.length === 0) return undefined;
-  const lines = names.map((toolName) => {
-    const doc = fullDocOf(runtime, tools, toolName);
-    const payload = {
-      description: doc?.description ?? "",
-      input_schema: doc?.parameters ?? {},
-    };
-    return `${toolName}:\n${JSON.stringify(payload)}`;
-  });
-  return [
-    "[tool-consult] 已揭示工具（本会话内可调用；完整说明与 input_schema 如下）:",
-    ...lines,
-  ].join("\n");
+  names: readonly string[],
+  denied: ReadonlySet<string>,
+): string[] {
+  const expanded = expandInitialTools(runtime.config.initialTools, names);
+  if (expanded.unknown.length > 0) {
+    log(
+      runtime.agent.ctx,
+      "warn",
+      `initialTools 未命中任何工具：${expanded.unknown.join(", ")}`,
+    );
+  }
+  const hidden = expanded.names.filter((toolName) => denied.has(toolName));
+  if (hidden.length > 0) {
+    log(
+      runtime.agent.ctx,
+      "warn",
+      `initialTools 含白名单外条件工具：${hidden.join(", ")}；已按隐藏处理。`,
+    );
+  }
+  return expanded.names.filter((toolName) => !denied.has(toolName));
 }
 
-/** pin-note 动态保持登记面（结构面访问；未挂载时降级）。 */
-interface PinNotesFace {
-  hold?(
-    key: string,
-    provider: (context: { sessionId: string }) => string | undefined,
-  ): () => void;
+/** 注册非初始、非条件工具的 shadow。 */
+function installShadows(
+  runtime: AgentRuntime,
+  definitions: ReadonlyMap<string, HostToolDefinition>,
+): boolean {
+  const agentTools = asTools(runtime.agent.ctx.tools);
+  if (agentTools?.register === undefined) {
+    warnOnce(runtime, "agent.ctx 缺少 tools.register，无法收短工具定义。");
+    return false;
+  }
+  const initial = new Set(runtime.initialNames);
+  const names = [...definitions.keys()].sort((a, b) => a.localeCompare(b));
+  for (const toolName of names) {
+    if (
+      toolName === CONSULT_TOOL_NAME ||
+      initial.has(toolName) ||
+      runtime.conditional.has(toolName)
+    )
+      continue;
+    const definition = definitions.get(toolName);
+    if (definition === undefined) continue;
+    try {
+      const wrapped = wrapToolDefinition(definition);
+      const dispose = agentTools.register(wrapped);
+      runtime.managed.add(toolName);
+      if (typeof dispose === "function")
+        runtime.shadowDisposers.set(toolName, dispose);
+    } catch (error: unknown) {
+      // 注册失败也纳管：未揭示先拒绝，揭示后放行（宁可拒绝也不绕过门禁）。
+      runtime.managed.add(toolName);
+      log(
+        runtime.agent.ctx,
+        "warn",
+        `工具 ${toolName} 的短定义注册失败（${String(error)}）；仍按未揭示拒绝。`,
+      );
+    }
+  }
+  return true;
 }
 
-/** 创建或复用代理运行时，并完成注册 / 遮罩。 */
+/** 初始化 / 重建一个代理的注册。 */
 function setupAgent(
   agent: HostAgent | undefined,
   ctx: HostCtx,
   tools: HostTools,
   config: ResolvedConfig,
   owned: Set<AgentRuntime>,
-  surface: ToolSurfaceFace | undefined,
+  pinNotes: PinNotesFace | undefined,
 ): void {
   if (
     agent === undefined ||
@@ -621,55 +639,194 @@ function setupAgent(
   const runtime: AgentRuntime = existing ?? {
     id: agent.id,
     agent,
-    grants: new AgentGrants(config.revealScope),
+    grants: new RevealSet(),
     config,
-    matcher: buildMatcher(tools, config, surface),
-    masked: false,
-    maskDisposer: undefined,
+    matcher: createMatcher([]),
+    initialNames: [],
+    conditional: new Set(),
+    denied: new Set(),
+    managed: new Set(),
+    shadowDisposers: new Map(),
+    denyDisposer: undefined,
     consultDisposer: undefined,
     listeners: [],
-    currentTurn: 0,
-    warnedUnmasked: false,
-    warnedDrift: false,
-    initialNames: [],
-    appliedAllow: [],
-    appliedHidden: [],
-    wrapped: wrappedNamesOf(surface),
-    surface,
+    fullDocs: new Map(),
+    pinNotes,
+    warnedOnce: false,
+    warnedPinNotes: false,
+    applying: false,
   };
-
   if (existing !== undefined) {
-    // 配置热重载：保留既有授权，按新缺省档迁移（session → turn 待回合末降级）。
-    runtime.config = config;
-    runtime.matcher = buildMatcher(tools, config, surface);
-    runtime.surface = surface;
-    runtime.wrapped = wrappedNamesOf(surface);
+    teardownRegistrations(runtime);
     runtime.agent = agent;
-    runtime.grants.switchScope(config.revealScope);
-    runtime.consultDisposer = undefined;
+    runtime.config = config;
+    runtime.pinNotes = pinNotes;
+    runtime.warnedOnce = false;
+    runtime.warnedPinNotes = false;
   }
-
   REGISTRY.set(agent.id, runtime);
   owned.add(runtime);
-  attachListeners(runtime);
-  attachConsultTool(runtime, tools);
-  applyMask(runtime, tools);
-  log(
-    ctx,
-    "info",
-    `tool-consult: agent ${agent.id} 已就绪（${runtime.grants.mode()} 档）。`,
-  );
+  runtime.applying = true;
+  try {
+    const definitions = globalDefinitions(tools);
+    const names = [...definitions.keys()];
+    const { conditional, denied } = computeDenied(tools, definitions, config);
+    runtime.conditional = conditional;
+    runtime.denied = denied;
+    runtime.fullDocs = fullDocsOf(definitions);
+    runtime.initialNames = computeInitial(runtime, names, denied);
+    runtime.matcher = buildMatcher(definitions, denied);
+
+    if (!installDeny(runtime, tools, denied)) {
+      owned.delete(runtime);
+      removeRuntime(runtime);
+      return;
+    }
+
+    if (!installShadows(runtime, definitions)) {
+      owned.delete(runtime);
+      removeRuntime(runtime);
+      return;
+    }
+    attachConsultTool(runtime);
+    attachListeners(runtime);
+
+    // 热重载后保留的授权项重新登记 hold（旧 hold 已随 apply 撤掉）。
+    for (const toolName of runtime.grants.names())
+      ensureHold(runtime, toolName);
+
+    log(
+      ctx,
+      "info",
+      `tool-consult: agent ${agent.id} 已就绪（初始 ${runtime.initialNames.length}，` +
+        `shadow ${runtime.managed.size}，deny ${runtime.denied.size}）。`,
+    );
+  } finally {
+    runtime.applying = false;
+  }
 }
 
-/** 查找会话对应的运行时。 */
-function runtimeOf(sessionId: unknown): AgentRuntime | undefined {
-  return typeof sessionId === "string" ? REGISTRY.get(sessionId) : undefined;
+/** 工具面变化后重算 deny / 初始集 / 索引（不补 shadow）。 */
+function recomputeAgent(
+  runtime: AgentRuntime,
+  tools: HostTools,
+  owned: Set<AgentRuntime>,
+): void {
+  if (runtime.applying) return;
+  runtime.applying = true;
+  try {
+    const definitions = globalDefinitions(tools);
+    const names = [...definitions.keys()];
+    const { conditional, denied } = computeDenied(
+      tools,
+      definitions,
+      runtime.config,
+    );
+    const conditionalChanged = !setsEqual(conditional, runtime.conditional);
+    const deniedChanged = !setsEqual(denied, runtime.denied);
+    runtime.conditional = conditional;
+    runtime.denied = denied;
+    runtime.fullDocs = fullDocsOf(definitions);
+
+    if (conditionalChanged || deniedChanged) {
+      if (!installDeny(runtime, tools, denied)) {
+        owned.delete(runtime);
+        removeRuntime(runtime);
+        return;
+      }
+    }
+
+    // 已注销的工具不再保留 shadow（不补新工具）。
+    for (const [toolName, dispose] of [...runtime.shadowDisposers]) {
+      if (names.includes(toolName)) continue;
+      disposeQuietly(dispose);
+      runtime.shadowDisposers.delete(toolName);
+      runtime.managed.delete(toolName);
+    }
+
+    runtime.initialNames = computeInitial(runtime, names, denied);
+    runtime.matcher = buildMatcher(definitions, denied);
+  } finally {
+    runtime.applying = false;
+  }
+}
+
+/** 两个集合是否完全相同。 */
+function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
+}
+
+/** catalog 自检（失败时整体不接管）。 */
+function catalogSelfCheck(
+  tools: HostTools,
+  surface: ToolSurfaceFace,
+): string | undefined {
+  if (typeof tools.definitions !== "function")
+    return "tools.definitions 不可用";
+  if (typeof tools.executable !== "function") return "tools.executable 不可用";
+  if (typeof tools.schemas !== "function") return "tools.schemas 不可用";
+  let serviceNames: string[];
+  try {
+    serviceNames = surface
+      .list()
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error: unknown) {
+    return `toolSurface.list 失败（${String(error)}）`;
+  }
+  const localNames = listSurface()
+    .map((entry) => entry.name)
+    .sort();
+  if (
+    serviceNames.length !== localNames.length ||
+    serviceNames.some((entry, index) => entry !== localNames[index])
+  ) {
+    return (
+      "服务面与本地 catalog 名集不一致（可能挂载了多份 tool-surface）: " +
+      `服务面 ${serviceNames.length} 项, 本地 ${localNames.length} 项`
+    );
+  }
+  for (const definition of tools.definitions() ?? []) {
+    if (
+      isWrappedDefinition(definition) &&
+      lookupSurface(definition.name) === undefined
+    )
+      return `已包装工具 ${definition.name} 不在本地 catalog`;
+  }
+  return undefined;
+}
+
+/** 撤销本插件实例的全局监听与全部 hold（保留运行时与授权）。 */
+function cleanupActive(): void {
+  const cleanup = activeCleanup;
+  activeCleanup = undefined;
+  if (cleanup !== undefined) {
+    try {
+      cleanup();
+    } catch {
+      // 清理失败忽略。
+    }
+  }
+  for (const dispose of HOLD_DISPOSERS.values()) disposeQuietly(dispose);
+  HOLD_DISPOSERS.clear();
+  for (const runtime of REGISTRY.values()) teardownRegistrations(runtime);
 }
 
 /** 插件 apply 面。 */
 export function apply(ctx: HostCtx, rawConfig?: Config): void {
   const config = resolveConfig(rawConfig);
+  cleanupActive();
   if (!config.enabled) return;
+  if (config.ignoredKeys.length > 0) {
+    log(
+      ctx,
+      "warn",
+      `配置项已废弃并忽略：${config.ignoredKeys.join(", ")}；` +
+        "揭示固定为会话内有效，条件工具由 allowedWhenTools 管理。",
+    );
+  }
 
   const tools = asTools(ctx.get?.("tools") ?? ctx.tools);
   const agents = asAgents(ctx.get?.("agents"));
@@ -678,104 +835,79 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
     return;
   }
 
-  const owned = new Set<AgentRuntime>();
   const surface = asToolSurface(ctx.get?.("toolSurface"));
   if (surface === undefined) {
     log(
       ctx,
-      "info",
-      "ctx.toolSurface 不可用：完整说明与完整参数 schema 退回注册定义（过渡期路径）",
+      "warn",
+      decideCatalogSelfCheck("ctx.toolSurface 服务未挂载").message,
+    );
+    return;
+  }
+  const selfCheck = catalogSelfCheck(tools, surface);
+  if (selfCheck !== undefined) {
+    log(ctx, "warn", decideCatalogSelfCheck(selfCheck).message);
+    return;
+  }
+
+  const pinNotes = asPinNotes(ctx.get?.("pinNotes"));
+  if (pinNotes === undefined) {
+    log(
+      ctx,
+      "warn",
+      "ctx.pinNotes 不可用：揭示仍写授权，但完整说明与 schema 不会投递（请检查 pin-note 是否挂载）",
     );
   }
 
-  // 全局监听（随插件 fiber 回收）。
+  const owned = new Set<AgentRuntime>();
+  const globalListeners: Array<() => void> = [];
+
   const created = ctx.on?.("agent/created", (...args: unknown[]) => {
     const payload = args[0] as { agent?: HostAgent } | undefined;
-    setupAgent(payload?.agent, ctx, tools, config, owned, surface);
+    setupAgent(payload?.agent, ctx, tools, config, owned, pinNotes);
   });
-  if (typeof created === "function") {
-    // 由插件 fiber 持有；这里只保留引用防止被回收。
-    void created;
-  }
+  if (typeof created === "function")
+    globalListeners.push(created as () => void);
 
-  ctx.on?.("agent/disposed", (...args: unknown[]) => {
+  const disposed = ctx.on?.("agent/disposed", (...args: unknown[]) => {
     const payload = args[0] as { agent?: { id?: string } } | undefined;
     const id = payload?.agent?.id;
     if (typeof id !== "string") return;
     const runtime = REGISTRY.get(id);
     if (runtime === undefined) return;
-    teardownRuntime(runtime);
-    REGISTRY.delete(id);
+    removeRuntime(runtime);
     owned.delete(runtime);
   });
+  if (typeof disposed === "function")
+    globalListeners.push(disposed as () => void);
 
-  // 宿主的工具面广播：只用来刷新检索索引（只读）与**回读校验**已有遮罩是否仍生效。
-  // 不在这里重设遮罩 —— `restrict()` 自身就会触发本广播，拿它当动作输入会自激成环。
-  ctx.on?.("tools/change", () => {
-    const matcher = buildMatcher(tools, config, surface);
-    for (const runtime of owned) {
-      runtime.matcher = matcher;
-      runtime.surface = surface;
-      runtime.wrapped = wrappedNamesOf(surface);
-      verifyMask(runtime, tools);
-    }
-  });
-
-  // 动态保持：被揭示工具的具体用法经 pinNotes.hold("revealed-tools") 每步按 key 比对。
-  // provider 按 provider 上下文里的 sessionId 找运行时；未揭示任何工具时返回 undefined。
-  const pinNotes = ctx.get?.("pinNotes") as PinNotesFace | undefined;
-  if (pinNotes !== undefined && typeof pinNotes.hold === "function") {
-    pinNotes.hold("revealed-tools", (context) => {
-      const runtime = REGISTRY.get(context.sessionId);
-      return runtime === undefined
-        ? undefined
-        : revealedPayload(runtime, tools);
-    });
-  } else {
-    log(
-      ctx,
-      "warn",
-      "ctx.pinNotes 不可用：被揭示工具的用法不会常驻（请检查 pin-note 是否挂载）",
-    );
-  }
-
-  ctx.on?.("tools/result", (...args: unknown[]) => {
-    const exec = args[0] as HostToolExecution | undefined;
-    const runtime = runtimeOf(exec?.agent?.id);
-    if (runtime === undefined || typeof exec?.name !== "string") return;
-    runtime.grants.noteUse(exec.name, runtime.currentTurn);
-  });
-
-  ctx.on?.("session/event", (...args: unknown[]) => {
-    const event = args[1] as
-      { type?: string; data?: { turn?: number } } | undefined;
-    const session = args[0] as { id?: string } | undefined;
-    const runtime = runtimeOf(session?.id);
-    if (runtime === undefined || event?.type === undefined) return;
-    if (event.type === "turn/start") {
-      if (typeof event.data?.turn === "number")
-        runtime.currentTurn = event.data.turn;
-      return;
-    }
-    if (event.type !== "turn/end") return;
-    const turn =
-      typeof event.data?.turn === "number"
-        ? event.data.turn
-        : runtime.currentTurn;
-    const result = runtime.grants.converge(turn, limitsOf(runtime));
-    if (result.changed) applyMask(runtime, tools);
-  });
-
-  // 插件卸载：撤销本实例注册的遮罩与代理级监听（agent.ctx 上的 Effect 不随插件回收）。
-  ctx.effect?.(() => () => {
+  // 工具面变化：重算静态 deny 与索引；不补新工具的 shadow。
+  const changed = ctx.on?.("tools/change", () => {
     for (const runtime of [...owned]) {
-      teardownRuntime(runtime);
-      REGISTRY.delete(runtime.id);
+      if (runtime.applying) continue;
+      recomputeAgent(runtime, tools, owned);
     }
+  });
+  if (typeof changed === "function")
+    globalListeners.push(changed as () => void);
+
+  activeCleanup = () => {
+    for (const dispose of globalListeners.splice(0)) disposeQuietly(dispose);
+    for (const dispose of HOLD_DISPOSERS.values()) disposeQuietly(dispose);
+    HOLD_DISPOSERS.clear();
+  };
+
+  // 插件卸载：撤销注册与全局监听；运行时表清空，授权随会话结束释放。
+  ctx.effect?.(() => () => {
+    activeCleanup?.();
+    activeCleanup = undefined;
+    for (const runtime of [...REGISTRY.values()])
+      teardownRegistrations(runtime);
+    REGISTRY.clear();
     owned.clear();
   });
 
   // 热挂载：对已存在的代理补做。
   for (const agent of agents.list())
-    setupAgent(agent, ctx, tools, config, owned, surface);
+    setupAgent(agent, ctx, tools, config, owned, pinNotes);
 }

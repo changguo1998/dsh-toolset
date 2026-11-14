@@ -1,11 +1,10 @@
-# tool-consult bundle 层（2026-11-08 改后的缺省值）：
-# session 档揭示（会话内只增不减）、9 个核心工具常驻、只遮根代理。
+# tool-consult bundle 层（2026-11-13 新机制）：
+# 全量短清单常驻、14 个初始工具保留完整定义、白名单外的条件工具静态隐藏。
 - insert:
     - id: tool-consult
       name: '@dsh-toolset/tool-consult'
       config:
         enabled: true
-        maskMode: allowlist
         initialTools:
           - bash
           - read
@@ -13,13 +12,17 @@
           - grep
           - ask_user_question
           - skill
-          - hash_read
-          - hash_edit
           - write
+          - edit
+          - read_image
+          - web_search
+          - web_fetch
+          - job_output
+          - job_list
+          - job_kill
+        allowedWhenTools:
+          - web_search
+          - web_fetch
         applyTo: roots
-        maxRevealed: 12
-        revealScope: session
-        ttlTurns: 0
-        maxPinned: 3
         maxResults: 5
         audit: false

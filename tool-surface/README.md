@@ -7,6 +7,7 @@ DSH（DeepSeek Harness）进程内集成插件：把「注册定义」与「模�
 宿主的模型可见 schema 就是注册定义（`projectToolSchema` 只取 `name` / `description` / `parameters` / `deferLoading`），没有按会话切换模型侧 schema 的钩子。本包提供两件东西：
 
 - **包装函数** `wrapToolDefinition(def)`：注册前调用，把注册定义收成「短说明 + 宽松占位」，完整说明与完整参数 schema 收进 catalog，并在派发前按完整 schema 严格校验。
+- **判定函数** `isWrappedDefinition(def)`：读取定义自身的包装标记；`tool-consult` 用它核对已包装的全局定义是否都在本地 catalog 中。
 - **只读服务面** `toolSurface`：`lookup(name)` / `list()` 给出完整说明与完整参数 schema，供 `tool-consult` 在揭示后按需投递。
 
 ## 机制
@@ -22,7 +23,7 @@ DSH（DeepSeek Harness）进程内集成插件：把「注册定义」与「模�
 ## API
 
 ```ts
-import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
+import { wrapToolDefinition, isWrappedDefinition } from "@dsh-toolset/tool-surface";
 
 const registered = wrapToolDefinition({
   name: "demo_tool",
@@ -45,7 +46,7 @@ const registered = wrapToolDefinition({
 ctx.tools.register(registered);
 ```
 
-服务面：`ctx.get("toolSurface")` 返回 `{ lookup(name), list() }`，两者都返回深拷贝，调用方改动不影响 catalog。
+服务面：`ctx.get("toolSurface")` 返回 `{ lookup(name), list() }`，两者都返回深拷贝，调用方改动不影响 catalog。`isWrappedDefinition(def)` 对包装产物返回 `true`，对原始定义返回 `false`；只看定义自身的标记，不沿原型链。
 
 ## 边界
 
@@ -64,6 +65,6 @@ ctx.tools.register(registered);
 ```sh
 cd tool-surface
 pnpm run check   # tsc --noEmit（含 tests）
-pnpm test        # node --test：换位 / 透传 / 校验 / catalog / 服务面 13 例
+pnpm test        # node --test：换位 / 透传 / 校验 / catalog / 判定 / 服务面 14 例
 pnpm run build   # 编译到 dist/
 ```

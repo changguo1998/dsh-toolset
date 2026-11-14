@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ToolArgsError } from "@deepseek-ai/dsh-tools";
 import {
+  isWrappedDefinition,
   listSurface,
   lookupSurface,
   resetSurfaceCatalog,
@@ -182,4 +183,17 @@ test("listSurface 按注册顺序给出全部条目", () => {
     listSurface().map((entry) => entry.name),
     ["first_tool", "second_tool"],
   );
+});
+
+test("isWrappedDefinition 只认包装层自身产出的定义", () => {
+  resetSurfaceCatalog();
+  const { tool } = makeTool();
+  const wrapped = wrapToolDefinition(tool);
+
+  assert.equal(isWrappedDefinition(tool), false);
+  assert.equal(isWrappedDefinition(wrapped), true);
+  assert.equal(isWrappedDefinition(wrapToolDefinition(wrapped)), true);
+  assert.equal(isWrappedDefinition(null), false);
+  assert.equal(isWrappedDefinition("demo_tool"), false);
+  assert.equal(isWrappedDefinition(Object.create(wrapped)), false);
 });

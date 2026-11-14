@@ -145,6 +145,18 @@ export function wrapToolDefinition(def: unknown): unknown {
   return wrapped;
 }
 
+/**
+ * 判断一个注册定义是否已被本包装层包装过（只看定义自身的标记）。
+ *
+ * @param def 任意注册定义。
+ * @returns 由 `wrapToolDefinition` 产出的定义返回 true。
+ */
+export function isWrappedDefinition(def: unknown): boolean {
+  if (def === null || typeof def !== "object") return false;
+  if (!Object.prototype.hasOwnProperty.call(def, WRAPPED)) return false;
+  return (def as Record<symbol, unknown>)[WRAPPED] === true;
+}
+
 /** 按名取完整说明与完整参数 schema（返回深拷贝, 调用方改动不影响 catalog）。 */
 export function lookupSurface(name: string): SurfaceEntry | undefined {
   const entry = catalog.get(name);

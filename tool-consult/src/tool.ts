@@ -2,13 +2,14 @@
  * tool.ts — `consult_tools` 的定义与结果渲染（不直接接触宿主 API）。
  *
  * 工具只做三件事：检索、把命中项交给运行时去授权、把结果渲染成模型可读的
- * 短文本（名称 + 一句话 + 状态 / 名额），完整参数定义由宿主随下一次请求送达。
+ * 短文本（名称 + 一句话 + 已揭示数）。完整说明与完整参数 schema 由 pinNotes
+ * 按工具投递，不改变工具声明。
  */
 
-import type { ResolvedConfig, RevealScope } from "./config.ts";
+import type { ResolvedConfig } from "./config.ts";
 import type { Matcher } from "./matcher.ts";
 import { oneLine } from "./matcher.ts";
-import type { AgentGrants, GrantResult } from "./state.ts";
+import type { GrantResult } from "./state.ts";
 
 /** 咨询工具名（常驻可见，不参与遮罩）。 */
 export const CONSULT_TOOL_NAME = "consult_tools";
@@ -20,19 +21,14 @@ const HARD_LIMIT = 20;
 export interface ConsultRuntime {
   matcher: Matcher;
   config: ResolvedConfig;
-  grants: AgentGrants;
-  /** 当前回合号（授权时间戳用）。 */
-  currentTurn: () => number;
-  /** 是否已在可见集（初始集 ∪ 已授权）。 */
-  isVisible: (name: string) => boolean;
-  /** 已授权的工具名（用于名额提示）。 */
+  /** 是否可调用（初始集或本会话已揭示；denied 恒 false）。 */
+  isCallable: (name: string) => boolean;
+  /** 是否初始集成员（用于结果文案）。 */
+  isInitial: (name: string) => boolean;
+  /** 已揭示的工具名。 */
   grantedNames: () => string[];
-  /** 执行授权；返回每个名字的结果（未知名字由调用方过滤）。 */
-  reveal: (
-    names: string[],
-    scope: RevealScope,
-    pin: boolean,
-  ) => Array<{ name: string; result: GrantResult }>;
+  /** 执行授权；只接受当前可揭示的名字。 */
+  reveal: (names: string[]) => Array<{ name: string; result: GrantResult }>;
 }
 
 /** 参数解析后的形态。 */
@@ -41,8 +37,6 @@ interface ParsedArgs {
   names: string[] | undefined;
   limit: number;
   reveal: boolean;
-  scope: RevealScope;
-  pin: boolean;
 }
 
 /** 归一化入参（非法值回退，不抛错）。 */
@@ -64,17 +58,11 @@ function parseArgs(
       ? Math.floor(args["limit"])
       : config.maxResults;
   const limit = Math.min(HARD_LIMIT, config.maxResults, Math.max(1, rawLimit));
-  const scope: RevealScope =
-    args["scope"] === "turn" || args["scope"] === "session"
-      ? args["scope"]
-      : config.revealScope;
   return {
     query,
     names: names !== undefined && names.length > 0 ? names : undefined,
     limit,
     reveal: args["reveal"] !== false,
-    scope,
-    pin: args["pin"] === true,
   };
 }
 
@@ -94,16 +82,9 @@ function renderGroups(matcher: Matcher): string {
   ].join("\n");
 }
 
-/** 名额 / 容量提示。 */
-function renderQuota(
-  runtime: ConsultRuntime,
-  scope: RevealScope,
-  config: ResolvedConfig,
-): string {
-  if (scope === "session") {
-    return `session 档已揭示 ${runtime.grants.sessionCount()} 项，不设上限（授权只增不减，本会话内不会收回）。`;
-  }
-  return `容量：turn 档已揭示 ${runtime.grants.turnCount()} 项（钉住 ${runtime.grants.pinnedCount()} / ${config.maxPinned}）；turn 档不设新增上限，回合末按最久未用收敛，闲置超 TTL 也会收回。`;
+/** 配额提示：只报已揭示数量，会话内只增不减。 */
+function renderQuota(runtime: ConsultRuntime): string {
+  return `本会话已揭示 ${runtime.grantedNames().length} 项（会话内只增不减，不设上限）。`;
 }
 
 /** 单条揭示结果的一行。 */
@@ -114,21 +95,19 @@ function describeResult(
 ): string {
   const doc = runtime.matcher.get(name);
   const summary = doc === undefined ? "（无描述）" : oneLine(doc.description);
-  const tags: string[] = [];
-  if (result.pinApplied) tags.push("已钉住");
-  if (result.pinIgnored === "pinned-full")
-    tags.push("钉住名额已满，按普通揭示处理");
-  if (result.pinIgnored === "session-scope")
-    tags.push("pin 仅 turn 档生效，本次忽略");
-  const suffix = tags.length > 0 ? ` [${tags.join("；")}]` : "";
+  const suffix = result.granted ? "" : "（此前已揭示）";
   return `- ${name}：${summary}${suffix}`;
 }
 
-/** 已可见项的提示行。 */
-function describeVisible(runtime: ConsultRuntime, name: string): string {
+/** 已可调用项的提示行。 */
+function describeCallable(runtime: ConsultRuntime, name: string): string {
   const doc = runtime.matcher.get(name);
   const summary = doc === undefined ? "" : `：${oneLine(doc.description)}`;
-  return `- ${name}${summary}（已在可见集，直接调用即可）`;
+  if (name === CONSULT_TOOL_NAME) {
+    return `- ${name}${summary}（查询入口，直接调用即可）`;
+  }
+  const where = runtime.isInitial(name) ? "已在初始工具面" : "已在本会话揭示";
+  return `- ${name}${summary}（${where}，直接调用即可）`;
 }
 
 /**
@@ -150,10 +129,10 @@ export function createConsultTool(runtime: ConsultRuntime): {
   };
 } {
   const description = [
-    "用途: 按用途查找并揭示工具, 用一句话描述要做什么(中英文均可), 返回匹配工具的名称与一句话简述并让它们在本会话可见。\n",
-    "用法: query 与 names 二选一; limit 控制返回数量; scope 覆盖揭示作用域(session 会话内 / turn 仅本回合); pin 仅 turn 档钉住本次揭示项。\n",
-    "效果: 咨询即授权, 调用本工具本身就等于允许这些工具在本会话被揭示, 无需另行确认; 揭示只增不减, 已揭示的工具不会被本工具收回; 揭示后下一次请求起可调用。\n",
-    "边界: 需要跨回合保留时用 session 档, turn 档在回合末收敛; 不确定某个能力是否存在、或记得名字但在当前工具面看不到它时, 先用本工具咨询。\n",
+    "用途: 按用途查找并揭示工具, 用一句话描述要做什么(中英文均可), 返回匹配工具的名称与一句话简述并让它们在本会话可调用。\n",
+    "用法: query 与 names 二选一; limit 控制返回数量; reveal=false 只预览, 不写授权。\n",
+    "效果: 咨询即授权, 调用本工具本身就等于允许这些工具在本会话被揭示, 无需另行确认; 揭示只增不减, 已揭示的工具不会被本工具收回; 完整说明与参数 schema 在揭示后按工具投递。\n",
+    "边界: 授权在本会话内有效; 初始工具面已可调用, 无需咨询; 不确定某个能力是否存在、或记得名字但在当前工具面看不到它时, 先用本工具咨询。\n",
   ].join("");
 
   return {
@@ -177,16 +156,7 @@ export function createConsultTool(runtime: ConsultRuntime): {
         },
         reveal: {
           type: "boolean",
-          description: "false = 只预览，不改变可见性（缺省 true）",
-        },
-        scope: {
-          type: "string",
-          enum: ["session", "turn"],
-          description: "逐次覆盖揭示作用域：session 会话内有效 / turn 仅本回合",
-        },
-        pin: {
-          type: "boolean",
-          description: "仅 turn 档生效：钉住本次揭示项，不参与回合末收敛",
+          description: "false = 只预览，不写授权（缺省 true）",
         },
       },
       additionalProperties: false,
@@ -196,16 +166,14 @@ export function createConsultTool(runtime: ConsultRuntime): {
       const sections: string[] = [];
       const granted: string[] = [];
       const notices: string[] = [];
-      /** 查询命中项是否全部已可见（决定是否打「都已在可见集中」抬头）。 */
-      let allHitsVisible = false;
+      /** 查询命中项是否全部已可调用（决定是否打「都已在工具面」抬头）。 */
+      let allHitsCallable = false;
 
       if (args.names !== undefined) {
         for (const name of args.names) {
-          // 可见性先判：`consult_tools` 自身不在检索索引里（`tool-consult/src/index.ts` 的
-          // `buildMatcher` 刻意排除），但它常驻可见，先判未知会把它错报成
-          // 「不在当前工具面里」。
-          if (runtime.isVisible(name)) {
-            sections.push(describeVisible(runtime, name));
+          // 可调用性先判：`consult_tools` 自身不在检索索引里，但它常驻可见。
+          if (runtime.isCallable(name)) {
+            sections.push(describeCallable(runtime, name));
             continue;
           }
           if (runtime.matcher.get(name) === undefined) {
@@ -219,7 +187,7 @@ export function createConsultTool(runtime: ConsultRuntime): {
             );
             continue;
           }
-          const [outcome] = runtime.reveal([name], args.scope, args.pin);
+          const [outcome] = runtime.reveal([name]);
           if (outcome === undefined) continue;
           granted.push(describeResult(runtime, name, outcome.result));
         }
@@ -227,15 +195,15 @@ export function createConsultTool(runtime: ConsultRuntime): {
         const hits = runtime.matcher.search(args.query, args.limit);
         if (hits.length === 0) {
           return {
-            text: `${renderGroups(runtime.matcher)}\n\n${renderQuota(runtime, args.scope, runtime.config)}`,
+            text: `${renderGroups(runtime.matcher)}\n\n${renderQuota(runtime)}`,
           };
         }
         const fresh: string[] = [];
-        let visibleHits = 0;
+        let callableHits = 0;
         for (const hit of hits) {
-          if (runtime.isVisible(hit.name)) {
-            visibleHits += 1;
-            sections.push(describeVisible(runtime, hit.name));
+          if (runtime.isCallable(hit.name)) {
+            callableHits += 1;
+            sections.push(describeCallable(runtime, hit.name));
             continue;
           }
           if (!args.reveal) {
@@ -248,24 +216,22 @@ export function createConsultTool(runtime: ConsultRuntime): {
           fresh.push(hit.name);
         }
         if (fresh.length > 0) {
-          for (const outcome of runtime.reveal(fresh, args.scope, args.pin)) {
+          for (const outcome of runtime.reveal(fresh)) {
             granted.push(describeResult(runtime, outcome.name, outcome.result));
           }
         }
-        allHitsVisible = hits.length > 0 && visibleHits === hits.length;
+        allHitsCallable = hits.length > 0 && callableHits === hits.length;
       }
 
       const lines: string[] = [];
-      if (allHitsVisible) {
-        // 全部命中项都已可见（预览模式下命中集可能含未揭示项，故不能只看 granted）。
-        lines.push("命中的工具都已在可见集中，直接调用即可。");
+      if (allHitsCallable) {
+        lines.push("命中的工具都已在工具面中，直接调用即可。");
       }
       if (granted.length > 0) {
-        const header =
-          args.scope === "session"
-            ? "已揭示（本会话内持续可见，下一次请求起可调用）："
-            : "已揭示（仅本回合有效，下一次请求起可调用）：";
-        lines.push(header, ...granted);
+        lines.push(
+          "已揭示（本会话内有效，下一次请求起可调用；完整说明与参数 schema 随后投递）：",
+          ...granted,
+        );
       }
       if (sections.length > 0) {
         if (lines.length > 0) lines.push("");
@@ -276,7 +242,7 @@ export function createConsultTool(runtime: ConsultRuntime): {
         lines.push(...notices);
       }
       if (lines.length === 0) lines.push(renderGroups(runtime.matcher));
-      lines.push("", renderQuota(runtime, args.scope, runtime.config));
+      lines.push("", renderQuota(runtime));
       return { text: lines.join("\n") };
     },
     output: {

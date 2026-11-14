@@ -1,57 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { apply } from "../src/index.ts";
-import { createFakeHost, type FakeToolSchema } from "./fake-host.ts";
+import { assemble } from "./assemble.ts";
+import { resetSurfaceCatalog } from "@dsh-toolset/tool-surface";
 
-const NAMES = [
-  "bash",
-  "read",
-  "write",
-  "edit",
-  "glob",
-  "grep",
-  "todo_write",
-  "ask_user_question",
-  "skill",
-  "hash_read",
-  "hash_edit",
-  "task_decompose",
-  "task_status",
-  "rule_add",
-  "rule_update",
-  "session_channel",
-  "channel_delegate",
-];
-
-function schemas(): FakeToolSchema[] {
-  return NAMES.map((name) => ({
-    name,
-    description: `${name} 工具: 用于 ${name} 场景。`,
-    parameters: { properties: { action: { type: "string" } } },
-  }));
+function fresh(options: Parameters<typeof assemble>[0] = {}) {
+  resetSurfaceCatalog();
+  return assemble(options);
 }
 
-test("服务形状不符: 非对象 tools / 缺 list 的 agents 都按缺服务处理", () => {
-  const badTools = createFakeHost({
-    schemas: schemas(),
-    serviceValues: { tools: "not-a-service" },
-  });
-  apply(badTools.ctx, {});
-  assert.equal(badTools.listenerCount(), 0);
-  assert.ok(
-    badTools.logs.some((entry) => entry.message.includes("宿主缺少 tools")),
-  );
-
-  const badAgents = createFakeHost({
-    schemas: schemas(),
-    serviceValues: { agents: {} },
-  });
-  apply(badAgents.ctx, {});
-  assert.equal(badAgents.listenerCount(), 0);
-  assert.ok(
-    badAgents.logs.some((entry) => entry.message.includes("宿主缺少 tools")),
-  );
+test("服务形状不符: tools / agents 缺失时插件不启用且不挂监听", () => {
+  for (const options of [
+    { toolsService: false, withAgentTools: false },
+    { agentsService: false },
+  ] as const) {
+    const app = fresh(options);
+    app.apply();
+    assert.equal(app.host.listenerCount(), 0);
+    assert.ok(
+      app.host.logs.some((entry) => entry.message.includes("宿主缺少 tools")),
+    );
+  }
 });
 
 test("日志面缺失 / 抛错 / 缺方法都不影响主流程", () => {
@@ -60,209 +29,118 @@ test("日志面缺失 / 抛错 / 缺方法都不影响主流程", () => {
     { loggerThrows: true },
     { loggerPartial: true },
   ].entries()) {
-    const host = createFakeHost({ schemas: schemas(), ...options });
-    assert.doesNotThrow(() => apply(host.ctx, {}));
-    const agent = host.addAgent({ id: `log-${index}` });
-    assert.doesNotThrow(() => host.emit("agent/created", { agent }));
-    assert.ok(host.activeMask() !== undefined);
-    host.dispose();
+    const app = fresh(options);
+    assert.doesNotThrow(() => app.apply());
+    const agent = app.addAgent({ id: `log-${index}` });
+    assert.doesNotThrow(() => app.host.emit("agent/created", { agent }));
+    assert.ok((app.host.scoped.get(agent.id)?.size ?? 0) > 0);
+    app.dispose();
   }
 });
 
 test("agent/created 载荷异常: 缺代理 / id 非字符串 / 缺 ctx 都跳过", () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  host.emit("agent/created", undefined);
-  host.emit("agent/created", {});
-  host.emit("agent/created", { agent: { id: 1 } });
-  host.emit("agent/created", { agent: { id: "no-ctx" } });
-
-  assert.equal(host.restrictCalls.length, 0);
-  assert.equal(host.registered.size, 0);
+  const app = fresh();
+  app.apply();
+  app.host.emit("agent/created", undefined);
+  app.host.emit("agent/created", {});
+  app.host.emit("agent/created", { agent: { id: 1 } });
+  app.host.emit("agent/created", { agent: { id: "no-ctx" } });
+  assert.equal(app.host.restrictCalls.length, 0);
+  assert.equal(app.tools.names().length, 0);
 });
 
-test("工具服务缺 schemas: 空可限制名回退不遮, 广播与检索不抛错", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  host.tools.schemas = undefined as unknown as typeof host.tools.schemas;
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "no-schemas" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.restrictCalls.length, 0);
-  assert.ok(host.logs.some((entry) => entry.message.includes("无交集")));
-  assert.equal(host.registered.has("consult_tools"), true);
-  assert.doesNotThrow(() => host.emit("tools/change"));
-
-  const definition = host.registered.get("consult_tools");
-  const execute = definition?.execute as (
-    args: Record<string, unknown>,
-  ) => Promise<{ text: string }>;
-  const result = await execute({ query: "任意" });
-  assert.ok(result.text.includes("当前没有可咨询的工具（工具面为空）。"));
-  host.dispose();
-});
-
-test("空交集两种模式: 初始清单全不命中 / denylist 遮光全部", () => {
-  const allow = createFakeHost({ schemas: schemas() });
-  apply(allow.ctx, { initialTools: ["ghost"] });
-  const allowAgent = allow.addAgent({ id: "empty-allow" });
-  allow.emit("agent/created", { agent: allowAgent });
-  assert.equal(allow.restrictCalls.length, 0);
-  assert.ok(allow.logs.some((entry) => entry.message.includes("无交集")));
-
-  const deny = createFakeHost({ schemas: schemas() });
-  apply(deny.ctx, { maskMode: "denylist", initialTools: ["*"] });
-  const denyAgent = deny.addAgent({ id: "empty-deny" });
-  deny.emit("agent/created", { agent: denyAgent });
-  assert.equal(deny.restrictCalls.length, 0);
-  assert.ok(deny.logs.some((entry) => entry.message.includes("无交集")));
-});
-
-test("restrict 其他错误: 回退不遮且只告警一次", async () => {
-  const host = createFakeHost({
-    schemas: schemas(),
-    restrictFailure: { message: "boom", times: 2 },
-  });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "restrict-boom" });
-  host.emit("agent/created", { agent });
-  assert.equal(host.activeMask(), undefined);
-  assert.equal(
-    host.logs.filter((entry) => entry.message.includes("遮罩安装失败")).length,
-    1,
+test("无 agent 作用域: 本代理不接管并告警, 不复用旧运行时", () => {
+  const app = fresh({ withAgentTools: false });
+  app.apply();
+  const agent = app.addAgent({ id: "no-scope" });
+  assert.equal(agent.session.id, "no-scope");
+  assert.equal(app.host.restrictCalls.length, 0);
+  assert.equal(app.tools.names().length, 0);
+  assert.ok(
+    app.host.logs.some((entry) => entry.message.includes("本代理不接管")),
   );
-
-  const definition = host.registered.get("consult_tools");
-  const execute = definition?.execute as (
-    args: Record<string, unknown>,
-  ) => Promise<{ text: string }>;
-  await execute({ names: ["rule_add"] });
-  assert.equal(
-    host.logs.filter((entry) => entry.message.includes("遮罩安装失败")).length,
-    1,
-    "同一运行时的降级告警只打一次",
-  );
-  assert.equal(host.activeMask(), undefined);
 });
 
-test("restrict 名单失配: 过滤重试再失败时按降级处理", () => {
-  const host = createFakeHost({
-    schemas: schemas(),
-    restrictFailure: {
-      message: 'tools.restrict() names unknown global tool "ghost"',
-      times: 2,
+test("服务面名集与本地 catalog 不一致: 整体不接管", () => {
+  const app = fresh({
+    serviceValues: {
+      toolSurface: {
+        lookup: () => undefined,
+        list: () => [{ name: "ghost", description: "", parameters: {} }],
+      },
     },
   });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "restrict-unknown" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.restrictCalls.length, 0);
+  app.apply();
+  const agent = app.addAgent({ id: "catalog-mismatch" });
+  assert.equal(app.host.restrictCalls.length, 0);
+  assert.equal(app.tools.names().length, 0);
   assert.ok(
-    host.logs.some((entry) => entry.message.includes("遮罩名单含未知工具")),
+    app.host.logs.some((entry) => entry.message.includes("名集不一致")),
   );
+  assert.equal(agent.session.id, "catalog-mismatch");
 });
 
-test("代理作用域缺事件面: 照常注册与遮罩, 但无拦截钩子", () => {
-  const host = createFakeHost({ schemas: schemas(), agentEvents: false });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "no-agent-events" });
-  host.emit("agent/created", { agent });
-
-  assert.equal(host.activeMask()?.length, 9);
+test("初始集未命中 / 含白名单外条件工具: 各告警一次并按隐藏处理", () => {
+  const app = fresh();
+  app.apply({ initialTools: ["ghost_*", "team_task_list", "bash"] });
+  const agent = app.addAgent({ id: "initial-warn" });
+  const visible = (app.host.tools.schemas({ id: agent.id }) ?? []).map(
+    (schema) => schema.name,
+  );
+  assert.ok(visible.includes("bash"));
+  assert.equal(visible.includes("team_task_list"), false);
+  assert.equal(app.host.scoped.get(agent.id)?.has("team_task_list"), false);
+  const warnings = app.host.logs.filter((entry) => entry.level === "warn");
   assert.equal(
-    agent.emit("tools/pre-execute", { name: "rule_add" }, () => ({
-      kind: "allow",
-    })),
+    warnings.filter((entry) => entry.message.includes("未命中任何工具")).length,
+    1,
+  );
+  assert.equal(
+    warnings.filter((entry) => entry.message.includes("白名单外条件工具"))
+      .length,
+    1,
+  );
+});
+
+test("agent/disposed 撤注册；插件卸载撤 hold / 监听 / 注册", async () => {
+  const app = fresh();
+  app.apply();
+  const agent = app.addAgent({ id: "dispose-root" });
+  await app.executeText({ names: ["hash_read"] }, undefined, agent.id);
+  assert.ok(app.pinNotes.keys().includes("revealed:hash_read"));
+
+  app.host.emit("agent/disposed", { agent });
+  assert.equal(app.host.scoped.get(agent.id)?.size ?? 0, 0);
+  assert.equal(
+    app.pinNotes.text("revealed:hash_read", agent.id),
     undefined,
+    "运行时移除后 hold provider 返回 undefined",
   );
+
+  const next = app.addAgent({ id: "dispose-next" });
+  await app.executeText({ names: ["task_status"] }, undefined, next.id);
+  app.dispose();
+  assert.equal(app.pinNotes.keys().length, 0);
+  assert.equal(app.host.listenerCount(), 0);
+  assert.equal(app.host.scoped.get(next.id)?.size ?? 0, 0);
 });
 
-test("代理作用域缺 register: 咨询工具不注册, 遮罩照常", () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "no-register" });
-  assert.ok(agent.ctx.tools !== undefined);
-  (agent.ctx.tools as { register?: unknown }).register = undefined;
-  host.emit("agent/created", { agent });
+test("disposer 抛错被吞掉，卸载仍完成", () => {
+  const app = fresh({ disposeThrows: true, listenerDisposeThrows: true });
+  app.apply();
+  const agent = app.addAgent({ id: "dispose-throws" });
+  assert.ok((app.host.scoped.get(agent.id)?.size ?? 0) > 0);
+  assert.doesNotThrow(() => app.dispose());
+  assert.equal(app.host.scoped.get(agent.id)?.size ?? 0, 0);
+});
 
-  assert.equal(host.registered.size, 0);
-  assert.ok(
-    host.logs.some((entry) => entry.message.includes("缺少 tools.register")),
+test("配置热重载: 重复 apply 不叠加 deny 调用", () => {
+  const app = fresh();
+  app.apply();
+  app.addAgent({ id: "reload-call" });
+  app.apply();
+  assert.equal(
+    app.host.restrictCalls.filter((call) => !call.disposed).length,
+    1,
   );
-  assert.equal(host.activeMask()?.length, 9);
-});
-
-test("卸载时 disposer 抛错被吞掉, 遮罩与工具仍被清理", () => {
-  const host = createFakeHost({
-    schemas: schemas(),
-    disposeThrows: true,
-    listenerDisposeThrows: true,
-  });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "dispose-throws" });
-  host.emit("agent/created", { agent });
-  assert.equal(host.registered.has("consult_tools"), true);
-
-  assert.doesNotThrow(() => host.dispose());
-  assert.equal(host.activeMask(), undefined);
-  assert.equal(host.registered.has("consult_tools"), false);
-});
-
-test("session/event 非法载荷: 非字符串会话 / 缺事件 / 缺回合号都不抛错", () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, { revealScope: "turn" });
-  const agent = host.addAgent({ id: "event-shape" });
-  host.emit("agent/created", { agent });
-
-  assert.doesNotThrow(() => {
-    host.emit("session/event", { id: 1 }, { type: "turn/start" });
-    host.emit("session/event", { id: agent.id }, undefined);
-    host.emit("session/event", { id: agent.id }, { type: "turn/start" });
-    host.emit("session/event", { id: agent.id }, { type: "turn/end" });
-    host.emit(
-      "session/event",
-      { id: agent.id },
-      {
-        type: "turn/end",
-        data: {},
-      },
-    );
-    host.emit("session/event", { id: agent.id }, { type: "unknown" });
-  });
-  assert.equal(host.activeMask()?.length, 9);
-  host.dispose();
-});
-
-test("配置热重载: 复用既有运行时并切换缺省档", async () => {
-  const host = createFakeHost({ schemas: schemas() });
-  apply(host.ctx, {});
-  const agent = host.addAgent({ id: "reload" });
-  host.emit("agent/created", { agent });
-  await (
-    host.registered.get("consult_tools")?.execute as (
-      args: Record<string, unknown>,
-    ) => Promise<unknown>
-  )({ names: ["rule_add"] });
-  assert.ok(host.activeMask()?.includes("rule_add"));
-
-  apply(host.ctx, { revealScope: "turn" });
-  const definition = host.registered.get("consult_tools");
-  const result = (await (
-    definition?.execute as (
-      args: Record<string, unknown>,
-    ) => Promise<{ text: string }>
-  )({ names: ["task_status"] })) as { text: string };
-  assert.ok(result.text.includes("已揭示（仅本回合有效"), result.text);
-  assert.ok(
-    (
-      await (
-        definition?.execute as (
-          args: Record<string, unknown>,
-        ) => Promise<{ text: string }>
-      )({ names: ["rule_add"] })
-    ).text.includes("已在可见集"),
-    "既有授权在热重载后保留",
-  );
-  host.dispose();
 });

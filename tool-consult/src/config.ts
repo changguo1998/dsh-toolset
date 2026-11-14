@@ -5,13 +5,11 @@
  * 布尔 / 枚举 / 非负整数 / 列表逐个校验，任何异常都不抛错，只回退。
  * `initialTools` 支持 fnmatch 风格通配（`*` / `?`），由 expandInitialTools
  * 对当前工具名做展开；未命中的模式单独返回，供调用方告警。
+ *
+ * 旧版遮罩 / 回合档配置（`maskMode` / `revealScope` / `maxRevealed` /
+ * `maxPinned` / `ttlTurns` / `disabledWhenTools`）不再生效；命中时记入
+ * `ignoredKeys`，接线层每次 apply 告警一次。
  */
-
-/** 揭示作用域（见 DESIGN D3）。 */
-export type RevealScope = "session" | "turn";
-
-/** 遮罩模式。 */
-export type MaskMode = "allowlist" | "denylist" | "off";
 
 /** 遮罩适用范围。 */
 export type ApplyTo = "roots" | "all";
@@ -20,22 +18,12 @@ export type ApplyTo = "roots" | "all";
 export interface Config {
   /** 总开关（缺省 true）。 */
   enabled?: boolean;
-  /** 遮罩模式（缺省 `allowlist`）。 */
-  maskMode?: MaskMode;
-  /** 初始可见清单，支持通配（缺省 11 个核心工具）。 */
+  /** 初始完整定义清单，支持通配（缺省 14 个核心工具）。 */
   initialTools?: string[];
-  /** 显式禁用的官方条件工具（缺省见 DEFAULT_DISABLED_WHEN_TOOLS）。 */
-  disabledWhenTools?: string[];
-  /** 遮罩范围（缺省 `roots`：只遮根代理，子代理不动）。 */
+  /** 允许保留宿主原样的条件工具（缺省 `web_search` / `web_fetch`）。 */
+  allowedWhenTools?: string[];
+  /** 管理范围（缺省 `roots`：只管理根代理，子代理不动）。 */
   applyTo?: ApplyTo;
-  /** 仅 turn 档：回合内容量上限（缺省 12）。session 档不设上限（2026-10-27 裁定）。 */
-  maxRevealed?: number;
-  /** 揭示作用域缺省档（缺省 `session`）。 */
-  revealScope?: RevealScope;
-  /** 仅 turn 档：揭示项闲置多少回合后收回；0 = 关闭。 */
-  ttlTurns?: number;
-  /** 仅 turn 档：同时钉住的揭示项上限（缺省 3）。 */
-  maxPinned?: number;
   /** 检索实现（v1 只有 keyword，留 hybrid 接缝）。 */
   matcher?: "keyword";
   /** 单次返回上限（1 至 20，缺省 5）。 */
@@ -47,26 +35,22 @@ export interface Config {
 /** 归一化后的配置（全部字段必有值）。 */
 export interface ResolvedConfig {
   enabled: boolean;
-  maskMode: MaskMode;
   initialTools: string[];
-  disabledWhenTools: string[];
+  allowedWhenTools: string[];
   applyTo: ApplyTo;
-  maxRevealed: number;
-  revealScope: RevealScope;
-  ttlTurns: number;
-  maxPinned: number;
   matcher: "keyword";
   maxResults: number;
   audit: boolean;
+  /** 命中但不再生效的旧配置键（供接线层告警）。 */
+  ignoredKeys: string[];
 }
 
 /**
- * 缺省核心清单（2026-11-08 人工裁定 9 个；2026-11-11 追加 tool-web 的 2 个联网工具，共 11 个）。
+ * 缺省初始集（2026-11-13 决策 2）: 高频入口首请求即带完整定义。
  *
- * 与 2026-10-22 版相比：去掉 `edit` / `todo_write`，新增 `hash_read` / `hash_edit`
- * （行级锚点编辑替代整文件字面替换），保留 `write`（唯一能新建文件的写入口，
- * 无追加与局部替换能力）。`web_search` / `web_fetch` 缺省可见（用户裁定：联网检索是
- * 高频入口，不值得每次先咨询）。
+ * 不开放: `hash_read` / `hash_edit`（锚点编辑，成对按需咨询）、`todo_write`、
+ * 子代理 6 个、`workflow`、goal 3 个、`working_directory`。
+ * `read_image` 仅在 attachments 服务挂载时注册；本 profile 已挂 `attachment-local`。
  */
 export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "bash",
@@ -75,33 +59,38 @@ export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "grep",
   "ask_user_question",
   "skill",
-  "hash_read",
-  "hash_edit",
   "write",
+  "edit",
+  "read_image",
+  "web_search",
+  "web_fetch",
+  "job_output",
+  "job_list",
+  "job_kill",
+];
+
+/**
+ * 缺省放行的条件工具（`when` 注册保留宿主原样，会随 readiness 进出）。
+ *
+ * 白名单外的条件工具由静态 deny 从模型面彻底移除。新增放行项只改这一项配置。
+ */
+export const DEFAULT_ALLOWED_WHEN_TOOLS: readonly string[] = [
   "web_search",
   "web_fetch",
 ];
 
-/**
- * 缺省禁用的官方条件工具（`when` 条件工具不进包装层，条件无法复现，故显式挡在工具面外）。
- *
- * 本机 `exit_plan_mode` 已随 plan-mode 禁用、`propose_action` 未挂载；4 个 `team_task_*`
- * 挂载但 Team 条件未开。`tool-web` 的两个工具不在禁用之列。
- */
-export const DEFAULT_DISABLED_WHEN_TOOLS: readonly string[] = [
-  "exit_plan_mode",
-  "propose_action",
-  "team_task_create",
-  "team_task_get",
-  "team_task_list",
-  "team_task_update",
+/** 已废弃但仍需识别的配置键。 */
+export const LEGACY_CONFIG_KEYS: readonly string[] = [
+  "maskMode",
+  "revealScope",
+  "maxRevealed",
+  "maxPinned",
+  "ttlTurns",
+  "disabledWhenTools",
 ];
 
 /** 缺省上限。 */
 export const DEFAULTS = {
-  maxRevealed: 12,
-  ttlTurns: 0,
-  maxPinned: 3,
   maxResults: 5,
 } as const;
 
@@ -112,40 +101,35 @@ function nonNegativeInt(value: unknown, fallback: number): number {
     : fallback;
 }
 
+/** 非空字符串列表（非法回退到缺省副本）。 */
+function nameList(value: unknown, fallback: readonly string[]): string[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is string => typeof item === "string" && item.length > 0,
+      )
+    : [...fallback];
+}
+
 /** 把宿主透传的配置归一化为全字段版本（永不抛错）。 */
 export function resolveConfig(raw?: Config): ResolvedConfig {
   const config = raw ?? {};
-  const mode: MaskMode =
-    config.maskMode === "denylist" || config.maskMode === "off"
-      ? config.maskMode
-      : "allowlist";
-  const scope: RevealScope = config.revealScope === "turn" ? "turn" : "session";
+  const record = config as Record<string, unknown>;
   const applyTo: ApplyTo = config.applyTo === "all" ? "all" : "roots";
-  const nameList = (value: unknown, fallback: readonly string[]): string[] =>
-    Array.isArray(value)
-      ? value.filter(
-          (item): item is string => typeof item === "string" && item.length > 0,
-        )
-      : [...fallback];
-  const tools = nameList(config.initialTools, DEFAULT_INITIAL_TOOLS);
-  const disabledWhenTools = nameList(
-    config.disabledWhenTools,
-    DEFAULT_DISABLED_WHEN_TOOLS,
-  );
   const maxResults = nonNegativeInt(config.maxResults, DEFAULTS.maxResults);
   return {
     enabled: config.enabled !== false,
-    maskMode: mode,
-    initialTools: [...tools],
-    disabledWhenTools: [...disabledWhenTools],
+    initialTools: nameList(config.initialTools, DEFAULT_INITIAL_TOOLS),
+    allowedWhenTools: nameList(
+      config.allowedWhenTools,
+      DEFAULT_ALLOWED_WHEN_TOOLS,
+    ),
     applyTo,
-    maxRevealed: nonNegativeInt(config.maxRevealed, DEFAULTS.maxRevealed),
-    revealScope: scope,
-    ttlTurns: nonNegativeInt(config.ttlTurns, DEFAULTS.ttlTurns),
-    maxPinned: nonNegativeInt(config.maxPinned, DEFAULTS.maxPinned),
     matcher: "keyword",
     maxResults: Math.min(20, Math.max(1, maxResults)),
     audit: config.audit === true,
+    ignoredKeys: LEGACY_CONFIG_KEYS.filter((key) =>
+      Object.prototype.hasOwnProperty.call(record, key),
+    ),
   };
 }
 
