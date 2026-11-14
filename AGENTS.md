@@ -1,8 +1,8 @@
 # AGENTS.md — dsh-toolset
 
-本项目为 DSH（DeepSeek Harness）进程内集成插件集，包含 `TUI/` 终端界面包与 38 个进程内集成插件（clock-base / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group / coagent / tool-consult / escalation-hint / term-check / pin-note / flow-track / shell-parse / tool-surface）。
+本项目为 DSH（DeepSeek Harness）进程内集成插件集，包含 `TUI/` 终端界面包与 38 个进程内集成插件（共 39 个包）。
 
-> 文档分工：根目录 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引），本文件面向 agent（开发协作规范）；变更规范简版见下方「内容变更规范」，详版分两份：标准流程 `docs/WORKFLOW-STANDARD.md`、小改动快速流程 `docs/WORKFLOW-FAST.md`；状态对照见 `docs/STATUS.md` 与各模块 `docs/`，宿主面知识与升级记录见 `docs/host/`。
+> 文档分工：根 `README.md` 面向人（项目总览、插件功能、快速开始、文档索引；英文主档 + `README.zh.md`），本文件面向 agent（协作规范，只留每次会话必读的行为规则）；查用型内容在别处——命令全量 / 一键安装 / 构建部署到 profile 见 `docs/DEVELOPMENT.md`，包清单与逐包职责见 `docs/PACKAGES.md`；变更规范详版分两份：`docs/WORKFLOW-STANDARD.md`（标准）、`docs/WORKFLOW-FAST.md`（快速）；状态对照见 `docs/STATUS.md`，宿主面知识与升级记录见 `docs/host/`。
 
 ## 语言约定
 
@@ -12,54 +12,22 @@
 - 符号规范：只用这 39 个符号：`✓ ✗ △ → ← ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ▶ ◀ ▲ ▼ ▷ ◁ ▽ ⟸ ⟹ ⟺ ⇆ ⟳ ↻ • ◦ ○ ◌ ● ◯ ■ □ ◇ ◆ ⓘ 〜 …`；表格与列表优先 `✓` / `✗` / `-` / `*` / `[x]`，装饰性强调用文字，不用 emoji 与列宽不定、带填色的字符。变体按固定映射替换：`✔` → `✓`、`✅` → `✓`、`☑` → `✓`、`🗸` → `✓`、`🗹` → `✓`、`✕` → `✗`、`✖` → `✗`、`✘` → `✗`、`❌` → `✗`、`🗙` → `✗`、`☒` → `✗`、`🗷` → `✗`、`⚠` → `△`、`➔` → `→`、`➜` → `→`、`➡` → `→`、`➠` → `→`、`➢` → `→`、`➣` → `→`、`⬅` → `←`。行内代码与围栏代码块内的符号不参与审查。
 - 术语：明细与替换表见 [docs/GLOSSARY.md](docs/GLOSSARY.md)。高频口径：指代码模块用「包」，数插件写「插件」（本仓 39 个包 = TUI 与 38 个插件）；过程记录写「追踪文档」；符号规则写「符号规范」；模型可见工具面写「工具面」；界面名统一为（状态列 / 会话区 / 回合区 / 工具区 / 状态行 / 输入区 / 提示行），旧称由 `dev/standard` 的 `term.interface` 规则守着；「退化」指行为变差，「守成测试」指重跑旧用例确认未破坏旧行为。
 
-## 命令
-
-仓库根 `package.json` 委托全部子包（clock-base / tool-surface / TUI / herdr-integration / herdr-use / task-engine / memory-base / goal-contract / metric-loop / output-compress / fs-digest / hash-edit / ast-tools / md-logic / md-map / security-guard / code-map / context-report / rule-engine / behavior-correction / symbol-normalizer / session-channel / session-title-cutoff / command-template / ponytail / md-table-check / auto-approve / background-daemon / preference-analysis / session-paths / script-interpreter / agent-group / coagent / tool-consult / escalation-hint / term-check / pin-note / flow-track / shell-parse）：
+## 常用命令
 
 ```sh
-pnpm run check   # 全部子包类型检查（tsc --noEmit；与 test 同款并行调度）
-pnpm run build   # 全部子包编译到 dist/（并行；code-map / md-map 排在第二批）
-pnpm run test    # 全部子包测试并行运行（scripts/test-parallel.sh：GNU parallel 为主、xargs 兜底，node --test）
-pnpm run demo    # TUI 构建并运行 mock demo（无 DSH 依赖）
-pnpm run demo -- --smoke   # TUI 冒烟检查（帧断言 SMOKE_PASS）
-pnpm run test:tui          # TUI 单包测试（开发迭代常用，避免全包并行）
-pnpm run check:docs        # 文档与注释标准检查（dev/standard/；改动文档后跑，--strict 警告也算失败）
+pnpm run check        # 全部子包类型检查（tsc --noEmit；每次改动后至少跑这个）
+pnpm run build        # 全部子包编译到 dist/（产物性改动后必跑；并行）
+pnpm run test         # 全部子包测试并行运行（逻辑改动后跑）
+pnpm run test:tui     # TUI 单包测试（开发迭代常用，避免全包并行）
+pnpm run check:docs   # 文档与注释标准检查（改动文档后跑；--strict 警告也算失败）
 ```
 
-`test:tui` 支持过滤：`-- <正则>` 按测试名跨文件过滤、`-- <文件>.test.ts` 只跑指定文件、两者可组合。实现为 `TUI/scripts/test.sh`——node `--test-name-pattern` 必须放在文件参数之前，而 `pnpm run x -- <arg>` 只追加到末尾，故由包装脚本把名字正则安插到正确位置。
-
-单个子包内直接运行各自的 `pnpm run check / build / test / demo`（TUI 另有 `pnpm run bench` 排版性能基准、`pnpm run smoke:pty` 真机冒烟）。
-
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 39 个包：TUI + 38 个插件）：
-
-```sh
-scripts/install.sh          # profile 名默认 fff；幂等，--force 才覆盖
-scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使用」
-```
-
-本项目只用 TUI：agent 面走 profile 全局组合，**不配置 agent preset**（依据见 `docs/host/AGENT-COMPOSITION.md`），改组合落 profile 用户 patch。
-
-修改后至少跑 `pnpm run check`；涉及逻辑改动跑 `pnpm run test`。
+修改后至少跑 `pnpm run check`；逻辑改动跑 `pnpm run test`。命令全量（`test:tui` 过滤、单包子包命令、`demo` / `smoke`）、新机器一键安装与构建部署见 `docs/DEVELOPMENT.md`。
 
 ## 格式化
 
-- 默认用 `format` 命令（`/home/guochang/fff/scripts/format`，按扩展名选择格式化器：TS/JS → prettier、MD → mdformat、YAML → yq、JSON → jq 等）格式化改动文件；若项目引入自有格式化脚本（如 `package.json` 中的 `format`），则优先使用项目脚本。
-- 提交前对本次改动的文件执行 `format <文件...>`。
+- 默认用 `format` 命令（`/home/guochang/fff/scripts/format`，按扩展名选择格式化器：TS/JS → prettier、MD → mdformat、YAML → yq、JSON → jq 等）格式化改动文件；若项目引入自有格式化脚本（如 `package.json` 中的 `format`），则优先使用项目脚本。提交前对本次改动的文件执行 `format <文件...>`。
 - **例外（勿格式化）**：带注释的 YAML/JSON（`cordis.patch.yml`、`profiles/**/*.yml`）、首行是 YAML front matter 的 Markdown、生成的夹具 JSON（`tests/fixtures/*.json`）——yq 会吞掉注释、mdformat 会重写 front matter、jq 会整体重排缩进，产生大片无意义 diff（已实测）；这类文件按原格式手工编辑。
-
-## 构建 → 部署到 profile（本地迭代）
-
-`scripts/install.sh` 一次生成**两个** profile（`--profile fff` 即可，无需额外参数）：
-
-| profile | 依赖协议 | 生效方式 | 用途 |
-| --- | --- | --- | --- |
-| `fff`（主） | `file:` 快照 | 改仓库不影响；需重跑 `scripts/install.sh --profile fff --sync` 刷新 | 正在跑的会话 / 验收 |
-| `fff-test` | `link:` 符号链接 | 改完 `pnpm run build` 即生效 | 新窗口实时开发 |
-
-1. `pnpm run build` 编译到 `dist/`（产物性改动后按下方「变更流程」同步构建）。
-2. 开发迭代走 `fff-test`：`dsh --profile fff-test`，改代码 → `pnpm run build` → 重启即看到新行为。
-3. 想让它进主 profile：`scripts/install.sh --profile fff --sync`——脚本会删掉 pnpm 的「已是最新」标记重新装、并在装完后断开 pnpm 建的硬链接（`file:` 目录依赖默认硬链接，原地改写会串到 profile；脚本逐包复制一份替换，使主 profile 与仓库彻底解耦）。只重跑 `pnpm install` 不刷新快照（pnpm 不跟踪目录内容变化，已实测）。
-4. 两个 profile 除依赖协议外内容一致（`dsh.profile.bundles` / `cordis.patch.yml` / `pnpm-workspace.yaml` 由脚本按主 profile 成品复制）；`--no-test-profile` 可只装主 profile，`--profile-test <名>` 改伴随名，`--mode link` 让主 profile 也用软链接。
 
 ## 变更流程
 
@@ -69,7 +37,7 @@ scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使
 
 任何改动（不论范围大小与种类：文档 / 代码 / 配置）默认走**标准流程**（本节各项）；**改动量少、逻辑简单直接**的小改动走**快速流程**——免条目与追踪文档（唯一记录是 commit message），验证不减（文档类 `format` + 自查 diff，代码类 `check` + `build` + `test`），提交前复核硬阈值（文件 ≤ 3 且增删合计 ≤ 50 行；不达标用三选一询问：转标准流程 / 维持快速流程 / 停手），完成后问一次是否提交；agent 判定后须先问用户（依据与选项写在正文，需要一次是非确认时用 `ask_user_question`；见 `docs/WORKFLOW-STANDARD.md` §5），同意才走，入口答否则不做处理、等用户新指示。详版见 `docs/WORKFLOW-STANDARD.md`（标准）与 `docs/WORKFLOW-FAST.md`（快速）。
 
-分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计；**轻量包豁免**，见「结构与约定」）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。本仓 39 个包 = TUI 与 38 个插件；跨模块条目归项目级。
+分层：`docs/ROADMAP.md`（仅项目级，记方向）→ `<模块>/docs/DESIGN.md`（架构设计；**轻量包豁免**，见 `docs/PACKAGES.md`）→ `<层>/docs/BACKLOG.md`（可执行条目）→ `<层>/docs/implementation/<YYYY-MM-DD>-<slug>.md`（追踪文档）→ 关闭后移入 `<层>/docs/archived/`。本仓 39 个包 = TUI 与 38 个插件；跨模块条目归项目级。
 
 1. **开工前**：对应层 `BACKLOG.md` 里要有可执行条目。
 2. **开工时**：本次接取的**每个**条目标「进行中」（此后不再切状态）；建追踪文档——**一个任务可同时接取多个条目**，文件头按**条目标题**列出全部条目（**不写编号**），并先写「计划改动文件清单」。
@@ -80,27 +48,13 @@ scripts/install.sh --help   # 全部选项见 README.md「接入 DSH profile 使
 
 细则与追踪文档模板见 `docs/WORKFLOW-STANDARD.md`（快速流程见 `docs/WORKFLOW-FAST.md`）。
 
-## 结构与约定
+## 文档与结构约定
 
-- `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
-
-- 插件子包：`clock-base/`（定时器统一面：服务 `clock` 的 `now()` 与 `schedule(delayMs, cb)` / `interval(delayMs, cb)`，排期随调用方 fiber 卸载撤销、默认 `unref`，另带手控假时钟 `ManualClock`；与宿主 `cordis-plugin-timer` 并存、不包装）、`task-engine/`（任务执行引擎）、`session-paths/`（会话目录编码：复刻宿主的 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir`，以服务 `sessionPaths` 供其他插件共用；纯函数不落盘，`ensureSessionDir` 是唯一写盘入口）、`shell-parse/`（shell 命令词法：切段（引号内不切）/ 分词 / 剥离包装器（`sudo` / `env` / `timeout` / `xargs` / `uv run` / `npx` / `pnpm exec` / `bundle exec` 等）/ 命令位解析，并对 shell `-c`、`eval`、`$()` 与反引号递归；纯函数从包入口导出，同时提供同实现的服务 `shellParse`，无配置、不注册工具、不落盘；供 `security-guard` / `auto-approve` / `behavior-correction` 这类要判断命令内容的插件共用）、`tool-surface/`（工具说明注册表：注册前由 `wrapToolDefinition(def)` 把定义换成短说明 + 宽松占位，完整说明与完整参数 schema 收进 catalog 并在派发前按全文严格校验（宿主 `validateJsonSchemaValue` / `ToolArgsError`），另提供只读服务面 `toolSurface.lookup(name)` / `list()` 供 `tool-consult` 揭示后投递；依赖宿主 `@deepseek-ai/dsh-tools` 精确版本，不注册工具、不注入上下文）、`memory-base/`（知识库与记忆）、`herdr-integration/`（herdr 面板桥）、`herdr-use/`（终端读写：模型侧十个具名工具 `herdr_list` / `herdr_read` / `herdr_info` / `herdr_wait` / `herdr_create` / `herdr_close` / `herdr_label` / `herdr_text` / `herdr_key` / `herdr_run`，一个终端 = 一个 tab + 自带 root pane，`terminal_id` 取 root pane id；前台 lane 继承父会话，后台 lane 落在 `dshbg` 会话且缺会话时自动拉起 headless server；另向进程内提供 `herdrUse` 服务面，与工具面共用同一 registry 与同一把锁）、`goal-contract/`（Done-when 契约起草）、`metric-loop/`（指标循环）、`output-compress/`（大输出摘要入库）、`fs-digest/`（文件摘要）、`hash-edit/`（LINE:HASH 锚定编辑, 读写经 `ctx.fs`）、`ast-tools/`（AST 搜索/替换/大纲, 写面经 `ctx.fs`）、`md-logic/`（Markdown 逻辑结构：节树 + 块 + 链接，带行范围；`replace` 按节整节替换 / 删除, 读写经 `ctx.fs`）、`md-map/`（文档版 code-map：锚点 / 引用 / 影响面 / 断链）、`security-guard/`（危险命令与敏感文件防护）、`code-map/`（代码结构地图）、`context-report/`（会话上下文/用量报告）、`rule-engine/`（规则触发的自动注入与消费者框架）、`behavior-correction/`（行为纠正：rule-engine 的 `tools/pre-execute` guard 消费者，在工具执行前拦下「该用专用工具却走 shell」的调用并指路；缺省为 bash 里跑 herdr → 拒绝并指向 `herdr_run` / `herdr_text` / `herdr_key`（写类）与 `herdr_read` / `herdr_list`（查看类），以及命令位跑解释器（经 shell-parse 解析, python / node / ruby / perl / php 等）→ 指向 `script_run`；另拦以 `grep` 起头的纯检索段（含 `cd … && grep` 与 `cat f | grep x`，`ps | grep` 这类过滤不拦）→ 指向 `grep` 工具；服务缺席降级不拦）、`symbol-normalizer/`（符号规范：展示归一 + 回合审查）、`session-channel/`（跨会话消息通道：专用 Redis 实例 + unix socket）、`session-title-cutoff/`（会话标题 provider：all-prompts 触发不变，参考窗口改为最近一次 `git commit` 之后）、`command-template/`（模板体系：slash 命令模板 + 模板级模型选择，双源模板目录）、`ponytail/`（ponytail 模式：会话起始注入「懒资深工程师」决策阶梯；rule-engine 消费者；缺省开启，显式 `enabled: false` 关闭）、`md-table-check/`（回复正文表格列数检查：`assistant-text` 上的 rule-engine 消费者，不一致时注入汇总提示要求模型更正后重发；只报不改）、`script-interpreter/`（模型侧脚本解释器：以 `script_run` 工具在当前 worktree 内受控执行 Python 等脚本，首期只做单次执行、不保状态）、`agent-group/`（群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报，懒判定结算；依赖 session-channel 的 `delegate` / `taskStatus` 与 session-paths 的 `sessionDirFor`；只读面 `agentGroup.summary(sessionId)` 从项目层索引 kind `agent_group_index` 给出「我创建的组（含直接子）/ 我加入的组（含直接上级）」，工具侧对应 `action: "summary"`）、`auto-approve/`（审批链自动裁定：拒绝名单 → 会话指纹 → 只读类 → 白名单 → 沙箱升级 → LLM 灰区逐次裁定，未命中交 TUI 面板；审计双写）、`background-daemon/`（面向会话投递的进程内调度：`/daemon` 子命令 + `daemon_task` 工具，记录落 memory-base）、`preference-analysis/`（偏好分析：`session/event` 观测三条信号 → 跨会话账簿（唯一状态源）→ 高置信自动写 memory-base 项目层并经一个 rule-engine 消费者注入；模型提议一律候选待审）、`coagent/`（长驻 agent 拉起与收尾：经 `herdrUse` 服务面建终端并在其交互 shell 里发 `fffdsh`，用 session-channel 的 `peers` 认领新会话，回执 `terminal_id` / `session_id`；只管拉起与收尾，派任务与编排分别归 session-channel 与 agent-group）、`tool-consult/`（工具揭示：全量短清单常驻，14 个初始工具保留完整定义，其余非初始、非条件工具在 agent 作用域 shadow 成短说明；揭示写会话授权并按工具登记 `pinNotes.hold` 投递全文，不改声明；未揭示的受管工具由 `tools/pre-execute` 拒绝；`allowedWhenTools` 外的条件工具由一次静态 `restrict({ deny })` 完全隐藏；自检 / deny 失败或残留时整体不接管；只管理根代理）、`escalation-hint/`（沙箱升级提示补齐：订阅宿主 `tools/post-execute`，在「调用被沙箱拒绝但宿主没给升级提示」时经 `additionalContexts` 追加一条带 `sandbox_permissions` 的重试指引；覆盖 bash / pwsh 与 write / edit 类，只提示不拦截）、`term-check/`（回复正文术语检查：`assistant-text` 上的 rule-engine 消费者，按随包发布的术语表快照比对旧称并注入更正提示；条件型术语 / 豁免标记行 / 已知误配跳过，不做代码段掩码，只报不改）、`pin-note/`（跨压缩上下文保持：模型经 `pin_note` 把要点登记到会话层记忆库，`agent/pre-step` 先按当前上下文（`session.deriveMessages()`）比对正文，已有同一段就跳过，否则折叠进本步消息并在 inbox 只留一条，压缩后下一步补回；配套 `note_list` / `note_remove`；只读面 `pinNotes.summary(sessionId)` 给出条数 / 合计字数 / 标题）、`flow-track/`（标准流程固化：注入缺省关闭，`enabled` 配置与进程内开关都打开且 memory-base 里有最新阶段不是「收尾」的流程记录时才注入八阶段模板 / 推进状态 / 合规提示，用户面 `/flow-track on|off|status`、模型面 `flow_enable` 切换且不落盘；`flow_record` / `flow_status` / `flow_enable` / `flow_remove` / `flow_rollback` 把流程状态与正文落 memory-base 项目层（八阶段顺序推进：只允许更新当前阶段或新增下一阶段, 回退走 `flow_rollback`; 可按 id 或 slug 删除），推进状态经只读 `taskEngine` 快照推当前阶段并按写类工具调用给合规提示；只提示不拦截；服务面 `flowTrack.enabled()` / `summary()` 给出开关与每 slug 最新阶段）；各包的 `package.json` 带 `dsh.bundle` 集成契约与 `cordis.patch.yml`。
-
-- 核心契约对齐官方 deepseek-harness：根目录 `docs/host/DSH-CTX-API.md` 为跨插件共享研读笔记（只读参考，勿改动）。
-
-- 文档索引见 `README.md` 的 `Documentation` 一节（中文版 `README.zh.md`；**唯一来源**，本文件不重复列清单）；结构：`docs/`（项目级：`ROADMAP.md` / `BACKLOG.md` / `STATUS.md` / `WORKFLOW-STANDARD.md` / `WORKFLOW-FAST.md` / `GLOSSARY.md` / `implementation/` / `archived/`）、`docs/host/`（宿主面知识：所有官方接口研读与升级文档，升宿主后必复核，不参与变更流程）、`dev/`（开发期辅助工具与规范：覆盖率聚合等，不参与构建与发布）、`<模块>/docs/`（模块自管：`DESIGN.md` / `BACKLOG.md` / `implementation/` / `archived/`；TUI 另有 `SPEC.md`、`COMMANDS*.md` 与内部规范 `design/`）、各包 `README.md`（模块契约）、根 `archive/`（根级历史）。
-
-- 模块文档归模块自管；条目与追踪文档按上节「内容变更规范」，跨模块条目的条目与追踪文档放项目级 `docs/`。
-
+- 文档索引以根 `README.md` 的 `Documentation` 一节为**唯一来源**，本文件不重复列清单；结构：`docs/`（项目级）→ `docs/host/`（宿主面知识，升宿主后必复核，不参与变更流程）→ `dev/`（开发期辅助工具与规范，不参与构建与发布）→ `<模块>/docs/`（模块自管）→ 各包 `README.md`（模块契约）→ 根 `archive/`（根级历史，仅作历史，不是现状来源）。
+- 包清单与各包一句话职责：`docs/PACKAGES.md`（含 TUI 目录要点与 `DESIGN.md` 轻重包口径）；各包详细用法 / 配置见其 `README.md`。
 - 缺陷与待办写对应层 `BACKLOG.md`（模块 → `<模块>/docs/BACKLOG.md`；跨包 → `docs/BACKLOG.md`）；`STATUS.md` 由用户择时更新，勿自动改。
-
-- 根 `archive/` 存放**根级已完成任务清单与历史调研**（如 `TUI-REFACTOR-TASKS.md`、`TUI-COMMANDS-TASKS.md`、`PI-DSH-FEATURE-COMPARISON.md`、`CODEMAP-RESEARCH.md`）：仅作历史记录，不是现状来源；模块历史进模块 `docs/archived/`。当前口径以各模块 `docs/DESIGN.md`、`docs/STATUS.md`、`TUI/docs/SPEC.md`、`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` 为准。
-
-- DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准。
-
-- 设计与机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`）；TUI 的渲染规格在 `TUI/docs/SPEC.md`。
-
-  **`DESIGN.md` 口径（2026-10-04 裁定）**：有独立架构与机制沉淀的包必须有 —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group` / `coagent`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base` / `escalation-hint` / `tool-consult` / `term-check` / `pin-note` / `flow-track` / `shell-parse` / `tool-surface`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
+- 模块文档归模块自管；设计机制讨论沉淀在对应模块 `docs/DESIGN.md`（TUI 为 `TUI/docs/DESIGN.md`，渲染规格在 `TUI/docs/SPEC.md`）。
+- DSH 集成契约以各包 `cordis.patch.yml` + `package.json` 的 `dsh.bundle` 为准；宿主契约对照见 `docs/host/DSH-CTX-API.md`（只读参考，勿改动）。
 
 ## Git
 

@@ -98,9 +98,9 @@ dsh-toolset/
 ├── flow-track/           # standard-workflow stages (switch-gated injection + flow_record / flow_status / flow_enable / flow_remove / flow_rollback; advisory only)
 ├── profiles/             # profile config examples (example: manifest + user-layer patch + pnpm trio; see profiles/README.md)
 ├── scripts/              # install.sh (one-shot install on a new machine); test scheduler
-├── docs/                 # status table, backlog, agent composition notes, architecture comparison and host package list
+├── docs/                 # status table, backlog, change flows, development guide, package catalog, host notes / comparisons
 ├── archive/              # archived completed task lists and historical research
-├── AGENTS.md             # collaboration rules for agents (language / commands / formatting / build and deploy / change workflow)
+├── AGENTS.md             # collaboration rules for agents (language / symbols / formatting / change workflow / structure pointers)
 ├── docs/host/DSH-CTX-API.md        # cross-plugin study notes (read-only)
 └── package.json          # root scripts delegating check / build / test to all subpackages
 ```
@@ -121,7 +121,7 @@ pnpm run test:smoke        # real-host smoke for goal-contract / metric-loop / o
 
 `test:smoke` delegates to `scripts/run-smoke.sh`: it keeps `DSH_HOME`, `TMPDIR` and logs under the repo `tmp/`, so the smokes work inside a sandbox (they never write `~/.dsh`). The model defaults to the local tollgate gateway (`TOLLGATE_API_KEY=local`, provider `tollgate`, model `qwen38`); override with `TOLLGATE_API_KEY` / `TOLLGATE_BASE_URL` / `SMOKE_PROVIDER` / `SMOKE_MODEL`.
 
-Inside a single subpackage you can run its own `pnpm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `AGENTS.md`.
+Inside a single subpackage you can run its own `pnpm run check / build / test / demo` directly (the TUI also has `bench` and `smoke:pty`). For command details, parallel scheduling flags and filter usage, see `docs/DEVELOPMENT.md`.
 
 ## Wiring into a DSH profile
 
@@ -179,6 +179,8 @@ Two change flows: `docs/WORKFLOW-STANDARD.md` (standard) and `docs/WORKFLOW-FAST
 - `docs/WORKFLOW-STANDARD.md` — content change policy · standard flow (full version).
 - `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
 - `docs/GLOSSARY.md` — terminology: choices and replacement tables (packages / plugins, tracking documents, symbols, UI names).
+- `docs/DEVELOPMENT.md` — agent-facing development guide: full command list, one-shot install, building and deploying to profiles (reference only; the short form lives in `AGENTS.md`).
+- `docs/PACKAGES.md` — package catalog: one-line responsibility for all 39 packages (TUI + 38 plugins), the TUI directory layout and the DESIGN.md policy.
 - `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).
 
 **Host surface (`docs/host/`, outside the change process — always re-check after a host upgrade)**
@@ -201,6 +203,6 @@ The home for official interface study notes and upgrade documents — **not limi
 
 **Collaboration and history**
 
-- `AGENTS.md` — agent-facing collaboration rules (language, commands, formatting, build and deployment, change process, short content change policy, structural conventions, Git).
+- `AGENTS.md` — agent-facing collaboration rules (language, symbols, formatting, change process, short content change policy, structural pointers, Git; command / install / profile details live in `docs/DEVELOPMENT.md`).
 - Root `archive/` — root-level history (completed lists, historical research, old contract snapshots, upgrade documents that have served their purpose); module history goes into `<module>/docs/archived/`.
 - No `CHANGELOG.md` is maintained: change records live in `git log` (Conventional Commits) and `docs/host/HOST-UPGRADE-*.md`.

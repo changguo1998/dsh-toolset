@@ -98,9 +98,9 @@ dsh-toolset/
 ├── flow-track/           # 标准流程固化（开关控制的注入 + flow_record / flow_status / flow_enable / flow_remove / flow_rollback；只提示不拦截）
 ├── profiles/             # profile 配置示例（example：清单 + 用户层 patch + pnpm 三件套；见 profiles/README.md）
 ├── scripts/              # install.sh（新机器一键安装）；测试调度脚本
-├── docs/                 # 状态表、待办清单、agent 面组合说明、架构对照与宿主包清单
+├── docs/                 # 状态表、待办清单、变更流程、开发与部署手册、包清单、宿主面文档
 ├── archive/              # 已归档：完成的任务清单与历史调研记录
-├── AGENTS.md             # 面向 agent 的协作规范（语言/命令/格式化/构建部署/变更流程）
+├── AGENTS.md             # 面向 agent 的协作规范（语言/符号/格式化/变更流程/结构指针）
 ├── docs/host/DSH-CTX-API.md        # 跨插件共享研读笔记（只读）
 └── package.json          # 根脚本：委托全部子包的 check/build/test
 ```
@@ -121,7 +121,7 @@ pnpm run test:smoke        # goal-contract / metric-loop / output-compress / sec
 
 `test:smoke` 委托 `scripts/run-smoke.sh`：把 `DSH_HOME`、`TMPDIR` 与日志都收进仓库 `tmp/`，因此在沙箱里也能跑（不写 `~/.dsh`）。模型缺省走本机 tollgate 网关（`TOLLGATE_API_KEY=local`、provider `tollgate`、model `qwen38`），可用 `TOLLGATE_API_KEY` / `TOLLGATE_BASE_URL` / `SMOKE_PROVIDER` / `SMOKE_MODEL` 覆盖。
 
-单个子包内直接运行各自的 `pnpm run check / build / test / demo`（TUI 另有 `bench`、`smoke:pty`）。命令细节、并行调度参数与过滤用法见 `AGENTS.md`。
+单个子包内直接运行各自的 `pnpm run check / build / test / demo`（TUI 另有 `bench`、`smoke:pty`）。命令细节、并行调度参数与过滤用法见 `docs/DEVELOPMENT.md`。
 
 ## 接入 DSH profile 使用
 
@@ -179,6 +179,8 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 - `docs/WORKFLOW-STANDARD.md` — 内容变更规范 · 标准流程（详版）。
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/GLOSSARY.md` — 术语表：术语选择与替换表（包 / 插件、追踪文档、符号、界面名等）。
+- `docs/DEVELOPMENT.md` — 面向 agent 的开发与部署手册：命令全量、一键安装、构建到 profile 部署（查用型；简版在 `AGENTS.md`）。
+- `docs/PACKAGES.md` — 包清单：39 个包（TUI + 38 插件）一句话职责、TUI 目录要点与 `DESIGN.md` 口径。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
 
 **宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**
@@ -201,6 +203,6 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 
 **协作与历史**
 
-- `AGENTS.md` — 面向 agent 的协作规范（语言、命令、格式化、构建部署、变更流程、内容变更规范简版、结构约定、Git）。
+- `AGENTS.md` — 面向 agent 的协作规范（语言、符号、格式化、变更流程、内容变更规范简版、结构指针、Git；命令 / 安装 / 部署细节见 `docs/DEVELOPMENT.md`）。
 - 根 `archive/` — 根级历史（已完成清单、历史调研、旧版契约快照、完成使命的升级文档）；模块历史进 `<模块>/docs/archived/`。
 - 不维护 `CHANGELOG.md`：变更记录以 `git log`（Conventional Commits）与 `docs/host/HOST-UPGRADE-*.md` 为准。
