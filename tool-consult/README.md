@@ -4,7 +4,7 @@
 
 DSH（DeepSeek Harness）工具咨询插件：首请求起工具声明常驻且字节稳定, 非初始工具只给短定义; 模型用一句话描述要做什么, `consult_tools` 按关键词索引返回名称与一句话, 揭示后按工具投递完整说明与参数 schema. 揭示不改工具声明.
 
-设计与证据链见 `docs/implementation/2026-11-13-tool-reveal-redesign.md`（关闭后归档）与项目级 `docs/BACKLOG.md` 的已完成索引.
+设计与证据链见 `docs/archived/2026-11-13-tool-reveal-redesign.md` 与项目级 `docs/BACKLOG.md` 的已完成索引.
 
 ## 能力
 

@@ -1,7 +1,7 @@
 /**
  * index.ts — tool-consult 的宿主接线。
  *
- * 机制（见 `docs/implementation/2026-11-13-tool-reveal-redesign.md`）:
+ * 机制（见 `docs/archived/2026-11-13-tool-reveal-redesign.md`）:
  * - 首请求起常驻全量工具声明; 初始集保持宿主完整定义, 其余非初始、非条件工具在
  *   agent 作用域 shadow 成短定义, 完整说明与 schema 收进 tool-surface catalog。
  * - 白名单外的条件工具用一次静态 `restrict({ deny })` 从模型面移除; 白名单内的

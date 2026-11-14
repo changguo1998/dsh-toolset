@@ -14,6 +14,8 @@
 
 `[x]` 已实现并合入 main，改动位置如下（单测数与首版边界见状态表）：
 
+- 工具揭示架构重设计（缓存友好，2026-11-14 完成，提交 `cc8d4ee1`）：`tool-consult` 首请求起常驻全量短清单；初始 14 个工具保留完整定义，其余非初始、非条件工具在 agent 作用域 shadow 成短说明；`allowedWhenTools` 白名单外的条件工具由一次静态 `restrict({ deny })` 完全隐藏；揭示只写会话授权并按工具登记 `pinNotes.hold` 投递全文，未揭示的受管工具由 `tools/pre-execute` 以 `TOOL_NOT_REVEALED` 拒绝；catalog 自检 / deny 失败 / schema 残留时不接管。单测 100 + 集成 10 + e2e 3 全绿，全仓 39 包 check / build / test 与 check:docs 全绿；伴随 `fff-test` profile 真机两个会话 header 字节一致；主 profile 待人工安装。追踪文档 `docs/archived/2026-11-13-tool-reveal-redesign.md`。
+
 - 任务控制：task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决、**叶子执行后端**：`executor` 声明 + `task_execute` 工具 + `subagent` / `workflow` / `command` 后端 + 用量计量，追踪文档 `docs/archived/2026-10-02-injection-timing-naming-warn-executor.md`）、fan-out 就绪池、goal-contract、metric-loop；
 
 - 知识库与记忆：memory-base（原名 knowledge-base；两张基表 + 两张 FTS5 虚表、持久记忆 CRUD、**入库规则与隐私 / 容量边界**、**自动巩固**（提升 / 合并 / 淘汰，启动后与 compaction 后触发）；**分层记忆系统**：S / P / U 三库 + 一库一指纹、写入闸门下沉库核心、`project` 派生链、容量寿命控制——实施批次 13 条全部关闭：前 8 条提交 `a81da69` / `0652866` / `55c6382` / `270b2df`，余 5 条于 2026-10-08 关闭）、output-compress、fs-digest（追踪文档 `docs/archived/2026-10-07-knowledge-memory-lifecycle.md`，前身 `docs/archived/2026-10-02-knowledge-events-and-memory-consolidation.md`）；
@@ -73,8 +75,6 @@
 - 工具说明注册表收尾三件（2026-11-13 完成）: `coagent` 接入包装层（直接 `wrapToolDefinition`, 删「不 import 其他包」规矩 5 处, 单测 77 + 集成 18 全绿）、`flow-track` memory 懒解析（服务晚到自愈, `e2e` 补 payload `ok` 断言, 82 例 + e2e 绿）、`scripts/test-install.sh` 第 11 步改 `canonical_pkgs` / `default_pkgs` / 仓库包目录三方比对并补 39 包计数（124 项全过）; `ponytail` e2e 按用户裁定「计划废弃」不改不测（追踪文档 `docs/archived/2026-11-13-tool-followups.md`, 全仓 39 包 check / test 绿）。
 
 ## 2. 未完成项
-
-- **工具揭示架构重设计（缓存友好）**（2026-11-09, 用户提出, 优先级 P2; 状态: **进行中**, 2026-11-13 接取并完成决策）: 现状: `tool-consult` 用 `tools.restrict` 遮罩控制可见工具集, 揭示与收回都会改 `request/header` 的 `tools` 集合、使前缀缓存断一次; 主 profile 未同步 `tool-surface` 与未包装的宿主工具是两处额外断点。方案: 首请求即发送全量工具声明, 非初始且非禁用工具经 `wrapToolDefinition` 收成短定义, 完整说明与 schema 进 catalog; 揭示只追加 pinNotes 正文并放开 `tools/pre-execute` 门禁, header 保持不变; 取消 turn 档。仅 `web_search` / `web_fetch` 允许带 `when`, 其他条件工具不挂载或禁用。不依赖 `deferLoading` / `toolUpdate`, 无需网关探针。计划与决策见 `docs/implementation/2026-11-13-tool-reveal-redesign.md`。来源: 2026-11-09 会话, 2026-11-13 复核与决策。
 
 - **自研 plan 模式（替代官方 plan-mode）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 官方 plan-mode 只注入 `plan:policy` 并条件挂载 `exit_plan_mode`, 不拦截写工具, policy 也不保证模型遵守; 已裁定先禁用官方 plan-mode, 清掉 `/plan` 相关接线. 期望: 本仓自研可执行的 plan 模式, 具备探索 / 计划 / 实施阶段门禁; 具体机制与接口待设计, 设计前不接取. 来源: 2026-11-11 会话.
 

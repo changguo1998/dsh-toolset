@@ -1,6 +1,6 @@
 # 工具揭示架构重设计（接取条目: docs/BACKLOG.md「工具揭示架构重设计（缓存友好）」）
 
-状态: 规划（白名单方案已并入, 待开工） 开启: 2026-11-13 关闭:
+状态: 已完成（主 profile 待人工安装） 开启: 2026-11-13 关闭: 2026-11-14
 本文件是本任务的追踪文档与文档改动位置; 开工前只改文档, 不改代码.
 
 ## 目标
@@ -208,6 +208,29 @@
 - 本保证只覆盖工具面与咨询 / 揭示通道; 其他插件写进系统提示的静态工具名不在清理范围.
 - 白名单外条件工具若在 deny 生效前已被模型看到（旧会话 / 热重载）, 历史消息无法撤回; 新会话不受影响.
 
+## 实现与验证
+
+### 实现
+
+- 提交 `cc8d4ee1`（`feat(tool-consult): 重构为全量短清单与按需揭示`）: 阶段 A 至 G 的代码 / 测试 / 文档 / 配置; 未改计划外文件.
+- `tool-surface`: 导出 `isWrappedDefinition`; `tool-consult` 新增 link 依赖; 配置、授权集合、失败分类、接线、咨询工具与测试按新机制重写.
+- 历史测试 `dual-track.test.ts` 由 `shadow.test.ts` 取代.
+
+### 验证
+
+- 包级: `tool-surface` check / build / test 全绿（14 例）; `tool-consult` check / build / test 全绿（100 例）+ integration 全绿（10 例）.
+- 全量: 39 包 `pnpm run check` / `build` / `test` 全绿; `check:docs` 通过（120 篇 Markdown / 970 个 .ts, 0 错误 0 警告）.
+- e2e: `e2e/tool-consult.test.ts` 与 `e2e/tool-surface.test.ts` 3 例全绿（`tool-surface` 先挂）; 全量 e2e 40 / 41, 唯一红为计划废弃的 `e2e/ponytail.test.ts`.
+- 部署: 按用户要求不动主 profile; 已用 `scripts/install.sh --profile fff-test --mode link --no-test-profile --sync --skip-dsh --skip-build` 更新伴随 profile; `tool-surface` 与 `tool-consult` 的 realpath 均指向仓库, bundle 顺序 `tool-surface` 第 51 行先于 `tool-consult` 第 83 行.
+- 真机 header: 伴随 profile 两个独立会话各 78 个工具, `tools` 规范化 JSON 的 SHA-256 均为 `117dc9928e8b5531`（字节一致）; 14 个完整定义 = 13 个已就绪初始工具 + `consult_tools`（`web_search` 因 readiness 未就绪缺席）; 64 个短定义; `fs_digest` 短说明 82 字符, `hash_read` 108 字符; `team_task_list` / `exit_plan_mode` / `propose_action` 均不在 header.
+- 机读复核: 短定义满足 `parameters.additionalProperties === true` 且 `properties === {}`; 白名单内 `web_fetch` 保持完整定义.
+- 未验证: 伴随 profile 的 `tg` provider 缺 `TOLLGATE_API_KEY`（`MISSING_CREDENTIAL`）, 因此真机模型未走完「先拒 / 揭示 / 再调」闭环; 该闭环由 e2e 真实宿主用例覆盖（揭示前后 `schemas` 深相等、未揭示 `TOOL_NOT_REVEALED`、揭示后放行）.
+
+### 遗留
+
+- 主 profile `fff` 未安装; 由人工执行 `scripts/install.sh --profile fff --sync` 后再做一次带凭据的会话验收.
+- 短说明指向名仍是 `tool_consult`; 实际入口 `consult_tools` 已在 header 可见, 统一命名另开条目.
+
 ## 状态记录
 
 - 2026-11-13: 接取条目; 完成现状复核与宿主能力调研.
@@ -218,3 +241,6 @@
 - 2026-11-13: 复审白名单文案, 修正初始 / 条件工具的短定义边界与部署注意; 待开工.
 - 2026-11-13: 按既定裁定回退自检失败为整体不接管; 子代理不遮蔽, 白名单内工具不做处理; 待开工.
 - 2026-11-13: 按 A 口径将 `restrict` 失败 / `schemas` 残留与自检失败统一为整体不接管; 待开工.
+- 2026-11-14: 阶段 A 至 G 实现完成; 提交 `cc8d4ee1`.
+- 2026-11-14: 包级 / 全量 check / build / test 与 check:docs 全绿; 两条工具 e2e 全绿; 全量 e2e 唯一红为计划废弃的 ponytail.
+- 2026-11-14: 伴随 fff-test 软链接 profile 已同步; 两个真实会话 header 字节一致; 主 profile 按用户要求留待人工安装.
