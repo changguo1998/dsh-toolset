@@ -24,7 +24,7 @@ pnpm run check:docs        # 文档与注释标准检查（dev/standard/；改�
 
 ## 一键安装（新机器）
 
-装 dsh → 构建全部插件 → 建 profile 挂载 39 个包（TUI + 38 个插件）:
+装 dsh → 构建全部插件 → 建 profile 挂载 40 个包（TUI + 39 个插件）:
 
 ```sh
 scripts/install.sh          # profile 名默认 fff；幂等，--force 才覆盖

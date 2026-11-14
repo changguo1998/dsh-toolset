@@ -107,6 +107,18 @@ export function reduceTool(
         },
       };
     }
+    case "performance":
+      // B1/B2（模型性能）: 与 usage 同频更新最近一次调用的性能指标（状态行性能槽位）。
+      return {
+        ...state,
+        performance: {
+          ...(action.ttfbMs === undefined ? {} : { ttfbMs: action.ttfbMs }),
+          ...(action.avgTokensPerSec === undefined
+            ? {}
+            : { avgTokensPerSec: action.avgTokensPerSec }),
+          streamed: action.streamed,
+        },
+      };
     case "step":
       // #7：step/start **即画真分割线** `hh:mm:ss ⇆N #M`（其后思考/工具/正文都归入该步；
       // 每步都画，含首个 step 与无工具调用的 step）；step/end 关组。

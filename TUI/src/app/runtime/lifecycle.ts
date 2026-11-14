@@ -313,6 +313,8 @@ export function createLifecyclePart(ctx: AppContext) {
           ctx.self.maybeRefreshFlowTrack();
           // background-daemon 开关：同节律懒读服务面（未挂载时符号按关灰显示）
           ctx.self.maybeRefreshDaemon();
+          // cache-hit-monitor 判定：同节律懒读服务面（未挂载时 cache 段不着色，A5）
+          ctx.self.maybeRefreshCacheHit();
           // 状态列五块：同节律异步取数（服务不可用 / 无内容时对应块不渲染）
           void ctx.self.refreshStatusExtras();
         },

@@ -196,6 +196,7 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
       attemptId: string;
       turn?: number;
       step?: number;
+      time?: number;
       chunk?: StreamChunk;
     },
   ): void => {
@@ -212,8 +213,20 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
     if (frame.type === "chunk" && frame.chunk) {
       const meta = s.attemptMeta.get(frame.attemptId);
       if (!meta) return;
-      // usage/finish 等非文本块不参与流式正文（usage 由结算通道 assistant/message 提取）
+      // B1（模型性能）: 记本 step 首块到达时刻（TTFB 的终点; `time` 在 frame 层,
+      // 缺省以当前时刻兜底）。用户消息/思考块都算「首块」（有流即有 TTFB）。
       if (frame.chunk.type !== "usage" && frame.chunk.type !== "finish") {
+        const sk = `${sessionId}:${meta.turn}:${meta.step}`;
+        const perf = s.stepPerf.get(sk) ?? {};
+        if (perf.firstChunkTime === undefined) {
+          s.stepPerf.set(sk, {
+            ...perf,
+            firstChunkTime:
+              typeof frame.time === "number" && frame.time > 0
+                ? frame.time
+                : Date.now(),
+          });
+        }
         applyChunk(sessionId, meta.turn, meta.step, frame.chunk);
       }
       return;
@@ -408,6 +421,44 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
           }
         }
         s.liveScope = { turn: data.turn ?? 0, step: data.step ?? 0 };
+        // B1（模型性能）: 本 step 收尾结算——TTFB = 首 chunk.time − 本 step 起点;
+        // 平均速率 = usage.outputTokens /（收尾时刻 − 首 chunk.time）（从首块起算, 不含
+        // TTFB 等待段; 非流式无 chunk → 只有平均, 分母用本 step 起点起算, 见决策 3/4/5）。
+        // 与 usage 事件同步发出, reducer 同频落 state（B2）。
+        {
+          const turn = data.turn ?? 0;
+          const step = data.step ?? 0;
+          const sk = `${sid}:${turn}:${step}`;
+          const perf = s.stepPerf.get(sk);
+          if (perf !== undefined) {
+            const output = data.usage?.outputTokens ?? 0;
+            const end =
+              typeof raw.time === "number" && raw.time > 0
+                ? raw.time
+                : Date.now();
+            const streamed = perf.firstChunkTime !== undefined;
+            const base = perf.firstChunkTime ?? perf.start;
+            let ttfbMs: number | undefined;
+            let avgTokensPerSec: number | undefined;
+            if (streamed && perf.start !== undefined) {
+              ttfbMs = Math.max(0, perf.firstChunkTime! - perf.start);
+            }
+            if (output > 0 && base !== undefined) {
+              const durMs = Math.max(1, end - base);
+              avgTokensPerSec = (output / durMs) * 1000;
+            }
+            ctx.emit({
+              type: "performance",
+              sessionId: sid,
+              turn,
+              step,
+              ...(ttfbMs === undefined ? {} : { ttfbMs }),
+              ...(avgTokensPerSec === undefined ? {} : { avgTokensPerSec }),
+              streamed,
+            });
+            s.stepPerf.delete(sk);
+          }
+        }
         const content = data.message?.content;
         const text = Array.isArray(content)
           ? content
@@ -789,6 +840,15 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
         if (raw.type === "step/start") {
           // 节边界（接收层）：step 开始封闭上一节，本身不开节
           s.liveScope = { turn: data.turn ?? 0, step: data.step ?? 0 };
+          // B1（模型性能）: 记本 step 起点时刻（TTFB 近似口径的起点,
+          // 见追踪文档决策 3；非流式 provider 的平均速率也以此起算）
+          const start =
+            typeof raw.time === "number" && raw.time > 0
+              ? raw.time
+              : Date.now();
+          const sk = `${sid}:${s.liveScope.turn}:${s.liveScope.step}`;
+          const existing = s.stepPerf.get(sk) ?? {};
+          s.stepPerf.set(sk, { ...existing, start });
           ctx.deliver({
             kind: "step-start",
             turn: s.liveScope.turn,

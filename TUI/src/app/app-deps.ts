@@ -27,6 +27,19 @@ export interface FlowTrackLike {
   };
   enabled?(): boolean;
 }
+
+/** cache-hit-monitor 只读服务面（`ctx.get('cacheHitMonitor')`，插件 provide）：
+ *  按会话给命中率判定（A5 懒读；状态行 cache 段着色用）。 */
+export interface CacheHitMonitorLike {
+  summary?(sessionId: string):
+    | {
+        state?: "normal" | "stale" | "first" | undefined;
+        lastHitRate?: number | undefined;
+        runMinHitRate?: number | undefined;
+        tolerance?: number | undefined;
+      }
+    | undefined;
+}
 import type { ShellRunner } from "./local-shell.ts";
 import type { LocalLogWriteOptions } from "./adapter/local-log.ts";
 
@@ -89,6 +102,8 @@ export interface AppDeps {
   getRuleEngine?: (() => RuleEngineLike | undefined) | undefined;
   /** flow-track 开关读取器（懒读）：返回 undefined = 未挂载 → 标题栏不渲染该符号 */
   getFlowTrack?: (() => FlowTrackLike | undefined) | undefined;
+  /** cache-hit-monitor 判定读取器（懒读）：返回 undefined = 未挂载 → cache 段不着色 */
+  getCacheHitMonitor?: (() => CacheHitMonitorLike | undefined) | undefined;
   /** 状态列 Task 块：任务引擎只读快照（结构化读取）。 */
   getTaskEngine?: (() => unknown) | undefined;
   /** 状态列 Pin 块：pin-note 的会话摘要面。 */

@@ -66,6 +66,60 @@ function usageStatus(u: {
   };
 }
 
+/** 性能槽位文本：TTFB + 平均解码速率（B1/B3）。
+ *  非流式（streamed=false）无 TTFB，只给平均速率 + 「非流式无 TTFB」占位（决策 5）。 */
+function performanceText(p: {
+  ttfbMs?: number | undefined;
+  avgTokensPerSec?: number | undefined;
+  streamed: boolean;
+}): string | undefined {
+  const parts: string[] = [];
+  if (p.ttfbMs !== undefined) {
+    parts.push(`ttfb ${formatTtfb(p.ttfbMs)}`);
+  } else if (p.avgTokensPerSec !== undefined) {
+    parts.push("ttfb —");
+  }
+  if (p.avgTokensPerSec !== undefined) {
+    parts.push(
+      `${p.avgTokensPerSec.toFixed(p.avgTokensPerSec >= 100 ? 0 : 1)} tok/s`,
+    );
+  }
+  if (parts.length === 0) return undefined;
+  return parts.join(" ");
+}
+
+/** TTFB 展示: <1s 用 ms, >=1s 用 s（保留 1 位小数, 注明近似）。 */
+function formatTtfb(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** 缓存判定三态 → cache 段颜色（决策项 9：正常绿 / 缓存失效告警红 / 首次黄；
+ *  无判定返回 undefined = 默认前景色）。色值取主题调色板同名槽位。 */
+function cacheTintOf(
+  judge: AppState["cacheJudge"] | undefined,
+): "green" | "red" | "yellow" | undefined {
+  switch (judge?.state) {
+    case "normal":
+      return "green";
+    case "stale":
+      return "red";
+    case "first":
+      return "yellow";
+    default:
+      return undefined;
+  }
+}
+
+/** cache 段（文字不变、按判定着色）：无判定 / 无 usage 时保持默认前景色
+ *  （决策项 11：无 cache 数据沿用 `—` 占位、不着色）。 */
+function cacheSegment(
+  text: string,
+  tint: "green" | "red" | "yellow" | undefined,
+): FrameSegment {
+  return tint === undefined ? { text } : { text, style: { fg: tint } };
+}
+
 /** 段文本按预算截断：过长保留开头 + 省略号（w<=3 视作不截断，交给换行兜底） */
 function fitHead(s: string, w: number): string {
   if (displayWidth(s) <= w) return s;
@@ -141,10 +195,18 @@ export function renderStatusLine(
   _inputStatus?: InputStatus,
   /** 运行中 ●/○ 交替相位（本回合虚拟总 token；running 且缺省时回落 ○） */
   _runVirtTokens?: number,
+  /** B1/B3：最新一次模型调用的性能指标（TTFB / 平均解码速率） */
+  performance?: AppState["performance"],
+  /** A6：缓存命中率判定（cache-hit-monitor 服务面懒读；cache 段三态着色用） */
+  cacheJudge?: AppState["cacheJudge"],
 ): FrameRow[] {
   const u = usage ? usageStatus(usage) : undefined;
   const ctxSeg = u?.ctx ?? status.contextLen;
   const cacheSeg = u?.cache ?? status.cacheHit;
+  // A6: cache 段着色（决策项 9/11）：有 usage 且有判定才着色；`—` 占位保持默认色
+  const cacheTint = u === undefined ? undefined : cacheTintOf(cacheJudge);
+  // B1/B3: 性能槽位（TTFB + 解码速率; 无数据时省略, 不占位）
+  const perfSeg = performance ? performanceText(performance) : undefined;
   // 思考状态并入 model 段（同一逻辑段）：provider/model:{后缀}
   // 后缀=on/off/none 或实际等级名（多等级开启如 high/low/max）
   const modelBase = status.model.replace(/:[^:]*$/, "");
@@ -176,7 +238,8 @@ export function renderStatusLine(
   const llmFull: FrameSegment[][] = [
     [...colorModel(modelSeg)],
     [{ text: ctxSeg, style: { fg: "blue" } }],
-    [{ text: cacheSeg }],
+    [cacheSegment(cacheSeg, cacheTint)],
+    ...(perfSeg === undefined ? [] : [[{ text: perfSeg }]]),
   ];
   // 各组超宽兜底（单组放不满一行时组内压缩）
   const envFit = (w: number): FrameSegment[][] => {
@@ -197,14 +260,16 @@ export function renderStatusLine(
     ];
   };
   const llmFit = (w: number): FrameSegment[][] => {
+    const perfW = perfSeg === undefined ? 0 : displayWidth(perfSeg) + 2; // 段间 `•` 与留白
     const budget = Math.max(
       1,
-      w - displayWidth(ctxSeg) - displayWidth(cacheSeg) - 2 - 1,
+      w - displayWidth(ctxSeg) - displayWidth(cacheSeg) - perfW - 2 - 1,
     );
     return [
       [...colorModel(fitModel(modelSeg, budget))],
       [{ text: ctxSeg, style: { fg: "blue" } }],
-      [{ text: cacheSeg }],
+      [cacheSegment(cacheSeg, cacheTint)],
+      ...(perfSeg === undefined ? [] : [[{ text: perfSeg }]]),
     ];
   };
 

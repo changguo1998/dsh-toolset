@@ -358,6 +358,8 @@ export function frameGeometry(state: AppState, size: Size): FrameGeometry {
     state.usage,
     state.inputStatus,
     state.runVirt.tokens,
+    state.performance,
+    state.cacheJudge,
   );
   // 输入区 + 提示行总高恒定（见 metricsFor）：提示行 1 至 2 行（按当前文案与宽度折行；空文案也占位），
   // 提示行数从 interaction 里反推 footer，面板开关不让顶部上下跳

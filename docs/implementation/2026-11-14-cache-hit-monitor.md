@@ -67,3 +67,12 @@
 - 不改 `/stats` 的缓存命中率展示（现有口径与文案保持原样, 本任务只动状态行 cache 段着色; 与 TUI 性能任务的一致约定）。
 - 不做精确 token 化模拟; 前缀重叠度近似口径在 README 写明偏差。
 - 不动 `STATUS.md`（用户择时更新）。
+
+## 实现记录（2026-11-14, 已实现并验证）
+
+- **A1–A4 插件**: 新包 `cache-hit-monitor/`（`src/index.ts` 事件接线 + 服务面、`src/monitor.ts` 判定状态机、`src/overlap.ts` 前缀重叠与命中率）; 25 例单测（`tests/main|prestep|monitor|service.test.ts`）全过, 包内 `check` / `build` 通过。
+- **A5 TUI 懒读**: `app-deps.ts`（`CacheHitMonitorLike` + `getCacheHitMonitor`）、`main.ts`（注入 `ctx.get("cacheHitMonitor")`）、`runtime/wiring.ts`（`maybeRefreshCacheHit` + 回执归一 `cacheJudgeOf`）、`runtime/lifecycle.ts`（StatusTicker 回调调用）、`state/types.ts`（`CacheHitJudge` + `cacheJudge`）、`state/initial.ts`、`state/actions.ts` + `state/reducer-view.ts`（`cache-judge`）。
+- **A6 着色**: `layout/status-line.ts`（`cacheTintOf` / `cacheSegment`; 第 7 参 `cacheJudge`, 有 usage 且有判定才着色）、`layout/geometry.ts`（传 `state.cacheJudge`）、新测试 `TUI/tests/status-cache-tint.test.ts`（5 例）。三态色取主题调色板 `green` / `red` / `yellow`（决策项 9）; 无 usage 的 `—` 占位不着色（决策项 11）。
+- **A7 根接线**: `scripts/test-parallel.sh` + `scripts/install.sh` 包枚举、`scripts/test-install.sh` 包数断言 39→40、`dev/standard/index.mjs`（count 规则 39/38→40/39）、`AGENTS.md` / 根 `README.md` / `README.zh.md` / `docs/PACKAGES.md` / `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `docs/DEVELOPMENT.md` 计数与清单、`md-logic/README.md` 与 `security-guard/README.md` 的计数句。
+- **审计**: `pnpm run check -- TUI` 退出 0; `pnpm run test:tui` 1889 例全过; `sh scripts/test-install.sh` 124 项通过（含「canonical_pkgs 与仓库包目录一致且为 40 个包」）; `pnpm run check:docs` 退出 0; 旧计数 grep 只剩 `docs/STATUS.md`（用户择时更新）、`docs/host/` 历史快照与 `docs/archived/`。
+- **偏差**: A5 计划外补 `runtime/lifecycle.ts`（ticker 调用点）与 `state/actions.ts`（action 类型）; A6 计划外补 `layout/geometry.ts`（调用处传参, 同 B3 先例）; A7 计划外补 `dev/standard/index.mjs` 与两处包 README 计数。

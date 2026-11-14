@@ -86,21 +86,21 @@ ______________________________________________________________________
 
 ### A5. TUI 懒读接线
 
-- **改动**: `TUI/src/app/app-deps.ts`（`CacheHitMonitorLike` 类型 + `getCacheHitMonitor` 读取器, 同 `getFlowTrack` 范式）、`TUI/src/main.ts`（注入 `ctx.get("cacheHitMonitor")`）、`TUI/src/app/runtime/wiring.ts`（StatusTicker 内 `maybeRefreshCacheHit` 懒读 summary, 值变化才 apply + paint, 同 `maybeRefreshFlowTrack`）、`TUI/src/app/state/types.ts` + `initial.ts`（cache 判定状态字段）、`TUI/src/app/state/reducer-view.ts`（新 action case）。
+- **改动**: `TUI/src/app/app-deps.ts`（`CacheHitMonitorLike` 类型 + `getCacheHitMonitor` 读取器, 同 `getFlowTrack` 范式）、`TUI/src/main.ts`（注入 `ctx.get("cacheHitMonitor")`）、`TUI/src/app/runtime/wiring.ts`（`maybeRefreshCacheHit` 懒读 summary, 值变化才 apply + paint, 同 `maybeRefreshFlowTrack`）、`TUI/src/app/runtime/lifecycle.ts`（StatusTicker 的 apply 回调里调用, 与 flow-track / daemon 同节律）、`TUI/src/app/state/types.ts` + `initial.ts`（`CacheHitJudge` 字段）、`TUI/src/app/state/actions.ts` + `reducer-view.ts`（新 action case）。
 - **审计**:
   - `pnpm run check -- TUI` → 退出 0
   - `grep -q "cacheHitMonitor" TUI/src/app/app-deps.ts`、`TUI/src/main.ts`、`TUI/src/app/runtime/wiring.ts` → 均退出 0
 
 ### A6. status-line cache 段着色（共享文件, 顺序在 B3 之后）
 
-- **改动**: `TUI/src/app/layout/status-line.ts` 既有 cache 段按判定状态着色（绿/红/黄三态, 无 cache 数据保持 `—` 不着色）; 只改 `status-line.ts` 与新增测试文件, 不新增槽位。
+- **改动**: `TUI/src/app/layout/status-line.ts` 既有 cache 段按判定状态着色（绿/红/黄三态, 无 cache 数据保持 `—` 不着色; 判定经第 7 参传入）+ `TUI/src/app/layout/geometry.ts`（调用处传 `state.cacheJudge`）+ 新增测试文件; 不新增槽位。
 - **审计**:
   - 新增渲染测试 `TUI/tests/status-cache-tint.test.ts` 后, `pnpm run test:tui -- status-cache-tint.test.ts` → 退出 0
   - `pnpm run test:tui -- status-wrap-strategy.test.ts` → 退出 0（既有状态行宽度机制不破坏）
 
 ### A7. 根级接线与计数更新（最后一步）
 
-- **改动**: `scripts/test-parallel.sh` default_pkgs 加 `cache-hit-monitor`; `scripts/install.sh` canonical_pkgs 加 `cache-hit-monitor`; `scripts/test-install.sh` 的 39 包计数断言同步为 40; 根 `README.md` / `README.zh.md` 包清单; `docs/PACKAGES.md` 职责表与计数（`39 个包（TUI 与 38 个插件）` → `40 个包（TUI 与 39 个插件）`）; `AGENTS.md`（若计数口径出现）; `profiles/example/*`（挂载示例, 若需要）。
+- **改动**: `scripts/test-parallel.sh` default_pkgs 加 `cache-hit-monitor`; `scripts/install.sh` canonical_pkgs 加 `cache-hit-monitor`; `scripts/test-install.sh` 的 39 包计数断言同步为 40; 根 `README.md` / `README.zh.md` 包清单; `docs/PACKAGES.md` 职责表与计数（`39 个包（TUI 与 38 个插件）` → `40 个包（TUI 与 39 个插件）`）; `AGENTS.md`; `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `docs/DEVELOPMENT.md`; `dev/standard/index.mjs`（`count.packages` / `count.plugins` 的硬编码 39/38 → 40/39, 否则 check:docs 对更新后的 40/39 反而报错）; 附带 `md-logic/README.md`、`security-guard/README.md`（既有口径句里的计数）; `profiles/example/*`（挂载示例实际未涉及, 无需改）。
 - **审计**:
   - `grep -q "cache-hit-monitor" scripts/test-parallel.sh` 与 `grep -q "cache-hit-monitor" scripts/install.sh` → 均退出 0
   - `grep -rn "38 个插件" AGENTS.md README.md README.zh.md docs/` 与 `grep -rn "39 个包" AGENTS.md README.md README.zh.md docs/` → 均无命中（旧计数清零; 覆盖 AGENTS.md 第 3 行「共 39 个包」句式, check:docs 的 count 规则不抓该句式, 须 grep 兜底）

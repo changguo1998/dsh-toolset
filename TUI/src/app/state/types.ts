@@ -464,6 +464,19 @@ export interface StatusExtras {
     | undefined;
 }
 
+/** 缓存命中率判定快照（A5：懒读 `cacheHitMonitor` 服务面 `summary(sessionId)`）。
+ *  `state` 缺省 = 没有判定（无快照 / 无 usage）→ 渲染层保持 `—` 占位、不着色。 */
+export interface CacheHitJudge {
+  /** 判定：normal 正常 / stale 命中率偏离（超 tolerance）/ first 首个调用（豁免偏差） */
+  state?: "normal" | "stale" | "first" | undefined;
+  /** 最近一次调用的实际命中率（`cacheRead/(input+cacheRead)`，0..1） */
+  lastHitRate?: number | undefined;
+  /** 本次运行最低实际命中率（0..1；首个真实 usage 接管前不刷新） */
+  runMinHitRate?: number | undefined;
+  /** 偏差容忍度（0..1，来自插件 config） */
+  tolerance: number;
+}
+
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -533,6 +546,15 @@ export interface AppState {
         output: number;
         cacheRead: number;
         contextWindow?: number | undefined;
+      }
+    | undefined;
+  /** 最新一次模型调用的性能指标（B1/B2；`performance` 事件随 usage 同频结算）。
+   *  会话切换/恢复时与 `usage` 一并清空。`streamed=false` = 非流式 provider（无 TTFB）。 */
+  performance?:
+    | {
+        ttfbMs?: number | undefined;
+        avgTokensPerSec?: number | undefined;
+        streamed: boolean;
       }
     | undefined;
   /** 本会话累计 token 用量（`usage` 事件逐次累加；BACKLOG TUI#9）——与会话切换同步清零
@@ -654,6 +676,9 @@ export interface AppState {
   /** 状态列新增五块的快照（task / flow / pin / daemon / group；随状态行 ticker 刷新）。
    *  undefined = 还没读到可用来源 → 五块都不渲染 */
   statusExtras: StatusExtras | undefined;
+  /** 缓存命中率判定（`cacheHitMonitor.summary(sessionId)` 懒读，随状态行 ticker 同步）。
+   *  undefined = 还没读到判定 → 状态行 cache 段不着色（A5 接线，着色见 A6） */
+  cacheJudge: CacheHitJudge | undefined;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =

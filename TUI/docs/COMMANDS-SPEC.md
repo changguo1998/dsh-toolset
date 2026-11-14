@@ -121,4 +121,4 @@ commandPanel: {
 | `settings` | `describe(options?)` → `SettingsDescriptor[]`（枚举 ns 且带当前值）、写入 `update(ns, patch, expectedRevision?)` / `replace` / `mutate`（`write` 为 private，不可调用）；`get(ns)` / `register` / `installSection` **在 0.1.7 已移除**（本 TUI 只用 `describe()`） | `dsh-settings` |
 | `tokenMeter` | `measure(session, requestHeader)`、`estimateMessage(message)` | `dsh-token-meter` |
 
-其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }` 语义为**最近一次模型调用**（非会话累计）。
+其他已核实事实：cordis 服务挂载 API 为 `ctx.provide(name, value)`；输入预填 action `{ type: "input", text, cursor }`；`state.usage = { input, output, cacheRead, contextWindow? }` 语义为**最近一次模型调用**（非会话累计）；`state.performance = { ttfbMs?, avgTokensPerSec?, streamed }` 同为最近一次模型调用（来源为流式首帧时间与 `assistant/message` 的 usage，会话切换时与 `usage` 一并清空）。

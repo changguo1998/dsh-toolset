@@ -56,3 +56,12 @@ TUI 展示当前模型调用的首字节延迟（TTFB）与解码速率（tokens
 - 不做 /stats 详情回看（状态行即唯一展示位）。
 - 不做缓存命中率相关（属另一任务 `docs/implementation/2026-11-14-cache-hit-monitor.md`）。
 - 不动 `STATUS.md`（用户择时更新）。
+
+## 实现记录（2026-11-14, 已实现并验证）
+
+- **B1 采集**: `TUI/src/app/adapter/types/events.ts`（新增 `performance` 事件）、`adapter/context.ts`（`stepPerf` 表, key `${sid}:${turn}:${step}`）、`adapter/dsh-events.ts`（`step/start` 记起点、`onAssistantFrame` 首个 chunk 记首帧时刻、`assistant/message` 结算 TTFB 与平均速率并清表; 无 chunk 走 `streamed: false`）。
+- **B2 状态**: `state/types.ts`（`performance?`）、`state/initial.ts`（缺省不写, 注释说明随 usage 一并清空）、`state/actions.ts` + `state/reducer-tool.ts`（`case "performance"`）、`state/reducer-session.ts`（history-restore 与 `/new` 两处清空）、`runtime/wiring.ts`（事件直通）。
+- **B3 渲染**: `layout/status-line.ts`（`performanceText` / `formatTtfb`, `llmFull` / `llmFit` 增末段且宽预算计入）、`layout/geometry.ts`（第 6 参传 `state.performance`）、新测试 `TUI/tests/status-performance.test.ts`（5 例）。
+- **B4 文档**: `TUI/README.md`（LLM 组说明补槽位口径）、`TUI/docs/COMMANDS-SPEC.md`（`state.performance` 事实行）。
+- **审计**: `pnpm run check -- TUI` 退出 0; `pnpm run test:tui -- status-performance.test.ts` 退出 0; `pnpm run test:tui` 1889 例全过; `pnpm run check:docs` 退出 0。
+- **偏差**: 性能不并入 `reducer-tool.ts` 的 `case "usage"`, 改为 adapter 侧独立 `performance` 事件（同频结算仍在收尾 `assistant/message`）; B2 审计的 `grep ttfbMs TUI/src/app/state/initial.ts` 由 `initial.ts` 的注释行满足（该字段初值缺省不写）。

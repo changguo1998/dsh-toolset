@@ -86,6 +86,7 @@ export function initialState(
     flowTrackEnabled: undefined, // flow-track 注入开关：未读到服务前不渲染符号
     daemonEnabled: undefined, // background-daemon 开关：未读到服务时符号按关（灰）显示
     statusExtras: undefined, // 状态列五块：未读到来源前不渲染
+    cacheJudge: undefined, // 缓存命中率判定：未读到服务前无判定（A5 懒读）
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
     lowerPanesVisible: true, // #9：下半区（Turn/Tool）默认显示（Ctrl+T 切换）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）
@@ -93,6 +94,8 @@ export function initialState(
     stepEstTokens: 0, // 本 step 估算 token 累计（usage 真值到达时校准）
     tokenCalib: 1, // 估算 token 校准系数（usage 真值/估算值 EMA，跨 step 保留）
     usageTotals: { input: 0, output: 0, cacheRead: 0 }, // 本会话累计（/stats；会话切换清零）
+    // performance（ttfbMs / avgTokensPerSec）缺省不写：首个 performance 事件到达才落值，
+    // 会话切换 / 恢复时与 usage 一并清空（见 reducer-session）
     local: [],
     followBottom: true,
     scrollOffset: 0,

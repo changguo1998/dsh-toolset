@@ -1,0 +1,8 @@
+# cache-hit-monitor 插件的 dsh bundle 声明。
+# 本包缺省开启：订阅 agent/pre-step（取请求前完整上下文快照）与 session/event
+# 的 assistant/message.usage（取实际缓存命中率），判定结果经服务面 cacheHitMonitor
+# 供 TUI 状态行 cache 段按状态着色。只读订阅，不注入任何消息。
+# 覆盖配置时在 profile 用户 patch 里按 id 追加同名字段（enabled / tolerance 等，见 src/index.ts 的 resolveConfig）。
+- insert:
+    - id: cache-hit-monitor
+      name: '@dsh-toolset/cache-hit-monitor'

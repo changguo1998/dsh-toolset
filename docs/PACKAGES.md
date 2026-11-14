@@ -1,16 +1,16 @@
 # 包清单与职责
 
-> 职责：39 个包（TUI + 38 个插件）的一句话职责、TUI 目录要点、`DESIGN.md` 轻重包口径
+> 职责：40 个包（TUI + 39 个插件）的一句话职责、TUI 目录要点、`DESIGN.md` 轻重包口径
 > 不负责：各包的详细用法 / 配置 / 契约（见各包 `README.md` 与其 docs/）；面向人的能力表见根 `README.md` 的 `Composition` 一节
 > 过期条件：新增 / 删改包时随仓库维护
 
-本仓 39 个包 = `TUI/` 终端界面包 + 38 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `ponytail` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `shell-parse` / `tool-surface`）。
+本仓 40 个包 = `TUI/` 终端界面包 + 39 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `ponytail` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
 
 ## TUI
 
 `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 
-## 插件（38 个）
+## 插件（39 个）
 
 | 包 | 一句话职责 |
 | --- | --- |
@@ -52,7 +52,8 @@
 | term-check | 回复正文术语检查：`assistant-text` 上的 rule-engine 消费者，按术语表快照比对旧称并注入更正提示；只报不改 |
 | pin-note | 跨压缩上下文保持：`pin_note` 登记要点到会话层记忆库，`agent/pre-step` 去重后折叠进本步；配套 `note_list` / `note_remove` |
 | flow-track | 标准流程固化：注入缺省关闭，开关 + memory-base 有流程记录时才注入八阶段模板 / 推进状态 / 合规提示；`flow_record` / `flow_status` / `flow_enable` / `flow_remove` / `flow_rollback`；只提示不拦截 |
+| cache-hit-monitor | 缓存命中率监控：请求前按前缀重叠粗估可命中率、收到 `usage` 后算实际命中率，偏差超 `tolerance` 判缓存失效（首次无基线按 0、显示黄、豁免偏差判定）；判定经 `cacheHitMonitor.summary(sessionId)` 供 TUI 状态行既有 cache 段着色；只读订阅、不改 /stats |
 
 ## DESIGN.md 口径（2026-10-04 裁定）
 
-有独立架构与机制沉淀的包必须有 `DESIGN.md` —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group` / `coagent`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base` / `escalation-hint` / `tool-consult` / `term-check` / `pin-note` / `flow-track` / `shell-parse` / `tool-surface`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
+有独立架构与机制沉淀的包必须有 `DESIGN.md` —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group` / `coagent`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base` / `escalation-hint` / `tool-consult` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。

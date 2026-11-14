@@ -1,0 +1,32 @@
+{
+  "name": "@dsh-toolset/cache-hit-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）cache-hit-monitor 插件：请求前按上次/本次上下文前缀重叠度预估缓存命中率, 请求后对比 cacheReadTokens 实际值, 偏差超阈值判定缓存失效; 经服务面供 TUI 状态行 cache 段按状态着色",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-transform-types --test 'tests/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "types": "./dist/src/index.d.ts"
+}

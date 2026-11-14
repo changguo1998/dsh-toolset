@@ -5,6 +5,7 @@
 
 import { reduceState, setSystemStatus } from "../state.ts";
 import type { StatusExtras } from "../state.ts";
+import type { CacheHitJudge } from "../state/types.ts";
 import type {
   DshEvent,
   ModelReasoning,
@@ -22,6 +23,37 @@ import { taskExtrasOf, type TaskQueryLike } from "./task-status.ts";
 /** 别名段读取失败告警阈值（连续失败次数）：别名段是增强项，session-channel 首连失败会
  *  后台重试，启动窗口内静默；连续失败到阈值才留痕一次 */
 const ALIAS_WARN_AFTER_FAILS = 3;
+
+/** 判定回执里的数值：有限数才收，其余（缺失 / NaN / 字符串）落 undefined。 */
+function finiteOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+/** cache-hit-monitor 服务面回执 → 判定快照（A5）：只收已知 state 与有限数值，
+ *  `tolerance` 缺失视为形状不符 → undefined（调用方保持原状态、不着色）。 */
+function cacheJudgeOf(raw: unknown): CacheHitJudge | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const src = raw as {
+    state?: unknown;
+    lastHitRate?: unknown;
+    runMinHitRate?: unknown;
+    tolerance?: unknown;
+  };
+  const tolerance = finiteOrUndefined(src.tolerance);
+  if (tolerance === undefined) return undefined;
+  const state =
+    src.state === "normal" || src.state === "stale" || src.state === "first"
+      ? src.state
+      : undefined;
+  return {
+    state,
+    lastHitRate: finiteOrUndefined(src.lastHitRate),
+    runMinHitRate: finiteOrUndefined(src.runMinHitRate),
+    tolerance,
+  };
+}
 
 export function createWiringPart(ctx: AppContext) {
   /**
@@ -313,6 +345,30 @@ export function createWiringPart(ctx: AppContext) {
     ctx.self.paint();
   }
 
+  /** 缓存命中率判定保鲜（A5）：随 StatusTicker 懒读 `cacheHitMonitor.summary(sessionId)`，
+   *  判定或数值变化才重绘状态行 cache 段着色。插件未挂载 / 无会话 / 回执形状不符 → 不动状态。 */
+  function maybeRefreshCacheHit(): void {
+    if (ctx.disposed) return;
+    const read = ctx.deps.getCacheHitMonitor;
+    if (read === undefined) return;
+    const sessionId =
+      ctx.state.activeSessionId ?? ctx.deps.adapter.sessionId ?? "";
+    if (sessionId === "") return;
+    let raw: unknown;
+    try {
+      raw = read()?.summary?.(sessionId);
+    } catch {
+      return;
+    }
+    const next = cacheJudgeOf(raw);
+    if (next === undefined) return;
+    if (JSON.stringify(ctx.state.cacheJudge ?? null) === JSON.stringify(next)) {
+      return;
+    }
+    ctx.self.apply((s) => reduceState(s, { type: "cache-judge", judge: next }));
+    ctx.self.paint();
+  }
+
   /**
    * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 1s）。
    * 停止条件只留「状态列被 Ctrl+S 隐藏 / 无活跃会话」：不依赖 `subagent-activity` 事件面
@@ -541,6 +597,7 @@ export function createWiringPart(ctx: AppContext) {
       case "model-selection":
       case "tool-result":
       case "usage":
+      case "performance":
       case "compaction":
       case "retry":
       case "goal-change":
@@ -870,6 +927,7 @@ export function createWiringPart(ctx: AppContext) {
     refreshAgentsQuiet,
     maybeRefreshFlowTrack,
     maybeRefreshDaemon,
+    maybeRefreshCacheHit,
     refreshStatusExtras,
     maybeRefreshSessionAlias,
     maybeRefreshAgents,

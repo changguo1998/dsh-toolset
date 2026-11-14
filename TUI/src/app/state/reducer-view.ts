@@ -88,6 +88,9 @@ export function reduceView(
 
     case "status-extras":
       return { ...state, statusExtras: action.extras };
+    case "cache-judge":
+      // 缓存命中率判定（A5：懒读 cache-hit-monitor 服务面；无判定时 undefined → 不着色）
+      return { ...state, cacheJudge: action.judge };
     case "status-column-scroll":
       // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入会话区滚动
       return {

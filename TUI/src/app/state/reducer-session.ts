@@ -72,6 +72,8 @@ export function reduceSession(
         usageTotals: { input: 0, output: 0, cacheRead: 0 },
         // TUI#12：最近一次调用属上一会话 → 丢弃（不可知，显示占位）
         usage: undefined,
+        // B1/B2：性能指标随会话一起丢弃
+        performance: undefined,
       };
     case "history-restore": {
       // TUI#40：CLI 启动即恢复（--resume / -c）——把既有消息折叠成历史行。
@@ -120,6 +122,8 @@ export function reduceSession(
         usageTotals: { input: 0, output: 0, cacheRead: 0 },
         // TUI#12：/new 换会话 → 最近一次调用不再适用，清空（显示占位）
         usage: undefined,
+        // B1/B2：性能指标随 /new 一起清空
+        performance: undefined,
       };
     case "history-confirm-delete": {
       const hcd = state.history;

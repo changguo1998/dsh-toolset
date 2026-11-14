@@ -62,6 +62,20 @@ export type DshEvent =
       cacheRead: number;
       contextWindow?: number | undefined;
     }
+  /** B1（模型性能）: 本 step 收尾结算的首字节延迟与平均解码速率（近似口径见追踪文档）。
+   *  `streamed` = 是否有 chunk（假流无 chunk → 无 TTFB, avg 用本 step 起点到收尾的时刻）。 */
+  | {
+      type: "performance";
+      sessionId: string;
+      turn: number;
+      step: number;
+      /** 首字节延迟 ms（近似: 首 chunk.time − 本 step 起点; 非流式 undefined） */
+      ttfbMs?: number | undefined;
+      /** 平均解码速率 tokens/s（有输出时; 非流式按本 step 起点算） */
+      avgTokensPerSec?: number | undefined;
+      /** 本步是否出现过流式 chunk（false = 非流式 provider） */
+      streamed: boolean;
+    }
   /** P8：sessionId 供「压缩中算活跃」按会话标记 */
   | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
   /** TUI#10：子代理生命周期变化（subagent/start · subagent/end）→ /agents 面板即时刷新 */

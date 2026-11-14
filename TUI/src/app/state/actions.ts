@@ -35,6 +35,7 @@ import type {
   SystemStatus,
   TurnEndReason,
   StatusExtras,
+  CacheHitJudge,
 } from "./types.ts";
 import type { NoticeLine } from "./updates.ts";
 
@@ -201,6 +202,8 @@ export type StateAction =
   /** background-daemon 开关态（`daemon.status().enabled` 懒读；标题栏符号用） */
   | { type: "daemon"; enabled: boolean }
   | { type: "status-extras"; extras: StatusExtras | undefined }
+  /** 缓存命中率判定（A5：懒读 cache-hit-monitor 服务面；无判定时 undefined） */
+  | { type: "cache-judge"; judge: CacheHitJudge | undefined }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
       type: "model-selection";
@@ -230,6 +233,17 @@ export type StateAction =
       output: number;
       cacheRead: number;
       contextWindow?: number | undefined;
+    }
+  /** B1/B2（模型性能）: 本 step 收尾结算的首字节延迟与平均解码速率（与 usage 同频）。
+   *  `streamed` = 是否有流式 chunk; 非流式只有平均（无 TTFB）。 */
+  | {
+      type: "performance";
+      sessionId: string;
+      turn: number;
+      step: number;
+      ttfbMs?: number | undefined;
+      avgTokensPerSec?: number | undefined;
+      streamed: boolean;
     }
   /** P8：sessionId 用于把「压缩中」记到该会话（缺省回退当前活跃会话） */
   | { type: "compaction"; phase: "start" | "end"; sessionId?: string }
