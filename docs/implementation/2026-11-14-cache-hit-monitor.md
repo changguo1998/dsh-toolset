@@ -4,6 +4,8 @@
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 > 协调（2026-11-14 用户裁定）: 本任务与「TUI 显示当前模型性能」任务共享 `TUI/src/app/layout/status-line.ts`（本任务改既有 cache 段着色, 对方新增性能槽位）; 两任务顺序执行, 不并发, 实现顺序由用户安排。
+>
+> 实现分工与机械审计任务列表见 `docs/implementation/2026-11-14-model-observe-impl-plan.md`（本任务 = A 系 A1–A7; 顺序: 包本体 A1–A4 → TUI 收尾 A5–A7, 其中 A6 排在对方 B3 之后）。
 
 ## 目标
 
@@ -42,10 +44,10 @@
 任务拆分:
 
 1. 新插件骨架: `cache-hit-monitor/` 目录（`package.json` 的 `dsh.bundle` + `cordis.patch.yml` + `README.md` + `src/` + `tests/`）。
-2. 采集: 订阅 `agent/pre-step` 与 `session/event` 的 `assistant/message`; 维护 per-session 上次快照。骨架接线后先做宿主接线验证: `agent/pre-step` 是 waterfall 事件（返回 PreStepDecision, 有 prepend 注入语义）, 需验证只读订阅不干扰决策、不被视为注入方。
+2. 采集: `agent/pre-step` 内调 `sessions.get().deriveMessages()` 取请求前快照, 经 `session/event` 的 `assistant/message.usage`（`cacheReadTokens`）取实际命中率; 维护 per-session 上次快照。骨架接线后先做宿主接线验证: `agent/pre-step` 是 waterfall 事件（返回 PreStepDecision, 有 prepend 注入语义）, 需验证只读订阅不干扰决策、不被视为注入方。
 3. 判定: 实时进行, 从回合开始到当前——请求前粗估可命中率; 请求后按 usage 算实际; 每步得出状态 = 正常 / 缓存失效告警; 首次（无上次快照）命中率按 0、显示黄、不参与偏差判定; 其余步偏差超阈值判告警（可选配置限定只盯第一步时除外）; 状态位实时维护本回合运行最低命中率对应状态。
 4. 服务面: 插件 `ctx.provide('cacheHitMonitor', { summary() })` 暴露三态（normal / stale / first, 具体命名实现时定）; TUI 状态行 cache 段懒读并按状态着色。
-5. 接线: 根 `package.json` 委托链、`scripts/install.sh` 枚举、profile 模板（如挂载示例）、根 README 双侧包清单。
+5. 接线: `scripts/test-parallel.sh`（default_pkgs 加枚举）、`scripts/install.sh`（canonical_pkgs 加枚举）、`scripts/test-install.sh`（39 包断言同步 40）、`docs/PACKAGES.md` 与 `AGENTS.md`（计数 39→40）、profile 模板（如挂载示例）、根 README 双侧包清单。
 6. TUI 联动: 不新增槽位——状态行既有 cache 段按状态着色（读插件服务面, 无 cache 数据时沿用 `—` 占位）。
 7. 测试: 单测（前缀重叠计算 / 快照维护 / 阈值判定 / 三态转换 / 回合运行最低 / 可选只盯第一步 / 首次豁免）+ 集成（事件接线 + 服务面形状 + 状态行着色渲染）。
 
@@ -54,8 +56,8 @@
 - `docs/BACKLOG.md`（条目标进行中/完成）
 - 本追踪文档
 - 新包目录 `cache-hit-monitor/`: `package.json` / `cordis.patch.yml` / `README.md` / `src/index.ts` / `src/*.ts` / `tests/*.test.ts`
-- TUI: `TUI/src/app/layout/status-line.ts`（既有 cache 段按三态着色, 不新增槽位）+ `TUI/src/app/state/*`（若 cache 段需要颜色/状态字段）+ `TUI/tests/*.test.ts`
-- 根 `package.json`（委托链与包枚举）、`scripts/install.sh`（包枚举）、`AGENTS.md`（若插件计数口径变则同步）、根 `README.md` / `README.zh.md`（包清单与文档索引）
+- TUI: `TUI/src/app/layout/status-line.ts`（既有 cache 段按三态着色, 不新增槽位）+ `TUI/src/app/app-deps.ts`（`getCacheHitMonitor` 读取器, 同 `getFlowTrack` 范式）+ `TUI/src/main.ts`（注入 `ctx.get("cacheHitMonitor")`）+ `TUI/src/app/runtime/wiring.ts`（StatusTicker 懒读保鲜）+ `TUI/src/app/state/types.ts` + `initial.ts`（cache 判定状态字段）+ `TUI/src/app/state/reducer-view.ts`（新 action case）+ `TUI/tests/*.test.ts`
+- 根级: `scripts/test-parallel.sh`（default_pkgs 包枚举）、`scripts/install.sh`（canonical_pkgs 包枚举）、`scripts/test-install.sh`（包数断言 39→40）、`docs/PACKAGES.md`（职责表与计数 40）、`AGENTS.md`（计数口径）、根 `README.md` / `README.zh.md`（包清单与文档索引）
 - `profiles/example/*`（若需挂载示例）
 
 明确不做:

@@ -4,6 +4,8 @@
 本文件是本任务唯一的追踪文档与文档改动位置；计划外的文件不改。
 
 > 协调（2026-11-14 用户裁定）: 本任务与「缓存命中率监控」任务共享 `TUI/src/app/layout/status-line.ts`（本任务新增性能槽位, 对方改既有 cache 段着色）; 两任务顺序执行, 不并发, 实现顺序由用户安排。
+>
+> 实现分工与机械审计任务列表见 `docs/implementation/2026-11-14-model-observe-impl-plan.md`（本任务 = B 系 B1–B4; 顺序: B3 状态行性能槽位先于对方 A6 的 cache 段着色）。
 
 ## 目标
 
@@ -32,7 +34,7 @@ TUI 展示当前模型调用的首字节延迟（TTFB）与解码速率（tokens
 任务拆分:
 
 1. adapter 采集: 在 `dsh-events.ts` 流式路径记录每步 step 起点时刻（step/start 或本 step 首个可见事件）、首个 chunk.time; 收尾 `assistant/message` 处结算 TTFB（首 chunk.time − step 起点）与平均速率（`usage.outputTokens` /（收尾时刻 − 首个 chunk.time））。
-2. state: 扩展 `state.usage` 或新增 per-step 性能字段（ttfbMs / avgTokensPerSec / 瞬时峰值）, 随 usage 事件同频更新。
+2. state: 新增 per-step 性能字段（ttfbMs / avgTokensPerSec / 瞬时峰值）到 `state.usage` 或独立字段, 随 usage 事件在 `reducer-tool.ts` `case "usage"` 同频结算（另见 B2 审计）。
 3. 渲染: 状态行新增性能槽位（TTFB + 解码速率, 弹性宽度内）。不做 /stats 详情回看。
 4. 测试: reducer/渲染用例（有流、无流、无 usage 回落、TTFB 缺失占位）。
 
@@ -41,7 +43,7 @@ TUI 展示当前模型调用的首字节延迟（TTFB）与解码速率（tokens
 - `docs/BACKLOG.md`（条目标进行中/完成）
 - 本追踪文档
 - `TUI/src/app/adapter/dsh-events.ts`（结算 TTFB / 平均速率）
-- `TUI/src/app/state/types.ts`（per-step 性能字段）+ `TUI/src/app/state/initial.ts`（初值）
+- `TUI/src/app/state/types.ts`（per-step 性能字段）+ `TUI/src/app/state/initial.ts`（初值）+ `TUI/src/app/state/reducer-tool.ts`（`case "usage"` 同频结算, 改点 :73-109）
 - `TUI/src/app/layout/status-line.ts`（状态行性能槽位; 参考弹性名称行形态 `h([符号, 名称(fill), 尾部])`）
 - `TUI/tests/*.test.ts`（新增/更新用例）
 - `TUI/README.md` 与 `TUI/docs/COMMANDS-SPEC.md`（状态行说明同步; /stats 不改）
