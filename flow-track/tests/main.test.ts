@@ -761,12 +761,12 @@ test("注册接入 tool-surface 包装：模型侧短说明 + 宽松占位, 全�
 
   assert.equal(harness.tools.length, 5);
   for (const tool of harness.tools) {
-    assert.match(String(tool.description), /tool_consult/);
+    assert.match(String(tool.description), /consult_tools/);
     assert.deepEqual(tool.parameters, {
       type: "object",
       additionalProperties: true,
       properties: {},
-      description: "完整参数 schema 经 tool_consult 查询",
+      description: "完整参数 schema 经 consult_tools 查询",
     });
   }
 

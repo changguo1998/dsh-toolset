@@ -36,17 +36,17 @@ export interface WrapTarget {
   name: string;
   /** 完整说明（用途 / 用法 / 顺序 / 效果 / 边界 / 相关）。 */
   description: string;
-  /** 显式短说明（用途一句 + 指向 tool_consult）; 缺省从完整说明首行派生。 */
+  /** 显式短说明（用途一句 + 指向 consult_tools）; 缺省从完整说明首行派生。 */
   summary?: string;
   /** 完整参数 schema（严格校验与揭示后投递都读它）。 */
   parameters: Record<string, unknown>;
 }
 
 /** 注册定义里的说明尾句: 指向查询入口（决策 02）。 */
-const SURFACE_HINT = "完整说明与参数 schema 经 tool_consult 查询。";
+const SURFACE_HINT = "完整说明与参数 schema 经 consult_tools 查询。";
 
 /** 宽松占位的 `description`: 避免模型照占位猜参数（决策 13）。 */
-const PARAMETERS_HINT = "完整参数 schema 经 tool_consult 查询";
+const PARAMETERS_HINT = "完整参数 schema 经 consult_tools 查询";
 
 /** 标记已包装过的定义（防重复包装把占位当全文收进 catalog）。 */
 const WRAPPED = Symbol.for("dsh-toolset.tool-surface.wrapped");
@@ -81,12 +81,12 @@ function firstLine(description: string): string {
   return "";
 }
 
-/** 短说明: 显式 `summary` 优先, 缺省取完整说明首行; 未含 tool_consult 时补一句指向。 */
+/** 短说明: 显式 `summary` 优先, 缺省取完整说明首行; 未含 consult_tools 时补一句指向。 */
 function shortDescription(def: WrapTarget): string {
   const explicit = typeof def.summary === "string" ? def.summary.trim() : "";
   const base = explicit.length > 0 ? explicit : firstLine(def.description);
   const head = base.length > 0 ? base : `工具 ${def.name}`;
-  return head.includes("tool_consult") ? head : `${head} ${SURFACE_HINT}`;
+  return head.includes("consult_tools") ? head : `${head} ${SURFACE_HINT}`;
 }
 
 /** 宽松占位: 任意对象都通过宿主校验, 严格校验交给包装后的 `execute`（决策 13）。 */

@@ -10,10 +10,10 @@ DSH（DeepSeek Harness）工具咨询插件：首请求起工具声明常驻且�
 
 - **全量短清单常驻**: 14 个初始工具保留宿主完整定义; 其余非初始、非条件工具在 agent 作用域 shadow 成短说明 + 宽松占位, 完整说明与完整 schema 收进 `@dsh-toolset/tool-surface` 的 catalog. 工具声明在固定路由与固定就绪状态下从首请求起不变.
 - **揭示只追加正文**: 揭示 = 会话授权集合 + 每工具一条 `pinNotes.hold("revealed:<工具名>")` 全文（`description` + `input_schema`）; 不新增、不删除、不重排声明, 也不调用 `tools.restrict`.
-- **未揭示门禁**: 纳入管理的工具在未授权时由 `tools/pre-execute` 拒绝, 文案指向 `tool_consult`, `error.info.code = TOOL_NOT_REVEALED`; 揭示后放行.
+- **未揭示门禁**: 纳入管理的工具在未授权时由 `tools/pre-execute` 拒绝, 文案指向 `consult_tools`, `error.info.code = TOOL_NOT_REVEALED`; 揭示后放行.
 - **条件工具白名单**: `allowedWhenTools` 内的条件工具保持宿主原样（`when` 与完整定义都在）; 名单外的条件工具用一次静态 `restrict({ deny })` 从模型面彻底移除, 不进检索索引、不可揭示、不投递.
 - **咨询即授权**: `consult_tools(query | names, limit, reveal)`; `reveal: false` 只预览, 不写授权. 授权在本会话内只增不减.
-- **可行动错误**: 调用未揭示的工具返回「先经 tool_consult 查询」的文案, 不是裸的 `unknown tool`.
+- **可行动错误**: 调用未揭示的工具返回「先经 consult_tools 查询」的文案, 不是裸的 `unknown tool`.
 
 ## 配置
 
@@ -51,7 +51,6 @@ profile 的 `cordis.patch.yml` 插入本包（本包自带 `cordis.patch.yml` �
 - **子代理**: 缺省 `applyTo: roots`, 不遮蔽 / 不 deny; `all` 才逐代理管理.
 - **静态 deny 集合**: 只覆盖全局条件工具; agent 作用域注册的条件工具不受 `restrict` 约束（本仓当前无此用法）.
 - **注入通道**: 完整说明与 schema 只经 `pinNotes.hold` 按工具投递; `pin-note` 缺席时揭示仍写授权, 但正文不投递, 只告警.
-- **短说明指向名**: 各包短说明里的 `tool_consult` 为历史统一写法, 实际入口是 `consult_tools`.
 
 ## 测试
 

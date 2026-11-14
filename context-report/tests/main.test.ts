@@ -444,7 +444,7 @@ test("工具面：report / state / list 三个 action 与错误分支", async ()
   };
   assert.equal(tool.name, "context_report");
   // 接入包装层后注册定义只剩短说明与宽松占位, 完整参数 schema 走 toolSurface
-  assert.match(tool.description, /tool_consult/);
+  assert.match(tool.description, /consult_tools/);
   assert.equal(
     (tool.parameters as Record<string, unknown>)["additionalProperties"],
     true,

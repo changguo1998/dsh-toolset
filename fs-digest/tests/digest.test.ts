@@ -767,7 +767,7 @@ describe("工具描述（P0）", () => {
     const tool = registered.find((t) => t.name === "fs_digest");
     assert.ok(tool !== undefined, "fs_digest 应已注册");
     // 注册定义只剩短说明；完整文案在 toolSurface 服务面（包装层 catalog）
-    assert.match(tool.description, /tool_consult/);
+    assert.match(tool.description, /consult_tools/);
     const full = lookupSurface("fs_digest");
     assert.ok(full !== undefined, "服务面应能取到完整定义");
     const description = full.description;

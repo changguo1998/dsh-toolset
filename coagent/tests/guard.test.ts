@@ -71,12 +71,12 @@ test("T2 herdrUse + sessionChannel 在场：注册一个 coagent 工具，注册
   const def = fake.registered[0];
   assert.equal(def?.name, "coagent");
   // 模型侧只见短说明 + 宽松占位
-  assert.match(String(def?.description), /tool_consult/);
+  assert.match(String(def?.description), /consult_tools/);
   assert.deepEqual(def?.parameters, {
     type: "object",
     additionalProperties: true,
     properties: {},
-    description: "完整参数 schema 经 tool_consult 查询",
+    description: "完整参数 schema 经 consult_tools 查询",
   });
 
   // 全文与完整 schema 在 catalog：参数面收窄, target / task / text 都不在

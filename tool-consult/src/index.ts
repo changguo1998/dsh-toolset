@@ -335,7 +335,7 @@ function warnOnce(runtime: AgentRuntime, message: string): void {
 
 /** 未揭示拒绝文案。 */
 function notRevealedReason(toolName: string): string {
-  return `tool ${toolName} 未在当前会话揭示, 请先经 tool_consult 查询后再调用`;
+  return `tool ${toolName} 未在当前会话揭示, 请先经 consult_tools 查询后再调用`;
 }
 
 /** 未揭示拒绝的返回值。 */

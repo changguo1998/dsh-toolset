@@ -51,7 +51,7 @@ test("tool-surface：接入工具常驻工具面, 未揭示拒绝, 揭示后放�
   );
   const view = before.find((tool) => tool.name === "fs_digest");
   assert.ok(view, "接入包装层的工具应常驻工具面（声明常驻）");
-  assert.match(String(view.description), /tool_consult/);
+  assert.match(String(view.description), /consult_tools/);
   assert.equal(view.parameters?.["additionalProperties"], true);
   assert.equal(view.parameters?.["properties"] !== undefined, true);
 

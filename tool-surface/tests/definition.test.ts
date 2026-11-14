@@ -20,7 +20,7 @@ function makeTool() {
     name: "demo_tool",
     description:
       "用途: 演示包装层。\n用法: 给 value（必填）与可选 mode。\n边界: 只演示。",
-    summary: "用途: 演示包装层, 完整说明与参数 schema 经 tool_consult 查询。",
+    summary: "用途: 演示包装层, 完整说明与参数 schema 经 consult_tools 查询。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -52,13 +52,13 @@ test("注册定义换位: 短说明 + 宽松占位, summary 不外泄", () => {
   assert.equal(wrapped.name, "demo_tool");
   assert.equal(
     wrapped.description,
-    "用途: 演示包装层, 完整说明与参数 schema 经 tool_consult 查询。",
+    "用途: 演示包装层, 完整说明与参数 schema 经 consult_tools 查询。",
   );
   assert.deepEqual(wrapped.parameters, {
     type: "object",
     additionalProperties: true,
     properties: {},
-    description: "完整参数 schema 经 tool_consult 查询",
+    description: "完整参数 schema 经 consult_tools 查询",
   });
   assert.equal("summary" in wrapped, false);
 });
@@ -96,7 +96,7 @@ test("显式 summary 缺省时取完整说明首行并补指向", () => {
 
   assert.equal(
     wrapped.description,
-    "用途: 演示包装层。 完整说明与参数 schema 经 tool_consult 查询。",
+    "用途: 演示包装层。 完整说明与参数 schema 经 consult_tools 查询。",
   );
   assert.equal(lookupSurface("demo_tool")?.description, tool.description);
 });
@@ -161,7 +161,7 @@ test("catalog 与入参互不影响（两向深拷贝）", () => {
   assert.ok(entry);
   entry.parameters["type"] = "array";
   assert.equal(lookupSurface("demo_tool")?.parameters["type"], "object");
-  assert.equal(wrapped.description.includes("tool_consult"), true);
+  assert.equal(wrapped.description.includes("consult_tools"), true);
 });
 
 test("重复包装不再改 catalog（占位不会被当成全文）", () => {

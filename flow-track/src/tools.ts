@@ -21,7 +21,7 @@ import type { FlowSwitch } from "./switch.ts";
 export interface ToolDef {
   name: string;
   description: string;
-  /** 注册用短说明（用途一句 + 指向 tool_consult）；完整说明在 `description`。 */
+  /** 注册用短说明（用途一句 + 指向 consult_tools）；完整说明在 `description`。 */
   summary?: string;
   parameters: Record<string, unknown>;
   execute(
@@ -95,7 +95,7 @@ function flowRecordTool(deps: ToolDeps): ToolDef {
       "边界: 只记流程, 不改任务树与追踪文档；要回退整段进度用 flow_rollback, 要清记录用 flow_remove。\n" +
       "相关: flow_status、flow_rollback、flow_remove、task_decompose、task_status。",
     summary:
-      "用途: 把标准流程的一次推进写进项目层流程记录; 完整说明与参数 schema 经 tool_consult 查询。",
+      "用途: 把标准流程的一次推进写进项目层流程记录; 完整说明与参数 schema 经 consult_tools 查询。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -193,7 +193,7 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
       "边界: 阶段名靠任务帧标题匹配（标题需以阶段名开头）；没有阶段树时只报记录。\n" +
       "相关: flow_record、flow_remove、task_status。",
     summary:
-      "用途: 读当前流程推进状态（当前阶段 / 门禁 / 最近记录）; 完整说明与参数 schema 经 tool_consult 查询。",
+      "用途: 读当前流程推进状态（当前阶段 / 门禁 / 最近记录）; 完整说明与参数 schema 经 consult_tools 查询。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -254,7 +254,7 @@ function flowEnableTool(deps: ToolDeps): ToolDef {
       "边界: 只切开关, 不写流程记录；状态只在内存, 进程结束即回到关闭（用户面同款入口是 /flow-track on|off|status）。\n" +
       "相关: flow_status、flow_record、/flow-track 命令。",
     summary:
-      "用途: 打开或关闭本插件的上下文注入开关（只在内存）; 完整说明与参数 schema 经 tool_consult 查询。",
+      "用途: 打开或关闭本插件的上下文注入开关（只在内存）; 完整说明与参数 schema 经 consult_tools 查询。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -293,7 +293,7 @@ function flowRemoveTool(deps: ToolDeps): ToolDef {
       "边界: 只删流程记录, 不动任务树与追踪文档；id 不存在时 removed 为 0。\n" +
       "相关: flow_status、flow_record、task_status。",
     summary:
-      "用途: 删掉项目层的流程记录（按 id 删一条, 或按 slug 删该任务全部）; 完整说明与参数 schema 经 tool_consult 查询。",
+      "用途: 删掉项目层的流程记录（按 id 删一条, 或按 slug 删该任务全部）; 完整说明与参数 schema 经 consult_tools 查询。",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -362,7 +362,7 @@ function flowRollbackTool(deps: ToolDeps): ToolDef {
       "边界: 只删不写——要更新目标阶段内容, 回退后再调 flow_record；目标不早于当前阶段会被拒绝。\n" +
       "相关: flow_record、flow_status、flow_remove。",
     summary:
-      "用途: 把某个任务回退到更早的阶段（清掉目标之后的记录）; 完整说明与参数 schema 经 tool_consult 查询。",
+      "用途: 把某个任务回退到更早的阶段（清掉目标之后的记录）; 完整说明与参数 schema 经 consult_tools 查询。",
     parameters: {
       type: "object",
       additionalProperties: false,

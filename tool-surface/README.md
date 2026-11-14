@@ -14,7 +14,7 @@ DSH（DeepSeek Harness）进程内集成插件：把「注册定义」与「模�
 
 | 环节 | 做法 |
 | --- | --- |
-| 注册定义 | `description` 收为短说明（用途一句 + 指向 `tool_consult`）；`parameters` 换为 `{ type: "object", additionalProperties: true, properties: {} }` 并带一句提示 |
+| 注册定义 | `description` 收为短说明（用途一句 + 指向 `consult_tools`）；`parameters` 换为 `{ type: "object", additionalProperties: true, properties: {} }` 并带一句提示 |
 | 完整内容 | 深拷贝进模块级 catalog，键为工具名（同名后者覆盖前者） |
 | 严格校验 | 包装后的 `execute` 先调宿主 `validateJsonSchemaValue`，有违规就抛 `ToolArgsError`（与宿主同款错误形态，管线落错误结果），校验通过才调原 `execute` |
 | 透传 | `output` / `timeoutMs` / `deferLoading` 与其它字段原样保留；`summary` 只用于生成注册说明，不进注册定义 |
@@ -29,8 +29,8 @@ const registered = wrapToolDefinition({
   name: "demo_tool",
   // 完整说明：用途 / 用法 / 顺序 / 效果 / 边界 / 相关
   description: "用途: …\n用法: …\n边界: …",
-  // 可选短说明；缺省取完整说明首行并补一句指向 tool_consult
-  summary: "用途: …, 完整说明与参数 schema 经 tool_consult 查询。",
+  // 可选短说明；缺省取完整说明首行并补一句指向 consult_tools
+  summary: "用途: …, 完整说明与参数 schema 经 consult_tools 查询。",
   parameters: {
     type: "object",
     additionalProperties: false,

@@ -237,7 +237,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
     };
     for (const tool of flowTools(deps)) {
       try {
-        // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 留给 tool_consult 投递,
+        // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 留给 consult_tools 投递,
         // 参数按完整 schema 在派发前严格校验（tool-surface 包）
         tools.register(wrapToolDefinition(tool));
       } catch (error) {

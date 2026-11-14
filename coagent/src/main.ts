@@ -279,7 +279,7 @@ export function apply(ctx: CoagentHost, config: CoagentConfig = {}): void {
     config: resolved,
     warn: (message) => warn(ctx, message),
   });
-  // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 由 tool_consult 投递,
+  // 注册前套包装层: 模型侧只见短说明与宽松占位, 全文与完整 schema 由 consult_tools 投递,
   // 参数按完整 schema 在派发前严格校验（tool-surface 包）
   ctx.tools?.register(wrapToolDefinition(toToolDef(actions)));
   installExitHook();

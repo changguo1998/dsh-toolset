@@ -53,7 +53,7 @@ test("tool-consult：短清单常驻, 条件工具隐藏, 揭示不改声明", a
 
   const shortView = before.find((tool) => tool.name === "fs_digest");
   assert.ok(shortView);
-  assert.match(String(shortView.description), /tool_consult/);
+  assert.match(String(shortView.description), /consult_tools/);
   assert.equal(shortView.parameters?.["additionalProperties"], true);
 
   // 未揭示：派发被门禁拒绝。

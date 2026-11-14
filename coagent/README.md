@@ -22,7 +22,7 @@ DSH（DeepSeek Harness）进程内集成插件：在 herdr **终端**的交互 s
 
 **动作面故意不含**：`send` / `wait` / `cancel` / `read`。`coagent` 不转发任何对话内容，也不解析任务结果。
 
-注册定义接入 `tool-surface` 包装层（2026-11-13 起, 与全仓其他工具包同口径）：模型侧只见短说明与宽松占位, 完整说明与参数 schema 经 `tool_consult` 投递, 派发前按完整 schema 严格校验。
+注册定义接入 `tool-surface` 包装层（2026-11-13 起, 与全仓其他工具包同口径）：模型侧只见短说明与宽松占位, 完整说明与参数 schema 经 `consult_tools` 投递, 派发前按完整 schema 严格校验。
 
 ### 状态与落盘
 

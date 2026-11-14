@@ -90,7 +90,7 @@ test("pre-execute: 未揭示 deny / 初始与咨询入口 allow / 揭示后 allo
     {
       kind: "deny",
       reason:
-        "tool hash_read 未在当前会话揭示, 请先经 tool_consult 查询后再调用",
+        "tool hash_read 未在当前会话揭示, 请先经 consult_tools 查询后再调用",
       info: { name: "TOOL_NOT_REVEALED", code: "TOOL_NOT_REVEALED" },
     },
   );

@@ -70,15 +70,15 @@ test("shadow 定义换位：短说明 + 宽松占位，全文进 catalog", () =>
   const agent = app.addAgent({ id: "shadow-shape" });
   const shadow = app.host.scoped.get(agent.id)?.get("hash_read");
   assert.ok(shadow);
-  assert.ok(shadow.description.includes("tool_consult"));
+  assert.ok(shadow.description.includes("consult_tools"));
   assert.deepEqual(shadow.parameters, {
     type: "object",
     additionalProperties: true,
     properties: {},
-    description: "完整参数 schema 经 tool_consult 查询",
+    description: "完整参数 schema 经 consult_tools 查询",
   });
   assert.ok(
-    shadow.description.includes("完整说明与参数 schema 经 tool_consult 查询。"),
+    shadow.description.includes("完整说明与参数 schema 经 consult_tools 查询。"),
   );
   assert.equal(
     app.host.scoped.get(agent.id)?.get("hash_read")?.parameters[
@@ -144,7 +144,7 @@ test("门禁：未揭示的受管工具被拒，初始与咨询入口放行；�
     {
       kind: "deny",
       reason:
-        "tool hash_read 未在当前会话揭示, 请先经 tool_consult 查询后再调用",
+        "tool hash_read 未在当前会话揭示, 请先经 consult_tools 查询后再调用",
       info: { name: "TOOL_NOT_REVEALED", code: "TOOL_NOT_REVEALED" },
     },
   );

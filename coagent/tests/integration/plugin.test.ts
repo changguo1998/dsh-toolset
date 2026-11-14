@@ -60,12 +60,12 @@ test("注册面: apply 注册唯一工具 coagent，参数面收窄且不订阅�
   assert.deepEqual(assembly.logs, [], "全服务在场时不该有告警");
 
   // 注册前套了 tool-surface 包装：模型侧只见短说明 + 宽松占位, 全文与完整 schema 进 catalog
-  assert.match(String(assembly.tool().description), /tool_consult/);
+  assert.match(String(assembly.tool().description), /consult_tools/);
   assert.deepEqual(assembly.tool().parameters, {
     type: "object",
     additionalProperties: true,
     properties: {},
-    description: "完整参数 schema 经 tool_consult 查询",
+    description: "完整参数 schema 经 consult_tools 查询",
   });
 
   const entry = lookupSurface("coagent");
