@@ -76,6 +76,8 @@
 
 - `tool_consult` 指向名统一（2026-11-14 完成, 提交 `c18042cd`）: 模型可见文本里的旧指向名 `tool_consult` 统一为实际注册名 `consult_tools`（`tool-consult/src/tool.ts` `CONSULT_TOOL_NAME`）——tool-surface 包装提示 / tool-consult 未揭示拒绝文案 / flow-track 工具 summary / 各包与根 README 双侧; 纯文本统一, 不改注册名与行为; 追踪文档 `docs/archived/2026-11-14-tool-consult-name-unify.md`（39 包 check / test 全绿, e2e 40/41 唯一红为计划废弃的 ponytail, check:docs 通过）。
 
+- AGENTS.md 瘦身整理（2026-11-14 完成, 提交 `8bf32c69`）: 项目根 `AGENTS.md` 从 108 行瘦身到 62 行, 只留每次会话必读的行为规范（语言约定 / 常用命令 / 格式化 / 变更流程 / 内容变更规范简版 / 文档与结构约定 / Git）; 命令全量 / 一键安装 / 构建部署到 profile 外移到新建 `docs/DEVELOPMENT.md`, 39 包逐包职责与 `DESIGN.md` 口径外移到新建 `docs/PACKAGES.md`; 根 `README.md` / `README.zh.md` 文档索引双侧同步（追踪文档 `docs/archived/2026-11-14-agents-md-reorg.md`, check:docs 122 篇通过）。
+
 ## 2. 未完成项
 
 - **自研 plan 模式（替代官方 plan-mode）**（2026-11-11, 用户提出, 优先级 P2, 状态: 未接取）: 官方 plan-mode 只注入 `plan:policy` 并条件挂载 `exit_plan_mode`, 不拦截写工具, policy 也不保证模型遵守; 已裁定先禁用官方 plan-mode, 清掉 `/plan` 相关接线. 期望: 本仓自研可执行的 plan 模式, 具备探索 / 计划 / 实施阶段门禁; 具体机制与接口待设计, 设计前不接取. 来源: 2026-11-11 会话.
