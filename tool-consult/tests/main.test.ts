@@ -380,7 +380,15 @@ test("pinNotes 缺席：揭示仍写授权, 只告警一次", async () => {
   assert.equal(
     app.host.logs.filter((entry) => entry.message.includes("pinNotes 不可用"))
       .length,
-    2,
-    "apply 一次 + 首次揭示一次",
+    1,
+    "首次揭示告警一次",
+  );
+  assert.ok(
+    app.host.logs.some(
+      (entry) =>
+        entry.level === "info" &&
+        entry.message.includes("ctx.pinNotes 当前不可用"),
+    ),
+    "apply 只记 info, 不阻断",
   );
 });

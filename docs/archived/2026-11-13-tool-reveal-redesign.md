@@ -222,9 +222,10 @@
 - 全量: 39 包 `pnpm run check` / `build` / `test` 全绿; `check:docs` 通过（120 篇 Markdown / 970 个 .ts, 0 错误 0 警告）.
 - e2e: `e2e/tool-consult.test.ts` 与 `e2e/tool-surface.test.ts` 3 例全绿（`tool-surface` 先挂）; 全量 e2e 40 / 41, 唯一红为计划废弃的 `e2e/ponytail.test.ts`.
 - 部署: 按用户要求不动主 profile; 已用 `scripts/install.sh --profile fff-test --mode link --no-test-profile --sync --skip-dsh --skip-build` 更新伴随 profile; `tool-surface` 与 `tool-consult` 的 realpath 均指向仓库, bundle 顺序 `tool-surface` 第 51 行先于 `tool-consult` 第 83 行.
-- 真机 header: 伴随 profile 两个独立会话各 78 个工具, `tools` 规范化 JSON 的 SHA-256 均为 `117dc9928e8b5531`（字节一致）; 14 个完整定义 = 13 个已就绪初始工具 + `consult_tools`（`web_search` 因 readiness 未就绪缺席）; 64 个短定义; `fs_digest` 短说明 82 字符, `hash_read` 108 字符; `team_task_list` / `exit_plan_mode` / `propose_action` 均不在 header.
+- 真机 header: 伴随 profile 三个独立会话各 78 个工具, `tools` 规范化 JSON 的 SHA-256 均为 `117dc9928e8b5531`（字节一致）; 14 个完整定义 = 13 个已就绪初始工具 + `consult_tools`（`web_search` 因 readiness 未就绪缺席）; 64 个短定义; `fs_digest` 短说明 82 字符, `hash_read` 108 字符; `team_task_list` / `exit_plan_mode` / `propose_action` 均不在 header.
 - 机读复核: 短定义满足 `parameters.additionalProperties === true` 且 `properties === {}`; 白名单内 `web_fetch` 保持完整定义.
-- 未验证: 伴随 profile 的 `tg` provider 缺 `TOLLGATE_API_KEY`（`MISSING_CREDENTIAL`）, 因此真机模型未走完「先拒 / 揭示 / 再调」闭环; 该闭环由 e2e 真实宿主用例覆盖（揭示前后 `schemas` 深相等、未揭示 `TOOL_NOT_REVEALED`、揭示后放行）.
+- 真机闭环: 随机 `TOLLGATE_API_KEY` 下的 5 步会话只有 1 条 `request/header`（揭示前后未重建 header）; 第 1 步 `fs_digest` 被 `TOOL_NOT_REVEALED` 拒绝, 第 2 步 `consult_tools` 揭示, 第 3 步 `fs_digest` 带 `path` 调用成功; 第 2 步后出现 `source.kind = "pin-note"` 的 user 消息, 正文含 `[tool-consult] 已揭示工具 fs_digest`、完整 `description` 与 `input_schema`（`required: ["path", "mode"]`）.
+- 真机测试说明: 伴随 profile 可用随机字符串作为 `TOLLGATE_API_KEY` 环境变量启动会话, 只用于本地请求链路验收; 该值不写入仓库、文档或日志.
 
 ### 遗留
 
@@ -243,4 +244,5 @@
 - 2026-11-13: 按 A 口径将 `restrict` 失败 / `schemas` 残留与自检失败统一为整体不接管; 待开工.
 - 2026-11-14: 阶段 A 至 G 实现完成; 提交 `cc8d4ee1`.
 - 2026-11-14: 包级 / 全量 check / build / test 与 check:docs 全绿; 两条工具 e2e 全绿; 全量 e2e 唯一红为计划废弃的 ponytail.
-- 2026-11-14: 伴随 fff-test 软链接 profile 已同步; 两个真实会话 header 字节一致; 主 profile 按用户要求留待人工安装.
+- 2026-11-14: 伴随 fff-test 软链接 profile 已同步; 三个真实会话 header 字节一致; 主 profile 按用户要求留待人工安装.
+- 2026-11-14: 随机 `TOLLGATE_API_KEY` 下补测真机闭环: 5 步只有 1 条 header, 未揭示拒绝 → 揭示 → 再调成功, pinNotes 全文与 schema 已投递; 修复 pinNotes 改为揭示时懒解析（原 apply 时捕获会漏掉后挂载的 pin-note）.

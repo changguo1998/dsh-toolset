@@ -14,7 +14,7 @@
 
 `[x]` 已实现并合入 main，改动位置如下（单测数与首版边界见状态表）：
 
-- 工具揭示架构重设计（缓存友好，2026-11-14 完成，提交 `cc8d4ee1`）：`tool-consult` 首请求起常驻全量短清单；初始 14 个工具保留完整定义，其余非初始、非条件工具在 agent 作用域 shadow 成短说明；`allowedWhenTools` 白名单外的条件工具由一次静态 `restrict({ deny })` 完全隐藏；揭示只写会话授权并按工具登记 `pinNotes.hold` 投递全文，未揭示的受管工具由 `tools/pre-execute` 以 `TOOL_NOT_REVEALED` 拒绝；catalog 自检 / deny 失败 / schema 残留时不接管。单测 100 + 集成 10 + e2e 3 全绿，全仓 39 包 check / build / test 与 check:docs 全绿；伴随 `fff-test` profile 真机两个会话 header 字节一致；主 profile 待人工安装。追踪文档 `docs/archived/2026-11-13-tool-reveal-redesign.md`。
+- 工具揭示架构重设计（缓存友好，2026-11-14 完成，提交 `cc8d4ee1`）：`tool-consult` 首请求起常驻全量短清单；初始 14 个工具保留完整定义，其余非初始、非条件工具在 agent 作用域 shadow 成短说明；`allowedWhenTools` 白名单外的条件工具由一次静态 `restrict({ deny })` 完全隐藏；揭示只写会话授权并按工具登记 `pinNotes.hold` 投递全文，未揭示的受管工具由 `tools/pre-execute` 以 `TOOL_NOT_REVEALED` 拒绝；catalog 自检 / deny 失败 / schema 残留时不接管。单测 100 + 集成 10 + e2e 3 全绿，全仓 39 包 check / build / test 与 check:docs 全绿；伴随 `fff-test` profile 真机三个会话 header 字节一致，随机 key 下补测「未揭示拒绝 → 揭示 → 再调成功」且 5 步只有 1 条 header；主 profile 待人工安装。追踪文档 `docs/archived/2026-11-13-tool-reveal-redesign.md`。
 
 - 任务控制：task-engine（Frame 状态机、工具族、双重门禁、RET 三级路由、step 裁决、**叶子执行后端**：`executor` 声明 + `task_execute` 工具 + `subagent` / `workflow` / `command` 后端 + 用量计量，追踪文档 `docs/archived/2026-10-02-injection-timing-naming-warn-executor.md`）、fan-out 就绪池、goal-contract、metric-loop；
 

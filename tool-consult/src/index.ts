@@ -166,8 +166,8 @@ interface AgentRuntime {
   listeners: Array<() => void>;
   /** 全局定义里的完整说明与 schema（shadow 之后仍可投递）。 */
   fullDocs: Map<string, SurfaceDoc>;
-  /** 本插件实例的 pinNotes 服务（缺席时为 undefined）。 */
-  pinNotes: PinNotesFace | undefined;
+  /** 插件根上下文（pinNotes 等可选服务在揭示时懒解析）。 */
+  pluginCtx: HostCtx;
   /** 本代理已就关键失败告警过一次。 */
   warnedOnce: boolean;
   /** pinNotes 缺席已告警过一次。 */
@@ -405,7 +405,7 @@ function revealPayload(toolName: string, doc: SurfaceDoc): string {
 /** 按工具登记 pinNotes.hold（每个工具 key 固定一次）。 */
 function ensureHold(runtime: AgentRuntime, toolName: string): void {
   if (HOLD_DISPOSERS.has(toolName)) return;
-  const pinNotes = runtime.pinNotes;
+  const pinNotes = asPinNotes(runtime.pluginCtx.get?.("pinNotes"));
   if (pinNotes === undefined) {
     if (runtime.warnedPinNotes) return;
     runtime.warnedPinNotes = true;
@@ -625,7 +625,6 @@ function setupAgent(
   tools: HostTools,
   config: ResolvedConfig,
   owned: Set<AgentRuntime>,
-  pinNotes: PinNotesFace | undefined,
 ): void {
   if (
     agent === undefined ||
@@ -651,7 +650,7 @@ function setupAgent(
     consultDisposer: undefined,
     listeners: [],
     fullDocs: new Map(),
-    pinNotes,
+    pluginCtx: ctx,
     warnedOnce: false,
     warnedPinNotes: false,
     applying: false,
@@ -660,7 +659,7 @@ function setupAgent(
     teardownRegistrations(runtime);
     runtime.agent = agent;
     runtime.config = config;
-    runtime.pinNotes = pinNotes;
+    runtime.pluginCtx = ctx;
     runtime.warnedOnce = false;
     runtime.warnedPinNotes = false;
   }
@@ -852,10 +851,11 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
 
   const pinNotes = asPinNotes(ctx.get?.("pinNotes"));
   if (pinNotes === undefined) {
+    // 可选服务可能在插件之后才挂载；此处只作提示，真正投递在揭示时懒解析。
     log(
       ctx,
-      "warn",
-      "ctx.pinNotes 不可用：揭示仍写授权，但完整说明与 schema 不会投递（请检查 pin-note 是否挂载）",
+      "info",
+      "ctx.pinNotes 当前不可用：揭示时再解析；若届时仍缺席，只告警一次且不阻断授权。",
     );
   }
 
@@ -864,7 +864,7 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
 
   const created = ctx.on?.("agent/created", (...args: unknown[]) => {
     const payload = args[0] as { agent?: HostAgent } | undefined;
-    setupAgent(payload?.agent, ctx, tools, config, owned, pinNotes);
+    setupAgent(payload?.agent, ctx, tools, config, owned);
   });
   if (typeof created === "function")
     globalListeners.push(created as () => void);
@@ -909,5 +909,5 @@ export function apply(ctx: HostCtx, rawConfig?: Config): void {
 
   // 热挂载：对已存在的代理补做。
   for (const agent of agents.list())
-    setupAgent(agent, ctx, tools, config, owned, pinNotes);
+    setupAgent(agent, ctx, tools, config, owned);
 }
