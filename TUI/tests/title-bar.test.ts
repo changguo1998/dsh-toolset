@@ -237,7 +237,9 @@ test("P7 标题栏：窄宽让位顺序 ① preset → ③ 符号组（标题优
     "宽：全显示",
   );
   // 中宽：preset 让位，符号组仍在（标题保留 ≥8 列）
-  const mid = titleText(s, 44);
+  // 46 = 全宽 100 与极窄 20 之间、使内容区落在「preset 让位但符号组仍在」区间
+  // （组间 `•` 两侧加空格后符号组宽 2 列，44 列内容区只剩 24 列已触发符号组让位）
+  const mid = titleText(s, 46);
   assert.ok(!mid.includes("fff"), `preset 先让位: ${mid}`);
   assert.ok(mid.includes(TITLE_ICON.boxClosed), `符号组仍在: ${mid}`);
   assert.ok(mid.includes("会话标题"), `标题完整: ${mid}`);

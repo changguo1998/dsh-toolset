@@ -156,9 +156,9 @@ export function titleBarSegments(
     pushTo(flowSegs, TITLE_ICON.flowTrack, switches.flowTrack ? on : off);
   // daemon 开关：**始终显示**（未读到服务时按关灰），开关语义只在这里表达，状态列不再写「开/关」
   pushTo(mainSegs, TITLE_ICON.daemon, switches.daemon === true ? on : off);
-  // 组间以 `•` 圆点分隔（工作流组恒在右端; 任一组为空则不加点）
+  // 组间以 `•` 圆点分隔（工作流组恒在右端; 任一组为空则不加点）; 点两侧各 1 空格
   const symSegs: FrameSegment[] = [...mainSegs];
-  if (mainSegs.length > 0 && flowSegs.length > 0) symSegs.push(seg("•"));
+  if (mainSegs.length > 0 && flowSegs.length > 0) symSegs.push(seg(" • "));
   symSegs.push(...flowSegs);
 
   const rawTitle = (state.sessionTitle ?? "").trim();
