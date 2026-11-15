@@ -1,10 +1,10 @@
 # 包清单与职责
 
-> 职责：42 个包（TUI + 41 个插件）的一句话职责、TUI 目录要点、`DESIGN.md` 轻重包口径
+> 职责：41 个包（TUI + 40 个插件）的一句话职责、TUI 目录要点、`DESIGN.md` 轻重包口径
 > 不负责：各包的详细用法 / 配置 / 契约（见各包 `README.md` 与其 docs/）；面向人的能力表见根 `README.md` 的 `Composition` 一节
 > 过期条件：新增 / 删改包时随仓库维护
 
-本仓 42 个包 = `TUI/` 终端界面包 + 41 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `ponytail` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
+本仓 41 个包 = `TUI/` 终端界面包 + 40 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
 
 ## TUI
 
@@ -39,7 +39,6 @@
 | session-channel | 跨会话消息通道（专用 Redis 实例 + unix socket）、alias / 共享 KV / 跨会话委托 |
 | session-title-cutoff | 会话标题 provider：all-prompts 触发不变，参考窗口改为最近一次 `git commit` 之后 |
 | command-template | 模板体系：slash 命令模板 + 模板级模型选择，双源模板目录 |
-| ponytail | ponytail 模式：会话起始注入「懒资深工程师」决策阶梯；rule-engine 消费者；缺省开启，显式 `enabled: false` 关闭 |
 | md-table-check | 回复正文表格列数检查：`assistant-text` 上的 rule-engine 消费者，只报不改 |
 | script-interpreter | 模型侧脚本解释器：`script_run` 在当前 worktree 内受控执行 Python 等脚本，单次执行、不保状态 |
 | agent-group | 群组编排：组 / 成员 / 主从连接（含等级）/ 指令与回报，懒判定结算；只读面 `agentGroup.summary(sessionId)` |
@@ -58,4 +57,4 @@
 
 ## DESIGN.md 口径（2026-10-04 裁定）
 
-有独立架构与机制沉淀的包必须有 `DESIGN.md` —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `ponytail` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group` / `coagent`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base` / `escalation-hint` / `tool-consult` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。
+有独立架构与机制沉淀的包必须有 `DESIGN.md` —— 现有 `TUI` / `task-engine` / `memory-base` / `session-channel` / `code-map` / `rule-engine` / `symbol-normalizer` / `output-compress` / `command-template` / `md-logic` / `md-map` / `preference-analysis` / `agent-group` / `coagent`；**轻量包只留 `README.md`（`BACKLOG.md` 按需）**：`ast-tools` / `context-report` / `fs-digest` / `goal-contract` / `hash-edit` / `herdr-integration` / `metric-loop` / `security-guard` / `session-title-cutoff` / `md-table-check` / `herdr-use` / `auto-approve` / `background-daemon` / `session-paths` / `script-interpreter` / `behavior-correction` / `clock-base` / `escalation-hint` / `tool-consult` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`（能力面已在 README 讲清，另写 DESIGN 只会重复；某包机制变厚——出现跨组件协议 / 状态机 / 时序契约——时再补）。

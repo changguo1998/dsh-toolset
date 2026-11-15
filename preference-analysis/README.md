@@ -6,7 +6,7 @@ memory-base 项目层 → 经 `rule-engine` 消费者注入后续会话。模型
 
 ## 定位
 
-仓内的静态约定（`~/.dsh/AGENTS.md`、项目 `AGENTS.md`、`rule-engine` 规则表、`ponytail` 阶梯、`symbol-normalizer` 符号表）全是**人工写定**的，没有生产者——本包补上这个生产者：从「用户反复要求同一件事」「被打断后重新强调」「审批里连续拒绝同一类操作」里归纳偏好，闭环可审阅、可撤销、可老化。
+仓内的静态约定（`~/.dsh/AGENTS.md`、项目 `AGENTS.md`、`rule-engine` 规则表、`symbol-normalizer` 符号表）全是**人工写定**的，没有生产者——本包补上这个生产者：从「用户反复要求同一件事」「被打断后重新强调」「审批里连续拒绝同一类操作」里归纳偏好，闭环可审阅、可撤销、可老化。
 
 ## 能力
 
@@ -92,7 +92,7 @@ pinNotes.hold("preference", () => plugin.decide()?.text)
 
 - `pin-note`：**动态保持通道**（`pinNotes.hold("preference", ...)`；pin-note 未挂载时只记录不注入）。
 - `memory-base`：**分层存储面**（项目层句柄 + 隐私闸 + 检索）；提升链 / 审阅队列等管理逻辑不在本包依赖里。
-- `ponytail` / `symbol-normalizer`：固定约定，不参与归纳；偏好与它们重复时**不自动抑制**，由用户撤销或退休。
+- `symbol-normalizer`：固定约定，不参与归纳；偏好与它重复时**不自动抑制**，由用户撤销或退休。
 - `AGENTS.md`：仍是最高的静态约定；本包**不自动改仓内文件**。
 
 ### 相关文档

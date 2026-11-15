@@ -35,7 +35,6 @@ The repository contains the `TUI/` terminal UI package and 41 in-process plugins
 | **rule-engine** | Rule-triggered automatic injection: matches model text, tool calls and turn boundaries by keyword/regex/built-in predicate, then injects a user-role message as a new turn (`followup`), onto the nearest pre-step with a wake (`steer`), or without one (`inject`); exposes a per-node consumer registration surface (`registerConsumer`, `sources` defaulting to `turn-end`, asked synchronously, injected centrally) and a read-only `evaluate` |
 | **behavior-correction** | Behavior correction (rule-engine guard consumer on `tools/pre-execute`): before a tool runs, matches the tool name plus its argument string against its own config rule table and, on a hit, denies the call with a reason naming the dedicated tool. The default rule blocks `bash` commands containing `herdr` and points at `herdr_run` / `herdr_text` / `herdr_key` (write) and `herdr_read` / `herdr_list` (read), and a second default rule parses command positions with `@dsh-toolset/shell-parse` and blocks running an interpreter there (python / node / ruby / perl / php / lua / deno / bun …), pointing at `script_run`; `rules` replaces the table wholesale, an empty array / `enabled: false` disables blocking, and `ruleEngine` is a hard dependency (declared in `inject`) that degrades to a warning if the surface is missing at runtime |
 | **symbol-normalizer** | Symbol normalization: presentation-layer normalization of symbols in model text (alias substitution) plus turn review (human notice / model feedback), plugged in as a rule-engine consumer; provides the `symbolNormalizer` service for the TUI to consume |
-| **ponytail** | Lazy senior dev mode (on by default since 2026-10-05; set `enabled: false` to turn off): injects a 7-rung ladder (YAGNI → reuse → stdlib → platform → installed deps → one line → minimal code) at session start. |
 | **md-table-check** | Reply-body markdown table check (rule-engine consumer on `assistant-text`): compares the cell counts of header / delimiter / data rows and, on mismatch, injects one consolidated prompt (header line + excerpt + expected vs actual columns) asking the model to resend the corrected reply. Report-only: it never rewrites the reply or any file, ignores column-count-consistent tables, width-driven fallbacks and pseudo-tables |
 | **auto-approve** | Approval-chain auto-decision: answers `approval/request` with `allowed-once` / `rejected` through a priority ladder (deny list → same-session fingerprint → same-session form coverage → read-only tools → path / command allowlists → sandbox-escalation allowlist → LLM gray-zone review) and delegates unmatched requests to the TUI approval panel. A learning layer turns a manual panel approval into form-level coverage (quoted strings / long hex / numbers masked, minimal generalization after a second successful observation, LLM admission review, restart rehydration from the session log) with `learn off|on|list|undo|clear`. Audits both a session JSONL and a memory-base `approval_audit` row (never arguments); `/autoapprove status|mode|on|off|log|clear-fingerprints`; when disabled or not mounted, behavior matches the host's own |
 | **session-channel** | Cross-session message channel (dedicated Redis instance + unix socket): `peers`/`send`/`inbox`/`status`, with messages injected into the target session's next turn (as `[CHANNEL](<source>) <body>`); provides the `sessionChannel` service (aliases, shared KV with last-value + version number, and cross-session delegation: `channel_delegate`/`channel_task`/`channel_task_result` with a task table and automatic or explicit result return) |
@@ -83,7 +82,6 @@ dsh-toolset/
 ├── rule-engine/          # rule-triggered automatic injection (rules / consumer surface + injector)
 ├── behavior-correction/  # behavior correction (rule-engine guard consumer on tools/pre-execute; default: no herdr in bash)
 ├── symbol-normalizer/    # symbol normalization (presentation aliasing + turn review; rule-engine consumer)
-├── ponytail/             # ponytail mode (decision-ladder injection; rule-engine consumer; on by default)
 ├── md-table-check/       # reply-body table column check (rule-engine consumer; on by default, report-only)
 ├── auto-approve/         # approval-chain auto-decision (approval/request answerer; dual audit sinks)
 ├── background-daemon/    # in-process scheduling for session delivery (/daemon + daemon_task; records in memory-base)
@@ -131,7 +129,7 @@ Inside a single subpackage you can run its own `pnpm run check / build / test / 
 
 ## Wiring into a DSH profile
 
-One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 42 packages: TUI + 41 plugins):
+One-shot install on a new machine (install dsh → build all plugins → create a profile mounting 41 packages: TUI + 40 plugins):
 
 ```sh
 git clone <this repo> && cd dsh-toolset
@@ -186,7 +184,7 @@ Two change flows: `docs/WORKFLOW-STANDARD.md` (standard) and `docs/WORKFLOW-FAST
 - `docs/WORKFLOW-FAST.md` — content change policy · fast flow (small changes).
 - `docs/GLOSSARY.md` — terminology: choices and replacement tables (packages / plugins, tracking documents, symbols, UI names).
 - `docs/DEVELOPMENT.md` — agent-facing development guide: full command list, one-shot install, building and deploying to profiles (reference only; the short form lives in `AGENTS.md`).
-- `docs/PACKAGES.md` — package catalog: one-line responsibility for all 42 packages (TUI + 39 plugins), the TUI directory layout and the DESIGN.md policy.
+- `docs/PACKAGES.md` — package catalog: one-line responsibility for all 41 packages (TUI + 40 plugins), the TUI directory layout and the DESIGN.md policy.
 - `docs/implementation/`, `docs/archived/` — tracking documents for cross-package items (in progress / closed).
 
 **Host surface (`docs/host/`, outside the change process — always re-check after a host upgrade)**
@@ -202,7 +200,7 @@ The home for official interface study notes and upgrade documents — **not limi
 **Module-level (`TUI/docs/`, `<package>/docs/`)**
 
 - `TUI/README.md`, `<package>/README.md` — module entry points: usage, configuration, contracts, boundaries.
-- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `ponytail`, `command-template`, `md-logic`, `md-map`, `preference-analysis`, `agent-group`, `coagent`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
+- `TUI/docs/DESIGN.md`, `<package>/docs/DESIGN.md` — architecture design and mechanism tradeoffs (present for `TUI`, `task-engine`, `memory-base`, `session-channel`, `code-map`, `rule-engine`, `symbol-normalizer`, `output-compress`, `command-template`, `md-logic`, `md-map`, `preference-analysis`, `agent-group`, `coagent`; lightweight packages keep `README.md` + `docs/BACKLOG.md` only).
 - `TUI/docs/SPEC.md` — rendering pipeline spec; `TUI/docs/COMMANDS.md`, `TUI/docs/COMMANDS-SPEC.md` — command inventory and extension spec.
 - `TUI/docs/design/` — TUI-internal conventions: `NOTICE-LEVELS.md` (notice levels), `AUDIT-colors.md` (color semantics), `REFACTOR.md` (module split conventions).
 - `<module>/docs/BACKLOG.md` — module backlog (one per module where work is pending); `<module>/docs/STATUS.md` — module-level reference document (TUI has one).

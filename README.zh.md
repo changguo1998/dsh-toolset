@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 
 ## 组成
 
-仓库含 `TUI/` 终端界面包与 41 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
+仓库含 `TUI/` 终端界面包与 40 个进程内集成插件，均为独立 npm 包（`@dsh-toolset/*`）：
 
 | 包 | 功能 |
 |----|------|
@@ -35,7 +35,6 @@ DSH（DeepSeek Harness）进程内集成插件集：以 cordis bundle 方式挂�
 | **rule-engine** | 规则触发的自动注入：按关键词/正则/内置谓词匹配模型正文、工具调用与回合边界，命中后作为独立新回合（`followup`）、挂到最近 pre-step 并唤醒（`steer`）或不唤醒（`inject`）注入 user-role 消息；提供按节点的消费者注册面（`registerConsumer`，`sources` 缺省 `turn-end`，同步询问、统一注入）与只读 `evaluate` |
 | **behavior-correction** | 行为纠正（`tools/pre-execute` 上的 rule-engine guard 消费者）：在工具执行前按自身 config 的规则表比对工具名 + 参数字符串，命中即拒绝该调用、理由写明该改用的专用工具。缺省规则拦下 `bash` 里含 `herdr` 的命令并指向 `herdr_run` / `herdr_text` / `herdr_key`（写类）与 `herdr_read` / `herdr_list`（查看类），另一条缺省规则经 `@dsh-toolset/shell-parse` 解析命令位、拦下命令位跑解释器（python / node / ruby / perl / php / lua / deno / bun 等）并指向 `script_run`；`rules` 给即整体替换，空数组 / `enabled: false` 不拦；`ruleEngine` 是硬依赖（写进 `inject`），运行期服务缺席只告警、不拦截 |
 | **symbol-normalizer** | 符号规范：模型正文符号的展示层归一（别名替换）+ 回合审查（人类 notice / 模型反馈），以 rule-engine 消费者形式接入；provide `symbolNormalizer` 服务供 TUI 消费 |
-| **ponytail** | ponytail 模式（2026-10-05 起缺省开启；`enabled: false` 关闭）：会话起始注入「懒资深工程师」7 级决策阶梯（YAGNI → 复用 → 标准库 → 平台特性 → 已装依赖 → 一行 → 最少代码）。 |
 | **md-table-check** | 回复正文表格列数检查（`assistant-text` 上的 rule-engine 消费者）：逐行比对表头 / 分隔行 / 数据行的单元格数，不一致时注入一条汇总提示（表头行号 + 摘录 + 期望与实际列数），要求模型更正后重新回复。只报不改：不改写回复正文与任何文件；列数一致的表格、宽度退回的表格与伪表格都不报 |
 | **auto-approve** | 审批链自动裁定：作为 `approval/request` 应答者按优先级阶梯（拒绝名单 → 会话指纹 → 形态覆盖层 → 只读类 → 路径 / 命令白名单 → 沙箱升级白名单 → LLM 灰区审查）给出 `allowed-once` / `rejected`，未命中交 TUI 审批面板；**人工放行学习**：把面板放行沉淀为同会话的形态覆盖（引号串 / 长 hex / 数字抹值，第二次成功观测才做最小泛化，LLM 准入审阅，重启从会话日志回填），命令面 `learn off|on|list|undo|clear`；审计双写（会话 JSONL + memory-base `approval_audit`，不记参数原文）；`/autoapprove status|mode|on|off|log|clear-fingerprints`；关闭或未挂载时行为与宿主原生一致 |
 | **session-channel** | 跨会话消息通道（专用 Redis 实例 + unix socket）：`peers`/`send`/`inbox`/`status`，消息注入目标会话的下一回合（形如 `[CHANNEL](来源) 正文`）；provide `sessionChannel` 服务（含别名、共享 KV：last-value + 版本号，以及跨会话委托：`channel_delegate`/`channel_task`/`channel_task_result` + 任务表 + 结果自动/显式回传） |
@@ -83,7 +82,6 @@ dsh-toolset/
 ├── rule-engine/          # 规则触发的自动注入（规则 / 消费者面 + 注入器）
 ├── behavior-correction/  # 行为纠正（rule-engine 的 tools/pre-execute guard 消费者；缺省拦 bash 里的 herdr）
 ├── symbol-normalizer/    # 符号规范（展示归一 + 回合审查，rule-engine 消费者）
-├── ponytail/             # ponytail 模式（决策阶梯注入；rule-engine 消费者；缺省开启）
 ├── md-table-check/       # 回复正文表格列数检查（rule-engine 消费者；缺省开启，只报不改）
 ├── auto-approve/         # 审批链自动裁定（approval/request 应答者；审计双写）
 ├── background-daemon/    # 面向会话投递的进程内调度（/daemon + daemon_task；记录落 memory-base）
@@ -131,7 +129,7 @@ pnpm run test:smoke        # goal-contract / metric-loop / output-compress / sec
 
 ## 接入 DSH profile 使用
 
-新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 42 个包：TUI + 41 个插件）：
+新机器一键安装（装 dsh → 构建全部插件 → 建 profile 挂载 41 个包：TUI + 40 个插件）：
 
 ```sh
 git clone <本仓库> && cd dsh-toolset
@@ -186,7 +184,7 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 - `docs/WORKFLOW-FAST.md` — 内容变更规范 · 快速流程（小改动）。
 - `docs/GLOSSARY.md` — 术语表：术语选择与替换表（包 / 插件、追踪文档、符号、界面名等）。
 - `docs/DEVELOPMENT.md` — 面向 agent 的开发与部署手册：命令全量、一键安装、构建到 profile 部署（查用型；简版在 `AGENTS.md`）。
-- `docs/PACKAGES.md` — 包清单：42 个包（TUI + 41 插件）一句话职责、TUI 目录要点与 `DESIGN.md` 口径。
+- `docs/PACKAGES.md` — 包清单：41 个包（TUI + 40 插件）一句话职责、TUI 目录要点与 `DESIGN.md` 口径。
 - `docs/implementation/`、`docs/archived/` — 跨包条目的追踪文档（进行中 / 已关闭）。
 
 **宿主面（`docs/host/`，不参与变更流程，升宿主后必复核）**
@@ -202,7 +200,7 @@ scripts/install.sh --help          # --profile/--profile-test/--no-test-profile/
 **模块级（`TUI/docs/`、`<包>/docs/`）**
 
 - `TUI/README.md`、`<包>/README.md` — 模块入口：用法、配置、契约、边界。
-- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`memory-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`ponytail`、`command-template`、`md-logic`、`md-map`、`preference-analysis`、`agent-group`、`coagent` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
+- `TUI/docs/DESIGN.md`、`<包>/docs/DESIGN.md` — 架构设计与机制取舍（`TUI`、`task-engine`、`memory-base`、`session-channel`、`code-map`、`rule-engine`、`symbol-normalizer`、`output-compress`、`command-template`、`md-logic`、`md-map`、`preference-analysis`、`agent-group`、`coagent` 有；轻量包只留 `README.md` + `docs/BACKLOG.md`）。
 - `TUI/docs/SPEC.md` — 渲染管线规格；`TUI/docs/COMMANDS.md`、`TUI/docs/COMMANDS-SPEC.md` — 命令清单与扩展规格。
 - `TUI/docs/design/` — TUI 内部规范：`NOTICE-LEVELS.md`（提示分级）、`AUDIT-colors.md`（配色语义）、`REFACTOR.md`（模块拆分约定）。
 - `<模块>/docs/BACKLOG.md` — 模块待办（有未完成项的模块各一份）；`<模块>/docs/STATUS.md` — 模块级对照文档（TUI 已有）。

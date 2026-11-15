@@ -1,12 +1,12 @@
 # 本仓插件与官方包的复用审计（基线 DSH 0.2.2-rc.1）
 
-> 职责：回答「本仓 37 个包（TUI + 36 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计快照 31 包：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`；2026-11-03 补审 `coagent` / `tool-consult` / `escalation-hint`，覆盖 34 包）
+> 职责：回答「本仓 37 个包（TUI + 36 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计快照 31 包：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`；2026-11-03 补审 `coagent` / `tool-consult` / `escalation-hint`；2026-11-15 移除 `ponytail`（随包删除），覆盖 33 包）
 > 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.5.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.2-rc.1`（源码 tag 口径 372 个包目录；安装树计数与 fff 活跃挂载数字按 2026-11-07 升级后的实测见 `docs/host/HOST-PACKAGES.md`）；本仓 **37 个包 = TUI + 36 个插件**（审计总表 **34 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行，**尚未覆盖** `term-check` / `pin-note` / `flow-track`；清单见 `AGENTS.md`「结构与约定」）。
+> 口径：官方基线 `dsh 0.2.2-rc.1`（源码 tag 口径 372 个包目录；安装树计数与 fff 活跃挂载数字按 2026-11-07 升级后的实测见 `docs/host/HOST-PACKAGES.md`）；本仓 **37 个包 = TUI + 36 个插件**（审计总表 **33 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行 − 2026-11-15 移除 `ponytail` 1 行，**尚未覆盖** `term-check` / `pin-note` / `flow-track`；清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
-> 结论分布：**改用 0 / 保留 24 / 并存 10**（总表 34 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `ponytail` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`，2026-11-03 补审 3 包：并存 1 `tool-consult`、保留 2 `coagent` / `escalation-hint`）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
+> 结论分布：**改用 0 / 保留 23 / 并存 10**（总表 33 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`，2026-11-03 补审 3 包：并存 1 `tool-consult`、保留 2 `coagent` / `escalation-hint`，2026-11-15 移除 `ponytail`（原保留）1 行）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >
 > 2026-10-20 重审（条目 2，主会话）：29 模块全量入表，7 个缺审包补齐；§4 的 B 已执行、D / E / FTS5 观察项明示关闭（见 §4）；基线于 **2026-10-21 升至 `0.2.1-rc.2`**（追踪文档 `docs/archived/2026-10-21-host-upgrade-0.2.1-rc.2.md`，全局安装 + HOST-PACKAGES 重生成）；§0 回查完成：总表口径更新（安装树 294 / 挂载 100），`background-daemon` 行注记保留（官方 `schedule` 未挂、自动化 #12 与自建链路职责不叠加）。
 
@@ -23,7 +23,6 @@
 | `output-compress` | `spill` / `spill-local` / `spill-policy`、`compaction-tool-result-pruner` | 中 | **并存（互补）** | 官方阈值管**模型可见面**（超预算转 preview + locator）并做 surface 裁剪；我们**读取 spill 通知与文件**做摘要入库。我们从不回写事件 → 不存在「双重截断」；要做的是把分工与阈值语义写进 DESIGN |
 | `rule-engine` | `agent-instructions`、`hook-protocol`、`hooks-*`、**`repeat-tool-reminder`** | 中 | **保留** | 官方有 `agent-instructions`（静态指令文件）、`repeat-tool-reminder`（**单点**内置提醒）与外部 agent 的 hooks 接入；**规则表 + 多节点注入 + 消费者框架**官方无 |
 | `symbol-normalizer` | `agent-instructions` | 低 | **保留** | 符号规范（展示归一 + 回合审查）是项目约定；官方只负责加载指令文件 |
-| `ponytail`（2026-10-05 新增包） | `agent-instructions` | 低 | **保留** | 「懒资深工程师」决策阶梯在会话起始注入（rule-engine 消费者，缺省开启、`enabled: false` 关闭）；官方只负责加载静态指令文件，无「按模式注入阶梯 + 消费者框架」机制 |
 | `memory-base` | `storage` / `storage-domain` / `storage-json`、**`session-query-sqlite`** | 中 | **保留** | 官方**有**检索面，但只覆盖**会话日志**（FTS5 搜索，base 已挂载、缺省 `openAt: never` 未开启）；缺的是**知识条目 / 持久记忆语义**：写穿入库、重要度、合并 / 淘汰 / 巩固与隐私过滤 |
 | `task-engine` | `workflow` / `tool-workflow`、`tool-todo`、`plan-mode` | 中 | **保留** | 官方 workflow 是模型侧脚本编排、todo / plan 是轻状态；**门禁 + 验收（RET）+ 帧状态机 + 执行后端**官方无；执行侧已复用宿主 subagents / workflowEngine / ptcRuntime（reflect 可选读）与 approval / tokenMeter / agentDefaultModel |
 | `goal-contract` | `goal` / `tool-goal`、`userQuestions` | 中 | **保留** | 官方 goal 只有状态与生命周期；「Done-when 契约起草 + 可验证条款」是扩展，且已复用官方 goals / userQuestions |
@@ -98,7 +97,7 @@
 | `hash-edit` / `ast-tools` | inject `tools` / `fs`（`ast-tools` 2026-10-02 起注册 `ast_query` / `ast_replace`，同时保留库 / 服务面；两包写面 2026-11-08 起经 `ctx.fs`，见 §4 D） |
 | `md-logic` | inject `tools` / `fs`（注册 `md_logic`：structure / blocks / links / replace；解析用 `marked` 实例，文件读写经 `ctx.fs`） |
 | `md-map` | inject `tools` / provide `mdMap`（注册 `md_map`：index / refresh / callers / impact / orphans / report / summary）；组合 `md-logic` 的解析，不做解析本身 |
-| `metric-loop` / `herdr-integration` / `symbol-normalizer` / `ponytail` | inject `tools` / `agents` / —（`symbol-normalizer` 与 `ponytail` 消费本仓 `ruleEngine` 服务） |
+| `metric-loop` / `herdr-integration` / `symbol-normalizer` | inject `tools` / `agents` / —（`symbol-normalizer` 消费本仓 `ruleEngine` 服务） |
 | `background-daemon`（2026-10-20 补入） | inject `agents` / `sessions` / `commands` / `tools`；可选 get `guard`；`memory` 经 `ctx.inject(["memory"],cb)` 晚挂（2026-10-20，条目 5+6） |
 
 > 2026-10-20 补审的其余 6 个包（`herdr-use` / `md-table-check` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`）运行时主要消费**本仓**服务面（`ruleEngine` / `guard` / `sessionChannel` / `agentGroup` / `sessionPaths` / `memory`），对官方底座无新增依赖（`script-interpreter` / `herdr-use` / `agent-group` 仅 inject `tools` 面板或服务面）。
