@@ -88,9 +88,9 @@
 
 - ponytail 包移除（2026-11-15 完成）: 按用户裁定从项目**整体移除** `ponytail`（连同包目录下的 `src/` / `tests/` / `docs/` / 构建产物与 `e2e/ponytail.test.ts`, 42 包 → 41 包 / 41 插件 → 40 插件）。计数与挂载面全量同步: `AGENTS.md` / 根 `README.md` / `README.zh.md` / `docs/PACKAGES.md` / `docs/ROADMAP.md` / `docs/WORKFLOW-STANDARD.md` / `docs/DEVELOPMENT.md` / `md-logic` 与 `security-guard` README / `dev/standard/index.mjs`（计数校验 42/41 → 41/40）/ `scripts/install.sh` 与 `test-parallel.sh` 枚举 / `scripts/test-install.sh`（夹具换 term-check, 124 项含 41 包断言）/ `scripts/audit-injection-channels.sh`（T4 段与列表移除）/ `profiles/example/cordis.patch.yml` 停挂块 / `profiles/README.md` / `docs/ARCHITECTURE-REUSE.md` / `preference-analysis` README; 调研文档移入 `archive/ponytail-investigation.md`。验证: check / build / test 全绿、e2e 43/43（原 43/44 唯一红消除）、check:docs 122 篇 0 错误、test-install 124 项全过。追踪文档 `docs/archived/2026-11-15-ponytail-removal.md`。残留: `docs/STATUS.md` 由用户择时更新。
 
-## 2. 未完成项
+- plan 模式段位展示（2026-11-15 完成）: 标题行符号区加 plan 段位——`plan` 图标按段四态着色（灰=未进模式 / 青=探索 / 黄=计划 / 绿=实施）, 数据源懒读 plan-mode 服务面 `planStage.current(sessionId)`（随状态行 ticker 保鲜, 未挂载 / null 按灰）, 不再读宿主 plan/mode; 顺带按用户裁定把工作流符号（plan / flow-track）排到符号区最右、与其余符号（sandbox / policy / verbose / symbol-unify / bell / daemon）以 `•` 圆点分隔。改动: `TUI/src/app/app-deps.ts` / `main.ts` / `state/*`（plan-stage action 三件套）/ `runtime/wiring.ts` / `lifecycle.ts` / `layout/title-bar.ts`, 冻结基线重冻 + title-bar 测试更新。验证: TUI 1891 项全过（含段位四态与分隔新用例）, 全仓 check / build / test 全绿, check:docs 通过。追踪文档 `docs/archived/2026-11-15-plan-stage-display.md`。
 
-- **plan 模式段位展示（TUI 状态行）**（2026-11-15, 自「自研 plan 模式」决策项 7 的 c 拆出, 优先级 P3, 状态: 未接取）: 现状——plan 模式当前段（探索 / 计划 / 实施）与「是否只读」在界面上不可见, 只能靠注入文本与回执推。期望——TUI 状态行加一段位, 显示当前段与只读状态。数据来源: `docs/archived/2026-11-15-plan-mode-status.md` §4.1 阶段 3 的只读服务面 `planStage.current(sessionId)`（返回 `{ stage, readonly }` 或 `null`）; 它未落地前不接取本条。改动位置: `TUI/src/app/`（状态行渲染）。来源: 2026-11-15 决策项 7 的 c（未选, 独立接取）。
+## 2. 未完成项
 
 - **子代理写调用继承父会话阶段**（2026-11-15, 自「自研 plan 模式」决策项 3 的 c 拆出, 优先级 P3, 状态: 未接取）: 现状——子代理的写调用带子会话 id, 父会话的 `tools/pre-execute` 拦截按会话匹配时不命中; 主条目已在只读段拦住 `workflow` / `task_execute` 的发起, 剩下的口子是进入 plan 之前就已存在的子会话, 以及日后新增的派生会话工具。期望——子代理继承父会话的阶段约束; 前置——需宿主提供「父会话身份」到子代理调用面的公开通路（当前未找到, 见追踪文档 §2.4）。来源: 2026-11-15 决策项 3 的 c（未选, 独立接取）。
 
