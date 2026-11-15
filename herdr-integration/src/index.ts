@@ -21,7 +21,8 @@
 //   - approval/request(req, next)（§3）与 user-questions/request(req, next) 均为 agent 作用域
 //     waterfall；根 ctx（unscoped）全局放行，可收所有 agent 的请求；
 //   - turn/end.reason 取 'blocked'（§1 事件载荷要点）——第三阻塞源见 handleSessionEvent；
-//   - ctx.get('agents').roots()：根 agent 注册表（顶层 agent，owner === undefined）。
+//   - ctx.get('agents')：rc.1 用 roots()（顶层 agent，owner === undefined）；rc.3 起
+//     roots() 已移除，改由 list() 派生根 agent（session.header.parentSession 为空的顶层 agent）。
 
 import { createDeadline, resolveClock } from "@dsh-toolset/clock-base";
 import type { Deadline } from "@dsh-toolset/clock-base";
@@ -35,9 +36,12 @@ import type {
 } from "./herdr.ts";
 import { BlockTracker, desiredState } from "./state.ts";
 
-/** 根 agent 结构面（只消费 session.id 与 status）。 */
+/** 根 agent 结构面（只消费 session.id/header.parentSession 与 status）。 */
 export interface RootAgentLike {
-  session?: { id?: string };
+  session?: {
+    id?: string;
+    header?: { parentSession?: string | undefined };
+  };
   status?: string;
 }
 
@@ -148,12 +152,25 @@ export function createHerdrPlugin(
   const readRoots: () => RootAgentLike[] =
     deps.readRoots ??
     (() => {
-      // SAFETY: 结构面窄化——roots 经 Array.isArray 收窄，运行时元素含 session/status，
-      // RootAgentLike 全字段可选，缺省按空安全处理（读取失败等同无根 agent）
+      // SAFETY: 结构面窄化——`roots`（rc.1 有）与 `list`（rc.3 有，服务面已移除 roots）
+      // 均经 Array.isArray 收窄；空 / 非数组一律按无根 agent 处理。
       const agents = ctx.get?.("agents") as
-        { roots?: () => RootAgentLike[] } | undefined;
+        | {
+            roots?: () => RootAgentLike[];
+            list?: () => RootAgentLike[];
+          }
+        | undefined;
       const roots = agents?.roots?.();
-      return Array.isArray(roots) ? (roots as RootAgentLike[]) : [];
+      if (Array.isArray(roots)) return roots as RootAgentLike[];
+      const all = agents?.list?.();
+      if (!Array.isArray(all)) return [];
+      // rc.3 起 agents 服务移除 roots()（rc.1 的 roots() 即 store 里 owner===undefined 的
+      // 顶层 agent，index.ts:621 → list() 全量）。等价语义：无父会话的顶层 agent——
+      // 子代理会话必带 `parentSession`（child-agent.ts 的 childSessionMeta 写入，
+      // origin='subagent'），根代理无 parentSession，故按此过滤。
+      return (all as RootAgentLike[]).filter(
+        (agent) => agent.session?.header?.parentSession === undefined,
+      );
     });
 
   // ---- 状态跟踪（内存态） ----

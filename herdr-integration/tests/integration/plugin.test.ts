@@ -161,6 +161,55 @@ describe("apply: 事件投影", () => {
     host.unload();
   });
 
+  test("agent/status: rc.3 服务面无 roots()，经 list() 派生根并过滤子代理", async () => {
+    // rc.3 起 agents 服务只剩 list()；根 agent 无 parentSession，子代理必带 parentSession：
+    // 只有根 agent 计入活跃度，子代理 running 不翻转面板状态。
+    let all: RootAgentLike[] = [
+      { session: { id: "root-1" }, status: "idle" },
+      {
+        session: { id: "child-1", header: { parentSession: "root-1" } },
+        status: "running",
+      },
+    ];
+    const { host, upstream: server } = await startPlugin({
+      services: { agents: { list: () => all } },
+    });
+    await server.waitForMessages(2);
+    assert.equal(
+      lastState(server)?.state,
+      "idle",
+      "子代理 running 不当作根活跃（仍应 idle）",
+    );
+
+    all = [
+      { session: { id: "root-1" }, status: "running" },
+      {
+        session: { id: "child-1", header: { parentSession: "root-1" } },
+        status: "running",
+      },
+    ];
+    host.fire("agent/status", {
+      agent: { session: { id: "root-1" } },
+      status: "running",
+    });
+    await waitFor(() => lastState(server)?.state === "working");
+
+    // 根回 idle、子代理仍 running → 面板应跟随根回 idle
+    all = [
+      { session: { id: "root-1" }, status: "idle" },
+      {
+        session: { id: "child-1", header: { parentSession: "root-1" } },
+        status: "running",
+      },
+    ];
+    host.fire("agent/status", {
+      agent: { session: { id: "child-1" } },
+      status: "running",
+    });
+    await waitFor(() => lastState(server)?.state === "idle");
+    host.unload();
+  });
+
   test("提问 / 审批: 观察型阻塞桥投影为 blocked, 沉降后解除", async () => {
     const { host, upstream: server } = await startPlugin({
       roots: () => [{ session: { id: "s1" }, status: "idle" }],
