@@ -207,6 +207,8 @@ export type StateAction =
   | { type: "cache-judge"; judge: CacheHitJudge | undefined }
   /** plan 当前段（懒读 plan-mode 服务面；null = 未进模式，标题栏 plan 符号按关灰） */
   | { type: "plan-stage"; stage: PlanStageState | null }
+  /** Agent Teams 生效开关（懒读 agentTeams.isEnabled(root)；标题栏 team 符号用，只读） */
+  | { type: "team-enabled"; enabled: boolean | undefined }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
       type: "model-selection";

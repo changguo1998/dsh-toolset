@@ -229,6 +229,26 @@ test("P7 标题栏：daemon 开关符号始终显示（开绿 / 关灰 / 未读�
   assert.equal(fgOf(off, 100, TITLE_ICON.daemon), "gray", "关 → 灰");
 });
 
+test("P7 标题栏：Agent Teams 生效符号始终显示（生效绿 / 未生效灰 / 未读到灰）", () => {
+  const s = stateWith({});
+  // 默认（teamEnabled undefined，服务未读到）也要有符号，且为灰（工作流组内）
+  assert.ok(
+    titleText(s, 100).includes(TITLE_ICON.team),
+    "默认也渲染 team 符号",
+  );
+  assert.equal(fgOf(s, 100, TITLE_ICON.team), "gray", "未读到服务 → 灰");
+  const on = reduceState(s, { type: "team-enabled", enabled: true });
+  assert.equal(fgOf(on, 100, TITLE_ICON.team), "green", "生效 → 绿");
+  const off = reduceState(s, { type: "team-enabled", enabled: false });
+  assert.equal(fgOf(off, 100, TITLE_ICON.team), "gray", "未生效 → 灰");
+  // 排序: team 在工作流组最右（plan / flow-track 之后）
+  const text = titleText(s, 100);
+  const dotAt = text.indexOf("•");
+  const planAt = text.indexOf(TITLE_ICON.plan);
+  const teamAt = text.indexOf(TITLE_ICON.team);
+  assert.ok(dotAt >= 0 && planAt > dotAt && teamAt > planAt, `顺序: ${text}`);
+});
+
 test("P7 标题栏：窄宽让位顺序 ① preset → ③ 符号组（标题优先）", () => {
   const s = stateWith({ sandbox: "read-only", policy: "ask", preset: "fff" });
   const wide = titleText(s, 100);
@@ -237,9 +257,9 @@ test("P7 标题栏：窄宽让位顺序 ① preset → ③ 符号组（标题优
     "宽：全显示",
   );
   // 中宽：preset 让位，符号组仍在（标题保留 ≥8 列）
-  // 46 = 全宽 100 与极窄 20 之间、使内容区落在「preset 让位但符号组仍在」区间
-  // （组间 `•` 两侧加空格后符号组宽 2 列，44 列内容区只剩 24 列已触发符号组让位）
-  const mid = titleText(s, 46);
+  // 48 = 全宽 100 与极窄 20 之间、使内容区落在「preset 让位但符号组仍在」区间
+  // （组间 `•` 两侧加空格后符号组宽含 team 符号，46 列时已触发符号组让位）
+  const mid = titleText(s, 48);
   assert.ok(!mid.includes("fff"), `preset 先让位: ${mid}`);
   assert.ok(mid.includes(TITLE_ICON.boxClosed), `符号组仍在: ${mid}`);
   assert.ok(mid.includes("会话标题"), `标题完整: ${mid}`);

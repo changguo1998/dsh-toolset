@@ -18,6 +18,7 @@ import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { resolveThemes } from "./renderer/theme-config.ts";
 import { App } from "./app/index.ts";
 import type {
+  AgentTeamsLike,
   CacheHitMonitorLike,
   FlowTrackLike,
   PlanStageLike,
@@ -135,6 +136,8 @@ export function main(opts: {
   getCacheHitMonitor?: () => CacheHitMonitorLike | undefined;
   /** plan-mode 段位读取器（懒读；未挂载时返回 undefined → plan 符号按关灰显示） */
   getPlanStage?: () => PlanStageLike | undefined;
+  /** Agent Teams 生效读取器（懒读；未挂载时返回 undefined → team 符号按关灰显示） */
+  getAgentTeams?: () => AgentTeamsLike | undefined;
   getTaskEngine?: () => unknown;
   getPinNotes?: () => unknown;
   getDaemon?: () => unknown;
@@ -226,6 +229,7 @@ export function main(opts: {
     getFlowTrack: opts.getFlowTrack,
     getCacheHitMonitor: opts.getCacheHitMonitor,
     getPlanStage: opts.getPlanStage,
+    getAgentTeams: opts.getAgentTeams,
     getTaskEngine: opts.getTaskEngine,
     getPinNotes: opts.getPinNotes,
     getDaemon: opts.getDaemon,
@@ -1123,6 +1127,18 @@ export async function apply(
   const getPlanStage = (): PlanStageLike | undefined =>
     (ctx as { get?: (name: string) => unknown }).get?.("planStage") as
       PlanStageLike | undefined;
+  // Agent Teams 生效服务（ctx.get('agentTeams')，宿主 dsh-agent-team provide）：
+  // 闭包绑定本会话的 rawAgent（TUI 会话即根，rootOf(rawAgent)===rawAgent，免 root 解析）；
+  // 未挂载 / isEnabled 缺失 → undefined（标题栏 team 符号按关灰）；只读不切换（2026-11-16 裁定）
+  const getAgentTeams = (): AgentTeamsLike | undefined => {
+    const svc = (ctx as { get?: (name: string) => unknown }).get?.(
+      "agentTeams",
+    ) as { isEnabled?(agent: unknown): boolean | undefined } | undefined;
+    if (svc?.isEnabled === undefined) return undefined;
+    return {
+      isEnabled: () => svc.isEnabled?.(rawAgent as unknown) === true,
+    };
+  };
   // 状态列五块用到的服务（同款惰读）：任务引擎 / pin-note / 守护 / 群组
   const getTaskEngine = (): unknown =>
     (ctx as { get?: (name: string) => unknown }).get?.("taskEngine");
@@ -1227,6 +1243,7 @@ export async function apply(
     getFlowTrack,
     getCacheHitMonitor,
     getPlanStage,
+    getAgentTeams,
     getTaskEngine,
     getPinNotes,
     getDaemon,

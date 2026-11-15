@@ -57,6 +57,11 @@
 // 工作流组恒在右端）；4 个 w20 场景无差异（符号组整组让位）。逐场景 diff 见
 // docs/archived/2026-11-15-plan-stage-display.md。
 //
+// 重冻记录追加 2026-11-16（标题栏新增 Agent Teams 生效符号 `fa-users` U+F0C0，恒显
+// 只读、生效绿/未生效灰）：11 个 w60 场景的第 0 行（标题栏）多出 team 符号、行尾补白
+// 相应变化；4 个 w20 场景无差异（符号组整组让位）。差异仅标题行，见
+// docs/archived/2026-11-16-agent-team-adoption.md。
+//
 // 序列化口径：整帧每行 { text, ansi } —— text=纯文本拼接（行宽 infos 保留），
 // ansi=行经 dark 主题段级序列化（样式差异捕获）。key=`scene@w{cols}`。
 // 注意：fixture 缩进以本脚本写出的为准，勿对产出的 JSON 跑 `format`

@@ -690,6 +690,10 @@ export interface AppState {
    *  undefined = 还没读到服务（plan 符号按关灰显示）/ null = 未进 plan 模式（灰）/
    *  对象 = 当前段（探索=青 / 计划=黄 / 实施=绿） */
   planStage: PlanStageState | null | undefined;
+  /** Agent Teams 生效开关（`agentTeams.isEnabled(root)` 懒读，随状态行 ticker 同步）。
+   *  undefined = 还没读到服务（team 符号按关灰显示）/ true = 生效（绿）/ false = 未生效（灰）。
+   *  只读展示（用户裁定不提供切换、不提供关闭）；root = parentSession 为空的根会话。 */
+  teamEnabled: boolean | undefined;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =

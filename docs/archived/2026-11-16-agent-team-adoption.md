@@ -94,7 +94,7 @@
 - `security-guard/`：无改动（T2b, 已核对）
 - `TUI/`：`src/app/state/{types,actions,reducer-view,initial}.ts`（T3a 已完成）、`src/app/app-deps.ts`（T3b 部分）、`src/main.ts`（T3b 待接线）、`src/app/runtime/wiring.ts`（T3c）、`src/app/layout/title-bar.ts`（T3d）、`tests/`（T3e）
 - `docs/ARCHITECTURE-REUSE.md`（T4）
-- 本追踪文档 `docs/implementation/2026-11-16-agent-team-adoption.md`
+- 本追踪文档 `docs/archived/2026-11-16-agent-team-adoption.md`
 
 ### 明确不做
 
@@ -121,9 +121,19 @@
 
 - 2026-11-16（D7 定稿 + 符号选型脚本）: 用户裁定状态符号 = **`fa-group`（U+F0C0, 与 `fa-users` 同码位别名）**, 生效绿 / 未生效灰用**同字符切色**（无空心版）; 位置 = 工作流组最右。选型辅助脚本 `tmp/nerd-symbols.mjs` 交付（在线拉官方 glyphnames.json 或 `--offline` 内嵌表, 并做本地字体验证; 44 个候选含群组/协作/管理/任务板四组, 全部在 MapleMono NF CN 中验证存在）。
 
-- 2026-11-16（T3 进行中, 状态层已落, 接线待定）: TUI 状态模型已加 `teamEnabled`（`state/types.ts` 字段 + `state/active.ts`… 实际在 `actions.ts` / `reducer-view.ts` / `initial.ts`）; `app-deps.ts` 加 `AgentTeamsLike` + `getAgentTeams` 读取器; `main.ts` 已 import `AgentTeamsLike`。**尚未完成**: `main.ts` 的 `getAgentTeams` 实现与接线（用 `rawAgent` 即 TUI 根会话直接调 `ctx.get("agentTeams")?.isEnabled(rawAgent)`）、`wiring.ts` 的 `maybeRefreshTeam`（随 StatusTicker 懒读）、`title-bar.ts` 的 `TITLE_ICON.team`（U+F0C0）与工作流组追加渲染、对应测试。停止于此待用户确认后再继续。
+- 2026-11-16（T3 完成）:
 
-- 待做: T3 余下部分（wiring / title-bar / 测试）; T4 文档回写。
+  - TUI 状态模型 `teamEnabled`（`state/types.ts` 字段 / `state/actions.ts` `team-enabled` action / `reducer-view.ts` / `state/initial.ts` 初始 undefined）;
+  - `app-deps.ts`: `AgentTeamsLike`（`isEnabled?(agent?)`，参数可选——main.ts 闭包已绑定 rawAgent）+ `AppDeps.getAgentTeams`;
+  - `main.ts`: `getAgentTeams` 实现（闭包绑定 `rawAgent`——TUI 会话即 root，免 root 解析; 未挂载 / isEnabled 缺失返 undefined）+ opts 接口字段 + 两处 new App/apply 对象桥接;
+  - `wiring.ts`: `maybeRefreshTeam`（随 StatusTicker 懒读 `read()?.isEnabled?.()`，值变化才重绘，未挂载/抛错不动状态）; `lifecycle.ts`: ticker 的 apply 回调加 `maybeRefreshTeam()`;
+  - `title-bar.ts`: `TITLE_ICON.team = "\u{F0C0}"`（fa-users U+F0C0）+ 工作流组追加 team（恒显，`state.teamEnabled === true` 绿 / 否则灰; flow-track 之后最右，doc 注释更新）;
+  - 测试: `title-bar.test.ts` 新增「Agent Teams 生效符号始终显示（生效绿/未生效灰/未读到灰 + 工作流组顺序）」; 窄宽让位 mid 46→48（team 符号使符号组宽 1 列）; **focus-frame 冻结基线重冻**（`scripts/freeze-focus-frame.mts`，11 个 w60 场景第 0 行多 team 符号、w20 无差异，重冻记录已追加）;
+  - 验证: TUI check / build 通过，全量测试 1893 全绿。
+
+- 2026-11-16（T4 完成）: `ARCHITECTURE-REUSE.md` §0 两行措辞更新——`agent-group` 对照由「experimental-agent-team（未挂，实验）」改为「`team/agent-team` + `team/tool-agent-team`（rc.3 转正已挂载，Team mode 缺省关）」，`session-channel` 行同步（`experimental-agent-team` → `team/agent-team`）; `HOST-PACKAGES.md` 无需再改（rc.3 增量注记已覆盖）。
+
+- 待做: 全仓 check / build / test 验证; 收尾（提交 + BACKLOG 清理 + 归档）。
 
 ## 偏差
 
@@ -131,8 +141,16 @@
 
 ## 测试与证据
 
-（待补）
+- **T2a tool-consult**（已提交 `5afca691`）: `pnpm -C tool-consult run check` / `build` 通过; 单测 100 全绿; 集成 11 全绿（新增「plainWhenTools: web 工具 shadow → 未揭示拒绝 → 咨询揭示 → 放行」）。工具面放行的用户侧结论（`write_scopes` 仅 advisory、when 恒真当无条件）已在决策节 D5/D6 与实现记录留证。
+- **T1 配置**（未提交）: `profiles/example/cordis.patch.yml` 含 `- id: agent-team` + `config.defaultEnabled: true`; 按仓库惯例只重述要改字段、不写 name; 格式化工具有无副作用（注释保留）。
+- **T3 TUI**（未提交）: `pnpm -C TUI run check` / `build` 通过; 全量测试 **1893 全绿**（新增 team 两态/顺序用例; 窄宽让位 mid 46→48; focus-frame 冻结基线重冻后 22 行差异全在标题行 team 符号、w20 无差异）。
+- **全仓回归**（收尾前实测）: `pnpm run check` 41 包 OK; `pnpm run build` 41 包 OK; `pnpm run test` 全绿（agent-group 111 / coagent 77 / tool-consult 100 / term-check 29 / plan-mode 63 / flow-arbiter 12 …）; `pnpm run check:docs` 通过（123 篇 Markdown / 1004 个 .ts, 错误 0 / 警告 0）。
+- **残留检查**: 本任务产物无临时文件残留（`tmp/nerd-symbols.mjs` 为选型辅助脚本, 收尾时由用户决定去留; 本任务不依赖它运行）。
 
 ## 收尾
 
-（待补：回写 `ARCHITECTURE-REUSE.md` / `HOST-PACKAGES.md`、归档、BACKLOG 条目清理）
+- 回写: `ARCHITECTURE-REUSE.md` §0 两行（agent-group / session-channel 对照更新为 rc.3 转正确认）; `HOST-PACKAGES.md` 无需改（rc.3 增量注记已覆盖 team 补行）; `STATUS.md` 不自动改（用户择时）。
+- 归档: 本文件移入 `docs/archived/2026-11-16-agent-team-adoption.md`。
+- BACKLOG: 「接入官方 Agent Teams（team）」条目标完成并从 `docs/BACKLOG.md` §2 清理移除（只留未完成项; herdr 修复条目与本任务无关, 单独保留待实机确认）。
+- 临时文件: `tmp/nerd-symbols.mjs`（符号选型脚本）——用户未要求保留, 但属一次性辅助产物, 收尾一并删除以防残留; 如需保留由用户届时重新生成。
+- 提交: 收尾提交为本任务最后一次相关提交（T1/T3 代码 + 配置 + 测试 + T4 文档 + 归档移动 + BACKLOG 清理）。

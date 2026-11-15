@@ -102,16 +102,7 @@
 
 - **herdr 状态检测失效（`agents.roots()` 在 rc.3 被移除）**（登记 2026-11-16）：`herdr-integration` 靠 `ctx.get('agents').roots()` 枚举顶层 agent、以其 `status` 判 `running`，驱动 herdr 面板「正忙 / 待机」状态；宿主 rc.1 有 `roots()`（`core/agent/src/index.ts:621`，store 里 `owner===undefined` 的顶层 agent），**rc.3 已移除**（只剩 `get(id)` / `list()`）→ 升级后 `roots()` 恒空 → `agentActive` 恒 false → 面板一直报「待机」，切不到「正忙」→ 期望：改经 `list()` 派生根 agent（`session.header.parentSession` 为空者；子代理必带 `parentSession` + `origin:'subagent'`），保留 `roots()` 兼容回退 → 优先级 P1（功能退化，rc.3 升级引入）→ **修复已实现**（`herdr-integration/src/index.ts` `RootAgentLike` + `readRoots`；集成测试加 list 派生用例）；验证：herdr-integration check / 60 单测 / 12 集成全绿、build 通过、真机探针确认根/子 header 判定前提 → 待用户 herdr 面板实机确认后关闭。
 
-- **接入官方 Agent Teams（team）**〔进行中: 2026-11-16〕（登记 2026-11-16）：宿主 `agent-team`（`ctx.agentTeams` 服务 + 持久任务板）与 `tool-agent-team`（`team_task_*` 4 工具）已随 `dsh-base` 新增行在 rc.3 自动挂载（官方活跃 100 → 102），但 **Team mode 缺省关**（`config.defaultEnabled: false`）→ 模型看不到任务工具与 `team:policy` 提示段。**用户已裁定（2026-11-16）：打开配置开关、保持默认开启、不提供关闭（本仓不提供任何关闭入口）**——因此不做运行期切换；产物只需两处：
-
-  - ① **配置开关（唯一开关点）**：在 `profiles/example/cordis.patch.yml`（及 fff 用户 patch, 若本机启用）给 `agent-team` 行补 `config.defaultEnabled: true`——默认开启; 新根会话首步即带 Team 工具与 `team:policy` 提示段, 无需任何运行期动作。
-  - ② **TUI 标题行状态指示（只读）**：标题行符号区加 Team 状态符号,**正常显示（符号常驻）, 按查询到的状态切换颜色**（生效 / 未生效两色, 惯例参考 plan 段位四态着色: 激活态绿 / 未激活态灰）; 数据源懒读 `ctx.agentTeams.isEnabled(root)` 随状态行 ticker 保鲜, 未挂载 / 非 root 按未生效——**只读指示, 不提供切换**（生效 / 未生效之分仍有意义: 既有选择且被关过的旧根、resume 的根不受 `defaultEnabled` 影响, 可能停在未生效）。
-  - **缓存提示（不切换 → 无反复失效）**：`team:policy` 提示段与 4 个 `team_task_*` 工具（`when` 条件）都进请求前缀——若运行期切换, 开关一次即全树缓存前缀失效; 因裁定「默认开、不提供切换」, 缓存效应只在配置层面一次性发生（新根首次带段落/工具时）, 不存在来回切换导致的反复失效。
-  - **工具面接线（前置条件, 已存在的包装/揭示层要放行）**：`team_task_*` 是条件工具（带 `when`）, 两道既有机制会挡住它——① `tool-consult` 缺省 `allowedWhenTools` 只放 `web_search` / `web_fetch`, 白名单外条件工具**静态 deny 从模型面移除**（`tool-consult/src/config.ts` `DEFAULT_ALLOWED_WHEN_TOOLS`, 测试已用 `team_task_list` 当样例）→ 需把 4 个 `team_task_*` 加入配置; ② `security-guard` 工具注册表登记（rc.3 升级文档 §10 #3 已列 `wait_agent` / `office_*` / `user_terminal_*` 未登记为覆盖缺口, `team_task_*` 同批转正）→ 需补登记或核对不命中。
-  - 边界：team 与本仓编排（`agent-group` 跨会话群组 / `task-engine` 任务树+验收+隔离）不同层, 互不替代（对照见 `ARCHITECTURE-REUSE.md` §0 `agent-group` 行, 措辞待随本条目更新「未挂, 实验」→「已挂载, 转正, 默认开」）；`ctx.agentTeams` 服务面本仓当前零消费, 接入后即首个消费者（仅只读 `isEnabled`）。
-  - 决策项（已裁定）：`defaultEnabled: true` 默认开、**TUI 不提供切换命令**、本仓不提供关闭入口、状态符号**常驻显示并按状态切换颜色**（生效绿 / 未生效灰）; 剩余待裁定: 状态符号选型（字符）与位置（沿用标题行符号区惯例）。
-  - 优先级 P2。
-  - 宿主依据：`packages/team/agent-team` / `tool-agent-team` README 与 `src/index.ts`（`defaultEnabled` / `isEnabled` / `setEnabled`）；`docs/host/HOST-UPGRADE-0.2.2-rc.3.md` §5。
+- **接入官方 Agent Teams（team）**〔完成: 2026-11-16〕（登记 2026-11-16，已实现并合入 main）: 配置开关（`profiles/example/cordis.patch.yml` 的 `agent-team` 行 `config.defaultEnabled: true`）+ TUI 标题行 symbol（`fa-users` U+F0C0，常驻、生效绿/未生效灰，工作流组最右，懒读 `agentTeams.isEnabled(root)`）+ 工具面放行（tool-consult `plainWhenTools` 条件豁免，`team_task_*` 与 `web_search`/`web_fetch` 按普通工具 shadow + 咨询揭示；security-guard 核对不命中不登记）。验证: 全仓 check / build / test 全绿（TUI 1893、tool-consult 100+11、agent-group 111 等）+ check:docs 通过。提交: `5afca691`（tool-consult 机制）+ 收尾提交（配置 / TUI / 文档 / 归档）。追踪文档 `docs/archived/2026-11-16-agent-team-adoption.md`。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 

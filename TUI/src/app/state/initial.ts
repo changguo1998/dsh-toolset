@@ -88,6 +88,7 @@ export function initialState(
     statusExtras: undefined, // 状态列五块：未读到来源前不渲染
     cacheJudge: undefined, // 缓存命中率判定：未读到服务前无判定（A5 懒读）
     planStage: undefined, // plan 当前段：未读到服务前 plan 符号按关灰显示
+    teamEnabled: undefined, // Agent Teams 生效开关：未读到服务前 team 符号按关灰显示
     statusColumnVisible: true, // P7：垂直状态列默认显示（Ctrl+S 切换）
     lowerPanesVisible: true, // #9：下半区（Turn/Tool）默认显示（Ctrl+T 切换）
     strippedChars: 0, // 本回合剔除的非打印控制字符计数（turn-begin 清零）

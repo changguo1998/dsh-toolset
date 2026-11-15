@@ -62,7 +62,8 @@ function statusStartFor(len: number, offset: number, rows: number): number {
  *  - 审批策略：`md-chat_question_outline` U+F1739（ask）/ `md-chat_remove_outline` U+F1414（never）
  *  - 开关：`fa-route` U+EDA6（plan 段位）/ `md-text_long` U+F09AA（verbose）/
  *    `md-spellcheck` U+F04C6（符号统一）/ `md-bell_ring_outline` U+F009F（声音提醒）/
- *    `fa-tasks` U+F0AE（flow-track 注入开关）/ `fa-clock_o` U+F017（background-daemon 开关）
+ *    `fa-tasks` U+F0AE（flow-track 注入开关）/ `fa-clock_o` U+F017（background-daemon 开关）/
+ *    `fa-users` U+F0C0（Agent Teams 生效开关）
  *  - 预设：`md-puzzle_outline` U+F0A66（后接预设名） */
 export const TITLE_ICON = {
   boxClosed: "\u{F03D7}",
@@ -75,11 +76,12 @@ export const TITLE_ICON = {
   bell: "\u{F009F}",
   flowTrack: "\u{F0AE}",
   daemon: "\u{F017}",
+  team: "\u{F0C0}",
   preset: "\u{F0A66}",
 } as const;
 
 /** P7：标题栏首行段数组 = [preset 符号 + 名字] 1 空格 [状态符号: 环境/行为组（空格分隔）`•`
- *  工作流组（plan / flow-track）] 2 空格 [标题]。
+ *  工作流组（plan / flow-track / team）] 2 空格 [标题]。
  *  颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰；policy ask 黄 / never 绿；
  *  四个开关 on 绿 / off 灰；preset 统一默认前景。`permission` 不再显示。
  *  窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。 */
@@ -154,6 +156,9 @@ export function titleBarSegments(
   // flow-track 注入开关：未读到服务（undefined）时整项省略，避免在没装插件的 profile 里常灰
   if (switches.flowTrack !== undefined)
     pushTo(flowSegs, TITLE_ICON.flowTrack, switches.flowTrack ? on : off);
+  // Agent Teams 生效开关：**始终显示**（未读到服务 undefined 时按关灰），只读不切换
+  // （2026-11-16 裁定: 默认开、不提供关闭、无 TUI 切换命令）
+  pushTo(flowSegs, TITLE_ICON.team, state.teamEnabled === true ? on : off);
   // daemon 开关：**始终显示**（未读到服务时按关灰），开关语义只在这里表达，状态列不再写「开/关」
   pushTo(mainSegs, TITLE_ICON.daemon, switches.daemon === true ? on : off);
   // 组间以 `•` 圆点分隔（工作流组恒在右端; 任一组为空则不加点）; 点两侧各 1 空格

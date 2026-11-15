@@ -94,6 +94,9 @@ export function reduceView(
     case "plan-stage":
       // plan 当前段（懒读 plan-mode 服务面；null = 未进模式 → 标题栏 symbol 按关灰）
       return { ...state, planStage: action.stage };
+    case "team-enabled":
+      // Agent Teams 生效开关（懒读 agentTeams.isEnabled(root)；undefined = 未读到 → 按灰）
+      return { ...state, teamEnabled: action.enabled };
     case "status-column-scroll":
       // 顶部状态列纵向滚动：偏移累加，渲染层按可视行数 clamp；不进入会话区滚动
       return {

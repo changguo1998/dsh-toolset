@@ -409,6 +409,25 @@ export function createWiringPart(ctx: AppContext) {
     ctx.self.paint();
   }
 
+  /** Agent Teams 生效保鲜：随 StatusTicker 懒读 `agentTeams.isEnabled(root)`（read 已绑定
+   *  当前会话 agent），值变化才重绘标题栏 team 符号。插件未挂载 / read 不可用 / 抛错 →
+   *  不动状态（state.teamEnabled 保持 undefined, 符号按关灰）。只读展示, 不提供切换。 */
+  function maybeRefreshTeam(): void {
+    if (ctx.disposed) return;
+    const read = ctx.deps.getAgentTeams;
+    if (read === undefined) return;
+    let enabled: boolean | undefined;
+    try {
+      enabled = read()?.isEnabled?.();
+    } catch {
+      return;
+    }
+    if (enabled === undefined) return;
+    if (ctx.state.teamEnabled === enabled) return;
+    ctx.self.apply((s) => reduceState(s, { type: "team-enabled", enabled }));
+    ctx.self.paint();
+  }
+
   /**
    * TUI#39：状态列 Agents 块的**定时**保鲜（随 StatusTicker 节律，缺省 1s）。
    * 停止条件只留「状态列被 Ctrl+S 隐藏 / 无活跃会话」：不依赖 `subagent-activity` 事件面
@@ -969,6 +988,7 @@ export function createWiringPart(ctx: AppContext) {
     maybeRefreshDaemon,
     maybeRefreshCacheHit,
     maybeRefreshPlanStage,
+    maybeRefreshTeam,
     refreshStatusExtras,
     maybeRefreshSessionAlias,
     maybeRefreshAgents,

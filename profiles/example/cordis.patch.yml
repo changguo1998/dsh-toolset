@@ -265,6 +265,18 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
+# ── Agent Teams（官方 dsh-agent-team + dsh-tool-agent-team）────────────────
+# rc.3 起随 dsh-base 自动挂载（服务 ctx.agentTeams + 模型面 team_task_* 四件），
+# 但 Team mode 缺省关（defaultEnabled: false）。这里默认开启：新根会话（无既有选择）
+# 首步即带任务工具与 team:policy 提示段。只重述要改的字段；不可写 name。
+# 裁定（2026-11-16）：默认开、不提供关闭、TUI 不提供切换——开关一次全树请求前缀失效，
+# 故不暴露运行期切换；状态符号只读指示（见 TUI 标题行）。
+# 工具面放行：team_task_* 是条件工具，tool-consult 已按 plainWhenTools 豁免（走普通工具
+# shadow + 咨询揭示），无需在此处额外配置。
+- id: agent-team
+  config:
+    defaultEnabled: true
+
 # ── plan-mode（官方版默认停挂；本仓自研实现见 plan-mode/）────────────────────
 # 官方 plan-mode 只注入 plan:policy 并条件挂载 exit_plan_mode，不拦截写工具；
 # 2026-11-11 裁定先禁用，恢复 = 删本块。本仓自研替代是 @dsh-toolset/plan-mode

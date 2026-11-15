@@ -52,6 +52,14 @@ export interface PlanStageLike {
     | null
     | undefined;
 }
+
+/** Agent Teams 只读服务面（`ctx.get('agentTeams')`，宿主 dsh-agent-team provide）：
+ *  判断当前 TUI 会话（root）的 Team mode 是否生效（标题栏 team 符号用）。
+ *  只读展示；不提供切换 / 关闭（2026-11-16 用户裁定）。参数可选——main.ts 闭包已绑定
+ *  rawAgent, wiring 侧无参调用。 */
+export interface AgentTeamsLike {
+  isEnabled?(agent?: { id: string }): boolean;
+}
 import type { ShellRunner } from "./local-shell.ts";
 import type { LocalLogWriteOptions } from "./adapter/local-log.ts";
 
@@ -118,6 +126,8 @@ export interface AppDeps {
   getCacheHitMonitor?: (() => CacheHitMonitorLike | undefined) | undefined;
   /** plan-mode 段位读取器（懒读）：返回 undefined = 未挂载 → plan 符号按关（灰）显示 */
   getPlanStage?: (() => PlanStageLike | undefined) | undefined;
+  /** Agent Teams 生效读取器（懒读）：返回 undefined = 未挂载 → team 符号按关（灰）显示 */
+  getAgentTeams?: (() => AgentTeamsLike | undefined) | undefined;
   /** 状态列 Task 块：任务引擎只读快照（结构化读取）。 */
   getTaskEngine?: (() => unknown) | undefined;
   /** 状态列 Pin 块：pin-note 的会话摘要面。 */

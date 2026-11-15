@@ -19,7 +19,7 @@
 | `session-title-cutoff` | `session-title-llm` / `session-title-all-prompts-llm` | 高（同 provider 位） | **并存** | 同占 `ctx.sessionTitle` 唯一 provider；「裁剪窗口到最近一次 git commit 之后」官方没有；已复用官方 `session-title-llm` 的生成策略（按约定路径动态 import 官方模块） |
 | `command-template` | `commands`、`workflow` / `tool-workflow` | 中 | **并存** | 「人面模板目录 + 模板级模型选择 + 多步编排」官方没有（官方只有模型侧 workflow 脚本与裸命令注册）；执行侧已复用宿主 subagents / workflow / ptc |
 | `context-report` | `session-stats`、`session-turn-outline`、`session-telemetry` | 中 | **保留（已收窄，2026-10-06）** | 曾**自折叠** turns / 墙钟，与官方 `sessionStats` 逐项重合 → 已按 §4 A 收窄：删除同类折叠，回合/步/墙钟改读官方投影，本包只留 token 分桶与上下文占用（官方空缺） |
-| `session-channel` | `session-query`、`session-reference`、**`experimental-agent-team`** | 低 | **保留** | 官方两个读写面都是**只读**（查询 / 快照引用）；**同会话**持久 peer mailbox 官方有实验实现（`experimental-agent-team`，未挂），**跨会话 / 跨进程写**（消息、委托、共享 KV、任务回传）仍无等价物 |
+| `session-channel` | `session-query`、`session-reference`、**`team/agent-team`** | 低 | **保留** | 官方两个读写面都是**只读**（查询 / 快照引用）；**同会话**持久 peer mailbox 官方有实现（`team/agent-team`，rc.3 转正已随 base 挂载，Team mode 缺省关），**跨会话 / 跨进程写**（消息、委托、共享 KV、任务回传）仍无等价物 |
 | `output-compress` | `spill` / `spill-local` / `spill-policy`、`compaction-tool-result-pruner` | 中 | **并存（互补）** | 官方阈值管**模型可见面**（超预算转 preview + locator）并做 surface 裁剪；我们**读取 spill 通知与文件**做摘要入库。我们从不回写事件 → 不存在「双重截断」；要做的是把分工与阈值语义写进 DESIGN |
 | `rule-engine` | `agent-instructions`、`hook-protocol`、`hooks-*`、**`repeat-tool-reminder`** | 中 | **保留** | 官方有 `agent-instructions`（静态指令文件）、`repeat-tool-reminder`（**单点**内置提醒）与外部 agent 的 hooks 接入；**规则表 + 多节点注入 + 消费者框架**官方无 |
 | `symbol-normalizer` | `agent-instructions` | 低 | **保留** | 符号规范（展示归一 + 回合审查）是项目约定；官方只负责加载指令文件 |
@@ -41,7 +41,7 @@
 | `preference-analysis`（2026-10-20 补审） | 无 | 无 | **保留** | 偏好观测（session/event 三信号）→ 跨会话账簿 → 高置信写 memory、提议待审；官方无等价物 |
 | `session-paths`（2026-10-20 补审） | `dsh-paths`（宿主目录编码面） | 高（同编码口径） | **并存** | 复刻宿主 `encodeSegment` / `projectKey` / `projectDir` / `sessionDir` 并暴露为 `sessionPaths` 服务供 7+ 插件共用，`ensureSessionDir` 是唯一写盘入口；官方编码口径一致，差异在「以服务形式共享 + 写盘约束」，不含自有能力 |
 | `script-interpreter`（2026-10-20 补审） | `tool-bash`（命令执行面） | 中 | **并存** | 官方 bash 覆盖通用命令执行；本包做**语言探测驱动的解释器执行**（python / node / sh、venv/uv 探测、回执带解释器路径），bash 保留显式启用；两执行面按语言与意图区分 |
-| `agent-group`（2026-10-20 补审） | `experimental-agent-team`（未挂，实验） | 低 | **保留** | 群组协议（组 / 成员 / 主从与平等连接 / 广播 / 懒判定结算 / 状态面），自建 session-channel 分层；官方 team 为实验且未挂，无等价交付物 |
+| `agent-group`（2026-10-20 补审） | `team/agent-team` + `team/tool-agent-team`（rc.3 转正，已随 `dsh-base` 挂载；Team mode 缺省关，接入见 `docs/archived/2026-11-16-agent-team-adoption.md`） | 低 | **保留** | 群组协议（组 / 成员 / 主从与平等连接 / 广播 / 懒判定结算 / 状态面），自建 session-channel 分层；官方 team 是**子代理树内的持久任务板**（成员=同树子代理、CA 任务板），无跨会话群组/等级/懒判定，不替代本包 |
 | `clock-base`（原名 `timer`, 2026-10-22 补审） | `cordis-plugin-timer`（宿主定时器面） | 高（同诉求） | **并存** | 本包只把 `now()` / `schedule()` / `interval()` 与手控假时钟 `ManualClock` 包成服务 `clock` 供本仓共用（provide `clock`，不 inject 官方面）；与宿主 `cordis-plugin-timer` **并存、不包装**，排期随调用方 fiber 卸载撤销 |
 | `behavior-correction`（2026-10-22 补审） | `agent-instructions`、`hook-protocol` / `hooks-*` | 低 | **保留** | rule-engine 的 `tools/pre-execute` guard 消费者：拦「该用专用工具却走 shell」并指路（现为 bash 里跑 herdr → 指向 `herdr_run` / `herdr_text` / `herdr_key`（写类）与 `herdr_read` / `herdr_list`（查看类））；官方 hooks / 静态指令无这类「意图错位」判定 |
 | `coagent`（2026-11-03 补审） | `subagents`（进程内子代理）、`sessions` | 低 | **保留** | 长驻 agent 的**拉起与收尾**：经 `herdrUse` 建终端并在其交互 shell 里发 `fffdsh`，用 session-channel 的 `peers` 认领新会话；官方 `subagents` 是进程内子代理，无「终端会话 + 跨会话认领」形态，派任务与编排分别归 session-channel / agent-group |

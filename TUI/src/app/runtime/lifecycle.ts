@@ -317,6 +317,8 @@ export function createLifecyclePart(ctx: AppContext) {
           ctx.self.maybeRefreshCacheHit();
           // plan 当前段：同节律懒读服务面（未挂载时 plan 符号按关灰显示）
           ctx.self.maybeRefreshPlanStage();
+          // Agent Teams 生效开关：同节律懒读服务面（未挂载时 team 符号按关灰显示）
+          ctx.self.maybeRefreshTeam();
           // 状态列五块：同节律异步取数（服务不可用 / 无内容时对应块不渲染）
           void ctx.self.refreshStatusExtras();
         },
