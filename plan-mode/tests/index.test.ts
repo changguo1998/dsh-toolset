@@ -28,6 +28,7 @@ function makeContext(options: {
   pinNotes?: unknown;
   flowArbiter?: unknown;
   permissionPresets?: unknown;
+  agents?: unknown;
 }): {
   ctx: Record<string, unknown>;
   tools: ToolDef[];
@@ -52,6 +53,7 @@ function makeContext(options: {
       if (service === "pinNotes") return options.pinNotes;
       if (service === "flowArbiter") return options.flowArbiter;
       if (service === "permissionPresets") return options.permissionPresets;
+      if (service === "agents") return options.agents;
       return undefined;
     },
     logger: { warn: (message: string) => warns.push(message) },
@@ -552,4 +554,198 @@ test("切走时恢复并清映射", () => {
   provider?.({ sessionId: "sess-switch" });
   assert.equal(getRecord("sess-switch"), undefined, "切走已清映射");
   assert.equal(perm.state.current, "workspace-write", "预设已恢复");
+});
+
+// --- 子代理写调用继承父会话阶段（决策 A：沿 parentSession 链上溯） ---
+
+/** 一条 l→m→t 的三级父链（t 顶部，parentSession 为 undefined）。 */
+function chainAgents(
+  leaf: string,
+  mid: string,
+  top: string,
+): { get(id: string): unknown } {
+  return {
+    get: (id: string) => {
+      if (id === leaf) return { session: { header: { parentSession: mid } } };
+      if (id === mid) return { session: { header: { parentSession: top } } };
+      if (id === top) return { session: { header: { parentSession: undefined } } };
+      return undefined;
+    },
+  };
+}
+
+test("子代理写调用: 无直接映射时沿父链上溯, 祖先只读段拒写并标注继承", () => {
+  const { ctx, listeners } = makeContext({
+    taskEngine: {
+      query: () => ({
+        tasks: planTree(
+          { s1: "active", s2: "pending", s3: "pending" },
+          "p-inherit",
+        ),
+      }),
+    },
+    agents: chainAgents("child-1", "parent-1", "s-plan-top"),
+  });
+  apply(ctx);
+  setRecord("s-plan-top", {
+    frames: ["p-inherit-s1", "p-inherit-s2", "p-inherit-s3"],
+    restored: false,
+  });
+  const handler = listeners["tools/pre-execute"]![0]!;
+  const out = handler(
+    {
+      name: "write",
+      arguments: { file_path: "/tmp/x" },
+      agent: { session: { id: "child-1" } },
+    },
+    () => ({ kind: "allow" }),
+  ) as { kind: string; info?: { code?: string }; reason?: string };
+  assert.equal(out.kind, "deny");
+  assert.equal(out.info?.code, "plan_stage_readonly");
+  assert.match(out.reason ?? "", /当前段是探索/);
+  assert.match(out.reason ?? "", /继承自父会话 plan 只读段/);
+  dropRecord("s-plan-top");
+});
+
+test("子代理写调用: 祖父只读段同样命中（两跳上溯）", () => {
+  const { ctx, listeners } = makeContext({
+    taskEngine: {
+      query: () => ({
+        tasks: planTree(
+          { s1: "done", s2: "active", s3: "pending" },
+          "p-inherit2",
+        ),
+      }),
+    },
+    agents: chainAgents("kind-child", "s-p", "s-plan-grand"),
+  });
+  apply(ctx);
+  setRecord("s-plan-grand", {
+    frames: ["p-inherit2-s1", "p-inherit2-s2", "p-inherit2-s3"],
+    restored: false,
+  });
+  const handler = listeners["tools/pre-execute"]![0]!;
+  const out = handler(
+    {
+      name: "bash",
+      arguments: { command: "echo x > /tmp/x" },
+      agent: { session: { id: "kind-child" } },
+    },
+    () => ({ kind: "allow" }),
+  ) as { kind: string; reason?: string };
+  assert.equal(out.kind, "deny");
+  assert.match(out.reason ?? "", /命令判定为写/);
+  assert.match(out.reason ?? "", /继承自父会话 plan 只读段/);
+  dropRecord("s-plan-grand");
+});
+
+test("子代理写调用: 祖先在实施段 → 放行", () => {
+  const { ctx, listeners } = makeContext({
+    taskEngine: {
+      query: () => ({
+        tasks: planTree(
+          { s1: "done", s2: "done", s3: "active" },
+          "p-inherit3",
+        ),
+      }),
+    },
+    agents: chainAgents("impl-child", "p-impl", "s-plan-impl"),
+  });
+  apply(ctx);
+  setRecord("s-plan-impl", {
+    frames: ["p-inherit3-s1", "p-inherit3-s2", "p-inherit3-s3"],
+    restored: false,
+  });
+  const handler = listeners["tools/pre-execute"]![0]!;
+  let passed = 0;
+  const out = handler(
+    {
+      name: "write",
+      arguments: { file_path: "/tmp/x" },
+      agent: { session: { id: "impl-child" } },
+    },
+    () => {
+      passed += 1;
+      return { kind: "allow" };
+    },
+  );
+  assert.equal(passed, 1, "实施段放行, 继续链路");
+  assert.equal((out as { kind?: string }).kind, "allow");
+  dropRecord("s-plan-impl");
+});
+
+test("子代理写调用: 祖先链无 plan 记录 / agents 缺席 → 放行", () => {
+  // 链上没记录 → 放行
+  const noRecord = makeContext({
+    taskEngine: { query: () => ({ tasks: [] }) },
+    agents: chainAgents("orphan-child", "orphan-p", "orphan-top"),
+  });
+  apply(noRecord.ctx);
+  const h1 = noRecord.listeners["tools/pre-execute"]![0]!;
+  let p1 = 0;
+  h1(
+    {
+      name: "write",
+      arguments: { file_path: "/tmp/x" },
+      agent: { session: { id: "orphan-child" } },
+    },
+    () => {
+      p1 += 1;
+      return { kind: "allow" };
+    },
+  );
+  assert.equal(p1, 1, "非 plan 家庭放行");
+  // agents 缺席：上溯读不到父 → 放行
+  const noAgents = makeContext({
+    taskEngine: { query: () => ({ tasks: [] }) },
+  });
+  apply(noAgents.ctx);
+  setRecord("s-lone", {
+    frames: ["a", "b", "c"],
+    restored: false,
+  });
+  const h2 = noAgents.listeners["tools/pre-execute"]![0]!;
+  let p2 = 0;
+  h2(
+    {
+      name: "write",
+      arguments: { file_path: "/tmp/x" },
+      agent: { session: { id: "unrelated" } },
+    },
+    () => {
+      p2 += 1;
+      return { kind: "allow" };
+    },
+  );
+  assert.equal(p2, 1, "无 agents 上溯不到祖先, 放行");
+  // 直接命中仍优先（回归：自身有映射不走上溯）
+  const direct = makeContext({
+    taskEngine: {
+      query: () => ({
+        tasks: planTree(
+          { s1: "active", s2: "pending", s3: "pending" },
+          "p-direct",
+        ),
+      }),
+    },
+    agents: chainAgents("d-child", "d-p", "d-top"),
+  });
+  apply(direct.ctx);
+  setRecord("d-child", {
+    frames: ["p-direct-s1", "p-direct-s2", "p-direct-s3"],
+    restored: false,
+  });
+  const h3 = direct.listeners["tools/pre-execute"]![0]!;
+  const out = h3(
+    {
+      name: "write",
+      arguments: { file_path: "/tmp/x" },
+      agent: { session: { id: "d-child" } },
+    },
+    () => ({ kind: "allow" }),
+  ) as { kind: string; reason?: string };
+  assert.equal(out.kind, "deny");
+  assert.doesNotMatch(out.reason ?? "", /继承自父/);
+  dropRecord("d-child");
+  dropRecord("s-lone");
 });
