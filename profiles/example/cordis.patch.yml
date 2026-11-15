@@ -265,12 +265,6 @@
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
 
-# ── ponytail（默认停挂）────────────────────────────────────────────────────
-# 用 patch 层 disabled 关掉，而不是从 bundle 清单移除：bundle 清单由 install.sh 按
-# canonical_pkgs 维护（与 CI 一致），恢复只需删掉本块。
-- id: ponytail
-  disabled: true
-
 # ── plan-mode（官方版默认停挂；本仓自研实现见 plan-mode/）────────────────────
 # 官方 plan-mode 只注入 plan:policy 并条件挂载 exit_plan_mode，不拦截写工具；
 # 2026-11-11 裁定先禁用，恢复 = 删本块。本仓自研替代是 @dsh-toolset/plan-mode

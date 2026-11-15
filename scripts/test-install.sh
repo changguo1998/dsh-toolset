@@ -121,10 +121,10 @@ manifest="$pdir/package.json"
 # 1）首次安装：不产生备份
 install_ --plugins TUI
 assert_eq "$(count_glob "$pdir" '*.bak.*')" 0 "首次安装不产生备份"
-# 示例资产与当前使用的 profile 对齐（通用项）：深色主题、goal 回合上限、ponytail 停挂
+# 示例资产与当前使用的 profile 对齐（通用项）：深色主题、goal 回合上限、官方 plan-mode 停挂
 assert_count_eq "$pdir/cordis.patch.yml" "theme: dark" 1 "示例资产 TUI 主题为 dark"
 assert_count_eq "$pdir/cordis.patch.yml" "defaultMaxGoalRounds: 999" 1 "示例资产 goal 回合上限 999"
-assert_count_eq "$pdir/cordis.patch.yml" "- id: ponytail" 1 "示例资产默认停挂 ponytail"
+assert_count_eq "$pdir/cordis.patch.yml" "- id: plan-mode" 1 "示例资产默认停挂官方 plan-mode"
 # 模块热重载生成区：base 指仓库、root 相对 base、忽略文档类（只写 root 会停在 profile 目录）
 assert_count_eq "$pdir/cordis.patch.yml" "# install.sh generated: hmr-root-begin v1" 1 "生成区写入 hmr 监听根"
 assert_count_eq "$pdir/cordis.patch.yml" "    base: '$repo_root'" 1 "hmr base 为仓库绝对路径"
@@ -170,38 +170,38 @@ manifest.dependencies["@deepseek-ai/dsh-session-title-all-prompts-llm"] = "0.2.2
 manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-session-title-all-prompts-llm", "some-third-party-bundle");
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 ' "$manifest"
-install_ --plugins "TUI ponytail" --sync
-assert_contains "$manifest" '"@dsh-toolset/ponytail"' "合并补挂 ponytail"
+install_ --plugins "TUI term-check" --sync
+assert_contains "$manifest" '"@dsh-toolset/term-check"' "合并补挂 term-check"
 assert_contains "$manifest" '"@deepseek-ai/dsh-session-title-all-prompts-llm"' "用户自加依赖保留"
 assert_contains "$manifest" '"some-third-party-bundle"' "用户自加 bundle 保留"
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 1 "内容有变化时产生 1 份备份"
-install_ --plugins "TUI ponytail" --sync
+install_ --plugins "TUI term-check" --sync
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 1 "再跑 --sync 不再新增备份"
 
 # 5b）包改名残留（独立 profile）：旧名（依赖值仍 link: 指向本仓库）按本仓条目移除，
 #     不被当成「用户自加」保留；同一轮里真·用户自加 bundle 仍保留
 rpdir="$home/profiles/trename"
 rmanifest="$rpdir/package.json"
-install_ --plugins "TUI ponytail" --profile trename
+install_ --plugins "TUI term-check" --profile trename
 node -e '
 const fs = require("fs");
 const file = process.argv[1];
 const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-manifest.dependencies["@dsh-toolset/ponytail-old"] = manifest.dependencies["@dsh-toolset/ponytail"];
-delete manifest.dependencies["@dsh-toolset/ponytail"];
+manifest.dependencies["@dsh-toolset/term-check-old"] = manifest.dependencies["@dsh-toolset/term-check"];
+delete manifest.dependencies["@dsh-toolset/term-check"];
 manifest.dsh.profile.bundles = manifest.dsh.profile.bundles.map((name) =>
-  name === "@dsh-toolset/ponytail" ? "@dsh-toolset/ponytail-old" : name,
+  name === "@dsh-toolset/term-check" ? "@dsh-toolset/term-check-old" : name,
 );
 manifest.dsh.profile.bundles.push("some-third-party-bundle");
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 ' "$rmanifest"
-install_ --plugins "TUI ponytail" --profile trename --sync
-assert_not_contains "$rmanifest" '@dsh-toolset/ponytail-old' "改名残留（依赖 + bundle）被移除"
-assert_contains "$rmanifest" '"@dsh-toolset/ponytail"' "当前名照常挂载"
+install_ --plugins "TUI term-check" --profile trename --sync
+assert_not_contains "$rmanifest" '@dsh-toolset/term-check-old' "改名残留（依赖 + bundle）被移除"
+assert_contains "$rmanifest" '"@dsh-toolset/term-check"' "当前名照常挂载"
 assert_contains "$rmanifest" '"some-third-party-bundle"' "真·用户自加 bundle 仍保留"
 
 # 6）--force 且内容有变：备份 1 份并覆盖
-install_ --plugins "TUI ponytail" --force
+install_ --plugins "TUI term-check" --force
 assert_eq "$(count_glob "$pdir" 'package.json.bak.*')" 2 "--force 内容有变时备份 1 份"
 
 # 7）标题 provider 接管（生成区口径）：--sync 单独绝不改写 patch（只提示）；
@@ -373,7 +373,7 @@ fs.writeFileSync(file, `${JSON.stringify({
 }, null, 2)}\n`);
 ' "$vdir/package.json" "$1"
 }
-install_v() { install_ --profile vercheck --plugins "TUI ponytail"; }
+install_v() { install_ --profile vercheck --plugins "TUI term-check"; }
 
 # 9a）无此类依赖：跳过（不告警）
 write_vmanifest '{"@dsh-toolset/tui":"link:/tmp/nowhere"}'
@@ -444,7 +444,7 @@ assert_log_contains "退出码 3" "报出退出码"
 assert_log_contains "boom: dump-config failed" "报出错误文本"
 
 # 10d）--skip-verify：跳过且不执行自检（失败态 stub 仍生效）
-install_ --profile vercheck --plugins "TUI ponytail" --skip-verify
+install_ --profile vercheck --plugins "TUI term-check" --skip-verify
 assert_log_contains "按 --skip-verify 跳过" "skip-verify 生效"
 assert_log_not_contains "自检未通过" "skip-verify 下不执行自检"
 
@@ -471,7 +471,7 @@ fake_dsh_ok
 
 # 10c）--sync 收窄选择集：按当前选择集移除本仓库条目（依赖 + bundle），非本仓库条目保留
 #    注：第 6 步的 --force 会重渲染 package.json（用户自加项按设计丢失），故此处先补回自加项
-install_ --plugins "TUI ponytail" --sync
+install_ --plugins "TUI term-check" --sync
 node -e '
 const fs = require("fs");
 const file = process.argv[1];
@@ -481,10 +481,10 @@ manifest.dsh.profile.bundles.push("@deepseek-ai/dsh-session-title-all-prompts-ll
 fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 ' "$manifest"
 install_ --plugins TUI --sync
-assert_not_contains "$manifest" '"@dsh-toolset/ponytail"' "--sync 移除已不在选择集的本仓库条目（依赖 / bundle）"
+assert_not_contains "$manifest" '"@dsh-toolset/term-check"' "--sync 移除已不在选择集的本仓库条目（依赖 / bundle）"
 assert_contains "$manifest" '"@deepseek-ai/dsh-session-title-all-prompts-llm"' "--sync 收窄后非本仓库依赖仍保留"
 assert_contains "$manifest" '"some-third-party-bundle"' "--sync 收窄后非本仓库 bundle 仍保留"
-assert_log_contains "已按当前选择集移除本仓库条目：bundle [@dsh-toolset/ponytail]" "收窄时打移除日志并列明移除名单"
+assert_log_contains "已按当前选择集移除本仓库条目：bundle [@dsh-toolset/term-check]" "收窄时打移除日志并列明移除名单"
 
 # 10d）并行构建：帮助文案 + 非法 BUILD_JOBS 在构建前被拒（不真构建）
 sh "$repo_root/scripts/install.sh" --help > "$work/help.txt" 2>&1
@@ -500,7 +500,7 @@ assert_log_contains "BUILD_JOBS 必须是正整数" "非法 BUILD_JOBS 在构建
 # 12）双 profile：主 profile 走 file: 快照、伴随 <主名>-test 走 link:，其余内容一致
 dmain="$home/profiles/dual"
 dtest="$home/profiles/dual-test"
-install_ --plugins "TUI ponytail" --profile dual
+install_ --plugins "TUI term-check" --profile dual
 assert_contains "$dmain/package.json" '"@dsh-toolset/tui": "file:' "主 profile 依赖用 file:（快照安装）"
 assert_not_contains "$dmain/package.json" '"@dsh-toolset/tui": "link:' "主 profile 不再用 link:"
 assert_contains "$dtest/package.json" '"@dsh-toolset/tui": "link:' "伴随 profile 依赖用 link:"
@@ -533,32 +533,32 @@ assert_log_contains "4b/5 生成伴随 profile（dual-test" "日志报出伴随 
 
 # 12a）幂等：重跑不产生新备份、内容不变
 before_bak="$(count_glob "$dmain" '*.bak.*')"
-install_ --plugins "TUI ponytail" --profile dual --sync
+install_ --plugins "TUI term-check" --profile dual --sync
 assert_eq "$(count_glob "$dmain" '*.bak.*')" "$before_bak" "重跑 --sync 不新增主 profile 备份"
 assert_eq "$(count_glob "$dtest" '*.bak.*')" 0 "伴随 profile 内容未变时不产生备份"
 
 # 12b）--no-test-profile：只装主 profile
-install_ --plugins "TUI ponytail" --profile solo --no-test-profile
+install_ --plugins "TUI term-check" --profile solo --no-test-profile
 assert_eq "$([ -d "$home/profiles/solo" ] && echo yes || echo no)" "yes" "--no-test-profile 仍装主 profile"
 assert_eq "$([ -e "$home/profiles/solo-test" ] && echo yes || echo no)" "no" "--no-test-profile 不生成伴随 profile"
 
 # 12c）--profile-test：自定义伴随名
-install_ --plugins "TUI ponytail" --profile named --profile-test named-dev
+install_ --plugins "TUI term-check" --profile named --profile-test named-dev
 assert_eq "$([ -d "$home/profiles/named-dev" ] && echo yes || echo no)" "yes" "--profile-test 用自定义名"
 
 # 12d）--mode link：主 profile 也用软链接（开发期形态）
-install_ --plugins "TUI ponytail" --profile devlink --mode link
+install_ --plugins "TUI term-check" --profile devlink --mode link
 assert_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "link:' "--mode link 时主 profile 用 link:"
 assert_count_eq "$home/profiles/devlink/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 0 "--mode link 不写 overrides 生成区"
 
 # 12e）协议切换：已有 link: 清单 → 默认 copy 的 --sync 改成 file:（旧 link 条目按本仓库条目处理）
-install_ --plugins "TUI ponytail" --profile devlink --sync
+install_ --plugins "TUI term-check" --profile devlink --sync
 assert_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "file:' "--sync 把 link: 切成 file:"
 assert_not_contains "$home/profiles/devlink/package.json" '"@dsh-toolset/tui": "link:' "切换后不残留 link:"
 assert_count_eq "$home/profiles/devlink/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 1 "切到 copy 后写入 overrides 生成区"
 
 # 12e-补）再切回 link：生成区里的 file: 覆盖会让这些包钉成快照副本、link 语义失效，必须删掉
-install_ --plugins "TUI ponytail" --profile devlink --mode link
+install_ --plugins "TUI term-check" --profile devlink --mode link
 assert_count_eq "$home/profiles/devlink/pnpm-workspace.yaml" "# install.sh generated: overrides-begin v1" 0 "--mode link 移除 overrides 生成区"
 assert_log_contains "已移除 overrides 生成区" "日志报出移除 overrides 生成区"
 
@@ -594,8 +594,8 @@ const canon = canonical.trim().split(/\s+/);
 const sorted = (list) => [...new Set(list)].sort();
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 const problems = [];
-if (canon.length !== 42 || dirs.length !== 42)
-  problems.push(`包数不是 42：canonical ${canon.length} / 目录 ${dirs.length}`);
+if (canon.length !== 41 || dirs.length !== 41)
+  problems.push(`包数不是 41：canonical ${canon.length} / 目录 ${dirs.length}`);
 if (!eq(sorted(canon), sorted(dirs))) {
   const onlyCanon = sorted(canon).filter((name) => !dirs.includes(name));
   const onlyDirs = sorted(dirs).filter((name) => !canon.includes(name));
@@ -605,7 +605,7 @@ if (!eq(sorted(canon), sorted(dirs))) {
 }
 console.log(problems.length ? problems.join("；") : "ok");
 ' "$repo_root" "$canonical")"
-assert_eq "$consistency" "ok" "canonical_pkgs 与仓库包目录一致且为 42 个包"
+assert_eq "$consistency" "ok" "canonical_pkgs 与仓库包目录一致且为 41 个包"
 missing=""
 for d in $canonical; do
     [ -d "$repo_root/$d" ] || missing="$missing $d"
