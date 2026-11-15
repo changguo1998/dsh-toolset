@@ -191,9 +191,10 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
     }
   };
 
-  /** B1: 实时投递本 step 的性能（首块到达即投一次, 其后按 `LIVE_PERF_MIN_MS` 节流）。
-   *  读数口径见 `perf.ts`：TTFB 实际测量, 速率用本步已产出内容的估算 token。
-   *  内容含正文、思考与工具调用 / 结果（用户 2026-11-14 裁定：只要是输出内容都算）。 */
+  /** B1: 实时投递本 step 的性能（首块到达即投一次, 其后按 `LIVE_PERF_MIN_MS`（1s）节流）。
+   *  读数口径见 `perf.ts`：TTFB 实际测量；速率 = 上一采样以来的 Δtoken ÷ Δ时间（每秒统计
+   *  一次, 计算仍随每条 chunk 快速累积, 只把投递/统计节流到 1s。内容含正文、思考与
+   *  工具调用 / 结果（用户 2026-11-14 裁定：只要是输出内容都算）。 */
   const emitLivePerformance = (
     sessionId: string,
     sk: string,
@@ -211,7 +212,13 @@ export function createEventBridge(ctx: AdapterContext, deps: EventBridgeDeps) {
     }
     const reading = perfReadingOf(perf, now);
     if (reading === undefined) return;
-    s.stepPerf.set(sk, { ...perf, lastPerfEmit: now });
+    // 采样写回：下一投递（≥1s 后）的速率以本次的累计 token 为窗口起点
+    s.stepPerf.set(sk, {
+      ...perf,
+      lastPerfEmit: now,
+      lastSampleAt: now,
+      lastSampleTokens: perf.estTokens ?? 0,
+    });
     ctx.emit({
       type: "performance",
       sessionId,
