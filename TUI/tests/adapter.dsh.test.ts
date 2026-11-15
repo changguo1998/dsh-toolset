@@ -7433,8 +7433,8 @@ test("真实 adapter /config：服务缺失 / 条目不在集合内 / 宿主拒�
   rejected.unbind();
 });
 
-// --- B1：实时速率口径（正文 / 思考 / 工具内容都算，收尾归零） ---
-test("B1: 速率计入思考与工具内容，该步收尾归零", () => {
+// --- B1：实时速率口径（正文 / 思考 / 工具内容都算，1s 节流投递，收尾归零） ---
+test("B1: 1s 节流投递；窗口速率计入思考与工具内容，该步收尾归零", () => {
   const t = makeAdapter();
   const start = 1_000_000;
   const perfs = (): Extract<DshEvent, { type: "performance" }>[] =>
@@ -7463,7 +7463,7 @@ test("B1: 速率计入思考与工具内容，该步收尾归零", () => {
     "agent/assistant-stream",
     streamFrame({ type: "start", attemptId: "a1", turn: 1, step: 1 }),
   );
-  // 思考块 40 宽字符 ≈ 40 token；首块 = start+100 → TTFB 100ms
+  // 思考块 40 宽字符 ≈ 40 token；首块 = start+100 → TTFB 100ms；首投无上一采样 → 速率 0
   frameAt(
     {
       type: "chunk",
@@ -7473,7 +7473,12 @@ test("B1: 速率计入思考与工具内容，该步收尾归零", () => {
     start + 100,
   );
   assert.equal(perfs().at(-1)?.ttfbMs, 100, "TTFB = 首块 − step 起点");
-  // 工具调用参数（start+400）：速率应把参数 token 一并计入（仅思考时为 40/0.3≈133）
+  assert.equal(
+    perfs().at(-1)?.avgTokensPerSec,
+    0,
+    "首投不足 1s 数据，速率记 0",
+  );
+  // 工具调用参数（start+400）：会话内计入估算 token，但在 1s 节流窗口内 → 不新投
   fireAt(
     "tool/call",
     {
@@ -7485,9 +7490,21 @@ test("B1: 速率计入思考与工具内容，该步收尾归零", () => {
     },
     start + 400,
   );
+  assert.equal(perfs().length, 1, "窗口内多条内容只投一次（1s 节流）");
+  // 距上一投 ≥1s（start+1200，追加 20 宽字符）：投第二次，速率为 Δtoken/Δt
+  frameAt(
+    {
+      type: "chunk",
+      attemptId: "a1",
+      chunk: { type: "text-delta", index: 0, text: "答".repeat(20) },
+    },
+    start + 1200,
+  );
+  const second = perfs().at(-1);
+  assert.equal(perfs().length, 2, "跨秒再投一次");
   assert.ok(
-    (perfs().at(-1)?.avgTokensPerSec ?? 0) > 200,
-    `工具参数应计入速率（实际: ${perfs().at(-1)?.avgTokensPerSec}）`,
+    (second?.avgTokensPerSec ?? 0) > 40,
+    `工具参数应计入窗口速率（实际: ${second?.avgTokensPerSec}）`,
   );
   // 该步收尾 → 两个数字归零
   fireAt(
@@ -7497,11 +7514,84 @@ test("B1: 速率计入思考与工具内容，该步收尾归零", () => {
       step: 1,
       message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
     },
-    start + 500,
+    start + 1500,
   );
   const zeroed = perfs().at(-1);
   assert.deepEqual(
     [zeroed?.ttfbMs, zeroed?.avgTokensPerSec],
+    [0, 0],
+    "收尾应归零",
+  );
+});
+
+// --- B2：速率为 1s 窗口（Δtoken/Δt），非首块以来累计平均 ---
+test("B2: 速率按 1s 窗口采样，而非累计平均", () => {
+  const t = makeAdapter();
+  const start = 2_000_000;
+  const perfs = (): Extract<DshEvent, { type: "performance" }>[] =>
+    t.events.filter(
+      (e): e is Extract<DshEvent, { type: "performance" }> =>
+        e.type === "performance",
+    );
+  const frameAt = (frame: Record<string, unknown>, time: number): void => {
+    t.runtime.fire("agent/assistant-stream", streamFrame({ ...frame, time }));
+  };
+  const chunkOf = (text: string) => ({
+    type: "chunk" as const,
+    attemptId: "a2",
+    chunk: { type: "text-delta" as const, index: 0, text },
+  });
+
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    {
+      type: "step/start",
+      seq: 1,
+      time: start,
+      data: { turn: 1, step: 1 },
+    } as unknown as SessionEvent,
+  );
+  t.runtime.fire(
+    "agent/assistant-stream",
+    streamFrame({ type: "start", attemptId: "a2", turn: 1, step: 1 }),
+  );
+  // t0+100：10 token → 首投（速率 0）；t0+1300：再 10 token → 第二投 rate≈8.3
+  frameAt(chunkOf("思".repeat(10)), start + 100);
+  frameAt(chunkOf("思".repeat(10)), start + 1300);
+  assert.equal(perfs().length, 2, "跨秒投递");
+  // t0+1500：仍处窗口内 → 不再投；t0+2400：再 50 token → 第三投
+  frameAt(chunkOf("思".repeat(10)), start + 1500);
+  assert.equal(perfs().length, 2, "窗口内不新投");
+  frameAt(chunkOf("思".repeat(50)), start + 2400);
+  const third = perfs().at(-1);
+  assert.equal(perfs().length, 3, "窗口末再投");
+  const rate = third?.avgTokensPerSec ?? 0;
+  // 累计平均 = 80 / 2.3 ≈ 34.8；窗口速率 = (80−20) / 1.1 ≈ 54.5 → 能区分两者
+  assert.ok(
+    rate > 45 && rate < 65,
+    `速率应为 1s 窗口值（实际: ${rate}, 累计平均约 35）`,
+  );
+  // 收尾归零
+  t.runtime.fire(
+    "session/event",
+    { id: "s1" },
+    {
+      type: "assistant/message",
+      seq: 1,
+      time: start + 2600,
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "ok" }],
+        },
+      },
+    } as unknown as SessionEvent,
+  );
+  assert.deepEqual(
+    [perfs().at(-1)?.ttfbMs, perfs().at(-1)?.avgTokensPerSec],
     [0, 0],
     "收尾应归零",
   );
