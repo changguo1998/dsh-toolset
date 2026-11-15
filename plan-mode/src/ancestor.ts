@@ -15,7 +15,9 @@ export const ANCESTOR_MAX_HOPS = 24;
 
 /** `agents` 服务在本组件的消费形态（真机 `ctx.get("agents").get(id)` 返回 agent）。 */
 export interface AgentsLike {
-  get(id: string):
+  get(
+    id: string,
+  ):
     | { session?: { header?: { parentSession?: string | undefined } } }
     | undefined;
 }
@@ -36,7 +38,11 @@ export function nearestPlanRecord<T>(
   parentOf: ParentOf,
 ): { sessionId: string; record: T } | undefined {
   let cursor: string | undefined = startSessionId;
-  for (let hops = 0; cursor !== undefined && hops <= ANCESTOR_MAX_HOPS; hops++) {
+  for (
+    let hops = 0;
+    cursor !== undefined && hops <= ANCESTOR_MAX_HOPS;
+    hops++
+  ) {
     const record = recordOf(cursor);
     if (record !== undefined) return { sessionId: cursor, record };
     cursor = parentOf(cursor);

@@ -568,7 +568,8 @@ function chainAgents(
     get: (id: string) => {
       if (id === leaf) return { session: { header: { parentSession: mid } } };
       if (id === mid) return { session: { header: { parentSession: top } } };
-      if (id === top) return { session: { header: { parentSession: undefined } } };
+      if (id === top)
+        return { session: { header: { parentSession: undefined } } };
       return undefined;
     },
   };
@@ -643,10 +644,7 @@ test("子代理写调用: 祖先在实施段 → 放行", () => {
   const { ctx, listeners } = makeContext({
     taskEngine: {
       query: () => ({
-        tasks: planTree(
-          { s1: "done", s2: "done", s3: "active" },
-          "p-inherit3",
-        ),
+        tasks: planTree({ s1: "done", s2: "done", s3: "active" }, "p-inherit3"),
       }),
     },
     agents: chainAgents("impl-child", "p-impl", "s-plan-impl"),

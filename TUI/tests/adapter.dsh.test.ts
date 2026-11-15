@@ -7542,16 +7542,12 @@ test("B2: 速率按 1s 窗口采样，而非累计平均", () => {
     chunk: { type: "text-delta" as const, index: 0, text },
   });
 
-  t.runtime.fire(
-    "session/event",
-    { id: "s1" },
-    {
-      type: "step/start",
-      seq: 1,
-      time: start,
-      data: { turn: 1, step: 1 },
-    } as unknown as SessionEvent,
-  );
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "step/start",
+    seq: 1,
+    time: start,
+    data: { turn: 1, step: 1 },
+  } as unknown as SessionEvent);
   t.runtime.fire(
     "agent/assistant-stream",
     streamFrame({ type: "start", attemptId: "a2", turn: 1, step: 1 }),
@@ -7573,23 +7569,19 @@ test("B2: 速率按 1s 窗口采样，而非累计平均", () => {
     `速率应为 1s 窗口值（实际: ${rate}, 累计平均约 35）`,
   );
   // 收尾归零
-  t.runtime.fire(
-    "session/event",
-    { id: "s1" },
-    {
-      type: "assistant/message",
-      seq: 1,
-      time: start + 2600,
-      data: {
-        turn: 1,
-        step: 1,
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: "ok" }],
-        },
+  t.runtime.fire("session/event", { id: "s1" }, {
+    type: "assistant/message",
+    seq: 1,
+    time: start + 2600,
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
       },
-    } as unknown as SessionEvent,
-  );
+    },
+  } as unknown as SessionEvent);
   assert.deepEqual(
     [perfs().at(-1)?.ttfbMs, perfs().at(-1)?.avgTokensPerSec],
     [0, 0],
