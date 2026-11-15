@@ -8,9 +8,10 @@ DSH（DeepSeek Harness）工具咨询插件：首请求起工具声明常驻且�
 
 ## 能力
 
-- **全量短清单常驻**: 14 个初始工具保留宿主完整定义; 其余非初始、非条件工具在 agent 作用域 shadow 成短说明 + 宽松占位, 完整说明与完整 schema 收进 `@dsh-toolset/tool-surface` 的 catalog. 工具声明在固定路由与固定就绪状态下从首请求起不变.
+- **全量短清单常驻**: 12 个初始工具保留宿主完整定义; 其余非初始、非条件工具在 agent 作用域 shadow 成短说明 + 宽松占位, 完整说明与完整 schema 收进 `@dsh-toolset/tool-surface` 的 catalog. 工具声明在固定路由与固定就绪状态下从首请求起不变.
 - **揭示只追加正文**: 揭示 = 会话授权集合 + 每工具一条 `pinNotes.hold("revealed:<工具名>")` 全文（`description` + `input_schema`）; 不新增、不删除、不重排声明, 也不调用 `tools.restrict`.
 - **未揭示门禁**: 纳入管理的工具在未授权时由 `tools/pre-execute` 拒绝, 文案指向 `consult_tools`, `error.info.code = TOOL_NOT_REVEALED`; 揭示后放行.
+- **条件豁免名单（`plainWhenTools`）**: 这些名字即使宿主带 `when` 注册, 也不当作条件工具, 而是按普通工具对待——非初始走 shadow + 咨询揭示, 初始保留完整定义. 用途: 宿主 `when` 对本部署恒真、不需要按 when 进出面的工具（如 `web_search` / `web_fetch` 的 provider 就绪、`team_task_*` 的 Team mode）.
 - **条件工具白名单**: `allowedWhenTools` 内的条件工具保持宿主原样（`when` 与完整定义都在）; 名单外的条件工具用一次静态 `restrict({ deny })` 从模型面彻底移除, 不进检索索引、不可揭示、不投递.
 - **咨询即授权**: `consult_tools(query | names, limit, reveal)`; `reveal: false` 只预览, 不写授权. 授权在本会话内只增不减.
 - **可行动错误**: 调用未揭示的工具返回「先经 consult_tools 查询」的文案, 不是裸的 `unknown tool`.
@@ -20,8 +21,9 @@ DSH（DeepSeek Harness）工具咨询插件：首请求起工具声明常驻且�
 | 字段 | 缺省 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 总开关; `false` 时整体不 shadow、不 deny、不投递 |
-| `initialTools` | 14 个: `bash` / `read` / `glob` / `grep` / `ask_user_question` / `skill` / `write` / `edit` / `read_image` / `web_search` / `web_fetch` / `job_output` / `job_list` / `job_kill` | 保留完整定义; 支持 `*` / `?` 通配 |
-| `allowedWhenTools` | `web_search` / `web_fetch` | 允许保留宿主原样的条件工具; 放行新条件工具只加名字 |
+| `initialTools` | 12 个: `bash` / `read` / `glob` / `grep` / `ask_user_question` / `skill` / `write` / `edit` / `read_image` / `job_output` / `job_list` / `job_kill` | 保留完整定义; 支持 `*` / `?` 通配 |
+| `allowedWhenTools` | `[]`（空） | 允许保留宿主原样的条件工具（按 when 控可见）; 放行新条件工具只加名字 |
+| `plainWhenTools` | `web_search` / `web_fetch` | 条件豁免名单: 带 when 但按普通工具对待（非初始走 shadow + 咨询揭示）; bundle 层另加 `team_task_*` 四件 |
 | `applyTo` | `roots` | `roots`（只管理根代理）/ `all` |
 | `maxResults` | `5` | 单次返回上限（1 至 20） |
 | `audit` | `false` | 预留: 写 `tool-consult/*` 审计事件 |
@@ -37,8 +39,8 @@ profile 的 `cordis.patch.yml` 插入本包（本包自带 `cordis.patch.yml` �
     - id: tool-consult
       name: '@dsh-toolset/tool-consult'
       config:
-        initialTools: [bash, read, glob, grep, ask_user_question, skill, write, edit, read_image, web_search, web_fetch, job_output, job_list, job_kill]
-        allowedWhenTools: [web_search, web_fetch]
+        initialTools: [bash, read, glob, grep, ask_user_question, skill, write, edit, read_image, job_output, job_list, job_kill]
+        plainWhenTools: [team_task_create, team_task_list, team_task_get, team_task_update]
 ```
 
 `tool-surface` 必须比 `tool-consult` 先挂载; `scripts/install.sh` 的规范顺序已满足. 主 profile 需重跑 `scripts/install.sh --profile fff --sync` 才会带上本包对 `tool-surface` 的新依赖.
@@ -46,7 +48,8 @@ profile 的 `cordis.patch.yml` 插入本包（本包自带 `cordis.patch.yml` �
 ## 边界
 
 - **失败即不接管**: catalog 自检失败（`toolSurface` 未挂载 / 多实例 / 已包装工具缺 catalog 项）时整个插件不接管; 静态 deny 失败或 `schemas(agent)` 残留时当前代理不接管; 两者都撤掉已做注册并告警一次, 工具面回退宿主默认. 上述保证只覆盖成功接管的状态.
-- **白名单内条件工具**: 保持宿主原样, 会随 readiness 进出 header; 不 shadow / 不 deny / 不包装.
+- **条件豁免工具（`plainWhenTools`）**: 带 when 但按普通工具对待——非初始 shadow + 咨询揭示（与普通工具同路径）, 不再按 condition 控可见; 适合「宿主 when 对本部署恒真」的工具（web provider / Team mode 默认开）.
+- **白名单内条件工具（`allowedWhenTools`）**: 保持宿主原样, 会随 readiness 进出 header; 不 shadow / 不 deny / 不包装.
 - **晚注册工具**: 非条件工具不补 shadow, 不进 managed 集合, 默认放行（以完整定义出现属已知边界）; 条件工具由 `tools/change` 重算并补 deny.
 - **子代理**: 缺省 `applyTo: roots`, 不遮蔽 / 不 deny; `all` 才逐代理管理.
 - **静态 deny 集合**: 只覆盖全局条件工具; agent 作用域注册的条件工具不受 `restrict` 约束（本仓当前无此用法）.
