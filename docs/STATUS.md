@@ -12,7 +12,7 @@
 
 - TUI 侧现状见 `TUI/docs/STATUS.md`（完成情况、命令面、宿主升级适配）, 待办与开放项见 `TUI/docs/BACKLOG.md`——本文件不复述 TUI 细节。
 - **40 个插件全部完成并合入 main**（清单见根 `README.md`「组成」）; TUI 单测 1892 例。
-- 宿主基线：**`0.2.2-rc.1`**（2026-11-07 升级完成: 全局 `dsh` 与安装树升到 rc.1、`scripts/install.sh --profile fff --sync` 已重装、`install.sh` 默认版本 / `test-install.sh` 假版本串 / 4 个包 smoke 门槛 / 各 README / 根 `devDependencies` 与 `pnpm-lock.yaml` 全部改到 rc.1; 安装树随包 **330 / 319**, fff 组合树 866 行 / 174 个 `- id:` 行 / 官方活跃包 **101** 个）。接口增量见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`, 官方包清单与分类见 `docs/host/HOST-PACKAGES.md`, 上一版对照见 `docs/host/HOST-UPGRADE-0.2.1-rc.5.md`。
+- 宿主基线：**`0.2.2-rc.3`**（2026-11-16 升级完成: 全局 `dsh` 与安装树升到 rc.3、`scripts/install.sh --profile fff --sync` 已重装、`install.sh` 默认版本 / 4 个包 smoke 门槛 / 各 README / 根 `devDependencies` 与 `pnpm-lock.yaml` 抬到 rc.3；代码面三处 `subagents.start` → `startActivation`；安装树随包 **337 / 326**, fff 组合树 883 行 / 152 个 `- id:` 行 / 官方活跃 **102** 个）。接口增量见 `docs/host/HOST-UPGRADE-0.2.2-rc.3.md`, 官方包清单与分类见 `docs/host/HOST-PACKAGES.md`, 上一版对照见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`。
 - 仓库现有 **41 个 `@dsh-toolset/*` 包**（TUI + 40 插件; `tool-surface` 只作库依赖, 未单列 bundle）; 主 profile（`~/.dsh/profiles/fff`）按 `canonical_pkgs` 41 包挂载（TUI + 40 插件, 含 `tool-surface` / `cache-hit-monitor` / `plan-mode` / `flow-arbiter`, 2026-11-15 核对）。
 - 已取消 / 不再立项：`rate-guard`（pi 侧已移除, dsh 侧由官方 `llm-retry` 覆盖）、GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报、近期改动代码审查、preset 机制迁移评估、`llm-router`（改用现成开源网关）；裁定记录见 `docs/BACKLOG.md` 第 1 节 与 `archive/PI-DSH-FEATURE-COMPARISON.md`。
 - 未建插件与在办条目见 `docs/BACKLOG.md` 第 2 节（按标题引用; 2026-11-15 为 1 条暂停: 回合预算调整, 无未接取条目; 第 4 节插件规划无未建包）; 真机验证欠账已清零（清单归档在 `docs/archived/2026-10-23-real-machine-verification.md`）。

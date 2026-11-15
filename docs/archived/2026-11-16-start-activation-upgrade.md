@@ -25,7 +25,7 @@
 - `package.json`（D9 `engines.node` → `>=24.9.0`）
 - `profiles/example/cordis.patch.yml`（D9 账号包名注释）
 - 文档同步：`command-template/README.md` / `docs/DESIGN.md`、`task-engine/docs/DESIGN.md`
-- 追踪文档 `docs/implementation/2026-11-16-start-activation-upgrade.md`（本文）、`docs/BACKLOG.md`
+- 追踪文档 `docs/archived/2026-11-16-start-activation-upgrade.md`（本文）、`docs/BACKLOG.md`
 
 ## 调研结论（宿主 `/startActivation` 面）
 

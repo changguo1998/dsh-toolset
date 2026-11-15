@@ -1,10 +1,10 @@
-# 本仓插件与官方包的复用审计（基线 DSH 0.2.2-rc.1）
+# 本仓插件与官方包的复用审计（基线 DSH 0.2.2-rc.1；2026-11-16 宿主升 rc.3，消费面无复用相关变更，结论沿用）
 
 > 职责：回答「本仓 37 个包（TUI + 36 插件）里，哪些能力官方已经有了、哪些该改用官方包、哪些该保留或并存」（审计快照 31 包：2026-10-02 基线 18 个，其后补入 `md-logic` / `md-map` / `auto-approve`，2026-10-20 补审 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group`，2026-10-22 补审 `timer` / `behavior-correction`；2026-11-03 补审 `coagent` / `tool-consult` / `escalation-hint`；2026-11-15 移除 `ponytail`（随包删除），覆盖 33 包）
-> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.5.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.2.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
+> 不负责：接口怎么用（见 `docs/host/DSH-CTX-API.md`）、有哪些官方包（见 `docs/host/HOST-PACKAGES.md`）、升级差异（见 `docs/host/HOST-UPGRADE-0.2.2-rc.3.md` / `docs/host/HOST-UPGRADE-0.2.2-rc.1.md` / `docs/host/HOST-UPGRADE-0.2.1-rc.5.md` / `docs/host/HOST-UPGRADE-0.2.0-rc.2.md`）
 > 过期条件：官方发布新的「文件摘要 / 知识记忆 / 行级锚定编辑」类能力，或本仓新增 / 删除包时重做
 
-> 口径：官方基线 `dsh 0.2.2-rc.1`（源码 tag 口径 372 个包目录；安装树计数与 fff 活跃挂载数字按 2026-11-07 升级后的实测见 `docs/host/HOST-PACKAGES.md`）；本仓 **37 个包 = TUI + 36 个插件**（审计总表 **33 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行 − 2026-11-15 移除 `ponytail` 1 行，**尚未覆盖** `term-check` / `pin-note` / `flow-track`；清单见 `AGENTS.md`「结构与约定」）。
+> 口径：官方基线 `dsh 0.2.2-rc.1`（源码 tag 口径 372 个包目录；安装树计数与 fff 活跃挂载数字按 2026-11-16 rc.3 升级后的实测见 `docs/host/HOST-PACKAGES.md`）；本仓 **37 个包 = TUI + 36 个插件**（审计总表 **33 行** = 2026-10-22 的 31 行历史快照 + 2026-11-03 补审 3 行 − 2026-11-15 移除 `ponytail` 1 行，**尚未覆盖** `term-check` / `pin-note` / `flow-track`；清单见 `AGENTS.md`「结构与约定」）。
 > 判据：① 能力是否重合（同一诉求）；② 官方是否有等价物；③ 我们是否已在复用官方底座。三者交叉后给「改用 / 保留 / 并存」。
 > 结论分布：**改用 0 / 保留 23 / 并存 10**（总表 33 行；2026-10-02 审计时为 18 行 = TUI + 17 包，其后补入 `md-logic` / `md-map` / `auto-approve`，2026-10-20 补审 7 包：保留 5 `herdr-use` / `md-table-check` / `background-daemon` / `preference-analysis` / `agent-group`、并存 2 `session-paths` / `script-interpreter`，2026-10-22 补审 2 包：并存 1 `timer`、保留 1 `behavior-correction`，2026-11-03 补审 3 包：并存 1 `tool-consult`、保留 2 `coagent` / `escalation-hint`，2026-11-15 移除 `ponytail`（原保留）1 行）。改造点见 §4。**本文件经子代理审阅后修订一轮**（见 §7）：三处事实性修正是——官方**有**文件级读后改前守卫、官方**有**会话日志 FTS5 检索（缺省关闭）、「双重截断」风险不存在。
 >

@@ -9,7 +9,7 @@
 - 对比源: 官方 clone `~/GithubRepos/deepseek-harness`, tag `dsh-v0.2.2-rc.1..dsh-v0.2.2-rc.3`。核对时间 2026-11-15。
 - tag 与提交: `dsh-v0.2.2-rc.1` = `66491b05e3` (2026-11-04)、`dsh-v0.2.2-rc.2` = `ddac96760b` (2026-11-11)、`dsh-v0.2.2-rc.3` = `38a6a5c965` (2026-11-13)。**无 `dsh-v0.2.3*` tag**。
 - 发布通道: npm `@deepseek-ai/dsh` 的 dist-tags 为 `latest = 0.2.2-rc.1`、`next = 0.2.2-rc.3`、`alpha = 0.2.2-alpha.3`。即 rc.2 / rc.3 已发布但只走 `next`, `latest` 未提升。
-- 本机状态: 安装树 `@deepseek-ai/dsh` 版本 `0.2.2-rc.1` (复核时与 `latest` 一致)。**本次未实装升级**, 故本文无安装树实测节 (见 §12)。
+- 本机状态: 安装树 `@deepseek-ai/dsh` 版本 `0.2.2-rc.3`（**2026-11-16 实装升级**: 用户执行 install.sh；安装树 337 / `dsh-*` 326、`dsh-base` rc.3，实测见 §12）。
 - 增量分布: rc.1 → rc.2 = 1568 提交 / 4645 文件 (+160844 −58399); rc.2 → rc.3 = 6 提交 / 515 文件 (+10988 −669)。接口面增量实质发生在 **rc.1 → rc.2**, rc.3 只多一个实验包与若干 CI / 修复。
 - rc.2 → rc.3 的 6 个提交: 发布合并 `38a6a5c965`、`release(dsh): 0.2.2-rc.3` (`4c1cf20cb1`)、实验包「导入 DeepSeek 官网对话导出为会话」(`b8c33a1504`)、`fix(ci)` 缓存修复 (`68f83cc992`) 及其分支合并 (`bbad94f927`)、重启状态 / cwd 分支合并 (`ac904e118e`)。
 - clone 的 `master` HEAD = `39163dd30f` (rc.3 合入 master): `rc.3..master` 另有 608 个未发版提交 (382 个包目录), 属 0.2.3 线开发, 本文不对照。
