@@ -90,6 +90,8 @@
 
 - plan 模式段位展示（2026-11-15 完成）: 标题行符号区加 plan 段位——`plan` 图标按段四态着色（灰=未进模式 / 青=探索 / 黄=计划 / 绿=实施）, 数据源懒读 plan-mode 服务面 `planStage.current(sessionId)`（随状态行 ticker 保鲜, 未挂载 / null 按灰）, 不再读宿主 plan/mode; 顺带按用户裁定把工作流符号（plan / flow-track）排到符号区最右、与其余符号（sandbox / policy / verbose / symbol-unify / bell / daemon）以 `•` 圆点分隔。改动: `TUI/src/app/app-deps.ts` / `main.ts` / `state/*`（plan-stage action 三件套）/ `runtime/wiring.ts` / `lifecycle.ts` / `layout/title-bar.ts`, 冻结基线重冻 + title-bar 测试更新。验证: TUI 1891 项全过（含段位四态与分隔新用例）, 全仓 check / build / test 全绿, check:docs 通过。追踪文档 `docs/archived/2026-11-15-plan-stage-display.md`。
 
+- TUI 性能读数显示节奏调整（2026-11-15 完成）: 状态行「首字节延时 + 解码速率」改「计算与显示分离」——计算仍随每条 chunk 快速累积（estTokens / firstChunkTime）, `performance` 事件投递节流从 250ms 拉长到 **1000ms**（数字每秒最多更新 1 次）; 速率口径从「首块以来累计平均」改为 **1s 窗口采样**（上一采样以来的 Δtoken ÷ Δ时间 ≈ 每秒产出 token）, `perf.ts` 增 `lastSampleAt` / `lastSampleTokens`, `emitLivePerformance` 采样写回; TTFB 口径、收尾归零、非流式回落均不变。改动: `TUI/src/app/adapter/perf.ts` / `dsh-events.ts` / `TUI/tests/adapter.dsh.test.ts`（B1 重写 + 新增 B2 窗口速率判定）。验证: TUI 1892 项全过（+1）, 全仓 check / build 全绿, check:docs 通过。追踪文档 `docs/archived/2026-11-15-tui-perf-display-cadence.md`。
+
 ## 2. 未完成项
 
 - **子代理写调用继承父会话阶段**（2026-11-15, 自「自研 plan 模式」决策项 3 的 c 拆出, 优先级 P3, 状态: 未接取）: 现状——子代理的写调用带子会话 id, 父会话的 `tools/pre-execute` 拦截按会话匹配时不命中; 主条目已在只读段拦住 `workflow` / `task_execute` 的发起, 剩下的口子是进入 plan 之前就已存在的子会话, 以及日后新增的派生会话工具。期望——子代理继承父会话的阶段约束; 前置——需宿主提供「父会话身份」到子代理调用面的公开通路（当前未找到, 见追踪文档 §2.4）。来源: 2026-11-15 决策项 3 的 c（未选, 独立接取）。
