@@ -59,7 +59,7 @@ export function createCommandsHostPart(ctx: AppContext) {
 
   /** /council：二次意见（notice 型）——并行拉起 N（默认 2，可带参）个评审子代理对
    *  当前对话目标各自给独立意见，adapter.council 汇总后 info 展示；宿主未暴露
-   *  subagents.start → warn 不假启动。 */
+   *  subagents.startActivation → warn 不假启动。 */
   function handleCouncilCommand(line: string): void {
     const adapter = ctx.deps.adapter;
     const council = adapter.council;

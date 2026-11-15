@@ -149,18 +149,17 @@ export interface SubagentsLike {
     targetSessionId: string,
     authority: { kind: "user"; parentSessionId: string },
   ): void;
-  /** 拉起一个 one-shot 子代理（dsh-subagent `start(name, request)`；/council 评审用）。
-   *  request: { label?, prompt: ContentBlock[], parent, signal?, agentOptions? }。
+  /** 拉起一个一次性子代理（dsh-subagent `startActivation(spec)`，rc.3 起服务面无 `start`；
+   *  选项平铺：provider/label/prompt/parent/signal/delivery。provider=spawn；/council 评审用）。
    *  宿主未提供 → /council 提示不可用不假启动。 */
-  start?(
-    name: string,
-    request: {
-      label?: string;
-      prompt: readonly ContentBlockLike[];
-      parent: unknown;
-      signal?: AbortSignal;
-      /** 高规格评审模型偏好（宿主暴露 agentOptions 能力时透传，否则默认） */
-      agentOptions?: Record<string, unknown>;
-    },
-  ): Promise<SubagentRunLike> | SubagentRunLike;
+  startActivation?(spec: {
+    provider: string;
+    label?: string;
+    prompt: readonly ContentBlockLike[];
+    parent: unknown;
+    signal?: AbortSignal;
+    delivery?: "parent" | "caller";
+    /** 高规格评审模型偏好（宿主暴露 agentOptions 能力时透传，否则默认） */
+    agentOptions?: Record<string, unknown>;
+  }): Promise<SubagentRunLike> | SubagentRunLike;
 }

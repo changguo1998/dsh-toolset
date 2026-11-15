@@ -252,9 +252,9 @@ export interface DshAdapter {
   refreshWorkflows?: (() => Promise<void>) | undefined;
   /** /workflows 只读运行集合（测试/契约用；无则空） */
   workflowRuns?: readonly WorkflowRunLike[];
-  /** /council 二次意见：并行拉起 count 个评审子代理（ctx.subagents.start）对 target 各自
-   *  给独立意见，任一失败降级保留其余；返回汇总文本（notice 展示，≤4 行）。宿主未挂载
-   *  subagents.start → reject（调用方 warn 不假启动）。 */
+  /** /council 二次意见：并行拉起 count 个评审子代理（ctx.subagents.startActivation，provider=spawn）
+   *  对 target 各自给独立意见，任一失败降级保留其余；返回汇总文本（notice 展示，≤4 行）。宿主未挂载
+   *  subagents.startActivation → reject（调用方 warn 不假启动）。 */
   council?: ((target: string, count?: number) => Promise<string>) | undefined;
   /** /search：并行调用多 provider（host web 派生 + options.searchProviders），合并→URL 去重
    *  →query-token 关联度排序后归一化行推 command-panel-data(kind=search)；单 provider 失败

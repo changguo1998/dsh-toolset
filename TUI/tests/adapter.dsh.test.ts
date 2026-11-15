@@ -5982,27 +5982,27 @@ test("真实 adapter /workflows：refreshWorkflows 推 command-panel-data(workfl
 });
 
 // ---------- P2#18：/council 的真实 adapter 接线契约 ----------
-// 断言：council 缺 subagents.start → reject；有 start → 并行拉起 count 个并汇总（output 首行
-// 逐行）；单个 run 失败（stopReason error / 无输出）降级保留序号；全部失败 → 失败文本。
+// 断言：council 缺 subagents.startActivation → reject；有 startActivation → 并行拉起 count 个并汇总
+// （output 首行逐行）；单个 run 失败（stopReason error / 无输出）降级保留序号；全部失败 → 失败文本。
 
-test("真实 adapter /council：subagents 无 start → reject", async () => {
+test("真实 adapter /council：subagents 无 startActivation → reject", async () => {
   const { adapter, unbind } = makeAdapter();
-  await assert.rejects(adapter.council!("目标", 2), /未暴露 start/);
+  await assert.rejects(adapter.council!("目标", 2), /未暴露 startActivation/);
   unbind();
 });
 
-test("真实 adapter /council：并行 start 汇总 output（默认 2）", async () => {
+test("真实 adapter /council：并行 startActivation 汇总 output（默认 2）", async () => {
   const started: string[] = [];
   const prompts: string[] = [];
   const svc: SubagentsLike = {
-    start: async (_name, req) => {
-      started.push(String((req.label as string) ?? ""));
+    startActivation: async (spec) => {
+      started.push(String((spec.label as string) ?? ""));
       prompts.push(
-        (req.prompt as { text?: string }[]).map((b) => b.text ?? "").join(""),
+        (spec.prompt as { text?: string }[]).map((b) => b.text ?? "").join(""),
       );
       const opinion = `意见-${started.length}`;
       return {
-        id: `run-${started.length}`,
+        childId: `run-${started.length}`,
         result: Promise.resolve({
           output: [{ type: "text", text: opinion }],
           stopReason: "completed",
@@ -6033,20 +6033,20 @@ test("真实 adapter /council：并行 start 汇总 output（默认 2）", async
 
 test("真实 adapter /council：部分失败降级、全部失败 → 失败文本", async () => {
   const svc: SubagentsLike = {
-    start: async (_name, req) => {
+    startActivation: async (spec) => {
       const i = Number(
-        String((req.label as string) ?? "")
+        String((spec.label as string) ?? "")
           .split("-")
           .at(-1),
       );
       if (i === 1) {
         return {
-          id: "run-1",
+          childId: "run-1",
           result: Promise.resolve({ stopReason: "error", error: "模型错误" }),
         };
       }
       return {
-        id: "run-2",
+        childId: "run-2",
         result: Promise.resolve({
           output: [{ type: "text", text: "ok" }],
           stopReason: "completed",
@@ -6069,8 +6069,8 @@ test("真实 adapter /council：部分失败降级、全部失败 → 失败文�
   unbind();
 
   const failSvc: SubagentsLike = {
-    start: async (_name, _req) => ({
-      id: "r",
+    startActivation: async () => ({
+      childId: "r",
       result: Promise.resolve({ stopReason: "error" }),
     }),
   };

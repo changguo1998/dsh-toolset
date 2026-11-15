@@ -642,24 +642,25 @@ export function createPanelBridge(ctx: AdapterContext) {
       }
       ctx.emit({ type: "command-panel-data", kind: "search", rows: agg.rows });
     },
-    /** /council：并行拉起 count（默认 2）个评审子代理（ctx.subagents.start，one-shot）
+    /** /council：并行拉起 count（默认 2）个评审子代理（ctx.subagents.startActivation，provider=spawn）
      *  对 target 各自给独立意见。任一 run 失败降级保留其余（idea 行列失败注明）；
      *  run 自身不 reject（stopReason:'error'），基础设施异常 reject → 调用方 warn。
      *  汇总 ≤4 行：各行 = `评审 N：<output 首行>`；全部失败 text = 失败说明。 */
     async council(target: string, count = 2): Promise<string> {
       const svc = opts.subagents;
-      if (!svc || typeof svc.start !== "function") {
-        throw new Error("subagents 未暴露 start（宿主无子代理启动面）");
+      if (!svc || typeof svc.startActivation !== "function") {
+        throw new Error(
+          "subagents 未暴露 startActivation（宿主无子代理启动面）",
+        );
       }
       const n = Math.max(1, Math.min(4, Math.floor(count)));
-      const startFn = svc.start;
-      if (typeof startFn !== "function") {
-        throw new Error("subagents 未暴露 start（宿主无子代理启动面）");
-      }
+      const startFn = svc.startActivation;
       const results = await Promise.allSettled(
-        Array.from({ length: n }, (_, i) =>
-          Promise.resolve(
-            startFn("one-shot", {
+        Array.from({ length: n }, (_, i) => {
+          const controller = new AbortController();
+          return Promise.resolve(
+            startFn({
+              provider: "spawn",
               label: `council-${i + 1}`,
               prompt: [
                 {
@@ -670,6 +671,8 @@ export function createPanelBridge(ctx: AdapterContext) {
                 },
               ],
               parent: s.activeAgent as unknown,
+              signal: controller.signal,
+              delivery: "caller",
             }),
           ).then(async (run): Promise<{ ok: boolean; text: string }> => {
             const result = run ? await run.result : undefined;
@@ -691,8 +694,8 @@ export function createPanelBridge(ctx: AdapterContext) {
                 ? result.error
                 : (result.stopReason ?? "无输出");
             return { ok: result.stopReason !== "error", text: reason };
-          }),
-        ),
+          });
+        }),
       );
       const lines = results.map((r, i) => {
         const body =
