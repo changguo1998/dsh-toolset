@@ -100,8 +100,6 @@
 
 ## 2. 未完成项
 
-- **herdr 状态检测失效（`agents.roots()` 在 rc.3 被移除）**（登记 2026-11-16）：`herdr-integration` 靠 `ctx.get('agents').roots()` 枚举顶层 agent、以其 `status` 判 `running`，驱动 herdr 面板「正忙 / 待机」状态；宿主 rc.1 有 `roots()`（`core/agent/src/index.ts:621`，store 里 `owner===undefined` 的顶层 agent），**rc.3 已移除**（只剩 `get(id)` / `list()`）→ 升级后 `roots()` 恒空 → `agentActive` 恒 false → 面板一直报「待机」，切不到「正忙」→ 期望：改经 `list()` 派生根 agent（`session.header.parentSession` 为空者；子代理必带 `parentSession` + `origin:'subagent'`），保留 `roots()` 兼容回退 → 优先级 P1（功能退化，rc.3 升级引入）→ **修复已实现**（`herdr-integration/src/index.ts` `RootAgentLike` + `readRoots`；集成测试加 list 派生用例）；验证：herdr-integration check / 60 单测 / 12 集成全绿、build 通过、真机探针确认根/子 header 判定前提 → 待用户 herdr 面板实机确认后关闭。
-
 - **接入官方 Agent Teams（team）**〔完成: 2026-11-16〕（登记 2026-11-16，已实现并合入 main）: 配置开关（`profiles/example/cordis.patch.yml` 的 `agent-team` 行 `config.defaultEnabled: true`）+ TUI 标题行 symbol（`fa-users` U+F0C0，常驻、生效绿/未生效灰，工作流组最右，懒读 `agentTeams.isEnabled(root)`）+ 工具面放行（tool-consult `plainWhenTools` 条件豁免，`team_task_*` 与 `web_search`/`web_fetch` 按普通工具 shadow + 咨询揭示；security-guard 核对不命中不登记）。验证: 全仓 check / build / test 全绿（TUI 1893、tool-consult 100+11、agent-group 111 等）+ check:docs 通过。提交: `5afca691`（tool-consult 机制）+ 收尾提交（配置 / TUI / 文档 / 归档）。追踪文档 `docs/archived/2026-11-16-agent-team-adoption.md`。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
