@@ -163,22 +163,21 @@ function cleanWarning(chunk: string): string {
 
 /** 自动应答的假 `subagents`: 裁决 run 按 label 回可解析 JSON, 执行 run 回产物。 */
 function autoSubagents(starts: SubagentStart[]): Record<string, unknown> {
-  const start = (
-    _name: string,
-    request: Record<string, unknown>,
+  const startActivation = (
+    spec: Record<string, unknown>,
   ): Record<string, unknown> => {
-    const label = String(request["label"] ?? "");
+    const label = String(spec["label"] ?? "");
     const prompt =
-      (request["prompt"] as { text?: string }[] | undefined)?.[0]?.text ?? "";
+      (spec["prompt"] as { text?: string }[] | undefined)?.[0]?.text ?? "";
     starts.push({
       label,
       prompt,
-      ...(request["outputSchema"] === undefined
+      ...(spec["outputSchema"] === undefined
         ? {}
-        : { outputSchema: request["outputSchema"] }),
-      ...(request["toolFilter"] === undefined
+        : { outputSchema: spec["outputSchema"] }),
+      ...(spec["toolFilter"] === undefined
         ? {}
-        : { toolFilter: request["toolFilter"] }),
+        : { toolFilter: spec["toolFilter"] }),
     });
     const text = label.startsWith("task:entail:")
       ? '{"ok": true, "feedback": "蕴含成立"}'
@@ -186,8 +185,7 @@ function autoSubagents(starts: SubagentStart[]): Record<string, unknown> {
         ? '{"pass": true, "feedback": "验收通过"}'
         : "子代理产出";
     return {
-      id: `child-${starts.length}`,
-      localAgent: { session: { id: `child-${starts.length}` } },
+      childId: `child-${starts.length}`,
       result: Promise.resolve({
         stopReason: "completed",
         output: [{ type: "text", text }],
@@ -204,7 +202,7 @@ function autoSubagents(starts: SubagentStart[]): Record<string, unknown> {
         toolFilter: true,
       },
     }),
-    start,
+    startActivation,
   };
 }
 
@@ -219,16 +217,14 @@ function hangingSubagents(starts: SubagentStart[]): Record<string, unknown> {
         toolFilter: true,
       },
     }),
-    start: (_name: string, request: Record<string, unknown>) => {
+    startActivation: (spec: Record<string, unknown>) => {
       starts.push({
-        label: String(request["label"] ?? ""),
+        label: String(spec["label"] ?? ""),
         prompt:
-          (request["prompt"] as { text?: string }[] | undefined)?.[0]?.text ??
-          "",
+          (spec["prompt"] as { text?: string }[] | undefined)?.[0]?.text ?? "",
       });
       return {
-        id: `hanging-${starts.length}`,
-        localAgent: { session: { id: `hanging-${starts.length}` } },
+        childId: `hanging-${starts.length}`,
         result: new Promise(() => {}),
         dispose: async () => {},
       };
@@ -295,6 +291,10 @@ export async function assemble(
   } else if (subagents !== "absent") {
     services["subagents"] = subagents;
   }
+  // 假 `agents` 面：runChildOnce 经 `agents.get(childId)` 取回子会话供计量（rc.3 起 startActivation 只回 childId）
+  services["agents"] = {
+    get: (id: string) => ({ session: { id } }),
+  };
   // pin-note 动态保持面 (缺省 present): `hold` 同 key 覆盖, 返回注销函数
   const holds = new Map<
     string,

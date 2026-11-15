@@ -8,14 +8,28 @@
 // 契约来源：docs/host/HOST-PACKAGES.md 与宿主包类型（@deepseek-ai/dsh-subagent 等）
 // ---------------------------------------------------------------------------
 
-/** 宿主子代理面（`ctx.subagents`，@deepseek-ai/dsh-subagent）最小形态 */
+/** 宿主子代理面（`ctx.subagents`，@deepseek-ai/dsh-subagent）最小形态。
+ *  rc.3 起一次性运行走 `startActivation(spec)`（选项平铺，无 `start(name, request)`；
+ *  `parent` / `signal` / `delivery` 为必填）。 */
 export interface SubagentsLike {
-  start(
-    name: string,
-    request: Record<string, unknown>,
-  ): Promise<{
-    id: string;
-    localAgent?: { session?: unknown };
+  startActivation(spec: {
+    provider: string;
+    label: string;
+    prompt: readonly unknown[];
+    parent: unknown;
+    signal: AbortSignal;
+    delivery: "parent" | "caller";
+    outputSchema?: unknown;
+    /** 子代理工具面收窄（rc.3 起宿主移除该能力，仅旧宿主/测试带） */
+    toolFilter?: { allow?: readonly string[]; deny?: readonly string[] };
+    agentOptions?: {
+      provider?: string;
+      model?: string;
+      maxTokens?: number;
+    };
+  }): Promise<{
+    childId: string;
+    name?: string;
     result: Promise<{
       output?: unknown;
       stopReason?: string;
@@ -29,10 +43,16 @@ export interface SubagentsLike {
     capabilities?: {
       agentOptions?: boolean;
       outputSchema?: boolean;
-      /** 子代理工具面收窄（宿主 `tools.restrict`；`spawn` provider 声明支持） */
+      /** 子代理工具面收窄（宿主 `tools.restrict`；rc.3 起宿主移除该能力，恒缺省） */
       toolFilter?: boolean;
     };
   };
+}
+
+/** 宿主 agents 面（`ctx.agents`，@deepseek-ai/dsh-agent）最小形态：按子会话 id 取存活 Agent
+ *  （`startActivation` 只回 childId，计量需经它取回子会话做 `tokenUsage` 投影读）。 */
+export interface AgentsLike {
+  get(id: string): { session?: unknown } | undefined;
 }
 
 /** 宿主 workflow 面（`ctx.workflowEngine`，@deepseek-ai/dsh-workflow[-ptc]）最小形态 */

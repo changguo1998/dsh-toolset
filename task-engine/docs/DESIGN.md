@@ -90,7 +90,7 @@ scripts/      executor-smoke.mjs：主机适配层冒烟（dist 级 + 假宿主�
 叶子（或 `needDecompose: false` 的根）可声明 `executor`，由 `task_execute` 交给注入式适配器发起：
 
 - `model`（缺省语义）= 本会话执行，等同模型自己调 `task_implement`（`task_execute` 拒绝并指向它）；
-- `subagent`：`ctx.subagents.start(provider='spawn', …)`；只在声明了 `model` / `budget` 时才传 `agentOptions`（未声明就不传 = 保持宿主「合并父 agent 选项」的语义）；取 `result.output` 后 `dispose`；
+- `subagent`：`ctx.subagents.startActivation({provider:'spawn', …, delivery:'caller'})`（rc.3 起服务面无 `start`，`parent` / `signal` / `delivery` 必填）；计量子会话经 `ctx.agents.get(childId).session` 取（`startActivation` 只回 childId）；只在声明了 `model` / `budget` 时才传 `agentOptions`（未声明就不传 = 保持宿主「合并父 agent 选项」的语义）；取 `result.output` 后 `dispose`；
 - `workflow`：`ctx.workflowEngine.start({script, meta, parent})`；`meta` 由引擎补 `name` / `description` 默认值后与声明浅合并；`value` 为对象时另记 `structured`；
 - `command`：`/bin/sh -c`（可带 `cwd`），退出码非 0 = 失败。
 

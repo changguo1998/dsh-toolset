@@ -7,6 +7,7 @@ import type { Deadline } from "@dsh-toolset/clock-base";
 
 import { blocksToText } from "./evidence.ts";
 import type {
+  AgentsLike,
   ProjectionRegistryLike,
   SubagentsLike,
   TokenMeterLike,
@@ -114,10 +115,12 @@ export function judgeToolFilter(
 }
 
 /**
- * 发起一次子代理运行并等终态（`ctx.subagents.start` + 宿主 `settleRun`）。
+ * 发起一次子代理运行并等终态（`ctx.subagents.startActivation` + 宿主结算）。
  * executor 后端与 audit / entail 裁决 run 共用：能力位检查、父 agent、可选模型/预算覆盖、
  * 超时中止（`timeoutMs` 到点 abort，防止 gate 悬挂）、终态判定与文本提取。
  * 缺 `parent` 且 `requireParent` 时 fail-closed（executor 需要归属；裁决 run 允许省略）。
+ * 计量子会话经 `ctx.agents.get(activation.childId)` 解析（rc.3 起 `startActivation` 只回
+ * childId，不再带 `localAgent.session`）。
  */
 export async function runChildOnce(
   opts: {
@@ -141,12 +144,12 @@ export async function runChildOnce(
   },
 ): Promise<ChildRunOutcome> {
   const svc = opts.resolve<SubagentsLike>("subagents");
-  if (svc === undefined || typeof svc.start !== "function") {
+  if (svc === undefined || typeof svc.startActivation !== "function") {
     return {
       ok: false,
       retryable: false,
       feedback:
-        "宿主 ctx.subagents 不可用，subagent 后端无法发起（环境问题，不计重试）",
+        "宿主 ctx.subagents 不可用（缺 startActivation），subagent 后端无法发起（环境问题，不计重试）",
     };
   }
   const requireParent = req.requireParent === true;
@@ -197,20 +200,23 @@ export async function runChildOnce(
   const timer =
     opts.deadline === undefined ? setTimeout(onTimeout, timeoutMs) : undefined;
   try {
-    // 请求构造：`withFilter` 为 false 时**不带** toolFilter（降级 / 重试路径共用）
-    const buildRequest = (
+    // 请求构造：`withFilter` 为 false 时**不带** toolFilter（降级 / 重试路径共用）。
+    // rc.3 起宿主移除 toolFilter 能力位（`caps.toolFilter` 恒非 true），故真机上走不带分支。
+    const buildSpec = (
       withFilter: boolean,
-    ): Parameters<SubagentsLike["start"]>[1] => ({
+    ): Parameters<SubagentsLike["startActivation"]>[0] => ({
+      provider: SUBAGENT_PROVIDER,
       label: req.label,
       prompt: [{ type: "text", text: req.prompt }],
-      ...(opts.agent === undefined ? {} : { parent: opts.agent }),
+      parent: opts.agent,
+      signal: controller.signal,
+      delivery: "caller",
       ...(req.outputSchema === undefined
         ? {}
         : { outputSchema: req.outputSchema }),
       ...(withFilter && req.toolFilter !== undefined
         ? { toolFilter: req.toolFilter }
         : {}),
-      signal: controller.signal,
       ...(wantsOptions
         ? {
             agentOptions: {
@@ -225,11 +231,11 @@ export async function runChildOnce(
         : {}),
     });
     const useFilter = wantsFilter && filterSupported;
-    let run: Awaited<ReturnType<SubagentsLike["start"]>>;
+    let run: Awaited<ReturnType<SubagentsLike["startActivation"]>>;
     try {
-      run = await svc.start(SUBAGENT_PROVIDER, buildRequest(useFilter));
+      run = await svc.startActivation(buildSpec(useFilter));
     } catch (err) {
-      // 超时 / 取消后不再重试：`start` 因中止而失败时再发起会二次建会话（可能重复计费），
+      // 超时 / 取消后不再重试：`startActivation` 因中止而失败时再发起会二次建会话（可能重复计费），
       // 且会把「超时不计重试」的既有口径变成「可重试」（审阅指出）
       if (!useFilter || timedOut || controller.signal.aborted) {
         return {
@@ -246,7 +252,7 @@ export async function runChildOnce(
           "若为 deny 名单失效请检查 task_* 工具的注册状态）",
       );
       try {
-        run = await svc.start(SUBAGENT_PROVIDER, buildRequest(false));
+        run = await svc.startActivation(buildSpec(false));
       } catch (retryErr) {
         return {
           ok: false,
@@ -255,6 +261,11 @@ export async function runChildOnce(
         };
       }
     }
+    // 计量子会话：`startActivation` 只回 childId，经 `agents` 面取回存活子 Agent 的 session；
+    // 必须在 `dispose()` **之前**取（dispose 会注销子 Agent）。取不到 → 计量回落（调用方处理）。
+    const childSession = opts
+      .resolve<AgentsLike>("agents")
+      ?.get(run.childId)?.session;
     // 等终态：与超时/取消信号竞速（宿主 `run.result` 可能无界；见 command-template 同类教训），
     // 竞速落败时发起回收但不等待（in-process dispose 内部同样 await result）
     const settled = await Promise.race([
@@ -296,7 +307,7 @@ export async function runChildOnce(
         ok: false,
         retryable: stopReason !== "aborted",
         feedback: `子代理未正常完成（stopReason=${stopReason}）${result.diagnostic === undefined ? "" : `：${result.diagnostic}`}`,
-        session: run.localAgent?.session,
+        session: childSession,
         stopReason,
       };
     }
@@ -304,7 +315,7 @@ export async function runChildOnce(
       ok: true,
       text: blocksToText(result.output),
       stopReason,
-      session: run.localAgent?.session,
+      session: childSession,
       ...(result.structured === undefined
         ? {}
         : { structured: result.structured }),

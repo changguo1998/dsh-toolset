@@ -58,9 +58,8 @@ function hangingSubagents(): Record<string, unknown> {
       name: "spawn",
       capabilities: { agentOptions: true, outputSchema: true },
     }),
-    start: () => ({
-      id: "child-1",
-      localAgent: { session: { id: "child-1" } },
+    startActivation: () => ({
+      childId: "child-1",
       result: new Promise(() => {}),
       dispose: async () => {},
     }),

@@ -154,7 +154,7 @@ export function makeExecutor(opts: ExecutorWireOptions): ExecutorRunner {
         ...guardSkipped,
       };
     }
-    // —— subagent：ctx.subagents.start（模型覆盖走 agentOptions 能力位；与裁决 run 共用 runChildOnce）——
+    // —— subagent：ctx.subagents.startActivation（模型覆盖走 agentOptions 能力位；与裁决 run 共用 runChildOnce）——
     if (spec.kind === "subagent") {
       // 执行方同样收窄工具面（与裁决 run 同口径）：执行子代理的产物由调用方经 task_implement /
       // task_stop 回写，故它不需要 `task_*` 族；不拦则可反向操作引擎与任务树（BACKLOG#1）。

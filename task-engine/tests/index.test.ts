@@ -30,7 +30,7 @@ function settled(text: string, structured?: unknown): ChildRunOutcome {
   };
 }
 
-/** 假 `subagents` 服务: 按 options 造能力位与 `start` 行为。 */
+/** 假 `subagents` 服务: 按 options 造能力位与 `startActivation` 行为。 */
 function fakeSubagents(options: {
   capabilities?: Record<string, boolean>;
   startThrows?: boolean;
@@ -47,12 +47,11 @@ function fakeSubagents(options: {
   };
   const service = {
     getProvider: () => ({ name: "spawn", capabilities }),
-    start: (_name: string, request: Record<string, unknown>) => {
-      starts.push(request);
+    startActivation: (spec: Record<string, unknown>) => {
+      starts.push(spec);
       if (options.startThrows === true) throw new Error("发起失败（测试用）");
       return {
-        id: "child-1",
-        localAgent: { session: { id: "child-1" } },
+        childId: "child-1",
         result: Promise.resolve({
           stopReason: options.stopReason ?? "completed",
           output: [{ type: "text", text: "产出" }],
@@ -67,7 +66,7 @@ function fakeSubagents(options: {
   return { service, starts };
 }
 
-/** 用给定服务组装 `runChildOnce` 的入参。 */
+/** 用给定服务组装 `runChildOnce` 的入参（含假 `agents` 面：`get(childId)` 回子会话）。 */
 function bench(service: Record<string, unknown> | undefined): {
   resolve<T>(name: string): T | undefined;
   agent: unknown;
@@ -77,7 +76,11 @@ function bench(service: Record<string, unknown> | undefined): {
   const warns: string[] = [];
   return {
     resolve: <T>(name: string): T | undefined =>
-      (name === "subagents" ? service : undefined) as T | undefined,
+      (name === "subagents"
+        ? service
+        : name === "agents"
+          ? { get: (id: string) => ({ session: { id } }) }
+          : undefined) as T | undefined,
     agent: { id: "agent-1", session: { id: "s1" } },
     warn: (message: string): void => {
       warns.push(message);

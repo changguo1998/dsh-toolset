@@ -37,11 +37,10 @@ async function harness({ services = {}, config = {} } = {}) {
   const registry = {
     subagents: {
       getProvider: () => ({ capabilities: { agentOptions: true } }),
-      start: async (name, request) => {
-        seen.subagentStarts.push({ name, request });
+      startActivation: async (spec) => {
+        seen.subagentStarts.push({ name: spec.provider, request: spec });
         return {
-          id: `child-${seen.subagentStarts.length}`,
-          localAgent: { session: { child: true } },
+          childId: `child-${seen.subagentStarts.length}`,
           result: Promise.resolve({
             output: [{ type: "text", text: "子代理产出：调研完成" }],
             stopReason: services.stopReason ?? "completed",
@@ -49,6 +48,9 @@ async function harness({ services = {}, config = {} } = {}) {
           dispose: async () => {},
         };
       },
+    },
+    agents: {
+      get: (id) => ({ session: { id } }),
     },
     workflowEngine: {
       start: (request) => {
@@ -337,9 +339,8 @@ const leaf = (id, executor, title = id) => ({
         : name === "subagents"
           ? {
               getProvider: () => ({ capabilities: { agentOptions: true } }),
-              start: async () => ({
-                id: "child-lazy",
-                localAgent: { session: {} },
+              startActivation: async () => ({
+                childId: "child-lazy",
                 result: Promise.resolve({
                   output: [{ type: "text", text: "lazy-ok" }],
                   stopReason: "completed",

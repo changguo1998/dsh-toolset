@@ -44,7 +44,6 @@ function fakeSubagents(
   }[] = [];
   const attempts: { label: string; toolFilter?: unknown }[] = [];
   const service = {
-    list: () => ["spawn"],
     getProvider: () => ({
       name: "spawn",
       capabilities: {
@@ -55,43 +54,42 @@ function fakeSubagents(
           : { toolFilter: options.toolFilter }),
       },
     }),
-    start: (_name: string, request: Record<string, unknown>) => {
+    startActivation: (spec: Record<string, unknown>) => {
       const promptText =
-        (request["prompt"] as Array<{ text?: string }>)[0]?.text ?? "";
-      // 镜像宿主：`request.parent.session` 被无条件解引用（缺 parent 即 TypeError）
-      const parent = request["parent"] as { session?: unknown } | undefined;
+        (spec["prompt"] as Array<{ text?: string }>)[0]?.text ?? "";
+      // 镜像宿主：`spec.parent.session` 被无条件解引用（缺 parent 即 TypeError）
+      const parent = spec["parent"] as { session?: unknown } | undefined;
       if (parent === undefined || parent.session === undefined) {
         throw new TypeError(
           "Cannot read properties of undefined (reading 'session')",
         );
       }
       attempts.push({
-        label: String(request["label"]),
-        ...(request["toolFilter"] === undefined
+        label: String(spec["label"]),
+        ...(spec["toolFilter"] === undefined
           ? {}
-          : { toolFilter: request["toolFilter"] }),
+          : { toolFilter: spec["toolFilter"] }),
       });
       if (
         options?.failWithFilter === true &&
-        request["toolFilter"] !== undefined
+        spec["toolFilter"] !== undefined
       ) {
         throw new Error("restrict: 未知的全局工具名（测试用）");
       }
       runs.push({
-        label: String(request["label"]),
+        label: String(spec["label"]),
         prompt: promptText,
-        ...(request["outputSchema"] === undefined
+        ...(spec["outputSchema"] === undefined
           ? {}
-          : { outputSchema: request["outputSchema"] }),
-        ...(request["toolFilter"] === undefined
+          : { outputSchema: spec["outputSchema"] }),
+        ...(spec["toolFilter"] === undefined
           ? {}
-          : { toolFilter: request["toolFilter"] }),
+          : { toolFilter: spec["toolFilter"] }),
       });
       const reply =
         replies[Math.min(runs.length - 1, replies.length - 1)] ?? "";
       return {
-        id: `child-${runs.length}`,
-        localAgent: { session: { id: `child-${runs.length}` } },
+        childId: `child-${runs.length}`,
         result:
           options?.hang === true
             ? new Promise(() => {})
