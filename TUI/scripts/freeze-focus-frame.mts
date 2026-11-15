@@ -62,6 +62,11 @@
 // 相应变化；4 个 w20 场景无差异（符号组整组让位）。差异仅标题行，见
 // docs/archived/2026-11-16-agent-team-adoption.md。
 //
+// 重冻记录追加 2026-11-16（team 符号挪位：`fa-group` U+F0C0 由工作流组最右移到 `•` 左侧、
+// 环境/行为组最末）：11 个 w60 场景的第 0 行（标题栏）符号顺序变化、行尾补白不变；4 个 w20
+// 场景无差异（符号组整组让位）。差异仅标题行，见
+// TUI/docs/archived/2026-11-16-title-bar-team-symbol-position.md。
+//
 // 序列化口径：整帧每行 { text, ansi } —— text=纯文本拼接（行宽 infos 保留），
 // ansi=行经 dark 主题段级序列化（样式差异捕获）。key=`scene@w{cols}`。
 // 注意：fixture 缩进以本脚本写出的为准，勿对产出的 JSON 跑 `format`

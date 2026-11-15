@@ -80,8 +80,8 @@ export const TITLE_ICON = {
   preset: "\u{F0A66}",
 } as const;
 
-/** P7：标题栏首行段数组 = [preset 符号 + 名字] 1 空格 [状态符号: 环境/行为组（空格分隔）`•`
- *  工作流组（plan / flow-track / team）] 2 空格 [标题]。
+/** P7：标题栏首行段数组 = [preset 符号 + 名字] 1 空格 [状态符号: 环境/行为组（含 team，
+ *  空格分隔）`•` 工作流组（plan / flow-track）] 2 空格 [标题]。
  *  颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰；policy ask 黄 / never 绿；
  *  四个开关 on 绿 / off 灰；preset 统一默认前景。`permission` 不再显示。
  *  窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。 */
@@ -101,7 +101,8 @@ export function titleBarSegments(
       ? [seg(TITLE_ICON.preset), seg(" "), seg(fields.preset)]
       : [];
   // 状态符号分两组（2026-11-15 用户裁定：工作流符号放最右, 与其余用 `•` 隔开）：
-  //   环境/行为组: sandbox / policy / verbose / 符号统一 / 声音 / daemon（顺序固定）
+  //   环境/行为组: sandbox / policy / verbose / 符号统一 / 声音 / daemon / team（顺序固定;
+  //     team 2026-11-16 用户裁定居 `•` 左侧最末）
   //   工作流组: plan / flow-track
   const mainSegs: FrameSegment[] = [];
   const flowSegs: FrameSegment[] = [];
@@ -156,11 +157,11 @@ export function titleBarSegments(
   // flow-track 注入开关：未读到服务（undefined）时整项省略，避免在没装插件的 profile 里常灰
   if (switches.flowTrack !== undefined)
     pushTo(flowSegs, TITLE_ICON.flowTrack, switches.flowTrack ? on : off);
-  // Agent Teams 生效开关：**始终显示**（未读到服务 undefined 时按关灰），只读不切换
-  // （2026-11-16 裁定: 默认开、不提供关闭、无 TUI 切换命令）
-  pushTo(flowSegs, TITLE_ICON.team, state.teamEnabled === true ? on : off);
   // daemon 开关：**始终显示**（未读到服务时按关灰），开关语义只在这里表达，状态列不再写「开/关」
   pushTo(mainSegs, TITLE_ICON.daemon, switches.daemon === true ? on : off);
+  // Agent Teams 生效开关：**始终显示**（未读到服务 undefined 时按关灰），只读不切换
+  // （2026-11-16 裁定: 默认开、不提供关闭、无 TUI 切换命令；同日裁定符号居 `•` 左侧最末）
+  pushTo(mainSegs, TITLE_ICON.team, state.teamEnabled === true ? on : off);
   // 组间以 `•` 圆点分隔（工作流组恒在右端; 任一组为空则不加点）; 点两侧各 1 空格
   const symSegs: FrameSegment[] = [...mainSegs];
   if (mainSegs.length > 0 && flowSegs.length > 0) symSegs.push(seg(" • "));

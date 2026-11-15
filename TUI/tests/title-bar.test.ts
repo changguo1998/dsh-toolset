@@ -241,12 +241,16 @@ test("P7 标题栏：Agent Teams 生效符号始终显示（生效绿 / 未生�
   assert.equal(fgOf(on, 100, TITLE_ICON.team), "green", "生效 → 绿");
   const off = reduceState(s, { type: "team-enabled", enabled: false });
   assert.equal(fgOf(off, 100, TITLE_ICON.team), "gray", "未生效 → 灰");
-  // 排序: team 在工作流组最右（plan / flow-track 之后）
+  // 排序: team 在 `•` 左侧、环境/行为组最末（daemon 之后）
   const text = titleText(s, 100);
   const dotAt = text.indexOf("•");
   const planAt = text.indexOf(TITLE_ICON.plan);
+  const daemonAt = text.indexOf(TITLE_ICON.daemon);
   const teamAt = text.indexOf(TITLE_ICON.team);
-  assert.ok(dotAt >= 0 && planAt > dotAt && teamAt > planAt, `顺序: ${text}`);
+  assert.ok(
+    dotAt >= 0 && planAt > dotAt && teamAt > daemonAt && teamAt < dotAt,
+    `顺序: ${text}`,
+  );
 });
 
 test("P7 标题栏：窄宽让位顺序 ① preset → ③ 符号组（标题优先）", () => {
