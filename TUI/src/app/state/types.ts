@@ -477,6 +477,13 @@ export interface CacheHitJudge {
   tolerance: number;
 }
 
+/** plan 当前段快照（懒读 `planStage` 服务面 `current(sessionId)`）：标题栏 plan 符号四态配色用。
+ *  `stage`: explore 探索 / plan 计划 / implement 实施; null = 未进 plan 模式（关闭, 灰）。 */
+export interface PlanStageState {
+  stage: "explore" | "plan" | "implement";
+  readonly: boolean;
+}
+
 export interface AppState {
   sessions: SessionMeta[];
   activeSessionId: string | null;
@@ -679,6 +686,10 @@ export interface AppState {
   /** 缓存命中率判定（`cacheHitMonitor.summary(sessionId)` 懒读，随状态行 ticker 同步）。
    *  undefined = 还没读到判定 → 状态行 cache 段不着色（A5 接线，着色见 A6） */
   cacheJudge: CacheHitJudge | undefined;
+  /** plan 当前段（`planStage.current(sessionId)` 懒读，随状态行 ticker 同步）。
+   *  undefined = 还没读到服务（plan 符号按关灰显示）/ null = 未进 plan 模式（灰）/
+   *  对象 = 当前段（探索=青 / 计划=黄 / 实施=绿） */
+  planStage: PlanStageState | null | undefined;
   /** 本回合剔除的非打印控制字符计数（appendStream 累计；turn-begin 清零、turn-end 警告） */
   strippedChars: number;
   /** 运行中闪烁虚拟状态（速度/虚拟总 token/时间基准/速率估计窗口）。run 边界 =

@@ -60,7 +60,7 @@ function statusStartFor(len: number, offset: number, rows: number): number {
 /** P7：标题栏状态符号（Nerd Font 私有区字形，宽度实测各 1 列；写成转义便于核对码位）。
  *  - 沙箱：`md-package_variant_closed` U+F03D7（只读）/ `md-package_variant` U+F03D6（可写、全权、其它）
  *  - 审批策略：`md-chat_question_outline` U+F1739（ask）/ `md-chat_remove_outline` U+F1414（never）
- *  - 开关：`fa-route` U+EDA6（plan）/ `md-text_long` U+F09AA（verbose）/
+ *  - 开关：`fa-route` U+EDA6（plan 段位）/ `md-text_long` U+F09AA（verbose）/
  *    `md-spellcheck` U+F04C6（符号统一）/ `md-bell_ring_outline` U+F009F（声音提醒）/
  *    `fa-tasks` U+F0AE（flow-track 注入开关）/ `fa-clock_o` U+F017（background-daemon 开关）
  *  - 预设：`md-puzzle_outline` U+F0A66（后接预设名） */
@@ -78,7 +78,8 @@ export const TITLE_ICON = {
   preset: "\u{F0A66}",
 } as const;
 
-/** P7：标题栏首行段数组 = [preset 符号 + 名字] 1 空格 [6 个状态符号（空格分隔）] 2 空格 [标题]。
+/** P7：标题栏首行段数组 = [preset 符号 + 名字] 1 空格 [状态符号: 环境/行为组（空格分隔）`•`
+ *  工作流组（plan / flow-track）] 2 空格 [标题]。
  *  颜色即语义值：沙箱 ro 绿 / wr 黄 / full 红 / 其它灰；policy ask 黄 / never 绿；
  *  四个开关 on 绿 / off 灰；preset 统一默认前景。`permission` 不再显示。
  *  窄宽让位顺序：① 去掉 preset → ② 截断标题 → ③ 去掉整组符号 → ④ 既有标题栏降级。 */
@@ -97,11 +98,14 @@ export function titleBarSegments(
     fields.preset && fields.preset !== ""
       ? [seg(TITLE_ICON.preset), seg(" "), seg(fields.preset)]
       : [];
-  // 状态符号组（空格分隔，顺序固定：sandbox / policy / plan / verbose / 符号统一 / 声音）
-  const symSegs: FrameSegment[] = [];
-  const push = (text: string, fg?: ColorName): void => {
-    if (symSegs.length > 0) symSegs.push(seg(" "));
-    symSegs.push(fg === undefined ? seg(text) : seg(text, { fg }));
+  // 状态符号分两组（2026-11-15 用户裁定：工作流符号放最右, 与其余用 `•` 隔开）：
+  //   环境/行为组: sandbox / policy / verbose / 符号统一 / 声音 / daemon（顺序固定）
+  //   工作流组: plan / flow-track
+  const mainSegs: FrameSegment[] = [];
+  const flowSegs: FrameSegment[] = [];
+  const pushTo = (into: FrameSegment[], text: string, fg?: ColorName): void => {
+    if (into.length > 0) into.push(seg(" "));
+    into.push(fg === undefined ? seg(text) : seg(text, { fg }));
   };
   const sandbox = fields.mode?.sandbox;
   if (sandbox) {
@@ -114,28 +118,48 @@ export function titleBarSegments(
           : code === "full"
             ? "red"
             : "gray";
-    push(code === "ro" ? TITLE_ICON.boxClosed : TITLE_ICON.boxOpen, fg);
+    pushTo(
+      mainSegs,
+      code === "ro" ? TITLE_ICON.boxClosed : TITLE_ICON.boxOpen,
+      fg,
+    );
   }
   if (fields.policy) {
     const never = fields.policy === "never";
-    push(
+    pushTo(
+      mainSegs,
       never ? TITLE_ICON.policyNever : TITLE_ICON.policyAsk,
       never ? "green" : "yellow",
     );
   }
-  // 五个开关（plan / verbose / 符号统一 / 声音提醒 / flow-track）：颜色即取值——on 绿 / off 灰
+  // 四个开关（verbose / 符号统一 / 声音提醒）在环境组；plan 属工作流组（段位四态:
+  // 未进模式灰 / 探索青 / 计划黄 / 实施绿）, flow-track 也属工作流组——颜色即取值, on 绿 / off 灰
   const on: ColorName = "green";
   const off: ColorName = "gray";
-  if (fields.mode?.plan)
-    push(TITLE_ICON.plan, fields.mode.plan === "on" ? on : off);
-  push(TITLE_ICON.verbose, switches.verbose ? on : off);
-  push(TITLE_ICON.symbolUnify, switches.symbolUnify ? on : off);
-  push(TITLE_ICON.bell, switches.notifyEnabled ? on : off);
+  pushTo(mainSegs, TITLE_ICON.verbose, switches.verbose ? on : off);
+  pushTo(mainSegs, TITLE_ICON.symbolUnify, switches.symbolUnify ? on : off);
+  pushTo(mainSegs, TITLE_ICON.bell, switches.notifyEnabled ? on : off);
+  // plan 段位（plan-mode 服务面 `planStage.current(sessionId)` 懒读）：未进模式 / 未读到
+  // 服务 → 灰；探索 → 青；计划 → 黄；实施 → 绿（2026-11-15 用户裁定四态配色）
+  const planStage = state.planStage;
+  const planFg: ColorName =
+    planStage == null
+      ? "gray"
+      : planStage.stage === "explore"
+        ? "cyan"
+        : planStage.stage === "plan"
+          ? "yellow"
+          : "green";
+  pushTo(flowSegs, TITLE_ICON.plan, planFg);
   // flow-track 注入开关：未读到服务（undefined）时整项省略，避免在没装插件的 profile 里常灰
   if (switches.flowTrack !== undefined)
-    push(TITLE_ICON.flowTrack, switches.flowTrack ? on : off);
+    pushTo(flowSegs, TITLE_ICON.flowTrack, switches.flowTrack ? on : off);
   // daemon 开关：**始终显示**（未读到服务时按关灰），开关语义只在这里表达，状态列不再写「开/关」
-  push(TITLE_ICON.daemon, switches.daemon === true ? on : off);
+  pushTo(mainSegs, TITLE_ICON.daemon, switches.daemon === true ? on : off);
+  // 组间以 `•` 圆点分隔（工作流组恒在右端; 任一组为空则不加点）
+  const symSegs: FrameSegment[] = [...mainSegs];
+  if (mainSegs.length > 0 && flowSegs.length > 0) symSegs.push(seg("•"));
+  symSegs.push(...flowSegs);
 
   const rawTitle = (state.sessionTitle ?? "").trim();
   const title = rawTitle === "" ? "<title>" : rawTitle;

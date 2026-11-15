@@ -5,7 +5,7 @@
 
 import { reduceState, setSystemStatus } from "../state.ts";
 import type { StatusExtras } from "../state.ts";
-import type { CacheHitJudge } from "../state/types.ts";
+import type { CacheHitJudge, PlanStageState } from "../state/types.ts";
 import type {
   DshEvent,
   ModelReasoning,
@@ -53,6 +53,21 @@ function cacheJudgeOf(raw: unknown): CacheHitJudge | undefined {
     runMinHitRate: finiteOrUndefined(src.runMinHitRate),
     tolerance,
   };
+}
+
+/** plan 段位形状校验：`{stage, readonly}` 且 stage 在「探索 / 计划 / 实施」白名单；
+ *  形状不符（非对象 / stage 未知）→ undefined（不更新状态）。 */
+function planStageOf(raw: unknown): PlanStageState | null | undefined {
+  if (raw === null) return null;
+  if (typeof raw !== "object") return undefined;
+  const src = raw as { stage?: unknown; readonly?: unknown };
+  if (
+    src.stage !== "explore" &&
+    src.stage !== "plan" &&
+    src.stage !== "implement"
+  )
+    return undefined;
+  return { stage: src.stage, readonly: src.readonly === true };
 }
 
 export function createWiringPart(ctx: AppContext) {
@@ -366,6 +381,31 @@ export function createWiringPart(ctx: AppContext) {
       return;
     }
     ctx.self.apply((s) => reduceState(s, { type: "cache-judge", judge: next }));
+    ctx.self.paint();
+  }
+
+  /** plan 当前段保鲜：随 StatusTicker 懒读 `planStage.current(sessionId)`，段或只读位
+   *  变化才重绘标题栏 plan 符号。插件未挂载 / 读不到服务 / 回执形状不符 → 不动状态
+   *  （state.planStage 保持 undefined, 符号按关灰）；服务面返回 null = 未进模式 → 灰。 */
+  function maybeRefreshPlanStage(): void {
+    if (ctx.disposed) return;
+    const read = ctx.deps.getPlanStage;
+    if (read === undefined) return;
+    const sessionId =
+      ctx.state.activeSessionId ?? ctx.deps.adapter.sessionId ?? "";
+    if (sessionId === "") return;
+    let raw: unknown;
+    try {
+      raw = read()?.current?.(sessionId);
+    } catch {
+      return;
+    }
+    const next = planStageOf(raw);
+    if (next === undefined) return;
+    if (JSON.stringify(ctx.state.planStage ?? null) === JSON.stringify(next)) {
+      return;
+    }
+    ctx.self.apply((s) => reduceState(s, { type: "plan-stage", stage: next }));
     ctx.self.paint();
   }
 
@@ -928,6 +968,7 @@ export function createWiringPart(ctx: AppContext) {
     maybeRefreshFlowTrack,
     maybeRefreshDaemon,
     maybeRefreshCacheHit,
+    maybeRefreshPlanStage,
     refreshStatusExtras,
     maybeRefreshSessionAlias,
     maybeRefreshAgents,

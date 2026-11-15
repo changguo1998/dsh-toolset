@@ -17,7 +17,11 @@ import { createRenderer, type Renderer } from "./renderer/index.ts";
 import { normalizeThemeId, type ThemeId } from "./renderer/theme.ts";
 import { resolveThemes } from "./renderer/theme-config.ts";
 import { App } from "./app/index.ts";
-import type { CacheHitMonitorLike, FlowTrackLike } from "./app/app-deps.ts";
+import type {
+  CacheHitMonitorLike,
+  FlowTrackLike,
+  PlanStageLike,
+} from "./app/app-deps.ts";
 import { installStderrBridge } from "./app/stderr-bridge.ts";
 import { parseModelSpecArg } from "./app/commands.ts";
 import {
@@ -129,6 +133,8 @@ export function main(opts: {
   getFlowTrack?: () => FlowTrackLike | undefined;
   /** cache-hit-monitor 判定读取器（懒读；未挂载时返回 undefined → cache 段不着色） */
   getCacheHitMonitor?: () => CacheHitMonitorLike | undefined;
+  /** plan-mode 段位读取器（懒读；未挂载时返回 undefined → plan 符号按关灰显示） */
+  getPlanStage?: () => PlanStageLike | undefined;
   getTaskEngine?: () => unknown;
   getPinNotes?: () => unknown;
   getDaemon?: () => unknown;
@@ -219,6 +225,7 @@ export function main(opts: {
     getRuleEngine: opts.getRuleEngine,
     getFlowTrack: opts.getFlowTrack,
     getCacheHitMonitor: opts.getCacheHitMonitor,
+    getPlanStage: opts.getPlanStage,
     getTaskEngine: opts.getTaskEngine,
     getPinNotes: opts.getPinNotes,
     getDaemon: opts.getDaemon,
@@ -1111,6 +1118,11 @@ export async function apply(
   const getCacheHitMonitor = (): CacheHitMonitorLike | undefined =>
     (ctx as { get?: (name: string) => unknown }).get?.("cacheHitMonitor") as
       CacheHitMonitorLike | undefined;
+  // plan-mode 段位服务（ctx.get('planStage')，plan-mode 插件 provide）：同款懒读；
+  // 未挂载返回 undefined，标题栏 plan 符号按关（灰）显示
+  const getPlanStage = (): PlanStageLike | undefined =>
+    (ctx as { get?: (name: string) => unknown }).get?.("planStage") as
+      PlanStageLike | undefined;
   // 状态列五块用到的服务（同款惰读）：任务引擎 / pin-note / 守护 / 群组
   const getTaskEngine = (): unknown =>
     (ctx as { get?: (name: string) => unknown }).get?.("taskEngine");
@@ -1214,6 +1226,7 @@ export async function apply(
     getRuleEngine,
     getFlowTrack,
     getCacheHitMonitor,
+    getPlanStage,
     getTaskEngine,
     getPinNotes,
     getDaemon,

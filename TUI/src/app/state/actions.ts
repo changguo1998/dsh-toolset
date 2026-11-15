@@ -36,6 +36,7 @@ import type {
   TurnEndReason,
   StatusExtras,
   CacheHitJudge,
+  PlanStageState,
 } from "./types.ts";
 import type { NoticeLine } from "./updates.ts";
 
@@ -204,6 +205,8 @@ export type StateAction =
   | { type: "status-extras"; extras: StatusExtras | undefined }
   /** 缓存命中率判定（A5：懒读 cache-hit-monitor 服务面；无判定时 undefined） */
   | { type: "cache-judge"; judge: CacheHitJudge | undefined }
+  /** plan 当前段（懒读 plan-mode 服务面；null = 未进模式，标题栏 plan 符号按关灰） */
+  | { type: "plan-stage"; stage: PlanStageState | null }
   | { type: "tool-call"; sessionId: string; name: string; summary: string }
   | {
       type: "model-selection";

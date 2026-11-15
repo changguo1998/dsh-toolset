@@ -40,6 +40,18 @@ export interface CacheHitMonitorLike {
       }
     | undefined;
 }
+
+/** plan-mode 只读服务面（`ctx.get('planStage')`，plan-mode 插件 provide）：
+ *  按会话给当前段与是否只读（标题栏 plan 符号四态着色用）；无映射 / 无任务引擎 → null。 */
+export interface PlanStageLike {
+  current?(sessionId: string):
+    | {
+        stage: "explore" | "plan" | "implement";
+        readonly: boolean;
+      }
+    | null
+    | undefined;
+}
 import type { ShellRunner } from "./local-shell.ts";
 import type { LocalLogWriteOptions } from "./adapter/local-log.ts";
 
@@ -104,6 +116,8 @@ export interface AppDeps {
   getFlowTrack?: (() => FlowTrackLike | undefined) | undefined;
   /** cache-hit-monitor 判定读取器（懒读）：返回 undefined = 未挂载 → cache 段不着色 */
   getCacheHitMonitor?: (() => CacheHitMonitorLike | undefined) | undefined;
+  /** plan-mode 段位读取器（懒读）：返回 undefined = 未挂载 → plan 符号按关（灰）显示 */
+  getPlanStage?: (() => PlanStageLike | undefined) | undefined;
   /** 状态列 Task 块：任务引擎只读快照（结构化读取）。 */
   getTaskEngine?: (() => unknown) | undefined;
   /** 状态列 Pin 块：pin-note 的会话摘要面。 */
