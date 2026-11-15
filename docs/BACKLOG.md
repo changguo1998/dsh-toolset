@@ -6,7 +6,7 @@
 
 > 本清单只列**未完成**项；已完成项见 `STATUS.md` 状态表（实现与验证证据在各包源码/测试与 git 历史；已完成的实施清单归入 `archive/`），不在此重复。
 > 设计依据：`docs/host/AGENT-ARCHITECTURE-ANALOGY.md`（架构与接口对照）、`archive/PI-DSH-FEATURE-COMPARISON.md`（pi→dsh 迁移基线差距，归档调研）。实现时以根目录 `docs/host/DSH-CTX-API.md` 对齐宿主接口。
-> 基线：dsh `0.2.2-rc.1`（2026-11-07 升级；对照见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`，上一步 `0.2.1-rc.2` 见 `docs/host/HOST-UPGRADE-0.2.1-rc.2.md`）。
+> 基线：dsh `0.2.2-rc.3`（升级中，2026-11-16：代码已迁 `startActivation`、`install.sh` 默认已抬版，宿主安装待用户执行；对照见 `docs/host/HOST-UPGRADE-0.2.2-rc.3.md`，上一步 `0.2.2-rc.1` 见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`）。
 > 编号口径：`#N` **仅供阅读**——不用于追踪文档的命名与引用；**每次整理时按当前顺序从 1 起重新编号**（不保证稳定，勿作跨引用）；与其它层 BACKLOG 的编号互不关联，跨层引用须写明文件路径。
 > 优先级：**P0** 架构主线；**P1** 核心体验补齐；**P2** 长尾。状态标记：`[x]` 已实现（仅第 1 节索引使用）、`[~]` 部分实现（注明未含部分）、无标记 = 未实现。
 
@@ -98,7 +98,7 @@
 
 ## 2. 未完成项
 
-- **子代理委派改走 `startActivation()`**（登记 2026-11-15）：`ctx.subagents.start(name, request)` / `startContinuable()` 自宿主 `0.2.1-alpha.1` 起被 `startActivation(spec)` 取代（官方指南 `v0.2.1-alpha.1/subagent-activations`），`0.2.2-rc.1` 与 `0.2.2-rc.3` 的类型声明里已无 `start`；本仓三处仍按旧面调用 —— `task-engine/src/host.ts:13`（`SubagentsLike.start`，`subagent.ts:144` 判空即报「宿主 ctx.subagents 不可用」）、`command-template/src/subagent.ts`、`TUI/src/app/adapter/dsh-panels.ts:645-652`（`/council`）→ 现状：subagent 执行后端、模板子代理步骤与 `/council` 在真机上大概率走降级分支（`start` 不存在），且自 0.2.1-rc.2 基线起即如此 → 期望：三处改用 `startActivation({ provider, label, prompt, parent, signal, delivery: 'caller' })`（选项直接平铺，无嵌套 `request`），保留超时 / 取消 / `dispose` 结算口径，并补真机验证 → 优先级 P1（功能退化） → 来源：`docs/archived/2026-11-15-host-upgrade-0.2.2-rc.3.md` 调研第 8 / 10 节。**升级前置**（2026-11-15 用户裁定，决策项 7 = b）：宿主升级以本条目修完为前提——先修完三处调用并通过 check / build / test 与人工确认，再发起 `0.2.2-rc.3` 升级，一次真机验收同时覆盖子代理路径与版本切换。
+- **子代理委派改走 `startActivation()`**（登记 2026-11-15）：`ctx.subagents.start(name, request)` / `startContinuable()` 自宿主 `0.2.1-alpha.1` 起被 `startActivation(spec)` 取代（官方指南 `v0.2.1-alpha.1/subagent-activations`），`0.2.2-rc.1` 与 `0.2.2-rc.3` 的类型声明里已无 `start`；本仓三处仍按旧面调用 —— `task-engine/src/host.ts:13`（`SubagentsLike.start`，`subagent.ts:144` 判空即报「宿主 ctx.subagents 不可用」）、`command-template/src/subagent.ts`、`TUI/src/app/adapter/dsh-panels.ts:645-652`（`/council`）→ 现状：subagent 执行后端、模板子代理步骤与 `/council` 在真机上大概率走降级分支（`start` 不存在），且自 0.2.1-rc.2 基线起即如此 → 期望：三处改用 `startActivation({ provider, label, prompt, parent, signal, delivery: 'caller' })`（选项直接平铺，无嵌套 `request`），保留超时 / 取消 / `dispose` 结算口径，并补真机验证 → 优先级 P1（功能退化） → 来源：`docs/archived/2026-11-15-host-upgrade-0.2.2-rc.3.md` 调研第 8 / 10 节。**升级前置**（2026-11-15 用户裁定，决策项 7 = b）：宿主升级以本条目修完为前提——先修完三处调用并通过 check / build / test 与人工确认，再发起 `0.2.2-rc.3` 升级，一次真机验收同时覆盖子代理路径与版本切换。 **进行中**（2026-11-16 开工；用户裁定合并为一次完成：A 代码修复 + B 安装脚本升级 + C 升级后收尾；宿主全局安装与 profile 重装由用户改完后手动执行 `scripts/install.sh` 完成，本任务不改工区外内容；追踪文档 `docs/implementation/2026-11-16-start-activation-upgrade.md`）。
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 

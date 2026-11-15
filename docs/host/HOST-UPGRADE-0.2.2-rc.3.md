@@ -128,14 +128,20 @@ rc.1 → rc.3 的 `packages/bundle/base/cordis.patch.yml` 实际 diff 只有 4 �
 
 另: `BundleInfo.updatable` → `update`、新服务 `mcpManager` / `officeKit` / `terminalController` / `accountUi`、`Session.append` 数组重载、runtime-context 框架化 — 本仓均无引用点。
 
-## 12. 待补 (实装升级后)
+## 12. 安装树实测（2026-11-16 实装升级后补）
 
-> 前置 (2026-11-15 裁定): 升级以 BACKLOG「子代理委派改走 `startActivation()`」修完为前提; 本节各项在该条目通过 check / build / test 与人工确认后补。
+> 前置（2026-11-15 裁定）：升级以 BACKLOG「子代理委派改走 `startActivation()`」修完为前提。2026-11-16 该退化条目已修并通过 check / build / test，用户执行 `scripts/install.sh` 实装 `0.2.2-rc.3` 后本节补写。
 
-1. 安装树数字: `npm install -g @deepseek-ai/dsh@0.2.2-rc.3` 后的 `dsh --version`、安装树包数、`dsh-base` 版本、profile `dsh.profile.bundles` 数量、`--dump-config` 行数与 `- id:` 计数。
-2. 类型面: 在 rc.3 类型上跑 `pnpm run check` (34 个 tsc 任务) 的结果。
-3. 真机验收: `interrupt_agent` 缺席后的工具面、`/agents` 面板在按名寻址下的行内容 (影响 #4)、`/council` 与 `task-engine` 子代理路径 (影响 #1)。
-4. `HOST-PACKAGES.md` 刷新到 rc.3 口径 (包增删见 §2)。
+1. 安装树数字（2026-11-16 实测）：
+   - 全局 `dsh --version` = `0.2.2-rc.3`。
+   - 安装树 `@deepseek-ai/dsh/node_modules/@deepseek-ai` 下 **337** 个包（其中 `dsh-*` **326** 个；rc.1 为 330 / 319，净 +7）。
+   - `dsh-base` 版本 = `0.2.2-rc.3`。
+   - fff profile `dsh.profile.bundles` = **42** 个（dsh-base + 41 个 `@dsh-toolset/*`）。
+   - `dsh --profile fff --dump-config`：**883** 行、**152** 个顶层 `- id:` 行，其中官方（`@deepseek-ai/*`）**110** 条、本仓（`@dsh-toolset/*`）**42** 条 → 无条件 `disabled: true` **8** 条（tool-plugin-manager / session-title-llm / deepseek-account / fs-observation-policy / plan-mode / tool-executor-ptc / llm-deepseek-account / session-title-all-prompts-llm，全为官方行）、条件式 `disabled: !!js` 8 条 → 官方活跃项 **102** 条（rc.1 为 101）。
+   - 首行 `patch: entry "ponytail" not found`（fff profile 的 `cordis.patch.yml` 仍带指向已移除 `ponytail` 的 patch 条目；install.sh 按设计保留已有 patch 文件未覆盖，属陈旧配置告警，不致命）。
+2. 类型面：根依赖与 `tool-surface` 已抬到 `0.2.2-rc.3` 并重生成锁文件，物化后 `pnpm run check` 通过（**41 包全绿**，含 tool-surface 对 `dsh-tools@0.2.2-rc.3` 的类型核验）。
+3. 真机验收（2026-11-16，升级后一次覆盖）：`/council` 与 `task-engine` 子代理路径（影响 #1）走 `startActivation(provider='spawn')`；`interrupt_agent` 出厂关闭后的工具面（影响 #2）；`/agents` 面板按名寻址（影响 #4）。**待补**：用户真机确认与本档状态行。
+4. `HOST-PACKAGES.md` 已刷新 rc.3 口径（2026-11-16）：头部/版本口径/§1 计数按 337/326 与本次 dump 更新，官方活跃 102；§2 行清单按 rc.3 安装树增补（见该文件「rc.3」注记）。
 
 ## 13. 依据
 

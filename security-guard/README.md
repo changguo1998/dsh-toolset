@@ -228,13 +228,15 @@ profile 侧以 `link:` 依赖指向本包即可（勿用 `file:`，pnpm v11 不�
   | `terminal_send` | `dsh-tool-terminal` | 参数面含展开 | 实参 = `sessionId` / `text` / `submit` + 条件展开的 `run_in_background`。**`text` 是写进持久终端的文本，与本仓 `herdr_text` 同口径** —— 该包在本机 profile **未挂载**，故本次不登记；**若将来挂载，须把 `text` 登记进 `PLUGIN_COMMAND_TOOLS`**，否则是可执行命令的静默缺口 | 挂载前按多报, 挂载时须登记 |
   | `terminal_open` | `dsh-tool-terminal` | `cwd`（path） | 终端初始工作目录，与 `bash` 的 `workdir` 同口径（`lib/index.js:277-307`）。同属未挂载包；**挂载时须把 `cwd` 按路径面登记** | 同上 |
   | `str_replace_editor` | `dsh-tool-str-replace-editor` | `path` + `command` | `path` 是目标文件（写面），`command` 是**枚举动作**（`view` / `create` / `str_replace` / `insert` / `undo_edit` 等），不是 shell 命令串 —— 不能整段送命令层。该包本机 profile **未挂载**；**挂载时须把 `path` 登记为写侧文件面**，`command` 保持不进命令层 | 同上 |
-  | `send_message` / `interrupt_agent` | `dsh-experimental-tool-agent-team` | `target`（path） | `target` 是**团队成员标识**，不是文件路径；参数面不含路径 / 命令键，工具也不经 shell | 键名启发误报 |
+  | `send_message` / `interrupt_agent` | `dsh-tool-subagent-control` | `target`（path） | `target` 是**团队成员标识**，不是文件路径；参数面不含路径 / 命令键，工具也不经 shell。rc.3 起 `interrupt_agent` 在 `dsh-base` **出厂关闭**（`tools.restrict` 白名单外隐藏），来源包由已移除的 `dsh-experimental-tool-agent-team` 改为 `dsh-tool-subagent-control` | 键名启发误报 |
   | `present` | `dsh-tool-present` | `path` | `files[].path` 是**读面**，已在读面登记口径内；脚本按叶子键名展示 | 重复报 |
   | `（名称未解析）` | `dsh-tool-executor-ptc` | `code` | 实为 `run_code`（`RUN_CODE_NAME`），**已在 `RUN_CODE_TOOLS`**；工具名走常量解析不出 | 重复报 |
   | `（名称未解析）` | `dsh-tool-subagent` | `cwd`（path） | 子代理**初始工作目录**；子代理自己的工具调用另受本层覆盖（各自会话里同样过 `pre-execute`） | 多报 |
   | `（名称未解析）` | `dsh-tool-workflow` | `script`（code） | JS 编排脚本（非 shell 串），按「不外送命令层、只做路径提取」的既有口径处理 | 既有口径 |
 
   遇到「需关注」里的 `target` / `cwd` 类键名请**人工复核语义**；「需关注」行里的键名是**叶子键名**（如 `path`），完整键路径见引擎回执。上表标「未挂载」的三项（`terminal_send` / `terminal_open` / `str_replace_editor`）是**挂载前必须处理的登记义务** —— 挂载这三个包时按该行登记，不要沿用「多报」这条判定。
+
+> **2026-11-16 rc.3 复核**（`tool-surface-check --root <dsh 包目录>`, 安装树 337 包）：面内 36 包 / 60 工具，`needAttention` 与上表一致（rc.3 未新增写面工具）——`interrupt_agent` 出厂关闭（不再按活跃工具报），新增 `wait_agent` / `user_terminal_list|read` / `team_task_*` / `office_*` 均为非写面（不进命令/路径层），无需登记；`exit 1` 由既有「需关注」行持有，无新缺口。
 
 - **命令执行侧的检查点边界**：task-engine 的命令（`children[].executor.command` 与 mechanical 验收 `children[].acceptance[].command`）在 `task_decompose` **声明处**检查，而执行工具 `task_execute` / `task_stop` 的入参只有 `task_id`、命令文本不在其中。因此**绕过声明工具**进入帧契约的命令不受本层覆盖：经导出 API `resumeFromSnapshot` 恢复的帧（本仓插件**当前未接线**：只写快照、不读回）、配置侧 `root.acceptance[].command`（引擎直接执行、不经 `task_decompose`），以及其它直接写引擎状态/旁路的路径。此外 `workflow` 后端的 `script` 是 JS 编排脚本（非 shell 命令串），不在命令黑名单层覆盖范围内——未登记工具策略取 `"check"` 时对代码键（`script` / `code` / `program`）也只做路径提取、不整段送命令层（同一口径）。
   **2026-10-02 更新**：`task-engine` 已在**执行期**补复查 —— executor 命令后端与 mechanical 验收两处都在命令执行**之前**调用 `GuardEngine.inspectCommand(command, source)`（`source` 形如 `task-engine{executor} <frame>` / `task-engine{acceptance} <frame>`）；guard 未挂载或调用抛错 → 告警一次 + 放行（fail-open）。**已知边界**：真机上 executor 缝通常在 `task_decompose` 声明处已被拦（同一命令文本），执行期复查属**纵深防御**；`inspectCommand` 的敏感层按命令文本里的路径解析，**看不到 executor 的 `cwd`**。
