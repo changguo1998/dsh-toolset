@@ -12,6 +12,7 @@
     "test:coverage": "rm -rf ../tmp/cov-plan-mode && mkdir -p ../tmp/cov-plan-mode && NODE_V8_COVERAGE=../tmp/cov-plan-mode node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-plan-mode tmp/cov-plan-mode/report.json"
   },
   "dependencies": {
+    "@dsh-toolset/shell-parse": "link:../shell-parse",
     "@dsh-toolset/tool-surface": "link:../tool-surface"
   },
   "devDependencies": {
