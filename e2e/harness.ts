@@ -284,7 +284,7 @@ export function appendTurn(agent: unknown, text: string, turn = 1): void {
   session.append("turn/end", { turn, reason: "completed" });
 }
 
-/** 往会话日志追加一个步边界事件（ponytail 等 `step-end` 消费者的兜底触发点）。 */
+/** 往会话日志追加一个步边界事件（`step-end` 消费者的兜底触发点）。 */
 export function appendStepEnd(agent: unknown, turn = 1, step = 1): void {
   (agent as { session: Record<string, any> }).session.append("step/end", {
     turn,

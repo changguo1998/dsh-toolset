@@ -1,9 +1,0 @@
-# 本包插入自身（bundle 层）：缺省**开启**（2026-10-05 起；显式 enabled: false 可关闭）——
-# 「简单优先」由本插件的决策阶梯承担（原 karpathy-guidelines 已从默认注入取消）。
-- insert:
-    - id: ponytail
-      name: '@dsh-toolset/ponytail'
-      config:
-        enabled: true
-        sources: ['session-start', 'step-end']
-        dedupeInRecord: 1
