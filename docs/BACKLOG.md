@@ -84,17 +84,9 @@
 
 - 自研 plan 模式的**流程控制部分**（随上一行交付, 2026-11-15 完成, 状态更正见 `docs/archived/2026-11-15-plan-mode-status.md`）: 三段流程定义 `plan-mode`（探索 / 计划 / 实施, 各 `needDecompose` + `enforceOrder`）+ 入口 `plan_start`, 越序由 task-engine `order.ts` 拦截, 计划段 human 门禁复用 acceptance 审批链, 流程选择由 `flow-arbiter` 仲裁; 原 §2「自研 plan 模式（替代官方 plan-mode）」条目据此拆分,**其余部分**已拆成 §2 三条条目（主条目含写工具拦截与阶段策略注入; 段位展示、子代理写继承各一条）, 阶段结构校验列为不做。
 
+- 自研 plan 模式：写面拦截与阶段注入（2026-11-15 完成）: 探索 / 计划段 `tools/pre-execute` 写面拦截（回执 `plan_stage_readonly` + 下一步指引; 命令白名单经 shell-parse, 任务面工具放行）+ 权限预设 `read-only` 切换与五入口恢复（计划段终态 / 切走 / 树完成 / 会话结束 / 插件卸载, `restored` 防重）+ `planStage.current(sessionId)` 只读服务面 + 阶段注入（pinNotes.hold provider 每步, 探索 / 计划只读提示、实施放行）; 单测 53 + e2e 1（探索段写拒与 presetSwitched）全绿, 全仓 check / build / test / check:docs / test-install 通过; 另以隔离 verify-test 软链接装配真机验证（flow_select → plan_start（presetSwitched: true）→ 探索段 write 拒）。追踪文档 `docs/archived/2026-11-15-plan-mode-non-flow-control.md`。
+
 ## 2. 未完成项
-
-- **自研 plan 模式：非流程控制部分**（2026-11-15 自「自研 plan 模式（替代官方 plan-mode）」拆出, 优先级 P2, 状态: 未接取）: 流程控制部分已交付（见 §1 末条与 `docs/archived/2026-11-15-plan-mode-status.md`）, 以下三项仍未覆盖（另有「阶段结构校验」一项已列为不做）:
-
-  - **现状**: ① **不拦截写工具** —— `plan-mode/src` 无 `tools/pre-execute` 监听, 门禁只在任务节点层（越序拦 `task_implement` / `task_execute` / `task_stop`）+ 计划段 human 审批, 故探索 / 计划阶段仍可随意改文件; ② **无阶段策略注入** —— 官方 `plan:policy` 已随官方 plan-mode 禁用清掉, 现版不注入任何阶段约束文本; ③ **无状态位与展示** —— 入口已由 `flow-arbiter` 的 `flow_select` 提供（选中 `plan` 即模式生效）, 缺的是「当前会话在哪一段 / 是否只读」的查询入口与 TUI 展示（展示部分已另立 §2「plan 模式段位展示（TUI 状态行）」）.
-  - **期望**: 探索与计划阶段拒绝写类工具（含 `workflow` / `task_execute` 的发起, 回执可行动）, 计划段确认后放行; 进入时把宿主权限预设切到 `read-only`（多一道兜底）, 计划段终态（完成或失败）恢复; 阶段约束以注入文本提示模型; 有可查询的当前段 / 只读状态（供 TUI 段位条目消费）.
-  - **现成复用面**: 写工具拦截参照 `flow-arbiter/src/index.ts:148-167`（入口级拦截, 工具恒注册保缓存）、`security-guard/src/index.ts`、`tool-consult`（未揭示拒绝）; 策略注入参照 `ponytail` 的 `ctx.systemPrompt.section`; 模式开关可挂 `flow-arbiter` 的会话级选中状态; 状态展示放在 TUI 状态行.
-  - **改动位置**: `plan-mode/` 扩展（决策基线已定为同包, 见追踪文档决策项 1）+ 一个 `tools/pre-execute` 监听器 + 权限预设切换；阶段查询面顺带给段位展示条目消费, TUI 渲染不在此条目.
-  - **验收**: 探索 / 计划段写类工具被拒且回执指向下一步; 计划段审批通过后写放行; 工具面注册不变（缓存不受影响）; 单测覆盖「拦 / 放行 / 非 plan 会话零动作 / 预设切换与恢复」; 明细以追踪文档 §4.3 的 T0 至 T16 为准.
-  - **决策基线**: 10 项决策已裁定（拦截载体 / 会话与阶段归属 / 拦哪些工具 / 放行规则 / 回执形态 / 策略注入 / 入口与展示 / 权限预设切换 / 写命令判定口径 / 二次进入的原预设记忆）, 逐项内容、六阶段拆解与 T0 至 T16 机械审计见 `docs/archived/2026-11-15-plan-mode-status.md` 的 §3 / §4.
-  - **来源**: 2026-11-11 用户提出; 2026-11-15 拆分（原条目流程控制部分由「泛化 task-engine」交付）.
 
 - **plan 模式段位展示（TUI 状态行）**（2026-11-15, 自「自研 plan 模式」决策项 7 的 c 拆出, 优先级 P3, 状态: 未接取）: 现状——plan 模式当前段（探索 / 计划 / 实施）与「是否只读」在界面上不可见, 只能靠注入文本与回执推。期望——TUI 状态行加一段位, 显示当前段与只读状态。数据来源: `docs/archived/2026-11-15-plan-mode-status.md` §4.1 阶段 3 的只读服务面 `planStage.current(sessionId)`（返回 `{ stage, readonly }` 或 `null`）; 它未落地前不接取本条。改动位置: `TUI/src/app/`（状态行渲染）。来源: 2026-11-15 决策项 7 的 c（未选, 独立接取）。
 
