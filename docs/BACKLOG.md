@@ -98,9 +98,9 @@
 
 - 子代理委派改走 `startActivation()` + 宿主升级 `0.2.2-rc.3` 与收尾（2026-11-16 完成，提交 `42c03d38` / `f37f9ed9` / `39e8e862` / `06f08dd5`，关闭提交 `ff08cff9`）: 代码面三处 `ctx.subagents.start` → `startActivation(spec)`（`task-engine` / `command-template` / TUI `/council`；计量改经 `agents.get(childId)`、`command-template` 去 `settleRun` / 服务面 `list`、`/council` provider 修正为 `spawn`）；`install.sh` 默认版本与仓库版本串 / 双锁文件抬到 rc.3（根 `engines.node` ≥24.9、profile 账号包名注释同步）；宿主已实装 rc.3（安装树 337 / 326、`dsh-base` rc.3、官方活跃 102）；`HOST-UPGRADE` §12 安装树实测、`HOST-PACKAGES` 计数与 rc.3 挂载复测、`security-guard` 工具面说明同步；check / 全仓 test / e2e（task-engine、command-template）/ startActivation 真宿主探针全过。追踪文档 `docs/archived/2026-11-16-start-activation-upgrade.md`。残留: `HOST-PACKAGES` §2 行清单全量重排（§6 方法学）与 `/council` TUI 实机确认。
 
-## 2. 未完成项
+- 接入官方 Agent Teams（team）（2026-11-16 完成, 提交 `5afca691` / `f16dc4d0` / `6be9bd01` / `4ef137a4` / `11338de2`）: 配置开关（`profiles/example/cordis.patch.yml` 的 `agent-team` 行 `config.defaultEnabled: true`）+ TUI 标题行 symbol（`fa-users` U+F0C0, 常驻、生效绿 / 未生效灰, 工作流组最右, 懒读 `agentTeams.isEnabled(root)`）+ 工具面放行（tool-consult `plainWhenTools` 条件豁免, `team_task_*` 与 `web_search` / `web_fetch` 按普通工具 shadow + 咨询揭示; security-guard 核对不命中不登记）。验证: 全仓 check / build / test 全绿（TUI 1893、tool-consult 100+11、agent-group 111 等）+ check:docs 通过。追踪文档 `docs/archived/2026-11-16-agent-team-adoption.md`。
 
-- **接入官方 Agent Teams（team）**〔完成: 2026-11-16〕（登记 2026-11-16，已实现并合入 main）: 配置开关（`profiles/example/cordis.patch.yml` 的 `agent-team` 行 `config.defaultEnabled: true`）+ TUI 标题行 symbol（`fa-users` U+F0C0，常驻、生效绿/未生效灰，工作流组最右，懒读 `agentTeams.isEnabled(root)`）+ 工具面放行（tool-consult `plainWhenTools` 条件豁免，`team_task_*` 与 `web_search`/`web_fetch` 按普通工具 shadow + 咨询揭示；security-guard 核对不命中不登记）。验证: 全仓 check / build / test 全绿（TUI 1893、tool-consult 100+11、agent-group 111 等）+ check:docs 通过。提交: `5afca691`（tool-consult 机制）+ 收尾提交（配置 / TUI / 文档 / 归档）。追踪文档 `docs/archived/2026-11-16-agent-team-adoption.md`。
+## 2. 未完成项
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
