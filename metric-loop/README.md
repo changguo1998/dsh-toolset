@@ -98,4 +98,4 @@ pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 
-`pnpm run smoke` 需本机可用 dsh 0.2.2-rc.1 与模型凭据。
+`pnpm run smoke` 需本机可用 dsh 0.2.2-rc.3 与模型凭据。

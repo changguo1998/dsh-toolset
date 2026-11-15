@@ -58,7 +58,7 @@ ctx.tools.register(registered);
 
 - 宿主对宽松占位的校验必然放行，严格校验只此一处（取舍见追踪文档）。
 
-- 校验器直接依赖宿主 `@deepseek-ai/dsh-tools`（精确版本 `0.2.2-rc.1`），升宿主时同步该版本号。
+- 校验器直接依赖宿主 `@deepseek-ai/dsh-tools`（精确版本 `0.2.2-rc.3`），升宿主时同步该版本号。
 
 ## 测试
 

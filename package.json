@@ -18,12 +18,12 @@
     "test:smoke": "sh scripts/run-smoke.sh"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.1"
+    "@deepseek-ai/dsh": "0.2.2-rc.3"
   },
   "pnpm": {
     "verifyDepsBeforeRun": false
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.9.0"
   }
 }

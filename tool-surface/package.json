@@ -12,7 +12,7 @@
     "test:coverage": "rm -rf ../tmp/cov-tool-surface && mkdir -p ../tmp/cov-tool-surface && NODE_V8_COVERAGE=../tmp/cov-tool-surface node --experimental-transform-types --test 'tests/*.test.ts' && node ../dev/coverage/report.mjs tmp/cov-tool-surface tmp/cov-tool-surface/report.json"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.3"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
