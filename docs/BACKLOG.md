@@ -100,6 +100,8 @@
 
 ## 2. 未完成项
 
+- **herdr 状态检测失效（`agents.roots()` 在 rc.3 被移除）**（登记 2026-11-16）：`herdr-integration` 靠 `ctx.get('agents').roots()` 枚举顶层 agent、以其 `status` 判 `running`，驱动 herdr 面板「正忙 / 待机」状态；宿主 rc.1 有 `roots()`（`core/agent/src/index.ts:621`，store 里 `owner===undefined` 的顶层 agent），**rc.3 已移除**（只剩 `get(id)` / `list()`）→ 升级后 `roots()` 恒空 → `agentActive` 恒 false → 面板一直报「待机」，切不到「正忙」→ 期望：改经 `list()` 派生根 agent（`session.header.parentSession` 为空者；子代理必带 `parentSession` + `origin:'subagent'`），保留 `roots()` 兼容回退 → 优先级 P1（功能退化，rc.3 升级引入）→ **修复已实现**（`herdr-integration/src/index.ts` `RootAgentLike` + `readRoots`；集成测试加 list 派生用例）；验证：herdr-integration check / 60 单测 / 12 集成全绿、build 通过、真机探针确认根/子 header 判定前提 → 待用户 herdr 面板实机确认后关闭。
+
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
