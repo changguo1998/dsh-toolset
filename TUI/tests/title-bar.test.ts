@@ -61,11 +61,14 @@ const titleText = (s: AppState, cols: number): string => {
 const fgOf = (s: AppState, cols: number, text: string): string | undefined =>
   titleSegs(s, cols).find((x) => x.text === text)?.style?.fg;
 
-/** 构造带 mode/policy/preset/开关 的活跃会话状态 */
+/** 构造带 mode/policy/preset/开关/plan 段位 的活跃会话状态 */
 function stateWith(opts: {
   sandbox?: string;
   permission?: string;
-  plan?: "on" | "off";
+  planStage?:
+    | { stage: "explore" | "plan" | "implement"; readonly: boolean }
+    | null
+    | undefined;
   policy?: "ask" | "never";
   preset?: string;
   verbose?: boolean;
@@ -76,11 +79,12 @@ function stateWith(opts: {
   let s = initialState();
   s.activeSessionId = "s1";
   s.sessionTitle = opts.title ?? "会话标题";
-  const mode = (kind: "plan" | "sandbox" | "permission", value: string) =>
+  const mode = (kind: "sandbox" | "permission", value: string) =>
     reduceState(s, { type: "mode", sessionId: "s1", kind, value });
   if (opts.sandbox) s = mode("sandbox", opts.sandbox);
   if (opts.permission) s = mode("permission", opts.permission);
-  if (opts.plan) s = mode("plan", opts.plan);
+  if (opts.planStage !== undefined)
+    s = reduceState(s, { type: "plan-stage", stage: opts.planStage });
   if (opts.policy)
     s = reduceState(s, {
       type: "approval-policy",
@@ -108,22 +112,24 @@ function stateWithSw(s: AppState, opts: { notifyEnabled?: boolean }): AppState {
   return { ...s, notifyEnabled: opts.notifyEnabled ?? true };
 }
 
-test("P7 标题栏：preset 名字 → 6 个状态符号 → 2 空格 → 标题（空格分隔，无圆点）", () => {
+test("P7 标题栏：preset 名字 → 环境/行为组 `•` 工作流组 → 2 空格 → 标题", () => {
   const s = stateWith({
     sandbox: "workspace-write",
     policy: "ask",
-    plan: "on",
+    planStage: { stage: "plan", readonly: true },
     preset: "fff",
   });
   const text = titleText(s, 100);
   const presetAt = text.indexOf("fff");
   const boxAt = text.indexOf(TITLE_ICON.boxOpen);
   const questionAt = text.indexOf(TITLE_ICON.policyAsk);
+  const dotAt = text.indexOf("•");
   const routeAt = text.indexOf(TITLE_ICON.plan);
   const titleAt = text.indexOf("会话标题");
   assert.ok(presetAt >= 0 && boxAt > presetAt, `preset 在符号组之前: ${text}`);
   assert.ok(questionAt > boxAt, `policy 在 sandbox 之后: ${text}`);
-  assert.ok(routeAt > questionAt, `plan 在 policy 之后: ${text}`);
+  assert.ok(dotAt > questionAt, `环境组之后以 • 分隔: ${text}`);
+  assert.ok(routeAt > dotAt, `plan 在工作流组（• 之后、最右）: ${text}`);
   assert.ok(titleAt > routeAt, `标题在符号组之后: ${text}`);
   // 符号组可能含后面的开关图标：取标题前紧邻的 2 个空格（组内图标之间只隔 1 空格）
   assert.equal(
@@ -131,7 +137,7 @@ test("P7 标题栏：preset 名字 → 6 个状态符号 → 2 空格 → 标题
     "  ",
     `符号组与标题之间 2 空格: ${JSON.stringify(text.slice(0, titleAt))}`,
   );
-  assert.ok(!text.includes("•"), "标题栏不用圆点分隔（与状态行区分）");
+  assert.ok(text.includes("•"), "环境组与工作流组之间用 • 圆点分隔");
 });
 
 test("P7 标题栏：permission 不再展示（只显示 sandbox 箱形符号）", () => {
@@ -161,33 +167,52 @@ test("P7 标题栏：sandbox 四态 → 符号 + 颜色（ro 绿 package_variant
   }
 });
 
-test("P7 标题栏：开关 on 绿、off 灰（plan / verbose / 符号统一 / 声音提醒）", () => {
+test("P7 标题栏：开关 on 绿、off 灰（verbose / 符号统一 / 声音提醒）", () => {
   const on = stateWith({
-    plan: "on",
     verbose: true,
     symbolUnify: true,
     notifyEnabled: true,
   });
   for (const icon of [
-    TITLE_ICON.plan,
     TITLE_ICON.verbose,
     TITLE_ICON.symbolUnify,
     TITLE_ICON.bell,
   ])
     assert.equal(fgOf(on, 100, icon), "green", `on 绿: ${icon}`);
   const off = stateWith({
-    plan: "off",
     verbose: false,
     symbolUnify: false,
     notifyEnabled: false,
   });
   for (const icon of [
-    TITLE_ICON.plan,
     TITLE_ICON.verbose,
     TITLE_ICON.symbolUnify,
     TITLE_ICON.bell,
   ])
     assert.equal(fgOf(off, 100, icon), "gray", `off 灰: ${icon}`);
+});
+
+test("P7 标题栏：plan 段位四态（未进模式灰 / 探索青 / 计划黄 / 实施绿）", () => {
+  assert.equal(
+    fgOf(stateWith({}), 100, TITLE_ICON.plan),
+    "gray",
+    "未读到服务（无快照）→ 灰",
+  );
+  assert.equal(
+    fgOf(stateWith({ planStage: null }), 100, TITLE_ICON.plan),
+    "gray",
+    "服务面返回 null（未进模式）→ 灰",
+  );
+  const explore = stateWith({
+    planStage: { stage: "explore", readonly: true },
+  });
+  assert.equal(fgOf(explore, 100, TITLE_ICON.plan), "cyan", "探索 → 青");
+  const plan = stateWith({ planStage: { stage: "plan", readonly: true } });
+  assert.equal(fgOf(plan, 100, TITLE_ICON.plan), "yellow", "计划 → 黄");
+  const impl = stateWith({
+    planStage: { stage: "implement", readonly: false },
+  });
+  assert.equal(fgOf(impl, 100, TITLE_ICON.plan), "green", "实施 → 绿");
 });
 
 test("P7 标题栏：daemon 开关符号始终显示（开绿 / 关灰 / 未读到服务也按关灰）", () => {
