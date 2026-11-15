@@ -96,6 +96,10 @@
 
 ## 2. 未完成项
 
+- **宿主 0.2.2-rc.3 升级与接口对照**〔进行中: 2026-11-15〕（登记 2026-11-15）：官方已发 `dsh-v0.2.2-rc.2` / `dsh-v0.2.2-rc.3`（npm `next` 通道，`latest` 仍是 rc.1），本仓基线与 `docs/host/` 对照文档仍停在 `0.2.2-rc.1` → 期望：确认新 rc 的接口面增量（事件 / 工具 / 服务 / 管线 / 会话 / 投影 / bundle 默认值），逐项判定对 41 个包的影响并给出升级清单，关闭时把对照结论写成 `docs/host/HOST-UPGRADE-0.2.2-rc.3.md`；实装升级（全局安装 + profile 重建）另行裁定 → 优先级 P1 → 来源：2026-11-15 用户提出（已拉取宿主最新代码，要求登记条目并调研版本接口变化）。
+
+- **子代理委派改走 `startActivation()`**（登记 2026-11-15）：`ctx.subagents.start(name, request)` / `startContinuable()` 自宿主 `0.2.1-alpha.1` 起被 `startActivation(spec)` 取代（官方指南 `v0.2.1-alpha.1/subagent-activations`），`0.2.2-rc.1` 与 `0.2.2-rc.3` 的类型声明里已无 `start`；本仓三处仍按旧面调用 —— `task-engine/src/host.ts:13`（`SubagentsLike.start`，`subagent.ts:144` 判空即报「宿主 ctx.subagents 不可用」）、`command-template/src/subagent.ts`、`TUI/src/app/adapter/dsh-panels.ts:645`（`/council`）→ 现状：subagent 执行后端、模板子代理步骤与 `/council` 在真机上大概率走降级分支（`start` 不存在），且自 0.2.1-rc.2 基线起即如此 → 期望：三处改用 `startActivation({ provider, label, prompt, parent, signal, delivery: 'caller' })`（选项直接平铺，无嵌套 `request`），保留超时 / 取消 / `dispose` 结算口径，并补真机验证 → 优先级 P1（功能退化） → 来源：`docs/implementation/2026-11-15-host-upgrade-0.2.2-rc.3.md` 调研第 8 / 10 节。
+
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
   - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
