@@ -485,7 +485,7 @@ test("定时器统一面: clock 缺席回落进程内定时器, 每个实例只�
   }
 });
 
-test("执行: 子代理服务或宿主模块缺席时给出 canonical 错误", async () => {
+test("执行: 子代理服务缺席给出 canonical 错误; 宿主模块缺席不再影响一次性运行", async () => {
   const template = [
     "---",
     "name: agent-only",
@@ -516,12 +516,10 @@ test("执行: 子代理服务或宿主模块缺席时给出 canonical 错误", a
     templates: { "agent-only.md": template },
   });
   try {
+    // rc.3 起一次性运行只走服务面 `startActivation` + `run.result`，不再 import 宿主模块，
+    // 故宿主模块缺席不再是错误（不再有「未导出 settleRun」分支）。
     const result = await noHost.invoke("agent-only");
-    assert.equal(result.kind, "error");
-    assert.match(
-      result.text ?? "",
-      /模板 agent-only 执行失败（step_failed）：步骤 a 失败：宿主未导出 settleRun/,
-    );
+    assert.equal(result.kind, "success");
   } finally {
     noHost.cleanup();
   }

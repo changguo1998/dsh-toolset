@@ -1,30 +1,30 @@
 // command-template/src/subagent.ts — agent 步骤的一次性子代理运行（宿主 subagents 服务面）。
 //
 // 走宿主 sanctioned 路径：`ctx.subagents` 选 provider（优先 spawn）→ **服务面**
-// `start(name, request)`（携带 parent agent 与 provider/model 覆盖，仅本次运行）——
-// 服务面内宿主会写父会话 `subagent/catalog` 并发出 `subagent/start` · `subagent/end`
-// 生命周期事件（raw `provider.start` 调用两者皆无，曾致子代理在 /agents 与 TUI 状态列
-// 不可见）→ `settleRun` 等终态 → 取子代理报告文本。宿主包 `@deepseek-ai/dsh-subagent`
-// 运行时按 `$DSH_HOME` 解析，本包不声明宿主依赖（与 session-title-cutoff 的宿主助手同法）。
+// `startActivation(spec)`（rc.3 起选项平铺：provider / label / prompt / parent / signal /
+// delivery，携带父 agent 与 provider/model 覆盖，仅本次运行；旧 `start(name, request)` 已移除，
+// 宿主 `settleRun` 导出亦移除，收尾改用 activation 的 `run.result`）——服务面内宿主会写父会话
+// `subagent/catalog` 并发出 `subagent/start` · `subagent/end` 生命周期事件。宿主包
+// `@deepseek-ai/dsh-subagent` 运行时按 `$DSH_HOME` 解析，本包不声明宿主依赖。
 //
 // 失败一律抛错：上层（steps.ts）转 `step_failed` 并给出可读原因；不静默降级为「忽略模型覆盖」。
 
 import type { Deadline } from "@dsh-toolset/clock-base";
-import { describe, importHostModule, readService } from "./host.ts";
+import { describe, readService } from "./host.ts";
 import type { ModelRef } from "./types.ts";
 
-/** 宿主 `SubagentRuntime` 的最小形态（服务面；一次性运行走 `start(name, request)`）。 */
+/** 宿主 `SubagentRuntime` 的最小形态（服务面；一次性运行走 `startActivation(spec)`）。 */
 interface SubagentRuntimeLike {
-  list?(): string[];
   getProvider?(name: string): SubagentProviderLike | undefined;
-  /** 服务面一次性运行（宿主内写父会话 catalog + 生命周期事件）；返回 run 句柄。 */
-  start?(name: string, request: unknown): Promise<unknown> | unknown;
+  /** 服务面一次性运行（rc.3 起 `startActivation(spec)`：选项平铺，宿主内写父会话 catalog + 生命周期事件）。 */
+  startActivation?: (
+    spec: Record<string, unknown>,
+  ) => Promise<unknown> | unknown;
 }
 
 /** 宿主 `SubagentProvider` 的最小形态。 */
 interface SubagentProviderLike {
   readonly name?: string;
-  start?(request: unknown): Promise<unknown>;
 }
 
 /** 一次性运行参数。 */
@@ -55,31 +55,34 @@ export interface OneShotAgentOptions {
 /** 结果文本上限（超出截断并标注，避免命令结果体量失控）。 */
 const MAX_RESULT_BYTES = 32 * 1024;
 
-/** 组装服务面一次性运行请求（纯函数；`descriptor` 由宿主构建，故不在此自建）。 */
-export function buildOneShotRequest(input: {
+/** 组装服务面一次性运行 spec（纯函数；`delivery:'caller'` 只回结果不带模型通知；`descriptor` 由宿主构建不入参）。 */
+export function buildOneShotSpec(input: {
+  providerName: string;
   prompt: string;
   signal: AbortSignal;
   parent?: unknown;
   model?: ModelRef;
 }): Record<string, unknown> {
-  const request: Record<string, unknown> = {
+  const spec: Record<string, unknown> = {
+    provider: input.providerName,
     label: "command-template",
     prompt: [{ type: "text", text: input.prompt }],
     signal: input.signal,
+    delivery: "caller",
   };
-  if (input.parent !== undefined) request["parent"] = input.parent;
+  if (input.parent !== undefined) spec["parent"] = input.parent;
   if (input.model !== undefined) {
-    request["agentOptions"] = {
+    spec["agentOptions"] = {
       ...(input.model.provider === undefined
         ? {}
         : { provider: input.model.provider }),
       ...(input.model.model === undefined ? {} : { model: input.model.model }),
     };
   }
-  return request;
+  return spec;
 }
 
-/** 跑一次一次性子代理，返回其报告文本（经宿主服务面 start：写父会话 catalog + 生命周期事件）。 */
+/** 跑一次一次性子代理，返回其报告文本（经宿主服务面 startActivation：写父会话 catalog + 生命周期事件）。 */
 export async function runOneShotAgent(
   options: OneShotAgentOptions,
 ): Promise<string> {
@@ -92,12 +95,9 @@ export async function runOneShotAgent(
     throw new Error("无可用 subagent provider（宿主未注册 spawn/fork？）");
   }
   const providerName = picked.name;
-  if (typeof picked.provider.start !== "function") {
-    throw new Error(`subagent provider 不支持一次性运行：${providerName}`);
-  }
-  const start = runtime.start;
-  if (typeof start !== "function") {
-    throw new Error("subagents 服务未暴露 start（宿主版本不匹配？）");
+  const startActivation = runtime.startActivation;
+  if (typeof startActivation !== "function") {
+    throw new Error("subagents 服务未暴露 startActivation（宿主版本不匹配？）");
   }
   const controller = new AbortController();
   const timeoutMs = options.timeoutMs ?? 600_000;
@@ -125,19 +125,13 @@ export async function runOneShotAgent(
         ? `子代理步骤超时（${timeoutMs} ms）后中止`
         : "子代理运行被中止";
   try {
-    const loadHost = options.loadHostModule ?? importHostModule;
-    const host = await loadHost("@deepseek-ai/dsh-subagent");
-    const settleRun = host?.["settleRun"];
-    if (typeof settleRun !== "function") {
-      throw new Error("宿主未导出 settleRun（dsh-subagent 版本不匹配？）");
-    }
-    // start 也可能悬挂（宿主发布子会话期）：一并纳入 abort 竞速（此时还没有 run 句柄，无可回收）
+    // startActivation 也可能悬挂（宿主发布子会话期）：一并纳入 abort 竞速（此时还没有 run 句柄，无可回收）
     const run = await raceAbort(
       Promise.resolve(
-        start.call(
+        startActivation.call(
           runtime,
-          providerName,
-          buildOneShotRequest({
+          buildOneShotSpec({
+            providerName,
             prompt: options.prompt,
             signal,
             ...(options.parent === undefined ? {} : { parent: options.parent }),
@@ -148,16 +142,11 @@ export async function runOneShotAgent(
       signal,
       abortReason,
     );
-    const childId = (run as { id?: unknown } | undefined)?.id;
+    const childId = (run as { childId?: unknown } | undefined)?.childId;
     const suffix = typeof childId === "string" ? `（子会话 ${childId}）` : "";
     let outcome: unknown;
     try {
-      outcome = await settleOrAbort(
-        run,
-        settleRun as (run: unknown) => Promise<unknown>,
-        signal,
-        abortReason,
-      );
+      outcome = await settleOrAbort(run, signal, abortReason);
     } catch (err) {
       throw new Error(`${describe(err)}${suffix}`);
     }
@@ -195,21 +184,27 @@ async function raceAbort<T>(
 }
 
 /**
- * 等子代理终态，但用 abort 信号**兜底**：宿主 `settleRun` 内部是 `await run.result`，
- * 该 promise 在子代理卡住 / 会话被拆时可能永不落定 → 命令悬挂（宿主因此不发 `command/done`）。
- * 这里与 abort 竞速，保证调用方**必有终态**。
+ * 等子代理终态（`activation.result`），用 abort 信号**兜底**：该 promise 在子代理卡住 /
+ * 会话被拆时可能永不落定 → 命令悬挂（宿主因此不发 `command/done`）。这里与 abort 竞速，
+ * 保证调用方**必有终态**。
  *
  * 竞速落败（取消 / 超时）时**发起**回收但**不等它**：宿主 in-process provider 的 `dispose()`
  * 内部 `await run.result`（`dsh-subagent-in-process-driver`），与 settle 同生共死——等它等于把
- * 无界等待换个地方（子代理代理审阅实测 `[host] HUNG`）。故 fire-and-forget，失败只吞掉。
+ * 无界等待换个地方。故 fire-and-forget，失败只吞掉。
  */
 async function settleOrAbort(
   run: unknown,
-  settleRun: (run: unknown) => Promise<unknown>,
   signal: AbortSignal,
   abortReason: () => string,
 ): Promise<unknown> {
-  const settle = settleRun(run);
+  const result = (run as { result?: unknown } | undefined)?.result;
+  if (
+    result === undefined ||
+    typeof (result as { then?: unknown }).then !== "function"
+  ) {
+    throw new Error("子代理 run 无 result（宿主返回形态异常）");
+  }
+  const settle = Promise.resolve(result);
   // 竞速落败后它若迟到 reject，不能变成未处理拒绝（进程级告警）
   settle.catch(() => {});
   try {
@@ -231,23 +226,11 @@ function reclaimInBackground(run: unknown): void {
   }
 }
 
-/** 选 provider：优先 `spawn`（一次性子代理），否则取注册表第一个。 */
+/** 选 provider：优先 `spawn`（一次性子代理）再 `fork`，否则取不到（rc.3 起服务面无 `list`，只按已知名探测）。 */
 function pickProvider(
   runtime: SubagentRuntimeLike,
 ): { name: string; provider: SubagentProviderLike } | undefined {
-  const names = (() => {
-    try {
-      return runtime.list?.() ?? [];
-    } catch {
-      return [];
-    }
-  })();
-  const preferred = ["spawn", "fork"];
-  const ordered = [
-    ...preferred.filter((candidate) => names.includes(candidate)),
-    ...names.filter((name) => !preferred.includes(name)),
-  ];
-  for (const name of ordered) {
+  for (const name of ["spawn", "fork"]) {
     const provider = runtime.getProvider?.(name);
     if (provider !== undefined) return { name, provider };
   }
@@ -274,11 +257,19 @@ function fuseSignals(
   };
 }
 
-/** 从 JobOutcome 提取文本（形状容错；取不到 → JSON 摘要）。 */
+/** 从 SubagentResult 提取文本（形状容错；stopReason 非 completed 抛错；取不到 → JSON 摘要）。 */
 export function textOfOutcome(outcome: unknown): string {
   const record = outcome as Record<string, unknown> | undefined;
   if (record === undefined || typeof record !== "object") {
     return String(outcome ?? "");
+  }
+  const stopReason = record["stopReason"];
+  if (typeof stopReason === "string" && stopReason !== "completed") {
+    const detail =
+      typeof record["diagnostic"] === "string" ? record["diagnostic"] : "";
+    throw new Error(
+      `子代理未正常结束（${stopReason}${detail === "" ? "" : `：${detail}`}）`,
+    );
   }
   const status = record["status"];
   if (typeof status === "string" && status !== "completed") {
@@ -288,12 +279,12 @@ export function textOfOutcome(outcome: unknown): string {
     );
   }
   for (const key of [
+    "output",
     "value",
     "result",
     "report",
     "text",
     "message",
-    "output",
   ]) {
     const text = textOfValue(record[key]);
     if (text !== undefined && text.trim() !== "") return clamp(text);

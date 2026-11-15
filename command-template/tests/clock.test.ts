@@ -68,22 +68,17 @@ function fakeCtx(services: Record<string, unknown> = {}): {
   };
 }
 
-/** 永不终态的 subagents 服务 + 宿主 settleRun（制造超时 / 卸载收尾路径）。 */
+/** 永不终态的 subagents 服务（制造超时 / 卸载收尾路径）。 */
 function hangingRuntime(): Record<string, unknown> {
   const run = {
-    id: "child-1",
+    childId: "child-1",
     result: new Promise(() => {}),
     dispose: async () => {},
   };
   return {
-    list: () => ["spawn"],
-    getProvider: (name: string) => ({ name, start: async () => run }),
-    start: async () => run,
+    getProvider: (name: string) => ({ name }),
+    startActivation: async () => run,
   };
-}
-
-function hangingHostModule(): Record<string, unknown> {
-  return { settleRun: () => new Promise(() => {}) };
 }
 
 test("resolveClock: clock 可用时按 ctx 造绑定排期器，另造一组不绑定排期器", () => {
@@ -137,7 +132,6 @@ test("runOneShotAgent: 超时经统一面排期，到点中止且无残留", asy
     prompt: "干活",
     timeoutMs: 100,
     deadline: createDeadline(manual, ctx),
-    loadHostModule: async () => hangingHostModule(),
   });
 
   await waitUntil(() => manual.pending >= 1);
@@ -156,7 +150,6 @@ test("runOneShotAgent: 插件卸载时立即中止在途运行，无残留排期
     },
     prompt: "干活",
     deadline: createDeadline(manual, ctx),
-    loadHostModule: async () => hangingHostModule(),
   });
 
   await waitUntil(() => manual.pending >= 1);

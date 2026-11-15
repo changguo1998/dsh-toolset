@@ -41,7 +41,7 @@ export interface CommandDefinition {
   handler: (invocation: InvocationLike) => Promise<CommandResultLike>;
 }
 
-/** 一次服务面 `start` 调用（子代理步骤）. */
+/** 一次服务面 `startActivation` 调用（子代理步骤；`name` = spec.provider，`request` = 平铺 spec）. */
 export interface SubagentCall {
   name: string;
   request: Record<string, unknown>;
@@ -137,24 +137,34 @@ function createFakeCommands(): FakeCommands {
   return commands;
 }
 
-/** 建一个假子代理服务面: 记调用, 返回带回答文本的 run 句柄. */
+/** 建一个假子代理服务面: 记调用, 返回带回答文本的 run 句柄（startActivation 形态）. */
 function createFakeSubagents(
   flavor: "spawn" | "fork",
   calls: SubagentCall[],
 ): Record<string, unknown> {
   const names = flavor === "spawn" ? ["spawn", "fork"] : ["fork"];
-  const makeProvider = (name: string) => ({
-    name,
-    start: (request: unknown) => request,
-  });
+  const makeProvider = (name: string) => ({ name });
   return {
-    list: () => [...names],
     getProvider: (name: string) =>
       names.includes(name) ? makeProvider(name) : undefined,
-    start: (name: string, request: unknown) => {
-      calls.push({ name, request: request as Record<string, unknown> });
-      const prompt = (request as { prompt?: { text?: string }[] }).prompt;
-      return { id: "child-1", text: `回答(${prompt?.[0]?.text ?? ""})` };
+    startActivation: (spec: unknown) => {
+      const record = spec as {
+        provider?: string;
+        prompt?: { text?: string }[];
+      };
+      calls.push({
+        name: record.provider ?? "",
+        request: record as Record<string, unknown>,
+      });
+      const prompt = record.prompt;
+      return {
+        childId: "child-1",
+        result: Promise.resolve({
+          stopReason: "completed",
+          output: [{ type: "text", text: `回答(${prompt?.[0]?.text ?? ""})` }],
+        }),
+        dispose: async () => {},
+      };
     },
   };
 }

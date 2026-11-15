@@ -40,8 +40,8 @@
 ### 宿主面（`src/subagent.ts` / `src/host.ts`）
 
 - `host.ts` 的 `readService(ctx, key)`：**同一 ctx 内**先 `ctx.get(key)`（严格模式下未 `inject` 的属性直读会抛，故必须走 getter），抛错 / 空值再回退属性直读，两者都失败视为「服务不可用」（`undefined`）。调用点用的都是 `apply` 收到的那个插件 ctx（`index.ts` 接线 `StepDeps`、`subagent.ts` 取 `subagents` 并经 `pickProvider` 选 provider）。
-- `runOneShotAgent`：经宿主 `subagents` 跑一次性子代理（`buildOneShotRequest`：prompt 块 + `agentOptions` 模型覆盖；**不带 `outputSchema`**）；provider 从可用列表里挑（`pickProvider`，`spawn` 优先）——**服务缺面 / provider 不可用时抛错**，由 `steps.ts` 归一成 `step_failed`（不是 `agent_unavailable`）。
-- **取消语义**（2026-10-02 真机教训）：`start` 与 `run.result` 都与调用方取消信号**竞速**（`settleOrAbort`）；abort 路径 `reclaimInBackground` **发起回收但不等待**——宿主 in-process 的 `dispose()` 内部会 `await run.result`，等它等于换个地方无界等待。命令路径因此恒有终态，文案区分「被调用方取消」/「步骤超时（N ms）」并带子会话 id。
+- `runOneShotAgent`：经宿主 `subagents` 跑一次性子代理（`buildOneShotSpec`：provider / label / prompt 块 + `agentOptions` 模型覆盖 + `delivery:'caller'`；**不带 `outputSchema`**）；provider 按已知名探测（`pickProvider`，`spawn` 优先，rc.3 起服务面无 `list`）；**服务缺面 / `startActivation` 缺失 / provider 不可用时抛错**，由 `steps.ts` 归一成 `step_failed`（不是 `agent_unavailable`）。
+- **取消语义**（2026-10-02 真机教训）：`startActivation` 与 `run.result` 都与调用方取消信号**竞速**（`settleOrAbort`）；abort 路径 `reclaimInBackground` **发起回收但不等待**——宿主 in-process 的 `dispose()` 内部会 `await run.result`，等它等于换个地方无界等待。命令路径因此恒有终态，文案区分「被调用方取消」/「步骤超时（N ms）」并带子会话 id。
 
 ## 取舍
 
