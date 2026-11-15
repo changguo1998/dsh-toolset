@@ -23,6 +23,11 @@ import { planStartTool, type PlanComposeFace } from "./plan-start.ts";
 import { PLAN_ID, PLAN_NAME } from "./stages.ts";
 import { STAGE_READONLY_CODE, decide, toolWriteKind } from "./guard.ts";
 import {
+  makeParentReader,
+  nearestPlanRecord,
+  type AgentsLike,
+} from "./ancestor.ts";
+import {
   currentStage,
   planDone,
   planTerminal,
@@ -155,6 +160,10 @@ export function apply(ctx: unknown, _config?: unknown): () => void {
   };
   const presetsOf = (): PresetsService | undefined =>
     readService<PresetsService>(c, "permissionPresets");
+  // 父会话链读取器（子代理写调用继承父会话阶段）：agents 缺席时恒 undefined →
+  // 上溯退化放行（宿主 sandbox 创建时快照继承仍在文件层兜底）。
+  const agentsOf = (): AgentsLike | undefined =>
+    readService<AgentsLike>(c, "agents");
 
   const composeOf = (): PlanComposeFace | undefined => {
     const face = readService<TaskEngineFace>(c, "taskEngine");
@@ -321,9 +330,19 @@ export function apply(ctx: unknown, _config?: unknown): () => void {
       if (typeof toolName !== "string") return passthrough();
       const sessionId = sessionIdOf(exec);
       if (sessionId === undefined) return passthrough();
-      const record = getRecord(sessionId);
-      // 判定顺序 1：会话没有映射 → 放行（非 plan 会话零动作）。
-      if (record === undefined) return passthrough();
+      // 判定顺序 1：会话没有直接映射 → 沿父会话链上溯（子代理写调用继承父会话
+      // 阶段, 见决策 A）；链尽 / 超限 / agents 缺席仍无命中 → 放行（非 plan 家庭）。
+      const direct = getRecord(sessionId);
+      const hit =
+        direct !== undefined
+          ? { sessionId, record: direct }
+          : nearestPlanRecord(
+              sessionId,
+              getRecord,
+              makeParentReader(agentsOf()),
+            );
+      if (hit === undefined) return passthrough();
+      const record = hit.record;
       const engine = readService<TaskEngineFace>(c, "taskEngine");
       const tasks = (engine?.query?.()?.tasks ?? []) as readonly TaskLike[];
       // 判定顺序 2：推不出段（树缺失 / 帧对不上）→ 放行。
@@ -347,9 +366,11 @@ export function apply(ctx: unknown, _config?: unknown): () => void {
         ...(command === undefined ? {} : { command }),
       });
       if (!decision.deny) return passthrough();
+      const inherited = hit.sessionId !== sessionId;
+      const reason = decision.reason ?? "plan 只读段禁止写";
       return {
         kind: "deny",
-        reason: decision.reason ?? "plan 只读段禁止写",
+        reason: inherited ? `${reason}（继承自父会话 plan 只读段）` : reason,
         info: { name: STAGE_READONLY_CODE, code: STAGE_READONLY_CODE },
       };
     });
