@@ -17,7 +17,7 @@ function visibleNames(host: ReturnType<typeof assemble>["host"], id: string) {
     .sort((a, b) => a.localeCompare(b));
 }
 
-test("注册：初始 14 个不 shadow，其余非条件工具按名排序 shadow", () => {
+test("注册：初始 12 个不 shadow，其余非条件工具按名排序 shadow", () => {
   const app = fresh();
   app.apply();
   const agent = app.addAgent({ id: "register-root" });
@@ -33,8 +33,6 @@ test("注册：初始 14 个不 shadow，其余非条件工具按名排序 shado
     "read",
     "read_image",
     "skill",
-    "web_fetch",
-    "web_search",
     "write",
   ];
   const shadows = [...(app.host.scoped.get(agent.id)?.keys() ?? [])].sort();
@@ -47,6 +45,8 @@ test("注册：初始 14 个不 shadow，其余非条件工具按名排序 shado
       "task_decompose",
       "task_status",
       "todo_write",
+      "web_fetch",
+      "web_search",
     ].sort(),
   );
   assert.equal(app.host.registered.has("consult_tools"), false);
@@ -78,7 +78,9 @@ test("shadow 定义换位：短说明 + 宽松占位，全文进 catalog", () =>
     description: "完整参数 schema 经 consult_tools 查询",
   });
   assert.ok(
-    shadow.description.includes("完整说明与参数 schema 经 consult_tools 查询。"),
+    shadow.description.includes(
+      "完整说明与参数 schema 经 consult_tools 查询。",
+    ),
   );
   assert.equal(
     app.host.scoped.get(agent.id)?.get("hash_read")?.parameters[
@@ -120,16 +122,19 @@ test("白名单外条件工具：静态 deny, 模型面 / 索引 / 揭示 / hold
   assert.equal(app.pinNotes.keys().includes("revealed:team_task_list"), false);
 });
 
-test("白名单内条件工具：保持宿主原样, 不 shadow / 不 deny", () => {
+test("条件豁免名单（plainWhenTools）：web 工具按普通工具 shadow, 不 deny", () => {
+  // 2026-11-16 裁定: web_search / web_fetch 按普通工具对待（条件豁免）——
+  // 进 shadow（短说明 + 咨询揭示）, 不再走「白名单内条件工具保留宿主原样」。
   const app = fresh();
   app.apply();
-  const agent = app.addAgent({ id: "allow-when" });
+  const agent = app.addAgent({ id: "plain-when" });
   const visible = visibleNames(app.host, agent.id);
   assert.ok(visible.includes("web_search"));
   assert.ok(visible.includes("web_fetch"));
-  assert.equal(app.host.scoped.get(agent.id)?.has("web_search"), false);
-  assert.equal(app.host.scoped.get(agent.id)?.has("web_fetch"), false);
+  assert.equal(app.host.scoped.get(agent.id)?.has("web_search"), true);
+  assert.equal(app.host.scoped.get(agent.id)?.has("web_fetch"), true);
   assert.equal(app.host.activeDeny(agent.id)?.includes("web_search"), false);
+  assert.equal(app.host.activeDeny(agent.id)?.includes("web_fetch"), false);
 });
 
 test("门禁：未揭示的受管工具被拒，初始与咨询入口放行；揭示后放行", async () => {

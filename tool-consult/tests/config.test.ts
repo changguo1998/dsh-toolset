@@ -4,13 +4,14 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_ALLOWED_WHEN_TOOLS,
   DEFAULT_INITIAL_TOOLS,
+  DEFAULT_PLAIN_WHEN_TOOLS,
   expandInitialTools,
   isSubagentSession,
   matchGlob,
   resolveConfig,
 } from "../src/config.ts";
 
-test("缺省值：14 个初始工具、web 条件白名单、roots、只留 maxResults", () => {
+test("缺省值：12 个初始工具、web 进条件豁免名单、roots、只留 maxResults", () => {
   const config = resolveConfig();
   assert.deepEqual(config.initialTools, [...DEFAULT_INITIAL_TOOLS]);
   assert.deepEqual(config.initialTools, [
@@ -23,13 +24,13 @@ test("缺省值：14 个初始工具、web 条件白名单、roots、只留 maxR
     "write",
     "edit",
     "read_image",
-    "web_search",
-    "web_fetch",
     "job_output",
     "job_list",
     "job_kill",
   ]);
   assert.deepEqual(config.allowedWhenTools, [...DEFAULT_ALLOWED_WHEN_TOOLS]);
+  assert.deepEqual(config.plainWhenTools, [...DEFAULT_PLAIN_WHEN_TOOLS]);
+  assert.deepEqual(config.plainWhenTools, ["web_search", "web_fetch"]);
   assert.equal(config.applyTo, "roots");
   assert.equal(config.maxResults, 5);
   assert.equal(config.enabled, true);
@@ -64,10 +65,12 @@ test("非法值回退缺省，显式名单与 all 生效", () => {
   const config = resolveConfig({
     applyTo: "all",
     allowedWhenTools: ["team_task_list"],
+    plainWhenTools: ["team_task_create"],
     maxResults: 2,
   });
   assert.equal(config.applyTo, "all");
   assert.deepEqual(config.allowedWhenTools, ["team_task_list"]);
+  assert.deepEqual(config.plainWhenTools, ["team_task_create"]);
   assert.equal(config.maxResults, 2);
 });
 

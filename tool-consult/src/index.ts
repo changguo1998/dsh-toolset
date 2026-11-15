@@ -543,9 +543,14 @@ function computeDenied(
   config: ResolvedConfig,
 ): { conditional: Set<string>; denied: Set<string> } {
   const allowed = new Set(config.allowedWhenTools);
+  const plain = new Set(config.plainWhenTools);
   const conditional = new Set<string>();
   for (const toolName of definitions.keys()) {
-    if (tools.executable?.(toolName) === undefined) conditional.add(toolName);
+    // `plainWhenTools` 豁免: 这些工具即使 `executable` 为空（带 when）也不当条件工具,
+    // 按普通工具对待（非初始走 shadow + 咨询揭示）。used when 对本部署恒真时,
+    // 「当不带 when 处理」成立（2026-11-16 用户裁定, 见 config.ts DEFAULT_PLAIN_WHEN_TOOLS）。
+    if (tools.executable?.(toolName) === undefined && !plain.has(toolName))
+      conditional.add(toolName);
   }
   const denied = new Set(
     [...conditional].filter((toolName) => !allowed.has(toolName)),

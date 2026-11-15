@@ -150,7 +150,7 @@ test("条件工具白名单: 缺省隐藏; 加名后可见并保留 when; 删名
   assert.equal(visible(app.host, agent.id).includes("team_task_list"), false);
 
   app.apply({
-    allowedWhenTools: ["web_search", "web_fetch", "team_task_list"],
+    allowedWhenTools: ["team_task_list"],
   });
   assert.equal(visible(app.host, agent.id).includes("team_task_list"), true);
   assert.equal(
@@ -158,9 +158,46 @@ test("条件工具白名单: 缺省隐藏; 加名后可见并保留 when; 删名
     false,
   );
 
-  app.apply({ allowedWhenTools: ["web_search", "web_fetch"] });
+  app.apply({});
   assert.equal(visible(app.host, agent.id).includes("team_task_list"), false);
   assert.equal(app.host.activeDeny(agent.id)?.includes("team_task_list"), true);
+});
+
+test("条件豁免名单 plainWhenTools: web 工具 shadow 为短定义, 揭示后可用, 不 deny", async (t) => {
+  const app = fresh();
+  app.apply();
+  t.after(() => app.dispose());
+  const agent = app.addAgent({ id: "int-plain" });
+  // web 工具按普通工具对待: 进 shadow（不 deny, 不在初始集）
+  assert.equal(app.host.activeDeny(agent.id)?.includes("web_search"), false);
+  assert.equal(app.host.scoped.get(agent.id)?.has("web_search"), true);
+  const shadow = app.host.scoped.get(agent.id)?.get("web_search");
+  assert.ok(shadow, "web_search 应被 shadow");
+  assert.ok(
+    (shadow?.description ?? "").includes("consult_tools"),
+    "shadow 用短说明: " + (shadow?.description ?? ""),
+  );
+  // 未揭示不可调用; 咨询揭示后可用
+  const allow = () => ({ kind: "allow" });
+  assert.deepEqual(
+    agent.emit("tools/pre-execute", { name: "web_search" }, allow),
+    {
+      kind: "deny",
+      reason:
+        "tool web_search 未在当前会话揭示, 请先经 consult_tools 查询后再调用",
+      info: { name: "TOOL_NOT_REVEALED", code: "TOOL_NOT_REVEALED" },
+    },
+  );
+  const text = await app.executeText(
+    { names: ["web_search"] },
+    undefined,
+    agent.id,
+  );
+  assert.ok(text.includes("已揭示"), text);
+  assert.deepEqual(
+    agent.emit("tools/pre-execute", { name: "web_search" }, allow),
+    { kind: "allow" },
+  );
 });
 
 test("tools/change: 晚注册普通工具进入索引且不补 shadow; 条件工具补 deny", async (t) => {

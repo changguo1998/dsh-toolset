@@ -1,5 +1,6 @@
-# tool-consult bundle 层（2026-11-13 新机制）：
-# 全量短清单常驻、14 个初始工具保留完整定义、白名单外的条件工具静态隐藏。
+# tool-consult bundle 层（2026-11-13 新机制；2026-11-16 修订）：
+# 全量短清单常驻、12 个初始工具保留完整定义、条件豁免名单（web / team 按普通工具
+# 对待, 走 short + 咨询揭示）、白名单外的条件工具静态隐藏。
 - insert:
     - id: tool-consult
       name: '@dsh-toolset/tool-consult'
@@ -15,14 +16,17 @@
           - write
           - edit
           - read_image
-          - web_search
-          - web_fetch
           - job_output
           - job_list
           - job_kill
-        allowedWhenTools:
-          - web_search
-          - web_fetch
+        # 条件豁免: 带 when 但按普通工具对待（非初始走 short + 咨询揭示）。
+        # web_* 由代码缺省提供, 此处只列 team 任务板四件（宿主 when = Team mode,
+        # 默认开启不关闭 → 当不带 when 处理）。
+        plainWhenTools:
+          - team_task_create
+          - team_task_list
+          - team_task_get
+          - team_task_update
         applyTo: roots
         maxResults: 5
         audit: false

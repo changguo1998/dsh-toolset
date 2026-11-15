@@ -106,9 +106,9 @@ export interface Assembled {
   dispose(): void;
 }
 
-/** 本包测试的标准工具面: 14 个初始工具 + 非初始工具 + 条件工具. */
+/** 本包测试的标准工具面: 12 个初始工具 + 非初始工具 + 条件工具. */
 export const STANDARD_DEFINITIONS: FakeToolDefinition[] = [
-  // 14 个初始工具: web 两件按宿主原样保留 `when`。
+  // 12 个初始工具。
   makeDefinition("bash", { description: "执行 shell 命令的完整说明。" }),
   makeDefinition("read", { description: "读取文本文件的完整说明。" }),
   makeDefinition("glob", { description: "按路径模式找文件的完整说明。" }),
@@ -120,14 +120,6 @@ export const STANDARD_DEFINITIONS: FakeToolDefinition[] = [
   makeDefinition("write", { description: "整文件写入的完整说明。" }),
   makeDefinition("edit", { description: "字面量编辑的完整说明。" }),
   makeDefinition("read_image", { description: "读取图片的完整说明。" }),
-  makeDefinition("web_search", {
-    description: "联网检索的完整说明。",
-    when: () => true,
-  }),
-  makeDefinition("web_fetch", {
-    description: "抓取网页的完整说明。",
-    when: () => true,
-  }),
   makeDefinition("job_output", { description: "取后台任务输出的完整说明。" }),
   makeDefinition("job_list", { description: "列后台任务的完整说明。" }),
   makeDefinition("job_kill", { description: "终止后台任务的完整说明。" }),
@@ -137,6 +129,15 @@ export const STANDARD_DEFINITIONS: FakeToolDefinition[] = [
   makeDefinition("todo_write", { description: "维护待办清单的完整说明。" }),
   makeDefinition("task_decompose", { description: "拆解任务的完整说明。" }),
   makeDefinition("task_status", { description: "查看任务状态的完整说明。" }),
+  // 条件豁免工具（plainWhenTools 缺省含 web 两件）: 带 when 但按普通工具 shadow。
+  makeDefinition("web_search", {
+    description: "联网检索的完整说明。",
+    when: () => true,
+  }),
+  makeDefinition("web_fetch", {
+    description: "抓取网页的完整说明。",
+    when: () => true,
+  }),
   // 条件工具: 白名单内保留; 白名单外静态隐藏。
   makeDefinition("team_task_list", {
     description: "Team 任务列表的完整说明。",

@@ -18,10 +18,16 @@ export type ApplyTo = "roots" | "all";
 export interface Config {
   /** 总开关（缺省 true）。 */
   enabled?: boolean;
-  /** 初始完整定义清单，支持通配（缺省 14 个核心工具）。 */
+  /** 初始完整定义清单，支持通配（缺省 12 个核心工具）。 */
   initialTools?: string[];
-  /** 允许保留宿主原样的条件工具（缺省 `web_search` / `web_fetch`）。 */
+  /** 允许保留宿主原样的条件工具（缺省空；白名单仅供「保留 when 控可见」的场景）。 */
   allowedWhenTools?: string[];
+  /**
+   * 条件豁免名单：这些工具即使带 `when`（`executable` 为空）也不当作条件工具，
+   * 而是按普通工具对待——非初始则收短 + 咨询揭示，初始则保留完整定义。
+   * 用于「宿主 when 对本部署恒真、不需要按 when 进出面」的工具（如 team_task_*）。
+   */
+  plainWhenTools?: string[];
   /** 管理范围（缺省 `roots`：只管理根代理，子代理不动）。 */
   applyTo?: ApplyTo;
   /** 检索实现（v1 只有 keyword，留 hybrid 接缝）。 */
@@ -37,6 +43,7 @@ export interface ResolvedConfig {
   enabled: boolean;
   initialTools: string[];
   allowedWhenTools: string[];
+  plainWhenTools: string[];
   applyTo: ApplyTo;
   matcher: "keyword";
   maxResults: number;
@@ -46,11 +53,13 @@ export interface ResolvedConfig {
 }
 
 /**
- * 缺省初始集（2026-11-13 决策 2）: 高频入口首请求即带完整定义。
+ * 缺省初始集（2026-11-13 决策 2，2026-11-16 修订）: 高频入口首请求即带完整定义。
  *
  * 不开放: `hash_read` / `hash_edit`（锚点编辑，成对按需咨询）、`todo_write`、
  * 子代理 6 个、`workflow`、goal 3 个、`working_directory`。
  * `read_image` 仅在 attachments 服务挂载时注册；本 profile 已挂 `attachment-local`。
+ * 2026-11-16: `web_search` / `web_fetch` 移出初始集——按用户裁定改走普通工具
+ * （short + 咨询揭示，见 `plainWhenTools`），不再常驻完整定义。
  */
 export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "bash",
@@ -62,8 +71,6 @@ export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
   "write",
   "edit",
   "read_image",
-  "web_search",
-  "web_fetch",
   "job_output",
   "job_list",
   "job_kill",
@@ -73,8 +80,20 @@ export const DEFAULT_INITIAL_TOOLS: readonly string[] = [
  * 缺省放行的条件工具（`when` 注册保留宿主原样，会随 readiness 进出）。
  *
  * 白名单外的条件工具由静态 deny 从模型面彻底移除。新增放行项只改这一项配置。
+ * 2026-11-16: 缺省清空——`web_search` / `web_fetch` 改走 `plainWhenTools` 按普通
+ * 工具处理，不再需要条件白名单；白名单保留为「要按 when 控可见时才用」的接口。
  */
-export const DEFAULT_ALLOWED_WHEN_TOOLS: readonly string[] = [
+export const DEFAULT_ALLOWED_WHEN_TOOLS: readonly string[] = [];
+
+/**
+ * 缺省条件豁免名单：这些工具即使带 `when`（`executable` 为空）也不当作条件工具，
+ * 而是按普通工具对待（非初始走 shadow + 咨询揭示）。
+ *
+ * 2026-11-16 用户裁定: `web_search` / `web_fetch`（宿主 when 为「provider 就绪」，
+ * 本部署恒真）与 `team_task_*`（when 为 Team mode，默认开启不关闭）统一按普通工具
+ * 对待——「宿主 when 只是适配其它环境，本仓不考虑」。
+ */
+export const DEFAULT_PLAIN_WHEN_TOOLS: readonly string[] = [
   "web_search",
   "web_fetch",
 ];
@@ -123,6 +142,7 @@ export function resolveConfig(raw?: Config): ResolvedConfig {
       config.allowedWhenTools,
       DEFAULT_ALLOWED_WHEN_TOOLS,
     ),
+    plainWhenTools: nameList(config.plainWhenTools, DEFAULT_PLAIN_WHEN_TOOLS),
     applyTo,
     matcher: "keyword",
     maxResults: Math.min(20, Math.max(1, maxResults)),

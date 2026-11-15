@@ -24,6 +24,8 @@ test("shadow 注册顺序：非初始工具按名排序，consult_tools 最后",
     "task_decompose",
     "task_status",
     "todo_write",
+    "web_fetch",
+    "web_search",
     "consult_tools",
   ]);
 });
