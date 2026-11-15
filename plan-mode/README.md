@@ -27,6 +27,7 @@ DSH（DeepSeek Harness）进程内集成插件：把 **plan 模式三段流程**
   - 探索 / 计划段拒绝写类工具，回执 `info.code === "plan_stage_readonly"`，并写明当前段、为什么不能写、下一步做什么；
   - 计划段人工确认（done）后放行，实施段全程放行；
   - `flow_select` / `plan_start` / `task_*` 等任务面工具不受影响（流程推得动）。
+- **子代理写调用继承父会话阶段**（2026-11-15）：会话无直接映射时，沿 `parentSession` 父会话链上溯（上限 24 跳，经 `agents` 服务逐级读 header），任一祖先落在探索 / 计划只读段 → 按同一判定核拒写，回执追加「继承自父会话 plan 只读段」；链尽 / 超限 / `agents` 缺席 → 放行（宿主 sandbox 在创建子代理时已做只读快照继承，文件层仍有兜底）。
 - 命令白名单（决策项 9，`shell-parse` 解析，认不出放行）：重定向 `>` / `>>` / `&>`、`tee`、`sed -i` / `perl -i`、`mv` / `cp` / `rm` / `mkdir` / `touch` / `truncate` / `dd`、`python -c`。
 - 工具分类：`bash` / `shell` / `pwsh` / `herdr_run` / `herdr_text` 按命令白名单判；`run_code` / `script_run`（代码体判不出）与 `workflow` / `task_execute`（派生会话里拦不住）一律拒；直接写面（`write` / `edit` / `apply_patch` / `patch` / `hash_edit`）恒拒。
 - 带写开关的工具按开关判：`ast_replace` 不带 `write: true` 是 dry-run，`md_logic` 非 `replace` 只读，都不拦。

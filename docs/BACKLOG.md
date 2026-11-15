@@ -92,9 +92,9 @@
 
 - TUI 性能读数显示节奏调整（2026-11-15 完成）: 状态行「首字节延时 + 解码速率」改「计算与显示分离」——计算仍随每条 chunk 快速累积（estTokens / firstChunkTime）, `performance` 事件投递节流从 250ms 拉长到 **1000ms**（数字每秒最多更新 1 次）; 速率口径从「首块以来累计平均」改为 **1s 窗口采样**（上一采样以来的 Δtoken ÷ Δ时间 ≈ 每秒产出 token）, `perf.ts` 增 `lastSampleAt` / `lastSampleTokens`, `emitLivePerformance` 采样写回; TTFB 口径、收尾归零、非流式回落均不变。改动: `TUI/src/app/adapter/perf.ts` / `dsh-events.ts` / `TUI/tests/adapter.dsh.test.ts`（B1 重写 + 新增 B2 窗口速率判定）。验证: TUI 1892 项全过（+1）, 全仓 check / build 全绿, check:docs 通过。追踪文档 `docs/archived/2026-11-15-tui-perf-display-cadence.md`。
 
-## 2. 未完成项
+- 子代理写调用继承父会话阶段（2026-11-15 完成）: plan-mode 的 `tools/pre-execute` 在直接映射缺失时沿 `parentSession` 父会话链上溯（`ancestor.ts` 新增 `nearestPlanRecord` / `makeParentReader`, 上限 24 跳, 经 `agents` 服务逐级读 `session.header.parentSession`）, 任一祖先落在探索 / 计划只读段 → 按同一判定核拒写, 回执追加「继承自父会话 plan 只读段」; 直接命中优先, `workflow` / `task_execute` 发起硬拦保留, 子进程子代理不覆盖（宿主 sandbox 创建时快照继承兜文件层, 边界记录）。改动: `plan-mode/src/ancestor.ts`（新增）/ `index.ts` / `tests/ancestor.test.ts`（新增 6 例）/ `tests/index.test.ts`（新增 4 例）/ `README.md`。验证: plan-mode 63 例全过, 全仓 check / test / build 全绿, check:docs 通过。追踪文档 `docs/archived/2026-11-15-subagent-stage-inherit.md`。
 
-- **子代理写调用继承父会话阶段**（2026-11-15, 自「自研 plan 模式」决策项 3 的 c 拆出, 优先级 P3, 状态: 未接取）: 现状——子代理的写调用带子会话 id, 父会话的 `tools/pre-execute` 拦截按会话匹配时不命中; 主条目已在只读段拦住 `workflow` / `task_execute` 的发起, 剩下的口子是进入 plan 之前就已存在的子会话, 以及日后新增的派生会话工具。期望——子代理继承父会话的阶段约束; 前置——需宿主提供「父会话身份」到子代理调用面的公开通路（当前未找到, 见追踪文档 §2.4）。来源: 2026-11-15 决策项 3 的 c（未选, 独立接取）。
+## 2. 未完成项
 
 - **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
 
