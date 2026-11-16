@@ -146,6 +146,43 @@ test("evict：删除行并联动清理 source", async () => {
   }
 });
 
+test("evict：未注册残留表仍引用 source 时不误删（不漏计而触发外键失败）", async () => {
+  const { db, kb } = await makeService();
+  try {
+    const a = await kb.put({
+      kind: "note",
+      project: "p1",
+      content: "evict residual orphan",
+    });
+    const sourceId = a.sourceId;
+    // 建一张**未注册**的残留分类表，引用同一 source（历史插件改名的表残留场景）。
+    db.exec(`CREATE TABLE kind_orphan (
+      id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL REFERENCES sources(id),
+      project TEXT NOT NULL, title TEXT, content TEXT NOT NULL,
+      content_hash TEXT NOT NULL, importance INTEGER NOT NULL DEFAULT 3,
+      session_id TEXT, created_at INTEGER NOT NULL
+    ) STRICT`);
+    db.prepare(
+      "INSERT INTO kind_orphan (source_id, project, title, content, content_hash, importance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(sourceId, "p1", "t", "c", "h", 3, 0);
+    // 删除 note 行：残留表仍引用 source → 重算计入 → source 保留，不抛外键错。
+    assert.doesNotThrow(() => kb.evict([{ kind: "note", id: a.ids[0]! }]));
+    const after = db
+      .prepare("SELECT chunk_count FROM sources WHERE id = ?")
+      .get(sourceId) as { chunk_count: number };
+    assert.ok(after.chunk_count > 0, "残留引用计入 chunk_count，source 未误删");
+    // 清了残留表后，source 才可被清理（不残留孤儿）。
+    db.exec("DROP TABLE kind_orphan");
+    kb.evict([{ kind: "note", id: a.ids[0]! }]);
+    const left = (
+      db.prepare("SELECT COUNT(*) AS n FROM sources").get() as { n: number }
+    ).n;
+    assert.equal(left, 0, "无残留引用后 source 归零清理");
+  } finally {
+    db.close();
+  }
+});
+
 test("put 分块：超预算内容按 markdown 边界切多块", async () => {
   const { db, kb } = await makeService();
   try {

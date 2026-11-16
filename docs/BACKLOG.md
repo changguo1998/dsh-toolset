@@ -107,15 +107,9 @@
 
 - task_stop 人工门禁不弹审批面板（2026-11-16 完成）: 根因 = task-engine 在 **apply 期**同步 `ctx.get("approval")` 快照, 该时刻宿主 approval 服务 fiber 未激活 → 恒 undefined → human 级验收**静默** fail-closed（无 `approval/asked`、无 waterfall、无应答者、无告警）; TUI 桥本身接线完整。修复: `approveVia` 改**执行期惰性解析**（工具 exec ctx → 插件 ctx, 与 `serviceResolver` 同口径）, 并按官方管道口径补传 `exec.signal`。守成测试: `assemble` 加 `late-allowed` 模式（服务 apply 后才注入, 模拟宿主 boot 顺序）+ 集成用例「审批服务 apply 期缺席、执行期到场」; 反向验证旧实现下新用例红。验证: task-engine 203 + 集成（新用例绿）/ 全仓 check / test 全绿; 真实宿主 e2e 复现脚本确认 `approval/request` 应答者被调用、`allowed-once` 后 `{ok:true, next:null}`。追踪文档 `docs/archived/2026-11-16-task-stop-approval.md`。残留: TUI 面板最终真机呈现留人工; 既有失败两条（tool-surface 参数 schema 断言过时）另开条目。
 
+- 修复 flow 流程记录删除失败的外键问题（2026-11-16 完成, 未提交）: `memory-base` `evict` 重算 `sources.chunk_count` 的遍历面改走枚举库中实际存在的业务分类表（新增 `#kindTables()`, 取 `sqlite_master` 中 `kind_*` 且非 FTS/影子表）, 不再只统计当前进程已注册的 kind——残留未注册分类表仍引用 source 时不再被漏计, 避免 chunk_count 误算 0 后 `DELETE sources` 触发外键失败。复现与修复见追踪文档 `docs/archived/2026-11-16-flow-remove-fk.md`; memory-base 91 例全绿, 全仓 check / test 全绿。
+
 ## 2. 未完成项
-
-- **flow 流程记录删除失败（FOREIGN KEY constraint failed）**（`flow_remove` / `flow_rollback` 在 memory-base 项目层删记录时抛外键约束错误, 2026-11-16 实测）:
-
-  - **现象**: 对 `tui-ttfb-format` 任务调 `flow_remove`(按 slug 删 8 条)或 `flow_rollback` 时, 回执「删除项目层记录失败: Error: FOREIGN KEY constraint failed」, 记录一条未删。
-  - **已排查**: flow-track 的删除走 `store.ts:284-312` `removeMany` → `memory-base` 项目层 scope 的 `forget`(`scope.ts:116`) → `tiers.ts:281-291` forget → `knowledge.ts:729-765` evict: 先逐条 `DELETE FROM <分类表> WHERE id = ?`、再重算 `sources.chunk_count`、最后删零计数 source。报错点在 DELETE 阶段; 但本仓 schema 里各分类表仅 `source_id REFERENCES sources(id)` 单向外键, 表间不存在会阻碍删除的引用, 疑为项目层库被 `PRAGMA foreign_keys=ON` 打开或存在旧库残留引用, 需复现定位具体 DELETE 与违反的键。
-  - **后续行号**: `flow-track/src/store.ts:284-312`、`memory-base/src/tiers.ts:281-291`、`memory-base/src/knowledge.ts:729-765`、`memory-base/src/schema.ts:109`。
-  - **验收**: `flow_remove`(slug / id)与 `flow_rollback` 能正常删除对应项目层记录, 语义级(回执 removed 数量正确)且不留孤儿 source。
-  - **优先级**: P2（流程记录清理能力受损, 不影响正常写, 但积累后无法清整）; 状态: 待排查。
 
 - **task-engine 集成测试两条失败: 工具面包装后的参数 schema 与校验语义断言过时**（`task-engine/tests/integration/plugin.test.ts` 两条, HEAD 基线既有失败, 2026-11-16 复核）:
 

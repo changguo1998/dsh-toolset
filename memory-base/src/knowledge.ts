@@ -248,6 +248,22 @@ export class KnowledgeService {
     return this.#tableExistsStmt.get(table) !== undefined;
   }
 
+  /**
+   * 库中实际存在的业务分类表（枚举 sqlite_master，含**未注册的残留表**）。
+   * `evict` 重算 chunk_count 遍历面用它而非 `#existingEntries()`：若残留表（当前进程未注册
+   * 的 kind，历史插件改名 / 卸载后表仍在）仍引用 source，漏计会把 chunk_count 误算成 0，
+   * 再删 `sources` 即触发外键失败。计入后 source 不会误删。
+   */
+  #kindTables(): string[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name GLOB 'kind_*' AND name NOT GLOB 'kind_*_fts*'`,
+      )
+      .all() as Array<{ name: string }>;
+    return rows.map((row) => row.name);
+  }
+
   /** 已注册且已建表的分类（跨表读写的遍历面；未建表 = 空分类，无可读行）。 */
   #existingEntries(): RegisteredKind[] {
     return this.#registry
@@ -743,7 +759,7 @@ export class KnowledgeService {
         const stmt = this.#db.prepare(`DELETE FROM ${table} WHERE id = ?`);
         for (const id of ids) deleted += Number(stmt.run(id).changes);
       }
-      const tables = this.#existingEntries().map((entry) => entry.table);
+      const tables = this.#kindTables();
       if (tables.length > 0) {
         const parts = tables
           .map(
