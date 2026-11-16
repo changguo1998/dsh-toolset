@@ -11,7 +11,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」做�
 | `pin-note` | 把 task-engine 取出的**当前节点内容**保持在上下文（`pinNotes.hold("task")`） |
 | `flow-arbiter` | 流程选择仲裁：只有被选中的流程入口能真正建树 |
 
-树级内容（阶段模板 / 推进状态）**不再由本包注入**（决策项 4.4 退役）；本包也不持有流程选择开关（归 `flow-arbiter`）。
+树级内容（阶段模板 / 推进状态）**不再由本包注入**（决策项 4.4 退役）；本包也不持有流程选择开关与进程级注入开关（都归 `flow-arbiter` 的选中 + 配置 `enabled`，2026-11-17 起）。
 
 ## 八阶段定义
 
@@ -40,7 +40,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」做�
 | `flow_remove` | `id` 或 `slug`（二选一） | 删流程记录：`id` 删一条、`slug` 删该任务全部（回 `removed` 条数） |
 | `flow_rollback` | `slug?`、`stage`（八阶段） | 回退到更早阶段：清掉目标之后的记录与全部 `-` 备注（目标阶段记录保留） |
 
-用户面：`/flow-track on|off|status`（开关 + 活跃流程状态；开关只在内存）。
+用户面：`/flow-track status`（无参缺省 status）查看注入状态——配置 / 本会话选中的流程 / 是否有未完成记录；2026-11-17 起不再有 `on|off` 开关，激活由 flow-arbiter 选中（`/flow-arbiter select <id>`）与配置 `enabled` 共同决定。
 
 ## 注入（非树级）
 
@@ -49,16 +49,16 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」做�
 1. **合规提示**（本轮有写类工具调用且没有任何流程记录时）：提示先登记条目 / 建追踪文档或用 `flow_record` 记录，明写「只提示, 不拦截」；
 2. **最近记录**：`最近记录：<slug>@<阶段> 状态 <status>：<正文摘要>`。
 
-门槛：配置 `enabled` 与进程内开关都打开，且 memory-base 里有未完成阶段的流程记录（最新阶段不是「收尾」）。不满足 → 不注入。
+门槛：配置 `enabled`、本会话经 flow-arbiter 选中的流程、memory-base 里有未完成阶段的流程记录（最新阶段不是「收尾」）三者都满足。不满足 → 不注入（`flowArbiter` 缺席 / 未选中 → 注入关闭）。
 
 ## 服务面
 
-`ctx.provide("flowTrack", { enabled(), summary() })`——`summary()` 返回 `{ enabled, records[{slug, stage, status, active}] }`（每 slug 最新真实阶段，`-` 不参与、收尾不算活跃）；TUI 标题栏与状态列每 tick 懒读。
+`ctx.provide("flowTrack", { enabled(sessionId?), summary(sessionId?) })`——`enabled` 给「配置开启且该会话选中了流程」，`summary(sessionId?)` 返回 `{ enabled, records[{slug, stage, status, active}] }`（每 slug 最新真实阶段，`-` 不参与、收尾不算活跃；不传会话按无选中）；TUI 标题栏与状态列每 tick 懒读（传 `activeSessionId`）。
 
 ## 依赖与降级
 
 - `inject: ["tools"]`：装配期要注册工具面，`tools` 是硬依赖。
-- `memory` 缺席 → 工具返回可读错误、注入不出现；`taskEngine` 缺席 → `flow_start` 返回可读错误、`flow_status` 认不出阶段树；`pinNotes` 缺席 → 告警且不注入；`flowArbiter` 缺席 → 跳过登记（仲裁侧有内置默认登记）。
+- `memory` 缺席 → 工具返回可读错误、注入不出现；`taskEngine` 缺席 → `flow_start` 返回可读错误、`flow_status` 认不出阶段树；`pinNotes` 缺席 → 告警且不注入；`flowArbiter` 缺席 → 跳过登记（仲裁侧有内置默认登记），且注入关闭（无选中）。
 
 ## 配置
 
@@ -66,7 +66,7 @@ DSH（DeepSeek Harness）进程内集成插件：把本仓「标准流程」做�
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `enabled` | `true` | 是否允许注入（`false` 时开关打开也不注入，工具照常） |
+| `enabled` | `true` | 是否允许注入（`false` 时即使会话选中流程也不注入，工具照常） |
 
 ## 插件 id
 

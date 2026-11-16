@@ -214,11 +214,11 @@ export function createWiringPart(ctx: AppContext) {
     } catch {
       /* 忽略：保持该块缺省 */
     }
-    // Flow：开关 + 每 slug 最新记录
+    // Flow：开关 + 每 slug 最新记录（服务面按会话选中派生, 传当前活跃会话）
     try {
       const face = ctx.deps.getFlowTrack?.() as
         | {
-            summary?(): {
+            summary?(sessionId?: string): {
               records: Array<{
                 slug: string;
                 stage: string;
@@ -228,7 +228,8 @@ export function createWiringPart(ctx: AppContext) {
             };
           }
         | undefined;
-      const records = face?.summary?.().records ?? [];
+      const records =
+        face?.summary?.(ctx.state.activeSessionId ?? sessionId)?.records ?? [];
       if (records.length > 0) {
         next.flow = {
           stage: `${records[0]!.slug}@${records[0]!.stage}`,
@@ -323,15 +324,17 @@ export function createWiringPart(ctx: AppContext) {
     ctx.self.paint();
   }
 
-  /** flow-track 注入开关保鲜：随 StatusTicker 懒读服务面，值变化才重绘标题栏符号。
+  /** flow-track 注入开关保鲜：随 StatusTicker 懒读服务面（按当前活跃会话的选中派生），
+   *  值变化才重绘标题栏符号。
    *  插件未挂载 / 服务无 `enabled()` → 保持 undefined（标题栏不渲染该符号）。 */
   function maybeRefreshFlowTrack(): void {
     if (ctx.disposed) return;
     const read = ctx.deps.getFlowTrack;
     if (read === undefined) return;
+    const sessionId = ctx.state.activeSessionId ?? ctx.deps.adapter.sessionId;
     let enabled: unknown;
     try {
-      enabled = read()?.enabled?.();
+      enabled = read()?.enabled?.(sessionId);
     } catch {
       return;
     }

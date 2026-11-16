@@ -12,12 +12,14 @@
  * 固化强度 = 中档（决策项 4.3 = b）：**只提示不拦截**；节点顺序强制由 task-engine 按流程定义
  * 的 `enforceOrder` 执行。
  *
- * 注入门槛（2026-11-06 起）：配置 `enabled` 与进程内开关都打开, 且 memory-base 里有未完成阶段的
- * 流程记录（最新阶段不是「收尾」）时才注入；开关缺省关闭、只在内存（`switch.ts`），
- * 用户面 `/flow-track on|off|status` 切。
+ * 注入门槛（2026-11-17 起，梳理接口重叠后）：配置 `enabled`、本会话经 flow-arbiter 选中的流程、
+ * memory-base 里未完成阶段的流程记录（最新阶段不是「收尾」）三者都满足时才注入；
+ * 不再有进程级开关（`switch.ts` 已删，`/flow-track` 只留 `status` 查看），
+ * 激活与否由 flow-arbiter 的选中（`/flow-arbiter select <id>`）与配置共同决定。
  *
  * 降级：`pinNotes` 缺席 → 告警且不注入；`memory` 缺席 → 工具返回可读错误、注入里只剩合规提示；
- * `taskEngine` 缺席 → `flow_start` 返回可读错误、`flow_status` 的阶段段退化为没有可识别阶段树。
+ * `taskEngine` 缺席 → `flow_start` 返回可读错误、`flow_status` 的阶段段退化为没有可识别阶段树；
+ * `flowArbiter` 缺席或会话未选中流程 → 注入关闭（`enabled` / `summary` 返回 false / 摘要按关）。
  */
 
 import type { SnapshotLike } from "./status.ts";
@@ -27,7 +29,6 @@ import { decideText } from "./inject.ts";
 import { STAGE_NAMES, hasActiveFlow } from "./policy.ts";
 import { FLOW_ID, FLOW_NAME } from "./stages.ts";
 import { registerFlowCommand } from "./command.ts";
-import { createFlowSwitch } from "./switch.ts";
 import {
   flowStartTool,
   type ComposeFace,
@@ -35,6 +36,7 @@ import {
   type FlowNodeInput,
 } from "./flow-start.ts";
 import { flowTools } from "./tools.ts";
+import { callerSessionId } from "./tools.ts";
 import { wrapToolDefinition } from "@dsh-toolset/tool-surface";
 
 export const name = "flow-track";
@@ -46,7 +48,8 @@ export const name = "flow-track";
  */
 export const inject = ["tools"];
 
-/** 对外只读服务面：`flowTrack.enabled()` 与 `flowTrack.summary()`（TUI 标题栏 / 状态列据此显示）。 */
+/** 对外只读服务面：`flowTrack.enabled(sessionId?)` 与 `flowTrack.summary(sessionId?)`（TUI 标题栏 /
+ *  状态列据此显示）；enabled / summary.enabled 按会话的流程选中派生（配置 + flow-arbiter）。 */
 export const provide = ["flowTrack"];
 
 /** 服务面单条摘要：某个 slug 的最新真实阶段（跳过 `-`）。 */
@@ -231,8 +234,34 @@ export function apply(ctx: unknown, config?: Config): () => void {
   }
 
   const observer = new WriteObserver();
-  const switcher = createFlowSwitch();
   const disposers: Array<() => void> = [];
+
+  /** 流程选中读取（决策项 4a）：会话经 flow-arbiter 选中才进"流程态"；缺席 / 未选中 / 抛错 → undefined。 */
+  const selectedFlow = (
+    sessionId: string | undefined,
+  ): { id: string; name: string } | undefined => {
+    if (sessionId === undefined) return undefined;
+    const arbiter = readService<{
+      current?(sessionId: string): { id?: string; name?: string } | null;
+    }>(c, "flowArbiter");
+    if (arbiter === undefined || typeof arbiter.current !== "function")
+      return undefined;
+    try {
+      const cur = arbiter.current(sessionId);
+      if (cur === null || cur === undefined) return undefined;
+      if (typeof cur.id !== "string" || cur.id.length === 0) return undefined;
+      return {
+        id: cur.id,
+        name: typeof cur.name === "string" ? cur.name : cur.id,
+      };
+    } catch {
+      return undefined;
+    }
+  };
+
+  /** 注入是否对某会话生效：配置 `enabled` 且本会话已选中流程（2026-11-17 起，替代进程级开关）。 */
+  const enabledFor = (sessionId: string | undefined): boolean =>
+    resolved.enabled && selectedFlow(sessionId) !== undefined;
 
   /** 记录缓存：`decide` 是同步的，读库（异步）只能提前喂进来。 */
   const cache: { records: FlowRecord[] } = { records: [] };
@@ -249,9 +278,9 @@ export function apply(ctx: unknown, config?: Config): () => void {
   if (typeof c.provide === "function") {
     try {
       c.provide("flowTrack", {
-        enabled: () => switcher.enabled,
-        summary: (): FlowSummary =>
-          flowSummaryOf(cache.records, switcher.enabled),
+        enabled: (sessionId?: string) => enabledFor(sessionId),
+        summary: (sessionId?: string): FlowSummary =>
+          flowSummaryOf(cache.records, enabledFor(sessionId)),
       });
     } catch (error) {
       warn(`服务面 flowTrack 暴露失败（忽略）：${String(error)}`);
@@ -267,7 +296,7 @@ export function apply(ctx: unknown, config?: Config): () => void {
       observer,
       snapshot: () => snapshotOf(taskEngine),
       slugFor: (sessionId: string) => sessionId,
-      switcher,
+      enabledFor,
       active: () => hasActiveFlow(cache.records),
       onRecorded: () => void refresh(),
     };
@@ -307,8 +336,10 @@ export function apply(ctx: unknown, config?: Config): () => void {
     register(def: unknown): unknown;
   }>(c, "commands");
   const offCommand = registerFlowCommand(commands, {
-    switcher,
+    configEnabled: resolved.enabled,
+    selected: selectedFlow,
     hasActive: () => hasActiveFlow(cache.records),
+    sessionOf: (invocation) => callerSessionId(invocation),
   });
   if (offCommand === undefined) {
     warn("ctx.commands 不可用，/flow-track 命令不会出现");
@@ -341,8 +372,8 @@ export function apply(ctx: unknown, config?: Config): () => void {
     try {
       const off = pinNotes.hold("flow", (context) => {
         if (!resolved.enabled) return undefined;
-        if (!switcher.enabled) return undefined;
-        // 门槛之二：memory-base 里要有未完成阶段的流程记录（与 task-engine 阶段树无关）
+        if (selectedFlow(context.sessionId) === undefined) return undefined;
+        // 门槛之三：memory-base 里要有未完成阶段的流程记录（与 task-engine 阶段树无关）
         if (!hasActiveFlow(cache.records)) return undefined;
         const lastWriteTool = observer.lastWriteTool(context.sessionId);
         return decideText({

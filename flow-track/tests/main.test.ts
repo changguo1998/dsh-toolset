@@ -97,6 +97,9 @@ interface Harness {
     turn?: number,
   ): { text: string; summary?: string } | null;
   runCommand(rawInput: string): { kind: string; text: string };
+  /** 模拟 flow-arbiter 选中某流程（未挂 / 未选中时 current 返回 null）。 */
+  selectFlow(id: string): void;
+  clearFlow(): void;
   disposed(): number;
 }
 
@@ -106,6 +109,8 @@ function makeContext(options?: {
   taskEngine?: unknown;
   pinNotes?: unknown;
   commands?: boolean;
+  /** false = 不挂 flowArbiter（降级路径）；缺省挂上可用 selectFlow / clearFlow 控制选中。 */
+  flowArbiter?: unknown | false;
 }): Harness {
   const tools: ToolDef[] = [];
   const holds: Array<{
@@ -116,6 +121,9 @@ function makeContext(options?: {
   const provided: Array<{ name: string; value: unknown }> = [];
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   let disposedCount = 0;
+  const flowState: { current: { id: string; name?: string } | null } = {
+    current: null,
+  };
   const base = {
     pinNotes: options?.pinNotes ?? {
       hold(
@@ -146,7 +154,15 @@ function makeContext(options?: {
   const ctx: Record<string, unknown> = { ...base };
   if (options?.memory !== undefined) ctx["memory"] = options.memory;
   if (options?.taskEngine !== undefined) ctx["taskEngine"] = options.taskEngine;
-  // 命令面缺省在场（`/flow-track on|off|status` 是切开关的唯一入口，flow_enable 工具已迁出）
+  // flow-arbiter：缺省挂上（选中可经 selectFlow / clearFlow 控制），false = 降级不挂
+  if (options?.flowArbiter !== false) {
+    ctx["flowArbiter"] = options?.flowArbiter ?? {
+      current(): { id: string; name?: string } | null {
+        return flowState.current;
+      },
+    };
+  }
+  // 命令面缺省在场（`/flow-track status` 是查看注入的唯一入口；开关已并入选流程，flow_enable 工具已迁出）
   if (options?.commands !== false) {
     ctx["commands"] = {
       register(def: Record<string, unknown>): () => void {
@@ -176,16 +192,25 @@ function makeContext(options?: {
       const def = commandDefs.at(-1) as
         { handler?: (invocation: unknown) => unknown } | undefined;
       assert.ok(def?.handler, "应已注册 /flow-track");
-      return def.handler({ rawInput }) as { kind: string; text: string };
+      // 宿主调用会把 agent/session 带进回执：命令按调用方会话判定选中
+      return def.handler({
+        rawInput,
+        agent: { session: { id: "s1" } },
+      }) as { kind: string; text: string };
+    },
+    selectFlow(id: string) {
+      flowState.current = { id };
+    },
+    clearFlow() {
+      flowState.current = null;
     },
     disposed: () => disposedCount,
   };
 }
 
-/** 打开注入开关（走 /flow-track on 命令, 与真实调用同路径）。 */
+/** 让注入生效（走 flow-arbiter 选中, 与真实调用同路径）：选中 standard 流程。 */
 async function enableInjection(harness: Harness): Promise<void> {
-  const reply = harness.runCommand("on");
-  assert.match(reply.text, /已打开/);
+  harness.selectFlow("standard");
 }
 
 /** 捕获 stderr。 */
@@ -210,20 +235,18 @@ test("导出名与注入面", () => {
   assert.deepEqual(provide, ["flowTrack"]);
 });
 
-test("服务面 flowTrack：只读 enabled() 跟随开关", async () => {
+test("服务面 flowTrack：enabled() 跟随 flow-arbiter 选中与配置", () => {
   const fake = makeMemory();
-  const harness = makeContext({ memory: fake.memory, commands: true });
+  const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);
   const face = harness.provided.find((item) => item.name === "flowTrack")
-    ?.value as { enabled(): boolean } | undefined;
+    ?.value as { enabled(sessionId?: string): boolean } | undefined;
   assert.ok(face, "应已提供 flowTrack 服务面");
-  assert.equal(face.enabled(), false, "缺省关闭");
-  await enableInjection(harness);
-  assert.equal(face.enabled(), true);
-  harness.runCommand("off");
-  assert.equal(face.enabled(), false);
-  harness.runCommand("on");
-  assert.equal(face.enabled(), true);
+  assert.equal(face.enabled("s1"), false, "未选中流程 → 关闭");
+  harness.selectFlow("standard");
+  assert.equal(face.enabled("s1"), true, "选中流程 → 开启");
+  harness.clearFlow();
+  assert.equal(face.enabled("s1"), false);
 });
 
 test("服务面 flowTrack：summary() 按 slug 取最新真实阶段, - 不参与, 收尾不算活跃", () => {
@@ -505,7 +528,7 @@ test("enabled: false：开关打开也不注入，工具照常注册", async () 
   assert.equal(harness.tools.length, 5);
 });
 
-test("/flow-track 命令：缺省关闭, on / off / status 与未知子命令", () => {
+test("/flow-track 命令：只留 status（无参缺省 status）, on / off 报未知子命令", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory, commands: true });
   apply(harness.ctx);
@@ -514,18 +537,22 @@ test("/flow-track 命令：缺省关闭, on / off / status 与未知子命令", 
 
   const initial = harness.runCommand("");
   assert.equal(initial.kind, "success");
-  assert.match(initial.text, /已关闭/);
-  assert.match(initial.text, /不会注入：开关关闭/);
+  assert.match(initial.text, /配置开启/);
+  assert.match(initial.text, /本会话流程：未选中/);
+  assert.match(initial.text, /不会注入：本会话未选中流程/);
+
+  harness.selectFlow("standard");
+  const status = harness.runCommand("status");
+  assert.match(status.text, /已选中 standard/);
+  assert.match(status.text, /没有未完成阶段的流程记录/);
 
   const on = harness.runCommand("on");
-  assert.match(on.text, /已打开/);
-  assert.match(on.text, /没有未完成阶段的流程记录/);
-
-  const status = harness.runCommand("status");
-  assert.match(status.text, /已打开/);
+  assert.equal(on.kind, "error");
+  assert.match(on.text, /未知子命令「on」/);
 
   const off = harness.runCommand("off");
-  assert.match(off.text, /已关闭/);
+  assert.equal(off.kind, "error");
+  assert.match(off.text, /未知子命令「off」/);
 
   const bad = harness.runCommand("bogus");
   assert.equal(bad.kind, "error");
@@ -662,7 +689,7 @@ test("flow_start 建出的帧标题 → flow_status 认得出阶段与门禁", a
   });
 });
 
-test("flow_enable 已迁出: 模型面不再有开关工具, 开关只走 /flow-track 命令", () => {
+test("flow_enable 已迁出: 模型面不再有开关工具, 激活由 flow-arbiter 选中决定", () => {
   const fake = makeMemory();
   const harness = makeContext({ memory: fake.memory });
   apply(harness.ctx);

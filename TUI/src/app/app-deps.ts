@@ -13,10 +13,12 @@ import type { BlockDelivery } from "./layout/pipeline/types.ts";
 import type { StatusQueries } from "./status.ts";
 import type { ActivityPlacement } from "./config.ts";
 
-/** flow-track 只读服务面（`ctx.get('flowTrack')`，flow-track 插件 provide）：开关态懒读用。 */
+/** flow-track 只读服务面（`ctx.get('flowTrack')`，flow-track 插件 provide）：开关态懒读用。
+ *  enabled / summary 均接收可选 `sessionId`（服务面按会话的流程选中派生；调用方不传按
+ *  「无选中」处理——TUI 标题栏与状态列传 `activeSessionId`）。 */
 export interface FlowTrackLike {
   /** 开关 + 每 slug 最新流程记录（状态列 Flow 块；缺省 = 无摘要面）。 */
-  summary?(): {
+  summary?(sessionId?: string): {
     enabled: boolean;
     records: Array<{
       slug: string;
@@ -25,7 +27,7 @@ export interface FlowTrackLike {
       active: boolean;
     }>;
   };
-  enabled?(): boolean;
+  enabled?(sessionId?: string): boolean;
 }
 
 /** cache-hit-monitor 只读服务面（`ctx.get('cacheHitMonitor')`，插件 provide）：

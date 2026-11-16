@@ -447,24 +447,32 @@ export function createCommandsPart(ctx: AppContext) {
         desc: "切换主题(默认 dark=fffdark, light=ffflight)",
       },
       {
-        cmd: "/collapse on|off",
-        desc: "回合区详略：on=紧凑（每条目 1 行 + 行尾省略号）/ off=完整折行",
+        cmd: "/collapse [think|tool|reply|all] [on|off]",
+        desc: "回合区压缩：on=该类条目压 1 行（think/reply 省略号在前保留尾部, tool 在后）/ off=完整折行；all=三类同时",
       },
       {
-        cmd: "/verbose think|tool|step",
-        desc: "回合区输出内容：think=思考+正文+工具 / tool=正文+工具 / step=正文+工具调用行",
+        cmd: "/verbose [think|tool|reply|all] [on|off]",
+        desc: "回合区显示：on=显示该类内容 / off=不显示（notice 与 step 头恒显）；all=三类同时",
       },
       {
         cmd: "/symbol-unify on|off",
         desc: "模型输出符号统一：on=变体替换为推荐符号并提醒 / off=原样（不替换不提醒）",
       },
       {
+        cmd: "/detect-char-width",
+        desc: "重新实测终端字符宽度（符号列宽随终端/字体变；怀疑排版错位时用）",
+      },
+      {
         cmd: "/session",
-        desc: "会话列表：Enter 切换到已持久化会话（live 会话不可续）",
+        desc: "会话列表：Enter 切换到已持久化会话（live 会话不可续）；/session clean 清理当前项目空会话（二次确认）",
       },
       {
         cmd: "/continue",
         desc: "加载当前目录下最近退出的会话（等价 /session + 自动选中；无匹配给提示）",
+      },
+      {
+        cmd: "/new",
+        desc: "新建会话（不重启进程；原会话保留, 可经 /session 切回）",
       },
       {
         cmd: "/goal",
@@ -517,6 +525,10 @@ export function createCommandsPart(ctx: AppContext) {
         desc: "只读展示配置（ns：value，secret 脱敏）",
       },
       {
+        cmd: "/config",
+        desc: "插件条目配置编辑（config-editor：list / show / set <key=value> / unset <key>）",
+      },
+      {
         cmd: "/fork",
         desc: "分叉当前会话为新会话（成功提示 + 必要时提示用 /session 查看）",
       },
@@ -527,6 +539,10 @@ export function createCommandsPart(ctx: AppContext) {
       {
         cmd: "/guard",
         desc: "守卫面板（拦截/放行记录：↑/↓ 选择、PgUp/PgDn 翻页、Enter 看策略、Esc 关闭）",
+      },
+      {
+        cmd: "/group [组名]",
+        desc: "群组状态（agent-group 只读：当前会话群组 / 单组详情，notice 型）",
       },
       {
         cmd: "/memory",

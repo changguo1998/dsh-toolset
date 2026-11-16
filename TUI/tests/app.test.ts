@@ -4305,7 +4305,10 @@ test("帮助文案：/help 说明统一中文（命令名与参数标识符保�
   assert.ok(!/success 提示/.test(text), "success 改写为中文");
   // 可敲性：命令名与参数取值标识符保持英文
   assert.ok(text.includes("/model [provider/]model"), "命令名保留原样");
-  assert.ok(text.includes("/collapse on|off"), "参数标识符保留英文");
+  assert.ok(
+    text.includes("/collapse [think|tool|reply|all] [on|off]"),
+    "参数标识符保留英文",
+  );
 });
 
 test("提示行：有输入时只列编辑键（区域键 C-e/C-t/C-s 不露出）", () => {

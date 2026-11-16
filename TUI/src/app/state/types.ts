@@ -674,7 +674,8 @@ export interface AppState {
   /** 声音提醒总开关（tui.config.json `notify.enabled`；启动时接线）。无会话内切换路径，
    *  标题栏状态符号组按当前值只读展示（on 绿 / off 灰） */
   notifyEnabled: boolean;
-  /** flow-track 注入开关（`flowTrack.enabled()` 懒读，随状态行 ticker 同步）。undefined =
+  /** flow-track 注入开关（`flowTrack.enabled(activeSessionId)` 懒读，随状态行 ticker 同步；
+   *  值 = 配置 enabled 且活跃会话经 flow-arbiter 选中了流程）。undefined =
    *  还没读到服务（标题栏不渲染该符号）/ true = 打开（绿）/ false = 关闭（灰） */
   flowTrackEnabled: boolean | undefined;
   /** background-daemon 开关（`daemon.status().enabled` 懒读，随状态行 ticker 同步）。

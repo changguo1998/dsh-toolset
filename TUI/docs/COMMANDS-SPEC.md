@@ -5,7 +5,7 @@
 > 过期条件：无
 
 > 用途：新增命令时须遵守的通用约定——实现位置、服务获取与降级、输出三型、共享面板契约、命名冲突、测试口径，以及已裁定排除项的索引。
-> 现状：本地命令目录 40 条（35 命令 + 5 别名）均已实现（清单见 `TUI/docs/COMMANDS.md` §1.1），用法见 `TUI/README.md`「Slash 命令」，逐命令实现位置与降级见 `TUI/docs/DESIGN.md`「命令实现位置」——逐条实现规格不再重复于此。
+> 现状：本地命令目录 45 条（39 命令 + 6 别名）均已实现（清单见 `TUI/docs/COMMANDS.md` §1.1），用法见 `TUI/README.md`「Slash 命令」，逐命令实现位置与降级见 `TUI/docs/DESIGN.md`「命令实现位置」——逐条实现规格不再重复于此。
 > 上游：`TUI/docs/COMMANDS.md`（命令来源归口与实现位置选择）、`TUI/docs/DESIGN.md`（四区域布局与面板约定）、`TUI/docs/SPEC.md`（Box 渲染与排版契约）、`TUI/docs/design/NOTICE-LEVELS.md`（提示分级）。
 
 ## 1. 实现位置（按命令取子集，最多 6 类）

@@ -113,6 +113,8 @@
 
 - 收口 task-engine 集成测试两条过时断言（2026-11-16 完成, 未提交）: 经用户裁定按**路径 A**（tool-surface 包装层语义）只改测试不改产品码——注册面改断言为宽松占位, 完整 schema 改经 `lookupSurface` 从 catalog 断言; 缺必填改断言抛 `ToolArgsError`（`INVALID_ARGS`）, 非法 executor 的 `{ok:false, feedback}` 回执保留。`task-engine/tests/integration/plugin.test.ts`; 追踪文档 `docs/archived/2026-11-16-task-engine-integration-schema.md`; 集成 18 例全绿, 全仓 check 通过。§2 未完成项至此清零。
 
+- TUI slash 命令冲突与过时项清理（2026-11-17 完成, 未提交）: 按用户裁定合并单一入口——删 `/flow-track` 的 `on|off`（进程级注入开关 `switch.ts` 移除）, 注入门槛改「配置 `enabled` ✓ 本会话经 flow-arbiter 选中的流程 ✓ 有未完成流程记录」, 服务面 `enabled(sessionId?)` / `summary(sessionId?)` 按会话派生, TUI 标题栏与状态列按 `activeSessionId` 读取, `/flow-track` 只留 `status`; 全量排查确认唯一其它实质重叠为 `/collapse` 与 `/verbose`, 用户裁定保留两命令仅文案澄清（/help 已对齐实际语法）; `/help` 补 `/new` `/config` `/group` `/detect-char-width`、修 `/collapse` `/verbose`、补 `/session clean`; 文档计数同步（`COMMANDS.md` 44→45 且 §1.2 补本仓插件注册 5 条、`COMMANDS-SPEC.md` 40→45）。验证: flow-track check/build/test（85 例）✓、TUI test:tui 1894 例 ✓、demo --smoke 42 项 PASS ✓、全量 e2e 43/43 ✓、全仓 check/build/test/check:docs ✓。追踪文档 `docs/archived/2026-11-17-tui-command-cleanup.md`。实施中曾受「plan 只读预设恢复未生效」阻塞（另立条目, 用户人工放开权限后续上）。
+
 ## 2. 未完成项
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
@@ -127,6 +129,8 @@
 ### 实现顺序与并行分组（2026-10-24 收束）
 
 2026-10-24 起**没有在跑的并行分组**：A 至 I 各组的条目已全部关闭（条目 4 / 6 / 7 与 TUI `#3`、项目级 `3. coagent` 均在 2026-10-23 至 2026-10-24 关闭）。分组口径与写入范围约定保留在 `docs/WORKFLOW-STANDARD.md`，将来有新条目再按「组内串行、组间并行」重新分组。
+
+- plan 只读预设恢复未生效（2026-11-17 登记, 待处理）：`plan_start` 进入时把会话权限预设从 `workspace-write` 切到 `read-only`（`presetSwitched: true`）；计划段终态后 plan-mode 靠 `pinNotes.hold("plan-mode")` 的轮询 provider 在宿主 agent-loop 每步（pre-step）检查 `planTerminal` 并 `restorePreset` 切回原预设。实测本会话任务树计划段已 done 但 DSH 文件策略仍停留在 `read-only`（写操作被站位档拦、需逐操作提升审批），疑似 provider 在任务帧推进为主的会话里未被触发、或 `ctx.get("taskEngine")` 在插件侧解析不到导致 `planTerminal` 恒 false（两分支均静默不告警）。临时手段：`/permission workspace-write` 手动切回（plan-mode 有"用户手动改过则不覆盖"保护，不会回切）；或 `flow_select` 切走触发「切走」恢复。待查明 provider 未触发的确切原因并补事件/显式触发路径。
 
 ## 3. 里程碑
 

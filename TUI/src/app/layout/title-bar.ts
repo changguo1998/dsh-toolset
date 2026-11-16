@@ -44,7 +44,7 @@ export interface StatusSwitches {
   symbolUnify: boolean;
   /** 声音提醒总开关（`notify.enabled`，配置项：只读显示当前值） */
   notifyEnabled: boolean;
-  /** flow-track 注入开关（服务面 `flowTrack.enabled()` 懒读）；undefined = 未读到 → 不渲染 */
+  /** flow-track 注入开关（服务面 `flowTrack.enabled(activeSessionId)` 懒读）；undefined = 未读到 → 不渲染 */
   flowTrack?: boolean | undefined;
   /** background-daemon 开关（服务面 `daemon.status().enabled` 懒读）；**始终渲染**,
    *  undefined（服务未挂载 / 读不到）按关（灰）显示 —— 2026-11-08 用户裁定「该符号始终显示」 */

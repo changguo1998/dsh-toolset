@@ -5,9 +5,14 @@ import { test } from "node:test";
 
 import { bootPackage, textOf } from "./harness.ts";
 
-test("flow_track 写流程记录后可读状态, 服务面给出开关与摘要", async (t) => {
+test("flow_track 写流程记录后可读状态, 服务面给出按选中派生的开关与摘要", async (t) => {
   const host = await bootPackage("flow-track", {
-    extraPackages: ["memory-base", "session-paths", "rule-engine"],
+    extraPackages: [
+      "memory-base",
+      "session-paths",
+      "rule-engine",
+      "flow-arbiter",
+    ],
     patch: (home) =>
       [
         `- id: rule-engine`,
@@ -24,23 +29,13 @@ test("flow_track 写流程记录后可读状态, 服务面给出开关与摘要"
   const agent = await host.createAgent("e2e-flow");
   t.after(async () => agent.dispose());
 
-  // 开关只走 /flow-track 命令（flow_enable 已迁出到仲裁侧，阶段 4 由 flow-arbiter 接管）
-  const commands = host.ctx.get("commands") as {
-    execute(
-      agent: unknown,
-      line: string,
-      attachments: unknown[],
-      signal: AbortSignal,
-    ): Promise<{ result?: { text?: string } } | undefined>;
-  };
-  const switched = await commands.execute(
-    agent.agent,
-    "/flow-track on",
-    [],
-    new AbortController().signal,
+  // 激活由 flow-arbiter 选中决定（/flow-track 只留 status 查看, 不再有开关）
+  const selected = await host.callTool(
+    "flow_select",
+    { flow: "standard" },
+    { agent: agent.agent },
   );
-  assert.ok(switched, "命令未解析");
-  assert.match(switched?.result?.text ?? "", /已打开/);
+  assert.equal(selected.isError, false, textOf(selected));
 
   const recorded = await host.callTool(
     "flow_record",
@@ -67,15 +62,17 @@ test("flow_track 写流程记录后可读状态, 服务面给出开关与摘要"
   assert.equal(status.isError, false, textOf(status));
   assert.match(textOf(status), /目标/);
 
-  const flow = host.ctx.get("flowTrack") as {
-    enabled(): boolean;
-    summary(): {
+  const face = host.ctx.get("flowTrack") as {
+    enabled(sessionId?: string): boolean;
+    summary(sessionId?: string): {
       enabled: boolean;
       records: readonly { slug: string; stage: string; active: boolean }[];
     };
   };
-  assert.equal(flow.enabled(), true);
-  const summary = flow.summary();
+  const sessionId = (agent.agent as { session?: { id?: string } })?.session?.id;
+  assert.equal(typeof sessionId, "string", "agent 应带会话 id");
+  assert.equal(face.enabled(sessionId), true, "选中流程后注入开启");
+  const summary = face.summary(sessionId);
   assert.equal(summary.enabled, true);
   assert.equal(summary.records[0]?.slug, "e2e-flow");
   assert.equal(summary.records[0]?.stage, "目标");

@@ -198,7 +198,7 @@ export type StateAction =
   /** #9：下半区（Turn 流 + 工具区）显隐（visible 缺省 = 取反；`Ctrl+T` 走 focus-panel） */
   | { type: "lower-panes"; visible?: boolean }
   | { type: "symbol-unify"; on: boolean }
-  /** flow-track 注入开关态（`flowTrack.enabled()` 懒读；标题栏符号用） */
+  /** flow-track 注入开关态（`flowTrack.enabled(activeSessionId)` 懒读；标题栏符号用） */
   | { type: "flow-track"; enabled: boolean }
   /** background-daemon 开关态（`daemon.status().enabled` 懒读；标题栏符号用） */
   | { type: "daemon"; enabled: boolean }

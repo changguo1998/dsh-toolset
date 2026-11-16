@@ -11,16 +11,17 @@
 
 ### 1.1 本地命令（app 层直接处理，不经 adapter）
 
-单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（44 条 = 38 命令 + 6 别名 `/cls` `/thinking` `/usage` `/context` `/exit` `/clean`；`/continue` 为后续新增命令，`/restart` 为显式重启命令新增，`/detect-char-width` 为字符宽度重测命令新增，`/cleanquit` 为「清理并退出」新增——删除当前会话记录与历史、先弹确认面板，`/clean` 是其别名，`/group` 为「群组只读状态」新增（agent-group 只读服务面，见 `TUI/docs/DESIGN.md`「命令实现位置」）；路由决策 `routeSlashCommand`，处理分支在 `src/app/runtime/commands.ts` `handleSlash`。`/collapse` 与 `/verbose` 于 2026-10-18 按类别重做并恢复进目录（压缩 / 显示六开关，见 `docs/SPEC.md` §15.5）。
+单一来源为 `src/app/commands.ts` 的 `LOCAL_COMMANDS`（45 条 = 39 命令 + 6 别名 `/cls` `/thinking` `/usage` `/context` `/exit` `/clean`；`/continue` 为后续新增命令，`/restart` 为显式重启命令新增，`/detect-char-width` 为字符宽度重测命令新增，`/cleanquit` 为「清理并退出」新增——删除当前会话记录与历史、先弹确认面板，`/clean` 是其别名，`/group` 为「群组只读状态」新增（agent-group 只读服务面，见 `TUI/docs/DESIGN.md`「命令实现位置」）；路由决策 `routeSlashCommand`，处理分支在 `src/app/runtime/commands.ts` `handleSlash`。`/collapse` 与 `/verbose` 于 2026-10-18 按类别重做并恢复进目录（压缩 / 显示六开关，见 `docs/SPEC.md` §15.5），2026-11-17 起 `/help` 文案与二者实际语法对齐。）
 
 命令的**行为、参数与键位**见 `TUI/README.md`「Slash 命令」一节；逐命令的**实现位置与降级**见 `TUI/docs/DESIGN.md`「命令实现位置」。本节不重复这两者，只维护上面的「单一来源 + 路由」事实与 §1.2 的宿主注册面。
 
 ### 1.2 宿主注册命令
 
-`ctx.commands.register` 现注册 5 条（dsh 0.2.2-rc.3 随包清单，本 profile 禁用 plan-mode 后）：`/compact` `/feedback` `/goal` `/permission` 由 dsh-base 装配的插件注册（dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets），`/export` 来自 dsh-session-log-export。`/plan` 随官方 plan-mode 禁用，待本仓自研 plan 模式后恢复。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
+`ctx.commands.register` 现注册 10 条：本仓插件 5 条（`/flow-track` flow-track、`/flow-arbiter` flow-arbiter、`/daemon` background-daemon、`/autoapprove` auto-approve、`/playbook` command-template），宿主官方 5 条（`/compact` `/feedback` `/goal` `/permission` 由 dsh-base 装配的插件注册——dsh-command-compact / dsh-command-feedback / dsh-command-goal / dsh-permission-presets，`/export` 来自 dsh-session-log-export，`/goal` 亦与本地条目同名）。`/plan` 随官方 plan-mode 禁用，待本仓自研 plan 模式后恢复。本地目录未命中的命令名一律经 `adapter.runCommand` 转发注册表；注册表未命中提示未知命令（fail-close，绝不把 slash 行发给模型）。
 
 - 补全候选 = 本地目录 + `ctx.commands.list(agent)`（`start()` 时拉取一次，无周期刷新）；同名本地优先。
 - `/goal` `/permission` 与本地同名：`/permission` 无参走本地面板、带参转发宿主；`/goal` **无本地行为**——条目只提供帮助 / 补全描述（`route: "registry"`），全形态转发宿主（`/goal` 看状态与可用命令、`/goal <目标>` 新建，`edit` / `pause` / `resume` / `clear` 管理），2026-10-06 起不再有本地无参提示。
+- `/flow-track` 2026-11-17 起只留 `status`（无参缺省）：查看注入状态（配置 / 会话选中的流程 / 活跃记录），不再提供 `on|off` 开关——激活由 flow-arbiter 选中（`/flow-arbiter select <id>`）与配置 `enabled` 共同决定。
 
 ## 2. 扩展建议
 

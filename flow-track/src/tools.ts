@@ -15,7 +15,6 @@ import { currentStage } from "./status.ts";
 import { REMOVE_SCAN_LIMIT } from "./store.ts";
 import type { FlowStore, FlowStatus } from "./store.ts";
 import type { WriteObserver } from "./observe.ts";
-import type { FlowSwitch } from "./switch.ts";
 
 /** 工具定义（宿主 `tools.register` 的最小形态）。 */
 export interface ToolDef {
@@ -45,8 +44,8 @@ export interface ToolDeps {
   snapshot(): SnapshotLike | undefined;
   /** 当前会话 slug（缺省按项目 / 会话推导；由 index 注入）。 */
   slugFor(sessionId: string): string;
-  /** 注入开关（进程内状态, 默认关闭）。 */
-  switcher: FlowSwitch;
+  /** 注入是否对某会话生效（配置 + flow-arbiter 选中；2026-11-17 起替代进程级开关）。 */
+  enabledFor(sessionId: string | undefined): boolean;
   /** 是否有未完成阶段的流程记录（注入门槛之一）。 */
   active(): boolean;
   /** 写入成功后刷新注入用的记录缓存（`decide` 是同步的，只能提前喂）。 */
@@ -203,7 +202,7 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
       },
     },
     output: TOOL_OUTPUT,
-    async execute(args) {
+    async execute(args, exec) {
       const slug =
         typeof args["slug"] === "string" && args["slug"].trim().length > 0
           ? args["slug"].trim()
@@ -214,7 +213,7 @@ function flowStatusTool(deps: ToolDeps): ToolDef {
         snapshot === undefined ? undefined : currentStage(snapshot);
       return {
         ok: true,
-        enabled: deps.switcher.enabled,
+        enabled: deps.enabledFor(callerSessionId(exec)),
         active: deps.active(),
         ...(current === undefined
           ? {
