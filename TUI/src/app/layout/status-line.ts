@@ -73,7 +73,7 @@ function performanceText(p?: {
   avgTokensPerSec?: number | undefined;
   streamed: boolean;
 }): string {
-  const ttfb = p?.ttfbMs === undefined ? "0ms" : formatTtfb(p.ttfbMs);
+  const ttfb = p?.ttfbMs === undefined ? formatTtfb(0) : formatTtfb(p.ttfbMs);
   return `${ttfb} ${formatRate(p?.avgTokensPerSec ?? 0)} t/s`;
 }
 
@@ -83,10 +83,15 @@ function formatRate(v: number): string {
   return v.toFixed(v >= 100 ? 0 : 1);
 }
 
-/** TTFB 展示: <1s 用 ms, >=1s 用 s（保留 1 位小数, 注明近似）。 */
+/** TTFB 展示: 数字右对齐补足 4 字符宽, 数字与单位间空一格;
+ *  <1s 用 ms, >=1s 用 s（保留 1 位小数, 注明近似）。
+ *  例: 350 → ` 350 ms`, 1500 → ` 1.5 s`, 0 → `   0 ms`。 */
 function formatTtfb(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  const num = ms < 1000
+    ? String(Math.round(ms))
+    : (ms / 1000).toFixed(1);
+  const unit = ms < 1000 ? "ms" : "s";
+  return `${num.padStart(4, " ")} ${unit}`;
 }
 
 /** 缓存判定三态 → cache 段颜色（决策项 9：正常绿 / 缓存失效告警红 / 首次黄；

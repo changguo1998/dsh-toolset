@@ -79,13 +79,27 @@ test("#9 隐藏时几何：回合区高度归零、空间并入会话区", () =>
   assert.equal(hidden.mode, "vertical", "隐藏态按纵向出图");
   // 隐藏态：内容行铺到正文右缘（2026-11-05 起右缘外框列不再落空白占位，
   // 内容行宽 = 80 − 1 = 79），border 行（标题下划线 / 分隔线）仍满宽到 cols；
-  // 提示行（末尾 hintHeight 行）例外——提示文案按实际宽度出帧，右侧留白由渲染层补
+  // 提示行（末尾 hintHeight 行）例外——提示文案按实际宽度出帧，右侧留白由渲染层补；
+  // 状态行同样按内容宽出帧（短行、右侧留白由渲染层补），按几何位置显式豁免
   const cols = 80;
-  const hintRows = frameGeometry(st, SIZE).hintHeight;
+  const geom = frameGeometry(st, SIZE);
+  const hintRows = geom.hintHeight;
+  // 状态行起始行 = 帧底向上倒数：提示行 + 输入区 + 底分隔线 + 状态行本体
+  // （SEPARATOR 取 2：状态行上/下各一条分隔线；状态行本体可能多行 statusHeight）
+  const statusStart = SIZE.rows - hintRows - geom.footerHeight - 2 - geom.statusHeight + 1;
+  const statusEnd = statusStart + geom.statusHeight;
+  const hintStart = SIZE.rows - hintRows;
   const short = rowsOf(st)
-    .slice(0, SIZE.rows - hintRows)
     .map((r, i) => [i, displayWidth(r)] as const)
-    .filter(([, w]) => w !== cols - 1 && w !== cols && w !== 0 && w > 30);
+    .filter(
+      ([i, w]) =>
+        !(i >= statusStart && i < statusEnd) &&
+        !(i >= hintStart) &&
+        w !== cols - 1 &&
+        w !== cols &&
+        w !== 0 &&
+        w > 30,
+    );
   assert.deepEqual(
     short,
     [],
