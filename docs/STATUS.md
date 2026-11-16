@@ -11,11 +11,11 @@
 ## 总览
 
 - TUI 侧现状见 `TUI/docs/STATUS.md`（完成情况、命令面、宿主升级适配）, 待办与开放项见 `TUI/docs/BACKLOG.md`——本文件不复述 TUI 细节。
-- **40 个插件全部完成并合入 main**（清单见根 `README.md`「组成」）; TUI 单测 1892 例。
+- **40 个插件全部完成并合入 main**（清单见根 `README.md`「组成」）; TUI 单测 1894 例。
 - 宿主基线：**`0.2.2-rc.3`**（2026-11-16 升级完成: 全局 `dsh` 与安装树升到 rc.3、`scripts/install.sh --profile fff --sync` 已重装、`install.sh` 默认版本 / 4 个包 smoke 门槛 / 各 README / 根 `devDependencies` 与 `pnpm-lock.yaml` 抬到 rc.3；代码面三处 `subagents.start` → `startActivation`；安装树随包 **337 / 326**, fff 组合树 883 行 / 152 个 `- id:` 行 / 官方活跃 **102** 个）。接口增量见 `docs/host/HOST-UPGRADE-0.2.2-rc.3.md`, 官方包清单与分类见 `docs/host/HOST-PACKAGES.md`, 上一版对照见 `docs/host/HOST-UPGRADE-0.2.2-rc.1.md`。
 - 仓库现有 **41 个 `@dsh-toolset/*` 包**（TUI + 40 插件; `tool-surface` 只作库依赖, 未单列 bundle）; 主 profile（`~/.dsh/profiles/fff`）按 `canonical_pkgs` 41 包挂载（TUI + 40 插件, 含 `tool-surface` / `cache-hit-monitor` / `plan-mode` / `flow-arbiter`, 2026-11-15 核对）。
 - 已取消 / 不再立项：`rate-guard`（pi 侧已移除, dsh 侧由官方 `llm-retry` 覆盖）、GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报、近期改动代码审查、preset 机制迁移评估、`llm-router`（改用现成开源网关）；裁定记录见 `docs/BACKLOG.md` 第 1 节 与 `archive/PI-DSH-FEATURE-COMPARISON.md`。
-- 未建插件与在办条目见 `docs/BACKLOG.md` 第 2 节（按标题引用; 2026-11-15 为 1 条暂停: 回合预算调整, 无未接取条目; 第 4 节插件规划无未建包）; 真机验证欠账已清零（清单归档在 `docs/archived/2026-10-23-real-machine-verification.md`）。
+- 未建插件与在办条目见 `docs/BACKLOG.md` 第 2 节（按标题引用; 2026-11-17 现 1 条待处理: plan 只读预设恢复未生效; 回合预算调整已于 2026-11-16 用户裁定删掉不立项; 第 4 节插件规划无未建包）; 真机验证欠账已清零（清单归档在 `docs/archived/2026-10-23-real-machine-verification.md`）。
 
 ## 状态表
 
@@ -57,7 +57,7 @@
 | shell-parse | 完成 | shell 命令词法：切段（引号内不切）/ 分词 / 剥离包装器 / 命令位解析（含 `sh -c` / `eval` / `$()` 递归）; 纯函数导出 + 服务 `shellParse` | 24 |
 | tool-surface | 完成 | 工具说明注册表：注册定义换成短说明 + 宽松占位, 完整说明与 schema 收进 catalog, 派发前按全文严格校验（`ToolArgsError`）; 只读服务 `toolSurface`（`lookup` / `list`） | 14 |
 | flow-track | 完成 | 标准流程**流程定义方**：八阶段节点数组经 `flow_start` 一次建树（内部调 task-engine `composeFromNodes`）, 树级注入已退役; `flow_record` / `flow_status` / `flow_remove` / `flow_rollback` 记推进（memory-base 项目层）; 非树级注入 = 合规提示 + 最近记录 | 85 |
-| plan-mode | 完成 | plan 三段流程定义（探索 / 计划 / 实施, 各可再拆 + 顺序强制, 计划段 human 门禁）与入口 `plan_start`; 探索 / 计划段写面拦截 + `read-only` 预设切换与恢复, 子代理沿 `parentSession` 链继承只读段; 插件 id `plan-mode-track`（官方 plan-mode 占 id） | 63 |
+| plan-mode | 完成 | plan 三段流程定义（探索 / 计划 / 实施, 各可再拆 + 顺序强制, 计划段 human 门禁）与入口 `plan_start`; 探索 / 计划段写面拦截 + `read-only` 预设切换与恢复, 子代理沿 `parentSession` 链继承只读段; 插件 id `plan-mode-track`（官方 plan-mode 占 id） | 64 |
 | flow-arbiter | 完成 | 流程选择仲裁：会话级选中（内存）+ `flow_select` / `/flow-arbiter` 入口 + `tools/pre-execute` 只拦流程入口（未选中或选别的即拒）; 工具恒注册, 切换流程不破坏缓存 | 12 |
 | pin-note | 完成 | 跨压缩上下文保持：`pin_note` / `note_list` / `note_remove`, 按当前上下文比对后折叠进本步消息 | 40 |
 | term-check | 完成 | 回复正文术语检查（`assistant-text` 上的 rule-engine 消费者）：按随包术语表快照比对旧称并注入更正提示; 只报不改 | 29 |
