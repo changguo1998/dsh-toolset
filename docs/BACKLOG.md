@@ -38,6 +38,11 @@
 
 - 已取消/不再立项：rate-guard（不实现，pi 侧已移除，dsh 侧由官方 `llm-retry` 覆盖，见 `archive/PI-DSH-FEATURE-COMPARISON.md` §5.1）；GitHub 仓库克隆、PDF 提取 / 视频理解、密文扫描、安全 issue 上报（用户 2026-09-29 裁定移除，不立项）；近期改动代码审查、preset 机制迁移评估（用户 2026-09-29 裁定直接关闭，不立项）；模型请求路由与速度控制 `llm-router`（2026-10-11 判定不改仓内插件，采用现成开源网关 —— 主选 Bifrost、备选 LiteLLM，见 `docs/archived/2026-10-11-llm-router-decision.md`）；Docker 交互插件（用户 2026-10-19 裁定不做，条目已从 §2 删除）。
 
+- 已取消/不再立项（2026-11-16 用户裁定「删掉, 不考虑; 以后想起来了再说」）：
+
+  - 回合预算调整（会话级请求参数调整插件, 原 §2 暂停条目）: 恢复条件未满足（宿主 `agent/request` 仍弃用、无替代 API, 宿主 master `39163dd30f` 复核）; 调研结论归档 `docs/archived/2026-11-05-request-tuning.md`, 恢复时从该文档「决策」节重新裁定。
+  - deepseek-account（DeepSeek 账号登录链, 原 §6 挂起条目）: 恢复条件未满足（官方账号登录仍硬依赖 Host webServer + 浏览器 PKCE, `desktopPlatform` 仍不支持 linux, Linux web/CLI 无登录入口）; 该条目宿主面细节以本节注记为准, 不再单列。
+
 - 宿主面知识：官方 **0.2.0-rc.2 对照汇总**（`docs/host/HOST-UPGRADE-0.2.0-rc.2.md`；工具 / 事件 / 服务面零增删，`docs/host/HOST-PACKAGES.md` 同期刷到 0.2.0 口径，审阅记录见 `docs/archived/2026-10-02-host-upgrade-0.2.0-rc.2.md`）。
 
 - `md-map`：新建第 19 个插件（文档版 `code-map`：标题锚点 / 跨文档链接 / wiki / 代码文件引用 / 被引计数，查询 `callers` / `impact` / `orphans` / `report`；单文件解析复用 `md-logic`；36 例测试；追踪文档 `docs/archived/2026-10-02-md-map-package.md`）。
@@ -102,26 +107,7 @@
 
 ## 2. 未完成项
 
-- **回合预算调整**（会话级请求参数调整插件, 覆盖所有"请求可调但宿主会话层未提供入口"的参数; 跨包 / 宿主面, 改动位置待裁定, 优先级 P2 待确认; 状态: **暂停**(2026-11-05 用户裁定「不定, 条目暂停」)）
-
-  - **现状**: 宿主 `agent-loop` **无内置回合预算**（官方 README 明说 *No built-in turn budget*：工具调用与继续输入会延续当前回合, 要限回合须从 `agent/turn-stopping` 生命周期扩展点自建策略）；单请求内"先长推理一大段再一次性执行"是模型 + 网关行为, 请求级配置切不成"想一步做一步"; 推理 token 计入每次请求输出上限（`off` 档不保证关推理, 协议省略字段时网关默认仍生效）。
-  - **请求参数与入口对照**（`LlmCallConfig` 全字段, `dsh-llm/lib/types/call-config.d.ts`）:
-    - `provider` / `model`（路由）: 会话层**有**入口（`AgentOptions` / `agent-default-model`）
-    - `reasoningEffort`: 会话层**有**入口（`AgentOptions.reasoningEffort` / `agent-default-model`）
-    - `maxTokens`: 会话层**有**入口（`AgentOptions.maxTokens` / `llm-pi-ai` 模型级 / `task-engine` 预算）
-    - `temperature`: 会话层**无**入口（`AgentOptions` 无此字段; DeepSeek 推理模型下服务端忽略该值）→ 插件补
-    - `stop`: 会话层**无**入口 → 插件补
-    - 思考预算（`llm-pi-ai` 的 `thinkingTokenBudgetField` / `$var: thinking.budget`, 自托管网关支持时）: profile 路由级可配、无会话级入口 → 插件补
-    - 回合 / 步骤预算: 宿主无内置 → 插件补
-  - **期望**: 自研一个**会话级请求参数调整插件**: 任一请求层可调但宿主未提供入口的参数都经它按会话可配, 并支持"推理一小步 → 执行一小步"的回合预算控制, 回合内无界思考到顶即止。
-  - **调研更正（2026-11-05, 详见 `docs/implementation/2026-11-05-request-tuning.md`）**: `ConfigureCall` 由 `prepareCall` 调用方传入, `agent-loop` 调用时未传第三参 → 插件无法经它注入, 原候选路线 3 的前提不成立; `temperature` / `stop` 今天唯一插件通道是**已弃用**的 `agent/request`（宿主源码 doc 明写「do not add new listeners」）; 回合预算仍走 `agent/turn-stopping`（`agent.steer` / `agent.cancel({kind:'hook'})`）; 思考预算只能落 profile 模型配置, 请求级不可注入。
-  - **候选路线（恢复时裁定）**:
-    1. 配置级（近期）: `agent-default-model` 的 `reasoningEffort` + `llm-pi-ai` 各模型 `maxTokens` 调参, 验证对 tollgate 路由的实际约束效果（留意 `finish=max-tokens` 截断正文的风险）。
-    2. 编排级（中期）: 目标拆小 + goal 回合制（`goal-round-driver` 一轮一拍, 且回合因 max-tokens 结束时停续）+ `task-engine` 小叶子预算（每次请求上限）, 用回合边界形成小步节奏。
-    3. 插件级（远期）: 只做**回合预算**（`agent/turn-stopping` 正规通道）, 不碰弃用面; 采样字段等宿主给出替代 API 后再补。
-  - **验收**: 插件会话级配置对所有"请求可调但宿主无入口"参数生效（温度 / stop / 思考预算 / 回合预算）; 真机会话观察到推理 / 输出被预算约束、到顶即止且不无界思考; 大目标可按小步逐拍推进, 不出现"长推理一次性做大步"。
-  - **恢复条件**: 宿主为 `temperature` / `stop` 提供正式（非弃用）注入入口, 或用户重新指定取向（只做回合预算 / 只做 profile 调参）。
-  - 来源: 2026-11-05 用户提出; 宿主侧依据: `dsh-agent-loop` / `dsh-goal-round-driver` / `dsh-llm-pi-ai` / `dsh-llm` README 与 `dsh-llm/lib/types/call-config.d.ts`（见 `docs/host/HOST-PACKAGES.md`）。
+（当前无未完成项；历史已关闭 / 取消条目见 §1 索引与 `docs/archived/`。）
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
@@ -158,12 +144,4 @@
 
 > 用户裁定挂起、暂不接取；**保留调研结论备查**，避免以后重复排查。每条写明恢复条件；恢复后再挪回 §2 并重新排序编号。
 
-### DeepSeek 账号路由 `deepseek-account`
-
-**挂起裁定（2026-10-06，用户核实）**：账号登录（浏览器 PKCE）**仅桌面版（Desktop）支持**；**Linux web / CLI 只支持 API key**。本项目当前形态（TUI + Linux）落在后者，故 `deepseek-account` 不可用，且非本项目可解。**恢复条件**：官方在 Linux web / CLI 开放账号登录，或本项目改用 Desktop 版。
-
-**已同步卸载登录链（2026-10-06）**：本机 fff profile 用户层 patch（`~/.dsh/profiles/fff/cordis.patch.yml`）与仓库模板 `profiles/example/cordis.patch.yml` 均新增两条 `- id: <条目>` + `disabled: true`：`deepseek-account`（`dsh-deepseek-account-platform`，PKCE 登录 + `/oauth/callback`）与 `llm-deepseek-account`（账号 LLM 路由，未登录恒空目录）。**影响面已核**：`ctx.deepseekAccount` 在本 profile 内的消费者只有后者与 `web-search-deepseek`（仅当会话 provider 为 `deepseek-account` 时才取账号 token，见其 `resolveAccountToken` 的 `ACCOUNT_PROVIDER` 判定）→ 禁用后 web 搜索回落 `resolveApiKey`，无退化。**验证**：`dsh --profile fff --dump-config` 输出里两条均带 `disabled: true`（2026-10-06 实测）。桌面版部署需删掉这两条。
-
-**已查证结论（备查，2026-10-06）**：官方两条路由 = `deepseek-official`（API key，`@deepseek-ai/dsh-llm-deepseek-api-key`，`lib/index.js:36` `PROVIDER = "deepseek-official"`，走 `x-api-key`）与 `deepseek-account`（账号，`@deepseek-ai/dsh-llm-deepseek-account`，`:11`，走 `x-dsh-auth-token`）。**两条插件行都已挂载**（`dsh-base/cordis.patch.yml:522-529`；组合树 dump `tmp/hostdoc-020/dump-020.yml:761-764`，0.2.0-rc.2 + fff profile），所以“没接入”**不是挂载问题**，缺口在登录通路：① 该 provider 只从 `ctx.deepseekAccount.resolveToken(baseURL)` 取 token（`lib/index.js:16-20`），拿不到抛 `ACCOUNT_SIGN_IN_REQUIRED`，且未登录时 `discoverModels` 返回**空目录**（`:49-56`）→ 模型选择器里无模型；② `ctx.deepseekAccount` 由 `@deepseek-ai/dsh-deepseek-account-platform`（base 行 id `deepseek-account`）提供，登录走浏览器 PKCE，`startSignIn` 内部 `this.ctx.get("webServer")`，**无 webServer 直接抛 `PlatformAuthError("protocol")`**（`:950-953`）并需注册 `/oauth/callback`（`:970`）；③ fff profile 不挂 host-webserver；④ 凭据库无账号 grant（`~/.dsh/.credentials.yaml` 仅 `client-connection/browser-session` 一条）；⑤ 现成登录入口只有 Web / Desktop 面（`dsh-api-account-controller` + `dsh-client-ui-settings-account`，即 `dsh-web-app` bundle 的 `ui-settings-account` 行），TUI 侧 grep `account` / `login` 零命中。
-**若将来恢复**，原候选路径不变（懒 → 重）：① 用带 Web UI 的 profile 登录一次 → grant 落共享的 `$DSH_HOME/.credentials.yaml`（`dsh-credentials-local`）→ 回 TUI 即用（约 10 min）；② profile 自足（加 `@deepseek-ai/dsh-host-webserver` + 一个能触发 `authorization` 流的调用方；注意非 desktop profile 下 `desktopPlatform` 为 null → `x-client-platform: web`，回调 origin 需浏览器可达，含 SSH 转发端口）；③ 仅把 `ACCOUNT_SIGN_IN_REQUIRED` 渲染成可读提示（`turnEndNotice`，`TUI/src/app/adapter/dsh.ts:478-511`）。
-**宿主侧依据**：`dsh-llm-deepseek-account/lib/index.js`、`dsh-llm-deepseek-api-key/lib/index.js`、`dsh-deepseek-account-platform/lib/index.js` 与 README（`desktopPlatform` / `webServer` / callback origin 口径）、`dsh-base/cordis.patch.yml`、`tmp/hostdoc-020/dump-020.yml`。
+（当前无挂起项；原 `deepseek-account` 条目已于 2026-11-16 用户裁定删除不立项, 要点见 §1 已取消注记。）

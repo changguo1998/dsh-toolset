@@ -229,7 +229,7 @@
 #   llm-deepseek-account = dsh-llm-deepseek-account（账号 LLM 路由，未登录恒空目录）
 # 影响面：ctx.deepseekAccount 的消费者只有上面第二条与 web-search-deepseek（仅当会话
 # provider 为 deepseek-account 时才取账号 token）→ 禁用后 web 搜索回落 API key。
-# 桌面版部署请删掉这两条（背景见仓库 docs/BACKLOG.md §6「挂起」）。
+# 桌面版部署请删掉这两条（背景与裁定见仓库 docs/BACKLOG.md §1「已取消/不再立项」）。
 - id: deepseek-account
   disabled: true
 
