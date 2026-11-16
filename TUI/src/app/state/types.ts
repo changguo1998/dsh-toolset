@@ -689,7 +689,7 @@ export interface AppState {
   cacheJudge: CacheHitJudge | undefined;
   /** plan 当前段（`planStage.current(sessionId)` 懒读，随状态行 ticker 同步）。
    *  undefined = 还没读到服务（plan 符号按关灰显示）/ null = 未进 plan 模式（灰）/
-   *  对象 = 当前段（探索=青 / 计划=黄 / 实施=绿） */
+   *  对象 = 当前段（四态: 灰=未进模式 / 绿=idle 已选中未建树 / 青=探索|计划合并 / 黄=实施） */
   planStage: PlanStageState | null | undefined;
   /** Agent Teams 生效开关（`agentTeams.isEnabled(root)` 懒读，随状态行 ticker 同步）。
    *  undefined = 还没读到服务（team 符号按关灰显示）/ true = 生效（绿）/ false = 未生效（灰）。

@@ -109,7 +109,9 @@
 
 - 修复 flow 流程记录删除失败的外键问题（2026-11-16 完成, 提交 `f35121cd`）: `memory-base` `evict` 重算 `sources.chunk_count` 的遍历面改走枚举库中实际存在的业务分类表（新增 `#kindTables()`, 取 `sqlite_master` 中 `kind_*` 且非 FTS/影子表）, 不再只统计当前进程已注册的 kind——残留未注册分类表仍引用 source 时不再被漏计, 避免 chunk_count 误算 0 后 `DELETE sources` 触发外键失败。复现与修复见追踪文档 `docs/archived/2026-11-16-flow-remove-fk.md`; memory-base 91 例全绿, 全仓 check / test 全绿。
 
-- plan 段位配色调整：探索与计划合并青 / 实施改黄 / 新增「选中未建树」绿（2026-11-16 完成, 未提交）: 修复 `/flow-arbiter select plan` 后标题栏 plan 符号恒灰（根因 = 只读段位, 选中流程不建树 → 服务面返回 null）; plan-mode `planStageCurrent` 无映射分支读 `flowArbiter.current`, 选中 plan → 报带外态 `idle`（绿）; TUI 标题栏配色改四态（灰=未选中 / 绿=idle / 青=explore|plan 合并 / 黄=implement）; 阶段注入与只读拦截文案不改。改动: `plan-mode/src/index.ts` / `TUI/src/app/{layout/title-bar,runtime/wiring,app-deps,state/types}.ts` + 双侧测试。追踪文档 `docs/archived/2026-11-16-plan-stage-color.md`。
+- plan 段位配色调整：探索与计划合并青 / 实施改黄 / 新增「选中未建树」绿（2026-11-16 完成, 提交 `a8053e0a`）: 修复 `/flow-arbiter select plan` 后标题栏 plan 符号恒灰（根因 = 只读段位, 选中流程不建树 → 服务面返回 null）; plan-mode `planStageCurrent` 无映射分支读 `flowArbiter.current`, 选中 plan → 报带外态 `idle`（绿）; TUI 标题栏配色改四态（灰=未选中 / 绿=idle / 青=explore|plan 合并 / 黄=implement）; 阶段注入与只读拦截文案不改。改动: `plan-mode/src/index.ts` / `TUI/src/app/{layout/title-bar,runtime/wiring,app-deps,state/types}.ts` + 双侧测试。追踪文档 `docs/archived/2026-11-16-plan-stage-color.md`。
+
+- plan 段位配色「文档/注释口径」同步（2026-11-16 完成）: 探索/计划合并四态配色落地（提交 `a8053e0a`）后, 清理残留旧口径——`TUI/src/app/state/types.ts:692` 注释改四态（灰=未进 / 绿=idle / 青=探索|计划合并 / 黄=实施）、`TUI/README.md:52` 与 `TUI/docs/SPEC.md:130/:231/:697` 标题栏描述改两组分拆并补 plan 四态与 daemon/team 符号、`docs/BACKLOG.md:112` 未提交标记改注提交 `a8053e0a`。验证: `pnpm -C TUI run check` ✓、`pnpm run check:docs` ✓（123 篇 0 错）。追踪文档 `docs/archived/2026-11-16-plan-stage-color-copy-sync.md`。
 
 - 收口 task-engine 集成测试两条过时断言（2026-11-16 完成, 未提交）: 经用户裁定按**路径 A**（tool-surface 包装层语义）只改测试不改产品码——注册面改断言为宽松占位, 完整 schema 改经 `lookupSurface` 从 catalog 断言; 缺必填改断言抛 `ToolArgsError`（`INVALID_ARGS`）, 非法 executor 的 `{ok:false, feedback}` 回执保留。`task-engine/tests/integration/plugin.test.ts`; 追踪文档 `docs/archived/2026-11-16-task-engine-integration-schema.md`; 集成 18 例全绿, 全仓 check 通过。§2 未完成项至此清零。
 
