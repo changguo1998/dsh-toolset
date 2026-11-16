@@ -107,7 +107,21 @@
 
 ## 2. 未完成项
 
-（当前无未完成项；历史已关闭 / 取消条目见 §1 索引与 `docs/archived/`。）
+- **task_stop 人工门禁不弹审批面板**（task-engine 的 human 级验收经宿主 `ctx.approval.request` 链路, 2026-11-16 实测 TUI 侧无审批弹窗、bound 为立即 fail-closed「拒绝或无人应答」, 非 60s 超时）:
+
+  - **现象**: 对带 human 级 acceptance 的帧(`flow-track` 八阶段「审查」节点)执行 `task_stop` 时, TUI 无审批面板出现, 回执恒为「人工验收未获批准（fail-closed）：拒绝或无人应答」; 同年同批 semantic 级 audit run 正常(超时后重试可过)。
+  - **已排查**: 宿主 `user-approval` 服务已挂载(dsh-base `cordis.patch.yml:259-262`, 缺省 policy=ask); TUI 审批桥 `TUI/src/app/adapter/dsh-approval.ts:39-75` 已注册 `approval/request` 应答且面板渲染链完整(`reducer-panel.ts:41` / `wiring.ts:573` / `ApprovalPrompt.ts`); 本 profile 无 auto-approve, policy 未被置 never → 症状落在宿主 `approd.request` 与 TUI 应答桥之间的投递(疑 `exec.agent` 上下文或会话作用域未命中 TUI 应答者)。
+  - **后续行号**: `task-engine/src/tools.ts:311-334`(`approveFor(exec)` → `plugin.ts:148-172` → 宿主 `user-approval/src/index.ts:243-337`); TUI 桥 `dsh-approval.ts:39-75`。
+  - **验收**: `task_stop` 对 human 级帧能弹出 TUI 审批面板、用户同意后 accepted; 或引擎提供等效的人工批准旁路。
+  - **优先级**: P1（流程插件八阶段的「审查」门禁被卡, 影响 flow-track 全流程闭环）; 状态: 待排查。
+
+- **flow 流程记录删除失败（FOREIGN KEY constraint failed）**（`flow_remove` / `flow_rollback` 在 memory-base 项目层删记录时抛外键约束错误, 2026-11-16 实测）:
+
+  - **现象**: 对 `tui-ttfb-format` 任务调 `flow_remove`(按 slug 删 8 条)或 `flow_rollback` 时, 回执「删除项目层记录失败: Error: FOREIGN KEY constraint failed」, 记录一条未删。
+  - **已排查**: flow-track 的删除走 `store.ts:284-312` `removeMany` → `memory-base` 项目层 scope 的 `forget`(`scope.ts:116`) → `tiers.ts:281-291` forget → `knowledge.ts:729-765` evict: 先逐条 `DELETE FROM <分类表> WHERE id = ?`、再重算 `sources.chunk_count`、最后删零计数 source。报错点在 DELETE 阶段; 但本仓 schema 里各分类表仅 `source_id REFERENCES sources(id)` 单向外键, 表间不存在会阻碍删除的引用, 疑为项目层库被 `PRAGMA foreign_keys=ON` 打开或存在旧库残留引用, 需复现定位具体 DELETE 与违反的键。
+  - **后续行号**: `flow-track/src/store.ts:284-312`、`memory-base/src/tiers.ts:281-291`、`memory-base/src/knowledge.ts:729-765`、`memory-base/src/schema.ts:109`。
+  - **验收**: `flow_remove`(slug / id)与 `flow_rollback` 能正常删除对应项目层记录, 语义级(回执 removed 数量正确)且不留孤儿 source。
+  - **优先级**: P2（流程记录清理能力受损, 不影响正常写, 但积累后无法清整）; 状态: 待排查。
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
