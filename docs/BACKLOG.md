@@ -117,6 +117,15 @@
   - **验收**: `flow_remove`(slug / id)与 `flow_rollback` 能正常删除对应项目层记录, 语义级(回执 removed 数量正确)且不留孤儿 source。
   - **优先级**: P2（流程记录清理能力受损, 不影响正常写, 但积累后无法清整）; 状态: 待排查。
 
+- **task-engine 集成测试两条失败: 工具面包装后的参数 schema 与校验语义断言过时**（`task-engine/tests/integration/plugin.test.ts` 两条, HEAD 基线既有失败, 2026-11-16 复核）:
+
+  - **现象**: `pnpm run test:integration`（task-engine）两条恒红: ①「参数编译成 JSON Schema: type/properties/required 齐备, status 无必填」断言 `task_decompose` 注册参数 = `{parent_id, children, enumeration}`, 实得空数组; ②「参数非法: decompose 缺 children / executor 非法 → 反馈而非抛错」调用缺 children 的 `task_decompose` 期望回执 `{ok:false, feedback:/参数非法/}`, 实为抛 `ToolArgsError`。
+  - **已排查**: task-engine 注册走 `wrapToolDefinition(toDshTool(t))`（tool-surface）: 包装层把完整参数 schema 收进 catalog、注册面换 `placeholderParameters()`（空 properties）→ 断言①过时; 包装层 `execute` 前置 `validateValue(full.parameters, args)`, schema 违规直接 `throw new ToolArgsError` → task-engine 自己的 `fail()` 反馈回执被绕过 → 断言②过时。集成套件不属 `pnpm run test`（只跑 `tests/*.test.ts`）, 故全仓绿而此处红。
+  - **后续行号**: `task-engine/tests/integration/plugin.test.ts:83-107, 242-255`、`task-engine/src/dsh-tools.ts:22-44`（compileParameters）、`tool-surface/src/definition.ts:111-146`（wrapToolDefinition）。
+  - **接取时裁定**: 两条断言按包装层语义收口（catalog 读全 schema / 校验抛错路径可断言）, 还是让包装层对 task\_\* 族延后校验以保留回执语义——两路产品行为不同, 先定口径再改。
+  - **验收**: task-engine `test:integration` 全绿, 且不弱化既有覆盖（缺参 / 非法 executor 仍有可断言路径）。
+  - **优先级**: P2（仅集成套件红, 产品行为与全仓 test 均不受影响）; 状态: 待排查。
+
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >
