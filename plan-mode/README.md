@@ -37,6 +37,7 @@ DSH（DeepSeek Harness）进程内集成插件：把 **plan 模式三段流程**
 - 进入（`plan_start` 建树成功）：切到 `read-only` 并记住进入前的预设；二次进入沿用首次记录的原预设（决策项 10），不把上一次设的 `read-only` 记成原值。回执带 `presetSwitched` / `presetNote`。
 - 恢复点（决策项 8）：计划段到终态（完成或失败）恢复原预设并保留映射（实施段仍能报段位）；切走 / 树完成 / 会话结束 / 插件卸载恢复并清映射。
 - 轮询：计划段终态与切走没有宿主事件可听，挂在 `pinNotes.hold("plan-mode")` 的 provider（每步一次、带 `sessionId`）上查快照与 `flowArbiter.current`。
+- 补登记：`pinNotes` 按依赖拓扑可能晚于本包就绪，`hold("plan-mode")` 在 apply 时只试一次、失败后由每次工具调用前（`tools/pre-execute`）重试补登记（仿 task-engine 的 `ensureTaskHold`），就绪后即生效；期间告警一次。
 - 覆盖保护：`restored` 为假而当前预设已被手动改过时，跳过 `set`、只清记录并告警，不拿旧值覆盖用户的选择。
 
 ## 阶段注入

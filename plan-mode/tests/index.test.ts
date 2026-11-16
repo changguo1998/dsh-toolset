@@ -437,6 +437,71 @@ test("pinNotes 缺席时只剩两条恢复入口: 只告警不挂轮询", () => 
   assert.match(warns.join(""), /两条/);
 });
 
+test("pinNotes 迟到: apply 时不可用告警一次, 首次工具调用后补登记, provider 生效", () => {
+  const perm = makePermService();
+  const options: {
+    taskEngine?: unknown;
+    permissionPresets?: unknown;
+    pinNotes?: unknown;
+  } = {
+    taskEngine: {
+      query: () => ({
+        tasks: planTree(
+          { s1: "active", s2: "pending", s3: "pending" },
+          "p-late",
+        ),
+        isComplete: false,
+      }),
+    },
+    permissionPresets: perm,
+    pinNotes: undefined,
+  };
+  const { ctx, listeners, warns } = makeContext(options);
+  apply(ctx);
+  assert.match(warns.join(""), /pinNotes 不可用/);
+
+  // pin-note 服务晚到: 同一 ctx 的 get 下次读 options.pinNotes 即拿到
+  let provider: ((context: { sessionId: string }) => unknown) | undefined;
+  options.pinNotes = {
+    hold: (_key: string, fn: (c: { sessionId: string }) => unknown) => {
+      provider = fn;
+      return () => undefined;
+    },
+  };
+
+  // 工具调用（pre-execute）时补登记
+  const handler = listeners["tools/pre-execute"]![0]!;
+  handler(
+    {
+      name: "bash",
+      arguments: { command: "echo hi" },
+      agent: { session: { id: "s-late" } },
+    },
+    () => ({ kind: "allow" }),
+  );
+  assert.ok(provider, "补登记后 provider 应挂上");
+  // 重复工具调用不产生第二条持（幂等）
+  handler(
+    {
+      name: "bash",
+      arguments: { command: "echo hi" },
+      agent: { session: { id: "s-late" } },
+    },
+    () => ({ kind: "allow" }),
+  );
+
+  // provider 可被调用: 探索段返回阶段文案
+  setRecord("s-late", {
+    frames: ["p-late-s1", "p-late-s2", "p-late-s3"],
+    originalPreset: "workspace-write",
+    restored: false,
+    session: {},
+  });
+  const text = provider?.({ sessionId: "s-late" });
+  assert.match(String(text), /当前段: 探索/);
+  dropRecord("s-late");
+});
+
 test("会话结束时恢复", () => {
   const perm = makePermService();
   const { ctx, listeners } = makeContext({

@@ -312,25 +312,38 @@ export function apply(ctx: unknown, _config?: unknown): () => void {
     }
     return undefined;
   };
-  const pinNotes = readService<PinNotesFace>(c, "pinNotes");
-  if (pinNotes !== undefined && typeof pinNotes.hold === "function") {
+  // 轮询挂载（阶段 4 补登记）：pinNotes 服务按依赖拓扑可能晚于本包就绪——apply 时只试
+  // 一次会静默丢功能。仿 task-engine 的 `ensureTaskHold`（beforeExecute 补登记）同款机制：
+  // 首次失败告警一次，此后每次工具调用前（pre-execute）再试，pin-note 就绪后补登记。
+  let holdRegistered = false;
+  let holdWarned = false;
+  const ensurePlanHold = (): void => {
+    if (holdRegistered) return;
+    const face = readService<PinNotesFace>(c, "pinNotes");
+    if (face === undefined || typeof face.hold !== "function") {
+      if (!holdWarned) {
+        holdWarned = true;
+        warn(
+          "ctx.pinNotes 不可用，轮询恢复不会发生（将在 pin-note 就绪后于下次工具调用前补登记；当前只剩会话结束与插件卸载两条入口）",
+        );
+      }
+      return;
+    }
     try {
-      const off = pinNotes.hold("plan-mode", (context) =>
-        holdProvider(context),
-      );
+      const off = face.hold("plan-mode", (context) => holdProvider(context));
       if (typeof off === "function") disposers.push(off as () => void);
+      holdRegistered = true;
     } catch (error) {
       warn(`登记 pinNotes.hold("plan-mode") 失败（忽略）：${String(error)}`);
     }
-  } else {
-    warn(
-      "ctx.pinNotes 不可用，轮询恢复不会发生（只剩会话结束与插件卸载两条入口）",
-    );
-  }
+  };
+  ensurePlanHold();
 
   // 事件钩子：会话结束 / 插件卸载 → 恢复并清映射（兜底）。
   if (typeof c.on === "function") {
     const offPre = c.on("tools/pre-execute", (...args: unknown[]) => {
+      // 每次工具调用前补登记轮询（决策项 1）：pin-note 晚就绪时靠这里把 hold 挂上
+      ensurePlanHold();
       const exec = args[0] as
         { name?: string; arguments?: unknown } | undefined;
       const next = args[1] as (() => unknown) | undefined;
