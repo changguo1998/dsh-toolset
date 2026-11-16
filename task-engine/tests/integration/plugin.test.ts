@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { Config } from "../../src/index.ts";
+import { lookupSurface } from "@dsh-toolset/tool-surface";
 import { assemble, fakeExec, type Assembly } from "../assemble.ts";
 
 /** 工具族名单与顺序 (`createTools` 的产物顺序)。 */
@@ -80,28 +81,34 @@ describe("apply 接线: 工具注册面", () => {
     assert.deepEqual(a.warnings, [], "接线期无告警");
   });
 
-  it("参数编译成 JSON Schema: type/properties/required 齐备, status 无必填", async () => {
+  it("参数 schema: 注册面为宽松占位, 完整 schema 收进 tool-surface catalog", async () => {
     const a = await assemble();
+    // 注册面经 wrapToolDefinition 换宽松占位（空 properties、无 required）。
     const decompose = a.tools.get("task_decompose")!;
     assert.equal(decompose.parameters.type, "object");
-    assert.deepEqual(Object.keys(decompose.parameters.properties ?? {}), [
+    assert.deepEqual(decompose.parameters.properties ?? {}, {});
+    assert.equal(decompose.parameters.required, undefined, "注册面占位无必填");
+    // 完整 schema 收进 catalog, 按名可读（wrapper 语义: 全文在 catalog）。
+    const full = lookupSurface("task_decompose")!;
+    assert.equal(full.parameters.type, "object");
+    assert.deepEqual(Object.keys(full.parameters.properties ?? {}), [
       "parent_id",
       "children",
       "enumeration",
     ]);
-    assert.deepEqual(decompose.parameters.required, ["parent_id", "children"]);
+    assert.deepEqual(full.parameters.required, ["parent_id", "children"]);
 
-    assert.deepEqual(a.tools.get("task_implement")!.parameters.required, [
+    assert.deepEqual(lookupSurface("task_implement")!.parameters.required, [
       "task_id",
       "result",
     ]);
-    assert.deepEqual(a.tools.get("task_execute")!.parameters.required, [
+    assert.deepEqual(lookupSurface("task_execute")!.parameters.required, [
       "task_id",
     ]);
-    assert.deepEqual(a.tools.get("task_stop")!.parameters.required, [
+    assert.deepEqual(lookupSurface("task_stop")!.parameters.required, [
       "task_id",
     ]);
-    const status = a.tools.get("task_status")!;
+    const status = lookupSurface("task_status")!;
     assert.deepEqual(status.parameters.properties, {});
     assert.equal(status.parameters.required, undefined, "status 无必填参数");
   });
@@ -239,12 +246,17 @@ describe("output.render 投影", () => {
 });
 
 describe("失败路径", () => {
-  it("参数非法: decompose 缺 children / executor 非法 → 反馈而非抛错", async () => {
+  it("参数非法: 缺必填被包装层拒抛 ToolArgsError; 非法 executor 走反馈回执", async () => {
     const a = await assemble({ guard: () => null });
-    const missing = await a.call("task_decompose", { parent_id: "root" });
-    assert.equal(missing["ok"], false);
-    assert.match(String(missing["feedback"]), /参数非法/);
+    // 缺 children（必填）在包装层前置校验被拦截, 以 ToolArgsError(INVALID_ARGS) 呈现。
+    await assert.rejects(
+      () => a.call("task_decompose", { parent_id: "root" }),
+      (err) =>
+        (err as { code?: string }).code === "INVALID_ARGS" ||
+        /missing required property/.test(String(err)),
+    );
 
+    // 参数齐全但业务非法（executor 缺 script）: 过前置校验, 走 task-engine fail() 回执。
     const badExecutor = await a.call("task_decompose", {
       parent_id: "root",
       children: [leaf("c1", { executor: { kind: "workflow" } })],

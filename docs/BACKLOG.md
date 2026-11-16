@@ -107,18 +107,11 @@
 
 - task_stop 人工门禁不弹审批面板（2026-11-16 完成）: 根因 = task-engine 在 **apply 期**同步 `ctx.get("approval")` 快照, 该时刻宿主 approval 服务 fiber 未激活 → 恒 undefined → human 级验收**静默** fail-closed（无 `approval/asked`、无 waterfall、无应答者、无告警）; TUI 桥本身接线完整。修复: `approveVia` 改**执行期惰性解析**（工具 exec ctx → 插件 ctx, 与 `serviceResolver` 同口径）, 并按官方管道口径补传 `exec.signal`。守成测试: `assemble` 加 `late-allowed` 模式（服务 apply 后才注入, 模拟宿主 boot 顺序）+ 集成用例「审批服务 apply 期缺席、执行期到场」; 反向验证旧实现下新用例红。验证: task-engine 203 + 集成（新用例绿）/ 全仓 check / test 全绿; 真实宿主 e2e 复现脚本确认 `approval/request` 应答者被调用、`allowed-once` 后 `{ok:true, next:null}`。追踪文档 `docs/archived/2026-11-16-task-stop-approval.md`。残留: TUI 面板最终真机呈现留人工; 既有失败两条（tool-surface 参数 schema 断言过时）另开条目。
 
-- 修复 flow 流程记录删除失败的外键问题（2026-11-16 完成, 未提交）: `memory-base` `evict` 重算 `sources.chunk_count` 的遍历面改走枚举库中实际存在的业务分类表（新增 `#kindTables()`, 取 `sqlite_master` 中 `kind_*` 且非 FTS/影子表）, 不再只统计当前进程已注册的 kind——残留未注册分类表仍引用 source 时不再被漏计, 避免 chunk_count 误算 0 后 `DELETE sources` 触发外键失败。复现与修复见追踪文档 `docs/archived/2026-11-16-flow-remove-fk.md`; memory-base 91 例全绿, 全仓 check / test 全绿。
+- 修复 flow 流程记录删除失败的外键问题（2026-11-16 完成, 提交 `f35121cd`）: `memory-base` `evict` 重算 `sources.chunk_count` 的遍历面改走枚举库中实际存在的业务分类表（新增 `#kindTables()`, 取 `sqlite_master` 中 `kind_*` 且非 FTS/影子表）, 不再只统计当前进程已注册的 kind——残留未注册分类表仍引用 source 时不再被漏计, 避免 chunk_count 误算 0 后 `DELETE sources` 触发外键失败。复现与修复见追踪文档 `docs/archived/2026-11-16-flow-remove-fk.md`; memory-base 91 例全绿, 全仓 check / test 全绿。
+
+- 收口 task-engine 集成测试两条过时断言（2026-11-16 完成, 未提交）: 经用户裁定按**路径 A**（tool-surface 包装层语义）只改测试不改产品码——注册面改断言为宽松占位, 完整 schema 改经 `lookupSurface` 从 catalog 断言; 缺必填改断言抛 `ToolArgsError`（`INVALID_ARGS`）, 非法 executor 的 `{ok:false, feedback}` 回执保留。`task-engine/tests/integration/plugin.test.ts`; 追踪文档 `docs/archived/2026-11-16-task-engine-integration-schema.md`; 集成 18 例全绿, 全仓 check 通过。§2 未完成项至此清零。
 
 ## 2. 未完成项
-
-- **task-engine 集成测试两条失败: 工具面包装后的参数 schema 与校验语义断言过时**（`task-engine/tests/integration/plugin.test.ts` 两条, HEAD 基线既有失败, 2026-11-16 复核）:
-
-  - **现象**: `pnpm run test:integration`（task-engine）两条恒红: ①「参数编译成 JSON Schema: type/properties/required 齐备, status 无必填」断言 `task_decompose` 注册参数 = `{parent_id, children, enumeration}`, 实得空数组; ②「参数非法: decompose 缺 children / executor 非法 → 反馈而非抛错」调用缺 children 的 `task_decompose` 期望回执 `{ok:false, feedback:/参数非法/}`, 实为抛 `ToolArgsError`。
-  - **已排查**: task-engine 注册走 `wrapToolDefinition(toDshTool(t))`（tool-surface）: 包装层把完整参数 schema 收进 catalog、注册面换 `placeholderParameters()`（空 properties）→ 断言①过时; 包装层 `execute` 前置 `validateValue(full.parameters, args)`, schema 违规直接 `throw new ToolArgsError` → task-engine 自己的 `fail()` 反馈回执被绕过 → 断言②过时。集成套件不属 `pnpm run test`（只跑 `tests/*.test.ts`）, 故全仓绿而此处红。
-  - **后续行号**: `task-engine/tests/integration/plugin.test.ts:83-107, 242-255`、`task-engine/src/dsh-tools.ts:22-44`（compileParameters）、`tool-surface/src/definition.ts:111-146`（wrapToolDefinition）。
-  - **接取时裁定**: 两条断言按包装层语义收口（catalog 读全 schema / 校验抛错路径可断言）, 还是让包装层对 task\_\* 族延后校验以保留回执语义——两路产品行为不同, 先定口径再改。
-  - **验收**: task-engine `test:integration` 全绿, 且不弱化既有覆盖（缺参 / 非法 executor 仍有可断言路径）。
-  - **优先级**: P2（仅集成套件红, 产品行为与全仓 test 均不受影响）; 状态: 待排查。
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
