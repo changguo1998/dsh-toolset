@@ -4,13 +4,13 @@
 > 不负责：各包的详细用法 / 配置 / 契约（见各包 `README.md` 与其 docs/）；面向人的能力表见根 `README.md` 的 `Composition` 一节
 > 过期条件：新增 / 删改包时随仓库维护
 
-本仓 41 个包 = `TUI/` 终端界面包 + 40 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
+本仓 41 个包 = `TUI/` 终端界面包 + 40 个进程内集成插件（`clock-base` / `herdr-integration` / `herdr-use` / `task-engine` / `memory-base` / `goal-contract` / `metric-loop` / `output-compress` / `fs-digest` / `hash-edit` / `ast-tools` / `md-logic` / `md-map` / `security-guard` / `code-map` / `context-report` / `rule-engine` / `behavior-correction` / `symbol-normalizer` / `session-channel` / `session-title-cutoff` / `command-template` / `md-table-check` / `auto-approve` / `background-daemon` / `preference-analysis` / `session-paths` / `script-interpreter` / `agent-group` / `coagent` / `tool-consult` / `escalation-hint` / `term-check` / `pin-note` / `flow-track` / `plan-mode` / `flow-arbiter` / `cache-hit-monitor` / `shell-parse` / `tool-surface`）。
 
 ## TUI
 
 `TUI/src/app/` 状态与纯函数层（state/layout），`TUI/src/renderer/` 终端渲染层，`TUI/src/app/adapter/` 插拔适配层，`TUI/demo/` mock demo。
 
-## 插件（39 个）
+## 插件（40 个）
 
 | 包 | 一句话职责 |
 | --- | --- |
