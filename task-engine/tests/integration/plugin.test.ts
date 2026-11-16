@@ -386,6 +386,24 @@ describe("审批链接线 (human 级验收)", () => {
     assert.match(String(result["feedback"]), /未获批准/);
     assert.match(out, /approval\.request 失败/, "告警留痕: " + out);
   });
+
+  it("审批服务 apply 期缺席、执行期到场: 请求仍送达 (守成: 服务须执行期惰性解析)", async () => {
+    // 宿主 boot 顺序: approval 服务在插件 apply 之后才激活 (assemble 的 `late-allowed`)。
+    // 守成 BACKLOG「task_stop 人工门禁不弹审批面板」: 旧实现 apply 期同步 ctx.get("approval")
+    // 恒拿 undefined → human 级静默 fail-closed, approval.request 从未发起。
+    const a = await assemble({
+      guard: () => null,
+      approval: "late-allowed",
+      config: { root: humanRoot },
+    });
+    const exec = fakeExec("agent-9", "s9");
+    const stop = await reachApproval(a, exec);
+    assert.equal(stop["ok"], true, JSON.stringify(stop));
+    assert.equal(stop["next"], null, "根帧经人工批准后完成");
+    assert.equal(a.approvalRequests.length, 1, "审批请求应在执行期发出");
+    assert.equal(a.approvalRequests[0]!.toolName, "task_stop");
+    assert.equal(a.approvalRequests[0]!.reason, "父验收");
+  });
 });
 
 describe("服务面: 时钟统一面", () => {

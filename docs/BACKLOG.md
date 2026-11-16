@@ -105,15 +105,9 @@
 
 - 接入官方 Agent Teams（team）（2026-11-16 完成, 提交 `5afca691` / `f16dc4d0` / `6be9bd01` / `4ef137a4` / `11338de2`）: 配置开关（`profiles/example/cordis.patch.yml` 的 `agent-team` 行 `config.defaultEnabled: true`）+ TUI 标题行 symbol（`fa-users` U+F0C0, 常驻、生效绿 / 未生效灰, 工作流组最右, 懒读 `agentTeams.isEnabled(root)`）+ 工具面放行（tool-consult `plainWhenTools` 条件豁免, `team_task_*` 与 `web_search` / `web_fetch` 按普通工具 shadow + 咨询揭示; security-guard 核对不命中不登记）。验证: 全仓 check / build / test 全绿（TUI 1893、tool-consult 100+11、agent-group 111 等）+ check:docs 通过。追踪文档 `docs/archived/2026-11-16-agent-team-adoption.md`。
 
+- task_stop 人工门禁不弹审批面板（2026-11-16 完成）: 根因 = task-engine 在 **apply 期**同步 `ctx.get("approval")` 快照, 该时刻宿主 approval 服务 fiber 未激活 → 恒 undefined → human 级验收**静默** fail-closed（无 `approval/asked`、无 waterfall、无应答者、无告警）; TUI 桥本身接线完整。修复: `approveVia` 改**执行期惰性解析**（工具 exec ctx → 插件 ctx, 与 `serviceResolver` 同口径）, 并按官方管道口径补传 `exec.signal`。守成测试: `assemble` 加 `late-allowed` 模式（服务 apply 后才注入, 模拟宿主 boot 顺序）+ 集成用例「审批服务 apply 期缺席、执行期到场」; 反向验证旧实现下新用例红。验证: task-engine 203 + 集成（新用例绿）/ 全仓 check / test 全绿; 真实宿主 e2e 复现脚本确认 `approval/request` 应答者被调用、`allowed-once` 后 `{ok:true, next:null}`。追踪文档 `docs/archived/2026-11-16-task-stop-approval.md`。残留: TUI 面板最终真机呈现留人工; 既有失败两条（tool-surface 参数 schema 断言过时）另开条目。
+
 ## 2. 未完成项
-
-- **task_stop 人工门禁不弹审批面板**（task-engine 的 human 级验收经宿主 `ctx.approval.request` 链路, 2026-11-16 实测 TUI 侧无审批弹窗、bound 为立即 fail-closed「拒绝或无人应答」, 非 60s 超时）:
-
-  - **现象**: 对带 human 级 acceptance 的帧(`flow-track` 八阶段「审查」节点)执行 `task_stop` 时, TUI 无审批面板出现, 回执恒为「人工验收未获批准（fail-closed）：拒绝或无人应答」; 同年同批 semantic 级 audit run 正常(超时后重试可过)。
-  - **已排查**: 宿主 `user-approval` 服务已挂载(dsh-base `cordis.patch.yml:259-262`, 缺省 policy=ask); TUI 审批桥 `TUI/src/app/adapter/dsh-approval.ts:39-75` 已注册 `approval/request` 应答且面板渲染链完整(`reducer-panel.ts:41` / `wiring.ts:573` / `ApprovalPrompt.ts`); 本 profile 无 auto-approve, policy 未被置 never → 症状落在宿主 `approd.request` 与 TUI 应答桥之间的投递(疑 `exec.agent` 上下文或会话作用域未命中 TUI 应答者)。
-  - **后续行号**: `task-engine/src/tools.ts:311-334`(`approveFor(exec)` → `plugin.ts:148-172` → 宿主 `user-approval/src/index.ts:243-337`); TUI 桥 `dsh-approval.ts:39-75`。
-  - **验收**: `task_stop` 对 human 级帧能弹出 TUI 审批面板、用户同意后 accepted; 或引擎提供等效的人工批准旁路。
-  - **优先级**: P1（流程插件八阶段的「审查」门禁被卡, 影响 flow-track 全流程闭环）; 状态: 待排查。
 
 - **flow 流程记录删除失败（FOREIGN KEY constraint failed）**（`flow_remove` / `flow_rollback` 在 memory-base 项目层删记录时抛外键约束错误, 2026-11-16 实测）:
 

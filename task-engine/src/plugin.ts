@@ -145,15 +145,19 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
   const timers = resolveClock(ctx, warn);
   const deadline = createDeadline(timers.scoped, ctx);
 
-  // 审批服务（可选）：human 级验收经 ctx.approval.request，fail-closed
-  const approval: ApprovalLike | undefined = (
-    ctx as { get?: (name: string) => unknown }
-  ).get?.("approval") as ApprovalLike | undefined;
+  // 审批服务（可选）：human 级验收经 ctx.approval.request，fail-closed。
+  // 注意**惰性**解析（同下 generator/执行器口径）：apply 期 host approval 服务 fiber
+  // 常未激活，`ctx.get("approval")` 会拿到 undefined → human 级一路静默 fail-closed，
+  // 面板永不出现（BACKLOG「task_stop 人工门禁不弹审批面板」）。执行期按工具 ctx →
+  // 插件 ctx 顺序重取，缺服务或 request 缺失仍 fail-closed。
   const approveVia = (
     exec: unknown,
   ): ((req: { frame: string; reason: string }) => Promise<boolean>) => {
     const agent = (exec as { agent?: unknown } | undefined)?.agent;
     return async (req: { frame: string; reason: string }): Promise<boolean> => {
+      const approval =
+        readService<ApprovalLike>(exec, "approval") ??
+        readService<ApprovalLike>(ctx, "approval");
       if (approval === undefined || typeof approval.request !== "function")
         return false;
       try {
@@ -162,6 +166,9 @@ export async function apply(ctx: unknown, config?: Config): Promise<void> {
           agent,
           toolName: "task_stop",
           reason: req.reason,
+          ...((exec as { signal?: unknown } | undefined)?.signal === undefined
+            ? {}
+            : { signal: (exec as { signal?: unknown }).signal }),
         });
         return outcome === "allowed-once";
       } catch (err) {

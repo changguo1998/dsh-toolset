@@ -47,8 +47,11 @@ export interface SubagentStart {
   toolFilter?: unknown;
 }
 
-/** 审批链行为: 缺省缺席 (fail-closed), 也可指定放行 / 拒绝 / 抛错。 */
-export type ApprovalMode = "allowed-once" | "denied" | "throw" | "absent";
+/** 审批链行为: 缺省缺席 (fail-closed), 也可指定放行 / 拒绝 / 抛错;
+ * `late-allowed` = apply **之后**该服务才激活 (模拟宿主 boot 顺序, 守成测试见
+ * task-engine/tests/integration/plugin.test.ts「审批服务 apply 期缺席、执行期到场」)。 */
+export type ApprovalMode =
+  "allowed-once" | "denied" | "throw" | "absent" | "late-allowed";
 
 /** 一次 `approval.request` 的入参 (断言 agent / 工具名 / 理由用)。 */
 export interface ApprovalRequest {
@@ -258,6 +261,8 @@ export async function assemble(
   const subagentStarts: SubagentStart[] = [];
   const clockScopes: unknown[] = [];
   const disposers: Array<() => unknown> = [];
+  /** apply 之后才执行的登记（模拟宿主 boot 顺序：部分服务晚于插件 apply 激活）。 */
+  const afterApply: Array<() => void> = [];
   const manual =
     options.clock === "absent" || options.clock === "broken"
       ? undefined
@@ -271,14 +276,26 @@ export async function assemble(
     services["clock"] = { now: () => 0 };
   }
   if (options.approval !== undefined && options.approval !== "absent") {
-    services["approval"] = {
+    const approvalService = {
       request: async (req: ApprovalRequest): Promise<unknown> => {
         approvalRequests.push(req);
         if (options.approval === "throw")
           throw new Error("审批面崩了（测试用）");
-        return options.approval === "allowed-once" ? "allowed-once" : "denied";
+        return options.approval === "allowed-once" ||
+          options.approval === "late-allowed"
+          ? "allowed-once"
+          : "denied";
       },
     };
+    // `late-allowed`: 服务在 apply 之后才进 `services`（宿主 boot 顺序的模拟）——
+    // 插件 apply 期拿到 undefined、执行期按 ctx 重取（见 plugin.ts approveVia 惰性解析）。
+    if (options.approval !== "late-allowed") {
+      services["approval"] = approvalService;
+    } else {
+      afterApply.push(() => {
+        services["approval"] = approvalService;
+      });
+    }
   }
   if (options.guard !== undefined) {
     services["guard"] = { inspectCommand: options.guard };
@@ -359,6 +376,8 @@ export async function assemble(
   }) as typeof process.stderr.write;
   try {
     await apply(ctx, config);
+    // 模拟宿主 boot 顺序：部分服务在 apply 之后才激活（见审批「late-allowed」）
+    for (const late of afterApply) late();
   } finally {
     process.stderr.write = original;
   }
