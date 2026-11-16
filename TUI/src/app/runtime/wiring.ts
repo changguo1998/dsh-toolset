@@ -55,7 +55,7 @@ function cacheJudgeOf(raw: unknown): CacheHitJudge | undefined {
   };
 }
 
-/** plan 段位形状校验：`{stage, readonly}` 且 stage 在「探索 / 计划 / 实施」白名单；
+/** plan 段位形状校验：`{stage, readonly}` 且 stage 在「探索 / 计划 / 实施 / 未建树」白名单；
  *  形状不符（非对象 / stage 未知）→ undefined（不更新状态）。 */
 function planStageOf(raw: unknown): PlanStageState | null | undefined {
   if (raw === null) return null;
@@ -64,7 +64,8 @@ function planStageOf(raw: unknown): PlanStageState | null | undefined {
   if (
     src.stage !== "explore" &&
     src.stage !== "plan" &&
-    src.stage !== "implement"
+    src.stage !== "implement" &&
+    src.stage !== "idle"
   )
     return undefined;
   return { stage: src.stage, readonly: src.readonly === true };

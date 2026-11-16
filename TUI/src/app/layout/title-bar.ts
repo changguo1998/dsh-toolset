@@ -136,23 +136,27 @@ export function titleBarSegments(
     );
   }
   // 四个开关（verbose / 符号统一 / 声音提醒）在环境组；plan 属工作流组（段位四态:
-  // 未进模式灰 / 探索青 / 计划黄 / 实施绿）, flow-track 也属工作流组——颜色即取值, on 绿 / off 灰
+  // 未进模式灰 / 选中未建树绿 / 探索与计划青 / 实施黄），flow-track 也属工作流组——
+  // 颜色即取值, on 绿 / off 灰
   const on: ColorName = "green";
   const off: ColorName = "gray";
   pushTo(mainSegs, TITLE_ICON.verbose, switches.verbose ? on : off);
   pushTo(mainSegs, TITLE_ICON.symbolUnify, switches.symbolUnify ? on : off);
   pushTo(mainSegs, TITLE_ICON.bell, switches.notifyEnabled ? on : off);
   // plan 段位（plan-mode 服务面 `planStage.current(sessionId)` 懒读）：未进模式 / 未读到
-  // 服务 → 灰；探索 → 青；计划 → 黄；实施 → 绿（2026-11-15 用户裁定四态配色）
+  // 服务 → 灰；已选中未建树 → 绿；探索 / 计划 → 青（两段合并同一色，2026-11-16 用户裁定）；
+  // 实施 → 黄（2026-11-16 用户裁定）。
   const planStage = state.planStage;
   const planFg: ColorName =
     planStage == null
       ? "gray"
-      : planStage.stage === "explore"
-        ? "cyan"
-        : planStage.stage === "plan"
-          ? "yellow"
-          : "green";
+      : planStage.stage === "idle"
+        ? "green"
+        : planStage.stage === "explore" || planStage.stage === "plan"
+          ? "cyan"
+          : planStage.stage === "implement"
+            ? "yellow"
+            : "gray";
   pushTo(flowSegs, TITLE_ICON.plan, planFg);
   // flow-track 注入开关：未读到服务（undefined）时整项省略，避免在没装插件的 profile 里常灰
   if (switches.flowTrack !== undefined)

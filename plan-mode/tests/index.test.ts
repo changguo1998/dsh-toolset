@@ -364,6 +364,31 @@ test("服务面暴露当前段: planStage.current 返回 { stage, readonly } 或
   dropRecord("s1");
 });
 
+test("服务面: 已选中 plan 但未建树 → 报 idle; 未选中 / 选别的流程 → null", () => {
+  let selected: { id: string } | null = { id: "plan" };
+  const { ctx, services } = makeContext({
+    flowArbiter: { current: () => selected },
+  });
+  apply(ctx);
+  const svc = services["planStage"] as { current(sid: string): unknown };
+  const idle = svc.current("s-idle") as { stage: string; readonly: boolean };
+  assert.equal(idle.stage, "idle");
+  assert.equal(idle.readonly, false);
+  // 取消选中 → 未进模式 → null
+  selected = null;
+  assert.equal(svc.current("s-idle"), null);
+  // 选别的流程（非 plan）→ null
+  selected = { id: "standard" };
+  assert.equal(svc.current("s-idle"), null);
+  // flow-arbiter 缺席 → 无映射 → null（沿用原状）
+  const bare = makeContext({});
+  apply(bare.ctx);
+  const bareSvc = bare.services["planStage"] as {
+    current(sid: string): unknown;
+  };
+  assert.equal(bareSvc.current("s-idle"), null);
+});
+
 test("探索段命中拒绝: pre-execute 对 write 返回 deny 与 plan_stage_readonly", () => {
   const { ctx, listeners } = makeContext({
     taskEngine: {

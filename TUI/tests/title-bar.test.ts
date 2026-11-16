@@ -66,7 +66,7 @@ function stateWith(opts: {
   sandbox?: string;
   permission?: string;
   planStage?:
-    | { stage: "explore" | "plan" | "implement"; readonly: boolean }
+    | { stage: "explore" | "plan" | "implement" | "idle"; readonly: boolean }
     | null
     | undefined;
   policy?: "ask" | "never";
@@ -192,7 +192,7 @@ test("P7 标题栏：开关 on 绿、off 灰（verbose / 符号统一 / 声音�
     assert.equal(fgOf(off, 100, icon), "gray", `off 灰: ${icon}`);
 });
 
-test("P7 标题栏：plan 段位四态（未进模式灰 / 探索青 / 计划黄 / 实施绿）", () => {
+test("P7 标题栏：plan 段位态（未选中灰 / 选中未建树绿 / 探索与计划青 / 实施黄）", () => {
   assert.equal(
     fgOf(stateWith({}), 100, TITLE_ICON.plan),
     "gray",
@@ -203,16 +203,20 @@ test("P7 标题栏：plan 段位四态（未进模式灰 / 探索青 / 计划黄
     "gray",
     "服务面返回 null（未进模式）→ 灰",
   );
+  const idle = stateWith({
+    planStage: { stage: "idle", readonly: false },
+  });
+  assert.equal(fgOf(idle, 100, TITLE_ICON.plan), "green", "选中未建树 → 绿");
   const explore = stateWith({
     planStage: { stage: "explore", readonly: true },
   });
   assert.equal(fgOf(explore, 100, TITLE_ICON.plan), "cyan", "探索 → 青");
   const plan = stateWith({ planStage: { stage: "plan", readonly: true } });
-  assert.equal(fgOf(plan, 100, TITLE_ICON.plan), "yellow", "计划 → 黄");
+  assert.equal(fgOf(plan, 100, TITLE_ICON.plan), "cyan", "计划（合并）→ 青");
   const impl = stateWith({
     planStage: { stage: "implement", readonly: false },
   });
-  assert.equal(fgOf(impl, 100, TITLE_ICON.plan), "green", "实施 → 绿");
+  assert.equal(fgOf(impl, 100, TITLE_ICON.plan), "yellow", "实施 → 黄");
 });
 
 test("P7 标题栏：daemon 开关符号始终显示（开绿 / 关灰 / 未读到服务也按关灰）", () => {

@@ -477,10 +477,10 @@ export interface CacheHitJudge {
   tolerance: number;
 }
 
-/** plan 当前段快照（懒读 `planStage` 服务面 `current(sessionId)`）：标题栏 plan 符号四态配色用。
- *  `stage`: explore 探索 / plan 计划 / implement 实施; null = 未进 plan 模式（关闭, 灰）。 */
+/** plan 当前段快照（懒读 `planStage` 服务面 `current(sessionId)`）：标题栏 plan 符号着色用。
+ *  `stage`: idle 已选中未建树 / explore 探索 / plan 计划 / implement 实施; null = 未进 plan 模式（灰）。 */
 export interface PlanStageState {
-  stage: "explore" | "plan" | "implement";
+  stage: "explore" | "plan" | "implement" | "idle";
   readonly: boolean;
 }
 

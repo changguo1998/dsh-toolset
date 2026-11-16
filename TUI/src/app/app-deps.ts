@@ -42,11 +42,12 @@ export interface CacheHitMonitorLike {
 }
 
 /** plan-mode 只读服务面（`ctx.get('planStage')`，plan-mode 插件 provide）：
- *  按会话给当前段与是否只读（标题栏 plan 符号四态着色用）；无映射 / 无任务引擎 → null。 */
+ *  按会话给当前段与是否只读（标题栏 plan 符号着色用）；`idle` = 已选中 plan 未建树；
+ *  无映射且未选中 plan / 无任务引擎 → null。 */
 export interface PlanStageLike {
   current?(sessionId: string):
     | {
-        stage: "explore" | "plan" | "implement";
+        stage: "explore" | "plan" | "implement" | "idle";
         readonly: boolean;
       }
     | null

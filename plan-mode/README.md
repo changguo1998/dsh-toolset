@@ -43,6 +43,14 @@ DSH（DeepSeek Harness）进程内集成插件：把 **plan 模式三段流程**
 
 探索 / 计划段注入只读原因与下一步，实施段注入已放行，未知段不输出（与轮询共用同一个 provider）。
 
+## 只读服务面（供 TUI 标题栏着色）
+
+`ctx.provide("planStage")` 暴露 `current(sessionId)`，返回 `{ stage, readonly }` 或 `null`：
+`stage` = `idle`（已选中 plan 未建树）/ `explore` / `plan` / `implement`；`null` = 未进 plan 模式
+（或任务引擎缺席）。TUI 标题栏据此四态着色：灰（null）→ 绿（idle）→ 青（explore 与 plan 合并）
+→ 黄（implement），2026-11-16 用户裁定。`idle` 由读 `flowArbiter.current(sessionId) === "plan"`
+合成，仅在选中流程但尚未 `plan_start` 建树时出现。
+
 ## 降级
 
 - `tools` 是硬依赖（装配期注册工具面，`inject: ["tools"]`）。

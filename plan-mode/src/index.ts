@@ -130,13 +130,23 @@ function sessionIdOf(exec: unknown): string | undefined {
   return typeof session?.id === "string" ? session.id : undefined;
 }
 
-/** 只读服务面：当前段与是否只读（无映射 / 无任务引擎时 null）。 */
+/** 只读服务面：当前段与是否只读（无映射且未选中 plan → null；无任务引擎 → null）。
+ *  `idle` 为带外态：已选中 plan 但尚未建树（TUI 标题栏按绿显示）。 */
 function planStageCurrent(
   ctx: PluginContext,
   sessionId: string,
-): { stage: Stage; readonly: boolean } | null {
+): { stage: Stage | "idle"; readonly: boolean } | null {
   const record = getRecord(sessionId);
-  if (record === undefined) return null;
+  // 无映射：若 flow-arbiter 已选中 plan 但尚未建树（没有任务）→ 报带外态 idle（绿），
+  // 否则未进 plan 模式 → null（灰）。
+  if (record === undefined) {
+    const arbiter = readService<FlowArbiterFace>(ctx, "flowArbiter");
+    const selected = arbiter?.current?.(sessionId);
+    if (typeof selected?.id === "string" && selected.id === PLAN_ID) {
+      return { stage: "idle", readonly: false };
+    }
+    return null;
+  }
   const engine = readService<TaskEngineFace>(ctx, "taskEngine");
   const snapshot = engine?.query?.();
   if (snapshot === undefined) return null;
