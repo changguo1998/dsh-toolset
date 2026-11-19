@@ -119,11 +119,13 @@
 
 - plan 只读预设恢复未生效（2026-11-17 登记, 2026-11-18 完成）: plan-mode 的 `pinNotes.hold("plan-mode")` 在 apply 时只试一次, 装配按依赖拓扑使 plan-mode 先于 pin-note 就绪 → hold 失败且无补登记, 轮询恢复永不挂载（计划段 done 后预设不回写 `workspace-write`）。修复: 仿 task-engine `ensureTaskHold` 加 `ensurePlanHold()`（apply 末尾 + 每次 `tools/pre-execute` 前补登记）; `plan-mode/src/index.ts` + 单测 1 例 + 新增 `e2e/plan-mode-restore.test.ts`（建树 → pre-step 注入 → 切走恢复）。验证: plan-mode 单测 65 例 ✓、全仓 check/build/test/check:docs ✓、全量 e2e 44/44 ✓。追踪文档 `docs/archived/2026-11-18-plan-preset-restore.md`。
 
+- 检查宿主更新 + 升级 `0.2.2-rc.5`（2026-11-19 完成, 提交 `a76ca8b6`）: rc.3 → rc.5 无本仓代码改动（包零增删 383 = 383、工具面/事件面无新增、服务面仅 `ctx.web` 选择语义变更）; install.sh 默认版本 / 根 devDep / tool-surface 依赖 / 四个 smoke 门槛抬到 rc.5, README 双侧指针与 BACKLOG 基线同步, 根与 tool-surface 锁文件重生成, 新建对照文档 `docs/host/HOST-UPGRADE-0.2.2-rc.5.md`; 用户 `--force` 实装后补 §5 安装树实测（337 包 / 875 行 / 152 `- id:` / 官方 110 / 本仓 42 / 官方活跃 101）。追踪文档 `docs/archived/2026-11-19-host-update-check.md`。残留: `docs/STATUS.md` 基线用户择时更新; fff patch 的 `ponytail` 陈旧条目用户 profile 侧清理。
+
 ## 2. 未完成项
 
 > 顺序依据：**修复类置顶 → 依赖链 → 工作量升序**（2026-11-03 用户裁定重排并重新编号, 取代 2026-10-18 的「修复类优先 → 依赖深度升序 → 工作量升序」; 组内先看前置关系, 有前置项排在各自前置之后, 再按工作量升序）；同工时任「缺陷优先于行为改动 → 高优先级优先 → 保持原相对顺序」。前置关系另写在各条行内与「实现顺序」表。模块级条目按标题 + 文件路径引用（如 `md-logic/docs/BACKLOG.md`）。优先级：P0 > P1 > P2 > P3。
 
-- **检查宿主更新**〔进行中: 2026-11-19〕（2026-11-19）：宿主已发布新版本（本仓当前实装 `0.2.2-rc.3`, 2026-11-16 升级）；检查新版本号与增量面 → 对照既有 `HOST-UPGRADE-*` 文档给出本仓影响判定 → 按用户裁定决定是否升级。来源: 用户 2026-11-19 提示。
+（当前无未完成项。）
 
 > 历史（2026-09 至 2026-10-22）：本节关闭过的条目（含两次清空、多次重排与重编号）追踪文档全在 `docs/archived/`，按主题索引如下；本清单不再逐条保留关闭注记。
 >

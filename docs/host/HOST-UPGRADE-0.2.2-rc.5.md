@@ -48,15 +48,18 @@
 - README 指针与文档: 根 `README.md` / `README.zh.md` 的对照指针 → 本文; `e2e/README.md` / `goal-contract/README.md` / `metric-loop/README.md` 的 smoke 宿主要求 → `0.2.2-rc.5`; `docs/BACKLOG.md` 头部基线声明 → `0.2.2-rc.5`。
 - pnpm-lock.yaml (根 / tool-surface): 待用户实装安装后重生成 (宿主导, 方法见 §5 注记)。
 
-## 5. 安装树实测（待补：2026-11-19 用户执行 install.sh 后）
+## 5. 安装树实测（2026-11-19, 用户执行 install.sh 实装后补写）
 
-> 前置: rc.3 → rc.5 无代码改动, 不设升级前置; 直接可装。
+> 前置: rc.3 → rc.5 无代码改动, 不设升级前置; 直接可装。2026-11-19 用户以 `--force` 重装 fff / fff-test 并回填备份配置完成实装。
 
 1. 全局 `dsh --version` = `0.2.2-rc.5`。
-2. 安装树数字与 `--dump-config` 复测 (对比 rc.3 的 337 / 326、dump 883 行 / 152 个 `- id:` / 官方活跃 102 / bundles 42)。
-3. 类型面: 锁文件重生成 (`pnpm install --lockfile-only` / `CI=true pnpm install` 物化) 后 `pnpm run check` 全绿 (41 包, 含 tool-surface 对 `dsh-tools@0.2.2-rc.5` 类型核验)。
-4. `HOST-PACKAGES.md` 头部注记与本文件同步。
-5. 真机验收: 无代码面变更, 确认四 smoke 的 `REQUIRED_VERSION` 门槛通过即可 (各 smoke 已有版本门禁)。
+2. 安装树数字与 `--dump-config` 实测（与 rc.3 口径逐项对照）:
+   - 安装树 `@deepseek-ai/dsh/node_modules/@deepseek-ai` 下 **337** 个包（rc.3 亦 337; rc.5 包零增删, 与源码 tag 口径一致）。
+   - `dsh --profile fff --dump-config`: **875** 行、**152** 个 `- id:` 行——官方（`@deepseek-ai/*`）**110** 条（其中 `dsh-*` 109 + `cordis-plugin-timer` 1）、本仓（`@dsh-toolset/*`）**42** 条; 无条件 `disabled: true` **9** 条（tool-plugin-manager / hmr / session-title-llm / deepseek-account / fs-observation-policy / plan-mode / tool-executor-ptc / llm-deepseek-account / session-title-all-prompts-llm; 与 rc.3 相比多 `hmr` 一条——install.sh 生成的 hmr-root 区现为无条件 disabled）、条件式 `disabled: !!js` **8** 条 → 官方活跃项 **101** 条（rc.3 为 102）。
+   - 组合树健康检查: 官方新老行与本仓 42 包全部在位; 唯一遗留告警为 fff / fff-test patch 里的 `ponytail` 陈旧条目（`patch: entry "ponytail" not found`, 用户按 plan 预留于 user profile 侧清理, 与本仓无关）。
+3. 类型面: 根与 tool-surface 锁文件已重生成到 rc.5 并物化, `pnpm run check` 全绿（**41 包**, 含 tool-surface 对 `dsh-tools@0.2.2-rc.5` 的类型核验）; 离线 `pnpm install` 均 up-to-date。
+4. `HOST-PACKAGES.md` 头部注记已加 rc.5 增量行（安装树计数待下次升宿主时全面刷新）。
+5. 真机验收: 无代码面变更; 四 smoke 的 `REQUIRED_VERSION = 0.2.2-rc.5` 版本门禁已抬高, 待用户跑 smoke 确认。
 
 ## 6. 依据
 

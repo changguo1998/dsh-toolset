@@ -61,8 +61,8 @@
 - [x] 验证: install.sh 语法 OK, check:docs 通过 (125 篇 0 错), 全仓 check 41 包全绿
 - [x] 锁文件重生成到 rc.5 (根 + tool-surface; 物化完成, 离线 install 均 up-to-date)
 - [x] peer 警告定位与处置 (官方 vendored 组合既有状态, 非 rc.5 引入, 见「偏差」)
-- [ ] 用户执行 install.sh 实装 rc.5 → 补 HOST-UPGRADE-0.2.2-rc.5.md §5 安装树实测数字
-- [ ] 关闭条目 / 归档追踪文档
+- [x] 用户执行 install.sh --force 实装 rc.5 (2026-11-19) 并回填备份配置; 补 HOST-UPGRADE-0.2.2-rc.5.md §5 安装树实测
+- [x] 关闭条目 / 归档追踪文档
 
 ## 偏差
 
@@ -74,4 +74,7 @@
 
 ## 收尾
 
-（待用户执行安装后补完, 再归档）
+- 2026-11-19: 用户执行 `scripts/install.sh --force` 实装 rc.5（全局 `dsh --version` = `0.2.2-rc.5`）, 用备份配置回填 fff / fff-test; 安装树 337 包、dump 875 行 / 152 个 `- id:`（官方 110 / 本仓 42）、官方活跃 101（与 rc.3 差异 = hmr 由条件式改无条件 disabled, 多 1 条; 详见 `HOST-UPGRADE-0.2.2-rc.5.md` §5）。ffa patch 的 `ponytail` 陈旧条目告警由用户在 profile 侧清理（本仓无残留）。
+- 追踪文档关闭, 移入 `docs/archived/2026-11-19-host-update-check.md`。
+- BACKLOG: 条目「检查宿主更新」标完成并从 §2 清理移除, §1 已完成索引补一行。
+- 残留: `docs/STATUS.md` 宿主基线由用户择时更新。
