@@ -892,27 +892,39 @@ title_official_key="dsh-session-title-all-prompts-llm"
 title_disable_sentinel="# install.sh generated: title-takeover-disable v1"
 title_route_sentinel="# install.sh generated: title-takeover-route v1"
 
-# ── hmr 模块监听根（生成区）─────────────────────────────────────────────────
+# ── hmr 生成区（主 / 伴随 profile 分形态）───────────────────────────────────
+# 主 profile（默认 copy 快照，file: 依赖）默认**停挂** hmr：改插件代码靠构建 + 重启
+# 生效，不监听仓库（省 inotify watcher；仓库整树是几千个目录量级）。
+# 伴随 profile（link: 依赖的开发形态，见 4b/5）才写入「启用仓库监视版」：base 指向仓库、
+# root ['.'] 相对 base，改完 build 即热生效——热重载对软链接形态才有意义。
 # 必须同时给 base 与 root：hmr 的 baseDir 默认是 profile 目录（boot 时 ctx.baseUrl 取
 # `<profile>/cordis.yml` 所在目录），root/ignored 都相对它解析；把 base 指向仓库后，
 # root ['.'] 才落到仓库，默认 ignored（`**/node_modules` / `**/.*`）也才匹配得上
 # （ignored 收的是相对 baseDir 的路径，带 `..` 前缀时 picomatch 一律不命中）。
-# 文档类不参与重载，生成区里一并忽略以减少文件事件。
+# 文档类不参与重载，启用版里一并忽略以减少文件事件。
 # 生成区用 begin/end 标记维护（幂等）；检测到标记之外的手写 `- id: hmr` 时不写。
-render_hmr_block() {
+render_hmr_block() { # render_hmr_block <disabled|enabled>
+    mode="${1:-disabled}"
     printf '%s\n' "$hmr_begin"
-    printf '# 模块热重载：base 指向安装时的仓库，root 相对 base；文档类直接忽略减事件。\n'
-    printf -- '- id: hmr\n'
-    printf '  config:\n'
-    printf "    base: '%s'\n" "$(printf '%s' "$repo_root" | sed "s/'/''/g")"
-    printf "    root: ['.']\n"
-    printf '    ignored:\n'
-    printf "      - '**/node_modules'\n"
-    printf "      - '**/.*'\n"
-    printf "      - 'cache'\n"
-    printf "      - 'data'\n"
-    printf "      - '**/*.md'\n"
-    printf "      - '**/docs/**'\n"
+    if [ "$mode" = "enabled" ]; then
+        printf '# 模块热重载（伴随 profile，link 开发形态）：base 指仓库、root 相对 base，改完 build 即热生效；文档类直接忽略减事件。\n'
+        printf -- '- id: hmr\n'
+        printf '  config:\n'
+        printf "    base: '%s'\n" "$(printf '%s' "$repo_root" | sed "s/'/''/g")"
+        printf "    root: ['.']\n"
+        printf '    ignored:\n'
+        printf "      - '**/node_modules'\n"
+        printf "      - '**/.*'\n"
+        printf "      - 'cache'\n"
+        printf "      - 'data'\n"
+        printf "      - '**/*.md'\n"
+        printf "      - '**/docs/**'\n"
+    else
+        printf '# 模块热重载默认停挂（主 profile，copy 快照）：改插件代码靠构建 + 重启生效，不监听仓库（省 inotify watcher）。\n'
+        printf '# 需要配置热重载时删掉本生成区、手写 `- id: hmr`（脚本检测到手写行后不再写生成区）。\n'
+        printf -- '- id: hmr\n'
+        printf '  disabled: true\n'
+    fi
     printf '%s\n' "$hmr_end"
 }
 # 只在首次写入资产（patch_copied）或显式 --sync / --force 时维护生成区：
@@ -940,10 +952,10 @@ process.stdout.write(mode);
             hmr_mode="$hmr_state"
             [ "$hmr_mode" = broken ] && hmr_mode=append
             if [ "$dry_run" = 1 ]; then
-                printf '[dry-run] 更新 hmr 生成区（root=%s）：%s\n' "$repo_root" "$patch_file"
+                printf '[dry-run] 更新 hmr 生成区（主 profile 停挂 hmr）：%s\n' "$patch_file"
             else
                 hmr_block="$(mktemp "${TMPDIR:-/tmp}/dsh-install-hmr.XXXXXX")"
-                render_hmr_block > "$hmr_block"
+                render_hmr_block disabled > "$hmr_block"
                 if ! hmr_next="$(node -e '
 const fs = require("fs");
 const [file, begin, end, blockFile, mode] = process.argv.slice(1);
@@ -971,7 +983,7 @@ process.stdout.write(out.join("\n").replace(/\n*$/, "\n"));
                     # 本轮刚由示例资产写出 patch 时不必再备份（复制路径已备份 / 首次安装无旧内容）
                     [ "$patch_copied" = 1 ] || backup "$patch_file"
                     printf '%s\n' "$hmr_next" > "$patch_file"
-                    log "已写入 hmr 生成区（root=$repo_root）：$patch_file"
+                    log "已写入 hmr 生成区（主 profile 停挂 hmr）：$patch_file"
                 fi
             fi
             ;;
@@ -1321,6 +1333,36 @@ process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
                 backup "$tpdir/$asset"
                 printf '%s\n' "$tasset_next" > "$tpdir/$asset"
                 log "写入 $tpdir/$asset（照抄主 profile，剥离 copy 模式的 overrides 生成区）"
+                continue
+            fi
+            # cordis.patch.yml：hmr 生成区按 profile 分化——主 profile 是停挂版（copy 快照，
+            # 改代码靠构建 + 重启），伴随 profile 换成「启用仓库监视版」（link 开发形态，热重载
+            # 才有意义）。只做 begin/end 之间的块级替换，其余逐字节保留；主 profile 无生成区
+            # （手写 hmr 或未生成）时原样复制，不二次写。
+            if [ "$asset" = cordis.patch.yml ] && grep -qF "$hmr_begin" "$pdir/$asset"; then
+                hmr_block="$(mktemp "${TMPDIR:-/tmp}/dsh-install-hmr.XXXXXX")"
+                render_hmr_block enabled > "$hmr_block"
+                if ! patch_next="$(node -e '
+const fs = require("fs");
+const [file, begin, end, blockFile] = process.argv.slice(1);
+const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+const block = fs.readFileSync(blockFile, "utf8").replace(/\n$/, "").split("\n");
+const bi = lines.indexOf(begin);
+const ei = lines.indexOf(end);
+const out = bi >= 0 && ei > bi ? [...lines.slice(0, bi), ...block, ...lines.slice(ei + 1)] : [...lines];
+process.stdout.write(out.join("\n").replace(/\n*$/, "\n"));
+' "$pdir/$asset" "$hmr_begin" "$hmr_end" "$hmr_block")"; then
+                    rm -f "$hmr_block"
+                    die "生成伴随 profile 的 $asset（hmr 启用版）失败：$pdir/$asset"
+                fi
+                rm -f "$hmr_block"
+                if [ -f "$tpdir/$asset" ] && [ "$patch_next" = "$(cat "$tpdir/$asset")" ]; then
+                    log "伴随 profile 的 $asset 已是 hmr 启用版，跳过复制"
+                    continue
+                fi
+                backup "$tpdir/$asset"
+                printf '%s\n' "$patch_next" > "$tpdir/$asset"
+                log "写入 $tpdir/$asset（hmr 启用：监听仓库根 $repo_root）"
                 continue
             fi
             if [ -f "$tpdir/$asset" ] && cmp -s "$pdir/$asset" "$tpdir/$asset"; then

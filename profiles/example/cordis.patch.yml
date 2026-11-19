@@ -106,15 +106,13 @@
   config:
     defaultMaxGoalRounds: 999
 
-# ── 模块热重载（由 install.sh 生成，勿在此手写）──────────────────────────────
-# base 组合包以 `root: []` 启用 HMR —— 只监听 profile patch，插件代码改动要重启才生效。
-# install.sh 会在本文件末尾追加生成区（以 `# install.sh generated: hmr-root-begin` 开头）：
-# `hmr.base` 写安装时的仓库绝对路径，`root: ['.']` 相对 base 落回仓库；hmr 默认的 baseDir
-# 是 profile 目录（ctx.baseUrl 取 `<profile>/cordis.yml` 所在目录），只写 root 会停在 profile
-# 里，而且 ignored 按相对 baseDir 的路径匹配——带 `..` 前缀时 `**/node_modules` 全部失效。
-# 生成区同时忽略文档类文件（`**/*.md` / `**/docs/**`，不参与重载，只减事件）。
-# 要自定义就删掉生成区、手写 `- id: hmr`（脚本检测到手写行后不再追加）。
-# 删除生成区 = 回到「改代码后重启」。
+# ── 模块热重载（生成区由 install.sh 按 profile 分化，勿在此手写）──────────────
+# 主 profile（默认 copy 快照）默认停挂 hmr：改插件代码靠「构建 + 重启」生效，不监听
+# 仓库（省 inotify watcher）。装伴随 profile（--no-test-profile 才跳过）时，其生成区
+# 被替换为「启用仓库监视版」——热重载对 link: 依赖的开发形态才有意义。
+# 需要主 profile 也热重载（如 profile 配置改动即生效）时：删掉生成区、手写一条
+# `- id: hmr`（脚本检测到生成区标记之外的手写行后不再写生成区）；删除生成区 =
+# 回到「改代码后重启」。
 
 # ── 规则触发（rule-engine）────────────────────────────────────────────────────
 # 只保留启用中的规则示例；停用的规则不写进资产。规则写在 patch 里随仓库追踪；
