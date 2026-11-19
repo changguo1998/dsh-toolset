@@ -125,10 +125,11 @@ assert_eq "$(count_glob "$pdir" '*.bak.*')" 0 "首次安装不产生备份"
 assert_count_eq "$pdir/cordis.patch.yml" "theme: dark" 1 "示例资产 TUI 主题为 dark"
 assert_count_eq "$pdir/cordis.patch.yml" "defaultMaxGoalRounds: 999" 1 "示例资产 goal 回合上限 999"
 assert_count_eq "$pdir/cordis.patch.yml" "- id: plan-mode" 1 "示例资产默认停挂官方 plan-mode"
-# 模块热重载生成区（主 profile 默认停挂 hmr）：改插件代码靠构建 + 重启生效，不监听仓库
-assert_count_eq "$pdir/cordis.patch.yml" "# install.sh generated: hmr-root-begin v1" 1 "生成区写入 hmr 停挂条目"
+# 模块热重载生成区（主 profile 默认配置热重载）：只监听 profile 配置（root 空数组），不监听仓库
+assert_count_eq "$pdir/cordis.patch.yml" "# install.sh generated: hmr-root-begin v1" 1 "生成区写入 hmr 配置热重载条目"
 assert_active_count_eq "$pdir/cordis.patch.yml" "- id: hmr" 1 "主 profile 生成区含 hmr 条目"
-assert_active_count_eq "$pdir/cordis.patch.yml" "  disabled: true" 5 "主 profile hmr 停挂（示例 4 处 + hmr 1 处）"
+assert_count_eq "$pdir/cordis.patch.yml" "    root: []" 1 "主 profile 生成区 root 空数组（只监听配置）"
+assert_active_count_eq "$pdir/cordis.patch.yml" "  disabled: true" 4 "主 profile hmr 不再停挂（示例资产 4 处）"
 assert_count_eq "$pdir/cordis.patch.yml" "    base: '$repo_root'" 0 "主 profile 不写 hmr base（仓库路径）"
 assert_count_eq "$pdir/cordis.patch.yml" "    root: ['.']" 0 "主 profile 不写 hmr root 仓库根"
 assert_count_eq "$pdir/cordis.patch.yml" "      - '**/*.md'" 0 "主 profile 不写忽略 Markdown"
@@ -514,7 +515,7 @@ assert_eq \
 assert_eq \
     "$(node -e 'const fs=require("fs");const r=(f)=>JSON.stringify(JSON.parse(fs.readFileSync(f,"utf8")).dsh);process.stdout.write(r(process.argv[1])===r(process.argv[2])?"same":"diff")' "$dmain/package.json" "$dtest/package.json")" \
     "same" "两 profile 的 dsh.profile.bundles 一致"
-# 两 profile 的 cordis.patch.yml 仅 hmr 生成区不同：主停挂 / 伴随启用（仓库监视 + 忽略文档）
+# 两 profile 的 cordis.patch.yml 仅 hmr 生成区不同：主配置热重载（root 空） / 伴随启用（仓库监视 + 忽略文档）
 assert_count_eq "$dmain/cordis.patch.yml" "    base: '$repo_root'" 0 "主 profile 不监听仓库"
 assert_count_eq "$dtest/cordis.patch.yml" "    base: '$repo_root'" 1 "伴随 profile 启用 hmr（base 指仓库）"
 assert_count_eq "$dtest/cordis.patch.yml" "    root: ['.']" 1 "伴随 profile 的 hmr root 相对 base"
