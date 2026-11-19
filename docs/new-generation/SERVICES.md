@@ -15,6 +15,8 @@
 | [事件订阅](#事件订阅ccascade) | ccascade |
 | [命令注册](#命令注册ccommand) | ccommand |
 | [增员](#增员cspawn) | cspawn |
+| [会话目录](#会话目录cpath) | cpath |
+| [解析](#解析cparse) | cparse |
 
 ### 什么是
 
@@ -74,6 +76,22 @@ agent 的最底层能力(够基础够底层, 封装宿主能力的也算)。每�
 - 和宿主的关系: 宿主 `ctx.subagents` 提供进程内、由父会话管理的委派(一次性或可续), 没有常驻成员与独立进程的形态; 常驻会话的身份认领与生命周期登记要自建。
 - 不做什么: 不做任务分派与协作编排(不在本等级), 也不管成员之间怎么通信。
 - 现状: `coagent`(常驻独立进程会话)、`command-template` 的 subagent 步骤(进程内一次性子代理)。
+- 底座: `herdr-use` 的终端执行面 (`herdrUse`) 作为本层基底包含, 但**不提供模型侧工具**(终端执行可绕过命令审查, 不能直接开放给模型)。
+
+#### 会话目录(cpath)
+
+- 要做什么: 提供会话目录的解析与创建, 收敛各消费方的路径推导: 复刻宿主目录编码(`encodeSegment` / `projectKey` / `projectDir` / `sessionDir`), 按会话 id 取 `header.cwd` 推导目录, 提供唯一写盘入口建目录(0700、幂等)。
+- 和宿主的关系: 宿主把目录编码藏在 `session-persistence-jsonl` 内部不导出, `sessions` 只给会话仓库与 `header.cwd`; 新增的 `workingDirectory`(0.2.1) 管工作目录变更, 不管 sessions 根路径, 均不替代本层。
+- 不做什么: 不落盘会话内容, 不校验目录可写性, 不替代宿主会话持久化。
+- 现状: `session-paths`(服务 `sessionPaths`, 供 `memory-base` / `auto-approve` / `output-compress` / `background-daemon` / `agent-group` / `coagent` 等 6+ 插件共用, `ensureSessionDir` 是唯一写盘入口)。
+
+#### 解析(cparse)
+
+- 要做什么: 多语言语法理解底座, 自定服务接口, 后端用 tree-sitter: 语言识别、结构访问、命令目标 / 调用点提取。只做解析, 不做判定与改写。
+- 兜底: 解析器处理不了的内容, 交给大模型理解(机械解析做不到的)。
+- 和宿主的关系: 宿主无多语言语法解析接口, 各插件只能各抄一份解析。
+- 不做什么: 不管危不危险(判定由上层), 不改写代码(归 ast-tools)。
+- 现状: `shell-parse`(shell 命令词法, 切段 / 分词 / 命令位)。
 
 ### 什么不是
 
@@ -149,4 +167,3 @@ agent 的最底层能力(够基础够底层, 封装宿主能力的也算)。每�
 - 和宿主的关系: 宿主的审批是逐次、fail-closed 的单点询问, 只在会话日志里留 `approval/asked` / `approval/decided` 两条, 没有策略化的自动应答, 也没有审计面。
 - 不做什么: 不管规划层面的边界, 不改审批服务本身的语义。
 - 现状: `auto-approve` / `security-guard`。
-
