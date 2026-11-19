@@ -23,7 +23,7 @@ DSH（DeepSeek Harness）进程内插件：指标驱动的自动循环。注册�
 ### 相关文档
 
 - 宿主 bundle 契约（`name` / `inject` / `provide` / `Config` / `apply`）：`docs/host/DSH-CTX-API.md` §0；本包与 `task-engine` 同款——零 DSH 运行时依赖、以结构面访问 ctx。
-- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.2-rc.3.md`。
+- 宿主面依据与升级面：`docs/host/HOST-PACKAGES.md`（`schedule` 行、`tools` 服务）、`docs/host/HOST-UPGRADE-0.2.2-rc.5.md`。
 - `metric_loop` 的模型侧参数 schema 以 `src/index.ts` 的 `toToolDef()` 为唯一来源（本 README 的表格与其保持一致）；复查分工的实现见 `src/index.ts` 的 `makeCommandGuard` / `runRound`。
 
 ## 能力
@@ -98,4 +98,4 @@ pnpm run test:coverage # 单元 + 集成覆盖率报告
 pnpm run smoke   # 宿主联调：profile 引导 + headless 连跑三轮 + 状态文件断言
 ```
 
-`pnpm run smoke` 需本机可用 dsh 0.2.2-rc.3 与模型凭据。
+`pnpm run smoke` 需本机可用 dsh 0.2.2-rc.5 与模型凭据。

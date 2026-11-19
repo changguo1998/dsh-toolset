@@ -18,7 +18,7 @@
     "test:smoke": "sh scripts/run-smoke.sh"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh": "0.2.2-rc.3"
+    "@deepseek-ai/dsh": "0.2.2-rc.5"
   },
   "pnpm": {
     "verifyDepsBeforeRun": false
